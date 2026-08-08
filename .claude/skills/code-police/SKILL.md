@@ -8,168 +8,132 @@ argument-hint: "[--no-elegance]"
 
 # Code Police
 
-Review the current changes (scoped to the current branch/PR) against the rules below **plus any additional rules from the project**. The three passes — rule checklist, fact-check, elegance — run as parallel sub-agents on fresh contexts; the implementer's main context just wrote the diff and is biased to rationalize it, so reviewing inline laundered violations through. Sub-agents start cold, which is the point. After they return, the orchestrator stitches their findings into a single summary.
+Review the current changes (scoped to the current branch/PR) against the rules
+below plus any project rules. The three passes — rule checklist, fact-check,
+elegance — run as sub-agents on fresh contexts: the implementer's main context
+just wrote the diff and is biased to rationalize it; sub-agents start cold.
+The orchestrator stitches their findings into one summary.
 
 ## Arguments
 
-`--no-elegance` — skip Pass 3 (elegance) entirely. Pass 1 (rules) and Pass 2 (fact-check) still run. Use this when the elegance pass would be redundant because `/simplify` already ran over this same tree — e.g. a caller that invokes `/simplify` standalone and then `/code-police`. Without it, Pass 3 re-invokes `/simplify` on an already-simplified tree, paying a full skill invocation (agent spawn, diff re-read, model tokens) to re-derive a near-guaranteed no-op. When the flag is set, report Pass 3 as `Elegance | – | Skipped (--no-elegance)` in the summary.
+`--no-elegance` — skip Pass 3 entirely (report
+`Elegance | – | Skipped (--no-elegance)`). Use when `/simplify` already ran
+over this same tree; without the flag Pass 3 would re-invoke it for a
+near-guaranteed no-op. Passes 1–2 still run.
 
 ## Project rules
 
-Before spawning the pass sub-agents, read `.agency/code-police.md` if it exists. Treat any rules declared there — whether inline or as a pointer to another file (`See ./code-police-rules.md`) — as additions to the built-in rules below. They appear as separate rows in the Pass 1 checklist with the project's chosen rule IDs.
-
-If `.agency/code-police.md` is missing, proceed with only the built-in rules. The file is project-defined and free-form (Markdown, no required frontmatter).
+Before spawning the passes, read `.agency/code-police.md` if it exists —
+its rules (inline or via pointer) are additions to the built-in list, appearing
+as separate Pass 1 rows under the project's rule IDs. Missing file → built-in
+rules only.
 
 ## Reviewing principles
 
-These apply to **every** pass — Pass 1, Pass 2, Pass 3 alike. Each sub-agent's prompt restates them, but the burden also sits on the orchestrator: if a sub-agent comes back with prose that violates these, push it back rather than launder its dismissal through the summary.
+Apply to every pass, and to the orchestrator (push back on a sub-agent that
+violates them rather than laundering its dismissal into the summary):
 
-- **NEVER talk yourself out of a finding.** If you identified a problem, it IS a problem. No "However…" or "acceptable tradeoff."
-- **NEVER use "theoretically X but practically Y"** to dismiss fragility.
-- **NEVER issue "no action needed"** on a finding you just described.
-- **NEVER end with reassurance** ("the logic is sound", "no other issues") unless you genuinely found zero issues.
-- **Assume the code is wrong until proven right.** You are a prosecutor, not a defense attorney.
+- **NEVER talk yourself out of a finding.** No "However…", no "acceptable
+  tradeoff", no "theoretically X but practically Y".
+- **NEVER issue "no action needed"** on a finding you just described, and
+  never end with reassurance unless you genuinely found zero issues.
+- **Assume the code is wrong until proven right** — prosecutor, not defense.
 
 ## Rules
 
 ### dry-rule-of-three
 
-Two similar instances are fine — don't abstract prematurely. Three is the threshold for extraction. But identical content that must stay in sync (same HTML, same version string) should be deduplicated immediately regardless of count. Versions, ports, paths — define once, reference everywhere.
+Two similar instances are fine; three is the threshold for extraction. But
+identical content that must stay in sync (same HTML, version string, port,
+path) is deduplicated immediately regardless of count.
 
 ### prefer-focused-library
 
-Before hand-rolling a utility (string tokenizer, quoted-string parser, date helper, semver comparator, URL builder, CLI arg parser, tree walker, regex-based matcher, path normalizer, etc.), check whether a focused library solves the same problem. If one exists with a matching scope and a reasonable bundle cost, **prefer it — even if it's a new dependency**. Hand-rolling is only justified when the library would add capabilities you actively don't want (tagging, env expansion, i18n layers, etc. you'd have to ignore), or when the hand-roll is genuinely a handful of lines with no branching.
-
-_Rationale_: "Zero deps" is an easiness judgment dressed as a simplicity judgment. Code you don't own is genuinely simpler than code you do own — it doesn't accumulate private test fixtures, it doesn't bitrot when requirements shift, and its edge cases are someone else's problem to fix. Hand-rolled utilities routinely grow past the library they displaced as new edge cases surface. A small focused library with a single exported function is the _same_ complexity to your reader as a one-line utility import, and _less_ complexity than a 40-line loop with state variables.
-
-_How to apply_: When you're about to write a loop with nested state-machine variables, a tokenizer, a parser, a semver comparator, a date math helper, a quoted-string handler, or a path normalizer — **stop and search for the focused library first**. Only fall back to hand-roll after seeing a concrete library and judging that its scope genuinely exceeds what you need.
-
-_Anti-patterns in this rule's application_:
-
-- "It's already in the tree" is not a _requirement_ for preferring the library. Adding a small focused dep is fine. The "already transitive" check is a convenience shortcut, not a gate.
-- "Only ~40 lines, well-scoped" is not a license to hand-roll. 40 lines of state-machine code is usually worse than one line of library call plus a dep.
-- "I don't want a dep" is dependency-aversion, not simplicity. State it as such in the eval and evaluate it honestly as a preference, not as a neutral principle.
-- The gating criteria are **scope fit** and **bundle cost** — not ideology in either direction. Left-pad exists; don't flip to "always use a library." Judge each case on whether the library's surface matches what you need.
+Before hand-rolling a utility (tokenizer, parser, date/semver/URL helper, arg
+parser, tree walker, path normalizer…), search for a focused library — and
+prefer it even as a new dependency when scope and bundle cost fit. "Zero deps"
+is an easiness judgment: code you don't own doesn't bitrot and its edge cases
+are someone else's problem. Hand-roll only when the library adds surface you
+actively don't want, or the hand-roll is genuinely a few branch-free lines.
+Neither "it's already in the tree" nor "only ~40 lines" gates this — judge
+scope fit and bundle cost, in both directions (left-pad exists).
 
 ### invalid-states-unrepresentable
 
-Use discriminated unions, not booleans or stringly-typed fields. If two fields can't both be `undefined` at the same time, model that in the type.
+Discriminated unions, not booleans or stringly-typed fields. If two fields
+can't both be `undefined`, the type says so.
 
 ### no-dead-code
 
-Aggressively remove unused code. No commented-out blocks, no "just in case" leftovers.
+Aggressively remove unused code — no commented-out blocks, no "just in case".
 
 ### no-silent-error-swallowing
 
-Never silently swallow errors. Empty `catch {}` blocks, bare `catch: pass`, and `|| true` hide failures. At minimum, log the error. If the catch is intentional (best-effort operation), add a comment explaining _why_ the error is safe to ignore.
-_Rationale_: Silent swallowing masks bugs — failures disappear without a trace, making debugging impossible.
+No empty `catch {}`, bare `catch: pass`, or `|| true`. At minimum log; an
+intentional best-effort catch carries a comment saying why ignoring is safe.
 
 ### no-unbounded-growth
 
-Collections, buffers, and listeners that grow with usage must have a bound or a cleanup path. Common violations:
-
-- **Unbounded arrays/lists** — pushed in a callback or event handler with no cap or eviction. Ask: _can this grow forever during a long-running session?_
-- **Missing debounce on high-frequency sources** — `fs.watch`, `resize`, `scroll`, `mousemove`, WebSocket `onmessage`, or any event that can fire many times per second. Each invocation that does non-trivial work (I/O, parsing, DOM mutation, allocation) needs a debounce or throttle. A bare handler is only acceptable if the work is O(1) and allocation-free.
-- **Large allocations in hot paths** — reading an entire file/stream into a single buffer when the consumer processes it incrementally. Prefer streaming/chunked reads when the data source can grow without bound.
-- **Duplicated watchers/listeners** — N callers each installing their own watcher on the same resource instead of sharing one. Each duplicate multiplies callback cost and file-descriptor usage.
-
-_Rationale_: LLM-generated code defaults to the simplest correct implementation, which is often O(n) in session lifetime. These patterns silently degrade performance over hours/days and surface as "the app got slow" with no obvious cause. The fix is almost always straightforward (cap, debounce, stream, share) but must be applied at write time — it's rarely caught in review because the code is functionally correct.
+Collections, buffers, and listeners that grow with usage need a bound or
+cleanup path: cap or evict arrays pushed from handlers; debounce/throttle
+high-frequency sources (`fs.watch`, `resize`, `scroll`, `onmessage`) unless
+the handler is O(1) and allocation-free; stream instead of whole-file buffers
+when the source can grow; share watchers instead of per-caller installs.
+LLM-generated code defaults to the simplest correct implementation, which is
+often O(n) in session lifetime — fix at write time (cap, debounce, stream,
+share); it's rarely caught in review because the code is functionally correct.
 
 ### comment-the-non-obvious
 
-Write a comment when a reader who didn't write the code can't tell, at first glance, **what it does** or **why it's structured this way**. The comment supplies whichever is missing — design intent (why this shape over the conventional one), control-flow semantics (what the cascade actually dispatches), or a hidden constraint the type system doesn't carry.
-
-This is a positive prompt, applied per block: at every non-trivial declaration or block, ask the question. A "obvious to me because I just wrote it" reflex is the failure mode — reviewers and writers both pattern-match on what they already understand and skip the question.
+At every non-trivial declaration or block, ask: can a reader who didn't write
+this tell **what it does** or **why this shape**? Write the comment that
+supplies whichever is missing (design intent, control-flow semantics, a hidden
+constraint types don't carry). "Obvious to me because I just wrote it" is the
+failure mode.
 
 ## Running the passes
 
-Spawn Pass 1 and Pass 2 as **two parallel sub-agents** via the harness's agent tool. On Claude Code this is the `Agent` tool with `subagent_type: "Explore"` (Pass 1 and Pass 2 are read-only audits — no edits). On opencode this is the `task` tool. On Codex, the sub-agent spawning tool. Emit both `Agent` tool_use blocks in a single response so they run concurrently — sequential spawning halves the parallelism.
+Spawn Pass 1 and Pass 2 as **two parallel read-only sub-agents**
+(`subagent_type: "Explore"`; both `Agent` blocks in one response). Each prompt
+is self-contained and points at this file for the rules-of-record. Pass 3 runs
+**after** they return (it applies fixes and would race their reads); skip it
+under `--no-elegance`. Then stitch all outputs into the summary.
 
-Each sub-agent inherits no context from the implementer's main thread; the prompts below are self-contained and reference the rules-of-record by file path so a single source of truth stays in this skill.
+**Pass 1 (rule checklist)** — sub-agent prompt must direct it to: read the
+"Reviewing principles" and "Rules" sections of
+`.apm/skills/code-police/SKILL.md` plus `.agency/code-police.md` if present;
+scope to `git diff origin/HEAD...HEAD` (or the appropriate base ref); and
+return one table covering **every** rule (built-in + project):
 
-Pass 3 runs **after** Pass 1 and Pass 2 return. It applies fixes (via `/simplify`) and would race against Pass 1/2's grep-and-read work if run in parallel; sequential is the safer ordering. See "Pass 3: Elegance" below. If `--no-elegance` was passed, skip Pass 3 — only Pass 1 and Pass 2 run.
+| Rule ID | Violation found? | What was identified | Action taken |
+| ------- | ---------------- | ------------------- | ------------ |
 
-Once all three pass outputs are in hand, stitch them into the summary table in the **Output** section.
+Every "No" requires a **`Checked by:`** field — the grep that confirmed
+absence (negative rules), or the enumeration of positive candidates ruled out
+(bidirectional rules like `comment-the-non-obvious`). A "No" without
+`Checked by:` is malformed. No skipped rows, no fixes applied (the
+orchestrator routes them).
 
-### Pass 1: Rule checklist
+**Pass 2 (fact-check)** — sub-agent prompt must direct it to: read the
+"Reviewing principles" and apply them verbatim; scope as above; this is a
+**logic** review, not style — find where the code lies to itself: silent error
+swallowing, inaccurate fallbacks (defaults masking misconfiguration), wishful
+thinking (unvalidated boundary inputs, "can't fail" code that can, races
+papered over with comments), logic errors (always-true conditions, off-by-one,
+shadowing), and slow leaks (unbounded growth, undebounced hot handlers,
+per-caller watchers). Fail loud over fail silent; every fallback justified for
+the failure case; precision over coverage (3 real issues beat 20 maybes). Per
+finding: file, line, one-line risk, concrete fix. No fixes applied.
 
-Sub-agent prompt:
-
-> You are Pass 1 (rule checklist) of the `/code-police` skill on this repo's current diff.
->
-> Read the "Reviewing principles" and "Rules" sections of `.apm/skills/code-police/SKILL.md` for the built-in rule set. Also read `.agency/code-police.md` if it exists — its rules are additions to the built-in list (separate rows in the table, project-chosen rule IDs).
->
-> **Scope:** the current diff against the merge base — run `git diff origin/HEAD...HEAD` (or the appropriate base-branch ref if `origin/HEAD` is unset).
->
-> Produce a single table with **every rule** (built-in + project):
->
-> | Rule ID | Violation found? | What was identified | Action taken |
-> | ------- | ---------------- | ------------------- | ------------ |
->
-> Every "No" requires a **`Checked by:`** field whose content is one of:
->
-> - For purely-negative rules (e.g. `no-dead-code`, `no-silent-error-swallowing`): the grep that confirmed absence — _"grep'd for `head`, `tail`, `fromJust`, `(!!)`, `Map.!`, `error`, `undefined`; zero matches."_
-> - For bidirectional rules (e.g. `comment-the-non-obvious`, `prefer-focused-library`): the enumeration of positive candidates ruled out — _"enumerated `am`, `keep`, guard branches, `G.stars`/`G.reachable` calls; for each, named why a fresh reader decodes the why from code alone."_
->
-> A "No" without `Checked by:` is malformed and must be rewritten. Every rule must appear in the table — no skipping. Apply the "Reviewing principles" verbatim — do not rationalize a violation away because the diff "needs" it.
->
-> Return only the table plus any per-finding rationale beneath it. Do not apply fixes; the orchestrator will route them.
-
-### Pass 2: Fact-check
-
-Sub-agent prompt:
-
-> You are Pass 2 (fact-check) of the `/code-police` skill on this repo's current diff.
->
-> Read the "Reviewing principles" section of `.apm/skills/code-police/SKILL.md` and apply them verbatim. This is **not** a style review — it is a logic review. Find places where the code lies to itself.
->
-> **Scope:** the current diff against the merge base — run `git diff origin/HEAD...HEAD` (or the appropriate base-branch ref if `origin/HEAD` is unset).
->
-> Flag:
->
-> - **Silent error swallowing** — bare `try/catch: pass`, empty `catch {}`, `|| true`, errors caught but not propagated, `Result`/`Option` silently defaulted.
-> - **Inaccurate fallbacks** — defaults masking misconfiguration, "sensible defaults" that aren't sensible for the failure case, fallback paths that silently degrade correctness.
-> - **Wishful thinking** — assumptions about input shape without validation at boundaries, code that "can't fail" but actually can, race conditions papered over with comments.
-> - **Logic errors** — always-true/false conditions, off-by-one, wrong operators, shadowed variables.
-> - **Slow leaks** — collections that grow without bound, event handlers doing heavy work on every fire without debounce, watchers/listeners registered per-caller instead of shared, buffers sized to the full input when streaming would work.
->
-> Operating principles:
->
-> - **Fail loud over fail silent**: Code should scream when something is wrong, not quietly do the wrong thing.
-> - **Fallbacks must be justified**: Every default/fallback needs a reason why that value is correct for the failure case, not just convenient.
-> - **Precision over coverage**: Better to catch 3 real issues than flag 20 maybes.
->
-> For each finding: file, line, one-line risk, concrete fix. If no issues, say so — don't invent problems. Do not apply fixes; the orchestrator will route them.
-
-### Pass 3: Elegance
-
-**Skip if `--no-elegance` was passed.** Do not run this pass and do not invoke `/simplify`; report `Elegance | – | Skipped (--no-elegance)` in the summary. The caller asserted `/simplify` already ran over this tree, so a second run is redundant. Pass 1 and Pass 2 are unaffected.
-
-**Skip on tiny diffs.** Run `git diff origin/HEAD...HEAD --shortstat` (or the appropriate base-branch ref). If the diff is **under 10 lines**, skip this pass and report `Elegance | 0 | Skipped (tiny diff)` in the summary. The elegance pass's three-lens fan-out has overhead that's disproportionate to a few-line change; Pass 1 and Pass 2 still run. If the diff exceeds the threshold, proceed below.
-
-Review the changes for elegance and simplicity.
-
-**If running under Claude Code** (the `Skill` tool is available): invoke the bundled `/simplify` skill via the Skill tool. It runs three parallel lenses — reuse, quality, efficiency — over the current diff and applies fixes. Prefer this path.
-
-**On other harnesses** (no `/simplify` available), run the inline loop instead. For each iteration (run 3 iterations):
-
-1. **Understand** — Read through the changed files. Note patterns, repetition, unnecessary complexity, non-idiomatic code.
-2. **Research** — Use WebSearch/WebFetch to research what simple, elegant (yet readable!) code looks like for the relevant technology.
-3. **Apply** — Refactor based on what you learned. Prefer fewer lines, clearer intent, idiomatic style. Don't add abstractions — remove them.
-4. **Verify** — Run tests/CI to check edits.
-
-Principles:
-
-- **Simple over clever**: Elegant code is simple code.
-- **Readable over terse**: Brevity is good, but not at the cost of clarity.
-- **Idiomatic over generic**: Use the language's strengths.
-- **Each iteration builds on the last**: Don't undo previous improvements. Deepen them.
-
-The "Reviewing principles" (prosecutor stance, no talk-out-of-findings) apply here too — `/simplify` and the inline loop both bind to them.
+**Pass 3 (elegance)** — skip under `--no-elegance`; skip when the diff is
+under 10 lines (`Elegance | 0 | Skipped (tiny diff)`) — the fan-out overhead
+is disproportionate there. Otherwise: under Claude Code, invoke the bundled
+`/simplify` via the Skill tool (three parallel lenses, applies fixes). On
+harnesses without it, run 3 iterations of understand → research → apply →
+verify, preferring fewer lines, clearer intent, idiomatic style — remove
+abstractions, don't add them. The reviewing principles bind here too.
 
 ## Output
-
-Stitch the three pass outputs into a single combined summary:
 
 | Pass       | Issues found | Details                  |
 | ---------- | ------------ | ------------------------ |
@@ -177,40 +141,19 @@ Stitch the three pass outputs into a single combined summary:
 | Fact-check | N            | Brief summary or "Clean" |
 | Elegance   | N            | Brief summary or "Clean" |
 
-Below the table, reproduce each sub-agent's full findings (the Pass 1 rule table, Pass 2's per-finding list, Pass 3's `/simplify` log) verbatim so the orchestrator (`/do`'s police step) can commit each violation as its own fix.
-
-If ANY pass found issues, clearly state: **"Violations or issues found"** so the workflow can route to a fix step.
-
-If all passes are clean, state: **"All clear"**.
+Below the table, reproduce each pass's full findings verbatim (so a caller
+like `/do` can commit each violation individually). Any pass found issues →
+state **"Violations or issues found"**; all clean → **"All clear"**.
 
 ## Additional principles
 
-### Simple, not easy (Rich Hickey)
-
-Simple means _not interleaved_. Each module does one thing. Data flows through arguments and return values, not shared mutable state or indirection.
-
-- No unnecessary abstractions. If a thing has one implementor, it doesn't need an interface/base class.
-- No "for future use" code. Build what's needed now.
-- Prefer plain data over objects with behavior.
-
-### Completeness
-
-- Implement the full spec. Read the plan/requirements and check every deliverable.
-- Run CI locally before declaring done.
-- Run tests.
-
-### Justfile
-
-- Every recipe must have a doc comment (line starting with `#` above the recipe name).
-
-### Module structure — volatility-based decomposition
-
-Group code by _rate of change_, not by technical layer. Things that change together live together; things that change independently get separate modules.
-
-- Each module should own one volatility zone.
-- Shared constants used by multiple modules get their own file.
-
-### Readability
-
-- Every exported type and every component needs a doc comment.
-- Avoid deeply nested callbacks. Extract into named functions.
+- **Simple, not easy**: modules do one thing; data flows through arguments
+  and returns, not shared mutable state. No interfaces with one implementor,
+  no "for future use" code, plain data over objects with behavior.
+- **Completeness**: implement the full spec; run tests and local CI before
+  declaring done.
+- **Justfile**: every recipe carries a doc comment.
+- **Volatility-based module structure**: group by rate of change; each module
+  owns one volatility zone; shared constants get their own file.
+- **Readability**: exported types and components get doc comments; extract
+  deeply nested callbacks into named functions.
