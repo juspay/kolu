@@ -1,56 +1,100 @@
 ---
 name: ci
-description: Run this repo's CI end-to-end — the kolu-specific operational procedure layered on top of the odu runner. Covers the odu MCP front door, the banned opt-out flags, mandatory two-platform (linux + darwin) coverage, odu-native venue-pool leasing across both platforms, live fail-fast surfacing, e2e timing evidence, and the green-gate. Triggers on "run CI", "drive CI", "re-run the pipeline", "close the red check", "warm the pool". For the underlying runner mechanics (subcommands, flags, modes, the socket surface) use the `/odu` skill.
+description: Run this repo's CI end-to-end — the kolu-specific procedure on top of the odu runner: the odu MCP front door, banned opt-out flags, mandatory two-platform coverage, venue-pool leasing, fail-fast surfacing, e2e timing evidence, and the green-gate. Triggers on "run CI", "drive CI", "re-run the pipeline", "close the red check", "warm the pool". Runner mechanics live in the `/odu` skill.
 ---
 
 # CI
 
-**Drive CI through the odu MCP server — it is the single front door.** The runner is **odu** ([github.com/juspay/odu](https://github.com/juspay/odu), npins-pinned by `ci/flake.nix` and exposed as `nix run ./ci#odu`), which replaced justci — same status contexts, same per-SHA logs, same flag table. Start and watch a run with the MCP tools, not a shell wrapper: `mcp__odu__run` (spawns the background coordinator), `mcp__odu__wait_for_settle` (block until settle / first red node — it fails loud when no run is live, and its verdict is stamped with the run's `sha7#seq` identity; pass `expected_sha` to hard-check it), the `surface://collections/logs/{id}` MCP **resource** (drill into a failure — there is no log tool), `mcp__odu__node_rerun` (close a red check). Use the `/odu` skill for the underlying runner mechanics (subcommands, flags, modes, the socket surface). Two Kolu-specific operational notes layered on top of it:
+**Drive CI through the odu MCP server — the single front door.** The runner is
+**odu** (npins-pinned by `ci/flake.nix`, `nix run ./ci#odu`): `mcp__odu__run`
+spawns the coordinator, `mcp__odu__wait_for_settle` blocks until settle or first
+red node (its verdict is stamped `sha7#seq`; pass `expected_sha` to hard-check),
+the `surface://collections/logs/{id}` resource drills into a failure,
+`mcp__odu__node_rerun` closes a red check. Runner mechanics: `/odu` skill.
 
-> **Banned flags: never pass `--no-post`, `--no-strict`, or `--no-snapshot`.** CI on this repo is **always strict and always posts** GitHub commit statuses. A run that doesn't post statuses doesn't update the PR's checks — so it isn't CI, it's a private dry-run that leaves the PR looking unverified. Every CI invocation here (PR runs *and* the master pool-warming runs below) runs strict and posts. If you catch yourself reaching for an opt-out flag to "avoid disturbing the checks," that's exactly the run the PR needs.
+**Banned flags: never `--no-post`, `--no-strict`, `--no-snapshot`.** CI here is
+always strict and always posts commit statuses — a run that doesn't post isn't
+CI, it's a private dry-run that leaves the PR unverified.
 
-**Push before CI.** odu's remote lanes `git fetch` the pinned HEAD SHA from origin (no git-bundle transport) — an unpushed commit cannot run on a remote CI host. The `/do` flow pushes before the CI step anyway; keep it that way.
+**Push before CI** — remote lanes `git fetch` the pinned SHA from origin; an
+unpushed commit can't run.
 
-**Sync master before CI — every run, whoever is driving.** `git fetch origin` and merge `origin/<default>` into the branch before `mcp__odu__run`; skip the merge only when `git merge-base --is-ancestor origin/<default> HEAD` is already true. A branch cut hours earlier tests a stale base and its merge-base drifts, and "merge latest master to our PR" is the most-repeated human order in the corpus — ordered **four** times in one session even though `/be` §5 already carries this rule, because that session drove CI from a brief and from `/be-review` and §5 was never the entry point. The obligation lives here so it fires no matter who calls CI. `website/src/content/changelog/unreleased.mdx` is `merge=union` and never conflicts; a *real* conflict is yours to resolve now, never to defer or paper over. **One ordering caveat:** never `git merge` while a gauntlet round is mid-commit — it races the git index. Wait for it to settle, then merge, then run.
+**Sync master before CI, every run, whoever is driving.** Fetch and merge
+`origin/<default>` unless it's already an ancestor
+(`git merge-base --is-ancestor`). The changelog is `merge=union` and never
+conflicts; a real conflict is yours to resolve now. Never merge while a
+gauntlet round is mid-commit — it races the index.
 
-**Every CI run covers both platforms — `x86_64-linux` *and* `aarch64-darwin`.** kolu builds on both; a linux-only run is not CI, it leaves the macOS lane's required checks unposted. **Pin both platforms explicitly** — `mcp__odu__run` with `platforms=["x86_64-linux", "aarch64-darwin"]` — rather than trusting the fanout to a machine-local default: a platform you *don't* name silently drops, but a platform you *do* name with no pool entry in `hosts.json` is **refused** (fails loud, juspay/odu#46), never quietly skipped. odu then leases a free box for each named platform from its venue pool (below). Before reporting CI green, confirm the settled run actually *carried* both platforms — a darwin-only or linux-only green is a false single-platform green, not full CI.
+**Every run covers both platforms.** Pin them explicitly —
+`platforms=["x86_64-linux", "aarch64-darwin"]` — never trust a machine-local
+default: a platform you don't name **silently drops**; a named platform with no
+pool entry is **refused loudly** (juspay/odu#46). Before reporting green,
+confirm the settled run actually carried both — a single-platform green is a
+false green.
 
-**Darwin build host: read it from `hosts.json`, never from this skill.** This paragraph has hard-named the live darwin box three times (#1906 → #1946 → #1967) and been stale again each time — the darwin fleet is volatile, and the `aarch64-darwin` list in `~/.config/odu/hosts.json` (inspect with `nix run ./ci#odu -- hosts`) is the only source of truth for which boxes exist and their exact ssh spelling. When you must name a box by hand (a `hosts=` pin, the companion-repo `--host` below), **copy the `hosts.json` entry verbatim** — the boxes differ in user@ and tailnet suffix, and a re-spelled host is a dead dispatch. The rules that survive fleet churn: when a coordinator is running the campaign, ASK IT before every darwin dispatch (single-tenant rule); darwin boxes carry environment caveats (e.g. a stale-FSEvents history) — treat fs-watch-class reds (iframe-refresh, file-watch waitFors) as suspect box environment and report before chasing; and a pool entry that no longer resolves silently degrades the whole darwin lane (odu retries the dead host while its sibling is busy, so the run can't start until the live box frees) — report it for removal from `hosts.json` instead of waiting it out.
+**Darwin hosts: read `hosts.json`, never this skill.** The darwin fleet is
+volatile (this file hard-named the live box three times and was stale each
+time) — `~/.config/odu/hosts.json` (`nix run ./ci#odu -- hosts`) is the only
+source of truth; copy entries verbatim when pinning (user@ and tailnet suffixes
+differ). Durable rules: under a coordinator, ask it before every darwin
+dispatch (single-tenant); treat fs-watch-class reds on darwin as suspect box
+environment and report before chasing; a dead pool entry silently stalls the
+whole darwin lane — report it for removal rather than waiting it out.
 
-**A companion repo's darwin lane uses `--host`, never inline `$ODU_HOSTS`.** A `@kolu/surface` change drags a downstream repo's CI along (the drishti PR `surface.md` requires) via the shelled-out `nix run … odu -- run` path, not `mcp__odu__run`; its own `hosts.json` may name a different, possibly-dark darwin host. Override it with **`--host aarch64-darwin=<the arbitrated darwin host>`** — **never** by exporting inline JSON into `$ODU_HOSTS`, which odu reads as a *file path*: an inline `$ODU_HOSTS='{…}'` is silently ignored and you burn a run on the dead host. If you must set it, point at a real hosts *file*.
+**A companion repo's darwin lane uses `--host aarch64-darwin=<box>`, never
+inline `$ODU_HOSTS`** — odu reads `$ODU_HOSTS` as a *file path*, so inline JSON
+is silently ignored and burns a run on a dead host.
 
-**Linux build host: odu leases a free pool box for you — no wrapper.** The linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** (`kolu-ci-1 .. kolu-ci-8`), listed as the `x86_64-linux` pool in `~/.config/odu/hosts.json`. As of [juspay/odu#56](https://github.com/juspay/odu/pull/56) odu **leases natively**: `mcp__odu__run` picks a free box from the pool, holds it for the run's lifetime (remote `flock` via odu-runner, heartbeated over ssh), and releases it on settle or agent death. No `hosts` pin for the pool, no background `lease.sh`, no `.ci/pu-lease.env`, no manual release — the leaser that used to live in a separate process now lives inside odu. The whole flow is just the run itself:
+**Linux lane: odu leases natively** from the warm Incus pool
+(`kolu-ci-1..8` in `hosts.json`) — picks a free box, holds it for the run,
+releases on settle. No manual leasing. Saturated pool waits in line
+(`no_wait: true` to fail fast instead); `nix run ./ci#odu -- hosts` shows
+free/busy. To keep the *same* hot box across fix→rerun cycles, take an
+agent-held lease with `mcp__odu__lease` first and `mcp__odu__release` when
+done. Pool upkeep: `just ci::pool-ensure` / `just ci::pool-status`; warm idle
+slots by running the linux lane against master with a `hosts=` pin (strict and
+posting, like every run).
 
-```
-#  mcp__odu__run  platforms=["x86_64-linux", "aarch64-darwin"]
-#  mcp__odu__wait_for_settle          (then read the log resource / node_rerun as needed)
-```
+**Fail fast on the MCP; don't drain the pipeline.** `wait_for_settle` returns
+on the first red node with `{failed[], errored[]}` — read the red node's log
+(the log resource, or `.ci/<sha7>/<platform>/<recipe>.log`) and start the
+fix → fmt → commit → retry loop immediately; don't poll `gh pr checks` in a
+loop. `errored` (vs `failed`) means infrastructure death — `node_rerun` it
+rather than hunting a test bug.
 
-**Pool saturated?** The default is to **wait in line** for a free box; pass `no_wait: true` to `mcp__odu__run` to fail immediately instead. `nix run ./ci#odu -- hosts` prints the pool inventory — free / busy / held-by — without acquiring anything.
+**`pu` misbehaves → log it on
+[juspay/kolu#1204](https://github.com/juspay/kolu/issues/1204)** via
+`.apm/skills/ci/pu/diagnose.sh <stage> <host>` (best-effort, never blocks the
+run). Capture the stage's stderr:
+`pu create "$host" 2> >(tee /tmp/pu-$host.err >&2)`.
 
-**Hold a box across reruns.** A plain `run` releases its lease at settle, so a fix → rerun cycle re-queues for a (possibly different) box each time. To keep the *same* hot box across discrete reruns — iterate a fix without losing a warm store — take an **agent-held lease** first with `mcp__odu__lease` (returns immediately, `held` or `waiting`); every subsequent `run` then reuses that host and leaves the lock alone, and `mcp__odu__release` frees it when you're done.
+**After a green two-platform settle, post e2e metrics to the PR.** Source of
+truth: the run ledger `.ci/<sha7>/runs/<seq>.json` for each `ci::e2e@<platform>`
+node's recipe-wall `durationMs` and host (never Cucumber's internal timer), and
+the LAST `^e2e: workers=` line in `.ci/<sha7>/<platform>/ci::e2e.log` for
+resolved parallelism. Maintain **one** comment keyed by the
+`<!-- kolu-ci-e2e-metrics -->` marker (edit if present, create if absent) with
+the run identity `<sha7>#<seq>` and a table of
+`platform · host · workers · cores · cap · e2e duration`. Fail loud rather than
+comment if any ingredient is missing. Post only after the full run settles
+green, before reporting the gate.
 
-*(Retired by odu-native leasing: the standalone [`.apm/skills/ci/pu/lease.sh`](pu/lease.sh) background holder and its `.ci/pu-lease.env` pin — odu now owns the lease. Box lifecycle is the [`pu`](.claude/skills/pu/SKILL.md) skill; runner mechanics [`odu`](.claude/skills/odu/SKILL.md); the MCP face [`odu-mcp`](.claude/skills/odu-mcp/SKILL.md).)*
+**The green-gate: every required status check green on the PR's current
+`HEAD`.** Source the required list from `just ci::protect --dry-run` **with
+both explicit `--platform` flags** — without them odu derives platforms from
+the machine-local `hosts.json` and can emit a single-platform subset, a false
+green. Verify with `gh pr checks` (a green from a retry counts).
 
-**Keep the pool warm and healthy.** A pool box warms on its first real CI run and stays warm across leases. Bring the pool up to strength (and repair any missing/unhealthy slot) with `just ci::pool-ensure`; inspect with `just ci::pool-status`. Keep stores hot by periodically running the linux lane against `master` on idle slots (e.g. after a merge) — `mcp__odu__run` with `platforms=["x86_64-linux"]` and `hosts=["x86_64-linux=kolu-ci-<N>"]` (strict and posting, like every run here; the `hosts` pin overrides the pool to warm *that* box deliberately — odu still leases it, waiting if it's busy). (The old `kolu-ci-golden` fork template is retired — the pool boxes are themselves the warm hosts.)
-
-**Live failure surfacing — fail fast on the MCP, don't drain the pipeline.** `mcp__odu__wait_for_settle` returns the instant a node goes red (`fail_fast` defaults true) with `{settled, passed, failed[], errored[]}` — so you learn about a failure while sibling lanes are still running. **Don't wait for the whole run to finish, and don't poll `gh pr checks` in a loop.** The moment `wait_for_settle` returns a non-empty `failed[]`/`errored[]`, drill in: read the red node's log via the `surface://collections/logs/{id}` MCP resource (or read the `.ci/<sha7>/x86_64-linux/<recipe>.log` path directly — the failing recipe's full output is already on disk). Begin the fix → fmt → commit → retry-CI loop as soon as you have a confirmed failure; you needn't let the rest of the pipeline drain first. (`gh pr checks` / `just ci::protect --dry-run` remain the source of truth for the *final* green-gate below — the MCP is for reacting fast, the checks are for confirming done.) A node in `errored` (as opposed to `failed`) means infrastructure death — a lane's ssh link dropped or the coordinator was interrupted; `mcp__odu__node_rerun` those rather than hunting for a test bug.
-
-**`pu` misbehaves → log it on [juspay/kolu#1204](https://github.com/juspay/kolu/issues/1204).** Whenever `pu` fails to do its job — `create`/`fork` errors, a box with no egress (`nix run` hangs on "Resolving timed out"), a cross-gateway fork that's unreachable, retries landing on dead hosts, `connect`/`destroy` misbehaving — don't just silently fall back: **`.apm/skills/ci/pu/diagnose.sh <stage> <host>`** posts the full diagnostics (PR/commit context, `pu list` placement, the stage's stderr, box network state) to #1204 so the pu/Incus admin can permanently fix the bad physical host. **Every session, not just `/do`.** The comment is best-effort and must never block the run — continue per the fallback above. Capture the stage's stderr for the report by tee-ing it: `pu create "$host" 2> >(tee /tmp/pu-$host.err >&2)`.
-
-**After a successful two-platform settle, post both e2e durations and resolved parallelism to the PR.** Use the exact `{sha7, seq}` returned by `mcp__odu__wait_for_settle`; the durable ledger `.ci/<sha7>/runs/<seq>.json` is the source of truth for each `ci::e2e@<platform>` node's recipe-wall `durationMs` and each lane's host. Do not substitute Cucumber's internal timer: the PR evidence is the whole e2e recipe. For each platform, read the LAST `^e2e: workers=` line in `.ci/<sha7>/<platform>/ci::e2e.log` (the logs append across same-SHA runs); it records the worker count actually chosen plus its deterministic inputs, e.g. `e2e: workers=4 (cores=10 cap=6)`. Fail loud instead of commenting if either platform, successful e2e node, duration, host, or resolved-parallelism line is absent.
-
-Create or update one PR comment containing `<!-- kolu-ci-e2e-metrics -->`, the run identity `<sha7>#<seq>`, and a compact table with `platform · host · workers · cores · cap · e2e duration`. Search the PR's existing comments for that marker and edit it when present; create it only when absent, so reruns refresh one evidence comment instead of spamming the thread. Use the GitHub connector when it exposes comment writes; `gh api` is the fallback. Post only after the full Linux + Darwin run has settled green (including any positional node reruns), before reporting the final green gate.
-
-**Evidence required → all GitHub status checks green per `just ci::protect`.** CI is done only when every required status check is green on the PR's current `HEAD`. **Source the authoritative required list from `just ci::protect --dry-run`** — it pins *both* platforms (`--platform x86_64-linux --platform aarch64-darwin`) and prints the `<recipe>@<platform>` contexts the canonical DAG produces, which are exactly the contexts branch protection gates on. Do **not** omit those explicit `--platform` flags for the gate: without them, odu derives its platform set from the machine-local `hosts.json`, so on a box that lists only one platform it silently emits a single-platform *subset* — a false green that omits an entire platform's required checks (the same "platform silently drops from the fanout" trap called out above). Verify each context with `gh pr checks`; a green from a positional retry counts (final state matters).
-
-**The status checks are not the whole merge gate — code-scanning alerts block it too.** `gh pr checks` does **not** list CodeQL findings, so every required context can be green while the PR still carries an open HIGH alert that blocks merge. Close that half yourself before reporting the gate — and **key the query on the PR number, never on a branch ref**:
+**Code-scanning alerts block merge too, and `gh pr checks` doesn't show them.**
+Query **by PR number, never by branch ref** — code scanning here is GitHub's
+default setup, which analyses only the default branch and `refs/pull/<n>/*`, so
+a `ref=refs/heads/<branch>` query answers "no alerts" about a ref nobody
+scanned (measured on #2017: branch ref → 0, `pr=2017` → an open HIGH):
 
 ```
 gh api "repos/{owner}/{repo}/code-scanning/alerts?state=open&pr=<n>" \
   --jq '.[] | "\(.rule.security_severity_level) \(.rule.id) \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)"'
 ```
 
-**`ref=refs/heads/<branch>` — what this paragraph used to prescribe — returns an empty list for every PR branch, so it reads as a clean gate no matter what the PR carries.** Code scanning here is GitHub's *default setup* (there is no CodeQL workflow in `.github/workflows/`), which analyses only the default branch and the `refs/pull/<n>/*` refs; a feature branch has no analysis at all, so the query answers "no alerts" about a ref nobody ever scanned. Measured on #2017: `ref=refs/heads/gitignore-include` → **0**, while `pr=2017` → an open `js/polynomial-redos` **HIGH** on a file that PR had just added. `pr=` is also ref-agnostic, which saves you guessing between `refs/pull/<n>/head` and `refs/pull/<n>/merge` — only one of the two carries the alert and which one is not stable (on #2017 it was `/head`; `/merge` was empty).
-
-Fix every alert on code this PR introduced (a *pre-existing* alert on untouched code is the exception — name it in the report rather than silently ignoring it). A human had to point at an open CodeQL HIGH twice in one session (`js/regex/missing-regexp-anchor` on a brand-new file) — that is a gate the run should have closed on its own, and the branch-ref query above is the likeliest reason it didn't: an empty result from the wrong ref is indistinguishable from a real all-clear unless you notice it can never be anything else.
+Fix every alert on code this PR introduced; name (don't silently ignore) any
+pre-existing alert on untouched code.

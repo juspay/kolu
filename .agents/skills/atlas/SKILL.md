@@ -1,6 +1,6 @@
 ---
 name: atlas
-description: Create, update, or finalize a note in the kolu Atlas (docs/atlas) — frontmatter, the MDX component kit, build + check-sync, and the preview/share links. Use whenever authoring or editing an Atlas note (e.g. a /be plan-of-record), so the mechanics live in one place.
+description: Create, update, or finalize a note in the kolu Atlas (docs/atlas) — frontmatter, the MDX component kit, build + check-sync, and the preview/share links. Use whenever authoring or editing an Atlas note (e.g. a /be plan-of-record).
 argument-hint: "<slug | what the note is about>"
 ---
 
@@ -17,91 +17,96 @@ renders the committed `docs/atlas/dist/<slug>.html`. Sync rules:
 ---
 title: Title in Title Case
 description: One line — what this note is about.
-parents: [feature]     # REQUIRED — the one filing edge. A category (bug · feature · analysis · reference) is itself a note marked `moc: true`; there is no `kind` field. List the index note and/or topical hubs, e.g. [solid-fileview, feature].
-status: proposed       # optional — proposed → accepted → implemented (features then archive — see §4)
-maturity: seedling     # seedling → budding → evergreen (a tag, not a location)
-updated: <YYYY-MM-DD>  # date of the last meaningful edit
+parents: [feature]     # REQUIRED — the filing edge(s). Categories (bug · feature · analysis · reference) are notes marked `moc: true`; there is no `kind` field.
+status: proposed       # optional — proposed → accepted → implemented (features then archive, §4)
+maturity: seedling     # seedling → budding → evergreen
+updated: <YYYY-MM-DD>
 ---
 ```
 
-Every note is filed into the index through `parents` — the single edge mechanism.
-There is **no `kind` enum**: the four index roots (Bugs · Features · Analysis ·
-Reference) are ordinary notes marked `moc: true`, and you reach one by listing it
-in `parents` (a note may list several — its index plus any topical hubs). A
-proposal is just a note under its real index carrying `status: proposed`.
+`parents` is the single filing mechanism — list the index note and/or topical
+hubs. A proposal is just a note under its real index with `status: proposed`.
 
-- Prose in markdown; reach for the **kit** in `docs/atlas/src/components/` only where markdown can't (`<Cite>`, `<Callout>`, `<PrLink>`, `<Footnote>`, `<Terminal>`, `<AtlasMockup>`, `<Svg>`, `<D2>`, …).
-- **Keep the main text lean — push supporting detail into a `<Footnote>`, not a parenthetical.** The reflex when a sentence carries a caveat, a citation, a corrected number, or a "why we rejected X" aside is to bracket it inline; that is exactly the verbiage that makes a note skim badly. Instead wrap the aside in `<Footnote>…</Footnote>` right where it's referenced (`Kolu is N-dominated.<Footnote>Of 66 raw findings, 35 survived verification.</Footnote>`) — it renders as a superscript marker that opens the detail in a hover / click popover, so the load-bearing claim stays in the line and the nuance is one gesture away. Numbering is automatic (CSS counters, per page); the popover body is full MDX (links, `<code>`, `<PrLink>`, `<Cite>`, a short paragraph). Reach for it for the *second-order* detail a careful reader wants and a skimmer doesn't — **not** for a claim the sentence depends on (that stays inline) and not for a whole paragraph (that's a `###` or a `<Callout>`).
-- **Every phased/planned work item carries an identifier that is unique across the WHOLE Atlas** — a short track prefix + number (`W3`, `B2`, `SR5`), never a bare ordinal (`PR 5`, `phase 2`, `step 3`): bare ordinals collide across notes and across conversations about them. A note introducing a new track declares its prefix once (grep other notes for collisions before minting). The identifier LEADS its section heading — `### SR5 — one protocol across the wire`, never id-last — so the rendered TOC shows the ids at a glance. Every reference to a phased item — in other notes, in briefs, in PR bodies, in chat — uses the note's explicit identifier verbatim; inventing or abbreviating monikers for phased work is banned.
-- **Headings are an outline, not a count.** Decide the 3–5 *concepts* the note is about, name each as a `##`, then write the body under them. The TOC should read as an outline, not a flat enumeration. Do **not** hit the number by re-leveling: taking a flat list of `##`s and demoting some to `###` to satisfy "≈4" is the wrong move — if you're changing `#` counts on existing headers rather than moving content, you're cheating the rule, not following it. Every `##` must be a genuine peer concept; never invent a catch-all bucket ("Building it", "Details", "Misc", "Other") for whatever's left over. A `###` lives under its parent because it's *part of that concept*, not because the parent had a free slot.
-- **A plan note's shape is free-form — let the content pick its structure.** There is no mandated section template: a roadmap note wants a feature table and a dependency diagram; a redesign wants the architecture story; a small fix wants a paragraph. Cover the substance a plan needs — what the user gets, the structural shape, how it gets built — wherever those fit naturally, and prefer structure (tables, diagrams, status columns) over prose runs. **Default to one PR.** Don't invent a multi-PR / multi-phase staging for work that is one small coherent change threading existing seams — split only when a later step genuinely *can't* land until an earlier one ships (a real sequencing or release constraint), not to look thorough. Inventing PR1/PR2/PR3 for trivially-coupled work is over-decomposition the user will collapse back to one.
-- **Architecture ⇄ Implementation is a loop, not a waterfall — reason about them together.** The two feed each other, so a *structural verdict* — package-vs-module, electricity-vs-leaf, extract-vs-inline — is **contingent on an implementation choice, never absolute**: an xterm.js view is a leaf as a static `<pre>` dump but electricity as the SolidJS adapter that must own WebGL context-loss recovery and owner-correct async dispose (`@kolu/solid-xterm`). (Caution — "reuse an external library" is not the same as "build a new in-house electricity": adopting ProseMirror *reuses* its engine electricity, leaving only a thin leaf wrapper; don't miscount a dependency as a receptacle you own.) So (a) surface that choice as an explicit decision in the plan (e.g. "textarea vs editor engine"), and (b) state the architecture verdict *conditioned on it*, naming the dependency in both directions ("we pick X to avoid spawning a receptacle; picking X is what makes the verdict 'leaf'"). Never hand down a boundary verdict divorced from the build that produces it — that is judging without the plan in hand.
-- **A plan-of-record is build-ready or it is not done — write it for the *implementing* agent, not for the reviewer.** The bar for a `feature`/`analysis` plan is that **another agent (a GLM, a fresh Claude) can implement it straight through without stopping to ask you anything.** These failure modes recur and are defects to fix *before* you present, never to leave for the user to catch (don't make the user the linter):
-  - **Open decisions left for the implementer to guess.** Every choice that *forks the implementation* — interaction model, library, what's in vs out of scope, how much positioning/state/a11y work ships — must be **resolved in the note**, either as your stated default or as the user's pick. Find every such fork *yourself* and surface the ones that are genuinely the user's call **proactively** via **one batched `AskUserQuestion` call up front** (mockup-rich `preview`s, one option per real path) — don't wait to be told to, and don't dribble them out one at a time across turns. Bake the low-stakes ones (dimensions, attribute names, toggle semantics) in as explicit defaults; only the forks that *materially change the build* go to the user. A reader who has to guess "which library?" / "does scroll dismiss or follow?" / "is keyboard in scope?" is reading an unfinished plan.
-  - **Template phrasing and vague hand-waving leak in as if they were content.** Words from this skill's own scaffolding ("the risks that bite", "file-level integration points") are *prompts to you*, not text to copy into the note. Every risk is named **concretely with its mitigation** ("DOMPurify strips `data-*`, so detection needs an explicit `data-md-footnote` marker — pin it in a contract test"), never as a placeholder. Grep your own draft for skill-scaffold phrasing and abstract filler before building; if a sentence would make an implementer ask "like what, specifically?", it isn't done. (When invoked from `/be` §1's "plan first", this build-ready bar *replaces* its high-level "no implementation dump" framing — the user wants a plan an agent can execute, not just review.)
-  - **The feature is named, but the *mechanism it exists to prove* is left unpinned.** A phase whose purpose is to *graduate or de-risk a specific code path* — a transport, a consumer, a primitive — is done only when **that path** is exercised, not when the user-visible feature it happens to render is. Name the path exactly and write a **done-criterion that can only be met by hitting it**; otherwise the implementer satisfies the words by the easiest route and ships a green PR that proves nothing. This bit a real `R4.7→R4.8` split: the plan said *"a live `git status` view"* — which an agent can build from the already-proven value-bearing `awareness.git` field, or by raw `mirrorRemoteSurface` iteration — when the phase existed to prove *the `{seq}` stream consumed through `surfaceClient` + Solid `reconcile`*, the one path that actually breaks. The graduation it was for silently didn't happen, and the **plan**, not the implementer, was at fault. The unit of done for a proof phase is the path, named, plus a check only that path passes.
-  - **A phase is implementation-shaped but not human-verifiable.** Every separately identified phase states three things somewhere in its natural structure: the user-visible delta (write **none** when it is intentionally internal), a reproducible manual acceptance path a human can perform on that phase's PR, and the sequencing reason that makes it a separate phase rather than part of its neighbour. A test-suite command is supporting evidence, not the manual path; “phase 2 follows phase 1” is an order, not a reason. This is a completeness check, not a mandated section template — a roadmap table can carry all three as columns, while a small plan may need one sentence each.
-- **Lead structural notes with an architecture diagram — your call between SVG and D2, favouring SVG.** Any note that proposes or analyzes structure (a `feature`/`analysis` plan, a module split, a package boundary) MUST include a diagram of the module/package connections. **Choose the tool per diagram by one test — which renders something more informative and useful to the human reader — and when it's a toss-up, choose SVG.** Hand-author an inline **SVG** via `<Svg svg={…} caption="…" />` (`src/components/Svg.astro`) whenever hand-authoring makes the diagram visually richer — colour as meaning, deliberate proportion, emphasis, a bespoke layout a graph DSL can't express; it also needs no build-time binary and is byte-deterministic for free. Keep the SVG as a real file in `src/diagrams/<slug>-<name>.svg`, imported with Vite's `?raw` loader (`import foo from "../../diagrams/foo.svg?raw"`); **a dense diagram (many nodes, small labels) must pass `wide` — `<Svg svg={…} wide caption="…" />` — so it escapes the 46rem text column and spans the viewport; boxed in the column its text renders unreadably tiny** (the default, column-width rendering is only right for small/simple diagrams); because there is no generator, edit a layout-dependent SVG by re-authoring it wholesale, not by patching coordinates. Reach for **D2** — `<D2 caption="…" code={`…`} />` (`src/components/D2.astro`) — only when its auto-layout genuinely serves the reader better than anything you'd hand-place: a large, nested graph whose value is just a clean, correct arrangement no hand-layout would improve. Then use **`direction: down`** (a vertical stack fits the column; `direction: right` renders wide and shrinks text to unreadable), quote keys/labels with special chars, and rely on the Nix-pinned `d2` (`--sketch=false`/`--layout=dagre`, deterministic). Tie-breaker, always: prefer SVG.
-- A **note-local** component is defined **inline in the `.mdx`** (`export const Foo = …`), never a separate file — promote it to `src/components/` only once it's reused across notes. Never hand-edit `dist/`.
+- Prose in markdown; the component kit (`docs/atlas/src/components/` —
+  `<Cite>`, `<Callout>`, `<PrLink>`, `<Footnote>`, `<Terminal>`,
+  `<AtlasMockup>`, `<Svg>`, `<D2>`, …) only where markdown can't.
+- **Push asides into `<Footnote>`, not parentheticals** — caveats, citations,
+  "why we rejected X". It renders as a superscript with a popover (full MDX
+  body). Not for load-bearing claims (inline) or whole paragraphs (`###` or
+  `<Callout>`).
+- **Every phased work item carries an Atlas-unique identifier** — a track
+  prefix + number (`W3`, `SR5`), never a bare ordinal ("phase 2"). Declare a
+  new prefix once (grep for collisions), lead the section heading with it
+  (`### SR5 — …`), and reference it verbatim everywhere — no invented monikers.
+- **Headings are an outline**: 3–5 genuine peer concepts as `##`s, no
+  catch-all buckets ("Details", "Misc"), no re-leveling to fake the count.
+- **A plan's shape is free-form** — let content pick the structure; prefer
+  tables/diagrams over prose runs. **Default to one PR**: split into phases
+  only for a real sequencing constraint, not to look thorough.
+- **Architecture ⇄ implementation is a loop**: a structural verdict
+  (package-vs-module, electricity-vs-leaf) is contingent on an implementation
+  choice — surface that choice as an explicit decision and state the verdict
+  conditioned on it, in both directions. (Adopting an external engine *reuses*
+  its electricity, leaving a thin leaf wrapper — don't miscount a dependency
+  as a receptacle you own.)
+- **A plan-of-record is build-ready or it is not done** — written for the
+  *implementing* agent: another agent can execute it straight through without
+  asking anything. Before presenting, fix (don't leave for the user to catch):
+  - **Open decisions**: every fork that changes the build is resolved — bake
+    low-stakes ones in as defaults; put the genuinely user-facing forks in
+    **one batched `AskUserQuestion` up front** (mockup-rich previews).
+  - **Template phrasing / vague hand-waving**: every risk is named concretely
+    with its mitigation; if a sentence would make an implementer ask "like
+    what, specifically?", it isn't done.
+  - **Unpinned proof-paths**: a phase that exists to graduate or de-risk a
+    specific code path names **that path** and carries a done-criterion only
+    that path can satisfy — otherwise the implementer ships a green PR by the
+    easiest route and the graduation silently doesn't happen.
+  - **Phases a human can't verify**: each phase states its user-visible delta
+    ("none" when internal), a reproducible manual acceptance path (a test
+    command is supporting evidence, not the path), and the sequencing reason
+    it's separate.
+- **Structural notes lead with an architecture diagram.** Prefer a
+  hand-authored inline **SVG** (`<Svg svg={…} caption="…" />`, file in
+  `src/diagrams/`, imported `?raw`; re-author wholesale, don't
+  coordinate-patch) — colour as meaning, deliberate emphasis. **A dense
+  diagram must pass `wide`** or its text renders unreadably tiny in the 46rem
+  column. Reach for **D2** (`<D2 code={…} />`) only when auto-layout of a
+  large nested graph genuinely beats hand placement — then `direction: down`
+  (right renders wide and shrinks text). Toss-up → SVG.
+- A note-local component is defined inline in the `.mdx`; promote to
+  `src/components/` only on reuse. Never hand-edit `dist/`.
 
 ## 2. Build & verify
 
-`just atlas::build`, then stage `docs/atlas/dist/`. Finish with `just
-atlas::check-sync` (the `ci::atlas-sync` gate): it rebuilds and fails if the
-committed HTML is stale or host-dependent.
-
-- **Let the build finish before you stage — and stage `dist/` by pathspec, never
-  `git add -A`.** `atlas::build` *empties* `dist/` and then regenerates it, so any
-  `git status` / `git add` / `git commit` that runs **during** the build sees the
-  whole `dist/` as deleted; a `git add -A && git commit` in that window silently
-  stages ~50 deletions and wipes the rendered Atlas. Run the build in the
-  foreground (don't background it and race a `git add`), and stage the rendered
-  output as `git add docs/atlas/dist/ <your source files>`, so a half-written
-  `dist/` can never sneak deletions into the commit.
+`just atlas::build`, stage `docs/atlas/dist/`, finish with
+`just atlas::check-sync` (the `ci::atlas-sync` gate). **The build empties
+`dist/` before regenerating** — a `git add -A`/commit racing a running build
+silently stages ~50 deletions and wipes the rendered Atlas. Build in the
+foreground and stage by pathspec (`git add docs/atlas/dist/ <sources>`).
 
 ## 3. Preview & share
 
-Each `dist/<slug>.html` is self-contained: it previews in kolu's Code tab, and —
-once the note is merged to `master` — is published on the web at
-`https://kolu.dev/atlas/<slug>.html` (the index is `https://kolu.dev/atlas/`).
-The website build folds the committed `dist/` in under `/atlas/`, so a merged
-note ships with the next Pages deploy.
+Each `dist/<slug>.html` is self-contained: previews in kolu's Code tab, and
+once merged publishes at `https://kolu.dev/atlas/<slug>.html` (index:
+`https://kolu.dev/atlas/`) with the next Pages deploy.
 
 ## 4. Lifecycle
 
-Notes are **living** — git is the history, no frozen copies. Advance `status` as
-it matures and link the implementing PR with `<PrLink pr={<n>} />`. A contributor
-proposal is just a note carrying `status: proposed` (see `CONTRIBUTING.md`);
-acceptance flips the status, not its `parents` (the index parent was right from
-the start).
+Notes are living — git is the history. Advance `status`; link the implementing
+PR with `<PrLink pr={<n>} />`.
 
-- **A finished *feature* plan is archived, not kept as a page.** When a note filed
-  under `feature` (or any pure feature plan-of-record) reaches `status: implemented`
-  — typically in the same change that ships the last PR or lands the post-ship
-  status flip — **delete the note** and add a **one-line row** to
-  `docs/atlas/src/content/atlas/archived-notes.mdx` (the [Archived notes](https://kolu.dev/atlas/archived-notes.html)
-  hub under `reference`). The row is: former slug · one sentence of what shipped ·
-  where to look now (kolu.dev product docs when the UX is documented there, else a
-  durable electricity/package/pedagogy note, else package path) · implementing
-  `<PrLink>`s. Then: reparent any children that used the deleted slug in `parents`,
-  retarget every `./slug.html` / `](slug)` link in remaining notes (or drop the
-  link and name the archive), delete note-only diagrams under `src/diagrams/`,
-  run `just atlas::build` + stage `docs/atlas/dist/`, and `just atlas::check-sync`.
-  Do **not** leave a finished feature plan as a living page that still reads like
-  a build plan, and do **not** "compact" it into a short current-state page unless
-  the substance is durable reference that belongs under `reference` / `analysis` /
-  `pedagogy` (then rewrite it as that kind of note, with a different parent — not
-  as a finished plan). Implemented **bugs**, **analysis**, and **reference** notes
-  may stay when they still teach (root cause, measurement, how a subsystem works).
-- **A plan-of-record describes current + future work, not the path that got here —
-  when you re-plan, *rewrite*, don't layer.** Git already holds the archaeology, so
-  superseded phases, abandoned attempts, closed-PR post-mortems, and "what we tried
-  before" belong in the commit history, **not** as live sections of the note. Each
-  re-plan **replaces** the old phase list outright; never keep the dead phases beside
-  the new ones to show the journey. And carry **one** numbering scheme at a time:
-  renaming P3a/P3b → PR1/PR2 means the P3a/P3b labels are *gone*, not cross-mapped in a
-  table — two parallel schemes for the same work is the confusion, not the cure. If a
-  reader has to ask "how does PR1 relate to P3a?" or "why does P3a still exist?", the
-  note kept clutter it should have deleted.
+- **A finished *feature* plan archives, it does not linger.** At
+  `status: implemented`, delete the note and add a one-line row to
+  `archived-notes.mdx` (former slug · what shipped · where to look now ·
+  `<PrLink>`s). Then reparent children, retarget links to the deleted slug,
+  delete note-only diagrams, rebuild + stage + check-sync. Don't "compact" it
+  into a current-state page unless the substance is durable reference — then
+  rewrite it as that kind of note under a different parent. Implemented
+  **bug/analysis/reference** notes may stay when they still teach.
+- **Re-planning rewrites, never layers.** Superseded phases, abandoned
+  attempts, and "what we tried" belong in git, not as live sections. One
+  numbering scheme at a time — renaming means the old labels are gone, not
+  cross-mapped.
 
 ARGUMENTS: $ARGUMENTS
