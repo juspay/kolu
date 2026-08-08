@@ -15,6 +15,14 @@
  * gate is what proves the new generation speaks our contract — a padi restart
  * heals here without this package knowing what a socket is. The package
  * manifest is the graduation fence: padi/surface deps only, no kolu app package.
+ *
+ * A redial hook alone only says where a restart heals, not when the adapter
+ * NOTICES one, and that gap had a cost: the adapter used to find out by spending
+ * a request on the dead socket, so the first padi-backed request after every
+ * restart failed (juspay/kolu#2082). The connection therefore also carries
+ * `onClose` — padi ANNOUNCES its own transport dropping — and the adapter
+ * discards the dead connection the moment it hears, before any request is routed
+ * to it.
  */
 
 import { padiSurface } from "@kolu/padi/surface";
@@ -39,6 +47,15 @@ import { waitAgentStateTool, waitOutputSettledTool } from "./wait.ts";
 export interface KoluMcpConnection {
   client: PadiSurfaceClient;
   dispose: () => void;
+  /** Subscribe to this connection's transport dropping. Fires at most once.
+   *
+   *  The redial hook below says WHERE a restart heals; this says WHEN the
+   *  adapter finds out. Without it the adapter learns only by failing a request
+   *  against the dead socket, which is why the first padi-backed request after
+   *  every padi restart used to fail (juspay/kolu#2082). Supplied by the local
+   *  dial (padi's `DaemonConnection` contract carries it); absent on the ssh
+   *  `--host` arm, which has no close signal to offer yet. */
+  onClose?: (cb: () => void) => void;
 }
 
 /** The face's bespoke tools, named once so the serve call and the tests read

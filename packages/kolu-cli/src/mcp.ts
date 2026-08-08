@@ -10,6 +10,13 @@
  *     resolve + dial + hello/compat gate on every run (see `connect.ts`) — the
  *     adapter re-invokes it after a transport drop, so a padi restart heals
  *     into a fresh generation with fresh snapshots.
+ *   - **The drop is ANNOUNCED, not discovered.** The connection carries padi's
+ *     `onClose`, so the adapter drops the dead one the moment the socket closes
+ *     rather than by failing a request against it. Redial says where a restart
+ *     heals; this says when the adapter finds out — and without it the first
+ *     padi-backed request after every restart was destroyed (juspay/kolu#2082),
+ *     which agents read as "the MCP server died" and answered by abandoning MCP.
+ *     Local arm only: the ssh `--host` dial has no close signal yet.
  *   - **Gate failure exits LOUD.** A (re)dialed padi that no longer speaks our
  *     contract (`PadiContractSkew`) must never keep the MCP server serving a
  *     surface it can't honestly represent: stderr carries the honest "upgrade"

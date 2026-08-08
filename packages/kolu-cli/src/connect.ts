@@ -39,6 +39,7 @@
 
 import {
   connectPadi,
+  type PadiConnection,
   type PadiSurfaceClient,
   resolveRunningPadiSocket,
   scopePadiSurface,
@@ -59,6 +60,20 @@ import { Data, Effect } from "effect";
 export interface KoluCliConnection {
   client: PadiSurfaceClient;
   dispose: () => void;
+  /** Subscribe to this connection's transport dropping — padi exited, or its
+   *  socket closed. Fires at most once. The MCP adapter registers on it to
+   *  discard the dead connection EAGERLY, so a padi restart costs no request
+   *  (juspay/kolu#2082 — see `@kolu/surface-mcp`'s `OwnedSurfaceConnection`).
+   *
+   *  OPTIONAL because only the LOCAL arm can honestly supply it today:
+   *  `connectPadi` hands back a `DaemonConnection`, whose `onClose` is a
+   *  required part of that contract. The `--host` ssh arm dials through
+   *  `dialAgentOnce`, and `AgentDial` carries no close signal at all — so
+   *  `connectKoluCliViaHost` omits the field rather than fake one, and keeps
+   *  today's lazy behaviour until `@kolu/surface-remote` grows the signal
+   *  (tracked as the follow-up on #2082). This is a missing capability stated
+   *  honestly, not a knob: an arm that CAN observe its close must pass it. */
+  onClose?: (cb: () => void) => void;
 }
 
 /** The running padi could not be NAMED: none discovered, or several with no
@@ -161,9 +176,29 @@ export const connectKoluCliLocal: Effect.Effect<
     // everything past the dial matches a `_tag` rather than an `instanceof`
     // across two module instances of the supervisor package.
     Effect.mapError(connectPadi(socket), classifyDialFailure),
-    (conn) => ({
-      client: scopePadiSurface(conn.client),
-      dispose: conn.dispose,
-    }),
+    koluCliConnectionOf,
   );
 });
+
+/** Project a dialed `PadiConnection` onto the face-visible
+ *  {@link KoluCliConnection} — scope the client to padi's sibling, and carry the
+ *  transport's `dispose` AND `onClose` across.
+ *
+ *  Its own function because forgetting a field here is silent and expensive:
+ *  the inline object literal this replaced dropped `onClose` on the floor, and
+ *  that omission WAS juspay/kolu#2082 — padi announced every restart, kolu-cli
+ *  never passed the announcement on, and the MCP adapter was left to discover
+ *  each one by failing a request. Named and shared so the e2e pin composes the
+ *  same projection the product does, instead of a look-alike that can drift back. */
+export function koluCliConnectionOf(conn: PadiConnection): KoluCliConnection {
+  return {
+    client: scopePadiSurface(conn.client),
+    dispose: conn.dispose,
+    // Forwarded through a closure, not handed over as a bare method reference:
+    // `onClose` is declared on `DaemonConnection` as a METHOD, so a detached
+    // `conn.onClose` would call with no receiver and break any implementation
+    // that reads `this` (padi's own closes over its socket, but the contract
+    // does not promise that of every daemon).
+    onClose: (cb) => conn.onClose(cb),
+  };
+}

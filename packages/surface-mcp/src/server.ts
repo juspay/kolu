@@ -77,14 +77,41 @@ export type SurfaceClientCallable = {
   surface: Record<string, Record<string, (...args: any[]) => any>>;
 };
 
+/** An *owned connection* the client factory hands over: the bridge case, where
+ *  the factory opened a transport (`unixSocketLink` dials a socket) and the
+ *  adapter is now responsible for closing it. */
+export interface OwnedSurfaceConnection {
+  client: SurfaceClientCallable;
+  dispose: () => void;
+  /** Subscribe to this connection's transport dropping — the served daemon
+   *  exited, or its socket closed. Fires at most once.
+   *
+   *  **This is what keeps a restart from costing a request** (juspay/kolu#2082).
+   *  Without it the adapter only learns the transport died by SPENDING a request
+   *  on the corpse: the memoized connection is reset in `withClient`'s catch, so
+   *  the first call after a daemon restart always fails and every later one
+   *  succeeds. The MCP host reads that one failure as "the MCP server is dead"
+   *  and stops using MCP for the rest of the session — a whole session lost to a
+   *  routine upgrade. With the hook, the dead connection is discarded the INSTANT
+   *  the socket closes and the next request dials fresh, so nothing is spent.
+   *
+   *  OPTIONAL because it is a property of the TRANSPORT, not of the factory: the
+   *  in-process `directDispatch` case has no transport to drop, and a wire dial
+   *  that cannot observe its own close (the ssh `AgentDial` leg today) has no
+   *  honest value to supply. An absent hook means "this transport cannot say when
+   *  it died", which degrades to the lazy catch-side reset below — it is NOT a
+   *  knob, and a factory that CAN observe its close must supply it. */
+  onClose?: (cb: () => void) => void;
+}
+
 /** What `opts.client()` may return. Either a bare client (the in-process
- *  `directDispatch` case — nothing to dispose) or an *owned connection*
- *  `{ client, dispose }` (the bridge case — `unixSocketLink` opens a socket it
- *  owns, so `dispose()` must close it). The adapter normalizes both, disposes
- *  every connection it opens on teardown, and re-dials after a drop. */
+ *  `directDispatch` case — nothing to dispose) or an {@link OwnedSurfaceConnection}
+ *  (the bridge case — `unixSocketLink` opens a socket it owns, so `dispose()`
+ *  must close it). The adapter normalizes both, disposes every connection it
+ *  opens on teardown, and re-dials after a drop. */
 export type ClientOrConnection<_S extends SurfaceSpec> =
   | SurfaceClientCallable
-  | { client: SurfaceClientCallable; dispose: () => void };
+  | OwnedSurfaceConnection;
 
 export interface ServeSurfaceAsMcpOptions<S extends SurfaceSpec> {
   surface: Surface<S>;
@@ -161,10 +188,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // Normalize whatever `opts.client()` returns into an owned connection. The
   // bare-client (in-process `directDispatch`) case gets a no-op disposer; the
   // `{ client, dispose }` (bridge) case keeps its socket-closing disposer.
-  const dial = async (): Promise<{
-    client: SurfaceClientCallable;
-    dispose: () => void;
-  }> => {
+  const dial = async (): Promise<OwnedSurfaceConnection> => {
     const result = await opts.client();
     if (
       typeof result === "object" &&
@@ -181,10 +205,22 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // The pusher manages its own (re-)attaching connection for the streaming
   // subscription face; reads and tool calls dial on demand. We memoize one
   // connection for the lifetime so reads/tools don't re-dial per call (the
-  // bridge case's factory may open a socket each time). On a read/tool
-  // failure (which a transport drop manifests as) we reset it so the NEXT
-  // call re-dials a fresh connection rather than reusing a dead socket.
-  type OwnedConn = { client: SurfaceClientCallable; dispose: () => void };
+  // bridge case's factory may open a socket each time).
+  //
+  // A dead connection is dropped by TWO paths, and the order matters:
+  //
+  //   1. EAGERLY, the moment the transport says it closed (`onClose`, wired in
+  //      `getConn` below). This is the one that matters in practice — a daemon
+  //      restart is announced, so the corpse is discarded while the adapter is
+  //      idle and the next request dials fresh.
+  //   2. LAZILY, in `withClient`'s catch, when a call fails with a recognized
+  //      transport death. This remains the backstop for the two cases (1) cannot
+  //      cover: a transport with no close signal to offer, and the genuine race
+  //      where the socket dies with a request already in flight.
+  //
+  // (2) alone was the whole of juspay/kolu#2082: a restart could only be
+  // discovered by spending a request on the dead socket.
+  type OwnedConn = OwnedSurfaceConnection;
   let sharedConn: OwnedConn | null = null;
   // Latched by teardown so a dial that RESOLVES after `close()` disposes its
   // socket instead of publishing an orphan nobody will ever tear down (the
@@ -210,6 +246,14 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
             throw new Error("surface-mcp: server closed during dial");
           }
           sharedConn = conn;
+          // EAGER INVALIDATION (#2082). Registered AFTER the store, so the
+          // identity guard in `resetSharedConn` can see this connection as the
+          // current one. A transport that already died during the dial fires
+          // this immediately (padi's `onClose` replays an already-closed socket
+          // on a microtask), which correctly discards it before any request is
+          // routed to it. Registered on the SUCCESS path only: a connection the
+          // closed-latch above already disposed has no slot to invalidate.
+          conn.onClose?.(() => resetSharedConn(conn));
           return conn;
         },
         (err) => {
@@ -250,8 +294,9 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     try {
       return await fn(conn.client);
     } catch (e) {
-      if (isDeadTransportError(e)) resetSharedConn(conn);
-      throw e;
+      if (!isDeadTransportError(e)) throw e;
+      resetSharedConn(conn);
+      throw droppedMidCall(e);
     }
   };
 
@@ -877,6 +922,32 @@ function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
  *  case. The one place this rule lives, called by both dispatch branches. */
 function unwrapArgs(wrapped: boolean, args: Record<string, unknown>): unknown {
   return wrapped ? args.value : args;
+}
+
+/** Re-frame a transport death that killed a call ALREADY IN FLIGHT, so the
+ *  message names the layer that actually died.
+ *
+ *  The raw error is the LINK's own vocabulary — "stdio transport closed … the
+ *  peer process exited or its stream ended" — which is true of the link and
+ *  badly false of everything above it. An MCP host reads it on its own stdio
+ *  channel and concludes the MCP SERVER exited, so it stops calling; that is
+ *  exactly what happened in juspay/kolu#2082, where one such message cost the
+ *  rest of an agent's session. This server is running, it has already discarded
+ *  the dead connection, and the very next request re-dials — so say that, and
+ *  keep the original text as the cause so the underlying reason is not lost
+ *  (a re-frame must add context, never swallow it).
+ *
+ *  Reached only from `withClient`'s catch, i.e. only for the genuine race where
+ *  the transport died mid-call. A transport that ANNOUNCES its close is dropped
+ *  eagerly and produces no failed request to re-frame at all. */
+function droppedMidCall(e: unknown): Error {
+  const reason = e instanceof Error ? e.message : String(e);
+  return new Error(
+    "the connection to the served surface dropped while this request was in " +
+      `flight (${reason}). This MCP server is still running and has discarded ` +
+      "the dead connection — retry, and the next request re-dials.",
+    { cause: e },
+  );
 }
 
 /** Coerce an unknown thrown value into a failed `ToolResult`. */

@@ -840,6 +840,118 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     expect(disposes).toBe(1);
     await mcp.callTool({ name: "ok_ping", arguments: {} });
     expect(dials).toBe(2);
+
+    // And it says so in the layer the AGENT is standing in: the raw link error
+    // ("stdio transport closed … the peer process exited") reads as though this
+    // MCP server died, which is the misread that cost a whole session in #2082.
+    const text = (drop as { content?: { text: string }[] }).content?.[0]?.text;
+    expect(text).toContain("the connection to the served surface dropped");
+    expect(text).toContain("This MCP server is still running");
+    expect(text).toContain("retry");
+    // The underlying reason survives the re-frame — context added, never swallowed.
+    expect(text).toContain("pipe closed");
+  });
+
+  // ── #2082: a restart must cost ZERO requests ─────────────────────────────
+  //
+  // The bug: the shared connection was only ever dropped by a call FAILING on
+  // it, so a daemon restart was discovered by spending a request on the corpse.
+  // The first request after every restart failed and every later one succeeded
+  // — and the agent on the other end read that one failure as "the MCP server
+  // is dead" and stopped using MCP for the rest of its session.
+  it("a connection that ANNOUNCES its close is dropped eagerly — the next request costs nothing (#2082)", async () => {
+    const over = concurrencySurface();
+    let dials = 0;
+    let disposes = 0;
+    // The live transport's close callbacks, per dial — firing one is this test's
+    // stand-in for "padi exited", which is exactly what padi's `onClose` reports.
+    const closers: Array<() => void> = [];
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const { close } = await serveSurfaceAsMcp({
+      surface: over.surface,
+      client: () => {
+        dials += 1;
+        return {
+          client: over.client,
+          dispose: () => {
+            disposes += 1;
+          },
+          onClose: (cb: () => void) => closers.push(cb),
+        };
+      },
+      expose: { "ok.ping": { tool: { mutates: false } } },
+      serverInfo: { name: "t", version: "0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "c", version: "0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => close(),
+    );
+
+    // One live connection, and the adapter subscribed to its close.
+    await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(dials).toBe(1);
+    expect(closers).toHaveLength(1);
+
+    // The daemon goes away while the adapter is IDLE — no request in flight, which
+    // is the ordinary restart (an upgrade at 18:17, the agent's next call at 23:15).
+    closers[0]?.();
+    expect(disposes).toBe(1); // discarded on the announcement, not on a failure
+
+    // THE REGRESSION: the very next request must SUCCEED against a fresh dial.
+    // Before the fix this call was spent proving the socket was dead.
+    const after = await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(after.isError).toBeFalsy();
+    expect(dials).toBe(2);
+  });
+
+  it("a late close announcement cannot dispose the successor connection (#2082)", async () => {
+    // The identity guard, now reachable from a second direction. `onClose` fires
+    // on the OLD connection's schedule, so it can land after something else has
+    // already re-dialed — and disposing the live successor there would break the
+    // very calls the eager drop exists to protect.
+    const over = concurrencySurface();
+    let dials = 0;
+    const disposed: number[] = [];
+    const closers: Array<() => void> = [];
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const { close } = await serveSurfaceAsMcp({
+      surface: over.surface,
+      client: () => {
+        const n = (dials += 1);
+        return {
+          client: over.client,
+          dispose: () => disposed.push(n),
+          onClose: (cb: () => void) => closers.push(cb),
+        };
+      },
+      expose: { "ok.ping": { tool: { mutates: false } } },
+      serverInfo: { name: "t", version: "0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "c", version: "0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => close(),
+    );
+
+    await mcp.callTool({ name: "ok_ping", arguments: {} }); // conn #1
+    closers[0]?.(); // #1 announces its death → dropped
+    await mcp.callTool({ name: "ok_ping", arguments: {} }); // conn #2 is now live
+    expect(dials).toBe(2);
+    expect(disposed).toEqual([1]);
+
+    // #1's announcement arriving AGAIN (a duplicate/late close) must be inert.
+    closers[0]?.();
+    expect(disposed).toEqual([1]); // #2 untouched
+    const after = await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(after.isError).toBeFalsy();
+    expect(dials).toBe(2); // still #2 — no needless re-dial
   });
 
   it("concurrent first calls share ONE dial (no double-dial leak)", async () => {
