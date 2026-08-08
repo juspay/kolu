@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-08-08T13:52:17.979429+00:00'
+generated_at: '2026-08-08T14:03:48.523159+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/agents
@@ -257,7 +257,7 @@ dependencies:
 - repo_url: srid/agency
   name: agency
   host: github.com
-  resolved_commit: f360f59a2634da2e83772d37b356bc4fd86c9d50
+  resolved_commit: 25a20c4926736d6c33d9135b97a0b3f1d9dbd128
   resolved_ref: master
   version: 1.0.0
   package_type: apm_package
@@ -320,10 +320,10 @@ dependencies:
   - .opencode/agents/hickey.md
   - .opencode/agents/lowy.md
   deployed_file_hashes:
-    .agents/skills/code-police/SKILL.md: sha256:8d188754eaf56063de720a0c02fa927db3b56ff5fa30d0e612893ca8798da899
+    .agents/skills/code-police/SKILL.md: sha256:3a9232b89faaf6555aff85517fbcacd3c61b4e061c3b07c5df932ae9070a9a06
     .agents/skills/do/RATIONALE.md: sha256:1b4bbc2fa72570d7b73f208f85b4cc1cae121a3e2e10c8598bc7353e2868588d
     .agents/skills/do/RESULTS.md: sha256:00353a10c75634ac178ae41d2f53ea05c2f138995c09b37df2b0e10480f6b746
-    .agents/skills/do/SKILL.md: sha256:3ca71a1eb829eef49e56ddb77b951b6d2c8e265055de3f4034aaf7b8fe23352b
+    .agents/skills/do/SKILL.md: sha256:d09bf2d230cb949d6641be9a10fe3981d1bda9e659668ffad7632c20da3126d9
     .agents/skills/do/scripts/do-results: sha256:2684dfce9cc7e4314d56c39edd5495628ac65d0631860e27e11f17fdcc0c7d49
     .agents/skills/do/scripts/steps/done: sha256:03513d90bea1357eef3379c5b4fee5e46fe2d67b41fe8cf8b52d4beba4c73c72
     .agents/skills/do/scripts/steps/sync: sha256:88fc95c548b183b766df02285038bf12d43fd06ae32b9a15f57dd741d9c83466
@@ -331,19 +331,19 @@ dependencies:
     .agents/skills/fact-check/SKILL.md: sha256:6c4280ef618d27c278fc34365d336b1f889afb5b92f06ef6199fafe5a11304c0
     .agents/skills/forge-pr/EXAMPLES.md: sha256:68497f3b6e73dd736736887b9798192f486ac20d7ef61c1ff9cd29f9dfa40222
     .agents/skills/forge-pr/SKILL.md: sha256:c79d167bfc1686b15ae4a95416e26050b2ffc93d2f3dae48fde5d01746d757f3
-    .agents/skills/hickey/SKILL.md: sha256:6eccc8ef4a2368c8ca898abde4b8a94451b844bb9cc082767a718fa2796c29ef
+    .agents/skills/hickey/SKILL.md: sha256:ee4b73699480d01006185c1b31005e65a39e4431496424793024d9f5488cd4be
     .agents/skills/hickey/transcript.md: sha256:c7da3fda455cc17adc5788984954baf95a354f2e83367bff0efd1b01f45a96a3
-    .agents/skills/lowy/SKILL.md: sha256:9f17781cbe4f3e912f6a9d493e218e14cd1324d20228c64ba7ef07b7258d76db
+    .agents/skills/lowy/SKILL.md: sha256:8ca4aa170e1d86f9e83b3553c1cfaea0396742206fc9d87a88a3d9bf19fea795
     .agents/skills/ralph/SKILL.md: sha256:1b2c547102584c87384b90b291536bedc0494dcb8382ac776bd0a3cec0fe1b4a
-    .agents/skills/talk/SKILL.md: sha256:ba059751cd4b3c1c52221554719bfe1fc5da56540694cb8e793ae0c19e210377
+    .agents/skills/talk/SKILL.md: sha256:7dcdec44427f98fbfae745dff920384db0b48575468ee62acbd89ebd266083b3
     .claude/agents/hickey.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
     .claude/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
     .claude/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
-    .claude/skills/code-police/SKILL.md: sha256:8d188754eaf56063de720a0c02fa927db3b56ff5fa30d0e612893ca8798da899
+    .claude/skills/code-police/SKILL.md: sha256:3a9232b89faaf6555aff85517fbcacd3c61b4e061c3b07c5df932ae9070a9a06
     .claude/skills/do/RATIONALE.md: sha256:1b4bbc2fa72570d7b73f208f85b4cc1cae121a3e2e10c8598bc7353e2868588d
     .claude/skills/do/RESULTS.md: sha256:00353a10c75634ac178ae41d2f53ea05c2f138995c09b37df2b0e10480f6b746
-    .claude/skills/do/SKILL.md: sha256:3ca71a1eb829eef49e56ddb77b951b6d2c8e265055de3f4034aaf7b8fe23352b
+    .claude/skills/do/SKILL.md: sha256:d09bf2d230cb949d6641be9a10fe3981d1bda9e659668ffad7632c20da3126d9
     .claude/skills/do/scripts/do-results: sha256:2684dfce9cc7e4314d56c39edd5495628ac65d0631860e27e11f17fdcc0c7d49
     .claude/skills/do/scripts/steps/done: sha256:03513d90bea1357eef3379c5b4fee5e46fe2d67b41fe8cf8b52d4beba4c73c72
     .claude/skills/do/scripts/steps/sync: sha256:88fc95c548b183b766df02285038bf12d43fd06ae32b9a15f57dd741d9c83466
@@ -351,15 +351,15 @@ dependencies:
     .claude/skills/fact-check/SKILL.md: sha256:6c4280ef618d27c278fc34365d336b1f889afb5b92f06ef6199fafe5a11304c0
     .claude/skills/forge-pr/EXAMPLES.md: sha256:68497f3b6e73dd736736887b9798192f486ac20d7ef61c1ff9cd29f9dfa40222
     .claude/skills/forge-pr/SKILL.md: sha256:c79d167bfc1686b15ae4a95416e26050b2ffc93d2f3dae48fde5d01746d757f3
-    .claude/skills/hickey/SKILL.md: sha256:6eccc8ef4a2368c8ca898abde4b8a94451b844bb9cc082767a718fa2796c29ef
+    .claude/skills/hickey/SKILL.md: sha256:ee4b73699480d01006185c1b31005e65a39e4431496424793024d9f5488cd4be
     .claude/skills/hickey/transcript.md: sha256:c7da3fda455cc17adc5788984954baf95a354f2e83367bff0efd1b01f45a96a3
-    .claude/skills/lowy/SKILL.md: sha256:9f17781cbe4f3e912f6a9d493e218e14cd1324d20228c64ba7ef07b7258d76db
+    .claude/skills/lowy/SKILL.md: sha256:8ca4aa170e1d86f9e83b3553c1cfaea0396742206fc9d87a88a3d9bf19fea795
     .claude/skills/ralph/SKILL.md: sha256:1b2c547102584c87384b90b291536bedc0494dcb8382ac776bd0a3cec0fe1b4a
-    .claude/skills/talk/SKILL.md: sha256:ba059751cd4b3c1c52221554719bfe1fc5da56540694cb8e793ae0c19e210377
+    .claude/skills/talk/SKILL.md: sha256:7dcdec44427f98fbfae745dff920384db0b48575468ee62acbd89ebd266083b3
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
     .opencode/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
-  content_hash: sha256:674d501abcc3278b88088e08e36b24b122fea8f78bbc72e8a8b493918bc2fcc3
+  content_hash: sha256:e158c9989787393d84f9a1f5fac8e6ddac6eae00b1cac772910d3fb22378594a
   declared_license: MIT
 deployments:
 - kind: project-relative
@@ -1118,7 +1118,7 @@ deployments:
   owners:
   - srid/agency
   active_owner: srid/agency
-  content_hash: sha256:8d188754eaf56063de720a0c02fa927db3b56ff5fa30d0e612893ca8798da899
+  content_hash: sha256:3a9232b89faaf6555aff85517fbcacd3c61b4e061c3b07c5df932ae9070a9a06
 - kind: project-relative
   target: claude
   value: .claude/skills/coordinator
@@ -1208,7 +1208,7 @@ deployments:
   owners:
   - srid/agency
   active_owner: srid/agency
-  content_hash: sha256:3ca71a1eb829eef49e56ddb77b951b6d2c8e265055de3f4034aaf7b8fe23352b
+  content_hash: sha256:d09bf2d230cb949d6641be9a10fe3981d1bda9e659668ffad7632c20da3126d9
 - kind: project-relative
   target: claude
   value: .claude/skills/do/scripts/do-results
@@ -1370,7 +1370,7 @@ deployments:
   owners:
   - srid/agency
   active_owner: srid/agency
-  content_hash: sha256:6eccc8ef4a2368c8ca898abde4b8a94451b844bb9cc082767a718fa2796c29ef
+  content_hash: sha256:ee4b73699480d01006185c1b31005e65a39e4431496424793024d9f5488cd4be
 - kind: project-relative
   target: claude
   value: .claude/skills/hickey/transcript.md
@@ -1469,7 +1469,7 @@ deployments:
   owners:
   - srid/agency
   active_owner: srid/agency
-  content_hash: sha256:9f17781cbe4f3e912f6a9d493e218e14cd1324d20228c64ba7ef07b7258d76db
+  content_hash: sha256:8ca4aa170e1d86f9e83b3553c1cfaea0396742206fc9d87a88a3d9bf19fea795
 - kind: project-relative
   target: claude
   value: .claude/skills/nix-chrome-devtools-mcp
@@ -1820,7 +1820,7 @@ deployments:
   owners:
   - srid/agency
   active_owner: srid/agency
-  content_hash: sha256:ba059751cd4b3c1c52221554719bfe1fc5da56540694cb8e793ae0c19e210377
+  content_hash: sha256:7dcdec44427f98fbfae745dff920384db0b48575468ee62acbd89ebd266083b3
 - kind: project-relative
   target: claude
   value: .claude/skills/test
@@ -2009,7 +2009,7 @@ deployments:
   owners:
   - srid/agency
   active_owner: srid/agency
-  content_hash: sha256:8d188754eaf56063de720a0c02fa927db3b56ff5fa30d0e612893ca8798da899
+  content_hash: sha256:3a9232b89faaf6555aff85517fbcacd3c61b4e061c3b07c5df932ae9070a9a06
 - kind: project-relative
   target: codex
   value: .agents/skills/coordinator
@@ -2081,7 +2081,7 @@ deployments:
   owners:
   - srid/agency
   active_owner: srid/agency
-  content_hash: sha256:3ca71a1eb829eef49e56ddb77b951b6d2c8e265055de3f4034aaf7b8fe23352b
+  content_hash: sha256:d09bf2d230cb949d6641be9a10fe3981d1bda9e659668ffad7632c20da3126d9
 - kind: project-relative
   target: codex
   value: .agents/skills/do/scripts/do-results
@@ -2216,7 +2216,7 @@ deployments:
   owners:
   - srid/agency
   active_owner: srid/agency
-  content_hash: sha256:6eccc8ef4a2368c8ca898abde4b8a94451b844bb9cc082767a718fa2796c29ef
+  content_hash: sha256:ee4b73699480d01006185c1b31005e65a39e4431496424793024d9f5488cd4be
 - kind: project-relative
   target: codex
   value: .agents/skills/hickey/transcript.md
@@ -2315,7 +2315,7 @@ deployments:
   owners:
   - srid/agency
   active_owner: srid/agency
-  content_hash: sha256:9f17781cbe4f3e912f6a9d493e218e14cd1324d20228c64ba7ef07b7258d76db
+  content_hash: sha256:8ca4aa170e1d86f9e83b3553c1cfaea0396742206fc9d87a88a3d9bf19fea795
 - kind: project-relative
   target: codex
   value: .agents/skills/nix-chrome-devtools-mcp
@@ -2540,7 +2540,7 @@ deployments:
   owners:
   - srid/agency
   active_owner: srid/agency
-  content_hash: sha256:ba059751cd4b3c1c52221554719bfe1fc5da56540694cb8e793ae0c19e210377
+  content_hash: sha256:7dcdec44427f98fbfae745dff920384db0b48575468ee62acbd89ebd266083b3
 - kind: project-relative
   target: codex
   value: .codex/hooks/agency/scripts/do-stop-guard.sh
