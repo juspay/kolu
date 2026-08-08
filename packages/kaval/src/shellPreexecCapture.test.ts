@@ -37,8 +37,18 @@ const FIXTURE_BASH_PREEXEC = join(
   "bash-preexec-0.6.0.fixture.sh",
 );
 
-/** A distinctive prompt so the tests can count completed prompt cycles. */
+/** A distinctive marker printed at every prompt so the tests can count
+ *  completed prompt cycles. Emitted from a PROMPT_COMMAND element, NOT via a
+ *  static `PS1=`: a box with a system-wide prompt framework (the CI pool
+ *  boxes run starship from /etc/bashrc) re-generates PS1 at every prompt from
+ *  its own PROMPT_COMMAND hook, silently clobbering any PS1 the user rc set —
+ *  while PROMPT_COMMAND elements are additive and survive every framework's
+ *  self-install (bash-preexec's included, which sanitizes but preserves them). */
 const PROMPT = "KOLU_TEST_PROMPT>";
+const PROMPT_MARK_RC = [
+  `__kolu_test_prompt_mark() { printf '%s' '${PROMPT}'; }`,
+  `PROMPT_COMMAND="__kolu_test_prompt_mark\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"`,
+].join("\n");
 
 /** Wait for `fn`, failing with `diagnose()`'s output in the error — a CI box
  *  can't be attached to, so the timeout itself must say what the shell showed. */
@@ -130,13 +140,13 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
   /** The user rc of an atuin-style setup: bash-preexec sourced from the rc,
    *  exactly as `atuin init bash` arranges (bash-preexec first, then hooks). */
   const bashPreexecRc = [
-    `PS1='${PROMPT} '`,
+    PROMPT_MARK_RC,
     `source '${FIXTURE_BASH_PREEXEC}'`,
     "",
   ].join("\n");
 
   /** A plain rc — no DEBUG-trap contenders. */
-  const plainRc = `PS1='${PROMPT} '\n`;
+  const plainRc = `${PROMPT_MARK_RC}\n`;
 
   // Generous per-test timeouts: a cold CI box pays real startup cost for an
   // interactive bash (replayed /etc/profile and all), and the inner waitFors
