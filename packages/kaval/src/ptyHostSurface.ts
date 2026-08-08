@@ -524,7 +524,7 @@ const SystemInfoOutputSchema = Schema.Struct({
 // ── The declared error vocabulary (PLAN D4) ─────────────────────────────
 //
 // Two failures on this wire are ACTIONABLE — a caller branches on them — so they
-// are declared as `Schema.TaggedErrorClass`es and carried by the members that
+// are declared as `Schema.TaggedError`es and carried by the members that
 // raise them. Everything else a handler can throw (a duplicate spawn id, a
 // node-pty failure, a termination deadline) stays UNDECLARED and therefore a
 // DEFECT: it crosses opaquely and crashes loudly, which is the correct reading of
@@ -544,7 +544,7 @@ const SystemInfoOutputSchema = Schema.Struct({
  *  an undeclared failure — a DEFECT, opaque across a wire hop and narrowable only
  *  in-process. That asymmetry is the framework's, not this contract's, and the
  *  corpus already asserts only "it rejects" for the stream leg because of it. */
-export class PtyNotFound extends Schema.TaggedErrorClass<PtyNotFound>(
+export class PtyNotFound extends Schema.TaggedError<PtyNotFound>(
   "kaval/PtyNotFound",
 )("PtyNotFound", { id: Schema.String }) {
   override get message(): string {
@@ -557,7 +557,7 @@ export class PtyNotFound extends Schema.TaggedErrorClass<PtyNotFound>(
  *  defence: a malformed frame becomes a clean, named refusal rather than a spawn
  *  of `undefined`. Declared so a caller composing argv programmatically gets an
  *  answer it can branch on instead of a defect. */
-export class SpawnArgvEmpty extends Schema.TaggedErrorClass<SpawnArgvEmpty>(
+export class SpawnArgvEmpty extends Schema.TaggedError<SpawnArgvEmpty>(
   "kaval/SpawnArgvEmpty",
 )("SpawnArgvEmpty", {}) {
   override get message(): string {

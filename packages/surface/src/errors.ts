@@ -2,7 +2,7 @@
  * The surface's SHARED tagged-error vocabulary (D4).
  *
  * Every error that has to be recognised on the far side of a wire hop lives
- * here, as a `Schema.TaggedErrorClass`, in ONE module that all three tiers
+ * here, as a `Schema.TaggedError`, in ONE module that all three tiers
  * (`@kolu/surface`, `@kolu/surface-map`, `@kolu/surface-remote`) import. That
  * single home is not tidiness — it is the requirement:
  *
@@ -42,7 +42,7 @@ import { Schema } from "effect";
  *  construction — the retry schedule must STOP and every in-flight and future call
  *  must fail with this (D5/#5). Reconnecting would re-present the same stale `pid`
  *  and be closed again, forever. */
-export class SurfaceTransportRetired extends Schema.TaggedErrorClass<SurfaceTransportRetired>(
+export class SurfaceTransportRetired extends Schema.TaggedError<SurfaceTransportRetired>(
   "@kolu/surface/SurfaceTransportRetired",
 )("SurfaceTransportRetired", { reason: Schema.String }) {
   override get message(): string {
@@ -53,7 +53,7 @@ export class SurfaceTransportRetired extends Schema.TaggedErrorClass<SurfaceTran
 /** A stdio/unix-socket leg was CLOSED (kolu#1719): the subprocess or socket the
  *  link rode is gone. Permanently dead for that link — the owner re-dials and gets
  *  a NEW link; the dead one never heals. */
-export class SurfaceStdioTransportClosed extends Schema.TaggedErrorClass<SurfaceStdioTransportClosed>(
+export class SurfaceStdioTransportClosed extends Schema.TaggedError<SurfaceStdioTransportClosed>(
   "@kolu/surface/SurfaceStdioTransportClosed",
 )("SurfaceStdioTransportClosed", { reason: Schema.String }) {
   override get message(): string {
@@ -71,7 +71,7 @@ export class SurfaceStdioTransportClosed extends Schema.TaggedErrorClass<Surface
  *  It exists precisely BECAUSE it must survive the relay hop: the parent decodes a
  *  transport death from upstream and re-encodes THIS downstream. Both ends share
  *  this class, so the browser recognises it by `_tag`, not by a magic code. */
-export class SurfaceRelayTransportLost extends Schema.TaggedErrorClass<SurfaceRelayTransportLost>(
+export class SurfaceRelayTransportLost extends Schema.TaggedError<SurfaceRelayTransportLost>(
   "@kolu/surface/SurfaceRelayTransportLost",
 )("SurfaceRelayTransportLost", { reason: Schema.String }) {
   override get message(): string {
@@ -92,7 +92,7 @@ export class SurfaceRelayTransportLost extends Schema.TaggedErrorClass<SurfaceRe
  *  spelling reach a real member while the republish loop publishes on the CANONICAL
  *  spelling — two channel names for one member, so the non-canonical subscriber's
  *  stream holds open and never receives an update. */
-export class MapKeyNonCanonical extends Schema.TaggedErrorClass<MapKeyNonCanonical>(
+export class MapKeyNonCanonical extends Schema.TaggedError<MapKeyNonCanonical>(
   "@kolu/surface/MapKeyNonCanonical",
 )("MapKeyNonCanonical", {
   wireKey: Schema.String,
@@ -110,7 +110,7 @@ export class MapKeyNonCanonical extends Schema.TaggedErrorClass<MapKeyNonCanonic
 /** A UNARY call named a key that is not a member of the map. (A STREAM call on an
  *  absent key is a typed END, never an error frame — membership loss mid-stream is
  *  ordinary, and only a one-shot call cannot end gracefully.) */
-export class MapKeyUnknown extends Schema.TaggedErrorClass<MapKeyUnknown>(
+export class MapKeyUnknown extends Schema.TaggedError<MapKeyUnknown>(
   "@kolu/surface/MapKeyUnknown",
 )("MapKeyUnknown", { mapKey: Schema.String }) {
   override get message(): string {
@@ -122,7 +122,7 @@ export class MapKeyUnknown extends Schema.TaggedErrorClass<MapKeyUnknown>(
  *  is no link to forward the call to. `failure` is the rendered fault, carried as a
  *  string because the fault's own shape is app-owned and must not leak into the
  *  framework's wire union. */
-export class MapEntryFailed extends Schema.TaggedErrorClass<MapEntryFailed>(
+export class MapEntryFailed extends Schema.TaggedError<MapEntryFailed>(
   "@kolu/surface/MapEntryFailed",
 )("MapEntryFailed", { mapKey: Schema.String, failure: Schema.String }) {
   override get message(): string {

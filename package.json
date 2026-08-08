@@ -18,10 +18,10 @@
       "node-pty"
     ],
     "overrides": {
-      "effect": "4.0.0-beta.103",
-      "@effect/platform-node": "4.0.0-beta.103",
-      "@effect/platform-browser": "4.0.0-beta.103",
-      "@effect/vitest": "4.0.0-beta.103",
+      "effect": "4.0.0-beta.106",
+      "@effect/platform-node": "4.0.0-beta.106",
+      "@effect/platform-browser": "4.0.0-beta.106",
+      "@effect/vitest": "4.0.0-beta.106",
       "@babel/core": "^7.29.6",
       "esbuild": "^0.28.1",
       "serialize-javascript": "^7.0.3",

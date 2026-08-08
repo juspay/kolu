@@ -48,9 +48,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "a65bc332c7df9ec40c04555ad713e21453a39b6d",
-      "url": "https://github.com/juspay/osfacts/archive/a65bc332c7df9ec40c04555ad713e21453a39b6d.tar.gz",
-      "hash": "sha256-Rur/5Pp57BTc7yrcm1BO/poxJgwE3EwwHZBKYYcGa2A="
+      "revision": "c2cbb9c344caf47f7b7699d013f71b79e85ec303",
+      "url": "https://github.com/juspay/osfacts/archive/c2cbb9c344caf47f7b7699d013f71b79e85ec303.tar.gz",
+      "hash": "sha256-grRxBstfmqZ6k5cMmqLHjk3vfLCsTx+B07vPZz/kEh8="
     },
     "rhai-lsp": {
       "type": "Git",

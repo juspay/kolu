@@ -539,7 +539,7 @@ describe("the declared error vocabulary (PLAN D4)", () => {
       new KavalContractSkew({ daemonVersion: "6.0", requiredVersion: "7.0" }),
     ];
     for (const original of cases) {
-      // The class IS the schema — a `Schema.TaggedErrorClass` is both. The cast
+      // The class IS the schema — a `Schema.TaggedError` is both. The cast
       // erases only the per-class type parameter, which this loop deliberately
       // does not name (the point is that EVERY member behaves the same way).
       const schema = original.constructor as unknown as Schema.Codec<

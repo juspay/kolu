@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
+import { Yaml } from "effect/unstable/encoding";
 import {
   collectAwaitedFaceCalls,
   validateAwaitedFaceCalls,
@@ -61,7 +61,7 @@ const inventory = readInventory(
   readFileSync(inventoryPath, "utf8"),
   inventoryPath,
 );
-const ledger = parseYaml(readFileSync(ledgerPath, "utf8")) as CoverageLedger;
+const ledger = Yaml.parse(readFileSync(ledgerPath, "utf8")) as CoverageLedger;
 const current = readCurrentSuite(packageRoot, head);
 
 const currentIds = new Set(current.records.map((record) => record.revisionId));

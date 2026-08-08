@@ -629,7 +629,7 @@ export const DaemonLifetimeInfoSchema = Schema.Union([
 // arms that must not carry it. `daemonStatus.antiFields.test.ts` pins both
 // directions per arm so the guard cannot rot into a no-op.
 //
-// BETA-ASSUMPTION(beta.103): `Schema.optionalKey(Schema.Never)` accepts a MISSING key and rejects any PRESENT value.
+// BETA-ASSUMPTION(beta.106): `Schema.optionalKey(Schema.Never)` accepts a MISSING key and rejects any PRESENT value.
 //   Both halves are decoder behavior, not type-level — a bump that accepts an
 //   explicit `undefined` makes the field spellable again and the arms stop
 //   being disjoint on the wire, with nothing in the types to say so.

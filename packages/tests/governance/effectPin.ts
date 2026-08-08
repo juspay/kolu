@@ -44,7 +44,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { parse as parseYaml } from "yaml";
+import { Yaml } from "effect/unstable/encoding";
 
 /** A single spelling of an effect-family version. */
 export interface EffectPin {
@@ -139,7 +139,7 @@ export function overridePins(relPath: string, manifest: Manifest): EffectPin[] {
 
 /** The effect-family entries of the pnpm catalog. */
 export function catalogPins(relPath: string, yamlText: string): EffectPin[] {
-  const parsed = parseYaml(yamlText) as { catalog?: unknown };
+  const parsed = Yaml.parse(yamlText) as { catalog?: unknown };
   const out: EffectPin[] = [];
   for (const [pkg, spec] of Object.entries(record(parsed.catalog))) {
     if (isEffectFamily(pkg)) {

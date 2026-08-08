@@ -34,7 +34,7 @@
  *
  * ## The measurement behind the marker
  *
- * BETA-ASSUMPTION(beta.103): an ndjson frame over `maxBufferSize` closes the socket with code 1009 rather than failing the single oversized call.
+ * BETA-ASSUMPTION(beta.106): an ndjson frame over `maxBufferSize` closes the socket with code 1009 rather than failing the single oversized call.
  *
  * Measured against `effect@4.0.0-beta.103`:
  *   - `dist/unstable/rpc/RpcSerialization.js` — `defaultMaxBufferSize = 16 * 1024 * 1024`,

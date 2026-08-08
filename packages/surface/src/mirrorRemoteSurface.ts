@@ -879,7 +879,7 @@ function mirrorCollectionDeltas<K, V>(opts: {
  *  successor of the old `rejectSink` + `Promise.race` channel, and it is here for
  *  the same reason: a pump runs concurrently with the loop that spawned it.)
  *
- *  BETA-ASSUMPTION(beta.103): a failed `Effect.forkChild` child does NOT fail its parent fiber.
+ *  BETA-ASSUMPTION(beta.106): a failed `Effect.forkChild` child does NOT fail its parent fiber.
  *  Propagation is behavior, not API. Were a bump to make a child failure reach
  *  the parent, the `Deferred` race becomes a second, unordered path to the same
  *  exit; were it to interrupt the parent mid-fold instead, `done` resolves on a
