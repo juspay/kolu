@@ -106,7 +106,8 @@ watching its write-ahead log. Those file-change watches are backed by a low-rate
 stat reconciliation, so if the OS drops the change notification for a fast turn's
 final write, the state self-heals within about a second instead of stranding on
 its last reading. In a normal shell terminal that's enough: the shell
-prints a marker naming each command as it runs, and the agent's process becomes
+prints a marker naming each command as it runs — part of kolu's
+[shell integration](/shell-integration) — and the agent's process becomes
 the foreground. When an agent is launched **as the terminal's root process** — no
 shell wrapping it, e.g. `kaval-tui create -- codex` — there is no shell to print
 that marker, so kolu instead **remembers the exact command the terminal was
