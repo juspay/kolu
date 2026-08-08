@@ -29,6 +29,7 @@ import {
   padiClientOver,
   scopePadiSurface,
 } from "@kolu/padi/dial";
+import type { SurfaceDispatch } from "@kolu/surface/link";
 import { Effect } from "effect";
 import {
   classifyDialFailure,
@@ -36,6 +37,31 @@ import {
   type KoluCliDialError,
   PadiDialFailed,
 } from "./connect.ts";
+
+/** Project a dialed `AgentDial` onto the face-visible {@link KoluCliConnection}.
+ *  The mirror of `connect.ts`'s `koluCliConnectionOf`, named for the same
+ *  reason: the two arms must be readable side by side, and a field one carries
+ *  and the other does not must be VISIBLE as such rather than silently absent
+ *  from an inline literal. The literal that dropped `onClose` without saying so
+ *  was juspay/kolu#2082. */
+function koluCliConnectionOfAgentDial(
+  dispatch: SurfaceDispatch,
+  dispose: () => void,
+): KoluCliConnection {
+  return {
+    client: scopePadiSurface(padiClientOver(dispatch)),
+    dispose,
+    // NO close announcement, stated rather than omitted. `AgentDial` carries no
+    // close-shaped field, so there is nothing here to pass on — even though the
+    // ssh layer below DOES observe its child's exit (`sshConnector`'s
+    // `ClosedInfo`, surfaced per attempt as `Connection.closed`). The gap is the
+    // dial's face, not the transport; until it projects one, the MCP adapter
+    // falls back to its lazy catch-side reset, so a remote padi restart still
+    // costs the first call after it. Wiring the projection is the follow-up, and
+    // this line is where it lands.
+    onClose: undefined,
+  };
+}
 
 /** Dial a padi on `host` over ssh, one-shot: provision, run `padi --stdio`,
  *  gate the padiSurface contract version, scope to padi's sibling face. All
@@ -69,10 +95,9 @@ export function connectKoluCliViaHost(
           }),
         );
       }
-      return Effect.succeed({
-        client: scopePadiSurface(padiClientOver(dial.dispatch)),
-        dispose: dial.dispose,
-      });
+      return Effect.succeed(
+        koluCliConnectionOfAgentDial(dial.dispatch, dial.dispose),
+      );
     },
   );
 }

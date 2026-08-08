@@ -230,6 +230,20 @@ The MCP face's discipline across that gap, in order:
    restarted padi that no longer speaks our contract **fails the gate loudly
    and the MCP server exits with that error** — it never keeps serving a
    surface it can't honestly represent (fail-fast; no silent degradation).
+   **The death is ANNOUNCED, not discovered.** Redial says *where* a restart
+   heals; it does not say *when* the adapter finds out, and that omission had a
+   price ([#2082](https://github.com/juspay/kolu/issues/2082)): the adapter
+   learned only by sending a request into the dead socket, so the first
+   padi-backed request after every restart was destroyed. `connectPadi` already
+   hands back a `DaemonConnection` whose `onClose` fires when the socket
+   closes — kolu-cli carries it through to the adapter, which drops the corpse
+   the moment it hears. A restart across an idle gap now costs zero requests.
+   (Local socket arm only. The ssh `--host` dial does not yet **carry** the
+   announcement: `sshConnector` observes its child's exit and the session
+   exposes it per attempt as `Connection.closed`, but `AgentDial` projects
+   neither, so `connectKoluCliViaHost` has nothing to pass on. A missing
+   projection at one hop — the same shape as #2082 itself — not a limitation
+   of ssh. Closing it is the remote follow-up.)
 3. **Tools during the gap fail fast, typed, retryable** — a `create` or
    `sendInput` while disconnected returns an explicit
    transport-down error the agent can retry; nothing queues locally (a queued
@@ -244,6 +258,11 @@ The MCP face's discipline across that gap, in order:
 The pin for this section rides the e2e (step 9): mid-attach and mid-subscribe,
 recycle kaval and restart padi; assert ids survive, resources re-seed, the
 in-gap tool call fails typed, and the compat-gate failure path exits loudly.
+A second restart leg covers the *idle* gap — restart padi with no MCP traffic
+in flight, then assert the very FIRST request afterwards lands, with no retry
+and no warm-up. That is the leg #2082 needed and the mid-subscribe one could
+never catch: calling *during* the gap spends the wasted request on a call that
+was going to fail anyway, which hides it.
 
 ## Architecture-level changes
 

@@ -39,15 +39,32 @@
 
 import {
   connectPadi,
-  type PadiSurfaceClient,
+  type PadiConnection,
   resolveRunningPadiSocket,
   scopePadiSurface,
 } from "@kolu/padi/dial";
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
+import type { KoluMcpConnection } from "kolu-mcp";
 import { Data, Effect } from "effect";
 
 /** The transport-blind handle a CLI face is written against — the padi-scoped
- *  client plus a `dispose` that drops the socket/pipe.
+ *  client, a `dispose` that drops the socket/pipe, and the transport's optional
+ *  close announcement.
+ *
+ *  Deliberately `KoluMcpConnection` itself rather than a re-declaration of its
+ *  three fields. Re-declaring them is the same shape of hazard as #2082 one
+ *  level up: a field added to one copy and forgotten on the other drifts in
+ *  silence, because `guardedMcpDial` passes the value across the package
+ *  boundary by structural width-subtyping alone, so nothing says so. An alias
+ *  makes that drift unspellable — and kolu-cli already depends on kolu-mcp, so
+ *  the arrow points the way it already points. `KoluMcpConnection` in turn
+ *  `extends` the adapter's own `OwnedSurfaceConnection`, so the whole chain from
+ *  dial to adapter is one shape rather than three copies.
+ *
+ *  The name stays because the two roles differ: this is what a CLI FACE is
+ *  written against (`kolu mcp` today, `kolu tui` later), and only one of those
+ *  faces is the MCP adapter. See {@link KoluMcpConnection} for the field docs,
+ *  including why `onClose` is optional.
  *
  *  Deliberately NOT an `Effect.acquireRelease`d resource, and the reason is the
  *  consumer: the MCP adapter (`kolu-mcp`) OWNS a dialed connection's lifetime —
@@ -56,10 +73,7 @@ import { Data, Effect } from "effect";
  *  effect's own scope), so the handle keeps carrying its `dispose` and the dial
  *  hands the resource OUT. Where kolu-cli owns a link itself — it does not
  *  today — the scoped form is the one to reach for. */
-export interface KoluCliConnection {
-  client: PadiSurfaceClient;
-  dispose: () => void;
-}
+export type KoluCliConnection = KoluMcpConnection;
 
 /** The running padi could not be NAMED: none discovered, or several with no
  *  `$PADI_SOCKET` to pick one. A usage fact about this host, never a transient
@@ -161,9 +175,30 @@ export const connectKoluCliLocal: Effect.Effect<
     // everything past the dial matches a `_tag` rather than an `instanceof`
     // across two module instances of the supervisor package.
     Effect.mapError(connectPadi(socket), classifyDialFailure),
-    (conn) => ({
-      client: scopePadiSurface(conn.client),
-      dispose: conn.dispose,
-    }),
+    koluCliConnectionOf,
   );
 });
+
+/** Project a dialed `PadiConnection` onto the face-visible
+ *  {@link KoluCliConnection} — scope the client to padi's sibling, and carry the
+ *  transport's `dispose` AND `onClose` across.
+ *
+ *  Its own function because forgetting a field here is silent and expensive:
+ *  the inline object literal this replaced dropped `onClose` on the floor, and
+ *  that omission WAS juspay/kolu#2082. Named and shared so the e2e pin composes
+ *  the same projection the product does, instead of a look-alike that can drift
+ *  back; `hostConnect.ts`'s `koluCliConnectionOfAgentDial` is its ssh mirror. */
+export function koluCliConnectionOf(conn: PadiConnection): KoluCliConnection {
+  return {
+    client: scopePadiSurface(conn.client),
+    // Both transport members go across through a closure, not as bare method
+    // references: `DaemonConnection` declares `dispose()` and `onClose()` as
+    // METHODS, so a detached `conn.dispose` would call with no receiver and
+    // break any implementation that reads `this`. padi's own are arrow
+    // properties closing over the socket, but the contract does not promise
+    // that of every daemon, and the two members must not disagree on how
+    // carefully they are carried.
+    dispose: () => conn.dispose(),
+    onClose: (cb) => conn.onClose(cb),
+  };
+}

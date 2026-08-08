@@ -255,7 +255,21 @@ delta across generations.</li>
 cold dial runs: control-core <code>hello</code> + <code>assertPadiSurfaceCompatible</code>. A
 restarted padi that no longer speaks our contract <strong>fails the gate loudly
 and the MCP server exits with that error</strong> — it never keeps serving a
-surface it can’t honestly represent (fail-fast; no silent degradation).</li>
+surface it can’t honestly represent (fail-fast; no silent degradation).
+<strong>The death is ANNOUNCED, not discovered.</strong> Redial says <em>where</em> a restart
+heals; it does not say <em>when</em> the adapter finds out, and that omission had a
+price (<a href="https://github.com/juspay/kolu/issues/2082">#2082</a>): the adapter
+learned only by sending a request into the dead socket, so the first
+padi-backed request after every restart was destroyed. <code>connectPadi</code> already
+hands back a <code>DaemonConnection</code> whose <code>onClose</code> fires when the socket
+closes — kolu-cli carries it through to the adapter, which drops the corpse
+the moment it hears. A restart across an idle gap now costs zero requests.
+(Local socket arm only. The ssh <code>--host</code> dial does not yet <strong>carry</strong> the
+announcement: <code>sshConnector</code> observes its child’s exit and the session
+exposes it per attempt as <code>Connection.closed</code>, but <code>AgentDial</code> projects
+neither, so <code>connectKoluCliViaHost</code> has nothing to pass on. A missing
+projection at one hop — the same shape as #2082 itself — not a limitation
+of ssh. Closing it is the remote follow-up.)</li>
 <li><strong>Tools during the gap fail fast, typed, retryable</strong> — a <code>create</code> or
 <code>sendInput</code> while disconnected returns an explicit
 transport-down error the agent can retry; nothing queues locally (a queued
@@ -269,7 +283,12 @@ an anomaly.</li>
 </ol>
 <p>The pin for this section rides the e2e (step 9): mid-attach and mid-subscribe,
 recycle kaval and restart padi; assert ids survive, resources re-seed, the
-in-gap tool call fails typed, and the compat-gate failure path exits loudly.</p>
+in-gap tool call fails typed, and the compat-gate failure path exits loudly.
+A second restart leg covers the <em>idle</em> gap — restart padi with no MCP traffic
+in flight, then assert the very FIRST request afterwards lands, with no retry
+and no warm-up. That is the leg #2082 needed and the mid-subscribe one could
+never catch: calling <em>during</em> the gap spends the wasted request on a call that
+was going to fail anyway, which hides it.</p>
 <h2 id="architecture-level-changes">Architecture-level changes</h2>
 <figure class="diagram" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 470" font-family="ui-sans-serif, system-ui, sans-serif">
   <rect width="860" height="470" rx="12" fill="#f6f7fb"/>

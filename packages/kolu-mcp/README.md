@@ -28,5 +28,13 @@ connected client; `serveKoluMcp` here owns zero transport code. The e2e pin
 (`kolu-cli/src/mcp.e2e.test.ts`) drives a real padi over both transports —
 the unix socket and the ssh-shaped stdio pipe — plus the restart legs.
 
+**A padi restart costs the agent nothing.** The injected connection carries
+padi's close announcement, so the adapter discards a dead connection the moment
+padi says the socket closed rather than by spending a request on it
+([#2082](https://github.com/juspay/kolu/issues/2082) — the full story lives on
+`OwnedSurfaceConnection.onClose`). Local socket arm only: `kolu mcp --host`
+(ssh) does not carry the announcement yet, so a remote restart keeps the older
+behaviour.
+
 Plan of record: the kolu-cli Atlas note
 ([kolu.dev/atlas/kolu-cli.html](https://kolu.dev/atlas/kolu-cli.html)).

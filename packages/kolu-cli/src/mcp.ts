@@ -10,6 +10,12 @@
  *     resolve + dial + hello/compat gate on every run (see `connect.ts`) — the
  *     adapter re-invokes it after a transport drop, so a padi restart heals
  *     into a fresh generation with fresh snapshots.
+ *   - **The drop is ANNOUNCED, not discovered.** The connection carries padi's
+ *     `onClose`, so the adapter drops the dead one the moment the socket closes
+ *     rather than by failing a request against it (juspay/kolu#2082 — see
+ *     `OwnedSurfaceConnection.onClose` for the whole story). Local arm only: the
+ *     ssh `--host` dial does not yet CARRY the announcement — the signal exists
+ *     one layer down, `AgentDial` just has no field to project it through.
  *   - **Gate failure exits LOUD.** A (re)dialed padi that no longer speaks our
  *     contract (`PadiContractSkew`) must never keep the MCP server serving a
  *     surface it can't honestly represent: stderr carries the honest "upgrade"
