@@ -46,7 +46,7 @@
         "owner": "juspay",
         "repo": "osfacts"
       },
-      "branch": "main",
+      "branch": "effect-4.0.0-beta.106",
       "submodules": false,
       "revision": "c2cbb9c344caf47f7b7699d013f71b79e85ec303",
       "url": "https://github.com/juspay/osfacts/archive/c2cbb9c344caf47f7b7699d013f71b79e85ec303.tar.gz",
