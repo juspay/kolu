@@ -686,9 +686,11 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
   });
 
   it("a membership snapshot lost to a DEAD transport never escapes to boot-stalled(membership)", () => {
-    // The map's own entries are floored on transport liveness, so an outage can demote the
-    // active host to `not-a-member` — which accrued the membership leg and, past the
-    // ceiling, blamed a wedged membership for what was a dropped socket.
+    // NOT via the liveness floor — `floorOnLiveness` only ever demotes `connected` to
+    // `warming` and never introduces `not-a-member` (`surface-map/src/client.ts`). The
+    // production route is the plainer one: a browser whose link is down before the first
+    // membership snapshot lands has no entry for the active host at all. That accrued the
+    // membership leg and, past the ceiling, blamed a wedged membership for a dropped socket.
     const outage: CanvasFacts = {
       ...notYetConnected,
       entry: "not-a-member",
@@ -714,9 +716,14 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
     });
   });
 
-  it("keeps painting the WORKSPACE behind the overlay — the floor neutralizes the clock, never the surface", () => {
-    // The transport overlay dims but passes clicks through so scrollback stays readable;
-    // blanking the canvas on every drop would be a worse lie than the one being fixed.
+  it("neutralizes the clock, never the surface — the floor returns the mode it was given", () => {
+    // The floor's contract is that it touches the TAG and nothing else. Pinned on the most
+    // load-bearing mode there is (`workspace`), which in production the liveness floor demotes
+    // out from under before this frame can be observed — the same deliberately unreachable-but-
+    // spellable style as the `retain` pin below, and for the same reason: the rule is stated for
+    // every frame the type admits, so it holds without a cross-package reachability argument.
+    // What this DOES claim about production is the negative one: the floor never invents a
+    // surface, so an outage cannot blank a canvas any more than it can redden one.
     const outage = connected({ terminalCount: 3, channelLive: false });
     expect(modeOffline(outage)).toEqual({ kind: "workspace" });
   });

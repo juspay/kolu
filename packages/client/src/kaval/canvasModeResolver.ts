@@ -19,8 +19,8 @@
  *  The connect overlay ("Connecting to <host>…") used to have exactly ONE timeout
  *  escape, fed by ONLY the daemon leg (`pendingTimedOut`), so a hung MEMBERSHIP or
  *  SESSION leg span the overlay forever with no way out. The module's ONE exported
- *  function is now {@link resolveCanvasMode}`(facts, { exceeded })`: it computes the raw
- *  precedence, then — if the boot deadline is exceeded AND the raw surface is a BOOT
+ *  function is now {@link resolveCanvasMode}`(facts, { transportLive, exceeded })`: it computes
+ *  the raw precedence, then — if the boot deadline is exceeded AND the raw surface is a BOOT
  *  overlay (`tag.accrual === "accrue"`, declared at each return site, never guessed from `kind`) —
  *  escapes to an honest surface that names the stalled leg. `resolvePrecedence` is
  *  INTERNAL, so a caller can never render a mode that skipped the deadline. The caller
@@ -33,14 +33,23 @@
  *
  *  A boot deadline is a claim about the SERVER — "this leg was given its ceiling and
  *  never delivered" — so it is only ours to make while THIS browser can reach the
- *  server. {@link resolveCanvasMode} therefore downgrades an `accrue` frame to `clear`
- *  whenever the OBSERVER's `transportLive` is false: the deadline neither fires nor
- *  accumulates, and the mode passes through untouched (the transport overlay already
- *  owns the screen; blanking the canvas on every drop would be a worse lie than the
- *  dead card this removes). `clear` — NOT `retain` — is load-bearing: `retain` holds the
- *  class anchor, so the outage's elapsed would survive the reconnect and the first live
- *  frame (the window where the socket is back but the snapshot has not landed) would
- *  read `exceeded` and flash the card anyway. We watched nothing, so we timed nothing.
+ *  server. {@link resolveCanvasMode} therefore downgrades the frame's tag to `clear`
+ *  whenever the OBSERVER's `transportLive` is false — EVERY accrual variant, not just
+ *  `accrue`, so no arm has to remember to opt in and no cross-package reachability
+ *  argument has to hold for the rule to be true (see the note at the `.with` itself).
+ *  The deadline neither fires nor accumulates, and the mode passes through untouched
+ *  (the transport overlay already owns the screen; blanking the canvas on every drop
+ *  would be a worse lie than the dead card this removes). `clear` — NOT `retain` — is
+ *  load-bearing: `retain` holds the class anchor, so the outage's elapsed would survive
+ *  the reconnect and the first live frame (the window where the socket is back but the
+ *  snapshot has not landed) would read `exceeded` and flash the card anyway. We watched
+ *  nothing, so we timed nothing.
+ *
+ *  That is half the floor; it governs the FRAMES we observe. Its other half lives in
+ *  `bootDeadline.ts`, because a frozen tab observes no frames at all: `exceeded` itself is
+ *  sampled-and-held, so over a dead link the caller reports the verdict this browser last
+ *  WATCHED accrue instead of subtracting across an interval it slept through. Neither half
+ *  covers the other's case, and the exemption below needs both to be honest.
  *
  *  The floor governs REACHING a verdict, never KEEPING one (AFP C6): an ALREADY-`exceeded`
  *  verdict was earned over a live link and is exempt, because retracting it would take the
@@ -527,7 +536,10 @@ export function resolveCanvasMode(
     match({ tag: raw.tag, ...observation })
       // EARNED — first, and that ORDER is the whole AFP C6 exemption: a verdict that
       // elapsed while the link was live is ours to KEEP through a blip, card and recovery
-      // verb intact.
+      // verb intact. "While the link was live" is a PROPERTY of the `exceeded` we are handed,
+      // not a hope about it: `bootDeadlineExceeded` samples-and-holds it on the same
+      // `transportLive` read, so a ceiling crossed entirely across an outage (a tab frozen
+      // mid-boot) never arrives here as `true`.
       .with({ tag: { accrual: "accrue" }, exceeded: true }, ({ tag }) => ({
         mode: escapeSurface(tag, facts),
         tag,

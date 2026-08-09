@@ -138,10 +138,11 @@ describe("canvasMode — the tail's absence carries a REASON, decided where the 
   // is the one place that holds both the cell read and `padiMap.live()` (the very value
   // `floorOnLiveness` is handed). Everything downstream carries the verdict; nothing
   // downstream re-derives it.
-  /** Arm the connector campaign's anchor, then return the frame past its ceiling. The
-   *  ceiling is always crossed over a LIVE link — under the #2129 observability floor that
-   *  is the only way a verdict is ever EARNED — and `flip` runs just before the escaped
-   *  frame, so a test can drop the link on the frame the card actually renders. */
+  /** Arm the connector campaign's anchor, CROSS its ceiling over a live link, then return a
+   *  later frame — with `flip` run in between, so a test can drop the link only AFTER the
+   *  verdict was earned. Crossing live is not decoration: under the #2129 floor it is the ONLY
+   *  way a verdict is ever reached (`bootDeadlineExceeded` samples-and-holds on the same
+   *  liveness), so a helper that crossed while blind would pin a frame production cannot make. */
   const stalledConnectorFrame = (flip: () => void = () => {}) => {
     h.entryKind = "warming";
     h.local = false;
@@ -149,8 +150,9 @@ describe("canvasMode — the tail's absence carries a REASON, decided where the 
     // `provisioning` (warming + remote), under the `remote-handshake` ceiling.
     h.connInfo = undefined;
     frameAt(0); // arm the anchor, link live
+    frameAt(CEILING_MS["remote-handshake"] + 1_000); // EARN the verdict, link live
     flip();
-    return frameAt(CEILING_MS["remote-handshake"] + 1_000);
+    return frameAt(CEILING_MS["remote-handshake"] + 2_000);
   };
 
   it("a DEAD link makes the missing tail a link problem", () => {
@@ -227,6 +229,49 @@ describe("the observability floor (#2129) — a lost server is not a failed boot
     h.members = [{ kind: "local" }];
     frameAt(0);
     expect(frameAt(CEILING_MS.local + 1)).toEqual({
+      kind: "down",
+      down: { state: "dead" },
+    });
+  });
+
+  it("a ceiling crossed entirely by a FROZEN tab is not a verdict — no frame ran to watch it", () => {
+    // The floor's other half, and the case releasing the anchor per-frame CANNOT cover: a tab
+    // frozen mid-boot runs NO frames, so there is no accrue frame to release anything. It wakes
+    // with its socket already gone and an elapsed far past the ceiling — every millisecond of it
+    // unwatched. Subtracting `now - anchor` here would certify a stall this browser never saw:
+    // #2129's exact shape, reached through the clock instead of through a frame.
+    h.entryKind = "warming";
+    h.local = true;
+    h.members = [{ kind: "local" }];
+    frameAt(0); // arm the anchor, link live, well under the ceiling
+    frameAt(1_000);
+    // …the tab freezes. The socket dies during the freeze; the next frame is the wake-up.
+    h.mapLive = false;
+    expect(frameAt(CEILING_MS.local * 20)).toEqual({ kind: "connecting" });
+    // And the wake-up frame released the anchor, so the reconnect measures a FULL fresh window
+    // rather than firing on the elapsed nobody watched.
+    h.mapLive = true;
+    expect(frameAt(CEILING_MS.local * 20 + 1)).toEqual({ kind: "connecting" });
+    expect(frameAt(CEILING_MS.local * 21 + 2)).toEqual({
+      kind: "down",
+      down: { state: "dead" },
+    });
+  });
+
+  it("an EARNED verdict still survives the link dropping under it — sampled, not recomputed", () => {
+    // The AFP C6 exemption at the caller, where `exceeded` is real: cross the ceiling while the
+    // link is live, then lose it. The held sample keeps the card — and its Restart button — on
+    // screen, which is the whole reason the exemption exists.
+    h.entryKind = "warming";
+    h.local = true;
+    h.members = [{ kind: "local" }];
+    frameAt(0);
+    expect(frameAt(CEILING_MS.local + 1)).toEqual({
+      kind: "down",
+      down: { state: "dead" },
+    });
+    h.mapLive = false;
+    expect(frameAt(CEILING_MS.local * 10)).toEqual({
       kind: "down",
       down: { state: "dead" },
     });

@@ -33,12 +33,17 @@
  *  suspend sees the real elapsed on resume and may escape immediately to the honest
  *  boot-stalled card (Reload recovers). Same jump the wall clock would have; bounded, honest.
  *
- *  That residual is now mostly closed by the #2129 observability floor (told once, in
- *  `canvasModeResolver.ts`'s module header): a suspend or a throttled tab long enough to
- *  matter also drops the socket, and once the watchdog marks the link dead every accrue
- *  frame releases the anchor — so observation restarts with a fresh window on resume rather
- *  than escaping on the elapsed nobody watched. What survives is only the window BEFORE the
- *  watchdog notices. */
+ *  That residual is CLOSED by the #2129 observability floor (told once, in
+ *  `canvasModeResolver.ts`'s module header), which this module applies to BOTH halves of the
+ *  cycle above — and it takes both, because a frozen tab runs NO frames at all:
+ *   - the WRITE: an accrue frame observed over a dead link releases the anchor
+ *     ({@link recordBootFrame}), so a reconnect measures a fresh window rather than the outage;
+ *   - the READ: the verdict a dead link reports is the last one this browser WATCHED accrue
+ *     ({@link bootDeadlineExceeded}), NOT a fresh subtraction over the frozen interval — so a
+ *     ceiling crossed entirely while the tab was frozen and the socket was gone is never
+ *     reached, because no frame ran to observe it.
+ *  What survives is the honest case the monotonic clock was always going to have: a resume
+ *  whose link was NEVER lost sees the real elapsed and may escape at once (Reload recovers). */
 
 import { match } from "ts-pattern";
 import type { BootTag, CeilingClass } from "./canvasModeResolver";
@@ -112,8 +117,16 @@ const anchors = new Map<string, Anchor>();
  *  never entangle. */
 const campaignAnchors = new Map<string, number>();
 
-/** Step 1 (read): is the active host's boot overlay past EITHER ceiling? Two independent cells,
- *  OR-ed (#1908 R8a), both on the SAME monotonic `nowMs`:
+/** The last ceiling verdict this browser actually WATCHED accrue, per host — the sample half
+ *  of {@link bootDeadlineExceeded}'s sample-and-hold (#2129). Written on every frame observed
+ *  over a LIVE link, read on every frame observed over a dead one, and released together with
+ *  the two anchor cells (a settled episode leaves no verdict behind to resurrect). Absent = the
+ *  browser has never watched this host's ceiling elapse, which is exactly `false`. */
+const watchedVerdict = new Map<string, boolean>();
+
+/** Step 1 (read): is the active host's boot overlay past EITHER ceiling — as far as this
+ *  browser has actually WATCHED? Two independent cells, OR-ed (#1908 R8a), both on the SAME
+ *  monotonic `nowMs`:
  *   - the per-CLASS anchor (C1 — computed from the PRIOR frame's stored class; the ≤1-tick lag
  *     is the accepted, self-correcting edge). A host with no stored anchor (never a boot overlay,
  *     or already settled+cleared) is not exceeded this way — a brief overlay under the ceiling
@@ -122,15 +135,36 @@ const campaignAnchors = new Map<string, number>();
  *     ({@link campaignAnchors}, armed by {@link recordBootFrame} off the `provisioning` leg) past
  *     {@link CAMPAIGN_CEILING_MS}. This is what still fires when a flapping phase re-zeros the
  *     class anchor forever — and, being client-monotonic, it keeps advancing even if the server
- *     stops publishing frames (a silent wedge) and can't be jolted by a wall-clock step. */
-export function bootDeadlineExceeded(hostEnc: string, nowMs: number): boolean {
+ *     stops publishing frames (a silent wedge) and can't be jolted by a wall-clock step.
+ *
+ *  `transportLive` is THE #2129 OBSERVABILITY FLOOR APPLIED TO THE CLOCK, and it is a
+ *  separate necessity from the floor `resolveCanvasMode` applies to the frame's TAG. That one
+ *  stops a deadline ARMING or ADVANCING across frames observed while blind; this one stops one
+ *  being REACHED across the interval BETWEEN frames — which is the case a frozen tab produces,
+ *  where there are no frames to observe at all. Both subtractions above span wall-time the
+ *  browser may have spent frozen with its socket gone, so over a dead link we do not subtract:
+ *  we report the verdict we last watched accrue. That makes the escape's "earned while the link
+ *  was live" premise (`canvasModeResolver.ts`'s AFP C6 exemption) literally true rather than
+ *  merely likely — without it, a tab frozen mid-boot wakes past its ceiling, finds the link
+ *  already dead, and certifies a stall it never watched: #2129's exact shape, one level up. */
+export function bootDeadlineExceeded(
+  hostEnc: string,
+  nowMs: number,
+  transportLive: boolean,
+): boolean {
+  if (!transportLive) return watchedVerdict.get(hostEnc) ?? false;
   const a = anchors.get(hostEnc);
   const classExceeded =
     a !== undefined && nowMs - a.anchorMs > CEILING_MS[a.ceiling];
   const campaignStart = campaignAnchors.get(hostEnc);
   const campaignExceeded =
     campaignStart !== undefined && nowMs - campaignStart > CAMPAIGN_CEILING_MS;
-  return classExceeded || campaignExceeded;
+  const exceeded = classExceeded || campaignExceeded;
+  // Sample on every WATCHED frame, so the held value is never staler than the last moment
+  // this browser could see the server — including a re-anchor (a class flip) walking it back
+  // to false, which a latch that only ever went true would get wrong.
+  watchedVerdict.set(hostEnc, exceeded);
+  return exceeded;
 }
 
 /** Step 3 (write): fold this frame's resolved tag into the host's anchor (C2) — a pure switch
@@ -142,7 +176,8 @@ export function bootDeadlineExceeded(hostEnc: string, nowMs: number): boolean {
  *     (stays escaped) until the hung leg delivers. Independently, the CAMPAIGN cell is armed (once,
  *     then held) for a connector-owned `provisioning` leg and CLEARED for any other leg — so it
  *     tracks the whole warming-remote campaign across class flips but never a client-side leg.
- *   - `clear` → release BOTH cells, for either of two reasons: a SETTLED surface
+ *   - `clear` → release the whole episode — both anchor cells AND the watched verdict — for
+ *     either of two reasons: a SETTLED surface
  *     (workspace/empty/down/host-failed), or an UNOBSERVABLE one (the #2129 observability
  *     floor — see `canvasModeResolver.ts`'s module header for the whole rule). Both mean the
  *     ceiling is no longer measuring anything in progress. Releasing the CAMPAIGN cell too
@@ -183,6 +218,10 @@ export function recordBootFrame(
     .with({ accrual: "clear" }, () => {
       anchors.delete(hostEnc);
       campaignAnchors.delete(hostEnc);
+      // The watched verdict dies with the episode it described. Without this, a host that
+      // SETTLED and then lost the link would still be holding "we watched this exceed",
+      // and the next blind frame would resurrect a card off an episode that already ended.
+      watchedVerdict.delete(hostEnc);
     })
     .with({ accrual: "retain" }, () => campaignAnchors.delete(hostEnc))
     .exhaustive();
@@ -198,23 +237,28 @@ export function recordBootFrame(
 export function resetBootDeadline(hostEnc: string): void {
   anchors.delete(hostEnc);
   campaignAnchors.delete(hostEnc);
+  // …including the watched verdict: a Retry that left it standing would re-show the card on
+  // the very next blind frame, which is precisely the "recovery verb looks broken" bug above.
+  watchedVerdict.delete(hostEnc);
 }
 
 /** Prune anchors for hosts no longer in membership — a genuine re-add earns a FRESH episode
  *  (its stale anchor must not carry over), while a switch-away-and-back (still a member)
- *  keeps its anchor (no fresh grace for a revisited wedged host). Prunes BOTH cells together. */
+ *  keeps its anchor (no fresh grace for a revisited wedged host). Prunes ALL THREE per-host
+ *  cells together — the two anchors and the watched verdict — so a departed host leaves nothing
+ *  a re-add could inherit. */
 export function pruneBootAnchors(memberEncs: readonly string[]): void {
   const keep = new Set(memberEncs);
-  for (const k of [...anchors.keys()]) {
-    if (!keep.has(k)) anchors.delete(k);
-  }
-  for (const k of [...campaignAnchors.keys()]) {
-    if (!keep.has(k)) campaignAnchors.delete(k);
+  for (const cell of [anchors, campaignAnchors, watchedVerdict]) {
+    for (const k of [...cell.keys()]) {
+      if (!keep.has(k)) cell.delete(k);
+    }
   }
 }
 
-/** Test-only: clear all episode anchors so each test accrues fresh. */
+/** Test-only: clear all episode state so each test accrues fresh. */
 export function resetBootAnchors(): void {
   anchors.clear();
   campaignAnchors.clear();
+  watchedVerdict.clear();
 }

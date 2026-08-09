@@ -5,9 +5,9 @@
  *
  *  The pure decision (type + arm order + payloads) lives in the dependency-free
  *  `resolveCanvasMode`; this module gathers the live facts AND owns the boot
- *  deadline (#1763): it reads the per-host episode anchor, feeds the ONE resolve an
- *  `{ exceeded }` verdict, and writes the frame's tag back — all in one memo
- *  evaluation (see `bootDeadline.ts`). It reads the ACTIVE entry's connection state
+ *  deadline (#1763): it reads the per-host episode anchor, feeds the ONE resolve the
+ *  observer's `{ transportLive, exceeded }` pair, and writes the frame's tag back — all
+ *  in one memo evaluation (see `bootDeadline.ts`). It reads the ACTIVE entry's connection state
  *  (`padiMap.entry(activeHost()).state()`) to pick the discriminated {@link CanvasFacts}
  *  arm — the kaval-derived facts are gathered ONLY when the entry is `connected`
  *  (off any other host they'd be stale), which the discriminated union makes
@@ -166,7 +166,11 @@ export function canvasMode(deps: {
   // cell off the frame's own tag (the connector-owned `provisioning` leg). Both are pure client-
   // monotonic — no server `sinceMs` (frame-stamped + wall-clock). A user Retry connection resets
   // this host's deadline explicitly via `resetBootDeadline` (in the card), not read here.
-  const exceeded = bootDeadlineExceeded(hostEnc, nowMs);
+  // The observer's pair is floored on BOTH sides by the ONE `linkLive` read above (#2129):
+  // here, so no verdict is REACHED across the interval between frames (a frozen tab runs
+  // none), and in `resolveCanvasMode`, so no anchor ARMS or ADVANCES across frames observed
+  // while blind. Neither covers the other's case — see `bootDeadlineExceeded`.
+  const exceeded = bootDeadlineExceeded(hostEnc, nowMs, linkLive);
   const { mode, tag } = resolveCanvasMode(facts, {
     transportLive: linkLive,
     exceeded,
