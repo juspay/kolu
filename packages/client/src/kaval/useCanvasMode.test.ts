@@ -15,16 +15,13 @@ const h = vi.hoisted(() => ({
   members: [] as { kind: "local" }[],
   local: true,
   connInfo: undefined as { phase?: string; sinceMs?: number } | undefined,
-  // The map's OWN transport liveness — the very value `floorOnLiveness` is handed, and
-  // the one fact that separates "the floor dropped the live word" from "no frame yet"
-  // when `connInfo` is undefined. Live by default: every pin below is about the boot
-  // deadline, not about a dead link.
+  // THE ONE liveness knob: the map's OWN transport liveness — the very value
+  // `floorOnLiveness` is handed. `canvasMode` reads it once and feeds BOTH consumers, so
+  // one flag models the one physical fact: it separates "the floor dropped the live word"
+  // from "no frame yet" when `connInfo` is undefined, AND it is the #2129 observability
+  // floor's input. Live by default: every pin below is about a boot that genuinely
+  // stalled, not about a browser that lost the server; the outage pins flip this one flag.
   mapLive: true,
-  // THIS browser's link to kolu-server — the #2129 observability floor's input. Live by
-  // default for the same reason as `mapLive`: every deadline pin below is about a boot
-  // that genuinely stalled, not about a browser that lost the server. The one pin that
-  // flips it asserts the floor itself.
-  transportLive: true,
 }));
 
 vi.mock("../wire", () => ({
@@ -39,7 +36,6 @@ vi.mock("../time/clock", () => ({
 vi.mock("./useDaemonStatus", () => ({
   activeEntryState: () => ({ kind: h.entryKind }),
   daemonStatusPending: () => true,
-  daemonTransportLive: () => h.transportLive,
   isActiveHostLocal: () => h.local,
   // connected-arm-only accessors — unread on the not-a-member arm, benign stubs:
   daemonChannelLive: () => true,
@@ -72,7 +68,6 @@ beforeEach(() => {
   h.local = true;
   h.connInfo = undefined;
   h.mapLive = true;
-  h.transportLive = true;
 });
 
 describe("canvasMode — Hole A membership stall escapes past the deadline (codex-debate F1)", () => {
@@ -143,26 +138,37 @@ describe("canvasMode — the tail's absence carries a REASON, decided where the 
   // is the one place that holds both the cell read and `padiMap.live()` (the very value
   // `floorOnLiveness` is handed). Everything downstream carries the verdict; nothing
   // downstream re-derives it.
-  const stalledConnectorFrame = () => {
+  /** Arm the connector campaign's anchor, then return the frame past its ceiling. The
+   *  ceiling is always crossed over a LIVE link — under the #2129 observability floor that
+   *  is the only way a verdict is ever EARNED — and `flip` runs just before the escaped
+   *  frame, so a test can drop the link on the frame the card actually renders. */
+  const stalledConnectorFrame = (flip: () => void = () => {}) => {
     h.entryKind = "warming";
     h.local = false;
     // No connection frame at all — the case under test. The leg is the connector-owned
     // `provisioning` (warming + remote), under the `remote-handshake` ceiling.
     h.connInfo = undefined;
-    frameAt(0); // arm the anchor
+    frameAt(0); // arm the anchor, link live
+    flip();
     return frameAt(CEILING_MS["remote-handshake"] + 1_000);
   };
 
   it("a DEAD link makes the missing tail a link problem", () => {
-    h.mapLive = false;
-    expect(stalledConnectorFrame()).toMatchObject({
+    // The link drops only AFTER the ceiling was earned — the AFP C6 exemption, and the
+    // only path to this frame now that one fact drives both the map floor and the boot
+    // floor: while the link is down no NEW verdict can be reached, so a card showing
+    // `link-down` is always one this browser earned while it could still see the server.
+    expect(
+      stalledConnectorFrame(() => {
+        h.mapLive = false;
+      }),
+    ).toMatchObject({
       kind: "boot-stalled",
       recovery: { via: "connector", log: [], logAbsence: "link-down" },
     });
   });
 
   it("a LIVE link with no frame yet claims NOTHING about the link", () => {
-    h.mapLive = true;
     expect(stalledConnectorFrame()).toMatchObject({
       kind: "boot-stalled",
       recovery: { via: "connector", log: [], logAbsence: undefined },
@@ -172,21 +178,17 @@ describe("canvasMode — the tail's absence carries a REASON, decided where the 
 
 describe("the observability floor (#2129) — a lost server is not a failed boot", () => {
   // THE FIELD BUG, reproduced at the caller with the real resolver, the real anchor map,
-  // and a moving clock — the only level at which the whole path is visible.
+  // and a moving clock — the only level at which the whole path is visible. The story
+  // itself is told ONCE, in `canvasModeResolver.ts`'s module header.
   //
-  // A fullscreen game backgrounded the tab; Chrome throttled its timers and the ws to
-  // kolu-server dropped for minutes. `floorOnLiveness` (surface-map, #1568) demotes the
-  // local host's published `connected` to `warming` so a dead link can never paint a green
-  // chip — correct on its own. But that lands the canvas on the warming arm as leg
-  // `daemon` under the LOCAL ceiling, and the boot deadline's monotonic clock keeps
-  // advancing in a throttled tab. 30s later the escape certified the daemon dead:
-  // "kaval didn't start", over a kaval that had been running for twelve hours with every
-  // PTY alive. Two individually-correct mechanisms composing into a false claim.
+  // ONE flag models the outage, which is the point: the link fact is read once in
+  // `canvasMode` and feeds both the map floor's `link-down` reason and the #2129
+  // observability floor, so a test cannot model an outage the production code could
+  // disagree about.
   const outage = () => {
     h.entryKind = "warming";
     h.local = true;
     h.members = [{ kind: "local" }];
-    h.transportLive = false;
     h.mapLive = false;
   };
 
@@ -209,7 +211,6 @@ describe("the observability floor (#2129) — a lost server is not a failed boot
     frameAt(0);
     frameAt(CEILING_MS.local * 5);
     // The socket returns; the entry is still warming while the first snapshot lands.
-    h.transportLive = true;
     h.mapLive = true;
     expect(frameAt(CEILING_MS.local * 5 + 1)).toEqual({ kind: "connecting" });
     // A genuinely wedged daemon still escapes — but only after a full fresh ceiling

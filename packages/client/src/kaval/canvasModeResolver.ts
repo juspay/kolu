@@ -28,11 +28,28 @@
  *  phase-aware ceiling that decide `exceeded`; this module stays pure.
  *
  *  ── The observability floor (#2129) ─────────────────────────────────────────
+ *  THE ONE TELLING of this story — every other mention in the tree is a citation of
+ *  this paragraph, so there is a single copy to keep true.
+ *
  *  A boot deadline is a claim about the SERVER — "this leg was given its ceiling and
  *  never delivered" — so it is only ours to make while THIS browser can reach the
  *  server. {@link resolveCanvasMode} therefore downgrades an `accrue` frame to `clear`
- *  whenever `transportLive` is false: the deadline neither fires nor accumulates, and
- *  the mode passes through untouched (the transport overlay already owns the screen).
+ *  whenever the OBSERVER's `transportLive` is false: the deadline neither fires nor
+ *  accumulates, and the mode passes through untouched (the transport overlay already
+ *  owns the screen; blanking the canvas on every drop would be a worse lie than the
+ *  dead card this removes). `clear` — NOT `retain` — is load-bearing: `retain` holds the
+ *  class anchor, so the outage's elapsed would survive the reconnect and the first live
+ *  frame (the window where the socket is back but the snapshot has not landed) would
+ *  read `exceeded` and flash the card anyway. We watched nothing, so we timed nothing.
+ *
+ *  The floor governs REACHING a verdict, never KEEPING one (AFP C6): an ALREADY-`exceeded`
+ *  verdict was earned over a live link and is exempt, because retracting it would take the
+ *  card's recovery verb (Restart kaval / Retry connection) off screen — behind a link
+ *  flapping faster than the ceiling the user would be denied the one affordance that fixes
+ *  the problem, forever. Losing a true claim is worse than never making a false one.
+ *  ACCEPTED EDGE, the other side of the same coin: a link that flaps faster than the
+ *  ceiling keeps re-anchoring, so a genuinely wedged daemon behind it never escapes —
+ *  a browser that cannot hold a socket has no standing to certify a daemon dead.
  *
  *  The bug that earned it: `floorOnLiveness` (`@kolu/surface-map`) DEMOTES a published
  *  `connected` entry to `warming` over a dead link, so a green chip can never outlive
@@ -191,26 +208,20 @@ export interface Precedence {
   tag: BootTag;
 }
 
-/** The liveness facts every arm carries, regardless of the active entry's
- *  connection state — the session-loading flag and the host-locality fact the
- *  loading guard reads BEFORE it ever consults an entry arm. Kept as a shared
- *  base so each arm below adds only the facts its own surface needs. */
+/** The liveness facts every arm carries, regardless of the active entry's connection
+ *  state — the session-loading flag, the daemon-status pending flag, and the
+ *  host-locality fact, which the loading guard and the ceiling-class choice read BEFORE
+ *  they ever consult an entry arm. Kept as a shared base so each arm below adds only
+ *  the facts its own surface needs.
+ *
+ *  Every member here describes THE ACTIVE HOST or the session in front of it. Facts that
+ *  describe US — this browser's link to kolu-server (#2129), whether a ceiling already
+ *  elapsed (#1763) — deliberately do NOT live on this union at all: they reach
+ *  {@link resolveCanvasMode} as its second `observation` argument, so no arm can carry
+ *  one and no arm has to remember to. */
 interface EntryLivenessFacts {
   isLoading: boolean;
   daemonPending: boolean;
-  /** THIS browser's own link to kolu-server — the watchdog-backed `app.health().live`
-   *  (`daemonTransportLive`), NOT the per-host channel. It is the one fact on this base
-   *  that describes US rather than the active host, and it gates the boot deadline for
-   *  EVERY arm (see {@link resolveCanvasMode}): with the link down we cannot observe a
-   *  boot at all, so no leg may accrue against a ceiling and no escape may fire.
-   *
-   *  It cannot be folded into the connected arm's `channelLive` (= transport ∧ entry
-   *  connected): on the not-yet-connected arms the entry is BY CONSTRUCTION not
-   *  connected, so `channelLive` is false there whether our link is up or down — exactly
-   *  the two cases that must be told apart. A `warming` LOCAL entry is a kaval
-   *  restart-drain worth escaping when we can see the server, and a dropped socket when
-   *  we can't. */
-  transportLive: boolean;
   /** True while the ACTIVE host is the unremovable LOCAL default. It selects the
    *  boot-deadline CEILING CLASS (local = 30s; a remote's ssh provisioning
    *  legitimately outlasts that, so it accrues against a generous remote cell instead)
@@ -495,62 +506,43 @@ function escapeSurface(
  *  the raw `tag` (still `accrue`) so the escaped frame keeps accruing (stays escaped) until
  *  the hung leg finally delivers and the raw surface settles.
  *
- *  The #2129 OBSERVABILITY FLOOR adds a third conjunct ahead of that condition: a boot
- *  overlay whose deadline has NOT yet elapsed is downgraded to `clear` while
- *  `facts.transportLive` is false, so no deadline starts or advances while this browser
- *  cannot see the server. An ALREADY-elapsed deadline is deliberately exempt — that verdict
- *  was earned over a live link, and retracting it would take the card's recovery verb off
- *  screen (see the body). So the full escape condition is: `exceeded` AND `accrue` — reached
- *  either with the link live, or with a verdict that was already true when it went down. */
+ *  A boot overlay's fate is decided on the OBSERVER's pair — the #2129 link liveness and
+ *  the #1763 `exceeded` ceiling — never on `kind` and never on which arm produced the tag.
+ *  Both rules are explained ONCE, in this module's header ("The observability floor");
+ *  the body below carries only the per-outcome notes. */
 export function resolveCanvasMode(
   facts: CanvasFacts,
-  deadline: { exceeded: boolean },
+  /** The OBSERVER's standing to time a boot: whether THIS browser's link to kolu-server
+   *  is live (#2129), and whether a ceiling already elapsed while it was (#1763). Both
+   *  are facts about US, not about any surface, so they arrive together and OUTSIDE the
+   *  entry-keyed {@link CanvasFacts} union — no arm can carry them, and no arm has to
+   *  remember to. */
+  observation: { transportLive: boolean; exceeded: boolean },
 ): Precedence {
   const raw = resolvePrecedence(facts);
-  // THE OBSERVABILITY FLOOR (#2129). A boot deadline is a claim about the SERVER — "this
-  // leg was given its ceiling and never delivered". That claim is only ours to make while
-  // THIS browser can actually reach the server. With `transportLive` false we are not
-  // watching a slow boot, we are not watching at all: every subscription is re-pending
-  // because the retry fence dropped them, not because anything failed to start. So an
-  // `accrue` frame is downgraded to CLEAR — the deadline neither fires (no escape) nor
-  // accumulates.
-  //
-  // The MODE is deliberately passed through untouched: the transport overlay already owns
-  // the screen (dimmed, click-through, so scrollback stays readable), and blanking the
-  // canvas on every drop would be a worse lie than the dead card this removes.
-  //
-  // CLEAR, not RETAIN, is load-bearing. RETAIN holds the class anchor, so the outage's
-  // elapsed would survive the reconnect and the very first live frame — the ~300ms window
-  // where the socket is back but the snapshot has not landed — would read `exceeded` and
-  // flash the dead card anyway. Releasing the anchor makes observation restart with a full
-  // fresh window, which is the honest reading: we watched nothing, so we timed nothing.
-  //
-  // ACCEPTED EDGE: a transport that flaps faster than the ceiling keeps re-anchoring, so a
-  // genuinely wedged daemon behind a flapping link never escapes. That is the correct
-  // outcome, not a residual — a browser that cannot hold a socket has no standing to
-  // certify a daemon dead, and the transport overlay is what the user sees meanwhile.
-  // The floor governs REACHING a verdict, never KEEPING one (AFP C6). `!deadline.exceeded`
-  // is the whole distinction: a deadline that has not yet elapsed is a measurement in
-  // progress, and we cannot measure what we cannot see — but a deadline that ALREADY
-  // elapsed, back when the link was live, is a verdict this browser earned honestly. A blip
-  // must not retract it, because retracting it takes the card's recovery verb (Restart kaval
-  // / Retry connection) off screen with it: on a genuinely dead daemon behind a link that
-  // flaps faster than the ceiling, the user would be denied the one affordance that fixes
-  // the problem, forever. Losing a true claim is worse than never making a false one.
-  //
-  // The escape can only be reachable here BECAUSE the floor holds below: while the link is
-  // down every accrue frame clears the anchor, so `exceeded` can never BECOME true during an
-  // outage — it can only have been true on arrival. The two branches are therefore exclusive
-  // in practice, not merely in order.
-  if (
-    !facts.transportLive &&
-    !deadline.exceeded &&
-    raw.tag.accrual === "accrue"
-  ) {
-    return { mode: raw.mode, tag: CLEAR };
-  }
-  if (deadline.exceeded && raw.tag.accrual === "accrue") {
-    return { mode: escapeSurface(raw.tag, facts), tag: raw.tag };
-  }
-  return raw;
+  // ONE dispatch on the observer's pair, `.exhaustive()` like every other dispatch in this
+  // module (prefer-ts-pattern) — a future 4th `accrual` variant must be handled here or
+  // fail the build, rather than falling through as a silent no-op.
+  return (
+    match({ tag: raw.tag, ...observation })
+      // Nothing to time: a SETTLED surface, or a non-boot overlay the deadline ignores.
+      // `retain` is deliberately NOT floored — see `bootDeadline.ts`'s `retain` note.
+      .with({ tag: { accrual: "clear" } }, () => raw)
+      .with({ tag: { accrual: "retain" } }, () => raw)
+      // EARNED — ahead of the floor, and that ORDER is the whole AFP C6 exemption: a
+      // verdict that elapsed while the link was live is ours to KEEP through a blip.
+      .with({ tag: { accrual: "accrue" }, exceeded: true }, ({ tag }) => ({
+        mode: escapeSurface(tag, facts),
+        tag,
+      }))
+      // UNOBSERVABLE — with the link down we are not watching a slow boot, we are not
+      // watching. CLEAR releases the anchor; the mode passes through untouched.
+      .with({ tag: { accrual: "accrue" }, transportLive: false }, () => ({
+        mode: raw.mode,
+        tag: CLEAR,
+      }))
+      // A live link, under the ceiling: a boot genuinely in progress, still accruing.
+      .with({ tag: { accrual: "accrue" } }, () => raw)
+      .exhaustive()
+  );
 }

@@ -6,11 +6,13 @@
  *  beat `empty` so a dead/degraded or restarting kaval never masquerades as "you
  *  have no terminals" (#1034 empty-canvas lie + restart-drain).
  *
- *  `resolveCanvasMode(facts, { exceeded })` returns `{ mode, tag }`: `mode` is the
- *  surface to render, `tag` the boot-overlay classification the caller feeds to the
- *  per-host deadline anchor. `mode(f)` / `mode(f, true)` and `tag(f)` below are thin
- *  readers so the precedence and the escape are each pinned without repeating the
- *  wrapper shape. */
+ *  `resolveCanvasMode(facts, { transportLive, exceeded })` returns `{ mode, tag }`:
+ *  `mode` is the surface to render, `tag` the boot-overlay classification the caller
+ *  feeds to the per-host deadline anchor. The second argument is the OBSERVER's pair —
+ *  facts about this browser, not about any surface. `mode(f)` / `mode(f, true)` and
+ *  `tag(f)` below are thin readers over a LIVE link (the default) so the precedence and
+ *  the escape are each pinned without repeating the wrapper shape; the #2129 pins at the
+ *  bottom use their own link-down readers. */
 
 import type { DaemonState } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
@@ -23,7 +25,6 @@ const liveness = {
   isLoading: false,
   daemonPending: false,
   isLocalHost: true,
-  transportLive: true,
 } as const;
 
 /** The NOT-YET-CONNECTED arms' base: liveness plus the connection cell's retained output
@@ -62,10 +63,18 @@ function connected(
 /** The rendered surface for `facts`, with the boot deadline NOT exceeded (default) or
  *  exceeded — the two readers every precedence/escape pin uses. */
 const mode = (facts: CanvasFacts, exceeded = false) =>
-  resolveCanvasMode(facts, { exceeded }).mode;
+  resolveCanvasMode(facts, { transportLive: true, exceeded }).mode;
 /** The boot-overlay classification the caller feeds to the per-host anchor. */
 const tag = (facts: CanvasFacts) =>
-  resolveCanvasMode(facts, { exceeded: false }).tag;
+  resolveCanvasMode(facts, { transportLive: true, exceeded: false }).tag;
+
+/** The same two readers with THIS browser's link to kolu-server DOWN — the #2129
+ *  observability floor's input. It is an OBSERVER fact, so it rides the second argument
+ *  beside `exceeded` rather than any arm of {@link CanvasFacts}. */
+const modeOffline = (facts: CanvasFacts, exceeded = false) =>
+  resolveCanvasMode(facts, { transportLive: false, exceeded }).mode;
+const tagOffline = (facts: CanvasFacts) =>
+  resolveCanvasMode(facts, { transportLive: false, exceeded: false }).tag;
 
 describe("resolveCanvasMode loading guard (#1340)", () => {
   it("connecting wins while the session is loading, ahead of any connected-arm fact", () => {
@@ -644,34 +653,26 @@ describe("resolveCanvasMode — the incompatible (proven-skew) verdict, SK4", ()
 });
 
 describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2129)", () => {
-  // THE FIELD BUG: a fullscreen game backgrounded the tab, Chrome throttled its timers
-  // to ~1/min, and the ws to kolu-server dropped for minutes at a time. The retry fence
-  // re-pends every subscription on a drop, so `daemonPending` read true for the whole
-  // outage — while the boot deadline's MONOTONIC clock kept advancing in the throttled
-  // tab. 30s later the resolver converted a DROPPED SOCKET into "kaval didn't start",
-  // stacked under the honest "Reconnecting…" overlay. kaval had been running for 12
-  // hours with all 10 PTYs alive.
-  //
-  // The law these pin: a boot deadline may accrue ONLY while THIS browser's link to the
-  // server is live. With the link down we cannot observe a boot, so we make no claim
-  // about one — the surface is unchanged (the transport overlay owns the screen) and the
-  // anchor is RELEASED, so observation restarts with a fresh window on reconnect rather
-  // than firing the instant the socket returns.
+  // The law these pin (the story behind it is told ONCE, in `canvasModeResolver.ts`'s
+  // module header — "The observability floor"): a boot deadline may accrue ONLY while
+  // THIS browser's link to the server is live. With the link down we cannot observe a
+  // boot, so we make no claim about one — the surface is unchanged (the transport overlay
+  // owns the screen) and the anchor is RELEASED, so observation restarts with a fresh
+  // window on reconnect rather than firing the instant the socket returns.
 
   it("a re-pended daemon status over a DEAD transport never escapes to down/dead", () => {
     const outage = connected({
       daemonPending: true,
       terminalCount: 0,
       channelLive: false,
-      transportLive: false,
     });
     // Not a boot overlay at all: nothing to accrue, anchor released.
-    expect(tag(outage)).toEqual({ accrual: "clear" });
+    expect(tagOffline(outage)).toEqual({ accrual: "clear" });
     // …and with the anchor released, `exceeded` can never BECOME true while the link is
     // down, so the surface it actually shows is the neutral one. (That the deadline can
     // never elapse mid-outage is proven at the caller, in useCanvasMode.test.ts, where the
     // anchor map is real and the clock moves.)
-    expect(mode(outage, false)).toEqual({ kind: "connecting" });
+    expect(modeOffline(outage)).toEqual({ kind: "connecting" });
   });
 
   it("a re-pended SESSION leg over a DEAD transport never escapes to boot-stalled(session)", () => {
@@ -679,10 +680,9 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
       isLoading: true,
       terminalCount: 0,
       channelLive: false,
-      transportLive: false,
     });
-    expect(tag(outage)).toEqual({ accrual: "clear" });
-    expect(mode(outage, false)).toEqual({ kind: "connecting" });
+    expect(tagOffline(outage)).toEqual({ accrual: "clear" });
+    expect(modeOffline(outage)).toEqual({ kind: "connecting" });
   });
 
   it("a membership snapshot lost to a DEAD transport never escapes to boot-stalled(membership)", () => {
@@ -691,12 +691,11 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
     // ceiling, blamed a wedged membership for what was a dropped socket.
     const outage: CanvasFacts = {
       ...notYetConnected,
-      transportLive: false,
       entry: "not-a-member",
       connectPhase: undefined,
     };
-    expect(tag(outage)).toEqual({ accrual: "clear" });
-    expect(mode(outage, false)).toEqual({ kind: "connecting" });
+    expect(tagOffline(outage)).toEqual({ accrual: "clear" });
+    expect(modeOffline(outage)).toEqual({ kind: "connecting" });
   });
 
   it("a LOCAL warming entry over a DEAD transport never escapes to the dead card", () => {
@@ -705,12 +704,11 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
     // identical from a browser that cannot reach the server.
     const outage: CanvasFacts = {
       ...notYetConnected,
-      transportLive: false,
       entry: "warming",
       connectPhase: undefined,
     };
-    expect(tag(outage)).toEqual({ accrual: "clear" });
-    expect(mode(outage, false)).toEqual({
+    expect(tagOffline(outage)).toEqual({ accrual: "clear" });
+    expect(modeOffline(outage)).toEqual({
       kind: "warming",
       daemonState: undefined,
     });
@@ -719,12 +717,8 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
   it("keeps painting the WORKSPACE behind the overlay — the floor neutralizes the clock, never the surface", () => {
     // The transport overlay dims but passes clicks through so scrollback stays readable;
     // blanking the canvas on every drop would be a worse lie than the one being fixed.
-    const outage = connected({
-      terminalCount: 3,
-      channelLive: false,
-      transportLive: false,
-    });
-    expect(mode(outage, false)).toEqual({ kind: "workspace" });
+    const outage = connected({ terminalCount: 3, channelLive: false });
+    expect(modeOffline(outage)).toEqual({ kind: "workspace" });
   });
 
   it("a LIVE transport still escapes exactly as before — the honest wedge is untouched", () => {
@@ -747,10 +741,9 @@ describe("resolveCanvasMode — the floor governs reaching a verdict, not keepin
       daemonPending: true,
       terminalCount: 0,
       channelLive: false,
-      transportLive: false,
     });
     // `exceeded` true = the ceiling elapsed earlier, while the link was live.
-    expect(mode(earned, true)).toEqual({
+    expect(modeOffline(earned, true)).toEqual({
       kind: "down",
       down: { state: "dead" },
     });
@@ -759,12 +752,11 @@ describe("resolveCanvasMode — the floor governs reaching a verdict, not keepin
   it("an already-exceeded CONNECTOR verdict likewise survives, keeping its Retry affordance", () => {
     const earned: CanvasFacts = {
       ...notYetConnected,
-      transportLive: false,
       isLocalHost: false,
       entry: "warming",
       connectPhase: "provisioning",
     };
-    expect(mode(earned, true)).toMatchObject({
+    expect(modeOffline(earned, true)).toMatchObject({
       kind: "boot-stalled",
       recovery: { via: "connector" },
     });
@@ -775,9 +767,8 @@ describe("resolveCanvasMode — the floor governs reaching a verdict, not keepin
       daemonPending: true,
       terminalCount: 0,
       channelLive: false,
-      transportLive: false,
     });
-    expect(tag(unearned)).toEqual({ accrual: "clear" });
-    expect(mode(unearned, false)).toEqual({ kind: "connecting" });
+    expect(tagOffline(unearned)).toEqual({ accrual: "clear" });
+    expect(modeOffline(unearned)).toEqual({ kind: "connecting" });
   });
 });
