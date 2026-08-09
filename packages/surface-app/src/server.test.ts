@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { NodeHttpServer } from "@effect/platform-node";
+import { surfaceProcessId } from "@kolu/surface/identity";
 import { implementSurfaces } from "@kolu/surface/server";
 import { Effect, type FileSystem, type Layer, type Path, Stream } from "effect";
 import {
@@ -525,34 +526,40 @@ describe("buildInfoServer — equals (cell dedup)", () => {
 });
 
 describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
-  it("bundles the buildInfo cell impl (carrying connect) + the identity.info probe impl", async () => {
-    const server = surfaceAppServer({ commit: "abc1234", processId: "pid-1" });
+  it("bundles the buildInfo cell impl, carrying connect", () => {
+    const server = surfaceAppServer({ commit: "abc1234" });
     // The buildInfo cell entry carries `.connect` — the surface runtime's
     // cell-dep the core fires automatically (no app-visible connect).
     expect(typeof server.cells.buildInfo.connect).toBe("function");
     expect(server.cells.buildInfo.current()).toEqual({ commit: "abc1234" });
-    // The probe impl sits under the `identity` namespace and answers with an
-    // EFFECT now (PLAN D10: a procedure impl is `({input, ctx}) => Effect`).
-    expect(await Effect.runPromise(server.procedures.identity.info())).toEqual({
-      processId: "pid-1",
-    });
-    // …and the SAME id is exposed directly, so a stale-tab gate compares against
-    // the value the probe reports rather than minting a second one.
-    expect(server.processId).toBe("pid-1");
   });
 
-  it("exposes the minted processId (matching what the probe reports) when none is injected", async () => {
-    const server = surfaceAppServer({ commit: "abc1234" });
-    expect(typeof server.processId).toBe("string");
-    expect(server.processId.length).toBeGreaterThan(0);
-    // Single-sourced: the exposed id IS the one identity.info reports.
-    expect(await Effect.runPromise(server.procedures.identity.info())).toEqual({
-      processId: server.processId,
-    });
+  it("declares NO identity member — the process id is the framework's", async () => {
+    // surface-app used to ship an `identity.info` probe (and a `processId` to
+    // inject into it), which meant two per-process ids in one server and a gate
+    // that only worked if a consumer kept them in step. The reserved
+    // `system/identity` answers it now, for every surface, with the id
+    // `gateStaleSocket` compares against.
+    const runtime = implementSurfaces(
+      { surfaceApp: surfaceAppSurface },
+      {},
+      { surfaceApp: surfaceAppServer({ commit: "abc1234" }) },
+    );
+    expect(
+      runtime.handlers["surface/surfaceApp/identity/info"],
+    ).toBeUndefined();
+    expect(
+      await Effect.runPromise(
+        runtime.handlers["surface/surfaceApp/system/identity"]?.(
+          undefined,
+        ) as Effect.Effect<{ processId: string }>,
+      ),
+    ).toMatchObject({ processId: surfaceProcessId() });
+    await runtime.close();
   });
 
   it("serves surface-app as a SIBLING surface under its key, fires buildInfo connect", async () => {
-    const server = surfaceAppServer({ commit: "abc1234", processId: "pid-1" });
+    const server = surfaceAppServer({ commit: "abc1234" });
     // Spy on the cell entry's connect to prove the runtime fires it for us.
     const connect = vi.spyOn(server.cells.buildInfo, "connect");
     const runtime = implementSurfaces(
@@ -570,17 +577,10 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
     await Promise.resolve();
     expect(connect).toHaveBeenCalledTimes(1);
 
-    // The probe is BOUND at the sibling-scoped wire tag (the key namespaces the
-    // sibling; the probe is in the surface's own `identity` namespace) — the
-    // route-set identity D1 asserts, read off the handler record rather than a
-    // router walk.
-    const handler = runtime.handlers["surface/surfaceApp/identity/info"];
-    expect(handler).toBeDefined();
-    expect(
-      await Effect.runPromise(
-        handler?.(undefined) as Effect.Effect<{ processId: string }>,
-      ),
-    ).toEqual({ processId: "pid-1" });
+    // The buildInfo cell is BOUND at the sibling-scoped wire tag (the key
+    // namespaces the sibling) — the route-set identity D1 asserts, read off the
+    // handler record rather than a router walk.
+    expect(runtime.handlers["surface/surfaceApp/buildInfo/get"]).toBeDefined();
     await runtime.close();
   });
 
@@ -592,8 +592,8 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
       { a: surfaceAppSurface, b: surfaceAppSurface },
       {},
       {
-        a: surfaceAppServer({ commit: "aaa1111", processId: "pa" }),
-        b: surfaceAppServer({ commit: "bbb2222", processId: "pb" }),
+        a: surfaceAppServer({ commit: "aaa1111" }),
+        b: surfaceAppServer({ commit: "bbb2222" }),
       },
     );
     expect(ctx.a?.cells.buildInfo?.get()).toEqual({ commit: "aaa1111" });
@@ -623,24 +623,28 @@ const upgradeUrl = (pid?: string) =>
   new URL(`ws://host/rpc/ws${pid === undefined ? "" : `?pid=${pid}`}`);
 
 describe("gateStaleSocket — the WS-upgrade handshake gate", () => {
-  it("lets a matching processId through (returns false, no close)", () => {
+  it("lets THIS process's id through (returns false, no close)", () => {
+    // The live id is not a parameter any more: the gate reads
+    // `surfaceProcessId()`, which is exactly what the reserved `system/identity`
+    // member answers and therefore exactly what a client echoes. There is no
+    // second string for a consumer to get wrong.
     const t = fakeGateable();
-    expect(gateStaleSocket(t.ws, upgradeUrl("live-1"), "live-1")).toBe(false);
+    expect(gateStaleSocket(t.ws, upgradeUrl(surfaceProcessId()))).toBe(false);
     expect(t.closes).toEqual([]);
   });
 
   it("lets the first-ever connect (absent pid) through", () => {
     const t = fakeGateable();
-    expect(gateStaleSocket(t.ws, upgradeUrl(), "live-1")).toBe(false);
+    expect(gateStaleSocket(t.ws, upgradeUrl())).toBe(false);
     expect(t.closes).toEqual([]);
   });
 
   it("rejects a stale tab: closes with STALE_PROCESS_CLOSE_CODE and returns true", () => {
     const t = fakeGateable();
     const onReject = vi.fn();
-    expect(
-      gateStaleSocket(t.ws, upgradeUrl("dead-0"), "live-1", { onReject }),
-    ).toBe(true);
+    expect(gateStaleSocket(t.ws, upgradeUrl("dead-0"), { onReject })).toBe(
+      true,
+    );
     expect(t.closes).toEqual([
       { code: STALE_PROCESS_CLOSE_CODE, reason: "stale server process" },
     ]);
@@ -653,7 +657,7 @@ describe("gateStaleSocket — the WS-upgrade handshake gate", () => {
     const onError = vi.fn();
     // A stale socket that errors after we close it must not crash the process:
     // the listener is wired before the close/return.
-    gateStaleSocket(t.ws, upgradeUrl("dead-0"), "live-1", { onError });
+    gateStaleSocket(t.ws, upgradeUrl("dead-0"), { onError });
     t.fireError(new Error("post-close peer error"));
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith(
@@ -664,7 +668,7 @@ describe("gateStaleSocket — the WS-upgrade handshake gate", () => {
   it("installs a LOUD (console.error) error listener by default (no onError)", () => {
     const t = fakeGateable();
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    gateStaleSocket(t.ws, upgradeUrl("live-1"), "live-1");
+    gateStaleSocket(t.ws, upgradeUrl(surfaceProcessId()));
     // The default listener exists, doesn't throw (an unhandled `error` would
     // otherwise be fatal), AND logs loudly rather than swallowing — an accepted
     // socket's transport error must not vanish silently.
@@ -809,11 +813,10 @@ describe("acceptSurfaceSocket — the gate→enrol→dispatch acceptance seam", 
     const t = fakeAcceptable();
     const acceptor = acceptSurfaceSocket({
       server: { clients: new Set([t.ws]) },
-      liveProcessId: "live-1",
       intervalMs: 1000,
     });
     const onAccepted = vi.fn();
-    acceptor.accept(t.ws, upgradeUrl("live-1"), onAccepted);
+    acceptor.accept(t.ws, upgradeUrl(surfaceProcessId()), onAccepted);
     // Dispatch ran (matching pid)...
     expect(onAccepted).toHaveBeenCalledTimes(1);
     // ...AND the socket was enrolled: the first sweep PINGS it (it's alive)
@@ -828,7 +831,6 @@ describe("acceptSurfaceSocket — the gate→enrol→dispatch acceptance seam", 
     const t = fakeAcceptable();
     const acceptor = acceptSurfaceSocket({
       server: { clients: new Set([t.ws]) },
-      liveProcessId: "live-1",
       intervalMs: 1000,
     });
     const onAccepted = vi.fn();
@@ -850,10 +852,9 @@ describe("acceptSurfaceSocket — the gate→enrol→dispatch acceptance seam", 
     const t = fakeAcceptable();
     const acceptor = acceptSurfaceSocket({
       server: { clients: new Set([t.ws]) },
-      liveProcessId: "live-1",
       intervalMs: 1000,
     });
-    acceptor.accept(t.ws, upgradeUrl("live-1"), () => {});
+    acceptor.accept(t.ws, upgradeUrl(surfaceProcessId()), () => {});
     acceptor.stop();
     vi.advanceTimersByTime(5000);
     expect(t.ping).not.toHaveBeenCalled();
@@ -875,16 +876,11 @@ describe("acceptSurfaceSocket — the gate→enrol→dispatch acceptance seam", 
 describe("serveSurfaceSocket — the RPC serving seam", () => {
   /** A served surface-app runtime plus a client dialled into it over one paired
    *  in-memory connection. */
-  async function connected(opts: { processId?: string } = {}) {
+  async function connected() {
     const runtime = implementSurfaces(
       { surfaceApp: surfaceAppSurface },
       {},
-      {
-        surfaceApp: surfaceAppServer({
-          commit: "abc1234",
-          processId: opts.processId ?? "pid-1",
-        }),
-      },
+      { surfaceApp: surfaceAppServer({ commit: "abc1234" }) },
     );
     const pair = socketPair();
     const serving = serveSurfaceSocket({
@@ -892,18 +888,20 @@ describe("serveSurfaceSocket — the RPC serving seam", () => {
       handlers: runtime.handlers,
       socket: pair.server as unknown as ServableSocket,
     });
-    const { link } = await createSurfaceSocket({
+    const socket = await createSurfaceSocket({
       group: runtime.group,
       url: "ws://test/rpc/ws",
+      siblingKey: "surfaceApp",
+      retired: () => {},
       connect: () => pair.client as unknown as WebSocket,
     });
     return {
       runtime,
       serving,
-      link,
+      link: socket.link,
       pair,
       teardown: async () => {
-        await link.dispose();
+        await socket.dispose();
         serving.close();
         await serving.done;
         await runtime.close();
@@ -912,12 +910,70 @@ describe("serveSurfaceSocket — the RPC serving seam", () => {
   }
 
   it("answers a real RPC call over the wire it was handed", async () => {
-    const c = await connected({ processId: "pid-9" });
+    const c = await connected();
     const out = await Effect.runPromise(
-      c.link.dispatch.unary("surface/surfaceApp/identity/info", {}),
+      c.link.dispatch.unary("surface/surfaceApp/system/identity", {}),
     );
-    expect(out).toEqual({ processId: "pid-9" });
+    expect(out).toMatchObject({ processId: surfaceProcessId() });
     await c.teardown();
+  });
+
+  it("FEEDS ITS OWN `pid` echo: the second dial carries the id nobody wired", async () => {
+    // The whole defect this seam closes. No app code observes an identity here —
+    // no lifecycle, no `onProcessId`, nothing but `createSurfaceSocket` — and the
+    // re-dial still presents the server's own `processId`, which is exactly what
+    // `gateStaleSocket` compares against. Before this, an app that kept only its
+    // client (olai#61) re-dialled with no `pid` at all, so the server's gate could
+    // not reject anything and the wire's `retired` state was unreachable.
+    const runtime = implementSurfaces(
+      { surfaceApp: surfaceAppSurface },
+      {},
+      { surfaceApp: surfaceAppServer({ commit: "c" }) },
+    );
+    const first = socketPair();
+    const dialled: string[] = [];
+    let next = first.client;
+    const serving = serveSurfaceSocket({
+      group: runtime.group,
+      handlers: runtime.handlers,
+      socket: first.server as unknown as ServableSocket,
+    });
+    const socket = await createSurfaceSocket({
+      group: runtime.group,
+      url: "ws://test/rpc/ws",
+      siblingKey: "surfaceApp",
+      retired: () => {},
+      connect: (url) => {
+        dialled.push(url);
+        return next as unknown as WebSocket;
+      },
+    });
+    // The first dial can carry no id — nothing has been observed yet.
+    await expect.poll(() => dialled.length).toBe(1);
+    expect(dialled[0]).toBe("ws://test/rpc/ws");
+
+    // Drop the connection; the link re-dials, re-evaluating its URL thunk.
+    next = socketPair().client;
+    first.client.close(1006, "abnormal closure");
+    await expect
+      .poll(() => dialled.length, { timeout: 3_000 })
+      .toBeGreaterThanOrEqual(2);
+    const redial = dialled[1];
+    if (redial === undefined) throw new Error("no re-dial");
+    expect(redial).toBe(
+      `ws://test/rpc/ws?pid=${encodeURIComponent(surfaceProcessId())}`,
+    );
+
+    // …and that is precisely the claim the gate accepts, because both sides read
+    // the SAME `surfaceProcessId()`.
+    const gate = fakeGateable();
+    expect(gateStaleSocket(gate.ws, new URL(redial))).toBe(false);
+    expect(gate.closes).toEqual([]);
+
+    await socket.dispose();
+    serving.close();
+    await serving.done;
+    await runtime.close();
   });
 
   it("answers a request that arrived BEFORE the RPC server attached its listener", async () => {
@@ -929,7 +985,7 @@ describe("serveSurfaceSocket — the RPC serving seam", () => {
     const runtime = implementSurfaces(
       { surfaceApp: surfaceAppSurface },
       {},
-      { surfaceApp: surfaceAppServer({ commit: "c", processId: "pid-early" }) },
+      { surfaceApp: surfaceAppServer({ commit: "c" }) },
     );
     const pair = socketPair();
     const serving = serveSurfaceSocket({
@@ -947,14 +1003,14 @@ describe("serveSurfaceSocket — the RPC serving seam", () => {
       `${JSON.stringify({
         _tag: "Request",
         id: 1,
-        tag: "surface/surfaceApp/identity/info",
+        tag: "surface/surfaceApp/system/identity",
         payload: {},
         headers: [],
       })}\n`,
     );
     await expect
       .poll(() => replies.join(""), { timeout: 3_000 })
-      .toContain("pid-early");
+      .toContain(surfaceProcessId());
     serving.close();
     await serving.done;
     await runtime.close();
@@ -966,7 +1022,7 @@ describe("serveSurfaceSocket — the RPC serving seam", () => {
     const runtime = implementSurfaces(
       { surfaceApp: surfaceAppSurface },
       {},
-      { surfaceApp: surfaceAppServer({ commit: "c", processId: "live-1" }) },
+      { surfaceApp: surfaceAppServer({ commit: "c" }) },
     );
     const pair = socketPair();
     const gateable = {
@@ -979,7 +1035,6 @@ describe("serveSurfaceSocket — the RPC serving seam", () => {
     };
     const acceptor = acceptSurfaceSocket({
       server: { clients: new Set<HeartbeatableSocket>() },
-      liveProcessId: "live-1",
       intervalMs: 60_000,
     });
     let served = 0;
@@ -1028,7 +1083,7 @@ describe("serveSurfaceSocket — the RPC serving seam", () => {
     const runtime = implementSurfaces(
       { surfaceApp: surfaceAppSurface },
       {},
-      { surfaceApp: surfaceAppServer({ commit: "c", processId: "pid-2" }) },
+      { surfaceApp: surfaceAppServer({ commit: "c" }) },
     );
     const first = socketPair();
     const second = socketPair();
@@ -1046,6 +1101,7 @@ describe("serveSurfaceSocket — the RPC serving seam", () => {
       await createSurfaceSocket({
         group: runtime.group,
         url: "ws://test/rpc/ws",
+        retired: () => {},
         connect: () => first.client as unknown as WebSocket,
       })
     ).link;
@@ -1053,6 +1109,7 @@ describe("serveSurfaceSocket — the RPC serving seam", () => {
       await createSurfaceSocket({
         group: runtime.group,
         url: "ws://test/rpc/ws",
+        retired: () => {},
         connect: () => second.client as unknown as WebSocket,
       })
     ).link;
@@ -1062,9 +1119,9 @@ describe("serveSurfaceSocket — the RPC serving seam", () => {
     // B is untouched by A's teardown.
     expect(
       await Effect.runPromise(
-        linkB.dispatch.unary("surface/surfaceApp/identity/info", {}),
+        linkB.dispatch.unary("surface/surfaceApp/system/identity", {}),
       ),
-    ).toEqual({ processId: "pid-2" });
+    ).toMatchObject({ processId: surfaceProcessId() });
 
     await linkA.dispose();
     await linkB.dispose();

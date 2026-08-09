@@ -837,9 +837,9 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 //     seal) — so koluSurface has NO collections and NO events, and the terminal
 //     RECORD rides padi's `terminals` collection, not here.
 //   - `surfaceAppSurface_kolu` — surface-app's COMPLETE surface (the
-//     build-identity `buildInfo` cell — `commit` + `version` — plus the
-//     `identity.info` restart probe). Served under the `surfaceApp` key. Its wire
-//     path is `surface.surfaceApp.{buildInfo,identity}`. The `expectedKaval` axis
+//     build-identity `buildInfo` cell — `commit` + `version`). Served under the
+//     `surfaceApp` key; its wire path is `surface.surfaceApp.buildInfo`. The restart
+//     axis is the RESERVED `surface.surfaceApp.system.identity` every surface carries. The `expectedKaval` axis
 //     it once extended `buildInfo` with moved to padi's `status` cell (W1.R7).
 //
 // The GENERIC `@kolu/terminal-vocab` surface is no longer served here: kolu's

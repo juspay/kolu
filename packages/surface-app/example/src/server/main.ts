@@ -82,8 +82,8 @@ const statsStore = {
 
 // Both surfaces in ONE call — the counterpart to `composeSurfaceContracts` on
 // the surface side. `implementSurfaces` serves surface-app as a SIBLING (key
-// `surfaceApp`) instead of merging it: the buildInfo cell + `identity.info`
-// probe come from `surfaceAppServer()`, and the runtime fires the buildInfo
+// `surfaceApp`) instead of merging it: the buildInfo
+// cell comes from `surfaceAppServer()`, and the runtime fires the buildInfo
 // cell's async `connect` (the boot axis below) for us — no app-visible connect,
 // no hand-written seed→connect dance. The app's own `serverStats` cell rides
 // the sibling `demo` surface. Channels are key-namespaced, so neither surface's
@@ -95,9 +95,6 @@ const statsStore = {
 // The fragment seeds `{ commit, bootId: "" }` synchronously, folds the resolved
 // patch in when the promise settles, and the runtime republishes it to
 // subscribers — no hand-written second `ctx.cells.buildInfo.set`.
-// ONE `surfaceAppServer` call, so the `processId` the stale-tab gate compares
-// against IS the one `identity.info` reports. A second call would mint a second
-// id and every reconnecting tab would read as stale.
 const surfaceAppDeps = surfaceAppServer<ExampleBuildInfo>({
   // The schema-valid seed: every required axis at its default. Until the
   // async source settles, the cell publishes `{ commit, bootId: "" }` — a
@@ -191,11 +188,11 @@ const wss = new WebSocketServer({ noServer: true });
 
 // The server-side acceptance seam: it owns the liveness reaper and sequences
 // gate → enrol → dispatch, so a socket CANNOT be dispatched without first being
-// gated and enrolled (kolu#1231). `liveProcessId` must be the id `identity.info`
-// reports, which is exactly what `surfaceAppServer()` mints.
+// gated and enrolled (kolu#1231). The stale-tab gate needs no id from here: it
+// compares against this process's own `surfaceProcessId()`, which is also what the
+// reserved `system/identity` member answers and so what a client echoes back.
 const acceptor = acceptSurfaceSocket({
   server: wss,
-  liveProcessId: surfaceAppDeps.processId,
   onReject: (claimedPid) =>
     console.log(`stale tab rejected (claimed pid ${claimedPid})`),
 });

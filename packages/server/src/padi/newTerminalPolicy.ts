@@ -66,8 +66,8 @@ export interface NewTerminalPolicySession {
  *
  *  THROWS on a face that has no `newTerminalPolicy.set` — the wrong-client mistake,
  *  which must read as the programming error it is instead of a push that silently
- *  does nothing (surface-app's `surfaceAppProbe` makes the same call for the same
- *  reason). A padi that genuinely lacks the member is a contract skew the binding's
+ *  does nothing (kolu's `unaryMember` in `client/src/wire.ts` makes the same call
+ *  for the same reason). A padi that genuinely lacks the member is a contract skew the binding's
  *  own version gate refuses long before a push reaches here. */
 function policyWriter(client: unknown): NewTerminalPolicyClient {
   const set = (

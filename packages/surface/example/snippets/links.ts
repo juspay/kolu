@@ -8,6 +8,7 @@
 import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClient } from "@kolu/surface/solid";
 import { connectSurface } from "@kolu/surface-app/solid";
+import { reloadForUpdate } from "@kolu/surface-app/lifecycle";
 import { runtime } from "./serve";
 import { surface } from "./surface";
 
@@ -27,7 +28,11 @@ async function overSocket() {
   // #region swap
   // Now: over a WebSocket, via the app layer's watchdog-backed connect. ASYNC —
   // the dial is an effect — and the bound hooks below it are unchanged.
-  const { client } = await connectSurface({ surface, url });
+  const { client } = await connectSurface({
+    surface,
+    url,
+    retired: reloadForUpdate,
+  });
   const app = client; // same bound hooks, same call sites
   // #endregion swap
   return app;

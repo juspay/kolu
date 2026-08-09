@@ -80,6 +80,7 @@ describe("connectSurfaces — one wire, multi-surface, heartbeat by construction
       const conn = await connectSurfaces({
         surfaces: { a: surface, b: surface },
         url: "ws://test",
+        retired: () => {},
         connect: d.connect,
       });
       // Pre-open: `connecting` → not live (NOT a constant `true` the hand-built
@@ -108,6 +109,7 @@ describe("connectSurfaces — one wire, multi-surface, heartbeat by construction
       const conn = await connectSurfaces({
         surfaces: { a: surface, b: surface },
         url: "ws://test",
+        retired: () => {},
         connect: d.connect,
       });
       // The heartbeat is default-ON: `createLiveSignal` handed `createHeartbeat`
@@ -138,7 +140,7 @@ describe("connectSurfaces — one wire, multi-surface, heartbeat by construction
 
   it("fails fast on an empty surface map — no sibling, no probe target", async () => {
     await expect(
-      connectSurfaces({ surfaces: {}, url: "ws://test" }),
+      connectSurfaces({ surfaces: {}, url: "ws://test", retired: () => {} }),
     ).rejects.toThrow(/no sibling/);
   });
 });

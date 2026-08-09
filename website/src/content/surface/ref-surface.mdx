@@ -254,7 +254,8 @@ end) and a handler nobody advertises are both boot crashes.
 
 `opts.identity` is the server's declared build triple — what the reserved
 `system/identity` member serves as its `identified` arm (the framework stamps
-`startedAt`). Omit it and the surface is served `anonymous`.
+`startedAt` and `processId`). Omit it and the surface is served `anonymous`,
+stamped with the same two.
 
 Dependency shapes, per member:
 
@@ -1000,7 +1001,19 @@ own probe. `probeSurfaceLive(client)` is the one-liner that calls it (it walks
 `.surface.system.live` structurally); the socket and ssh seams default their
 watchdog to it. `probeSurfaceIdentity(client)` is its `system/identity` twin,
 returning the `identified | anonymous` union `implementSurface`'s `identity`
-option declares.
+option declares — both arms carrying `startedAt` (the UPTIME axis) and
+`processId` (the RESTART axis).
+
+`surfaceProcessId()` (`@kolu/surface/identity`) is that `processId`: a nonce minted
+once per process, on first read. It is what the reserved member answers with, what
+a surface app's client echoes back as `?pid=` on every reconnect, and what
+`gateStaleSocket` compares a reconnecting claim against — one value, read from one
+place, so a stale-tab handshake cannot come to compare two unrelated strings.
+There is deliberately no way to inject one: a process has one identity, and
+anything that wants to stamp a log line with it reads it from here. It is
+DISTINCT from `startedAt` on purpose — two processes can start in the same
+millisecond, and a timestamp read as an identity is a near-miss waiting to
+happen.
 
 `monotonicNow()` (`@kolu/surface/time`) is the shared monotonic-clock primitive
 both the heartbeat's suspension check and a consumer's own dead-man ceiling clock

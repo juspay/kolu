@@ -9,10 +9,17 @@ caching service worker, ever.
 
 ```ts
 import { connectSurface } from "@kolu/surface-app/solid";
+import { reloadForUpdate } from "@kolu/surface-app/lifecycle";
 
-const { link, client, status, dispose } = await connectSurface({ surface, url });
-// client.cells.X.use(...) — the dial, the dispatch, and the half-open heartbeat
-// are wired for you (the dial is an effect, so the seam is async).
+const { link, client, status, dispose } = await connectSurface({
+  surface,
+  url,
+  retired: reloadForUpdate, // required: what happens when the server retires this wire
+});
+// client.cells.X.use(...) — the dial, the dispatch, the half-open heartbeat AND
+// the stale-tab `pid` handshake are wired for you (the dial is an effect, so the
+// seam is async). The only thing left to spell is what a tab does when the server
+// it came from is gone, because that is the one state nothing else can decide.
 ```
 
 Part of the kolu monorepo — `"@kolu/surface-app": "workspace:*"`.

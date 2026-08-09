@@ -12,8 +12,13 @@
  *
  * Its purpose is to make "who are you" a UNIVERSAL question every serving process
  * answers — the identity axis a mirror/session reads to report a bound server's
- * uptime, contract version, and build. This generalizes what `@kolu/surface-app`'s
- * `identity.info` / `buildInfo` did per-app into one framework member.
+ * uptime, contract version, build, and (the RESTART axis) the per-process id a
+ * stale-tab handshake compares. This subsumes what `@kolu/surface-app`'s
+ * `identity.info` / `buildInfo` did per-app into one framework member: an app that
+ * needs to know "is this the same process that served my page?" reads it here,
+ * rather than declaring a probe of its own. The gap that forced apps to declare
+ * one — this member reporting a start TIME but not an id — is closed by
+ * {@link surfaceProcessId}.
  *
  * NO NULLS. Every "who is the far end" state is a named arm of ONE sum
  * ({@link SurfaceIdentity}); the reader is forced to branch, and impossible states
@@ -30,6 +35,30 @@ import { Rpc } from "effect/unstable/rpc";
  *  and the client probe never drift. Shares the `system` namespace with `live`. */
 export const IDENTITY_NAMESPACE = "system";
 export const IDENTITY_VERB = "identity";
+
+// The id minted for THIS process, on first read. Module-private and lazy: this
+// module is isomorphic (a browser imports it for `probeSurfaceIdentity`), and
+// `crypto.randomUUID` is unavailable in a browser off a secure context — a
+// module-level mint would throw at IMPORT there, on a value only a server needs.
+let processId: string | undefined;
+
+/** This serving process's identity — the value `system/identity` reports and the
+ *  ONE thing a stale-tab gate may compare a reconnecting client's claim against.
+ *
+ *  A nonce minted once per process, so "a different id" means "a different
+ *  process" and nothing else. It is deliberately NOT `startedAt`: two processes
+ *  can start in the same millisecond, and a timestamp read as an identity invites
+ *  exactly the kind of near-miss a gate must never make.
+ *
+ *  There is no way to inject one. A consumer that could supply its own id could
+ *  supply a DIFFERENT id to the gate than the one the wire reports — which is the
+ *  stale-tab handshake comparing two unrelated strings and rejecting every
+ *  reconnect (or none). A process has one identity; this is it, and anything that
+ *  wants to stamp a log line with it reads it from here. */
+export function surfaceProcessId(): string {
+  processId ??= crypto.randomUUID();
+  return processId;
+}
 
 /** A build's source commit — a SUM, never `string | null`. `dev-vs-real` is
  *  explicit: a navigable commit to link to, or a dev tree with none. */
@@ -55,15 +84,24 @@ export type BakedIdentity = typeof BakedIdentitySchema.Type;
 
 /** What the server actually SERVES over `system/identity` — it is always live when
  *  it answers, so the `disconnected` arm never crosses the wire. Either it declared
- *  a build (`identified`) or it didn't (`anonymous`); both carry `startedAt`. */
+ *  a build (`identified`) or it didn't (`anonymous`); both carry `startedAt` and
+ *  `processId`.
+ *
+ *  `processId` is the RESTART axis and `startedAt` is the UPTIME axis — related but
+ *  not interchangeable. A reader asking "am I still talking to the process that
+ *  served this page?" compares `processId`; a reader rendering "up for 3h" reads
+ *  `startedAt`. Serving both is what lets a stale-tab gate and an uptime readout
+ *  share one member instead of an app growing a second `identity.info` beside it. */
 export const ServedIdentitySchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("anonymous"),
     startedAt: Schema.Number,
+    processId: Schema.String,
   }),
   Schema.Struct({
     kind: Schema.Literal("identified"),
     startedAt: Schema.Number,
+    processId: Schema.String,
     baked: BakedIdentitySchema,
   }),
 ]);
@@ -141,13 +179,20 @@ export function buildCommit(commitHash: string): BuildCommit {
 
 /** Wrap a server's optional declared build into the value the reserved
  *  `system/identity` serves: `identified` when it declared a build, else
- *  `anonymous` — both stamped with the server's `startedAt`. The one place the
- *  serve path turns a {@link BakedIdentity} into a {@link ServedIdentity}. */
+ *  `anonymous` — both stamped with the server's `startedAt` and this process's
+ *  {@link surfaceProcessId}. The one place the serve path turns a
+ *  {@link BakedIdentity} into a {@link ServedIdentity}.
+ *
+ *  The process id is stamped HERE rather than taken as an argument, so the id a
+ *  server ANSWERS with is the id `surfaceProcessId()` reports — the two cannot be
+ *  made to disagree, which is what a stale-tab gate comparing against the latter
+ *  depends on. */
 export function serveIdentity(
   startedAt: number,
   baked: BakedIdentity | undefined,
 ): ServedIdentity {
+  const processId = surfaceProcessId();
   return baked === undefined
-    ? { kind: "anonymous", startedAt }
-    : { kind: "identified", startedAt, baked };
+    ? { kind: "anonymous", startedAt, processId }
+    : { kind: "identified", startedAt, processId, baked };
 }

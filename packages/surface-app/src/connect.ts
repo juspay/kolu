@@ -16,6 +16,18 @@
  * would fit neither. The shared duplication is the echo and the dial; that is
  * what graduates here.
  *
+ * **The echo is no longer a wiring job.** It used to be: the seam returned an
+ * `echo` and the app was expected to feed it, by threading
+ * `createServerLifecycle`'s `onProcessId` into `echo.remember`. An app that kept
+ * only the client and dropped both (olai#61) shipped reconnects with no `pid`, so
+ * `rejectStaleProcess(null, live)` never rejected, the server's stale-tab gate was
+ * dead code, and the wire's `retired` state was unreachable — a tab bound to a
+ * replaced server looked healthy forever. `createSurfaceSocket` now probes the
+ * framework-reserved `system/identity` member itself on every open and feeds the
+ * echo, and it REQUIRES a `retired` handler for the rejection that earns. Both
+ * halves of the handshake live at the one seam that dials the wire; there is no
+ * app-side step left to omit.
+ *
  * Framework-free (no SolidJS): pure transport, like its sibling `./lifecycle`.
  *
  * **partysocket is gone** (PLAN D5). The reconnecting socket is now
@@ -33,16 +45,27 @@
  */
 
 import {
+  SURFACE_TAG_PREFIX,
+  siblingTagPrefix,
+  surfaceTag,
+} from "@kolu/surface/define";
+import {
   createHeartbeat as createHeartbeatPrimitive,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
   type HeartbeatTuning,
 } from "@kolu/surface/heartbeat";
+import {
+  IDENTITY_NAMESPACE,
+  IDENTITY_VERB,
+  type ServedIdentity,
+} from "@kolu/surface/identity";
 import type { WatchableWire } from "@kolu/surface/link";
 import {
   websocketLink,
   type WebsocketLink,
 } from "@kolu/surface/links/websocket";
+import { Effect } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { SERVER_PROCESS_ID_PARAM, STALE_PROCESS_CLOSE_CODE } from "./index";
 
@@ -53,16 +76,23 @@ import { SERVER_PROCESS_ID_PARAM, STALE_PROCESS_CLOSE_CODE } from "./index";
 export { DEFAULT_HEARTBEAT_INTERVAL_MS, DEFAULT_HEARTBEAT_TIMEOUT_MS };
 
 /** The `pid` handshake echo: the client's record of the last server `processId`
- *  it snapshot, threaded back as the `pid` query param on every (re)connect so a
+ *  it observed, threaded back as the `pid` query param on every (re)connect so a
  *  RESTARTED server can recognize and reject a stale tab at the handshake. One
  *  echo per app — kolu has a single wire so it owns one implicitly; drishti
- *  shares ONE echo across its per-host + admin wires, all fed by the admin
- *  wire's lifecycle. */
+ *  shares ONE echo across its per-host + admin wires.
+ *
+ *  **The framework feeds it.** `createSurfaceSocket` probes the framework-reserved
+ *  `system/identity` member on every wire OPEN and calls `remember` itself, so the
+ *  handshake works in every app with zero app code. It used to be an app's job to
+ *  thread `createServerLifecycle`'s `onProcessId` into `remember` — and an app that
+ *  didn't (olai#61) shipped a wire whose reconnects carried no `pid`, which made the
+ *  server's gate dead code and the wire's `retired` state unreachable. There is no
+ *  longer anything for an app to forget: `remember` is called by the same seam that
+ *  appends `appendTo`'s result to the URL. */
 export interface ProcessIdEcho {
-  /** Record the latest observed server `processId`. Wire this to
-   *  `createServerLifecycle`'s `onProcessId` (or `<SurfaceAppProvider onProcessId>`)
-   *  so each probe result updates the echo. Closure-based (no `this`), so the
-   *  bound method is safe to detach and pass as a callback. */
+  /** Record the latest observed server `processId`. Called by
+   *  `createSurfaceSocket`'s own identity probe; an app does not call it.
+   *  Closure-based (no `this`), so the bound method is safe to detach. */
   remember: (processId: string) => void;
   /** Append `?pid=<last>` (or `&pid=`) to a URL — respecting an existing query
    *  string (drishti's `?host=`). A no-op until the first id is observed, so the
@@ -72,7 +102,8 @@ export interface ProcessIdEcho {
 
 /** A fresh `pid` echo. Pass the SAME instance to every `createSurfaceSocket` that
  *  must echo one server's identity (drishti's per-host + admin wires); omit it
- *  and `createSurfaceSocket` builds a private one (kolu's single wire). */
+ *  and `createSurfaceSocket` builds a private one (kolu's single wire). Either
+ *  way the framework, not the app, feeds it. */
 export function createProcessIdEcho(): ProcessIdEcho {
   let last: string | null = null;
   return {
@@ -98,13 +129,43 @@ export interface SurfaceSocketOptions {
    *  every reconnect when the base itself varies (drishti's per-host `?host=`).
    *  The `pid` echo is appended on top, so don't add it here. */
   url: string | (() => string);
-  /** The shared `pid` echo. Omit to build a private one (returned as `.echo`);
-   *  pass a shared instance when several wires echo one server (drishti). */
+  /** The shared `pid` echo. Omit to build a private one; pass a shared instance
+   *  when several wires echo one server (drishti). Fed by this seam either way. */
   echo?: ProcessIdEcho;
+  /** For a wire carrying SIBLING surfaces (`connectSurfaces`), the sibling key
+   *  whose framework-reserved `system/identity` member the echo probe reads —
+   *  every sibling answers it with the same per-process id, so any key works; pass
+   *  the first. Omit for a single-surface wire, where the reserved member sits at
+   *  the bare `surface/system/identity`. */
+  siblingKey?: string;
+  /** What to do when the SERVER retires this wire — the terminal state. REQUIRED,
+   *  and that is the point: see {@link RetiredHandler}. */
+  retired: RetiredHandler;
   /** The platform's WebSocket constructor. Omitted in a browser (the link uses
    *  `globalThis.WebSocket`); supplied by a Node host or a test that has none. */
   connect?: (url: string) => WebSocket;
 }
+
+/**
+ * What an app does when the server RETIRES its wire: this tab is bound to a
+ * process that no longer exists, the link has stopped dialling for good, and every
+ * call on it fails with `SurfaceTransportRetired`. Nothing recovers it but a
+ * reload.
+ *
+ * It is a REQUIRED option on every seam that dials a surface app's wire, and it has
+ * no default. A default would be a silent policy — and silence is the whole defect:
+ * an app can otherwise build a wire, keep only its client, and ship a tab that sits
+ * on a dead server looking healthy forever (olai#61). Requiring the handler does not
+ * make an app render anything (nothing at the type level can), but it does make the
+ * terminal state impossible to be UNAWARE of: a wire that compiles has been asked
+ * what happens when it dies, and answered.
+ *
+ * `retired: reloadForUpdate` (from `@kolu/surface-app/lifecycle`) is the one-liner
+ * for an app content to land the deployed build immediately; an app that would
+ * rather take the screen and let the reader choose passes its own handler
+ * (`() => setRetired(true)`). Called at most once — `retired` is terminal.
+ */
+export type RetiredHandler = () => void;
 
 /** A constructed surface wire and the echo feeding its `pid` param. */
 export interface SurfaceSocket {
@@ -114,10 +175,11 @@ export interface SurfaceSocket {
    *  (`WireTransport`) minted together, which is what makes "the watchdog probes
    *  the transport it reconnects" hold by construction. */
   link: WebsocketLink;
-  /** The echo this wire reads. When the caller passed one in, this is that same
-   *  instance; otherwise it's the private one created here — wire its `remember`
-   *  to the lifecycle's `onProcessId`. */
-  echo: ProcessIdEcho;
+  /** Stop the identity/retired observers and release the link's scope. Use this
+   *  rather than `link.dispose()`: the observers this seam installed outlive the
+   *  link otherwise, and a remounted wire (drishti's per-host clients, a test
+   *  re-dialling) would accumulate them. */
+  dispose: () => Promise<void>;
 }
 
 /** Is this close code the server RETIRING a stale tab? The one place surface-app's
@@ -130,10 +192,34 @@ export function isStaleProcessClose(code: number): boolean {
   return code === STALE_PROCESS_CLOSE_CODE;
 }
 
-/** Dial a surface app's reconnecting wire with the `pid` handshake wired in: the
- *  URL thunk appends the echo'd `pid` on EVERY re-dial (so a tab that was live
- *  across a restart re-presents the now-stale id and is re-rejected until a fresh
- *  page resets it), and the server's stale-close retires the wire for good.
+// The reserved identity member's TAG, minted through the SAME tag algebra
+// `defineSurface` mints it with — so the echo probe can never address a member the
+// surface does not carry, and a sibling-scoped probe is a tag prefix rather than a
+// walk through a nested client. (The twin of `createLiveSignal`'s `system/live`
+// tag; same shape, different question.)
+function identityTagFor(siblingKey: string | undefined): string {
+  return surfaceTag(
+    siblingKey === undefined
+      ? SURFACE_TAG_PREFIX
+      : siblingTagPrefix(siblingKey),
+    IDENTITY_NAMESPACE,
+    IDENTITY_VERB,
+  );
+}
+
+/** Dial a surface app's reconnecting wire with the WHOLE stale-tab handshake wired
+ *  in — both halves, neither of them an app's job:
+ *
+ *   1. **The echo feeds itself.** On every wire OPEN this probes the
+ *      framework-reserved `system/identity` member over the link's own dispatch and
+ *      hands the server's `processId` to `echo.remember`. The URL thunk appends it
+ *      as `?pid=` on EVERY re-dial, so a tab that was live across a restart
+ *      re-presents the now-stale id and is re-rejected until a fresh page resets
+ *      it. Nothing outside this function has to observe an id, and nothing can
+ *      forget to.
+ *   2. **The retirement is answered.** The server's stale-close retires the wire for
+ *      good (the link's terminal classifier), and `opts.retired` — required, no
+ *      default — runs. A wire that compiles has a policy for its own death.
  *
  *  Async because building the protocol and its fibers is an effect — the whole
  *  link family is Promise-shaped at this edge. The clients + lifecycle stay with
@@ -152,7 +238,60 @@ export async function createSurfaceSocket(
     isTerminalClose: isStaleProcessClose,
     connect: opts.connect,
   });
-  return { link, echo };
+  const identityTag = identityTagFor(opts.siblingKey);
+  // Which OPEN a probe belongs to. A probe from a superseded open landing late
+  // would write an id from a connection we have already left — usually the dead
+  // transport rejects first, but nothing guarantees it, so the write is guarded on
+  // the generation rather than on hope.
+  let openEpoch = 0;
+  const readIdentity = (): void => {
+    const epoch = ++openEpoch;
+    // THE ECHO'S RUN EDGE. A member call is an `Effect`; `wire.onStatus` is a plain
+    // callback with no Effect to compose into, and the value this produces is a
+    // mutable the URL thunk reads on the next dial. One edge, here, rather than one
+    // per consuming app — which is exactly what the old `onProcessId` seam made
+    // every app open for itself.
+    Effect.runPromise(link.dispatch.unary(identityTag, {}))
+      .then((served) => {
+        if (epoch !== openEpoch) return;
+        echo.remember((served as ServedIdentity).processId);
+      })
+      .catch((err) => {
+        // A probe in flight when the wire drops (or when the server retires this
+        // tab at the very next handshake) fails BECAUSE the mechanism worked; the
+        // next open re-probes. Report only a failure on a still-open wire, where it
+        // means the reserved member itself is unreachable — the handshake is then
+        // silently dead, which is the state this whole seam exists to end.
+        if (epoch !== openEpoch || link.wire.status() !== "open") return;
+        console.error(
+          "surface-app: the reserved `system/identity` probe failed on an OPEN wire — " +
+            "this connection echoes no `pid`, so the server cannot recognize it as a " +
+            "stale tab after a restart",
+          err,
+        );
+      });
+  };
+  const detachStatus = link.wire.onStatus((status) => {
+    if (status === "open") readIdentity();
+    else if (status === "retired") opts.retired();
+  });
+  // The wire may already have settled before this subscription existed — the link
+  // dials on its own fiber, so a caller awaiting `createSurfaceSocket` can hold an
+  // already-open (or already-retired) wire, and the status stream only reports
+  // CHANGES.
+  const settled = link.wire.status();
+  if (settled === "open") readIdentity();
+  else if (settled === "retired") opts.retired();
+  return {
+    link,
+    dispose: async () => {
+      detachStatus();
+      // Supersede any in-flight probe so its late resolution cannot write to an
+      // echo whose wire is gone.
+      openEpoch++;
+      await link.dispose();
+    },
+  };
 }
 
 /** Options for `createHeartbeat` — the wire-shaped face of the lifted

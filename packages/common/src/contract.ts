@@ -47,8 +47,8 @@ export type PwaIdentity = typeof PwaIdentitySchema.Type;
 
 // The `processId` (restart axis) and `commit` (build-identity / skew axis) that
 // used to ride this probe now live on the surface, owned by @kolu/surface-app:
-// `processId` is the `surface/surfaceApp/identity/info` probe (surface-app served
-// as a sibling surface), and `commit` is the server-pushed `buildInfo` cell
+// `processId` is the framework-reserved `surface/surfaceApp/system/identity`
+// member (`@kolu/surface`), and `commit` is the server-pushed `buildInfo` cell
 // (`koluBuildInfo`); the kaval expected/reported identities ride padi's `status`
 // cell + `daemonStatus` collection, not this probe. This raw probe keeps only the
 // per-host BRANDING the shell needs synchronously at boot (document title,

@@ -1,13 +1,22 @@
 /** System hostname and process identity, resolved once at startup. */
 
-import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
+import { surfaceProcessId } from "@kolu/surface/identity";
 import pkg from "../package.json" with { type: "json" };
 
 export const serverHostname = hostname();
 
-/** Unique ID for this server process — changes on every restart. */
-export const serverProcessId = randomUUID();
+/** Unique ID for this server process — changes on every restart.
+ *
+ *  The FRAMEWORK's id, not a second `randomUUID()` of kolu's own. A process has
+ *  one identity: `@kolu/surface` mints it, the reserved `system/identity` member
+ *  answers with it, a reconnecting tab echoes it back as `?pid=`, and
+ *  `gateStaleSocket` compares against it. Minting a separate one here would put a
+ *  different string in the log than on the wire — and, back when the gate took its
+ *  live id as an argument, would have been the way to build a gate that rejected
+ *  every reconnect or none. Log lines and the handshake now name the same
+ *  process. */
+export const serverProcessId = surfaceProcessId();
 
 /** kolu-server's boot time (ms epoch), stamped once at module init — the honest
  *  process start (this module loads at boot), the twin of padi's `PADI_STARTED_AT`.

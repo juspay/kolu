@@ -181,6 +181,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the example server's node `request` callback — the same boundary `packages/server/src/index.ts` carries, spelled out for a reader who will copy it",
   },
   {
+    path: "packages/surface-app/src/connect.ts",
+    sites: 1,
+    why: "THE `pid` echo's edge: the reserved `system/identity` round-trip is an Effect, but `wire.onStatus` is a plain callback with no Effect to compose into, and what the probe produces is a MUTABLE the URL thunk reads on the next dial — there is no continuation to hand it to. Held here, at the one seam that dials a surface app's wire, precisely so it is not one edge per consuming app: the old arrangement made every app open its own (`createServerLifecycle`'s `onProcessId`), and an app that didn't (olai#61) shipped a dead stale-tab handshake",
+  },
+  {
     path: "packages/surface-app/src/server.ts",
     sites: 2,
     why: "the per-connection serve boundary: build the serving layer into a connection-scoped `Scope` when a socket opens, close that scope when it ends — a `ws` callback either side",
@@ -188,7 +193,7 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   {
     path: "packages/surface-app/src/solid/index.ts",
     sites: 1,
-    why: "the server-lifecycle probe edge: `identity.info` is an Effect, but the lifecycle hangs off `wire.onStatus` (a plain callback) and `createHeartbeat` races a probe against a timer, so the crossing is real — held here once rather than at each of the three consumers, and deliberately NOT folded into `liveSignal`'s edge, which takes no caller-supplied probe target on purpose (#1564)",
+    why: "the server-lifecycle probe edge: the reserved `system/identity` round-trip is an Effect, but the lifecycle hangs off `wire.onStatus` (a plain callback) and `createHeartbeat` races a probe against a timer, so the crossing is real — held here once rather than at each of the three consumers, and deliberately NOT folded into `liveSignal`'s edge, which takes no caller-supplied probe target on purpose (#1564)",
   },
   {
     path: "packages/surface-map/src/server.ts",

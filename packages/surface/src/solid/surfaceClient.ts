@@ -1523,12 +1523,12 @@ export type SurfaceClients<
  *  wire dies.
  *
  *  Reaching a member through a returned client therefore goes through that client's
- *  `.rpc` (the scoped face), e.g. for a probe procedure under surface key
- *  `surfaceApp` with namespace `identity` and verb `info`:
+ *  `.rpc` (the scoped face), e.g. for the reserved identity probe under surface
+ *  key `surfaceApp`:
  *
- *      clients.surfaceApp.rpc.surface.identity.info(...)
+ *      clients.surfaceApp.rpc.surface.system.identity(...)
  *
- *  (NOT `clients.surfaceApp.rpc.surface.surfaceApp.identity.info` — the key
+ *  (NOT `clients.surfaceApp.rpc.surface.surfaceApp.system.identity` — the key
  *  is already consumed by the scope, so it does not reappear in the path.) */
 export function surfaceClients<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.

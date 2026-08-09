@@ -10,12 +10,12 @@ import { shellCommit } from "@kolu/surface-app/lifecycle";
 import {
   type ConnectionStatus,
   SurfaceAppProvider,
-  surfaceAppProbe,
   useSurfaceApp,
 } from "@kolu/surface-app/solid";
+import { probeSurfaceIdentity } from "@kolu/surface/identity";
 import { createSignal, Show } from "solid-js";
 import { buildInfo, type ExampleBuildInfo } from "../common/surface";
-import { clients, link } from "./wire";
+import { clients, conn } from "./wire";
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
   live: "live",
@@ -142,20 +142,19 @@ export default function App() {
       controlPlane={clients.surfaceApp}
       clientCommit={shellCommit()}
       buildInfo={buildInfo}
-      wire={link.wire}
+      wire={conn.link.wire}
       // `wire.ts`'s `createLiveSignal` already wires the half-open watchdog over
       // this wire (minting the branded `{ live }` the clients require), so
       // the lifecycle opts ITS watchdog out — one watchdog on the wire, not two.
       // (The lifecycle mints no brand, so this is ownership coordination only.)
       heartbeat={false}
-      // The probe rides the SCOPED `surfaceApp` client: its dispatch splices the
-      // sibling key into every tag, so `surface.identity.info` resolves at the
-      // wire tag `surface/surfaceApp/identity/info`. The key is consumed by the
-      // scope and does NOT reappear in the member path. `.rpc` is the STRUCTURAL
-      // member face (per-member types live in the bound hooks), so the caller
-      // pins the probe call shape here. It hands back an `Effect` — the provider
-      // runs it at its own edge, so an app never opens one.
-      probe={() => surfaceAppProbe(clients.surfaceApp)}
+      // The FRAMEWORK-RESERVED identity round-trip — no app-declared member. It
+      // rides the SCOPED `surfaceApp` client, whose dispatch splices the sibling
+      // key into every tag, so it resolves at `surface/surfaceApp/system/identity`.
+      // It hands back an `Effect` — the provider runs it at its own edge, so an app
+      // never opens one. Its `processId` is the same id the stale-tab gate compares
+      // against, because both read `surfaceProcessId()`.
+      probe={() => probeSurfaceIdentity(clients.surfaceApp.rpc)}
       // Turnkey `{ ws, probe }` mode: `onError` covers BOTH the buildInfo
       // stream and a failed identity probe (a broken probe would otherwise
       // leave the connection status stuck silently).

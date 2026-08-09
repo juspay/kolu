@@ -7,6 +7,10 @@
  * INTERFACE: `defineBuildInfo` lets kolu add a pty-host axis while drishti takes
  * the default, and both carry the same `isStale` predicate.
  *
+ * The RESTART axis is not here. "Which process is serving me?" is a question every
+ * surface answers through `@kolu/surface`'s reserved `system/identity` member, so
+ * surface-app declares no probe of its own — see {@link ServerProbe}.
+ *
  * surface-app is a COMPLETE surface, not a fragment merged into the app surface.
  * A consumer serves it as a SIBLING of their own surface — a keyed map of
  * independent surfaces multiplexed over one transport (`implementSurfaces` /
@@ -71,52 +75,37 @@ export const buildInfo: BuildInfoDef = defineBuildInfo({
   default: { commit: "" },
 });
 
-/** What an identity probe reports: the server's `processId` — a value that
- *  changes when the server restarts, so a reconnect to a *different* process is
- *  a restart, not a transient drop. This schema is the single source of the
- *  probe's wire shape: the `ServerProbe` type is derived from it via
- *  `typeof …Schema.Type` (and re-exported from `/solid`), so the validator and
- *  the type can't desync.
+/** What an identity probe must report for `createServerLifecycle` to classify a
+ *  reconnect: the server's `processId` — a value that changes when the server
+ *  restarts, so a reconnect to a *different* process is a restart, not a transient
+ *  drop.
  *
- *  WIRE format, byte-pinned by `surface.test.ts`: `{"processId":"<id>"}`, the
- *  same bytes the zod original encoded (a required, non-optional string). */
-export const ServerProbeSchema = Schema.Struct({ processId: Schema.String });
-
-/** The probe's wire shape as a type, derived from `ServerProbeSchema` (the one
- *  source). An app may send a superset (the `/solid` provider is generic over
- *  the probe response — see its `P`). */
-export type ServerProbe = typeof ServerProbeSchema.Type;
-
-/** The probe's INPUT: no arguments. Spelled as an empty struct (not
- *  `Schema.Void`) so the encoded payload stays the `{}` object the zod-era
- *  contract put on the wire — `Schema.Void` would encode `null` (PLAN D8's
- *  measured divergence (3)), changing the frame for a member whose shape is
- *  part of the app handshake. */
-export const ServerProbeInputSchema = Schema.Struct({});
+ *  It is a STRUCTURAL bound, not a member surface-app declares. surface-app used to
+ *  ship its own `identity.info` procedure with this shape; the framework's reserved
+ *  `system/identity` now carries `processId` itself, so `probeSurfaceIdentity`
+ *  (`@kolu/surface/identity`) satisfies this bound over ANY surface — including one
+ *  that never heard of surface-app. That is the point: an app should not have to
+ *  declare a member to find out whether it is still talking to the process that
+ *  served its page. */
+export type ServerProbe = { processId: string };
 
 /** Build the standalone surface-app surface for a given build-identity def: the
- *  `buildInfo` cell (read-only) plus the `identity.info` restart probe. The
- *  probe lives in this surface's OWN `identity` namespace, so a consumer that
- *  registers this surface under key `surfaceApp` gets the wire path
- *  `surface.surfaceApp.identity.info` (the key namespaces the sibling; the probe
- *  namespace is `identity`). Extenders (kolu's pty-host axis) pass their
+ *  `buildInfo` cell (read-only). Extenders (kolu's pty-host axis) pass their
  *  `BuildInfoDef` here; the server impl is `surfaceAppServer()` from
- *  `@kolu/surface-app/server`. */
+ *  `@kolu/surface-app/server`.
+ *
+ *  The `identity.info` probe that used to sit beside the cell is GONE — it
+ *  duplicated the framework-reserved `system/identity`, which every surface already
+ *  answers with the same per-process id. Its removal is what lets an app with no
+ *  surface-app sibling at all (olai) run the same stale-tab handshake and the same
+ *  lifecycle. */
 export function surfaceAppSurfaceWith<T extends BuildInfo>(
   def: BuildInfoDef<T>,
 ) {
-  return defineSurface({
-    cells: { ...def.cells },
-    procedures: {
-      identity: {
-        info: { input: ServerProbeInputSchema, output: ServerProbeSchema },
-      },
-    },
-  });
+  return defineSurface({ cells: { ...def.cells } });
 }
 
-/** The default surface-app surface — the bare `{ commit }` buildInfo cell plus
- *  the `identity.info` restart probe. drishti serves exactly this as a sibling;
- *  kolu/the example extend build identity and call `surfaceAppSurfaceWith(theirDef)`
- *  instead. */
+/** The default surface-app surface — the bare `{ commit }` buildInfo cell.
+ *  drishti serves exactly this as a sibling; kolu/the example extend build
+ *  identity and call `surfaceAppSurfaceWith(theirDef)` instead. */
 export const surfaceAppSurface = surfaceAppSurfaceWith(buildInfo);
