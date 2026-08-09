@@ -66,9 +66,7 @@
  * transport and is checked just after it.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { readTerminalKeys } from "@kolu/padi/read";
-import { resolveTerminalId, shortId } from "@kolu/padi/render";
+import { shortId } from "@kolu/padi/render";
 import { shellJoin } from "@kolu/shell-quote";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect } from "effect";
@@ -78,7 +76,7 @@ import type { Command } from "effect/unstable/cli";
 import type { createFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
 import { type CliFailure, failure, reportOf } from "../exit.ts";
-import { writeErr, writeOut } from "./shared.ts";
+import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
 
 /** What the command tree parses for `kolu create` — DERIVED from `createFlags`
  *  in `cli.ts`, where the optional flags are already projected to `undefined`.
@@ -181,35 +179,6 @@ function placementOf(args: CreateArgs): Effect.Effect<Placement, CliFailure> {
     );
   }
   return Effect.succeed({ kind: "worktree", name, repo });
-}
-
-/** Resolve `--parent` — an id or any unique PREFIX of one, the short id `kolu ls`
- *  prints — against the live terminal keys, failing loudly on no-match or
- *  ambiguity. NOT `./shared.ts`'s `resolveTerminal`: both failures name the FLAG
- *  (`--parent: no terminal matching …`), because the id that was wrong here is
- *  one of two arguments rather than the verb's subject. */
-function resolveParent(
-  client: PadiSurfaceClient,
-  query: string,
-): Effect.Effect<TerminalId, unknown> {
-  return Effect.flatMap(readTerminalKeys(client), (ids) => {
-    const result = resolveTerminalId(query, ids);
-    if (result.kind === "found") return Effect.succeed(result.id);
-    if (result.kind === "none") {
-      return Effect.fail(
-        failure(
-          `--parent: no terminal matching "${query}" — \`kolu ls\` shows the live ones.`,
-        ),
-      );
-    }
-    return Effect.fail(
-      failure(
-        `--parent: "${query}" matches ${result.matches.length} terminals — type more characters:\n  ${result.matches
-          .map(shortId)
-          .join("\n  ")}`,
-      ),
-    );
-  });
 }
 
 /** The human sentence inside an arbitrary failure, with the `kolu: ` prefix and
@@ -359,7 +328,7 @@ export function run(
         const parentId =
           parent === undefined
             ? undefined
-            : yield* resolveParent(conn.client, parent);
+            : yield* resolveTerminal(conn, parent, { flag: "--parent" });
 
         // ── Step 1: the worktree ─────────────────────────────────────────
         // Nothing exists yet if this fails, so its error IS the whole truth and

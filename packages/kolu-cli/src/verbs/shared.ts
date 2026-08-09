@@ -35,19 +35,26 @@ import { type CliFailure, failure } from "../exit.ts";
 function resolveOne(
   query: string,
   ids: readonly TerminalId[],
+  flag: string | undefined,
 ): Effect.Effect<TerminalId, CliFailure> {
+  // The ONE thing that varies between the verb's SUBJECT id and an id passed as
+  // one of two arguments: whether the sentence names the flag it came from. A
+  // message label is not volatility — decomposing around it is what produced a
+  // second copy of this whole algorithm in `create.ts` (`--parent`), carrying a
+  // prefix.
+  const where = flag === undefined ? "" : `${flag}: `;
   const result = resolveTerminalId(query, ids);
   if (result.kind === "found") return Effect.succeed(result.id);
   if (result.kind === "none") {
     return Effect.fail(
       failure(
-        `no terminal matching "${query}" — \`kolu ls\` shows the live ones.`,
+        `${where}no terminal matching "${query}" — \`kolu ls\` shows the live ones.`,
       ),
     );
   }
   return Effect.fail(
     failure(
-      `"${query}" matches ${result.matches.length} terminals — type more characters:\n  ${result.matches
+      `${where}"${query}" matches ${result.matches.length} terminals — type more characters:\n  ${result.matches
         .map(shortId)
         .join("\n  ")}`,
     ),
@@ -64,13 +71,19 @@ function resolveOne(
  *  that could not read it cannot come to depend on it. Spelled as the field
  *  rather than as the type so the requirement is the narrowest thing that works
  *  — the same parameter its twin `readTerminalKeys` takes — while a caller still
- *  passes the `conn` it already has in hand. */
+ *  passes the `conn` it already has in hand.
+ *
+ *  `flag` names the option the id came from, for the case where it is one of
+ *  two arguments rather than the verb's subject (`kolu create --parent 3f9`);
+ *  omit it for the subject. `create` used to own a whole second copy of the
+ *  read-resolve-branch algorithm to carry that one prefix. */
 export function resolveTerminal(
   conn: { readonly client: PadiSurfaceClient },
   query: string,
+  opts: { readonly flag?: string } = {},
 ): Effect.Effect<TerminalId, unknown> {
   return Effect.flatMap(readTerminalKeys(conn.client), (ids) =>
-    resolveOne(query, ids),
+    resolveOne(query, ids, opts.flag),
   );
 }
 
