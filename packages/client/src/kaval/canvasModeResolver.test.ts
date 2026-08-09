@@ -790,26 +790,15 @@ describe("resolveCanvasMode — while unobservable, no anchor: one rule, every v
   it("a `retain` frame over a dead link releases the anchor like any other", () => {
     // recordsAwaited > 0 is a `retain` return site.
     const retained = connected({ terminalCount: 0, recordsAwaited: 7 });
-    expect(
-      resolveCanvasMode(retained, { transportLive: true, exceeded: false }).tag,
-    ).toEqual({
-      accrual: "retain",
-    });
-    expect(
-      resolveCanvasMode(retained, { transportLive: false, exceeded: false })
-        .tag,
-    ).toEqual({ accrual: "clear" });
+    expect(tag(retained)).toEqual({ accrual: "retain" });
+    expect(tagOffline(retained)).toEqual({ accrual: "clear" });
     // The surface is unchanged either way — the floor governs the clock, never the screen.
-    expect(
-      resolveCanvasMode(retained, { transportLive: false, exceeded: false })
-        .mode,
-    ).toEqual({ kind: "connecting" });
+    expect(modeOffline(retained)).toEqual({ kind: "connecting" });
   });
 
   it("a settled `clear` frame over a dead link is still just clear", () => {
     const settled = connected({ terminalCount: 3 });
-    expect(
-      resolveCanvasMode(settled, { transportLive: false, exceeded: false }),
-    ).toEqual({ mode: { kind: "workspace" }, tag: { accrual: "clear" } });
+    expect(modeOffline(settled)).toEqual({ kind: "workspace" });
+    expect(tagOffline(settled)).toEqual({ accrual: "clear" });
   });
 });

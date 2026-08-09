@@ -139,11 +139,11 @@ describe("canvasMode — the tail's absence carries a REASON, decided where the 
   // `floorOnLiveness` is handed). Everything downstream carries the verdict; nothing
   // downstream re-derives it.
   /** Arm the connector campaign's anchor, CROSS its ceiling over a live link, then return a
-   *  later frame — with `flip` run in between, so a test can drop the link only AFTER the
-   *  verdict was earned. Crossing live is not decoration: under the #2129 floor it is the ONLY
-   *  way a verdict is ever reached (`bootDeadlineExceeded` samples-and-holds on the same
+   *  later frame — dropping the link in between when asked, so a test can lose the server only
+   *  AFTER the verdict was earned. Crossing live is not decoration: under the #2129 floor it is
+   *  the ONLY way a verdict is ever reached (`bootDeadlineExceeded` samples-and-holds on the same
    *  liveness), so a helper that crossed while blind would pin a frame production cannot make. */
-  const stalledConnectorFrame = (flip: () => void = () => {}) => {
+  const stalledConnectorFrame = (dropLinkAfterEarning = false) => {
     h.entryKind = "warming";
     h.local = false;
     // No connection frame at all — the case under test. The leg is the connector-owned
@@ -151,7 +151,7 @@ describe("canvasMode — the tail's absence carries a REASON, decided where the 
     h.connInfo = undefined;
     frameAt(0); // arm the anchor, link live
     frameAt(CEILING_MS["remote-handshake"] + 1_000); // EARN the verdict, link live
-    flip();
+    if (dropLinkAfterEarning) h.mapLive = false;
     return frameAt(CEILING_MS["remote-handshake"] + 2_000);
   };
 
@@ -160,11 +160,7 @@ describe("canvasMode — the tail's absence carries a REASON, decided where the 
     // only path to this frame now that one fact drives both the map floor and the boot
     // floor: while the link is down no NEW verdict can be reached, so a card showing
     // `link-down` is always one this browser earned while it could still see the server.
-    expect(
-      stalledConnectorFrame(() => {
-        h.mapLive = false;
-      }),
-    ).toMatchObject({
+    expect(stalledConnectorFrame(true)).toMatchObject({
       kind: "boot-stalled",
       recovery: { via: "connector", log: [], logAbsence: "link-down" },
     });
@@ -187,10 +183,17 @@ describe("the observability floor (#2129) — a lost server is not a failed boot
   // `canvasMode` and feeds both the map floor's `link-down` reason and the #2129
   // observability floor, so a test cannot model an outage the production code could
   // disagree about.
-  const outage = () => {
+  /** A local host mid-boot with membership snapshotted — the arrangement every pin below
+   *  shares, so the ONE fact that distinguishes them (`h.mapLive`) stands alone at each site
+   *  instead of being buried in a repeated block. */
+  const localWarming = () => {
     h.entryKind = "warming";
     h.local = true;
     h.members = [{ kind: "local" }];
+  };
+  /** …the same host, seen by a browser that has lost the server. */
+  const outage = () => {
+    localWarming();
     h.mapLive = false;
   };
 
@@ -224,9 +227,7 @@ describe("the observability floor (#2129) — a lost server is not a failed boot
   });
 
   it("still escapes normally when the link is LIVE — the floor guards observability, not the deadline", () => {
-    h.entryKind = "warming";
-    h.local = true;
-    h.members = [{ kind: "local" }];
+    localWarming();
     frameAt(0);
     expect(frameAt(CEILING_MS.local + 1)).toEqual({
       kind: "down",
@@ -240,9 +241,7 @@ describe("the observability floor (#2129) — a lost server is not a failed boot
     // with its socket already gone and an elapsed far past the ceiling — every millisecond of it
     // unwatched. Subtracting `now - anchor` here would certify a stall this browser never saw:
     // #2129's exact shape, reached through the clock instead of through a frame.
-    h.entryKind = "warming";
-    h.local = true;
-    h.members = [{ kind: "local" }];
+    localWarming();
     frameAt(0); // arm the anchor, link live, well under the ceiling
     frameAt(1_000);
     // …the tab freezes. The socket dies during the freeze; the next frame is the wake-up.
@@ -262,9 +261,7 @@ describe("the observability floor (#2129) — a lost server is not a failed boot
     // The AFP C6 exemption at the caller, where `exceeded` is real: cross the ceiling while the
     // link is live, then lose it. The held sample keeps the card — and its Restart button — on
     // screen, which is the whole reason the exemption exists.
-    h.entryKind = "warming";
-    h.local = true;
-    h.members = [{ kind: "local" }];
+    localWarming();
     frameAt(0);
     expect(frameAt(CEILING_MS.local + 1)).toEqual({
       kind: "down",

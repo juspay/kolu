@@ -36,7 +36,8 @@
  *  That residual is CLOSED by the #2129 observability floor (told once, in
  *  `canvasModeResolver.ts`'s module header), which this module applies to BOTH halves of the
  *  cycle above — and it takes both, because a frozen tab runs NO frames at all:
- *   - the WRITE: an accrue frame observed over a dead link releases the anchor
+ *   - the WRITE: a frame observed over a dead link releases the anchor — ANY frame, whatever
+ *     its accrual, which is the rule `resolveCanvasMode` actually implements
  *     ({@link recordBootFrame}), so a reconnect measures a fresh window rather than the outage;
  *   - the READ: the verdict a dead link reports is the last one this browser WATCHED accrue
  *     ({@link bootDeadlineExceeded}), NOT a fresh subtraction over the frozen interval — so a
@@ -123,6 +124,18 @@ const campaignAnchors = new Map<string, number>();
  *  the two anchor cells (a settled episode leaves no verdict behind to resurrect). Absent = the
  *  browser has never watched this host's ceiling elapse, which is exactly `false`. */
 const watchedVerdict = new Map<string, boolean>();
+
+/** WHAT A BOOT EPISODE IS, named once: these three per-host cells. Every path that ends an
+ *  episode ends all three, so "which cells does a host own?" has exactly one answer to keep
+ *  true — adding a fourth cell means adding it here, not remembering four release sites. */
+const EPISODE_CELLS = [anchors, campaignAnchors, watchedVerdict] as const;
+
+/** End this host's episode: drop every cell it owns. The three callers below differ only in
+ *  WHY the episode ended (settled/unobservable, a user Retry, a departed host), never in what
+ *  ending it means — so the reasons stay at the call sites and the mechanics live here. */
+function releaseEpisode(hostEnc: string): void {
+  for (const cell of EPISODE_CELLS) cell.delete(hostEnc);
+}
 
 /** Step 1 (read): is the active host's boot overlay past EITHER ceiling — as far as this
  *  browser has actually WATCHED? Two independent cells, OR-ed (#1908 R8a), both on the SAME
@@ -215,14 +228,11 @@ export function recordBootFrame(
         campaignAnchors.delete(hostEnc);
       }
     })
-    .with({ accrual: "clear" }, () => {
-      anchors.delete(hostEnc);
-      campaignAnchors.delete(hostEnc);
-      // The watched verdict dies with the episode it described. Without this, a host that
-      // SETTLED and then lost the link would still be holding "we watched this exceed",
-      // and the next blind frame would resurrect a card off an episode that already ended.
-      watchedVerdict.delete(hostEnc);
-    })
+    // The whole episode goes, watched verdict included: it dies with the episode it
+    // described. Were it left standing, a host that SETTLED and then lost the link would
+    // still be holding "we watched this exceed", and the next blind frame would resurrect
+    // a card off an episode that already ended.
+    .with({ accrual: "clear" }, () => releaseEpisode(hostEnc))
     .with({ accrual: "retain" }, () => campaignAnchors.delete(hostEnc))
     .exhaustive();
 }
@@ -235,11 +245,10 @@ export function recordBootFrame(
  *  guess from a `sinceMs` sample. The next boot frame re-arms both cells from `now`, so a genuinely
  *  still-wedged host escapes again after a fresh window rather than being permanently silenced. */
 export function resetBootDeadline(hostEnc: string): void {
-  anchors.delete(hostEnc);
-  campaignAnchors.delete(hostEnc);
-  // …including the watched verdict: a Retry that left it standing would re-show the card on
-  // the very next blind frame, which is precisely the "recovery verb looks broken" bug above.
-  watchedVerdict.delete(hostEnc);
+  // The whole episode, watched verdict included: a Retry that left the verdict standing would
+  // re-show the card on the very next blind frame — precisely the "recovery verb looks broken"
+  // bug above.
+  releaseEpisode(hostEnc);
 }
 
 /** Prune anchors for hosts no longer in membership — a genuine re-add earns a FRESH episode
@@ -249,8 +258,9 @@ export function resetBootDeadline(hostEnc: string): void {
  *  a re-add could inherit. */
 export function pruneBootAnchors(memberEncs: readonly string[]): void {
   const keep = new Set(memberEncs);
-  for (const cell of [anchors, campaignAnchors, watchedVerdict]) {
-    for (const k of [...cell.keys()]) {
+  for (const cell of EPISODE_CELLS) {
+    // Deleting the current key mid-iteration is spec-safe for a Map, so no key-array copy.
+    for (const k of cell.keys()) {
       if (!keep.has(k)) cell.delete(k);
     }
   }
@@ -258,7 +268,5 @@ export function pruneBootAnchors(memberEncs: readonly string[]): void {
 
 /** Test-only: clear all episode state so each test accrues fresh. */
 export function resetBootAnchors(): void {
-  anchors.clear();
-  campaignAnchors.clear();
-  watchedVerdict.clear();
+  for (const cell of EPISODE_CELLS) cell.clear();
 }

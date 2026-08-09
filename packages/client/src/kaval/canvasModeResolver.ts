@@ -559,12 +559,17 @@ export function resolveCanvasMode(
       // exactly here — one lens asserting the frame unreachable, the other noting the
       // `empty`-site `retain` documents itself as handling it; both are right about
       // different things, and this states the rule so neither has to be trusted.)
-      .with({ transportLive: false }, () => ({ mode: raw.mode, tag: CLEAR }))
-      // A live link: nothing to floor. A boot genuinely in progress keeps accruing; a
-      // settled surface releases; a non-boot overlay holds.
-      .with({ tag: { accrual: "accrue" } }, () => raw)
-      .with({ tag: { accrual: "retain" } }, () => raw)
-      .with({ tag: { accrual: "clear" } }, () => raw)
+      .with({ transportLive: false }, () => clear(raw.mode))
+      // A live link: nothing to floor, and nothing about WHICH accrual it is changes that —
+      // a boot genuinely in progress keeps accruing, a settled surface releases, a non-boot
+      // overlay holds, all by passing `raw` through untouched. Spelled as one arm over the
+      // union rather than three identical ones, so the rule reads as the single rule it is;
+      // naming the variants (not `P.any`) is what keeps `.exhaustive()` load-bearing — a
+      // future 4th `accrual` is outside this union and still fails the build here.
+      .with(
+        { tag: { accrual: P.union("accrue", "retain", "clear") } },
+        () => raw,
+      )
       .exhaustive()
   );
 }
