@@ -643,7 +643,7 @@ describe("resolveCanvasMode — the incompatible (proven-skew) verdict, SK4", ()
   });
 });
 
-describe("resolveCanvasMode — a transport-down browser makes NO boot claim", () => {
+describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2129)", () => {
   // THE FIELD BUG: a fullscreen game backgrounded the tab, Chrome throttled its timers
   // to ~1/min, and the ws to kolu-server dropped for minutes at a time. The retry fence
   // re-pends every subscription on a drop, so `daemonPending` read true for the whole

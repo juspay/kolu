@@ -20,7 +20,7 @@ const h = vi.hoisted(() => ({
   // when `connInfo` is undefined. Live by default: every pin below is about the boot
   // deadline, not about a dead link.
   mapLive: true,
-  // THIS browser's link to kolu-server — the observability floor's input. Live by
+  // THIS browser's link to kolu-server — the #2129 observability floor's input. Live by
   // default for the same reason as `mapLive`: every deadline pin below is about a boot
   // that genuinely stalled, not about a browser that lost the server. The one pin that
   // flips it asserts the floor itself.
@@ -170,7 +170,7 @@ describe("canvasMode — the tail's absence carries a REASON, decided where the 
   });
 });
 
-describe("the observability floor — a lost server is not a failed boot", () => {
+describe("the observability floor (#2129) — a lost server is not a failed boot", () => {
   // THE FIELD BUG, reproduced at the caller with the real resolver, the real anchor map,
   // and a moving clock — the only level at which the whole path is visible.
   //

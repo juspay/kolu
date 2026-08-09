@@ -27,7 +27,7 @@
  *  (`useCanvasMode` + `bootDeadline.ts`) owns the per-host episode anchor and the
  *  phase-aware ceiling that decide `exceeded`; this module stays pure.
  *
- *  ── The observability floor ─────────────────────────────────────────
+ *  ── The observability floor (#2129) ─────────────────────────────────────────
  *  A boot deadline is a claim about the SERVER — "this leg was given its ceiling and
  *  never delivered" — so it is only ours to make while THIS browser can reach the
  *  server. {@link resolveCanvasMode} therefore downgrades an `accrue` frame to `clear`
@@ -126,7 +126,7 @@ export type BootStalledRecovery =
  *     warming, a mid-session records-awaited / `!channelLive` connecting (the transport
  *     overlay owns those) — so an overlay-flavored flap can't dodge the ceiling by settling.
  *   - `clear`: a surface with no episode to time — either SETTLED (workspace / empty /
- *     down / host-failed) or UNOBSERVABLE (the observability floor: our link to the server is
+ *     down / host-failed) or UNOBSERVABLE (the #2129 floor: our link to the server is
  *     down, so there is no boot we could honestly be timing). Both release the anchor,
  *     and for the same reason: what the ceiling was measuring is no longer in progress
  *     as far as this browser can tell. The floor is applied in {@link resolveCanvasMode},
@@ -499,7 +499,7 @@ export function resolveCanvasMode(
   deadline: { exceeded: boolean },
 ): Precedence {
   const raw = resolvePrecedence(facts);
-  // THE OBSERVABILITY FLOOR. A boot deadline is a claim about the SERVER — "this
+  // THE OBSERVABILITY FLOOR (#2129). A boot deadline is a claim about the SERVER — "this
   // leg was given its ceiling and never delivered". That claim is only ours to make while
   // THIS browser can actually reach the server. With `transportLive` false we are not
   // watching a slow boot, we are not watching at all: every subscription is re-pending

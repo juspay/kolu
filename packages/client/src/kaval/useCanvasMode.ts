@@ -64,7 +64,7 @@ export function canvasMode(deps: {
     isLoading: deps.isLoading(),
     daemonPending: daemonStatusPending(),
     isLocalHost: isActiveHostLocal(),
-    // The observability floor's input: OUR link to kolu-server, not the per-host
+    // The #2129 observability floor's input: OUR link to kolu-server, not the per-host
     // channel. `daemonChannelLive()` (transport ∧ entry-connected) cannot serve here —
     // it is false on every not-yet-connected arm by construction, so it cannot tell a
     // host that is genuinely warming from a browser that has lost the server entirely.
