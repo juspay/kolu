@@ -174,12 +174,15 @@ hover-opened.
     card **names what didn't arrive** and offers **Reload** (a fresh boot re-runs that
     subscription) and, on a remote machine, **Switch to local**.
 
-  It never sits at "Connecting…" forever — **so long as kolu can still reach your machine**.
-  Every deadline above is a claim *about* your machine, so it only runs while this tab actually
-  has a connection to it. If the connection itself drops — a backgrounded tab, a sleeping
-  laptop, a network blip — kolu shows **Disconnected from server · Reconnecting…** and makes no
-  claim at all about what is running on the far side, because it cannot see it. The deadline then
-  starts fresh once the connection returns, rather than counting the time the tab spent cut off.
+  It never sits at "Connecting…" forever — **so long as this browser tab still has its own
+  connection to kolu**. Careful with the direction here: every deadline above is a claim about
+  a machine kolu talks to, but the tab can only make that claim while it can still talk to
+  **kolu itself**. If *that* link drops — a backgrounded tab, a sleeping laptop, a network blip
+  — kolu shows **Disconnected from server · Reconnecting…** and makes no claim about what is
+  running anywhere, because it cannot see it. The deadline then starts fresh when the link
+  returns, rather than counting the time the tab spent cut off. A card you were **already**
+  shown stays put through a blip, so its **Restart** or **Retry connection** button never
+  vanishes from under you.
   (A **local** machine whose own agent fails to start is a different case with its own
   ["kaval didn't start" card](/kaval) and a **Restart** action, unchanged.)
 

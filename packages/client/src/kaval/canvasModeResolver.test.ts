@@ -667,8 +667,11 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
     });
     // Not a boot overlay at all: nothing to accrue, anchor released.
     expect(tag(outage)).toEqual({ accrual: "clear" });
-    // …so even long past the ceiling it stays the neutral surface, never the dead card.
-    expect(mode(outage, true)).toEqual({ kind: "connecting" });
+    // …and with the anchor released, `exceeded` can never BECOME true while the link is
+    // down, so the surface it actually shows is the neutral one. (That the deadline can
+    // never elapse mid-outage is proven at the caller, in useCanvasMode.test.ts, where the
+    // anchor map is real and the clock moves.)
+    expect(mode(outage, false)).toEqual({ kind: "connecting" });
   });
 
   it("a re-pended SESSION leg over a DEAD transport never escapes to boot-stalled(session)", () => {
@@ -679,7 +682,7 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
       transportLive: false,
     });
     expect(tag(outage)).toEqual({ accrual: "clear" });
-    expect(mode(outage, true)).toEqual({ kind: "connecting" });
+    expect(mode(outage, false)).toEqual({ kind: "connecting" });
   });
 
   it("a membership snapshot lost to a DEAD transport never escapes to boot-stalled(membership)", () => {
@@ -693,7 +696,7 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
       connectPhase: undefined,
     };
     expect(tag(outage)).toEqual({ accrual: "clear" });
-    expect(mode(outage, true)).toEqual({ kind: "connecting" });
+    expect(mode(outage, false)).toEqual({ kind: "connecting" });
   });
 
   it("a LOCAL warming entry over a DEAD transport never escapes to the dead card", () => {
@@ -707,7 +710,7 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
       connectPhase: undefined,
     };
     expect(tag(outage)).toEqual({ accrual: "clear" });
-    expect(mode(outage, true)).toEqual({
+    expect(mode(outage, false)).toEqual({
       kind: "warming",
       daemonState: undefined,
     });
@@ -721,7 +724,7 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
       channelLive: false,
       transportLive: false,
     });
-    expect(mode(outage, true)).toEqual({ kind: "workspace" });
+    expect(mode(outage, false)).toEqual({ kind: "workspace" });
   });
 
   it("a LIVE transport still escapes exactly as before — the honest wedge is untouched", () => {
@@ -730,5 +733,51 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
     expect(
       mode(connected({ daemonPending: true, terminalCount: 0 }), true),
     ).toEqual({ kind: "down", down: { state: "dead" } });
+  });
+});
+
+describe("resolveCanvasMode — the floor governs reaching a verdict, not keeping one (AFP C6)", () => {
+  // Losing a TRUE claim is worse than never making a false one. A card that was earned over
+  // a live link carries the only affordance that fixes the problem — Restart kaval / Retry
+  // connection — so a blip must not take it off screen. Behind a link that flaps faster than
+  // the ceiling, retracting it would deny the user that button indefinitely.
+
+  it("an ALREADY-exceeded daemon verdict survives a transport drop, card and recovery verb intact", () => {
+    const earned = connected({
+      daemonPending: true,
+      terminalCount: 0,
+      channelLive: false,
+      transportLive: false,
+    });
+    // `exceeded` true = the ceiling elapsed earlier, while the link was live.
+    expect(mode(earned, true)).toEqual({
+      kind: "down",
+      down: { state: "dead" },
+    });
+  });
+
+  it("an already-exceeded CONNECTOR verdict likewise survives, keeping its Retry affordance", () => {
+    const earned: CanvasFacts = {
+      ...notYetConnected,
+      transportLive: false,
+      isLocalHost: false,
+      entry: "warming",
+      connectPhase: "provisioning",
+    };
+    expect(mode(earned, true)).toMatchObject({
+      kind: "boot-stalled",
+      recovery: { via: "connector" },
+    });
+  });
+
+  it("but a NOT-yet-exceeded deadline is still floored — the false card stays fixed", () => {
+    const unearned = connected({
+      daemonPending: true,
+      terminalCount: 0,
+      channelLive: false,
+      transportLive: false,
+    });
+    expect(tag(unearned)).toEqual({ accrual: "clear" });
+    expect(mode(unearned, false)).toEqual({ kind: "connecting" });
   });
 });

@@ -31,7 +31,13 @@
  *  wall clock — so an NTP step / clock change can't false-fire the ceiling. Residual: the page
  *  is frozen during OS suspend (no accrual WHILE suspended), but a boot overlay spanning a long
  *  suspend sees the real elapsed on resume and may escape immediately to the honest
- *  boot-stalled card (Reload recovers). Same jump the wall clock would have; bounded, honest. */
+ *  boot-stalled card (Reload recovers). Same jump the wall clock would have; bounded, honest.
+ *
+ *  That residual is now mostly closed by the #2129 observability floor: a suspend or a
+ *  throttled tab long enough to matter also drops the socket, and once the watchdog marks the
+ *  link dead every accrue frame releases the anchor — so observation restarts with a fresh
+ *  window on resume rather than escaping on the elapsed nobody watched. What survives is only
+ *  the window BEFORE the watchdog notices. */
 
 import { match } from "ts-pattern";
 import type { BootTag, CeilingClass } from "./canvasModeResolver";
@@ -124,7 +130,17 @@ export function bootDeadlineExceeded(hostEnc: string, nowMs: number): boolean {
  *     (stays escaped) until the hung leg delivers. Independently, the CAMPAIGN cell is armed (once,
  *     then held) for a connector-owned `provisioning` leg and CLEARED for any other leg — so it
  *     tracks the whole warming-remote campaign across class flips but never a client-side leg.
- *   - `clear` → release BOTH cells: a SETTLED surface (workspace/empty/down/host-failed).
+ *   - `clear` → release BOTH cells, for either of two reasons: a SETTLED surface
+ *     (workspace/empty/down/host-failed), or an UNOBSERVABLE one (the #2129 observability
+ *     floor in `resolveCanvasMode` — our link to the server is down, so there is no boot we
+ *     could honestly be timing). Both mean the ceiling is no longer measuring anything in
+ *     progress. NOTE the floor only ever downgrades `accrue`, and only while the deadline
+ *     has NOT yet elapsed: an ALREADY-elapsed verdict was earned over a live link and keeps
+ *     its anchor, so a blip cannot retract a card the user has already been shown. `retain`
+ *     is left unfloored because every `retain` return site is on the connected arm, and
+ *     `floorOnLiveness` demotes a connected entry to `warming` over a dead link — so a
+ *     `retain` frame with `transportLive` false is unreachable. A future `retain` outside
+ *     the connected arm would break that assumption.
  *   - `retain` → hold the CLASS cell (a non-boot OVERLAY the deadline must ignore — kaval-restart
  *     warming, a records-awaited / `!channelLive` connecting — so an overlay-flavored flap can't
  *     dodge the class ceiling), but CLEAR the campaign cell: every `retain` is a CONNECTED-arm

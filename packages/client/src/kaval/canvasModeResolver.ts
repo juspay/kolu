@@ -493,7 +493,15 @@ function escapeSurface(
  *  Returns both the `mode` to render and the `tag`, which the caller feeds to the per-host
  *  boot-deadline anchor (`bootDeadline.ts`): a pure switch on `tag.accrual`. The escape keeps
  *  the raw `tag` (still `accrue`) so the escaped frame keeps accruing (stays escaped) until
- *  the hung leg finally delivers and the raw surface settles. */
+ *  the hung leg finally delivers and the raw surface settles.
+ *
+ *  The #2129 OBSERVABILITY FLOOR adds a third conjunct ahead of that condition: a boot
+ *  overlay whose deadline has NOT yet elapsed is downgraded to `clear` while
+ *  `facts.transportLive` is false, so no deadline starts or advances while this browser
+ *  cannot see the server. An ALREADY-elapsed deadline is deliberately exempt — that verdict
+ *  was earned over a live link, and retracting it would take the card's recovery verb off
+ *  screen (see the body). So the full escape condition is: `exceeded` AND `accrue` — reached
+ *  either with the link live, or with a verdict that was already true when it went down. */
 export function resolveCanvasMode(
   facts: CanvasFacts,
   deadline: { exceeded: boolean },
@@ -521,7 +529,24 @@ export function resolveCanvasMode(
   // genuinely wedged daemon behind a flapping link never escapes. That is the correct
   // outcome, not a residual — a browser that cannot hold a socket has no standing to
   // certify a daemon dead, and the transport overlay is what the user sees meanwhile.
-  if (!facts.transportLive && raw.tag.accrual === "accrue") {
+  // The floor governs REACHING a verdict, never KEEPING one (AFP C6). `!deadline.exceeded`
+  // is the whole distinction: a deadline that has not yet elapsed is a measurement in
+  // progress, and we cannot measure what we cannot see — but a deadline that ALREADY
+  // elapsed, back when the link was live, is a verdict this browser earned honestly. A blip
+  // must not retract it, because retracting it takes the card's recovery verb (Restart kaval
+  // / Retry connection) off screen with it: on a genuinely dead daemon behind a link that
+  // flaps faster than the ceiling, the user would be denied the one affordance that fixes
+  // the problem, forever. Losing a true claim is worse than never making a false one.
+  //
+  // The escape can only be reachable here BECAUSE the floor holds below: while the link is
+  // down every accrue frame clears the anchor, so `exceeded` can never BECOME true during an
+  // outage — it can only have been true on arrival. The two branches are therefore exclusive
+  // in practice, not merely in order.
+  if (
+    !facts.transportLive &&
+    !deadline.exceeded &&
+    raw.tag.accrual === "accrue"
+  ) {
     return { mode: raw.mode, tag: CLEAR };
   }
   if (deadline.exceeded && raw.tag.accrual === "accrue") {
