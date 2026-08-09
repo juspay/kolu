@@ -55,7 +55,11 @@ const MATRIX = [
   ["usage error / dropped link", failure("nope"), 1, "kolu: nope\n"],
   [
     "wait timed out",
-    waitTimedOut({ terminal: "a1b2c3d4", elapsedMs: 900, describe: "awaiting" }),
+    waitTimedOut({
+      terminal: "a1b2c3d4",
+      elapsedMs: 900,
+      describe: "awaiting",
+    }),
     2,
     "kolu: timed out after 900ms waiting for a1b2c3d4 to reach awaiting.\n",
   ],
@@ -136,7 +140,9 @@ describe("the exit-code contract", () => {
   });
 
   it("keeps CliFailure's stderr the ONE prefixed line `failure()` wrote", () => {
-    const e = failure('no terminal matching "3f9" — `kolu ls` shows the live ones.');
+    const e = failure(
+      'no terminal matching "3f9" — `kolu ls` shows the live ones.',
+    );
     expect(e).toBeInstanceOf(CliFailure);
     expect(e.stderr).toBe(
       'kolu: no terminal matching "3f9" — `kolu ls` shows the live ones.\n',

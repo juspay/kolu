@@ -17,7 +17,7 @@
  * import path is unchanged.
  */
 
-import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
+import type { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import type { PadiTerminal } from "./surface.ts";
 
@@ -52,3 +52,15 @@ export type WaitState = (typeof WAIT_STATES)[number];
 export function isWaitState(token: string): token is WaitState {
   return (WAIT_STATES as readonly string[]).includes(token);
 }
+
+/** The line a client reports when padi's link dropped mid-operation and nothing
+ *  upstream said anything more specific — phrased as the question the user can
+ *  act on.
+ *
+ *  One constant because it was three near-copies — `kolu wait`, `kolu watch`,
+ *  and `settledSnapshot` — two of which asked "Is `padi` still running?" and one
+ *  "Is kolu still running?". A user driving all three learned two names for the
+ *  same dead thing. `kolu` is the process a user starts; padi is what it runs,
+ *  so the parenthetical says so once. */
+export const PADI_LINK_CLOSED =
+  "the padi link closed — the daemon stopped or the connection dropped. Is kolu still running? (its padi serves the terminals)";

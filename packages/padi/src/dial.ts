@@ -84,6 +84,8 @@ export {
   activeAgent,
   agentMatchesUntil,
   type AgentStateOutcome,
+  isWaitState,
+  PADI_LINK_CLOSED,
   awaitAgentState,
   awaitOutputMatch,
   awaitOutputSettled,

@@ -97,7 +97,8 @@ export function sendShapeRefusal(
 /** UTF-8 wire length. `TextEncoder` rather than `Buffer.byteLength` so this
  *  module stays importable from every consumer of `@kolu/terminal-protocol`,
  *  browser included. */
-const utf8Bytes = (text: string): number => new TextEncoder().encode(text).length;
+const utf8Bytes = (text: string): number =>
+  new TextEncoder().encode(text).length;
 
 /** Rules 2 and 3: encode the write. Total over its legal input — no submit Enter
  *  is ever synthesized, and keys are never pasted. */

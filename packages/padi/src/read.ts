@@ -24,6 +24,7 @@ import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Data, Deferred, Effect } from "effect";
 import { padiSurface, type PadiTerminal } from "./surface.ts";
+import { PADI_LINK_CLOSED } from "./terminalVocab.ts";
 
 /** The current terminal key set — the FIRST frame of the `keys` snapshot-then-delta
  *  stream. The `keys` collection ALWAYS opens with a snapshot frame (zero terminals
@@ -133,7 +134,9 @@ export function readHistoryPage(
   return Effect.flatMap(client.surface.screen.history({ id, max }), (res) =>
     res.kind === "stale"
       ? Effect.fail(new PadiHistoryStale({ id }))
-      : Effect.succeed(materializeHistoryPage(res.chunk, undefined, res.topLine)),
+      : Effect.succeed(
+          materializeHistoryPage(res.chunk, undefined, res.topLine),
+        ),
   );
 }
 
@@ -158,7 +161,8 @@ export function readWholeHistory(
         ...(before === undefined ? {} : { before }),
         max: HISTORY_PAGE_ROWS,
       });
-      if (res.kind === "stale") return yield* Effect.fail(new PadiHistoryStale({ id }));
+      if (res.kind === "stale")
+        return yield* Effect.fail(new PadiHistoryStale({ id }));
       const page = materializeHistoryPage(res.chunk, before, res.topLine);
       if (page !== null) newestFirst.push(page);
       before = res.topLine;
@@ -325,12 +329,9 @@ export function settledSnapshot(
       ]);
 
       if (outcome === "link-closed") {
-        return yield* Effect.fail(
-          new Error(
-            upstreamError ??
-              "the padi link closed before the terminal snapshot settled — the daemon stopped or the connection dropped. Is `padi` still running?",
-          ),
-        );
+        // The shared sentence, not a fourth spelling of it: what a user can
+        // act on is the same whichever read was in flight.
+        return yield* Effect.fail(new Error(upstreamError ?? PADI_LINK_CLOSED));
       }
       return [...acc.entries()];
     }),

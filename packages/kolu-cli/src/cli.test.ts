@@ -168,7 +168,16 @@ describe("kolu command tree", () => {
     });
 
     it("refuses a --timeout outside the shared timer range", async () => {
-      const beyondSetTimeout = ["wait", "3f9c", "--until", "idle:5", "--timeout", "2147483648", "--host", "box"];
+      const beyondSetTimeout = [
+        "wait",
+        "3f9c",
+        "--until",
+        "idle:5",
+        "--timeout",
+        "2147483648",
+        "--host",
+        "box",
+      ];
       expect(Exit.isFailure(await run(beyondSetTimeout))).toBe(true);
     });
   });

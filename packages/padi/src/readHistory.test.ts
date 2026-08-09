@@ -98,7 +98,12 @@ describe("readWholeHistory", () => {
     // every line ABOVE a blank run.
     const { client } = fakeClient([
       { kind: "chunk", chunk: "", topLine: 50, exhausted: false },
-      { kind: "chunk", chunk: "reached-the-top\n", topLine: 0, exhausted: true },
+      {
+        kind: "chunk",
+        chunk: "reached-the-top\n",
+        topLine: 0,
+        exhausted: true,
+      },
     ]);
     expect(await Effect.runPromise(readWholeHistory(client, ID))).toEqual([
       "reached-the-top\n",

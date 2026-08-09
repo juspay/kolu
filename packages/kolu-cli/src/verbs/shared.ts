@@ -14,9 +14,9 @@ import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import { readTerminalKeys } from "@kolu/padi/read";
 import { resolveTerminalId, shortId } from "@kolu/padi/render";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { Data, Effect, Stream } from "effect";
+import { Data, Effect, type Sink, Stream } from "effect";
 import { NodeSink } from "@effect/platform-node";
-import { type CliFailure, failure } from "../exit.ts";
+import { type CliFailure, errorMessage, failure } from "../exit.ts";
 
 /** Widen a user-typed id-or-prefix to the one full id it names, or fail with the
  *  sentence that says which kind of "no" this was.
@@ -96,49 +96,79 @@ export class StdoutWriteFailed extends Data.TaggedError("StdoutWriteFailed")<{
 /** Did the consumer hang up (`kolu ls | head -1`), or did the write genuinely
  *  fail (a full disk, a revoked descriptor)? EPIPE means the reader got what it
  *  asked for and left; anything else is a real failure that must be said out
- *  loud rather than folded into the same silent success. */
-const isConsumerHangup = (cause: unknown): boolean =>
+ *  loud rather than folded into the same silent success.
+ *
+ *  EXPORTED, and so is {@link stdoutSink} and {@link stdoutLost} beside it: a
+ *  one-shot block and a live feed differ in SHAPE, not in what can go wrong with
+ *  a descriptor, so `watch.ts` plugs the same three values into a streaming
+ *  consumption. It used to say exactly that in a comment while writing them out
+ *  a second time — and a comment asserting two things are the same is a
+ *  convention, not a constraint. */
+export const isConsumerHangup = (cause: unknown): boolean =>
   (cause as { readonly code?: unknown })?.code === "EPIPE";
 
-/** Write one block to stdout, DRAINING first.
+/** Backpressure-aware stdout, as a SINK.
  *
  *  A sink rather than a bare `process.stdout.write` because a large payload
- *  (`--json` over a busy host, a full scrollback) into a pipe must flush before
- *  the process exits, or the tail is silently truncated — the sink waits on
- *  `drain` for us. `endOnDone: false` because this process does not own
- *  `process.stdout`'s lifetime: a sink that ended it would close the shell's own
- *  descriptor. */
-const writeStdout = (text: string): Effect.Effect<void, StdoutWriteFailed> =>
-  Stream.run(
-    Stream.make(text),
-    NodeSink.fromWritable<StdoutWriteFailed, string>({
-      evaluate: () => process.stdout,
-      onError: (cause) => new StdoutWriteFailed({ cause }),
-      endOnDone: false,
-    }),
-  );
+ *  (`--json` over a busy host, a full scrollback, a live feed into `| less`)
+ *  must flush before the process exits, or the tail is silently truncated — the
+ *  sink waits on `drain` for us, so a slow consumer slows the producer instead
+ *  of inflating an in-memory backlog. `endOnDone: false` because this process
+ *  does not own `process.stdout`'s lifetime: a sink that ended it would close
+ *  the shell's own descriptor. */
+export const stdoutSink: Sink.Sink<void, string, never, StdoutWriteFailed> =
+  NodeSink.fromWritable<StdoutWriteFailed, string>({
+    evaluate: () => process.stdout,
+    onError: (cause) => new StdoutWriteFailed({ cause }),
+    endOnDone: false,
+  });
 
-/** Write the verb's DATA to stdout, treating a hung-up reader as a complete run.
- *
- *  `what` names the payload for the failure line, so a real write error says
- *  which output was lost rather than a generic "write failed". */
+/** The ONE sentence for a stdout that genuinely died. `what` names the payload,
+ *  so a real write error says which output was lost rather than a generic
+ *  "write failed" — a user must not have to learn two spellings of "kolu could
+ *  not write to stdout". */
+export const stdoutLost = (what: string, cause: unknown): CliFailure =>
+  failure(`could not write ${what} to stdout: ${errorMessage(cause)}`);
+
+/** Write the verb's DATA to stdout, treating a hung-up reader as a complete run. */
 export function writeOut(
   text: string,
   what: string,
 ): Effect.Effect<void, CliFailure> {
-  return Effect.catchTag(writeStdout(text), "StdoutWriteFailed", (err) =>
+  const write: Effect.Effect<void, StdoutWriteFailed> = Stream.run(
+    Stream.make(text),
+    stdoutSink,
+  );
+  return Effect.catchTag(write, "StdoutWriteFailed", (err) =>
     isConsumerHangup(err.cause)
       ? // The reader left — that is a complete verb, not an error to report.
         Effect.void
-      : Effect.fail(
-          failure(
-            `could not write ${what} to stdout: ${
-              err.cause instanceof Error ? err.cause.message : String(err.cause)
-            }`,
-          ),
-        ),
+      : Effect.fail(stdoutLost(what, err.cause)),
   );
 }
+
+/** Write one block with exactly ONE trailing newline — the rule for a text
+ *  payload that may or may not already end in one (a screen, a scrollback
+ *  page). Both verbs that print blocks had their own identical copy of this and
+ *  each docstring called it "this verb's"; it belongs to neither. */
+export const writeOutBlock = (
+  text: string,
+  what: string,
+): Effect.Effect<void, CliFailure> =>
+  writeOut(text.endsWith("\n") ? text : `${text}\n`, what);
+
+/** THE `--json` frame: one pretty-printed object, newline-terminated, drained.
+ *
+ *  A constant doing what a comment used to do. Four `--json` arms each spelled
+ *  `JSON.stringify(x, null, 2)` + `"\n"`, and one of them documented the
+ *  coupling in prose ("2-space indented like the other verbs' frames"). If the
+ *  frame ever gains a key or stops pretty-printing, that was four edits with
+ *  nothing to fail if one was missed. */
+export const writeJson = (
+  value: unknown,
+  what: string,
+): Effect.Effect<void, CliFailure> =>
+  writeOut(`${JSON.stringify(value, null, 2)}\n`, what);
 
 /** stderr is the out-of-band channel — trailers and diagnostics, never the
  *  scriptable payload — so a plain synchronous write is the whole mechanism. A
@@ -146,6 +176,16 @@ export function writeOut(
  */
 export function writeErr(text: string): Effect.Effect<void> {
   return Effect.sync(() => {
-    process.stderr.write(text);
+    writeErrSync(text);
   });
 }
+
+/** The same write for a SYNCHRONOUS caller — a mirror's `log` callback, which
+ *  cannot yield an Effect. Exported so the one stderr writer in the verb layer
+ *  stays one; `watch.ts` used to reach `process.stderr.write` directly and
+ *  re-spell the `kolu: ` prefix inline. (`main.ts` still writes raw, and that is
+ *  correct: it is the run edge, outside the verb layer, and must not depend on
+ *  `verbs/`.) */
+export const writeErrSync = (text: string): void => {
+  process.stderr.write(text);
+};

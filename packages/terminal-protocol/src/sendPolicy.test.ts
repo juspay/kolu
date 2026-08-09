@@ -9,7 +9,10 @@
  * argument would put paste markers into a shell that never asked for them.
  */
 
-import { BRACKETED_PASTE_END, BRACKETED_PASTE_START } from "./bracketedPaste.ts";
+import {
+  BRACKETED_PASTE_END,
+  BRACKETED_PASTE_START,
+} from "./bracketedPaste.ts";
 import { describe, expect, it } from "vitest";
 import {
   encodeSend,
@@ -118,8 +121,8 @@ describe("encodeSend — keys", () => {
     expect(encoded.message).toContain('unknown --key "Nope"');
     // Same sentence, this face's word for the field.
     const mcpRefusal = encodeSend({ kind: "keys", names: ["Nope"] }, MCP);
-    expect(
-      mcpRefusal.kind === "refused" ? mcpRefusal.message : "",
-    ).toContain('unknown key "Nope"');
+    expect(mcpRefusal.kind === "refused" ? mcpRefusal.message : "").toContain(
+      'unknown key "Nope"',
+    );
   });
 });

@@ -1,0 +1,105 @@
+/**
+ * `kolu send`'s SOURCE-resolution matrix, pinned.
+ *
+ * `send.ts` exports its pure halves with the stated reason that "the whole
+ * matrix is testable without a socket, a filesystem or a tty" — a boundary
+ * drawn FOR a property, which until now nothing checked. This cashes it.
+ *
+ * What is pinned here is the half that is genuinely argv's: which of the three
+ * text sources (a positional, `--file`, piped stdin) a run reads, and the two
+ * refusals that judgement carries. The other half — text-XOR-keys, the
+ * unknown-key refusal, the auto-paste decision — is the shared send policy and
+ * is pinned in `@kolu/terminal-protocol`'s `sendPolicy.test.ts`, beside the
+ * implementation both faces call.
+ */
+
+import { Cause, Effect, Exit } from "effect";
+import { describe, expect, it } from "vitest";
+import {
+  resolveSendInput,
+  type SendInput,
+  sourceIsStream,
+  sourceLabel,
+} from "./send.ts";
+
+const resolve = (opts: {
+  hasPositional?: boolean;
+  file?: string | undefined;
+  stdinIsPayload?: boolean;
+  hasKeys?: boolean;
+}) =>
+  Effect.runSyncExit(
+    resolveSendInput({
+      hasPositional: opts.hasPositional ?? false,
+      file: opts.file,
+      stdinIsPayload: opts.stdinIsPayload ?? false,
+      hasKeys: opts.hasKeys ?? false,
+    }),
+  );
+
+const refusalOf = (exit: Exit.Exit<SendInput, { stderr: string }>): string => {
+  if (!Exit.isFailure(exit))
+    throw new Error("expected a refusal; it succeeded");
+  return (Cause.squash(exit.cause) as { stderr: string }).stderr;
+};
+
+describe("resolveSendInput — exactly one text source", () => {
+  it("names each single source", () => {
+    expect(resolve({ hasPositional: true })).toEqual(
+      Exit.succeed({ kind: "positional" }),
+    );
+    expect(resolve({ file: "/tmp/brief.md" })).toEqual(
+      Exit.succeed({ kind: "file", path: "/tmp/brief.md" }),
+    );
+    expect(resolve({ stdinIsPayload: true })).toEqual(
+      Exit.succeed({ kind: "stdin" }),
+    );
+    // Keys-only is a legal send with NO text source.
+    expect(resolve({ hasKeys: true })).toEqual(Exit.succeed({ kind: "none" }));
+  });
+
+  it("refuses two sources rather than letting one silently win", () => {
+    // Each of the three fully specifies the text; a precedence rule here would
+    // be a guess the caller cannot see.
+    const both = refusalOf(resolve({ hasPositional: true, file: "/tmp/b.md" }));
+    expect(both).toContain("positional text");
+    expect(both).toContain('--file "/tmp/b.md"');
+    expect(both).toContain("pass exactly one source");
+    expect(
+      refusalOf(resolve({ file: "/tmp/b.md", stdinIsPayload: true })),
+    ).toContain("piped stdin");
+  });
+
+  it("refuses text + --key — the dropped-Enter trap, made unspellable", () => {
+    const refusal = refusalOf(resolve({ hasPositional: true, hasKeys: true }));
+    expect(refusal).toContain("text and --key can't be combined");
+    // The fix has to be runnable, not just described.
+    expect(refusal).toContain("kolu send <id> --key Enter");
+  });
+
+  it("refuses a send with nothing to do", () => {
+    // A 0-byte no-op that exited 0 would read, to the loop above it, exactly
+    // like a send that worked.
+    expect(refusalOf(resolve({}))).toContain("nothing to send");
+  });
+});
+
+describe("the source descriptor", () => {
+  it("marks --file and piped stdin as STREAM payloads, the other two not", () => {
+    // This is what makes a single-line `--file` still auto-paste: a file is one
+    // payload, not a line typed at a prompt.
+    expect(sourceIsStream({ kind: "file", path: "/tmp/b.md" })).toBe(true);
+    expect(sourceIsStream({ kind: "stdin" })).toBe(true);
+    expect(sourceIsStream({ kind: "positional" })).toBe(false);
+    expect(sourceIsStream({ kind: "none" })).toBe(false);
+  });
+
+  it("names each source the same way in every message it appears in", () => {
+    expect(sourceLabel({ kind: "positional" })).toBe("positional text");
+    expect(sourceLabel({ kind: "file", path: "/tmp/b.md" })).toBe(
+      '--file "/tmp/b.md"',
+    );
+    expect(sourceLabel({ kind: "stdin" })).toBe("piped stdin");
+    expect(sourceLabel({ kind: "none" })).toBe("no text source");
+  });
+});

@@ -1,8 +1,8 @@
 import type { PadiTerminal } from "./surface.ts";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import { WAIT_STATES } from "./dial.ts";
-import { formatStatus, parseUntilStates, resolveTerminalId } from "./render.ts";
+import { isWaitState, WAIT_STATES } from "./dial.ts";
+import { formatStatus, resolveTerminalId } from "./render.ts";
 
 /** A minimal `active` composed record — the agent the wait predicate reads plus
  *  the git/pr/foreground the status table renders. Cast because the full
@@ -20,29 +20,15 @@ function activeWithAgent(agent: AgentInfo | null): PadiTerminal {
 const claude = (state: AgentInfo["state"]): AgentInfo =>
   ({ kind: "claude-code", state }) as AgentInfo;
 
-describe("parseUntilStates — the --until bucket parse", () => {
-  it("accepts a comma list of valid buckets, trimmed + deduped", () => {
-    const r = parseUntilStates(" awaiting , waiting , awaiting ");
-    expect(r.kind).toBe("ok");
-    if (r.kind === "ok")
-      expect([...r.targets].sort()).toEqual(["awaiting", "waiting"]);
-  });
-
-  it("accepts each single bucket", () => {
-    for (const s of WAIT_STATES) {
-      expect(parseUntilStates(s).kind).toBe("ok");
-    }
-  });
-
-  it("rejects an unknown bucket, naming it (fail-fast, no silent drop)", () => {
-    const r = parseUntilStates("awaiting,idle");
-    expect(r.kind).toBe("error");
-    if (r.kind === "error") expect(r.message).toContain("idle");
-  });
-
-  it("rejects an empty list", () => {
-    expect(parseUntilStates("").kind).toBe("error");
-    expect(parseUntilStates("  ,  ").kind).toBe("error");
+describe("isWaitState — the whole padi-side `--until` contract", () => {
+  // The COMMA SPLIT and its message are argv grammar and live in each face now
+  // (kolu-cli's \`planUntil\`, padi-tui's local copy). What padi owns is whether a
+  // single token names a bucket.
+  it("accepts each bucket and refuses anything else", () => {
+    for (const s of WAIT_STATES) expect(isWaitState(s)).toBe(true);
+    expect(isWaitState("idle")).toBe(false);
+    expect(isWaitState("")).toBe(false);
+    expect(isWaitState("Awaiting")).toBe(false);
   });
 });
 

@@ -76,6 +76,16 @@ export const endpointFlags = {
   ),
 } as const;
 
+/** How each endpoint arm is SPELLED on the command line — one three-row table
+ *  with four readers (the blank refusal, the mutual-exclusion refusal, the
+ *  per-face refusal, and its accept-list). */
+const FLAG_NAME = {
+  auto: "(none)",
+  socket: "--socket",
+  stateRoot: "--state-root",
+  host: "--host",
+} as const satisfies Record<Endpoint["kind"], string>;
+
 /** The shape a subcommand handler reads off the root command. */
 export interface EndpointFlagValues {
   readonly socket: Option.Option<string>;
@@ -118,13 +128,20 @@ export function endpointOf(
   const socket = Option.getOrUndefined(flags.socket);
   const stateRoot = Option.getOrUndefined(flags.stateRoot);
   const host = Option.getOrUndefined(flags.host);
-  const blank = [
-    socket !== undefined && socket.trim() === "" ? "--socket" : undefined,
-    stateRoot !== undefined && stateRoot.trim() === ""
-      ? "--state-root"
-      : undefined,
-    host !== undefined && host.trim() === "" ? "--host" : undefined,
-  ].filter((n): n is string => n !== undefined);
+  // The endpoint→spelling table, ONCE. It used to be written four ways in this
+  // file — two positional arrays of ternaries, a record literal, and a nested
+  // ternary inside a `.map` — so a fourth endpoint flag meant four coordinated
+  // edits, three of them positional and silent if the order slipped.
+  const given = [
+    ["socket", socket],
+    ["stateRoot", stateRoot],
+    ["host", host],
+  ] as const satisfies ReadonlyArray<
+    readonly [Endpoint["kind"], string | undefined]
+  >;
+  const blank = given
+    .filter(([, v]) => v !== undefined && v.trim() === "")
+    .map(([k]) => FLAG_NAME[k]);
   if (blank.length > 0) {
     return Effect.fail(
       failure(
@@ -132,11 +149,9 @@ export function endpointOf(
       ),
     );
   }
-  const named = [
-    socket === undefined ? undefined : "--socket",
-    stateRoot === undefined ? undefined : "--state-root",
-    host === undefined ? undefined : "--host",
-  ].filter((n): n is string => n !== undefined);
+  const named = given
+    .filter(([, v]) => v !== undefined)
+    .map(([k]) => FLAG_NAME[k]);
   if (named.length > 1) {
     return Effect.fail(
       failure(
@@ -170,17 +185,14 @@ export function refuseEndpointFlags(
 ): Effect.Effect<void, CliFailure> {
   return Effect.flatMap(endpointOf(flags), (ep) => {
     if (ep.kind === "auto" || accept.includes(ep.kind)) return Effect.void;
-    const spelled = {
-      socket: "--socket",
-      stateRoot: "--state-root",
-      host: "--host",
-    }[ep.kind];
     const allowed =
       accept.length === 0
         ? "it dials no padi that way"
-        : `it takes only ${accept.map((k) => (k === "host" ? "--host" : k === "socket" ? "--socket" : "--state-root")).join(" / ")}`;
+        : `it takes only ${accept.map((k) => FLAG_NAME[k]).join(" / ")}`;
     return Effect.fail(
-      failure(`kolu ${command} does not accept ${spelled} — ${allowed}.`),
+      failure(
+        `kolu ${command} does not accept ${FLAG_NAME[ep.kind]} — ${allowed}.`,
+      ),
     );
   });
 }

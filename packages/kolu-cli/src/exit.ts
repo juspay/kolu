@@ -155,6 +155,17 @@ export const waitInterrupted = (facts: {
     stderr: `kolu: interrupted; ${facts.terminal} left running\n`,
   });
 
+/** The message inside an arbitrary thrown thing — the raw half of
+ *  {@link reportOf}, and the ONE `instanceof Error` in this package.
+ *
+ *  "Turn an unknown thrown thing into a sentence" is one decision, and it was
+ *  re-made inline at five new sites. Guarding it matters: a non-`Error`
+ *  rejection (a thrown string, a rejected plain object) read through an
+ *  unguarded `(err as Error).message` prints `undefined`, which degrades the one
+ *  diagnostic that says what broke. */
+export const errorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : String(err);
+
 /** What the run edge prints for a failed program.
  *
  *  An arm of the contract prints its own exact line. Anything ELSE — a defect, a
@@ -164,5 +175,5 @@ export const waitInterrupted = (facts: {
 export function reportOf(error: unknown): string {
   const e = error as { readonly stderr?: unknown; readonly message?: unknown };
   if (typeof e?.stderr === "string") return e.stderr;
-  return `kolu: ${typeof e?.message === "string" ? e.message : String(error)}\n`;
+  return `kolu: ${typeof e?.message === "string" ? e.message : errorMessage(error)}\n`;
 }

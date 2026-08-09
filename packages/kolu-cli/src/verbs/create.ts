@@ -76,7 +76,7 @@ import type { Command } from "effect/unstable/cli";
 import type { createFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
 import { type CliFailure, failure, reportOf } from "../exit.ts";
-import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
+import { resolveTerminal, writeErr, writeJson, writeOut } from "./shared.ts";
 
 /** What the command tree parses for `kolu create` — DERIVED from `createFlags`
  *  in `cli.ts`, where the optional flags are already projected to `undefined`.
@@ -262,12 +262,7 @@ const emitHandles = (
   json: boolean,
   landed: Landed,
 ): Effect.Effect<void, CliFailure> => {
-  if (json) {
-    return writeOut(
-      `${JSON.stringify(landed, null, 2)}\n`,
-      "the create result",
-    );
-  }
+  if (json) return writeJson(landed, "the create result");
   // Plain mode's whole payload IS the id; with no terminal there is nothing to
   // write, and an empty line would be a value a `$(…)` would happily capture.
   return landed.id === undefined

@@ -74,10 +74,12 @@ import {
   awaitAgentState,
   awaitOutputMatch,
   awaitOutputSettled,
+  isWaitState,
+  PADI_LINK_CLOSED,
   type PadiSurfaceClient,
   WAIT_STATES,
 } from "@kolu/padi/dial";
-import { formatWaitMet, parseUntilStates, shortId } from "@kolu/padi/render";
+import { formatWaitMet, shortId } from "@kolu/padi/render";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,
@@ -101,7 +103,7 @@ import {
   type WaitTimedOut,
   waitTimedOut,
 } from "../exit.ts";
-import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
+import { resolveTerminal, writeErr, writeJson } from "./shared.ts";
 
 /** The flags Effect CLI parses for `kolu wait` — DERIVED from `waitFlags` in
  *  `cli.ts`, which also carries the shared timer-range rule, so `timeout`
@@ -153,9 +155,9 @@ type WaitPlan =
  *  daemon we would immediately drop. The `idle:`/`match:` arms are ported from
  *  kaval-tui's `parseUntil` (digits-only, timer-range guard, non-empty valid
  *  regex — each rejection naming the form it belongs to rather than the generic
- *  three); the bucket arm delegates to `parseUntilStates`, whose rejection is
- *  re-spelled with all three forms because a token that is not a bucket may
- *  simply be a mistyped prefix. */
+ *  three); the bucket arm tests each token with padi's `isWaitState` and phrases
+ *  its own rejection with all three forms, because a token that is not a bucket
+ *  may simply be a mistyped prefix. */
 function planUntil(
   raw: string,
 ):
@@ -213,20 +215,27 @@ function planUntil(
     }
   }
 
-  const states = parseUntilStates(raw);
-  if (states.kind === "error") {
+  // The bucket arm. The comma split and its rejection are ARGV grammar, so they
+  // live here beside the other two forms rather than in padi — which is what
+  // `padi/src/watch.ts`'s header says, and what the code contradicted: padi
+  // exported the split with a `--until:`-prefixed message, and this caller threw
+  // that message away and re-spelled it with `UNTIL_FORMS`, because a token that
+  // is not a bucket may simply be a mistyped PREFIX. padi owns `isWaitState`,
+  // which is the whole padi-side contract for a token.
+  const tokens = raw
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0);
+  if (tokens.length === 0 || !tokens.every(isWaitState)) {
     return {
       kind: "error",
       message: `--until ${JSON.stringify(raw)} is none of the three condition forms:\n${UNTIL_FORMS}`,
     };
   }
+  const targets = new Set<string>(tokens);
   return {
     kind: "ok",
-    plan: {
-      kind: "agent",
-      targets: states.targets,
-      describe: [...states.targets].join("/"),
-    },
+    plan: { kind: "agent", targets, describe: [...targets].join("/") },
   };
 }
 
@@ -298,26 +307,15 @@ function reportOutcome(
 > {
   return Effect.gen(function* () {
     if (json) {
-      yield* writeOut(
-        `${JSON.stringify(
-          waitOutcomeJson<WaitMetPayload>(id, outcome, (met) =>
-            met.fired === "match"
-              ? {
-                  fired: "match",
-                  elapsedMs: met.elapsedMs,
-                  matchedLine: met.matchedLine,
-                }
-              : met.fired === "agent"
-                ? {
-                    fired: "agent",
-                    elapsedMs: met.elapsedMs,
-                    agent: met.agent,
-                  }
-                : { fired: "idle", elapsedMs: met.elapsedMs },
-          ),
-          null,
-          2,
-        )}\n`,
+      // The met payload passes through UNCHANGED. `WaitMetPayload` is already a
+      // closed union with exactly the fields the frame carries, so the
+      // three-arm switch this replaced was `(met) => met` written as eighteen
+      // lines that had to be edited again for every new field — and if one was
+      // forgotten, the `--json` frame silently lost a key the trailer kept. The
+      // genuine per-variant work is `metTrailer`'s, where the switch is
+      // load-bearing.
+      yield* writeJson(
+        waitOutcomeJson<WaitMetPayload>(id, outcome, (met) => met),
         "the wait outcome",
       );
     }
@@ -346,12 +344,10 @@ function reportOutcome(
       case "closed":
         // The link dropped before the condition landed — a failure, never a
         // clean stop that would look like a met wait.
-        return yield* Effect.fail(
-          failure(
-            outcome.error ??
-              "the padi link closed — the daemon stopped or the connection dropped. Is kolu still running?",
-          ),
-        );
+        // padi's shared sentence — `kolu watch` and `settledSnapshot` report the
+        // same event, and two of the three used to name a different program to
+        // go check on.
+        return yield* Effect.fail(failure(outcome.error ?? PADI_LINK_CLOSED));
     }
   });
 }

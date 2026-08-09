@@ -23,9 +23,9 @@
  * (kaval-tui's) had ALREADY diverged: kaval `break`s on `stale` and prints the
  * prefix.
  *
- * What stays is what is genuinely this face's: validating `--lines` (the parse
- * does it now), writing the blocks to stdout under the CLI's output discipline,
- * the trailer, and the sentence a `stale` reply is reported with.
+ * What stays is what is genuinely this face's: writing the blocks to stdout under
+ * the CLI's output discipline, the trailer, and the sentence a `stale` reply is
+ * reported with.
  */
 
 import { shortId } from "@kolu/padi/render";
@@ -41,22 +41,14 @@ import type { Command } from "effect/unstable/cli";
 // runtime and the per-face dynamic-import fence is untouched.
 import type { historyFlags } from "../cli.ts";
 import { type Connection, type Endpoint, withPadi } from "../endpoint.ts";
-import { type CliFailure, failure } from "../exit.ts";
-import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
+import { failure } from "../exit.ts";
+import { resolveTerminal, writeErr, writeOutBlock } from "./shared.ts";
 
 /** What the command tree parses for this verb — DERIVED from `historyFlags` in
  *  `cli.ts`. `lines` is optional, and ABSENT means the WHOLE history rather than
  *  a default page count; when present the parse has already refused anything
  *  that is not a positive whole number, BEFORE the dial. */
 export type HistoryArgs = Command.Command.Config.Infer<typeof historyFlags>;
-
-/** Write one block to stdout with exactly one trailing newline. stdout is DATA
- *  here — the scrollback bytes, VT sequences and all — so nothing else may go
- *  down this channel. A dump can be megabytes, hence `./shared.ts`'s draining
- *  sink: a slow consumer applies backpressure instead of ballooning node's write
- *  queue, and the last page is flushed rather than truncated at exit. */
-const writeOutLine = (text: string): Effect.Effect<void, CliFailure> =>
-  writeOut(text.endsWith("\n") ? text : `${text}\n`, "the scrollback");
 
 /** The `stale` arm's SENTENCE. padi decides that a `stale` reply is a failure
  *  (`PadiHistoryStale`) — halting quietly would print a PREFIX of the history
@@ -67,57 +59,62 @@ const staleFailure = (id: TerminalId) =>
     `padi answered "stale" while paging ${shortId(id)}'s scrollback — the mirror was renumbered by a width reflow mid-dump, so the rows already read cannot be joined to the rest. Nothing partial was printed; re-run \`kolu history\` once the terminal's width has settled.`,
   );
 
-/** One page: the N older lines immediately above the screen.
+/** Read the pages the user asked for — ONE page (`--lines N`, the lines just
+ *  above the screen) or the whole retained scrollback, oldest-first either way.
  *
  *  `max` is a positive int in the contract, and the PARSE is what enforces that
- *  (`positiveLines` in `cli.ts`). It used to be enforced here — after the dial
- *  and after the roster read — so `kolu history <id> --lines 0 --host box`
+ *  (`positiveLines` in `cli.ts`). It used to be enforced inside here — after the
+ *  dial and after the roster read — so `kolu history <id> --lines 0 --host box`
  *  ssh-provisioned a cold machine before saying "that is not a positive
  *  number", while `snapshot --tail 0` refused instantly on the same rule. */
-function onePage(
+function readPages(
   conn: Connection,
   id: TerminalId,
-  max: number,
-): Effect.Effect<void, unknown> {
-  return Effect.gen(function* () {
-    const page = yield* Effect.catch(readHistoryPage(conn.client, id, max), (err) =>
-      Effect.fail(isPadiHistoryStale(err) ? staleFailure(id) : err),
-    );
-    if (page !== null) yield* writeOutLine(page);
-    yield* writeErr(`— ${shortId(id)} · older history (≤${max} lines)\n`);
-  });
+  lines: number | undefined,
+): Effect.Effect<readonly string[], unknown> {
+  const read =
+    lines === undefined
+      ? readWholeHistory(conn.client, id)
+      : Effect.map(readHistoryPage(conn.client, id, lines), (page) =>
+          page === null ? [] : [page],
+        );
+  return Effect.catch(read, (err) =>
+    Effect.fail(isPadiHistoryStale(err) ? staleFailure(id) : err),
+  );
 }
 
-/** The whole retained scrollback, emitted OLDEST-first. */
-function wholeHistory(
-  conn: Connection,
-  id: TerminalId,
-): Effect.Effect<void, unknown> {
-  return Effect.gen(function* () {
-    const pages = yield* Effect.catch(readWholeHistory(conn.client, id), (err) =>
-      Effect.fail(isPadiHistoryStale(err) ? staleFailure(id) : err),
-    );
-    for (const chunk of pages) yield* writeOutLine(chunk);
-    yield* writeErr(
-      `— ${shortId(id)} · ${pages.length} older page${pages.length === 1 ? "" : "s"}\n`,
-    );
-  });
-}
-
-/** The verb. `withPadi` owns the link's lifetime, so an interrupt partway
- *  through the walk releases exactly what was acquired; failures ride the error
- *  channel so the run edge in `main.ts` — and nothing here — owns the exit code.
+/**
+ * The verb: read inside the scope, WRITE AFTER IT.
+ *
+ * `ls.ts` states the rule at length — a reader piping into a pager could
+ * otherwise hold a padi subscription open for as long as they scroll — and
+ * `snapshot` follows it. This verb buffered every page and then wrote them all
+ * INSIDE the scope, which is the opposite, and the rationale applies to it more
+ * strongly than to either: `history` is the verb that produces megabytes and the
+ * one most likely to be piped into `less`. (`send` and `watch` writing inside
+ * the scope is correct: one is a trailer, the other needs the live link.)
+ *
+ * `withPadi` owns the link's lifetime, so an interrupt partway through the walk
+ * releases exactly what was acquired; failures ride the error channel so the run
+ * edge in `main.ts` — and nothing here — owns the exit code.
  */
 export function run(
   endpoint: Endpoint,
   args: HistoryArgs,
 ): Effect.Effect<void, unknown> {
-  return withPadi(endpoint, (conn) =>
-    Effect.gen(function* () {
-      const id = yield* resolveTerminal(conn, args.id);
-      return yield* args.lines === undefined
-        ? wholeHistory(conn, id)
-        : onePage(conn, id, args.lines);
-    }),
-  );
+  return Effect.gen(function* () {
+    const { id, pages } = yield* withPadi(endpoint, (conn) =>
+      Effect.gen(function* () {
+        const id = yield* resolveTerminal(conn, args.id);
+        return { id, pages: yield* readPages(conn, id, args.lines) };
+      }),
+    );
+
+    for (const chunk of pages) yield* writeOutBlock(chunk, "the scrollback");
+    yield* writeErr(
+      args.lines === undefined
+        ? `— ${shortId(id)} · ${pages.length} older page${pages.length === 1 ? "" : "s"}\n`
+        : `— ${shortId(id)} · older history (≤${args.lines} lines)\n`,
+    );
+  });
 }

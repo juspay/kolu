@@ -20,11 +20,7 @@
 // transport, no tty" promise on line 1. A stated invariant the import graph
 // contradicts will be relied on and will break.
 import type { PadiTerminal } from "./surface.ts";
-import {
-  activeAgent,
-  WAIT_STATES,
-  type WaitState,
-} from "./terminalVocab.ts";
+import { activeAgent } from "./terminalVocab.ts";
 import {
   agentBucket,
   agentShortName,
@@ -82,31 +78,15 @@ export function resolveTerminalId(
   return { kind: "found", id: first };
 }
 
-/** Parse a `--until` value — a comma list of bucket names — into the set of
- *  target buckets, or a loud error. Whitespace is trimmed, case folded, and
- *  duplicates collapse; an empty list or any token outside `WAIT_STATES` is
- *  rejected (fail-fast — no silent drop of an unrecognized state). The caller maps
- *  the error to `fail()`/exit. */
-export function parseUntilStates(
-  raw: string,
-):
-  | { kind: "ok"; targets: Set<WaitState> }
-  | { kind: "error"; message: string } {
-  const tokens = raw
-    .split(",")
-    .map((t) => t.trim().toLowerCase())
-    .filter((t) => t.length > 0);
-  const valid = new Set<string>(WAIT_STATES);
-  const unknown = tokens.filter((t) => !valid.has(t));
-  if (tokens.length === 0 || unknown.length > 0) {
-    const offending = unknown.length > 0 ? unknown.join(", ") : "(none given)";
-    return {
-      kind: "error",
-      message: `--until: unknown state(s) ${offending} — use a comma list of: ${WAIT_STATES.join(", ")} (e.g. --until awaiting,waiting).`,
-    };
-  }
-  return { kind: "ok", targets: new Set(tokens as WaitState[]) };
-}
+// `parseUntilStates` used to live here: the comma split, plus a `--until:`-
+// prefixed error string, inside a module that renders. `watch.ts`'s header states
+// the rule it broke — "the CLI-flag grammar (`--until`'s comma parse and its
+// error strings) stays in the face; only the surface-shaped vocabulary and the
+// watch/wait machinery live here" — and the tell was that its one caller THREW
+// the returned message away and re-spelled it, because a padi-side error cannot
+// name the three `--until` FORMS a CLI user needs. What padi owns is
+// `isWaitState` (`terminalVocab.ts`): whether a token is a bucket, and nothing
+// about commas.
 
 /** The last `tail` lines of a rendered screen, with the trailing run of
  *  whitespace-only rows dropped first.

@@ -70,7 +70,7 @@ import type { Command } from "effect/unstable/cli";
 import type { sendFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
 import { type CliFailure, failure } from "../exit.ts";
-import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
+import { resolveTerminal, writeErr, writeJson } from "./shared.ts";
 
 /** What the command tree parsed for `send` — DERIVED from `sendFlags` in
  *  `cli.ts`. `text` is the variadic positional the shell already split; `key` is
@@ -403,14 +403,14 @@ export function run(
     // source of truth for "text vs keys" stays in `resolveSendInput`. Planning
     // runs BEFORE the dial, so an unknown key name never costs a connection and
     // can never land as a half-send.
-    const plan = yield* (input.kind === "none"
+    const plan = yield* input.kind === "none"
       ? planSend({ kind: "keys", names: args.key })
       : planSend({
           kind: "text",
           text,
           paste: args.paste,
           fromStream: sourceIsStream(input),
-        }));
+        });
 
     yield* withPadi(endpoint, (conn) =>
       Effect.gen(function* () {
@@ -427,14 +427,12 @@ export function run(
           paste: plan.paste,
           keys: args.key,
         };
-        if (args.json) {
-          // The full id (so a script can key off it), 2-space indented like the
-          // other verbs' frames.
-          return yield* writeOut(
-            `${JSON.stringify(result, null, 2)}\n`,
-            "the send result",
-          );
-        }
+        // The full id, so a script can key off it. The FRAME — pretty-printed,
+        // newline-terminated, drained — is `./shared.ts`'s `writeJson`, shared
+        // with the other --json arms; it used to be this literal plus a comment
+        // saying "2-space indented like the other verbs' frames", which is a
+        // comment doing a constant's job.
+        if (args.json) return yield* writeJson(result, "the send result");
         // stdout stays EMPTY for a non-json send: there is no scriptable payload
         // here (`--json` is the machine path), so the status goes to stderr.
         yield* writeErr(`— ${formatSend(result)}\n`);

@@ -70,6 +70,7 @@ function iterateUntilAborted<T>(
 export {
   activeAgent,
   isWaitState,
+  PADI_LINK_CLOSED,
   WAIT_STATES,
   type WaitState,
 } from "./terminalVocab.ts";

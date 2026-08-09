@@ -37,7 +37,8 @@
  *     sink instead of a one-shot write.
  *   - **The link dropped.** The mirror settled although nobody asked it to.
  *     That is a FAILURE (exit 1) carrying the mirror's own rejection message —
- *     or {@link LINK_CLOSED} when it merely settled — never a clean EOF.
+ *     or padi's shared `PADI_LINK_CLOSED` line when it merely settled — never a
+ *     clean EOF.
  *
  * The discrimination stays structural rather than re-derived after the fact. The
  * mirror can only settle by itself when the link closed, and the two stdout
@@ -72,8 +73,7 @@
  * ending; see `rejection` below.
  */
 
-import { NodeSink } from "@effect/platform-node";
-import { watchTerminals } from "@kolu/padi/dial";
+import { PADI_LINK_CLOSED, watchTerminals } from "@kolu/padi/dial";
 import {
   formatWatchActivity,
   formatWatchActivityJson,
@@ -82,57 +82,39 @@ import {
   formatWatchRemoval,
   formatWatchRemovalJson,
 } from "@kolu/padi/render";
-import { type Cause, Effect, Fiber, Queue, type Sink, Stream } from "effect";
+import { type Cause, Effect, Fiber, Queue, Stream } from "effect";
 import type { Command } from "effect/unstable/cli";
 // `import type` — fully erased, so this does NOT re-enter the command tree at
 // runtime and the per-face dynamic-import fence is untouched.
 import type { watchFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
-import { type CliFailure, failure } from "../exit.ts";
-import { resolveTerminal, StdoutWriteFailed } from "./shared.ts";
+import { type CliFailure, errorMessage, failure } from "../exit.ts";
+import {
+  isConsumerHangup,
+  resolveTerminal,
+  type StdoutWriteFailed,
+  stdoutLost,
+  stdoutSink,
+  writeErrSync,
+} from "./shared.ts";
 
 /** What the command tree parsed for `watch` — DERIVED from `watchFlags` in
  *  `cli.ts`. `id` is a terminal id or unique prefix to narrow to; `undefined`
  *  means every one. */
 export type WatchArgs = Command.Command.Config.Infer<typeof watchFlags>;
 
-/** Backpressure-aware stdout, as a SINK — the sink waits on `drain`, so a slow
- *  consumer slows the producer instead of inflating an in-memory backlog.
- *  `endOnDone: false` because this process does not own `process.stdout`'s
- *  lifetime; a sink that ended it would close the shell's own descriptor.
- *
- *  Local rather than `./shared.ts`'s `writeOut`: that one writes ONE block and
- *  returns, which is the wrong shape for a feed. This sink is consumed ONCE, by
- *  the pump below, for the whole life of the watch — and a dead stdout has to
- *  stop the mirror rather than merely resolve a write, which is why the death
- *  arm reaches a callback here. The ERROR it carries is `./shared.ts`'s own
- *  {@link StdoutWriteFailed}: the two writers differ in shape, not in what can
- *  go wrong with a descriptor, so they name it once. */
-const stdoutSink: Sink.Sink<void, string, never, StdoutWriteFailed> =
-  NodeSink.fromWritable<StdoutWriteFailed, string>({
-    evaluate: () => process.stdout,
-    onError: (cause) => new StdoutWriteFailed({ cause }),
-    endOnDone: false,
-  });
-
-/** Did the consumer hang up (`kolu watch | head -1`), or did the write genuinely
- *  fail (a full disk, a revoked descriptor)? EPIPE means the reader got the lines
- *  it asked for and left; anything else is a real failure that must be said out
- *  loud rather than folded into the same silent success. The streaming twin of
- *  the decision `./shared.ts`'s `writeOut` makes for a one-shot write — the same
- *  test and the same sentence, because a user must not have to learn two
- *  spellings of "kolu could not write to stdout". */
-const isConsumerHangup = (cause: unknown): boolean =>
-  (cause as { readonly code?: unknown })?.code === "EPIPE";
-
 /** Drain ready-to-print lines into stdout until the queue ENDS, or until stdout
  *  dies under us.
  *
- *  Either death STOPS the watch — `stop` aborts the mirror, because a feed with
- *  nowhere to go is not a feed — and only the REPORT differs: a hangup is a
- *  complete run (success), and anything else fails on this effect's error
- *  channel, naming node's own message. The caller joins this fiber, which is
- *  where that failure becomes the verb's. */
+ *  The sink, the EPIPE test and the failure sentence are all `./shared.ts`'s:
+ *  one block and a live feed differ in SHAPE, not in what can go wrong with a
+ *  descriptor. (This file used to say exactly that in a comment and then write
+ *  all three out again.) What is genuinely local is that a dead stdout must STOP
+ *  the mirror rather than merely resolve a write — `stop` aborts it, because a
+ *  feed with nowhere to go is not a feed — and only the REPORT differs: a hangup
+ *  is a complete run (success), anything else fails on this effect's error
+ *  channel. The caller joins this fiber, which is where that failure becomes the
+ *  verb's. */
 const pumpToStdout = (
   lines: Queue.Dequeue<string, Cause.Done>,
   stop: () => void,
@@ -146,23 +128,10 @@ const pumpToStdout = (
       isConsumerHangup(err.cause)
         ? // The reader left — that is a complete watch, not an error to report.
           Effect.void
-        : Effect.fail(
-            failure(
-              `could not write the watch feed to stdout: ${
-                err.cause instanceof Error
-                  ? err.cause.message
-                  : String(err.cause)
-              }`,
-            ),
-          ),
+        : Effect.fail(stdoutLost("the watch feed", err.cause)),
     ),
   );
 };
-
-/** The line a dropped link fails with when the upstream said nothing more
- *  specific — phrased as the question the user can act on. */
-const LINK_CLOSED =
-  "the padi link closed — the daemon stopped or the connection dropped. Is `padi` still running?";
 
 export function run(
   endpoint: Endpoint,
@@ -235,7 +204,7 @@ export function run(
               },
               AbortSignal.any([interrupted, stopped.signal]),
               (line) => {
-                process.stderr.write(`kolu: ${line}\n`);
+                writeErrSync(`kolu: ${line}\n`);
               },
             ),
           catch: (err) => err,
@@ -244,7 +213,7 @@ export function run(
         // so both land on the one ending below; the rejection just names itself.
         (err) =>
           Effect.sync(() => {
-            rejection = err instanceof Error ? err.message : String(err);
+            rejection = errorMessage(err);
           }),
       );
 
@@ -266,7 +235,7 @@ export function run(
 
       // The mirror settled and nothing local asked it to — the link dropped.
       if (selfSettled) {
-        return yield* Effect.fail(failure(rejection ?? LINK_CLOSED));
+        return yield* Effect.fail(failure(rejection ?? PADI_LINK_CLOSED));
       }
     }),
   );

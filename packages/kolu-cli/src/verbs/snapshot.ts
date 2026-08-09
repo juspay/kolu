@@ -45,8 +45,8 @@ import type { Command } from "effect/unstable/cli";
 // runtime and the per-face dynamic-import fence is untouched.
 import type { snapshotFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
-import { type CliFailure, failure } from "../exit.ts";
-import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
+import { failure } from "../exit.ts";
+import { resolveTerminal, writeErr, writeOutBlock } from "./shared.ts";
 
 /** What the command tree hands this verb — DERIVED from `snapshotFlags` in
  *  `cli.ts`, which also carries the "a positive whole number of lines" rule, so
@@ -54,13 +54,6 @@ import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
 export type SnapshotArgs = Command.Command.Config.Infer<typeof snapshotFlags>;
 
 // ── the verb ─────────────────────────────────────────────────────────────────
-
-/** Write one block to stdout with exactly one trailing newline. The draining
- *  sink itself is `./shared.ts`'s (a whole screen written to a pipe must flush
- *  before the process exits); only the "exactly one newline" rule is this
- *  verb's. */
-const writeOutLine = (text: string): Effect.Effect<void, CliFailure> =>
-  writeOut(text.endsWith("\n") ? text : `${text}\n`, "the screen text");
 
 /** How many lines the block we printed actually is — derived from the text we
  *  already hold, so the trailer costs no second round-trip and can never
@@ -103,7 +96,7 @@ export const run = Effect.fn("kolu snapshot")(function* (
   );
 
   const printed = tail === undefined ? text : tailLines(text, tail);
-  yield* writeOutLine(printed);
+  yield* writeOutBlock(printed, "the screen text");
   const lines = lineCount(printed);
   yield* writeErr(
     `— ${shortId(id)} · ${lines} line${lines === 1 ? "" : "s"}\n`,
