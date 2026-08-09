@@ -554,7 +554,12 @@ export function resolveCanvasMode(
   observation: {
     transportLive: boolean;
     exceeded: boolean;
-    earnedBoot?: BootIdentity | undefined;
+    /** REQUIRED, not optional — `undefined` must be SAID. An optional field here would be a
+     *  silent-degradation path: a caller that simply forgot it would compile, and the AFP C6
+     *  exemption would quietly go back to recomputing the earned card from facts the outage
+     *  has already rewritten. Same reason `floorOnLiveness` takes `live` as a required
+     *  argument (`@kolu/surface-map`) — the writer cannot forget to floor. */
+    earnedBoot: BootIdentity | undefined;
   },
 ): Precedence {
   const raw = resolvePrecedence(facts);

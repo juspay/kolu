@@ -60,21 +60,39 @@ function connected(
   };
 }
 
+/** No boot was watched before this frame — the state every pin below starts from. Said
+ *  explicitly rather than omitted, because `earnedBoot` is a REQUIRED field: a reader that
+ *  could leave it out would be the silent-degradation path the resolver refuses to offer. */
+const NO_EARNED_BOOT = { earnedBoot: undefined } as const;
+
 /** The rendered surface for `facts`, with the boot deadline NOT exceeded (default) or
  *  exceeded — the two readers every precedence/escape pin uses. */
 const mode = (facts: CanvasFacts, exceeded = false) =>
-  resolveCanvasMode(facts, { transportLive: true, exceeded }).mode;
+  resolveCanvasMode(facts, { ...NO_EARNED_BOOT, transportLive: true, exceeded })
+    .mode;
 /** The boot-overlay classification the caller feeds to the per-host anchor. */
 const tag = (facts: CanvasFacts) =>
-  resolveCanvasMode(facts, { transportLive: true, exceeded: false }).tag;
+  resolveCanvasMode(facts, {
+    ...NO_EARNED_BOOT,
+    transportLive: true,
+    exceeded: false,
+  }).tag;
 
 /** The same two readers with THIS browser's link to kolu-server DOWN — the #2129
  *  observability floor's input. It is an OBSERVER fact, so it rides the second argument
  *  beside `exceeded` rather than any arm of {@link CanvasFacts}. */
 const modeOffline = (facts: CanvasFacts, exceeded = false) =>
-  resolveCanvasMode(facts, { transportLive: false, exceeded }).mode;
+  resolveCanvasMode(facts, {
+    ...NO_EARNED_BOOT,
+    transportLive: false,
+    exceeded,
+  }).mode;
 const tagOffline = (facts: CanvasFacts) =>
-  resolveCanvasMode(facts, { transportLive: false, exceeded: false }).tag;
+  resolveCanvasMode(facts, {
+    ...NO_EARNED_BOOT,
+    transportLive: false,
+    exceeded: false,
+  }).tag;
 
 describe("resolveCanvasMode loading guard (#1340)", () => {
   it("connecting wins while the session is loading, ahead of any connected-arm fact", () => {
