@@ -142,6 +142,15 @@ export interface EntryClock {
  *  word nor identity and passes through as-is, and a live link is a no-op. Making `live` a
  *  REQUIRED argument is the point: `foldState` cannot forget to floor.
  *
+ *  WHAT THE DEMOTION COSTS, stated beside the code that performs it: a floored `connected`
+ *  and a genuinely-warming entry are now the SAME value — "it is coming up" and "we cannot
+ *  see it" are indistinguishable from `.kind` alone. A consumer that merely SPINS is fine
+ *  either way; a consumer that TIMES the entry (a deadline, an escalation, a "failed to
+ *  start" verdict) must read `live` alongside `.kind` and make no claim while the link is
+ *  down. kolu#2129 is the recorded failure: a backgrounded tab's dropped socket demoted a
+ *  healthy local host to `warming`, and a 30s boot deadline certified a twelve-hour-old
+ *  daemon dead.
+ *
  *  The `failed` arm has NOTHING for the floor to do, and structurally so: the arm carries
  *  no `connection` at all, so its record is not a liveness payload — see
  *  {@link FailureEvidence}. Note this is NOT a claim that a failed entry is terminal: a
