@@ -525,24 +525,34 @@ export function resolveCanvasMode(
   // fail the build, rather than falling through as a silent no-op.
   return (
     match({ tag: raw.tag, ...observation })
-      // Nothing to time: a SETTLED surface, or a non-boot overlay the deadline ignores.
-      // `retain` is deliberately NOT floored — see `bootDeadline.ts`'s `retain` note.
-      .with({ tag: { accrual: "clear" } }, () => raw)
-      .with({ tag: { accrual: "retain" } }, () => raw)
-      // EARNED — ahead of the floor, and that ORDER is the whole AFP C6 exemption: a
-      // verdict that elapsed while the link was live is ours to KEEP through a blip.
+      // EARNED — first, and that ORDER is the whole AFP C6 exemption: a verdict that
+      // elapsed while the link was live is ours to KEEP through a blip, card and recovery
+      // verb intact.
       .with({ tag: { accrual: "accrue" }, exceeded: true }, ({ tag }) => ({
         mode: escapeSurface(tag, facts),
         tag,
       }))
-      // UNOBSERVABLE — with the link down we are not watching a slow boot, we are not
-      // watching. CLEAR releases the anchor; the mode passes through untouched.
-      .with({ tag: { accrual: "accrue" }, transportLive: false }, () => ({
-        mode: raw.mode,
-        tag: CLEAR,
-      }))
-      // A live link, under the ceiling: a boot genuinely in progress, still accruing.
+      // UNOBSERVABLE — ONE rule for every variant, no per-accrual carve-out: while the link
+      // is down we are not watching a slow boot, we are not watching, so nothing may hold a
+      // clock. CLEAR releases the anchor; the mode passes through untouched, because the
+      // transport overlay already owns the screen.
+      //
+      // Only `accrue` can reach this in production — every `retain` return site is on the
+      // connected arm, and `floorOnLiveness` demotes an entry off that arm in the same tick
+      // this fact goes false (both now read ONE `padiMap.live()`, so they cannot disagree).
+      // Covering `retain` anyway is therefore a provable no-op today, and it buys the
+      // deletion of a cross-package invariant that was previously held by prose alone: if a
+      // future `retain` site appears outside the connected arm, or surface-map changes its
+      // floor, the rule still holds instead of silently mis-timing. (The lens review split
+      // exactly here — one lens asserting the frame unreachable, the other noting the
+      // `empty`-site `retain` documents itself as handling it; both are right about
+      // different things, and this states the rule so neither has to be trusted.)
+      .with({ transportLive: false }, () => ({ mode: raw.mode, tag: CLEAR }))
+      // A live link: nothing to floor. A boot genuinely in progress keeps accruing; a
+      // settled surface releases; a non-boot overlay holds.
       .with({ tag: { accrual: "accrue" } }, () => raw)
+      .with({ tag: { accrual: "retain" } }, () => raw)
+      .with({ tag: { accrual: "clear" } }, () => raw)
       .exhaustive()
   );
 }

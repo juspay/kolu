@@ -146,11 +146,13 @@ export function bootDeadlineExceeded(hostEnc: string, nowMs: number): boolean {
  *     (workspace/empty/down/host-failed), or an UNOBSERVABLE one (the #2129 observability
  *     floor — see `canvasModeResolver.ts`'s module header for the whole rule). Both mean the
  *     ceiling is no longer measuring anything in progress. Releasing the CAMPAIGN cell too
- *     is deliberate — see {@link CAMPAIGN_CEILING_MS}. `retain` is left unfloored because
- *     every `retain` return site is on the connected arm, and `floorOnLiveness` demotes a
- *     connected entry to `warming` over a dead link — so a `retain` frame with the link
- *     fact false is unreachable. A future `retain` outside the connected arm would break
- *     that assumption.
+ *     is deliberate — see {@link CAMPAIGN_CEILING_MS}. The floor covers EVERY accrual
+ *     variant, not just `accrue`, so this module holds no assumption about which frames a
+ *     dead link can produce: `retain` over a dead link is unreachable in production (every
+ *     `retain` site is on the connected arm, which `floorOnLiveness` demotes off in the
+ *     same tick), so covering it is a no-op that simply removes the cross-package
+ *     invariant this paragraph used to assert. A future `retain` outside the connected arm
+ *     would then still be timed correctly, instead of silently breaking an assumption.
  *   - `retain` → hold the CLASS cell (a non-boot OVERLAY the deadline must ignore — kaval-restart
  *     warming, a records-awaited / `!channelLive` connecting — so an overlay-flavored flap can't
  *     dodge the class ceiling), but CLEAR the campaign cell: every `retain` is a CONNECTED-arm

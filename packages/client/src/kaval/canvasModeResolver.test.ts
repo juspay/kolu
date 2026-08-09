@@ -772,3 +772,37 @@ describe("resolveCanvasMode — the floor governs reaching a verdict, not keepin
     expect(modeOffline(unearned)).toEqual({ kind: "connecting" });
   });
 });
+
+describe("resolveCanvasMode — while unobservable, no anchor: one rule, every variant", () => {
+  // The lens review's escalated contradiction, settled empirically rather than by choosing a
+  // side. One lens held that a `retain` frame with the link down is unreachable (the entry is
+  // demoted off the connected arm in the same tick); the other noted that the `empty` site's
+  // `retain` documents itself as handling exactly that frame. Both are right about different
+  // things — unreachable in production, spellable in the type — so the rule is stated for
+  // every variant and this pins it, rather than leaving a cross-package invariant in prose.
+  it("a `retain` frame over a dead link releases the anchor like any other", () => {
+    // recordsAwaited > 0 is a `retain` return site.
+    const retained = connected({ terminalCount: 0, recordsAwaited: 7 });
+    expect(
+      resolveCanvasMode(retained, { transportLive: true, exceeded: false }).tag,
+    ).toEqual({
+      accrual: "retain",
+    });
+    expect(
+      resolveCanvasMode(retained, { transportLive: false, exceeded: false })
+        .tag,
+    ).toEqual({ accrual: "clear" });
+    // The surface is unchanged either way — the floor governs the clock, never the screen.
+    expect(
+      resolveCanvasMode(retained, { transportLive: false, exceeded: false })
+        .mode,
+    ).toEqual({ kind: "connecting" });
+  });
+
+  it("a settled `clear` frame over a dead link is still just clear", () => {
+    const settled = connected({ terminalCount: 3 });
+    expect(
+      resolveCanvasMode(settled, { transportLive: false, exceeded: false }),
+    ).toEqual({ mode: { kind: "workspace" }, tag: { accrual: "clear" } });
+  });
+});
