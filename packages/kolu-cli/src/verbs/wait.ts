@@ -94,9 +94,12 @@ import { type Endpoint, withPadi } from "../endpoint.ts";
 import {
   type CliFailure,
   failure,
-  WaitInterrupted,
-  WaitTerminalGone,
-  WaitTimedOut,
+  type WaitInterrupted,
+  waitInterrupted,
+  type WaitTerminalGone,
+  waitTerminalGone,
+  type WaitTimedOut,
+  waitTimedOut,
 } from "../exit.ts";
 import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
 
@@ -323,27 +326,23 @@ function reportOutcome(
       case "met":
         if (!json) yield* writeErr(metTrailer(id, outcome));
         return;
+      // The three failing arms pass FACTS; `exit.ts` renders each line beside
+      // the code it rides, so neither can drift from the other and the matrix
+      // test builds the real instances rather than fabricating stderr.
       case "timeout":
-        // Report the outcome's OWN elapsed (always populated) rather than the
-        // `--timeout` flag, which is optional — a future non-timer timeout route
-        // could otherwise print "undefinedms".
         return yield* Effect.fail(
-          new WaitTimedOut({
-            stderr: `kolu: timed out after ${outcome.elapsedMs}ms waiting for ${shortId(id)} to reach ${describe}.\n`,
+          waitTimedOut({
+            terminal: shortId(id),
+            elapsedMs: outcome.elapsedMs,
+            describe,
           }),
         );
       case "gone":
         return yield* Effect.fail(
-          new WaitTerminalGone({
-            stderr: `kolu: ${shortId(id)} exited before reaching ${describe} — its terminal is gone.\n`,
-          }),
+          waitTerminalGone({ terminal: shortId(id), describe }),
         );
       case "interrupted":
-        return yield* Effect.fail(
-          new WaitInterrupted({
-            stderr: `— interrupted; ${shortId(id)} left running\n`,
-          }),
-        );
+        return yield* Effect.fail(waitInterrupted({ terminal: shortId(id) }));
       case "closed":
         // The link dropped before the condition landed — a failure, never a
         // clean stop that would look like a met wait.

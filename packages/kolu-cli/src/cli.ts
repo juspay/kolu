@@ -41,7 +41,7 @@
  */
 
 import { isValidTimerMs, MAX_TIMER_MS } from "@kolu/surface/wait";
-import { Data, Effect, Option, Runtime } from "effect";
+import { Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 // The ONE version accessor (`hostname.ts` is a leaf: node built-ins + the
 // server's package.json, which `/release` bumps and nix reads too) — so
@@ -53,31 +53,13 @@ import {
   endpointOf,
   refuseEndpointFlags,
 } from "./endpoint.ts";
+// Every exit-code-bearing error, and the sentence each one carries.
+import { reservedFace } from "./exit.ts";
 // The web face's flags and their projection onto the server's boot contract.
 // They live in THIS package because they are part of the command tree: how argv
 // is parsed is the CLI's volatility, and a flag declaration is a runtime call
 // the web server package has no business holding.
 import { bootFlagsOf, webFlags } from "./webFlags.ts";
-
-/** A face the plan RESERVES but has not shipped (`kolu tui`).
- *
- *  `Data.TaggedError`, not `Schema.TaggedError`: this error never crosses a wire
- *  — it is raised and handled inside one process — so it needs a `_tag` to match
- *  on, not a codec. The two `Runtime` markers are what turn the tag into an exit
- *  code without a second mapping table: `errorExitCode` is the code the run
- *  edge's teardown reads off the squashed cause, and `errorReported: false`
- *  suppresses Effect's own pretty log so the ONE line the user sees is the named
- *  message below. */
-export class ReservedFaceError extends Data.TaggedError("ReservedFaceError")<{
-  readonly message: string;
-}> {
-  readonly [Runtime.errorExitCode] = 1;
-  readonly [Runtime.errorReported] = false;
-}
-
-/** The named fail-fast for a face that is planned but not shipped. */
-export const reservedFaceMessage = (face: string): string =>
-  `kolu ${face} is not shipped yet — it lands in a later PR of the kolu-cli plan: https://kolu.dev/atlas/kolu-cli.html`;
 
 /** The root. It carries no handler of its own — a bare `kolu` has nothing to do
  *  but show what it can do, which is exactly what Effect CLI does for a
@@ -157,9 +139,7 @@ const tui = Command.make(
   "tui",
   {},
   Effect.fn(function* () {
-    return yield* Effect.fail(
-      new ReservedFaceError({ message: reservedFaceMessage("tui") }),
-    );
+    return yield* Effect.fail(reservedFace("tui"));
   }),
 ).pipe(
   Command.withDescription(

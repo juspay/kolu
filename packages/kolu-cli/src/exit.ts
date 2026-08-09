@@ -28,6 +28,22 @@
  * `errorReported: false` on every one of them says "this failure has already
  * been reported to the user" — the CLI prints its own one-line diagnostic, and
  * Effect's pretty cause dump on top of it would be noise, not information.
+ *
+ * ## The sentences live here too, as CONSTRUCTORS
+ *
+ * A verb passes FACTS — the short id, the elapsed ms, the condition it was
+ * waiting for — and the arm renders its own line. That is what makes the matrix
+ * test able to build real instances rather than fabricating stderr strings no
+ * verb ever writes: a test that asserts a shape over its own literals is
+ * asserting nothing about the product. Every line starts `kolu: `, including
+ * the interrupted one — see {@link waitInterrupted}.
+ *
+ * ## Every exit-code-bearing class is in here
+ *
+ * Including the two the faces raise ({@link ReservedFaceError},
+ * {@link UsageRefused}), which used to sit in `cli.ts` and `main.ts`. A module
+ * whose whole reason to exist is that nothing can see the codes apart cannot
+ * hold two thirds of them.
  */
 
 import { Data, Runtime } from "effect";
@@ -68,9 +84,76 @@ export class WaitInterrupted extends Data.TaggedError("WaitInterrupted")<{
   readonly [Runtime.errorReported] = false;
 }
 
+/** A face the plan RESERVES but has not shipped (`kolu tui`).
+ *
+ *  `Data.TaggedError`, not `Schema.TaggedError`: this error never crosses a wire
+ *  — it is raised and handled inside one process — so it needs a `_tag` to match
+ *  on, not a codec. */
+export class ReservedFaceError extends Data.TaggedError("ReservedFaceError")<{
+  readonly message: string;
+}> {
+  readonly [Runtime.errorExitCode] = 1;
+  readonly [Runtime.errorReported] = false;
+}
+
+/** A rendered CLI-LIBRARY failure the user did not ask for — a bare `kolu`, a
+ *  typo'd subcommand, a rejected flag. Exit 1, and it prints NOTHING because the
+ *  library already printed the usage and the reason; `main.ts` explains which
+ *  library failures reach this and which are a successful run.
+ *
+ *  Its own shape so the exit-code marker rides the error exactly as every other
+ *  arm's does, leaving the teardown one rule rather than a special case. */
+export class UsageRefused {
+  readonly [Runtime.errorExitCode] = 1;
+  readonly [Runtime.errorReported] = false;
+}
+
 /** The one-line diagnostic every usage/link failure carries, prefixed once. */
 export const failure = (message: string): CliFailure =>
   new CliFailure({ stderr: `kolu: ${message}\n` });
+
+/** The named fail-fast for a face that is planned but not shipped. */
+export const reservedFace = (face: string): ReservedFaceError =>
+  new ReservedFaceError({
+    message: `kolu ${face} is not shipped yet — it lands in a later PR of the kolu-cli plan: https://kolu.dev/atlas/kolu-cli.html`,
+  });
+
+/** `wait` ran out of time. Reports the outcome's OWN elapsed (always populated)
+ *  rather than the `--timeout` flag, which is optional — a future non-timer
+ *  timeout route could otherwise print "undefinedms". */
+export const waitTimedOut = (facts: {
+  readonly terminal: string;
+  readonly elapsedMs: number;
+  readonly describe: string;
+}): WaitTimedOut =>
+  new WaitTimedOut({
+    stderr: `kolu: timed out after ${facts.elapsedMs}ms waiting for ${facts.terminal} to reach ${facts.describe}.\n`,
+  });
+
+/** The watched terminal exited before the condition landed. */
+export const waitTerminalGone = (facts: {
+  readonly terminal: string;
+  readonly describe: string;
+}): WaitTerminalGone =>
+  new WaitTerminalGone({
+    stderr: `kolu: ${facts.terminal} exited before reaching ${facts.describe} — its terminal is gone.\n`,
+  });
+
+/** A Ctrl+C during a `wait` — and it wears the `kolu: ` prefix like every other
+ *  arm.
+ *
+ *  It used to be written `— interrupted; …`, the shape of a SUCCESS trailer
+ *  (`metTrailer`'s), which made it the one arm of a stderr contract that a
+ *  driving loop could not recognize by the same test as the other three. The
+ *  line was the bug, not the rule: this is a FAILURE arm, it rides the error
+ *  channel, and it exits 130. `terminal` names what is still running, which is
+ *  the fact the user can act on. */
+export const waitInterrupted = (facts: {
+  readonly terminal: string;
+}): WaitInterrupted =>
+  new WaitInterrupted({
+    stderr: `kolu: interrupted; ${facts.terminal} left running\n`,
+  });
 
 /** What the run edge prints for a failed program.
  *

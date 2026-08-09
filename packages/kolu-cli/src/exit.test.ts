@@ -29,24 +29,58 @@ import {
   CliFailure,
   failure,
   reportOf,
-  WaitInterrupted,
-  WaitTerminalGone,
-  WaitTimedOut,
+  reservedFace,
+  UsageRefused,
+  waitInterrupted,
+  waitTerminalGone,
+  waitTimedOut,
 } from "./exit.ts";
 
-/** Every arm of the contract, built as a verb builds it, beside the code
- *  `README.md` promises for it. One table so the matrix is readable as a
- *  matrix — the reason the codes live in one module in the first place. */
+/** Every arm of the contract, built THE WAY THE PRODUCT BUILDS IT — through the
+ *  constructors in `exit.ts` — beside the code `README.md` promises for it. One
+ *  table so the matrix is readable as a matrix, which is the reason the codes
+ *  live in one module in the first place.
+ *
+ *  The arms used to be fabricated here (`new WaitTimedOut({stderr: "kolu:
+ *  timed out\n"})` — a string no verb ever writes), so the shape assertions
+ *  below were testing this file's own literals. They caught nothing, and what
+ *  they did not catch was real: the interrupted arm shipped a line with no
+ *  `kolu: ` prefix at all.
+ *
+ *  The last element is the line the arm puts on stderr, or `null` for the two
+ *  that print NOTHING because the CLI library already rendered the usage
+ *  (`UsageRefused`) — those still carry a code, which is exactly why they must
+ *  be visible in this table. */
 const MATRIX = [
-  ["usage error / dropped link", failure("nope"), 1],
-  ["wait timed out", new WaitTimedOut({ stderr: "kolu: timed out\n" }), 2],
+  ["usage error / dropped link", failure("nope"), 1, "kolu: nope\n"],
+  [
+    "wait timed out",
+    waitTimedOut({ terminal: "a1b2c3d4", elapsedMs: 900, describe: "awaiting" }),
+    2,
+    "kolu: timed out after 900ms waiting for a1b2c3d4 to reach awaiting.\n",
+  ],
   [
     "wait's terminal exited",
-    new WaitTerminalGone({ stderr: "kolu: gone\n" }),
+    waitTerminalGone({ terminal: "a1b2c3d4", describe: "awaiting" }),
     3,
+    "kolu: a1b2c3d4 exited before reaching awaiting — its terminal is gone.\n",
   ],
-  ["interrupted", new WaitInterrupted({ stderr: "kolu: interrupted\n" }), 130],
-] as const satisfies ReadonlyArray<readonly [string, unknown, number]>;
+  [
+    "interrupted",
+    waitInterrupted({ terminal: "a1b2c3d4" }),
+    130,
+    "kolu: interrupted; a1b2c3d4 left running\n",
+  ],
+  [
+    "a reserved face",
+    reservedFace("tui"),
+    1,
+    `kolu: ${reservedFace("tui").message}\n`,
+  ],
+  ["a usage error the library already printed", new UsageRefused(), 1, null],
+] as const satisfies ReadonlyArray<
+  readonly [string, unknown, number, string | null]
+>;
 
 /** Has this error told the runtime "my message is already on screen"? Read off
  *  the same marker key the arms stamp — Effect ships it as a branded string
@@ -61,12 +95,15 @@ describe("the exit-code contract", () => {
     expect(Runtime.getErrorExitCode(error)).toBe(code);
   });
 
-  it("gives each arm a DISTINCT code — 2 and 3 are the pair a driver reads", () => {
+  it("gives the wait arms DISTINCT codes — 2 and 3 are the pair a driver reads", () => {
     // "still alive but stuck" (2, retryable) vs "the agent I was driving died"
     // (3, not). Collapsing any two of these onto one number would still pass the
     // per-arm assertions above while destroying the branch that motivates them.
-    const codes = MATRIX.map(([, error]) => Runtime.getErrorExitCode(error));
-    expect(new Set(codes).size).toBe(MATRIX.length);
+    // (The three `1` arms are deliberately one code: "your command was wrong or
+    // the link dropped" is one thing to a driver, however it was reached.)
+    const distinct = MATRIX.filter(([, , code]) => code !== 1);
+    const codes = distinct.map(([, error]) => Runtime.getErrorExitCode(error));
+    expect(new Set(codes).size).toBe(distinct.length);
   });
 
   it("marks every arm already-reported, so the CLI's one line is the whole output", () => {
@@ -75,7 +112,18 @@ describe("the exit-code contract", () => {
     // number is: a driving loop parses stderr.
     for (const [, error] of MATRIX) {
       expect(reportedFlagOf(error)).toBe(false);
-      expect(reportOf(error)).toMatch(/^kolu: /);
+    }
+  });
+
+  it("writes ONE `kolu: `-prefixed line per arm — every arm, the same test", () => {
+    // The assertion the old fabricated matrix could not make: these are the real
+    // lines the verbs produce. `UsageRefused` carries none by design (the CLI
+    // library already rendered the usage), which is stated as `null` rather than
+    // left as a gap.
+    for (const [, error, , line] of MATRIX) {
+      if (line === null) continue;
+      expect(reportOf(error)).toBe(line);
+      expect(line).toMatch(/^kolu: /);
     }
   });
 

@@ -24,12 +24,13 @@ import { NodeServices } from "@effect/platform-node";
 import { Cause, Effect, Exit, Option, Runtime } from "effect";
 import { DEFAULT_PORT } from "kolu-common/config";
 import { describe, expect, it } from "vitest";
-import { reservedFaceMessage, runKoluCliWith } from "./cli.ts";
+import { runKoluCliWith } from "./cli.ts";
 import {
   type EndpointFlagValues,
   endpointOf,
   refuseEndpointFlags,
 } from "./endpoint.ts";
+import { reservedFace } from "./exit.ts";
 import { bootFlagsOf } from "./webFlags.ts";
 
 /** Run the real command tree against an argv, to an `Exit`. */
@@ -175,7 +176,7 @@ describe("kolu command tree", () => {
   it("the reserved face fails fast with the named message and exit 1", async () => {
     const err = await failureOf(["tui"]);
     expect(err._tag).toBe("ReservedFaceError");
-    expect(err.message).toBe(reservedFaceMessage("tui"));
+    expect(err.message).toBe(reservedFace("tui").message);
     expect(err.message).toContain("not shipped yet");
     // The exit-code marker is what the run edge's teardown reads — so THIS is
     // what pins `kolu tui` exiting non-zero.

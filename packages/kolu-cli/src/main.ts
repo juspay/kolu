@@ -34,11 +34,11 @@
  */
 
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
-import { Effect, Runtime } from "effect";
+import { Effect } from "effect";
 import { Command } from "effect/unstable/cli";
 import { serverVersion } from "kolu-server/src/hostname.ts";
 import { koluCli } from "./cli.ts";
-import { reportOf } from "./exit.ts";
+import { reportOf, UsageRefused } from "./exit.ts";
 
 /** The brand every `effect/unstable/cli` error carries.
  *
@@ -93,15 +93,6 @@ const askedForText = (): boolean => {
     (a) => a === "--help" || a === "-h" || a === "--version" || a === "-v",
   );
 };
-
-/** A rendered CLI failure the user did not ask for — exit 1, print nothing (the
- *  library already did). Its own tagged shape so the exit-code marker rides the
- *  error exactly as every other failure's does, leaving the teardown a single
- *  rule rather than a special case. */
-class UsageRefused {
-  readonly [Runtime.errorExitCode] = 1;
-  readonly [Runtime.errorReported] = false;
-}
 
 const program = Command.run(koluCli, { version: serverVersion });
 
