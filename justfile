@@ -373,7 +373,7 @@ e2e-ssh-2box boxB port='7099': install
     # never collides with any other kolu on the box. NOT KOLU_REMOTE_PADI_STATE_DIR:
     # this recipe DELIBERATELY binds (and drains) <boxB>'s REAL padi — isolating the
     # remote would spawn a fresh padi there instead of exercising the live one.
-    KOLU_STATE_DIR="$sr" KOLU_PADI_STATE_DIR="$sr/padi" KOLU_PADI_HOST="$boxB" {{ nix_shell }} nix run .#koluBin -- --port "$port" >"$log" 2>&1 &
+    KOLU_STATE_DIR="$sr" KOLU_PADI_STATE_DIR="$sr/padi" KOLU_PADI_HOST="$boxB" {{ nix_shell }} nix run .#koluBin -- web --port "$port" >"$log" 2>&1 &
     srv=$!; trap 'kill $srv 2>/dev/null || true' EXIT
     # Readiness gate = the daemonInventory read itself (a subscription; grep -m1 = first
     # frame), NON-destructive, polled until the ssh binding has warmed enough to publish
