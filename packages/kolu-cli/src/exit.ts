@@ -19,9 +19,11 @@
  *
  * Each arm carries the EXACT line it writes to stderr, not a fragment a
  * formatter reassembles later, plus `Runtime.errorExitCode` — the marker
- * Effect's own teardown reads. So `main.ts`'s run edge is a write and a code
- * read, with nothing left to get wrong, and neither the line nor the code can
- * drift from the arm that means them.
+ * `NodeRuntime.runMain`'s own teardown reads off the squashed cause. So there is
+ * no exit-code ACCESSOR in this module and no exit-code table at the edge:
+ * `main.ts` writes the line ({@link reportOf}) and re-fails, and the runtime
+ * reads the code straight off the error. Neither the line nor the code can drift
+ * from the arm that means them, and no verb calls `process.exit`.
  *
  * `errorReported: false` on every one of them says "this failure has already
  * been reported to the user" — the CLI prints its own one-line diagnostic, and
@@ -80,11 +82,4 @@ export function reportOf(error: unknown): string {
   const e = error as { readonly stderr?: unknown; readonly message?: unknown };
   if (typeof e?.stderr === "string") return e.stderr;
   return `kolu: ${typeof e?.message === "string" ? e.message : String(error)}\n`;
-}
-
-/** The process exit code for a failed program — an arm's own marker, or 1 for
- *  anything unexpected. Never 0: a program that failed must not look like one
- *  that worked. */
-export function exitCodeOf(error: unknown): number {
-  return Runtime.getErrorExitCode(error);
 }

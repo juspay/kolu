@@ -10,12 +10,12 @@
  * was wrong, which name `kolu ls` as the way to see the live ones.
  */
 
+import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import { readTerminalKeys } from "@kolu/padi/read";
 import { resolveTerminalId, shortId } from "@kolu/padi/render";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Data, Effect, Stream } from "effect";
 import { NodeSink } from "@effect/platform-node";
-import type { Connection } from "../endpoint.ts";
 import { type CliFailure, failure } from "../exit.ts";
 
 /** Widen a user-typed id-or-prefix to the one full id it names, or fail with the
@@ -32,7 +32,7 @@ import { type CliFailure, failure } from "../exit.ts";
  *  exited 0 reads, to the driving loop above it, exactly like one that worked.
  *  Ambiguity lists the matches in the short form the user already recognizes, so
  *  adding characters is a glance rather than a second `kolu ls`. */
-export function resolveOne(
+function resolveOne(
   query: string,
   ids: readonly TerminalId[],
 ): Effect.Effect<TerminalId, CliFailure> {
@@ -55,9 +55,18 @@ export function resolveOne(
 }
 
 /** Read the live key set and resolve `query` against it — the two steps every
- *  id-taking verb runs before its real call, spelled once. */
+ *  id-taking verb runs before its real call, spelled once. The pure half
+ *  ({@link resolveOne}) has no caller outside this module, so it stays private:
+ *  a verb resolves through this pair or not at all.
+ *
+ *  It asks for a `client`, never the whole `Connection`: the other fact a
+ *  `Connection` carries (`localCwd`) belongs to `create` alone, and a resolve
+ *  that could not read it cannot come to depend on it. Spelled as the field
+ *  rather than as the type so the requirement is the narrowest thing that works
+ *  — the same parameter its twin `readTerminalKeys` takes — while a caller still
+ *  passes the `conn` it already has in hand. */
 export function resolveTerminal(
-  conn: Connection,
+  conn: { readonly client: PadiSurfaceClient },
   query: string,
 ): Effect.Effect<TerminalId, unknown> {
   return Effect.flatMap(readTerminalKeys(conn.client), (ids) =>

@@ -9,7 +9,8 @@ timeouts on every wait) — only the spelling changes.
 
 **`kolu` is the ONE terminal CLI.** One command carries the whole toolkit —
 **ls** (the roster) · **create** (spawn) · **send** (write text, OR a `--key`) ·
-**wait** (block on a done-signal) · **snapshot** (read the screen) · **history**
+**wait** (block on a done-signal) · **snapshot** (read the rendered text —
+`--tail N` for what's on screen) · **history**
 (read the scrollback) · **kill** · **watch** (the live feed). Every verb is a
 pure **padi** client, so there is no second CLI to learn and no second daemon to
 choose between: you name a padi (or, inside a kolu terminal, name nothing) and
@@ -281,8 +282,14 @@ id=$(kolu create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-
 
 Its other flags: **`--cwd <dir>`** (where the terminal opens), **`--intent
 <text>`** (the freeform label shown on the canvas — set it, see the id-restart
-note below), **`--parent <id>`** (open as a split), **`--json`** (the whole
-TerminalInfo instead of the bare id).
+note below), **`--parent <id>`** (open as a split), **`--json`** (a record of
+what `create` just did, instead of the bare id).
+
+`--json` is **not** the terminal's full record — for that, `kolu ls --json`.
+It is exactly what this create did: `{"id": "<full id>"}`, plus
+`"worktree": {"path", "branch"}` when `--worktree` cut one and `"ran": "<the
+command line typed>"` when you passed `-- <argv>`. Absent keys are omitted, so
+a bare `kolu create --json` is a one-field object.
 
 > **A split tile BESIDE you — `--parent "$KAVAL_TERMINAL_ID"`.** When you want the
 > new terminal to open as a **split beside your own** (a sibling tile on the same

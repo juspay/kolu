@@ -19,7 +19,7 @@ kolu ls [--json]              the roster — ID · STATE · REPO·BRANCH · PR �
 kolu create [flags] [-- argv] spawn a terminal; prints the new id on stdout
 kolu send <id> …              type text, or a named key with --key
 kolu wait <id> --until <cond> block until output settles/matches, or the agent's state lands
-kolu snapshot <id> [--tail N] what the terminal shows now, as plain text
+kolu snapshot <id> [--tail N] the terminal's rendered text — use --tail N for "what's on screen"
 kolu history <id> [--lines N] the scrollback above the current screen
 kolu kill <id>                end a terminal
 kolu watch [id] [--json]      stream terminal changes and output activity
@@ -59,9 +59,12 @@ human trailer goes to stderr.
 ## The exit-code contract
 
 The codes are user-visible and load-bearing: a driving loop branches on them,
-so they live in one module (`src/exit.ts`) with a test pinning the whole matrix.
-They are the codes `padi-tui` and `kaval-tui` each carried a copy of, so a loop
-that branched on them keeps working against the new spelling.
+so they live in one module (`src/exit.ts`), with `src/exit.test.ts` pinning the
+whole matrix — each arm read back through `Runtime.getErrorExitCode`, the exact
+lookup the run edge's teardown performs, so a renumbered arm fails a test rather
+than a user's script. They are the codes `padi-tui` and `kaval-tui` each carried
+a copy of, so a loop that branched on them keeps working against the new
+spelling.
 
 | code | meaning |
 | --- | --- |
@@ -69,10 +72,17 @@ that branched on them keeps working against the new spelling.
 | `1` | a usage error, or the padi link dropped |
 | `2` | `wait` ran out of time — the condition never landed |
 | `3` | `wait`'s terminal exited before reaching the condition |
-| `130` | interrupted (Ctrl+C / SIGTERM / SIGHUP) |
+| `130` | interrupted — Ctrl+C (SIGINT) or SIGTERM |
 
 `2` and `3` are deliberately distinct: "still alive but stuck" is retryable,
 "the agent I was driving died" is not.
+
+`SIGINT` and `SIGTERM` are the **only** two signals in that row, because
+`NodeRuntime.runMain` installs handlers for exactly those and turns each into an
+interrupt of the main fiber. Anything else — `SIGHUP`, `SIGQUIT` — keeps Node's
+own default disposition: the process dies on the signal and the shell reports
+`128 + signum` (129 for a SIGHUP), never 130. Listing a signal here that nothing
+intercepts would send a driving loop watching for a code kolu never writes.
 
 ## Two breaking changes
 
@@ -95,6 +105,24 @@ agent buckets `working` / `awaiting` / `waiting` (precise — it *distinguishes*
 detects). This is the merge of `kaval-tui wait --until idle:/match:` and
 `padi-tui wait --until <buckets>` into one verb; the two done-signals stay two
 *forms*, because they genuinely read different things.
+
+## `snapshot` — the whole rendered buffer, and why `--tail` is the read you want
+
+A bare `kolu snapshot <id>` prints padi's `screen.text` verbatim: the terminal's
+**entire rendered buffer — scrollback and viewport together**, which on a
+long-running agent is thousands of lines, not a screenful. It is not "what the
+terminal shows now", and calling it that would be the kind of small lie a driving
+loop pays for at 3am.
+
+`--tail N` is the read that answers "what's on screen": the last N lines with the
+buffer's trailing run of blank rows dropped first (a rendered buffer ends in the
+empty viewport below the cursor, so a naive `snapshot | tail -8` hands you eight
+blank lines). It is deliberately the only bounding knob — there is **no
+`--viewport`**, because padi's wire reports no terminal's grid size, so "the
+viewport" is not a thing this transport can express and approximating it
+client-side would be a silent lie about which lines you are looking at. The same
+shape as the MCP face's `screen_text { tail }`, so the two faces have one
+contract between them. Older-than-the-screen output is `kolu history`'s job.
 
 ## Boundaries
 

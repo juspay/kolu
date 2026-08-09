@@ -205,9 +205,12 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
 - **`@kolu/padi/render`** and **`@kolu/padi/read`** — the CLI faces' shared
   view + data layers. `render` is pure formatting (the roster table's
   `ID · STATE · REPO·BRANCH · PR · AGENT · FOREGROUND` columns, the PR/checks
-  and agent-status folds) with no I/O; `read` is the one-shot reads off the
-  `terminals` collection — `readTerminalKeys` (id-prefix resolution) and
-  `settledSnapshot` — as Effects, so a Ctrl+C tears their subscriptions down.
+  and agent-status folds, plus `shortId` and `resolveTerminalId` — the
+  id-prefix resolution every `<id>` argument accepts, which is a pure fold over
+  an id list and so belongs on this side of the line) with no I/O; `read` is
+  the one-shot reads off the `terminals` collection — `readTerminalKeys` (the
+  live id list `resolveTerminalId` folds) and `settledSnapshot` — as Effects,
+  so a Ctrl+C tears their subscriptions down.
   Both **graduated out of `padi-tui`** when `kolu`'s terminal verbs became
   their second consumer, the same move and the same reason as the LIVE side
   (`watchTerminals`/`awaitAgentState`) graduating into the `dial` entry when

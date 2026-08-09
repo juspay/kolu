@@ -23,7 +23,6 @@
 import { NodeServices } from "@effect/platform-node";
 import { Cause, Effect, Exit, Option, Runtime } from "effect";
 import { DEFAULT_PORT } from "kolu-common/config";
-import { bootFlagsOf } from "kolu-server/src/bootFlags.ts";
 import { describe, expect, it } from "vitest";
 import { reservedFaceMessage, runKoluCliWith } from "./cli.ts";
 import {
@@ -31,6 +30,7 @@ import {
   endpointOf,
   refuseEndpointFlags,
 } from "./endpoint.ts";
+import { bootFlagsOf } from "./webFlags.ts";
 
 /** Run the real command tree against an argv, to an `Exit`. */
 const run = (argv: string[]) =>

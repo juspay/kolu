@@ -13,6 +13,21 @@ import Callout from "../../components/Callout.astro";
 import Footnote from "../../components/Footnote.astro";
 import arch from "../../diagrams/kolu-cli-arch.svg?raw";
 
+<Callout kind="accent" title="Amended 2026-08-09 — read the ratified paragraph below with two clauses struck">
+The paragraph that follows stands **as ratified** — that is what this note is
+for — but two of its clauses no longer describe the shipped binary, and the
+[amendment](#amendment--kolu-subsumes-the-tuis-verbs) at the bottom records why
+each changed:
+
+- **“still the bare-`kolu` default”** — it is not. Bare `kolu` prints the
+  subcommand list and exits **non-zero**; the server is **`kolu web`**. With a
+  dozen faces, silently booting a web server for a bare invocation is a footgun,
+  and a stale `ExecStart=kolu` must be loud rather than quietly serving.
+- **“Neither is a scripting CLI”** — `kolu` **did** grow the verbs. The
+  objection recorded below turned out to be answerable rather than binding, and
+  the amendment says *why it no longer applies*.
+</Callout>
+
 One binary, three faces: **`kolu web`** (today's server+browser, still the
 bare-`kolu` default), **`kolu tui`** (the terminal canvas), **`kolu mcp`**
 (the agent face). The tui and mcp faces are the **second frontend** — the
@@ -26,15 +41,6 @@ parity would drag a kaval dependency into the CLI faces and blur the proof. Agen
 that want verbs get them through the MCP face below — derived from
 `padiSurface`, not reimplemented.</Footnote> Ratified scope: **canvas + attach
 + create/kill, single host, plus an MCP face** (srid, 2026-07-16).
-
-<Callout kind="accent" title="Amended 2026-08-09 — the “neither is a scripting CLI” clause is superseded">
-`kolu` **did** grow the verbs, and the objection above turned out to be
-answerable rather than binding. The paragraph stands as written — it is what
-was ratified — but read it with
-[the amendment](#amendment--kolu-subsumes-the-tuis-verbs) below, which records
-what changed and, more importantly, *why the original objection no longer
-applies*.
-</Callout>
 
 ## User-facing description
 

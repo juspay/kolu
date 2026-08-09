@@ -58,15 +58,41 @@ const alreadyRendered = (err: unknown): boolean =>
 /** Did the user EXPLICITLY ask for the text they got?
  *
  *  Read off argv rather than off the error, because the library raises the same
- *  `ShowHelp` for "you asked" and "you gave me nothing to do" — and only argv
- *  distinguishes them. Reading `process.argv` here, at the edge, keeps the tree
- *  itself a value a test can run with its own services. */
-const askedForText = (): boolean =>
-  process.argv
-    .slice(2)
-    .some(
-      (a) => a === "--help" || a === "-h" || a === "--version" || a === "-v",
-    );
+ *  `ShowHelp` for "you asked" and "you gave me nothing to do", and the only
+ *  signal the value carries — `ShowHelp.errors` — says the opposite of what this
+ *  binary promises for the second case: bare `kolu` arrives with an EMPTY
+ *  `errors` (the root simply has no handler), which the library scores 0 and the
+ *  contract above scores 1. Only argv separates them. Reading `process.argv`
+ *  here, at the edge, keeps the tree itself a value a test can run with its own
+ *  services.
+ *
+ *  Only the tokens BEFORE the first `--` are kolu's. Everything after it is the
+ *  payload argv — the agent `kolu create` is about to launch — and that agent's
+ *  own flags are none of kolu's business:
+ *
+ *      kolu create --nope -- claude --help
+ *
+ *  is a usage error (`--nope`) carrying somebody else's `--help`. Scanning the
+ *  whole of argv read that `--help` as "the user asked for text" and exited 0,
+ *  so a script saw a rejected flag as a command that worked — the exact silence
+ *  this module exists to prevent. The parser draws the same line (it hands the
+ *  post-`--` tokens through as trailing operands and never looks for its own
+ *  flags in them), so matching it here keeps ONE story about who owns a token.
+ *
+ *  With the pinned `effect` this arm is a GUARD rather than the mechanism: the
+ *  built-in `--help` / `--version` are action flags that print and return
+ *  SUCCESS, so a real help request never reaches this catch at all. That is the
+ *  library's choice, not its contract — earlier parsers raised a zero-coded
+ *  `ShowHelp` instead — and the arm costs one argv read to keep the exit
+ *  contract stated here true under either. */
+const askedForText = (): boolean => {
+  const given = process.argv.slice(2);
+  const separator = given.indexOf("--");
+  const kolusOwn = separator === -1 ? given : given.slice(0, separator);
+  return kolusOwn.some(
+    (a) => a === "--help" || a === "-h" || a === "--version" || a === "-v",
+  );
+};
 
 /** A rendered CLI failure the user did not ask for — exit 1, print nothing (the
  *  library already did). Its own tagged shape so the exit-code marker rides the

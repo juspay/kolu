@@ -1,9 +1,10 @@
 /**
  * The client-side terminal WATCH kit — follow padi's `terminals` collection
- * live, block until one terminal's agent enters a target bucket, and block
- * until one terminal's output has been quiet for a window. Part of the dial kit
- * (re-exported through `@kolu/padi/dial`): a daemon's package owns the client
- * helpers its consumers share.
+ * live, block until one terminal's agent enters a target bucket, block until one
+ * terminal's output has been quiet for a window, and block until one terminal's
+ * NEW output matches a pattern. Part of the dial kit (re-exported through
+ * `@kolu/padi/dial`): a daemon's package owns the client helpers its consumers
+ * share.
  *
  * Graduated here from padi-tui (`read.ts`/`render.ts`) the day the kolu MCP
  * face's `wait_agentState` became the VERBATIM second consumer — both drive
@@ -24,6 +25,8 @@ import {
   isValidTimerMs,
   MAX_TIMER_MS,
   runWait,
+  type WaitCtx,
+  type WaitMet,
   type WaitOutcome,
 } from "@kolu/surface/wait";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
@@ -298,6 +301,217 @@ function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// ── The attach-feed spine (shared by the two OUTPUT waits) ───────────────────
+
+/** One frame of the `terminalAttach` feed, as an output wait reads it — a
+ *  structural narrowing of the member's union (`snapshot` carries the screen
+ *  replay plus a backfill seed; `delta` carries fresh bytes). The settle wait
+ *  needs only that a frame ARRIVED, the match wait needs a `delta`'s bytes, and
+ *  neither has any use for `topLine`/`reflowEpoch` — so the spine hands the
+ *  frame across at exactly the width both read it. */
+type AttachFrame = { readonly kind: string; readonly data?: string };
+
+/**
+ * Subscribe terminal `id`'s output feed (and its exit event) for the duration of
+ * a {@link runWait}, and settle the outcomes the FEED itself decides — `gone`
+ * when the terminal is no longer there, `closed` when padi dropped a feed whose
+ * terminal is still live. The CONDITION stays the caller's: every frame goes to
+ * `onFrame`, which settles `met` once it has seen enough.
+ *
+ * Factored out when the THIRD 'block on a padiSurface condition' primitive
+ * ({@link awaitOutputMatch}) landed beside {@link awaitOutputSettled}: the two
+ * differ only in what they do with a frame, and the subscription discipline
+ * underneath is one thing — the part that is easy to get quietly wrong, and the
+ * exact part a hand-rolled copy in a composition root got wrong:
+ *
+ *   - **The retry fence.** Both members ride `unenrolledStreamCall`
+ *     (`.claude/rules/streaming.md` rule 1), so a transport blip transparently
+ *     re-subscribes instead of killing the wait. Consuming a member's `Stream`
+ *     directly silently loses reconnect handling — no error, just a wait that
+ *     dies on a blip. UN-enrolled deliberately: one terminal's re-attach must
+ *     never flicker padi's connection-health gate (the Leak-A carve-out).
+ *   - **`onFeedLost` — the state a feed we can no longer observe made stale.**
+ *     Fired INSIDE the fence on every retry (before the delay, so "fired ⇒ a
+ *     re-subscribe with a fresh snapshot follows" holds) and again when the feed
+ *     drops for good. The settle wait disarms its idle window with it (a window
+ *     armed by the last pre-drop frame would fire a FALSE `met` across the
+ *     reconnect gap); the match wait clears its buffer with it (bytes from
+ *     either side of an unobservable gap must not concatenate into a sentinel
+ *     nobody printed).
+ *   - **The lost-feed discrimination.** A feed that ends with no outcome is
+ *     either "the terminal exited" (→ `gone`) or "we were dropped while it is
+ *     still live" (→ `closed`, loud — never a fabricated `gone`), told apart by
+ *     the live `terminals` key set. A DEAD transport is neither: it poisons the
+ *     shared connection, so it PROPAGATES out of `runWait` instead of being
+ *     folded into a benign `closed`.
+ *
+ * `onExit` is the one thing the two waits genuinely disagree about, so it is a
+ * caller decision rather than a mode flag here:
+ *
+ *   - {@link awaitOutputSettled} SETTLES `gone` on it: an exited terminal can
+ *     never go quiet in a way its caller would want reported, and settling early
+ *     costs it nothing.
+ *   - {@link awaitOutputMatch} passes NO `onExit`, so the exit is only LATCHED:
+ *     a sentinel that printed may still be in flight on the ordered attach feed
+ *     when the (separately-subscribed, separately-ordered) exit event lands, and
+ *     a match that actually printed must WIN. The feed's END is the proof that
+ *     no bytes are left, and it always comes: padi drops an exited terminal from
+ *     its registry, so the attach relay's next re-open answers not-found and the
+ *     stream ends.
+ *
+ * Either way the latch feeds the discrimination: an exit we OBSERVED is proof
+ * the terminal is gone, so the feed's end needs no membership round-trip and an
+ * unreadable key set can no longer downgrade a real exit to `closed`.
+ *
+ * `retryAdvice` is the actionable tail of the `closed` diagnostic — "retry X",
+ * where only the wait itself knows what X is called (`wait_outputSettled` names
+ * the MCP tool its sibling backs). A dropped feed is re-runnable, and saying so
+ * is the difference between a diagnostic and a dead end.
+ */
+async function watchAttachFeed<Met extends WaitMet>(
+  client: PadiSurfaceClient,
+  ctx: WaitCtx<Met>,
+  opts: {
+    readonly id: string;
+    /** Every frame of the feed, in order — where the caller's condition lives. */
+    readonly onFrame: (frame: AttachFrame) => void;
+    /** Drop whatever state was accumulated from a feed we can no longer
+     *  observe: a fence re-subscribe, or the feed dropping for good. */
+    readonly onFeedLost: () => void;
+    /** What an OBSERVED `terminalExit` does beyond latching it (see above). */
+    readonly onExit?: () => void;
+    /** The actionable tail of the `closed` line ("retry wait_outputSettled"). */
+    readonly retryAdvice: string;
+  },
+): Promise<void> {
+  let feedError: string | undefined;
+  // Did `terminalExit` fire? Latched, never assumed: see the `onExit` note.
+  let sawExit = false;
+
+  // The output feed ended before any outcome and without an abort we caused.
+  // Same discrimination as kaval-tui's wait: the terminal exited (we saw its
+  // exit, or its id has left the `terminals` key set → `gone`), or the feed was
+  // dropped while the PTY is still live (→ `closed`, loud). The caller's stale
+  // state is dropped FIRST — an idle window left armed would fire a FALSE `met`
+  // off the last frame of a feed we can no longer observe.
+  const settleOnLostFeed = async (): Promise<void> => {
+    opts.onFeedLost();
+    // An observed exit already answers the question the key set is read for.
+    if (sawExit) {
+      ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
+      return;
+    }
+    try {
+      // Bind the read to ctx.signal: this membership read rides the SAME
+      // retry-mounted client as the attach feed (STREAM_RETRY, retry
+      // Infinity), so without it a wedged-but-alive link would retry forever
+      // and the read would never return — hanging runWait past a later
+      // timeout/cancel settle (WaitCtx's threading contract, and the exact
+      // unbounded-tail hazard the scaffold's recorded follow-up names). An
+      // abort rejects the read into the catch below, where the settle is a
+      // first-writer no-op.
+      //
+      // The one-shot read rides this module's OWN abort→interruption bridge
+      // (`iterateUntilAborted`) rather than `firstFrameOrThrow`: that reader is
+      // an `Effect` now and takes no signal, and `runWait` — the non-Effect
+      // scaffold this whole wait is driven by — has no fiber to compose it
+      // into. Same contract, same message: a first frame or a loud failure.
+      let keys: readonly string[] | undefined;
+      for await (const frame of iterateUntilAborted(
+        client.surface.terminals.keys(undefined),
+        ctx.signal,
+      )) {
+        keys = frame;
+        break;
+      }
+      if (keys === undefined) {
+        throw new Error(
+          "padi terminals keys yielded no snapshot frame — link or protocol failure.",
+        );
+      }
+      if (!keys.includes(opts.id as (typeof keys)[number])) {
+        ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
+        return;
+      }
+    } catch (err) {
+      // A DEAD transport is not a healthy feed-end — it poisons the shared
+      // connection, so it must PROPAGATE (out of runWait → the tool throws →
+      // surface-mcp's `withClient` resets the connection so the NEXT wait
+      // redials). Folding it into `closed` here leaves the caller reusing a
+      // dead socket forever. A healthy-transport lost feed (a slow-consumer
+      // drop) still settles `closed` below.
+      if (isDeadTransportError(err)) throw err;
+      const m = errMessage(err);
+      feedError ??= m;
+      ctx.recordUpstreamError(m);
+    }
+    ctx.settle({
+      kind: "closed",
+      error:
+        feedError ??
+        `the daemon ended ${opts.id}'s output feed while its terminal is still live — ${opts.retryAdvice}.`,
+    });
+  };
+
+  const consumeOutput = async (): Promise<void> => {
+    try {
+      const stream = unenrolledStreamCall(
+        (input: { id: string }) => client.surface.terminalAttach.get(input),
+        { id: opts.id },
+        {
+          // Named per PTY for the liveness registry (kolu#2101 J2).
+          label: `terminalAttach[${opts.id}] (padi watch)`,
+          // The fence's per-subscription `onRetry` tap (S3/#8): a STREAM_RETRY
+          // reconnect (retryDelay ~1000ms) can outlast the caller's own window,
+          // so anything the caller accumulated from the pre-drop feed is dropped
+          // here — the state only ever restarts from the fresh snapshot the
+          // reconnect delivers (see the `onFeedLost` note above).
+          onRetry: opts.onFeedLost,
+        },
+      );
+      for await (const frame of iterateUntilAborted(stream, ctx.signal)) {
+        opts.onFrame(frame);
+      }
+      if (!ctx.signal.aborted) await settleOnLostFeed();
+    } catch (err) {
+      // An abort (the condition landed, a timeout, a cancelled request) is the
+      // expected end. A DEAD transport rejects non-retryably through
+      // STREAM_RETRY's fence and PROPAGATES (poisons the shared connection —
+      // see settleOnLostFeed). Any other non-abort error is a dropped feed →
+      // settle loud.
+      if (!ctx.signal.aborted) {
+        if (isDeadTransportError(err)) throw err;
+        const m = errMessage(err);
+        feedError ??= m;
+        ctx.recordUpstreamError(m);
+        await settleOnLostFeed();
+      }
+    }
+  };
+
+  const consumeExit = async (): Promise<void> => {
+    try {
+      const stream = unenrolledStreamCall(
+        (input: { id: string }) => client.surface.terminalExit.get(input),
+        { id: opts.id },
+        { label: `terminalExit[${opts.id}] (padi watch)` },
+      );
+      for await (const _msg of iterateUntilAborted(stream, ctx.signal)) {
+        sawExit = true;
+        opts.onExit?.();
+        return;
+      }
+    } catch {
+      // Losing the exit event is NOT fatal: a real exit also ends the
+      // terminalAttach feed → settleOnLostFeed → gone (consumeOutput is the
+      // backstop). An abort is likewise the expected end. Mirrors kaval-tui's
+      // consumeExit non-recording rationale.
+    }
+  };
+
+  await Promise.all([consumeOutput(), consumeExit()]);
+}
+
 /** The outcome of an output-settled wait — the shared {@link WaitOutcome} union
  *  with the met payload this wait stamps: the idle signal fired, plus how long
  *  the wait took. */
@@ -307,13 +521,14 @@ export type OutputSettledOutcome = WaitOutcome<{
 }>;
 
 /** Block until terminal `id`'s output has been quiet for `idleMs` — the data
- *  layer of the MCP face's `wait_outputSettled`, exported for the e2e pin. The
- *  watcher binds padiSurface's members (`terminalAttach` + `terminalExit` + the
- *  `terminals` key set for the lost-feed discrimination) — a non-verbatim twin
- *  of kaval-tui's watcher over `ptyHostSurface`, kept local per the
- *  port-not-extract doctrine. Its sibling is {@link awaitAgentState}: both are
- *  'block on a padiSurface condition, return a WaitOutcome' primitives, so both
- *  live in the one package that owns padiSurface. */
+ *  layer of the MCP face's `wait_outputSettled`, exported for the e2e pin. It
+ *  rides {@link watchAttachFeed} (padiSurface's `terminalAttach` +
+ *  `terminalExit` + the `terminals` key set for the lost-feed discrimination) —
+ *  a non-verbatim twin of kaval-tui's watcher over `ptyHostSurface`, kept local
+ *  per the port-not-extract doctrine. Its siblings are {@link awaitAgentState}
+ *  and {@link awaitOutputMatch}: all three are 'block on a padiSurface
+ *  condition, return a WaitOutcome' primitives, so all three live in the one
+ *  package that owns padiSurface. */
 export async function awaitOutputSettled(
   client: PadiSurfaceClient,
   opts: {
@@ -361,135 +576,150 @@ export async function awaitOutputSettled(
         );
       };
 
-      let feedError: string | undefined;
-
-      // The output feed ended before any outcome and without an abort we caused.
-      // Same discrimination as kaval-tui's wait: the terminal exited (its id has
-      // left the `terminals` key set → `gone`), or the feed was dropped while
-      // the PTY is still live (→ `closed`, loud). The idle timer is DISARMED
-      // first — leaving it armed would fire a FALSE `met` off the last frame of
-      // a feed we can no longer observe.
-      const settleOnLostFeed = async (): Promise<void> => {
-        disarmIdle();
-        try {
-          // Bind the read to ctx.signal: this membership read rides the SAME
-          // retry-mounted client as the attach feed (STREAM_RETRY, retry
-          // Infinity), so without it a wedged-but-alive link would retry forever
-          // and the read would never return — hanging runWait past a later
-          // timeout/cancel settle (WaitCtx's threading contract, and the exact
-          // unbounded-tail hazard the scaffold's recorded follow-up names). An
-          // abort rejects the read into the catch below, where the settle is a
-          // first-writer no-op.
-          //
-          // The one-shot read rides this module's OWN abort→interruption bridge
-          // (`iterateUntilAborted`) rather than `firstFrameOrThrow`: that reader is
-          // an `Effect` now and takes no signal, and `runWait` — the non-Effect
-          // scaffold this whole wait is driven by — has no fiber to compose it
-          // into. Same contract, same message: a first frame or a loud failure.
-          let keys: readonly string[] | undefined;
-          for await (const frame of iterateUntilAborted(
-            client.surface.terminals.keys(undefined),
-            ctx.signal,
-          )) {
-            keys = frame;
-            break;
-          }
-          if (keys === undefined) {
-            throw new Error(
-              "padi terminals keys yielded no snapshot frame — link or protocol failure.",
-            );
-          }
-          if (!keys.includes(opts.id as (typeof keys)[number])) {
-            ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
-            return;
-          }
-        } catch (err) {
-          // A DEAD transport is not a healthy feed-end — it poisons the shared
-          // connection, so it must PROPAGATE (out of runWait → the tool throws →
-          // surface-mcp's `withClient` resets the connection so the NEXT wait
-          // redials). Folding it into `closed` here leaves the caller reusing a
-          // dead socket forever. A healthy-transport lost feed (a slow-consumer
-          // drop) still settles `closed` below.
-          if (isDeadTransportError(err)) throw err;
-          const m = errMessage(err);
-          feedError ??= m;
-          ctx.recordUpstreamError(m);
-        }
-        ctx.settle({
-          kind: "closed",
-          error:
-            feedError ??
-            `the daemon ended ${opts.id}'s output feed while its terminal is still live — retry wait_outputSettled.`,
-        });
-      };
-
-      const consumeOutput = async (): Promise<void> => {
-        try {
-          const stream = unenrolledStreamCall(
-            (input: { id: string }) => client.surface.terminalAttach.get(input),
-            { id: opts.id },
-            {
-              // Named per PTY for the liveness registry (kolu#2101 J2).
-              label: `terminalAttach[${opts.id}] (padi watch)`,
-              // DISARM on resubscribe: a STREAM_RETRY reconnect (retryDelay
-              // ~1000ms) can exceed idleMs (e.g. 800), so an idle window armed
-              // by the LAST pre-drop frame would otherwise fire a FALSE `met`
-              // during the reconnect gap — declaring the turn settled off a feed
-              // we lost. Clearing it here means the window only ever restarts
-              // from the fresh snapshot the reconnect delivers (quiescence
-              // across an unobservable gap is not quiescence). The fence's
-              // per-subscription `onRetry` tap (S3/#8) is where this now rides —
-              // same guarantee, and it still has per-attempt identity.
-              onRetry: disarmIdle,
-            },
-          );
+      try {
+        await watchAttachFeed(client, ctx, {
+          id: opts.id,
           // Snapshot AND delta frames both (re)arm the window — the snapshot is
           // the replay of the current screen (the moment to start the quiet
           // window), each delta is fresh output resetting it.
-          for await (const _frame of iterateUntilAborted(stream, ctx.signal))
-            armIdle();
-          if (!ctx.signal.aborted) await settleOnLostFeed();
-        } catch (err) {
-          // An abort (the window fired, a timeout, a cancelled request) is the
-          // expected end. A DEAD transport rejects non-retryably through
-          // STREAM_RETRY's fence and PROPAGATES (poisons the shared connection —
-          // see settleOnLostFeed). Any other non-abort error is a dropped feed →
-          // settle loud.
-          if (!ctx.signal.aborted) {
-            if (isDeadTransportError(err)) throw err;
-            const m = errMessage(err);
-            feedError ??= m;
-            ctx.recordUpstreamError(m);
-            await settleOnLostFeed();
-          }
-        }
-      };
-
-      const consumeExit = async (): Promise<void> => {
-        try {
-          const stream = unenrolledStreamCall(
-            (input: { id: string }) => client.surface.terminalExit.get(input),
-            { id: opts.id },
-            { label: `terminalExit[${opts.id}] (padi watch)` },
-          );
-          for await (const _msg of iterateUntilAborted(stream, ctx.signal)) {
-            ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
-            return;
-          }
-        } catch {
-          // Losing the exit event is NOT fatal: a real exit also ends the
-          // terminalAttach feed → settleOnLostFeed → gone (consumeOutput is the
-          // backstop). An abort is likewise the expected end. Mirrors kaval-tui's
-          // consumeExit non-recording rationale.
-        }
-      };
-
-      try {
-        await Promise.all([consumeOutput(), consumeExit()]);
+          onFrame: armIdle,
+          onFeedLost: disarmIdle,
+          // The PRECISE exit signal settles at once: an exited terminal has no
+          // quiescence left to report, so there is nothing an early settle can
+          // invalidate (contrast `awaitOutputMatch`, whose bytes can still be in
+          // flight).
+          onExit: () =>
+            ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() }),
+          retryAdvice: "retry wait_outputSettled",
+        });
       } finally {
         // The scaffold clears ITS timeout; the idle window is this watcher's own.
         disarmIdle();
       }
+    },
+  );
+}
+
+// ── The `match:` wait ────────────────────────────────────────────────────────
+
+/** Cap the rolling match buffer so a long-running match wait against a chatty
+ *  terminal can't grow it unbounded. The buffer is a WINDOW, not a chunk: each
+ *  delta is appended and only the trailing {@link MATCH_BUFFER_CAP} bytes are
+ *  kept, so a sentinel split across two chunks still matches. 64KiB is far
+ *  larger than any realistic marker, so a match near the tail (the normal case —
+ *  the marker is the newest output) is never lost to the trim. The cap is
+ *  kaval-tui's, whose `awaitOutputCondition` is this wait's port-not-extract
+ *  twin over `ptyHostSurface`. */
+const MATCH_BUFFER_CAP = 1 << 16;
+
+/** Strip VT control sequences (OSC + CSI) and `\r` so a `matchedLine` reads
+ *  cleanly in a caller's human/JSON output. The match itself runs against the
+ *  RAW bytes (so an escape between two letters can't hide a sentinel from the
+ *  pattern); this only tidies the REPORTED line. OSC is stripped too because a
+ *  shell prompt's title-set (`\x1b]0;…\x07`/ST-terminated) routinely leads a
+ *  line, and a CSI-only strip would leave those bytes raw in the reported line.
+ *  Ported from kaval-tui. */
+function cleanLine(s: string): string {
+  return s
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC … (BEL- or ST-terminated)
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "") // CSI
+    .replace(/\r/g, "")
+    .trim();
+}
+
+/** The (cleaned) line of `buffer` containing the match at `index` — so the
+ *  caller can report WHICH output line tripped the pattern. Ported from
+ *  kaval-tui. */
+function matchedLineAt(buffer: string, index: number): string {
+  const start = buffer.lastIndexOf("\n", Math.max(0, index - 1)) + 1;
+  const nl = buffer.indexOf("\n", index);
+  return cleanLine(buffer.slice(start, nl === -1 ? buffer.length : nl));
+}
+
+/** The outcome of an output-match wait — the shared {@link WaitOutcome} union
+ *  with the met payload this wait stamps: that the pattern fired, how long it
+ *  took, and the output line it landed on. */
+export type OutputMatchOutcome = WaitOutcome<{
+  fired: "match";
+  elapsedMs: number;
+  matchedLine: string;
+}>;
+
+/**
+ * Block until terminal `id`'s NEW output matches `pattern`, then resolve `met`
+ * with the matched line; or `timeout` after `timeoutMs`, `gone` if the terminal
+ * exits without printing it, `interrupted` on `signal` abort, or `closed` if the
+ * feed is dropped under us. The sentinel/marker route — agent-agnostic, so it
+ * works on a bare shell, a `less`, or an agent nobody wrote a state sensor for.
+ *
+ * The third sibling of {@link awaitAgentState} / {@link awaitOutputSettled}, and
+ * here for the same reason they are: it is a 'block on a padiSurface condition,
+ * return a WaitOutcome' primitive, so it belongs in the package that owns
+ * padiSurface rather than in whichever CLI happened to need it first. It shares
+ * the settle wait's whole subscription spine ({@link watchAttachFeed}) — the
+ * retry fence above all, without which a transport blip kills the wait instead
+ * of re-subscribing.
+ *
+ * Two things are specific to matching:
+ *
+ *   - **Only `delta` frames are scanned.** A `snapshot` frame is the replay of
+ *     the screen as it ALREADY was, not bytes that arrived since the call —
+ *     matching it would report a marker printed minutes ago as if it had just
+ *     landed. (Which is also why the fence's re-subscribe must clear the buffer:
+ *     the fresh snapshot it delivers is likewise old news.)
+ *   - **The match beats the exit.** The exit event is latched, never settled
+ *     (see {@link watchAttachFeed}) — a sentinel that printed and was followed
+ *     by the process exiting is a MET wait, whatever order the two subscriptions
+ *     happen to deliver in. The verdict waits for the ordered attach feed to
+ *     end, which is what proves no bytes are left to scan.
+ */
+export async function awaitOutputMatch(
+  client: PadiSurfaceClient,
+  opts: {
+    id: string;
+    pattern: RegExp;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<OutputMatchOutcome> {
+  return runWait<{ fired: "match"; elapsedMs: number; matchedLine: string }>(
+    { timeoutMs: opts.timeoutMs, signal: opts.signal },
+    async (ctx) => {
+      // The rolling window of NEW output, bounded by MATCH_BUFFER_CAP.
+      let buffer = "";
+      await watchAttachFeed(client, ctx, {
+        id: opts.id,
+        onFrame: (frame) => {
+          if (frame.kind !== "delta") return;
+          buffer += frame.data ?? "";
+          // `search`, not `exec`: it is the one scan that ignores (and restores)
+          // a pattern's `lastIndex`, so a `/g`- or `/y`-flagged pattern can't
+          // resume mid-buffer and skip the sentinel — and the caller's RegExp is
+          // never mutated. The index is all this wait needs.
+          const index = buffer.search(opts.pattern);
+          if (index !== -1) {
+            ctx.settle({
+              kind: "met",
+              fired: "match",
+              elapsedMs: ctx.elapsedMs(),
+              matchedLine: matchedLineAt(buffer, index),
+            });
+            return;
+          }
+          // Keep the TAIL, where a sentinel lands — that is what lets a match
+          // span the chunk boundary the trim would otherwise cut through.
+          if (buffer.length > MATCH_BUFFER_CAP) {
+            buffer = buffer.slice(-MATCH_BUFFER_CAP);
+          }
+        },
+        // A reconnect gap is unobservable output: concatenating what we saw
+        // before it with what arrives after would let the two halves forge a
+        // sentinel no terminal ever printed.
+        onFeedLost: () => {
+          buffer = "";
+        },
+        retryAdvice: "re-run the match wait",
+      });
     },
   );
 }

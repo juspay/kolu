@@ -18,8 +18,8 @@
     "@kolu/surface-remote": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
-    "columnify": "^1.6.0",
     "effect": "catalog:",
+    "kolu-common": "workspace:*",
     "kolu-mcp": "workspace:*",
     "kolu-pty": "workspace:*",
     "kolu-server": "workspace:*",
@@ -28,9 +28,7 @@
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@types/columnify": "^1.5.4",
     "@types/node": "^22.0.0",
-    "kolu-common": "workspace:*",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"

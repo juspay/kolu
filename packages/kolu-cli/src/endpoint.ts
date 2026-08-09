@@ -11,20 +11,45 @@
  * The absent case is the one that matters most in practice: inside a kolu
  * terminal `$PADI_SOCKET` is already stamped into the environment (the `$TMUX`
  * convention), so an agent driving its siblings passes no endpoint flag at all.
+ *
+ * ## Why the dial is a DYNAMIC import
+ *
+ * This module is split down the middle by WHEN each half is needed:
+ *
+ *  - the FLAG DECLARATIONS and the pure argv→{@link Endpoint} rules run at
+ *    command-TREE-BUILD time. `cli.ts` imports them statically because it must:
+ *    a shared flag has to exist before `Command.withSharedFlags` can be handed
+ *    it, i.e. on every single `kolu` invocation, including `kolu web`,
+ *    `kolu --help`, and a bare `kolu`. Their only dependency is `Flag`.
+ *  - the DIAL ({@link connectEndpoint} / {@link withPadi} and the socket
+ *    resolution under them) runs only once a terminal verb is actually
+ *    executing, and reaches padi's dial graph.
+ *
+ * So the dial kit is loaded by `import()` INSIDE the effect — the same shape
+ * `cli.ts` uses for each face — rather than by a static import at the top. A
+ * static one here would be loaded transitively by `cli.ts` and would silently
+ * defeat the per-face lazy-loading fence both `cli.ts` and `main.ts` state in
+ * their headers: `kolu web` would pay for padi's dial graph to print its own
+ * help. `PadiSurfaceClient` below is an `import type`, which is erased.
  */
 
-import {
-  connectPadi,
-  dialPadiViaHost,
-  type PadiSurfaceClient,
-  resolvePadiStateRoot,
-  padiSocketPath,
-  resolveRunningPadiSocket,
-  scopePadiSurface,
-} from "@kolu/padi/dial";
+import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import { Effect, Option, type Scope } from "effect";
 import { Flag } from "effect/unstable/cli";
 import { type CliFailure, failure } from "./exit.ts";
+
+/** Everything the dial half reaches for, as a type — so the functions below can
+ *  take the kit as an argument and still be checked against padi's real
+ *  signatures. `typeof import(…)` is a TYPE query: it names the module without
+ *  loading it. */
+type PadiDialKit = typeof import("@kolu/padi/dial");
+
+/** padi's dial kit, loaded on FIRST DIAL rather than at import time — see the
+ *  header. Node's module cache makes every dial after the first one free, so
+ *  this stays a plain `Effect.promise` with nothing to memoize by hand. */
+const padiDialKit: Effect.Effect<PadiDialKit> = Effect.promise(
+  () => import("@kolu/padi/dial"),
+);
 
 /** The root command's shared flags. Declared once, inherited by every
  *  subcommand — so the two faces that do NOT dial a padi this way (`web`, which
@@ -65,13 +90,39 @@ export type Endpoint =
   | { readonly kind: "host"; readonly ssh: string };
 
 /** Name exactly one padi, or fail with the reason two is not a preference to
- *  resolve but a contradiction to refuse. */
+ *  resolve but a contradiction to refuse.
+ *
+ *  A flag that is PRESENT but empty is refused just as loudly, and this is the
+ *  more dangerous of the two cases. `--socket "$SOCK"` with `$SOCK` unset is an
+ *  ordinary shell accident, and padi's own client-side resolver treats `""` as
+ *  "no socket given" (`stateRoot.ts`'s `!== ""` guard, which is padi's business
+ *  and stays as it is) — so the empty string would fall through to discovery and
+ *  dial WHATEVER daemon happens to be running. The user asked for one specific
+ *  padi and would silently drive another one's terminals. Refusing at this
+ *  boundary, naming the flag, is the only reading that cannot surprise: an
+ *  endpoint the user spelled is never re-interpreted as an endpoint they did
+ *  not. Whitespace counts as empty for the same reason (`--socket " "` is the
+ *  same accident with a quoted space). */
 export function endpointOf(
   flags: EndpointFlagValues,
 ): Effect.Effect<Endpoint, CliFailure> {
   const socket = Option.getOrUndefined(flags.socket);
   const stateRoot = Option.getOrUndefined(flags.stateRoot);
   const host = Option.getOrUndefined(flags.host);
+  const blank = [
+    socket !== undefined && socket.trim() === "" ? "--socket" : undefined,
+    stateRoot !== undefined && stateRoot.trim() === ""
+      ? "--state-root"
+      : undefined,
+    host !== undefined && host.trim() === "" ? "--host" : undefined,
+  ].filter((n): n is string => n !== undefined);
+  if (blank.length > 0) {
+    return Effect.fail(
+      failure(
+        `${blank.join(" and ")} was passed with an empty value — an unset shell variable, most likely. Name a padi, or drop the flag entirely; kolu will not quietly fall back to whichever daemon it discovers.`,
+      ),
+    );
+  }
   const named = [
     socket === undefined ? undefined : "--socket",
     stateRoot === undefined ? undefined : "--state-root",
@@ -145,17 +196,18 @@ export interface Connection {
  *  naming which. The verbs dial a padi that ALREADY runs; they never provision
  *  one. */
 function localSocketPath(
+  padi: PadiDialKit,
   endpoint: Endpoint & { kind: "auto" | "socket" | "stateRoot" },
 ): Effect.Effect<string, CliFailure> {
   return Effect.suspend(() => {
     if (endpoint.kind === "stateRoot") {
       return Effect.try({
-        try: () => padiSocketPath(resolvePadiStateRoot(endpoint.dir)),
+        try: () => padi.padiSocketPath(padi.resolvePadiStateRoot(endpoint.dir)),
         catch: (err) =>
           failure(err instanceof Error ? err.message : String(err)),
       });
     }
-    const resolved = resolveRunningPadiSocket(
+    const resolved = padi.resolveRunningPadiSocket(
       endpoint.kind === "socket" ? { socket: endpoint.path } : {},
     );
     if (resolved.kind === "many") {
@@ -192,58 +244,70 @@ function localSocketPath(
  *
  * A CLI is a DIAL, never a supervisor (#1313): this reads the remote hello only
  * to GATE, and never drains / converges / recycles the padi it reached.
+ *
+ * Loading padi's dial kit is the FIRST step of the dial rather than of this
+ * module — see the header. It is inside the returned effect, so simply HOLDING a
+ * reference to `connectEndpoint` (which `cli.ts` does, transitively, on every
+ * invocation) costs nothing.
  */
 export function connectEndpoint(
   endpoint: Endpoint,
 ): Effect.Effect<Connection, CliFailure, Scope.Scope> {
-  if (endpoint.kind === "host") {
-    const ssh = endpoint.ssh;
-    return Effect.map(
-      Effect.acquireRelease(
-        Effect.tryPromise({
-          try: () => dialPadiViaHost(ssh),
-          catch: (err) =>
-            failure(
-              `could not reach padi on ${ssh}: ${err instanceof Error ? err.message : String(err)}`,
-            ),
-        }),
-        (dial) => Effect.sync(() => dial.dispose()),
-      ),
-      // `dialPadiViaHost` opens the link with padi's SIBLING surface, so the
-      // face it hands back already addresses `surface/padi/<member>`. Naming it
-      // is a CAST because `AgentDial.client` is the framework's deliberately
-      // STRUCTURAL `SurfaceFace` — the same claim `padiClientOver` makes on the
-      // local leg, and checked where it can be: the dial's own probe refuses a
-      // skewed padi before this line is reached.
-      //
-      // `localCwd: undefined` — a remote padi runs elsewhere, so our cwd need
-      // not exist there; `create` omits it and lets padi default to the host's
-      // home.
-      (dial) => ({
-        client: dial.client as unknown as PadiSurfaceClient,
-        localCwd: undefined,
-      }),
-    );
-  }
-  return Effect.flatMap(localSocketPath(endpoint), (socketPath) =>
-    Effect.map(
-      Effect.acquireRelease(
-        Effect.mapError(connectPadi(socketPath), (err) =>
-          failure(
-            `could not dial padi at ${socketPath}: ${err instanceof Error ? err.message : String(err)}`,
+  return Effect.flatMap(
+    padiDialKit,
+    (padi): Effect.Effect<Connection, CliFailure, Scope.Scope> => {
+      if (endpoint.kind === "host") {
+        const ssh = endpoint.ssh;
+        return Effect.map(
+          Effect.acquireRelease(
+            Effect.tryPromise({
+              try: () => padi.dialPadiViaHost(ssh),
+              catch: (err) =>
+                failure(
+                  `could not reach padi on ${ssh}: ${err instanceof Error ? err.message : String(err)}`,
+                ),
+            }),
+            (dial) => Effect.sync(() => dial.dispose()),
           ),
+          // `dialPadiViaHost` opens the link with padi's SIBLING surface, so the
+          // face it hands back already addresses `surface/padi/<member>`. Naming
+          // it is a CAST because `AgentDial.client` is the framework's
+          // deliberately STRUCTURAL `SurfaceFace` — the same claim
+          // `padiClientOver` makes on the local leg, and checked where it can be:
+          // the dial's own probe refuses a skewed padi before this line is
+          // reached.
+          //
+          // `localCwd: undefined` — a remote padi runs elsewhere, so our cwd need
+          // not exist there; `create` omits it and lets padi default to the
+          // host's home.
+          (dial) => ({
+            client: dial.client as unknown as PadiSurfaceClient,
+            localCwd: undefined,
+          }),
+        );
+      }
+      return Effect.flatMap(localSocketPath(padi, endpoint), (socketPath) =>
+        Effect.map(
+          Effect.acquireRelease(
+            Effect.mapError(padi.connectPadi(socketPath), (err) =>
+              failure(
+                `could not dial padi at ${socketPath}: ${err instanceof Error ? err.message : String(err)}`,
+              ),
+            ),
+            (conn) => Effect.sync(() => conn.dispose()),
+          ),
+          (conn) => ({
+            // Scope the COMBINED dialed client to the padi sibling so
+            // `.surface.<member>` resolves at `/surface/padi/<member>`.
+            client: padi.scopePadiSurface(conn.client),
+            // A local dial is inherently co-located: `process.cwd()` is a real
+            // path on the machine this padi runs on, so `create` opens terminals
+            // there.
+            localCwd: process.cwd(),
+          }),
         ),
-        (conn) => Effect.sync(() => conn.dispose()),
-      ),
-      (conn) => ({
-        // Scope the COMBINED dialed client to the padi sibling so
-        // `.surface.<member>` resolves at `/surface/padi/<member>`.
-        client: scopePadiSurface(conn.client),
-        // A local dial is inherently co-located: `process.cwd()` is a real path
-        // on the machine this padi runs on, so `create` opens terminals there.
-        localCwd: process.cwd(),
-      }),
-    ),
+      );
+    },
   );
 }
 

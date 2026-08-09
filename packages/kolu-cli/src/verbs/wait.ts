@@ -23,20 +23,23 @@
  * unrecognized bucket is a loud usage error naming all three forms — never a
  * silent fall-through to "wait for something".
  *
- * ## Two condition families, one outcome vocabulary
+ * ## Every watcher is padi's — one outcome vocabulary
  *
- * `idle:` and the buckets ride padi's OWN watchers (`awaitOutputSettled` /
- * `awaitAgentState` in `@kolu/padi/dial`) — the same two primitives kolu's MCP
- * face's `wait_outputSettled` / `wait_agentState` call, so a driver gets the
- * same answer whether it speaks argv or MCP. `match:` has no padi twin, so this
- * module carries the watcher: it rides `terminalAttach` (scanning only `delta`
- * frames — the snapshot is the PRIOR screen, not bytes that arrived since the
- * call) and races `terminalExit` for the gone-signal. Its pure parts — the
- * regex parse, the control-sequence strip, the matched-line slice, the buffer
- * cap — are PORTED from `kaval-tui/src/wait.ts` rather than imported: this
- * package is a pure padi client and may not grow a kaval edge for four
- * functions. Same port-not-extract doctrine `awaitOutputSettled` itself records
- * one layer down.
+ * All three forms ride padi's OWN primitives — `awaitOutputSettled` /
+ * `awaitAgentState` / `awaitOutputMatch` in `@kolu/padi/dial` — the same ones
+ * kolu's MCP face calls, so a driver gets the same answer whether it speaks argv
+ * or MCP. `match:` was the last one to have a hand-rolled watcher in THIS
+ * module, and that copy is exactly what a composition root must not own: it
+ * consumed `terminalAttach` raw, outside the per-subscription retry fence (so a
+ * transport blip killed the wait instead of re-subscribing —
+ * `.claude/rules/streaming.md` rule 1), and it raced `terminalExit` in a way
+ * that could report a terminal whose sentinel HAD printed as "gone". It lives in
+ * `packages/padi/src/watch.ts` now, beside its two siblings, where that
+ * subscription spine is written once.
+ *
+ * What stays here is what is genuinely CLI: the `--until` grammar (the three
+ * prefixes, their rejections, and the phrase each condition is named by in a
+ * failure line) — argv vocabulary padi has no business knowing.
  *
  * All three settle into ONE union — `@kolu/surface/wait`'s `WaitOutcome` — so
  * there is exactly one place mapping an outcome to the exit contract
@@ -69,13 +72,12 @@
 import {
   type AgentStateOutcome,
   awaitAgentState,
+  awaitOutputMatch,
   awaitOutputSettled,
   type PadiSurfaceClient,
   WAIT_STATES,
 } from "@kolu/padi/dial";
-import { readTerminalKeys } from "@kolu/padi/read";
 import { formatWaitMet, parseUntilStates, shortId } from "@kolu/padi/render";
-import { isDeadTransportError } from "@kolu/surface/errors";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,
@@ -83,7 +85,7 @@ import {
   waitOutcomeJson,
 } from "@kolu/surface/wait";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
-import { Effect, Option, Queue, type Scope, Stream } from "effect";
+import { Effect, Option, type Scope } from "effect";
 import { type Endpoint, withPadi } from "../endpoint.ts";
 import {
   type CliFailure,
@@ -354,213 +356,6 @@ function reportOutcome(
   });
 }
 
-// ── The `match:` watcher (no padi twin — this module owns it) ────────────────
-
-/** Cap the accumulated match buffer so a long-running `match` wait against a
- *  chatty terminal can't grow it unbounded. Far larger than any realistic
- *  sentinel/marker, so a match near the tail (the normal case — the marker is
- *  the newest output) is never lost to the trim. Ported from kaval-tui. */
-const MATCH_BUFFER_CAP = 1 << 16;
-
-/** Strip VT control sequences (OSC + CSI) and `\r` so a `matchedLine` reads
- *  cleanly in the human/JSON output. The match itself runs against the RAW bytes
- *  (so an escape between two letters can't hide a sentinel from the regex); this
- *  only tidies the REPORTED line. OSC is stripped too because a shell prompt's
- *  title-set (`\x1b]0;…\x07`/ST-terminated) routinely leads a line, and a
- *  CSI-only strip would leave those bytes raw in the JSON frame. Ported from
- *  kaval-tui. */
-function cleanLine(s: string): string {
-  return s
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC … (BEL- or ST-terminated)
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "") // CSI
-    .replace(/\r/g, "")
-    .trim();
-}
-
-/** The (cleaned) line of `buffer` containing the match at `index` — so the
- *  caller sees WHICH output line tripped the regex. Ported from kaval-tui. */
-function matchedLineAt(buffer: string, index: number): string {
-  const start = buffer.lastIndexOf("\n", Math.max(0, index - 1)) + 1;
-  const nl = buffer.indexOf("\n", index);
-  return cleanLine(buffer.slice(start, nl === -1 ? buffer.length : nl));
-}
-
-function errMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-/** One thing that happened on the output feed, as a value. The feed ENDING is a
- *  tick like any other rather than the queue's own end, which is what keeps the
- *  scan loop free of end-of-stream plumbing: a `take` can only be answered by a
- *  frame or by the end, so those are the only two cases it spells. The frame is
- *  typed structurally (`kind`/`data`) — the scan needs a `delta`'s bytes and
- *  nothing a `snapshot` adds. */
-type Tick =
-  | {
-      readonly kind: "frame";
-      readonly msg: { readonly kind: string; readonly data?: string };
-    }
-  | { readonly kind: "feed-ended" };
-
-/**
- * Block until terminal `id`'s NEW output matches `regex`, then succeed `met`; or
- * `timeout`, or `gone` if the terminal exits first, or `closed` if the feed is
- * dropped under us.
- *
- * The race IS the shape — four things can end this wait and each is one arm of a
- * single `raceAllFirst`: the regex lands, the terminal exits, the output feed
- * ends, or `--timeout` elapses. First to SETTLE (not first to succeed), so a
- * dead transport is a failure that WINS the race instead of being ignored while
- * the wait runs on to its timeout.
- *
- * A non-verbatim twin of kaval-tui's `awaitOutputCondition`, rebound to
- * padiSurface's members: `terminalAttach` for the bytes, `terminalExit` for the
- * precise exit signal, and the `terminals` key set for the lost-feed
- * discrimination — the same three padi's own `awaitOutputSettled` binds.
- */
-function awaitOutputMatch(
-  client: PadiSurfaceClient,
-  opts: {
-    readonly id: TerminalId;
-    readonly regex: RegExp;
-    readonly timeoutMs: number | undefined;
-  },
-): Effect.Effect<KoluWaitOutcome, unknown> {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const started = Date.now();
-      const elapsed = (): number => Date.now() - started;
-      /** The first upstream failure a watcher observed — preferred over the
-       *  generic dropped-feed message when a lost feed settles `closed`. */
-      let feedError: string | undefined;
-
-      // The feed, drained into a queue by its own fiber. The queue is what lets
-      // the scan loop say "give me the next frame" without also owning the
-      // stream's lifecycle: the forked fiber dies with this scope.
-      const ticks = yield* Queue.unbounded<Tick>();
-      yield* Effect.forkChild(
-        Stream.runForEach(
-          client.surface.terminalAttach.get({ id: opts.id }),
-          (msg: { kind: string; data?: string }) =>
-            Effect.sync(() => {
-              Queue.offerUnsafe(ticks, { kind: "frame", msg });
-            }),
-        ).pipe(
-          Effect.catchCause((cause) =>
-            Effect.sync(() => {
-              feedError ??= errMessage(cause);
-            }),
-          ),
-          Effect.andThen(
-            Effect.sync(() => {
-              Queue.offerUnsafe(ticks, { kind: "feed-ended" });
-            }),
-          ),
-        ),
-      );
-
-      /** The output feed dropped before any outcome. Two causes, told apart by
-       *  the live key set exactly as padi's own `awaitOutputSettled` does: the
-       *  terminal EXITED (its id left the collection → `gone`), or it is still
-       *  listed and we were dropped as a slow subscriber (→ `closed`, loud —
-       *  never a fabricated `gone`). Either way it SETTLES: a scan that simply
-       *  stopped reading would otherwise hang to the timeout. */
-      const classifyLostFeed: Effect.Effect<KoluWaitOutcome, unknown> =
-        Effect.flatMap(
-          Effect.catch(
-            Effect.map(readTerminalKeys(client), (ids) =>
-              ids.includes(opts.id),
-            ),
-            (err) => {
-              // A dead transport poisons the link — it PROPAGATES rather than
-              // being reported as a benign `closed`.
-              if (isDeadTransportError(err)) return Effect.fail(err);
-              feedError ??= errMessage(err);
-              // Liveness unknown: fall through to `closed`, the honest report.
-              return Effect.succeed(true);
-            },
-          ),
-          (stillListed): Effect.Effect<KoluWaitOutcome> =>
-            stillListed
-              ? Effect.succeed({
-                  kind: "closed",
-                  error:
-                    feedError ??
-                    `padi ended ${shortId(opts.id)}'s output feed while its terminal was still live (a slow-consumer drop) — re-run \`kolu wait\`.`,
-                })
-              : Effect.succeed({ kind: "gone", elapsedMs: elapsed() }),
-        );
-
-      /** The scan: pull frames until one carries the regex, or the feed ends. */
-      const matchArm: Effect.Effect<KoluWaitOutcome, unknown> = Effect.gen(
-        function* () {
-          let buffer = "";
-          for (;;) {
-            const tick = yield* Queue.take(ticks);
-            if (tick.kind === "feed-ended") return yield* classifyLostFeed;
-            // Scan NEW output only — a `snapshot` frame is the replay of the
-            // screen as it already was, not bytes that arrived since the call,
-            // so matching it would report a marker printed minutes ago.
-            if (tick.msg.kind !== "delta") continue;
-            buffer += tick.msg.data ?? "";
-            const m = opts.regex.exec(buffer);
-            if (m !== null) {
-              return {
-                kind: "met",
-                fired: "match",
-                elapsedMs: elapsed(),
-                matchedLine: matchedLineAt(buffer, m.index),
-              };
-            }
-            // Bound the buffer (keeping the tail, where a sentinel lands) so a
-            // chatty terminal that never matches can't grow it without limit.
-            if (buffer.length > MATCH_BUFFER_CAP) {
-              buffer = buffer.slice(-MATCH_BUFFER_CAP);
-            }
-          }
-        },
-      );
-
-      /** `terminalExit` is the PRECISE "the child exited → gone" signal, but
-       *  losing it is not fatal: a real exit also ends the attach feed, so
-       *  {@link classifyLostFeed} is the backstop and a healthy feed keeps the
-       *  scan and the timeout working. So a failure here parks this arm forever
-       *  rather than settling the race — and is deliberately NOT recorded into
-       *  `feedError`, which only ever surfaces through the `closed` path the
-       *  other arm owns. */
-      const exitArm: Effect.Effect<KoluWaitOutcome, never> = Effect.catchCause(
-        Effect.flatMap(
-          Stream.runHead(client.surface.terminalExit.get({ id: opts.id })),
-          (head): Effect.Effect<KoluWaitOutcome> =>
-            Option.isSome(head)
-              ? Effect.succeed({ kind: "gone", elapsedMs: elapsed() })
-              : // The stream ended without yielding: not evidence of an exit, so
-                // leave the verdict to the feed arm rather than inventing one.
-                Effect.never,
-        ),
-        () => Effect.never,
-      );
-
-      const arms: Effect.Effect<KoluWaitOutcome, unknown>[] = [
-        matchArm,
-        exitArm,
-      ];
-      if (opts.timeoutMs !== undefined) {
-        arms.push(
-          Effect.map(
-            Effect.sleep(opts.timeoutMs),
-            (): KoluWaitOutcome => ({
-              kind: "timeout",
-              elapsedMs: elapsed(),
-            }),
-          ),
-        );
-      }
-      return yield* Effect.raceAllFirst(arms);
-    }),
-  );
-}
-
 // ── The verb ─────────────────────────────────────────────────────────────────
 
 // The id-or-prefix widening is `./shared.ts`'s `resolveTerminal`. Worth knowing
@@ -571,8 +366,8 @@ function awaitOutputMatch(
 /** An abort that fires when the caller's scope closes — the handle the
  *  promise-shaped watchers need to unwind their subscriptions.
  *
- *  Both padi watchers take an `AbortSignal` and document that it must be
- *  threaded into every subscription they open; a fiber interruption (the run
+ *  Every padi watcher takes an `AbortSignal` and documents that it must be
+ *  threaded into every subscription it opens; a fiber interruption (the run
  *  edge's Ctrl+C) abandons the `Effect.tryPromise` around them, which would
  *  otherwise leave the attach/mirror subscriptions running while the link is
  *  being disposed underneath. Binding the abort to the scope makes the teardown
@@ -591,9 +386,10 @@ const abortOnScopeClose: Effect.Effect<AbortSignal, never, Scope.Scope> =
  *  the three condition forms differ, so `run` below reads as dial → resolve →
  *  wait → report regardless of which form was asked for.
  *
- *  The two padi-owned watchers are Promises, so they take the scope-bound
- *  `signal`; the `match` watcher is Effect-native, so its race unwinds with the
- *  fiber and there is no signal to thread. */
+ *  All three watchers are padi's, and all three are Promise-shaped, so each
+ *  takes the scope-bound `signal` that unwinds its subscriptions. `--timeout` is
+ *  passed as an ABSENT key when unset (an explicit `undefined` would read as "no
+ *  timeout" only by accident of the option's own optionality). */
 function awaitPlan(
   client: PadiSurfaceClient,
   id: TerminalId,
@@ -607,7 +403,16 @@ function awaitPlan(
   const timeout = timeoutMs !== undefined ? { timeoutMs } : {};
   switch (plan.kind) {
     case "match":
-      return awaitOutputMatch(client, { id, regex: plan.regex, timeoutMs });
+      return Effect.tryPromise({
+        try: () =>
+          awaitOutputMatch(client, {
+            id,
+            pattern: plan.regex,
+            signal,
+            ...timeout,
+          }),
+        catch: (err) => err,
+      });
     case "idle":
       return Effect.tryPromise({
         try: () =>

@@ -9,7 +9,7 @@
  * terminal is doing something RIGHT NOW. That is what makes it the verb a
  * driving agent tails while its sibling works.
  *
- * ## Three endings, and only one of them is a failure
+ * ## Four endings, and two of them are failures
  *
  * A live monitor has to tell "you stopped me" from "I lost the thing I was
  * watching", because a script that treats a dropped link as EOF silently stops
@@ -24,17 +24,27 @@
  *     `Effect.tryPromise` derives from fiber interruption (D10/#18: cancellation
  *     IS fiber interruption). Nothing is failed on this path; the exit code is
  *     the run edge's to decide, per the no-`process.exit`-in-a-verb rule.
- *   - **The consumer hung up** (`kolu watch | head -1`). The stdout sink fails
- *     with `StdoutClosed`, which is not an exit-code arm — the caller got what
- *     it asked for — so it aborts the same watch and returns success.
+ *   - **The consumer hung up** (`kolu watch | head -1`). The stdout sink dies
+ *     with EPIPE, which is not an exit-code arm — the caller got the lines it
+ *     asked for — so it stops the same watch and returns success.
+ *   - **stdout genuinely died** (a full disk, a revoked descriptor). It stops
+ *     the watch identically, because nothing can be delivered now — but it is a
+ *     FAILURE (exit 1) that NAMES node's own error, never a silent success: a
+ *     `watch` that lost its output and exited 0 is indistinguishable, to the
+ *     loop above it, from one that had nothing to report. The
+ *     EPIPE-vs-everything-else decision and the sentence it prints are
+ *     `./shared.ts`'s `writeOut` ones — the same question asked of a streaming
+ *     sink instead of a one-shot write.
  *   - **The link dropped.** The mirror settled although nobody asked it to.
- *     That is a FAILURE (exit 1) carrying whatever the upstream diagnostic said,
- *     never a clean EOF.
+ *     That is a FAILURE (exit 1) carrying the mirror's own rejection message —
+ *     or {@link LINK_CLOSED} when it merely settled — never a clean EOF.
  *
- * The discrimination is structural rather than re-derived after the fact: the
- * mirror can only settle by itself when the link closed, and the hangup arm is
- * the one thing that aborts it locally — so `hangup.signal.aborted` below is the
- * whole test.
+ * The discrimination stays structural rather than re-derived after the fact. The
+ * mirror can only settle by itself when the link closed, and the two stdout
+ * deaths are the only things that abort it locally — so `stopped.signal.aborted`,
+ * read at the instant the mirror ended, separates "we ended it" from "it ended
+ * us". WHICH stdout death it was rides the pump's own error channel, which
+ * `Fiber.join` surfaces before that test is ever reached.
  *
  * ## Backpressure, and why lines ride a queue
  *
@@ -56,9 +66,10 @@
  * terminals set either way — one mirror, one filter.
  *
  * stdout is the data (`--json` makes it NDJSON, one object per line, so `jq -c`
- * streams it); upstream diagnostics go to stderr as they happen, because on a
+ * streams it); upstream narration goes to stderr as it happens, because on a
  * live feed a problem the user learns about only at exit is a problem reported
- * too late.
+ * too late. It is narration only, though — it never gets to speak for the
+ * ending; see `rejection` below.
  */
 
 import { NodeSink } from "@effect/platform-node";
@@ -73,7 +84,6 @@ import {
 } from "@kolu/padi/render";
 import {
   type Cause,
-  Data,
   Effect,
   Fiber,
   Option,
@@ -82,8 +92,8 @@ import {
   Stream,
 } from "effect";
 import { type Endpoint, withPadi } from "../endpoint.ts";
-import { failure } from "../exit.ts";
-import { resolveTerminal } from "./shared.ts";
+import { type CliFailure, failure } from "../exit.ts";
+import { resolveTerminal, StdoutWriteFailed } from "./shared.ts";
 
 /** What the command tree parsed for `watch`. */
 export interface WatchArgs {
@@ -92,15 +102,6 @@ export interface WatchArgs {
   readonly json: boolean;
 }
 
-/** The stdout consumer hung up (`kolu watch | head -1`). Deliberately NOT in
- *  `exit.ts`: that module is exclusively the codes a driver branches on, and
- *  this is not a failure at all — the caller got the lines it asked for. The
- *  cause is kept so a non-EPIPE stdout death (a full disk, a revoked descriptor)
- *  stays legible instead of being flattened into "consumer left". */
-class StdoutClosed extends Data.TaggedError("StdoutClosed")<{
-  readonly cause: unknown;
-}> {}
-
 /** Backpressure-aware stdout, as a SINK — the sink waits on `drain`, so a slow
  *  consumer slows the producer instead of inflating an in-memory backlog.
  *  `endOnDone: false` because this process does not own `process.stdout`'s
@@ -108,25 +109,61 @@ class StdoutClosed extends Data.TaggedError("StdoutClosed")<{
  *
  *  Local rather than `./shared.ts`'s `writeOut`: that one writes ONE block and
  *  returns, which is the wrong shape for a feed. This sink is consumed ONCE, by
- *  the pump below, for the whole life of the watch — and a hangup has to abort
- *  the mirror rather than merely resolve a write, which is why the closed arm is
- *  a callback here instead of a silent success. */
-const stdoutSink: Sink.Sink<void, string, never, StdoutClosed> =
-  NodeSink.fromWritable<StdoutClosed, string>({
+ *  the pump below, for the whole life of the watch — and a dead stdout has to
+ *  stop the mirror rather than merely resolve a write, which is why the death
+ *  arm reaches a callback here. The ERROR it carries is `./shared.ts`'s own
+ *  {@link StdoutWriteFailed}: the two writers differ in shape, not in what can
+ *  go wrong with a descriptor, so they name it once. */
+const stdoutSink: Sink.Sink<void, string, never, StdoutWriteFailed> =
+  NodeSink.fromWritable<StdoutWriteFailed, string>({
     evaluate: () => process.stdout,
-    onError: (cause) => new StdoutClosed({ cause }),
+    onError: (cause) => new StdoutWriteFailed({ cause }),
     endOnDone: false,
   });
 
-/** Drain ready-to-print lines into stdout until the queue ENDS, telling the
- *  caller if the consumer hangs up first. */
+/** Did the consumer hang up (`kolu watch | head -1`), or did the write genuinely
+ *  fail (a full disk, a revoked descriptor)? EPIPE means the reader got the lines
+ *  it asked for and left; anything else is a real failure that must be said out
+ *  loud rather than folded into the same silent success. The streaming twin of
+ *  the decision `./shared.ts`'s `writeOut` makes for a one-shot write — the same
+ *  test and the same sentence, because a user must not have to learn two
+ *  spellings of "kolu could not write to stdout". */
+const isConsumerHangup = (cause: unknown): boolean =>
+  (cause as { readonly code?: unknown })?.code === "EPIPE";
+
+/** Drain ready-to-print lines into stdout until the queue ENDS, or until stdout
+ *  dies under us.
+ *
+ *  Either death STOPS the watch — `stop` aborts the mirror, because a feed with
+ *  nowhere to go is not a feed — and only the REPORT differs: a hangup is a
+ *  complete run (success), and anything else fails on this effect's error
+ *  channel, naming node's own message. The caller joins this fiber, which is
+ *  where that failure becomes the verb's. */
 const pumpToStdout = (
   lines: Queue.Dequeue<string, Cause.Done>,
-  onClosed: () => void,
-): Effect.Effect<void> =>
-  Stream.run(Stream.fromQueue(lines), stdoutSink).pipe(
-    Effect.catchTag("StdoutClosed", () => Effect.sync(onClosed)),
+  stop: () => void,
+): Effect.Effect<void, CliFailure> => {
+  const drain: Effect.Effect<void, StdoutWriteFailed> = Stream.run(
+    Stream.fromQueue(lines),
+    stdoutSink,
   );
+  return Effect.catchTag(drain, "StdoutWriteFailed", (err) =>
+    Effect.flatMap(Effect.sync(stop), () =>
+      isConsumerHangup(err.cause)
+        ? // The reader left — that is a complete watch, not an error to report.
+          Effect.void
+        : Effect.fail(
+            failure(
+              `could not write the watch feed to stdout: ${
+                err.cause instanceof Error
+                  ? err.cause.message
+                  : String(err.cause)
+              }`,
+            ),
+          ),
+    ),
+  );
+};
 
 /** The line a dropped link fails with when the upstream said nothing more
  *  specific — phrased as the question the user can act on. */
@@ -148,16 +185,21 @@ export function run(
       const emit = (line: string): void => {
         Queue.offerUnsafe(lines, line);
       };
-      /** The first upstream diagnostic, kept as the REASON a link-drop failure
-       *  gives. `??=` because the first one is the one that explains the drop;
-       *  the ones after it are consequences. */
-      let upstreamError: string | undefined;
+      /** Why the mirror REJECTED, if it did — the only thing upstream ever says
+       *  that genuinely names a failure. The `log` lines below are chatter by
+       *  contract (`MirrorRemoteSurfaceOptions.log`: "routine narration a
+       *  consumer may filter freely — a link ending, a reconnect"), so latching
+       *  the first of THOSE would report an ordinary narration line as the
+       *  reason the watch died. They still reach stderr as they happen; they
+       *  just don't get to speak for the ending. */
+      let rejection: string | undefined;
 
-      // Aborted when the consumer hangs up — the local half of "stop the
-      // watch"; the other half is fiber interruption, joined below.
-      const hangup = new AbortController();
+      // Aborted when stdout dies under us — the local half of "stop the watch";
+      // the other half is fiber interruption. Whether that death was a hangup or
+      // a real write failure rides the pump's error channel, joined below.
+      const stopped = new AbortController();
       const pump = yield* Effect.forkChild(
-        pumpToStdout(lines, () => hangup.abort()),
+        pumpToStdout(lines, () => stopped.abort()),
       );
 
       yield* Effect.catch(
@@ -165,7 +207,8 @@ export function run(
           // `interrupted` is the signal Effect derives from THIS fiber's
           // interruption, so a Ctrl+C at the run edge reaches the mirror
           // without a single `process.on` in this file. Combined with the
-          // hangup signal because both mean "stop", and the mirror takes one.
+          // stdout-death signal because both mean "stop", and the mirror takes
+          // one.
           try: (interrupted) =>
             watchTerminals(
               conn.client,
@@ -195,9 +238,8 @@ export function run(
                   );
                 },
               },
-              AbortSignal.any([interrupted, hangup.signal]),
+              AbortSignal.any([interrupted, stopped.signal]),
               (line) => {
-                upstreamError ??= line;
                 process.stderr.write(`kolu: ${line}\n`);
               },
             ),
@@ -207,19 +249,29 @@ export function run(
         // so both land on the one ending below; the rejection just names itself.
         (err) =>
           Effect.sync(() => {
-            upstreamError ??= err instanceof Error ? err.message : String(err);
+            rejection = err instanceof Error ? err.message : String(err);
           }),
       );
+
+      // Read the discrimination HERE, at the instant the mirror ended, not after
+      // the flush: a stdout death always precedes the settle it causes (it is
+      // what aborts the mirror), so this is exactly "nobody local asked" — and a
+      // reader that hangs up during the final flush can no longer erase a link
+      // drop that had already happened.
+      const selfSettled = !stopped.signal.aborted;
 
       // Stop producing and FLUSH what is already queued before leaving: a
       // `watch` that dropped its last lines on the way out is indistinguishable
       // from one that never saw the event.
       yield* Queue.end(lines);
+      // A dead-stdout failure is the pump's, and this join is where it becomes
+      // the verb's — before the link test below, because "I could not print what
+      // I saw" outranks "the feed ended" as the thing that went wrong.
       yield* Fiber.join(pump);
 
       // The mirror settled and nothing local asked it to — the link dropped.
-      if (!hangup.signal.aborted) {
-        return yield* Effect.fail(failure(upstreamError ?? LINK_CLOSED));
+      if (selfSettled) {
+        return yield* Effect.fail(failure(rejection ?? LINK_CLOSED));
       }
     }),
   );

@@ -42,12 +42,6 @@
 
 import { Data, Effect, Runtime } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
-// The web face's ONE flag artifact — the schema, the `KoluBootFlags` contract
-// derived from it, and the projection between them, co-located in
-// `kolu-server/src/bootFlags.ts`. A deep LEAF import (like the hostname one
-// below): it skips the server's runtime module graph (`index.ts`), so building
-// the command tree stays server-free.
-import { bootFlagsOf, webFlags } from "kolu-server/src/bootFlags.ts";
 // The ONE version accessor (`hostname.ts` is a leaf: node built-ins + the
 // server's package.json, which `/release` bumps and nix reads too) — so
 // `kolu --version` can never diverge from the version the server reports.
@@ -58,6 +52,11 @@ import {
   endpointOf,
   refuseEndpointFlags,
 } from "./endpoint.ts";
+// The web face's flags and their projection onto the server's boot contract.
+// They live in THIS package because they are part of the command tree: how argv
+// is parsed is the CLI's volatility, and a flag declaration is a runtime call
+// the web server package has no business holding.
+import { bootFlagsOf, webFlags } from "./webFlags.ts";
 
 /** A face the plan RESERVES but has not shipped (`kolu tui`).
  *
@@ -217,7 +216,11 @@ const create = Command.make(
       ),
       Flag.optional,
     ),
-    json: Flag.boolean("json"),
+    json: Flag.boolean("json").pipe(
+      Flag.withDescription(
+        "emit the new terminal's record as JSON ({id, worktree?, ran?}) instead of the bare id",
+      ),
+    ),
   },
   Effect.fn(function* (args) {
     yield* runVerb(() => import("./verbs/create.ts"), args);
@@ -268,7 +271,11 @@ const send = Command.make(
       ),
       Flag.optional,
     ),
-    json: Flag.boolean("json"),
+    json: Flag.boolean("json").pipe(
+      Flag.withDescription(
+        "emit what was written as JSON ({id, bytes, paste, keys}) on stdout, instead of the stderr trailer",
+      ),
+    ),
   },
   Effect.fn(function* (args) {
     yield* runVerb(() => import("./verbs/send.ts"), args);
@@ -304,7 +311,11 @@ const wait = Command.make(
       Flag.withDescription("give up after this many milliseconds (exit 2)"),
       Flag.optional,
     ),
-    json: Flag.boolean("json"),
+    json: Flag.boolean("json").pipe(
+      Flag.withDescription(
+        "emit one outcome frame ({id, result, …}) for EVERY arm — met, timeout, gone, interrupted — so a driver branches on `result`, not on the exit code",
+      ),
+    ),
   },
   Effect.fn(function* (args) {
     yield* runVerb(() => import("./verbs/wait.ts"), args);
@@ -352,7 +363,13 @@ const history = Command.make(
       Argument.withDescription("terminal id (any unique prefix)"),
     ),
     lines: Flag.integer("lines").pipe(
-      Flag.withDescription("print at most this many lines (default: one page)"),
+      // Omitting it prints the WHOLE retained scrollback (`wholeHistory` pages
+      // back to the oldest line the host still keeps); passing it fetches ONE
+      // page of that size, the lines immediately above the screen. The help text
+      // used to say "default: one page", which is the opposite of what happens.
+      Flag.withDescription(
+        "print only the N lines just above the screen (default: the whole retained scrollback)",
+      ),
       Flag.optional,
     ),
   },
