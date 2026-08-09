@@ -112,6 +112,29 @@ export class UsageRefused {
 export const failure = (message: string): CliFailure =>
   new CliFailure({ stderr: `kolu: ${message}\n` });
 
+/** A flag the user SPELLED but left EMPTY — `--worktree "$NAME"` with `$NAME`
+ *  unset, the ordinary shell accident. ONE predicate, so every gate in this
+ *  package agrees on what blank IS: whitespace counts, because `--cwd " "` is
+ *  the same accident with a quoted space. */
+export const isBlank = (value: string): boolean => value.trim() === "";
+
+/** The refusal for a blank flag value, naming the offending flag.
+ *
+ *  Every such gate says the same two things — WHICH flag was empty, and that an
+ *  unset shell variable is the likely cause — so they say it in one sentence
+ *  rather than in one sentence per verb. `names` completes "it names …", so it
+ *  reads as a noun phrase ("the branch to cut the new worktree on").
+ *
+ *  `endpointOf` keeps its own longer sentence rather than calling this: it can
+ *  name SEVERAL flags at once, and it has to say the extra thing that makes a
+ *  blank endpoint the most dangerous of these (kolu will not quietly fall back
+ *  to whichever daemon it discovers). It shares the {@link isBlank} rule above,
+ *  which is the part that must not drift. */
+export const blankFlag = (flag: string, names: string): CliFailure =>
+  failure(
+    `${flag} was passed with an empty value — an unset shell variable, most likely. It names ${names}; pass one, or drop the flag entirely.`,
+  );
+
 /** The named fail-fast for a face that is planned but not shipped. */
 export const reservedFace = (face: string): ReservedFaceError =>
   new ReservedFaceError({

@@ -24,7 +24,8 @@ kolu history <id> [--lines N] the scrollback above the current screen
 kolu kill <id>                end a terminal
 kolu watch [id] [--json]      stream terminal changes and output activity
 kolu web [flags]              the web server (the browser face)
-kolu mcp [--host ssh]         serve this host's terminals to a coding agent over MCP (stdio)
+kolu mcp [--socket|--state-root|--host]
+                              serve a padi's terminals to a coding agent over MCP (stdio)
 kolu tui                      reserved — the terminal canvas (a later PR)
 ```
 
@@ -48,9 +49,13 @@ They are declared on the **root** command as Effect CLI *shared* flags, so they
 parse on **either side of the verb name**: `kolu --host box create` and
 `kolu create --host box` are one parse. A flag declared on a subcommand only
 parses after that subcommand's name — the positional straitjacket this CLI
-exists to drop. The two faces that cannot honor an endpoint (`web`, which dials
-no padi; `mcp`, whose adapter owns its own re-resolving local dial and so takes
-`--host` only) **refuse** what they can't act on rather than ignoring it.
+exists to drop. **`kolu mcp` honors all three** — `--socket` / `--state-root` /
+`--host` — exactly as the eight verbs do, because its dial resolves through the
+same `localPadiSocket` policy they do (`kolu mcp --state-root .kolu-dev/padi`
+points an agent at a dev kolu). The ONE face left with anything to refuse is
+`web`, which dials no padi at all: it **refuses** what it can't act on rather
+than ignoring it. Even on `mcp` the two rules that are about the *flags* still
+bite — one transport at a time, and never an empty value.
 
 **Ids accept any unique prefix**, everywhere an `<id>` appears. **stdout is
 data, stderr is prose** — `id=$(kolu create … )` captures the bare id while the
@@ -87,7 +92,7 @@ intercepts would send a driving loop watching for a code kolu never writes.
 ## Two breaking changes
 
 1. **Bare `kolu` no longer starts the web server.** It prints the subcommand
-   list and exits non-zero, so a user picks a face explicitly. With a dozen
+   list and exits non-zero, so a user picks a face explicitly. With eleven
    faces, silently booting a web server for a bare invocation is a footgun
    rather than a convenience. The server is **`kolu web`**.
 2. **`kolu web --host <addr>` is now `kolu web --bind <addr>`.** `--host` is a
@@ -138,11 +143,25 @@ it from re-accreting scope.
 - Each face's implementation is a **dynamic import inside its handler**, so
   `kolu mcp` never touches the web server's module graph, a terminal verb loads
   neither, and a reserved face fails fast having loaded nothing.
-- **`kolu mcp` is a pure padi client** — kolu-cli resolves the running padi's
-  digest-keyed socket (or dials a remote padi over ssh with `--host`), gates the
-  contract version, mounts the production `STREAM_RETRY` policy on the one
-  client, and hands it to `kolu-mcp`'s serve-function. No kolu-server process is
-  involved.
+- **`kolu mcp` is a pure padi client** — kolu-cli resolves the padi its endpoint
+  names (the digest-keyed local socket, or a remote padi over ssh with
+  `--host`), gates the contract version on the handshake, and hands the one
+  client to `kolu-mcp`'s serve-function. No kolu-server process is involved.
+- **There is no client-level retry mount, deliberately** (`src/connect.ts`'s
+  header is the long version). The restart discipline is a LAZY dial the MCP
+  adapter re-invokes: every redial re-resolves the socket fresh — so a dead
+  registration is dropped rather than a cached path re-used — and `connectPadi`'s
+  hello/compat gate proves the new generation speaks our contract, never
+  retry-same-path-blind. The reconnect fence is a `Stream` combinator each
+  stream's CONSUMER applies (`fenceStream` / `unenrolledStreamCall` — padi's own
+  watch kit does, as do the Solid bridge and surface-mcp's pusher), not a policy
+  threaded through the call, so there is no client proxy here at all.
+  Re-mounting one would be a no-op wearing a policy's clothes: the fence retries
+  `RpcClientError` and nothing else, and both of this package's transports are
+  reconnect-free by construction — a unix-socket or stdio link dies with its
+  pipe and mints `SurfaceStdioTransportClosed`, which the fence refuses on
+  purpose. So a dead transport surfaces as the tool call's error and the adapter
+  redials. That redial IS the discipline.
 - **The reserved subcommand fails fast** with a named not-shipped-yet message
   (exit 1) — as does a typo'd subcommand (`kolu tuii`).
 - **`--version`** reads the server's one `serverVersion` accessor (whose source

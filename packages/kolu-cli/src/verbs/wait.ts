@@ -49,24 +49,40 @@
  *
  * ## `--json` is one frame shape for every outcome
  *
- * Every arm — met, timeout, gone, interrupted, closed — emits the shared
- * `waitOutcomeJson` frame (`{ id, result, … }`) on stdout, so a `--json` driver
- * branches on `result` and never on the exit code. This is `kaval-tui wait
- * --json`'s frame, adopted for all three families; `padi-tui wait --json`
- * printed `{ id, agent }` on `met` and NOTHING on a timeout, which left its
- * only structured consumer doing exit-code archaeology. The agent arm's met
- * payload still carries the full `agent` record, so nothing is lost by the
- * move.
+ * Every outcome the watcher RETURNS — met, timeout, gone, interrupted, closed —
+ * emits the shared `waitOutcomeJson` frame (`{ id, result, … }`) on stdout, so a
+ * `--json` driver branches on `result` and never on the exit code. This is
+ * `kaval-tui wait --json`'s frame, adopted for all three families; `padi-tui
+ * wait --json` printed `{ id, agent }` on `met` and NOTHING on a timeout, which
+ * left its only structured consumer doing exit-code archaeology. The agent arm's
+ * met payload still carries the full `agent` record, so nothing is lost by the
+ * move. A Ctrl+C is the one thing that is NOT a returned outcome (below), so it
+ * is the one arm a `--json` driver reads off the exit code: the process is being
+ * torn down, and the frame would be a write racing that teardown.
  *
- * ## Ctrl+C
+ * ## Ctrl+C — why the interrupted arm is written from a FINALIZER
  *
  * The run edge (`NodeRuntime.runMain`) owns SIGINT and turns it into fiber
- * interruption, which Effect's own teardown reports as 130 — exactly this
+ * INTERRUPTION, which Effect's own teardown reports as 130 — exactly this
  * contract's interrupted code. So this verb installs NO competing signal
- * handler; it threads an abort that fires on scope close into the promise-shaped
- * watchers, so an interrupted wait tears its subscriptions down instead of
- * abandoning them, and maps the union's `interrupted` arm to {@link
- * WaitInterrupted} so the code is stated in one place either way.
+ * handler. What it does own is the SENTENCE that rides that code, and an
+ * interrupt is the one cause it cannot be raised as:
+ *
+ * Effect 4 latches `_interruptedCause` on the fiber, and every continuation
+ * popped afterwards is REPLACED by a re-raise of it — `setInterruptible`'s
+ * `contAll` in `effect/internal/effect.ts`. A `catchCause` around an interrupted
+ * effect never runs at all (verified against `effect@4.0.0-beta.106`), so
+ * `Effect.fail(waitInterrupted(…))` on this path would be swallowed before
+ * `main.ts` could print it — which is exactly how the arm came to be dead code
+ * while the exit code stayed right. A finalizer is what still runs, so
+ * {@link withInterruptReport} writes the line there, from the SAME `exit.ts`
+ * constructor {@link reportOutcome} fails with, and the code stays the runtime's
+ * own 130 for an interrupts-only cause.
+ *
+ * Teardown of the subscriptions is structural and separate: the promise-shaped
+ * watchers take an abort bound to the caller's SCOPE, and an interrupt closes
+ * that scope, so an interrupted wait unwinds its attach/mirror subscriptions the
+ * same way a met or timed-out one does.
  */
 
 import {
@@ -157,8 +173,13 @@ type WaitPlan =
  *  regex — each rejection naming the form it belongs to rather than the generic
  *  three); the bucket arm tests each token with padi's `isWaitState` and phrases
  *  its own rejection with all three forms, because a token that is not a bucket
- *  may simply be a mistyped prefix. */
-function planUntil(
+ *  may simply be a mistyped prefix.
+ *
+ *  Exported for `wait.test.ts`: the whole `--until` grammar is decided here,
+ *  with no socket and no tty in the way, so the matrix — including the
+ *  empty-match refusal, which is a FALSE-DONE guard and not a typo guard — is
+ *  pinned against the parse the product runs. */
+export function planUntil(
   raw: string,
 ):
   | { readonly kind: "ok"; readonly plan: WaitPlan }
@@ -198,21 +219,39 @@ function planUntil(
           "--until match:<regex> needs a non-empty pattern (e.g. match:'DONE').",
       };
     }
+    let regex: RegExp;
     try {
-      return {
-        kind: "ok",
-        plan: {
-          kind: "match",
-          regex: new RegExp(pattern),
-          describe: `output matching ${JSON.stringify(pattern)}`,
-        },
-      };
+      regex = new RegExp(pattern);
     } catch (err) {
       return {
         kind: "error",
         message: `--until match: invalid regex ${JSON.stringify(pattern)} — ${(err as Error).message}`,
       };
     }
+    // A pattern that also matches the EMPTY STRING is a false done-signal, not a
+    // permissive one. `awaitOutputMatch` searches every delta, so `a*`, `x?`,
+    // `^`, `.*`, `()` all match at index 0 of the FIRST delta — a shell prompt,
+    // a banner, the agent echoing the brief back. `kolu wait` would exit 0
+    // before the caller's sentinel ever printed, and a driving loop reading 0 as
+    // "the work finished" is told a lie it cannot detect. Every other rejection
+    // in this parse catches a TYPO; this one catches a pattern that is spelled
+    // correctly and means something the user did not ask for, so it is refused
+    // at the same boundary rather than left to surprise a 3am loop. The
+    // non-empty-pattern check above only ever caught a bare `match:`.
+    if (regex.test("")) {
+      return {
+        kind: "error",
+        message: `--until match: ${JSON.stringify(pattern)} matches the empty string, so the FIRST byte of any output — a prompt, a banner — would satisfy it and this wait would exit 0 before your sentinel printed. Make every part required (e.g. match:'DONE' for the marker you print, or match:'.+' if you really mean "any output at all").`,
+      };
+    }
+    return {
+      kind: "ok",
+      plan: {
+        kind: "match",
+        regex,
+        describe: `output matching ${JSON.stringify(pattern)}`,
+      },
+    };
   }
 
   // The bucket arm. The comma split and its rejection are ARGV grammar, so they
@@ -340,6 +379,11 @@ function reportOutcome(
           waitTerminalGone({ terminal: shortId(id), describe }),
         );
       case "interrupted":
+        // The watcher RETURNED `interrupted` — its caller's signal aborted
+        // without this fiber being interrupted. A Ctrl+C does not arrive here
+        // (an interrupt is not a returned outcome, and cannot be raised as a
+        // failure either — see the header); {@link withInterruptReport} writes
+        // the same sentence from the same constructor on that path.
         return yield* Effect.fail(waitInterrupted({ terminal: shortId(id) }));
       case "closed":
         // The link dropped before the condition landed — a failure, never a
@@ -377,6 +421,35 @@ const abortOnScopeClose: Effect.Effect<AbortSignal, never, Scope.Scope> =
     ),
     (controller) => controller.signal,
   );
+
+/** Report an INTERRUPTED wait — the 130 arm of the exit contract, on the only
+ *  path that can still speak once the fiber has been interrupted.
+ *
+ *  Ctrl+C (or a SIGTERM from the driver above) reaches this process as fiber
+ *  interruption, and Effect 4 makes that cause unrecoverable: the latched
+ *  `_interruptedCause` replaces every continuation popped after it, so a
+ *  `catchCause` here never runs and an `Effect.fail(waitInterrupted(…))` would
+ *  be swallowed long before `main.ts` could print it. A finalizer still runs —
+ *  so the arm's line is written from one, while the terminal id is in scope and
+ *  the fact the user can act on ("<id> left running") is still known.
+ *
+ *  Two properties this shape is chosen for:
+ *   - the sentence is `exit.ts`'s, byte for byte the one {@link reportOutcome}
+ *     fails with, so the two routes to the interrupted arm cannot drift;
+ *   - `writeErr` CANNOT fail, so the finalizer cannot add a failure to an
+ *     interrupts-only cause — which is what keeps the run edge's teardown
+ *     reading 130 rather than 1.
+ *
+ *  Exported for `wait.test.ts`, which drives the real mechanism: the same
+ *  `fiber.interruptUnsafe` call `NodeRuntime.runMain`'s SIGINT handler makes. */
+export function withInterruptReport<A, E, R>(
+  id: TerminalId,
+  wait: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> {
+  return Effect.onInterrupt(wait, () =>
+    writeErr(waitInterrupted({ terminal: shortId(id) }).stderr),
+  );
+}
 
 /** Run the plan's watcher and hand back the one outcome union — the ONE place
  *  the three condition forms differ, so `run` below reads as dial → resolve →
@@ -468,10 +541,13 @@ export function run(
         Effect.gen(function* () {
           const signal = yield* abortOnScopeClose;
           const id = yield* resolveTerminal(conn, args.id);
-          const outcome = yield* awaitPlan(conn.client, id, plan, {
-            timeoutMs,
-            signal,
-          });
+          // The interrupt report wraps the WAIT and nothing before it: the line
+          // names a terminal that is still running, which is only a fact once
+          // the id has resolved.
+          const outcome = yield* withInterruptReport(
+            id,
+            awaitPlan(conn.client, id, plan, { timeoutMs, signal }),
+          );
           return { id, outcome };
         }),
       ),

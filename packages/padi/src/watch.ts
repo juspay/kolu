@@ -593,15 +593,42 @@ export async function awaitOutputSettled(
 
 // ── The `match:` wait ────────────────────────────────────────────────────────
 
-/** Cap the rolling match buffer so a long-running match wait against a chatty
- *  terminal can't grow it unbounded. The buffer is a WINDOW, not a chunk: each
- *  delta is appended and only the trailing {@link MATCH_BUFFER_CAP} bytes are
- *  kept, so a sentinel split across two chunks still matches. 64KiB is far
- *  larger than any realistic marker, so a match near the tail (the normal case —
- *  the marker is the newest output) is never lost to the trim. The cap is
- *  kaval-tui's, whose `awaitOutputCondition` is this wait's port-not-extract
- *  twin over `ptyHostSurface`. */
-const MATCH_BUFFER_CAP = 1 << 16;
+/** How much ALREADY-SCANNED output is carried into the next scan — the OVERLAP
+ *  that lets a sentinel split across a chunk boundary still match, and the ONLY
+ *  history the match wait keeps.
+ *
+ *  It is deliberately not a rolling 64KiB buffer that is re-searched whole on
+ *  every delta (what this wait, and kaval-tui's `awaitOutputCondition` twin,
+ *  used to do). That shape makes each frame's scan cost grow with the WINDOW
+ *  rather than with the new bytes, so a chatty terminal multiplies whatever the
+ *  pattern costs per character by 64Ki, every frame, on the event loop that owns
+ *  the wait's own `--timeout` timer. Scanning `carry + delta` instead keeps the
+ *  work proportional to the output actually produced.
+ *
+ *  4096 is in UTF-16 CODE UNITS — `String.length`/`slice` units, i.e. 4KiB of
+ *  ASCII and less text than that for non-ASCII output. Stated in the unit the
+ *  code actually counts in rather than as "bytes", which it never was; the trim
+ *  ({@link carryTail}) additionally refuses to cut a surrogate pair in half, so
+ *  the carry is always a well-formed string. Any realistic sentinel is orders of
+ *  magnitude shorter, so a marker straddling a chunk boundary is still caught. */
+const MATCH_OVERLAP_CAP = 1 << 12;
+
+/** The trailing {@link MATCH_OVERLAP_CAP} code units of `window` — the carry the
+ *  next scan is prefixed with, keeping a sentinel that spans deltas matchable.
+ *
+ *  The cut moves one unit earlier when it would land INSIDE a surrogate pair: a
+ *  carry that led with an orphaned low surrogate would put a character no
+ *  terminal printed at the head of the next scan, and could hide a sentinel that
+ *  begins with an astral character. */
+function carryTail(window: string): string {
+  if (window.length <= MATCH_OVERLAP_CAP) return window;
+  let start = window.length - MATCH_OVERLAP_CAP;
+  const head = window.charCodeAt(start);
+  // A low surrogate at the cut has its high partner in the unit just before it
+  // (start ≥ 1 here, since window is longer than the cap).
+  if (head >= 0xdc00 && head <= 0xdfff) start -= 1;
+  return window.slice(start);
+}
 
 /** Strip VT control sequences (OSC + CSI) and `\r` so a `matchedLine` reads
  *  cleanly in a caller's human/JSON output. The match itself runs against the
@@ -618,13 +645,15 @@ function cleanLine(s: string): string {
     .trim();
 }
 
-/** The (cleaned) line of `buffer` containing the match at `index` — so the
+/** The (cleaned) line of `window` containing the match at `index` — so the
  *  caller can report WHICH output line tripped the pattern. Ported from
- *  kaval-tui. */
-function matchedLineAt(buffer: string, index: number): string {
-  const start = buffer.lastIndexOf("\n", Math.max(0, index - 1)) + 1;
-  const nl = buffer.indexOf("\n", index);
-  return cleanLine(buffer.slice(start, nl === -1 ? buffer.length : nl));
+ *  kaval-tui. The line is read out of the SCANNED window, so a line whose head
+ *  predates the carry is reported from the window's start; the reported line is
+ *  a diagnostic, and the carry is far longer than any line worth reading. */
+function matchedLineAt(window: string, index: number): string {
+  const start = window.lastIndexOf("\n", Math.max(0, index - 1)) + 1;
+  const nl = window.indexOf("\n", index);
+  return cleanLine(window.slice(start, nl === -1 ? window.length : nl));
 }
 
 /** The outcome of an output-match wait — the shared {@link WaitOutcome} union
@@ -651,18 +680,39 @@ export type OutputMatchOutcome = WaitOutcome<{
  * retry fence above all, without which a transport blip kills the wait instead
  * of re-subscribing.
  *
- * Two things are specific to matching:
+ * Three things are specific to matching:
  *
  *   - **Only `delta` frames are scanned.** A `snapshot` frame is the replay of
  *     the screen as it ALREADY was, not bytes that arrived since the call —
  *     matching it would report a marker printed minutes ago as if it had just
- *     landed. (Which is also why the fence's re-subscribe must clear the buffer:
+ *     landed. (Which is also why the fence's re-subscribe must clear the carry:
  *     the fresh snapshot it delivers is likewise old news.)
  *   - **The match beats the exit.** The exit event is latched, never settled
  *     (see {@link watchAttachFeed}) — a sentinel that printed and was followed
  *     by the process exiting is a MET wait, whatever order the two subscriptions
  *     happen to deliver in. The verdict waits for the ordered attach feed to
  *     end, which is what proves no bytes are left to scan.
+ *   - **Each delta is scanned ONCE, in a bounded window.** The scan runs over
+ *     `carry + delta` — the new bytes plus at most {@link MATCH_OVERLAP_CAP}
+ *     code units of already-scanned tail, which is what keeps a sentinel split
+ *     across chunks matchable — never over the whole history. This is a
+ *     LIVENESS property, not an optimisation: the search is synchronous on the
+ *     event loop that also owns this wait's `--timeout` timer, so per-frame work
+ *     that grew with the window let a chatty terminal push the timeout past the
+ *     deadline it promises.
+ *
+ * RESIDUAL, named plainly: `match:` is NOT safe against an untrusted
+ * pattern+output pair. The scan is bounded in INPUT, not in TIME — a
+ * catastrophically-backtracking pattern (`(a+)+$` and friends) against hostile
+ * output still blocks the event loop for the duration of one bounded search,
+ * which for such a pattern is effectively unbounded, and `--timeout` cannot fire
+ * while it runs. The bound removes the multiplier (one scan per delta over ≤ the
+ * overlap plus that delta, instead of a whole-window re-scan every frame), not
+ * the exponent. The pattern is the CLI user's own text — their foot — while the
+ * output is whatever a program in the terminal chose to print, so the safe use
+ * is: your own pattern, and one you know is linear. A caller that must accept a
+ * pattern from elsewhere needs a non-backtracking engine (RE2), which this
+ * package deliberately does not carry.
  */
 export async function awaitOutputMatch(
   client: PadiSurfaceClient,
@@ -676,38 +726,43 @@ export async function awaitOutputMatch(
   return runWait<{ fired: "match"; elapsedMs: number; matchedLine: string }>(
     { timeoutMs: opts.timeoutMs, signal: opts.signal },
     async (ctx) => {
-      // The rolling window of NEW output, bounded by MATCH_BUFFER_CAP.
-      let buffer = "";
+      // The overlap: the tail of the output already scanned, bounded by
+      // MATCH_OVERLAP_CAP. It is the ONLY history kept — each delta is scanned
+      // once, prefixed with this, and never re-scanned.
+      let carry = "";
       await watchAttachFeed(client, ctx, {
         id: opts.id,
         onFrame: (frame) => {
           if (frame.kind !== "delta") return;
-          buffer += frame.data ?? "";
+          const data = frame.data ?? "";
+          // An empty delta brings no new text: its window would be exactly the
+          // carry the previous frame already scanned, for exactly the same
+          // verdict. Skipping it keeps "one scan per new byte" true.
+          if (data === "") return;
+          // The scan window: the new bytes, plus enough already-scanned tail
+          // that a sentinel straddling the chunk boundary is still whole.
+          const window = carry + data;
           // `search`, not `exec`: it is the one scan that ignores (and restores)
           // a pattern's `lastIndex`, so a `/g`- or `/y`-flagged pattern can't
-          // resume mid-buffer and skip the sentinel — and the caller's RegExp is
+          // resume mid-window and skip the sentinel — and the caller's RegExp is
           // never mutated. The index is all this wait needs.
-          const index = buffer.search(opts.pattern);
+          const index = window.search(opts.pattern);
           if (index !== -1) {
             ctx.settle({
               kind: "met",
               fired: "match",
               elapsedMs: ctx.elapsedMs(),
-              matchedLine: matchedLineAt(buffer, index),
+              matchedLine: matchedLineAt(window, index),
             });
             return;
           }
-          // Keep the TAIL, where a sentinel lands — that is what lets a match
-          // span the chunk boundary the trim would otherwise cut through.
-          if (buffer.length > MATCH_BUFFER_CAP) {
-            buffer = buffer.slice(-MATCH_BUFFER_CAP);
-          }
+          carry = carryTail(window);
         },
-        // A reconnect gap is unobservable output: concatenating what we saw
-        // before it with what arrives after would let the two halves forge a
+        // A reconnect gap is unobservable output: carrying what we saw before it
+        // into the scan of what arrives after would let the two halves forge a
         // sentinel no terminal ever printed.
         onFeedLost: () => {
-          buffer = "";
+          carry = "";
         },
         retryAdvice: "re-run the match wait",
       });

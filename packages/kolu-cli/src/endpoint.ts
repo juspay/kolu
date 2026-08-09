@@ -36,7 +36,7 @@
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import { Effect, Option, type Scope } from "effect";
 import { Flag } from "effect/unstable/cli";
-import { type CliFailure, failure } from "./exit.ts";
+import { type CliFailure, failure, isBlank } from "./exit.ts";
 
 /** Everything the dial half reaches for, as a type — so the functions below can
  *  take the kit as an argument and still be checked against padi's real
@@ -139,8 +139,12 @@ export function endpointOf(
   ] as const satisfies ReadonlyArray<
     readonly [Endpoint["kind"], string | undefined]
   >;
+  // `isBlank` is `exit.ts`'s, shared with the verbs' own blank-flag gates
+  // (`create`'s placement flags, `send --file`): "empty means empty, whitespace
+  // included" is one rule, and a second spelling of it is how one gate comes to
+  // accept what another refuses.
   const blank = given
-    .filter(([, v]) => v !== undefined && v.trim() === "")
+    .filter(([, v]) => v !== undefined && isBlank(v))
     .map(([k]) => FLAG_NAME[k]);
   if (blank.length > 0) {
     return Effect.fail(

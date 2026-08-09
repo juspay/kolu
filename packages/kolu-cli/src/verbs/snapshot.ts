@@ -1,8 +1,14 @@
 /**
- * `kolu snapshot <id> [--tail N]` — print what a terminal shows RIGHT NOW as
- * plain text. The verb an agent-driving loop reads a reply with, and the reason
- * the whole CLI can be scripted: stdout is the screen text and nothing else, so
+ * `kolu snapshot <id> [--tail N]` — print a terminal's RENDERED BUFFER as plain
+ * text. The verb an agent-driving loop reads a reply with, and the reason the
+ * whole CLI can be scripted: stdout is that text and nothing else, so
  * `kolu snapshot 3f9c | grep MARK-` matches the terminal's WORDS.
+ *
+ * A bare snapshot is the WHOLE buffer — scrollback and viewport together, which
+ * on a long-running agent is thousands of lines, not a screenful. Calling that
+ * "what the terminal shows now" (as this header and `--help` both once did) is
+ * the kind of small lie a driving loop pays for; `--tail N` is the read that
+ * answers "what's on screen".
  *
  * ## Why `screen.text` and not the attach stream
  *

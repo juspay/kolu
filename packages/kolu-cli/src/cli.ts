@@ -208,8 +208,12 @@ const ls = Command.make(
     yield* runVerb(() => import("./verbs/ls.ts"), args);
   }),
 ).pipe(
+  // The columns `formatStatus` actually prints, in its order: ID · STATE ·
+  // REPO·BRANCH · PR · AGENT · FOREGROUND. It used to end "and what each is
+  // for", which promises the `--intent` label — a thing this table does not
+  // show; what it shows is the foreground process, i.e. what each is RUNNING.
   Command.withDescription(
-    "List this host's terminals — state, agent, repo/branch, PR, and what each is for.",
+    "List this host's terminals — state, repo/branch, PR, agent, and what each is running.",
   ),
 );
 
@@ -393,7 +397,13 @@ export const snapshotFlags = {
   ),
   tail: opt(
     positiveLines("tail").pipe(
-      Flag.withDescription("print only the last N non-blank lines"),
+      // Not "the last N non-blank lines" — `tailLines` drops the buffer's
+      // TRAILING run of blank rows (the empty viewport below the cursor) and
+      // then takes the last N, interior blanks and all. The old wording promised
+      // a filter the verb does not run.
+      Flag.withDescription(
+        "print only the last N lines, ignoring the trailing blank rows a rendered buffer ends in",
+      ),
     ),
   ),
 } as const;
@@ -405,8 +415,14 @@ const snapshot = Command.make(
     yield* runVerb(() => import("./verbs/snapshot.ts"), args);
   }),
 ).pipe(
+  // NOT "what a terminal shows now". `screen.text` returns the ENTIRE rendered
+  // buffer — scrollback and viewport together, thousands of lines on a
+  // long-running agent — and the README's `snapshot` section spells out why
+  // calling that "the screen" is a lie a driving loop pays for. `--help` is
+  // where a user meets the verb, so it must not tell the story the README just
+  // corrected.
   Command.withDescription(
-    "Print what a terminal shows now, as plain text — the verb for reading an agent's reply.",
+    "Print a terminal's whole rendered buffer (scrollback + viewport) as plain text — --tail N is the on-screen read.",
   ),
 );
 

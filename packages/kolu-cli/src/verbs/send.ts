@@ -69,7 +69,7 @@ import type { Command } from "effect/unstable/cli";
 // runtime and the per-face dynamic-import fence is untouched.
 import type { sendFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
-import { type CliFailure, failure } from "../exit.ts";
+import { blankFlag, type CliFailure, failure, isBlank } from "../exit.ts";
 import { resolveTerminal, writeErr, writeJson } from "./shared.ts";
 
 /** What the command tree parsed for `send` — DERIVED from `sendFlags` in
@@ -153,6 +153,8 @@ export function sourceLabel(input: SendInput): string {
  *  combination fails without touching a padi.
  *
  *  The rules, all fail-fast (no silent precedence to guess at):
+ *  - A `--file` with a BLANK value is refused by name — an unset shell variable,
+ *    not a file to go looking for.
  *  - AT MOST ONE text source. Positional text, `--file`, and a piped-stdin
  *    payload each fully specify the text; two at once is ambiguous, so it is
  *    rejected rather than silently letting one win.
@@ -175,6 +177,18 @@ export function resolveSendInput(opts: {
   readonly stdinIsPayload: boolean;
   readonly hasKeys: boolean;
 }): Effect.Effect<SendInput, CliFailure> {
+  // A `--file` the user SPELLED but left empty is the same shell accident
+  // `endpointOf` refuses for `--socket` and `create` refuses for its placement
+  // flags (`--file "$BRIEF"` with `$BRIEF` unset), and it shares their
+  // `isBlank` rule. It would otherwise reach `readFileSync("")` and come back as
+  // `--file "": no such file`, which sends the reader looking for a file rather
+  // than for the variable that did not expand.
+  if (opts.file !== undefined && isBlank(opts.file)) {
+    return Effect.fail(
+      blankFlag("--file", "the file to read the send text from"),
+    );
+  }
+
   // The text sources present, as descriptors, in precedence order. Enumerated
   // ONCE: the two-sources error names them via `sourceLabel`, and the resolved
   // source is just the first (or `none`). `opts.file !== undefined` narrows to

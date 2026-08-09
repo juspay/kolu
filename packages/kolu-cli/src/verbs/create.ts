@@ -75,7 +75,13 @@ import type { Command } from "effect/unstable/cli";
 // runtime and the per-face dynamic-import fence is untouched.
 import type { createFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
-import { type CliFailure, failure, reportOf } from "../exit.ts";
+import {
+  blankFlag,
+  type CliFailure,
+  failure,
+  isBlank,
+  reportOf,
+} from "../exit.ts";
 import { resolveTerminal, writeErr, writeJson, writeOut } from "./shared.ts";
 
 /** What the command tree parses for `kolu create` — DERIVED from `createFlags`
@@ -157,6 +163,45 @@ type Placement =
       readonly repo: string | undefined;
     }
   | { readonly kind: "open"; readonly cwd: string | undefined };
+
+/** Refuse a flag the user SPELLED with an empty value, before any of them is
+ *  read for meaning and long before the dial.
+ *
+ *  This is `endpointOf`'s blank-endpoint refusal one layer down, over the flags
+ *  that name something on the PADI's side, and it shares that gate's `isBlank`
+ *  rule. Without it `--worktree "$NAME"` with `$NAME` unset reached
+ *  `git.worktreeCreate` as a worktree named `""`, and `--cwd ""` was forwarded
+ *  to `lifecycle.create` as an EXPLICIT cwd — each failing late with a sentence
+ *  about a path, or worse landing somewhere nonsensical, when all that happened
+ *  is that a variable was empty. `--parent ""` already failed
+ *  (`resolveTerminalId` refuses an empty query), but only AFTER the dial, so it
+ *  joins the others here rather than staying the one that is nearly right.
+ *
+ *  One table, in `cli.ts`'s declaration order, each row carrying the noun phrase
+ *  its refusal reads with. The FIRST blank flag is named rather than all of them
+ *  joined (`endpointOf`'s shape): the phrases are per-flag, and a pure pre-dial
+ *  refusal costs nothing to hit twice. */
+function refuseBlankFlags(args: CreateArgs): Effect.Effect<void, CliFailure> {
+  const named = [
+    ["--cwd", args.cwd, "the directory to open the terminal in"],
+    ["--parent", args.parent, "the terminal to split"],
+    [
+      "--intent",
+      args.intent,
+      'the label the canvas shows for this terminal (e.g. "fix #2117")',
+    ],
+    ["--repo", args.repo, "the repository to branch the worktree FROM"],
+    ["--worktree", args.worktree, "the branch to cut the new worktree on"],
+  ] as const satisfies ReadonlyArray<
+    readonly [string, string | undefined, string]
+  >;
+  for (const [flag, value, names] of named) {
+    if (value !== undefined && isBlank(value)) {
+      return Effect.fail(blankFlag(flag, names));
+    }
+  }
+  return Effect.void;
+}
 
 function placementOf(args: CreateArgs): Effect.Effect<Placement, CliFailure> {
   const { cwd, repo, worktree: name } = args;
@@ -285,9 +330,12 @@ export function run(
     const { parent, intent } = args;
 
     // ── The pure gates, BEFORE the dial ──────────────────────────────────
-    // Each one names a flag that would otherwise be silently ignored, and each
-    // is decidable from argv alone — so a typo fails instantly instead of after
-    // Nix-provisioning a cold `--host`.
+    // Each one names a flag that would otherwise be silently ignored — or, for
+    // the first, silently believed — and each is decidable from argv alone, so a
+    // typo fails instantly instead of after Nix-provisioning a cold `--host`.
+    // Blankness is checked FIRST: an empty value is not a placement to read for
+    // meaning, it is a variable that did not expand.
+    yield* refuseBlankFlags(args);
     const placement = yield* placementOf(args);
     // A remote `--worktree` with no `--repo` is decidable from the ENDPOINT
     // alone, so refuse it here too — before the ssh dial Nix-provisions a cold
@@ -300,13 +348,6 @@ export function run(
       placement.repo === undefined
     ) {
       return yield* Effect.fail(failure(WORKTREE_OVER_HOST_NEEDS_REPO));
-    }
-    if (intent !== undefined && intent.trim() === "") {
-      return yield* Effect.fail(
-        failure(
-          '--intent must be a non-empty label — it is what the canvas shows for this terminal (e.g. --intent "fix #2117"). Omit the flag to create one with no label.',
-        ),
-      );
     }
 
     // The shell RE-PARSES this line, so rebuild it with `shellJoin` (the repo's

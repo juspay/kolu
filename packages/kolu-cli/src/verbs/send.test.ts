@@ -77,6 +77,19 @@ describe("resolveSendInput — exactly one text source", () => {
     expect(refusal).toContain("kolu send <id> --key Enter");
   });
 
+  it("refuses a BLANK --file by name, before it is ever opened", () => {
+    // `--file "$BRIEF"` with `$BRIEF` unset. Read instead of refused, it comes
+    // back as `--file "": no such file` — which sends the reader looking for a
+    // file rather than for the variable that did not expand. The whitespace case
+    // is the same accident with a quoted space, and `isBlank` (shared with
+    // `endpointOf`'s blank-endpoint refusal) says so for both.
+    for (const file of ["", " "]) {
+      const refusal = refusalOf(resolve({ file }));
+      expect(refusal).toContain("--file");
+      expect(refusal).toContain("empty value");
+    }
+  });
+
   it("refuses a send with nothing to do", () => {
     // A 0-byte no-op that exited 0 would read, to the loop above it, exactly
     // like a send that worked.

@@ -31,6 +31,18 @@
  *
  * Both arms print nothing extra — the library already rendered the help and the
  * reason — which is what {@link alreadyRendered} is for.
+ *
+ * ## The one arm that does NOT come through here: 130
+ *
+ * `runMain` turns SIGINT/SIGTERM into fiber interruption, and an interrupt is
+ * not a typed failure: the `Effect.catch` below never sees it, and neither would
+ * a `catchCause` anywhere under it (Effect latches the interrupt cause and
+ * re-raises it over every continuation popped after it). The code is still the
+ * contract's — `Runtime.defaultTeardown` answers an interrupts-only cause with
+ * 130 — but the LINE that rides it has to be written before the cause unwinds,
+ * from a finalizer, which is what `verbs/wait.ts`'s `withInterruptReport` does.
+ * So: every arm's line is written here EXCEPT the interrupted one, and that is a
+ * property of Effect's interruption, not a second reporting policy.
  */
 
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
