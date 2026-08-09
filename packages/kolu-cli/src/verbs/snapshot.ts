@@ -27,18 +27,20 @@
  *
  * ## Why the tail is sliced HERE
  *
- * The slice happens beside the padi hop, and `tailLines` is imported from the
- * MCP face (`kolu-mcp/screenText`) rather than re-derived: it also drops the
- * trailing run of whitespace-only rows, which is what a rendered buffer ends in
- * (the empty viewport below the cursor). Without that, `--tail 6` on a fresh
- * shell prints six blank lines — a real bug caught on the MCP side, and one this
- * verb would otherwise have re-introduced by writing its own three-line slice.
+ * The slice happens beside the padi hop, and `tailLines` is `@kolu/padi/render`'s
+ * rather than re-derived: it also drops the trailing run of whitespace-only
+ * rows, which is what a rendered buffer ends in (the empty viewport below the
+ * cursor). Without that, `--tail 6` on a fresh shell prints six blank lines — a
+ * real bug caught on the MCP side, and one this verb would otherwise have
+ * re-introduced by writing its own three-line slice. It used to be imported
+ * from `kolu-mcp/screenText`, which pointed a terminal verb's dependency arrow
+ * SIDEWAYS at a sibling face and made `cli.ts`'s per-face fence claim false —
+ * loading this verb built an MCP argument schema it would never use.
  */
 
-import { shortId } from "@kolu/padi/render";
+import { shortId, tailLines } from "@kolu/padi/render";
 import { Effect } from "effect";
 import type { Command } from "effect/unstable/cli";
-import { tailLines } from "kolu-mcp/screenText";
 // `import type` — fully erased, so this does NOT re-enter the command tree at
 // runtime and the per-face dynamic-import fence is untouched.
 import type { snapshotFlags } from "../cli.ts";

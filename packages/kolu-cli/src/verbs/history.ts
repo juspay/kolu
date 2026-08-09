@@ -8,40 +8,32 @@
  * retained scrollback above it. An agent reading a long build log needs the
  * second one, and needs it in the order the terminal produced it.
  *
- * ## Why this is a pager and not a single call
+ * ## The PAGER is padi's, the sentences are this verb's
  *
  * `screen.history` serves a bounded window — `max` rows ending just above a
  * caller-held cursor — because an unbounded reply would be a frame that scales
  * with the terminal's whole retained buffer, and padi's ndjson decoder CLOSES
- * the socket on an oversized frame. So the dump walks BACKWARDS a page at a
- * time: omit `before` on the first call (the host self-seeds from the top of
- * the current screen region), then feed each reply's `topLine` back as the next
- * `before`, until the host says `exhausted`. Collect the pages newest-older,
- * emit them REVERSED, and the dump reads top-to-bottom like the session did.
+ * the socket on an oversized frame. Walking that correctly (absent-not-
+ * `undefined` seeding, feeding `topLine` back as `before`, materializing a
+ * blank span, terminating only on `exhausted`, FAILING on `stale`) is a
+ * protocol discipline whose failure mode is a silently truncated dump that
+ * exits 0 — so it lives in `@kolu/padi/read` beside the reply shape it is a
+ * rule about (`readHistoryPage` / `readWholeHistory`), not in the composition
+ * root. It was a hand-rolled copy here, and the copy it was ported from
+ * (kaval-tui's) had ALREADY diverged: kaval `break`s on `stale` and prints the
+ * prefix.
  *
- * `before` is `Schema.optionalKey`, which means ABSENT — an explicit
- * `before: undefined` is a decode failure, not the "self-seed from the screen
- * top" request the first iteration means. Hence the spread, never a literal
- * `undefined`.
- *
- * ## Why the `stale` arm FAILS here
- *
- * `screen.history` can answer `{kind:"stale"}` — "a width reflow renumbered the
- * absolute rows your cursor was seeded under; the numbers you hold no longer
- * point where you think". A client that got that mid-walk and simply STOPPED
- * would print a prefix of the history and exit 0, and nothing downstream could
- * tell that dump from a complete one. That is exactly the silent partial this
- * repo treats as a defect, so it fails loud instead. (The host only serves
- * `stale` to a caller that sent `epoch`, and this pager sends none — so in
- * practice the arm is a contract breach, and the message says so.)
- *
- * The port is from `kaval-tui`'s `cmdHistory`: padi's `screen.history` takes
- * the same input keys and returns the same discriminated union as kaval's
- * `getHistory`, so the walk is unchanged and only the member ref moved. The one
- * deliberate divergence is the paragraph above — kaval `break`s on `stale`.
+ * What stays is what is genuinely this face's: validating `--lines` (the parse
+ * does it now), writing the blocks to stdout under the CLI's output discipline,
+ * the trailer, and the sentence a `stale` reply is reported with.
  */
 
 import { shortId } from "@kolu/padi/render";
+import {
+  isPadiHistoryStale,
+  readHistoryPage,
+  readWholeHistory,
+} from "@kolu/padi/read";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect } from "effect";
 import type { Command } from "effect/unstable/cli";
@@ -51,12 +43,6 @@ import type { historyFlags } from "../cli.ts";
 import { type Connection, type Endpoint, withPadi } from "../endpoint.ts";
 import { type CliFailure, failure } from "../exit.ts";
 import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
-
-/** How many scrollback rows one page asks for. Ported verbatim from kaval-tui's
- *  `HISTORY_PAGE_ROWS`: big enough that a long dump is a handful of round trips
- *  rather than hundreds, small enough that a page is nowhere near the frame
- *  ceiling that closes the socket. */
-const HISTORY_PAGE_ROWS = 1000;
 
 /** What the command tree parses for this verb — DERIVED from `historyFlags` in
  *  `cli.ts`. `lines` is optional, and ABSENT means the WHOLE history rather than
@@ -72,44 +58,16 @@ export type HistoryArgs = Command.Command.Config.Infer<typeof historyFlags>;
 const writeOutLine = (text: string): Effect.Effect<void, CliFailure> =>
   writeOut(text.endsWith("\n") ? text : `${text}\n`, "the scrollback");
 
-/**
- * Turn one reply into the text that page contributes, or `null` for "this reply
- * contributes nothing". Ported from `kaval-tui/src/historyPage.ts`
- * (`materializeHistoryPage`) — it cannot be imported, because kaval-tui is a
- * kaval client and NO kaval dependency may enter this package; the rule it
- * encodes is about padi's reply shape, which is identical.
- *
- *  - A non-empty chunk is emitted verbatim (VT-serialized bytes).
- *  - An EMPTY chunk that still SPANS rows (`before - topLine > 0`) is an
- *    all-blank run of scrollback: serializing a blank range collapses it to "",
- *    but those blank rows are real content, so they are materialized as blank
- *    lines. Dropping the page would silently compress the dump's vertical
- *    spacing below what the terminal actually produced.
- *  - An empty chunk on the SELF-SEEDED first page (`before === undefined`) is
- *    skipped: its span is not knowable client-side (there is no prior cursor to
- *    subtract from), so a leading blank run is the one uncovered edge.
- */
-function materializeHistoryPage(
-  chunk: string,
-  before: number | undefined,
-  topLine: number,
-): string | null {
-  if (chunk !== "") return chunk;
-  if (before === undefined) return null;
-  const span = before - topLine;
-  return span > 0 ? "\n".repeat(span) : null;
-}
-
-/** The `stale` arm, as the loud failure it has to be. See the module header:
- *  halting quietly would print a PREFIX of the history and exit 0. */
+/** The `stale` arm's SENTENCE. padi decides that a `stale` reply is a failure
+ *  (`PadiHistoryStale`) — halting quietly would print a PREFIX of the history
+ *  and exit 0; this face decides how to say so, in the vocabulary of the command
+ *  the user typed. */
 const staleFailure = (id: TerminalId) =>
   failure(
     `padi answered "stale" while paging ${shortId(id)}'s scrollback — the mirror was renumbered by a width reflow mid-dump, so the rows already read cannot be joined to the rest. Nothing partial was printed; re-run \`kolu history\` once the terminal's width has settled.`,
   );
 
-/** One page: the N older lines immediately above the screen. No cursor is sent,
- *  so the host self-seeds from the top of the current screen region — which is
- *  exactly "the N lines that just scrolled off".
+/** One page: the N older lines immediately above the screen.
  *
  *  `max` is a positive int in the contract, and the PARSE is what enforces that
  *  (`positiveLines` in `cli.ts`). It used to be enforced here — after the dial
@@ -122,41 +80,24 @@ function onePage(
   max: number,
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
-    const res = yield* conn.client.surface.screen.history({ id, max });
-    if (res.kind === "stale") return yield* Effect.fail(staleFailure(id));
-    const page = materializeHistoryPage(res.chunk, undefined, res.topLine);
+    const page = yield* Effect.catch(readHistoryPage(conn.client, id, max), (err) =>
+      Effect.fail(isPadiHistoryStale(err) ? staleFailure(id) : err),
+    );
     if (page !== null) yield* writeOutLine(page);
     yield* writeErr(`— ${shortId(id)} · older history (≤${max} lines)\n`);
   });
 }
 
-/** The whole retained scrollback: page from the screen top back to the oldest
- *  line the host still keeps. Fetched newest-older, emitted OLDEST-first. */
+/** The whole retained scrollback, emitted OLDEST-first. */
 function wholeHistory(
   conn: Connection,
   id: TerminalId,
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
-    const pages: string[] = [];
-    let before: number | undefined;
-    for (;;) {
-      const res = yield* conn.client.surface.screen.history({
-        id,
-        // ABSENT on the first iteration (self-seed), present thereafter — an
-        // explicit `undefined` would be a decode failure, not a request.
-        ...(before === undefined ? {} : { before }),
-        max: HISTORY_PAGE_ROWS,
-      });
-      if (res.kind === "stale") return yield* Effect.fail(staleFailure(id));
-      // An all-blank page serializes to "" but is NOT exhaustion — the cursor
-      // still moved, so keep walking or content ABOVE a blank run is cut off.
-      // Only `exhausted` (the top of the retained mirror) ends the dump.
-      const page = materializeHistoryPage(res.chunk, before, res.topLine);
-      if (page !== null) pages.push(page);
-      before = res.topLine;
-      if (res.exhausted) break;
-    }
-    for (const chunk of pages.slice().reverse()) yield* writeOutLine(chunk);
+    const pages = yield* Effect.catch(readWholeHistory(conn.client, id), (err) =>
+      Effect.fail(isPadiHistoryStale(err) ? staleFailure(id) : err),
+    );
+    for (const chunk of pages) yield* writeOutLine(chunk);
     yield* writeErr(
       `— ${shortId(id)} · ${pages.length} older page${pages.length === 1 ? "" : "s"}\n`,
     );

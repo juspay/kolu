@@ -34,6 +34,7 @@ import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PadiSurfaceClient } from "./dial.ts";
 import { padiSurface, type PadiTerminal } from "./surface.ts";
+import { activeAgent } from "./terminalVocab.ts";
 
 /** Consume a member `Stream` as an async iterable whose teardown is bound to
  *  `signal`.
@@ -60,29 +61,18 @@ function iterateUntilAborted<T>(
   return { [Symbol.asyncIterator]: () => iter };
 }
 
-/** The LIVE agent of a composed record, or `null` — only the `active` arm
- *  carries a running agent (`sleeping`/`parked` are dormant, their PTY
- *  released), so the union is narrowed here rather than at every read site. */
-export function activeAgent(v: PadiTerminal): AgentInfo | null {
-  return v.state === "active" ? v.agent : null;
-}
-
-/** The coarse agent buckets a wait accepts as targets — the `agentBucket`
- *  fold's vocabulary minus `other` (an `other` bucket never matches a real
- *  agent, so accepting it would only ever time out). A wait compares against
- *  the *bucket*, never the raw `AgentInfo['state']` literals, so the one fold
- *  in `@kolu/terminal-vocab/agentProjection` stays the single source of truth
- *  (see `.claude/rules/dock-fleet-mirror.md`). */
-export const WAIT_STATES = [
-  "working",
-  "awaiting",
-  "waiting",
-] as const satisfies readonly Exclude<
-  ReturnType<typeof agentBucket>,
-  "other"
->[];
-
-export type WaitState = (typeof WAIT_STATES)[number];
+// The pure vocabulary (`activeAgent`, `WAIT_STATES`, `WaitState`,
+// `isWaitState`) lives one layer DOWN, in `terminalVocab.ts`, and is
+// re-exported here so every consumer's import path is unchanged. It moved
+// because `render.ts` — which promises "no I/O, no transport, no tty" — needs
+// it, and reaching it through this module dragged the whole dial graph into a
+// text formatter. See that file's header.
+export {
+  activeAgent,
+  isWaitState,
+  WAIT_STATES,
+  type WaitState,
+} from "./terminalVocab.ts";
 
 /** The live agent of a record IF it is in one of the target buckets, else
  *  `null` — the wait's match payload. A record with no live agent (a bare

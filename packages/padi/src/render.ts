@@ -13,8 +13,18 @@
  * `@kolu/terminal-vocab/agentProjection` stays the single source of truth.
  */
 
-import { activeAgent, WAIT_STATES, type WaitState } from "./dial.ts";
+// `./terminalVocab.ts`, NOT `./dial.ts`. The three symbols are the same ones —
+// `dial.ts` merely re-exports them — but reaching them through the dial kit put
+// `socketDuplexLink`, `@kolu/surface-daemon-supervisor`, `@kolu/surface-remote`
+// and `kolu-pty` in this formatter's module graph, refuting the "no I/O, no
+// transport, no tty" promise on line 1. A stated invariant the import graph
+// contradicts will be relied on and will break.
 import type { PadiTerminal } from "./surface.ts";
+import {
+  activeAgent,
+  WAIT_STATES,
+  type WaitState,
+} from "./terminalVocab.ts";
 import {
   agentBucket,
   agentShortName,
@@ -96,6 +106,29 @@ export function parseUntilStates(
     };
   }
   return { kind: "ok", targets: new Set(tokens as WaitState[]) };
+}
+
+/** The last `tail` lines of a rendered screen, with the trailing run of
+ *  whitespace-only rows dropped first.
+ *
+ *  A pure fold over `screen.text`'s output, and it lives beside padi's other
+ *  formatters because the rule it encodes is about padi's REPLY: the rendered
+ *  buffer ends in the empty viewport below the cursor, which carries zero
+ *  information and would otherwise BE the tail (`tail: 6` on a fresh shell
+ *  returned six blank lines — a real bug, caught on the MCP face). Blank lines
+ *  BETWEEN content are kept verbatim.
+ *
+ *  It was `kolu-mcp/screenText`'s until `kolu snapshot --tail` became its second
+ *  consumer and imported it from there — a CLI verb reaching sideways into a
+ *  sibling FACE's adapter for domain knowledge, which also made `cli.ts`'s
+ *  per-face fence claim false (a terminal verb was building an MCP argument
+ *  schema at module load). Both faces now import it from the package that owns
+ *  the reply it folds. */
+export function tailLines(text: string, tail: number): string {
+  const lines = text.split("\n");
+  let end = lines.length;
+  while (end > 0 && (lines[end - 1] as string).trim() === "") end -= 1;
+  return lines.slice(Math.max(0, end - tail), end).join("\n");
 }
 
 /** Strip terminal-hostile bytes from a human-rendered value. A shell can set its

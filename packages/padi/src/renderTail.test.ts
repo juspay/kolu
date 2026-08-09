@@ -1,6 +1,6 @@
 /** `tailLines` — the tail-mode slice, pinned apart from the wire. */
 import { describe, expect, it } from "vitest";
-import { tailLines } from "./screenText.ts";
+import { tailLines } from "./render.ts";
 
 describe("tailLines", () => {
   it("returns the last N lines", () => {

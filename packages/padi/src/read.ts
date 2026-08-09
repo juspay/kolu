@@ -22,7 +22,7 @@ import type { PadiSurfaceClient } from "./dial.ts";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { Deferred, Effect } from "effect";
+import { Data, Deferred, Effect } from "effect";
 import { padiSurface, type PadiTerminal } from "./surface.ts";
 
 /** The current terminal key set — the FIRST frame of the `keys` snapshot-then-delta
@@ -53,6 +53,119 @@ export function readTerminalKeys(
       "padi terminals keys yielded no snapshot frame — link or protocol failure.",
     ),
   );
+}
+
+// ── The scrollback pager ─────────────────────────────────────────────────────
+//
+// Correctly consuming `screen.history` is a multi-round-trip PROTOCOL
+// discipline, not a call: seed `before` ABSENT (never `undefined` — the key is
+// `Schema.optionalKey`, so an explicit undefined is a decode failure rather
+// than the "self-seed from the screen top" request the first iteration means),
+// feed each reply's `topLine` back as the next `before`, materialize a blank
+// span from `before - topLine`, and terminate only on `exhausted`. Its failure
+// mode is a silently truncated dump that exits 0, which is why it lives beside
+// the reply shape it is a rule ABOUT rather than in each face that dumps
+// scrollback. `kaval-tui` keeps its own copy until it is retired — it is a
+// kaval client and may not import padi — but no padi client writes a second
+// one.
+
+/** How many scrollback rows one page asks for. Big enough that a long dump is a
+ *  handful of round trips rather than hundreds, small enough that a page is
+ *  nowhere near the frame ceiling that closes the socket (padi's ndjson decoder
+ *  drops the link on an oversized frame, which is the whole reason this is a
+ *  pager). */
+export const HISTORY_PAGE_ROWS = 1000;
+
+/** padi answered `stale` mid-walk: a width reflow renumbered the absolute rows
+ *  the cursor was seeded under, so the rows already read cannot be joined to the
+ *  rest.
+ *
+ *  A tagged FAILURE, never a `break`. A client that got this and simply STOPPED
+ *  would print a prefix of the history and exit 0, and nothing downstream could
+ *  tell that dump from a complete one — the silent partial this repo treats as a
+ *  defect. (The host only serves `stale` to a caller that sent `epoch`, and this
+ *  pager sends none, so in practice it is a contract breach.) The face phrases
+ *  the sentence; the RULE that it is a failure is padi's. */
+export class PadiHistoryStale extends Data.TaggedError("PadiHistoryStale")<{
+  readonly id: TerminalId;
+}> {}
+
+/** Is this rejection the `stale` halt? A `_tag` compare rather than
+ *  `instanceof`, for the reason `isContractSkewError` is a brand check: a face
+ *  and the padi kit that raised the error can sit on different module instances
+ *  of this package, and a tag compare is realm-safe by construction. Exported so
+ *  a face maps it to its own sentence without re-deriving the test. */
+export const isPadiHistoryStale = (err: unknown): err is PadiHistoryStale =>
+  (err as { readonly _tag?: unknown })?._tag === "PadiHistoryStale";
+
+/** Turn one reply into the text that page contributes, or `null` for "this reply
+ *  contributes nothing".
+ *
+ *   - A non-empty chunk is emitted verbatim (VT-serialized bytes).
+ *   - An EMPTY chunk that still SPANS rows (`before - topLine > 0`) is an
+ *     all-blank run of scrollback: serializing a blank range collapses it to "",
+ *     but those blank rows are real content, so they are materialized as blank
+ *     lines. Dropping the page would silently compress the dump's vertical
+ *     spacing below what the terminal actually produced.
+ *   - An empty chunk on the SELF-SEEDED first page (`before === undefined`) is
+ *     skipped: its span is not knowable client-side (there is no prior cursor to
+ *     subtract from), so a leading blank run is the one uncovered edge. */
+export function materializeHistoryPage(
+  chunk: string,
+  before: number | undefined,
+  topLine: number,
+): string | null {
+  if (chunk !== "") return chunk;
+  if (before === undefined) return null;
+  const span = before - topLine;
+  return span > 0 ? "\n".repeat(span) : null;
+}
+
+/** ONE page: the `max` older lines immediately above the screen. No cursor is
+ *  sent, so the host self-seeds from the top of the current screen region —
+ *  which is exactly "the lines that just scrolled off". `null` means the reply
+ *  contributed nothing. */
+export function readHistoryPage(
+  client: PadiSurfaceClient,
+  id: TerminalId,
+  max: number,
+): Effect.Effect<string | null, unknown> {
+  return Effect.flatMap(client.surface.screen.history({ id, max }), (res) =>
+    res.kind === "stale"
+      ? Effect.fail(new PadiHistoryStale({ id }))
+      : Effect.succeed(materializeHistoryPage(res.chunk, undefined, res.topLine)),
+  );
+}
+
+/** The WHOLE retained scrollback, OLDEST-FIRST: page from the screen top back
+ *  to the oldest line the host still keeps.
+ *
+ *  Fetched newest-older (that is the only direction the wire serves) and handed
+ *  back reversed, so a caller writes the pages in the order the session
+ *  produced them. An all-blank page serializes to "" but is NOT exhaustion —
+ *  the cursor still moved — so only `exhausted` ends the walk; treating "" as
+ *  the end would cut off everything ABOVE a blank run. */
+export function readWholeHistory(
+  client: PadiSurfaceClient,
+  id: TerminalId,
+): Effect.Effect<readonly string[], unknown> {
+  return Effect.gen(function* () {
+    const newestFirst: string[] = [];
+    let before: number | undefined;
+    for (;;) {
+      const res = yield* client.surface.screen.history({
+        id,
+        ...(before === undefined ? {} : { before }),
+        max: HISTORY_PAGE_ROWS,
+      });
+      if (res.kind === "stale") return yield* Effect.fail(new PadiHistoryStale({ id }));
+      const page = materializeHistoryPage(res.chunk, before, res.topLine);
+      if (page !== null) newestFirst.push(page);
+      before = res.topLine;
+      if (res.exhausted) break;
+    }
+    return newestFirst.reverse();
+  });
 }
 
 /** A composed record is "resolved enough to show" once its live sensors have
