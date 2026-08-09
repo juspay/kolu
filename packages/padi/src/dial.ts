@@ -94,7 +94,7 @@ export {
   type WaitState,
   type WatchHandlers,
   watchTerminals,
-} from "./watch.ts";
+} from "./cliClient/watch.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

@@ -19,7 +19,7 @@
 
 import type { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
-import type { PadiTerminal } from "./surface.ts";
+import type { PadiTerminal } from "../surface.ts";
 
 /** The LIVE agent of a composed record, or `null` — only the `active` arm
  *  carries a running agent (`sleeping`/`parked` are dormant, their PTY

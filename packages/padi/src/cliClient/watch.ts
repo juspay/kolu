@@ -32,9 +32,9 @@ import {
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
-import type { PadiSurfaceClient } from "./dial.ts";
-import { errMessage } from "./errText.ts";
-import { padiSurface, type PadiTerminal } from "./surface.ts";
+import type { PadiSurfaceClient } from "../dial.ts";
+import { errMessage } from "../errText.ts";
+import { padiSurface, type PadiTerminal } from "../surface.ts";
 import { activeAgent } from "./terminalVocab.ts";
 
 /** Consume a member `Stream` as an async iterable whose teardown is bound to
@@ -288,13 +288,26 @@ export async function awaitAgentState(
 
 // ── The attach-feed spine (shared by the two OUTPUT waits) ───────────────────
 
-/** One frame of the `terminalAttach` feed, as an output wait reads it — a
- *  structural narrowing of the member's union (`snapshot` carries the screen
- *  replay plus a backfill seed; `delta` carries fresh bytes). The settle wait
- *  needs only that a frame ARRIVED, the match wait needs a `delta`'s bytes, and
- *  neither has any use for `topLine`/`reflowEpoch` — so the spine hands the
- *  frame across at exactly the width both read it. */
-type AttachFrame = { readonly kind: string; readonly data?: string };
+/** One frame of the `terminalAttach` feed, as an output wait reads it — the
+ *  member's OWN discriminated union (`surface.ts` → `terminalAttach.outputSchema`,
+ *  mirrored by `TerminalAttachFrame` in `endpoint.ts`), narrowed to the fields
+ *  both waits read. The settle wait needs only that a frame ARRIVED, the match
+ *  wait needs a `delta`'s bytes, and neither has any use for
+ *  `topLine`/`reflowEpoch` — so the spine hands the frame across at exactly that
+ *  width, dropping the snapshot's backfill seed but NOT its identity.
+ *
+ *  The arms are LITERALS, not a bare `kind: string`, because the whole match
+ *  wait hangs off one comparison (`frame.kind !== "delta"`). Typed loosely, a
+ *  rename or a typo of that literal compiles clean and silently disables all
+ *  scanning — a `match:` wait that can never fire, reported to its caller as a
+ *  plain timeout. Spelled as a union, the compiler rejects any `kind` the wire
+ *  does not carry, and the `!== "delta"` site narrows the remainder to
+ *  `snapshot` instead of to `unknown-shaped`. `data` is non-optional on both
+ *  arms because the wire puts it on both; there is no frame whose bytes are
+ *  absent, so no reader has to invent an empty one. */
+type AttachFrame =
+  | { readonly kind: "snapshot"; readonly data: string }
+  | { readonly kind: "delta"; readonly data: string };
 
 /**
  * Subscribe terminal `id`'s output feed (and its exit event) for the duration of
@@ -728,7 +741,7 @@ export async function awaitOutputMatch(
         id: opts.id,
         onFrame: (frame) => {
           if (frame.kind !== "delta") return;
-          const data = frame.data ?? "";
+          const data = frame.data;
           // An empty delta brings no new text: its window would be exactly the
           // carry the previous frame already scanned, for exactly the same
           // verdict. Skipping it keeps "one scan per new byte" true.

@@ -42,6 +42,7 @@ import {
   PTY_HOST_SOCK_FILE,
   readStateRootManifest,
 } from "kaval";
+import { match } from "ts-pattern";
 import { errMessage } from "./errText.ts";
 
 // The `state-root` manifest (digest → state-root) is OWNED by kaval, beside the
@@ -479,35 +480,57 @@ export type LocalPadiSocket =
  * "there are none" — never a defect dump.
  */
 export function localPadiSocket(target: LocalPadiTarget): LocalPadiSocket {
+  // Both dispatches are `match(...).exhaustive()` (the same shape
+  // `terminalEndpoint/resolve.ts` uses for `HostLocation`) rather than a ternary
+  // chain and an if-cascade. The gain is not brevity, it is the compiler:
+  // written as a cascade, the `ok` return was the FALLTHROUGH, so a sixth
+  // `PadiSocketResolution` arm — say a future "the daemon is draining" — would
+  // have been silently reported as a dialable socket. Exhaustive, adding one
+  // fails the build until this function says what it means.
+  const lookup = match<
+    LocalPadiTarget,
+    Parameters<typeof resolveRunningPadiSocket>[0]
+  >(target)
+    .with({ kind: "socket" }, ({ path }) => ({ socket: path }))
+    .with({ kind: "stateRoot" }, ({ dir }) => ({ stateRoot: dir }))
+    // `auto` is "whatever this host is running": no override, so resolution
+    // falls through to `$PADI_SOCKET` and then discovery.
+    .with({ kind: "auto" }, () => ({}))
+    .exhaustive();
+
   let resolved: PadiSocketResolution;
   try {
-    resolved = resolveRunningPadiSocket(
-      target.kind === "socket"
-        ? { socket: target.path }
-        : target.kind === "stateRoot"
-          ? { stateRoot: target.dir }
-          : {},
-    );
+    resolved = resolveRunningPadiSocket(lookup);
   } catch (err) {
     return { kind: "unaddressable", message: errMessage(err) };
   }
-  if (resolved.kind === "many") {
-    const lines = resolved.candidates
-      .map((c) => `  PADI_SOCKET=${c.socket}`)
-      .join("\n");
-    return {
-      kind: "unaddressable",
-      message: `more than one padi daemon is running on this host — set $PADI_SOCKET or pass --socket to pick one:\n${lines}`,
-    };
-  }
-  if (resolved.kind === "none") {
-    return {
-      kind: "unaddressable",
-      message:
-        "no running padi daemon found on this host — start kolu (its padi serves the terminals), or pass --socket / set $PADI_SOCKET.",
-    };
-  }
-  return { kind: "ok", socket: resolved.socket };
+
+  return (
+    match<PadiSocketResolution, LocalPadiSocket>(resolved)
+      .with({ kind: "many" }, ({ candidates }) => ({
+        kind: "unaddressable",
+        message: `more than one padi daemon is running on this host — set $PADI_SOCKET or pass --socket to pick one:\n${candidates
+          .map((c) => `  PADI_SOCKET=${c.socket}`)
+          .join("\n")}`,
+      }))
+      .with({ kind: "none" }, () => ({
+        kind: "unaddressable",
+        message:
+          "no running padi daemon found on this host — start kolu (its padi serves the terminals), or pass --socket / set $PADI_SOCKET.",
+      }))
+      // The four arms that NAMED one padi — however it was named (a flag, a
+      // state-root digest, `$PADI_SOCKET`, or the sole discovered daemon). They
+      // are spelled out, not left as a default arm, so the exhaustiveness above
+      // is real.
+      .with(
+        { kind: "explicit" },
+        { kind: "stateRoot" },
+        { kind: "env" },
+        { kind: "one" },
+        ({ socket }) => ({ kind: "ok", socket }),
+      )
+      .exhaustive()
+  );
 }
 
 /** Read-only chair naming for dial/error paths when no live daemon was found.

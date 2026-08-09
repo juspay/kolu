@@ -19,7 +19,7 @@
 // and `kolu-pty` in this formatter's module graph, refuting the "no I/O, no
 // transport, no tty" promise on line 1. A stated invariant the import graph
 // contradicts will be relied on and will break.
-import type { PadiTerminal } from "./surface.ts";
+import type { PadiTerminal } from "../surface.ts";
 import { activeAgent } from "./terminalVocab.ts";
 import {
   agentBucket,

@@ -34,7 +34,7 @@
  * transport blip killed the wait instead of re-subscribing —
  * `.claude/rules/streaming.md` rule 1), and it raced `terminalExit` in a way
  * that could report a terminal whose sentinel HAD printed as "gone". It lives in
- * `packages/padi/src/watch.ts` now, beside its two siblings, where that
+ * `packages/padi/src/cliClient/watch.ts` now, beside its two siblings, where that
  * subscription spine is written once.
  *
  * What stays here is what is genuinely CLI: the `--until` grammar (the three
@@ -254,7 +254,7 @@ export function planUntil(
 
   // The bucket arm. The comma split and its rejection are ARGV grammar, so they
   // live here beside the other two forms rather than in padi — which is what
-  // `padi/src/watch.ts`'s header says, and what the code contradicted: padi
+  // `padi/src/cliClient/watch.ts`'s header says, and what the code contradicted: padi
   // exported the split with a `--until:`-prefixed message, and this caller threw
   // that message away and re-spelled it with `UNTIL_FORMS`, because a token that
   // is not a bucket may simply be a mistyped PREFIX. padi owns `isWaitState`,

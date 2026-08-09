@@ -160,6 +160,23 @@ describe("encodeSend — keys", () => {
     expect(encoded.plan.write).toBe("\x1b");
   });
 
+  it("refuses an EMPTY name list — rule 4 in its other content shape", () => {
+    // The symmetric hole: the text branch refused an empty payload while
+    // `names: []` planned a 0-byte write and called it a plan. Both of today's
+    // faces gate it upstream, which is exactly why the policy — the thing a
+    // third consumer imports instead of re-deriving — has to hold it.
+    const argv = encodeSend({ kind: "keys", names: [] }, ARGV);
+    expect(argv.kind).toBe("refused");
+    if (argv.kind !== "refused") return;
+    expect(argv.message).toContain("nothing to send — --key named no keys");
+    expect(argv.message).toContain("0-byte send is a no-op");
+    // Same sentence, this face's word for the field.
+    const mcp = encodeSend({ kind: "keys", names: [] }, MCP);
+    expect(mcp.kind === "refused" ? mcp.message : "").toContain(
+      "nothing to send — key named no keys",
+    );
+  });
+
   it("refuses an unknown name rather than sending a partial run of keys", () => {
     const encoded = encodeSend(
       { kind: "keys", names: ["Enter", "Nope"] },

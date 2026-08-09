@@ -218,6 +218,11 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   vocabulary with two faces reading it, not two copies held in lockstep by
   JSDoc cross-reference. They stay here rather than in `@kolu/surface` because
   they speak **padi's** records — the generic wait scaffold went the other way.
+  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, plus the
+  `terminalVocab.ts` both fold over and the `watch.ts` wait kit the `dial` entry
+  re-exports — the same one-cluster-one-directory shape as `terminalEndpoint/`
+  and `terminalWorkspace/`. The **subpaths above are unchanged**: the directory
+  is padi's internal layout, not its public one.
 
 ## What padi knows nothing about
 
