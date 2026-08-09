@@ -71,26 +71,23 @@ import { readTerminalKeys } from "@kolu/padi/read";
 import { resolveTerminalId, shortId } from "@kolu/padi/render";
 import { shellJoin } from "@kolu/shell-quote";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
+import type { Command } from "effect/unstable/cli";
+// `import type` — fully erased, so this does NOT re-enter the command tree at
+// runtime and the per-face dynamic-import fence is untouched.
+import type { createFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
 import { type CliFailure, failure, reportOf } from "../exit.ts";
 import { writeErr, writeOut } from "./shared.ts";
 
-/** What the command tree parses for `kolu create` (see `cli.ts`). The optional
- *  flags arrive as `Option` — Effect CLI's spelling for "absent" — and are read
- *  down to `undefined` once, at the top of {@link run}, because the wire below
- *  distinguishes an ABSENT key from an explicit `undefined` (every optional
- *  field on `PadiCreateInputSchema` is a `Schema.optionalKey`, so passing
- *  `{cwd: undefined}` is a decode FAILURE, not a default). */
-export interface CreateArgs {
-  readonly argv: readonly string[];
-  readonly cwd: Option.Option<string>;
-  readonly parent: Option.Option<string>;
-  readonly intent: Option.Option<string>;
-  readonly repo: Option.Option<string>;
-  readonly worktree: Option.Option<string>;
-  readonly json: boolean;
-}
+/** What the command tree parses for `kolu create` — DERIVED from `createFlags`
+ *  in `cli.ts`, where the optional flags are already projected to `undefined`.
+ *  That projection matters twice over here: the wire below distinguishes an
+ *  ABSENT key from an explicit `undefined` (every optional field on
+ *  `PadiCreateInputSchema` is a `Schema.optionalKey`, so passing
+ *  `{cwd: undefined}` is a decode FAILURE, not a default), and the spread
+ *  discipline that honors it reads a plain `string | undefined`. */
+export type CreateArgs = Command.Command.Config.Infer<typeof createFlags>;
 
 /** What EXISTS on the far side, accumulated one step at a time.
  *
@@ -164,9 +161,7 @@ type Placement =
   | { readonly kind: "open"; readonly cwd: string | undefined };
 
 function placementOf(args: CreateArgs): Effect.Effect<Placement, CliFailure> {
-  const cwd = Option.getOrUndefined(args.cwd);
-  const repo = Option.getOrUndefined(args.repo);
-  const name = Option.getOrUndefined(args.worktree);
+  const { cwd, repo, worktree: name } = args;
 
   if (name === undefined) {
     if (repo !== undefined) {
@@ -323,8 +318,7 @@ export function run(
   args: CreateArgs,
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
-    const parent = Option.getOrUndefined(args.parent);
-    const intent = Option.getOrUndefined(args.intent);
+    const { parent, intent } = args;
 
     // ── The pure gates, BEFORE the dial ──────────────────────────────────
     // Each one names a flag that would otherwise be silently ignored, and each

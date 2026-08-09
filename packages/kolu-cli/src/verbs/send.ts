@@ -61,23 +61,20 @@ import {
   encodeKey,
   wrapBracketedPaste,
 } from "@kolu/terminal-protocol";
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
+import type { Command } from "effect/unstable/cli";
+// `import type` — fully erased, so this does NOT re-enter the command tree at
+// runtime and the per-face dynamic-import fence is untouched.
+import type { sendFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
 import { type CliFailure, failure } from "../exit.ts";
 import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
 
-/** What the command tree parsed for `send` (see `cli.ts`). `text` is the
- *  variadic positional the shell already split; `key` is repeatable; `file` and
- *  `paste` are `Flag.optional`, so absent is `Option.none` rather than a
- *  sentinel. */
-export interface SendArgs {
-  readonly id: string;
-  readonly text: readonly string[];
-  readonly key: readonly string[];
-  readonly file: Option.Option<string>;
-  readonly paste: Option.Option<boolean>;
-  readonly json: boolean;
-}
+/** What the command tree parsed for `send` — DERIVED from `sendFlags` in
+ *  `cli.ts`. `text` is the variadic positional the shell already split; `key` is
+ *  repeatable; `file` and `paste` are optional, projected to `undefined` at the
+ *  flag rather than re-narrowed here. */
+export type SendArgs = Command.Command.Config.Infer<typeof sendFlags>;
 
 /** The canonical three-step submit ritual, rendered ONCE so the command lines
  *  can't drift across the sites that teach it — this module's docstring and the
@@ -433,12 +430,10 @@ export function run(
   args: SendArgs,
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
-    const file = Option.getOrUndefined(args.file);
-
     // Pre-dial: an illegal flag combination is decided without touching a padi.
     const input = yield* resolveSendInput({
       hasPositional: args.text.length > 0,
-      file,
+      file: args.file,
       stdinIsPayload: stdinIsPayload(),
       hasKeys: args.key.length > 0,
     });
@@ -474,7 +469,7 @@ export function run(
         : planSend({
             kind: "text",
             text,
-            paste: Option.getOrUndefined(args.paste),
+            paste: args.paste,
             fromStream: sourceIsStream(input),
           });
 

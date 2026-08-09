@@ -151,6 +151,27 @@ describe("kolu command tree", () => {
     });
   });
 
+  describe("a numeric flag's range is part of the PARSE, not of a verb body", () => {
+    it("refuses a non-positive --tail / --lines before any verb module loads", async () => {
+      // The point is not only the refusal, it is WHEN: every assertion in this
+      // file runs with nothing dialed, so reaching a failure here proves the
+      // rule fired before the handler — and therefore before `--host` would
+      // have ssh-provisioned a cold box. `--lines` used to be checked AFTER the
+      // dial and after the roster read, which is the asymmetry this closes.
+      for (const argv of [
+        ["snapshot", "3f9c", "--tail", "0", "--host", "box"],
+        ["history", "3f9c", "--lines", "0", "--host", "box"],
+      ]) {
+        expect(Exit.isFailure(await run(argv))).toBe(true);
+      }
+    });
+
+    it("refuses a --timeout outside the shared timer range", async () => {
+      const beyondSetTimeout = ["wait", "3f9c", "--until", "idle:5", "--timeout", "2147483648", "--host", "box"];
+      expect(Exit.isFailure(await run(beyondSetTimeout))).toBe(true);
+    });
+  });
+
   it("the reserved face fails fast with the named message and exit 1", async () => {
     const err = await failureOf(["tui"]);
     expect(err._tag).toBe("ReservedFaceError");

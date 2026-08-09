@@ -38,15 +38,18 @@
 
 import { shortId } from "@kolu/padi/render";
 import { Effect } from "effect";
+import type { Command } from "effect/unstable/cli";
+// `import type` — fully erased, so this does NOT re-enter the command tree at
+// runtime and the per-face dynamic-import fence is untouched.
+import type { killFlags } from "../cli.ts";
 import { type Connection, type Endpoint, withPadi } from "../endpoint.ts";
 import { failure } from "../exit.ts";
 import { resolveTerminal, writeErr } from "./shared.ts";
 
-/** What the command tree parses for this verb. */
-export interface KillArgs {
-  /** A terminal id, or any unique prefix of one (the `kolu ls` short form). */
-  readonly id: string;
-}
+/** What the command tree parses for this verb — DERIVED from the flag record in
+ *  `cli.ts`. `id` is a terminal id or any unique prefix of one (the `kolu ls`
+ *  short form). */
+export type KillArgs = Command.Command.Config.Infer<typeof killFlags>;
 
 /** End the terminal `id` names, and say so on stderr.
  *

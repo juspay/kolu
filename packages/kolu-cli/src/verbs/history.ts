@@ -43,7 +43,11 @@
 
 import { shortId } from "@kolu/padi/render";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
+import type { Command } from "effect/unstable/cli";
+// `import type` — fully erased, so this does NOT re-enter the command tree at
+// runtime and the per-face dynamic-import fence is untouched.
+import type { historyFlags } from "../cli.ts";
 import { type Connection, type Endpoint, withPadi } from "../endpoint.ts";
 import { type CliFailure, failure } from "../exit.ts";
 import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
@@ -54,13 +58,11 @@ import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
  *  ceiling that closes the socket. */
 const HISTORY_PAGE_ROWS = 1000;
 
-/** What the command tree parses for this verb. `lines` is `Flag.integer` +
- *  `Flag.optional`, so it arrives as an `Option`, and "absent" means the WHOLE
- *  history rather than a default page count. */
-export interface HistoryArgs {
-  readonly id: string;
-  readonly lines: Option.Option<number>;
-}
+/** What the command tree parses for this verb — DERIVED from `historyFlags` in
+ *  `cli.ts`. `lines` is optional, and ABSENT means the WHOLE history rather than
+ *  a default page count; when present the parse has already refused anything
+ *  that is not a positive whole number, BEFORE the dial. */
+export type HistoryArgs = Command.Command.Config.Infer<typeof historyFlags>;
 
 /** Write one block to stdout with exactly one trailing newline. stdout is DATA
  *  here — the scrollback bytes, VT sequences and all — so nothing else may go
@@ -105,27 +107,21 @@ const staleFailure = (id: TerminalId) =>
     `padi answered "stale" while paging ${shortId(id)}'s scrollback — the mirror was renumbered by a width reflow mid-dump, so the rows already read cannot be joined to the rest. Nothing partial was printed; re-run \`kolu history\` once the terminal's width has settled.`,
   );
 
-/** `--lines N` asks for ONE page of N rows. `max` is a positive int in the
- *  contract, so 0 and negatives are rejected here with a sentence rather than
- *  being sent on to surface as an opaque decode failure. */
-function pageSizeOf(lines: number): Effect.Effect<number, unknown> {
-  return lines > 0
-    ? Effect.succeed(lines)
-    : Effect.fail(
-        failure(`--lines must be a positive number of lines (got ${lines}).`),
-      );
-}
-
 /** One page: the N older lines immediately above the screen. No cursor is sent,
  *  so the host self-seeds from the top of the current screen region — which is
- *  exactly "the N lines that just scrolled off". */
+ *  exactly "the N lines that just scrolled off".
+ *
+ *  `max` is a positive int in the contract, and the PARSE is what enforces that
+ *  (`positiveLines` in `cli.ts`). It used to be enforced here — after the dial
+ *  and after the roster read — so `kolu history <id> --lines 0 --host box`
+ *  ssh-provisioned a cold machine before saying "that is not a positive
+ *  number", while `snapshot --tail 0` refused instantly on the same rule. */
 function onePage(
   conn: Connection,
   id: TerminalId,
-  lines: number,
+  max: number,
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
-    const max = yield* pageSizeOf(lines);
     const res = yield* conn.client.surface.screen.history({ id, max });
     if (res.kind === "stale") return yield* Effect.fail(staleFailure(id));
     const page = materializeHistoryPage(res.chunk, undefined, res.topLine);
@@ -178,10 +174,9 @@ export function run(
   return withPadi(endpoint, (conn) =>
     Effect.gen(function* () {
       const id = yield* resolveTerminal(conn, args.id);
-      const lines = Option.getOrUndefined(args.lines);
-      return yield* lines === undefined
+      return yield* args.lines === undefined
         ? wholeHistory(conn, id)
-        : onePage(conn, id, lines);
+        : onePage(conn, id, args.lines);
     }),
   );
 }

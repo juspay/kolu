@@ -88,10 +88,10 @@ describe("the exit-code contract", () => {
   });
 
   it("keeps CliFailure's stderr the ONE prefixed line `failure()` wrote", () => {
-    const e = failure("--tail takes a positive whole number of lines, got 0.");
+    const e = failure('no terminal matching "3f9" — `kolu ls` shows the live ones.');
     expect(e).toBeInstanceOf(CliFailure);
     expect(e.stderr).toBe(
-      "kolu: --tail takes a positive whole number of lines, got 0.\n",
+      'kolu: no terminal matching "3f9" — `kolu ls` shows the live ones.\n',
     );
   });
 });

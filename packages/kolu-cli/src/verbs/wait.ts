@@ -85,7 +85,11 @@ import {
   waitOutcomeJson,
 } from "@kolu/surface/wait";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
-import { Effect, Option, type Scope } from "effect";
+import { Effect, type Scope } from "effect";
+import type { Command } from "effect/unstable/cli";
+// `import type` — fully erased, so this does NOT re-enter the command tree at
+// runtime and the per-face dynamic-import fence is untouched.
+import type { waitFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
 import {
   type CliFailure,
@@ -96,13 +100,10 @@ import {
 } from "../exit.ts";
 import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
 
-/** The flags Effect CLI parses for `kolu wait` (see `cli.ts`). */
-export interface WaitArgs {
-  readonly id: string;
-  readonly until: string;
-  readonly timeout: Option.Option<number>;
-  readonly json: boolean;
-}
+/** The flags Effect CLI parses for `kolu wait` — DERIVED from `waitFlags` in
+ *  `cli.ts`, which also carries the shared timer-range rule, so `timeout`
+ *  arrives here already inside `isValidTimerMs` (or the parse refused it). */
+export type WaitArgs = Command.Command.Config.Infer<typeof waitFlags>;
 
 // ── Output ───────────────────────────────────────────────────────────────────
 //
@@ -461,17 +462,11 @@ export function run(
       return yield* Effect.fail(failure(parsed.message));
     const plan = parsed.plan;
 
-    const timeoutMs = Option.getOrUndefined(args.timeout);
-    // The shared timer-range rule, enforced here because `runWait` THROWS a
-    // RangeError on an out-of-range timeout — a usage error the user should see
-    // as one line, not as a defect dump.
-    if (timeoutMs !== undefined && !isValidTimerMs(timeoutMs)) {
-      return yield* Effect.fail(
-        failure(
-          `--timeout must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger delay overflows the timer and fires a false timeout almost immediately, got ${timeoutMs}.`,
-        ),
-      );
-    }
+    // `--timeout` is range-checked by the PARSE (`waitFlags` in `cli.ts`), which
+    // is why `runWait`'s RangeError on an out-of-range delay can never be
+    // reached: the same `isValidTimerMs` guard `idle:<ms>` applies inside its
+    // compound grammar, applied once to the flag that has no grammar around it.
+    const timeoutMs = args.timeout;
 
     const { id, outcome } = yield* withPadi(endpoint, (conn) =>
       Effect.scoped(

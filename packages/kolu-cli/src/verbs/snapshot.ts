@@ -36,17 +36,20 @@
  */
 
 import { shortId } from "@kolu/padi/render";
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
+import type { Command } from "effect/unstable/cli";
 import { tailLines } from "kolu-mcp/screenText";
+// `import type` — fully erased, so this does NOT re-enter the command tree at
+// runtime and the per-face dynamic-import fence is untouched.
+import type { snapshotFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
 import { type CliFailure, failure } from "../exit.ts";
 import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
 
-/** What the command tree hands this verb (see `snapshot` in `cli.ts`). */
-export interface SnapshotArgs {
-  readonly id: string;
-  readonly tail: Option.Option<number>;
-}
+/** What the command tree hands this verb — DERIVED from `snapshotFlags` in
+ *  `cli.ts`, which also carries the "a positive whole number of lines" rule, so
+ *  `tail` arrives here already legal (or the parse already refused). */
+export type SnapshotArgs = Command.Command.Config.Infer<typeof snapshotFlags>;
 
 // ── the verb ─────────────────────────────────────────────────────────────────
 
@@ -73,15 +76,12 @@ export const run = Effect.fn("kolu snapshot")(function* (
   endpoint: Endpoint,
   args: SnapshotArgs,
 ) {
-  const tail = Option.getOrUndefined(args.tail);
-  // `Flag.integer` already refuses a non-integer; a non-POSITIVE tail is still
-  // spellable and means nothing ("the last zero lines"), so refuse it rather
-  // than printing an empty snapshot that looks like a dead terminal.
-  if (tail !== undefined && tail <= 0) {
-    return yield* Effect.fail(
-      failure(`--tail takes a positive whole number of lines, got ${tail}.`),
-    );
-  }
+  // `--tail` arrives legal or not at all: `Flag.integer` refuses a non-integer
+  // and `positiveLines` refuses a non-positive one, both during the parse (see
+  // `cli.ts`). "The last zero lines" means nothing and would print an empty
+  // snapshot that reads like a dead terminal — so it is unspellable, not
+  // re-checked here.
+  const tail = args.tail;
 
   const { text, id } = yield* withPadi(endpoint, (conn) =>
     Effect.gen(function* () {

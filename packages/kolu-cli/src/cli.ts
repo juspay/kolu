@@ -40,7 +40,8 @@
  * loads either, and a reserved face fails fast having loaded nothing.
  */
 
-import { Data, Effect, Runtime } from "effect";
+import { isValidTimerMs, MAX_TIMER_MS } from "@kolu/surface/wait";
+import { Data, Effect, Option, Runtime } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 // The ONE version accessor (`hostname.ts` is a leaf: node built-ins + the
 // server's package.json, which `/release` bumps and nix reads too) — so
@@ -167,14 +168,62 @@ const tui = Command.make(
 );
 
 // ── The terminal verbs ───────────────────────────────────────────────────────
+//
+// Each verb's flag record is EXPORTED and its module derives its args type from
+// it (`Command.Config.Infer`), the way `webFlags.ts` already does for the web
+// face. The hand-written `*Args` interfaces this replaced were a second
+// statement of one fact — and the join between them was unchecked in the
+// direction that matters: a flag added here and forgotten in the verb still
+// compiled, shipped, and was silently never read, which is the graceful
+// degradation this repo treats as a defect. The import is `import type`, so it
+// is fully erased and the per-face dynamic-import fence is untouched.
+
+/** A flag the user may omit, projected to `undefined` HERE rather than in each
+ *  verb body.
+ *
+ *  `Option` is the PARSER's vocabulary, and `bootFlags.ts`'s header already
+ *  states the rule for the web face: pushing it through a consumer whose job has
+ *  nothing to do with argv is the coupling the projection exists to end. The
+ *  verbs' domain types are `undefined`-flavored (`Placement`, `SendInput`,
+ *  `WaitPlan`, the wire's own `Schema.optionalKey` fields), so every one of them
+ *  re-narrowed out of `Option` at the top of its own body — twelve meeting
+ *  points where the web face has one. This is that one, for the other eleven. */
+const opt = <A>(flag: Flag.Flag<A>): Flag.Flag<A | undefined> =>
+  flag.pipe(Flag.optional, Flag.map(Option.getOrUndefined));
+
+/** The same projection for an optional POSITIONAL (`kolu watch [<id>]`). */
+const optArg = <A>(
+  arg: Argument.Argument<A>,
+): Argument.Argument<A | undefined> =>
+  arg.pipe(Argument.optional, Argument.map(Option.getOrUndefined));
+
+/** "A line count is a positive whole number" — ONE rule, declared on the flag
+ *  so it fires during the parse and no verb body can place it late.
+ *
+ *  It used to be three hand-written sentences at three different TIMES, and one
+ *  of them was on the wrong side of the dial: `history --lines 0` resolved its
+ *  id against a live roster — after `--host` had ssh-provisioned a cold box —
+ *  before saying "that is not a positive number", while `snapshot --tail 0`
+ *  refused instantly. Declaring it here also puts "0 is not a --tail" on the
+ *  same channel as "abc is not a --tail" (`Flag.integer`'s own refusal), which
+ *  were two spellings of one rejection. */
+const positiveLines = (name: string): Flag.Flag<number> =>
+  Flag.integer(name).pipe(
+    Flag.filter(
+      (n) => n > 0,
+      (n) => `--${name} takes a positive whole number of lines, got ${n}.`,
+    ),
+  );
+
+export const lsFlags = {
+  json: Flag.boolean("json").pipe(
+    Flag.withDescription("emit the full terminal records as JSON"),
+  ),
+} as const;
 
 const ls = Command.make(
   "ls",
-  {
-    json: Flag.boolean("json").pipe(
-      Flag.withDescription("emit the full terminal records as JSON"),
-    ),
-  },
+  lsFlags,
   Effect.fn(function* (args) {
     yield* runVerb(() => import("./verbs/ls.ts"), args);
   }),
@@ -184,41 +233,48 @@ const ls = Command.make(
   ),
 );
 
-const create = Command.make(
-  "create",
-  {
-    argv: Argument.string("argv").pipe(
-      Argument.withDescription("command to run in the new terminal (after --)"),
-      Argument.variadic(),
-    ),
-    cwd: Flag.string("cwd").pipe(
+export const createFlags = {
+  argv: Argument.string("argv").pipe(
+    Argument.withDescription("command to run in the new terminal (after --)"),
+    Argument.variadic(),
+  ),
+  cwd: opt(
+    Flag.string("cwd").pipe(
       Flag.withDescription("working directory for the new terminal"),
-      Flag.optional,
     ),
-    parent: Flag.string("parent").pipe(
+  ),
+  parent: opt(
+    Flag.string("parent").pipe(
       Flag.withDescription("create as a split of this terminal"),
-      Flag.optional,
     ),
-    intent: Flag.string("intent").pipe(
+  ),
+  intent: opt(
+    Flag.string("intent").pipe(
       Flag.withDescription("freeform label shown on the canvas"),
-      Flag.optional,
     ),
-    repo: Flag.string("repo").pipe(
+  ),
+  repo: opt(
+    Flag.string("repo").pipe(
       Flag.withDescription("repository path for --worktree"),
-      Flag.optional,
     ),
-    worktree: Flag.string("worktree").pipe(
+  ),
+  worktree: opt(
+    Flag.string("worktree").pipe(
       Flag.withDescription(
         "create a git worktree on this branch and open the terminal there",
       ),
-      Flag.optional,
     ),
-    json: Flag.boolean("json").pipe(
-      Flag.withDescription(
-        "emit the new terminal's record as JSON ({id, worktree?, ran?}) instead of the bare id",
-      ),
+  ),
+  json: Flag.boolean("json").pipe(
+    Flag.withDescription(
+      "emit the new terminal's record as JSON ({id, worktree?, ran?}) instead of the bare id",
     ),
-  },
+  ),
+} as const;
+
+const create = Command.make(
+  "create",
+  createFlags,
   Effect.fn(function* (args) {
     yield* runVerb(() => import("./verbs/create.ts"), args);
   }),
@@ -242,38 +298,45 @@ const create = Command.make(
   ]),
 );
 
-const send = Command.make(
-  "send",
-  {
-    id: Argument.string("id").pipe(
-      Argument.withDescription("terminal id (any unique prefix)"),
+export const sendFlags = {
+  id: Argument.string("id").pipe(
+    Argument.withDescription("terminal id (any unique prefix)"),
+  ),
+  text: Argument.string("text").pipe(
+    Argument.withDescription("the text to type"),
+    Argument.variadic(),
+  ),
+  key: Flag.string("key").pipe(
+    Flag.withDescription(
+      "send a named key instead of text (Enter, Escape, Tab, Up, C-c, M-x, …); repeatable",
     ),
-    text: Argument.string("text").pipe(
-      Argument.withDescription("the text to type"),
-      Argument.variadic(),
-    ),
-    key: Flag.string("key").pipe(
-      Flag.withDescription(
-        "send a named key instead of text (Enter, Escape, Tab, Up, C-c, M-x, …); repeatable",
-      ),
-      Flag.atLeast(0),
-    ),
-    file: Flag.string("file").pipe(
+    Flag.atLeast(0),
+  ),
+  file: opt(
+    Flag.string("file").pipe(
       Flag.withDescription("read the text to send from this file"),
-      Flag.optional,
     ),
-    paste: Flag.boolean("paste").pipe(
+  ),
+  // The tristate stays a tristate: `--paste` is `true`, `--no-paste` is `false`,
+  // absent is `undefined` — which is what makes "both at once" unspellable (see
+  // `verbs/send.ts`'s header).
+  paste: opt(
+    Flag.boolean("paste").pipe(
       Flag.withDescription(
         "force bracketed-paste wrapping (--no-paste forbids it)",
       ),
-      Flag.optional,
     ),
-    json: Flag.boolean("json").pipe(
-      Flag.withDescription(
-        "emit what was written as JSON ({id, bytes, paste, keys}) on stdout, instead of the stderr trailer",
-      ),
+  ),
+  json: Flag.boolean("json").pipe(
+    Flag.withDescription(
+      "emit what was written as JSON ({id, bytes, paste, keys}) on stdout, instead of the stderr trailer",
     ),
-  },
+  ),
+} as const;
+
+const send = Command.make(
+  "send",
+  sendFlags,
   Effect.fn(function* (args) {
     yield* runVerb(() => import("./verbs/send.ts"), args);
   }),
@@ -293,27 +356,38 @@ const send = Command.make(
   ]),
 );
 
+export const waitFlags = {
+  id: Argument.string("id").pipe(
+    Argument.withDescription("terminal id (any unique prefix)"),
+  ),
+  until: Flag.string("until").pipe(
+    Flag.withDescription(
+      "idle:<ms> · match:<regex> · agent buckets (working, awaiting, waiting — comma-separated means any-of)",
+    ),
+  ),
+  // The shared timer-range rule, on the flag: `runWait` THROWS a RangeError on
+  // an out-of-range timeout, and `isValidTimerMs` is the one home for the
+  // ceiling (`--until idle:<ms>` calls it too, inside its compound grammar).
+  timeout: opt(
+    Flag.integer("timeout").pipe(
+      Flag.withDescription("give up after this many milliseconds (exit 2)"),
+      Flag.filter(
+        isValidTimerMs,
+        (n) =>
+          `--timeout must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger delay overflows the timer and fires a false timeout almost immediately, got ${n}.`,
+      ),
+    ),
+  ),
+  json: Flag.boolean("json").pipe(
+    Flag.withDescription(
+      "emit one outcome frame ({id, result, …}) for EVERY arm — met, timeout, gone, interrupted — so a driver branches on `result`, not on the exit code",
+    ),
+  ),
+} as const;
+
 const wait = Command.make(
   "wait",
-  {
-    id: Argument.string("id").pipe(
-      Argument.withDescription("terminal id (any unique prefix)"),
-    ),
-    until: Flag.string("until").pipe(
-      Flag.withDescription(
-        "idle:<ms> · match:<regex> · agent buckets (working, awaiting, waiting — comma-separated means any-of)",
-      ),
-    ),
-    timeout: Flag.integer("timeout").pipe(
-      Flag.withDescription("give up after this many milliseconds (exit 2)"),
-      Flag.optional,
-    ),
-    json: Flag.boolean("json").pipe(
-      Flag.withDescription(
-        "emit one outcome frame ({id, result, …}) for EVERY arm — met, timeout, gone, interrupted — so a driver branches on `result`, not on the exit code",
-      ),
-    ),
-  },
+  waitFlags,
   Effect.fn(function* (args) {
     yield* runVerb(() => import("./verbs/wait.ts"), args);
   }),
@@ -333,17 +407,20 @@ const wait = Command.make(
   ]),
 );
 
+export const snapshotFlags = {
+  id: Argument.string("id").pipe(
+    Argument.withDescription("terminal id (any unique prefix)"),
+  ),
+  tail: opt(
+    positiveLines("tail").pipe(
+      Flag.withDescription("print only the last N non-blank lines"),
+    ),
+  ),
+} as const;
+
 const snapshot = Command.make(
   "snapshot",
-  {
-    id: Argument.string("id").pipe(
-      Argument.withDescription("terminal id (any unique prefix)"),
-    ),
-    tail: Flag.integer("tail").pipe(
-      Flag.withDescription("print only the last N non-blank lines"),
-      Flag.optional,
-    ),
-  },
+  snapshotFlags,
   Effect.fn(function* (args) {
     yield* runVerb(() => import("./verbs/snapshot.ts"), args);
   }),
@@ -353,23 +430,26 @@ const snapshot = Command.make(
   ),
 );
 
-const history = Command.make(
-  "history",
-  {
-    id: Argument.string("id").pipe(
-      Argument.withDescription("terminal id (any unique prefix)"),
-    ),
-    lines: Flag.integer("lines").pipe(
-      // Omitting it prints the WHOLE retained scrollback (`wholeHistory` pages
-      // back to the oldest line the host still keeps); passing it fetches ONE
-      // page of that size, the lines immediately above the screen. The help text
-      // used to say "default: one page", which is the opposite of what happens.
+export const historyFlags = {
+  id: Argument.string("id").pipe(
+    Argument.withDescription("terminal id (any unique prefix)"),
+  ),
+  // Omitting it prints the WHOLE retained scrollback (`readWholeHistory` pages
+  // back to the oldest line the host still keeps); passing it fetches ONE page
+  // of that size, the lines immediately above the screen. The help text used to
+  // say "default: one page", which is the opposite of what happens.
+  lines: opt(
+    positiveLines("lines").pipe(
       Flag.withDescription(
         "print only the N lines just above the screen (default: the whole retained scrollback)",
       ),
-      Flag.optional,
     ),
-  },
+  ),
+} as const;
+
+const history = Command.make(
+  "history",
+  historyFlags,
   Effect.fn(function* (args) {
     yield* runVerb(() => import("./verbs/history.ts"), args);
   }),
@@ -379,27 +459,32 @@ const history = Command.make(
   ),
 );
 
+export const killFlags = {
+  id: Argument.string("id").pipe(
+    Argument.withDescription("terminal id (any unique prefix)"),
+  ),
+} as const;
+
 const kill = Command.make(
   "kill",
-  {
-    id: Argument.string("id").pipe(
-      Argument.withDescription("terminal id (any unique prefix)"),
-    ),
-  },
+  killFlags,
   Effect.fn(function* (args) {
     yield* runVerb(() => import("./verbs/kill.ts"), args);
   }),
 ).pipe(Command.withDescription("End a terminal."));
 
+export const watchFlags = {
+  id: optArg(
+    Argument.string("id").pipe(
+      Argument.withDescription("narrow to one terminal"),
+    ),
+  ),
+  json: Flag.boolean("json").pipe(Flag.withDescription("emit NDJSON")),
+} as const;
+
 const watch = Command.make(
   "watch",
-  {
-    id: Argument.string("id").pipe(
-      Argument.withDescription("narrow to one terminal"),
-      Argument.optional,
-    ),
-    json: Flag.boolean("json").pipe(Flag.withDescription("emit NDJSON")),
-  },
+  watchFlags,
   Effect.fn(function* (args) {
     yield* runVerb(() => import("./verbs/watch.ts"), args);
   }),

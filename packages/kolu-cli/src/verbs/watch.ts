@@ -82,25 +82,19 @@ import {
   formatWatchRemoval,
   formatWatchRemovalJson,
 } from "@kolu/padi/render";
-import {
-  type Cause,
-  Effect,
-  Fiber,
-  Option,
-  Queue,
-  type Sink,
-  Stream,
-} from "effect";
+import { type Cause, Effect, Fiber, Queue, type Sink, Stream } from "effect";
+import type { Command } from "effect/unstable/cli";
+// `import type` — fully erased, so this does NOT re-enter the command tree at
+// runtime and the per-face dynamic-import fence is untouched.
+import type { watchFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
 import { type CliFailure, failure } from "../exit.ts";
 import { resolveTerminal, StdoutWriteFailed } from "./shared.ts";
 
-/** What the command tree parsed for `watch`. */
-export interface WatchArgs {
-  /** A terminal id or unique prefix to narrow to — absent means every one. */
-  readonly id: Option.Option<string>;
-  readonly json: boolean;
-}
+/** What the command tree parsed for `watch` — DERIVED from `watchFlags` in
+ *  `cli.ts`. `id` is a terminal id or unique prefix to narrow to; `undefined`
+ *  means every one. */
+export type WatchArgs = Command.Command.Config.Infer<typeof watchFlags>;
 
 /** Backpressure-aware stdout, as a SINK — the sink waits on `drain`, so a slow
  *  consumer slows the producer instead of inflating an in-memory backlog.
@@ -177,9 +171,10 @@ export function run(
   return withPadi(
     endpoint,
     Effect.fn(function* (conn) {
-      const only = Option.isSome(args.id)
-        ? yield* resolveTerminal(conn, args.id.value)
-        : undefined;
+      const only =
+        args.id === undefined
+          ? undefined
+          : yield* resolveTerminal(conn, args.id);
 
       const lines = yield* Queue.unbounded<string, Cause.Done>();
       const emit = (line: string): void => {
