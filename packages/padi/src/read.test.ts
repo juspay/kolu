@@ -1,5 +1,5 @@
 /**
- * The read paths, exercised against a hand-rolled fake `PadiTuiClient` (no
+ * The read paths, exercised against a hand-rolled fake `PadiSurfaceClient` (no
  * socket): `readTerminalKeys` (the id-prefix read), `settledSnapshot` (the
  * `status` read) and `awaitAgentState` (the `wait` read). Four regressions are
  * pinned here:
@@ -16,16 +16,16 @@
  *   - the one-shot key read must TEAR ITS SUBSCRIPTION DOWN. Under Effect there is
  *     no `signal` left to pass a member verb (D10/#18), so the only thing that
  *     closes it is returning out of the `for await` — and if that ever stopped
- *     interrupting, every `padi-tui wait`/`create --parent` would leak a live
- *     `keys` subscription for the life of the link with nothing to show for it.
+ *     interrupting, every `wait` / `create --parent` on either CLI face would leak
+ *     a live `keys` subscription for the life of the link with nothing to show
+ *     for it.
  */
 
-import type { PadiTerminal } from "@kolu/padi/surface";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import type { PadiTuiClient } from "./connect.ts";
-import { awaitAgentState } from "@kolu/padi/dial";
+import { awaitAgentState, type PadiSurfaceClient } from "./dial.ts";
+import type { PadiTerminal } from "./surface.ts";
 import { readTerminalKeys, settledSnapshot } from "./read.ts";
 
 const id = (s: string): TerminalId => s as TerminalId;
@@ -101,7 +101,7 @@ class FakeSource<T> {
   }
 }
 
-/** A structural `PadiTuiClient` over three pushable sources — enough of
+/** A structural `PadiSurfaceClient` over three pushable sources — enough of
  *  `.surface.terminals.keys` / `.terminals.get` / `.activity.get` for the mirror
  *  and the direct reads. Each verb returns a `Stream` SYNCHRONOUSLY, the shape
  *  every member ref has under Effect. */
@@ -109,7 +109,7 @@ function fakeClient(streams: {
   keys: FakeSource<readonly TerminalId[]>;
   activity: FakeSource<readonly TerminalId[]>;
   get: (key: TerminalId) => FakeSource<PadiTerminal>;
-}): PadiTuiClient {
+}): PadiSurfaceClient {
   return {
     surface: {
       terminals: {
@@ -118,7 +118,7 @@ function fakeClient(streams: {
       },
       activity: { get: () => streams.activity.stream() },
     },
-  } as unknown as PadiTuiClient;
+  } as unknown as PadiSurfaceClient;
 }
 
 /** A `keys` source whose iterator DOES expose `return`, so
@@ -159,15 +159,15 @@ function observableKeys(frames: ReadonlyArray<readonly TerminalId[]>) {
   return { stream, isClosed: () => closed };
 }
 
-/** A `PadiTuiClient` whose ONLY member is `terminals.keys` — everything
+/** A `PadiSurfaceClient` whose ONLY member is `terminals.keys` — everything
  *  `readTerminalKeys` touches, and nothing else, so a read that reached further
  *  would crash rather than quietly pass. */
 function keysOnlyClient(
   stream: Stream.Stream<readonly TerminalId[], unknown>,
-): PadiTuiClient {
+): PadiSurfaceClient {
   return {
     surface: { terminals: { keys: () => stream } },
-  } as unknown as PadiTuiClient;
+  } as unknown as PadiSurfaceClient;
 }
 
 describe("readTerminalKeys — the one-shot key set", () => {

@@ -1,7 +1,7 @@
-import type { PadiTerminal } from "@kolu/padi/surface";
+import type { PadiTerminal } from "./surface.ts";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import { WAIT_STATES } from "@kolu/padi/dial";
+import { WAIT_STATES } from "./dial.ts";
 import { formatStatus, parseUntilStates, resolveTerminalId } from "./render.ts";
 
 /** A minimal `active` composed record — the agent the wait predicate reads plus

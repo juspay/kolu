@@ -104,11 +104,13 @@ import {
 import { resolveTlsOptions } from "./tls.ts";
 
 // The web face's boot contract (`KoluBootFlags`) lives in `bootFlags.ts` —
-// the leaf `packages/kolu-cli`'s parse also imports, so schema and contract
-// can't drift. The PARSE lives in `packages/kolu-cli` (the composition root
-// owning the cleye subcommand dispatch — kolu-cli PR1,
+// the leaf `packages/kolu-cli`'s command tree also imports, so schema and
+// contract can't drift. The PARSE lives in `packages/kolu-cli` (the composition
+// root owning the `effect/unstable/cli` command tree —
 // docs/atlas/src/content/atlas/kolu-cli.mdx); this package only receives the
-// result via `bootKoluWeb`'s signature.
+// result via `bootKoluWeb`'s signature. Note the server is reached as
+// `kolu web` now: bare `kolu` lists subcommands, and the bind address is
+// `--bind` (`--host` names which padi a terminal verb talks to).
 
 /** "Runs once per process" was mechanical while this was a top-level script
  *  (the module cache); the function form re-enforces it here — a second call
@@ -1041,7 +1043,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // --- TLS setup ---
   const tlsOptions = await resolveTlsOptions(flags);
 
-  const { host, port } = flags;
+  // `bind` is the flag's name (`kolu web --bind`); `host` stays the local name
+  // because that is the key `server.listen` takes.
+  const { bind: host, port } = flags;
 
   // --- Start server ---
   // kolu-server OWNS the node `http(s).Server` and hands its `request` event an

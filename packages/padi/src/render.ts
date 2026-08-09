@@ -1,18 +1,20 @@
 /**
- * Pure rendering helpers for the padi-tui CLI — no I/O, no transport, no tty — so
- * the formatting is unit-tested without a socket or a terminal. `main.ts` is the
- * thin glue that reads padi's `terminals` collection and prints these.
+ * Pure rendering helpers for padi's CLI faces — no I/O, no transport, no tty — so
+ * the formatting is unit-tested without a socket or a terminal. Each CLI's `main`
+ * is the thin glue that reads padi's `terminals` collection and prints these.
+ * Shared here (beside the dial kit) because padi-tui and kolu's CLI render the
+ * SAME table from the same records; a second copy would be a second truth.
  *
- * padi-tui shows what each terminal *is in* — its record state (active · sleeping
- * · parked) · repo·branch · PR + checks · agent state · foreground — read off
- * padi's composed `terminals` collection (the same record the canvas Dock reads).
- * The `wait` verb compares the agent's coarse BUCKET (`agentBucket`), never the
- * raw `AgentInfo['state']`, so the one fold in
+ * These views show what each terminal *is in* — its record state (active ·
+ * sleeping · parked) · repo·branch · PR + checks · agent state · foreground —
+ * read off padi's composed `terminals` collection (the same record the canvas
+ * Dock reads). The `wait` verb compares the agent's coarse BUCKET
+ * (`agentBucket`), never the raw `AgentInfo['state']`, so the one fold in
  * `@kolu/terminal-vocab/agentProjection` stays the single source of truth.
  */
 
-import { activeAgent, WAIT_STATES, type WaitState } from "@kolu/padi/dial";
-import type { PadiTerminal } from "@kolu/padi/surface";
+import { activeAgent, WAIT_STATES, type WaitState } from "./dial.ts";
+import type { PadiTerminal } from "./surface.ts";
 import {
   agentBucket,
   agentShortName,

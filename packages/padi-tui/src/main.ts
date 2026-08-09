@@ -83,7 +83,7 @@ import {
   WaitTimedOut,
 } from "./exit.ts";
 import { connectPadiTuiViaHost } from "./hostConnect.ts";
-import { readTerminalKeys, settledSnapshot } from "./read.ts";
+import { readTerminalKeys, settledSnapshot } from "@kolu/padi/read";
 import {
   formatStatus,
   formatStatusJson,
@@ -97,7 +97,7 @@ import {
   parseUntilStates,
   resolveTerminalId,
   shortId,
-} from "./render.ts";
+} from "@kolu/padi/render";
 
 // Declared on each subcommand — cleye binds flags only AFTER the subcommand (it
 // does not inherit a parent flag), so `--socket` goes after the command:

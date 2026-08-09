@@ -116,7 +116,7 @@ const WEB_SHELL_FILES = [
   "portForward/hostPorts",
   "portForward/resolveViewerHost",
   // ── the serving shell + true leaves (top-level) ──
-  // The web face's boot contract — the ONE flag artifact (cleye schema +
+  // The web face's boot contract — the ONE flag artifact (Effect CLI flag schema +
   // derived `KoluBootFlags`), a LEAF importing only kolu-common/config so the
   // kolu-cli parse deep-imports it without loading index.ts's runtime graph.
   // Web-shell code (it names how the web face boots), not terminal domain.

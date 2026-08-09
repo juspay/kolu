@@ -131,6 +131,14 @@ face.
 
 ## The thin shell face — `padi-tui`
 
+<Aside type="note" title="These verbs now live on `kolu` too">
+  The `kolu` command has grown the same terminal verbs — `kolu ls` · `create` ·
+  `send` · `wait` · `snapshot` · `history` · `kill` · `watch` — as a pure padi
+  client, so one command drives a workspace instead of two. `padi-tui` still
+  works and is documented here; new scripts should reach for `kolu`. The loop
+  is on the [agent fleets](/agent-fleets) page.
+</Aside>
+
 `padi-tui` reads the same workspace surface kolu uses. Where `kaval-tui` shows
 what's running in each PTY, padi-tui shows what each terminal is in: repo, PR,
 checks, foreground command, live byte activity, and agent state. That is the

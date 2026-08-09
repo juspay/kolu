@@ -1,211 +1,420 @@
 /**
- * The kolu binary's subcommand dispatch — the kolu-cli plan
+ * The kolu binary's command tree — the kolu-cli plan
  * (docs/atlas/src/content/atlas/kolu-cli.mdx). This package is the composition
  * root: the one module set allowed to import everything, so the product's argv
  * face stays out of the web server's boot (`packages/server` exports
  * `bootKoluWeb`; the volatility is in the set of faces, and only a dedicated
  * package encapsulates it).
  *
- * `kolu web` NAMES today's behavior; bare `kolu` stays its byte-for-byte alias:
- * ONE flag schema (`webFlags`) is bound to both spellings, so the alias holds by
- * construction, and the flag-matrix test (`cli.test.ts`) pins it. `kolu mcp`
- * serves the agent face (PR2 — `[--host <ssh>]` reaches a remote padi); `kolu
- * tui` stays reserved — it fails fast with a pointer at the plan (PR3) instead
- * of pretending to exist.
+ * ## `kolu` is the ONE terminal CLI now
  *
- * This module is the PARSE only — its `kolu-server` imports are LEAVES
- * (`src/bootFlags.ts`, `src/hostname.ts`) that never touch the server's
- * runtime module graph (`index.ts`), so the pin suite drives it without
- * loading that graph. Each face's boot import lives in `main.ts`, behind the
- * dispatch, as a dynamic import. (The mcp face itself is `packages/kolu-mcp` —
- * its manifest, which lists no kolu app package, is the structural fence.)
+ * The scripting verbs (`ls` · `create` · `send` · `wait` · `snapshot` ·
+ * `history` · `kill` · `watch`) subsume what `padi-tui` and `kaval-tui` served,
+ * so a user — human or agent — drives kolu terminals with one command. Every
+ * verb is a PURE padi client: `padiSurface` carries the union of both TUIs'
+ * needs (`lifecycle.*`, `screen.*`, `terminalAttach`, `terminalExit`), so no
+ * kaval dependency enters this package and padi stays the only daemon a face
+ * speaks to. That is what dissolves the plan's original objection to verb
+ * parity — it assumed parity meant depending on kaval, and it does not.
+ *
+ * ## Three deliberate breaks with PR1
+ *
+ * 1. **Bare `kolu` is no longer an alias of `kolu web`.** It prints the
+ *    subcommand list and exits non-zero, so a user picks a face explicitly. With
+ *    eleven faces, silently booting a web server for a bare invocation is a
+ *    footgun rather than a convenience.
+ * 2. **`effect/unstable/cli` replaces cleye.** cleye binds a flag to the
+ *    subcommand that PRECEDES it, so `kolu --host foo create` was a usage error.
+ *    Effect CLI's SHARED flags are accepted on either side of the verb name, so
+ *    both spellings are one parse. It also ships inside the `effect` the
+ *    workspace already pins, so the parser costs no new dependency, and its
+ *    handlers are Effects — the exit-code discipline below is the library's
+ *    native shape rather than something wrapped around it.
+ * 3. **`kolu web --host` is now `kolu web --bind`.** `--host` is a shared flag
+ *    meaning "which padi to reach"; Effect CLI refuses a parent/child flag
+ *    collision outright (`DuplicateOption`), so one name had to give. Renaming
+ *    the web-only one leaves `--host` a single idea across the whole binary.
+ *
+ * Each face's implementation is a DYNAMIC import inside its handler, so
+ * `kolu mcp` never touches the web server's module graph, a terminal verb never
+ * loads either, and a reserved face fails fast having loaded nothing.
  */
 
-import { cli, command } from "cleye";
 import { Data, Effect, Runtime } from "effect";
-// The web face's ONE flag artifact — the cleye schema and the `KoluBootFlags`
-// contract DERIVED from it, co-located in `kolu-server/src/bootFlags.ts`. A
-// deep LEAF import (like the hostname one below): it skips the server's
-// runtime module graph (`index.ts`), so the parse stays server-free.
-import { type KoluBootFlags, webFlags } from "kolu-server/src/bootFlags.ts";
+import { Argument, Command, Flag } from "effect/unstable/cli";
+// The web face's ONE flag artifact — the schema, the `KoluBootFlags` contract
+// derived from it, and the projection between them, co-located in
+// `kolu-server/src/bootFlags.ts`. A deep LEAF import (like the hostname one
+// below): it skips the server's runtime module graph (`index.ts`), so building
+// the command tree stays server-free.
+import { bootFlagsOf, webFlags } from "kolu-server/src/bootFlags.ts";
 // The ONE version accessor (`hostname.ts` is a leaf: node built-ins + the
 // server's package.json, which `/release` bumps and nix reads too) — so
 // `kolu --version` can never diverge from the version the server reports.
 import { serverVersion } from "kolu-server/src/hostname.ts";
-import { match, P } from "ts-pattern";
-
-const RESERVED_FACES = ["tui"] as const;
-type ReservedFace = (typeof RESERVED_FACES)[number];
-
-/** The named fail-fast for a face that is planned but not shipped (exit
- *  non-zero rides `koluFaceOrExit`). */
-export const reservedFaceMessage = (face: ReservedFace): string =>
-  `kolu ${face} is not shipped yet — it lands in a later PR of the kolu-cli plan: https://kolu.dev/atlas/kolu-cli.html`;
-
-export type KoluCliParse =
-  | { face: "web"; flags: KoluBootFlags }
-  | { face: "mcp"; host: string | undefined }
-  | { face: ReservedFace }
-  // A positional no spelling takes — `kolu tuii`, `kolu web foo`. Named so
-  // a typo'd subcommand FAILS FAST instead of silently booting the web server
-  // (cleye has no strict-commands mode: an unknown first positional falls
-  // through to the root command with the word left in `_`).
-  | { face: "unknown-command"; args: string[] };
-
-/** Parse the kolu argv into a face. Pure — no exits beyond cleye's own
- *  `--help`/`--version`/unknown-flag handling — so the flag-matrix test can
- *  drive it directly. NOTE: cleye MUTATES the argv array it's handed, so we
- *  copy before parsing. */
-export function parseKoluCli(
-  argv: string[] = process.argv.slice(2),
-): KoluCliParse {
-  const parsed = cli(
-    {
-      name: "kolu",
-      version: serverVersion,
-      flags: webFlags,
-      strictFlags: true,
-      commands: [
-        command({
-          name: "web",
-          // The alias must hold for cleye's IMPLICIT flags too: --version only
-          // exists where a `version` option is passed, so without this line
-          // `kolu web --version` would reject the flag bare `kolu` accepts.
-          version: serverVersion,
-          help: {
-            description:
-              "Run the kolu web server (the default — bare `kolu` is this command's alias).",
-          },
-          flags: webFlags,
-        }),
-        command({
-          name: "tui",
-          help: {
-            description:
-              "Reserved — the terminal canvas is not shipped yet (see kolu.dev/atlas/kolu-cli.html).",
-          },
-        }),
-        command({
-          name: "mcp",
-          version: serverVersion,
-          help: {
-            description:
-              "Serve this host's terminals to a coding agent over MCP (stdio) — a pure padi client, no web server.",
-          },
-          flags: {
-            host: {
-              type: String,
-              description:
-                "reach a padi on another machine over ssh (user@host) instead of the local socket — goes AFTER the subcommand: `kolu mcp --host user@zest`.",
-            },
-          },
-        }),
-      ],
-    },
-    undefined,
-    [...argv],
-  );
-  if (parsed.command === "tui") {
-    return { face: "tui" };
-  }
-  if (parsed.command === "mcp") {
-    // cleye types each command's flags per-command; narrow through the
-    // discriminant we just matched.
-    const { host } = parsed.flags as { host: string | undefined };
-    return { face: "mcp", host };
-  }
-  // Drift guard (type-level): the literals above must cover every registered
-  // non-web command. If a new face is added to the `commands` array without a
-  // matching arm in the cascade, the leftover command type here stops
-  // satisfying `"web" | undefined` and this line is a COMPILE error — a
-  // missed edit cannot silently fall through to booting the web server.
-  parsed.command satisfies "web" | undefined;
-  // Neither bare `kolu` nor `kolu web` takes positionals, so a leftover one is
-  // a typo'd subcommand (`kolu tuii`) — fail fast rather than boot a server the
-  // user didn't ask for.
-  if (parsed._.length > 0) {
-    return { face: "unknown-command", args: [...parsed._] };
-  }
-  // Bare (`command: undefined`) and `web` carry the same schema — the alias.
-  return { face: "web", flags: parsed.flags };
-}
-
-/** The faces `main.ts` actually boots — the parse minus the fail-fast arms. */
-export type KoluCliFace =
-  | { face: "web"; flags: KoluBootFlags }
-  | { face: "mcp"; host: string | undefined };
+import {
+  type Endpoint,
+  endpointFlags,
+  endpointOf,
+  refuseEndpointFlags,
+} from "./endpoint.ts";
 
 /** A face the plan RESERVES but has not shipped (`kolu tui`).
  *
  *  `Data.TaggedError`, not `Schema.TaggedError`: this error never crosses a wire
  *  — it is raised and handled inside one process — so it needs a `_tag` to match
  *  on, not a codec. The two `Runtime` markers are what turn the tag into an exit
- *  code without a second mapping table: `errorExitCode` is the code
- *  `NodeRuntime.runMain`'s default teardown reads off the squashed cause, and
- *  `errorReported: false` suppresses Effect's own pretty log so the ONE line the
- *  user sees is the named message `main.ts` writes. */
+ *  code without a second mapping table: `errorExitCode` is the code the run
+ *  edge's teardown reads off the squashed cause, and `errorReported: false`
+ *  suppresses Effect's own pretty log so the ONE line the user sees is the named
+ *  message below. */
 export class ReservedFaceError extends Data.TaggedError("ReservedFaceError")<{
-  readonly face: ReservedFace;
   readonly message: string;
 }> {
   readonly [Runtime.errorExitCode] = 1;
   readonly [Runtime.errorReported] = false;
 }
 
-/** A positional no spelling takes (`kolu tuii`) — the fail-fast that keeps a
- *  typo'd subcommand from silently booting the web server. */
-export class UnknownCommandError extends Data.TaggedError(
-  "UnknownCommandError",
-)<{
-  readonly args: readonly string[];
-  readonly message: string;
-}> {
-  readonly [Runtime.errorExitCode] = 1;
-  readonly [Runtime.errorReported] = false;
-}
+/** The named fail-fast for a face that is planned but not shipped. */
+export const reservedFaceMessage = (face: string): string =>
+  `kolu ${face} is not shipped yet — it lands in a later PR of the kolu-cli plan: https://kolu.dev/atlas/kolu-cli.html`;
 
-/** The dispatch seam `main.ts` composes: SUCCEEDS with the face to boot, or
- *  FAILS with the tagged reason a reserved subcommand / an unknown positional
- *  can't be booted. The failure is a value on the error channel rather than a
- *  `process.exit` inside the parse, so the exit-code map lives at the ONE run
- *  edge (`main.ts`) and this function is drivable from a test with no
- *  `process.exit` spy.
+/** The root. It carries no handler of its own — a bare `kolu` has nothing to do
+ *  but show what it can do, which is exactly what Effect CLI does for a
+ *  subcommand-bearing command with no handler: print the subcommand list and
+ *  fail. That is user correction (1) satisfied by the library's own shape rather
+ *  than by a hand-written arm. */
+export const koluRoot = Command.make("kolu").pipe(
+  Command.withSharedFlags(endpointFlags),
+  Command.withDescription(
+    "kolu — terminals for coding agents. Manage them with the verbs below; `kolu web` runs the server.",
+  ),
+);
+
+/** Read the shared endpoint flags off the root, from inside a subcommand. */
+const sharedEndpoint = Effect.flatMap(koluRoot, endpointOf);
+
+/** Every terminal verb has the same shape: resolve the endpoint, load the verb's
+ *  module, run it. Spelled once so a new verb is one `Command.make` plus one
+ *  entry here, and so the dynamic-import fence cannot be forgotten on one arm.
  *
- *  `exhaustive()` is still load-bearing: a new face added to `KoluCliParse`
- *  without an arm here is a compile error, where a `!== "web"` catch-all would
- *  silently mislabel it. The arms return effects now instead of `never`, so the
- *  match reads as the total function it always was.
+ *  The import is inside the handler on purpose: a verb's module reaches padi's
+ *  dial kit and its render helpers, none of which `kolu web` or `kolu mcp`
+ *  should pay for.
  *
- *  Suspended because {@link parseKoluCli} is not pure at the process level —
- *  cleye handles `--help`/`--version` by printing and exiting — so the parse
- *  belongs INSIDE the effect the caller runs, not at the moment it is built. */
-export function koluFace(
-  argv?: string[],
-): Effect.Effect<KoluCliFace, ReservedFaceError | UnknownCommandError> {
-  return Effect.suspend<
-    KoluCliFace,
-    ReservedFaceError | UnknownCommandError,
-    never
-  >(() =>
-    match(parseKoluCli(argv))
-      .with({ face: "web" }, (p) => Effect.succeed<KoluCliFace>(p))
-      .with({ face: "mcp" }, (p) => Effect.succeed<KoluCliFace>(p))
-      .with({ face: P.union(...RESERVED_FACES) }, (p) =>
-        Effect.fail(
-          new ReservedFaceError({
-            face: p.face,
-            message: reservedFaceMessage(p.face),
-          }),
-        ),
-      )
-      .with({ face: "unknown-command" }, (p) =>
-        Effect.fail(
-          new UnknownCommandError({
-            args: p.args,
-            message: `kolu: unknown command "${p.args[0]}" — commands: web (the default), tui, mcp. See kolu --help.`,
-          }),
-        ),
-      )
-      .exhaustive(),
+ *  The requirement channel is left to INFERENCE rather than annotated `never`:
+ *  reading the root's shared flags is a context read (`CommandContext<"kolu">`),
+ *  which a subcommand handler is exactly the place that can satisfy. Pinning it
+ *  to `never` here would be claiming this composes anywhere, which it does not
+ *  and need not. */
+const runVerb = <A>(
+  load: () => Promise<{
+    run: (endpoint: Endpoint, args: A) => Effect.Effect<void, unknown>;
+  }>,
+  args: A,
+) =>
+  Effect.flatMap(sharedEndpoint, (endpoint) =>
+    Effect.flatMap(Effect.promise(load), ({ run }) => run(endpoint, args)),
   );
-}
+
+// ── The faces ────────────────────────────────────────────────────────────────
+
+const web = Command.make(
+  "web",
+  webFlags,
+  Effect.fn(function* (flags) {
+    // `web` inherits the shared endpoint flags (every subcommand does) but dials
+    // no padi with them — refuse rather than ignore.
+    yield* Effect.flatMap(koluRoot, (r) => refuseEndpointFlags(r, "web"));
+    const { bootKoluWeb } = yield* Effect.promise(() => import("kolu-server"));
+    yield* Effect.promise(() => bootKoluWeb(bootFlagsOf(flags)));
+  }),
+).pipe(
+  Command.withDescription(
+    "Run the kolu web server (the browser face). Binds with --bind/--port.",
+  ),
+);
+
+const mcp = Command.make(
+  "mcp",
+  {},
+  Effect.fn(function* () {
+    const shared = yield* koluRoot;
+    // The MCP adapter owns its own local dial and re-resolves it per redial, so
+    // an explicit socket has nowhere to live in that discipline yet — accept the
+    // ssh target only, and say so for the other two.
+    yield* refuseEndpointFlags(shared, "mcp", ["host"]);
+    const endpoint = yield* endpointOf(shared);
+    const { runKoluMcp } = yield* Effect.promise(() => import("./mcp.ts"));
+    yield* runKoluMcp({
+      host: endpoint.kind === "host" ? endpoint.ssh : undefined,
+    });
+  }),
+).pipe(
+  Command.withDescription(
+    "Serve this host's terminals to a coding agent over MCP (stdio) — a pure padi client, no web server.",
+  ),
+);
+
+const tui = Command.make(
+  "tui",
+  {},
+  Effect.fn(function* () {
+    return yield* Effect.fail(
+      new ReservedFaceError({ message: reservedFaceMessage("tui") }),
+    );
+  }),
+).pipe(
+  Command.withDescription(
+    "Reserved — the terminal canvas is not shipped yet (see kolu.dev/atlas/kolu-cli.html).",
+  ),
+);
+
+// ── The terminal verbs ───────────────────────────────────────────────────────
+
+const ls = Command.make(
+  "ls",
+  {
+    json: Flag.boolean("json").pipe(
+      Flag.withDescription("emit the full terminal records as JSON"),
+    ),
+  },
+  Effect.fn(function* (args) {
+    yield* runVerb(() => import("./verbs/ls.ts"), args);
+  }),
+).pipe(
+  Command.withDescription(
+    "List this host's terminals — state, agent, repo/branch, PR, and what each is for.",
+  ),
+);
+
+const create = Command.make(
+  "create",
+  {
+    argv: Argument.string("argv").pipe(
+      Argument.withDescription("command to run in the new terminal (after --)"),
+      Argument.variadic(),
+    ),
+    cwd: Flag.string("cwd").pipe(
+      Flag.withDescription("working directory for the new terminal"),
+      Flag.optional,
+    ),
+    parent: Flag.string("parent").pipe(
+      Flag.withDescription("create as a split of this terminal"),
+      Flag.optional,
+    ),
+    intent: Flag.string("intent").pipe(
+      Flag.withDescription("freeform label shown on the canvas"),
+      Flag.optional,
+    ),
+    repo: Flag.string("repo").pipe(
+      Flag.withDescription("repository path for --worktree"),
+      Flag.optional,
+    ),
+    worktree: Flag.string("worktree").pipe(
+      Flag.withDescription(
+        "create a git worktree on this branch and open the terminal there",
+      ),
+      Flag.optional,
+    ),
+    json: Flag.boolean("json"),
+  },
+  Effect.fn(function* (args) {
+    yield* runVerb(() => import("./verbs/create.ts"), args);
+  }),
+).pipe(
+  Command.withDescription(
+    "Create a terminal — optionally a split, a fresh worktree, and an agent to run in it. Prints the new id.",
+  ),
+  Command.withExamples([
+    {
+      command: 'kolu create --intent "fix #2117" -- claude',
+      description: "Open a terminal and start Claude Code in it",
+    },
+    {
+      command: "kolu create --repo ~/code/kolu --worktree fix-2117 -- claude",
+      description: "Cut a worktree and start an agent there",
+    },
+    {
+      command: 'kolu create --parent "$KAVAL_TERMINAL_ID" -- codex',
+      description: "Split your own tile and start another agent beside you",
+    },
+  ]),
+);
+
+const send = Command.make(
+  "send",
+  {
+    id: Argument.string("id").pipe(
+      Argument.withDescription("terminal id (any unique prefix)"),
+    ),
+    text: Argument.string("text").pipe(
+      Argument.withDescription("the text to type"),
+      Argument.variadic(),
+    ),
+    key: Flag.string("key").pipe(
+      Flag.withDescription(
+        "send a named key instead of text (Enter, Escape, Tab, Up, C-c, M-x, …); repeatable",
+      ),
+      Flag.atLeast(0),
+    ),
+    file: Flag.string("file").pipe(
+      Flag.withDescription("read the text to send from this file"),
+      Flag.optional,
+    ),
+    paste: Flag.boolean("paste").pipe(
+      Flag.withDescription(
+        "force bracketed-paste wrapping (--no-paste forbids it)",
+      ),
+      Flag.optional,
+    ),
+    json: Flag.boolean("json"),
+  },
+  Effect.fn(function* (args) {
+    yield* runVerb(() => import("./verbs/send.ts"), args);
+  }),
+).pipe(
+  Command.withDescription(
+    "Type into a terminal — text, or a named key with --key. Text and keys are mutually exclusive.",
+  ),
+  Command.withExamples([
+    {
+      command: 'kolu send 3f9c "review this PR"',
+      description: "Type a prompt (it is NOT submitted — see --key Enter)",
+    },
+    {
+      command: "kolu send 3f9c --key Enter",
+      description: "Submit what was typed",
+    },
+  ]),
+);
+
+const wait = Command.make(
+  "wait",
+  {
+    id: Argument.string("id").pipe(
+      Argument.withDescription("terminal id (any unique prefix)"),
+    ),
+    until: Flag.string("until").pipe(
+      Flag.withDescription(
+        "idle:<ms> · match:<regex> · agent buckets (working, awaiting, waiting — comma-separated means any-of)",
+      ),
+    ),
+    timeout: Flag.integer("timeout").pipe(
+      Flag.withDescription("give up after this many milliseconds (exit 2)"),
+      Flag.optional,
+    ),
+    json: Flag.boolean("json"),
+  },
+  Effect.fn(function* (args) {
+    yield* runVerb(() => import("./verbs/wait.ts"), args);
+  }),
+).pipe(
+  Command.withDescription(
+    "Block until a terminal's output settles or matches, or its agent reaches a state.",
+  ),
+  Command.withExamples([
+    {
+      command: "kolu wait 3f9c --until idle:2000 --timeout 10000",
+      description: "Wait for output to go quiet for 2s (any terminal)",
+    },
+    {
+      command: "kolu wait 3f9c --until awaiting,waiting --timeout 600000",
+      description: "Wait for the agent's turn to END",
+    },
+  ]),
+);
+
+const snapshot = Command.make(
+  "snapshot",
+  {
+    id: Argument.string("id").pipe(
+      Argument.withDescription("terminal id (any unique prefix)"),
+    ),
+    tail: Flag.integer("tail").pipe(
+      Flag.withDescription("print only the last N non-blank lines"),
+      Flag.optional,
+    ),
+  },
+  Effect.fn(function* (args) {
+    yield* runVerb(() => import("./verbs/snapshot.ts"), args);
+  }),
+).pipe(
+  Command.withDescription(
+    "Print what a terminal shows now, as plain text — the verb for reading an agent's reply.",
+  ),
+);
+
+const history = Command.make(
+  "history",
+  {
+    id: Argument.string("id").pipe(
+      Argument.withDescription("terminal id (any unique prefix)"),
+    ),
+    lines: Flag.integer("lines").pipe(
+      Flag.withDescription("print at most this many lines (default: one page)"),
+      Flag.optional,
+    ),
+  },
+  Effect.fn(function* (args) {
+    yield* runVerb(() => import("./verbs/history.ts"), args);
+  }),
+).pipe(
+  Command.withDescription(
+    "Print the scrollback above the current screen, oldest first.",
+  ),
+);
+
+const kill = Command.make(
+  "kill",
+  {
+    id: Argument.string("id").pipe(
+      Argument.withDescription("terminal id (any unique prefix)"),
+    ),
+  },
+  Effect.fn(function* (args) {
+    yield* runVerb(() => import("./verbs/kill.ts"), args);
+  }),
+).pipe(Command.withDescription("End a terminal."));
+
+const watch = Command.make(
+  "watch",
+  {
+    id: Argument.string("id").pipe(
+      Argument.withDescription("narrow to one terminal"),
+      Argument.optional,
+    ),
+    json: Flag.boolean("json").pipe(Flag.withDescription("emit NDJSON")),
+  },
+  Effect.fn(function* (args) {
+    yield* runVerb(() => import("./verbs/watch.ts"), args);
+  }),
+).pipe(
+  Command.withDescription(
+    "Stream terminal changes and live output activity until interrupted.",
+  ),
+);
+
+/** The whole binary. Verbs first — they are what a user reaches for — then the
+ *  two server-ish faces and the reserved one. */
+export const koluCli = koluRoot.pipe(
+  Command.withSubcommands([
+    ls,
+    create,
+    send,
+    wait,
+    snapshot,
+    history,
+    kill,
+    watch,
+    web,
+    mcp,
+    tui,
+  ]),
+);
+
+/** Run the tree against an explicit argv — the seam the unit pins drive, so the
+ *  dispatch is testable without touching `process.argv`. */
+export const runKoluCliWith = Command.runWith(koluCli, {
+  version: serverVersion,
+});

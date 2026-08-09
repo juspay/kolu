@@ -202,6 +202,20 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   the native authority; kolu-server binds or mirrors it rather than supplying a
   backing shim.
 
+- **`@kolu/padi/render`** and **`@kolu/padi/read`** — the CLI faces' shared
+  view + data layers. `render` is pure formatting (the roster table's
+  `ID · STATE · REPO·BRANCH · PR · AGENT · FOREGROUND` columns, the PR/checks
+  and agent-status folds) with no I/O; `read` is the one-shot reads off the
+  `terminals` collection — `readTerminalKeys` (id-prefix resolution) and
+  `settledSnapshot` — as Effects, so a Ctrl+C tears their subscriptions down.
+  Both **graduated out of `padi-tui`** when `kolu`'s terminal verbs became
+  their second consumer, the same move and the same reason as the LIVE side
+  (`watchTerminals`/`awaitAgentState`) graduating into the `dial` entry when
+  kolu's MCP face became *its* verbatim second consumer: one padi-shaped
+  vocabulary with two faces reading it, not two copies held in lockstep by
+  JSDoc cross-reference. They stay here rather than in `@kolu/surface` because
+  they speak **padi's** records — the generic wait scaffold went the other way.
+
 ## What padi knows nothing about
 
 Location is structure, so the boundary is defined as much by what padi refuses to

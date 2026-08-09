@@ -1,11 +1,12 @@
 /**
- * The data side of the CLI — reading padi's `terminals` collection from a
- * connected client, factored out of `main.ts` so it is testable against a real
- * padi over a real socket with no tty. Two one-shot reads live here: the key
+ * The data side of padi's CLI faces — reading padi's `terminals` collection from
+ * a connected client, factored out of each `main.ts` so it is testable against a
+ * real padi over a real socket with no tty. Two one-shot reads live here: the key
  * set (`readTerminalKeys`, prefix resolution) and `settledSnapshot` (`status`).
  * The LIVE side — `watchTerminals` for `watch` and `awaitAgentState` for
- * `wait` — graduated into `@kolu/padi`'s dial kit (`watch.ts`) when the kolu
- * MCP face became its verbatim second consumer; this CLI imports it back.
+ * `wait` — graduated into the dial kit (`watch.ts`) when the kolu MCP face became
+ * its verbatim second consumer; these one-shot reads followed it here when kolu's
+ * CLI became THEIR second consumer, so both faces read one implementation.
  *
  * padi's compatibility is gated at DIAL (`connectPadi` refuses a contract skew
  * loudly), so — unlike the retired pulam-tui — there is no separate `assertCompatible` read.
@@ -17,12 +18,12 @@
  * through their own finalizers, and `main.ts` runs the whole command once.
  */
 
-import { padiSurface, type PadiTerminal } from "@kolu/padi/surface";
+import type { PadiSurfaceClient } from "./dial.ts";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Deferred, Effect } from "effect";
-import type { PadiTuiClient } from "./connect.ts";
+import { padiSurface, type PadiTerminal } from "./surface.ts";
 
 /** The current terminal key set — the FIRST frame of the `keys` snapshot-then-delta
  *  stream. The `keys` collection ALWAYS opens with a snapshot frame (zero terminals
@@ -44,7 +45,7 @@ import type { PadiTuiClient } from "./connect.ts";
  *  effect, so a client that throws SYNCHRONOUSLY (a wrong-surface client) arrives
  *  as a failure on the error channel, never as a throw past the caller. */
 export function readTerminalKeys(
-  client: PadiTuiClient,
+  client: PadiSurfaceClient,
 ): Effect.Effect<readonly TerminalId[], unknown> {
   return Effect.suspend(() =>
     firstFrameOrThrow(
@@ -99,7 +100,7 @@ type SettleOutcome = "settled" | "link-closed";
  *  scope-close finalizer is what unwinds the subscriptions — so there is no
  *  ordering left for a trailing grace timer to get wrong. */
 export function settledSnapshot(
-  client: PadiTuiClient,
+  client: PadiSurfaceClient,
   opts: { maxMs?: number; graceMs?: number } = {},
 ): Effect.Effect<Array<[TerminalId, PadiTerminal]>, unknown> {
   const maxMs = opts.maxMs ?? 3000;
