@@ -33,9 +33,52 @@ The three live arms exist because the client needs to tell apart states that
 *look* alike but demand opposite responses. This is a projection contract, not
 vibes:
 
-- **warming** — the system is doing something and will resolve on its own. First provision and a transient reconnect-backoff both land here. The right UI is a spinner; the wrong one is an alarm. **Read it together with the liveness fact:** the floor demotes a `connected` entry to `warming` when your link to the publisher is dead (so nothing renders green over a dead transport), which means a `warming` you read while `live === false` may be a floored `connected` rather than a real campaign — "it is coming up" and "we cannot see it" arrive as the same value. A spinner is right for both, but anything that **times** a warming entry — a deadline, an escalation, a "failed to start" verdict — must consult liveness alongside `.kind` and make no claim while the link is down. Kolu learned this the hard way: a backgrounded tab lost its socket, the local entry demoted to `warming`, and a 30-second boot deadline certified a perfectly healthy daemon dead ([kolu#2129](https://github.com/juspay/kolu/pull/2129)).
+- **warming** — the system is doing something and will resolve on its own. First provision and a transient reconnect-backoff both land here. The right UI is a spinner; the wrong one is an alarm. Because of `unobservable` (below), this arm means what it says: a campaign the publisher is *currently narrating to you*, which is a thing you may legitimately put a clock on.
 - **connected** — live. `clockOffset` is this entry's clock seam (below).
 - **failed** — it will *not* resolve without someone acting: a bounded give-up, or a standing refuse ("another owner holds this host"). The right UI is an actionable card; the wrong one is an eternal spinner.
+
+## The fourth arm is about you, not the host
+
+`entry(key).state()` has one more arm the wire never carries: **unobservable**,
+which the client's liveness floor mints when *your* link to the publisher is dead.
+It means "we cannot see this entry", and it exists because collapsing that into
+`warming` was a real bug with a real cost.
+
+The floor has always demoted a `connected` entry when your link dies, so nothing
+renders green over a dead transport. Correct — but demoting it to `warming` made
+two facts with opposite consequences into one value: "the publisher says this host
+is coming up" and "we cannot see the publisher at all." A consumer that merely
+**spins** is fine either way. A consumer that **times** the entry — a deadline, an
+escalation, a "failed to start" verdict — can certify a healthy thing dead. Kolu
+did exactly that: a backgrounded tab lost its socket, the local entry demoted to
+`warming`, and a 30-second boot deadline certified a daemon that had been running
+for twelve hours as dead
+([kolu#2129](https://github.com/juspay/kolu/pull/2129)).
+
+So it is an arm, not a warning. A separate arm means every `.exhaustive()` match in
+every consumer has to say what it does while blind, and the compiler asks the
+question — which is the only form in which this kind of rule survives contact with
+the next feature. It was deliberately not spelled as an optional flag on `warming`:
+a field you can ignore is a rule you can forget, which is the shape the prose
+version already had.
+
+The arm carries `membershipId` (the floor is about liveness, not identity — it is
+still the same member) and `published: "warming" | "connected"` — the last thing
+the publisher actually said, so you can narrate "last seen: connected" without the
+framework pretending the claim still holds. It carries **no** `clockOffset` and
+**no** `connection`, so a frozen in-progress word cannot keep narrating work that
+stopped, and there is nothing green to paint. `failed` is not floored: a
+post-mortem does not go stale the way a live claim does, which is why `published`
+has no `failed` inhabitant.
+
+For the consumer that only wants a spinner, `isSettling(state)` is one call and
+covers both `warming` and `unobservable` — splitting the arm costs the simple case
+nothing. Anything that puts a *clock* on an entry still has to narrow the union
+itself, which is the entire point.
+
+The arm has no wire schema, and that is a statement rather than an omission: it is a
+projection of *your* transport, meaningless to anyone else, so `entryStatusSchema`
+has no arm to encode it into and a floored value can never be republished.
 
 The `failed` arm is a **`FailureRecord`**: the reason, and the output that evidences
 it, as one named value. Neither half is optional, because a card that names a cause

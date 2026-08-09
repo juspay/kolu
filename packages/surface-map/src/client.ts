@@ -47,7 +47,9 @@ import type {
   EntryStatus,
   KeyCodec,
   MembershipId,
+  ObservedEntryStatus,
   SurfaceMap,
+  UnobservableEntry,
 } from "./define";
 import { PENDING_MEMBERSHIP_ID } from "./define";
 import { fold } from "./envelope";
@@ -55,11 +57,12 @@ import { fold } from "./envelope";
 // ── Entry & client shapes ───────────────────────────────────────────────
 
 /** The map's total displayed-entry state — a total existence-as-a-value fold over `entries`
- *  (the {@link EntryStatus} when a member + the explicit `not-a-member` value `state()` returns
- *  when not). DEFINED in `./define` (the solid-free contract module) so a node consumer that
- *  re-exports it type-only via `index.ts` never pulls the Solid client; re-exported here so
- *  `@kolu/surface-map/client` importers keep resolving it. */
-export type { EntryState };
+ *  (the {@link ObservedEntryStatus} when a member + the explicit `not-a-member` value `state()`
+ *  returns when not). DEFINED in `./define` (the solid-free contract module) so a node consumer
+ *  that re-exports it type-only via `index.ts` never pulls the Solid client; re-exported here so
+ *  `@kolu/surface-map/client` importers keep resolving it. {@link ObservedEntryStatus} and
+ *  {@link UnobservableEntry} ride along for the same reason. */
+export type { EntryState, ObservedEntryStatus, UnobservableEntry };
 
 /** The entry-typed subtree PLUS a total existence-as-a-value fold over
  *  `entries`. Reuses the base `SurfaceClient<ES>`'s bound subtrees verbatim
@@ -98,7 +101,7 @@ export interface Entry<
    *  translation the map exposes; WHICH fields are host-stamped is the consumer's domain
    *  knowledge (it routes its known host-stamped reads through this). */
   readonly clock: EntryClock;
-  /** The `EntryStatus` when a member, an explicit `not-a-member` value when not
+  /** The {@link ObservedEntryStatus} when a member, an explicit `not-a-member` value when not
    *  — a client fold over `entries`, total and never nullable. Read it inside a
    *  reactive scope (it subscribes to the membership collection). Carries the fine
    *  `connection` payload (SR9) so a consumer derives the word from the SAME entry the
@@ -110,7 +113,7 @@ export interface Entry<
 export interface EntryClock {
   /** A remote-host epoch-ms → this process's LOCAL-clock epoch-ms, via the entry's
    *  offset-at-hello `clockOffset`. Returns `null` when the entry has no offset yet
-   *  (`warming` / `failed` / `not-a-member`, OR `connected` with a not-yet-measured
+   *  (`warming` / `failed` / `unobservable` / `not-a-member`, OR `connected` with a not-yet-measured
    *  `clockOffset: null` — readiness is link-liveness, so an entry is connected before
    *  the probe lands) — the caller MUST handle it (render a pending "—"), NEVER falling
    *  back to the raw remote value (that is the silent foreign-clock identity this lens
@@ -127,29 +130,28 @@ export interface EntryClock {
  *  HERE, so every consumer (kolu + drishti) inherits them by construction, matching the
  *  server's one-authority guarantee.
  *
- *  A server-published `connected` is only as trustworthy as OUR link to the publisher:
- *  with that link dead (`live === false`) we can no longer hear a demotion, so a stale
- *  `connected` must NOT keep presenting as connected — it downgrades to `warming` (#1568:
- *  no status renders green over a dead transport). And the domain-opaque `connection` word
- *  is just as stale over a dead link (a frozen in-progress word keeps narrating work that
- *  is no longer live), so it is DROPPED to `undefined` on every arm that can carry one —
- *  which since SR9's reshape is `warming` alone, `connected` being demoted to a
- *  word-less `warming` and `failed` never carrying one. `undefined` is domain-neutral,
- *  so surface-map stays volatility-neutral
- *  (it never enumerates what a domain's connection states are). Membership identity rides
- *  through untouched (the floor is about liveness, not identity), so the demoted `warming`
- *  is still the SAME membership, keyed the same way (PR3). `not-a-member` carries neither
- *  word nor identity and passes through as-is, and a live link is a no-op. Making `live` a
- *  REQUIRED argument is the point: `foldState` cannot forget to floor.
+ *  A server-published claim is only as trustworthy as OUR link to the publisher: with that
+ *  link dead (`live === false`) we can no longer hear a demotion, so a stale `connected` must
+ *  NOT keep presenting as connected (#1568: no status renders green over a dead transport).
+ *  And the domain-opaque `connection` word is just as stale (a frozen in-progress word keeps
+ *  narrating work that is no longer live). Both live arms therefore leave the published union
+ *  entirely for {@link UnobservableEntry} — an arm that carries neither `clockOffset` nor
+ *  `connection`, so "no green, no frozen word" is a property of its SHAPE rather than of two
+ *  fields this function remembers to clear. Membership identity rides through untouched (the
+ *  floor is about liveness, not identity), so it is still the SAME membership, keyed the same
+ *  way (PR3). `not-a-member` carries neither word nor identity and passes through as-is, and a
+ *  live link is a no-op. Making `live` a REQUIRED argument is the point: `foldState` cannot
+ *  forget to floor.
  *
- *  WHAT THE DEMOTION COSTS, stated beside the code that performs it: a floored `connected`
- *  and a genuinely-warming entry are now the SAME value — "it is coming up" and "we cannot
- *  see it" are indistinguishable from `.kind` alone. A consumer that merely SPINS is fine
- *  either way; a consumer that TIMES the entry (a deadline, an escalation, a "failed to
- *  start" verdict) must read `live` alongside `.kind` and make no claim while the link is
- *  down. kolu#2129 is the recorded failure: a backgrounded tab's dropped socket demoted a
- *  healthy local host to `warming`, and a 30s boot deadline certified a twelve-hour-old
- *  daemon dead.
+ *  WHAT THE DEMOTION USED TO COST, and no longer does. The floor originally demoted a
+ *  `connected` entry to `warming`, which made "the publisher says it is coming up" and "we
+ *  cannot see the publisher" the SAME value — fine for a consumer that merely spins, a false
+ *  claim for one that TIMES the entry. kolu#2129 is the recorded failure: a backgrounded tab's
+ *  dropped socket demoted a healthy local host to `warming`, and a 30s boot deadline certified
+ *  a twelve-hour-old daemon dead. The fix is structural, not a warning: the floored value now
+ *  has its OWN arm, so every `.exhaustive()` in kolu and drishti must state a policy for it,
+ *  and `{@link isSettling}` gives the spin-only consumer its one call back. There is no
+ *  documented obligation left to forget — hence none stated here.
  *
  *  The `failed` arm has NOTHING for the floor to do, and structurally so: the arm carries
  *  no `connection` at all, so its record is not a liveness payload — see
@@ -157,7 +159,10 @@ export interface EntryClock {
  *  standing refuse also publishes `failed`, and its session HOLDS degraded rather than
  *  redialing (`session.ts` — "a persistent skew holds degraded, it doesn't spin"), so the
  *  record is superseded by a later link death or an operator recheck, never by a retry loop
- *  grinding underneath it. The guarantee is that its two halves move TOGETHER. */
+ *  grinding underneath it. The guarantee is that its two halves move TOGETHER. Nor is it an
+ *  exception to the rule above: `failed` is a POST-MORTEM, and a post-mortem does not go stale
+ *  the way a live claim does — which is why `published` on the new arm has no `failed`
+ *  inhabitant. */
 export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   status: EntryState<Failure, Conn>,
   live: boolean,
@@ -172,28 +177,36 @@ export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   // hit in production — the same failure mode the republish gate was rewritten to remove.
   return (
     match(status)
+      // The two LIVE arms leave the published union for the one blind arm, each RECORDING what
+      // it was — the demotion is now lossless, so a consumer that wants the last-known shape
+      // reads `published` instead of inferring it (or, worse, mistaking `warming` for a real
+      // campaign). Rebuilding rather than spreading also keeps `connection` an ABSENT key
+      // rather than a present-`undefined` (#17), which is what the published schema's
+      // `Schema.optionalKey` accepts — and this arm has no such field at all, so a floored
+      // value can no longer reach an encode by any route.
       .with(
         { kind: "connected" },
-        // Demote the CLAIM (connected → warming), dropping the connected-only `clockOffset`
-        // along with the fine `connection` word — the demoted value is rebuilt with neither.
         (s): EntryState<Failure, Conn> => ({
-          kind: "warming",
+          kind: "unobservable",
           membershipId: s.membershipId,
+          published: "connected",
+        }),
+      )
+      .with(
+        { kind: "warming" },
+        (s): EntryState<Failure, Conn> => ({
+          kind: "unobservable",
+          membershipId: s.membershipId,
+          published: "warming",
         }),
       )
       // `failed` has no `connection` field to drop — its record is already floor-proof by
       // construction, so it passes through whole rather than being rebuilt.
       .with({ kind: "failed" }, (s) => s)
-      // REBUILD without the key rather than spreading `connection: undefined`, for
-      // the same reason the `connected` arm above rebuilds: `connection` is
-      // `Schema.optionalKey` on the published union, and "no fine word" is spelled
-      // as an ABSENT key — a present-`undefined` is a shape the schema refuses, so
-      // a floored value that ever reached an encode (a mirror, a relay) would throw
-      // (#17). The two demoting arms now spell absence the one same way.
-      .with({ kind: "warming" }, (s) => ({
-        kind: "warming" as const,
-        membershipId: s.membershipId,
-      }))
+      // Already blind — flooring an unobservable value is idempotent. It cannot arise from the
+      // real fold (`foldState` floors the RAW published status exactly once), but the signature
+      // is `EntryState → EntryState`, so the arm is stated rather than left to a catch-all.
+      .with({ kind: "unobservable" }, (s) => s)
       .exhaustive()
   );
 }
@@ -205,23 +218,28 @@ export function floorOnLiveness<Failure = unknown, Conn = unknown>(
  *  from the per-entry lens to the membership collection a consumer actually reads,
  *  e.g. the host selector strip). `sub()` is `undefined` before the first frame lands
  *  — passed through as-is (there is no status yet to floor, and `byKey`'s contract is
- *  "undefined while pending", never a synthesized value). `floorOnLiveness` only ever
- *  DEMOTES a `connected` value it's handed (never introduces `not-a-member`), so the
- *  cast back to `EntryStatus` is sound. `pending`/`error`/`complete` pass through
- *  untouched — only the VALUE the subscription reports is floored. */
+ *  "undefined while pending", never a synthesized value).
+ *
+ *  The WIDENING here is the point, not an inconvenience: what comes IN is the published
+ *  `EntryStatus`, what goes OUT is {@link ObservedEntryStatus} — the publisher's word as
+ *  floored by our ability to hear it. A consumer of the membership collection therefore
+ *  cannot read a floored value as if it were a published one, which is the same guarantee
+ *  `state()` gives. `floorOnLiveness` never introduces `not-a-member` (it only ever demotes
+ *  a value it is handed), so the cast back is sound. `pending`/`error`/`complete` pass
+ *  through untouched — only the VALUE the subscription reports is floored. */
 function floorEntrySubscription<Failure = unknown, Conn = unknown>(
   sub: Subscription<EntryStatus<Failure, Conn>>,
   live: Accessor<boolean>,
-): Subscription<EntryStatus<Failure, Conn>> {
+): Subscription<ObservedEntryStatus<Failure, Conn>> {
   return Object.assign(
     () => {
       const v = sub();
       return v === undefined
         ? undefined
-        : (floorOnLiveness(v, live()) as EntryStatus<Failure, Conn>);
+        : (floorOnLiveness(v, live()) as ObservedEntryStatus<Failure, Conn>);
     },
     { pending: sub.pending, error: sub.error, complete: sub.complete },
-  ) as Subscription<EntryStatus<Failure, Conn>>;
+  ) as Subscription<ObservedEntryStatus<Failure, Conn>>;
 }
 
 /** Build an {@link EntryClock} over a `state()` reader. `measureClockOffset` stamps
@@ -248,10 +266,13 @@ export interface SurfaceMapClient<
   Failure = unknown,
   Conn = unknown,
 > {
-  /** The ONE membership authority, consumed as a normal bound collection. */
+  /** The ONE membership authority, consumed as a normal bound collection. Its value is
+   *  {@link ObservedEntryStatus}, NOT the published `EntryStatus`: every value it hands out
+   *  has already been through {@link floorOnLiveness}, so a member we cannot currently see
+   *  reads as `unobservable` rather than as a stale published claim. */
   readonly entries: ReadOnlyBoundCollection<
     KS["Type"],
-    EntryStatus<Failure, Conn>
+    ObservedEntryStatus<Failure, Conn>
   >;
   /** The app-transport liveness leg (resolved from the link once). A per-key chip
    *  must FLOOR its status claim on this — a stale `connected` over a silently
@@ -674,7 +695,10 @@ export function connectSurfaceMap<
   // the selector strip) can `.kind`-switch the members it reads. `decodeKey`'s
   // canonicalization means an UNCHANGED member yields the SAME `K` reference across
   // calls, so a reference-keyed `<For>` reconciles only a genuinely changed row.
-  const entries: ReadOnlyBoundCollection<K, EntryStatus<Failure, Conn>> = {
+  const entries: ReadOnlyBoundCollection<
+    K,
+    ObservedEntryStatus<Failure, Conn>
+  > = {
     use(opts) {
       const rawKeys = opts?.keys
         ? () => opts.keys?.().map((k) => map.codec.encode(k)) ?? []
@@ -832,11 +856,13 @@ export function connectSurfaceMap<
     const v = view.byKey(enc)?.() as EntryStatus<Failure, Conn> | undefined;
     // A member whose per-key status frame hasn't landed yet is honestly warming; then
     // FLOOR the claim on the map's OWN transport liveness via {@link floorOnLiveness}: a
-    // server-published "connected" over a dead/half-open link (`live() === false`) can no
-    // longer hear a demotion, so it downgrades to warming rather than presenting green over
-    // a dead transport (#1568 — the per-key chip that paints `state()` inherits the floor
-    // for free). An in-process `directLink` can't half-open so its `live()` is a constant
-    // true and never floors. This is the flooring `hostChipTone`'s docstring asserts, in code.
+    // server-published claim over a dead/half-open link (`live() === false`) can no longer
+    // hear a demotion, so it leaves the published union for `unobservable` rather than
+    // presenting green over a dead transport (#1568 — the per-key chip that paints `state()`
+    // inherits the floor for free) and rather than impersonating a real campaign (#2129 — a
+    // consumer that times the entry now has to say what it does while blind). An in-process
+    // `directLink` can't half-open so its `live()` is a constant true and never floors. This
+    // is the flooring `hostChipTone`'s docstring asserts, in code.
     //
     // The pre-frame synthesized warming carries `PENDING_MEMBERSHIP_ID` (PR3): the id
     // rides ON the status, so a member seen in the keyset before its first status frame

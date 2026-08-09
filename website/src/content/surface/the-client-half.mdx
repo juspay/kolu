@@ -54,9 +54,12 @@ A fleet client faces a subtler lie than a broken pipe: a host the server *last
 saw* as connected, presented as green while **our** link to the server is dead. A
 `connected` published by the server is only as trustworthy as the transport
 carrying it. So the map floors every status on real transport liveness — with the
-link dead, a stale `connected` downgrades to `warming`. No status renders green
-over a dead transport, and `live` is a required input to the fold so it can't be
-forgotten.
+link dead, a stale `connected` leaves the published union for `unobservable`, an
+arm that says "we cannot see this" rather than borrowing a word that means
+something else. No status renders green over a dead transport, and `live` is a
+required input to the fold so it can't be forgotten. See
+[Entry contracts](/surface/entry-contracts) for why that is its own arm and not a
+demotion to `warming`.
 
 This is why the client **never hand-rolls a probe.** The framework-reserved
 liveness round-trip is the one probe, and the watchdog-backed handle from
