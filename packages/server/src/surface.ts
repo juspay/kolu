@@ -76,12 +76,7 @@ import {
   surfaces,
 } from "kolu-common/surface";
 import { padiHostMap } from "kolu-common/surfacesWithPadi";
-import {
-  serverCommit,
-  serverProcessId,
-  serverStartedAt,
-  serverVersion,
-} from "./hostname.ts";
+import { serverCommit, serverStartedAt, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import {
   MEMORY_SAMPLE_INTERVAL_MS,
