@@ -33,11 +33,12 @@
  *  suspend sees the real elapsed on resume and may escape immediately to the honest
  *  boot-stalled card (Reload recovers). Same jump the wall clock would have; bounded, honest.
  *
- *  That residual is now mostly closed by the #2129 observability floor: a suspend or a
- *  throttled tab long enough to matter also drops the socket, and once the watchdog marks the
- *  link dead every accrue frame releases the anchor — so observation restarts with a fresh
- *  window on resume rather than escaping on the elapsed nobody watched. What survives is only
- *  the window BEFORE the watchdog notices. */
+ *  That residual is now mostly closed by the #2129 observability floor (told once, in
+ *  `canvasModeResolver.ts`'s module header): a suspend or a throttled tab long enough to
+ *  matter also drops the socket, and once the watchdog marks the link dead every accrue
+ *  frame releases the anchor — so observation restarts with a fresh window on resume rather
+ *  than escaping on the elapsed nobody watched. What survives is only the window BEFORE the
+ *  watchdog notices. */
 
 import { match } from "ts-pattern";
 import type { BootTag, CeilingClass } from "./canvasModeResolver";
@@ -77,7 +78,18 @@ export const CEILING_MS: Record<CeilingClass, number> = {
  *  30min: comfortably above the 600s remote-provisioning cell AND above the server's own retry
  *  grants (R8b's 20min pre-connected no-progress backstop; R4's ≤16min per-step budget) — so a
  *  genuinely-progressing cold provision (which settles to `connected` and CLEARS well under this)
- *  never false-fires; only a campaign that has NOT settled for a solid half hour reaches it. */
+ *  never false-fires; only a campaign that has NOT settled for a solid half hour reaches it.
+ *
+ *  THE #2129 OBSERVABILITY FLOOR RELEASES THIS CELL TOO — a decision made here, not a
+ *  side effect of `clear` releasing both. A browser that cannot hold a socket has no
+ *  standing to certify a 30-minute campaign either, and this cell's semantic is already
+ *  explicitly PER-BROWSER ("THIS browser has shown a non-connecting host for
+ *  CAMPAIGN_CEILING_MS"), so an outage is time this browser did not observe — exactly the
+ *  case a page reload already restarts. CONSEQUENCE, accepted: on a link that flaps faster
+ *  than CAMPAIGN_CEILING_MS this backstop never fires, so the flapping-phase defeat it was
+ *  built to survive (above) is re-reachable one level up, via a flapping LINK rather than a
+ *  flapping phase. That is the honest surface: throughout, the transport overlay owns the
+ *  screen and tells the user the true thing — kolu cannot see their machine. */
 export const CAMPAIGN_CEILING_MS = 1_800_000;
 
 interface Anchor {
@@ -132,15 +144,13 @@ export function bootDeadlineExceeded(hostEnc: string, nowMs: number): boolean {
  *     tracks the whole warming-remote campaign across class flips but never a client-side leg.
  *   - `clear` → release BOTH cells, for either of two reasons: a SETTLED surface
  *     (workspace/empty/down/host-failed), or an UNOBSERVABLE one (the #2129 observability
- *     floor in `resolveCanvasMode` — our link to the server is down, so there is no boot we
- *     could honestly be timing). Both mean the ceiling is no longer measuring anything in
- *     progress. NOTE the floor only ever downgrades `accrue`, and only while the deadline
- *     has NOT yet elapsed: an ALREADY-elapsed verdict was earned over a live link and keeps
- *     its anchor, so a blip cannot retract a card the user has already been shown. `retain`
- *     is left unfloored because every `retain` return site is on the connected arm, and
- *     `floorOnLiveness` demotes a connected entry to `warming` over a dead link — so a
- *     `retain` frame with `transportLive` false is unreachable. A future `retain` outside
- *     the connected arm would break that assumption.
+ *     floor — see `canvasModeResolver.ts`'s module header for the whole rule). Both mean the
+ *     ceiling is no longer measuring anything in progress. Releasing the CAMPAIGN cell too
+ *     is deliberate — see {@link CAMPAIGN_CEILING_MS}. `retain` is left unfloored because
+ *     every `retain` return site is on the connected arm, and `floorOnLiveness` demotes a
+ *     connected entry to `warming` over a dead link — so a `retain` frame with the link
+ *     fact false is unreachable. A future `retain` outside the connected arm would break
+ *     that assumption.
  *   - `retain` → hold the CLASS cell (a non-boot OVERLAY the deadline must ignore — kaval-restart
  *     warming, a records-awaited / `!channelLive` connecting — so an overlay-flavored flap can't
  *     dodge the class ceiling), but CLEAR the campaign cell: every `retain` is a CONNECTED-arm
