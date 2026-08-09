@@ -20,14 +20,17 @@ export {
   type FailureEvidence,
   FailureEvidenceSchema,
   type FailureRecord,
+  isSettling,
   type Key,
   type KeyCodec,
   type MapRejection,
   MapRejectionSchema,
   type MembershipId,
   MembershipIdSchema,
+  type ObservedEntryStatus,
   PENDING_MEMBERSHIP_ID,
   type SurfaceMap,
+  type UnobservableEntry,
 } from "./define";
 // (`EntryState` is sourced from the SOLID-FREE `./define`, NOT `./client`: a
 // `export type … from "./client"` still makes TS typecheck the Solid client for a NODE

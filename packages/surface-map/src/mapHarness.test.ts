@@ -20,7 +20,12 @@ import { Effect, Schema, Stream } from "effect";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { connectSurfaceMap, type EntryState, floorOnLiveness } from "./client";
-import type { EntryStatus, KeyCodec } from "./define";
+import {
+  type EntryStatus,
+  entryStatusSchema,
+  isSettling,
+  type KeyCodec,
+} from "./define";
 import { fold } from "./envelope";
 import {
   A,
@@ -1146,12 +1151,14 @@ describe("membership is time — opaque membershipId (PR3)", () => {
 // floor is extracted PURE (`floorOnLiveness`) and pinned here — foldState routes every
 // status through it with the resolved transport `live()`, so this IS the state() decision.
 describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
-  it("downgrades a server-published 'connected' to 'warming' when our link is dead — membershipId preserved, fine word dropped (PR3)", () => {
+  it("downgrades a server-published 'connected' to 'unobservable' when our link is dead — membershipId preserved, offset + fine word gone (PR3)", () => {
     // The D3 defect: state() published `connected` while `live() === false`, painting a
-    // green chip over a transport that can no longer deliver a demotion. Floored → warming.
-    // The floor is about LIVENESS, not identity: the entry's opaque `membershipId` rides
-    // through the demotion untouched, so the warming is still the SAME membership. The fine
-    // `connection` word is just as stale over a dead link, so it is dropped to undefined.
+    // green chip over a transport that can no longer deliver a demotion. Floored off the
+    // published union entirely. The floor is about LIVENESS, not identity: the entry's
+    // opaque `membershipId` rides through untouched, so this is still the SAME membership.
+    // The connected-only `clockOffset` and the fine `connection` word are both just as
+    // stale over a dead link — and the arm has no field for either, so their absence is a
+    // property of its shape rather than of two fields the floor remembers to clear.
     expect(
       floorOnLiveness(
         {
@@ -1163,9 +1170,82 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
         false,
       ),
     ).toEqual({
-      kind: "warming",
+      kind: "unobservable",
       membershipId: testMembershipId("m1"),
+      published: "connected",
     });
+  });
+
+  it("keeps 'the publisher says it is coming up' and 'we cannot see the publisher' APART (#2129)", () => {
+    // THE test the old collapsed shape could not pass, and the reason the arm exists. Both
+    // inputs below used to floor to the byte-identical `{ kind: "warming", membershipId }`,
+    // so a consumer that TIMED the entry — a boot deadline, an escalation, a "failed to
+    // start" verdict — could not tell a real self-healing campaign from its own dead socket.
+    // kolu#2129 is what that cost: a backgrounded tab's dropped socket demoted a healthy
+    // local host, and a 30s ceiling certified a twelve-hour-old daemon dead.
+    const membershipId = testMembershipId("m1");
+    const observedCampaign = floorOnLiveness(
+      { kind: "warming", membershipId, connection: { phase: "provisioning" } },
+      true,
+    );
+    const blindOverAConnectedHost = floorOnLiveness(
+      { kind: "connected", membershipId, clockOffset: 42 },
+      false,
+    );
+    expect(observedCampaign.kind).toBe("warming");
+    expect(blindOverAConnectedHost.kind).toBe("unobservable");
+    expect(observedCampaign).not.toEqual(blindOverAConnectedHost);
+    // And the distinction is not merely a different label: the blind arm records what the
+    // publisher last SAID, so nothing downstream has to guess (or pretend the claim holds).
+    expect(blindOverAConnectedHost).toEqual({
+      kind: "unobservable",
+      membershipId,
+      published: "connected",
+    });
+  });
+
+  it("`isSettling` gives the spin-only consumer ONE call across both unsettled arms", () => {
+    // The ergonomic half of the split: splitting the arm must not force a consumer that
+    // merely shows a spinner to duplicate logic — a bare `kind === "warming"` would have
+    // quietly stopped spinning the moment the link dropped.
+    const membershipId = testMembershipId("m1");
+    expect(isSettling({ kind: "warming", membershipId })).toBe(true);
+    expect(
+      isSettling({
+        kind: "unobservable",
+        membershipId,
+        published: "connected",
+      }),
+    ).toBe(true);
+    // …and it stays a question about SETTLING, never a re-collapse: a settled arm is false.
+    expect(
+      isSettling({ kind: "connected", membershipId, clockOffset: 0 }),
+    ).toBe(false);
+    expect(
+      isSettling({
+        kind: "failed",
+        membershipId,
+        failure: { cause: "x", reason: "boom" },
+        evidence: [],
+      }),
+    ).toBe(false);
+    expect(isSettling({ kind: "not-a-member" })).toBe(false);
+  });
+
+  it("the floored arm has NO wire schema — a client-local projection can never be republished", () => {
+    // Why `unobservable` lives on `EntryState`/`ObservedEntryStatus` and NOT on the published
+    // `EntryStatus`: it is a projection of the CONSUMER's own transport, meaningless to anyone
+    // else. Previously the floor produced a `warming` value that a mirror or relay COULD
+    // re-encode (it only avoided throwing because `connection` was rebuilt as an absent key,
+    // #17); now the encoder has no arm to put it in at all.
+    const schema = entryStatusSchema(Schema.Unknown);
+    expect(() =>
+      Schema.encodeUnknownSync(schema)({
+        kind: "unobservable",
+        membershipId: testMembershipId("m1"),
+        published: "connected",
+      }),
+    ).toThrow();
   });
 
   it("passes 'connected' through UNTOUCHED when the link is live (offset + membershipId + connection preserved)", () => {
@@ -1190,8 +1270,8 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
   it("drops the fine `connection` word on a NON-connected arm when the link is dead (subsumes the old connectionFloor)", () => {
     // The fine per-entry connection word (the connect overlay's narration) is floored by the
     // SAME liveness decision as the dot: a `warming` arm frozen at `provisioning` over a
-    // dead link keeps narrating a build that is no longer live, so the word is dropped to
-    // undefined — the one floor every consumer inherits, replacing the client's separate
+    // dead link keeps narrating a build that is no longer live, so the word goes with the
+    // arm — the one floor every consumer inherits, replacing the client's separate
     // `floorConnectionInfo`. A live link is a no-op and carries the word through.
     expect(
       floorOnLiveness(
@@ -1203,8 +1283,9 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
         false,
       ),
     ).toEqual({
-      kind: "warming",
+      kind: "unobservable",
       membershipId: testMembershipId("m1"),
+      published: "warming",
     });
     expect(
       floorOnLiveness(
@@ -1256,8 +1337,11 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
     );
   });
 
-  it("never fabricates OR demotes an honest status — failed/warming/not-a-member pass through regardless of live", () => {
+  it("never fabricates — failed/not-a-member pass through regardless of live, and a LIVE link never floors anything", () => {
     for (const live of [true, false]) {
+      // `failed` is a POST-MORTEM, not a live claim, so it does not go stale the way one
+      // does — it passes through on both legs. (This is also why `published` has no `failed`
+      // inhabitant: the floor can never produce one.)
       expect(
         floorOnLiveness(
           {
@@ -1274,19 +1358,21 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
         failure: { cause: "x", reason: "boom" },
         evidence: [],
       });
-      expect(
-        floorOnLiveness(
-          { kind: "warming", membershipId: testMembershipId("m1") },
-          live,
-        ),
-      ).toEqual({
-        kind: "warming",
-        membershipId: testMembershipId("m1"),
-      });
       expect(floorOnLiveness({ kind: "not-a-member" }, live)).toEqual({
         kind: "not-a-member",
       });
     }
+    // A live link is a no-op on the live arms too — the publisher's word stands, and
+    // `warming` therefore keeps meaning what it says: a campaign we can actually see.
+    expect(
+      floorOnLiveness(
+        { kind: "warming", membershipId: testMembershipId("m1") },
+        true,
+      ),
+    ).toEqual({
+      kind: "warming",
+      membershipId: testMembershipId("m1"),
+    });
   });
 });
 

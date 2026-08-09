@@ -38,6 +38,17 @@ const cleared: BootTag = { accrual: "clear" };
 /** A non-boot overlay the deadline must ignore — holds the anchor without accruing. */
 const retained: BootTag = { accrual: "retain" };
 
+/** The verdict as a browser that can SEE the server reads it. `bootDeadlineExceeded`'s third
+ *  argument is the #2129 observability floor on the CLOCK, and every pin outside the outage
+ *  block below is about a watching browser, so it is named once here rather than spelled at
+ *  every call site. */
+const watchedExceeded = (hostEnc: string, nowMs: number) =>
+  bootDeadlineExceeded(hostEnc, nowMs, true);
+/** …and as a browser that has LOST the server reads it: no subtraction, just the last verdict
+ *  this browser actually watched accrue. */
+const blindExceeded = (hostEnc: string, nowMs: number) =>
+  bootDeadlineExceeded(hostEnc, nowMs, false);
+
 beforeEach(() => resetBootAnchors());
 
 describe("bootDeadline — ceiling table (R4, all finite)", () => {
@@ -54,13 +65,13 @@ describe("bootDeadline — ceiling table (R4, all finite)", () => {
 
 describe("bootDeadline — accrue / read (C1)", () => {
   it("a host with no anchor is never exceeded (a brief overlay under the ceiling holds neutral)", () => {
-    expect(bootDeadlineExceeded("local", 10_000_000)).toBe(false);
+    expect(watchedExceeded("local", 10_000_000)).toBe(false);
   });
 
   it("accrues from the first boot frame and fires once past the class ceiling", () => {
     recordBootFrame("local", boot("membership", "local"), 0);
-    expect(bootDeadlineExceeded("local", LOCAL_MS - 1)).toBe(false);
-    expect(bootDeadlineExceeded("local", LOCAL_MS + 1)).toBe(true);
+    expect(watchedExceeded("local", LOCAL_MS - 1)).toBe(false);
+    expect(watchedExceeded("local", LOCAL_MS + 1)).toBe(true);
   });
 
   it("an escaped frame (raw tag still accrue, mode down/boot-stalled) keeps accruing — stays escaped", () => {
@@ -68,17 +79,17 @@ describe("bootDeadline — accrue / read (C1)", () => {
     // deadline passed → the wrapper escaped; the caller records the escaped frame (tag stays accrue):
     recordBootFrame("local", boot("daemon", "local"), LOCAL_MS + 1);
     recordBootFrame("local", boot("membership", "local"), LOCAL_MS + 2);
-    expect(bootDeadlineExceeded("local", LOCAL_MS + 3)).toBe(true);
+    expect(watchedExceeded("local", LOCAL_MS + 3)).toBe(true);
   });
 });
 
 describe("bootDeadline — clear vs retain (C2)", () => {
   it("CLEARS on a `clear` tag (settled workspace/empty/down/host-failed) — late delivery un-wedges", () => {
     recordBootFrame("local", boot("session", "local"), 0);
-    expect(bootDeadlineExceeded("local", LOCAL_MS + 1)).toBe(true);
+    expect(watchedExceeded("local", LOCAL_MS + 1)).toBe(true);
     // the hung session leg finally delivers → resolvePrecedence settles to workspace (clear):
     recordBootFrame("local", cleared, LOCAL_MS + 2);
-    expect(bootDeadlineExceeded("local", 10_000_000)).toBe(false);
+    expect(watchedExceeded("local", 10_000_000)).toBe(false);
   });
 
   it("RETAINS on a `retain` tag (records / !channelLive / restart-warming) — no flap dodge", () => {
@@ -88,7 +99,7 @@ describe("bootDeadline — clear vs retain (C2)", () => {
     // …and a kaval-restart warming (also retain):
     recordBootFrame("local", retained, 6_000);
     // the anchor is NOT reset — the ceiling still fires from the original t=0.
-    expect(bootDeadlineExceeded("local", LOCAL_MS + 1)).toBe(true);
+    expect(watchedExceeded("local", LOCAL_MS + 1)).toBe(true);
   });
 });
 
@@ -96,20 +107,14 @@ describe("bootDeadline — ceiling-class transition re-anchors (R4 accrual per c
   it("a long remote build does NOT instantly trip the shorter handshake cell", () => {
     // ~10 min of provisioning (600s cell) — not yet exceeded at 9m50s:
     recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0);
-    expect(bootDeadlineExceeded("zest", 590_000)).toBe(false);
+    expect(watchedExceeded("zest", 590_000)).toBe(false);
     // class transitions to the handshake (probing/connecting) → re-anchor at 590s, zero-credit:
     recordBootFrame("zest", boot("daemon", "remote-handshake"), 590_000);
     expect(
-      bootDeadlineExceeded(
-        "zest",
-        590_000 + CEILING_MS["remote-handshake"] - 1,
-      ),
+      watchedExceeded("zest", 590_000 + CEILING_MS["remote-handshake"] - 1),
     ).toBe(false);
     expect(
-      bootDeadlineExceeded(
-        "zest",
-        590_000 + CEILING_MS["remote-handshake"] + 1,
-      ),
+      watchedExceeded("zest", 590_000 + CEILING_MS["remote-handshake"] + 1),
     ).toBe(true);
   });
 });
@@ -138,10 +143,10 @@ describe("bootDeadline — campaign backstop (#1908 R8a, class-blind, client-mon
       CAMPAIGN_CEILING_MS - 2,
     );
     // Just under the campaign ceiling: campaign not yet past, class freshly re-anchored → neither.
-    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS - 1)).toBe(false);
+    expect(watchedExceeded("zest", CAMPAIGN_CEILING_MS - 1)).toBe(false);
     // One tick past the campaign ceiling: the class cell has accrued only 3ms against its 600s
     // cell (idle), so the escape is UNAMBIGUOUSLY the class-blind campaign backstop.
-    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(true);
+    expect(watchedExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(true);
   });
 
   it("the campaign anchor is HELD across class flips — not re-zeroed — even when the current class cell says fine", () => {
@@ -154,19 +159,19 @@ describe("bootDeadline — campaign backstop (#1908 R8a, class-blind, client-mon
       boot("provisioning", "remote-handshake"),
       1_700_000,
     );
-    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(true);
+    expect(watchedExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(true);
   });
 
   it("resetBootDeadline (the deliberate user Retry) clears BOTH cells, so a SAME-class retry dismisses the card at once — and a still-wedged retry escapes again after a fresh window (codex F1)", () => {
     // A remote `probing` campaign that has exceeded its 120s handshake class cell (and the 30-min
     // campaign cell) — the connector card is showing:
     recordBootFrame("zest", boot("provisioning", "remote-handshake"), 0);
-    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(true);
+    expect(watchedExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(true);
     // The user clicks Retry connection → resetBootDeadline: BOTH cells clear, so the card dismisses
     // at once even though the next frame is the SAME `probing` class (which alone would NOT
     // re-anchor the class cell — the exact case codex flagged).
     resetBootDeadline("zest");
-    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 2)).toBe(false);
+    expect(watchedExceeded("zest", CAMPAIGN_CEILING_MS + 2)).toBe(false);
     // The fresh frame re-arms both cells from `now`, so a genuinely still-wedged retry escapes
     // again after a full window rather than being permanently silenced.
     recordBootFrame(
@@ -175,7 +180,7 @@ describe("bootDeadline — campaign backstop (#1908 R8a, class-blind, client-mon
       CAMPAIGN_CEILING_MS + 2,
     );
     expect(
-      bootDeadlineExceeded(
+      watchedExceeded(
         "zest",
         CAMPAIGN_CEILING_MS + 2 + CAMPAIGN_CEILING_MS + 1,
       ),
@@ -185,7 +190,7 @@ describe("bootDeadline — campaign backstop (#1908 R8a, class-blind, client-mon
   it("a `clear` (settle) releases the campaign anchor — a provision that connects never trips it", () => {
     recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0);
     recordBootFrame("zest", cleared, 400_000); // connected well under the ceiling
-    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(false);
+    expect(watchedExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(false);
   });
 
   it("a `retain` frame (a CONNECTED-arm overlay — the connector campaign is over) clears the campaign anchor, so a later fresh warming campaign can't inherit the stale start (codex F7)", () => {
@@ -200,7 +205,7 @@ describe("bootDeadline — campaign backstop (#1908 R8a, class-blind, client-mon
     recordBootFrame("zest", retained, CAMPAIGN_CEILING_MS - 50);
     // With the campaign cleared, one tick past the old 30-min mark does NOT fire (class still fresh);
     // without the F7 fix the stale campaign start from t=0 would fire here.
-    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(false);
+    expect(watchedExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(false);
   });
 
   it("a non-`provisioning` boot leg after a provisioning one clears the campaign anchor (the connector campaign ended)", () => {
@@ -212,22 +217,22 @@ describe("bootDeadline — campaign backstop (#1908 R8a, class-blind, client-mon
       boot("session", "remote-handshake"),
       CAMPAIGN_CEILING_MS - 100,
     );
-    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(false);
+    expect(watchedExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(false);
   });
 
   it("pruning a departed host drops its campaign anchor too", () => {
     recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0);
     pruneBootAnchors(["local"]);
-    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(false);
+    expect(watchedExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(false);
   });
 });
 
 describe("bootDeadline — host switches (R7) + no cross-host credit", () => {
   it("wedged→healthy: a healthy host with no anchor never false-fires off another host's wedge", () => {
     recordBootFrame("zest", boot("session", "remote-handshake"), 0);
-    expect(bootDeadlineExceeded("zest", 10_000_000)).toBe(true);
+    expect(watchedExceeded("zest", 10_000_000)).toBe(true);
     // switch to a healthy local — it has no anchor of its own:
-    expect(bootDeadlineExceeded("local", 10_000_000)).toBe(false);
+    expect(watchedExceeded("local", 10_000_000)).toBe(false);
   });
 
   it("healthy→revisited-wedged: switching back does NOT earn fresh grace (same-class frame keeps the anchor)", () => {
@@ -235,26 +240,23 @@ describe("bootDeadline — host switches (R7) + no cross-host credit", () => {
     // switch away (record other hosts / nothing for zest) … then switch BACK, still the same
     // wedged class — recordBootFrame keeps the ORIGINAL anchor (no re-anchor on same class):
     recordBootFrame("zest", boot("session", "remote-handshake"), 50_000);
-    expect(
-      bootDeadlineExceeded("zest", CEILING_MS["remote-handshake"] + 1),
-    ).toBe(true);
+    expect(watchedExceeded("zest", CEILING_MS["remote-handshake"] + 1)).toBe(
+      true,
+    );
   });
 });
 
 describe("bootDeadline — membership prune (fresh grace on re-add)", () => {
   it("prunes an anchor when its host leaves membership; a genuine re-add starts fresh", () => {
     recordBootFrame("zest", boot("session", "remote-handshake"), 0);
-    expect(bootDeadlineExceeded("zest", 10_000_000)).toBe(true);
+    expect(watchedExceeded("zest", 10_000_000)).toBe(true);
     // zest leaves the pool — only local remains:
     pruneBootAnchors(["local"]);
-    expect(bootDeadlineExceeded("zest", 10_000_000)).toBe(false);
+    expect(watchedExceeded("zest", 10_000_000)).toBe(false);
     // a genuine re-add re-anchors fresh from its new boot frame:
     recordBootFrame("zest", boot("session", "remote-handshake"), 1_000_000);
     expect(
-      bootDeadlineExceeded(
-        "zest",
-        1_000_000 + CEILING_MS["remote-handshake"] - 1,
-      ),
+      watchedExceeded("zest", 1_000_000 + CEILING_MS["remote-handshake"] - 1),
     ).toBe(false);
   });
 
@@ -262,6 +264,72 @@ describe("bootDeadline — membership prune (fresh grace on re-add)", () => {
     // The caller keys the anchor off `activeHost()` (always defined). A host that was never
     // active has no anchor and so is never exceeded — the property the deleted per-host-wire
     // anchor pinned, now holding by construction.
-    expect(bootDeadlineExceeded("remote:never-active", 10_000_000)).toBe(false);
+    expect(watchedExceeded("remote:never-active", 10_000_000)).toBe(false);
+  });
+});
+
+describe("bootDeadline — the observability floor on the CLOCK (#2129)", () => {
+  // The half of the floor that per-frame release cannot cover. `recordBootFrame` can only act
+  // on frames that RUN; a tab frozen mid-boot runs none, wakes past its ceiling with the socket
+  // already gone, and would otherwise have `now - anchor` certify a stall nobody watched. So the
+  // read is sampled-and-held: while blind, the answer is the last one this browser watched.
+
+  it("a ceiling crossed entirely while blind is never reached", () => {
+    recordBootFrame("local", boot("daemon", "local"), 0);
+    // The last watched frame is well under the ceiling…
+    expect(watchedExceeded("local", 1_000)).toBe(false);
+    // …so no matter how far the clock has moved, a blind browser reports what it watched.
+    expect(blindExceeded("local", LOCAL_MS * 100)).toBe(false);
+  });
+
+  it("a verdict EARNED while watching survives going blind (the AFP C6 exemption)", () => {
+    recordBootFrame("local", boot("daemon", "local"), 0);
+    expect(watchedExceeded("local", LOCAL_MS + 1)).toBe(true);
+    expect(blindExceeded("local", LOCAL_MS + 2)).toBe(true);
+  });
+
+  it("the sample tracks the LATEST watched answer, including one walked back to false", () => {
+    // A class flip re-anchors with zero credit, so the watched verdict must be able to go
+    // false again — a latch that only ever went true would hold a retracted card through the
+    // next outage.
+    recordBootFrame("zest", boot("provisioning", "remote-handshake"), 0);
+    expect(watchedExceeded("zest", CEILING_MS["remote-handshake"] + 1)).toBe(
+      true,
+    );
+    recordBootFrame(
+      "zest",
+      boot("provisioning", "remote-provisioning"),
+      CEILING_MS["remote-handshake"] + 1,
+    );
+    expect(watchedExceeded("zest", CEILING_MS["remote-handshake"] + 2)).toBe(
+      false,
+    );
+    expect(blindExceeded("zest", 10_000_000)).toBe(false);
+  });
+
+  it("a settled episode leaves no verdict for a later blind frame to resurrect", () => {
+    recordBootFrame("local", boot("daemon", "local"), 0);
+    expect(watchedExceeded("local", LOCAL_MS + 1)).toBe(true);
+    // The host settles — workspace/empty/down. The episode, and its verdict, are over.
+    recordBootFrame("local", cleared, LOCAL_MS + 2);
+    expect(blindExceeded("local", LOCAL_MS + 3)).toBe(false);
+  });
+
+  it("a deliberate Retry drops the held verdict too, so the card cannot come straight back", () => {
+    recordBootFrame("zest", boot("provisioning", "remote-handshake"), 0);
+    expect(watchedExceeded("zest", CEILING_MS["remote-handshake"] + 1)).toBe(
+      true,
+    );
+    resetBootDeadline("zest");
+    expect(blindExceeded("zest", CEILING_MS["remote-handshake"] + 2)).toBe(
+      false,
+    );
+  });
+
+  it("prune takes the held verdict with the anchors, so a re-add inherits nothing", () => {
+    recordBootFrame("zest", boot("session", "remote-handshake"), 0);
+    expect(watchedExceeded("zest", 10_000_000)).toBe(true);
+    pruneBootAnchors(["local"]);
+    expect(blindExceeded("zest", 10_000_000)).toBe(false);
   });
 });

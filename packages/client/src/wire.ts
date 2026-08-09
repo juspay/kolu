@@ -445,7 +445,18 @@ const hostScoped = createRoot(() => {
       // Spelled EXHAUSTIVELY, not `.otherwise()`: a future arm that DOES carry a live
       // word must state its policy here rather than silently answering "no connection".
       // This is the read that narrated the wrong thing for a year.
-      .with({ kind: "failed" }, { kind: "not-a-member" }, () => undefined)
+      //
+      // `unobservable` answers `undefined` for the strongest reason of the three: the arm
+      // carries no `connection` field AT ALL, because our link to the publisher is dead and
+      // a frozen `probing`/`provisioning` word would keep narrating work that stopped being
+      // live. The floor used to express this by clearing a field on a `warming` value; the
+      // arm expresses it by not having one.
+      .with(
+        { kind: "failed" },
+        { kind: "unobservable" },
+        { kind: "not-a-member" },
+        () => undefined,
+      )
       .exhaustive();
   // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
   // owner rather than a bare import-time module-const sub — the sharing-by-convention
@@ -604,10 +615,10 @@ export const activePadiStreams = hostScoped.streams;
 /** The ACTIVE host's link-health value (`phase` + `log` tail), or `undefined` before its
  *  first frame. Drives the connect overlay's probing/provisioning narration. Already floored on
  *  the map's transport liveness at the ONE floor — `active.state()` runs through surface-map's
- *  `floorOnLiveness`, which drops the fine `connection` word (as well as demoting the dot) when
- *  our link to the publisher is dead/half-open, so a frozen `probing`/`provisioning` phase stops
- *  asserting a live phase (#1568). No client-side re-floor: the word inherits the SAME liveness
- *  decision as the dot by construction, so the two can never disagree. */
+ *  `floorOnLiveness`, which moves the entry to the word-less `unobservable` arm when our link to
+ *  the publisher is dead/half-open, so a frozen `probing`/`provisioning` phase stops asserting a
+ *  live phase (#1568). No client-side re-floor: the word inherits the SAME liveness decision as
+ *  the dot by construction, so the two can never disagree. */
 export const connectionInfo = (): ConnectionInfo | undefined =>
   hostScoped.connection();
 
