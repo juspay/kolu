@@ -82,7 +82,7 @@ export function canvasMode(deps: {
   // the connect-overlay routing reads it too (no cross-channel skew). ONE read yields BOTH the
   // phase and the output tail: they are two fields of one cell frame, and the boot-stalled
   // card's connector arm shows them together. Fed ONLY into the not-yet-connected arms
-  // (warming/not-a-member): the `connected` arm carries neither, so a stale/lagging cell can
+  // (warming/unobservable/not-a-member): the `connected` arm carries neither, so a stale/lagging cell can
   // never route the overlay over a connected host (A'). `connectionInfo()` is floored on the
   // map's transport liveness (C'), so a stale cell already demotes before it reaches here.
   // NARROW the phase to the framework's `ConnectPhase` (the narrated subset) at THIS boundary:
@@ -128,6 +128,21 @@ export function canvasMode(deps: {
       facts = {
         ...liveness,
         entry: "not-a-member",
+        connectPhase,
+        connectLog,
+        connectLogAbsence,
+      };
+      break;
+    // BLIND — the map's floor moved the entry off its published arm because THIS browser
+    // cannot reach the publisher (#1568/#2129). It reaches the resolver as its own fact, not
+    // as a `warming` one, so the boot deadline can't mistake our outage for the host's slow
+    // start. `connectPhase` is structurally `undefined` here (the arm carries no `connection`
+    // for `connectionInfo()` to read), and that same absence is what makes `connectLogAbsence`
+    // read `link-down` — so the overlay narrates the real reason rather than an empty tail.
+    case "unobservable":
+      facts = {
+        ...liveness,
+        entry: "unobservable",
         connectPhase,
         connectLog,
         connectLogAbsence,

@@ -11,7 +11,7 @@
  *  structurally reachable ONLY on the `connected` arm — a non-connected host's
  *  re-served `daemonStatus` is FROZEN stale, so consulting a kaval fact off it is
  *  a lie the type system now makes UNSPELLABLE (reading `.daemonState` on the
- *  `warming`/`failed`/`not-a-member` arm is a compile error; see
+ *  `warming`/`failed`/`unobservable`/`not-a-member` arm is a compile error; see
  *  `canvasModeResolver.test-d.ts`). The internal {@link resolvePrecedence} switches on
  *  the discriminant FIRST and touches a kaval fact only inside the `connected` arm.
  *
@@ -63,21 +63,31 @@
  *
  *  KEEPING a verdict means keeping the card it earned, so the hold covers the boot's
  *  IDENTITY too ({@link BootIdentity}, held beside the verdict in `bootDeadline.ts`). The
- *  outage is the same event that demotes the entry off the `connected` arm, and the warming
- *  arm derives `leg` from host-locality alone — so a card recomputed mid-blip would name a
- *  DIFFERENT boot than the one that earned it, turning a local `session` stall into the
- *  `down`/dead card this floor exists to prevent. The narration (`phase`/`log`/`logAbsence`)
+ *  outage is the same event that takes the entry off the `connected` arm (onto `unobservable`),
+ *  and the not-yet-connected arms derive `leg` from host-locality alone — so a card recomputed
+ *  mid-blip would name a DIFFERENT boot than the one that earned it, turning a `session` stall
+ *  into the `down`/dead card this floor exists to prevent. The narration (`phase`/`log`/`logAbsence`)
  *  is deliberately NOT held: "kolu cannot see your machine" is true while it is true.
  *
- *  The bug that earned it: `floorOnLiveness` (`@kolu/surface-map`) DEMOTES a published
- *  `connected` entry to `warming` over a dead link, so a green chip can never outlive
- *  the link that proves it (#1568). Correct — but it makes "the host is coming up" and
- *  "we cannot see the host" the SAME value. A backgrounded tab (a fullscreen game
- *  throttling its timers) lost the socket for minutes; the local entry demoted to
- *  `warming`, which is leg `daemon` under the LOCAL ceiling, and the monotonic clock
- *  kept advancing — so 30s later the escape certified a kaval that had been running for
- *  twelve hours as `dead`. Two individually-correct mechanisms composed into a false
+ *  The bug that earned it: `floorOnLiveness` (`@kolu/surface-map`) demotes a published
+ *  `connected` entry over a dead link, so a green chip can never outlive the link that
+ *  proves it (#1568). Correct — but it USED to demote to `warming`, which made "the host
+ *  is coming up" and "we cannot see the host" the SAME value. A backgrounded tab (a
+ *  fullscreen game throttling its timers) lost the socket for minutes; the local entry
+ *  demoted to `warming`, which is leg `daemon` under the LOCAL ceiling, and the monotonic
+ *  clock kept advancing — so 30s later the escape certified a kaval that had been running
+ *  for twelve hours as `dead`. Two individually-correct mechanisms composed into a false
  *  claim; this floor is the seam that refuses to make any claim at all.
+ *
+ *  The floor is now the SECOND of two defences, and deliberately still load-bearing. The
+ *  first is structural: surface-map floors those two live arms onto their own `unobservable`
+ *  arm, so `warming` means a campaign the publisher is actually narrating and the conflation
+ *  cannot be spelled at all — {@link CanvasFacts} carries it as its own arm, and every
+ *  `.exhaustive()` in kolu and drishti must state a policy for it. That kills the class. It
+ *  does NOT make this floor redundant, for two reasons worth stating so nobody deletes it:
+ *  `failed` and `not-a-member` stay on their published arms over a dead link and still must
+ *  not be timed, and the earned-verdict exemption below is a rule about the OBSERVER that no
+ *  per-entry arm can express.
  *
  *  The connected-arm sub-order is correctness, not cosmetics:
  *    - `down` beats `empty` so a dead/degraded kaval never masquerades as
@@ -195,7 +205,7 @@ export type AccruingBootTag = Extract<BootTag, { accrual: "accrue" }>;
 /** WHICH BOOT a tag is about — the part that is a property of the episode and must not change
  *  under a verdict already earned for it. Held beside the verdict (`bootDeadline.ts`) because
  *  the outage itself rewrites the live facts these are otherwise derived from: the map floor
- *  demotes the entry off the `connected` arm, and the warming arm then derives `leg` from
+ *  takes the entry off the `connected` arm, and the not-yet-connected arms derive `leg` from
  *  host-locality alone. Deliberately EXCLUDES the narration — `logAbsence: "link-down"` is a
  *  true statement about the link right now, and the card should keep telling it. */
 export type BootIdentity = Pick<AccruingBootTag, "leg" | "ceiling">;
@@ -262,7 +272,8 @@ interface EntryLivenessFacts {
   isLocalHost: boolean;
 }
 
-/** The facts the two NOT-YET-CONNECTED arms (`warming` / `not-a-member`) share — the connect
+/** The facts the three NOT-YET-CONNECTED arms (`warming` / `unobservable` / `not-a-member`)
+ *  share — the connect
  *  overlay's routing input, declared ONCE here rather than on each arm. `connectPhase` lives
  *  ONLY on these arms (never on `connected`/`failed`), so a stale/lagging connection cell can
  *  never route the overlay over a host the map reports connected (A'). Typed as the framework's
@@ -310,6 +321,22 @@ export type CanvasFacts =
        *  before a re-add lands). No entry facts to read — hold `connecting`. Carries
        *  `connectPhase` via {@link NotYetConnectedFacts}. */
       entry: "not-a-member";
+    })
+  | (NotYetConnectedFacts & {
+      /** THIS browser cannot see the map's publisher, so the entry's published arm is not
+       *  ours to read (`@kolu/surface-map`'s `unobservable`). Shaped like the other
+       *  not-yet-connected arms because the SURFACE is the same — a host that is not
+       *  connected, narrated by whatever the connect overlay has — but kept a SEPARATE arm
+       *  because the deadline's answer is the opposite one: an observed campaign accrues,
+       *  a blind one may not. Before it existed, the floor handed this frame in as `warming`
+       *  and the 30s local ceiling certified a healthy daemon dead (#2129).
+       *
+       *  The arm deliberately does NOT re-carry the entry's `published` last-known word. This
+       *  resolver's job is the deadline, and the deadline's answer while blind is "make no
+       *  claim" for BOTH last-known words — a fact nothing here would branch on is a fact this
+       *  union should not carry. The surfaces that legitimately narrate the last word (the host
+       *  chip's tooltip, the diagnostic snapshot) read it off the entry directly. */
+      entry: "unobservable";
     })
   | (EntryLivenessFacts & {
       /** The active entry is `connected` — the ONLY arm on which the kaval-derived
@@ -386,7 +413,27 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
       .with(
         { entry: "warming" },
         { entry: "not-a-member" },
+        { entry: "unobservable" },
         (f): Precedence => {
+          // WHY `unobservable` shares this arm, and why it does NOT get a `clear` of its own.
+          // The blind verdict is decided in exactly ONE place — `resolveCanvasMode`'s observer
+          // floor — because the floor and the AFP C6 exemption are two halves of one rule read
+          // off one value. A blind frame that declared `clear` HERE would never reach the
+          // `{ accrual: "accrue", exceeded: true }` arm, so an ALREADY-EARNED verdict would lose
+          // its card and its recovery verb the instant the socket dropped: the exact regression
+          // ("losing a true claim is worse than never making a false one") the exemption exists
+          // to prevent. So the tag is computed the same way for all three, and it is the floor —
+          // not this site — that refuses to let a blind frame reach a NEW verdict.
+          //
+          // What the separate arm buys is upstream of the tag: nothing can now MISTAKE a blind
+          // frame for an observed campaign. `warming` here is a real, self-healing campaign worth
+          // timing; before the split, "our socket died" wore the same word, and `isLocalHost`
+          // below then invented `daemon` for it — the leg whose escape is the dead card #2129
+          // showed over a twelve-hour-old kaval. That invention is still computed for a blind
+          // frame (it must be, so the shapes match) but it is now provably never READ as one:
+          // the floor clears it, or the earned hold replaces it with the boot that was actually
+          // watched. What used to be a prose obligation is a case a future editor must name.
+          //
           // The boot overlay's leg + ceiling, declared here (C3). A not-a-member entry is a
           // MEMBERSHIP stall (even when it reaches the bindingUp `warming` return). A REMOTE
           // warming entry is the connector-owned `provisioning` leg for its WHOLE coming-up
@@ -425,8 +472,11 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
             return { mode: { kind: "connecting" }, tag };
           }
           // The entry-specific surface for a still-pre-connected host. `warming` shows the neutral
-          // warming surface (no kaval `daemonState`); `not-a-member` holds neutral `connecting`
-          // (never a stale claim about a non-member).
+          // warming surface (no kaval `daemonState`) — "this host is coming up", which on that arm
+          // is something the publisher actually said. `not-a-member` and `unobservable` hold
+          // neutral `connecting` instead, for the same reason: neither is a stale claim we are
+          // entitled to make. A blind entry in particular may have been fully `connected` a moment
+          // ago; "coming up" would be our invention, not its news.
           return f.entry === "warming"
             ? { mode: { kind: "warming", daemonState: undefined }, tag }
             : { mode: { kind: "connecting" }, tag };
@@ -586,17 +636,41 @@ export function resolveCanvasMode(
       // machine" is a true thing to be saying while it is true. Recording the merged tag is
       // what also keeps the clock frozen — same ceiling → no re-anchor, earned leg (not a
       // demotion-invented `provisioning`) → no campaign cell armed on a frame nobody watched.
-      .with({ tag: { accrual: "accrue" }, exceeded: true }, ({ tag }) => {
-        const earned: AccruingBootTag =
-          observation.transportLive || observation.earnedBoot === undefined
-            ? tag
-            : { ...tag, ...observation.earnedBoot };
-        return { mode: escapeSurface(earned, facts), tag: earned };
-      })
-      // UNOBSERVABLE — ONE rule for every variant, no per-accrual carve-out: while the link
+      //
+      // WATCHED — the link is live, so this frame's own tag IS the earned identity.
+      .with(
+        { tag: { accrual: "accrue" }, exceeded: true, transportLive: true },
+        ({ tag }) => ({ mode: escapeSurface(tag, facts), tag }),
+      )
+      // HELD — blind, but a boot identity is IN HAND, so the card that was earned is rebuilt
+      // from the boot that earned it rather than from facts the outage has rewritten.
+      //
+      // Requiring the identity is a GUARD, not a convenience: this used to be a `||
+      // earnedBoot === undefined ? tag : …` fallback, which meant a blind frame with no
+      // watched boot escaped to a card assembled from THIS frame's invented leg — a local
+      // host reads leg `daemon`, whose escape is the `down`/dead card, i.e. #2129's own false
+      // claim reached straight through the exemption. It was unreachable only because
+      // `bootDeadline.ts` writes and releases the verdict and the identity together, an
+      // invariant living in another module. Now the rule is stated where it is relied on: an
+      // exemption for an EARNED verdict must be able to name the boot that earned it, and a
+      // frame that cannot falls through to the floor below, which makes no claim at all.
+      .with(
+        {
+          tag: { accrual: "accrue" },
+          exceeded: true,
+          earnedBoot: P.not(undefined),
+        },
+        ({ tag, earnedBoot }) => {
+          const earned: AccruingBootTag = { ...tag, ...earnedBoot };
+          return { mode: escapeSurface(earned, facts), tag: earned };
+        },
+      )
+      // BLIND — ONE rule for every variant, no per-accrual carve-out: while the link
       // is down we are not watching a slow boot, we are not watching, so nothing may hold a
       // clock. CLEAR releases the anchor; the mode passes through untouched, because the
-      // transport overlay already owns the screen.
+      // transport overlay already owns the screen. With the two exemption arms above narrowed
+      // to verdicts that can NAME their boot, this also catches the unearned-while-blind case,
+      // which is the honest place for it: no watched boot, no card.
       //
       // Only `accrue` can reach this in production — every `retain` return site is on the
       // connected arm, and `floorOnLiveness` demotes an entry off that arm in the same tick

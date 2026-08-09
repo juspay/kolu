@@ -25,6 +25,7 @@ import {
 
 const GREEN = "bg-emerald-400";
 const RED = "bg-red-400";
+const AMBER = "bg-amber-400";
 
 const connected: EntryState = {
   kind: "connected",
@@ -34,6 +35,13 @@ const connected: EntryState = {
 const warming: EntryState = {
   kind: "warming",
   membershipId: testMembershipId(),
+};
+/** What the map's liveness floor hands a consumer when THIS browser cannot reach the
+ *  publisher — here over a host it last saw fully `connected`. */
+const unobservable: EntryState = {
+  kind: "unobservable",
+  membershipId: testMembershipId(),
+  published: "connected",
 };
 const failed: EntryState<{ reason: string }> = {
   kind: "failed",
@@ -123,5 +131,25 @@ describe("hostGlance — the chain composes ONLY onto a connected entry", () => 
     expect(g.detailDot).toBe(RED);
     expect(g.down).toBe(true);
     expect(g.title).toContain("ssh: connection refused");
+  });
+
+  it("a blind entry makes no claim at all — and is NOT painted as a campaign", () => {
+    // The chip's half of the #2129 split, and the pin that would fail under the old
+    // collapsed shape: a dropped socket used to reach here as `warming`, so the chip
+    // pulsed AMBER and its tooltip said "connecting…" — a confident narration of a
+    // campaign nobody was watching, over a host that was very likely fine.
+    const g = hostGlance(unobservable, KAVAL_CHAIN_UNKNOWN);
+    expect(g.detailDot).not.toBe(AMBER);
+    expect(g.detailDot).not.toBe(GREEN);
+    // …and not `down` either: red + strike is this vocabulary's word for "unreachable",
+    // which is a claim about the HOST. What died is our socket.
+    expect(g.down).toBe(false);
+    expect(g.labelDecoration).toBe("");
+    expect(g.short).toBe("unknown");
+    expect(g.short).not.toBe(hostGlance(warming, KAVAL_CHAIN_UNKNOWN).short);
+    // The last thing we heard is the most useful fact a stale tab can be given.
+    expect(g.title).toContain("connected");
+    // A kaval verdict reaching us through a channel that is down composes onto nothing.
+    expect(hostGlance(unobservable, DOWN)).toEqual(g);
   });
 });

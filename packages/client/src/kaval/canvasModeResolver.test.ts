@@ -704,8 +704,8 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
   });
 
   it("a membership snapshot lost to a DEAD transport never escapes to boot-stalled(membership)", () => {
-    // NOT via the liveness floor — `floorOnLiveness` only ever demotes `connected` to
-    // `warming` and never introduces `not-a-member` (`surface-map/src/client.ts`). The
+    // NOT via the liveness floor — `floorOnLiveness` only ever demotes a MEMBER onto
+    // `unobservable` and never introduces `not-a-member` (`surface-map/src/client.ts`). The
     // production route is the plainer one: a browser whose link is down before the first
     // membership snapshot lands has no entry for the active host at all. That accrued the
     // membership leg and, past the ceiling, blamed a wedged membership for a dropped socket.
@@ -720,8 +720,11 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
 
   it("a LOCAL warming entry over a DEAD transport never escapes to the dead card", () => {
     // The warming arm reaches the same down/dead escape via leg `daemon` + local, so the
-    // floor has to hold there too — a kaval restart-drain and a dropped socket look
-    // identical from a browser that cannot reach the server.
+    // floor has to hold there too. Since the map gained its `unobservable` arm this exact
+    // pair — a published `warming` seen over a dead link — is no longer producible in
+    // production (the floor moves it off `warming` first), and the pin is KEPT anyway: the
+    // floor's rule is about the observer, so it must hold for every arm handed to it,
+    // including one a future refactor might make reachable again.
     const outage: CanvasFacts = {
       ...notYetConnected,
       entry: "warming",
@@ -732,6 +735,28 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
       kind: "warming",
       daemonState: undefined,
     });
+  });
+
+  it("the arm production ACTUALLY produces — an `unobservable` entry — makes no claim and starts no clock", () => {
+    // The #2129 shape, spelled the way the map now spells it: a healthy LOCAL host whose
+    // publisher this browser can no longer hear. Under the old collapsed shape this frame
+    // arrived as `entry: "warming"` and was indistinguishable from a kaval restart-drain, so
+    // it accrued leg `daemon` against the 30s LOCAL ceiling and certified a twelve-hour-old
+    // daemon dead. Two properties, both now true by construction:
+    const blind: CanvasFacts = {
+      ...notYetConnected,
+      entry: "unobservable",
+      connectPhase: undefined,
+      connectLogAbsence: "link-down",
+    };
+    //  (1) no clock — the observer floor releases the anchor rather than accruing;
+    expect(tagOffline(blind)).toEqual({ accrual: "clear" });
+    //  (2) no claim — the NEUTRAL connecting surface, not the `warming` one that says "this
+    //      host is coming up". That word belongs to a campaign the publisher is narrating,
+    //      and while blind we have no campaign to report; the host may well be fully up.
+    expect(modeOffline(blind)).toEqual({ kind: "connecting" });
+    // Even past the ceiling, an unearned verdict cannot be reached while blind.
+    expect(modeOffline(blind, true)).toEqual({ kind: "connecting" });
   });
 
   it("neutralizes the clock, never the surface — the floor returns the mode it was given", () => {
@@ -761,6 +786,11 @@ describe("resolveCanvasMode — the floor governs reaching a verdict, not keepin
   // connection — so a blip must not take it off screen. Behind a link that flaps faster than
   // the ceiling, retracting it would deny the user that button indefinitely.
 
+  // Both pins below hand in the boot IDENTITY alongside the held verdict, because that is what
+  // production hands in: `bootDeadline.ts` writes the verdict and the identity from the same
+  // accruing frame and releases them together, so a held `exceeded` always arrives with the
+  // boot that earned it. The resolver now REQUIRES it rather than falling back to this frame's
+  // (post-outage, re-derived) tag — see the guard at the `earnedBoot: P.not(undefined)` arm.
   it("an ALREADY-exceeded daemon verdict survives a transport drop, card and recovery verb intact", () => {
     const earned = connected({
       daemonPending: true,
@@ -768,7 +798,13 @@ describe("resolveCanvasMode — the floor governs reaching a verdict, not keepin
       channelLive: false,
     });
     // `exceeded` true = the ceiling elapsed earlier, while the link was live.
-    expect(modeOffline(earned, true)).toEqual({
+    expect(
+      resolveCanvasMode(earned, {
+        transportLive: false,
+        exceeded: true,
+        earnedBoot: { leg: "daemon", ceiling: "local" },
+      }).mode,
+    ).toEqual({
       kind: "down",
       down: { state: "dead" },
     });
@@ -781,10 +817,39 @@ describe("resolveCanvasMode — the floor governs reaching a verdict, not keepin
       entry: "warming",
       connectPhase: "provisioning",
     };
-    expect(modeOffline(earned, true)).toMatchObject({
+    expect(
+      resolveCanvasMode(earned, {
+        transportLive: false,
+        exceeded: true,
+        earnedBoot: { leg: "provisioning", ceiling: "remote-provisioning" },
+      }).mode,
+    ).toMatchObject({
       kind: "boot-stalled",
       recovery: { via: "connector" },
     });
+  });
+
+  it("a held verdict that cannot NAME its boot makes no claim — the exemption has no fallback", () => {
+    // The other side of the guard. `earnedBoot: undefined` while blind means no boot was ever
+    // watched accruing, so there is no earned card to keep — and the tag this frame would
+    // otherwise supply is the demotion's invention (a local host reads leg `daemon`, whose
+    // escape is the dead card: #2129's exact false claim, reached through the exemption).
+    // Production cannot produce this pair, and that is precisely why the resolver states the
+    // rule instead of importing an invariant from `bootDeadline.ts` on trust.
+    const blind: CanvasFacts = {
+      ...notYetConnected,
+      entry: "unobservable",
+      connectPhase: undefined,
+      connectLogAbsence: "link-down",
+    };
+    expect(modeOffline(blind, true)).toEqual({ kind: "connecting" });
+    expect(
+      resolveCanvasMode(blind, {
+        ...NO_EARNED_BOOT,
+        transportLive: false,
+        exceeded: true,
+      }).tag,
+    ).toEqual({ accrual: "clear" });
   });
 
   it("holds the earned boot's IDENTITY while blind, but keeps the narration live", () => {

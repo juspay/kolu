@@ -27,7 +27,7 @@ const h = vi.hoisted(() => ({
 vi.mock("../wire", () => ({
   activeHost: () => LOCAL_HOST,
   // FLOORED on the same liveness as the real one: `wire.ts`'s `connectionInfo()` reads
-  // through surface-map's `floorOnLiveness`, which DROPS the fine `connection` word when our
+  // through surface-map's `floorOnLiveness`, which takes the entry to a word-less arm when our
   // link to the publisher is dead (#1568). Modelling that here is not decoration — a dead
   // link blanking the phase is what re-derives the ceiling CLASS mid-outage, so a harness
   // that let `connInfo` survive `mapLive: false` could not spell the very frame production
@@ -40,7 +40,18 @@ vi.mock("../time/clock", () => ({
   getMonotonicNow: () => () => h.now,
 }));
 vi.mock("./useDaemonStatus", () => ({
-  activeEntryState: () => ({ kind: h.entryKind }),
+  // FLOORED on the same one liveness knob as `connectionInfo` above, because the real
+  // `activeEntryState()` is: it reads through surface-map's `floorOnLiveness`, which moves a
+  // MEMBER off whatever it published onto `unobservable` when our link to the publisher is
+  // dead (#1568/#2129). Modelling the floor here rather than making the tests set a demoted
+  // `entryKind` by hand is what keeps `mapLive: false` spelling the frame production actually
+  // makes — a harness where the two could be set independently could spell frames the real
+  // seam cannot, and (worse) could keep passing after the floor's own shape changed.
+  // `not-a-member` is not a member, so there is nothing to floor.
+  activeEntryState: () =>
+    h.mapLive || h.entryKind === "not-a-member"
+      ? { kind: h.entryKind }
+      : { kind: "unobservable", published: h.entryKind },
   daemonStatusPending: () => true,
   isActiveHostLocal: () => h.local,
   // connected-arm-only accessors — unread on the not-a-member arm, benign stubs:
@@ -203,7 +214,7 @@ describe("the observability floor (#2129) — a lost server is not a failed boot
     h.mapLive = false;
   };
 
-  it("a LOCAL entry demoted to `warming` by the liveness floor never certifies the daemon dead", () => {
+  it("a LOCAL entry floored to `unobservable` by the liveness floor never certifies the daemon dead", () => {
     outage();
     // The neutral boot surface (this harness pins `isLoading` true, so the warming arm's
     // residual gate holds `connecting` — the point is the SURFACE never changes).
@@ -266,12 +277,17 @@ describe("the observability floor (#2129) — a lost server is not a failed boot
   it("an earned verdict keeps the card it EARNED, even as the demotion rewrites the leg under it", () => {
     // The exemption's sharp edge. `exceeded` is sampled-and-held, but the SURFACE was being
     // recomputed from live facts every frame — and the outage itself changes those facts:
-    // `floorOnLiveness` demotes the `connected` entry to `warming` on the same tick the link
-    // dies, and the warming arm derives its leg from host-locality alone (`daemon` for a local
-    // host), not from whatever leg actually earned the verdict. So a card earned on the SESSION
-    // leg — "boot-stalled, session" — silently became the local `daemon` escape: `down/dead`,
-    // the very "kaval didn't start" claim this PR removes, now reached THROUGH the exemption.
-    // The verdict is held, so the leg that earned it must be held with it.
+    // `floorOnLiveness` demotes the `connected` entry off its published arm on the same tick
+    // the link dies, and the not-yet-connected arms derive their leg from host-locality alone
+    // (`daemon` for a local host), not from whatever leg actually earned the verdict. So a card
+    // earned on the SESSION leg — "boot-stalled, session" — silently became the local `daemon`
+    // escape: `down/dead`, the very "kaval didn't start" claim this PR removes, now reached
+    // THROUGH the exemption. The verdict is held, so the leg that earned it must be held too.
+    //
+    // The demoted arm is now `unobservable` rather than a second `warming`, which is why the
+    // outage is spelled here as ONE flag: the harness floors exactly as production does, so a
+    // test can no longer pin this by hand-writing the demoted kind — and the leg invention is
+    // still computed under the hood, so the hold is still what makes the card survive.
     h.entryKind = "connected";
     h.local = true;
     h.members = [{ kind: "local" }];
@@ -281,9 +297,8 @@ describe("the observability floor (#2129) — a lost server is not a failed boot
       kind: "boot-stalled",
       recovery: { via: "client", leg: "session" },
     });
-    // The link dies; the map floor demotes the entry off the connected arm in the same tick.
+    // The link dies; the map floor takes the entry off the connected arm in the same tick.
     h.mapLive = false;
-    h.entryKind = "warming";
     expect(frameAt(CEILING_MS.local + 2)).toEqual(earned);
   });
 
