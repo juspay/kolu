@@ -57,9 +57,11 @@
 import { fstatSync, readFileSync } from "node:fs";
 import { shortId } from "@kolu/padi/render";
 import {
-  ACCEPTED_KEY_NAMES,
-  encodeKey,
-  wrapBracketedPaste,
+  type SendContent,
+  encodeSend,
+  type SendPlan,
+  sendShapeRefusal,
+  type SendVocabulary,
 } from "@kolu/terminal-protocol";
 import { Effect } from "effect";
 import type { Command } from "effect/unstable/cli";
@@ -190,14 +192,13 @@ export function resolveSendInput(opts: {
   }
   const input: SendInput = present[0] ?? { kind: "none" };
 
-  if (input.kind !== "none" && opts.hasKeys) {
-    return Effect.fail(
-      failure(
-        "text and --key can't be combined in one send — a same-breath Enter is raced by the TUI's paste debounce and silently dropped. Send the text, watch the TUI settle, then submit as its own command:\n" +
-          SUBMIT_FLOW_HELP,
-      ),
-    );
-  }
+  // Rule 1 is the shared policy's, decided from the SHAPE — before the source is
+  // read, so a `--file` this send would refuse anyway is never opened.
+  const illegal = sendShapeRefusal(
+    { hasText: input.kind !== "none", hasKeys: opts.hasKeys },
+    SEND_VOCABULARY,
+  );
+  if (illegal !== undefined) return Effect.fail(failure(illegal));
 
   if (input.kind === "none" && !opts.hasKeys) {
     return Effect.fail(
@@ -274,85 +275,26 @@ function readSendText(
 
 // ── The plan ─────────────────────────────────────────────────────────────────
 
-/** The single write a `send` issues, plus what it actually did (for the human
- *  trailer / the `--json` frame). `paste` is the EFFECTIVE value — resolved from
- *  the tristate and the text's shape — not the raw flag. */
-export interface SendPlan {
-  /** The single `sendInput` payload — EITHER the (optionally bracketed) text OR
-   *  the encoded keys, never both. The text-XOR-keys invariant is a TYPE here,
-   *  not a comment: {@link planSend} takes a discriminated content input, so the
-   *  `[text, keys]` pair is unspellable rather than merely conventional. */
-  readonly write: string;
-  /** Total UTF-8 bytes of the write, paste markers included — the honest wire
-   *  total for `--json` (`.length` counts UTF-16 units, which lies for
-   *  non-ASCII). */
-  readonly bytes: number;
-  readonly paste: boolean;
-}
+/** `kolu send`'s spelling of the shared send policy — the flag it names in a
+ *  refusal, and the ritual it quotes. Everything ELSE about what a send writes
+ *  (text-XOR-keys, the unknown-key refusal, auto bracketed paste) is
+ *  `@kolu/terminal-protocol`'s `sendPolicy`, because the MCP face enforces the
+ *  same three rules against the same padi member and a second copy is how the
+ *  two faces come to answer the same intent differently. */
+const SEND_VOCABULARY: SendVocabulary = {
+  keyName: "--key",
+  submitRitual: SUBMIT_FLOW_HELP,
+};
 
-/** The content a send carries — EITHER text (with the paste tristate and its
- *  stream-ness) OR encoded keys, never both. A discriminated union so the
- *  forbidden pair is unspellable at the plan boundary; the caller picks the arm
- *  from the already-resolved {@link SendInput}, never by re-sniffing the text. */
-export type SendContent =
-  | {
-      readonly kind: "text";
-      /** NON-EMPTY by construction: `run` refuses an empty payload first, with an
-       *  error that NAMES the source it read (an empty `--file`, an empty pipe, a
-       *  literal `""`). A second, source-blind guard here would be a duplicate
-       *  truth that could only produce a worse message. */
-      readonly text: string;
-      readonly paste: boolean | undefined;
-      /** The text arrived as a BLOCK from a stream — piped stdin or `--file` —
-       *  not as a literal single-line argument, so it auto-pastes even when
-       *  single-line (a file/heredoc is one payload, not a line typed at a
-       *  prompt). */
-      readonly fromStream: boolean;
-    }
-  | { readonly kind: "keys"; readonly keyData: string };
-
-/** Plan the single write. Pure and TOTAL over its legal input: the discriminated
- *  {@link SendContent} makes text+keys unspellable, so there is no precedence
- *  branch to guess at. For the text arm, paste is resolved here (auto unless the
- *  flag is set) and the text bracketed accordingly; the keys arm writes the
- *  encoded bytes verbatim (keys are never pasted). No submit Enter is ever
- *  synthesized — the caller submits with an explicit, separate `--key Enter`. */
-export function planSend(content: SendContent): SendPlan {
-  if (content.kind === "keys") {
-    return {
-      write: content.keyData,
-      bytes: Buffer.byteLength(content.keyData, "utf8"),
-      paste: false,
-    };
-  }
-
-  // Auto-paste: a single-line argument types literally, but multiline OR a
-  // stream payload (--file / piped stdin) is bracketed so it lands as one block.
-  // An explicit --paste / --no-paste overrides.
-  const paste =
-    content.paste ?? (content.fromStream || content.text.includes("\n"));
-  const write = paste ? wrapBracketedPaste(content.text) : content.text;
-  return { write, bytes: Buffer.byteLength(write, "utf8"), paste };
-}
-
-/** Encode the `--key` names to bytes, in order — done UP FRONT so an unknown key
- *  fails loud before any byte reaches the terminal (never a half-send). Pure. */
-export function encodeKeys(
-  names: readonly string[],
-): Effect.Effect<string, CliFailure> {
-  let keyData = "";
-  for (const name of names) {
-    const bytes = encodeKey(name);
-    if (bytes === undefined) {
-      return Effect.fail(
-        failure(
-          `unknown --key ${JSON.stringify(name)} — use a name (${ACCEPTED_KEY_NAMES}) or a chord (C-c, M-b).`,
-        ),
-      );
-    }
-    keyData += bytes;
-  }
-  return Effect.succeed(keyData);
+/** Plan the single write, as an Effect over the CLI's failure channel — the
+ *  shared encoder plus this face's error type. */
+export function planSend(
+  content: SendContent,
+): Effect.Effect<SendPlan, CliFailure> {
+  const encoded = encodeSend(content, SEND_VOCABULARY);
+  return encoded.kind === "plan"
+    ? Effect.succeed(encoded.plan)
+    : Effect.fail(failure(encoded.message));
 }
 
 /** The one-line stderr trailer — a text send reads `sent 14 bytes to a1b2c3d4 ·
@@ -438,10 +380,6 @@ export function run(
       hasKeys: args.key.length > 0,
     });
 
-    // Encoded up front, before the dial, so an unknown key name never costs a
-    // connection and can never land as a half-send.
-    const keyData = yield* encodeKeys(args.key);
-
     const text = yield* readSendText(input, args.text);
 
     // A text source that reads back EMPTY (an empty --file, an empty pipe or
@@ -462,16 +400,17 @@ export function run(
     // The resolved source already settled text-vs-keys (`none` is a keys-only
     // send; anything else is a text send, and the mix is forbidden), so the plan
     // arm is picked from it rather than by re-sniffing `text.length` — the single
-    // source of truth for "text vs keys" stays in `resolveSendInput`.
-    const plan =
-      input.kind === "none"
-        ? planSend({ kind: "keys", keyData })
-        : planSend({
-            kind: "text",
-            text,
-            paste: args.paste,
-            fromStream: sourceIsStream(input),
-          });
+    // source of truth for "text vs keys" stays in `resolveSendInput`. Planning
+    // runs BEFORE the dial, so an unknown key name never costs a connection and
+    // can never land as a half-send.
+    const plan = yield* (input.kind === "none"
+      ? planSend({ kind: "keys", names: args.key })
+      : planSend({
+          kind: "text",
+          text,
+          paste: args.paste,
+          fromStream: sourceIsStream(input),
+        }));
 
     yield* withPadi(endpoint, (conn) =>
       Effect.gen(function* () {

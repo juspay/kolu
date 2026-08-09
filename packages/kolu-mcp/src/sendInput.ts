@@ -23,8 +23,9 @@
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import {
   ACCEPTED_KEY_NAMES,
-  encodeKey,
-  wrapBracketedPaste,
+  encodeSend,
+  type SendVocabulary,
+  sendShapeRefusal,
 } from "@kolu/terminal-protocol";
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import type { BespokeTool } from "@kolu/surface-mcp";
@@ -51,32 +52,58 @@ export const SendInputArgsSchema = Schema.Struct({
 });
 export type SendInputArgs = typeof SendInputArgsSchema.Type;
 
+/** This face's spelling of the shared send policy — the field it names in a
+ *  refusal, and the tool-call ritual it quotes. The three RULES themselves
+ *  (text-XOR-key, the unknown-key refusal, auto bracketed paste) are
+ *  `@kolu/terminal-protocol`'s `sendPolicy`, shared with `kolu send`: they are
+ *  one policy about a TUI's paste debounce, not two faces' vocabularies, and
+ *  they used to be implemented independently on each — so a driver that
+ *  switched from argv to MCP could get a different answer to the same intent. */
+const MCP_SEND_VOCABULARY: SendVocabulary = {
+  keyName: "key",
+  submitRitual:
+    "  lifecycle_sendInput { text }   # 1. the text\n" +
+    "  wait_outputSettled             # 2. observe the terminal settle\n" +
+    "  lifecycle_sendInput { key: 'Enter' }   # 3. submit",
+};
+
 /** Resolve the tool args to the raw bytes `lifecycle.sendInput` writes — pure,
  *  so the XOR matrix and the key grammar are unit-tested apart from the wire.
  *  Throws loud on: both text and key (the dropped-Enter trap), neither
- *  (nothing to send), and an unknown key name (never a silent no-op). */
+ *  (nothing to send), and an unknown key name (never a silent no-op).
+ *
+ *  "Nothing to send" is the one rule that stays HERE: what counts as a text
+ *  source is each face's own (this face has one field; `kolu send` has a
+ *  positional, `--file` and piped stdin), so the sentence names this face's. */
 export function resolveSendInputData(args: {
   text?: string;
   key?: string;
 }): string {
-  if (args.text !== undefined && args.key !== undefined) {
-    throw new Error(
-      "text and key can't be combined in one send — a same-breath Enter is raced by the driven TUI's paste debounce and silently dropped. Send the text, wait for the terminal to settle (wait_outputSettled), then submit Enter as its own lifecycle_sendInput call.",
-    );
-  }
+  const illegal = sendShapeRefusal(
+    { hasText: args.text !== undefined, hasKeys: args.key !== undefined },
+    MCP_SEND_VOCABULARY,
+  );
+  if (illegal !== undefined) throw new Error(illegal);
+
   if (args.key !== undefined) {
-    const bytes = encodeKey(args.key);
-    if (bytes === undefined) {
-      throw new Error(
-        `unknown key ${JSON.stringify(args.key)} — use a name (${ACCEPTED_KEY_NAMES}) or a chord (C-c, M-b).`,
-      );
-    }
-    return bytes;
+    const encoded = encodeSend(
+      { kind: "keys", names: [args.key] },
+      MCP_SEND_VOCABULARY,
+    );
+    if (encoded.kind === "refused") throw new Error(encoded.message);
+    return encoded.plan.write;
   }
   if (args.text !== undefined) {
-    // kaval-tui's auto-paste rule: a single-line argument types literally;
-    // multiline is wrapped so the agent's input box takes it as ONE block.
-    return args.text.includes("\n") ? wrapBracketedPaste(args.text) : args.text;
+    // Auto-paste with no override and no stream: a single-line argument types
+    // literally, multiline is wrapped so the agent's input box takes it as ONE
+    // block. This face has no `--paste` and no file/pipe payload, so both
+    // knobs are stated as absent rather than left to a default.
+    const encoded = encodeSend(
+      { kind: "text", text: args.text, paste: undefined, fromStream: false },
+      MCP_SEND_VOCABULARY,
+    );
+    if (encoded.kind === "refused") throw new Error(encoded.message);
+    return encoded.plan.write;
   }
   throw new Error(
     "nothing to send — pass text (to type) or key (to press, e.g. Enter).",
