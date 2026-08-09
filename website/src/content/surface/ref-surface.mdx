@@ -459,7 +459,22 @@ never needs it.
 
 A cell's `authority` is `"server"` (default — every push reconciles) or
 `"local"` (the local store wins after the first server yield). An `inputFn`
-that returns `null` pauses a stream or event. `surfaceClients(transport, map)`
+that returns `null` pauses a stream or event.
+
+**How a push reconciles: positionally, never by an inferred key.** Every merge
+into a bound store passes Solid's `reconcile(..., { key: null })`. Solid's own
+default is `key: "id"`, which reads a field called `id` as an element's IDENTITY
+and RECYCLES the previous row objects for the records it thinks matched — so on a
+payload whose elements have no top-level `id` (every element's key reads
+`undefined`, and they all "match") the object that held one record comes to hold
+another. A reader that goes by position never notices; a `<For>` keyed by
+reference, a per-row memo, or a component holding a row across frames sees a row
+whose identity and whose fields disagree. A framework merging arbitrary app
+payloads has no basis for inferring identity from a field name, so it does not:
+an element is replaced rather than recycled. Per-key granularity within a
+collection's dictionary is unaffected — a collection's `keySchema` is the
+dictionary key, and it says nothing about the identity of array elements inside a
+value. A keyed merge, if one is ever wanted, would be DECLARED on the member. `surfaceClients(transport, map)`
 splits one combined transport into a sibling client per surface — each built over
 a **tag-scoped** dispatch, so the face mints standalone tags and the wrapper
 splices the sibling key in, landing on exactly the tags `implementSurfaces` bound.
