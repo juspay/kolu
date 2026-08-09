@@ -271,9 +271,21 @@ export async function createSurfaceSocket(
         );
       });
   };
+  // ONE-SHOT, and it has to be enforced rather than assumed. `retired` is terminal
+  // on the wire, but this seam reads the status TWICE — through the subscription
+  // and through the catch-up read below, which exist to cover different windows —
+  // and the link dials on its own fiber, so a wire that retires between the two
+  // would announce it once through each. An app whose handler reloads the page
+  // would then be asked to reload twice.
+  let announcedRetired = false;
+  const announceRetired = (): void => {
+    if (announcedRetired) return;
+    announcedRetired = true;
+    opts.retired();
+  };
   const detachStatus = link.wire.onStatus((status) => {
     if (status === "open") readIdentity();
-    else if (status === "retired") opts.retired();
+    else if (status === "retired") announceRetired();
   });
   // The wire may already have settled before this subscription existed — the link
   // dials on its own fiber, so a caller awaiting `createSurfaceSocket` can hold an
@@ -281,7 +293,7 @@ export async function createSurfaceSocket(
   // CHANGES.
   const settled = link.wire.status();
   if (settled === "open") readIdentity();
-  else if (settled === "retired") opts.retired();
+  else if (settled === "retired") announceRetired();
   return {
     link,
     dispose: async () => {
