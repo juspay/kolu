@@ -20,6 +20,11 @@ const h = vi.hoisted(() => ({
   // when `connInfo` is undefined. Live by default: every pin below is about the boot
   // deadline, not about a dead link.
   mapLive: true,
+  // THIS browser's link to kolu-server — the observability floor's input. Live by
+  // default for the same reason as `mapLive`: every deadline pin below is about a boot
+  // that genuinely stalled, not about a browser that lost the server. The one pin that
+  // flips it asserts the floor itself.
+  transportLive: true,
 }));
 
 vi.mock("../wire", () => ({
@@ -34,6 +39,7 @@ vi.mock("../time/clock", () => ({
 vi.mock("./useDaemonStatus", () => ({
   activeEntryState: () => ({ kind: h.entryKind }),
   daemonStatusPending: () => true,
+  daemonTransportLive: () => h.transportLive,
   isActiveHostLocal: () => h.local,
   // connected-arm-only accessors — unread on the not-a-member arm, benign stubs:
   daemonChannelLive: () => true,
@@ -66,6 +72,7 @@ beforeEach(() => {
   h.local = true;
   h.connInfo = undefined;
   h.mapLive = true;
+  h.transportLive = true;
 });
 
 describe("canvasMode — Hole A membership stall escapes past the deadline (codex-debate F1)", () => {
@@ -159,6 +166,68 @@ describe("canvasMode — the tail's absence carries a REASON, decided where the 
     expect(stalledConnectorFrame()).toMatchObject({
       kind: "boot-stalled",
       recovery: { via: "connector", log: [], logAbsence: undefined },
+    });
+  });
+});
+
+describe("the observability floor — a lost server is not a failed boot", () => {
+  // THE FIELD BUG, reproduced at the caller with the real resolver, the real anchor map,
+  // and a moving clock — the only level at which the whole path is visible.
+  //
+  // A fullscreen game backgrounded the tab; Chrome throttled its timers and the ws to
+  // kolu-server dropped for minutes. `floorOnLiveness` (surface-map, #1568) demotes the
+  // local host's published `connected` to `warming` so a dead link can never paint a green
+  // chip — correct on its own. But that lands the canvas on the warming arm as leg
+  // `daemon` under the LOCAL ceiling, and the boot deadline's monotonic clock keeps
+  // advancing in a throttled tab. 30s later the escape certified the daemon dead:
+  // "kaval didn't start", over a kaval that had been running for twelve hours with every
+  // PTY alive. Two individually-correct mechanisms composing into a false claim.
+  const outage = () => {
+    h.entryKind = "warming";
+    h.local = true;
+    h.members = [{ kind: "local" }];
+    h.transportLive = false;
+    h.mapLive = false;
+  };
+
+  it("a LOCAL entry demoted to `warming` by the liveness floor never certifies the daemon dead", () => {
+    outage();
+    // The neutral boot surface (this harness pins `isLoading` true, so the warming arm's
+    // residual gate holds `connecting` — the point is the SURFACE never changes).
+    expect(frameAt(0)).toEqual({ kind: "connecting" });
+    // Long past the LOCAL ceiling it is STILL that surface — we cannot see the server, so
+    // we make no claim about its daemon. Before the floor this frame was the dead card.
+    expect(frameAt(CEILING_MS.local + 60_000)).toEqual({ kind: "connecting" });
+  });
+
+  it("re-arms a FULL fresh window on reconnect rather than firing on the first live frame", () => {
+    // Why the floor RELEASES the anchor instead of holding it: a held anchor would carry
+    // the whole outage's elapsed across the reconnect, so the brief window where the socket
+    // is back but the snapshot hasn't landed would read `exceeded` and flash the dead card
+    // anyway — the same lie, just shorter.
+    outage();
+    frameAt(0);
+    frameAt(CEILING_MS.local * 5);
+    // The socket returns; the entry is still warming while the first snapshot lands.
+    h.transportLive = true;
+    h.mapLive = true;
+    expect(frameAt(CEILING_MS.local * 5 + 1)).toEqual({ kind: "connecting" });
+    // A genuinely wedged daemon still escapes — but only after a full fresh ceiling
+    // measured from the reconnect, never from the outage.
+    expect(frameAt(CEILING_MS.local * 6 + 2)).toEqual({
+      kind: "down",
+      down: { state: "dead" },
+    });
+  });
+
+  it("still escapes normally when the link is LIVE — the floor guards observability, not the deadline", () => {
+    h.entryKind = "warming";
+    h.local = true;
+    h.members = [{ kind: "local" }];
+    frameAt(0);
+    expect(frameAt(CEILING_MS.local + 1)).toEqual({
+      kind: "down",
+      down: { state: "dead" },
     });
   });
 });

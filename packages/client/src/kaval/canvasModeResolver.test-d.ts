@@ -27,6 +27,7 @@ const liveness = {
   isLoading: false,
   daemonPending: false,
   isLocalHost: true,
+  transportLive: true,
 };
 
 const daemonState: DaemonState = "connected";

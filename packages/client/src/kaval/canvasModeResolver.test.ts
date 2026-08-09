@@ -23,6 +23,7 @@ const liveness = {
   isLoading: false,
   daemonPending: false,
   isLocalHost: true,
+  transportLive: true,
 } as const;
 
 /** The NOT-YET-CONNECTED arms' base: liveness plus the connection cell's retained output
@@ -639,5 +640,95 @@ describe("resolveCanvasMode — the incompatible (proven-skew) verdict, SK4", ()
         }),
       ).kind,
     ).toBe("down");
+  });
+});
+
+describe("resolveCanvasMode — a transport-down browser makes NO boot claim", () => {
+  // THE FIELD BUG: a fullscreen game backgrounded the tab, Chrome throttled its timers
+  // to ~1/min, and the ws to kolu-server dropped for minutes at a time. The retry fence
+  // re-pends every subscription on a drop, so `daemonPending` read true for the whole
+  // outage — while the boot deadline's MONOTONIC clock kept advancing in the throttled
+  // tab. 30s later the resolver converted a DROPPED SOCKET into "kaval didn't start",
+  // stacked under the honest "Reconnecting…" overlay. kaval had been running for 12
+  // hours with all 10 PTYs alive.
+  //
+  // The law these pin: a boot deadline may accrue ONLY while THIS browser's link to the
+  // server is live. With the link down we cannot observe a boot, so we make no claim
+  // about one — the surface is unchanged (the transport overlay owns the screen) and the
+  // anchor is RELEASED, so observation restarts with a fresh window on reconnect rather
+  // than firing the instant the socket returns.
+
+  it("a re-pended daemon status over a DEAD transport never escapes to down/dead", () => {
+    const outage = connected({
+      daemonPending: true,
+      terminalCount: 0,
+      channelLive: false,
+      transportLive: false,
+    });
+    // Not a boot overlay at all: nothing to accrue, anchor released.
+    expect(tag(outage)).toEqual({ accrual: "clear" });
+    // …so even long past the ceiling it stays the neutral surface, never the dead card.
+    expect(mode(outage, true)).toEqual({ kind: "connecting" });
+  });
+
+  it("a re-pended SESSION leg over a DEAD transport never escapes to boot-stalled(session)", () => {
+    const outage = connected({
+      isLoading: true,
+      terminalCount: 0,
+      channelLive: false,
+      transportLive: false,
+    });
+    expect(tag(outage)).toEqual({ accrual: "clear" });
+    expect(mode(outage, true)).toEqual({ kind: "connecting" });
+  });
+
+  it("a membership snapshot lost to a DEAD transport never escapes to boot-stalled(membership)", () => {
+    // The map's own entries are floored on transport liveness, so an outage can demote the
+    // active host to `not-a-member` — which accrued the membership leg and, past the
+    // ceiling, blamed a wedged membership for what was a dropped socket.
+    const outage: CanvasFacts = {
+      ...notYetConnected,
+      transportLive: false,
+      entry: "not-a-member",
+      connectPhase: undefined,
+    };
+    expect(tag(outage)).toEqual({ accrual: "clear" });
+    expect(mode(outage, true)).toEqual({ kind: "connecting" });
+  });
+
+  it("a LOCAL warming entry over a DEAD transport never escapes to the dead card", () => {
+    // The warming arm reaches the same down/dead escape via leg `daemon` + local, so the
+    // floor has to hold there too — a kaval restart-drain and a dropped socket look
+    // identical from a browser that cannot reach the server.
+    const outage: CanvasFacts = {
+      ...notYetConnected,
+      transportLive: false,
+      entry: "warming",
+      connectPhase: undefined,
+    };
+    expect(tag(outage)).toEqual({ accrual: "clear" });
+    expect(mode(outage, true)).toEqual({
+      kind: "warming",
+      daemonState: undefined,
+    });
+  });
+
+  it("keeps painting the WORKSPACE behind the overlay — the floor neutralizes the clock, never the surface", () => {
+    // The transport overlay dims but passes clicks through so scrollback stays readable;
+    // blanking the canvas on every drop would be a worse lie than the one being fixed.
+    const outage = connected({
+      terminalCount: 3,
+      channelLive: false,
+      transportLive: false,
+    });
+    expect(mode(outage, true)).toEqual({ kind: "workspace" });
+  });
+
+  it("a LIVE transport still escapes exactly as before — the honest wedge is untouched", () => {
+    // The regression guard for the floor itself: with the link up, a daemon that never
+    // reports IS a real boot failure and must still reach the dead card at the ceiling.
+    expect(
+      mode(connected({ daemonPending: true, terminalCount: 0 }), true),
+    ).toEqual({ kind: "down", down: { state: "dead" } });
   });
 });
