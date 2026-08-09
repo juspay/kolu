@@ -135,9 +135,19 @@ describe("kolu command tree", () => {
       expect(textOf(err)).toContain("web");
     });
 
-    it("`kolu mcp --socket` is an error — mcp takes --host only", async () => {
-      const err = await failureOf(["mcp", "--socket", "/tmp/p.sock"]);
-      expect(textOf(err)).toContain("--socket");
+    it("`kolu mcp --socket` is NOT refused — every face resolves one padi the same way", async () => {
+      // The refusal that used to live here was not a property of MCP: the face
+      // dialed through a second, hand-rolled copy of the socket resolution that
+      // had never learned `--socket` / `--state-root`. One resolution later, it
+      // has. What still refuses is the flag rule itself, which is the root's.
+      const err = await failureOf([
+        "mcp",
+        "--socket",
+        "/tmp/p.sock",
+        "--host",
+        "box",
+      ]);
+      expect(textOf(err)).toContain("mutually exclusive");
     });
   });
 
@@ -183,12 +193,14 @@ describe("refuseEndpointFlags", () => {
         Effect.runSyncExit(refuseEndpointFlags(NO_ENDPOINT, "web")),
       ),
     ).toBe(true);
+    // `web` is the only face with anything to refuse today; the accept-list is
+    // still the mechanism, so it is pinned as one.
     expect(
       Exit.isSuccess(
         Effect.runSyncExit(
           refuseEndpointFlags(
             { ...NO_ENDPOINT, host: Option.some("box") },
-            "mcp",
+            "some-face",
             ["host"],
           ),
         ),

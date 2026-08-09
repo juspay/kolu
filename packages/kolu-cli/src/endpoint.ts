@@ -52,10 +52,11 @@ const padiDialKit: Effect.Effect<PadiDialKit> = Effect.promise(
 );
 
 /** The root command's shared flags. Declared once, inherited by every
- *  subcommand — so the two faces that do NOT dial a padi this way (`web`, which
- *  dials none, and `mcp`, whose local dial is owned by the adapter's own redial
- *  discipline and takes no explicit socket) refuse what they cannot honor rather
- *  than accepting it silently. See {@link refuseEndpointFlags}. */
+ *  subcommand — so the one face that does NOT dial a padi at all (`web`)
+ *  refuses them rather than accepting them silently. See {@link
+ *  refuseEndpointFlags}. Every other face honors all three, including `kolu
+ *  mcp`, whose owned-lifetime dial resolves through the same
+ *  `localPadiSocket`. */
 export const endpointFlags = {
   socket: Flag.string("socket").pipe(
     Flag.withDescription("dial this exact padi socket path"),
@@ -88,6 +89,14 @@ export type Endpoint =
   | { readonly kind: "socket"; readonly path: string }
   | { readonly kind: "stateRoot"; readonly dir: string }
   | { readonly kind: "host"; readonly ssh: string };
+
+/** The three arms that name a padi on THIS host. Structurally padi's own
+ *  `LocalPadiTarget` — which is what lets the resolution (and its refusal
+ *  sentences) live in `@kolu/padi/stateRoot`, beside the daemon discovery it
+ *  narrows, rather than in each of this package's two dials. */
+export type LocalEndpoint = Endpoint & {
+  kind: "auto" | "socket" | "stateRoot";
+};
 
 /** Name exactly one padi, or fail with the reason two is not a preference to
  *  resolve but a contradiction to refuse.
@@ -149,10 +158,11 @@ export function endpointOf(
  *
  *  Every subcommand inherits the shared flags because that is what makes them
  *  position-independent; a face that would ignore one must say so instead.
- *  `accept` names the subset this face DOES honor — `web` accepts none, `mcp`
- *  accepts `--host` only (its local dial is re-resolved per redial by the MCP
- *  adapter and takes no explicit path). Silently ignoring a flag the user
- *  spelled is precisely the graceful degradation this repo treats as a defect. */
+ *  `accept` names the subset this face DOES honor — `web` accepts none, which is
+ *  the only face left with anything to refuse now that `kolu mcp` resolves its
+ *  local dial through the same policy the verbs do. Silently ignoring a flag the
+ *  user spelled is precisely the graceful degradation this repo treats as a
+ *  defect. */
 export function refuseEndpointFlags(
   flags: EndpointFlagValues,
   command: string,
@@ -191,43 +201,25 @@ export interface Connection {
   readonly localCwd: string | undefined;
 }
 
-/** Resolve a LOCAL endpoint to a socket path, failing loud on the two edges a
- *  CLI cannot resolve for the user: no padi discovered, or several with nothing
- *  naming which. The verbs dial a padi that ALREADY runs; they never provision
- *  one. */
+/** Resolve a LOCAL endpoint to a socket path, failing loud on the edges a CLI
+ *  cannot resolve for the user: no padi discovered, several with nothing naming
+ *  which, or a `--state-root` that cannot be named. The verbs dial a padi that
+ *  ALREADY runs; they never provision one.
+ *
+ *  The POLICY — and the sentences — are padi's `localPadiSocket`, not this
+ *  module's: `connect.ts`'s owned-lifetime dial resolves the same thing for
+ *  `kolu mcp`, and two near-copies of "zero or several padis are running, here
+ *  is what to tell the user" is one fact with two homes. All that is left here
+ *  is which error type the sentence rides. */
 function localSocketPath(
   padi: PadiDialKit,
-  endpoint: Endpoint & { kind: "auto" | "socket" | "stateRoot" },
+  endpoint: LocalEndpoint,
 ): Effect.Effect<string, CliFailure> {
   return Effect.suspend(() => {
-    if (endpoint.kind === "stateRoot") {
-      return Effect.try({
-        try: () => padi.padiSocketPath(padi.resolvePadiStateRoot(endpoint.dir)),
-        catch: (err) =>
-          failure(err instanceof Error ? err.message : String(err)),
-      });
-    }
-    const resolved = padi.resolveRunningPadiSocket(
-      endpoint.kind === "socket" ? { socket: endpoint.path } : {},
-    );
-    if (resolved.kind === "many") {
-      const lines = resolved.candidates
-        .map((c) => `  PADI_SOCKET=${c.socket}`)
-        .join("\n");
-      return Effect.fail(
-        failure(
-          `more than one padi daemon is running on this host — set $PADI_SOCKET or pass --socket to pick one:\n${lines}`,
-        ),
-      );
-    }
-    if (resolved.kind === "none") {
-      return Effect.fail(
-        failure(
-          "no running padi daemon found on this host — start kolu (its padi serves the terminals), or pass --socket / set $PADI_SOCKET.",
-        ),
-      );
-    }
-    return Effect.succeed(resolved.socket);
+    const resolved = padi.localPadiSocket(endpoint);
+    return resolved.kind === "ok"
+      ? Effect.succeed(resolved.socket)
+      : Effect.fail(failure(resolved.message));
   });
 }
 
@@ -258,32 +250,37 @@ export function connectEndpoint(
     (padi): Effect.Effect<Connection, CliFailure, Scope.Scope> => {
       if (endpoint.kind === "host") {
         const ssh = endpoint.ssh;
-        return Effect.map(
-          Effect.acquireRelease(
-            Effect.tryPromise({
-              try: () => padi.dialPadiViaHost(ssh),
-              catch: (err) =>
-                failure(
-                  `could not reach padi on ${ssh}: ${err instanceof Error ? err.message : String(err)}`,
+        // The ssh arm is `hostConnect.ts`'s, whole — not a second spelling of
+        // it. That module rebuilds padi's face from the dial's tag-keyed
+        // DISPATCH (`padiClientOver`) and refuses a dispatch-less link, and its
+        // header explains at length why taking `dial.client` and CASTING it is
+        // the wrong route (D2/#16: per-member precision belongs to spec-derived
+        // faces, never to the connector). This module used to carry that cast,
+        // which meant one package held both spellings of "name the remote padi
+        // face", one of them documented by the other as wrong. Now there is one.
+        //
+        // Loaded by `import()` for the same reason the dial kit is (see the
+        // header): `hostConnect.ts` statically reaches padi's dial graph, and
+        // `cli.ts` must not pay for it to print `kolu web --help`.
+        //
+        // Only the LIFETIME differs, and that is this module's whole job: the
+        // MCP face owns its connection and disposes it itself, a verb borrows
+        // one for the length of a scope.
+        return Effect.flatMap(
+          Effect.promise(() => import("./hostConnect.ts")),
+          ({ connectKoluCliViaHost }) =>
+            Effect.map(
+              Effect.acquireRelease(
+                Effect.mapError(connectKoluCliViaHost(ssh), (err) =>
+                  failure(`could not reach padi on ${ssh}: ${err.message}`),
                 ),
-            }),
-            (dial) => Effect.sync(() => dial.dispose()),
-          ),
-          // `dialPadiViaHost` opens the link with padi's SIBLING surface, so the
-          // face it hands back already addresses `surface/padi/<member>`. Naming
-          // it is a CAST because `AgentDial.client` is the framework's
-          // deliberately STRUCTURAL `SurfaceFace` — the same claim
-          // `padiClientOver` makes on the local leg, and checked where it can be:
-          // the dial's own probe refuses a skewed padi before this line is
-          // reached.
-          //
-          // `localCwd: undefined` — a remote padi runs elsewhere, so our cwd need
-          // not exist there; `create` omits it and lets padi default to the
-          // host's home.
-          (dial) => ({
-            client: dial.client as unknown as PadiSurfaceClient,
-            localCwd: undefined,
-          }),
+                (conn) => Effect.sync(() => conn.dispose()),
+              ),
+              // `localCwd: undefined` — a remote padi runs elsewhere, so our cwd
+              // need not exist there; `create` omits it and lets padi default to
+              // the host's home.
+              (conn) => ({ client: conn.client, localCwd: undefined }),
+            ),
         );
       }
       return Effect.flatMap(localSocketPath(padi, endpoint), (socketPath) =>

@@ -442,6 +442,76 @@ export function resolveRunningPadiSocket(opts?: {
   };
 }
 
+/** WHICH local padi a client means, as data — the client-side half of the
+ *  selection policy {@link resolveRunningPadiSocket} enacts. `auto` is "whatever
+ *  this host is running" (`$PADI_SOCKET`, else discovery); the other two name
+ *  one exactly. */
+export type LocalPadiTarget =
+  | { readonly kind: "auto" }
+  | { readonly kind: "socket"; readonly path: string }
+  | { readonly kind: "stateRoot"; readonly dir: string };
+
+/** The socket a {@link LocalPadiTarget} names, or the sentence saying why no
+ *  single padi could be named. Not an error type: the two callers wrap it in
+ *  their own (a `CliFailure` for the verbs, a `PadiNotAddressable` for the MCP
+ *  face's tagged alphabet), and only the SENTENCE is common to them. */
+export type LocalPadiSocket =
+  | { readonly kind: "ok"; readonly socket: string }
+  | { readonly kind: "unaddressable"; readonly message: string };
+
+/**
+ * Name the ONE local padi socket a client should dial, or say why it cannot be
+ * named — the whole "which padi, locally" policy INCLUDING the two sentences a
+ * user reads when the answer is zero or several.
+ *
+ * It lives here, beside {@link resolveRunningPadiSocket}, because both halves
+ * are one fact about one host: which daemons are live, and what to tell a human
+ * when that set is not exactly one. kolu-cli owned two near-copies of the
+ * sentences — one for the eight verbs, one for the MCP face's own dial — which
+ * differed only in the clause naming the flag that picks a padi, and could
+ * therefore drift apart without anything noticing. Now the sentences are one and
+ * the two callers differ only in the error type they wrap the string in.
+ *
+ * A `--state-root` that cannot be resolved (a missing `$HOME`, an unnameable
+ * root) THROWS one layer down; it is caught here and joins the other refusals,
+ * because "you named a padi I cannot find" is the same kind of usage fact as
+ * "there are none" — never a defect dump.
+ */
+export function localPadiSocket(target: LocalPadiTarget): LocalPadiSocket {
+  let resolved: PadiSocketResolution;
+  try {
+    resolved = resolveRunningPadiSocket(
+      target.kind === "socket"
+        ? { socket: target.path }
+        : target.kind === "stateRoot"
+          ? { stateRoot: target.dir }
+          : {},
+    );
+  } catch (err) {
+    return {
+      kind: "unaddressable",
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+  if (resolved.kind === "many") {
+    const lines = resolved.candidates
+      .map((c) => `  PADI_SOCKET=${c.socket}`)
+      .join("\n");
+    return {
+      kind: "unaddressable",
+      message: `more than one padi daemon is running on this host — set $PADI_SOCKET or pass --socket to pick one:\n${lines}`,
+    };
+  }
+  if (resolved.kind === "none") {
+    return {
+      kind: "unaddressable",
+      message:
+        "no running padi daemon found on this host — start kolu (its padi serves the terminals), or pass --socket / set $PADI_SOCKET.",
+    };
+  }
+  return { kind: "ok", socket: resolved.socket };
+}
+
 /** Read-only chair naming for dial/error paths when no live daemon was found.
  *  Honors `KOLU_PADI_STATE_DIR` when set so isolated dev/e2e name *their* root;
  *  otherwise the production formula. Never throws for a missing env (unlike

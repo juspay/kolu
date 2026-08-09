@@ -138,20 +138,17 @@ const mcp = Command.make(
   "mcp",
   {},
   Effect.fn(function* () {
-    const shared = yield* koluRoot;
-    // The MCP adapter owns its own local dial and re-resolves it per redial, so
-    // an explicit socket has nowhere to live in that discipline yet — accept the
-    // ssh target only, and say so for the other two.
-    yield* refuseEndpointFlags(shared, "mcp", ["host"]);
-    const endpoint = yield* endpointOf(shared);
+    // No refusal: the MCP adapter's dial resolves through the SAME
+    // `localPadiSocket` policy the verbs do, so every endpoint spelling is
+    // honorable here. `endpointOf` still enforces the two rules that are about
+    // the flags themselves (one transport at a time, no empty value).
+    const endpoint = yield* endpointOf(yield* koluRoot);
     const { runKoluMcp } = yield* Effect.promise(() => import("./mcp.ts"));
-    yield* runKoluMcp({
-      host: endpoint.kind === "host" ? endpoint.ssh : undefined,
-    });
+    yield* runKoluMcp({ endpoint });
   }),
 ).pipe(
   Command.withDescription(
-    "Serve this host's terminals to a coding agent over MCP (stdio) — a pure padi client, no web server.",
+    "Serve a padi's terminals to a coding agent over MCP (stdio) — a pure padi client, no web server.",
   ),
 );
 

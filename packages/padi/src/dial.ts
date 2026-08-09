@@ -62,6 +62,9 @@ import {
 // compute a socket path.
 export {
   discoverPadiDaemons,
+  type LocalPadiSocket,
+  localPadiSocket,
+  type LocalPadiTarget,
   type PadiDaemon,
   type PadiSocketResolution,
   padiSocketPath,

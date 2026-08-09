@@ -39,8 +39,9 @@
 
 import {
   connectPadi,
+  type LocalPadiTarget,
+  localPadiSocket,
   type PadiConnection,
-  resolveRunningPadiSocket,
   scopePadiSurface,
 } from "@kolu/padi/dial";
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
@@ -132,52 +133,45 @@ export function classifyDialFailure(
 }
 
 /**
- * Dial the LOCAL padi: resolve the running daemon's socket fresh (digest-keyed
- * — see the module header), dial + handshake through `connectPadi`, then scope
- * to padi's sibling face.
+ * Dial the LOCAL padi `target` names: resolve its socket fresh (digest-keyed —
+ * see the module header), dial + handshake through `connectPadi`, then scope to
+ * padi's sibling face.
+ *
+ * WHICH padi is now an ARGUMENT rather than a hardcoded "whatever is running".
+ * It used to be neither: this face re-derived the resolution and its refusal
+ * sentences itself, which is why `kolu mcp` was the one face that could not be
+ * pointed at a specific padi — a limitation no user could name, and the reason
+ * `--socket` / `--state-root` had to be REFUSED on this face while every verb
+ * honored them. `endpoint.ts` hands the target down and the dev/e2e spelling
+ * (`kolu mcp --state-root .kolu-dev/padi`) works like every other verb's.
  *
  * Fail-fast on the resolution edges — the CLI faces dial a padi that ALREADY
- * runs, never provision one:
- *   - no daemon discovered → a named error naming the fix (start kolu / set
- *     `$PADI_SOCKET`), not a doomed dial against the default path;
- *   - more than one → a named error listing each candidate socket.
+ * runs, never provision one. The judgement AND its two sentences are padi's
+ * `localPadiSocket` (beside the daemon discovery they narrow); all this layer
+ * adds is the tagged arm the sentence rides, so the MCP adapter's skew-vs-
+ * transport policy still reads one alphabet.
  *
  * A LAZY effect, so "re-resolve fresh per dial" (the module header's restart
  * discipline) stays true by construction: nothing runs until the adapter redials,
  * and each run re-reads the registry.
  */
-export const connectKoluCliLocal: Effect.Effect<
-  KoluCliConnection,
-  KoluCliDialError
-> = Effect.suspend<KoluCliConnection, KoluCliDialError, never>(() => {
-  const resolved = resolveRunningPadiSocket();
-  if (resolved.kind === "many") {
-    const lines = resolved.candidates
-      .map((c) => `  PADI_SOCKET=${c.socket}`)
-      .join("\n");
-    return Effect.fail(
-      new PadiNotAddressable({
-        message: `more than one padi daemon is running on this host — set $PADI_SOCKET to pick one:\n${lines}`,
-      }),
+export function connectKoluCliLocal(
+  target: LocalPadiTarget,
+): Effect.Effect<KoluCliConnection, KoluCliDialError> {
+  return Effect.suspend<KoluCliConnection, KoluCliDialError, never>(() => {
+    const resolved = localPadiSocket(target);
+    if (resolved.kind === "unaddressable") {
+      return Effect.fail(new PadiNotAddressable({ message: resolved.message }));
+    }
+    return Effect.map(
+      // `connectPadi` is an Effect; the classification stays at the RAISE site so
+      // everything past the dial matches a `_tag` rather than an `instanceof`
+      // across two module instances of the supervisor package.
+      Effect.mapError(connectPadi(resolved.socket), classifyDialFailure),
+      koluCliConnectionOf,
     );
-  }
-  if (resolved.kind === "none") {
-    return Effect.fail(
-      new PadiNotAddressable({
-        message:
-          "no running padi daemon found on this host — start kolu (its padi serves the terminals), or set $PADI_SOCKET to an explicit socket.",
-      }),
-    );
-  }
-  const socket = resolved.socket;
-  return Effect.map(
-    // `connectPadi` is an Effect; the classification stays at the RAISE site so
-    // everything past the dial matches a `_tag` rather than an `instanceof`
-    // across two module instances of the supervisor package.
-    Effect.mapError(connectPadi(socket), classifyDialFailure),
-    koluCliConnectionOf,
-  );
-});
+  });
+}
 
 /** Project a dialed `PadiConnection` onto the face-visible
  *  {@link KoluCliConnection} — scope the client to padi's sibling, and carry the
