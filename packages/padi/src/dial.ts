@@ -82,7 +82,6 @@ export {
 // `--until` forms) already imports this entry to dial.
 export {
   activeAgent,
-  agentMatchesUntil,
   type AgentStateOutcome,
   isWaitState,
   PADI_LINK_CLOSED,

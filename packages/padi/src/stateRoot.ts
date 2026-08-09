@@ -42,6 +42,7 @@ import {
   PTY_HOST_SOCK_FILE,
   readStateRootManifest,
 } from "kaval";
+import { errMessage } from "./errText.ts";
 
 // The `state-root` manifest (digest → state-root) is OWNED by kaval, beside the
 // discovery that reads it (the dependency arrow points padi → kaval, never the
@@ -488,10 +489,7 @@ export function localPadiSocket(target: LocalPadiTarget): LocalPadiSocket {
           : {},
     );
   } catch (err) {
-    return {
-      kind: "unaddressable",
-      message: err instanceof Error ? err.message : String(err),
-    };
+    return { kind: "unaddressable", message: errMessage(err) };
   }
   if (resolved.kind === "many") {
     const lines = resolved.candidates

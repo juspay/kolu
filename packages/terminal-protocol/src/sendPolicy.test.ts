@@ -7,6 +7,10 @@
  * silent. An unwrapped multiline prompt fires a half-written line at every
  * `\n`; an unwrapped file payload does the same; and pasting a single typed
  * argument would put paste markers into a shell that never asked for them.
+ *
+ * The empty-payload refusal is pinned here for the same reason it MOVED here:
+ * while it lived on argv alone, `lifecycle_sendInput { text: "" }` wrote nothing
+ * and answered success.
  */
 
 import {
@@ -67,6 +71,7 @@ describe("encodeSend — the paste decision", () => {
       {
         kind: "text",
         text,
+        sourceLabel: "positional text",
         paste: opts.paste,
         fromStream: opts.fromStream ?? false,
       },
@@ -99,6 +104,50 @@ describe("encodeSend — the paste decision", () => {
   it("counts UTF-8 bytes, not UTF-16 units", () => {
     // `.length` would say 1 for this and lie to `--json`'s `bytes`.
     expect(plan("é").bytes).toBe(2);
+  });
+});
+
+describe("encodeSend — the empty payload", () => {
+  const refusal = (
+    sourceLabel: string,
+    vocab: SendVocabulary,
+    opts: { paste?: boolean; fromStream?: boolean } = {},
+  ) => {
+    const encoded = encodeSend(
+      {
+        kind: "text",
+        text: "",
+        sourceLabel,
+        paste: opts.paste,
+        fromStream: opts.fromStream ?? false,
+      },
+      vocab,
+    );
+    if (encoded.kind !== "refused")
+      throw new Error("expected a refusal; it planned a write");
+    return encoded.message;
+  };
+
+  it("refuses it for EVERY face, naming that face's source and key flag", () => {
+    // The bug this closes: argv refused an empty payload and MCP wrote 0 bytes
+    // and answered success, so the same intent got two answers.
+    expect(refusal('--file "/tmp/brief.md"', ARGV)).toBe(
+      'nothing to send — --file "/tmp/brief.md" is empty. A 0-byte send is a no-op that would hide whatever produced the empty payload; pass non-empty text, or use --key to send a key.',
+    );
+    expect(refusal("text", MCP)).toBe(
+      "nothing to send — text is empty. A 0-byte send is a no-op that would hide whatever produced the empty payload; pass non-empty text, or use key to send a key.",
+    );
+  });
+
+  it("refuses BEFORE the paste fold — markers can't dress up a 0-byte send", () => {
+    // An empty stream payload (an empty `--file`, an empty heredoc) would
+    // otherwise plan a 12-byte write of nothing but paste markers.
+    expect(refusal("piped stdin", ARGV, { fromStream: true })).toContain(
+      "piped stdin is empty",
+    );
+    expect(refusal("positional text", ARGV, { paste: true })).toContain(
+      "0-byte send is a no-op",
+    );
   });
 });
 

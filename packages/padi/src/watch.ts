@@ -33,6 +33,7 @@ import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PadiSurfaceClient } from "./dial.ts";
+import { errMessage } from "./errText.ts";
 import { padiSurface, type PadiTerminal } from "./surface.ts";
 import { activeAgent } from "./terminalVocab.ts";
 
@@ -76,28 +77,25 @@ export {
 } from "./terminalVocab.ts";
 
 /** The live agent of a record IF it is in one of the target buckets, else
- *  `null` — the wait's match payload. A record with no live agent (a bare
- *  shell, a sleeping/parked terminal, or an agent that exited) never matches;
- *  otherwise its `state` folds through the shared `agentBucket` and is tested
- *  for membership. Returns the matched agent (not a bare boolean) so a caller
- *  that needs it for the `met` outcome doesn't re-resolve `activeAgent` a second
- *  time — one narrowing, one source of truth. */
+ *  `null` — THE wait predicate, and its match payload in one. A record with no
+ *  live agent (a bare shell, a sleeping/parked terminal, or an agent that
+ *  exited) never matches; otherwise its `state` folds through the shared
+ *  `agentBucket` and is tested for membership. Returns the matched agent (not a
+ *  bare boolean) so the caller that needs it for the `met` outcome doesn't
+ *  re-resolve `activeAgent` a second time — one narrowing, one source of truth.
+ *
+ *  Exported for this package's own tests, and deliberately NOT re-exported
+ *  through `dial.ts`: it is a private step of {@link awaitAgentState}, which is
+ *  what consumers actually call. The boolean wrapper that used to sit beside it
+ *  (`agentMatchesUntil`) rode the dial entry as public surface with no
+ *  production caller anywhere in the repo — it only ever threw away the agent
+ *  this returns. */
 export function matchingActiveAgent(
   v: PadiTerminal,
   targets: ReadonlySet<string>,
 ): AgentInfo | null {
   const agent = activeAgent(v);
   return agent !== null && targets.has(agentBucket(agent.state)) ? agent : null;
-}
-
-/** Whether a terminal's agent is in one of the target buckets — the wait
- *  predicate, spelled over {@link matchingActiveAgent} so the narrowing lives
- *  once. */
-export function agentMatchesUntil(
-  v: PadiTerminal,
-  targets: ReadonlySet<string>,
-): boolean {
-  return matchingActiveAgent(v, targets) !== null;
 }
 
 /** Handlers a live watch reacts to. `live` is whether the terminal is moving
@@ -286,10 +284,6 @@ export async function awaitAgentState(
         () => [opts.id],
       ),
   );
-}
-
-function errMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 // ── The attach-feed spine (shared by the two OUTPUT waits) ───────────────────

@@ -111,12 +111,10 @@ import type { waitFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
 import {
   type CliFailure,
+  errorMessage,
   failure,
-  type WaitInterrupted,
   waitInterrupted,
-  type WaitTerminalGone,
   waitTerminalGone,
-  type WaitTimedOut,
   waitTimedOut,
 } from "../exit.ts";
 import { resolveTerminal, writeErr, writeJson } from "./shared.ts";
@@ -225,7 +223,7 @@ export function planUntil(
     } catch (err) {
       return {
         kind: "error",
-        message: `--until match: invalid regex ${JSON.stringify(pattern)} — ${(err as Error).message}`,
+        message: `--until match: invalid regex ${JSON.stringify(pattern)} — ${errorMessage(err)}`,
       };
     }
     // A pattern that also matches the EMPTY STRING is a false done-signal, not a
@@ -334,16 +332,16 @@ function metTrailer(id: TerminalId, met: WaitMetPayload): string {
  * structured driver reads `result` rather than inferring from the code. The
  * failures carry their own exact stderr line and their own code marker (see
  * `exit.ts`), so nothing here calls `process.exit` — the run edge owns that.
+ * Which is also why the error channel is one type: the four arms this raises
+ * (1/2/3/130) differ in the CODE THEY CARRY, and this signature used to union
+ * four classes that no `catchTag` ever told apart.
  */
 function reportOutcome(
   id: TerminalId,
   outcome: KoluWaitOutcome,
   describe: string,
   json: boolean,
-): Effect.Effect<
-  void,
-  CliFailure | WaitTimedOut | WaitTerminalGone | WaitInterrupted
-> {
+): Effect.Effect<void, CliFailure> {
   return Effect.gen(function* () {
     if (json) {
       // The met payload passes through UNCHANGED. `WaitMetPayload` is already a

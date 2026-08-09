@@ -82,6 +82,7 @@ import {
   formatWatchRemoval,
   formatWatchRemovalJson,
 } from "@kolu/padi/render";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { type Cause, Effect, Fiber, Queue, Stream } from "effect";
 import type { Command } from "effect/unstable/cli";
 // `import type` — fully erased, so this does NOT re-enter the command tree at
@@ -146,8 +147,22 @@ export function run(
           : yield* resolveTerminal(conn, args.id);
 
       const lines = yield* Queue.unbounded<string, Cause.Done>();
-      const emit = (line: string): void => {
-        Queue.offerUnsafe(lines, line);
+      /** Emit ONE line for a terminal event — the three decisions every event
+       *  type makes, made once.
+       *
+       *  Each handler below used to repeat all three: the `only` narrowing, the
+       *  `--json` fork, and the trailing newline. Written per handler, a fourth
+       *  event type can forget the narrowing and quietly report a terminal the
+       *  user asked to be narrowed away — a filter that is only correct because
+       *  three copies of it agree. The two renderings are THUNKS so the shape
+       *  that was not asked for is never formatted. */
+      const emitFor = (
+        id: TerminalId,
+        json: () => string,
+        human: () => string,
+      ): void => {
+        if (only !== undefined && id !== only) return;
+        Queue.offerUnsafe(lines, `${args.json ? json() : human()}\n`);
       };
       /** Why the mirror REJECTED, if it did — the only thing upstream ever says
        *  that genuinely names a failure. The `log` lines below are chatter by
@@ -177,30 +192,25 @@ export function run(
             watchTerminals(
               conn.client,
               {
-                onUpsert: (id, value, live) => {
-                  if (only !== undefined && id !== only) return;
-                  emit(
-                    args.json
-                      ? `${formatWatchJson(id, value, { live })}\n`
-                      : `${formatWatchEvent(id, value, { now: Date.now(), live })}\n`,
-                  );
-                },
-                onRemove: (id) => {
-                  if (only !== undefined && id !== only) return;
-                  emit(
-                    args.json
-                      ? `${formatWatchRemovalJson(id)}\n`
-                      : `${formatWatchRemoval(id, { now: Date.now() })}\n`,
-                  );
-                },
-                onActivity: (id, live) => {
-                  if (only !== undefined && id !== only) return;
-                  emit(
-                    args.json
-                      ? `${formatWatchActivityJson(id, live)}\n`
-                      : `${formatWatchActivity(id, live, { now: Date.now() })}\n`,
-                  );
-                },
+                onUpsert: (id, value, live) =>
+                  emitFor(
+                    id,
+                    () => formatWatchJson(id, value, { live }),
+                    () =>
+                      formatWatchEvent(id, value, { now: Date.now(), live }),
+                  ),
+                onRemove: (id) =>
+                  emitFor(
+                    id,
+                    () => formatWatchRemovalJson(id),
+                    () => formatWatchRemoval(id, { now: Date.now() }),
+                  ),
+                onActivity: (id, live) =>
+                  emitFor(
+                    id,
+                    () => formatWatchActivityJson(id, live),
+                    () => formatWatchActivity(id, live, { now: Date.now() }),
+                  ),
               },
               AbortSignal.any([interrupted, stopped.signal]),
               (line) => {

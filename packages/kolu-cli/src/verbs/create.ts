@@ -74,7 +74,7 @@ import type { Command } from "effect/unstable/cli";
 // `import type` — fully erased, so this does NOT re-enter the command tree at
 // runtime and the per-face dynamic-import fence is untouched.
 import type { createFlags } from "../cli.ts";
-import { type Endpoint, withPadi } from "../endpoint.ts";
+import { type Endpoint, localCwdOf, withPadi } from "../endpoint.ts";
 import {
   blankFlag,
   type CliFailure,
@@ -124,14 +124,43 @@ type Outcome =
       readonly result: CreateResult;
       readonly parentId: TerminalId | undefined;
     }
-  | {
-      readonly kind: "stopped";
-      readonly landed: Landed;
-      readonly error: unknown;
-    };
+  | Stopped;
+
+/** The run stopped after earlier steps had already changed the world. */
+type Stopped = {
+  readonly kind: "stopped";
+  readonly landed: Landed;
+  readonly error: unknown;
+};
+
+/** Run one world-changing step, or STOP carrying what already exists.
+ *
+ *  Steps 2 and 3 tell the same three-line story — call, and if it failed carry
+ *  the failure OUT as a value beside a snapshot of what landed — differing only
+ *  in the snapshot. Written twice inline, the second copy was one careless edit
+ *  away from reporting the first copy's survivors, in the exact block whose
+ *  whole purpose is to name them correctly.
+ *
+ *  The stopped outcome rides the ERROR channel just far enough to short-circuit
+ *  the rest of the sequence, and {@link run} catches it back into a value at the
+ *  dial boundary. It is the same `Stopped` the reporting reads, not a second
+ *  spelling of it: one shape, raised in one place, read in one place. */
+const orStopped = <A, E, R>(
+  step: Effect.Effect<A, E, R>,
+  landed: Landed,
+): Effect.Effect<A, Stopped, R> =>
+  Effect.mapError(step, (error) => ({ kind: "stopped", landed, error }));
+
+/** Is this the carried outcome rather than a genuine failure? Nothing else on
+ *  that error channel is a `{kind: "stopped"}` — the CLI's own failures are
+ *  `_tag`ged and padi's are schema-derived — so the discrimination is exact. */
+const isStopped = (error: unknown): error is Stopped =>
+  typeof error === "object" &&
+  error !== null &&
+  (error as { readonly kind?: unknown }).kind === "stopped";
 
 /** The one `--worktree over --host needs --repo` message. A remote `--worktree`
- *  cannot default to `conn.localCwd` for the reason that makes the whole flag
+ *  cannot default to the padi's cwd for the reason that makes the whole flag
  *  work: the worktree is cut on the REMOTE machine by `git.worktreeCreate`, so a
  *  local path would name a repo on the wrong host. */
 const WORKTREE_OVER_HOST_NEEDS_REPO =
@@ -157,10 +186,15 @@ type Placement =
   | {
       readonly kind: "worktree";
       readonly name: string;
-      /** Absent means "branch from wherever the padi's cwd is", which only has
-       *  an answer when the padi shares our filesystem — see the `--host` gate
-       *  in {@link run} and its transport-blind twin. */
-      readonly repo: string | undefined;
+      /** The repo to branch FROM, already resolved: `--repo` if it was given,
+       *  else the padi's own cwd — which only has an answer when that padi
+       *  shares our filesystem. A `string`, never `undefined`, because the one
+       *  case where there is no answer (a remote `--worktree` with no `--repo`)
+       *  is refused while building this value. Carrying the resolution in the
+       *  TYPE is what leaves the invariant with one home: it used to be checked
+       *  at two altitudes — once against the endpoint before the dial, once
+       *  transport-blind after it — and the second check could never fire. */
+      readonly repo: string;
     }
   | { readonly kind: "open"; readonly cwd: string | undefined };
 
@@ -203,7 +237,18 @@ function refuseBlankFlags(args: CreateArgs): Effect.Effect<void, CliFailure> {
   return Effect.void;
 }
 
-function placementOf(args: CreateArgs): Effect.Effect<Placement, CliFailure> {
+/** Read the three placement flags down into the one shape that means something,
+ *  refusing every combination that does not.
+ *
+ *  `localCwd` is the padi's own cwd IF that padi shares our filesystem
+ *  (`endpoint.ts`'s `localCwdOf` — decidable from the endpoint, before the dial)
+ *  and `undefined` when it does not. It arrives as an argument rather than being
+ *  re-derived here so this stays a pure parse, and so the `--worktree` arm can
+ *  resolve its repo path HERE, once — see {@link Placement}. */
+function placementOf(
+  args: CreateArgs,
+  localCwd: string | undefined,
+): Effect.Effect<Placement, CliFailure> {
   const { cwd, repo, worktree: name } = args;
 
   if (name === undefined) {
@@ -223,7 +268,14 @@ function placementOf(args: CreateArgs): Effect.Effect<Placement, CliFailure> {
       ),
     );
   }
-  return Effect.succeed({ kind: "worktree", name, repo });
+  // WHERE the worktree branches from. No `--repo` and no local cwd is exactly
+  // "a remote `--worktree`", refused here — before the dial, so a `--host` never
+  // Nix-provisions a cold box for a command that cannot run.
+  const from = repo ?? localCwd;
+  if (from === undefined) {
+    return Effect.fail(failure(WORKTREE_OVER_HOST_NEEDS_REPO));
+  }
+  return Effect.succeed({ kind: "worktree", name, repo: from });
 }
 
 /** The human sentence inside an arbitrary failure, with the `kolu: ` prefix and
@@ -331,24 +383,14 @@ export function run(
 
     // ── The pure gates, BEFORE the dial ──────────────────────────────────
     // Each one names a flag that would otherwise be silently ignored — or, for
-    // the first, silently believed — and each is decidable from argv alone, so a
-    // typo fails instantly instead of after Nix-provisioning a cold `--host`.
-    // Blankness is checked FIRST: an empty value is not a placement to read for
-    // meaning, it is a variable that did not expand.
+    // the first, silently believed — and each is decidable from argv (plus the
+    // endpoint) alone, so a typo fails instantly instead of after
+    // Nix-provisioning a cold `--host`. Blankness is checked FIRST: an empty
+    // value is not a placement to read for meaning, it is a variable that did
+    // not expand. The `--worktree over --host needs --repo` refusal is inside
+    // the placement parse, where resolving the repo path is what raises it.
     yield* refuseBlankFlags(args);
-    const placement = yield* placementOf(args);
-    // A remote `--worktree` with no `--repo` is decidable from the ENDPOINT
-    // alone, so refuse it here too — before the ssh dial Nix-provisions a cold
-    // host for a command that cannot run. The transport-blind twin below
-    // (`repoPath === undefined`) is the invariant; this is the fast path, and
-    // both spell the one message so they cannot drift.
-    if (
-      endpoint.kind === "host" &&
-      placement.kind === "worktree" &&
-      placement.repo === undefined
-    ) {
-      return yield* Effect.fail(failure(WORKTREE_OVER_HOST_NEEDS_REPO));
-    }
+    const placement = yield* placementOf(args, localCwdOf(endpoint));
 
     // The shell RE-PARSES this line, so rebuild it with `shellJoin` (the repo's
     // POSIX-quote source of truth), not a bare `argv.join(" ")`: a `join` would
@@ -359,97 +401,88 @@ export function run(
     // it is pure — and because a failure report needs it too.
     const intended = args.argv.length > 0 ? shellJoin(args.argv) : undefined;
 
-    const outcome: Outcome = yield* withPadi(endpoint, (conn) =>
-      Effect.gen(function* () {
-        const parentId =
-          parent === undefined
-            ? undefined
-            : yield* resolveTerminal(conn, parent, { flag: "--parent" });
+    const outcome: Outcome = yield* Effect.catchIf(
+      withPadi(endpoint, (conn) =>
+        Effect.gen(function* () {
+          const parentId =
+            parent === undefined
+              ? undefined
+              : yield* resolveTerminal(conn, parent, { flag: "--parent" });
 
-        // ── Step 1: the worktree ─────────────────────────────────────────
-        // Nothing exists yet if this fails, so its error IS the whole truth and
-        // goes up unadorned — no survivors to name.
-        let cwd: string | undefined;
-        let worktree: Landed["worktree"];
-        if (placement.kind === "worktree") {
-          // The transport-blind half of the `--host` gate: `repoPath` is
-          // undefined exactly when we are remote and no `--repo` was given.
-          const repoPath = placement.repo ?? conn.localCwd;
-          if (repoPath === undefined) {
-            return yield* Effect.fail(failure(WORKTREE_OVER_HOST_NEEDS_REPO));
+          // ── Step 1: the worktree ───────────────────────────────────────
+          // Nothing exists yet if this fails, so its error IS the whole truth
+          // and goes up unadorned — no survivors to name.
+          let cwd: string | undefined;
+          let worktree: Landed["worktree"];
+          if (placement.kind === "worktree") {
+            const wt = yield* conn.client.surface.git.worktreeCreate({
+              repoPath: placement.repo,
+              name: placement.name,
+            });
+            worktree = { path: wt.path, branch: wt.branch };
+            // The worktree IS the cwd — that is what "open the terminal there"
+            // means, and why the two flags refuse each other in `placementOf`.
+            cwd = wt.path;
+          } else {
+            // WHERE the new terminal opens depends on whether this padi shares
+            // our filesystem — the one co-location fact `conn.localCwd` carries
+            // (`endpoint.ts`'s `localCwdOf`, read again on the far side of the
+            // dial). A LOCAL padi runs on THIS machine, so `localCwd` is
+            // `process.cwd()`, a real path there (the tmux convention: a new
+            // terminal opens where you are); a REMOTE one (`--host`) runs
+            // elsewhere, so `localCwd` is undefined and padi defaults to the
+            // remote user's home. An explicit `--cwd` outranks both — it is a
+            // path on the PADI's machine, which is the only machine any of
+            // these paths are ever about.
+            cwd = placement.cwd ?? conn.localCwd;
           }
-          const wt = yield* conn.client.surface.git.worktreeCreate({
-            repoPath,
-            name: placement.name,
-          });
-          worktree = { path: wt.path, branch: wt.branch };
-          // The worktree IS the cwd — that is what "open the terminal there"
-          // means, and why the two flags refuse each other in `placementOf`.
-          cwd = wt.path;
-        } else {
-          // WHERE the new terminal opens depends on whether this padi shares
-          // our filesystem — the one co-location fact `conn.localCwd` carries.
-          // A LOCAL padi runs on THIS machine, so `localCwd` is
-          // `process.cwd()`, a real path there (the tmux convention: a new
-          // terminal opens where you are); a REMOTE one (`--host`) runs
-          // elsewhere, so `localCwd` is undefined and padi defaults to the
-          // remote user's home. An explicit `--cwd` outranks both — it is a
-          // path on the PADI's machine, which is the only machine any of these
-          // paths are ever about.
-          cwd = placement.cwd ?? conn.localCwd;
-        }
 
-        // ── Step 2: the terminal ─────────────────────────────────────────
-        // From here a failure is NOT the whole truth — the worktree is already
-        // on disk — so the error becomes a value the reporting layer can pair
-        // with what landed, rather than an exception that erases it.
-        //
-        // Spread discipline, not `{cwd, parentId, intent}`: every optional field
-        // here is a `Schema.optionalKey`, so an explicit `undefined` decodes as a
-        // FAILURE rather than as "absent". The key is present or it is not.
-        const created = yield* Effect.result(
-          conn.client.surface.lifecycle.create({
-            ...(cwd !== undefined ? { cwd } : {}),
-            ...(parentId !== undefined ? { parentId } : {}),
-            ...(intent !== undefined ? { intent } : {}),
-          }),
-        );
-        if (created._tag === "Failure") {
-          return {
-            kind: "stopped",
-            landed: { worktree },
-            error: created.failure,
-          } satisfies Outcome;
-        }
-        const { id } = created.success;
-
-        // ── Step 3: the command ──────────────────────────────────────────
-        // PTY input is buffered — the shell reads `<intended>\r` at its first
-        // prompt once rc init completes (the same latent slow-rc race the
-        // canvas worktree flow accepts). A terminal is live from here on, so
-        // this failure too is carried as a value.
-        if (intended !== undefined) {
-          const sent = yield* Effect.result(
-            conn.client.surface.lifecycle.sendInput({
-              id,
-              data: `${intended}\r`,
+          // ── Step 2: the terminal ───────────────────────────────────────
+          // From here a failure is NOT the whole truth — the worktree is
+          // already on disk — so it leaves as a `Stopped` the reporting layer
+          // can pair with what landed ({@link orStopped}), rather than as an
+          // exception that erases it.
+          //
+          // Spread discipline, not `{cwd, parentId, intent}`: every optional
+          // field here is a `Schema.optionalKey`, so an explicit `undefined`
+          // decodes as a FAILURE rather than as "absent". The key is present or
+          // it is not.
+          const { id } = yield* orStopped(
+            conn.client.surface.lifecycle.create({
+              ...(cwd !== undefined ? { cwd } : {}),
+              ...(parentId !== undefined ? { parentId } : {}),
+              ...(intent !== undefined ? { intent } : {}),
             }),
+            { worktree },
           );
-          if (sent._tag === "Failure") {
-            return {
-              kind: "stopped",
-              landed: { id, worktree },
-              error: sent.failure,
-            } satisfies Outcome;
-          }
-        }
 
-        return {
-          kind: "created",
-          result: { id, worktree, ran: intended },
-          parentId,
-        } satisfies Outcome;
-      }),
+          // ── Step 3: the command ────────────────────────────────────────
+          // PTY input is buffered — the shell reads `<intended>\r` at its first
+          // prompt once rc init completes (the same latent slow-rc race the
+          // canvas worktree flow accepts). A terminal is live from here on, so
+          // this failure too is carried out with the terminal's id.
+          if (intended !== undefined) {
+            yield* orStopped(
+              conn.client.surface.lifecycle.sendInput({
+                id,
+                data: `${intended}\r`,
+              }),
+              { id, worktree },
+            );
+          }
+
+          return {
+            kind: "created",
+            result: { id, worktree, ran: intended },
+            parentId,
+          } satisfies Outcome;
+        }),
+      ),
+      // …and back to a value, at the dial boundary: everything below reports on
+      // an outcome, and a genuine failure (a step-1 worktree error, a bad
+      // `--parent`) re-fails untouched.
+      isStopped,
+      Effect.succeed,
     );
 
     if (outcome.kind === "stopped") {

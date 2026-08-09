@@ -218,23 +218,10 @@ describe("endpointOf", () => {
 });
 
 describe("refuseEndpointFlags", () => {
-  it("passes an absent endpoint, and the subset a face accepts", () => {
+  it("passes an absent endpoint — the spelling that names no padi at all", () => {
     expect(
       Exit.isSuccess(
         Effect.runSyncExit(refuseEndpointFlags(NO_ENDPOINT, "web")),
-      ),
-    ).toBe(true);
-    // `web` is the only face with anything to refuse today; the accept-list is
-    // still the mechanism, so it is pinned as one.
-    expect(
-      Exit.isSuccess(
-        Effect.runSyncExit(
-          refuseEndpointFlags(
-            { ...NO_ENDPOINT, host: Option.some("box") },
-            "some-face",
-            ["host"],
-          ),
-        ),
       ),
     ).toBe(true);
   });

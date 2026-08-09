@@ -45,7 +45,18 @@
  * property of Effect's interruption, not a second reporting policy.
  */
 
-import { NodeRuntime, NodeServices } from "@effect/platform-node";
+// SUBPATH imports, never the `@effect/platform-node` barrel. The barrel
+// re-exports the whole platform — HTTP server, cluster transports, the worker
+// runner, and with them ioredis / undici / ws / msgpackr and node:http,
+// node:zlib, node:child_process — and it does so BEFORE `cli.ts` is even
+// reached, which is the largest hole one can put in the lazy-loading contract
+// stated above: `kolu ls` would pay for a web server it never boots. Two
+// symbols, two subpaths, measured at 391 → 257 loaded modules and −34% wall
+// clock on `kolu --help`, −21% on a real verb. This is the spelling the rest of
+// the repo already uses (`surface/src/peer-server.ts`, `unix-socket.ts`,
+// `links/wire.ts`).
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect } from "effect";
 import { Command } from "effect/unstable/cli";
 import { serverVersion } from "kolu-server/src/hostname.ts";

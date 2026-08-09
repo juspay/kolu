@@ -16,8 +16,8 @@
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  planSend,
   resolveSendInput,
-  type SendInput,
   sourceIsStream,
   sourceLabel,
 } from "./send.ts";
@@ -37,7 +37,7 @@ const resolve = (opts: {
     }),
   );
 
-const refusalOf = (exit: Exit.Exit<SendInput, { stderr: string }>): string => {
+const refusalOf = <A>(exit: Exit.Exit<A, { stderr: string }>): string => {
   if (!Exit.isFailure(exit))
     throw new Error("expected a refusal; it succeeded");
   return (Cause.squash(exit.cause) as { stderr: string }).stderr;
@@ -114,5 +114,29 @@ describe("the source descriptor", () => {
     );
     expect(sourceLabel({ kind: "stdin" })).toBe("piped stdin");
     expect(sourceLabel({ kind: "none" })).toBe("no text source");
+  });
+});
+
+describe("planSend — this face's wiring into the shared policy", () => {
+  it("refuses an empty payload with the SOURCE-named argv sentence", () => {
+    // The refusal itself is the shared policy's (rule 4, pinned in
+    // `sendPolicy.test.ts` for both faces). What is argv's — and what this pins —
+    // is the wiring that makes it read the way it always has: the `--file` label
+    // with its path, and `--key` rather than the MCP face's bare `key`. An empty
+    // `--file` / pipe / `kolu send <id> ""` must not become a 0-byte "sent".
+    const exit = Effect.runSyncExit(
+      planSend({
+        kind: "text",
+        text: "",
+        sourceLabel: sourceLabel({ kind: "file", path: "/tmp/b.md" }),
+        paste: undefined,
+        fromStream: true,
+      }),
+    );
+    // The WHOLE stderr line, prefix and newline included — this sentence is
+    // pinned, so a paraphrase of it is a defect.
+    expect(refusalOf(exit)).toBe(
+      'kolu: nothing to send — --file "/tmp/b.md" is empty. A 0-byte send is a no-op that would hide whatever produced the empty payload; pass non-empty text, or use --key to send a key.\n',
+    );
   });
 });

@@ -1,9 +1,9 @@
 /**
  * The watch kit's PURE tests — no socket, no daemon. Two halves:
  *
- *   - the wait predicate over a composed record (`agentMatchesUntil`), moved here
- *     (verbatim fixtures) from padi-tui's `render.test.ts` when it graduated into
- *     the dial kit's watch module;
+ *   - the wait predicate over a composed record (`matchingActiveAgent`), moved
+ *     here (verbatim fixtures) from padi-tui's `render.test.ts` when it
+ *     graduated into the dial kit's watch module;
  *   - `awaitOutputMatch` over a hand-rolled fake `PadiSurfaceClient` — the same
  *     fake-stream idiom `read.test.ts` uses (a pushable {@link FakeSource} per
  *     member, `Stream`s handed back lazily and synchronously, teardown by fiber
@@ -48,7 +48,7 @@ import { Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { PadiSurfaceClient } from "./dial.ts";
 import type { PadiTerminal } from "./surface.ts";
-import { agentMatchesUntil, awaitOutputMatch, WAIT_STATES } from "./watch.ts";
+import { awaitOutputMatch, matchingActiveAgent, WAIT_STATES } from "./watch.ts";
 
 /** A minimal `active` composed record — the agent the wait predicate reads.
  *  Cast because the full `ActiveTerminalSchema` is large and these are the
@@ -66,45 +66,53 @@ function activeWithAgent(agent: AgentInfo | null): PadiTerminal {
 const claude = (state: AgentInfo["state"]): AgentInfo =>
   ({ kind: "claude-code", state }) as AgentInfo;
 
-describe("agentMatchesUntil — the wait predicate over a composed record", () => {
+// Asserted on `matchingActiveAgent` — the predicate `awaitAgentState` actually
+// calls — rather than on the boolean wrapper that used to sit in front of it:
+// the wrapper had no production caller anywhere, and the agent this returns IS
+// the `met` outcome's payload, so pinning the identity is strictly more than
+// pinning `true`.
+describe("matchingActiveAgent — the wait predicate over a composed record", () => {
   const awaitingOrWaiting = new Set(["awaiting", "waiting"]);
 
-  it("matches an agent whose bucket is in the targets", () => {
+  it("returns the very agent whose bucket is in the targets", () => {
+    const awaiting = claude("awaiting_user");
     expect(
-      agentMatchesUntil(
-        activeWithAgent(claude("awaiting_user")),
-        awaitingOrWaiting,
-      ),
-    ).toBe(true);
+      matchingActiveAgent(activeWithAgent(awaiting), awaitingOrWaiting),
+    ).toBe(awaiting);
+    const waiting = claude("waiting");
     expect(
-      agentMatchesUntil(activeWithAgent(claude("waiting")), awaitingOrWaiting),
-    ).toBe(true);
+      matchingActiveAgent(activeWithAgent(waiting), awaitingOrWaiting),
+    ).toBe(waiting);
   });
 
   it("does NOT match a working agent for an awaiting/waiting wait", () => {
     expect(
-      agentMatchesUntil(activeWithAgent(claude("thinking")), awaitingOrWaiting),
-    ).toBe(false);
+      matchingActiveAgent(
+        activeWithAgent(claude("thinking")),
+        awaitingOrWaiting,
+      ),
+    ).toBeNull();
   });
 
   it("matches a working agent for a working wait (the two-phase phase 1)", () => {
     const working = new Set(["working"]);
-    expect(
-      agentMatchesUntil(activeWithAgent(claude("tool_use")), working),
-    ).toBe(true);
+    const toolUse = claude("tool_use");
+    expect(matchingActiveAgent(activeWithAgent(toolUse), working)).toBe(
+      toolUse,
+    );
   });
 
   it("never matches a record with no live agent", () => {
-    expect(agentMatchesUntil(activeWithAgent(null), awaitingOrWaiting)).toBe(
-      false,
-    );
+    expect(
+      matchingActiveAgent(activeWithAgent(null), awaitingOrWaiting),
+    ).toBeNull();
     // A dormant record has no `.agent` at all.
     expect(
-      agentMatchesUntil(
+      matchingActiveAgent(
         { state: "parked" } as unknown as PadiTerminal,
         awaitingOrWaiting,
       ),
-    ).toBe(false);
+    ).toBeNull();
   });
 
   it("every WAIT_STATES bucket is a real agentBucket value (no dead target)", () => {

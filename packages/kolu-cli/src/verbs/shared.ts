@@ -15,7 +15,10 @@ import { readTerminalKeys } from "@kolu/padi/read";
 import { resolveTerminalId, shortId } from "@kolu/padi/render";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Data, Effect, type Sink, Stream } from "effect";
-import { NodeSink } from "@effect/platform-node";
+// The SUBPATH, not the `@effect/platform-node` barrel — see `main.ts`'s import
+// header. Every verb goes through this module, so a barrel here would hand each
+// one the HTTP server and cluster transports on the way to a writable stream.
+import * as NodeSink from "@effect/platform-node/NodeSink";
 import { type CliFailure, errorMessage, failure } from "../exit.ts";
 
 /** Widen a user-typed id-or-prefix to the one full id it names, or fail with the

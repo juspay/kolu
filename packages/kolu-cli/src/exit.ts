@@ -25,6 +25,9 @@
  * reads the code straight off the error. Neither the line nor the code can drift
  * from the arm that means them, and no verb calls `process.exit`.
  *
+ * The arms are CONSTRUCTORS over one error class, not one class each: see
+ * {@link CliFailure}.
+ *
  * `errorReported: false` on every one of them says "this failure has already
  * been reported to the user" — the CLI prints its own one-line diagnostic, and
  * Effect's pretty cause dump on top of it would be noise, not information.
@@ -48,39 +51,29 @@
 
 import { Data, Runtime } from "effect";
 
-/** A usage error or a dropped link — everything a verb used to call `fail()`
- *  for. Exit 1. */
+/** A kolu failure that carries its OWN stderr line and its OWN exit code — the
+ *  whole contract above, as one shape.
+ *
+ *  There used to be four classes here (`CliFailure`, `WaitTimedOut`,
+ *  `WaitTerminalGone`, `WaitInterrupted`) with byte-identical bodies, differing
+ *  only in the integer. Nothing ever discriminated them: no `catchTag` matched
+ *  one, and `wait.ts`'s handler unioned all four back together in the one
+ *  signature that named them. Four tags for one concept is a distinction the
+ *  code has to keep in sync and nothing can read — so the arms stay four (the
+ *  CONSTRUCTORS below, each owning its sentence and its number), and the class
+ *  is one.
+ *
+ *  The code is DATA, and `Runtime.errorExitCode` is a getter over it. That is
+ *  still not an exit-code accessor in the sense the header rules out: the marker
+ *  is read off the error by the runtime's own teardown (`getErrorExitCode` walks
+ *  the prototype chain), never by this package. */
 export class CliFailure extends Data.TaggedError("CliFailure")<{
   readonly stderr: string;
+  readonly code: number;
 }> {
-  readonly [Runtime.errorExitCode] = 1;
-  readonly [Runtime.errorReported] = false;
-}
-
-/** `wait` ran out of time — the condition never landed. Its own code (2) so a
- *  driver tells it from a usage/link error. */
-export class WaitTimedOut extends Data.TaggedError("WaitTimedOut")<{
-  readonly stderr: string;
-}> {
-  readonly [Runtime.errorExitCode] = 2;
-  readonly [Runtime.errorReported] = false;
-}
-
-/** The watched terminal exited before reaching the condition — the wait can
- *  never land now. Its own code (3) so a driver tells "the agent I was driving
- *  died" from a timeout (2, still alive but stuck) or an error (1). */
-export class WaitTerminalGone extends Data.TaggedError("WaitTerminalGone")<{
-  readonly stderr: string;
-}> {
-  readonly [Runtime.errorExitCode] = 3;
-  readonly [Runtime.errorReported] = false;
-}
-
-/** A Ctrl+C (or an external stop) during a `wait`. The conventional 130. */
-export class WaitInterrupted extends Data.TaggedError("WaitInterrupted")<{
-  readonly stderr: string;
-}> {
-  readonly [Runtime.errorExitCode] = 130;
+  get [Runtime.errorExitCode](): number {
+    return this.code;
+  }
   readonly [Runtime.errorReported] = false;
 }
 
@@ -108,9 +101,11 @@ export class UsageRefused {
   readonly [Runtime.errorReported] = false;
 }
 
-/** The one-line diagnostic every usage/link failure carries, prefixed once. */
+/** The one-line diagnostic every usage/link failure carries, prefixed once.
+ *  Exit 1 — a usage error or a dropped link, which is one thing to a driver
+ *  however it was reached. */
 export const failure = (message: string): CliFailure =>
-  new CliFailure({ stderr: `kolu: ${message}\n` });
+  new CliFailure({ stderr: `kolu: ${message}\n`, code: 1 });
 
 /** A flag the user SPELLED but left EMPTY — `--worktree "$NAME"` with `$NAME`
  *  unset, the ordinary shell accident. ONE predicate, so every gate in this
@@ -141,29 +136,36 @@ export const reservedFace = (face: string): ReservedFaceError =>
     message: `kolu ${face} is not shipped yet — it lands in a later PR of the kolu-cli plan: https://kolu.dev/atlas/kolu-cli.html`,
   });
 
-/** `wait` ran out of time. Reports the outcome's OWN elapsed (always populated)
- *  rather than the `--timeout` flag, which is optional — a future non-timer
- *  timeout route could otherwise print "undefinedms". */
+/** `wait` ran out of time — the condition never landed. Its own code (2) so a
+ *  driver tells it from a usage/link error.
+ *
+ *  Reports the outcome's OWN elapsed (always populated) rather than the
+ *  `--timeout` flag, which is optional — a future non-timer timeout route could
+ *  otherwise print "undefinedms". */
 export const waitTimedOut = (facts: {
   readonly terminal: string;
   readonly elapsedMs: number;
   readonly describe: string;
-}): WaitTimedOut =>
-  new WaitTimedOut({
+}): CliFailure =>
+  new CliFailure({
     stderr: `kolu: timed out after ${facts.elapsedMs}ms waiting for ${facts.terminal} to reach ${facts.describe}.\n`,
+    code: 2,
   });
 
-/** The watched terminal exited before the condition landed. */
+/** The watched terminal exited before the condition landed — the wait can never
+ *  land now. Its own code (3) so a driver tells "the agent I was driving died"
+ *  from a timeout (2, still alive but stuck) or an error (1). */
 export const waitTerminalGone = (facts: {
   readonly terminal: string;
   readonly describe: string;
-}): WaitTerminalGone =>
-  new WaitTerminalGone({
+}): CliFailure =>
+  new CliFailure({
     stderr: `kolu: ${facts.terminal} exited before reaching ${facts.describe} — its terminal is gone.\n`,
+    code: 3,
   });
 
-/** A Ctrl+C during a `wait` — and it wears the `kolu: ` prefix like every other
- *  arm.
+/** A Ctrl+C (or an external stop) during a `wait` — the conventional 130, and it
+ *  wears the `kolu: ` prefix like every other arm.
  *
  *  It used to be written `— interrupted; …`, the shape of a SUCCESS trailer
  *  (`metTrailer`'s), which made it the one arm of a stderr contract that a
@@ -173,19 +175,25 @@ export const waitTerminalGone = (facts: {
  *  the fact the user can act on. */
 export const waitInterrupted = (facts: {
   readonly terminal: string;
-}): WaitInterrupted =>
-  new WaitInterrupted({
+}): CliFailure =>
+  new CliFailure({
     stderr: `kolu: interrupted; ${facts.terminal} left running\n`,
+    code: 130,
   });
 
 /** The message inside an arbitrary thrown thing — the raw half of
- *  {@link reportOf}, and the ONE `instanceof Error` in this package.
+ *  {@link reportOf}, and the one place this package decides what an unknown
+ *  thrown thing SAYS.
  *
  *  "Turn an unknown thrown thing into a sentence" is one decision, and it was
- *  re-made inline at five new sites. Guarding it matters: a non-`Error`
- *  rejection (a thrown string, a rejected plain object) read through an
- *  unguarded `(err as Error).message` prints `undefined`, which degrades the one
- *  diagnostic that says what broke. */
+ *  re-made inline at five new sites. Every site in this package that renders a
+ *  raw rejection is meant to call this rather than spell the ternary again —
+ *  the dial (`endpoint.ts`), the dial classifier (`connect.ts`), the `--until
+ *  match:` regex refusal (`verbs/wait.ts`), the terminal resolver
+ *  (`verbs/shared.ts`) and the live watch (`verbs/watch.ts`) all do. Guarding it
+ *  matters: a non-`Error` rejection (a thrown string, a rejected plain object)
+ *  read through an unguarded `(err as Error).message` prints `undefined`, which
+ *  degrades the one diagnostic that says what broke. */
 export const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
 

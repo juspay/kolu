@@ -55,6 +55,7 @@
  */
 
 import { fstatSync, readFileSync } from "node:fs";
+import { text as readStdinText } from "node:stream/consumers";
 import { shortId } from "@kolu/padi/render";
 import {
   type SendContent,
@@ -129,7 +130,8 @@ export function sourceIsStream(input: SendInput): boolean {
 
 /** The human name of a resolved text source — the ONE home for how each source
  *  is named in a user-facing message, consumed by BOTH the two-sources conflict
- *  error ({@link resolveSendInput}) and the empty-payload error ({@link run}), so
+ *  error ({@link resolveSendInput}) and the shared policy's empty-payload refusal
+ *  (rule 4, which quotes this label rather than knowing argv's source model), so
  *  the vocabulary is written once. Exhaustive, so a new variant must name itself
  *  rather than defaulting to a wrong label. The `--file` label carries its path
  *  so both sites name the exact file. */
@@ -242,13 +244,21 @@ export function stdinIsPayload(): boolean {
   }
 }
 
-/** Drain piped stdin. Node's stdin is an async iterable, not an Effect — the one
- *  genuinely foreign Promise on this path, so it is LIFTED rather than composed. */
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  return Buffer.concat(chunks).toString("utf8");
-}
+/** Decode a stream payload — a `--file` read or a drained stdin — as UTF-8. Both
+ *  stream sources go through the SAME decoder so `kolu send <id> --file brief.md`
+ *  and `kolu send <id> < brief.md` put identical bytes on the wire; they are the
+ *  same payload by every other rule here (both auto-paste as one block), so they
+ *  must not disagree about their first character.
+ *
+ *  That character is the reason this exists: `TextDecoder` STRIPS a leading UTF-8
+ *  BOM, `Buffer.toString("utf8")` keeps it. Stripping is the right call for a
+ *  send — the BOM is an encoding preamble, not content, and forwarded verbatim it
+ *  lands in the agent's input box as an invisible zero-width character ahead of
+ *  the prompt, where it can silently defeat a leading `/command` match. The rest
+ *  of the payload is still byte-exact: no shell in the loop, so backticks and
+ *  `$( )` reach the wire untouched. */
+const decodeUtf8 = (bytes: Uint8Array): string =>
+  new TextDecoder().decode(bytes);
 
 /** Read the send TEXT from the resolved, pre-validated source.
  *  {@link resolveSendInput} has already rejected every illegal combination, so
@@ -263,18 +273,21 @@ function readSendText(
     case "positional":
       return Effect.succeed(textArgs.join(" "));
     case "stdin":
+      // Draining a stream to a string is `node:stream/consumers` — the one
+      // genuinely foreign Promise on this path, so it is LIFTED rather than
+      // composed, and hand-rolling the chunk loop only bought a second decoder.
       return Effect.tryPromise({
-        try: readStdin,
+        try: () => readStdinText(process.stdin),
         catch: (err) =>
           failure(
             `could not read the send text from stdin: ${err instanceof Error ? err.message : String(err)}`,
           ),
       });
     case "file":
-      // The path rides the descriptor (no cast). Read it as raw UTF-8 — no shell
-      // in the loop, so backticks / $( ) in the payload reach the wire byte-exact.
+      // The path rides the descriptor (no cast). Decoded, not `readFileSync(…,
+      // "utf8")`, so it agrees with the stdin arm about a leading BOM.
       return Effect.try({
-        try: () => readFileSync(input.path, "utf8"),
+        try: () => decodeUtf8(readFileSync(input.path)),
         catch: (err) => {
           const e = err as NodeJS.ErrnoException;
           return failure(
@@ -291,10 +304,11 @@ function readSendText(
 
 /** `kolu send`'s spelling of the shared send policy — the flag it names in a
  *  refusal, and the ritual it quotes. Everything ELSE about what a send writes
- *  (text-XOR-keys, the unknown-key refusal, auto bracketed paste) is
- *  `@kolu/terminal-protocol`'s `sendPolicy`, because the MCP face enforces the
- *  same three rules against the same padi member and a second copy is how the
- *  two faces come to answer the same intent differently. */
+ *  (text-XOR-keys, the unknown-key refusal, auto bracketed paste, the
+ *  empty-payload refusal) is `@kolu/terminal-protocol`'s `sendPolicy`, because
+ *  the MCP face enforces the same rules against the same padi member and a
+ *  second copy is how the two faces come to answer the same intent differently
+ *  — which is exactly what the empty payload did until it moved there. */
 const SEND_VOCABULARY: SendVocabulary = {
   keyName: "--key",
   submitRitual: SUBMIT_FLOW_HELP,
@@ -396,32 +410,25 @@ export function run(
 
     const text = yield* readSendText(input, args.text);
 
-    // A text source that reads back EMPTY (an empty --file, an empty pipe or
-    // heredoc, or a literal `kolu send <id> ""`) has nothing to submit — fail
-    // loud rather than report a silent 0-byte "sent" that would mask whatever
-    // upstream failure produced the empty payload. `none` (a keys-only send) has
-    // no text and is exempt. Emptiness is a property of the READ content, so it
-    // is caught here, after the read, not in `resolveSendInput` (which judges the
-    // flag combination, before it).
-    if (input.kind !== "none" && text.length === 0) {
-      return yield* Effect.fail(
-        failure(
-          `nothing to send — ${sourceLabel(input)} is empty. A 0-byte send is a no-op that would hide whatever produced the empty payload; pass non-empty text, or use --key to send a key.`,
-        ),
-      );
-    }
-
     // The resolved source already settled text-vs-keys (`none` is a keys-only
     // send; anything else is a text send, and the mix is forbidden), so the plan
     // arm is picked from it rather than by re-sniffing `text.length` — the single
     // source of truth for "text vs keys" stays in `resolveSendInput`. Planning
     // runs BEFORE the dial, so an unknown key name never costs a connection and
     // can never land as a half-send.
+    //
+    // A text source that reads back EMPTY (an empty --file, an empty pipe or
+    // heredoc, or a literal `kolu send <id> ""`) is refused by the shared policy
+    // (rule 4) rather than by a check here: it is decidable from the text alone,
+    // and while it lived here the MCP face answered the identical intent with a
+    // silent 0-byte success. This face still owns the WORDING of the source —
+    // `sourceLabel` is handed to the encoder, which quotes it.
     const plan = yield* input.kind === "none"
       ? planSend({ kind: "keys", names: args.key })
       : planSend({
           kind: "text",
           text,
+          sourceLabel: sourceLabel(input),
           paste: args.paste,
           fromStream: sourceIsStream(input),
         });

@@ -47,6 +47,7 @@ import {
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
 import type { KoluMcpConnection } from "kolu-mcp";
 import { Data, Effect } from "effect";
+import { errorMessage } from "./exit.ts";
 
 /** The transport-blind handle a CLI face is written against — the padi-scoped
  *  client, a `dispose` that drops the socket/pipe, and the transport's optional
@@ -122,14 +123,12 @@ export function classifyDialFailure(
   if (isContractSkewError(err)) {
     return new PadiContractSkew({ message: err.message });
   }
-  // Guard the message a human/agent actually reads — a non-`Error` rejection (a
-  // thrown string, a rejected non-Error value) would make an unguarded
-  // `(err as Error).message` read `undefined`, degrading the ONE diagnostic that
-  // says what broke.
-  return new PadiDialFailed({
-    message: err instanceof Error ? err.message : String(err),
-    cause: err,
-  });
+  // `errorMessage` guards the message a human/agent actually reads — a
+  // non-`Error` rejection read through an unguarded `(err as Error).message`
+  // says `undefined`, degrading the ONE diagnostic that says what broke. It is
+  // `exit.ts`'s, shared with the verbs and the endpoint dial, so this package
+  // makes that judgement in one place.
+  return new PadiDialFailed({ message: errorMessage(err), cause: err });
 }
 
 /**

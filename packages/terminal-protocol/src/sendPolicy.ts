@@ -2,8 +2,9 @@
  * The SEND policy — what bytes a named send actually writes to a terminal's
  * input, and which sends are refused outright.
  *
- * Three rules, and all three exist because getting them wrong drops a
- * submit SILENTLY:
+ * Four rules, and every one of them exists because getting it wrong fails
+ * SILENTLY — a submit that never lands, or a send that reports success having
+ * written nothing:
  *
  *   1. **Text XOR keys.** An Enter written in the same breath as the text races
  *      the driven TUI's paste debounce and is swallowed, leaving the prompt
@@ -16,19 +17,30 @@
  *      BLOCK from a stream (a file, a pipe), is wrapped so the agent's input box
  *      takes it as ONE block instead of firing a half-written prompt at every
  *      `\n`. A single-line argument types literally. An explicit override wins.
+ *   4. **An empty text payload is a refusal, never a 0-byte "sent".** A write of
+ *      nothing that answers "ok" is indistinguishable, to the loop above it,
+ *      from a send that worked — so an empty `--file`, an empty pipe, a
+ *      `kolu send <id> ""`, and a `lifecycle_sendInput { text: "" }` all fail
+ *      loud instead of hiding whatever produced the empty payload. Emptiness is
+ *      a property of the TEXT, decidable wherever the text is, which is why it
+ *      belongs beside the other three and not on one face: it used to live on
+ *      argv only, and the MCP face answered the identical intent with success.
  *
  * It lives here, in the package that already owns the named-key grammar and the
  * paste delimiters these rules are ABOUT, because it was implemented twice —
  * once for `kolu send`, once for the MCP face's `lifecycle_sendInput` — with
  * near-identical prose in both. Those are not two vocabularies; they are one
- * policy about a TUI's paste debounce, and two copies means the next refinement
+ * policy about writing to a driven TUI, and two copies means the next refinement
  * lands on one face while a driver that switches from argv to MCP gets a
- * different answer to the same intent.
+ * different answer to the same intent — which is not hypothetical: rule 4 was on
+ * argv alone, and the MCP face wrote 0 bytes and said "ok".
  *
  * What is NOT here: where the text came from (`--file` / stdin / an argv
  * positional / an MCP field) and what a face calls its own flags. The first is
- * each face's own source resolution; the second is {@link SendVocabulary},
- * passed in, so a refusal names the thing the caller actually typed.
+ * each face's own source resolution — rule 4 only QUOTES the face's name for the
+ * source it read, handed in with the content; the second is
+ * {@link SendVocabulary}, passed in, so a refusal names the thing the caller
+ * actually typed.
  */
 
 import { wrapBracketedPaste } from "./bracketedPaste.ts";
@@ -64,10 +76,16 @@ export interface SendPlan {
 export type SendContent =
   | {
       readonly kind: "text";
-      /** NON-EMPTY by the caller's construction: a face refuses an empty payload
-       *  first, with an error that NAMES the source it read. A second,
-       *  source-blind guard here could only produce a worse message. */
+      /** The payload. EMPTY is a refusal (rule 4), decided by {@link encodeSend}
+       *  rather than by each face — one face used to check and the other did
+       *  not. */
       readonly text: string;
+      /** How a refusal NAMES where this text came from — `--file "brief.md"`,
+       *  `piped stdin`, `positional text`, or the MCP face's one `text` field.
+       *  Provenance is each face's own (see the header), so the label travels
+       *  WITH the content instead of being re-derived from a source model this
+       *  module does not have. */
+      readonly sourceLabel: string;
       /** The explicit override, or `undefined` for auto. */
       readonly paste: boolean | undefined;
       /** The text arrived as a BLOCK from a stream — a file, a pipe — not as a
@@ -100,8 +118,9 @@ export function sendShapeRefusal(
 const utf8Bytes = (text: string): number =>
   new TextEncoder().encode(text).length;
 
-/** Rules 2 and 3: encode the write. Total over its legal input — no submit Enter
- *  is ever synthesized, and keys are never pasted. */
+/** Rules 2, 3 and 4: encode the write, or say why there is none. Total over its
+ *  legal input — no submit Enter is ever synthesized, and keys are never
+ *  pasted. */
 export function encodeSend(
   content: SendContent,
   vocab: SendVocabulary,
@@ -121,6 +140,17 @@ export function encodeSend(
     return {
       kind: "plan",
       plan: { write: keyData, bytes: utf8Bytes(keyData), paste: false },
+    };
+  }
+
+  // Rule 4, before the paste fold: an empty payload wrapped in paste markers is
+  // still nothing to submit, and the markers would make the byte count lie about
+  // it. The sentence names the caller's OWN source and key flag, so it reads the
+  // same whether the empty text arrived as `--file ""` or as `{ text: "" }`.
+  if (content.text.length === 0) {
+    return {
+      kind: "refused",
+      message: `nothing to send — ${content.sourceLabel} is empty. A 0-byte send is a no-op that would hide whatever produced the empty payload; pass non-empty text, or use ${vocab.keyName} to send a key.`,
     };
   }
 

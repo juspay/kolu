@@ -26,7 +26,14 @@
 
 import { Option } from "effect";
 import { type Command, Flag } from "effect/unstable/cli";
-import { DEFAULT_PORT } from "kolu-common/config";
+// The port's ONE definition, read from the zero-import LEAF rather than through
+// `kolu-common/config`. Same constant, same source of truth — config.ts
+// re-exports this — but config.ts also re-exports `DEFAULT_SCROLLBACK` from
+// `@kolu/terminal-vocab/schema`, and this module is built on EVERY `kolu`
+// invocation, so the door route made `kolu ls` construct seventeen modules of
+// agent/forge schemas to learn one integer. Same reason `kolu-server`'s
+// `bootFlags.ts` holds zero imports; the cost had simply relocated here.
+import { DEFAULT_PORT } from "kolu-common/defaultPort";
 // The BOOT contract — plain types, so this import is erased. A deep LEAF import
 // (like `cli.ts`'s hostname one): it skips the server's runtime module graph
 // (`index.ts`), so building the command tree stays server-free.

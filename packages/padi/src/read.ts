@@ -176,7 +176,14 @@ export function readWholeHistory(
  *  landed. A dormant record (`sleeping`/`parked`) is a persisted projection, not
  *  mid-sensing, so it is always resolved. An `active` one is resolved once ANY of
  *  git / agent / foreground has landed, or its PR has left `pending` — a
- *  just-spawned terminal seeds all-null and fills in a beat later. */
+ *  just-spawned terminal seeds all-null and fills in a beat later.
+ *
+ *  ANY, deliberately: a terminal outside a repo has no branch and no PR to find,
+ *  and one sitting at a shell has no agent, so requiring all four would wait out
+ *  `maxMs` on perfectly ordinary rows. The price of that weakness is that this
+ *  goes true on the FIRST sensor to land, several hundred milliseconds before the
+ *  rest of a fresh terminal's row exists — which is why {@link settledSnapshot}
+ *  does not return the moment this passes. */
 function isResolved(v: PadiTerminal): boolean {
   if (v.state !== "active") return true;
   return (
@@ -187,24 +194,84 @@ function isResolved(v: PadiTerminal): boolean {
   );
 }
 
+/** WHICH of a record's four sensed facts padi has actually observed, as a
+ *  bitmask. The point is the DIRECTION of change: a bit can only be set by a
+ *  sensor landing, so `next & ~prev` is exactly "a sensor reported since the last
+ *  frame" and nothing else. That is what separates a terminal still filling in
+ *  from a terminal merely being BUSY — an agent flipping thinking→tools, a
+ *  foreground retitling itself, an activity tick — all of which re-publish the
+ *  record without adding a fact. On a machine with agents at work those account
+ *  for nearly every frame, so a settle rule that counted frames rather than facts
+ *  would never see the roster go still (measured: 952ms, and unbounded in
+ *  principle) while learning nothing.
+ *
+ *  A dormant record is a persisted projection with no sensor pointed at it, so it
+ *  reads as fully observed and can never be the reason a read waits. */
+function sensedMask(v: PadiTerminal): number {
+  if (v.state !== "active") return 0b1111;
+  return (
+    (v.git !== null ? 0b0001 : 0) |
+    (v.agent !== null ? 0b0010 : 0) |
+    (v.foreground !== null ? 0b0100 : 0) |
+    (v.pr.kind !== "pending" ? 0b1000 : 0)
+  );
+}
+
 /** Which arm of the settle race answered. Both arms SUCCEED — a dropped link
  *  carried as a value and re-raised after the race, never as a failure inside it,
  *  because `raceAll` ignores an early failure and keeps waiting for a success
  *  (the same trap `firstFrameOfCollectionItem` documents one layer down). */
 type SettleOutcome = "settled" | "link-closed";
 
-/** A snapshot that WAITS for padi's sensors to resolve, for `status`. Against a
- *  warm local padi every value arrives resolved, so this settles at once
- *  (sub-`graceMs`); against a padi that just spawned a terminal it waits just long
- *  enough for the sensors, then lingers `graceMs` to catch siblings landing in the
- *  same burst — capping the whole wait at `maxMs`. A terminal the sensors
- *  legitimately resolve to "nothing" never flips `isResolved`, so it falls through
- *  at `maxMs` — bounded, never a hang.
+/** A snapshot that WAITS for padi's sensors to resolve, for `status` / `kolu ls`.
+ *  It ends when every expected key is resolved AND the roster has stopped GAINING
+ *  FACTS — capping the whole wait at `maxMs`. A terminal the sensors
+ *  legitimately resolve to "nothing" never flips `isResolved`, so it falls
+ *  through at `maxMs` — bounded, never a hang.
+ *
+ *  ## Why the trailing wait is QUIET and not a fixed sleep
+ *
+ *  The wait after `isResolved` exists because {@link isResolved} is deliberately
+ *  weak: ANY one sensor landing makes a record "resolved enough to show", so a
+ *  terminal spawned a beat ago passes that test the instant its foreground
+ *  appears — while its branch, its PR, and its siblings are still on the way.
+ *  Returning there prints dashes for facts that were seconds from arriving.
+ *
+ *  This used to be a flat `sleep(1500)` after the deferred, paid unconditionally.
+ *  Measured against a live padi with 10 warm terminals, that cost **1509ms for a
+ *  roster that was complete at 8ms** — and `ls` is the roster every driving agent
+ *  runs, so it was paid constantly and for nothing.
+ *
+ *  It cannot be made conditional on what the FIRST frame looks like, which is the
+ *  obvious fix and is wrong. A record mid-spawn and a record that will never have
+ *  more to say are BYTE-IDENTICAL: `git: null` means "no repo" or "not probed
+ *  yet", `pr: pending` means "no repo to ask about" or "the forge call is in
+ *  flight". There is no field that separates them, so no first-frame predicate
+ *  can. (Measured: gating the window on "was anything unresolved at first sight?"
+ *  returns `—` for a terminal created a beat earlier in a git repo, where the flat
+ *  sleep returned its branch.)
+ *
+ *  What DOES separate them is observable, and it is the only thing that is: a
+ *  fresh terminal's record GAINS FACTS as you watch it. It is published all-null
+ *  and then re-published once per sensor (measured on a live padi: foreground at
+ *  +33ms, branch at +101ms, PR at +467ms), while a settled record's facts are
+ *  already all there. So the trailing wait is for QUIET, measured in facts rather
+ *  than in frames: `quietMs` with no new fact landing anywhere on the roster (see
+ *  {@link sensedMask}). It re-arms every time one does, which makes it strictly
+ *  more faithful than the sleep it replaces — it follows a burst however long the
+ *  burst runs (to `maxMs`) instead of betting that 1500ms covered it.
+ *
+ *  FACTS, not frames, is the load-bearing half of that. A machine with agents at
+ *  work republishes records constantly — a spinner retitles, an agent flips
+ *  thinking→tools — and none of it adds a fact. A window that re-armed on frames
+ *  never saw such a roster go still (measured: 952ms, and unbounded in principle),
+ *  which is a slower read than the flat sleep it was meant to replace.
  *
  *  The three ways this read can end are three arms of ONE race, and that is the
  *  whole shape:
  *
- *    - every expected key resolved, then `graceMs` of quiet → the snapshot;
+ *    - every expected key resolved, then `quietMs` with no new fact → the
+ *      snapshot;
  *    - `maxMs` elapsed → the snapshot anyway (bounded, never a hang);
  *    - the mirror ended on its own → the LINK dropped mid-read, which FAILS loud
  *      rather than returning a partial table (caught-error-must-not-collapse-to-
@@ -215,13 +282,16 @@ type SettleOutcome = "settled" | "link-closed";
  *  fact, which of those three happened first. Racing them answers that
  *  structurally: whichever arm wins interrupts the others, and the mirror's
  *  scope-close finalizer is what unwinds the subscriptions — so there is no
- *  ordering left for a trailing grace timer to get wrong. */
+ *  ordering left for a trailing timer to get wrong. */
 export function settledSnapshot(
   client: PadiSurfaceClient,
-  opts: { maxMs?: number; graceMs?: number } = {},
+  opts: { maxMs?: number; quietMs?: number } = {},
 ): Effect.Effect<Array<[TerminalId, PadiTerminal]>, unknown> {
   const maxMs = opts.maxMs ?? 3000;
-  const graceMs = opts.graceMs ?? 1500;
+  // Long enough to bridge the gaps WITHIN a spawn's sensor burst (the widest
+  // measured is the forge call, ~370ms behind the branch probe), short enough
+  // that a settled roster pays it once and is gone.
+  const quietMs = opts.quietMs ?? 500;
   return Effect.scoped(
     Effect.gen(function* () {
       // The key set padi first reports — the terminals we wait to resolve.
@@ -232,6 +302,11 @@ export function settledSnapshot(
       // The first non-abort upstream blip, so a failure carries a diagnostic
       // rather than surfacing as a bare "link closed".
       let upstreamError: string | undefined;
+      // When the roster last GAINED something: a key arriving, a key leaving, or
+      // a sensor reporting a fact that was not there before (see
+      // {@link sensedMask}). Seeded at the read's start, so a roster that says
+      // nothing at all still has to hold still for `quietMs` before we believe it.
+      let lastSensedAt = Date.now();
 
       const considerSettling = (): void => {
         const done =
@@ -241,11 +316,17 @@ export function settledSnapshot(
             return v === undefined ? false : isResolved(v);
           });
         // `doneUnsafe` is idempotent — the first completion wins and later ones
-        // are no-ops. That is what retires the `graceTimer === undefined` guard:
-        // "arm the grace window exactly once" is a property of the deferred, not
-        // a flag this callback has to maintain.
+        // are no-ops. That is what retires the old `graceTimer === undefined`
+        // guard: "cross this line exactly once" is a property of the deferred,
+        // not a flag this callback has to maintain.
         if (done) Deferred.doneUnsafe(allResolved, Effect.void);
       };
+
+      // An EMPTY roster settles HERE or nowhere: the check above only ever runs
+      // from the sink, and a roster with no keys produces no upsert to run it
+      // from — so without this call the zero-terminal read would sit out the whole
+      // `maxMs` waiting for a frame that by definition never comes.
+      considerSettling();
 
       // The mirror is a SCOPED resource: acquiring it opens the subscriptions,
       // releasing it aborts them and waits for the unwind. Every exit path from
@@ -262,10 +343,23 @@ export function settledSnapshot(
               collections: {
                 terminals: {
                   upsert: (id, value) => {
+                    const prev = acc.get(id);
+                    // A key we have never seen is the roster GROWING, and a frame
+                    // that adds a sensed fact is a sensor LANDING. Everything else
+                    // — the same facts republished because an agent ticked — is
+                    // noise this window must not chase.
+                    if (
+                      prev === undefined ||
+                      (sensedMask(value) & ~sensedMask(prev)) !== 0
+                    ) {
+                      lastSensedAt = Date.now();
+                    }
                     acc.set(id, value);
                     considerSettling();
                   },
                   remove: (id) => {
+                    // A departure is the roster moving as much as an arrival is.
+                    lastSensedAt = Date.now();
                     acc.delete(id);
                     considerSettling();
                   },
@@ -301,12 +395,26 @@ export function settledSnapshot(
           }),
       );
 
+      // "`quietMs` since the last fact landed", read off the same clock the sink
+      // stamps. It SLEEPS THE REMAINDER and re-checks rather than sleeping a flat
+      // `quietMs`: a sensor that reports mid-window pushes the deadline out, which
+      // is the whole difference between waiting for a burst to END and betting on
+      // how long a burst takes. Self-recursive, so a burst of any length is one
+      // expression rather than a loop with a counter.
+      const untilQuiet: Effect.Effect<void> = Effect.suspend(() => {
+        const remaining = quietMs - (Date.now() - lastSensedAt);
+        return remaining <= 0
+          ? Effect.void
+          : Effect.flatMap(Effect.sleep(remaining), () => untilQuiet);
+      });
+
       const outcome = yield* Effect.raceAll<Effect.Effect<SettleOutcome>>([
-        // Sensors landed — linger `graceMs` to catch siblings in the same burst.
+        // Every expected key is resolved AND no sensor has reported for a while.
+        // The two conditions answer different questions — "is there anything left
+        // to show?" and "is padi still filling records in?" — and `ls` is wrong
+        // without either (see the header).
         Effect.as(
-          Effect.flatMap(Deferred.await(allResolved), () =>
-            Effect.sleep(graceMs),
-          ),
+          Effect.flatMap(Deferred.await(allResolved), () => untilQuiet),
           "settled",
         ),
         // The hard cap. Bounded, never a hang.

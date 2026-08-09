@@ -30,13 +30,14 @@
  * static one here would be loaded transitively by `cli.ts` and would silently
  * defeat the per-face lazy-loading fence both `cli.ts` and `main.ts` state in
  * their headers: `kolu web` would pay for padi's dial graph to print its own
- * help. `PadiSurfaceClient` below is an `import type`, which is erased.
+ * help. The two names taken from padi at the top (`PadiSurfaceClient`,
+ * `LocalPadiTarget`) are `import type`s, which are erased.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
+import type { LocalPadiTarget, PadiSurfaceClient } from "@kolu/padi/dial";
 import { Effect, Option, type Scope } from "effect";
 import { Flag } from "effect/unstable/cli";
-import { type CliFailure, failure, isBlank } from "./exit.ts";
+import { type CliFailure, errorMessage, failure, isBlank } from "./exit.ts";
 
 /** Everything the dial half reaches for, as a type — so the functions below can
  *  take the kit as an argument and still be checked against padi's real
@@ -77,8 +78,8 @@ export const endpointFlags = {
 } as const;
 
 /** How each endpoint arm is SPELLED on the command line — one three-row table
- *  with four readers (the blank refusal, the mutual-exclusion refusal, the
- *  per-face refusal, and its accept-list). */
+ *  with three readers (the blank refusal, the mutual-exclusion refusal, and the
+ *  per-face refusal). */
 const FLAG_NAME = {
   auto: "(none)",
   socket: "--socket",
@@ -93,20 +94,18 @@ export interface EndpointFlagValues {
   readonly host: Option.Option<string>;
 }
 
-/** WHICH padi, as data. */
+/** WHICH padi, as data — padi's own three LOCAL arms, plus the ssh one this
+ *  package adds.
+ *
+ *  Spelled over `LocalPadiTarget` rather than restated beside it: "the local
+ *  arms ARE what `localPadiSocket` takes" is what lets the resolution (and its
+ *  refusal sentences) live in `@kolu/padi/stateRoot`, beside the daemon
+ *  discovery it narrows, rather than in each of this package's two dials — and
+ *  written this way that is a fact the compiler checks, not a comment claiming
+ *  two hand-copied unions are still the same shape. */
 export type Endpoint =
-  | { readonly kind: "auto" }
-  | { readonly kind: "socket"; readonly path: string }
-  | { readonly kind: "stateRoot"; readonly dir: string }
+  | LocalPadiTarget
   | { readonly kind: "host"; readonly ssh: string };
-
-/** The three arms that name a padi on THIS host. Structurally padi's own
- *  `LocalPadiTarget` — which is what lets the resolution (and its refusal
- *  sentences) live in `@kolu/padi/stateRoot`, beside the daemon discovery it
- *  narrows, rather than in each of this package's two dials. */
-export type LocalEndpoint = Endpoint & {
-  kind: "auto" | "socket" | "stateRoot";
-};
 
 /** Name exactly one padi, or fail with the reason two is not a preference to
  *  resolve but a contradiction to refuse.
@@ -173,32 +172,32 @@ export function endpointOf(
   return Effect.succeed({ kind: "auto" });
 }
 
-/** Refuse the endpoint flags a face inherited but cannot honor.
+/** A face that dials no padi refuses any endpoint flag.
  *
  *  Every subcommand inherits the shared flags because that is what makes them
  *  position-independent; a face that would ignore one must say so instead.
- *  `accept` names the subset this face DOES honor — `web` accepts none, which is
- *  the only face left with anything to refuse now that `kolu mcp` resolves its
- *  local dial through the same policy the verbs do. Silently ignoring a flag the
- *  user spelled is precisely the graceful degradation this repo treats as a
- *  defect. */
+ *  Silently ignoring a flag the user spelled is precisely the graceful
+ *  degradation this repo treats as a defect.
+ *
+ *  `web` is the only such face — `kolu mcp` resolves its local dial through the
+ *  same policy the verbs do — so there is no accept-list parameter. There used
+ *  to be one, retired with the `mcp` accept-list it existed for; its last reader
+ *  was the test asserting the knob was still there, which is the shape of dead
+ *  code this repo's fail-fast rule calls a defect. A face that honors a SUBSET
+ *  is not a thing that exists: it either dials or it does not. */
 export function refuseEndpointFlags(
   flags: EndpointFlagValues,
   command: string,
-  accept: ReadonlyArray<Endpoint["kind"]> = [],
 ): Effect.Effect<void, CliFailure> {
-  return Effect.flatMap(endpointOf(flags), (ep) => {
-    if (ep.kind === "auto" || accept.includes(ep.kind)) return Effect.void;
-    const allowed =
-      accept.length === 0
-        ? "it dials no padi that way"
-        : `it takes only ${accept.map((k) => FLAG_NAME[k]).join(" / ")}`;
-    return Effect.fail(
-      failure(
-        `kolu ${command} does not accept ${FLAG_NAME[ep.kind]} — ${allowed}.`,
-      ),
-    );
-  });
+  return Effect.flatMap(endpointOf(flags), (ep) =>
+    ep.kind === "auto"
+      ? Effect.void
+      : Effect.fail(
+          failure(
+            `kolu ${command} does not accept ${FLAG_NAME[ep.kind]} — it dials no padi that way.`,
+          ),
+        ),
+  );
 }
 
 /** The transport-blind handle every verb is written against — the padi-scoped
@@ -217,6 +216,21 @@ export interface Connection {
   readonly localCwd: string | undefined;
 }
 
+/** {@link Connection.localCwd}, decidable from the ENDPOINT alone — before any
+ *  dial, and without a socket.
+ *
+ *  A LOCAL padi runs on this machine, so `process.cwd()` is a real path there (a
+ *  new terminal opens where you are, the tmux convention); a REMOTE one
+ *  (`--host`) runs elsewhere, so there is no local path to hand it and padi
+ *  defaults to the host's home. `connectEndpoint` builds `localCwd` from this,
+ *  so a verb that must refuse an impossible placement BEFORE provisioning a cold
+ *  ssh box asks the same question the connection later answers, and the two
+ *  answers cannot disagree — `create`'s `--worktree over --host needs --repo`
+ *  used to be spelled at both altitudes, and the second spelling could never
+ *  fire. */
+export const localCwdOf = (endpoint: Endpoint): string | undefined =>
+  endpoint.kind === "host" ? undefined : process.cwd();
+
 /** Resolve a LOCAL endpoint to a socket path, failing loud on the edges a CLI
  *  cannot resolve for the user: no padi discovered, several with nothing naming
  *  which, or a `--state-root` that cannot be named. The verbs dial a padi that
@@ -229,7 +243,7 @@ export interface Connection {
  *  is which error type the sentence rides. */
 function localSocketPath(
   padi: PadiDialKit,
-  endpoint: LocalEndpoint,
+  endpoint: LocalPadiTarget,
 ): Effect.Effect<string, CliFailure> {
   return Effect.suspend(() => {
     const resolved = padi.localPadiSocket(endpoint);
@@ -255,10 +269,14 @@ function localSocketPath(
  *
  * Loading padi's dial kit is the FIRST step of the dial rather than of this
  * module — see the header. It is inside the returned effect, so simply HOLDING a
- * reference to `connectEndpoint` (which `cli.ts` does, transitively, on every
- * invocation) costs nothing.
+ * reference to this function (which `cli.ts` does, transitively through {@link
+ * withPadi}, on every invocation) costs nothing.
+ *
+ * Not exported: {@link withPadi} is the only caller, and the only shape a verb
+ * should reach for — a dial whose scope is the caller's is not something to hand
+ * out unscoped.
  */
-export function connectEndpoint(
+function connectEndpoint(
   endpoint: Endpoint,
 ): Effect.Effect<Connection, CliFailure, Scope.Scope> {
   return Effect.flatMap(
@@ -292,10 +310,15 @@ export function connectEndpoint(
                 ),
                 (conn) => Effect.sync(() => conn.dispose()),
               ),
-              // `localCwd: undefined` — a remote padi runs elsewhere, so our cwd
-              // need not exist there; `create` omits it and lets padi default to
-              // the host's home.
-              (conn) => ({ client: conn.client, localCwd: undefined }),
+              // `localCwd` is `undefined` on this arm — a remote padi runs
+              // elsewhere, so our cwd need not exist there; `create` omits it
+              // and lets padi default to the host's home. Read through
+              // `localCwdOf` rather than written out, so the pre-dial answer and
+              // this one are the same expression.
+              (conn) => ({
+                client: conn.client,
+                localCwd: localCwdOf(endpoint),
+              }),
             ),
         );
       }
@@ -304,7 +327,7 @@ export function connectEndpoint(
           Effect.acquireRelease(
             Effect.mapError(padi.connectPadi(socketPath), (err) =>
               failure(
-                `could not dial padi at ${socketPath}: ${err instanceof Error ? err.message : String(err)}`,
+                `could not dial padi at ${socketPath}: ${errorMessage(err)}`,
               ),
             ),
             (conn) => Effect.sync(() => conn.dispose()),
@@ -313,10 +336,10 @@ export function connectEndpoint(
             // Scope the COMBINED dialed client to the padi sibling so
             // `.surface.<member>` resolves at `/surface/padi/<member>`.
             client: padi.scopePadiSurface(conn.client),
-            // A local dial is inherently co-located: `process.cwd()` is a real
-            // path on the machine this padi runs on, so `create` opens terminals
-            // there.
-            localCwd: process.cwd(),
+            // A local dial is inherently co-located — see `localCwdOf`, which is
+            // where that rule is stated once for both arms and for the verbs
+            // that must read it before the dial.
+            localCwd: localCwdOf(endpoint),
           }),
         ),
       );
