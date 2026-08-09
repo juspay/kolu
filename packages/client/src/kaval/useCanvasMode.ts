@@ -32,6 +32,7 @@ import {
   bootDeadlineExceeded,
   pruneBootAnchors,
   recordBootFrame,
+  watchedBootIdentity,
 } from "./bootDeadline";
 import { getMonotonicNow } from "../time/clock";
 import {
@@ -171,9 +172,14 @@ export function canvasMode(deps: {
   // none), and in `resolveCanvasMode`, so no anchor ARMS or ADVANCES across frames observed
   // while blind. Neither covers the other's case — see `bootDeadlineExceeded`.
   const exceeded = bootDeadlineExceeded(hostEnc, nowMs, linkLive);
+  // Both halves of the sample-and-hold travel together: the verdict, and the boot that earned
+  // it. The resolver reads the second only while blind — where the demotion the outage itself
+  // causes has already rewritten the live facts, so they can no longer name the boot they
+  // describe. See `resolveCanvasMode`'s exempt arm.
   const { mode, tag } = resolveCanvasMode(facts, {
     transportLive: linkLive,
     exceeded,
+    earnedBoot: watchedBootIdentity(hostEnc),
   });
   recordBootFrame(hostEnc, tag, nowMs);
   return mode;

@@ -769,6 +769,45 @@ describe("resolveCanvasMode — the floor governs reaching a verdict, not keepin
     });
   });
 
+  it("holds the earned boot's IDENTITY while blind, but keeps the narration live", () => {
+    // The exemption's sharp edge, at the pure layer. The outage that triggers it is the SAME
+    // event that demotes the entry off the `connected` arm, and the warming arm then derives
+    // `leg` from host-locality alone — so the frame's own tag no longer names the boot the
+    // verdict was earned for. Held identity wins for `leg`/`ceiling`; the narration does not,
+    // because "we cannot see the server" is true NOW and worth saying.
+    const demoted: CanvasFacts = {
+      ...notYetConnected,
+      isLocalHost: false,
+      entry: "warming",
+      connectPhase: undefined,
+      connectLogAbsence: "link-down",
+    };
+    const earnedBoot = { leg: "session", ceiling: "remote-handshake" } as const;
+    const held = resolveCanvasMode(demoted, {
+      transportLive: false,
+      exceeded: true,
+      earnedBoot,
+    });
+    // The CARD is the one that was earned — the client `session` escape, not the
+    // `provisioning` connector card this frame's demoted facts would have invented.
+    expect(held.mode).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "client", leg: "session" },
+    });
+    // …and the tag fed back to the anchor carries that same identity, which is what keeps the
+    // clock frozen: the ceiling is unchanged so nothing re-anchors, and the leg is not
+    // `provisioning` so no campaign cell is armed on a frame nobody watched.
+    expect(held.tag).toMatchObject(earnedBoot);
+    // A LIVE link ignores the hold entirely — the frame's own tag is fresher and wins.
+    expect(
+      resolveCanvasMode(demoted, {
+        transportLive: true,
+        exceeded: true,
+        earnedBoot,
+      }).tag,
+    ).toMatchObject({ leg: "provisioning" });
+  });
+
   it("but a NOT-yet-exceeded deadline is still floored — the false card stays fixed", () => {
     const unearned = connected({
       daemonPending: true,

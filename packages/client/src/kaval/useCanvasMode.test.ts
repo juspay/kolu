@@ -26,7 +26,13 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../wire", () => ({
   activeHost: () => LOCAL_HOST,
-  connectionInfo: () => h.connInfo,
+  // FLOORED on the same liveness as the real one: `wire.ts`'s `connectionInfo()` reads
+  // through surface-map's `floorOnLiveness`, which DROPS the fine `connection` word when our
+  // link to the publisher is dead (#1568). Modelling that here is not decoration — a dead
+  // link blanking the phase is what re-derives the ceiling CLASS mid-outage, so a harness
+  // that let `connInfo` survive `mapLive: false` could not spell the very frame production
+  // makes, and would pin a coupling the real seam does not have.
+  connectionInfo: () => (h.mapLive ? h.connInfo : undefined),
   hostKeys: () => h.members,
   padiMap: { live: () => h.mapLive },
 }));
@@ -257,6 +263,30 @@ describe("the observability floor (#2129) — a lost server is not a failed boot
     });
   });
 
+  it("an earned verdict keeps the card it EARNED, even as the demotion rewrites the leg under it", () => {
+    // The exemption's sharp edge. `exceeded` is sampled-and-held, but the SURFACE was being
+    // recomputed from live facts every frame — and the outage itself changes those facts:
+    // `floorOnLiveness` demotes the `connected` entry to `warming` on the same tick the link
+    // dies, and the warming arm derives its leg from host-locality alone (`daemon` for a local
+    // host), not from whatever leg actually earned the verdict. So a card earned on the SESSION
+    // leg — "boot-stalled, session" — silently became the local `daemon` escape: `down/dead`,
+    // the very "kaval didn't start" claim this PR removes, now reached THROUGH the exemption.
+    // The verdict is held, so the leg that earned it must be held with it.
+    h.entryKind = "connected";
+    h.local = true;
+    h.members = [{ kind: "local" }];
+    frameAt(0); // arm the anchor on the connected arm's SESSION leg (deps.isLoading is true)
+    const earned = frameAt(CEILING_MS.local + 1);
+    expect(earned).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "client", leg: "session" },
+    });
+    // The link dies; the map floor demotes the entry off the connected arm in the same tick.
+    h.mapLive = false;
+    h.entryKind = "warming";
+    expect(frameAt(CEILING_MS.local + 2)).toEqual(earned);
+  });
+
   it("an EARNED verdict still survives the link dropping under it — sampled, not recomputed", () => {
     // The AFP C6 exemption at the caller, where `exceeded` is real: cross the ceiling while the
     // link is live, then lose it. The held sample keeps the card — and its Restart button — on
@@ -271,6 +301,40 @@ describe("the observability floor (#2129) — a lost server is not a failed boot
     expect(frameAt(CEILING_MS.local * 10)).toEqual({
       kind: "down",
       down: { state: "dead" },
+    });
+  });
+
+  it("an EARNED remote verdict survives a blip the outage itself would have re-classified", () => {
+    // The exemption's REMOTE case, where the ceiling class is not a constant. A remote's class
+    // is derived from the connect phase — and the outage BLANKS that phase (the map floor drops
+    // the connection word with the link), so the very same host re-derives from the generous
+    // `remote-provisioning` cell to the shorter `remote-handshake` one while we are blind.
+    // Nothing may act on that: it is not a fact about the host, it is the shape of our own
+    // blindness. Were the anchor re-written from it, the reconnect would measure a fresh
+    // window and retract a verdict this browser had genuinely earned — taking the card's
+    // Retry connection button off screen, which is the exact harm the exemption exists to
+    // prevent.
+    h.entryKind = "warming";
+    h.local = false;
+    h.connInfo = { phase: "provisioning" };
+    frameAt(0);
+    // Earn it over a LIVE link, against the provisioning cell.
+    expect(frameAt(CEILING_MS["remote-provisioning"] + 1_000)).toMatchObject({
+      kind: "boot-stalled",
+      recovery: { via: "connector" },
+    });
+    // The link drops; the phase blanks with it. The card holds on the sampled verdict.
+    h.mapLive = false;
+    expect(frameAt(CEILING_MS["remote-provisioning"] + 2_000)).toMatchObject({
+      kind: "boot-stalled",
+      recovery: { via: "connector" },
+    });
+    // …and it is STILL there on reconnect — a blip shorter than either ceiling must not
+    // hand the host a fresh window off a class the outage invented.
+    h.mapLive = true;
+    expect(frameAt(CEILING_MS["remote-provisioning"] + 3_000)).toMatchObject({
+      kind: "boot-stalled",
+      recovery: { via: "connector" },
     });
   });
 });

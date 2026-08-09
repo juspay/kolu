@@ -47,7 +47,7 @@
  *  whose link was NEVER lost sees the real elapsed and may escape at once (Reload recovers). */
 
 import { match } from "ts-pattern";
-import type { BootTag, CeilingClass } from "./canvasModeResolver";
+import type { BootIdentity, BootTag, CeilingClass } from "./canvasModeResolver";
 
 /** The LOCAL connect ceiling — mirrors `makeSession`'s default `connectTimeoutMs`, the
  *  local padi session's own connect-watchdog ceiling (client and server are separate
@@ -125,10 +125,32 @@ const campaignAnchors = new Map<string, number>();
  *  browser has never watched this host's ceiling elapse, which is exactly `false`. */
 const watchedVerdict = new Map<string, boolean>();
 
-/** WHAT A BOOT EPISODE IS, named once: these three per-host cells. Every path that ends an
- *  episode ends all three, so "which cells does a host own?" has exactly one answer to keep
- *  true — adding a fourth cell means adding it here, not remembering four release sites. */
-const EPISODE_CELLS = [anchors, campaignAnchors, watchedVerdict] as const;
+/** WHICH boot that verdict is about, per host — the other half of the same sample-and-hold.
+ *  A held `true` says a ceiling elapsed; this says which boot elapsed it, which is what
+ *  {@link resolveCanvasMode} needs to keep showing the card the user actually earned. Written
+ *  from every accruing frame (see {@link recordBootFrame}), so it is always the last boot this
+ *  browser watched, and released with the episode like every other cell. Without it the verdict
+ *  survives an outage but its CARD does not: the demotion the outage itself causes rewrites the
+ *  leg under the exemption, and a `session` stall silently becomes the `down`/dead card this
+ *  whole floor exists to stop showing. Identity only — the narration stays live, so the card
+ *  can still say "kolu cannot see your machine" while that is the true thing to say. */
+const watchedBoot = new Map<string, BootIdentity>();
+
+/** WHAT A BOOT EPISODE IS, named once: these four per-host cells. Every path that ends an
+ *  episode ends all four, so "which cells does a host own?" has exactly one answer to keep
+ *  true — adding a fifth cell means adding it here, not remembering four release sites. */
+const EPISODE_CELLS = [
+  anchors,
+  campaignAnchors,
+  watchedVerdict,
+  watchedBoot,
+] as const;
+
+/** The boot this browser last WATCHED accrue for `hostEnc`, if any — read by `useCanvasMode`
+ *  and handed to {@link resolveCanvasMode} as `earnedBoot`, which consults it only while blind. */
+export function watchedBootIdentity(hostEnc: string): BootIdentity | undefined {
+  return watchedBoot.get(hostEnc);
+}
 
 /** End this host's episode: drop every cell it owns. The three callers below differ only in
  *  WHY the episode ended (settled/unobservable, a user Retry, a departed host), never in what
@@ -215,6 +237,11 @@ export function recordBootFrame(
   // 4th `accrual` variant compile as a silent no-op) — prefer-ts-pattern.
   match(tag)
     .with({ accrual: "accrue" }, (t) => {
+      // WHICH boot this is, remembered beside the verdict about it. Over a live link this is
+      // simply the frame's own identity; over a dead one the resolver has already merged the
+      // held identity back into the tag, so re-storing it is idempotent and the held boot
+      // never drifts to one this browser did not watch.
+      watchedBoot.set(hostEnc, { leg: t.leg, ceiling: t.ceiling });
       const a = anchors.get(hostEnc);
       if (a === undefined || a.ceiling !== t.ceiling) {
         anchors.set(hostEnc, { anchorMs: nowMs, ceiling: t.ceiling });

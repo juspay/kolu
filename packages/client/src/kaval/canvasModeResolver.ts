@@ -19,7 +19,8 @@
  *  The connect overlay ("Connecting to <host>…") used to have exactly ONE timeout
  *  escape, fed by ONLY the daemon leg (`pendingTimedOut`), so a hung MEMBERSHIP or
  *  SESSION leg span the overlay forever with no way out. The module's ONE exported
- *  function is now {@link resolveCanvasMode}`(facts, { transportLive, exceeded })`: it computes
+ *  function is now {@link resolveCanvasMode}`(facts, { transportLive, exceeded, earnedBoot })`:
+ *  it computes
  *  the raw precedence, then — if the boot deadline is exceeded AND the raw surface is a BOOT
  *  overlay (`tag.accrual === "accrue"`, declared at each return site, never guessed from `kind`) —
  *  escapes to an honest surface that names the stalled leg. `resolvePrecedence` is
@@ -59,6 +60,14 @@
  *  ACCEPTED EDGE, the other side of the same coin: a link that flaps faster than the
  *  ceiling keeps re-anchoring, so a genuinely wedged daemon behind it never escapes —
  *  a browser that cannot hold a socket has no standing to certify a daemon dead.
+ *
+ *  KEEPING a verdict means keeping the card it earned, so the hold covers the boot's
+ *  IDENTITY too ({@link BootIdentity}, held beside the verdict in `bootDeadline.ts`). The
+ *  outage is the same event that demotes the entry off the `connected` arm, and the warming
+ *  arm derives `leg` from host-locality alone — so a card recomputed mid-blip would name a
+ *  DIFFERENT boot than the one that earned it, turning a local `session` stall into the
+ *  `down`/dead card this floor exists to prevent. The narration (`phase`/`log`/`logAbsence`)
+ *  is deliberately NOT held: "kolu cannot see your machine" is true while it is true.
  *
  *  The bug that earned it: `floorOnLiveness` (`@kolu/surface-map`) DEMOTES a published
  *  `connected` entry to `warming` over a dead link, so a green chip can never outlive
@@ -176,6 +185,20 @@ export type BootTag =
       log: readonly LogLine[];
       logAbsence: LogAbsence | undefined;
     };
+
+/** The ACCRUING arm of {@link BootTag} — the only one {@link escapeSurface} can render a card
+ *  from. Its fields split into two kinds, and the split is load-bearing (#2129): WHICH BOOT
+ *  this is ({@link BootIdentity}) versus what the link is saying about it right now
+ *  (`phase`/`log`/`logAbsence`). */
+export type AccruingBootTag = Extract<BootTag, { accrual: "accrue" }>;
+
+/** WHICH BOOT a tag is about — the part that is a property of the episode and must not change
+ *  under a verdict already earned for it. Held beside the verdict (`bootDeadline.ts`) because
+ *  the outage itself rewrites the live facts these are otherwise derived from: the map floor
+ *  demotes the entry off the `connected` arm, and the warming arm then derives `leg` from
+ *  host-locality alone. Deliberately EXCLUDES the narration — `logAbsence: "link-down"` is a
+ *  true statement about the link right now, and the card should keep telling it. */
+export type BootIdentity = Pick<AccruingBootTag, "leg" | "ceiling">;
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
  *  the down sub-state and the warming label travel WITH the choice — the renderer
@@ -471,10 +494,7 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
  *     copy stays non-terminal — never the reload lie (#1908 D2). `phase` names where it is.
  *   - Every remaining leg (now narrowed to {@link ClientStalledLeg}) is genuinely client-side —
  *     a connected host's session/daemon subscription or a membership stall a fresh boot re-runs. */
-function escapeSurface(
-  tag: Extract<BootTag, { accrual: "accrue" }>,
-  facts: CanvasFacts,
-): CanvasMode {
+function escapeSurface(tag: AccruingBootTag, facts: CanvasFacts): CanvasMode {
   // Dispatch on the leg (+ host-locality for the down/dead route) with `.exhaustive()`
   // (prefer-ts-pattern), matching `resolvePrecedence` above — a future `StalledLeg` must be
   // handled here or fail the build. The `membership | session | daemon` arm is exactly
@@ -525,8 +545,17 @@ export function resolveCanvasMode(
    *  is live (#2129), and whether a ceiling already elapsed while it was (#1763). Both
    *  are facts about US, not about any surface, so they arrive together and OUTSIDE the
    *  entry-keyed {@link CanvasFacts} union — no arm can carry them, and no arm has to
-   *  remember to. */
-  observation: { transportLive: boolean; exceeded: boolean },
+   *  remember to.
+   *
+   *  `earnedBoot` names the boot whose ceiling produced that `exceeded` — the sampled half of
+   *  the sample-and-hold, held for the same reason the verdict is (`bootDeadline.ts`). It is
+   *  read ONLY while blind, where the live facts can no longer be trusted to name the boot
+   *  they describe; over a live link the frame's own tag is fresher and wins. */
+  observation: {
+    transportLive: boolean;
+    exceeded: boolean;
+    earnedBoot?: BootIdentity | undefined;
+  },
 ): Precedence {
   const raw = resolvePrecedence(facts);
   // ONE dispatch on the observer's pair, `.exhaustive()` like every other dispatch in this
@@ -540,10 +569,25 @@ export function resolveCanvasMode(
       // not a hope about it: `bootDeadlineExceeded` samples-and-holds it on the same
       // `transportLive` read, so a ceiling crossed entirely across an outage (a tab frozen
       // mid-boot) never arrives here as `true`.
-      .with({ tag: { accrual: "accrue" }, exceeded: true }, ({ tag }) => ({
-        mode: escapeSurface(tag, facts),
-        tag,
-      }))
+      //
+      // KEEPING a verdict means keeping the CARD it earned, not just the boolean — so while
+      // blind the boot's IDENTITY comes from the hold, not from this frame. The live facts
+      // have already moved under us by then: `floorOnLiveness` demotes the entry off the
+      // `connected` arm on the same tick, and the warming arm derives its leg from
+      // host-locality alone, so recomputing would swap the earned card for a different,
+      // UNEARNED one — a local `session` stall becoming the `down`/dead card, this PR's own
+      // false claim reached through the exemption. Only the identity is held: the NARRATION
+      // (`phase`/`log`/`logAbsence`) stays this frame's, because "kolu cannot see your
+      // machine" is a true thing to be saying while it is true. Recording the merged tag is
+      // what also keeps the clock frozen — same ceiling → no re-anchor, earned leg (not a
+      // demotion-invented `provisioning`) → no campaign cell armed on a frame nobody watched.
+      .with({ tag: { accrual: "accrue" }, exceeded: true }, ({ tag }) => {
+        const earned: AccruingBootTag =
+          observation.transportLive || observation.earnedBoot === undefined
+            ? tag
+            : { ...tag, ...observation.earnedBoot };
+        return { mode: escapeSurface(earned, facts), tag: earned };
+      })
       // UNOBSERVABLE — ONE rule for every variant, no per-accrual carve-out: while the link
       // is down we are not watching a slow boot, we are not watching, so nothing may hold a
       // clock. CLEAR releases the anchor; the mode passes through untouched, because the
