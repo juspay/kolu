@@ -18,7 +18,7 @@
  * subscription does upstream).
  */
 
-import { createDirFilenameWatcher } from "kolu-io";
+import { createDirWatcher } from "kolu-io";
 import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
@@ -31,7 +31,7 @@ let installed = false;
  *  Grok rewrites the file via temp+rename, which destroys an `fs.watch`
  *  pointed at the file itself — the receptacle watches the parent dir so
  *  the rename lands cleanly (same volatility the git watchers plug into). */
-const activeSessionsWatcher = createDirFilenameWatcher({
+const activeSessionsWatcher = createDirWatcher({
   resolveDir: async () => GROK_DIR,
   filename: path.basename(ACTIVE_SESSIONS_PATH),
   debounceMs: 50,
@@ -125,7 +125,7 @@ export function subscribeActiveSessions(
     return;
   }
   // Exact grep-able watcher-installed phrase (matches the receptacle's
-  // `createDirFilenameWatcher` install log) so this long-lived bootstrap
+  // `createDirWatcher` install log) so this long-lived bootstrap
   // watcher shows up in operator watcher-count correlation; the reason (real
   // active_sessions install deferred until ~/.grok appears) lives here.
   log?.info({ dir: GROK_DIR, parent }, "grok: home-dir watcher installed");

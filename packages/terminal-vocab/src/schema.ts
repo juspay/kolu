@@ -516,17 +516,20 @@ export type Foreground = typeof ForegroundSchema.Type;
 // `fs.readFile` / `subscribeRepoChange` / `subscribeFileChange` members — and the
 // package-boundary seal forbids padi importing them from a node-coupled module.
 
-/** A repo/file change PULSE, not data. kolu-git's `subscribeRepoChange` /
- *  `subscribeFileChange` collapse a burst of fs events into a payload-free
- *  `onChange()`, so a watcher stream's frame must DIFFER each tick or the
+/** A filesystem change PULSE, not data — for EVERY watch scope, which is why it
+ *  is not named for one of them: kolu-git's `subscribeRepoChange` /
+ *  `subscribeFileChange` / `subscribeDirChange` all collapse a burst of fs
+ *  events into a payload-free `onChange()`, and one pulse concept serves all
+ *  three (a parallel per-scope schema would be three copies of `{seq}`).
+ *  A watcher stream's frame must DIFFER each tick or the
  *  stream's `isEqual` dedup would collapse two consecutive changes into one.
  *  The monotonic `seq` (per subscription, starting at 0 for the snapshot frame)
  *  is that distinguisher. A consumer reacts to a new pulse by re-querying the
  *  `fs.*` / `git.*` procedures — the pulse carries no fs/git data itself. */
-export const RepoChangePulseSchema = Schema.Struct({
+export const ChangePulseSchema = Schema.Struct({
   seq: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
 });
-export type RepoChangePulse = typeof RepoChangePulseSchema.Type;
+export type ChangePulse = typeof ChangePulseSchema.Type;
 
 /** Input for the per-file fs procedures (`readFile`, `filePreviewTag`) and the
  *  `subscribeFileChange` watcher. Deliberately NOT kolu-git's

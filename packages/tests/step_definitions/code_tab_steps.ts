@@ -415,13 +415,25 @@ Then("the Inspector tab should be active", async function (this: KoluWorld) {
 });
 
 Then(
-  "the Code tab should indicate no git repository",
+  "the Code tab should offer to browse the current directory",
   async function (this: KoluWorld) {
-    // The panel may be collapsed on a just-created/switched-to terminal
-    // (per-terminal collapse, #1753) — reveal it before reading its content.
+    // The non-git fallback: a single collapsed root node for the terminal's
+    // cwd, nothing listed or watched until it is clicked. The panel may be
+    // collapsed on a just-created/switched-to terminal (per-terminal
+    // collapse, #1753) — reveal it before reading its content.
     await ensurePanelOpen(this);
-    const msg = this.page.locator('[data-testid="diff-no-repo"]');
-    await msg.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const node = this.page.locator('[data-testid="browse-root-node"]');
+    await node.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I click the browse root node in the Code tab",
+  async function (this: KoluWorld) {
+    const node = this.page.locator('[data-testid="browse-root-node"]');
+    await node.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await node.click();
+    await this.waitForFrame();
   },
 );
 

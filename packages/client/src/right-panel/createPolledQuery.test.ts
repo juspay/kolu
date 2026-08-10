@@ -8,7 +8,7 @@ import { Effect } from "effect";
 import type { StreamingProcedure } from "@kolu/surface/solid";
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
-import { createPolledQuery } from "./createPolledQuery";
+import { bindPulse, createPolledQuery } from "./createPolledQuery";
 
 // The pulse is an UNENROLLED stream (`unenrolledStreamCall`) now, not `client.rawStream`.
 // Mock it as a controllable `Stream`: the test pushes a frame via `pulse()` (→ one
@@ -88,8 +88,8 @@ describe("createPolledQuery", () => {
           const q = createPolledQuery({
             input: () => null,
             live,
-            pulseProc,
-            pulseInput: (i: { repoPath: string }) => ({ repoPath: i.repoPath }),
+            pulse: (i: { repoPath: string }) =>
+              bindPulse(pulseProc(), { repoPath: i.repoPath }),
             query: asEffect(async () => {
               calls += 1;
               return "x";
@@ -117,8 +117,7 @@ describe("createPolledQuery", () => {
           const q = createPolledQuery({
             input: () => ({ repoPath: "A" }),
             live,
-            pulseProc,
-            pulseInput: (i) => ({ repoPath: i.repoPath }),
+            pulse: (i) => bindPulse(pulseProc(), { repoPath: i.repoPath }),
             query: asEffect(async (i) => {
               calls += 1;
               return `${i.repoPath}#${calls}`;
@@ -146,8 +145,7 @@ describe("createPolledQuery", () => {
           const q = createPolledQuery({
             input: () => ({ repoPath: "A" }),
             live,
-            pulseProc,
-            pulseInput: (i) => ({ repoPath: i.repoPath }),
+            pulse: (i) => bindPulse(pulseProc(), { repoPath: i.repoPath }),
             query: asEffect(async (i) => {
               calls += 1;
               return `${i.repoPath}#${calls}`;
@@ -182,8 +180,7 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: repo() }),
           live,
-          pulseProc,
-          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          pulse: (i) => bindPulse(pulseProc(), { repoPath: i.repoPath }),
           query: asEffect(async (i) => {
             calls += 1;
             return `${i.repoPath}#${calls}`;
@@ -217,8 +214,7 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
-          pulseProc,
-          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          pulse: (i) => bindPulse(pulseProc(), { repoPath: i.repoPath }),
           query: asEffect(async () => {
             throw new Error("boom");
           }),
@@ -248,8 +244,7 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
-          pulseProc,
-          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          pulse: (i) => bindPulse(pulseProc(), { repoPath: i.repoPath }),
           query: asEffect(async () => {
             throw new Error("boom");
           }),
@@ -281,8 +276,7 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
-          pulseProc,
-          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          pulse: (i) => bindPulse(pulseProc(), { repoPath: i.repoPath }),
           query: asEffect(async () => "unused"), // no frame fires; pending stays true until the pulse errors
           onError: (err) => seen.push(err.message),
         });
@@ -315,8 +309,7 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
-          pulseProc,
-          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          pulse: (i) => bindPulse(pulseProc(), { repoPath: i.repoPath }),
           query: asEffect(async () => {
             calls += 1;
             if (calls === 1) return "content";
@@ -365,8 +358,7 @@ describe("createPolledQuery", () => {
             return { repoPath: "A" };
           },
           live,
-          pulseProc,
-          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          pulse: (i) => bindPulse(pulseProc(), { repoPath: i.repoPath }),
           query: asEffect(async (i) => {
             calls += 1;
             return `${i.repoPath}#${calls}`;
@@ -406,9 +398,8 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
-          pulseProc,
           pulseHost: host,
-          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          pulse: (i) => bindPulse(pulseProc(), { repoPath: i.repoPath }),
           query: asEffect(async (i) => {
             calls += 1;
             return `${i.repoPath}#${calls}`;
@@ -456,8 +447,7 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
-          pulseProc,
-          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          pulse: (i) => bindPulse(pulseProc(), { repoPath: i.repoPath }),
           query: asEffect(async (i) => {
             calls += 1;
             return `${i.repoPath}#${calls}`;
@@ -522,8 +512,7 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input,
           live,
-          pulseProc,
-          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          pulse: (i) => bindPulse(pulseProc(), { repoPath: i.repoPath }),
           query: asEffect(async (i) => {
             calls += 1;
             return `${i.repoPath}#${calls}`;
@@ -585,8 +574,7 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
-          pulseProc,
-          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          pulse: (i) => bindPulse(pulseProc(), { repoPath: i.repoPath }),
           query: asEffect(async (i) => {
             calls += 1;
             if (calls === 1) return `${i.repoPath}#1`;

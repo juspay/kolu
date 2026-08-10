@@ -75,3 +75,13 @@ export function mountInto(
   if (!root) throw new Error("Pierre mounted no shadow root");
   return root;
 }
+
+/** Click a row the way a user does — Pierre's own row button, inside its shadow
+ *  root. `composed` so the event crosses the boundary like a real one. */
+export function clickRow(root: ShadowRoot, path: string): void {
+  const row = root.querySelector(
+    `[role="treeitem"][data-item-path="${path}"]`,
+  ) as HTMLElement | null;
+  if (!row) throw new Error(`no painted row for ${path}`);
+  row.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+}

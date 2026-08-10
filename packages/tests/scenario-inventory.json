@@ -7456,6 +7456,42 @@
       "firstSeenSha": "1af6b58408912601859086cb914a8b6b3e783842"
     },
     {
+      "revisionId": "revision-6bcdb13211ca884eeed5",
+      "scenarioKey": "scenario-daea9383ada5c2684778",
+      "feature": "features/code-tab.feature",
+      "scenario": "Browses a plain directory after opening the root",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "ae1367794e7058945c7cd6aa1996941f33c68d754ce88f2f11c6b2786ccfccb2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1be13ca552dbddf44e112ff6f368fea611dfbd0c"
+    },
+    {
+      "revisionId": "revision-09da9a7d17d3edbe7b6e",
+      "scenarioKey": "scenario-85575f68d2b4edd062ef",
+      "feature": "features/code-tab.feature",
+      "scenario": "Offers a collapsed browse root outside a git repo",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e3171f39712238b54acc03cdd720a4f4501105cf8d5f5d4fb57f55580bafe546",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1be13ca552dbddf44e112ff6f368fea611dfbd0c"
+    },
+    {
+      "revisionId": "revision-3fa69947078476d4aa03",
+      "scenarioKey": "scenario-3d36c2410d55421c5a7c",
+      "feature": "features/code-tab.feature",
+      "scenario": "Tree/content split survives switching to another terminal and back",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "571ca88702e1eb8a0428b45111294073d21c55ab74c19449ce6aa9b969354146",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1be13ca552dbddf44e112ff6f368fea611dfbd0c"
+    },
+    {
       "revisionId": "revision-c578153351d95ca90637",
       "scenarioKey": "scenario-2365426d45f568f52cff",
       "feature": "features/dock.feature",
@@ -7465,7 +7501,7 @@
       "bodyHash": "258365d8fb0fe67fd4e238f2127fc43860870aca5a88293b686ce18f997311a7",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "1d660868a339ed61cb49db960b4a0393172df025"
+      "firstSeenSha": "454cde818717b0becc2afdc842b53096f3fd4204"
     },
     {
       "revisionId": "revision-5c101717367b90e5cc29",
@@ -7477,7 +7513,7 @@
       "bodyHash": "d9fe80cb14ea0434416a1027868c7d39eb030b05fddba6df99d0f4d18e626456",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "1d660868a339ed61cb49db960b4a0393172df025"
+      "firstSeenSha": "454cde818717b0becc2afdc842b53096f3fd4204"
     }
   ]
 }

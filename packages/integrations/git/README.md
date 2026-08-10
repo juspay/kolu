@@ -29,6 +29,7 @@ Functions accept `log?: Logger` (from `anyagent`). Pass a pino child logger in p
 | `worktree.ts`  | `worktreeCreate`, `worktreeRemove`, `detectDefaultBranch`                         | Worktree lifecycle                                                       |
 | `review.ts`    | `getStatus`, `getDiff`, `parseNameStatus`                                         | Diff review (local + branch modes)                                       |
 | `browse.ts`    | `listAll`, `listIgnored`, `listDirectory`, `readFile`, `filePreviewTag`           | Code-tab listings + file reads (`listDirectory` opens a collapsed ignored dir) |
+| `dir-change.ts` | `subscribeDirChange`                                                             | Non-recursive one-directory change ticks — `listDirectory`'s watch counterpart, for non-git browse roots |
 | `safe-path.ts` | `resolveUnder`                                                                    | Path traversal guard                                                     |
 | `errors.ts`    | `GitError`, `GitResult`, `ok`, `err`                                              | Sum-type error types and constructors                                    |
 

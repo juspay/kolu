@@ -5,9 +5,10 @@
  *  can adopt these primitives without taking a feature-package dependency. */
 
 export {
-  createDirFilenameWatcher,
-  type DirFilenameWatcher,
-  type DirFilenameWatcherConfig,
+  createDirWatcher,
+  DIR_WATCH_POLL_MS,
+  type DirWatcher,
+  type DirWatcherConfig,
 } from "./refcounted-dir-watcher.ts";
 
 export {

@@ -60,6 +60,63 @@ export interface BrowseInventory {
   pending: boolean;
 }
 
+/** Rule 4's substitution walk — the ONE spelling, shared by both inventories.
+ *
+ *  Emits each entry, replacing a LOADED directory key with the level that was
+ *  read for it (recursively, because a level can expose further loaded
+ *  directories: expand `blog/out/`, then `blog/out/assets/`). The recursion is
+ *  real directory nesting, so the stack is bounded where spreading one level's
+ *  children into argument position is not (a flat cache directory reaches six
+ *  figures), and `visited` bounds it further: a self-referential cache entry
+ *  `{"out/": ["out/"]}` has to terminate, and a directory reached twice is
+ *  listed once.
+ *
+ *  The four invariants, each with a bug behind it, live here and only here:
+ *  a loaded key yields to its children; an ABSENT-or-EMPTY level keeps its own
+ *  trailing-slash key (Pierre infers a folder row from its children's
+ *  prefixes, so with no children that key is the only thing naming the
+ *  directory — dropping it made the user watch the folder they just clicked
+ *  disappear); every directory is reported lazy, loaded or not (unloaded so its
+ *  first expand is reported, loaded so a reopen refetches); and `skip` lets a
+ *  caller drop entries a higher authority has already claimed (rule 2 —
+ *  admitting one duplicates the row, and `pathDiffOperations` then emits two
+ *  adds for one path, which makes Pierre throw and discards every
+ *  hand-expanded folder).
+ *
+ *  `substituted` names the loaded directories whose children REPLACED their key
+ *  — rows Pierre still paints but `paths` no longer names. Only the git overlay
+ *  has a use for them (they must stay dimmed); the plain-directory caller
+ *  discards them, because without git there is no ignore authority to dim by. */
+function substituteLoadedLevels(
+  entries: readonly string[],
+  loadedChildren: ReadonlyMap<string, readonly string[]> | undefined,
+  skip?: (entry: string) => boolean,
+): { paths: string[]; lazyDirs: string[]; substituted: string[] } {
+  const paths: string[] = [];
+  const lazyDirs: string[] = [];
+  const substituted: string[] = [];
+  const visited = new Set<string>();
+  const emit = (entry: string): void => {
+    if (skip?.(entry)) return;
+    if (!isDirectoryPath(entry)) {
+      paths.push(entry);
+      return;
+    }
+    if (visited.has(entry)) return;
+    visited.add(entry);
+    lazyDirs.push(entry);
+    const children = loadedChildren?.get(entry);
+    if (!children?.length) {
+      paths.push(entry);
+      return;
+    }
+    substituted.push(entry);
+    for (const child of children) emit(child);
+  };
+  for (const entry of entries) emit(entry);
+  return { paths, lazyDirs, substituted };
+}
+
 export function mergeBrowseInventory(
   tracked: readonly string[] | undefined,
   ignored: readonly string[] | undefined,
@@ -92,55 +149,16 @@ export function mergeBrowseInventory(
     return true;
   });
 
-  // Rule 4 — emit each surviving overlay entry, substituting a directory that
-  // has been loaded for the level that was read. Recursive because a load can
-  // expose further directories that are THEMSELVES loaded (expand `blog/out/`,
-  // then `blog/out/assets/`), and each of those must resolve too; the depth is
-  // real directory nesting, so the stack is bounded where a spread of one
-  // level's children into argument position is not (a flat cache directory
-  // reaches six figures). `visited` still guards it: a self-referential cache
-  // entry `{"out/": ["out/"]}` has to terminate, and a directory reached twice
-  // is listed once.
-  const overlay: string[] = [];
-  const lazyDirs: string[] = [];
-  // Loaded directories whose children REPLACED their key — the rows Pierre
-  // still paints but `paths` no longer names, which `ignored` must carry so
-  // they stay dimmed.
-  const substituted: string[] = [];
-  const visited = new Set<string>();
-  const emit = (entry: string): void => {
-    // Rule 2 again, for the OTHER source. A level read at click time can name a
-    // path `listAll` has since claimed; admitting it duplicates the row, and
-    // `pathDiffOperations` then emits two adds for one path — Pierre throws and
-    // the recovery discards every hand-expanded folder.
-    if (seen.has(entry)) return;
-    if (!isDirectoryPath(entry)) {
-      overlay.push(entry);
-      return;
-    }
-    if (visited.has(entry)) return;
-    visited.add(entry);
-    // Every overlay directory is watchable, loaded or not — an unloaded one so
-    // its first expand is reported, a loaded one so a reopen refetches.
-    lazyDirs.push(entry);
-    const children = loadedChildren?.get(entry);
-    if (!children?.length) {
-      // Not loaded, or loaded and genuinely EMPTY: either way there is nothing
-      // to substitute, so the collapsed key stands — and it must, because
-      // Pierre infers an ordinary folder from its children's path prefixes, so
-      // with no children this trailing-slash key is the only thing in `paths`
-      // naming the directory at all. Dropping it removes the row outright and
-      // the user watches the folder they just clicked disappear. The empty case
-      // is reachable with no race, because `git ls-files --others --ignored
-      // --directory` lists a permanently-empty ignored directory in the overlay
-      // directly.
-      overlay.push(entry);
-      return;
-    }
-    substituted.push(entry);
-    for (const child of children) emit(child);
-  };
-  for (const entry of surviving) emit(entry);
+  // Rule 4 — the shared substitution walk, with rule 2 re-applied to the OTHER
+  // source through `skip`: a level read at click time can name a path `listAll`
+  // has since claimed. (The empty-level case is reachable with no race here,
+  // because `git ls-files --others --ignored --directory` lists a
+  // permanently-empty ignored directory in the overlay directly.)
+  const {
+    paths: overlay,
+    lazyDirs,
+    substituted,
+  } = substituteLoadedLevels(surviving, loadedChildren, (e) => seen.has(e));
 
   return {
     paths: [...tracked, ...overlay],
@@ -159,4 +177,25 @@ export function diffInventory(
   pending: boolean,
 ): BrowseInventory {
   return { paths, ignored: [], lazyDirs: [], pending };
+}
+
+/** Inventory for a PLAIN-DIRECTORY browse root (no git): the root's one-level
+ *  listing plus one loaded level per expanded directory. EVERY directory entry
+ *  is lazy — children are absent until the user expands it — and nothing is
+ *  dimmed, because without git there is no ignore authority to dim by. The walk
+ *  is `substituteLoadedLevels` — literally rule 4's, shared with the overlay
+ *  merge rather than re-spelled here, so a fix to any of its four invariants
+ *  lands once for both surfaces. */
+export function directoryInventory(
+  listing: readonly string[] | undefined,
+  loadedChildren: ReadonlyMap<string, readonly string[]> | undefined,
+  pending: boolean,
+): BrowseInventory {
+  // Absent is not empty (rule 1): no listing yet ⇒ nothing to paint.
+  if (!listing) return { paths: [], ignored: [], lazyDirs: [], pending };
+  // The SAME walk the overlay uses, minus the partition: no `skip` (there is no
+  // second authority to yield to) and `substituted` discarded (nothing to dim
+  // without git).
+  const { paths, lazyDirs } = substituteLoadedLevels(listing, loadedChildren);
+  return { paths, ignored: [], lazyDirs, pending };
 }

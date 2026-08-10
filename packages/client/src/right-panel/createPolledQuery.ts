@@ -63,29 +63,59 @@ import {
 import { createStore } from "solid-js/store";
 import { runActionPromise } from "../runAction";
 
-export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
+/** A pulse stream AND the input it is subscribed with, chosen together. The pair
+ *  is the unit because "which pulse covers this input" is one decision: a query
+ *  whose input moves from a git-watched file to a watched parent directory
+ *  changes pulse SOURCE, and with the source fixed per query the only way to
+ *  spell that was TWO queries — each with its own retained value, so a flip
+ *  between them discarded the other's content and blanked the panel (exactly the
+ *  instant-switch-back invariant `hostCodeTab` exists to protect).
+ *
+ *  `input` is erased to `unknown` because the pair is already type-checked at the
+ *  `bindPulse` call site; nothing downstream may read it except to hand it
+ *  straight back to `unenrolledStreamCall`. */
+export interface BoundPulse<Pulse> {
+  proc: StreamingProcedure<unknown, Pulse>;
+  input: unknown;
+}
+
+/** Bind a pulse procedure to its input — the ONE place the erasure happens, so a
+ *  consumer never casts. */
+export const bindPulse = <PulseInput, Pulse>(
+  proc: StreamingProcedure<PulseInput, Pulse>,
+  input: PulseInput,
+): BoundPulse<Pulse> => ({
+  proc: proc as unknown as StreamingProcedure<unknown, Pulse>,
+  input,
+});
+
+export interface PolledQueryConfig<Input, Pulse, Result> {
   /** The query input; `null` = idle (no pulse subscription, no query). */
   input: Accessor<Input | null>;
   /** The active host's transport liveness (`() => padiMap.live()`) — gates the
    *  reconnect-window error swallow (a blip while the socket re-subscribes). Replaces
    *  the old whole-client `health().live` (the map has no single per-host client). */
   live: Accessor<boolean>;
-  /** The pulse streaming procedure as a FACTORY re-derived at each (re)subscribe —
-   *  `() => activePadiStreams.<pulse>.unenrolled`. A factory, not a pre-bound proc, so
-   *  the live-refresh watcher follows the ACTIVE host: the effect re-runs on a host switch
-   *  (via `pulseHost` below) and re-reads `activeHost()`, rebinding the pulse to the new host.
-   *  A pre-bound proc pins the pulse to the MOUNT-TIME host forever (the boot-host-capture
-   *  hazard — CodeTab mounts once), so a switched-to host's repo silently stops live-updating. */
-  pulseProc: () => StreamingProcedure<PulseInput, Pulse>;
+  /** The pulse this input rides — the procedure AND its key, derived FROM THE
+   *  INPUT and chosen together (`bindPulse(proc, key)`).
+   *
+   *  A function of the input, not a fixed field, for two reasons that used to be
+   *  one leak each. (1) It is re-derived at each (re)subscribe, so the pulse
+   *  follows the ACTIVE host: the effect re-runs on a host switch (via
+   *  `pulseHost` below) and re-reads `activeHost()`, rebinding to the new host —
+   *  a pre-bound proc pins the pulse to the MOUNT-TIME host forever (the
+   *  boot-host-capture hazard — CodeTab mounts once), so a switched-to host's
+   *  repo silently stops live-updating. (2) The pulse SOURCE can depend on the
+   *  input (a file inside a git repo rides the per-file git watch; the same read
+   *  outside one rides its parent directory's handle), and a query whose source
+   *  changes stays ONE query with one retained value instead of being cloned. */
+  pulse: (input: Input) => BoundPulse<Pulse>;
   /** The reactive host the pulse follows (`activeHost`). Folded into the effect's
    *  re-subscribe trigger so a BARE host switch (the same `input`/repoPath present on two
    *  hosts) still tears down the old host's pulse and opens the new host's — the common case
    *  (a switch changes the active terminal → `input`) is covered by `input` alone; this closes
    *  the identical-repoPath edge. */
   pulseHost?: Accessor<unknown>;
-  /** Derive the pulse key from the query input. Kept separate so the pulse
-   *  subscribes to only the change signal it needs (a repo, or a repo+file). */
-  pulseInput: (input: Input) => PulseInput;
   /** (Re)invoke the padi procedure on each pulse frame — a DESCRIPTION, so a
    *  superseded read is torn down by interrupting its fiber rather than by a
    *  signal the caller had to remember to thread. `pollOnChange`'s own read seam
@@ -113,15 +143,14 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   active?: Accessor<boolean>;
 }
 
-export function createPolledQuery<Input, PulseInput, Pulse, Result>(
-  config: PolledQueryConfig<Input, PulseInput, Pulse, Result>,
+export function createPolledQuery<Input, Pulse, Result>(
+  config: PolledQueryConfig<Input, Pulse, Result>,
 ): Subscription<Result> {
   const {
     input,
     live,
-    pulseProc,
+    pulse,
     pulseHost,
-    pulseInput,
     query,
     onError,
     swallowError,
@@ -197,7 +226,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   // only when the input VALUE or host actually changed. This is the consumer's
   // own reset semantics ("blank iff MY input changed"), NOT a second dedup gate on
   // the producer. The carried `i` rides along so the body keeps the live input
-  // object for `pulseInput(i)` / `runQuery(i)`.
+  // object for `pulse(i)` / `runQuery(i)`.
   const inputState = createMemo(
     () => {
       const i = input();
@@ -265,9 +294,11 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       // and the Solid landing. The `pulseCtl` signal owns the whole poll's lifetime
       // — the effect's `onCleanup` aborts it on every re-run and on owner dispose,
       // tearing down the pulse AND the in-flight requery.
-      pollOnChange<PulseInput, Pulse, Result>({
-        pulse: pulseProc(),
-        pulseInput: pulseInput(i),
+      // The pulse and its key, derived from THIS input at THIS (re)subscribe.
+      const bound = pulse(i);
+      pollOnChange<unknown, Pulse, Result>({
+        pulse: bound.proc,
+        pulseInput: bound.input,
         // THE bridge: the core hands a signal, the read is an Effect, and
         // `runActionPromise` makes the one drive the other — a superseded frame
         // really interrupts its in-flight read (running its finalizers) instead

@@ -135,6 +135,9 @@ vi.mock("../terminal/useTerminalStore", () => ({
 vi.mock("./useRightPanel", () => ({
   useRightPanel: () => ({
     codeMode: () => bag.mode(),
+    // The real coercion, not a second copy of it: outside a repo the effective
+    // view is `browse` whatever the persisted mode says.
+    effectiveCodeMode: (hasGit: boolean) => (hasGit ? bag.mode() : "browse"),
     selectedFile: (_m: string) => bag.selected(),
   }),
 }));
