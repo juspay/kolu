@@ -43,15 +43,14 @@ import {
  *  dropped-edge recovery bound. */
 export const DIR_WATCH_POLL_MS = 1000;
 
-/** The observation of a path that isn't there. A real state, not a failure —
- *  absent → present is a change the poll must fire on — so it lives in the
- *  same string domain as a digest, and only an UNREADABLE path (a logged
- *  error) is `null`. */
-const ABSENT = "\0absent";
-
-/** The poll's baseline for one path: a stat digest, `ABSENT` when it isn't
- *  there, or `null` when it can't be read at all (logged; the caller keeps the
- *  previous baseline rather than treating an unreadable path as a change).
+/** The poll's baseline for one path, as the three-state fact it is — a named
+ *  variant per state, never a sentinel string sharing the digest's domain:
+ *
+ *   - `present` — the path stats; `digest` is its identity, and absent →
+ *     present (or a digest change) is a change the poll must fire on.
+ *   - `absent`  — the path isn't there. A real state, not a failure.
+ *   - `error`   — the path can't be read at all (logged; the caller keeps the
+ *     previous baseline rather than treating an unreadable path as a change).
  *
  *  For a DIRECTORY target this is the recovery baseline for the listing axis:
  *  a create / delete / rename of a direct child moves the directory's own
@@ -59,19 +58,33 @@ const ABSENT = "\0absent";
  *  one `stat`, not one directory enumeration per second per open level. A
  *  content write to a child file moves neither, so a file's BYTES are not this
  *  axis (they ride the narrow per-file watch: `filename`). */
-function statDigest(
+type StatObservation =
+  | { kind: "present"; digest: string }
+  | { kind: "absent" }
+  | { kind: "error" };
+
+function observePath(
   target: string,
   log: Logger | undefined,
   label: string,
-): string | null {
+): StatObservation {
   try {
     const stat = fs.statSync(target);
-    return `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}`;
+    return {
+      kind: "present",
+      digest: `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}`,
+    };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return ABSENT;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      return { kind: "absent" };
     log?.error({ err: error, path: target }, `${label} stat failed`);
-    return null;
+    return { kind: "error" };
   }
+}
+
+function sameObservation(a: StatObservation, b: StatObservation): boolean {
+  if (a.kind !== b.kind) return false;
+  return a.kind !== "present" || a.digest === (b as typeof a).digest;
 }
 
 interface SharedDirWatcher {
@@ -204,8 +217,8 @@ export function createDirWatcher<K = string>(
         if (filename !== undefined && eventFilename !== filename) return;
         // Refresh the baseline from the edge so the poll below doesn't fire a
         // second, redundant tick for a change the edge already reported.
-        const next = statDigest(target, log, config.logLabel);
-        if (next !== null) observed = next;
+        const next = observePath(target, log, config.logLabel);
+        if (next.kind !== "error") observed = next;
         coalesce.schedule();
       });
     } catch (e) {
@@ -233,7 +246,17 @@ export function createDirWatcher<K = string>(
     // subscribe for the same path installs fresh. The consumer's re-read is the
     // authority on the gone state, so the watcher never invents an error path.
     watcher.on("error", (e: Error) => {
-      log?.debug({ err: e.message, dir }, `${config.logLabel} watch errored`);
+      // Classified off the errno, like the install-time branch above: a
+      // vanished watch target (ENOENT/EPERM from the delete/rename race) is
+      // expected and logs at debug; anything else — EMFILE, ENOSPC, a
+      // permissions fault — is a genuine operator-facing failure and must
+      // surface at error level (errors-must-log-at-error).
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "EPERM") {
+        log?.debug({ err: e.message, dir }, `${config.logLabel} watch errored`);
+      } else {
+        log?.error({ err: e.message, dir }, `${config.logLabel} watch errored`);
+      }
       dispatch();
       retire();
     });
@@ -242,10 +265,10 @@ export function createDirWatcher<K = string>(
     // authoritative baseline after the handle attaches, then stat on a bounded
     // cadence so a dropped/coalesced edge self-heals. The consumer re-reads and
     // equality-gates the derived state, so an edge/poll double pulse is benign.
-    let observed = statDigest(target, log, config.logLabel);
+    let observed = observePath(target, log, config.logLabel);
     let pollTimer: NodeJS.Timeout = setTimeout(function poll(): void {
-      const next = statDigest(target, log, config.logLabel);
-      if (next !== null && next !== observed) {
+      const next = observePath(target, log, config.logLabel);
+      if (next.kind !== "error" && !sameObservation(next, observed)) {
         observed = next;
         coalesce.schedule();
       }

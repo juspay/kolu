@@ -35,7 +35,17 @@ import type { TerminalMetadata } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createStore } from "solid-js/store";
 
-const [armed, setArmed] = createStore<Record<string, true>>({});
+// `true | undefined`, because eviction deletes by setting `undefined` (Solid's
+// store-key removal idiom) — the type says so instead of a cast saying so.
+const [armed, setArmed] = createStore<Record<string, true | undefined>>({});
+
+/** The session-scoped bound on remembered approvals, ENFORCED — not an
+ *  asserted "bounded by arm count". Oldest-armed evicts first once the cap is
+ *  hit; an evicted approval costs one more click on the collapsed root node.
+ *  64 comfortably exceeds any real session's distinct (terminal, cwd) pairs
+ *  while making unbounded growth unrepresentable. */
+const ARMED_CAP = 64;
+const armedOrder: string[] = [];
 
 /** `\0` separator: collision-safe without embedding a printable delimiter a
  *  host key, terminal id or path could contain (the `composerAnchor`
@@ -51,7 +61,15 @@ export function armBrowseRoot(
   terminalId: TerminalId,
   cwd: string,
 ): void {
-  setArmed(armKey(host, terminalId, cwd), true);
+  const key = armKey(host, terminalId, cwd);
+  if (!armed[key]) {
+    armedOrder.push(key);
+    if (armedOrder.length > ARMED_CAP) {
+      const oldest = armedOrder.shift();
+      if (oldest !== undefined) setArmed(oldest, undefined);
+    }
+  }
+  setArmed(key, true);
 }
 
 /** The Code tab's root, and which authority owns it:

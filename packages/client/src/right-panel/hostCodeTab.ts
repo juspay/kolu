@@ -402,9 +402,13 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     // Delete-while-viewing parity: a file removed under the open Code tab fails
     // with padi's declared `FileGone`; swallow it (keep the last content until the
     // selection changes), exactly as the old value stream did (it just stopped
-    // yielding).
-    swallowError: (err) => isDeclared(err, FILE_GONE),
+    // yielding). ONLY once content exists, though — a FIRST frame that fails
+    // with FileGone (opening an already-deleted file) has nothing to keep, and
+    // swallowing it would pin the pane on "Loading…" forever with no toast.
+    // Same guard as the directory levels' `levelHasValue`.
+    swallowError: (err) => isDeclared(err, FILE_GONE) && contentHasValue(),
   });
+  const contentHasValue = (): boolean => fileContent() !== undefined;
 
   // ── The browse tree's LEVELS ────────────────────────────────────────────
   // "The levels of this browse tree" is ONE thing with ONE home and ONE
