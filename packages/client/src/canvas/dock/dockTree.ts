@@ -1,6 +1,6 @@
 /** Group ranked dock rows by repo into sections the dock renders.
  *
- *  Pure projection, and — since #2140 — a pure *bucketing*: it sorts nothing.
+ *  Pure projection, and — since #2141 — a pure *bucketing*: it sorts nothing.
  *  `rankDockRows` hands over rows in creation order (padi's registry insertion
  *  order, which `listTerminals` contracts); this module files each into its
  *  repo section and branch cluster and preserves that order throughout.

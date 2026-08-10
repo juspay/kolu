@@ -87,7 +87,7 @@ describe("buildDockTree", () => {
     expect(tree.groups[1]?.topRows.map((r) => r.id)).toEqual(["b"]);
   });
 
-  // THE regression guard for #2140, and the one test that was red before it:
+  // THE regression guard for #2141, and the one test that was red before it:
   // a row's position must be a function of the row SET alone, never of any
   // row's clock. Every earlier ordering test could be satisfied by a sort that
   // merely happened to agree with creation order on that fixture; this one

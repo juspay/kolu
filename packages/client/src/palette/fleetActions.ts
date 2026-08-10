@@ -40,7 +40,7 @@ import {
  *
  *  Pair it with {@link visitedAtOf} on every row: that is the HIGHLIGHT key, and
  *  the two must stay distinct. Folding them back into one number is precisely
- *  what let a chatty background agent steal ⌘K → Enter (#2140). */
+ *  what let a chatty background agent steal ⌘K → Enter (#2141). */
 export function terminalRankScore(
   visits: readonly VisitEntry[],
   hostKey: string,

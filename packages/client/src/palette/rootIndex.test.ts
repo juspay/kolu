@@ -324,7 +324,7 @@ describe("defaultSelectionIndex", () => {
     ).toBe(0);
   });
 
-  // THE #2140 guard, and the one test that was red before it. `rankAt` and
+  // THE #2141 guard, and the one test that was red before it. `rankAt` and
   // `visitedAt` are made to DISAGREE here — a background agent is the warmest
   // row in the list, and a terminal you actually came from is the one you last
   // visited. When the highlight rode `rankAt`, ⌘K → Enter went to the chatty

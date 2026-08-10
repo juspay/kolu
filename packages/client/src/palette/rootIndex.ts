@@ -198,7 +198,7 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
  *  that YOU visited most recently and are not on right now.**
  *
  *  "Visited" is {@link visitedAtOf} — your own trail, never the activity clock
- *  the list is ORDERED by. The two were one number until #2140, which meant a
+ *  the list is ORDERED by. The two were one number until #2141, which meant a
  *  background agent could take the highlight off the terminal you came from and
  *  send Enter somewhere you had never been.
  *

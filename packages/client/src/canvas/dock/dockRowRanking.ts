@@ -316,7 +316,7 @@ export function rowRecencyAt(meta: TerminalMetadata): number | null {
  *  for the staleness window, and by `palette/fleetTerminals.ts`, which does
  *  still sort by recency — the switcher's Recent band is the time-ordered view.
  *  It is no longer a dock ORDERING primitive: the dock's three sorts went away
- *  with #2140. */
+ *  with #2141. */
 export function tsRank(ts: number | null): number {
   return ts ?? Number.NEGATIVE_INFINITY;
 }
