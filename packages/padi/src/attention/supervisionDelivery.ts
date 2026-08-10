@@ -86,8 +86,10 @@ const INTENT_BUDGET = 60;
  *  boundary that accepted them, because the hazard is the PTY, not the store. */
 function ptySafe(text: string, budget: number): string {
   // C0 (\u0000-\u001f — includes \n, \r, \t and ESC) plus DEL (\u007f):
-  // everything a terminal ACTS on rather than prints.
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping controls is the point
+  // everything a terminal ACTS on rather than prints. Spelled as \u ESCAPES, not
+  // literal control bytes — which is also why this needs no lint suppression:
+  // `noControlCharactersInRegex` fires on the literal bytes, and an escape is
+  // both readable and unflagged.
   const flattened = text.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
   const collapsed = flattened.replace(/\s{2,}/g, " ");
   if (collapsed.length <= budget) return collapsed;
