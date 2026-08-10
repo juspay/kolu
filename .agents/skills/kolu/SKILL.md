@@ -126,11 +126,6 @@ watch_close { name: "campaign" }                                 // when the cam
 - Prefer the default (all terminals) over an `ids` list: a kaval recycle retires
   every active terminal id, so a frozen id list ages out where "all" does not.
 
-**If you are yourself running in a kolu terminal, you may need none of this.**
-Spawn workers with `parentId` set to your own terminal and padi delivers each
-settle into *your* input by construction — no subscription, nothing to arm,
-nothing to forget. `watch_*` is for a supervisor with no terminal of its own.
-
 ## Provisioning the inner agent
 
 - **Worktree'd agent:** no MCP path in v1 (`git.worktreeCreate` is a named

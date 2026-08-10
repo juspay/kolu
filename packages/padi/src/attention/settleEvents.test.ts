@@ -1,8 +1,8 @@
 /**
  * Pins the settle-event EDGE: that padi emits once per attention episode, that a
  * redundant recompute emits nothing (which is what makes observing from inside
- * the `urgency` derivation safe), that each event carries the supervision edge
- * the delivery half needs — and that no sink ever runs on the derivation's own
+ * the `urgency` derivation safe), that each event carries the lane attribution
+ * a subscriber needs — and that no sink ever runs on the derivation's own
  * stack (every assertion below waits a microtask first, which IS the pin).
  */
 
@@ -220,7 +220,7 @@ describe("createSettleEvents", () => {
     expect(events).toHaveLength(1);
   });
 
-  it("carries the supervision edge and the intent, so delivery needs no second lookup", async () => {
+  it("carries the parent edge and the intent, so a subscriber needs no second lookup", async () => {
     const { events, source } = collector();
     source.observe(urgency({}), terminals());
     source.observe(
@@ -303,7 +303,7 @@ describe("createSettleEvents", () => {
     expect(events.map((e) => [e.id, e.kind])).toEqual([["b", "gone"]]);
   });
 
-  it("a departure carries the LAST-KNOWN supervision edge — otherwise it could never be delivered", async () => {
+  it("a departure carries the LAST-KNOWN attribution — its record is already gone", async () => {
     const { events, source } = collector();
     source.observe(
       urgency({ workingIds: ["w"] as TerminalId[] }),

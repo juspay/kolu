@@ -1,11 +1,8 @@
 /**
  * STANDING SUBSCRIPTIONS — named, buffered, daemon-lived settle-event queues.
  *
- * The supervision edge (`supervisionDelivery.ts`) covers a supervisor that IS a
- * kolu terminal. A supervisor that is only an MCP client — a coding agent talking
- * to `kolu mcp` over stdio — has no terminal and no mailbox, so the edge cannot
- * reach it. This is what it gets instead, and it is deliberately NOT another
- * blocking per-terminal wait.
+ * How an agent supervising several terminals hears about them, and deliberately
+ * NOT another blocking per-terminal wait.
  *
  * **Why a buffer is the whole point.** `wait_agentState` / `wait_outputSettled`
  * are EDGE-triggered on a live call: they observe only while the call is open, so

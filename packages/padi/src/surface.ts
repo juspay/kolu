@@ -911,7 +911,7 @@ export const PadiSettleEventSchema = Schema.Struct({
   /** ms epoch, stamped once per observed FRAME (not per event), so every edge one
    *  fold produced describes the same instant. */
   at: PositiveInt,
-  /** The supervision edge — who should hear about this terminal. Absent for a
+  /** Who spawned this terminal — lane attribution for the subscriber. Absent for a
    *  root terminal (nobody spawned it). For a DEPARTURE it is the edge REMEMBERED
    *  from the last frame that still had one, because by then there is no record to
    *  read. */

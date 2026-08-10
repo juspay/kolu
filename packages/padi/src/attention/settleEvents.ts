@@ -36,10 +36,9 @@
  * however many of its lanes moved — then does not have to reconstitute a grouping
  * the fan-out threw away.
  *
- * It emits; it does not deliver. The two sinks — the supervision-edge mailbox
- * write (`supervisionDelivery.ts`) and the standing subscription buffers
- * (`watchRegistry.ts`) — both register here, so "a worker settled" is computed
- * once and fans out, rather than each sink growing its own detector.
+ * It emits; it does not deliver. The standing subscription buffers
+ * (`watchRegistry.ts`) register here, so "a worker settled" is computed once at
+ * the fold rather than re-derived by each consumer.
  */
 
 import {
@@ -110,7 +109,9 @@ export interface SettleEventFeed extends SettleEventSource {
   ): void;
 }
 
-/** The supervision edge of a live record, spread-safe. Module scope: it closes
+/** Who spawned a terminal, and what it is for — the lane attribution an event
+ *  carries so a subscriber can say WHICH worker moved without a second read.
+ *  Spread-safe. Module scope: it closes
  *  over nothing, so it is minted once rather than per fold on the ~150 ms
  *  terminals cadence. */
 function edgeOf(record: PadiTerminal | undefined): SupervisionEdge {
@@ -147,12 +148,11 @@ export function createSettleEvents(opts: {
   // fires" rule lives at the diff rather than as a comment here and a second
   // copy in the client's attention core.
   const transitions: AttentionTransitions = createAttentionTransitions();
-  // The supervision edge of every terminal as of the last observation — how a
+  // The lane attribution of every terminal as of the last observation — how a
   // DEPARTURE is both seen and ATTRIBUTED. It has to be the edge, not just the
   // key set: by the time a terminal is gone its record is gone with it, so the
   // parent is unknowable at emit time. Remembering it here is what lets a
-  // departure reach the supervisor at all — a `gone` event with no `parentId`
-  // is one the supervision edge can never deliver.
+  // `gone` event still say which lane it was.
   //
   // MAINTAINED IN PLACE, never rebuilt: this is the ~150 ms terminals cadence,
   // and rebuilding a Map of N freshly-spread objects each tick would allocate
