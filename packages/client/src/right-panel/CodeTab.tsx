@@ -23,6 +23,7 @@ import {
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree, rowPathsCss } from "@kolu/solid-pierre";
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { cwdBasename } from "kolu-common/path";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
@@ -201,7 +202,7 @@ const NavButton: Component<{
 const BrowseRootArm: Component<{ cwd: string; onBrowse: () => void }> = (
   props,
 ) => {
-  const name = () => props.cwd.split("/").filter(Boolean).pop() ?? props.cwd;
+  const name = () => cwdBasename(props.cwd);
   return (
     <div class="flex flex-col h-full text-[11px]">
       <button
@@ -943,28 +944,26 @@ const CodeTab: Component<{
     );
   };
 
-  // The authority feeding the tree, picked ONCE by root kind instead of at each
-  // of the questions below (a nested ternary per question is how the two used to
-  // be able to disagree about which source they were reporting on).
-  const treeError = (): Error | undefined =>
-    isDiffView()
-      ? statusError()
-      : root()?.kind === "git"
-        ? allPaths.error()
-        : dirLevels().error;
-  // "Is there a tree to paint at all", which is the TRACKED authority's
-  // question alone — deliberately not `treeInventory().pending`. The gitignored
-  // overlay is additive decoration; waiting on it here would hold the whole
-  // tree behind a second `git ls-files` the user is only ever offered as an
-  // extra. The selection/resolution guards read the merged readiness because
-  // they ask a different question: is this inventory complete enough to
-  // conclude a path is absent.
-  const treeReady = () =>
-    isDiffView()
-      ? status()
-      : root()?.kind === "git"
-        ? allPaths()
-        : dirLevels().root;
+  // The authority feeding the tree, picked ONCE by root kind — one memo owns
+  // the branch, and the two questions below are plain field reads off it (two
+  // hand-copied ternaries is how the pair used to be able to disagree about
+  // which source they were reporting on).
+  //
+  // "Ready" is the TRACKED authority's question alone — deliberately not
+  // `treeInventory().pending`. The gitignored overlay is additive decoration;
+  // waiting on it here would hold the whole tree behind a second
+  // `git ls-files` the user is only ever offered as an extra. The
+  // selection/resolution guards read the merged readiness because they ask a
+  // different question: is this inventory complete enough to conclude a path
+  // is absent.
+  const treeSource = createMemo(() => {
+    if (isDiffView()) return { error: statusError(), ready: status() };
+    return root()?.kind === "git"
+      ? { error: allPaths.error(), ready: allPaths() }
+      : { error: dirLevels().error, ready: dirLevels().root };
+  });
+  const treeError = (): Error | undefined => treeSource().error;
+  const treeReady = () => treeSource().ready;
   // Branch base, read off the always-on `branchStatus` so it's correct in
   // any view (the scope switcher annotates the Branch segment even from
   // Local/Browse). `undefined` while pending; `null` once loaded with no

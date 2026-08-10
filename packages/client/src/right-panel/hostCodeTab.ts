@@ -129,13 +129,30 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   const shownTerminalId = (): TerminalId | null => store.active().id;
   // The shown terminal's browse root and its authority — the ONE derivation,
   // shared with `CodeTab` (`./browseRoot.ts`), so the view and the query world
-  // cannot disagree about which root kind is in play.
-  const shownRoot = (): BrowseRoot =>
-    browseRootOf(host, shownTerminalId(), store.active().meta);
+  // cannot disagree about which root kind is in play. A memo, not a plain
+  // accessor, for the same reason as its `CodeTab` twin: every query input
+  // below reads it, so a bare function would re-derive once per reader per
+  // metadata tick (the multi-consumer-derivation convention).
+  const shownRoot = createMemo(
+    (): BrowseRoot =>
+      browseRootOf(host, shownTerminalId(), store.active().meta),
+  );
   const shownRepoPath = (): string | null => {
     const r = shownRoot();
     return r?.kind === "git" ? r.root : null;
   };
+  /** The one spelling of a browse query's owner stamp — three queries build it
+   *  (tracked, ignored overlay, plain root level), and a `CodeTabScope` field
+   *  added later must not need a per-query hunt. */
+  const scopeFor = (
+    terminalId: TerminalId,
+    repoRoot: string,
+  ): CodeTabScope => ({
+    host,
+    terminalId,
+    repoRoot,
+    mode: "browse",
+  });
   /** The armed PLAIN-DIRECTORY root, or null (inside a repo git owns the root;
    *  un-armed means the user hasn't consented to the read yet). */
   const shownDirRoot = (): string | null => {
@@ -241,12 +258,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
       activePadiRpc.fs.listAll({ repoPath: i.repoPath }).pipe(
         Effect.map(
           (result): ScopedCodePaths => ({
-            scope: {
-              host,
-              terminalId: i.terminalId,
-              repoRoot: i.repoPath,
-              mode: "browse",
-            },
+            scope: scopeFor(i.terminalId, i.repoPath),
             paths: result.paths,
           }),
         ),
@@ -267,12 +279,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
       activePadiRpc.fs.listIgnored({ repoPath: i.repoPath }).pipe(
         Effect.map(
           (result): ScopedCodePaths => ({
-            scope: {
-              host,
-              terminalId: i.terminalId,
-              repoRoot: i.repoPath,
-              mode: "browse",
-            },
+            scope: scopeFor(i.terminalId, i.repoPath),
             paths: result.paths,
           }),
         ),
@@ -579,7 +586,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
       error = entry.error();
       if (paths && repoRoot !== null && tid !== null) {
         root = {
-          scope: { host, terminalId: tid, repoRoot, mode: "browse" },
+          scope: scopeFor(tid, repoRoot),
           paths,
         };
       }

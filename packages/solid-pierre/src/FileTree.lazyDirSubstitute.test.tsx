@@ -14,6 +14,7 @@ import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FileTree } from "./FileTree";
 import {
+  clickRow,
   disposeAll,
   flush,
   mountInto,
@@ -21,14 +22,6 @@ import {
 } from "./FileTree.testlib.ts";
 
 afterEach(disposeAll);
-
-function clickRow(root: ShadowRoot, path: string): void {
-  const row = root.querySelector(
-    `[role="treeitem"][data-item-path="${path}"]`,
-  ) as HTMLElement | null;
-  if (!row) throw new Error(`no painted row for ${path}`);
-  row.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
-}
 
 describe("substituting a lone lazy dir key with its children (#2138)", () => {
   it("keeps the folder expanded and paints the single file child", async () => {
