@@ -55,7 +55,7 @@ the exact error and stop. Do not mislabel it as auth trouble or try another agen
 
 Provision the peer as a **split tile parented to your own terminal**, never as a
 detached terminal. Use /kolu's split-with-parent create
-(`lifecycle_create` with `parentId` first; `padi-tui create --parent` only as
+(`lifecycle_create` with `parentId` first; `kolu create --parent` only as
 its documented fallback). The unrestricted flag is **required**: the peer must
 write its verdict file and ping the author's unix socket, so a sandboxed session
 cannot run this protocol.

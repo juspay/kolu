@@ -12,9 +12,14 @@ let
     else
       [ ];
 
+  # `web` is spelled explicitly: bare `kolu` lists its subcommands and exits
+  # non-zero now (it stopped being an alias for the server when the terminal
+  # verbs landed), and the bind address is `--bind` — `--host` means "which
+  # padi" on every verb, so the server's listen address took the clearer name.
   args = [
     (lib.getExe cfg.package)
-    "--host"
+    "web"
+    "--bind"
     cfg.host
     "--port"
     (toString cfg.port)

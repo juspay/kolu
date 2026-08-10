@@ -163,7 +163,7 @@ Three environment settings make a `nix run` instance its own thing:
 ```sh
 export KOLU_STATE_DIR="$HOME/tmp/kolu-test/state"     # server config store (default: ~/.config/kolu)
 export KOLU_PADI_STATE_DIR="$HOME/tmp/kolu-test/padi" # padi state root: sessions, gates, sockets
-nix run github:juspay/kolu -- --port 8681             # production listens on 7681
+nix run github:juspay/kolu -- web --port 8681             # production listens on 7681
 ```
 
 The launcher honours both variables when they are already set, and falls back to

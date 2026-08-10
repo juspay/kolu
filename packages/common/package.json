@@ -12,6 +12,7 @@
     "./hostHue": "./src/hostHue.ts",
     "./contract": "./src/contract.ts",
     "./config": "./src/config.ts",
+    "./defaultPort": "./src/defaultPort.ts",
     "./path": "./src/path.ts",
     "./terminalKey": "./src/terminalKey.ts",
     "./test-hooks": "./src/test-hooks.ts",

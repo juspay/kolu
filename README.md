@@ -26,7 +26,7 @@ kolu is a terminal app built for scale: real `xterm.js` tiles on an infinite
 [Install Nix](https://nixos.asia/en/install) with flakes enabled, then:
 
 ```sh
-nix --refresh run github:juspay/kolu
+nix --refresh run github:juspay/kolu -- web
 ```
 
 Open <http://127.0.0.1:7681>. Continue with the

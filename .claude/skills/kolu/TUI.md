@@ -1,70 +1,82 @@
 
-# kolu/TUI — the CLI fallback (`kaval-tui` / `padi-tui`)
+# kolu/TUI — the CLI fallback (the `kolu` verbs)
 
 **This is the FALLBACK path** — reach for it only when the kolu MCP tools
 (SKILL.md's primary path) are unavailable: no `kolu mcp` configured on this
-host, an older kolu without the MCP face, a non-MCP agent runtime, or a RAW
-standalone-kaval terminal padi doesn't track. The discipline is identical to
-the MCP path (three-step submit, observe-then-act, timeouts on every wait) —
-only the spelling changes. The whole toolkit is **`kaval-tui`** — write input,
-read the screen, spawn, kill — plus **`padi-tui`** for agent-state waits and
-worktree provisioning; the driver runs them directly.
+host, an older kolu without the MCP face, or a non-MCP agent runtime. The
+discipline is identical to the MCP path (three-step submit, observe-then-act,
+timeouts on every wait) — only the spelling changes.
 
-For a raw `kaval-tui`-spawned terminal, the done-signal is **`kaval-tui wait
---until idle:<ms>`** — it blocks in the daemon on the raw PTY output and returns
-the moment the agent stops streaming, with no shell hooks (below). `padi-tui`
-adds a *precise agent-state* done-signal (`wait --until <buckets>`), but only for
-terminals a **kolu owns** (the last section); for raw terminals, reach for
-`kaval-tui wait`.
+**`kolu` is the ONE terminal CLI.** One command carries the whole toolkit —
+**ls** (the roster) · **create** (spawn) · **send** (write text, OR a `--key`) ·
+**wait** (block on a done-signal) · **snapshot** (read the rendered text —
+`--tail N` for what's on screen) · **history**
+(read the scrollback) · **kill** · **watch** (the live feed). Every verb is a
+pure **padi** client, so there is no second CLI to learn and no second daemon to
+choose between: you name a padi (or, inside a kolu terminal, name nothing) and
+drive its terminals. (The older `padi-tui` / `kaval-tui` binaries still ship and
+still work — they are retired in a later PR — but new driving code is written
+against `kolu`.)
 
 ## The loop
 
 ```sh
-id=$(kaval-tui create --json -- claude | jq -r .id)            # spawn the inner agent
-kaval-tui send  "$id" "refactor the parser to use a lexer"     # 1. the text (no Enter)
-kaval-tui wait  "$id" --until idle:300 --timeout 15000         # 2. observe the TUI settle
-kaval-tui send  "$id" --key Enter                              # 3. submit (its own command)
-kaval-tui wait  "$id" --until idle:800 --timeout 600000        # 4. let its turn finish (below)
-kaval-tui snapshot "$id" --viewport                            # 5. read the screen
+id=$(kolu create --intent "parser refactor" -- claude)    # spawn the inner agent (prints the id)
+kolu send  "$id" "refactor the parser to use a lexer"     # 1. the text (no Enter)
+kolu wait  "$id" --until idle:300 --timeout 15000         # 2. observe the TUI settle
+kolu send  "$id" --key Enter                              # 3. submit (its own command)
+kolu wait  "$id" --until idle:800 --timeout 600000        # 4. let its turn finish (below)
+kolu snapshot "$id" --tail 40                             # 5. read the screen
 ```
 
-Leaf commands, all `kaval-tui`: **create** (spawn) · **send** (write text, OR a
-`--key`) · **wait** (block until output settles) · **snapshot** (read) · **kill**.
 Submitting a prompt is its **own** `send --key Enter`, sent *after* you observe
 the TUI settle — never folded into the text send. Why: a same-breath Enter races
 the TUI's paste debounce and is silently dropped. See the next section.
 
-> **Read with `snapshot --viewport`, not `| tail`.** A bare `snapshot` prints the
-> **whole scrollback** — thousands of lines on a long-running or compacted agent —
-> so `snapshot | tail -8` hands you the bottom of the buffer (often just trailing
-> blanks), not the live screen. `--viewport` asks the daemon for just its
-> terminal's last screenful — the right "what's on screen now" read, and correct
-> regardless of how tall your own shell is (over `--host` the remote terminal is a
-> different size). `--tail N` (alias `--lines N`) bounds it to the last N lines
-> when you want a fixed slice.
+**stdout is data, stderr is prose.** `create` prints the new id on stdout and
+its human trailer on stderr, so `id=$(kolu create … )` captures exactly the id
+and nothing else. `--json` (on `ls`/`create`/`send`/`wait`/`watch`) makes the
+data machine-readable.
 
-## `kaval-tui send` — the canonical three-step submit
+**Ids accept any unique prefix.** `kolu send 3f9c "…"` is the whole id's
+equal as long as one terminal starts with it; an ambiguous prefix fails loudly
+rather than picking one.
+
+> **Read with `snapshot --tail N`, not `| tail`.** A bare `kolu snapshot` prints
+> the terminal's whole rendered text — screen *plus* scrollback, thousands of
+> lines on a long-running or compacted agent — and its buffer ends in a run of
+> blank rows below the cursor, so `snapshot | tail -8` hands you eight empty
+> lines. `--tail N` asks for the last N lines with those trailing blanks
+> dropped: the right "what's on screen now" read, and correct regardless of how
+> tall your own shell is (over `--host` the remote terminal is a different
+> size). It is the exact shape of the MCP `screen_text { tail }` tool — there is
+> deliberately **no `--viewport` flag**, because padi's wire cannot express a
+> viewport extent. Older output than the screen is `kolu history "$id"
+> [--lines N]`.
+
+## `kolu send` — the canonical three-step submit
 
 Submitting a **normal-size** prompt to a TUI agent is **three commands**, because
 `send` bakes in no timing magic — it writes exactly what you pass and nothing more:
 
 ```sh
-kaval-tui send "$id" "fix the failing test in parser.ts"   # 1. the text (no Enter)
-kaval-tui wait "$id" --until idle:300 --timeout 15000      # 2. OBSERVE the TUI settle — a signal, not a sleep (bounded: exit 2 = target busy, send Enter anyway)
-kaval-tui send "$id" --key Enter                            # 3. submit
+kolu send "$id" "fix the failing test in parser.ts"   # 1. the text (no Enter)
+kolu wait "$id" --until idle:300 --timeout 15000      # 2. OBSERVE the TUI settle — a signal, not a sleep (bounded: exit 2 = target busy, send Enter anyway)
+kolu send "$id" --key Enter                           # 3. submit
 ```
 
 Why not one command? An Enter sent in the *same breath* as the text races Claude
 Code's bracketed-paste / debounced input handling and is **silently dropped**,
 leaving the prompt staged on the `❯` line while `send` reports success (if a turn
 never seems to start, this is the #1 cause — `snapshot` and look for the prompt
-sitting unsent). `kaval` **cannot observe** when the TUI settled, so any fixed
+sitting unsent). No daemon **can observe** when the TUI settled, so any fixed
 grace baked into `send` is a race you tune until it stops biting on your machine
 and starts again on a slower one. The honest fix is step 2: **you**, the caller,
 observe the settle with `wait --until idle:<ms>` (no output for `<ms>` — see the
 done-signal section), then submit as its own command. `send "$id" "text" --key
 Enter` in one call is a **hard error** for exactly this reason — the trap is
-unspellable, not merely discouraged.
+unspellable, not merely discouraged. There is no `--submit` flag, and there will
+not be one.
 
 > **⚠️ MULTI-LINE pastes don't submit — a known-open limitation ([#1702](https://github.com/juspay/kolu/issues/1702)).**
 > The three-step flow above is verified for a **short** prompt (a line or two). The fold
@@ -80,7 +92,7 @@ unspellable, not merely discouraged.
 > state (the bounded write deadline turns that stall into a loud failure instead
 > of a >30s hang, but it still doesn't submit). **Workaround for any multi-line message
 > (a brief, a report, a ruling):** write it to a file and send a **short** prompt that
-> points the agent at it — `kaval-tui send "$id" "read /tmp/brief.md and carry it out"`
+> points the agent at it — `kolu send "$id" "read /tmp/brief.md and carry it out"`
 > then the three-step submit above. A short prompt submits cleanly; the agent reads the
 > file itself. Reach for the file-pointer by default the moment a message runs past a
 > couple of lines — don't wait to get bitten by a fold-and-resend cycle first.
@@ -94,18 +106,18 @@ unspellable, not merely discouraged.
 > ends), then `snapshot` to confirm.
 >
 > ```sh
-> kaval-tui send "$id" "the follow-up"
+> kolu send "$id" "the follow-up"
 > # A timeout (exit 2) is the "target busy" signal — proceed. Any OTHER failure is
 > # real (terminal gone = 3, link/usage = 1): surface it, don't send into the void.
-> if kaval-tui wait "$id" --until idle:300 --timeout 3000; then :  # settled — proceed
-> else rc=$?; [ "$rc" -eq 2 ] || exit "$rc"                        # exit 2 = busy; else real, surface it
+> if kolu wait "$id" --until idle:300 --timeout 3000; then :   # settled — proceed
+> else rc=$?; [ "$rc" -eq 2 ] || exit "$rc"                    # exit 2 = busy; else real, surface it
 > fi
-> kaval-tui send "$id" --key Enter                               # submit anyway
+> kolu send "$id" --key Enter                                  # submit anyway
 > ```
 
 > **`--file <path>` — read the text from a file, without shell mangling.** A prompt
 > passed as `"$(cat file)"` gets its backticks / `$(...)` executed by the shell
-> before `kaval-tui` ever sees them. `--file` reads the payload straight from the
+> before `kolu` ever sees them. `--file` reads the payload straight from the
 > file — byte-exact, no shell in the loop. It's mutually exclusive with positional
 > text and piped stdin. It does **not** change what goes down the wire (still a
 > bracketed paste); it fixes the SHELL hazard **only** — a *large* `--file` payload
@@ -133,20 +145,19 @@ session (e.g. before the TUI has drawn its input box, or over a trust prompt).
 **Interrupt a runaway** before redirecting it:
 
 ```sh
-kaval-tui send "$id" --key Escape          # stop Claude Code mid-stream
-kaval-tui send "$id" --key C-c             # SIGINT whatever's running
+kolu send "$id" --key Escape          # stop Claude Code mid-stream
+kolu send "$id" --key C-c             # SIGINT whatever's running
 ```
 
-## The done-signal — `kaval-tui wait --until idle:<ms>`
+## The done-signal — `kolu wait --until <cond>`
 
-After you submit, you need to know when the turn ends. For a raw
-`kaval-tui`-spawned terminal there's no agent-state feed — but the daemon already
-sees every output byte, so **`kaval-tui wait`** blocks on that raw stream and
-returns the instant the agent goes quiet, with **no shell hooks** and no
-busy-word guessing:
+After you submit, you need to know when the turn ends. **One verb, three
+condition forms** — and which one you reach for is the only real choice here:
 
 ```sh
-kaval-tui wait "$id" --until idle:800 --timeout 600000   # block until the turn ends
+kolu wait "$id" --until idle:800 --timeout 600000       # bytes went quiet
+kolu wait "$id" --until match:'\$ $' --timeout 600000   # new output matched
+kolu wait "$id" --until awaiting,waiting --timeout 600000  # the agent's turn ended
 ```
 
 - **`--until idle:<ms>`** resolves once no output byte has arrived for `<ms>` —
@@ -156,11 +167,16 @@ kaval-tui wait "$id" --until idle:800 --timeout 600000   # block until the turn 
   `opencode` because it keys on bytes, not on any agent's rendering.
 - **`--until match:'<regex>'`** resolves once *new* output matches — use it for a
   completion marker or a returned-prompt sentinel (e.g. `--until match:'\$ $'`).
+- **`--until <buckets>`** — a comma list of padi's detected **agent states**:
+  `working` (busy: thinking / tool_use / background task), `awaiting`
+  (`awaiting_user`: it's **asking you** a question), `waiting` (the
+  just-finished post-turn lull). Comma means any-of, so
+  `--until awaiting,waiting` catches a turn ending.
 - **`--timeout <ms>`** caps the wait and **fails loud (exit 2)** so a wedged agent
   can't hang the loop. If the terminal **exits** before the condition fires,
   `wait` exits **3** (the agent you were driving died). Met → exit **0**.
   > **A foreground `wait` also runs inside YOUR OWN harness's tool timeout.** A
-  > held `kaval-tui wait "$id" --timeout <big-ms>` (e.g. a long `--until match:` on
+  > held `kolu wait "$id" --timeout <big-ms>` (e.g. a long `--until match:` on
   > another agent's verdict) blocks *your* Bash call, and most agent harnesses cap a
   > single tool call at ~2 minutes by default — so a `--timeout 1200000` wait is
   > **SIGKILLed at ~2 min (exit 143)** while the agent you're watching is perfectly
@@ -170,49 +186,79 @@ kaval-tui wait "$id" --until idle:800 --timeout 600000   # block until the turn 
   > the `--timeout`** so the harness doesn't kill it first.
 - **`--json`** → one result frame per outcome: `{ id, result, … }`, where
   `result` is `met`/`timeout`/`gone`/`interrupted`/`closed`. A `met` frame adds
-  `fired` (`idle`/`match`), `elapsedMs`, and `matchedLine` on a match — so a
-  driver reads the structured `result`, never just the exit code.
+  what fired — so a driver reads the structured `result`, never just the exit
+  code.
 
 Quiescence ≠ "the reply is correct": idle fires whether the agent **finished** or
 is **blocked asking you something** (both mean "your move"). So after `wait`
-returns, **`snapshot --viewport` and read** what's on screen before responding.
+returns, **`snapshot --tail N` and read** what's on screen before responding.
 
-> **Fallback — screen-settle polling (only for an old daemon).** If you're
-> driving a kaval that predates `wait` (it errors "unhandled command"), fall back
-> to polling `snapshot --viewport` until the screen holds still across two reads,
-> capped by a deadline. It's coarser and laggier (a busy agent that pauses
-> mid-thought can read as settled, and the poll lags the real settle), so prefer
-> `kaval-tui wait` whenever the daemon has it.
+### Byte-idle vs agent buckets — which `--until` to reach for
+
+They are not rivals; they read different things, and the merge into one verb
+didn't merge the distinction:
+
+- **`--until idle:<ms>` / `match:`** keys on **raw output quiescence/match** —
+  it works on **any** terminal, with **no hooks** and nothing to detect. It
+  can't tell "finished" from "blocked asking you" — both are quiescence — so
+  read the snapshot after.
+- **`--until <buckets>`** keys on **agent-state buckets** — more precise (it
+  *distinguishes* awaiting-you from finished), but it only resolves for a
+  terminal whose agent padi actually **detects**. A terminal running something
+  padi has no agent sensor for has no bucket to enter, and the wait just times
+  out. Reach for the buckets when you're driving a real agent CLI; fall back to
+  byte-idle for anything else.
+
+> **Mind the stale-state race — wait in two phases.** The bucket form matches the
+> agent's state **the instant it connects**, replaying whatever it is right now.
+> So right after a `send`, the agent may still report the *previous* turn's
+> `waiting`/`awaiting` for a beat before it picks up the new prompt — and a lone
+> `wait --until awaiting,waiting` would return immediately on that stale state,
+> before the turn you asked for has even begun. For a robust loop, wait for the
+> pickup first, then the turn-end:
 >
 > ```sh
-> wait_until_settled() {   # fallback only — kaval-tui wait is preferred
->   local id=$1 deadline=$(( $(date +%s) + 600 )) prev="" cur stable=0
->   while [ "$stable" -lt 2 ] && [ "$(date +%s)" -lt "$deadline" ]; do
->     sleep 3
->     cur=$(kaval-tui snapshot "$id" --viewport)   # the live screen, not full scrollback
->     if [ "$cur" = "$prev" ]; then stable=$((stable + 1)); else stable=0; fi
->     prev=$cur
->   done
-> }
+> kolu send "$id" "fix the parser"                            # the text
+> kolu wait "$id" --until idle:300 --timeout 15000            # observe the settle
+> kolu send "$id" --key Enter                                 # submit
+> kolu wait "$id" --until working --timeout 15000             # 1. it picked up the prompt
+> kolu wait "$id" --until awaiting,waiting --timeout 600000   # 2. its turn ended
 > ```
-
-## Provisioning a worktree'd agent — `padi-tui create`
-
-> **Interim doctrine — agent-spawn-first-class (#1872).** One footgun left in the
-> raw-spawn path, tagged with the PR that retires it. *This note is deleted the
-> day its tagged PR lands — do not carry it past it.*
 >
-> As of PR2 a command-rooted agent (`kaval-tui create -- <agent>`, the agent as
-> argv[0] with no shell) is **Dock-visible and state-tracked**: kaval seeds
-> `lastCommand`/title from the argv, and the sensors read its root-in-foreground
-> as busy — so `padi-tui wait --until` works against it and a shim CLI (comm ≠ its
-> name) is recognized by the command it was launched with. It still lacks a
-> shell's richer affordances (rc hooks, in-place `cd`), so `padi-tui create` / the
-> MCP `lifecycle_create` remain the fuller path — but **detection is no longer a
-> reason to avoid the raw root spawn.**
+> (Every wait is bounded — the Acceptance rule. A timeout on the phase-1
+> `--until working` is a "target already moved past pickup" signal; on the
+> phase-2 wait it's a wedged-agent guard.)
+
+## Exit codes — the contract a driving loop branches on
+
+Every verb shares one exit contract, and it is a **contract**: branch on it.
+
+| code | meaning |
+| --- | --- |
+| `0` | the verb did what it was asked |
+| `1` | usage error, or the padi link dropped |
+| `2` | `wait` ran out of time — the condition never landed |
+| `3` | `wait`'s terminal exited before reaching the condition |
+| `130` | interrupted (Ctrl+C / SIGTERM / SIGHUP) |
+
+`2` and `3` are deliberately distinct: "still alive but stuck" is a retry, "the
+agent I was driving died" is not.
+
+## Provisioning an agent — `kolu create`
+
+> **Interim doctrine — agent-spawn-first-class (#1872).** *This note is deleted
+> the day its tagged PR lands — do not carry it past it.*
 >
-> - **A fresh `kaval-tui create` shell is clean — but your OWN shell is not.**
->   PR1 makes every `kaval-tui create` env a clean canonical base, so typing
+> A command-rooted agent (`kolu create -- <agent>`, the agent as argv[0] with no
+> shell) is **Dock-visible and state-tracked**: kaval seeds `lastCommand`/title
+> from the argv, and the sensors read its root-in-foreground as busy — so
+> `--until <buckets>` works against it, and a shim CLI (comm ≠ its name) is
+> recognized by the command it was launched with. It still lacks a shell's
+> richer affordances (rc hooks, in-place `cd`), so spawn a shell (`kolu create`
+> with no `--`) when you need them.
+>
+> - **A fresh `kolu create` terminal is clean — but your OWN shell is not.**
+>   Every terminal padi spawns gets a clean canonical base env, so typing
 >   `claude` into a create'd shell is safe with no scrub. The residual trap is
 >   launching an agent in a shell that *already* carries the orchestrator's
 >   identity — your own session's shell, or one reached over `ssh` / `sudo -E`:
@@ -220,30 +266,41 @@ returns, **`snapshot --viewport` and read** what's on screen before responding.
 >   itself as a nested child that never saves its conversation (real data loss).
 >   `unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE CLAUDE_CODE_SESSION_ID` before
 >   launching an agent in such a shell. *This is the upstream env-suppression
->   fragility the note filed upstream; delete when PR3's face verb removes the
->   raw-shell launch path (or upstream stops reading inherited identity vars).*
+>   fragility the note filed upstream; delete when upstream stops reading
+>   inherited identity vars.*
 
-When the terminal should be a **kolu-owned** workspace — visible on the canvas,
-tracked by padi's agent sensors so `padi-tui wait` works against it — provision
-it with `padi-tui create` instead of raw `kaval-tui create`:
+Every terminal `kolu create` makes is **kolu-owned** — visible on the canvas,
+tracked by padi's agent sensors, so the bucket done-signal works against it. It
+prints the new id on **stdout** (the trailer goes to stderr), so capture it
+directly:
 
 ```sh
 git -C /abs/path/to/repo pull --ff-only     # the worktree is cut from the repo's CURRENT checkout
-padi-tui create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-flags>
-# e.g. `-- claude --dangerously-skip-permissions` — prints the new terminal's id; padi owns it
+id=$(kolu create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-flags>)
+# e.g. `-- claude --dangerously-skip-permissions`
 ```
+
+Its other flags: **`--cwd <dir>`** (where the terminal opens), **`--intent
+<text>`** (the freeform label shown on the canvas — set it, see the id-restart
+note below), **`--parent <id>`** (open as a split), **`--json`** (a record of
+what `create` just did, instead of the bare id).
+
+`--json` is **not** the terminal's full record — for that, `kolu ls --json`.
+It is exactly what this create did: `{"id": "<full id>"}`, plus
+`"worktree": {"path", "branch"}` when `--worktree` cut one and `"ran": "<the
+command line typed>"` when you passed `-- <argv>`. Absent keys are omitted, so
+a bare `kolu create --json` is a one-field object.
 
 > **A split tile BESIDE you — `--parent "$KAVAL_TERMINAL_ID"`.** When you want the
 > new terminal to open as a **split beside your own** (a sibling tile on the same
 > canvas — e.g. driving a selected Claude/Codex/Grok peer per `/agent-debate`), pass
 > **`--parent <your-terminal-id>`**, using your self-knowledge var
-> `$KAVAL_TERMINAL_ID` (see *Reach*): `padi-tui create --parent "$KAVAL_TERMINAL_ID"
-> -- <selected-agent> <unrestricted-flags> …`. Add `--worktree`/`--repo` too if the split should also get its
-> own worktree; omit them and the split opens in your cwd. **`kaval-tui create` is
-> NOT a split** — it spawns a *detached, standalone* terminal that isn't a tile
-> beside you, isn't on the canvas, and isn't padi-tracked. So whenever the intent is
-> "a split next to me", reach for `padi-tui create --parent`, never raw `kaval-tui
-> create`.
+> `$KAVAL_TERMINAL_ID` (see *Reach*): `kolu create --parent "$KAVAL_TERMINAL_ID"
+> -- <selected-agent> <unrestricted-flags> …`. Add `--worktree`/`--repo` too if the
+> split should also get its own worktree; omit them (or pass `--cwd`) and the split
+> opens where you point it. Omit `--parent` and the terminal is a **standalone**
+> tile, not a sibling beside you — so whenever the intent is "a split next to me",
+> pass `--parent`.
 
 - **Never hardcode the agent CLI.** `<agent>` defaults to the same agent *you*
   are running as (a Claude Code orchestrator spawns `claude`, a codex one
@@ -273,134 +330,70 @@ padi-tui create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-f
   Claude Code) as its own three-step submit, wait for the shell prompt to show
   in the snapshot, then launch again.
 
-## `padi-tui wait` vs `kaval-tui wait` — two done-signals
+**Interactive attach is the browser**, not this CLI: `kolu` has no `attach` verb
+(it lands in a follow-up PR). Open the tile in kolu's web UI when a human needs
+to take the keyboard; `kaval-tui attach` remains the terminal-side fallback
+until then.
 
-They are not rivals; they read different things:
+## Reach — which padi you're driving
 
-- **`kaval-tui wait`** keys on **raw output quiescence/match** — works on **any**
-  terminal, **no hooks**. This is the one to reach for when driving a raw
-  `kaval-tui create` agent (above). It can't tell "finished" from "blocked asking
-  you" — both are quiescence — so read the snapshot after.
-- **`padi-tui wait`** keys on **agent-state buckets** (working/awaiting/waiting)
-  — more precise (it *distinguishes* awaiting-you from finished), but only for
-  terminals a **kolu owns** (padi runs the agent sensors over them). Use it when
-  you're driving terminals a kolu-server spawned (below).
+**One command, one daemon question.** Every verb takes the same three
+**endpoint flags**, and they are **mutually exclusive** (naming two is a
+contradiction, refused, not a preference resolved):
 
-### `padi-tui wait` — the precise done-signal (kolu-owned terminals only)
+- **(nothing)** — autodiscover the running padi. Inside a kolu terminal
+  `$PADI_SOCKET` is already stamped into the environment (the `$TMUX`
+  convention), so an agent driving its **siblings** passes no flag at all. This
+  is the normal case; reach for a flag only when it isn't.
+- **`--socket <path>`** — dial one exact padi socket. **Don't hand-construct the
+  path**: the rendezvous is digest-keyed off the state-root, an internal detail
+  that moves. Take it from `$PADI_SOCKET`, or use `--state-root` instead.
+- **`--state-root <dir>`** — dial the padi keyed to that state-root directory
+  (how you reach a dev/e2e padi without knowing its digest).
+- **`--host <user@host>`** — reach a padi on another machine over ssh
+  (provisioned with Nix); a remote PTY survives the link.
 
-When you *do* have agent-state detection, `padi-tui wait <id> --until <buckets>`
-is the exact done-signal — it blocks until the agent reaches a coarse state, then
-exits 0:
-
-- **`working`** — busy (`thinking` / `tool_use` / background task).
-- **`awaiting`** — `awaiting_user`: it's **asking you** a question.
-- **`waiting`** — the **just-finished** post-turn lull.
-
-`awaiting` and `waiting` both mean "your move", so `--until awaiting,waiting`
-catches a turn ending; `--timeout <ms>` fails loud (exit 2) so a wedged agent
-can't hang the loop; if the terminal **exits** before reaching the state, `wait`
-fails loud too (exit 3 — the agent you were driving died); `--json` →
-`{ id, agent }`.
-
-> **Mind the stale-state race — wait in two phases.** `wait` matches the agent's
-> state **the instant it connects**, replaying whatever it is right now. So right
-> after a `send`, the agent may still report the *previous* turn's
-> `waiting`/`awaiting` for a beat before it picks up the new prompt — and a lone
-> `wait --until awaiting,waiting` would return immediately on that stale state,
-> before the turn you asked for has even begun. For a robust loop, wait for the
-> pickup first, then the turn-end:
+> **These three parse in ANY position.** `kolu --host box create` and `kolu
+> create --host box` are the *same parse* — they are the root command's shared
+> flags, so there is no flag-order rule to remember for them. (This is the
+> positional straitjacket the older `padi-tui`/`kaval-tui` "flags go AFTER the
+> subcommand" rule existed to work around; it is gone.)
 >
-> ```sh
-> kaval-tui send "$id" "fix the parser"                          # the text
-> kaval-tui wait "$id" --until idle:300 --timeout 15000         # observe the settle
-> kaval-tui send "$id" --key Enter                              # submit
-> padi-tui  wait "$id" --until working --timeout 15000          # 1. it picked up the prompt
-> padi-tui  wait "$id" --until awaiting,waiting --timeout 600000 # 2. its turn ended
-> ```
->
-> (Every wait is bounded — the Acceptance rule. A timeout on the phase-1
-> `--until working` is a "target already moved past pickup" signal; on the
-> phase-2 wait it's a wedged-agent guard.)
+> A **verb's own** flags (`--json`, `--tail`, `--until`, `--key`, …) still
+> follow the verb name — `kolu ls --json`, not `kolu --json ls`. Misplacing one
+> is refused by name (`Unrecognized flag: --json in command kolu`), never
+> silently ignored, so this costs you an error message rather than a wrong run.
 
-> **Reach — `padi-tui` dials padi, not kaval.** `padi-tui` reads a running
-> **padi** (the per-host workspace daemon a kolu-server owns), so **inside a kolu
-> terminal `$PADI_SOCKET` makes it flag-less** (`padi-tui wait "$id" --until …`
-> just works — the padi-side twin of `$KAVAL_SOCKET` below). Outside a kolu
-> terminal it autodiscovers the running padi; `--socket <path>` / `--state-root
-> <dir>` point it elsewhere. Flags go **after** the subcommand.
->
-> **Caveat — agent state needs a terminal padi TRACKS.** padi derives agent state
-> from the sensors it runs over the terminals it owns. `kaval-tui create` is the
-> **raw** multiplexer — a plain `$SHELL` padi never sees — so an agent you spawn
-> that way isn't in padi's registry, and `padi-tui wait` will just time out.
-> `padi-tui wait` is reliable when you drive terminals a running **kolu-server**
-> spawned (find them with `kaval-tui list` autodiscovery — see *Reach* below). For
-> a raw `kaval-tui create` loop, use **`kaval-tui wait --until idle:<ms>`** above
-> — it needs no daemon-side agent state.
-
-## Reach — which daemon you're driving
-
-**Lead with `kaval-tui list`.** With no `--socket`, it autodiscovers every
-running daemon on this machine and prints each with a human label — `kolu-server
-on port 7692`, `standalone kaval` — so you pick the right one without knowing any
-path. This is the cross-platform, self-labeling answer to "which daemon am I
-driving", and the reliable path on macOS (where `$XDG_RUNTIME_DIR` is unset). If
-exactly one daemon is up, every command autodiscovers it — no flag needed.
-
-**Inside a kolu terminal, `$KAVAL_SOCKET` already names your daemon.** Every
-terminal a kolu-server (or `kaval-tui create`) spawns exports `$KAVAL_SOCKET` —
-the socket of the kaval that owns *this* terminal (the `$TMUX` convention). So an
-agent driving its **sibling** terminals can skip discovery and point straight at
-it: `kaval-tui list --socket "$KAVAL_SOCKET"`, `kaval-tui snapshot <id> --socket
-"$KAVAL_SOCKET"`. It's the one unambiguous answer when several daemons are up
-(autodiscovery would return "many"). Absent → you're not inside a kolu PTY, so
-fall back to `kaval-tui list`.
-
-**`$KAVAL_TERMINAL_ID` names *this* terminal.** Its self-knowledge twin: every
-kolu terminal also exports `$KAVAL_TERMINAL_ID` — the id of the terminal the agent
-is running in. So an agent can act on **itself** without being told which tile it
-is: `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"` reads its
-own screen, `padi-tui wait "$KAVAL_TERMINAL_ID" --until …` blocks on its own state.
+**`$KAVAL_TERMINAL_ID` names *this* terminal.** Every kolu terminal exports the
+id of the terminal the agent is running in, so an agent can act on **itself**
+without being told which tile it is: `kolu snapshot "$KAVAL_TERMINAL_ID"` reads
+its own screen, `kolu wait "$KAVAL_TERMINAL_ID" --until …` blocks on its own
+state, and `kolu create --parent "$KAVAL_TERMINAL_ID"` splits beside it.
 Re-owned for nested terminals (a kolu spawned inside a kolu terminal stamps its
-*own* id over the inherited one), so it's always *this* terminal, never the outer.
-Empty → fall back to `kaval-tui list` for the id: you're either not inside a
+*own* id over the inherited one), so it's always *this* terminal, never the
+outer. Empty → fall back to `kolu ls` for the id: you're either not inside a
 kolu-spawned PTY, or in one that predates this var and hasn't been respawned yet
 (a fresh terminal — or sleep/wake — stamps it).
 
-> **A terminal id is not stable across a kaval restart.** kaval re-keys every
+**`kolu ls` is the roster** — one row per terminal (`ID · STATE · REPO·BRANCH ·
+PR · AGENT · FOREGROUND`), `--json` for the full records. `kolu watch [id]`
+streams changes and live output activity until you interrupt it.
+
+> **A terminal id is not stable across a daemon restart.** kaval re-keys every
 > terminal when it restarts (crash-restore, a "Restart kaval", a redeploy), so an
 > id you were *handed* — a coordinator's terminal from your brief, an id you cached
 > turns ago — can go stale mid-run; a `send`/`snapshot` to it then fails with **"no
-> terminal matching"**. Don't re-assume the id: run `kaval-tui list` and re-find the
-> terminal by its stable **title** (the label survives the re-key), then use its
-> current id. For any long-lived reference, remember the title, not the id.
+> terminal matching"**. Don't re-assume the id: run `kolu ls --json` and re-find
+> the terminal by its stable **`intent` label** (which is exactly what you set it
+> at create for), then use its current id. For any long-lived reference, remember
+> the intent, not the id.
 
-> **Flags go AFTER the subcommand.** It's `kaval-tui list --socket <path>` and
-> `kaval-tui snapshot <id> --socket <path>` — **not** `kaval-tui --socket <path>
-> list`. A flag before the subcommand fails with "no command"; the CLI error says
-> so, but write them in the right order to begin with.
-
-Two ways to point at a specific daemon instead of autodiscovering:
-
-- **`--socket <path>`** targets one local daemon — e.g. a running **kolu-server's**
-  kaval, to drive the terminals you have open in kolu (these are tracked by that
-  kolu's **padi**, so `padi-tui wait` works against them). **Don't hand-construct
-  the path** — the rendezvous is an internal, digest-keyed detail (padi owns its
-  kaval under a state-root-digest namespace, `kaval-<digest>/pty-host.sock`, not a
-  fixed or port-named path). Get the path from **`kaval-tui list`** (it prints
-  each running daemon's socket with a human label) or, inside a kolu terminal,
-  from **`$KAVAL_SOCKET`** (the daemon that owns *this* terminal). Those are the
-  only two reliable sources; a hardcoded guess goes stale the moment the
-  namespacing changes.
-
-  > **Socket paths must stay under 108 bytes (the `AF_UNIX` limit).** If you spin
-  > up your *own* standalone kaval to verify (no kolu running), keep `--socket`
-  > short — `/tmp/kv.$$/pty.sock`, **not** a socket under your agent scratchpad.
-  > The scratchpad prefix alone already sits at the 108-byte cap, so a socket
-  > there overflows and the daemon fails to bind. The autodiscovered paths above
-  > are short by construction; this only bites a hand-rolled `--socket`.
-- **`--host <ssh>`** reaches a daemon on another machine (provisioned with Nix);
-  a remote PTY survives the link.
+> **Socket paths must stay under 108 bytes (the `AF_UNIX` limit).** If you spin
+> up your *own* padi at a private state-root to verify, keep the path short —
+> **not** a state-root under your agent scratchpad. The scratchpad prefix alone
+> already sits at the 108-byte cap, so the socket beneath it overflows and the
+> daemon fails to bind. The autodiscovered paths are short by construction; this
+> only bites a hand-rolled root.
 
 ## Acceptance
 

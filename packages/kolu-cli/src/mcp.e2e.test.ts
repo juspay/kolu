@@ -36,7 +36,6 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   assertPadiSurfaceCompatible,
-  connectPadi,
   padiClientOver,
   padiSocketPath,
   resolvePadiStateRoot,
@@ -58,7 +57,7 @@ import {
 } from "@kolu/daemon-test-gate";
 import { Effect } from "effect";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
-import { classifyDialFailure, koluCliConnectionOf } from "./connect.ts";
+import { connectKoluCliLocal } from "./connect.ts";
 import { guardedMcpDial } from "./mcp.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -237,25 +236,23 @@ async function readJson(mcp: Client, uri: string): Promise<unknown> {
   return JSON.parse((contents[0] as { text: string }).text);
 }
 
-/** The REAL local composition behind a connected MCP client: `connectPadi` →
- *  `koluCliConnectionOf` → `guardedMcpDial` → `serveKoluMcp`, re-dialing the
+/** The REAL local composition behind a connected MCP client:
+ *  `connectKoluCliLocal` → `guardedMcpDial` → `serveKoluMcp`, re-dialing the
  *  SAME digest-keyed path on every invocation (the adapter's redial hook), with
  *  the Promise crossing where `runKoluMcp` puts it.
  *
- *  `koluCliConnectionOf` is the product's OWN projection, which is what makes
- *  these legs unable to pass against a look-alike that forgets to carry
- *  `onClose` — forgetting it is precisely what juspay/kolu#2082 was. Two legs
- *  need it, so the composition AROUND that projection lives here once rather
- *  than as two look-alikes of its own. */
+ *  It drives the product's OWN dial rather than a re-composition of its parts:
+ *  `connectKoluCliLocal` now takes the endpoint (`kolu mcp --socket <path>` is
+ *  spellable), so the leg that used to rebuild `connectPadi` +
+ *  `koluCliConnectionOf` by hand can simply BE the product path — including
+ *  that projection, whose forgetting-to-carry-`onClose` failure is precisely
+ *  juspay/kolu#2082. A look-alike could drift from the product; this cannot. */
 async function serveMcpOverPadi(
   socketPath: string,
   clientName: string,
 ): Promise<Client> {
   const dial = guardedMcpDial(
-    Effect.map(
-      Effect.mapError(connectPadi(socketPath), classifyDialFailure),
-      koluCliConnectionOf,
-    ),
+    connectKoluCliLocal({ kind: "socket", path: socketPath }),
   );
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
