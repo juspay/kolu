@@ -15,6 +15,7 @@
  *     instead of six hand-rolled `setSelectedIndex(0)` calls. */
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import { match } from "ts-pattern";
 import { matchesAllTokens, tokenize } from "../search";
 
 export type ResultKind = "terminal" | "host" | "command";
@@ -95,14 +96,11 @@ function isActiveTerminalRow(
  *  Module-private on purpose: {@link defaultSelectionIndex} is the ONE entry
  *  point, so a second surface can't build a rival policy from the predicate. */
 function isCurrentRow(item: IndexableItem, current: CurrentSelection): boolean {
-  switch (itemKind(item)) {
-    case "terminal":
-      return isActiveTerminalRow(item, current);
-    case "host":
-      return rowHostKey(item) === current.hostKey;
-    case "command":
-      return false;
-  }
+  return match(itemKind(item))
+    .with("terminal", () => isActiveTerminalRow(item, current))
+    .with("host", () => rowHostKey(item) === current.hostKey)
+    .with("command", () => false)
+    .exhaustive();
 }
 
 export function itemKind(item: IndexableItem): ResultKind {
