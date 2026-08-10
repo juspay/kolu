@@ -59,7 +59,14 @@ The package graduated to a **process**: `package = process = restart-hash`.
   nothing, stated rather than guessed. The **bake** name (what a wrapper tells a
   daemon) and the **stamp** name (what a daemon tells a terminal) are deliberately
   two variables: nothing writes the bake into a terminal, so a kolu launched
-  inside one cannot inherit a foreign build's tools.
+  inside one cannot inherit a foreign build's tools. Because the bake is frozen
+  at daemon spawn while padi outlives kolu upgrades — and the tools bundle is
+  invisible to the `PADI_BUILD_ID` derivation above — padi **records** its bake
+  at boot (`agent-tools-bake`, beside the `state-root` manifest) and every
+  same-machine supervisor (kolu-server's binder, the `padi --stdio` front)
+  drains a resident whose record names a different toolchain than its own
+  build's, so a kolu-CLI-only upgrade still reaches new terminals
+  (`./src/agentToolsBake.ts`, juspay/kolu#2146).
 - **Identity IS the state-root** (`./stateRoot`). Binding requires an explicit
   root (`--state-root` or `KOLU_PADI_STATE_DIR`) — there is no silent default
   (#1334). Production nix wrappers supply `$HOME/.local/state/padi` (not
