@@ -199,7 +199,9 @@ no reload, bindings staying warm server-side. From the keyboard, type a host nam
 in **⌘K** (hosts are first-class root results in the
 [switcher](/switcher)), or press **⌘⇧H** (Ctrl+Shift+H elsewhere) — or the
 **search icon** in the host bar — to deep-link into the scoped host list; pick a
-host and the canvas switches. The host strip stays as ambient status (connection
+host and the canvas switches. Once a tab has switched at least once, that list
+opens with the machine you came from already highlighted, so **⌘⇧H then Enter**
+hops back and forth between two machines without your reading the list at all. The host strip stays as ambient status (connection
 dots, per-host attention counts) — glanceable without opening anything. Each host owns its own canvas: its terminals, splits,
 and focused tile are restored as you left them when you switch back. Switching
 away doesn't tear a host's work down; it keeps running on that host. If the active

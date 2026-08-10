@@ -47,7 +47,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-host-map",
-    text: "Set KOLU_PADI_HOST=localhost,you@box to work across machines — a host strip appears in the top bar; click a host to switch the whole canvas to it live (no reload), each tab carrying that machine's whole attention summary",
+    text: `Set KOLU_PADI_HOST=localhost,you@box to work across machines — a host strip appears in the top bar; click a host to switch the whole canvas to it live (no reload), each tab carrying that machine's whole attention summary, and ${formatKeybind(ACTIONS.openHostSwitcher.keybind)} then Enter hops back to the machine you came from`,
     doc: "remote-hosts",
   },
   {
