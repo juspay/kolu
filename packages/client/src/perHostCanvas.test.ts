@@ -110,7 +110,11 @@ vi.mock("./hostScope/activeWire", () => ({
 // signal-shaped pair honoring the passed `fallback`, so the test needs no real
 // `localStorage`. The three blocks below exercise only `activeId`/`mruOrder`, so
 // these prefs' values are never asserted.
-vi.mock("./persistedPref", () => {
+vi.mock("./persistedPref", async (importOriginal) => {
+  // Spread the real module and override only the PREF FACTORIES: the pure
+  // helpers beside them (parse/stamp/warn) are shared by consumers this test
+  // pulls in transitively, and a hand-listed mock silently loses each new one.
+  const actual = await importOriginal<typeof import("./persistedPref")>();
   const stub = <T>(fallback: T) => {
     let v = fallback;
     return [
@@ -121,6 +125,7 @@ vi.mock("./persistedPref", () => {
     ];
   };
   return {
+    ...actual,
     persistedPref: <T>(opts: { fallback: T }) => stub(opts.fallback),
     perHostBoolPref: (opts: { fallback: boolean }) => stub(opts.fallback),
     perHostPref: <T>(opts: { fallback: T }) => stub(opts.fallback),

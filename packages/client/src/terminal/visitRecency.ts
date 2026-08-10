@@ -21,7 +21,13 @@ import { Result, Schema } from "effect";
 import { TerminalIdSchema, type TerminalId } from "kolu-common/surface";
 import type { Accessor } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
-import { persistedPref } from "../persistedPref";
+import {
+  defaultInvalidWarning,
+  isSaneStamp,
+  monotonicStamp,
+  parseTolerantList,
+  persistedPref,
+} from "../persistedPref";
 
 /** Hard cap on the MRU — enough trail for Recent + Ctrl+Tab, bounded storage. */
 export const VISIT_MRU_CAP = 50;
@@ -29,13 +35,6 @@ export const VISIT_MRU_CAP = 50;
 /** zod's `safeParse` in Effect terms — a `Result`, so a corrupt persisted row is
  *  a BRANCH (drop the row) rather than a throw at read time. */
 const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
-
-/** Reject timestamps that would dominate ranking forever or predate the epoch. */
-const MIN_VISITED_AT = 0;
-/** 1 year past now at parse time — clock skew / corruption guard. */
-function maxAllowedVisitedAt(now: number = Date.now()): number {
-  return now + 365 * 24 * 60 * 60 * 1000;
-}
 
 export type VisitEntry = {
   /** Canonical host wire key (`encodeHostKey`). */
@@ -51,40 +50,35 @@ function isVisitEntry(v: unknown, now: number): v is VisitEntry {
     return false;
   if (typeof o.terminalId !== "string") return false;
   if (Result.isFailure(decodeTerminalId(o.terminalId))) return false;
-  if (typeof o.visitedAt !== "number" || !Number.isFinite(o.visitedAt))
-    return false;
-  if (o.visitedAt < MIN_VISITED_AT || o.visitedAt > maxAllowedVisitedAt(now))
-    return false;
+  if (!isSaneStamp(o.visitedAt, now)) return false;
   return true;
 }
 
 /**
  * Validate persisted JSON. Well-formed entries are kept; corrupt rows and
- * duplicates are dropped (tolerant array read). Throws only when the top-level
- * value is not an array, so {@link persistedPref} can fall back to [].
+ * duplicates are dropped — the shared {@link parseTolerantList} cassette, so the
+ * "how a persisted list degrades" policy is spelled once for both trails. Throws
+ * only when the top-level value is not an array, so {@link persistedPref} can
+ * fall back to [].
  */
 export function parseVisitList(
   raw: string,
   now: number = Date.now(),
 ): VisitEntry[] {
-  const data: unknown = JSON.parse(raw);
-  if (!Array.isArray(data)) {
-    throw new Error("visit recency: expected a JSON array");
-  }
-  const seen = new Set<string>();
-  const out: VisitEntry[] = [];
-  for (const item of data) {
-    if (!isVisitEntry(item, now)) continue;
-    const key = visitLiveKey(item.hostKey, item.terminalId);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
-      hostKey: item.hostKey,
-      terminalId: item.terminalId as TerminalId,
-      visitedAt: item.visitedAt,
-    });
-  }
-  return out.slice(0, VISIT_MRU_CAP);
+  return parseTolerantList<VisitEntry>(
+    raw,
+    "visit recency",
+    (item) =>
+      isVisitEntry(item, now)
+        ? {
+            hostKey: item.hostKey,
+            terminalId: item.terminalId,
+            visitedAt: item.visitedAt,
+          }
+        : undefined,
+    (e) => visitLiveKey(e.hostKey, e.terminalId),
+    VISIT_MRU_CAP,
+  );
 }
 
 /** Upsert one visit to the front of the MRU, dedupe by (hostKey, terminalId),
@@ -100,14 +94,7 @@ export function upsertVisit(
   const rest = prev.filter(
     (e) => !(e.hostKey === hostKey && e.terminalId === terminalId),
   );
-  const maxOther = rest.reduce(
-    (m, e) => Math.max(m, e.visitedAt),
-    Number.NEGATIVE_INFINITY,
-  );
-  const at =
-    Number.isFinite(maxOther) && visitedAt <= maxOther
-      ? maxOther + 1
-      : visitedAt;
+  const at = monotonicStamp(rest, visitedAt, (e) => e.visitedAt);
   const next: VisitEntry = { hostKey, terminalId, visitedAt: at };
   return [next, ...rest].slice(0, cap);
 }
@@ -247,11 +234,7 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
     fallback: [],
     parse: parseVisitList,
     serialize: (v) => JSON.stringify(v),
-    onInvalid: (err, raw) =>
-      console.warn(
-        `[visitRecency] ignoring invalid stored value: ${JSON.stringify(raw).slice(0, 200)} — falling back to []`,
-        err,
-      ),
+    onInvalid: defaultInvalidWarning(STORAGE_KEY, []),
   });
 
   function noteVisit(

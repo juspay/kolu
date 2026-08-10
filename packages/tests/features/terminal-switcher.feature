@@ -159,6 +159,23 @@ Feature: Terminal switcher (unified palette)
     And the header branch should contain "toggle-b-branch"
     And there should be no page errors
 
+  Scenario: Mod+Shift+K then Enter jumps to the previous terminal, never the active one
+    # Same default-highlight rule as ⌘K above, on the list that still CONTAINS
+    # the active tile: browse lists every terminal under its host header, so
+    # the highlight has to skip the one you are on or Enter is a no-op. The
+    # host switcher (⌘⇧H) rides this one rule too — unit-tested, since this
+    # harness is single-host.
+    When I run "rm -rf /tmp/kolu-browse-a && git init /tmp/kolu-browse-a && cd /tmp/kolu-browse-a && git checkout -b browse-a-branch"
+    And I create a terminal
+    And I run "rm -rf /tmp/kolu-browse-b && git init /tmp/kolu-browse-b && cd /tmp/kolu-browse-b && git checkout -b browse-b-branch"
+    # B is active. ⌘⇧K → Enter must land on A.
+    When I press the workspace switcher shortcut
+    Then the workspace switcher panel should be visible
+    When I press Enter
+    Then the workspace switcher panel should not be visible
+    And the header branch should contain "browse-a-branch"
+    And there should be no page errors
+
   Scenario: Mod+Shift+K shows host header with terminal rows without drilling
     # (2) ⌘⇧K auto-expands: local header + count, terminal rows beneath.
     Given I create a terminal
