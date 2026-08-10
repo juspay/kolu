@@ -23,6 +23,7 @@ import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import {
   type ImplementSurfaceDeps,
   inMemoryStore,
+  pollOnEvent,
   streamFromAbortableSource,
 } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
@@ -54,6 +55,15 @@ import type {
 import { padiFsGitDeps } from "./fsGitDeps.ts";
 import { createFinishQuiet, type FinishQuiet } from "./activity/finishQuiet.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import {
+  createSettleEvents,
+  type SettleEventSource,
+} from "./attention/settleEvents.ts";
+import { createSupervisionDelivery } from "./attention/supervisionDelivery.ts";
+import {
+  createWatchRegistry,
+  type WatchRegistry,
+} from "./attention/watchRegistry.ts";
 import {
   newTerminalPolicyStore,
   resolveNewTerminalTheme,
@@ -232,6 +242,33 @@ function disposeStandingFinishQuiet(): void {
   standingFinishQuiet = undefined;
 }
 
+/** The daemon-lifetime attention flow — the settle-event source and the standing
+ *  subscription registry it feeds. Held module-level for the same reason as the
+ *  finish tracker above: a `servePadi` rebuild in tests must dispose the prior
+ *  set of listeners rather than stack a second one on the same daemon. */
+interface StandingAttention {
+  settleEvents: SettleEventSource;
+  watchRegistry: WatchRegistry;
+  dispose: () => void;
+}
+let standingAttention: StandingAttention | undefined;
+function disposeStandingAttention(): void {
+  standingAttention?.dispose();
+  standingAttention = undefined;
+}
+
+/** The live registry, for the surface handlers. Throws before deps are built —
+ *  the same fail-fast posture as the late-bound surface ctx: a handler reaching
+ *  it early is a boot-order defect, never a case to degrade around. */
+function requireWatchRegistry(): WatchRegistry {
+  if (standingAttention === undefined) {
+    throw new Error(
+      "padi watch registry read before buildPadiSurfaceDeps — boot order defect",
+    );
+  }
+  return standingAttention.watchRegistry;
+}
+
 /** Assemble the FULL `padiSurface` server deps (minus `channel`). Every member
  *  gets a functional read/procedure/source handler AND a live write path (the padi
  *  ctx `surface.ts` registers drives the collection/cell publishes). The
@@ -267,6 +304,51 @@ export function buildPadiSurfaceDeps(deps: {
   disposeStandingFinishQuiet();
   const finish = createFinishQuiet({ log });
   standingFinishQuiet = finish;
+
+  // THE ATTENTION FLOW. One event source — "a terminal just started needing
+  // someone", derived from the SAME urgency level the Dock and the browser's
+  // alerts read — fanned out to two sinks, so the fact is computed once:
+  //
+  //   • the SUPERVISION EDGE: a settle on a terminal with a `parentId` is
+  //     delivered into that parent's mailbox, if the parent is an agent terminal.
+  //     Nothing arms this — dispatching a worker IS arming it — which is what
+  //     makes "a blocked worker nobody is listening for" unspellable.
+  //   • the STANDING SUBSCRIPTIONS: named, buffered queues for a supervisor that
+  //     has no terminal to be delivered into (an MCP-only agent).
+  //
+  // Disposed alongside the finish tracker so a servePadi rebuild in tests cannot
+  // stack two sets of listeners on one daemon.
+  disposeStandingAttention();
+  const settleEvents = createSettleEvents();
+  const watchRegistry = createWatchRegistry();
+  const supervision = createSupervisionDelivery({
+    // The SAME per-key read the `terminals` collection serves (`readOne`), so the
+    // record the guard narrows is byte-for-byte the record a client would see —
+    // never a second, registry-shaped view of "is this an agent terminal".
+    lookup: (id) => {
+      const entry = getTerminal(id);
+      return entry ? composePadiTerminal(entry) : undefined;
+    },
+    write: (id, data) => {
+      // The same quiet-drop as `lifecycle.sendInput`: a nudge landing just after
+      // the supervisor was killed is an expected race, not a failure (#1628).
+      getActiveTerminal(id)?.handle.write(data);
+    },
+    log,
+  });
+  const unsubscribeSettle = [
+    settleEvents.onEvent((event) => supervision.deliver(event)),
+    settleEvents.onEvent((event) => watchRegistry.accept(event)),
+  ];
+  standingAttention = {
+    settleEvents,
+    watchRegistry,
+    dispose: () => {
+      for (const off of unsubscribeSettle) off();
+      watchRegistry.dispose();
+      settleEvents.dispose();
+    },
+  };
 
   // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
   // moment a daemon's status changes — so a fresh daemon's readout reflects its
@@ -365,7 +447,20 @@ export function buildPadiSurfaceDeps(deps: {
       // and the finish generation (quiet-exit promote re-folds without an
       // agent-state change). Spec `equals` (`urgencyEqual`) is the ONE wire
       // dedup point. No `store`/`equals` here — the graph is the one writer.
-      urgency: derived.cell(($) => finish.project($.terminals())),
+      urgency: derived.cell(($) => {
+        const terminals = $.terminals();
+        const next = finish.project(terminals);
+        // The settle EDGE, taken where the LEVEL is computed — one fold, one
+        // arrival time, so a supervisor's nudge and the Dock's paint can never
+        // describe different worlds. Observing from inside a derivation is the
+        // latitude the reactor's DUAL EDGE note already grants this exact cell
+        // (`finish.project` writes the episode map and bumps its generation
+        // here), and it is safe for a second reason of its own: the transition is
+        // computed against the PREVIOUS frame, so a redundant recompute yields no
+        // candidates and emits nothing.
+        settleEvents.observe(next, terminals);
+        return next;
+      }),
       // The saved session — backed by padi's OWN state-root Conf, set by padi's
       // daemonMain at boot (`setPadiSessionStore`, see `confStores.ts`), read here
       // via `requirePadiSessionStore`. The
@@ -491,6 +586,25 @@ export function buildPadiSurfaceDeps(deps: {
       // `terminalAttach` bytes. The fs/git change-pulses are pure reuse of
       // `padiFsGitDeps(...).streams`.
       activity: createLiveActivitySource(log),
+      // The standing-subscription doorbell — pulse-then-requery, the same shape
+      // as the fs/git change pulses. It carries only a counter: the buffer behind
+      // `watch.drain` is the authority, so a pulse lost to a dropped stream costs
+      // the caller a wait, never an event.
+      watchPulse: {
+        source: (input: { name: string }) =>
+          streamFromAbortableSource<{ seq: number }>((signal) =>
+            (async function* watchPulses(): AsyncGenerator<{ seq: number }> {
+              const registry = requireWatchRegistry();
+              yield* pollOnEvent<{ seq: number }>({
+                read: async () => ({ seq: registry.pulseOf(input.name) }),
+                isEqual: (a, b) => a.seq === b.seq,
+                install: (onEvent) => registry.onPulse(input.name, onEvent),
+                signal,
+                onReadError: () => {},
+              });
+            })(),
+          ),
+      },
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on
@@ -536,6 +650,40 @@ export function buildPadiSurfaceDeps(deps: {
     },
 
     procedures: {
+      // Standing settle-event subscriptions. All three verbs are INSTANT — the
+      // waiting happens on the caller's side, parked on `watchPulse`, so no
+      // handler is held open for the minutes or hours a supervisor may idle
+      // between a worker's turns.
+      watch: {
+        open: ({ input }) =>
+          handle(() => {
+            const registry = requireWatchRegistry();
+            const reattached = registry.names().includes(input.name);
+            const sub = registry.open(input.name, input.ids);
+            log.info(
+              {
+                name: input.name,
+                reattached,
+                scope: input.ids === undefined ? "all" : input.ids.length,
+              },
+              reattached
+                ? "watch subscription re-attached"
+                : "watch subscription opened",
+            );
+            // A FRESH subscription starts at the daemon's CURRENT sequence, so it
+            // reports what happens next rather than replaying edges the
+            // supervisor already acted on. A re-attach keeps the cursor it had,
+            // which is what preserves the events it missed while away.
+            if (!reattached) {
+              sub.cursor = standingAttention?.settleEvents.lastSeq() ?? 0;
+            }
+            return { name: sub.name, cursor: sub.cursor, reattached };
+          }),
+        drain: ({ input }) =>
+          handle(() => requireWatchRegistry().drain(input.name)),
+        close: ({ input }) =>
+          handle(() => ({ closed: requireWatchRegistry().close(input.name) })),
+      },
       lifecycle: {
         create: ({ input }) =>
           handle(() => {

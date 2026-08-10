@@ -7,12 +7,12 @@
  *  calls `hooks.deliver` directly — so its only real coverage is the unit tests
  *  that drive `observe` with frames and assert the `deliver` calls. */
 
-import type { TerminalId } from "kolu-common/surface";
 import {
   type AttentionFrame,
   attentionTransitions,
-  nextUnseenFinished,
-} from "./attentionTransitions";
+  type TerminalId,
+} from "kolu-common/surface";
+import { nextUnseenFinished } from "./unseenFinished";
 
 export interface AttentionHooks {
   /** The master gate — the `attentionAlerts` preference. */

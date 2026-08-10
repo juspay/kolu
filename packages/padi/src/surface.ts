@@ -102,6 +102,7 @@ import {
   ScratchWriteRejected,
   TerminalNotFound,
   TerminalParentCycle,
+  WatchSubscriptionNotFound,
   TranscriptNoAgent,
   TranscriptNotFound,
   WorktreeCreateErrorSchema,
@@ -866,6 +867,93 @@ export const PadiSendInputSchema = Schema.Struct({
   data: Schema.String,
 });
 
+// ── Standing settle-event subscriptions (`watch.*`) ───────────────────────
+//
+// A supervisor that is itself a kolu terminal needs none of this: padi delivers
+// into its mailbox along the `parentId` edge. These verbs are for a supervisor
+// that has NO terminal — a coding agent holding only an MCP connection — which
+// the edge therefore cannot reach.
+//
+// The shape is padi's existing PULSE-THEN-REQUERY idiom (`subscribeRepoChange`):
+// instant request/response verbs carry the data, and a stream carries only a
+// doorbell. It is deliberately not a blocking `next` procedure — the buffer is
+// authoritative and server-side, so a MISSED pulse costs a wait, never an event.
+
+/** A settle edge on the wire — "this terminal just started needing someone".
+ *  Thin on purpose: the recipient reads the terminal's screen itself, so it acts
+ *  on current output rather than a copy that aged in the queue. */
+export const PadiSettleEventSchema = Schema.Struct({
+  /** Monotonic per-daemon sequence — the drain cursor. */
+  seq: PositiveInt,
+  id: TerminalIdSchema,
+  /** `asking` — the agent is blocked on a person (`awaiting_user`), reported
+   *  immediately. `finished` — its turn ended AND its output then went quiet for
+   *  padi's effective-finish window; that conjunction is what keeps a background
+   *  sub-agent's churn from reading as "done". */
+  kind: Schema.Literals(["asking", "finished"]),
+  /** ms epoch, stamped by padi when the edge was detected. */
+  at: PositiveInt,
+  /** The supervision edge — who spawned this terminal. Absent for a root. */
+  parentId: Schema.optionalKey(TerminalIdSchema),
+  /** The terminal's intent annotation, when it carries one. */
+  intent: Schema.optionalKey(Schema.String),
+});
+export type PadiSettleEvent = typeof PadiSettleEventSchema.Type;
+
+/** A subscription NAME — caller-chosen and stable across restarts, which is the
+ *  point: re-opening the same name after the agent, the MCP process, or kaval
+ *  restarted reattaches to the same queue instead of minting an empty one. */
+const WatchNameSchema = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(128),
+);
+
+export const PadiWatchOpenInputSchema = Schema.Struct({
+  name: WatchNameSchema,
+  /** Terminals to watch. OMIT to watch every terminal on the host — the
+   *  restart-proof choice, since it names no id that a respawn could invalidate.
+   *  An empty array is REFUSED at the SCHEMA rather than treated as "all": a
+   *  subscription that can never match would look identical to a quiet workspace,
+   *  so the wire makes it unspellable instead of leaving it to a runtime guard. */
+  ids: Schema.optionalKey(
+    Schema.Array(TerminalIdSchema).check(Schema.isNonEmpty()),
+  ),
+});
+
+export const PadiWatchOpenOutputSchema = Schema.Struct({
+  name: Schema.String,
+  /** Sequence already handed out — a fresh subscription starts at the daemon's
+   *  current sequence, so it reports what happens NEXT rather than replaying
+   *  history the supervisor has already acted on. */
+  cursor: NonNegativeInt,
+  /** True when this name already existed and its buffer was preserved. */
+  reattached: Schema.Boolean,
+});
+
+export const PadiWatchNameInputSchema = Schema.Struct({
+  name: WatchNameSchema,
+});
+
+export const PadiWatchDrainOutputSchema = Schema.Struct({
+  events: Schema.Array(PadiSettleEventSchema),
+  /** Events lost to buffer overflow before this drain. NONZERO means the delta is
+   *  incomplete and the caller should reconcile against the `terminals`
+   *  collection — reported rather than silently truncated, because a silent
+   *  truncation reads exactly like a quiet workspace. */
+  dropped: NonNegativeInt,
+  cursor: NonNegativeInt,
+});
+
+export const PadiWatchCloseOutputSchema = Schema.Struct({
+  closed: Schema.Boolean,
+});
+
+/** The doorbell frame — no event data, just a distinguisher, exactly like
+ *  `subscribeRepoChange`. The caller requeries with `watch.drain`. */
+export const PadiWatchPulseSchema = Schema.Struct({
+  seq: NonNegativeInt,
+});
+
 export const PadiSetThemeInputSchema = Schema.Struct({
   id: TerminalIdSchema,
   themeName: Schema.String.check(Schema.isMinLength(1)),
@@ -1272,6 +1360,15 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       inputSchema: Schema.Struct({}),
       outputSchema: Schema.Array(TerminalIdSchema),
     },
+    /** The standing-subscription doorbell — pulses when the named subscription
+     *  gains settle events. Value-bearing pulse-then-requery, the same shape as
+     *  `subscribeRepoChange`: no event data rides the pulse, the caller requeries
+     *  with `watch.drain`. Losing a pulse therefore costs a wait, never an event —
+     *  the buffer behind `drain` is the authority. */
+    watchPulse: {
+      inputSchema: PadiWatchNameInputSchema,
+      outputSchema: PadiWatchPulseSchema,
+    },
     /** Live change-pulses for a repo's working tree + git dir. Value-bearing
      *  pulse-then-requery: a `{seq}` distinguisher, no fs/git data on the pulse. */
     subscribeRepoChange: {
@@ -1336,6 +1433,26 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     },
   },
   procedures: {
+    /** Standing settle-event subscriptions — open · drain · close. See the
+     *  schema block above for why these are instant verbs beside a pulse stream
+     *  rather than one blocking `next`. */
+    watch: {
+      open: {
+        input: PadiWatchOpenInputSchema,
+        output: PadiWatchOpenOutputSchema,
+      },
+      /** Take everything buffered since the last drain. Never blocks: a caller
+       *  that wants to WAIT parks on `watchPulse` and re-drains. */
+      drain: {
+        input: PadiWatchNameInputSchema,
+        output: PadiWatchDrainOutputSchema,
+        error: WatchSubscriptionNotFound,
+      },
+      close: {
+        input: PadiWatchNameInputSchema,
+        output: PadiWatchCloseOutputSchema,
+      },
+    },
     /** Terminal lifecycle — create · kill · killAll · sleep · wake ·
      *  discardSleeping · resize · sendInput · recycleKaval. */
     lifecycle: {
@@ -1600,6 +1717,9 @@ export const PADI_FORWARDING_POLICY = {
   daemonStatus: "value",
   // streams — `activity` + `terminalAttach` are the ONLY delta members
   activity: "delta",
+  // A doorbell carries no accumulated state — each pulse stands alone and the
+  // caller requeries, so it forwards as a value like the other pulse streams.
+  watchPulse: "value",
   subscribeRepoChange: "value",
   subscribeFileChange: "value",
   terminalAttach: "delta",
@@ -1614,6 +1734,7 @@ export const PADI_FORWARDING_POLICY = {
   scratch: "value",
   preview: "value",
   transcript: "value",
+  watch: "value",
   // `session` is a cell (get/set) AND a procedure namespace (restore/import),
   // merged onto one wire node — this single entry annotates the merged member.
   session: "value",

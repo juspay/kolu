@@ -76,6 +76,30 @@ export class TerminalParentCycle extends Schema.TaggedError<TerminalParentCycle>
   }
 }
 
+// ── Standing settle-event subscriptions ───────────────────────────────────
+
+/** A `watch.drain` against a name nobody opened.
+ *
+ *  DECLARED rather than answered with an empty result, and that is the whole
+ *  point of the class: "no subscription" and "no events yet" are the two states a
+ *  supervisor must never confuse. Returning `{events: []}` for an unopened name
+ *  would let an agent that typo'd its subscription name — or that assumed a
+ *  subscription surviving something that did not survive — sit in a drain loop
+ *  reading silence as calm. The known names ride as data so the answer to "then
+ *  what AM I subscribed to" is in the failure itself. */
+export class WatchSubscriptionNotFound extends Schema.TaggedError<WatchSubscriptionNotFound>(
+  "padi/WatchSubscriptionNotFound",
+)("WatchSubscriptionNotFound", {
+  name: Schema.String,
+  /** Every subscription this padi currently holds. */
+  known: Schema.Array(Schema.String),
+}) {
+  override get message(): string {
+    const known = this.known.length === 0 ? "none" : this.known.join(", ");
+    return `No standing subscription named "${this.name}" — open one first (known: ${known})`;
+  }
+}
+
 // ── Byte writes / reads ───────────────────────────────────────────────────
 
 /** A scratch write the host REFUSES — a disallowed extension or an oversized
@@ -249,6 +273,7 @@ export const WorktreeCreateErrorSchema = Schema.Union([
 const PADI_ERROR_CLASSES = [
   TerminalNotFound,
   TerminalParentCycle,
+  WatchSubscriptionNotFound,
   ScratchWriteRejected,
   PreviewTooLarge,
   TranscriptNoAgent,
