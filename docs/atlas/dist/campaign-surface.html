@@ -217,8 +217,8 @@ and observed:</p>
 </tr>
 <tr>
 <td><strong>the attention flow — a blocking ask can’t exist without a listener</strong></td>
-<td>padi delivers <code>[kolu] worker &lt;id&gt; (&lt;intent&gt;) needs you</code> into the SUPERVISOR terminal’s mailbox (the <code>parentId</code>/creator edge names it; kaval’s serialized input is the transport), fired only when <strong>agent-state is <code>awaiting</code>/<code>waiting</code> AND raw PTY output settled ≥ N s</strong> (the conjunction — agent-idle alone false-fires on subagent/background churn). Only agent-terminal supervisors are notified, never a human shell.</td>
-<td><em>new, small — both signals shipped (<code>wait_agentState</code> + <code>wait_outputSettled</code>); the edge and the mailbox exist</em></td>
+<td>padi delivers <code>[kolu] Worker terminal &lt;id&gt; (&lt;intent&gt;) …</code> into the SUPERVISOR terminal’s mailbox (the <code>parentId</code> edge names it; kaval’s serialized input is the transport), on the attention EDGE. Only agent-terminal supervisors are notified, never a human shell. Plus standing named subscriptions (<code>watch_*</code>) for a supervisor with no terminal.</td>
+<td><strong>shipped — <a href="https://github.com/juspay/kolu/pull/2135">#2135</a></strong></td>
 </tr>
 <tr>
 <td>the chat mirror</td>
@@ -255,15 +255,26 @@ because the edge is the subscription</strong> (P5: padi is the knowing endpoint 
 “who needs whom”; delivery rides the one door).</p>
 <p>The signal must be the <strong>conjunction</strong>, not agent-state alone: a coding
 agent’s subagents and background tasks flap its detected state to idle while
-the terminal is still working. Fire only when <em>agent-state is <code>awaiting</code>/<code>waiting</code></em> <strong>and</strong> <em>raw PTY output has settled</em> for a debounce window —
-both already shipped as <code>wait_agentState</code> and <code>wait_outputSettled</code>
-(“terminal-activity idle”, distinct from agent-state idle). Guard: notify only
-supervisors that are themselves agent terminals — never inject into a human’s
-shell.</p>
-<p><em>Interim, until this ships:</em> every dispatch carrying an “ask me” gate arms
-<code>wait --until idle:&lt;ms&gt;</code> (the same conjunction) as a background task in the
-same turn — the harness re-invokes the coordinator when it fires. The ask and
-its listener created together, never apart.</p>
+the terminal is still working. Guard: notify only supervisors that are
+themselves agent terminals — never inject into a human’s shell.</p>
+<p><strong>Shipped in <a href="https://github.com/juspay/kolu/pull/2135">#2135</a>, and it needed
+less than this note assumed.</strong> The conjunction was already computed — padi’s
+<a href="effective-finish.html">effective finish (EF2)</a> is exactly <em>agent-state
+<code>waiting</code> ∧ PTY output quiet</em>, and it is what the <code>urgency</code> cell’s
+<code>finishedIds</code> has always meant. So the delivery reads that shipped fact rather
+than re-conjoining two wait tools. One correction to the design above: <code>asking</code>
+(<code>awaiting_user</code>) is delivered <strong>ungated</strong>, because an agent that declares it is
+blocked is definitionally not mid-output; the quiet window only ever guarded
+turn-END, which is where the subagent flap actually lives. Kolu’s shipped
+<code>attentionClass</code> partition already drew that line, and this rides it.</p>
+<p>What is genuinely new is the <strong>edge</strong>: the <code>urgency</code> cell is a level (who is in
+each class now) and a notification needs a transition (who just entered one).
+That diff graduated to <code>@kolu/terminal-vocab/attentionTransitions</code> from the
+browser’s own alert engine, so a human at the canvas and a supervising agent in
+a PTY fire on ONE definition rather than two that agree by luck.</p>
+<p>A departure (<code>kind: &quot;gone&quot;</code>) rides the same channel: a supervisor blocked on a
+worker that no longer exists is the same failure as one blocked on a worker
+nobody reported.</p>
 <h2 id="the-board--a-third-right-panel-tab-shaped-like-the-graph">The Board — a third right-panel tab, shaped like the graph</h2>
 <p>The right panel today has two tabs (<code>inspector</code> | <code>code</code>). The Board is the
 third: the repo’s supervision graph, live.</p>

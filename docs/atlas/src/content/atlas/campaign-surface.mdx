@@ -134,7 +134,7 @@ and observed:
 | note rendering | `@kolu/solid-markdown` + standard marked extensions (alerts + footnotes **shipped**; add: live `#1234` pills via the server's forge access, directive syntax, the `html` fence → the existing sandboxed preview iframe) | *P0, small* |
 | durable knowledge | plain files in git — no new store, no schema | **shipped** (it's a filesystem) |
 | reset-to-stable (let it crash) | the agent CLI's own compaction / a fresh terminal | **shipped** — nothing to build |
-| **the attention flow — a blocking ask can't exist without a listener** | padi delivers `[kolu] worker <id> (<intent>) needs you` into the SUPERVISOR terminal's mailbox (the `parentId`/creator edge names it; kaval's serialized input is the transport), fired only when **agent-state is `awaiting`/`waiting` AND raw PTY output settled ≥ N s** (the conjunction — agent-idle alone false-fires on subagent/background churn). Only agent-terminal supervisors are notified, never a human shell. | *new, small — both signals shipped (`wait_agentState` + `wait_outputSettled`); the edge and the mailbox exist* |
+| **the attention flow — a blocking ask can't exist without a listener** | padi delivers `[kolu] Worker terminal <id> (<intent>) …` into the SUPERVISOR terminal's mailbox (the `parentId` edge names it; kaval's serialized input is the transport), on the attention EDGE. Only agent-terminal supervisors are notified, never a human shell. Plus standing named subscriptions (`watch_*`) for a supervisor with no terminal. | **shipped — [#2135](https://github.com/juspay/kolu/pull/2135)** |
 | the chat mirror | pesu: `postMessage` out, `sendInput` in — the chat-native note's bridge | *P3, per that note* |
 
 Read the Status column's shape: **most rows are shipped.** The feature is
@@ -170,16 +170,29 @@ because the edge is the subscription** (P5: padi is the knowing endpoint for
 
 The signal must be the **conjunction**, not agent-state alone: a coding
 agent's subagents and background tasks flap its detected state to idle while
-the terminal is still working. Fire only when *agent-state is `awaiting`/`waiting`* **and** *raw PTY output has settled* for a debounce window —
-both already shipped as `wait_agentState` and `wait_outputSettled`
-("terminal-activity idle", distinct from agent-state idle). Guard: notify only
-supervisors that are themselves agent terminals — never inject into a human's
-shell.
+the terminal is still working. Guard: notify only supervisors that are
+themselves agent terminals — never inject into a human's shell.
 
-*Interim, until this ships:* every dispatch carrying an "ask me" gate arms
-`wait --until idle:<ms>` (the same conjunction) as a background task in the
-same turn — the harness re-invokes the coordinator when it fires. The ask and
-its listener created together, never apart.
+**Shipped in [#2135](https://github.com/juspay/kolu/pull/2135), and it needed
+less than this note assumed.** The conjunction was already computed — padi's
+[effective finish (EF2)](effective-finish.html) is exactly *agent-state
+`waiting` ∧ PTY output quiet*, and it is what the `urgency` cell's
+`finishedIds` has always meant. So the delivery reads that shipped fact rather
+than re-conjoining two wait tools. One correction to the design above: `asking`
+(`awaiting_user`) is delivered **ungated**, because an agent that declares it is
+blocked is definitionally not mid-output; the quiet window only ever guarded
+turn-END, which is where the subagent flap actually lives. Kolu's shipped
+`attentionClass` partition already drew that line, and this rides it.
+
+What is genuinely new is the **edge**: the `urgency` cell is a level (who is in
+each class now) and a notification needs a transition (who just entered one).
+That diff graduated to `@kolu/terminal-vocab/attentionTransitions` from the
+browser's own alert engine, so a human at the canvas and a supervising agent in
+a PTY fire on ONE definition rather than two that agree by luck.
+
+A departure (`kind: "gone"`) rides the same channel: a supervisor blocked on a
+worker that no longer exists is the same failure as one blocked on a worker
+nobody reported.
 
 ## The Board — a third right-panel tab, shaped like the graph
 
