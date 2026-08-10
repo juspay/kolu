@@ -275,7 +275,6 @@ const CommandPalette: Component<{
     for (const g of p.slice(valid.length)) g.onCancel?.();
     setPath(valid);
     setQuery("");
-    resetSelection();
   });
 
   /** Items at the current navigation level (may include hints).
@@ -465,20 +464,6 @@ const CommandPalette: Component<{
     });
   });
 
-  /** Land the highlight for a freshly-painted list — every open, drill-in,
-   *  drill-out and path repair funnels here instead of assuming row 0. A typed
-   *  query means "top match"; a query-less switcher lands on the previous visit
-   *  ({@link defaultSelectionIndex}), which is what makes ⌘K → Enter and
-   *  ⌘⇧H → Enter toggle between the last two. Call it AFTER `path`/`query` are
-   *  written — it reads the list those produce. */
-  function resetSelection() {
-    setSelectedIndex(
-      query().trim().length > 0
-        ? 0
-        : defaultSelectionIndex(filtered(), currentSelection()),
-    );
-  }
-
   /** Breadcrumb labels — path names, plus a virtual host segment when a
    *  Terminals search highlight lands on a terminal (so the path reads
    *  Commands › Terminals › zest without a real host drill). */
@@ -590,7 +575,6 @@ const CommandPalette: Component<{
     setPath((p) => [...p, cmd]);
     if (cmd.kind === "value") setQuery(cmd.prefill());
     else setQuery("");
-    resetSelection();
     // Drill-ins always re-focus the input — Enter / click on a drillable
     // row may have left focus on the row's div (click steals focus from
     // the input, Enter on a div option doesn't restore it), so the user
@@ -621,7 +605,6 @@ const CommandPalette: Component<{
     for (const g of p.slice(depth)) g.onCancel?.();
     setPath(p.slice(0, depth));
     setQuery("");
-    resetSelection();
   }
 
   /** From Terminals browse, drill into a named host group (breadcrumb or
@@ -640,7 +623,6 @@ const CommandPalette: Component<{
     if (!hostGroup) return;
     setPath([terminals, hostGroup]);
     setQuery("");
-    resetSelection();
     requestAnimationFrame(() => inputRef.focus());
   }
 
@@ -662,7 +644,6 @@ const CommandPalette: Component<{
     }
     setPath(built);
     setQuery("");
-    resetSelection();
     const leaf = built.at(-1);
     requestAnimationFrame(() =>
       leaf?.kind === "value" ? inputRef.select() : inputRef.focus(),
@@ -783,16 +764,14 @@ const CommandPalette: Component<{
           if (names.length > 0) {
             // Exact path only — no prefix fallback (a missing host must not
             // open the broader Terminals list as if the deep-link succeeded).
-            // A rejected path leaves the root list showing, so it lands the
-            // highlight itself (`applyInitialPath` only does so on success).
+            // A rejected path leaves the root list showing; the highlight
+            // effect below lands on whichever path this run settles at.
             if (!applyInitialPath(names)) {
-              resetSelection();
               requestAnimationFrame(() =>
                 requestAnimationFrame(() => inputRef.focus()),
               );
             }
           } else {
-            resetSelection();
             // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
             // only fires on first mount. Re-focus explicitly on every root open.
             // When a path is set, applyInitialPath is the sole focus owner —
@@ -819,20 +798,35 @@ const CommandPalette: Component<{
     ),
   );
 
-  // Reset selection when the user types (defer: skip initial run).
-  // Intentionally tracks `query`, not `filtered` — filtered returns a new array
-  // reference on every recomputation, so tracking it would reset the index whenever
-  // upstream data (commands memo) recomputes in the background.
+  // THE default-highlight rule, applied reactively: whenever the SCOPE changes
+  // (open, drill-in, drill-out, path repair, deep-link, typed query) the list is
+  // freshly painted and the highlight re-lands. One rule, zero call sites — a
+  // future `setPath` cannot forget to follow it up, and reading `filtered()`
+  // here is guaranteed post-write rather than relying on read-after-write
+  // ordering at eight hand-held sites.
+  //
+  // Registered AFTER the open/close lifecycle effect above so it observes the
+  // FINAL `path` of an `applyInitialPath` run, not the intermediate one.
+  //
+  // Intentionally keyed on `path`/`query`/`open`, not on `filtered` — filtered
+  // returns a new array reference on every recomputation, so tracking it would
+  // reset the index whenever upstream data (the commands memo) recomputes in
+  // the background.
   createEffect(
-    on(
-      query,
-      () => {
-        // Skip in value mode: query is a value, not a filter.
-        if (mode().kind === "value") return;
-        resetSelection();
-      },
-      { defer: true },
-    ),
+    on([path, query, () => props.open], ([p, , open], prev) => {
+      if (!open) return;
+      // Value mode: the query is a VALUE being typed, not a filter, so a
+      // keystroke must not move the highlight off the label the user picked.
+      // A SCOPE change (drill in, drill out, reopen) still re-lands it — which
+      // is why the skip is scoped to "only the query moved" rather than to the
+      // mode alone.
+      const onlyQueryMoved =
+        prev !== undefined && prev[0] === p && prev[2] === open;
+      if (mode().kind === "value" && onlyQueryMoved) return;
+      setSelectedIndex(
+        defaultSelectionIndex(filtered(), currentSelection(), query()),
+      );
+    }),
   );
 
   // Keep selectedIndex in range when the live list shrinks (terminal exit,
@@ -872,7 +866,7 @@ const CommandPalette: Component<{
   // Auto-scroll the highlighted row into view. One effect outside <For>:
   // the per-row JSX sets data-selected on the matching row; this effect
   // queries it. Tracks `selectedIndex` and `props.open`, which together cover
-  // every way a fresh list lands its highlight (`resetSelection`) — including
+  // every way a fresh list lands its highlight (the effect above) — including
   // an open whose default row is not the first one — so there is no need to
   // re-scroll on `filtered()` reference churn.
   createEffect(() => {

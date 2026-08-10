@@ -1,6 +1,6 @@
 /** ⌘⇧H end to end, minus the DOM: the REAL host rows (`hostRootActions`) fed
  *  to the REAL default-highlight rule (`defaultSelectionIndex`), driven by the
- *  REAL trail (`useHostRecency` observing the active-host pref).
+ *  REAL trail (`hostRecency` observing the active-host pref).
  *
  *  The two halves are unit-tested apart (`host/hostRecency.test.ts`,
  *  `palette/rootIndex.test.ts`); this pins the JOIN, which is where the feature
@@ -9,24 +9,11 @@
  *  ⌘⇧H back on row 1. The e2e harness is single-host, so this is the only
  *  automated place the host switcher's toggle can be exercised at all. */
 
-import type { HostKey } from "kolu-common/hostKey";
-import { describe, expect, it, vi } from "vitest";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { defaultSelectionIndex } from "./rootIndex";
 
 const bag = vi.hoisted(() => ({ setActive: (_h: HostKey) => {} }));
-
-vi.mock("../wire", async () => {
-  const { createSignal } = await import("solid-js");
-  const [active, setActive] = createSignal<HostKey>({ kind: "local" });
-  bag.setActive = (h: HostKey) => setActive(h);
-  return {
-    activeHost: active,
-    // Every pool host reads connected — the row's status text, not the rank.
-    padiMap: { entry: () => ({ state: () => ({ kind: "connected" }) }) },
-  };
-});
-
-import { hostRootActions } from "./fleetActions";
-import { defaultSelectionIndex } from "./rootIndex";
 
 const LOCAL: HostKey = { kind: "local" };
 const GPU: HostKey = { kind: "remote", target: "gpu-box" };
@@ -35,16 +22,57 @@ const BUILDER: HostKey = { kind: "remote", target: "builder" };
 // the visit order, so a test that passes by accident of position can't.
 const POOL = [LOCAL, GPU, BUILDER];
 
-const enc = (h: HostKey): string =>
-  h.kind === "local" ? "local" : `remote:${h.target}`;
+type FleetActions = typeof import("./fleetActions");
+let hostRootActions: FleetActions["hostRootActions"];
+let hostRankScore: FleetActions["hostRankScore"];
+
+// A FRESH trail per case, without giving up the real composition: reset the
+// module registry so `hostRecency`'s app-lifetime root is rebuilt, wipe the tab
+// storage it reads, and re-register the `../wire` stand-in. The mock is a
+// `doMock` inside the reset, not a hoisted `vi.mock`: a hoisted factory's result
+// is cached across `resetModules`, so its `activeHost` signal would belong to
+// the PREVIOUS `solid-js` instance and the rebuilt trail's effect would never
+// track it — the trail would record its boot host and nothing after.
+beforeEach(async () => {
+  sessionStorage.clear();
+  vi.resetModules();
+  vi.doMock("../wire", async () => {
+    const { createSignal } = await import("solid-js");
+    const [active, setActive] = createSignal<HostKey>({ kind: "local" });
+    bag.setActive = (h: HostKey) => setActive(h);
+    return {
+      activeHost: active,
+      // Every pool host reads connected — the row's status text, not the rank.
+      padiMap: { entry: () => ({ state: () => ({ kind: "connected" }) }) },
+    };
+  });
+  ({ hostRootActions, hostRankScore } = await import("./fleetActions"));
+});
 
 /** The row ⌘⇧H would activate on Enter, given who is active now. */
 function landsOn(active: HostKey, pool: HostKey[] = POOL): string | undefined {
   const rows = hostRootActions(pool, active, () => {});
   return rows[
-    defaultSelectionIndex(rows, { hostKey: enc(active), terminalId: null })
+    defaultSelectionIndex(
+      rows,
+      { hostKey: encodeHostKey(active), terminalId: null },
+      "",
+    )
   ]?.name;
 }
+
+describe("hostRankScore", () => {
+  it("ranks by the trail's stamp, and a never-seen host at 0", () => {
+    const trail = [
+      { hostKey: "remote:gpu-box", switchedAt: 300 },
+      { hostKey: "local", switchedAt: 200 },
+    ];
+    expect(hostRankScore(trail, "remote:gpu-box")).toBeGreaterThan(
+      hostRankScore(trail, "local"),
+    );
+    expect(hostRankScore(trail, "remote:never-seen")).toBe(0);
+  });
+});
 
 describe("⌘⇧H default highlight", () => {
   it("lands on the host you came from, so Enter toggles the last two", () => {
@@ -68,8 +96,6 @@ describe("⌘⇧H default highlight", () => {
   });
 
   it("ranks by the trail, not by pool position — a never-seen host loses", () => {
-    // The trail is shared across this file's cases, so this one states the
-    // switches it depends on rather than assuming a clean slate.
     bag.setActive(BUILDER);
     bag.setActive(LOCAL);
     const NEVER: HostKey = { kind: "remote", target: "never-seen" };

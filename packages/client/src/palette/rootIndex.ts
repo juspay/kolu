@@ -60,9 +60,8 @@ export type IndexableItem = {
     searchText?: string;
     /** Display age (activity clock). Not used for root sort when rankAt set. */
     recencyAt?: number | null;
-    /** Recency rank — max(visit, activity) for terminals, the host-switch MRU
-     *  ordinal for hosts. Higher = more recent. Missing → 0. Only ever
-     *  compared within one kind (the units differ). */
+    /** Recency rank in milliseconds — max(visit, activity) for terminals, the
+     *  host-switch stamp for hosts. Higher = more recent. Missing → 0. */
     rankAt?: number | null;
     /** Host + id — present on fleet terminal rows for Recent exclusion. */
     hostKey?: string | HostKey;
@@ -171,38 +170,39 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
   });
 }
 
-/** THE default-highlight rule — one policy behind every switcher chord, so a
- *  "press the chord, press Enter" toggle works the same for terminals (⌘K) and
- *  hosts (⌘⇧H): **the most-recently-visited row of the leading kind that isn't
- *  the row you are already on.**
+/** THE default-highlight rule — the WHOLE rule, one policy behind every
+ *  switcher chord, so a "press the chord, press Enter" toggle works the same for
+ *  terminals (⌘K) and hosts (⌘⇧H): with a query typed the top match wins
+ *  (recency has nothing to say); with no query, **the most-recently-visited row
+ *  of the leading kind that isn't the row you are already on.**
  *
- *  "Leading kind" is the kind of the first row, which is what the list is a
- *  switcher FOR: terminals lead the root index (`kindRank`), host rows are all
- *  the Hosts group holds, and a command group leads with commands. Confining
- *  the search to that kind is also what lets the two trails keep their own
- *  units — a terminal's `rankAt` is a wall clock, a host's is a small MRU
- *  ordinal (`hostRecency.hostVisitRank`), and they are never compared.
+ *  "Leading kind" is whatever `kindRank` put first — this policy is defined only
+ *  on a list {@link filterAndRankPaletteItems} has already ordered; the
+ *  composition is pinned by `rootIndex.test.ts` → "takes its leading kind from
+ *  the ranker". Confining the search to that kind carries exactly ONE meaning:
+ *  a ⌘K list is a *terminal* switcher (host rows are all the Hosts group holds,
+ *  a command group leads with commands), so the highlight never wanders into a
+ *  neighbouring band. Both trails stamp `rankAt` in milliseconds, so there is no
+ *  unit to keep apart.
  *
  *  Rows without a rank all tie at 0, so a plain command list keeps landing on
- *  its first row. Only ever called for a query-LESS list: with a query typed,
- *  the top match wins and recency has nothing to say. */
+ *  its first row. */
 export function defaultSelectionIndex(
   items: readonly IndexableItem[],
   current: CurrentSelection,
+  query: string,
 ): number {
+  if (query.trim().length > 0) return 0;
   const lead = items[0];
   if (lead === undefined) return 0;
   const kind = itemKind(lead);
-  let best = -1;
-  let bestRank = 0;
-  items.forEach((item, i) => {
-    if (itemKind(item) !== kind) return;
-    if (isCurrentRow(item, current)) return;
-    const rank = rankOf(item);
-    if (best === -1 || rank > bestRank) {
-      best = i;
-      bestRank = rank;
-    }
-  });
-  return best === -1 ? 0 : best;
+  const best = items.reduce<{ i: number; rank: number } | null>(
+    (acc, item, i) => {
+      if (itemKind(item) !== kind || isCurrentRow(item, current)) return acc;
+      const rank = rankOf(item);
+      return acc === null || rank > acc.rank ? { i, rank } : acc;
+    },
+    null,
+  );
+  return best?.i ?? 0;
 }

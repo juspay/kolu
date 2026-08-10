@@ -274,11 +274,25 @@ describe("defaultSelectionIndex", () => {
       { name: "New terminal" },
       { name: "Set theme" },
     ];
-    expect(defaultSelectionIndex(cmds, onHost("local"))).toBe(0);
+    expect(defaultSelectionIndex(cmds, onHost("local"), "")).toBe(0);
   });
 
   it("returns 0 for an empty list", () => {
-    expect(defaultSelectionIndex([], onHost("local"))).toBe(0);
+    expect(defaultSelectionIndex([], onHost("local"), "")).toBe(0);
+  });
+
+  // The typed-query clause is half the rule the user experiences, and it lives
+  // HERE, not at the call site: the module owns "where does the highlight land"
+  // whole, so a caller cannot hold half of it.
+  it("lands on the top match whenever a query is typed", () => {
+    const rows: IndexableItem[] = [
+      item("gpu-box", "host", { rankAt: 10, hostKey: "remote:gpu-box" }),
+      item("builder", "host", { rankAt: 900, hostKey: "remote:builder" }),
+    ];
+    // Recency would pick row 1; a typed query means the ranker's top match wins.
+    expect(defaultSelectionIndex(rows, onHost("local"), "b")).toBe(0);
+    // Whitespace is not a query.
+    expect(defaultSelectionIndex(rows, onHost("local"), "  ")).toBe(1);
   });
 
   // ⌘K root: the active tile is already dropped from Recent upstream, so the
@@ -302,6 +316,7 @@ describe("defaultSelectionIndex", () => {
       defaultSelectionIndex(
         rows,
         onLocalTerminal("cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
+        "",
       ),
     ).toBe(0);
   });
@@ -326,7 +341,7 @@ describe("defaultSelectionIndex", () => {
         terminalId: "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee",
       }),
     ];
-    expect(defaultSelectionIndex(rows, onLocalTerminal(TID_A))).toBe(2);
+    expect(defaultSelectionIndex(rows, onLocalTerminal(TID_A), "")).toBe(2);
   });
 
   // ⌘⇧H: membership order, MRU in rankAt. Enter therefore toggles back.
@@ -336,7 +351,7 @@ describe("defaultSelectionIndex", () => {
       item("gpu-box", "host", { rankAt: 3, hostKey: "remote:gpu-box" }),
       item("builder", "host", { rankAt: 2, hostKey: "remote:builder" }),
     ];
-    expect(defaultSelectionIndex(hosts, onHost("remote:gpu-box"))).toBe(2);
+    expect(defaultSelectionIndex(hosts, onHost("remote:gpu-box"), "")).toBe(2);
   });
 
   it("falls back to the first host when the trail has never seen the others", () => {
@@ -345,14 +360,14 @@ describe("defaultSelectionIndex", () => {
       item("gpu-box", "host", { rankAt: 0, hostKey: "remote:gpu-box" }),
       item("builder", "host", { rankAt: 0, hostKey: "remote:builder" }),
     ];
-    expect(defaultSelectionIndex(hosts, onHost("local"))).toBe(1);
+    expect(defaultSelectionIndex(hosts, onHost("local"), "")).toBe(1);
   });
 
   it("keeps the highlight on the sole row when every other row is the current one", () => {
     const hosts: IndexableItem[] = [
       item("local", "host", { rankAt: 5, hostKey: "local" }),
     ];
-    expect(defaultSelectionIndex(hosts, onHost("local"))).toBe(0);
+    expect(defaultSelectionIndex(hosts, onHost("local"), "")).toBe(0);
   });
 
   // The root list leads with hosts exactly when Recent is empty — one terminal
@@ -368,12 +383,14 @@ describe("defaultSelectionIndex", () => {
       item("builder", "host", { rankAt: 2, hostKey: "remote:builder" }),
       item("Toggle dock", "command"),
     ];
-    expect(defaultSelectionIndex(rows, onHost("local"))).toBe(2);
+    expect(defaultSelectionIndex(rows, onHost("local"), "")).toBe(2);
   });
 
-  // The two trails carry different units (wall clock vs MRU ordinal): a host
-  // row must never out-rank the terminal rows leading the root index.
-  it("never crosses kinds — a host row cannot win a terminal-led list", () => {
+  // KIND-SCOPING, not unit safety: both trails stamp `rankAt` in milliseconds
+  // now, so the two numbers are perfectly comparable. The rule still confines
+  // the highlight to the leading kind because a terminal-led list is a TERMINAL
+  // switcher — Enter must toggle tiles, never silently hop machines.
+  it("keeps a terminal-led list's highlight on a terminal row", () => {
     const rows: IndexableItem[] = [
       item("prev-visit", "terminal", {
         rankAt: 5,
@@ -382,6 +399,39 @@ describe("defaultSelectionIndex", () => {
       }),
       item("gpu-box", "host", { rankAt: 999_999, hostKey: "remote:gpu-box" }),
     ];
-    expect(defaultSelectionIndex(rows, onLocalTerminal(TID_B))).toBe(0);
+    const idx = defaultSelectionIndex(rows, onLocalTerminal(TID_B), "");
+    expect(idx).toBe(0);
+    expect(rows[idx]?.row?.kind).toBe("terminal");
+  });
+
+  // The leading kind is not a property of the argument — it is what
+  // `filterAndRankPaletteItems` (i.e. `kindRank`) put first. Compose the two in
+  // the order the palette runs them so a kindRank reorder can never silently
+  // turn ⌘K → Enter into a host switch.
+  it("takes its leading kind from the ranker, not from raw rank magnitude", () => {
+    const rows: IndexableItem[] = [
+      item("local", "host", { rankAt: 3, hostKey: "local" }),
+      item("gpu-box", "host", { rankAt: 2, hostKey: "remote:gpu-box" }),
+      item("prev-visit", "terminal", {
+        rankAt: 1,
+        hostKey: "local",
+        terminalId: TID_B,
+      }),
+      item("active", "terminal", {
+        rankAt: 900,
+        hostKey: "local",
+        terminalId: TID_A,
+      }),
+    ];
+    const ranked = filterAndRankPaletteItems(rows, {
+      query: "",
+      atRoot: true,
+      current: onLocalTerminal(TID_A),
+    });
+    const idx = defaultSelectionIndex(ranked, onLocalTerminal(TID_A), "");
+    // Terminals lead (kindRank), so the highlight is a TERMINAL even though a
+    // host row carries a larger raw rankAt.
+    expect(ranked[idx]?.row?.kind).toBe("terminal");
+    expect(ranked[idx]?.name).toBe("prev-visit");
   });
 });

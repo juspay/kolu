@@ -52,9 +52,9 @@ export type PaletteRowMeta = {
   searchText?: string;
   /** Server activity / visit-unrelated age for the right-rail stamp (null = never). */
   recencyAt?: number | null;
-  /** Switcher recency rank — `max(visit, activity)` for a terminal row, the
-   *  host-switch MRU ordinal for a host row. Compared only against rows of the
-   *  SAME kind (the two carry different units), and never painted as age. */
+  /** Switcher recency rank, in milliseconds — `max(visit, activity)` for a
+   *  terminal row, the host-switch stamp for a host row. Never painted as age
+   *  (that is `recencyAt`, the activity clock). */
   rankAt?: number | null;
   terminalId?: TerminalId;
   /** Meta snapshot for fleet rows (may be off the active host). */
