@@ -50,6 +50,14 @@ const agentTerminal = (): PadiTerminal =>
     snapshot(makeAgent("waiting")),
   );
 
+/** A live terminal whose agent is BLOCKED on a person — the case where a human
+ *  may be mid-answer at that same prompt. */
+const awaitingAgentTerminal = (): PadiTerminal =>
+  composeTerminalMetadata(
+    { state: "active", location: LOCAL_LOCATION, lastActivityAt: 0 },
+    snapshot(makeAgent("awaiting_user")),
+  );
+
 /** A live terminal running NO agent — a person's shell. */
 const humanShell = (): PadiTerminal =>
   composeTerminalMetadata(
@@ -82,11 +90,21 @@ const event = (over: Partial<SettleEvent> = {}): SettleEvent => ({
  *  `deliver` reads the supervisor out of the FRAME the events were computed
  *  from — the one the settle-event source hands its sinks — so the harness
  *  supplies that frame rather than a lookup function. */
-function harness(parent: PadiTerminal | undefined) {
+function harness(
+  parent: PadiTerminal | undefined,
+  /** What the LIVE write path answers — false stands for "the supervisor stopped
+   *  being an agent terminal between the observed frame and this deferred
+   *  flush", the one guard that must hold at the instant bytes move. */
+  writeLands = true,
+) {
   const writes: Array<{ id: string; data: string }> = [];
   const warnings: unknown[] = [];
   const delivery = createSupervisionDelivery({
-    write: (id, data) => writes.push({ id, data }),
+    write: (id, data) => {
+      if (!writeLands) return false;
+      writes.push({ id, data });
+      return true;
+    },
     log: {
       ...(silentLog as object),
       warn: (...args: unknown[]) => warnings.push(args),
@@ -182,6 +200,57 @@ describe("supervision delivery", () => {
     expect(text).not.toContain("\n");
   });
 
+  // THE INJECTION GUARD. `intent` is free-form multi-line markdown (the editor is
+  // a <textarea>; the schema constrains only non-emptiness), and this module's
+  // write is terminated by `\r`. Interpolating it raw does not merely render
+  // badly — every embedded newline SUBMITS, so one nudge becomes several lines
+  // entered at a supervisor's agent prompt, the tail of them chosen by whoever
+  // wrote the intent.
+  it("FLATTENS a multi-line intent — no interior submit can ride the nudge", () => {
+    const { writes, deliver } = harness(agentTerminal());
+    deliver(event({ intent: "fix the parser\nrm -rf /\rsudo reboot" }));
+    expect(writes).toHaveLength(1);
+    const data = writes[0]?.data ?? "";
+    expect(data).not.toContain("\n");
+    // Exactly one CR, and it is the final submit.
+    expect(data.split("\r")).toHaveLength(2);
+    expect(data.endsWith("\r")).toBe(true);
+    // The text survives — flattened, not dropped.
+    expect(data).toContain("fix the parser");
+  });
+
+  it("strips ESC so no control sequence can be smuggled through an intent", () => {
+    const text = nudgeText([event({ intent: "[2J[1;1Hwiped" })]);
+    expect(text).not.toContain("");
+    expect(text).toContain("wiped");
+  });
+
+  it("caps a runaway intent rather than pasting a document into the mailbox", () => {
+    const text = nudgeText([event({ intent: "x".repeat(500) })]);
+    expect(text.length).toBeLessThan(250);
+    expect(text).toContain("…");
+  });
+
+  it("re-checks the human-shell guard at WRITE time, not just on the frame", () => {
+    // The frame says agent; the live write path says the agent has since exited.
+    // The deferred flush must believe the live state — a live PTY proves a
+    // terminal exists, never that an agent still owns it.
+    const { writes, deliver } = harness(agentTerminal(), false);
+    deliver(event());
+    expect(writes).toEqual([]);
+  });
+
+  it("DOES write into an agent terminal whose agent is awaiting a human — the accepted tradeoff", () => {
+    // Deliberate and documented (website/src/content/docs/mcp.mdx): an agent
+    // terminal is written to whatever it is doing. Skipping here would invent a
+    // second silent drop, and a supervisor blocked on its own question is
+    // exactly the one that needs to know a worker moved. The docs warn a human
+    // composing an answer that the line will join their input.
+    const { writes, deliver } = harness(awaitingAgentTerminal());
+    deliver(event());
+    expect(writes).toHaveLength(1);
+  });
+
   it("wakes a supervisor ONCE per frame, however many of its lanes moved", () => {
     const { writes, deliver } = harness(agentTerminal());
     // A kaval recycle retires every active id at once; `killAll` does the same.
@@ -205,7 +274,10 @@ describe("supervision delivery", () => {
   it("splits a frame BY supervisor — one worker's report never reaches another's boss", () => {
     const writes: Array<{ id: string; data: string }> = [];
     const delivery = createSupervisionDelivery({
-      write: (id, data) => writes.push({ id, data }),
+      write: (id, data) => {
+        writes.push({ id, data });
+        return true;
+      },
       log: silentLog,
     });
     const frame = new Map<TerminalId, PadiTerminal>([

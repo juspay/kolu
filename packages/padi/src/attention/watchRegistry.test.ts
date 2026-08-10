@@ -92,6 +92,19 @@ describe("watch registry", () => {
     expect(r.drain("campaign").events.map((e) => e.id)).toEqual(["a"]);
   });
 
+  it("a FRESH subscription refuses history at or below its watermark, even if it arrives late", () => {
+    // `open` reads the watermark while a settle frame may already be in flight
+    // to the sinks. Letting that frame land would make the subscription's own
+    // promise — "reports what happens NEXT" — false on its very first drain.
+    const stale = event("a");
+    const r = registry({ initialCursor: () => stale.seq });
+    r.open("late");
+    r.accept([stale]); // exactly AT the watermark — already declined history
+    expect(r.drain("late").events).toEqual([]);
+    r.accept([event("b")]); // the first genuinely new one
+    expect(r.drain("late").events.map((e) => e.id)).toEqual(["b"]);
+  });
+
   it("a FRESH subscription starts acknowledged at the daemon's current sequence", () => {
     let clock = 0;
     const r = registry({ initialCursor: () => clock });

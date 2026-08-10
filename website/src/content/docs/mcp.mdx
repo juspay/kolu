@@ -143,10 +143,17 @@ report path, so there is no step to forget. The line names the worker and stops
 there — the supervisor reads the screen itself, so it always sees the current
 output rather than a stale copy.
 
-<Aside type="note" title="Only agents are interrupted">
-  kolu writes these lines only into terminals that are running an agent. A
-  terminal where **you** are working is never typed into — you already see a
-  worker needing attention in the Dock, on the canvas, and in your notifications.
+<Aside type="note" title="Only agent terminals are written to">
+  kolu writes these lines only into terminals that are **running an agent**. Your
+  own shell is never typed into — for your attention there's the Dock, the
+  canvas, and your notifications.
+
+  Be aware of the edge of that rule: a terminal running an agent is written to
+  *whatever it is doing*, including while you are typing an answer to that agent.
+  The line joins your input and submits. It is the same tradeoff as the agent's
+  own input handling (kolu delivers; the agent CLI decides how to queue it), and
+  it is what makes delivery reliable rather than something that can be missed —
+  but if you are composing a long reply to a supervising agent, expect it.
 </Aside>
 
 ## What your agent can do

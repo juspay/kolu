@@ -225,10 +225,18 @@ export function createWatchRegistry(opts: {
 
     accept(events) {
       for (const sub of subs.values()) {
-        const mine =
-          sub.ids === undefined
-            ? events
-            : events.filter((e) => sub.ids?.has(e.id) ?? false);
+        const mine = events.filter(
+          (e) =>
+            // Scope, and then the ACKNOWLEDGED WATERMARK. A fresh subscription
+            // starts acknowledged at the daemon's current sequence and promises
+            // to report "what happens NEXT" — so an event whose seq is at or
+            // below that watermark is history it already declined, and letting
+            // one into the buffer would make the promise false on its very first
+            // drain. The window is real: `open` reads the watermark while a
+            // settle frame may already be mid-flight to the sinks.
+            e.seq > sub.acknowledged &&
+            (sub.ids === undefined || sub.ids.has(e.id)),
+        );
         if (mine.length === 0) continue;
         sub.buffer.push(...mine);
         if (sub.buffer.length > limit) {

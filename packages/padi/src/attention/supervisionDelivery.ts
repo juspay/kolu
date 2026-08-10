@@ -39,17 +39,63 @@ import { activeAgent, type PadiTerminal } from "../surface.ts";
 import type { SettleEvent } from "./settleEvents.ts";
 
 export interface SupervisionDeliveryDeps {
-  /** Write into a terminal's mailbox (kaval's serialized input). A write that
-   *  races a kill quiet-drops, as every other padi write does. */
-  write: (id: TerminalId, data: string) => void;
+  /** Write into a terminal's mailbox (kaval's serialized input) — but ONLY if it
+   *  is still an agent terminal at the instant of the write. A write that races a
+   *  kill quiet-drops, as every other padi write does.
+   *
+   *  The re-check is the dep's, not this module's, because the two facts live in
+   *  different places: this module holds the observed FRAME (which is what groups
+   *  the events and names the supervisor), while the byte write resolves the LIVE
+   *  registry entry. Those can disagree — the flush is deferred off the
+   *  derivation, so a supervisor's agent can exit in the gap while its shell stays
+   *  alive, and a frame-only guard would then type into a human's shell after all.
+   *  The human-shell guard is the one rule that must hold at the moment bytes
+   *  move, so it is enforced where the bytes move.
+   *
+   *  Returns whether the write landed, so the caller logs the truth rather than
+   *  an intention. */
+  write: (id: TerminalId, data: string) => boolean;
   log: Logger;
+}
+
+/** How much of a lane's intent rides the nudge. Long enough to identify the
+ *  lane, short enough that twenty of them stay one readable line. */
+const INTENT_BUDGET = 60;
+
+/** Make an operator-authored string SAFE TO PUT ON A PTY.
+ *
+ *  `intent` is free-form multi-line markdown — the editor is a `<textarea>`, the
+ *  schema constrains only non-emptiness, and `firstIntentLine` exists downstream
+ *  precisely because intents contain newlines. This module's write is terminated
+ *  by `\r`, so an unsanitized intent does not merely render badly: every embedded
+ *  newline or carriage return SUBMITS, turning one nudge into several lines
+ *  entered at a supervisor's agent prompt. The tail after such a break is
+ *  attacker- or accident-chosen text arriving as its own instruction.
+ *
+ *  So the sentence is built from a stripped projection, never the raw field:
+ *  every C0/C7F control (newline, carriage return, escape — so no CSI sequence
+ *  can be smuggled either) becomes a space, runs collapse, and the result is
+ *  budget-capped. The rule lives at the boundary that writes bytes, not at the
+ *  boundary that accepted them, because the hazard is the PTY, not the store. */
+function ptySafe(text: string, budget: number): string {
+  // C0 (\u0000-\u001f — includes \n, \r, \t and ESC) plus DEL (\u007f):
+  // everything a terminal ACTS on rather than prints.
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping controls is the point
+  const flattened = text.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+  const collapsed = flattened.replace(/\s{2,}/g, " ");
+  return collapsed.length > budget
+    ? `${collapsed.slice(0, budget - 1).trimEnd()}…`
+    : collapsed;
 }
 
 /** One event's sentence, WITHOUT the prefix — what a supervisor is told about a
  *  single lane. Phrased as the instruction it is: a bare fact would leave a
  *  supervisor guessing whether to act on it. */
 function settleSentence(event: SettleEvent): string {
-  const intent = event.intent === undefined ? "" : ` (${event.intent})`;
+  // The id is a UUID by schema, so only `intent` can carry anything hostile.
+  const safeIntent =
+    event.intent === undefined ? "" : ptySafe(event.intent, INTENT_BUDGET);
+  const intent = safeIntent === "" ? "" : ` (${safeIntent})`;
   if (event.kind === "gone") {
     // A departure has no screen left to read, so the instruction differs: there
     // is nothing to respond to, only a lane to account for.
@@ -157,7 +203,17 @@ export function createSupervisionDelivery(
         // is re-invoked by it. Delivering without submitting would leave the
         // nudge sitting unsent in an input buffer — the ask discovered, not
         // delivered, which is the whole failure this module exists to end.
-        deps.write(parentId, `${nudgeText(mine)}\r`);
+        //
+        // `write` re-checks the human-shell guard against LIVE state and answers
+        // whether it landed — the frame above is an observation, and an agent can
+        // exit in the gap before this deferred flush.
+        if (!deps.write(parentId, `${nudgeText(mine)}\r`)) {
+          deps.log.debug(
+            { terminals: mine.map((e) => e.id), parentId },
+            "settle events: supervisor stopped being an agent terminal before the write, not delivering",
+          );
+          continue;
+        }
         deps.log.info(
           {
             terminals: mine.map((e) => e.id),

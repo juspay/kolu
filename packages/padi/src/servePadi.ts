@@ -109,6 +109,7 @@ import {
   samplePadiMemory,
 } from "./memorySampler.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
+import { activeAgent } from "./surface.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { appendTerminalFile, saveTerminalFile } from "./terminalScratch.ts";
 import {
@@ -302,7 +303,16 @@ export function buildPadiSurfaceDeps(deps: {
     write: (id, data) => {
       // The same quiet-drop as `lifecycle.sendInput`: a nudge landing just after
       // the supervisor was killed is an expected race, not a failure (#1628).
-      getActiveTerminal(id)?.handle.write(data);
+      const entry = getActiveTerminal(id);
+      if (entry === undefined) return false;
+      // RE-CHECK THE HUMAN-SHELL GUARD ON LIVE STATE. The delivery grouped these
+      // events off an observed frame, but the flush is deferred — so a supervisor
+      // whose agent exited in that gap still has a live PTY here, and a
+      // frame-only guard would type into what is now a person's shell. A live
+      // PTY proves a terminal exists, never that an agent still owns it.
+      if (activeAgent(composePadiTerminal(entry)) === null) return false;
+      entry.handle.write(data);
+      return true;
     },
     log,
   });
