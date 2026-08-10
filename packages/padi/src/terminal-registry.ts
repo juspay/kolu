@@ -94,7 +94,24 @@ export type TerminalProcess =
 
 const terminals = new Map<TerminalId, TerminalProcess>();
 
-/** Insert/replace a terminal entry in the registry. */
+/** Insert/replace a terminal entry in the registry.
+ *
+ *  **CALL ORDER IS THE CLIENT'S ROW ORDER.** The registry is a `Map`, so a new
+ *  id appends to the tail and clients render that sequence directly
+ *  ({@link listTerminals}). Since juspay/kolu#2141 the dock takes it verbatim —
+ *  no re-sorting — so this is what decides where every dock row sits and which
+ *  terminal each `Cmd+1..9` reaches.
+ *
+ *  So any path that REBUILDS the registry from a saved session must walk that
+ *  session in saved order: `adoptSurvivingSession` dispatches `reconcile`'s
+ *  ordered plan, `restoreSession` walks its saved list. Rebuilding in two
+ *  passes — every active, then every sleeper — is what used to move each ☾ tile
+ *  to the tail of its repo section on a padi restart, silently renumbering the
+ *  shortcuts. Re-registering an EXISTING id keeps its slot (`Map.set` on a
+ *  present key does not move it), which is why sleep/wake is position-safe.
+ *
+ *  Stated here, on the write side, because this is the function a new rebuild
+ *  path calls; the read side only reports the consequence. */
 export function registerTerminal(id: TerminalId, entry: TerminalProcess): void {
   terminals.set(id, entry);
 }

@@ -195,7 +195,7 @@ export const adoptSurvivingSession: Effect.Effect<void, unknown> = Effect.gen(
       return;
     }
 
-    const { adopt, adoptOrphans, reapSleeping } = reconcile(live, saved);
+    const { plan, adoptOrphans, reapSleeping } = reconcile(live, saved);
 
     // Adopt every live PTY — never reap (F1). A survivor WITH a saved record rides
     // its whole record through (`adoptLocalTerminal`); a survivor with NO saved
@@ -214,46 +214,32 @@ export const adoptSurvivingSession: Effect.Effect<void, unknown> = Effect.gen(
     let adoptedWhole = 0;
     let orphansAdopted = 0;
 
-    // ONE walk over the saved session, in SAVED ORDER, dispatching per record:
-    // adopt an active whose PTY survived, seed a sleeping one dormant (it has no
-    // PTY to adopt, and would otherwise be absent from the registry and wiped by
-    // the converge below — that seeding is what makes a slept terminal survive a
-    // restart and ride the wire as ☾). A malformed record drops itself (tolerant).
+    // Dispatch `reconcile`'s ordered PLAN — adopt an active whose PTY survived,
+    // seed a sleeping one dormant (it has no PTY to adopt, and would otherwise
+    // be absent from the registry and wiped by the converge below; that seeding
+    // is what makes a slept terminal survive a restart and ride the wire as ☾).
+    // A malformed record drops itself (tolerant).
     //
-    // The walk is ONE loop rather than two passes because the registry is a `Map`
-    // and **insertion order IS the client's row order** (`listTerminals`: "new
-    // terminals append to the tail; clients render this order directly"). Seeding
-    // every sleeper after every adopted active — which is what two passes did —
-    // therefore moved every ☾ tile to the bottom of its repo section on a padi
-    // restart, and could move a whole section with it, renumbering `Cmd+1..9`.
-    // Invisible while the dock re-sorted everything by recency; load-bearing since
-    // kolu#2141 made dock order structural.
+    // The ORDER is the plan's, and it matters because the registry is a `Map`
+    // whose insertion order IS the client's row order (see `registerTerminal`).
+    // Seeding every sleeper after every adopted active — which two passes did —
+    // moved every ☾ tile to the bottom of its repo section on a padi restart,
+    // and could take a whole section with it, renumbering `Cmd+1..9`. Invisible
+    // while the dock re-sorted everything by recency; load-bearing since #2141
+    // made dock order structural.
     //
-    // The cold-boot restore path (`restoreSession`) is the leg this agrees with,
-    // and it is worth being exact about which leg that is: it walks `topLevel`
-    // first and `subTerminals` second, so its registry order is all top-levels in
-    // saved order, then all subs. TOP-LEVEL relative order — the only order the
-    // dock's rows and `Cmd+1..9` read, since splits claim no shortcut number — is
-    // therefore saved order on both paths. Nothing in the code obliges a third
-    // rebuild path to preserve that; today it is three hand-written walks (here,
-    // `restoreSession`, `parkSavedSession`) each holding the invariant privately.
-    // The structural fix is an ordered PLAN returned by `reconcile`, which owns
-    // the join — recorded as a follow-up rather than done here.
-    const adoptByRecordId = new Map(
-      adopt.map((pair) => [pair.record.id, pair]),
-    );
-    for (const record of saved?.terminals ?? []) {
-      if (record.state === "sleeping") {
-        seedSleepingTerminal(record);
+    // `reconcile` owns the join and the walk over `saved.terminals`, so this is
+    // a dispatch rather than a second derivation of both.
+    for (const step of plan) {
+      if (step.kind === "seedSleeping") {
+        seedSleepingTerminal(step.record);
         continue;
       }
-      const pair = adoptByRecordId.get(record.id);
-      if (!pair) continue; // saved but not live — an exited shell, already dropped
-      if (adoptLocalTerminal(pair.record, pair.live)) {
+      if (adoptLocalTerminal(step.record, step.live)) {
         adoptedWhole += 1;
         continue;
       }
-      if (adoptSurvivorAsOrphan(pair.live)) orphansAdopted += 1;
+      if (adoptSurvivorAsOrphan(step.live)) orphansAdopted += 1;
     }
     // True orphans last — a create the debounced autosave never saw, so it has no
     // saved position to honour and IS the newest thing on the host.
