@@ -111,11 +111,17 @@ share a muscle memory: **press the chord, press Enter, you are back where you
 just were.** Press it again and you are back — a two-key toggle for terminals
 and for machines alike.
 
-"Most recent" is the same ranking each list already sorts by, so the highlight
-never contradicts what you see: for **terminals** that is `max(your last visit,
+"Most recent" means the row's **rank**: for **terminals**, `max(your last visit,
 that terminal's own activity)` — so a terminal that has been chattering can win
-over your last visit — and for **machines** it is purely **your** switch trail,
-since a machine has no activity clock of its own.
+over your last visit — and for **machines**, purely **your** switch trail, since
+a machine has no activity clock of its own.
+
+Rank decides the *highlight*; it does not always decide the *order*. Empty-root
+**Recent** is itself sorted by rank, so its highlight lands on the top row. The
+**Hosts** list keeps pool order and **Terminals** browse keeps its host-by-host
+order — both paint in a stable order you can learn, and only the highlight
+moves. So a highlighted row part-way down a list is not a bug: the rows above it
+are simply ones you visited longer ago.
 
 Selecting the row you are already on would be a no-op, so no switcher offers it
 as the default. Plain **command** lists carry neither recency nor a "current"
