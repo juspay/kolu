@@ -4,10 +4,10 @@
  *
  *  The two halves are unit-tested apart (`host/hostRecency.test.ts`,
  *  `palette/rootIndex.test.ts`); this pins the JOIN, which is where the feature
- *  would silently die — a row built without its `rankAt`, or ranked under a key
- *  the policy compares differently, leaves every isolated test green and lands
- *  ⌘⇧H back on row 1. The e2e harness is single-host, so this is the only
- *  automated place the host switcher's toggle can be exercised at all. */
+ *  would silently die — a row built without its `visitedAt`, or highlighted
+ *  under the warmth key instead of the visit key, leaves every isolated test
+ *  green and lands ⌘⇧H back on row 1. The e2e harness is single-host, so this is
+ *  the only automated place the host switcher's toggle can be exercised at all. */
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { beforeEach, describe, expect, it, vi } from "vitest";

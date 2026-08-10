@@ -11,9 +11,11 @@
  *  unlearnable — the same reason the dock stopped sorting on a clock (#2141).
  *
  *  TRAIL-ONLY, like its sibling: what a host row's stamp *means* to the palette
- *  lives at the call site (`palette/fleetActions`'s `hostVisitedAt`), not behind
- *  this store's socket, which would drag the persistence module along every time
- *  that question moves.
+ *  — the ranking policy — lives at the call site, not behind this store's
+ *  socket, which would drag the persistence module along every time that
+ *  question moves. Publishing a LOOKUP is not publishing a policy, which is
+ *  exactly what `visitRecency` already demonstrates with `visitedAtOf`; see
+ *  {@link switchedAtOf} below.
  *
  *  Persistence is per TAB (`sessionStorage`), matching the `activeHost` pref
  *  this trail shadows: two tabs view two different hosts, so a shared trail
@@ -62,6 +64,22 @@ export function promoteHost(
   const rest = prev.filter((e) => e.hostKey !== hostKey);
   const switchedAt = monotonicStamp(rest, at, (e) => e.switchedAt);
   return [{ hostKey, switchedAt }, ...rest].slice(0, cap);
+}
+
+/** When YOU last switched to this host (0 = never). The mirror of
+ *  `visitRecency`'s `visitedAtOf`; both trails publish their own lookup.
+ *
+ *  It used to live in `palette/fleetActions` as `hostVisitedAt`, beside
+ *  `hostRankScore`/`terminalRankScore` — and it earned that home while it was a
+ *  ranking POLICY. #2141 deleted the policy (a host's warmth degenerates to its
+ *  visit stamp), leaving a bare `find` over this store's own entries sitting in
+ *  a palette module while its identical twin sat inside its store. One question,
+ *  two homes; the asymmetry was the tell. */
+export function switchedAtOf(
+  mru: readonly HostVisit[],
+  hostKey: string,
+): number {
+  return mru.find((e) => e.hostKey === hostKey)?.switchedAt ?? 0;
 }
 
 function isHostVisit(v: unknown, now: number): v is HostVisit {

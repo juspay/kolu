@@ -313,9 +313,19 @@ export function rowRecencyAt(meta: TerminalMetadata): number | null {
 /** `ts` as a comparable number — `null` (never-active) ranks LAST, mirroring
  *  `agentProjection.ts`'s `recencyRank`.
  *
- *  Used INSIDE this module to fold a tile's newest activity (parent vs splits)
- *  for the staleness window, and by `palette/fleetTerminals.ts`, which does
- *  still sort by recency — the switcher's Recent band is the time-ordered view.
+ *  Two consumers, and neither is the Recent band. INSIDE this module it folds a
+ *  tile's newest activity (parent vs splits) for the staleness window; in
+ *  `palette/fleetTerminals.ts`'s `rankFleetTerminalRows` it orders the fleet row
+ *  list, which is what the ⌘⇧K *Terminals browse* list shows.
+ *
+ *  It is NOT what the ⌘K Recent band shows: `rootIndex.recentBand` re-sorts the
+ *  same rows on WARMTH (`max(visitedAt, recencyAt)`), discarding this ordering
+ *  entirely, so "most relevant terminal first" is currently computed twice on
+ *  two keys and which one you see depends on which chord you pressed. That
+ *  reconciliation — ordering is a palette policy, and `rootIndex.ts` claims to
+ *  be its one home — is a standing follow-up; this comment at least stops
+ *  naming the one view that is not time-ordered as the reason this exists.
+ *
  *  It is no longer a dock ORDERING primitive: the dock's three sorts went away
  *  with #2141. */
 export function tsRank(ts: number | null): number {

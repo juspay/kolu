@@ -20,7 +20,7 @@ import type {
 } from "../CommandPalette";
 import { workspaceSearchText } from "../canvas/dockModel";
 import { hostLabel, hostRowContext } from "../host/hostChipTone";
-import { hostRecency, type HostVisit } from "../host/hostRecency";
+import { hostRecency, switchedAtOf } from "../host/hostRecency";
 import { assignColors } from "../terminal/terminalDisplay";
 import { useVisitRecency, visitedAtOf } from "../terminal/visitRecency";
 import { padiMap } from "../wire";
@@ -29,22 +29,6 @@ import {
   groupFleetByHost,
   orderHostsActiveFirst,
 } from "./fleetTerminals";
-
-/** When YOU last switched to this host — the switch trail's stamp, which a host
- *  row carries as `visitedAt`. Lives here (not in the trail store) so
- *  hostRecency stays trail-only.
- *
- *  A host row carries no activity clock to pair it with, and that asymmetry is
- *  the design: the Hosts list keeps POOL order, because a machine list that
- *  reshuffles under the cursor is unlearnable — the same reason the dock stopped
- *  sorting on a clock. So a host's warmth (`rootIndex.rankOf`) degenerates to
- *  its visit stamp, which is harmless because no path ever rank-sorts hosts. */
-export function hostVisitedAt(
-  mru: readonly HostVisit[],
-  hostKey: string,
-): number {
-  return mru.find((e) => e.hostKey === hostKey)?.switchedAt ?? 0;
-}
 
 /** Switch host when the row is foreign, then activate. Pure sequencing
  *  extracted so unit tests can spy without mounting the palette. */
@@ -216,7 +200,15 @@ export function terminalHostGroups(
  *  is not a list you can learn); it is `visitedAt` that carries the switch
  *  trail, so ⌘⇧H's default highlight lands on the host you came from — the same
  *  `defaultSelectionIndex` rule the terminal rows above feed with their own
- *  visit trail, through the same field. */
+ *  visit trail, through the same field. The stamp itself comes from the trail's
+ *  own lookup (`hostRecency.switchedAtOf`), the mirror of `visitedAtOf`.
+ *
+ *  A host row carries no activity clock to pair the visit stamp with, and that
+ *  asymmetry is the design: the Hosts list keeps POOL order, because a machine
+ *  list that reshuffles under the cursor is unlearnable — the same reason the
+ *  dock stopped sorting on a clock. So a host's warmth (`rootIndex.rankOf`)
+ *  degenerates to its visit stamp, which is harmless because no path ever
+ *  rank-sorts hosts. */
 export function hostRootActions(
   hosts: HostKey[],
   active: HostKey,
@@ -241,7 +233,7 @@ export function hostRootActions(
         kind: "host",
         hostKey: h,
         context,
-        visitedAt: hostVisitedAt(trail, encodeHostKey(h)),
+        visitedAt: switchedAtOf(trail, encodeHostKey(h)),
         searchText: `${label} ${context} ${state.kind}`.trim(),
       },
     };

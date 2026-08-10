@@ -59,8 +59,12 @@ export type PaletteRowMeta = {
    *  These two clocks are the row's whole time story, and both are GROUNDED
    *  measurements. The palette's two questions — how warm is this row (ORDER)
    *  and when were you last here (HIGHLIGHT) — are derived from them where they
-   *  are asked, in `rootIndex`. There is deliberately no stored rank. */
-  visitedAt?: number | null;
+   *  are asked, in `rootIndex`. There is deliberately no stored rank.
+   *
+   *  A plain `number` (0 = never here), unlike `recencyAt` above: both
+   *  producers emit a number, so `null` only ever existed in the type. Same
+   *  shape as `rootIndex`'s — one field, one spelling. */
+  visitedAt?: number;
   terminalId?: TerminalId;
   /** Meta snapshot for fleet rows (may be off the active host). */
   terminalMeta?: TerminalMetadata;

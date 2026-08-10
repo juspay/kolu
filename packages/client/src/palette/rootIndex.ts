@@ -32,8 +32,10 @@ export function kindRank(kind: ResultKind): number {
   }
 }
 
-/** Empty-root Recent band: how many terminals it holds, warmest first (plus
- *  the reserved seat — see `recentBand`). */
+/** Empty-root Recent band: how many terminals it holds, warmest first. One of
+ *  those seats is reserved for the row you last visited — see {@link recentBand},
+ *  which SUBSTITUTES rather than grows, so the band is exactly this many rows.
+ *  (It read "plus the reserved seat", which sized the band at N + 1.) */
 export const RECENT_TERMINAL_LIMIT = 3;
 
 /** Where the user already IS — the canvas host, plus the tile active on it.
@@ -75,8 +77,16 @@ export type IndexableItem = {
      *  HIGHLIGHT). A third stored `rankAt` used to hold the warmth derivation,
      *  which meant a row could carry a rank contradicting its own inputs — and
      *  meant "fold the two questions back into one number" was a thing an edit
-     *  could do. With no such field there is nothing to fold. */
-    visitedAt?: number | null;
+     *  could do. With no such field there is nothing to fold.
+     *
+     *  A plain `number`, deliberately unlike its `recencyAt` neighbour: both
+     *  producers (`visitedAtOf`, `switchedAtOf`) return `0` for "never here",
+     *  so `null` was a third spelling of a state no producer emits and no
+     *  consumer distinguishes. `recencyAt` genuinely needs its `null` (never
+     *  active, rendered as the empty string); giving the two clocks the same
+     *  shape invited exactly the conflation this change undid. `undefined`
+     *  stays, and means the row KIND has no trail at all — a command row. */
+    visitedAt?: number;
     /** Host + id — present on fleet terminal rows for Recent exclusion. */
     hostKey?: string | HostKey;
     terminalId?: string;
