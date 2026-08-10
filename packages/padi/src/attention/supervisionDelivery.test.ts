@@ -145,6 +145,16 @@ describe("supervision delivery", () => {
     );
   });
 
+  it("tells a supervisor its worker is GONE rather than leaving it waiting", () => {
+    const { writes, delivery } = harness(agentTerminal());
+    delivery.deliver(event({ kind: "gone" }));
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.data).toContain("is gone");
+    // Nothing to read — a departed terminal has no screen, so the nudge must not
+    // send its supervisor to look for one.
+    expect(writes[0]?.data).not.toContain("screen_text");
+  });
+
   it("the nudge carries the id a supervisor needs to read the screen, and no transcript", () => {
     const text = nudgeText(event());
     expect(text).toContain("worker-1");

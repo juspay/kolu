@@ -175,6 +175,36 @@ describe("createSettleEvents", () => {
     expect(events).toHaveLength(2);
   });
 
+  it("reports a terminal LEAVING — a supervisor must not wait forever on a worker that is gone", () => {
+    const { events, source } = collector();
+    const map = terminals({ w: { agent: makeAgent("thinking") } });
+    source.observe(urgency({ workingIds: ["w"] as TerminalId[] }), map);
+    // The worker exits (or a kaval recycle retires its id).
+    source.observe(urgency({}), terminals());
+    expect(events.map((e) => [e.id, e.kind])).toEqual([["w", "gone"]]);
+  });
+
+  it("the FIRST frame's inventory is a discovery — existing terminals are not reported as arriving or leaving", () => {
+    const { events, source } = collector();
+    source.observe(
+      urgency({}),
+      terminals({ a: { agent: null }, b: { agent: null } }),
+    );
+    expect(events).toEqual([]);
+    // And only the one that actually leaves is reported.
+    source.observe(urgency({}), terminals({ a: { agent: null } }));
+    expect(events.map((e) => [e.id, e.kind])).toEqual([["b", "gone"]]);
+  });
+
+  it("a departure fires once, not on every later frame", () => {
+    const { events, source } = collector();
+    source.observe(urgency({}), terminals({ w: { agent: null } }));
+    source.observe(urgency({}), terminals());
+    source.observe(urgency({}), terminals());
+    source.observe(urgency({}), terminals());
+    expect(events).toHaveLength(1);
+  });
+
   it("a listener that throws does not starve the other listeners of the same event", () => {
     const source = createSettleEvents(() => 1);
     const seen: string[] = [];

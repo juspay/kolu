@@ -34,13 +34,22 @@ import {
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PadiTerminal, PadiUrgency } from "../surface.ts";
 
-/** Which kind of attention a terminal just entered.
+/** Which kind of attention a terminal just entered — or its departure.
  *
  *  `asking` is an agent BLOCKED on a person (`awaiting_user`) — ungated by the
  *  quiet window, because an agent that says it is blocked is definitionally not
  *  mid-output. `finished` is a turn that ENDED and then went quiet (EF2). The
- *  split is padi's shipped `attentionClass` partition, not a new vocabulary. */
-export type SettleKind = "asking" | "finished";
+ *  split is padi's shipped `attentionClass` partition, not a new vocabulary.
+ *
+ *  `gone` is the terminal LEAVING the collection — it exited, was killed, or its
+ *  id was retired by a kaval recycle (which parks the session and respawns each
+ *  active terminal under a FRESH id). It rides the same channel deliberately: a
+ *  supervisor waiting on a worker that no longer exists must be TOLD, not left
+ *  waiting for a settle that can never come. Without it, a subscription scoped
+ *  to specific ids would simply go quiet after a recycle — silence that reads
+ *  exactly like a calm workspace, which is the failure this whole feature is
+ *  about. */
+export type SettleKind = "asking" | "finished" | "gone";
 
 /** One settle edge. Deliberately a THIN descriptor: the id, why, and the
  *  supervision edge to deliver along — never a copy of the terminal's screen.
@@ -85,6 +94,10 @@ export function createSettleEvents(
 ): SettleEventSource {
   const listeners = new Set<(event: SettleEvent) => void>();
   let prev: AttentionFrame | null = null;
+  // The terminal key set as of the last observation — how a DEPARTURE is seen.
+  // `null` until the first frame, so a fresh daemon's initial inventory is a
+  // discovery rather than a storm of arrivals/departures.
+  let prevIds: Set<TerminalId> | null = null;
   let seq = 0;
 
   return {
@@ -102,8 +115,11 @@ export function createSettleEvents(
       // `prev` and `cur` being the same object, so no transition is ever seen.
       prev = { asking: [...cur.asking], finished: [...cur.finished] };
 
-      for (const { id, asking } of candidates) {
-        const record = terminals.get(id);
+      const emit = (
+        id: TerminalId,
+        kind: SettleKind,
+        record: PadiTerminal | undefined,
+      ): void => {
         seq += 1;
         // Spread-or-omit, never an explicit `undefined`: these ride optionalKey
         // fields on the wire schema, which accept an ABSENT key and REJECT a
@@ -111,7 +127,7 @@ export function createSettleEvents(
         const event: SettleEvent = {
           seq,
           id,
-          kind: asking ? "asking" : "finished",
+          kind,
           at: now(),
           ...(record?.parentId === undefined
             ? {}
@@ -128,7 +144,25 @@ export function createSettleEvents(
             console.error("padi: settle-event listener threw", err);
           }
         }
+      };
+
+      for (const { id, asking } of candidates) {
+        emit(id, asking ? "asking" : "finished", terminals.get(id));
       }
+
+      // DEPARTURES. A supervisor blocked on a worker that no longer exists is
+      // the same failure as one blocked on a worker nobody reported — so a
+      // terminal leaving the collection is an event, not silence.
+      const curIds = new Set(terminals.keys());
+      if (prevIds !== null) {
+        for (const id of prevIds) {
+          // The record is already gone, so a departure carries no parent edge and
+          // no intent — deliberately: there is nothing left to look up, and
+          // inventing a stale copy would be worse than an honest bare event.
+          if (!curIds.has(id)) emit(id, "gone", undefined);
+        }
+      }
+      prevIds = curIds;
     },
     onEvent(listener) {
       listeners.add(listener);
@@ -142,6 +176,7 @@ export function createSettleEvents(
     dispose() {
       listeners.clear();
       prev = null;
+      prevIds = null;
     },
   };
 }

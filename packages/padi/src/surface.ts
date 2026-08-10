@@ -889,8 +889,10 @@ export const PadiSettleEventSchema = Schema.Struct({
   /** `asking` — the agent is blocked on a person (`awaiting_user`), reported
    *  immediately. `finished` — its turn ended AND its output then went quiet for
    *  padi's effective-finish window; that conjunction is what keeps a background
-   *  sub-agent's churn from reading as "done". */
-  kind: Schema.Literals(["asking", "finished"]),
+   *  sub-agent's churn from reading as "done". `gone` — the terminal left, so a
+   *  supervisor waiting on it learns that instead of waiting forever (a kaval
+   *  recycle retires every active id this way). */
+  kind: Schema.Literals(["asking", "finished", "gone"]),
   /** ms epoch, stamped by padi when the edge was detected. */
   at: PositiveInt,
   /** The supervision edge — who spawned this terminal. Absent for a root. */

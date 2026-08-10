@@ -48,11 +48,16 @@ export interface SupervisionDeliveryDeps {
  *  instruction it is — a bare fact would leave a supervisor guessing whether to
  *  act on it. */
 export function nudgeText(event: SettleEvent): string {
+  const intent = event.intent === undefined ? "" : ` (${event.intent})`;
+  if (event.kind === "gone") {
+    // A departure has no screen left to read, so the instruction differs: there
+    // is nothing to respond to, only a lane to account for.
+    return `[kolu] Worker terminal ${event.id}${intent} is gone — it exited, was killed, or its id was retired. Do not wait for it.`;
+  }
   const what =
     event.kind === "asking"
       ? "is asking for input"
       : "finished its turn and went quiet";
-  const intent = event.intent === undefined ? "" : ` (${event.intent})`;
   return `[kolu] Worker terminal ${event.id}${intent} ${what}. Read it with screen_text and respond — nobody else was told.`;
 }
 
