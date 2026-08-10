@@ -8,7 +8,7 @@ author: "Sridhar Ratnakumar"
 
 import PR from "../../components/PR.astro";
 
-[Kolu](https://github.com/juspay/kolu) — a terminal app for running many coding agents at once — used to do its plumbing with five libraries: [zod](https://zod.dev) for schemas, [oRPC](https://orpc.io/) for the wire, [partysocket](https://github.com/partykit/partysocket) for reconnects, [hono](https://hono.dev/) for HTTP, [`@preact/signals-core`](https://github.com/preactjs/signals) for reactivity. As of <PR id={2101} /> they're all gone from `package.json`. Underneath everything now sits one library: [Effect](https://effect.website/), pinned at `4.0.0-beta.103`. Yes, a beta. Hold that thought.
+[Kolu](https://github.com/juspay/kolu) — a terminal app for running many coding agents at once — used to do its plumbing with five libraries: [zod](https://zod.dev) for schemas, [oRPC](https://orpc.io/) for the wire, [partysocket](https://github.com/partykit/partysocket) for reconnects, [hono](https://hono.dev/) for HTTP, [`@preact/signals-core`](https://github.com/preactjs/signals) for reactivity. As of <PR id={2101} /> they're all gone from `package.json`. Underneath everything now sits one library: [Effect](https://effect.website/), pinned at `4.0.0-beta.106`. Yes, a beta. Hold that thought.
 
 This isn't the migration war story — that diff was +78,690/−31,896 across 848 files, and the PR carries its own log. This is what's there now, and why. And if you read Haskell but only basic TypeScript, you're closer to home here than in most TS codebases: [Effect](https://effect.website/) is the [monad-transformer stack](https://en.wikibooks.org/wiki/Haskell/Monad_transformers) you already know, shipped as a library with a runtime attached.
 
@@ -17,9 +17,9 @@ This isn't the migration war story — that diff was +78,690/−31,896 across 84
 An [`Effect<A, E, R>`](https://effect.website/docs/getting-started/the-effect-type/) is a value describing a computation that succeeds with `A`, fails with `E`, and needs an environment `R`. A Haskeller reads it as [`ReaderT R`](https://hackage.haskell.org/package/transformers/docs/Control-Monad-Trans-Reader.html) ([`ExceptT E`](https://hackage.haskell.org/package/transformers/docs/Control-Monad-Trans-Except.html) [`IO`](https://wiki.haskell.org/Introduction_to_IO)) `A` — with structured concurrency, retry, and resource tracking built into the runtime instead of bolted on per-library. And [`Effect.gen`](https://effect.website/docs/getting-started/using-generators/) is [do-notation](https://en.wikibooks.org/wiki/Haskell/do_notation), spelled with generators. Here's the whole model as a hello world, no Kolu required:
 
 ```ts
-import { Context, Effect, Schedule, Schema } from "effect";
+import { Context, Effect, Layer, Schedule, Schema } from "effect";
 
-class UserNotFound extends Schema.TaggedErrorClass<UserNotFound>("UserNotFound")(
+class UserNotFound extends Schema.TaggedError<UserNotFound>("UserNotFound")(
   "UserNotFound",
   { id: Schema.String },
 ) {}
@@ -40,9 +40,16 @@ const hello = Effect.gen(function* () {
 Nothing has run yet — `hello` is a description, an [`IO`](https://wiki.haskell.org/Introduction_to_IO) action you haven't handed to `main`. Running it is where the rest of the vocabulary shows up:
 
 ```ts
+const usersLive = Layer.succeed(Users)({  // a Layer: one way to build Users
+  lookup: (id) =>
+    id === "42"
+      ? Effect.succeed("world")
+      : Effect.fail(new UserNotFound({ id })),
+});
+
 const main = hello.pipe(
   Effect.retry(Schedule.spaced(1000)),  // the retry policy is a plain value
-  Effect.provide(usersLive),            // a Layer supplies the Users service
+  Effect.provide(usersLive),            // the Layer supplies the Users service
 );
 Effect.runPromise(main);                // the run edge — unsafePerformIO
 ```
@@ -55,7 +62,7 @@ That type is the whole bet, three ways:
 
 The rest of this post cashes those claims out, one piece of the stack at a time. The map:
 
-<svg viewBox="0 0 700 300" role="img" aria-label="Mapping of five deleted dependencies to the one library that replaced them: zod to Effect Schema, oRPC to effect/unstable/rpc, partysocket to Socket plus Schedule, hono to effect/unstable/http, and preact signals to Atom — all subpaths of the single effect package pinned at 4.0.0-beta.103." style="width:100%;max-width:700px;display:block;margin:1.75rem auto;">
+<svg viewBox="0 0 700 300" role="img" aria-label="Mapping of five deleted dependencies to the one library that replaced them: zod to Effect Schema, oRPC to effect/unstable/rpc, partysocket to Socket plus Schedule, hono to effect/unstable/http, and preact signals to Atom — all subpaths of the single effect package pinned at 4.0.0-beta.106." style="width:100%;max-width:700px;display:block;margin:1.75rem auto;">
   <text x="14" y="20" fill="var(--color-ink)" font-size="13" font-weight="600" font-family="monospace">five dependencies, one library</text>
   <text x="120" y="64" fill="var(--color-ink-muted)" font-size="10.5" text-anchor="middle" font-family="monospace">gone from package.json</text>
   <rect x="20" y="78" width="200" height="30" rx="5" fill="none" stroke="var(--color-ink-muted)" stroke-width="1.1" />
@@ -74,7 +81,7 @@ The rest of this post cashes those claims out, one piece of the stack at a time.
   <text x="120" y="257" fill="var(--color-ink-dim)" font-size="11.5" text-anchor="middle" font-family="monospace">@preact/signals-core</text>
   <line x1="224" y1="253" x2="392" y2="253" stroke="var(--color-ink-dim)" stroke-width="1.1" /><polygon points="400,253 392,249 392,257" fill="var(--color-ink-dim)" />
   <rect x="404" y="44" width="272" height="232" rx="6" fill="none" stroke="var(--color-kolu-primary)" stroke-width="1.4" />
-  <text x="540" y="64" fill="var(--color-kolu-primary)" font-size="11.5" font-weight="600" text-anchor="middle" font-family="monospace">effect@4.0.0-beta.103</text>
+  <text x="540" y="64" fill="var(--color-kolu-primary)" font-size="11.5" font-weight="600" text-anchor="middle" font-family="monospace">effect@4.0.0-beta.106</text>
   <line x1="420" y1="72" x2="660" y2="72" stroke="var(--color-rule)" stroke-width="1" />
   <text x="540" y="97" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">Schema</text>
   <text x="540" y="137" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">unstable/rpc</text>
@@ -123,7 +130,7 @@ Errors are schemas too. A failure the caller can act on is a class — a constru
 
 ```ts
 // packages/padi/src/errors.ts
-export class TerminalNotFound extends Schema.TaggedErrorClass<TerminalNotFound>(
+export class TerminalNotFound extends Schema.TaggedError<TerminalNotFound>(
   "padi/TerminalNotFound",
 )("TerminalNotFound", { id: Schema.String }) {
   override get message(): string {
@@ -179,6 +186,6 @@ Here's the part nobody prints on the box. [Kolu](https://github.com/juspay/kolu)
 
 ## The beta: sharp edges, fenced
 
-About that beta. Sharp edges exist and we hit them. [Effect RPC](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc)'s default treats one handler's [defect](https://effect.website/docs/error-management/unexpected-errors/) as fatal to the whole multiplexed connection — a single dead terminal tap took down the entire daemon link before we set `disableFatalDefects` at the one shared server layer. [`RpcGroup.merge`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc) is last-writer-wins with no collision detection, so every contract assembly is followed by a tag-count guard that crashes at import. And every place we depend on beta *behavior* — not API, behavior — carries a grep-able [`BETA-ASSUMPTION(beta.103)`](https://github.com/juspay/kolu/blob/master/packages/tests/governance/betaAssumptions.ts) marker; bumping the pin fails CI until each one is re-measured. The library is beta. The discipline isn't.
+About that beta. Sharp edges exist and we hit them. [Effect RPC](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc)'s default treats one handler's [defect](https://effect.website/docs/error-management/unexpected-errors/) as fatal to the whole multiplexed connection — a single dead terminal tap took down the entire daemon link before we set `disableFatalDefects` at the one shared server layer. [`RpcGroup.merge`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc) is last-writer-wins with no collision detection, so every contract assembly is followed by a tag-count guard that crashes at import. And every place we depend on beta *behavior* — not API, behavior — carries a grep-able [`BETA-ASSUMPTION(beta.106)`](https://github.com/juspay/kolu/blob/master/packages/tests/governance/betaAssumptions.ts) marker; bumping the pin fails CI until each one is re-measured. That gate has already been exercised for real: [beta.104](https://github.com/Effect-TS/effect/releases/tag/effect%404.0.0-beta.104) deleted `Schema.TaggedErrorClass` outright — it's `Schema.TaggedError` now — and <PR id={2126} /> moved the pin, all 37 renamed call sites, and every re-measured marker as one commit. The library is beta. The discipline isn't.
 
-The wire, the schemas, the HTTP app, both daemons ([padi](/padi) and [kaval](/kaval)), the reactive engine, the CLIs — 489 files import [`effect`](https://effect.website/), one library speaking one semantics, and 509/509 e2e scenarios rode it green the day the migration landed. That's the trade: one beta library watched hard, instead of five stable ones half-glued together. So far it's a good trade.
+The wire, the schemas, the HTTP app, both daemons ([padi](/padi) and [kaval](/kaval)), the reactive engine, the CLIs — 512 files import [`effect`](https://effect.website/), one library speaking one semantics, and 509/509 e2e scenarios rode it green the day the migration landed. That's the trade: one beta library watched hard, instead of five stable ones half-glued together. So far it's a good trade.
