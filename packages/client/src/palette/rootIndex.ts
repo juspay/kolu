@@ -78,8 +78,9 @@ function rowHostKey(item: IndexableItem): string | undefined {
   return typeof hk === "string" ? hk : encodeHostKey(hk);
 }
 
-/** Whether this terminal row is the canvas-active tile (host + id). */
-export function isActiveTerminalRow(
+/** Whether this terminal row is the canvas-active tile (host + id). Private,
+ *  like {@link isCurrentRow}: the two policies below are the only entry points. */
+function isActiveTerminalRow(
   item: IndexableItem,
   current: CurrentSelection | null | undefined,
 ): boolean {
@@ -176,14 +177,11 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
  *  (recency has nothing to say); with no query, **the most-recently-visited row
  *  of the leading kind that isn't the row you are already on.**
  *
- *  "Leading kind" is whatever `kindRank` put first — this policy is defined only
- *  on a list {@link filterAndRankPaletteItems} has already ordered; the
- *  composition is pinned by `rootIndex.test.ts` → "takes its leading kind from
- *  the ranker". Confining the search to that kind carries exactly ONE meaning:
- *  a ⌘K list is a *terminal* switcher (host rows are all the Hosts group holds,
- *  a command group leads with commands), so the highlight never wanders into a
- *  neighbouring band. Both trails stamp `rankAt` in milliseconds, so there is no
- *  unit to keep apart.
+ *  "Leading kind" is whatever {@link kindRank} put first, so this policy is
+ *  defined only on a list {@link filterAndRankPaletteItems} has already
+ *  ordered. Confining the search to that kind says one thing: a ⌘K list is a
+ *  *terminal* switcher, so the highlight never wanders into a neighbouring
+ *  band.
  *
  *  Rows without a rank all tie at 0, so a plain command list keeps landing on
  *  its first row. */

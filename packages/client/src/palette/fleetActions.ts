@@ -229,7 +229,10 @@ export function hostRootActions(
   active: HostKey,
   switchHost: (host: HostKey) => void,
 ): PaletteAction[] {
-  const mru = hostRecency.mru;
+  // Read the trail ONCE, not per row: Solid does not dedupe repeated reads, so
+  // a read inside the map would register one subscription per host on a memo
+  // that recomputes on fleet, pool, and posture churn alike.
+  const trail = hostRecency();
   return hosts.map((h): PaletteAction => {
     const label = hostLabel(h);
     const state = padiMap.entry(h).state();
@@ -245,7 +248,7 @@ export function hostRootActions(
         kind: "host",
         hostKey: h,
         context,
-        rankAt: hostRankScore(mru(), encodeHostKey(h)),
+        rankAt: hostRankScore(trail, encodeHostKey(h)),
         searchText: `${label} ${context} ${state.kind}`.trim(),
       },
     };

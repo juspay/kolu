@@ -146,6 +146,41 @@ export function parseTolerantList<T>(
   return out.slice(0, cap);
 }
 
+/** How far past `now` a persisted stamp may sit before it reads as corruption
+ *  rather than clock skew. Spelled once because BOTH recency trails' stamps end
+ *  up in the same comparison (a palette row's `rankAt`): two copies of this
+ *  window is exactly how that one number space silently forks. */
+const MAX_STAMP_SKEW_MS = 365 * 24 * 60 * 60 * 1000;
+
+/** Whether a persisted timestamp is plausible — finite, not pre-epoch, and not
+ *  so far in the future it would dominate a recency ranking forever. The
+ *  accept-window every persisted TRAIL shares (`visitRecency`, `hostRecency`),
+ *  beside {@link parseTolerantList}, which owns the loop around it. */
+export function isSaneStamp(v: unknown, now: number): v is number {
+  if (typeof v !== "number" || !Number.isFinite(v)) return false;
+  return v >= 0 && v <= now + MAX_STAMP_SKEW_MS;
+}
+
+/** The next strictly-monotonic stamp for a trail: `at`, unless some surviving
+ *  entry already carries that instant or later, in which case one past the
+ *  newest of them. Keeps same-millisecond events ordered later-before-earlier,
+ *  which is the tie-break both trails rely on. `rest` is the trail MINUS the
+ *  entry being (re)stamped; `stampOf` reads each entry's clock.
+ *
+ *  Shared because the two trails' stamps meet in one `rankAt` comparison — a
+ *  tie-break rule maintained in two places is one that can quietly disagree. */
+export function monotonicStamp<T>(
+  rest: readonly T[],
+  at: number,
+  stampOf: (entry: T) => number,
+): number {
+  const newest = rest.reduce(
+    (m, e) => Math.max(m, stampOf(e)),
+    Number.NEGATIVE_INFINITY,
+  );
+  return Number.isFinite(newest) && at <= newest ? newest + 1 : at;
+}
+
 /** The default `onInvalid` a {@link perHostPref} or {@link boolPref} installs when
  *  the caller supplies none — and the one a trail pref (`visitRecency`,
  *  `hostRecency`) passes explicitly rather than hand-rolling a fourth copy of the

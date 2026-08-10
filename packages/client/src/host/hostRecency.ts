@@ -12,23 +12,20 @@
  *  socket, which would drag the persistence module along every time the ranking
  *  question moves.
  *
- *  Entries carry a WALL CLOCK (`switchedAt`), forced strictly monotonic exactly
- *  as `visitRecency.upsertVisit` does. One unit across both trails means a
- *  palette row's `rankAt` is always milliseconds, whatever kind produced it —
- *  no prose invariant standing between two incomparable number spaces.
- *
  *  Persistence is per TAB (`sessionStorage`), matching the `activeHost` pref
  *  this trail shadows: two tabs view two different hosts, so a shared trail
  *  would let one tab's switch decide the other tab's toggle target. */
 
-import { encodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
+import { isEncodedHostKey } from "kolu-common/hostKey";
 import { type Accessor, createEffect, createRoot, on } from "solid-js";
 import {
   defaultInvalidWarning,
+  isSaneStamp,
+  monotonicStamp,
   parseTolerantList,
   persistedPref,
 } from "../persistedPref";
-import { activeHost } from "../wire";
+import { encActiveHost } from "../wire";
 
 /** Hard cap on the trail — a pool is a handful of hosts; this only bounds a
  *  corrupt or long-lived list. */
@@ -41,30 +38,27 @@ export type HostVisit = {
   switchedAt: number;
 };
 
-/** Move `hostKey` to the front, deduped and capped. Stamps are forced strictly
- *  monotonic (mirroring `visitRecency.upsertVisit`) so same-ms switches still
- *  rank later-before-earlier. Pure — unit-tested without Solid. */
+/** Move `hostKey` to the front, deduped and capped, on the shared strictly-
+ *  monotonic clock ({@link monotonicStamp}).
+ *
+ *  Already at the front → returns `prev` UNCHANGED, identity and all. Nothing
+ *  about the trail differs, and preserving identity lets Solid's `===` equality
+ *  swallow the write: no re-stamp, no re-serialize, no `sessionStorage.setItem`,
+ *  no downstream recompute. That case is not hypothetical — it is every page
+ *  load (the recording effect runs immediately, on a host already at the head)
+ *  and every re-assertion of the host you are already on.
+ *
+ *  Pure — unit-tested without Solid. */
 export function promoteHost(
   prev: readonly HostVisit[],
   hostKey: string,
   at: number,
   cap: number = HOST_MRU_CAP,
-): HostVisit[] {
+): readonly HostVisit[] {
+  if (prev[0]?.hostKey === hostKey) return prev;
   const rest = prev.filter((e) => e.hostKey !== hostKey);
-  const maxOther = rest.reduce(
-    (m, e) => Math.max(m, e.switchedAt),
-    Number.NEGATIVE_INFINITY,
-  );
-  const switchedAt =
-    Number.isFinite(maxOther) && at <= maxOther ? maxOther + 1 : at;
+  const switchedAt = monotonicStamp(rest, at, (e) => e.switchedAt);
   return [{ hostKey, switchedAt }, ...rest].slice(0, cap);
-}
-
-/** Reject stamps that would dominate ranking forever or predate the epoch. */
-const MIN_SWITCHED_AT = 0;
-/** 1 year past now at parse time — clock skew / corruption guard. */
-function maxAllowedSwitchedAt(now: number): number {
-  return now + 365 * 24 * 60 * 60 * 1000;
 }
 
 function isHostVisit(v: unknown, now: number): v is HostVisit {
@@ -72,13 +66,7 @@ function isHostVisit(v: unknown, now: number): v is HostVisit {
   const o = v as Record<string, unknown>;
   if (typeof o.hostKey !== "string" || !isEncodedHostKey(o.hostKey))
     return false;
-  if (typeof o.switchedAt !== "number" || !Number.isFinite(o.switchedAt))
-    return false;
-  if (
-    o.switchedAt < MIN_SWITCHED_AT ||
-    o.switchedAt > maxAllowedSwitchedAt(now)
-  )
-    return false;
+  if (!isSaneStamp(o.switchedAt, now)) return false;
   return true;
 }
 
@@ -104,16 +92,11 @@ export function parseHostMru(
 
 const STORAGE_KEY = "kolu-host-recency";
 
-export type HostRecencyApi = {
-  /** The trail, most-recently-switched-to first (canonical wire keys). */
-  mru: Accessor<HostVisit[]>;
-};
-
-/** Build one host trail. Exported apart from the app-lifetime instance below so
- *  a test can stand up a FRESH trail per case instead of driving (and undoing)
- *  a shared module singleton. */
-export function createHostRecency(): HostRecencyApi {
-  const [mru, setMru] = persistedPref<HostVisit[]>({
+/** Build one host trail — the trail accessor itself, nothing wrapped around it.
+ *  Exported apart from the app-lifetime instance below so a test can stand up a
+ *  FRESH trail per case instead of driving (and undoing) a shared singleton. */
+export function createHostRecency(): Accessor<readonly HostVisit[]> {
+  const [mru, setMru] = persistedPref<readonly HostVisit[]>({
     name: STORAGE_KEY,
     fallback: [],
     parse: parseHostMru,
@@ -123,17 +106,22 @@ export function createHostRecency(): HostRecencyApi {
   });
 
   // THE host-activation choke point. Every switch path — a palette host row,
-  // the selector strip, the mobile chip, the membership reconcile's bounce to
-  // local — lands on `activeHost`, so OBSERVING it records them all; there is
-  // no writer left to remember to instrument. Runs immediately (no `defer`), so
-  // the boot host is the trail's first entry.
+  // the selector strip, the mobile chip, a deep link, the membership reconcile's
+  // bounce to local — lands on the active-host pref, so OBSERVING it records
+  // them all; there is no writer left to remember to instrument. Runs
+  // immediately (no `defer`), so the boot host is the trail's first entry.
+  //
+  // Keyed on `encActiveHost`, not the raw `HostKey` signal: the memo changes
+  // when the HOST changes, while the raw signal changes on every WRITE — and
+  // the membership reconcile writes a fresh-but-equal `HostKey` object, which
+  // is not a switch and must not stamp one.
   createEffect(
-    on(activeHost, (host) => {
-      setMru((prev) => promoteHost(prev, encodeHostKey(host), Date.now()));
+    on(encActiveHost, (hostKey) => {
+      setMru((prev) => promoteHost(prev, hostKey, Date.now()));
     }),
   );
 
-  return { mru };
+  return mru;
 }
 
 /** App-lifetime host trail. EAGER — a module-scope `createRoot`, exactly like
@@ -143,4 +131,5 @@ export function createHostRecency(): HostRecencyApi {
  *  wire: a lazily-built trail would miss every switch made before the first
  *  palette read and land ⌘⇧H on a wrong-but-plausible row, with no error to
  *  notice. */
-export const hostRecency: HostRecencyApi = createRoot(createHostRecency);
+export const hostRecency: Accessor<readonly HostVisit[]> =
+  createRoot(createHostRecency);

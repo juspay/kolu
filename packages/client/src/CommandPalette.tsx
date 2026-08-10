@@ -319,6 +319,15 @@ const CommandPalette: Component<{
     return { kind: "filter" };
   });
 
+  /** The query AS A FILTER — `""` throughout value mode, where the input holds
+   *  a value the user is composing rather than a narrowing term. Named once so
+   *  the default-highlight effect can key on "did the filter move?" directly,
+   *  instead of re-deriving that distinction from a positional comparison of
+   *  its own dependency tuple. */
+  const filterQuery = createMemo(() =>
+    mode().kind === "filter" ? query() : "",
+  );
+
   /** Validation error for the current value-input query. `null` outside
    *  value mode or when the value passes. */
   const valueError = createMemo<string | null>(() => {
@@ -808,21 +817,22 @@ const CommandPalette: Component<{
   // Registered AFTER the open/close lifecycle effect above so it observes the
   // FINAL `path` of an `applyInitialPath` run, not the intermediate one.
   //
-  // Intentionally keyed on `path`/`query`/`open`, not on `filtered` — filtered
-  // returns a new array reference on every recomputation, so tracking it would
-  // reset the index whenever upstream data (the commands memo) recomputes in
-  // the background.
+  // Intentionally keyed on `path`/`filterQuery`/`open`, not on `filtered` —
+  // filtered returns a new array reference on every recomputation, so tracking
+  // it would reset the index whenever upstream data (the commands memo)
+  // recomputes in the background.
   createEffect(
-    on([path, query, () => props.open], ([p, , open], prev) => {
+    on([path, filterQuery, () => props.open], ([, , open]) => {
       if (!open) return;
-      // Value mode: the query is a VALUE being typed, not a filter, so a
-      // keystroke must not move the highlight off the label the user picked.
-      // A SCOPE change (drill in, drill out, reopen) still re-lands it — which
-      // is why the skip is scoped to "only the query moved" rather than to the
-      // mode alone.
-      const onlyQueryMoved =
-        prev !== undefined && prev[0] === p && prev[2] === open;
-      if (mode().kind === "value" && onlyQueryMoved) return;
+      // A value leaf's children are passive labels, not a switcher: nothing
+      // there has a recency or a "current" row, so the highlight starts at the
+      // top. Keying on `filterQuery` (which is "" throughout value mode) is
+      // what keeps a keystroke from re-landing it off the label you picked,
+      // while a SCOPE change still does.
+      if (mode().kind === "value") {
+        setSelectedIndex(0);
+        return;
+      }
       setSelectedIndex(
         defaultSelectionIndex(filtered(), currentSelection(), query()),
       );

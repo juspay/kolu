@@ -9,7 +9,7 @@
  *  same way the app does: by writing the active host. */
 
 import type { HostKey } from "kolu-common/hostKey";
-import { createRoot } from "solid-js";
+import { type Accessor, createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const bag = vi.hoisted(() => {
@@ -18,16 +18,20 @@ const bag = vi.hoisted(() => {
 });
 
 vi.mock("../wire", async () => {
-  const { createSignal: signal } = await import("solid-js");
-  const [active, setActive] = signal<HostKey>({ kind: "local" });
+  const { createSignal, createMemo, createRoot } = await import("solid-js");
+  const { encodeHostKey } = await import("kolu-common/hostKey");
+  const [active, setActive] = createSignal<HostKey>({ kind: "local" });
   bag.setActive = (h: HostKey) => setActive(h);
-  return { activeHost: active };
+  // A real memo, as in wire.ts — so a fresh-but-EQUAL HostKey write is not a
+  // host change, exactly as production sees it.
+  return {
+    encActiveHost: createRoot(() => createMemo(() => encodeHostKey(active()))),
+  };
 });
 
 import {
   createHostRecency,
   HOST_MRU_CAP,
-  type HostRecencyApi,
   type HostVisit,
   parseHostMru,
   promoteHost,
@@ -110,7 +114,7 @@ describe("createHostRecency — recording", () => {
    *  app-lifetime instance precisely so no case inherits another's residue.
    *  Built in its own root and RETURNED, so the switches a case drives land
    *  outside that root's update cycle and each effect run flushes at once. */
-  function freshTrail(): HostRecencyApi {
+  function freshTrail(): Accessor<readonly HostVisit[]> {
     // The trail is a per-TAB pref; wipe the tab so the case boots from [].
     sessionStorage.clear();
     return createRoot((d) => {
@@ -128,13 +132,13 @@ describe("createHostRecency — recording", () => {
     bag.setActive(LOCAL);
     const recency = freshTrail();
     // The boot host is the trail's first entry (the effect runs immediately).
-    expect(keys(recency.mru())).toEqual(["local"]);
+    expect(keys(recency())).toEqual(["local"]);
 
     bag.setActive(GPU);
-    expect(keys(recency.mru())).toEqual(["remote:gpu-box", "local"]);
+    expect(keys(recency())).toEqual(["remote:gpu-box", "local"]);
 
     bag.setActive(BUILDER);
-    expect(keys(recency.mru())).toEqual([
+    expect(keys(recency())).toEqual([
       "remote:builder",
       "remote:gpu-box",
       "local",
@@ -142,22 +146,21 @@ describe("createHostRecency — recording", () => {
 
     // Switching back re-promotes rather than appending a duplicate.
     bag.setActive(GPU);
-    expect(keys(recency.mru())).toEqual([
+    expect(keys(recency())).toEqual([
       "remote:gpu-box",
       "remote:builder",
       "local",
     ]);
   });
 
-  it("stamps the host you came from above the rest — the ⌘⇧H toggle target", () => {
+  it("ignores a re-assertion of the host already at the head", () => {
     bag.setActive(LOCAL);
     const recency = freshTrail();
-    bag.setActive(BUILDER);
     bag.setActive(GPU);
-    // Active is GPU; BUILDER is where the user came from.
-    const stamp = (hostKey: string) =>
-      recency.mru().find((e) => e.hostKey === hostKey)?.switchedAt ?? 0;
-    expect(stamp("remote:builder")).toBeGreaterThan(stamp("local"));
-    expect(stamp("remote:gpu-box")).toBeGreaterThan(stamp("remote:builder"));
+    const before = recency();
+    // A write that names the host you are already on is not a switch: the trail
+    // keeps its identity, so nothing re-stamps, re-serializes, or recomputes.
+    bag.setActive({ kind: "remote", target: "gpu-box" });
+    expect(recency()).toBe(before);
   });
 });

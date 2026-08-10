@@ -24,7 +24,6 @@ const POOL = [LOCAL, GPU, BUILDER];
 
 type FleetActions = typeof import("./fleetActions");
 let hostRootActions: FleetActions["hostRootActions"];
-let hostRankScore: FleetActions["hostRankScore"];
 
 // A FRESH trail per case, without giving up the real composition: reset the
 // module registry so `hostRecency`'s app-lifetime root is rebuilt, wipe the tab
@@ -37,16 +36,19 @@ beforeEach(async () => {
   sessionStorage.clear();
   vi.resetModules();
   vi.doMock("../wire", async () => {
-    const { createSignal } = await import("solid-js");
+    const { createSignal, createMemo, createRoot } = await import("solid-js");
     const [active, setActive] = createSignal<HostKey>({ kind: "local" });
     bag.setActive = (h: HostKey) => setActive(h);
     return {
-      activeHost: active,
+      // The trail keys on the ENCODED memo, as wire.ts exposes it.
+      encActiveHost: createRoot(() =>
+        createMemo(() => encodeHostKey(active())),
+      ),
       // Every pool host reads connected — the row's status text, not the rank.
       padiMap: { entry: () => ({ state: () => ({ kind: "connected" }) }) },
     };
   });
-  ({ hostRootActions, hostRankScore } = await import("./fleetActions"));
+  ({ hostRootActions } = await import("./fleetActions"));
 });
 
 /** The row ⌘⇧H would activate on Enter, given who is active now. */
@@ -60,19 +62,6 @@ function landsOn(active: HostKey, pool: HostKey[] = POOL): string | undefined {
     )
   ]?.name;
 }
-
-describe("hostRankScore", () => {
-  it("ranks by the trail's stamp, and a never-seen host at 0", () => {
-    const trail = [
-      { hostKey: "remote:gpu-box", switchedAt: 300 },
-      { hostKey: "local", switchedAt: 200 },
-    ];
-    expect(hostRankScore(trail, "remote:gpu-box")).toBeGreaterThan(
-      hostRankScore(trail, "local"),
-    );
-    expect(hostRankScore(trail, "remote:never-seen")).toBe(0);
-  });
-});
 
 describe("⌘⇧H default highlight", () => {
   it("lands on the host you came from, so Enter toggles the last two", () => {
