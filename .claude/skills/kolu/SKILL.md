@@ -101,21 +101,28 @@ looping waits and reporting back); it drops reports at four seams and it is what
 `watch_*` exists to retire.
 
 ```jsonc
-watch_open { name: "campaign" }                     // once — omit `ids` to watch every terminal
-watch_next { name: "campaign", timeoutMs: 60000 }   // in a loop; returns everything since last call
-watch_close { name: "campaign" }                    // when the campaign ends
+watch_open { name: "campaign" }                                  // once — omit `ids` to watch every terminal
+watch_next { name: "campaign", timeoutMs: 60000 }                // first call
+watch_next { name: "campaign", after: <cursor>, timeoutMs: … }   // then ACK the last batch each time
+watch_close { name: "campaign" }                                 // when the campaign ends
 ```
 
 - Events that land while you are **not** calling `watch_next` are buffered in
   padi, so the gap between calls is not a blind spot.
+- **Acknowledge by passing each result's `cursor` back as the next `after`.**
+  Unacknowledged events are handed over again, so a reply you never received is
+  never lost — dedupe on each event's `seq` if you see one twice.
 - The queue outlives your MCP process **and** kaval. Re-`watch_open` the SAME
-  name after any restart to reattach; a new name starts empty.
+  name after either to reattach; a new name starts empty. A **padi** restart
+  (upgrade) clears subscriptions — `watch_next` then FAILS naming the
+  subscription rather than reporting quiet, so re-`watch_open` and continue.
 - Each event is `{ id, kind, at, parentId?, intent? }` with `kind` one of
   `asking` (blocked on input) · `finished` (turn ended AND output settled) ·
   `gone` (the terminal no longer exists — stop waiting on it).
-- `timeout` loses nothing — the buffer is still there next call. A nonzero
-  `dropped` means you were away long enough to overflow; re-read the `terminals`
-  resource to reconcile rather than trusting the delta.
+- `timeout` and `closed` both lose nothing — the queue is still there next call.
+  Neither means a terminal died. A nonzero `dropped` means you were away long
+  enough to overflow the 512-event queue; re-read the `terminals` resource to
+  reconcile rather than trusting the delta.
 - Prefer the default (all terminals) over an `ids` list: a kaval recycle retires
   every active terminal id, so a frozen id list ages out where "all" does not.
 
