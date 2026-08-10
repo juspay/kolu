@@ -404,7 +404,7 @@ describe("rankDockRows — split sub-entries", () => {
     ).toEqual([AGENT_SPLIT, PLAIN_SPLIT]);
   });
 
-  it("orders sibling splits needs-you first, then by recency", () => {
+  it("keeps sibling splits in the store's order — urgency does not reorder tabs", () => {
     const blocked = "split-blocked" as TerminalId;
     const newerBusy = "split-newer-busy" as TerminalId;
     metas[blocked] = makeMeta({
@@ -416,8 +416,12 @@ describe("rankDockRows — split sub-entries", () => {
       lastActivityAt: 1_000,
     });
 
+    // The pane tree arrives from the store — the same index the canvas paints
+    // as a tab strip. Re-ordering here made the dock and the canvas disagree
+    // about which tab is second; the blocked split is surfaced by the dock's
+    // needs-you strip instead, which moves nothing.
     expect(rank([newerBusy, blocked])[0]?.subRows.map((row) => row.id)).toEqual(
-      [blocked, newerBusy],
+      [newerBusy, blocked],
     );
   });
 
@@ -484,10 +488,12 @@ describe("rankDockRows — split sub-entries", () => {
       ]);
     });
 
-    it("keeps each split next to its own children when siblings re-sort", () => {
-      // The blocked grandchild floats its own sibling group, but it must stay
-      // UNDER its parent — depth-first, not a global urgency sort that would
-      // strand it beneath an unrelated row.
+    it("keeps each split immediately followed by its own children", () => {
+      // Depth-first, in the store's sibling order: a grandchild rides directly
+      // under its own parent rather than being stranded beneath an unrelated
+      // sibling. This held under the old urgency sort too — what changed is
+      // that the sibling order is now the store's, so nothing can re-sort the
+      // sequence out from under the indent.
       const blocked = "split-blocked" as TerminalId;
       metas[blocked] = makeMeta({
         agent: makeAgent("awaiting_user"),
@@ -498,9 +504,9 @@ describe("rankDockRows — split sub-entries", () => {
         { id: AGENT_SPLIT, children: [] },
       ]);
       expect(rows[0]?.subRows.map((row) => row.id)).toEqual([
-        AGENT_SPLIT, // working outranks the idle shell among siblings…
         PLAIN_SPLIT,
-        blocked, // …and the blocked grandchild still rides under its parent.
+        blocked, // the grandchild, directly under its own parent…
+        AGENT_SPLIT, // …and only then the next top sibling.
       ]);
     });
 

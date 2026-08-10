@@ -34,8 +34,13 @@ import {
   orderHostsActiveFirst,
 } from "./fleetTerminals";
 
-/** Palette ranking policy: max(client visit, server activity). Lives here
- *  (not in the trail store) so visitRecency stays trail-only. */
+/** Palette ORDER policy for the Recent band: max(client visit, server activity)
+ *  — "how warm is this terminal", which output legitimately answers. Lives here
+ *  (not in the trail store) so visitRecency stays trail-only.
+ *
+ *  Pair it with {@link visitedAtOf} on every row: that is the HIGHLIGHT key, and
+ *  the two must stay distinct. Folding them back into one number is precisely
+ *  what let a chatty background agent steal ⌘K → Enter (#2140). */
 export function terminalRankScore(
   visits: readonly VisitEntry[],
   hostKey: string,
@@ -48,9 +53,15 @@ export function terminalRankScore(
   );
 }
 
-/** Palette ranking policy for host rows: the switch trail's stamp. Lives here
- *  (not in the trail store) so hostRecency stays trail-only. */
-export function hostRankScore(
+/** Palette HIGHLIGHT policy for host rows: the switch trail's stamp — when YOU
+ *  last switched to this host. Lives here (not in the trail store) so
+ *  hostRecency stays trail-only.
+ *
+ *  There is no host ORDER policy to pair this with, and that asymmetry is the
+ *  design: the Hosts list keeps POOL order, because a machine list that
+ *  reshuffles under the cursor is unlearnable — the same reason the dock stopped
+ *  sorting on a clock. Hosts therefore set `visitedAt` and no `rankAt`. */
+export function hostVisitedAt(
   mru: readonly HostVisit[],
   hostKey: string,
 ): number {
@@ -86,6 +97,11 @@ function terminalSwitchActionsForHost(
       cwd: r.meta.cwd,
     })),
   );
+  // Read the visit trail ONCE, not per row — same reason `hostRootActions`
+  // hoists its own: Solid does not dedupe repeated reads, so a read inside the
+  // map registers one subscription per terminal on a trail that moves on every
+  // tile activation.
+  const visits = useVisitRecency().visits();
   return rows.map((row): PaletteAction => {
     const k = keys.get(row.id);
     if (k === undefined) {
@@ -110,14 +126,11 @@ function terminalSwitchActionsForHost(
     }
     const hostName = hostLabel(row.host);
     const hostKey = encodeHostKey(row.host);
-    // activity clock for paint; rankScore for sort — never jam them into one field.
+    // Three clocks, three jobs, never jammed into one field: the activity clock
+    // PAINTS the "3m ago" cell, `rankAt` ORDERS the Recent band, `visitedAt`
+    // HIGHLIGHTS the row Enter lands on.
     const activityAt = row.recencyAt;
-    const rankAt = terminalRankScore(
-      useVisitRecency().visits(),
-      hostKey,
-      row.id,
-      activityAt,
-    );
+    const rankAt = terminalRankScore(visits, hostKey, row.id, activityAt);
     return {
       kind: "action",
       name: branchLabel,
@@ -135,6 +148,7 @@ function terminalSwitchActionsForHost(
         annotationColor,
         recencyAt: activityAt,
         rankAt,
+        visitedAt: visitedAtOf(visits, hostKey, row.id),
         searchText: [
           workspaceSearchText({
             repoName,
@@ -220,10 +234,10 @@ export function terminalHostGroups(
 /** Host rows for root index and the Hosts scoped group — one source of truth.
  *
  *  Order stays membership order (a host list that reshuffles under the cursor
- *  is not a list you can learn); it is `rankAt` that carries the switch trail,
- *  so ⌘⇧H's default highlight lands on the host you came from — the same
+ *  is not a list you can learn); it is `visitedAt` that carries the switch
+ *  trail, so ⌘⇧H's default highlight lands on the host you came from — the same
  *  `defaultSelectionIndex` rule the terminal rows above feed with their own
- *  visit trail. */
+ *  visit trail, through the same field. */
 export function hostRootActions(
   hosts: HostKey[],
   active: HostKey,
@@ -248,7 +262,7 @@ export function hostRootActions(
         kind: "host",
         hostKey: h,
         context,
-        rankAt: hostRankScore(trail, encodeHostKey(h)),
+        visitedAt: hostVisitedAt(trail, encodeHostKey(h)),
         searchText: `${label} ${context} ${state.kind}`.trim(),
       },
     };

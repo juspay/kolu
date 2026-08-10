@@ -67,7 +67,7 @@ function makeGetInfo(
 }
 
 describe("buildDockTree", () => {
-  it("groups by repo and sorts both sections and rows by pure recency", () => {
+  it("keeps sections and rows in first-appearance order, whatever the clock says", () => {
     const ranked = [
       row("a", "working", 1000),
       row("b", "awaiting", 500),
@@ -79,12 +79,51 @@ describe("buildDockTree", () => {
       c: { group: "kolu", color: "#aaa" },
     });
     const tree = buildDockTree(ranked, getInfo, false);
-    // Section recency: kolu's newest (c@2000) > pierre's newest (b@500).
+    // Every `ts` here argues for a different order — c@2000 is the newest row
+    // and b is the blocked one — and none of it moves anything. kolu leads
+    // because `a` arrived first; `c` follows `a` for the same reason.
     expect(tree.groups.map((g) => g.name)).toEqual(["kolu", "pierre"]);
-    // Within kolu, c@2000 outranks a@1000 on pure recency — bucket no
-    // longer promotes working over idle in the within-group order.
-    expect(tree.groups[0]?.topRows.map((r) => r.id)).toEqual(["c", "a"]);
+    expect(tree.groups[0]?.topRows.map((r) => r.id)).toEqual(["a", "c"]);
     expect(tree.groups[1]?.topRows.map((r) => r.id)).toEqual(["b"]);
+  });
+
+  // THE regression guard for #2140, and the one test that was red before it:
+  // a row's position must be a function of the row SET alone, never of any
+  // row's clock. Every earlier ordering test could be satisfied by a sort that
+  // merely happened to agree with creation order on that fixture; this one
+  // cannot — it holds the set fixed and moves only the clock.
+  it("no row moves when another row's activity moves", () => {
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#aaa", label: "one" },
+      b: { group: "pierre", color: "#bbb", label: "two" },
+      c: { group: "kolu", color: "#aaa", label: "three" },
+    });
+    // Clocks chosen so a recency sort would ORDER THESE TWO DIFFERENTLY —
+    // otherwise the test passes under the very regression it exists to catch.
+    // Old behaviour: before → sections [kolu, pierre], kolu rows [a, c];
+    // after → [pierre, kolu] and [c, a]. Both legs move.
+    const before = buildDockTree(
+      [row("a", "idle", 300), row("b", "idle", 200), row("c", "idle", 100)],
+      getInfo,
+      false,
+    );
+    // `b`'s background agent finishes a turn and `c` prints a line — the exact
+    // churn that used to yank pierre to the top and renumber every shortcut.
+    const after = buildDockTree(
+      [
+        row("a", "idle", 300),
+        row("b", "working", 9_000_000),
+        row("c", "idle", 500),
+      ],
+      getInfo,
+      false,
+    );
+    expect(after.groups.map((g) => g.name)).toEqual(
+      before.groups.map((g) => g.name),
+    );
+    expect(after.flatShortcutRows.map((r) => r.id)).toEqual(
+      before.flatShortcutRows.map((r) => r.id),
+    );
   });
 
   it("filters parked rows entirely and surfaces the count", () => {
@@ -119,12 +158,13 @@ describe("buildDockTree", () => {
       d: { group: "justci", color: "#ccc" },
     });
     const tree = buildDockTree(ranked, getInfo, false);
-    // Section order: pierre(300) > kolu(200) > justci(0). Within kolu,
-    // b@200 > a@100 on recency.
+    // Sections in first-appearance order (kolu, pierre, justci), rows within
+    // kolu in creation order — the sequence the dock paints top to bottom, and
+    // therefore the sequence `Cmd+1..4` walks.
     expect(tree.flatShortcutRows.map((r) => r.id)).toEqual([
-      "c",
-      "b",
       "a",
+      "b",
+      "c",
       "d",
     ]);
   });
@@ -149,26 +189,27 @@ describe("buildDockTree", () => {
     expect(tree.flatShortcutRows.map((entry) => entry.id)).toEqual(["a"]);
   });
 
-  it("an awaiting row in a quieter repo does not promote its section above a more recent repo", () => {
+  it("a blocked row is mirrored onto the strip and does NOT move in the list", () => {
     const ranked = [
-      // Kolu has a fresh working row at 1000.
       row("a", "working", 1000),
-      // Pierre has an awaiting row, but older — 400.
       row("b", "awaiting", 400),
+      row("c", "idle", 50),
     ];
     const getInfo = makeGetInfo({
-      a: { group: "kolu", color: "#aaa" },
-      b: { group: "pierre", color: "#bbb" },
+      a: { group: "kolu", color: "#aaa", label: "one" },
+      b: { group: "pierre", color: "#bbb", label: "two" },
+      c: { group: "kolu", color: "#aaa", label: "three" },
     });
     const tree = buildDockTree(ranked, getInfo, false);
-    // Under bucket-priority, pierre's awaiting could outrank kolu at
-    // the row layer; under pure recency, kolu wins because a@1000
-    // beats b@400. The pip's pulse on b carries the attention signal
-    // without dragging pierre above kolu in the list.
+    // The blocked row is surfaced…
+    expect(tree.needsYou.map((r) => r.id)).toEqual(["b"]);
+    // …and is STILL exactly where it was, in the section it belongs to. The
+    // mirror is what makes both of those true at once.
+    expect(tree.flatShortcutRows.map((r) => r.id)).toEqual(["a", "c", "b"]);
     expect(tree.groups.map((g) => g.name)).toEqual(["kolu", "pierre"]);
   });
 
-  it("promotes a parent when one of its split agents is blocked", () => {
+  it("a blocked SPLIT puts its parent on the strip, still without moving it", () => {
     const recent = row("recent", "working", 1_000);
     const blockedSplitParent = row("parent", "idle", 10);
     blockedSplitParent.subRows = [agentSubRow("blocked", "awaiting")];
@@ -181,28 +222,51 @@ describe("buildDockTree", () => {
       false,
     );
 
+    // The strip names the PARENT — the row you can actually click — even though
+    // the blocked agent is the split underneath it.
+    expect(tree.needsYou.map((r) => r.id)).toEqual(["parent"]);
     expect(tree.groups[0]?.topRows.map((entry) => entry.id)).toEqual([
-      "parent",
       "recent",
+      "parent",
     ]);
   });
 
-  it("recency drives both section and row order — same-bucket rows tiebreak on ts", () => {
-    const ranked = [
-      row("a", "working", 100),
-      row("b", "working", 500),
-      row("c", "working", 300),
-    ];
+  it("the strip claims no shortcut numbers", () => {
+    // Blocking the LAST row is the case that would expose a strip feeding
+    // `flatShortcutRows`: it would jump to position 1 and renumber everything.
     const getInfo = makeGetInfo({
-      a: { group: "kolu", color: "#aaa" },
-      b: { group: "pierre", color: "#bbb" },
-      c: { group: "kolu", color: "#aaa" },
+      a: { group: "kolu", color: "#aaa", label: "one" },
+      b: { group: "kolu", color: "#aaa", label: "two" },
     });
-    const tree = buildDockTree(ranked, getInfo, false);
-    // Pierre's newest (b@500) beats kolu's (c@300); within kolu, c@300
-    // beats a@100.
-    expect(tree.groups.map((g) => g.name)).toEqual(["pierre", "kolu"]);
-    expect(tree.groups[1]?.topRows.map((r) => r.id)).toEqual(["c", "a"]);
+    const quiet = buildDockTree(
+      [row("a", "idle", 100), row("b", "idle", 200)],
+      getInfo,
+      false,
+    );
+    const blocked = buildDockTree(
+      [row("a", "idle", 100), row("b", "awaiting", 200)],
+      getInfo,
+      false,
+    );
+    expect(blocked.needsYou.map((r) => r.id)).toEqual(["b"]);
+    expect(blocked.flatShortcutRows.map((r) => r.id)).toEqual(
+      quiet.flatShortcutRows.map((r) => r.id),
+    );
+  });
+
+  it("the strip mirrors only rows the filters actually left on screen", () => {
+    // A parked row can still be `awaiting` — that is exactly the row the
+    // activity window hides. Mirroring it would put a chip on the strip with
+    // no row under it to jump to.
+    const tree = buildDockTree(
+      [row("shown", "awaiting", 1000), row("gone", "parked", 5)],
+      makeGetInfo({
+        shown: { group: "kolu", color: "#aaa", label: "one" },
+        gone: { group: "kolu", color: "#aaa", label: "two" },
+      }),
+      false,
+    );
+    expect(tree.needsYou.map((r) => r.id)).toEqual(["shown"]);
   });
 
   it("skips rows whose display info is missing", () => {

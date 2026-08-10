@@ -1,24 +1,33 @@
 /** Group ranked dock rows by repo into sections the dock renders.
  *
- *  Pure projection: `rankDockRows` recency-sorts across all terminals;
- *  this module rearranges that into repo-bucketed sections so the user
- *  sees `repo → branches` as the primary structure.
+ *  Pure projection, and — since #2140 — a pure *bucketing*: it sorts nothing.
+ *  `rankDockRows` hands over rows in creation order (padi's registry insertion
+ *  order, which `listTerminals` contracts); this module files each into its
+ *  repo section and branch cluster and preserves that order throughout.
  *
- *  **Blocked-on-you first, then pure recency.** Within a section, rows whose
- *  agent is genuinely blocked on the user (`bucket === "awaiting"`, i.e.
- *  `awaiting_user` — the post-turn `waiting` linger ranks idle, per the
- *  order≠colour law) sort ABOVE everything else; recency decides the rest.
- *  An agent that has waited 20 hours must not hide under fresher busy rows —
- *  colour and animation alone demonstrably failed to surface it (fucknotif).
- *  Sections themselves still sort by pure recency: the section header's
- *  attention triplet + the host tab capsule carry cross-section discovery,
- *  so the macro-order keeps the "what did I just touch?" mental model.
+ *  **Structure decides position; the clock decides nothing.** Sections appear
+ *  in first-appearance order, clusters likewise, rows in creation order — all
+ *  three fall out of `Map` insertion order for free, because the rows arrive
+ *  already ordered. The property that buys is APPEND-ONLY: nothing on screen
+ *  moves except what you created or closed. That is what makes the list
+ *  learnable and, with it, `Cmd+1..9` (which binds to `flatShortcutRows`)
+ *  worth memorising. The previous design sorted all three levels by `ts`, so a
+ *  background agent finishing a turn re-ordered a list you were reading and
+ *  silently renumbered every shortcut.
  *
- *  Inside a section, rows are **clustered by branch/intent label** so
- *  two terminals on the same branch stay adjacent even when an
- *  unrelated row sits between them in pure-recency time. The cluster
- *  is the grouping primitive; the sort key inside and outside the
- *  cluster is the same (`-ts`).
+ *  Inside a section, rows are **clustered by branch/intent label** so two
+ *  terminals on the same branch stay adjacent. This is the one grouping that
+ *  can move a row away from strict creation order, and it is structural — it
+ *  moves on a re-checkout, not on a clock.
+ *
+ *  **Blocked-on-you rows are surfaced, not promoted.** An agent that has waited
+ *  20 hours must not hide in a long list — colour and animation alone
+ *  demonstrably failed to surface it (fucknotif). It earns a place in
+ *  {@link DockTree.needsYou}, the pinned strip the dock renders above the
+ *  sections, which MIRRORS the row rather than relocating it: the row keeps its
+ *  structural slot and its shortcut number, and the list underneath never
+ *  reflows. A fixed place that fills and empties beats a list that rearranges
+ *  itself around the thing you were meant to notice.
  *
  *  Parked rows are filtered out — the activity-window selector becomes a
  *  hard hide, not a dim. The dropped count is surfaced as `parkedCount`
@@ -40,21 +49,17 @@
  *  `placementPolicy.ts:getBucketFor` uses for canvas tile clustering,
  *  so the dock's "what counts as one repo" agrees with the canvas. */
 
-import { type TerminalId, URGENCY_RANK } from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import {
-  DOCK_ROW_BUCKET_PRIORITY,
-  type RankedDockRow,
-  tsRank,
-} from "./dockRowRanking";
+import { needsYou, type RankedDockRow } from "./dockRowRanking";
 
 export type DockGroup = {
   /** `info.key.group` — git repo name or cwd basename. */
   name: string;
   /** Per-repo OKLCH color (`info.repoColor`). */
   color: string;
-  /** Top-level rows inside this group, sorted by recency (newest first), with
-   *  same-branch siblings kept adjacent via cluster grouping. */
+  /** Top-level rows inside this group, in creation order, with same-branch
+   *  siblings kept adjacent via cluster grouping. */
   topRows: RankedDockRow[];
   /** Every row belonging to this repo, INCLUDING the ones the activity window
    *  parked and the ☾ toggle is hiding — what the header's attention summary
@@ -77,8 +82,24 @@ export type DockTree = {
   groups: DockGroup[];
   /** Flat top-level order across all groups. `App.tsx` projects ids from this
    *  list for `Cmd+1..9`; splits are intentionally absent because the rail's
-   *  expanded entry projection does not change shortcut numbering. */
+   *  expanded entry projection does not change shortcut numbering.
+   *
+   *  Now that no layer sorts on a clock, this list is APPEND-ONLY under
+   *  ordinary use — which is the whole reason `Cmd+3` is worth learning. The
+   *  needs-you strip deliberately does NOT feed it: the strip mirrors rows, so
+   *  letting it contribute would renumber every shortcut the moment an agent
+   *  blocked, reintroducing exactly what this change removed. */
   flatShortcutRows: readonly RankedDockRow[];
+
+  /** Rows blocked on YOU, in the same structural order they appear below — the
+   *  pinned strip's contents ({@link needsYou}).
+   *
+   *  A MIRROR, not a relocation: each row keeps its slot, its section, and its
+   *  shortcut number, and appears here as well. That duplication is the point —
+   *  it is what lets the list underneath stay perfectly still while attention
+   *  still gets a fixed, glanceable home. Empty (the common case) means the
+   *  strip renders nothing at all. */
+  needsYou: readonly RankedDockRow[];
   /** How many rows the activity window filtered out. The dock surfaces
    *  this as a footer hint with a "show all" link. */
   parkedCount: number;
@@ -146,9 +167,13 @@ export function buildDockTree(
     else group.byLabel.set(info.key.label, [row]);
   }
 
+  // `byName` and each `byLabel` are `Map`s filled in row order, and the rows
+  // arrived in creation order — so plain iteration already yields
+  // first-appearance sections holding first-appearance clusters. There is no
+  // sort here to delete a comparator from; the order is the input's.
   const groups: DockGroup[] = [...byName.entries()]
     .map(([name, g]) => {
-      const topRows = flattenLabelClusters(g.byLabel);
+      const topRows = [...g.byLabel.values()].flat();
       const railEntries = topRows.flatMap<DockRailEntry>((row) => [
         { kind: "top", row },
         ...row.subRows.map((sub) => ({ kind: "split" as const, row: sub })),
@@ -165,91 +190,18 @@ export function buildDockTree(
     // attention on; the footer's "N hidden" disclosure is what surfaces it.
     .filter((g) => g.topRows.length > 0);
 
-  groups.sort(compareGroups);
-
   const flatShortcutRows = groups.flatMap((g) => g.topRows);
   return {
     groups,
     flatShortcutRows,
+    // Derived from the SAME flat list the sections render, so the strip can
+    // only ever hold rows that are actually visible below it — a mirror of a
+    // row the filters dropped would be a chip that leads nowhere.
+    needsYou: flatShortcutRows.filter(needsYou),
     parkedCount,
     sleepingCount,
     hiddenCount: parkedCount + (hideSleeping ? sleepingCount : 0),
     hasContent:
       flatShortcutRows.length > 0 || parkedCount > 0 || sleepingCount > 0,
   };
-}
-
-/** Sort rows inside each label cluster (blocked-first, then `-ts`), then order
- *  clusters by their already-sorted top row using the same key — so the same-
- *  branch sibling of a recent row stays adjacent to it even when
- *  another branch in the same repo has activity falling between the
- *  pair in pure-recency time, and a cluster holding a blocked row
- *  floats to the top of its section (siblings ride along — the cluster
- *  is the grouping primitive). */
-function flattenLabelClusters(
-  byLabel: Map<string, RankedDockRow[]>,
-): RankedDockRow[] {
-  for (const list of byLabel.values()) list.sort(compareRows);
-  const ordered = [...byLabel.values()].sort((a, b) => {
-    const ra = a[0];
-    const rb = b[0];
-    // byLabel values are always initialized with at least one row (see buildDockTree),
-    // so ra and rb are never undefined in practice — this guard appeases TypeScript.
-    if (!ra || !rb) return 0;
-    return compareRows(ra, rb);
-  });
-  return ordered.flat();
-}
-
-function compareRows(a: RankedDockRow, b: RankedDockRow): number {
-  // Blocked-on-you floats first — `awaiting` is exactly `awaiting_user`
-  // (the ORDER bucket; linger ranks idle), so only genuinely blocked rows
-  // promote. Everything else stays pure recency.
-  const blocked = blockedFirstRank(a) - blockedFirstRank(b);
-  if (blocked !== 0) return blocked;
-  const ra = tsRank(a.ts);
-  const rb = tsRank(b.ts);
-  // Guard the subtraction: `tsRank` can return `-Infinity` (never-active), and
-  // `-Infinity - -Infinity` is `NaN`. Equal ranks (including two never-active
-  // rows) short-circuit to the explicit tie before that can happen.
-  return ra === rb ? 0 : rb - ra;
-}
-
-/** 0 for a row blocked on you, 1 for everything else — the blocked-first leg of
- *  the top-level order, read OFF the shared `DOCK_ROW_BUCKET_PRIORITY` rather
- *  than off a one-entry table of its own.
- *
- *  A split is part of its parent's visible Dock entry, so a blocked split
- *  promotes that parent too. `awaiting` is the one bucket carrying the
- *  needs-you rank; membership stays a lookup in the table that already decides
- *  bucket priority everywhere else. */
-function blockedFirstRank(row: RankedDockRow): number {
-  if (DOCK_ROW_BUCKET_PRIORITY[row.bucket] === URGENCY_RANK.need) return 0;
-  return row.subRows.some(
-    (sub) => DOCK_ROW_BUCKET_PRIORITY[sub.bucket] === URGENCY_RANK.need,
-  )
-    ? 0
-    : 1;
-}
-
-/** Sections sort by recency too — the most recently-active row in the
- *  group wins. "Which repo did I just touch?" is the question this
- *  answers; attention propagates inside a section via the row's state
- *  pip, not via section order. Groups always have ≥1 row (constructed
- *  from non-empty buckets), so the max is defined. */
-function compareGroups(a: DockGroup, b: DockGroup): number {
-  const ra = groupRecency(a);
-  const rb = groupRecency(b);
-  // Same NaN guard as `compareRows`: two all-never-active groups both rank
-  // `-Infinity`, and the bare subtraction would be `NaN`.
-  return ra === rb ? 0 : rb - ra;
-}
-
-function groupRecency(g: DockGroup): number {
-  let max = Number.NEGATIVE_INFINITY;
-  for (const r of g.topRows) {
-    const rank = tsRank(r.ts);
-    if (rank > max) max = rank;
-  }
-  return max;
 }

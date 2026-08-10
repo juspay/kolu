@@ -61,9 +61,23 @@ export type IndexableItem = {
     searchText?: string;
     /** Display age (activity clock). Not used for root sort when rankAt set. */
     recencyAt?: number | null;
-    /** Recency rank in milliseconds — max(visit, activity) for terminals, the
-     *  host-switch stamp for hosts. Higher = more recent. Missing → 0. */
+    /** ORDER key for the Recent band — max(your visit, the terminal's own
+     *  activity), in milliseconds. Answers "what is WARM", which is the right
+     *  question for a list of what to look at, and a background agent's output
+     *  is a legitimate answer to it. Higher = more recent. Missing → 0. */
     rankAt?: number | null;
+    /** HIGHLIGHT key — when YOU were last on this row, in milliseconds: the
+     *  visit trail for a terminal, the switch trail for a host. Never the
+     *  server's activity clock.
+     *
+     *  Separate from {@link rankAt} because ordering and highlighting answer
+     *  different questions, and jamming them into one number broke the toggle:
+     *  ⌘K → Enter is meant to hop back to where you came FROM, but with the
+     *  highlight riding `rankAt` any chattier background agent outranked it and
+     *  Enter went somewhere you had never been. Activity has no opinion on
+     *  where you have been. Missing → 0, so a list with no trail behind it
+     *  (a fresh tab, a plain command list) lands on its first row. */
+    visitedAt?: number | null;
     /** Host + id — present on fleet terminal rows for Recent exclusion. */
     hostKey?: string | HostKey;
     terminalId?: string;
@@ -114,8 +128,16 @@ export function searchCorpus(item: IndexableItem): string {
   return `${item.name} ${item.description ?? ""}`;
 }
 
+/** The ORDER key — how warm is this row. */
 function rankOf(item: IndexableItem): number {
   return item.row?.rankAt ?? item.row?.recencyAt ?? 0;
+}
+
+/** The HIGHLIGHT key — when were YOU last here. Deliberately does NOT fall back
+ *  to `rankAt`/`recencyAt`: a row with no visit behind it must tie at 0 rather
+ *  than borrow an activity stamp and win a toggle it has no claim to. */
+function visitedAtOf(item: IndexableItem): number {
+  return item.row?.visitedAt ?? 0;
 }
 
 /** Filter by AND-token match, then rank for root (or leave registration
@@ -172,8 +194,13 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
 /** THE default-highlight rule — the WHOLE rule, one policy behind every
  *  switcher chord, so a "press the chord, press Enter" toggle works the same for
  *  terminals (⌘K) and hosts (⌘⇧H): with a query typed the top match wins
- *  (recency has nothing to say); with no query, **the most-recently-visited row
- *  of the leading kind that isn't the row you are already on.**
+ *  (recency has nothing to say); with no query, **the row of the leading kind
+ *  that YOU visited most recently and are not on right now.**
+ *
+ *  "Visited" is {@link visitedAtOf} — your own trail, never the activity clock
+ *  the list is ORDERED by. The two were one number until #2140, which meant a
+ *  background agent could take the highlight off the terminal you came from and
+ *  send Enter somewhere you had never been.
  *
  *  "Leading kind" is whatever {@link kindRank} put first, so this policy is
  *  defined only on a list {@link filterAndRankPaletteItems} has already
@@ -195,7 +222,7 @@ export function defaultSelectionIndex(
   const best = items.reduce<{ i: number; rank: number } | null>(
     (acc, item, i) => {
       if (itemKind(item) !== kind || isCurrentRow(item, current)) return acc;
-      const rank = rankOf(item);
+      const rank = visitedAtOf(item);
       return acc === null || rank > acc.rank ? { i, rank } : acc;
     },
     null,

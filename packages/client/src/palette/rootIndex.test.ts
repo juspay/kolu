@@ -15,6 +15,7 @@ function item(
   extras: Partial<IndexableItem> & {
     recencyAt?: number;
     rankAt?: number;
+    visitedAt?: number;
     searchText?: string;
     sectionOrder?: number;
     hostKey?: string;
@@ -24,6 +25,7 @@ function item(
   const {
     recencyAt,
     rankAt,
+    visitedAt,
     searchText,
     sectionOrder,
     description,
@@ -39,6 +41,7 @@ function item(
       kind,
       recencyAt,
       rankAt,
+      visitedAt,
       searchText,
       hostKey,
       terminalId,
@@ -286,8 +289,8 @@ describe("defaultSelectionIndex", () => {
   // whole, so a caller cannot hold half of it.
   it("lands on the top match whenever a query is typed", () => {
     const rows: IndexableItem[] = [
-      item("gpu-box", "host", { rankAt: 10, hostKey: "remote:gpu-box" }),
-      item("builder", "host", { rankAt: 900, hostKey: "remote:builder" }),
+      item("gpu-box", "host", { visitedAt: 10, hostKey: "remote:gpu-box" }),
+      item("builder", "host", { visitedAt: 900, hostKey: "remote:builder" }),
     ];
     // Recency would pick row 1; a typed query means the ranker's top match wins.
     expect(defaultSelectionIndex(rows, onHost("local"), "b")).toBe(0);
@@ -300,16 +303,16 @@ describe("defaultSelectionIndex", () => {
   it("keeps ⌘K's root list on its first (most recent) terminal row", () => {
     const rows: IndexableItem[] = [
       item("prev-visit", "terminal", {
-        rankAt: 500,
+        visitedAt: 500,
         hostKey: "local",
         terminalId: TID_A,
       }),
       item("older", "terminal", {
-        rankAt: 300,
+        visitedAt: 300,
         hostKey: "local",
         terminalId: TID_B,
       }),
-      item("local", "host", { rankAt: 2, hostKey: "local" }),
+      item("local", "host", { visitedAt: 2, hostKey: "local" }),
       item("Toggle dock", "command"),
     ];
     expect(
@@ -321,22 +324,55 @@ describe("defaultSelectionIndex", () => {
     ).toBe(0);
   });
 
+  // THE #2140 guard, and the one test that was red before it. `rankAt` and
+  // `visitedAt` are made to DISAGREE here — a background agent is the warmest
+  // row in the list, and a terminal you actually came from is the one you last
+  // visited. When the highlight rode `rankAt`, ⌘K → Enter went to the chatty
+  // stranger; the toggle only worked while nothing else was running, which is
+  // not when anyone needs it.
+  it("a chatty terminal you have never visited does not steal the highlight", () => {
+    const rows: IndexableItem[] = [
+      item("active", "terminal", {
+        rankAt: 500,
+        visitedAt: 500,
+        hostKey: "local",
+        terminalId: TID_A,
+      }),
+      // Loudest row in the list, and you have never once opened it.
+      item("chatty-stranger", "terminal", {
+        rankAt: 9_000_000,
+        visitedAt: 0,
+        hostKey: "local",
+        terminalId: TID_B,
+      }),
+      // Quiet, but it is where you came from.
+      item("came-from", "terminal", {
+        rankAt: 400,
+        visitedAt: 400,
+        hostKey: "local",
+        terminalId: "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      }),
+    ];
+    const idx = defaultSelectionIndex(rows, onLocalTerminal(TID_A), "");
+    expect(rows[idx]?.name).toBe("came-from");
+  });
+
   // ⌘⇧K browse lists every terminal INCLUDING the active one, in host order —
   // the rule skips it and picks the most recently visited of the rest.
   it("skips the active terminal in a list that still contains it", () => {
     const rows: IndexableItem[] = [
       item("active", "terminal", {
-        rankAt: 900,
+        visitedAt: 900,
         hostKey: "local",
         terminalId: TID_A,
       }),
       item("stale", "terminal", {
-        rankAt: 100,
+        visitedAt: 100,
         hostKey: "local",
         terminalId: TID_B,
       }),
       item("prev-visit", "terminal", {
-        rankAt: 700,
+        visitedAt: 700,
         hostKey: "local",
         terminalId: "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee",
       }),
@@ -344,28 +380,28 @@ describe("defaultSelectionIndex", () => {
     expect(defaultSelectionIndex(rows, onLocalTerminal(TID_A), "")).toBe(2);
   });
 
-  // ⌘⇧H: membership order, MRU in rankAt. Enter therefore toggles back.
+  // ⌘⇧H: pool order in the list, switch trail in `visitedAt`. Enter toggles back.
   it("lands on the previously-visited host, not the first or the active one", () => {
     const hosts: IndexableItem[] = [
-      item("local", "host", { rankAt: 1, hostKey: "local" }),
-      item("gpu-box", "host", { rankAt: 3, hostKey: "remote:gpu-box" }),
-      item("builder", "host", { rankAt: 2, hostKey: "remote:builder" }),
+      item("local", "host", { visitedAt: 1, hostKey: "local" }),
+      item("gpu-box", "host", { visitedAt: 3, hostKey: "remote:gpu-box" }),
+      item("builder", "host", { visitedAt: 2, hostKey: "remote:builder" }),
     ];
     expect(defaultSelectionIndex(hosts, onHost("remote:gpu-box"), "")).toBe(2);
   });
 
   it("falls back to the first host when the trail has never seen the others", () => {
     const hosts: IndexableItem[] = [
-      item("local", "host", { rankAt: 1, hostKey: "local" }),
-      item("gpu-box", "host", { rankAt: 0, hostKey: "remote:gpu-box" }),
-      item("builder", "host", { rankAt: 0, hostKey: "remote:builder" }),
+      item("local", "host", { visitedAt: 1, hostKey: "local" }),
+      item("gpu-box", "host", { visitedAt: 0, hostKey: "remote:gpu-box" }),
+      item("builder", "host", { visitedAt: 0, hostKey: "remote:builder" }),
     ];
     expect(defaultSelectionIndex(hosts, onHost("local"), "")).toBe(1);
   });
 
   it("keeps the highlight on the sole row when every other row is the current one", () => {
     const hosts: IndexableItem[] = [
-      item("local", "host", { rankAt: 5, hostKey: "local" }),
+      item("local", "host", { visitedAt: 5, hostKey: "local" }),
     ];
     expect(defaultSelectionIndex(hosts, onHost("local"), "")).toBe(0);
   });
@@ -378,26 +414,29 @@ describe("defaultSelectionIndex", () => {
   // other). Pinned so the fall-through stays a decision, not an accident.
   it("falls through to the previous HOST at root when Recent is empty", () => {
     const rows: IndexableItem[] = [
-      item("local", "host", { rankAt: 3, hostKey: "local" }),
-      item("gpu-box", "host", { rankAt: 1, hostKey: "remote:gpu-box" }),
-      item("builder", "host", { rankAt: 2, hostKey: "remote:builder" }),
+      item("local", "host", { visitedAt: 3, hostKey: "local" }),
+      item("gpu-box", "host", { visitedAt: 1, hostKey: "remote:gpu-box" }),
+      item("builder", "host", { visitedAt: 2, hostKey: "remote:builder" }),
       item("Toggle dock", "command"),
     ];
     expect(defaultSelectionIndex(rows, onHost("local"), "")).toBe(2);
   });
 
-  // KIND-SCOPING, not unit safety: both trails stamp `rankAt` in milliseconds
-  // now, so the two numbers are perfectly comparable. The rule still confines
+  // KIND-SCOPING, not unit safety: both trails stamp `visitedAt` in
+  // milliseconds, so the two numbers are perfectly comparable. The rule confines
   // the highlight to the leading kind because a terminal-led list is a TERMINAL
   // switcher — Enter must toggle tiles, never silently hop machines.
   it("keeps a terminal-led list's highlight on a terminal row", () => {
     const rows: IndexableItem[] = [
       item("prev-visit", "terminal", {
-        rankAt: 5,
+        visitedAt: 5,
         hostKey: "local",
         terminalId: TID_A,
       }),
-      item("gpu-box", "host", { rankAt: 999_999, hostKey: "remote:gpu-box" }),
+      item("gpu-box", "host", {
+        visitedAt: 999_999,
+        hostKey: "remote:gpu-box",
+      }),
     ];
     const idx = defaultSelectionIndex(rows, onLocalTerminal(TID_B), "");
     expect(idx).toBe(0);
@@ -410,15 +449,17 @@ describe("defaultSelectionIndex", () => {
   // turn ⌘K → Enter into a host switch.
   it("takes its leading kind from the ranker, not from raw rank magnitude", () => {
     const rows: IndexableItem[] = [
-      item("local", "host", { rankAt: 3, hostKey: "local" }),
-      item("gpu-box", "host", { rankAt: 2, hostKey: "remote:gpu-box" }),
+      item("local", "host", { visitedAt: 3, hostKey: "local" }),
+      item("gpu-box", "host", { visitedAt: 2, hostKey: "remote:gpu-box" }),
       item("prev-visit", "terminal", {
         rankAt: 1,
+        visitedAt: 1,
         hostKey: "local",
         terminalId: TID_B,
       }),
       item("active", "terminal", {
         rankAt: 900,
+        visitedAt: 900,
         hostKey: "local",
         terminalId: TID_A,
       }),

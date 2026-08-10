@@ -180,10 +180,15 @@ old spellings deleted so drift cannot recur (<PrLink pr={2019} />):
   still landing, and the mark is still moving), and a **printing shell with no
   agent counts** — it has no agent to ask, and its bytes are the only evidence
   there is.
-- **Order finally promotes the blocked.** The dock had left ordering to pure
+- **Position finally carries the blocked.** The dock had left ordering to pure
   recency on the theory that colour and animation carry attention — the miss is
-  the counter-evidence. A genuinely blocked row now floats to the top of its
-  section, and shows *how long it has waited* where its timestamp would sit.<Footnote>An awaiting row's timestamp was previously **hidden**, because effectively-active rows suppress "Xs ago" as noise — true for a working agent, exactly wrong for one that has been blocked since yesterday.</Footnote>
+  the counter-evidence. A genuinely blocked row earns a *place*, and shows *how
+  long it has waited* where its timestamp would sit.<Footnote>An awaiting row's timestamp was previously **hidden**, because effectively-active rows suppress "Xs ago" as noise — true for a working agent, exactly wrong for one that has been blocked since yesterday.</Footnote> The first
+  implementation floated it to the top of its section, which surfaced it and
+  also reflowed the list around it; <PrLink pr={2140} /> kept the lesson and
+  moved the mechanism to a **pinned needs-you strip** that mirrors the row
+  instead of relocating it — the row keeps its slot and its `Cmd+N` number.
+  Same evidence, same threshold, no reflow.
 
 <Callout kind="note" title="Area beats motion, again">
 The violet row wash is generated from the *same* CSS rule as the amber one

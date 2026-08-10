@@ -118,6 +118,7 @@ import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
+import { NeedsYouStrip } from "./NeedsYouStrip";
 import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
 import { createDockRowData } from "./dockRowData";
 import { PrPip } from "./PrPip";
@@ -383,6 +384,10 @@ const RailOrCards: Component<{
         onCreate={props.onCreate}
         onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
       />
+      {/* Pinned ABOVE the scrollport, not inside it: a blocked agent you have
+       *  to scroll to find is the defect this replaces, not a milder form of
+       *  it. Renders nothing when nothing is blocked. */}
+      <NeedsYouStrip rows={props.tree.needsYou} rail={props.mode === "rail"} />
       <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none flex-1 min-h-0">
         <Show
           when={props.mode === "rail"}
