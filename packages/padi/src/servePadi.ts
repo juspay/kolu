@@ -320,7 +320,11 @@ export function buildPadiSurfaceDeps(deps: {
   // stack two sets of listeners on one daemon.
   disposeStandingAttention();
   const settleEvents = createSettleEvents();
-  const watchRegistry = createWatchRegistry();
+  const watchRegistry = createWatchRegistry({
+    // A fresh subscription is acknowledged up to the daemon's CURRENT sequence,
+    // so it reports what happens next rather than replaying history.
+    initialCursor: () => settleEvents.lastSeq(),
+  });
   const supervision = createSupervisionDelivery({
     // The SAME per-key read the `terminals` collection serves (`readOne`), so the
     // record the guard narrows is byte-for-byte the record a client would see —
@@ -657,9 +661,13 @@ export function buildPadiSurfaceDeps(deps: {
       watch: {
         open: ({ input }) =>
           handle(() => {
-            const registry = requireWatchRegistry();
-            const reattached = registry.names().includes(input.name);
-            const sub = registry.open(input.name, input.ids);
+            // `open` answers `reattached` itself — the registry is the only thing
+            // that can know it without a race, and it seeds a fresh
+            // subscription's cursor from the `initialCursor` it was built with.
+            const { sub, reattached } = requireWatchRegistry().open(
+              input.name,
+              input.ids,
+            );
             log.info(
               {
                 name: input.name,
@@ -670,17 +678,10 @@ export function buildPadiSurfaceDeps(deps: {
                 ? "watch subscription re-attached"
                 : "watch subscription opened",
             );
-            // A FRESH subscription starts at the daemon's CURRENT sequence, so it
-            // reports what happens next rather than replaying edges the
-            // supervisor already acted on. A re-attach keeps the cursor it had,
-            // which is what preserves the events it missed while away.
-            if (!reattached) {
-              sub.cursor = standingAttention?.settleEvents.lastSeq() ?? 0;
-            }
             return { name: sub.name, cursor: sub.cursor, reattached };
           }),
         drain: ({ input }) =>
-          handle(() => requireWatchRegistry().drain(input.name)),
+          handle(() => requireWatchRegistry().drain(input.name, input.after)),
         close: ({ input }) =>
           handle(() => ({ closed: requireWatchRegistry().close(input.name) })),
       },

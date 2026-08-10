@@ -29,8 +29,7 @@
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
-import { activeAgent } from "../watch.ts";
-import type { PadiTerminal } from "../surface.ts";
+import { activeAgent, type PadiTerminal } from "../surface.ts";
 import type { SettleEvent } from "./settleEvents.ts";
 
 export interface SupervisionDeliveryDeps {

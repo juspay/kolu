@@ -30,7 +30,20 @@ anything happening between two waits was unobservable. `watch_open` +
 `watch_next` is the shape without that hole: events accumulate in **padi**, which
 outlives both this process and kaval, so the time between two calls is not a
 blind spot. Subscriptions are keyed by a name you choose, so re-opening the same
-name after any restart reattaches to the queue rather than starting an empty one.
+name reattaches to its queue rather than starting an empty one.
+
+The honest scope of "survives": the queue is padi's process memory, so it comes
+through **this MCP server restarting** and a **kaval recycle** — but a restart of
+**padi itself** (an upgrade) clears every subscription. A `watch_next` against a
+name padi no longer holds FAILS naming it, rather than reporting the quiet that
+an empty queue would look like; re-`watch_open` and carry on. A queue holds the
+most recent `WATCH_BUFFER_LIMIT` (512) events per subscription, and a batch that
+overflowed reports how many it dropped.
+
+A drain is **acknowledged, not destructive**: pass each result's `cursor` back as
+the next call's `after`. Until you do, those events stay queued and come again —
+so a reply lost in flight (a host's call timeout, an interrupted turn) costs a
+repeat rather than a report. Every event carries a `seq` to dedupe on.
 
 Each event names a terminal and why — `asking` (its agent is blocked on input),
 `finished` (its turn ended *and* its output went quiet), or `gone` (it no longer

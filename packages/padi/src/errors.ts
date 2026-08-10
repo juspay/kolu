@@ -100,6 +100,22 @@ export class WatchSubscriptionNotFound extends Schema.TaggedError<WatchSubscript
   }
 }
 
+/** Is `err` a {@link WatchSubscriptionNotFound} that may have CROSSED A WIRE?
+ *
+ *  Structural on `_tag`, deliberately — the sibling of `isPadiDeclaredError`'s
+ *  `instanceof` and the reason that one documents its own narrowness. This is
+ *  read by a CLIENT (`awaitWatchEvents`), where the value was decoded from a
+ *  wire frame and its class identity is another realm's. An `instanceof` there
+ *  silently answers `false` and the failure collapses into the retryable arm —
+ *  precisely the collapse this predicate exists to stop. */
+export function isWatchSubscriptionNotFound(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { _tag?: unknown })._tag === "WatchSubscriptionNotFound"
+  );
+}
+
 // ── Byte writes / reads ───────────────────────────────────────────────────
 
 /** A scratch write the host REFUSES — a disallowed extension or an oversized

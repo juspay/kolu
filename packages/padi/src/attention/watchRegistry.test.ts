@@ -35,22 +35,61 @@ describe("watch registry", () => {
     expect(drained.dropped).toBe(0);
   });
 
-  it("a drain empties the queue — the same event is not served twice", () => {
+  it("a drain is ACKNOWLEDGED, not destructive — an unacknowledged batch comes again", () => {
     const r = createWatchRegistry();
     r.open("campaign");
     r.accept(event("a"));
-    expect(r.drain("campaign").events).toHaveLength(1);
-    expect(r.drain("campaign").events).toHaveLength(0);
+    const first = r.drain("campaign");
+    expect(first.events).toHaveLength(1);
+    // The caller never came back with the cursor — its reply was lost to a host
+    // timeout, an interruption, a dropped socket. The event MUST still be here;
+    // a destructive read would have discarded a report nobody ever saw.
+    expect(r.drain("campaign").events.map((e) => e.id)).toEqual(["a"]);
+    // Once acknowledged, it is gone.
+    expect(r.drain("campaign", first.cursor).events).toHaveLength(0);
   });
 
-  it("RE-OPENING a name keeps the buffer — a supervisor restart does not lose its queue", () => {
+  it("acknowledging a batch does not discard events that arrived after it", () => {
+    const r = createWatchRegistry();
+    r.open("campaign");
+    r.accept(event("a"));
+    const first = r.drain("campaign");
+    // `b` lands while the caller is still processing the first batch.
+    r.accept(event("b"));
+    const second = r.drain("campaign", first.cursor);
+    expect(second.events.map((e) => e.id)).toEqual(["b"]);
+  });
+
+  it("a stale acknowledgement is ignored rather than rewinding the cursor", () => {
+    const r = createWatchRegistry();
+    r.open("campaign");
+    r.accept(event("a"));
+    r.accept(event("b"));
+    const all = r.drain("campaign");
+    expect(r.drain("campaign", all.cursor).events).toHaveLength(0);
+    // A retry carrying an OLD cursor must not un-acknowledge anything.
+    expect(r.drain("campaign", 0).events).toHaveLength(0);
+  });
+
+  it("RE-OPENING a name keeps the queue — a supervisor restart does not lose it", () => {
     const r = createWatchRegistry();
     r.open("campaign");
     r.accept(event("a"));
     // The MCP process died and came back; the agent re-opens the same name.
-    const reattached = r.open("campaign");
-    expect(reattached.buffer).toHaveLength(1);
+    const { sub, reattached } = r.open("campaign");
+    expect(reattached).toBe(true);
+    expect(sub.buffer).toHaveLength(1);
     expect(r.drain("campaign").events.map((e) => e.id)).toEqual(["a"]);
+  });
+
+  it("a FRESH subscription starts acknowledged at the daemon's current sequence", () => {
+    let clock = 0;
+    const r = createWatchRegistry({ initialCursor: () => clock });
+    clock = 41;
+    const { sub, reattached } = r.open("late");
+    expect(reattached).toBe(false);
+    // It reports what happens NEXT, not history the supervisor already handled.
+    expect(sub.cursor).toBe(41);
   });
 
   it("scopes to an id list, and widens back to all when re-opened without one", () => {
@@ -58,11 +97,14 @@ describe("watch registry", () => {
     r.open("narrow", ["a" as TerminalId]);
     r.accept(event("a"));
     r.accept(event("b"));
-    expect(r.drain("narrow").events.map((e) => e.id)).toEqual(["a"]);
+    const first = r.drain("narrow");
+    expect(first.events.map((e) => e.id)).toEqual(["a"]);
 
     r.open("narrow");
     r.accept(event("b"));
-    expect(r.drain("narrow").events.map((e) => e.id)).toEqual(["b"]);
+    expect(r.drain("narrow", first.cursor).events.map((e) => e.id)).toEqual([
+      "b",
+    ]);
   });
 
   it("REPORTS overflow instead of truncating silently", () => {
@@ -73,8 +115,10 @@ describe("watch registry", () => {
     // The newest survive; the count is how the caller learns the tail is partial.
     expect(drained.events.map((e) => e.id)).toEqual(["c", "d", "e"]);
     expect(drained.dropped).toBe(2);
-    // And the drop count resets — it describes one drain, not all history.
-    expect(r.drain("campaign").dropped).toBe(0);
+    // The count rides until ACKNOWLEDGED, like the events it describes — a
+    // caller whose reply was lost must still learn its history has a hole.
+    expect(r.drain("campaign").dropped).toBe(2);
+    expect(r.drain("campaign", drained.cursor).dropped).toBe(0);
   });
 
   it("REFUSES a drain against a name nobody opened, naming what IS open", () => {
@@ -93,40 +137,6 @@ describe("watch registry", () => {
   it("refuses an EMPTY id list rather than silently watching everything", () => {
     const r = createWatchRegistry();
     expect(() => r.open("bad", [])).toThrow(/could never match/);
-  });
-
-  it("a parked drain wakes the moment an event lands", async () => {
-    const r = createWatchRegistry();
-    r.open("campaign");
-    const parked = r.waitFor("campaign", { timeoutMs: 5_000 });
-    r.accept(event("a"));
-    expect(await parked).toBe(true);
-    expect(r.drain("campaign").events).toHaveLength(1);
-  });
-
-  it("a drain parked on an ALREADY-full queue returns at once", async () => {
-    const r = createWatchRegistry();
-    r.open("campaign");
-    r.accept(event("a"));
-    expect(await r.waitFor("campaign", { timeoutMs: 5_000 })).toBe(true);
-  });
-
-  it("a parked drain gives up on timeout WITHOUT consuming anything", async () => {
-    const r = createWatchRegistry();
-    r.open("campaign");
-    expect(await r.waitFor("campaign", { timeoutMs: 5 })).toBe(false);
-    // A timeout is not a loss: the next call still finds whatever arrives.
-    r.accept(event("a"));
-    expect(r.drain("campaign").events).toHaveLength(1);
-  });
-
-  it("an aborted drain returns false and unregisters itself", async () => {
-    const r = createWatchRegistry();
-    r.open("campaign");
-    const ac = new AbortController();
-    const parked = r.waitFor("campaign", { signal: ac.signal });
-    ac.abort();
-    expect(await parked).toBe(false);
   });
 
   it("rings the doorbell only for subscriptions the event is in scope for", () => {
@@ -148,18 +158,25 @@ describe("watch registry", () => {
     r.open("campaign");
     r.accept(event("a"));
     expect(rings).toBe(1);
-    r.close("campaign");
+    r.close("campaign"); // closing rings too, so a parked consumer re-drains
+    expect(rings).toBe(2);
     r.open("campaign");
     r.accept(event("b"));
-    expect(rings).toBe(2);
+    expect(rings).toBe(3);
   });
 
-  it("closing releases anyone parked rather than hanging them forever", async () => {
+  it("closing RINGS, so a consumer parked on the doorbell re-drains and learns it is gone", () => {
     const r = createWatchRegistry();
+    let rings = 0;
+    r.onPulse("campaign", () => {
+      rings += 1;
+    });
     r.open("campaign");
-    const parked = r.waitFor("campaign", { timeoutMs: 5_000 });
     r.close("campaign");
-    expect(await parked).toBe(true);
+    // Without the ring, a parked consumer would wait out its whole timeout
+    // against a subscription that no longer exists.
+    expect(rings).toBe(1);
+    expect(() => r.drain("campaign")).toThrow(WatchSubscriptionNotFound);
     expect(r.close("campaign")).toBe(false);
   });
 });

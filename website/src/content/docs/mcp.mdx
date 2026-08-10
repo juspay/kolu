@@ -188,6 +188,13 @@ background service, so it survives your agent restarting. Reopen with the same
 name and you pick up where you left off. Each event says which terminal and why:
 it's **asking** for input, it **finished** its turn, or it's **gone**.
 
+A batch is handed over until your agent confirms it received it, so a reply lost
+to a timeout costs a repeat rather than a missed report. A queue holds the most
+recent 512 events; if your agent stays away long enough to overflow one, the next
+batch comes back with a count of what was dropped rather than quietly losing the
+tail. Restarting kolu's background service itself — an upgrade does it — clears
+subscriptions; the next call says so plainly instead of reporting silence.
+
 ### Read the screen and the code
 
 | Tool | What it does |

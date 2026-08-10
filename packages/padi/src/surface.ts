@@ -69,6 +69,7 @@ import {
   controlCoreProcedureSpec,
 } from "@kolu/surface-daemon/control-core";
 import {
+  type AgentInfo,
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
   RepoChangePulseSchema,
@@ -643,6 +644,22 @@ export function activePadiTerminal(
   return record?.state === "active" ? record : undefined;
 }
 
+/** The LIVE agent of a composed record, or `null` — only the `active` arm carries
+ *  a running agent (`sleeping`/`parked` are dormant, their PTY released), so the
+ *  union is narrowed here rather than at every read site.
+ *
+ *  Spelled OVER {@link activePadiTerminal} rather than re-testing the
+ *  discriminant, so "which arm is live" stays one decision. It lives here beside
+ *  that sibling — on the BROWSER-SAFE contract module both the daemon's serve
+ *  graph and its client kit already import — rather than in the client-side dial
+ *  kit that first needed it: the server's supervision delivery is a consumer too,
+ *  and a daemon module reaching into `@kolu/padi/dial` for a narrowing would
+ *  point the dependency arrow backwards. `watch.ts` re-exports it for the dial
+ *  kit's existing consumers. */
+export function activeAgent(record: PadiTerminal): AgentInfo | null {
+  return activePadiTerminal(record)?.agent ?? null;
+}
+
 // ── The urgency projection (recency-free) ─────────────────────────────────
 
 /** The recency-FREE urgency fold off the registry: how many terminals await
@@ -936,6 +953,16 @@ export const PadiWatchNameInputSchema = Schema.Struct({
   name: WatchNameSchema,
 });
 
+/** `watch.drain` input — the name plus the ACKNOWLEDGEMENT. */
+export const PadiWatchDrainInputSchema = Schema.Struct({
+  name: WatchNameSchema,
+  /** The highest `seq` you have actually PROCESSED. Everything at or below it is
+   *  forgotten; everything above stays queued and is handed over again. Omit on
+   *  a first call. This is what makes a drain safe to lose: a reply that never
+   *  reached you was never acknowledged, so the next call still carries it. */
+  after: Schema.optionalKey(NonNegativeInt),
+});
+
 export const PadiWatchDrainOutputSchema = Schema.Struct({
   events: Schema.Array(PadiSettleEventSchema),
   /** Events lost to buffer overflow before this drain. NONZERO means the delta is
@@ -943,6 +970,9 @@ export const PadiWatchDrainOutputSchema = Schema.Struct({
    *  collection — reported rather than silently truncated, because a silent
    *  truncation reads exactly like a quiet workspace. */
   dropped: NonNegativeInt,
+  /** The high-water mark to send back as the next drain's `after`. Until you do,
+   *  these events stay queued — so a reply lost in flight costs a repeat rather
+   *  than an event. */
   cursor: NonNegativeInt,
 });
 
@@ -1443,10 +1473,10 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
         input: PadiWatchOpenInputSchema,
         output: PadiWatchOpenOutputSchema,
       },
-      /** Take everything buffered since the last drain. Never blocks: a caller
-       *  that wants to WAIT parks on `watchPulse` and re-drains. */
+      /** Hand over everything queued, acknowledging `after` first. Never blocks:
+       *  a caller that wants to WAIT parks on `watchPulse` and re-drains. */
       drain: {
-        input: PadiWatchNameInputSchema,
+        input: PadiWatchDrainInputSchema,
         output: PadiWatchDrainOutputSchema,
         error: WatchSubscriptionNotFound,
       },

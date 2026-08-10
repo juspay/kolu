@@ -32,6 +32,12 @@ export const WatchNextArgsSchema = Schema.Struct({
     description:
       "The subscription name you passed to watch_open. Reuse the SAME name across restarts — it reattaches to the existing queue.",
   }).check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+  after: Schema.optionalKey(
+    Schema.Number.annotate({
+      description:
+        "The `cursor` from the last batch you actually PROCESSED — your acknowledgement. Omit on your first call, then pass back the cursor each result gives you. Until you acknowledge, those events stay queued and come again: that is what makes a reply lost in flight (a timeout, an interruption) cost a repeat rather than a lost report.",
+    }).check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  ),
   timeoutMs: Schema.optionalKey(
     Schema.Number.annotate({
       description:
@@ -49,14 +55,15 @@ export const watchNextTool: BespokeTool = {
   input: WatchNextArgsSchema,
   mutates: false,
   description:
-    'Block until any watched terminal needs you, then return every settle event that accumulated — the standing-subscription drain. Each event says which terminal and why: "asking" (its agent is blocked on input), "finished" (its turn ended AND its output went quiet), or "gone" (the terminal no longer exists — stop waiting on it). Events that land while you are NOT calling this are buffered, so nothing is missed between calls, and the queue survives a restart of this MCP server or of kaval. Prefer this over looping wait_agentState per terminal. Returns {result: "met", met: {events, dropped, cursor, elapsedMs}} or {result: "timeout"|"closed", elapsedMs?, error?}. Neither non-met result means anything died: "timeout" means nothing happened in your window and "closed" means the notification channel dropped — in BOTH cases your buffered events are still queued, so just call again. A nonzero `dropped` means the buffer overflowed while you were away — re-read the terminals resource to reconcile.',
+    'Block until any watched terminal needs you, then return every settle event that accumulated — the standing-subscription drain. Each event says which terminal and why: "asking" (its agent is blocked on input), "finished" (its turn ended AND its output went quiet), or "gone" (the terminal no longer exists — stop waiting on it). Events that land while you are NOT calling this are buffered, so nothing is missed between calls, and the queue survives a restart of this MCP server or of kaval. Prefer this over looping wait_agentState per terminal. Pass each result\'s `cursor` back as the next call\'s `after` to acknowledge it; unacknowledged events are handed over again, so a reply you never received is never lost. Returns {result: "met", met: {events, dropped, cursor, elapsedMs}} or {result: "timeout"|"closed", elapsedMs?, error?}. Neither non-met result means anything died: "timeout" means nothing happened in your window and "closed" means the notification channel dropped — in BOTH cases your queued events are intact, so just call again. If the subscription does not exist the call FAILS naming it (open it again with watch_open) — that is never reported as "closed". A nonzero `dropped` means the queue overflowed while you were away — re-read the terminals resource to reconcile.',
   // Lifted, not composed — `awaitWatchEvents` is a Promise-shaped waiter taking
   // an AbortSignal, the same reason the `wait_*` tools lift rather than compose.
   handler: (args, client, signal) =>
     Effect.tryPromise(async () => {
-      const { name, timeoutMs } = args as WatchNextArgs;
+      const { name, after, timeoutMs } = args as WatchNextArgs;
       const outcome = await awaitWatchEvents(client as PadiSurfaceClient, {
         name,
+        after,
         timeoutMs,
         signal,
       });

@@ -94,14 +94,32 @@ export function createSettleEvents(
 ): SettleEventSource {
   const listeners = new Set<(event: SettleEvent) => void>();
   let prev: AttentionFrame | null = null;
-  // The terminal key set as of the last observation — how a DEPARTURE is seen.
+  // The supervision edge of every terminal as of the last observation — how a
+  // DEPARTURE is both seen and ATTRIBUTED. It has to be the edge, not just the
+  // key set: by the time a terminal is gone its record is gone with it, so the
+  // parent is unknowable at emit time. Remembering it here is what lets a
+  // departure reach the supervisor at all — a `gone` event with no `parentId`
+  // is one the supervision edge can never deliver.
   // `null` until the first frame, so a fresh daemon's initial inventory is a
   // discovery rather than a storm of arrivals/departures.
-  let prevIds: Set<TerminalId> | null = null;
+  let prevEdges: Map<
+    TerminalId,
+    { parentId?: TerminalId; intent?: string }
+  > | null = null;
   let seq = 0;
 
   return {
     observe(urgency, terminals) {
+      // THE SERVE-TIME EMPTY SEED. The `urgency` derivation runs once at serve
+      // time, BEFORE the endpoint has booted and adopted kaval's terminals — so
+      // its first frame is an empty registry. Letting that information-free
+      // frame consume the baseline would make the FIRST REAL inventory look like
+      // every terminal had just arrived, and every already-settled worker would
+      // be re-announced to its supervisor on every padi restart. Wait for a real
+      // observation instead. This is exactly the guard `finishQuiet.syncWaiting`
+      // already applies to its own bootstrap, for the same reason.
+      if (prev === null && terminals.size === 0) return;
+
       // The frame the transition diffs — the two attention classes a supervisor
       // cares about, read straight off the wire value so this can't drift from
       // what every other consumer sees.
@@ -118,7 +136,7 @@ export function createSettleEvents(
       const emit = (
         id: TerminalId,
         kind: SettleKind,
-        record: PadiTerminal | undefined,
+        edge: { parentId?: TerminalId; intent?: string },
       ): void => {
         seq += 1;
         // Spread-or-omit, never an explicit `undefined`: these ride optionalKey
@@ -129,10 +147,8 @@ export function createSettleEvents(
           id,
           kind,
           at: now(),
-          ...(record?.parentId === undefined
-            ? {}
-            : { parentId: record.parentId as TerminalId }),
-          ...(record?.intent === undefined ? {} : { intent: record.intent }),
+          ...(edge.parentId === undefined ? {} : { parentId: edge.parentId }),
+          ...(edge.intent === undefined ? {} : { intent: edge.intent }),
         };
         for (const listener of listeners) {
           // Contain a throwing sink to its own frame: one sink's failure must not
@@ -146,23 +162,38 @@ export function createSettleEvents(
         }
       };
 
+      /** The supervision edge of a live record, spread-safe. */
+      const edgeOf = (
+        record: PadiTerminal | undefined,
+      ): { parentId?: TerminalId; intent?: string } => ({
+        ...(record?.parentId === undefined
+          ? {}
+          : { parentId: record.parentId as TerminalId }),
+        ...(record?.intent === undefined ? {} : { intent: record.intent }),
+      });
+
       for (const { id, asking } of candidates) {
-        emit(id, asking ? "asking" : "finished", terminals.get(id));
+        emit(id, asking ? "asking" : "finished", edgeOf(terminals.get(id)));
       }
 
       // DEPARTURES. A supervisor blocked on a worker that no longer exists is
       // the same failure as one blocked on a worker nobody reported — so a
       // terminal leaving the collection is an event, not silence.
-      const curIds = new Set(terminals.keys());
-      if (prevIds !== null) {
-        for (const id of prevIds) {
-          // The record is already gone, so a departure carries no parent edge and
-          // no intent — deliberately: there is nothing left to look up, and
-          // inventing a stale copy would be worse than an honest bare event.
-          if (!curIds.has(id)) emit(id, "gone", undefined);
+      const curEdges = new Map<
+        TerminalId,
+        { parentId?: TerminalId; intent?: string }
+      >();
+      for (const [id, record] of terminals) curEdges.set(id, edgeOf(record));
+      if (prevEdges !== null) {
+        for (const [id, edge] of prevEdges) {
+          // The record is gone, so the edge comes from the LAST frame that still
+          // had it. That remembered parent is the whole point: it is what lets
+          // the departure be delivered to the supervisor rather than only
+          // buffered for whoever happens to be subscribed.
+          if (!curEdges.has(id)) emit(id, "gone", edge);
         }
       }
-      prevIds = curIds;
+      prevEdges = curEdges;
     },
     onEvent(listener) {
       listeners.add(listener);
@@ -176,7 +207,7 @@ export function createSettleEvents(
     dispose() {
       listeners.clear();
       prev = null;
-      prevIds = null;
+      prevEdges = null;
     },
   };
 }

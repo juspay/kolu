@@ -63,17 +63,27 @@ const EMPTY: PadiUrgency = {
 
 const urgency = (u: Partial<PadiUrgency>): PadiUrgency => ({ ...EMPTY, ...u });
 
-/** A terminals map where every id is an ordinary agent terminal, unless the
- *  caller overrides one. */
+/** A terminals map for the given ids.
+ *
+ *  Every map carries a constant `anchor` terminal that is never asked about, for
+ *  two reasons: a genuinely EMPTY map is the serve-time pre-adopt frame, which
+ *  `observe` deliberately refuses to take as its baseline; and an id that
+ *  vanishes between two frames is a DEPARTURE, so a helper that dropped its own
+ *  scaffolding between calls would manufacture `gone` events. Use
+ *  {@link emptyTerminals} to exercise the pre-adopt frame on purpose. */
 function terminals(
   overrides: Record<string, Parameters<typeof activeTerminal>[0]> = {},
 ): ReadonlyMap<TerminalId, PadiTerminal> {
   const map = new Map<TerminalId, PadiTerminal>();
+  map.set("anchor" as TerminalId, activeTerminal({ agent: null }));
   for (const [id, opts] of Object.entries(overrides)) {
     map.set(id as TerminalId, activeTerminal(opts));
   }
   return map;
 }
+
+/** The serve-time frame: padi's registry before the endpoint adopted kaval. */
+const emptyTerminals = (): ReadonlyMap<TerminalId, PadiTerminal> => new Map();
 
 /** Drive a source and collect what it emitted. */
 function collector() {
@@ -85,6 +95,26 @@ function collector() {
 }
 
 describe("createSettleEvents", () => {
+  it("the SERVE-TIME empty frame does not spend the baseline — the first REAL inventory is still a discovery", () => {
+    const { events, source } = collector();
+    // padi's `urgency` derivation runs once before the endpoint has adopted
+    // kaval's terminals, so its first frame is an empty registry. If that
+    // information-free frame were taken as the baseline, every already-settled
+    // worker would be re-announced to its supervisor on every padi restart.
+    source.observe(urgency({}), emptyTerminals());
+    source.observe(
+      urgency({
+        awaitingIds: ["a"] as TerminalId[],
+        finishedIds: ["b"] as TerminalId[],
+      }),
+      terminals({
+        a: { agent: makeAgent("awaiting_user"), parentId: "boss" },
+        b: { agent: makeAgent("waiting"), parentId: "boss" },
+      }),
+    );
+    expect(events).toEqual([]);
+  });
+
   it("the FIRST frame is a discovery, not a transition — a workspace already full of finished agents emits nothing", () => {
     const { events, source } = collector();
     source.observe(
@@ -194,6 +224,27 @@ describe("createSettleEvents", () => {
     // And only the one that actually leaves is reported.
     source.observe(urgency({}), terminals({ a: { agent: null } }));
     expect(events.map((e) => [e.id, e.kind])).toEqual([["b", "gone"]]);
+  });
+
+  it("a departure carries the LAST-KNOWN supervision edge — otherwise it could never be delivered", () => {
+    const { events, source } = collector();
+    source.observe(
+      urgency({ workingIds: ["w"] as TerminalId[] }),
+      terminals({
+        w: {
+          agent: makeAgent("thinking"),
+          parentId: "coordinator",
+          intent: "fix the flaky test",
+        },
+      }),
+    );
+    // By the time it is gone its record is gone too, so the parent is only
+    // knowable from the frame that still had it.
+    source.observe(urgency({}), terminals());
+    expect(events).toHaveLength(1);
+    expect(events[0]?.kind).toBe("gone");
+    expect(events[0]?.parentId).toBe("coordinator");
+    expect(events[0]?.intent).toBe("fix the flaky test");
   });
 
   it("a departure fires once, not on every later frame", () => {

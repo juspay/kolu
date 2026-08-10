@@ -19,6 +19,7 @@
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { isDeadTransportError } from "@kolu/surface/errors";
+import { isWatchSubscriptionNotFound } from "./errors.ts";
 import { Effect, Stream } from "effect";
 import {
   isValidTimerMs,
@@ -31,6 +32,7 @@ import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PadiSurfaceClient } from "./dial.ts";
 import {
+  activeAgent,
   padiSurface,
   type PadiSettleEvent,
   type PadiTerminal,
@@ -61,12 +63,11 @@ function iterateUntilAborted<T>(
   return { [Symbol.asyncIterator]: () => iter };
 }
 
-/** The LIVE agent of a composed record, or `null` — only the `active` arm
- *  carries a running agent (`sleeping`/`parked` are dormant, their PTY
- *  released), so the union is narrowed here rather than at every read site. */
-export function activeAgent(v: PadiTerminal): AgentInfo | null {
-  return v.state === "active" ? v.agent : null;
-}
+// `activeAgent` now lives on the contract module beside `activePadiTerminal`
+// (its second consumer is padi's own SERVE graph, which must not import the
+// client dial kit). Re-exported here so the dial kit's existing consumers —
+// padi-tui, the MCP face — keep their one import path.
+export { activeAgent };
 
 /** The coarse agent buckets a wait accepts as targets — the `agentBucket`
  *  fold's vocabulary minus `other` (an `other` bucket never matches a real
@@ -334,6 +335,11 @@ export async function awaitWatchEvents(
   client: PadiSurfaceClient,
   opts: {
     name: string;
+    /** The `cursor` from the caller's last SUCCESSFULLY-received batch — the
+     *  acknowledgement. Omit on a first call. Until a cursor comes back, padi
+     *  keeps handing the same events over, which is what makes a lost reply cost
+     *  a repeat rather than an event. */
+    after?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
   },
@@ -347,8 +353,16 @@ export async function awaitWatchEvents(
     const drainNow = async (): Promise<boolean> => {
       // A procedure ref is an `Effect` (D10/#18); `runWait` is the non-Effect
       // scaffold this wait is driven by, so the crossing happens here.
+      //
+      // `after` acknowledges the batch the CALLER told us it processed on its
+      // last successful call. This wait cannot acknowledge on its own behalf: it
+      // hands its batch to an MCP tool whose reply may never reach the agent, so
+      // "received" is a fact only the agent's NEXT call can assert.
       const drained = await Effect.runPromise(
-        client.surface.watch.drain({ name: opts.name }),
+        client.surface.watch.drain({
+          name: opts.name,
+          ...(opts.after === undefined ? {} : { after: opts.after }),
+        }),
       );
       if (drained.events.length === 0 && drained.dropped === 0) return false;
       ctx.settle({
@@ -398,6 +412,14 @@ export async function awaitWatchEvents(
       // A DEAD transport poisons the shared connection and must PROPAGATE so the
       // MCP face resets it before the next call (see `awaitOutputSettled`).
       if (isDeadTransportError(err)) throw err;
+      // "NO SUCH SUBSCRIPTION" MUST NOT BECOME "closed". `closed` means the
+      // notification channel dropped over a queue that is still there, and every
+      // caller is told to simply retry — which for an unopened (or typo'd, or
+      // padi-restart-cleared) name is an infinite loop being reassured its
+      // events are safe. This is the exact confusion `WatchSubscriptionNotFound`
+      // was declared to prevent, and folding it in here would have re-created it
+      // one layer up. Propagate so the caller sees the name it must re-open.
+      if (isWatchSubscriptionNotFound(err)) throw err;
       const m = errMessage(err);
       ctx.recordUpstreamError(m);
       ctx.settle({ kind: "closed", error: m });

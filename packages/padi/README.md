@@ -230,9 +230,14 @@ one definition. It fans out to two sinks:
   doorbell), for a supervisor that has no terminal for the edge to reach — an
   MCP-only agent. Events buffer in padi, which outlives both a `kolu mcp` process
   and kaval, so the gap between two drains is not a hole, and a subscription is
-  keyed by a caller-chosen NAME so a restart reattaches rather than starting
-  empty. Overflow is *reported* (a `dropped` count), never silently truncated —
-  silent truncation reads to a supervisor exactly like a quiet workspace.
+  keyed by a caller-chosen NAME so those restarts reattach rather than start
+  empty. (padi's OWN restart clears them — they are process memory. A drain
+  against a name it no longer holds raises the declared `WatchSubscriptionNotFound`
+  rather than answering an empty batch, because "not subscribed" and "nothing
+  happened" are the two states a supervisor must never confuse.) A drain is
+  **acknowledged** (`after`), not destructive, so a reply lost in flight costs a
+  repeat rather than a report; overflow is *reported* (a `dropped` count), never
+  silently truncated.
 
 A terminal LEAVING is an event too (`kind: "gone"`), for the same reason: a
 supervisor waiting on a worker that no longer exists must be told, not left
