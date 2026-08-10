@@ -645,7 +645,7 @@ let
     # run `kaval-tui` and `kolu mcp` but not the `padi-tui wait` loop.
     for b in kolu kaval-tui padi-tui; do
       case "$b" in
-        kolu) why="a local terminal could not run 'kolu mcp'. An inner-wrapper --set that clobbers this one is the known cause." ;;
+        kolu) why="a local terminal could not run 'kolu mcp' OR any terminal verb ('kolu ls' / 'send' / 'wait' / 'snapshot' / ...) — kolu is the ONE terminal CLI, so losing it here costs an agent every way it has of driving its siblings. An inner-wrapper --set that clobbers this one is the known cause." ;;
         kaval-tui) why="a local terminal could not attach to its siblings." ;;
         padi-tui) why="a local terminal could not run the 'padi-tui wait' done-signal loop." ;;
       esac
@@ -934,7 +934,7 @@ let
       # agent loses. Each was falsified separately.
       for b in kolu kaval-tui padi-tui; do
         case "$b" in
-          kolu) why="an agent in a terminal on a remote host could not run 'kolu mcp'. An inner-wrapper --set that clobbers this one is the known cause." ;;
+          kolu) why="an agent in a terminal on a remote host could not run 'kolu mcp' OR any terminal verb ('kolu ls' / 'send' / 'wait' / 'snapshot' / ...) — kolu is the ONE terminal CLI, so losing it here costs a remote agent every way it has of driving its siblings. An inner-wrapper --set that clobbers this one is the known cause." ;;
           kaval-tui) why="a terminal on a remote host could not attach to its siblings." ;;
           padi-tui) why="a terminal on a remote host could not run the 'padi-tui wait' done-signal loop." ;;
         esac
