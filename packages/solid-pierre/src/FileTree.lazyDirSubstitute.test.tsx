@@ -74,7 +74,10 @@ describe("substituting a lone lazy dir key with its children (#2138)", () => {
     await flush();
     await flush();
 
-    expect(onExpandLazyDirectory).toHaveBeenCalledWith("notes/");
+    expect(onExpandLazyDirectory).toHaveBeenCalledWith(
+      "notes/",
+      expect.any(AbortSignal),
+    );
     // Exactly ONE load: the reconcile guard must keep the substitution batch's
     // own store ticks from being mis-read as collapse-then-fresh-expand (the
     // re-fire whose superseding abort collapsed the folder for good).

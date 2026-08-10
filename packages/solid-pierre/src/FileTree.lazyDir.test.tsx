@@ -42,7 +42,9 @@ function mountTree(
   initialExpansion: "open" | "closed" = "closed",
 ) {
   const [paths, setPaths] = createSignal(initial);
-  const onExpandLazyDirectory = vi.fn<(path: string) => void>();
+  const onExpandLazyDirectory =
+    vi.fn<(path: string, signal: AbortSignal) => void>();
+  const onCollapseLazyDirectory = vi.fn<(path: string) => void>();
   const root = mountInto((host) =>
     render(
       () => (
@@ -50,6 +52,7 @@ function mountTree(
           paths={paths()}
           lazyDirectories={lazyDirectories}
           onExpandLazyDirectory={onExpandLazyDirectory}
+          onCollapseLazyDirectory={onCollapseLazyDirectory}
           initialExpansion={initialExpansion}
           search={false}
           onError={(err) => {
@@ -60,7 +63,7 @@ function mountTree(
       host,
     ),
   );
-  return { setPaths, root, onExpandLazyDirectory };
+  return { setPaths, root, onExpandLazyDirectory, onCollapseLazyDirectory };
 }
 
 /** Click a row the way a user does — Pierre's own row button, inside its shadow
@@ -87,7 +90,10 @@ describe("lazily-loaded directory rows (#2091)", () => {
     clickRow(root, "out/");
     await flush();
 
-    expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
+    expect(onExpandLazyDirectory).toHaveBeenCalledWith(
+      "out/",
+      expect.any(AbortSignal),
+    );
   });
 
   it("paints the fetched level into the still-expanded directory", async () => {
@@ -101,7 +107,10 @@ describe("lazily-loaded directory rows (#2091)", () => {
 
     clickRow(root, "out/");
     await flush();
-    expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
+    expect(onExpandLazyDirectory).toHaveBeenCalledWith(
+      "out/",
+      expect.any(AbortSignal),
+    );
 
     setPaths(["kept.md", "out/index.html", "out/style.css", "out/assets/"]);
     await flush();
@@ -146,6 +155,71 @@ describe("lazily-loaded directory rows (#2091)", () => {
     await flush();
 
     expect(onExpandLazyDirectory).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports the CLOSE edge exactly once, so the host can retire the level", async () => {
+    // The contract used to name only `open`, which made every host's registry
+    // monotone for the mount: browsing `~` and collapsing every folder left one
+    // watch + one stream subscription per folder EVER opened. The close edge is
+    // what bounds "N expanded folders cost N handles" to the folders actually
+    // open. Guarded on the wrapper's own record, so only a genuine
+    // expanded → collapsed transition fires it.
+    const { root, onCollapseLazyDirectory } = mountTree(["out/"], ["out/"]);
+
+    clickRow(root, "out/"); // expand
+    await flush();
+    expect(onCollapseLazyDirectory).not.toHaveBeenCalled();
+
+    clickRow(root, "out/"); // collapse
+    await flush();
+    expect(onCollapseLazyDirectory).toHaveBeenCalledWith("out/");
+    expect(onCollapseLazyDirectory).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a SUPERSEDED load as no verdict — the row stays open", async () => {
+    // The third outcome, which every host used to re-invent (and got wrong,
+    // #2138): a load whose `signal` aborted is cancelled, not failed. The
+    // wrapper must ignore its rejection instead of reading it as failure and
+    // shutting the folder the user just reopened.
+    let firstSignal: AbortSignal | undefined;
+    const onExpandLazyDirectory = vi.fn(
+      (_path: string, signal: AbortSignal) =>
+        new Promise<void>((_resolve, reject) => {
+          if (firstSignal === undefined) firstSignal = signal;
+          // Reject as soon as this load is cancelled — the shape a host that
+          // wires the signal into its read has.
+          signal.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    );
+    const root = mountInto((host) =>
+      render(
+        () => (
+          <FileTree
+            paths={["out/"]}
+            lazyDirectories={["out/"]}
+            onExpandLazyDirectory={onExpandLazyDirectory}
+            search={false}
+            onError={(err) => {
+              throw err;
+            }}
+          />
+        ),
+        host,
+      ),
+    );
+
+    clickRow(root, "out/"); // expand — load #1 starts
+    await flush();
+    clickRow(root, "out/"); // collapse — load #1 is superseded (aborted)
+    await flush();
+    clickRow(root, "out/"); // expand again — load #2 starts
+    await flush();
+
+    expect(firstSignal?.aborted).toBe(true);
+    expect(onExpandLazyDirectory).toHaveBeenCalledTimes(2);
+    // The aborted load's rejection must NOT have collapsed the reopened row.
+    const row = root.querySelector('[role="treeitem"][data-item-path="out/"]');
+    expect(row?.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("collapses the row and stops retrying when a load rejects", async () => {
@@ -203,7 +277,10 @@ describe("lazily-loaded directory rows (#2091)", () => {
       "open",
     );
     await flush();
-    expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
+    expect(onExpandLazyDirectory).toHaveBeenCalledWith(
+      "out/",
+      expect.any(AbortSignal),
+    );
   });
 
   it("keeps the expansion intent when a projection hides the row", async () => {
@@ -219,7 +296,10 @@ describe("lazily-loaded directory rows (#2091)", () => {
     );
     clickRow(root, "out/");
     await flush();
-    expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
+    expect(onExpandLazyDirectory).toHaveBeenCalledWith(
+      "out/",
+      expect.any(AbortSignal),
+    );
     // The host answers by folding one level in, replacing the collapsed key.
     setPaths(["kept.md", "out/index.html", "out/style.css"]);
     await flush();
@@ -245,7 +325,8 @@ describe("lazily-loaded directory rows (#2091)", () => {
     // than showing a stale level with the collapse-and-reopen refresh gesture
     // unavailable.
     const [lazy, setLazy] = createSignal<string[]>(["out/"]);
-    const onExpandLazyDirectory = vi.fn<(path: string) => void>();
+    const onExpandLazyDirectory =
+      vi.fn<(path: string, signal: AbortSignal) => void>();
     const host = document.createElement("div");
     document.body.appendChild(host);
     const dispose = render(
@@ -281,7 +362,8 @@ describe("lazily-loaded directory rows (#2091)", () => {
     // their own turn. Pierre's store does not tick for a host prop change, so
     // without a re-probe on `lazyDirectories` those keys would never be read.
     const [lazy, setLazy] = createSignal<string[]>([]);
-    const onExpandLazyDirectory = vi.fn<(path: string) => void>();
+    const onExpandLazyDirectory =
+      vi.fn<(path: string, signal: AbortSignal) => void>();
     const host = document.createElement("div");
     document.body.appendChild(host);
     const dispose = render(
@@ -306,6 +388,9 @@ describe("lazily-loaded directory rows (#2091)", () => {
     setLazy(["out/"]);
     await flush();
 
-    expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
+    expect(onExpandLazyDirectory).toHaveBeenCalledWith(
+      "out/",
+      expect.any(AbortSignal),
+    );
   });
 });

@@ -106,12 +106,40 @@ export type FileTreeProps = {
    *  available for paths nothing watches). Never fires for an ordinary
    *  directory, whose children `paths` already carries.
    *
-   *  Return the load's promise to tell the wrapper the OUTCOME: on rejection it
-   *  forgets the expansion, so the next probe reports afresh and a retry costs
-   *  one re-expand. Without that a transient read failure wedges the folder
-   *  open-and-empty for the rest of the mount, indistinguishable on screen from
-   *  a genuinely empty directory. */
-  onExpandLazyDirectory?: (path: string) => void | Promise<void>;
+   *  Return the load's promise to tell the wrapper the OUTCOME — and the outcome
+   *  is TOTAL, three states with three spellings, because the third one caused a
+   *  production bug in every host that had to re-invent it:
+   *
+   *    - **resolve** — the level landed and is folded into `paths`.
+   *    - **reject** — the load FAILED; the wrapper forgets the expansion AND
+   *      collapses the row, so the next probe reports afresh and a retry costs
+   *      one re-expand. Without that a transient read failure wedges the folder
+   *      open-and-empty for the rest of the mount, indistinguishable on screen
+   *      from a genuinely empty directory.
+   *    - **`signal` aborted** — the load was SUPERSEDED (the same key was
+   *      re-reported, the row collapsed, the key left `lazyDirectories`, or
+   *      `lazyEpoch` bumped). Supersession is NOT a verdict: the wrapper
+   *      ignores whatever the promise does next and never collapses the row for
+   *      it. Hosts must NOT hand-roll this — a host that rejected on its own
+   *      cancellation had `<FileTree>` read supersession as failure and shut the
+   *      folder the user had just opened (#2138). Wire the signal into the read
+   *      (an `AbortController`, an interrupted fiber) and let it reject freely. */
+  onExpandLazyDirectory?: (
+    path: string,
+    signal: AbortSignal,
+  ) => void | Promise<void>;
+  /** Fires when a reported lazy directory stops being open — the row went
+   *  expanded → collapsed, or the key left `lazyDirectories` (its directory
+   *  left the listing, the host stopped declaring it). Either way it is the
+   *  host's cue to RETIRE whatever it spun up for that level: a watch, a
+   *  standing subscription, a cached level.
+   *
+   *  Without this edge the contract named only `open`, so a host's registry was
+   *  monotone for the lifetime of a mount — browsing `~` and collapsing every
+   *  folder left one server-side handle and one stream subscription per folder
+   *  the user had EVER opened, which is a different and unbounded promise from
+   *  the "N expanded folders cost N handles" the design is sold on. */
+  onCollapseLazyDirectory?: (path: string) => void;
   /** Bump to declare every previously-reported expansion void — the host's
    *  loaded levels no longer describe this tree (a repo / host switch). The
    *  wrapper's record of which lazy directories are open is keyed by
@@ -299,8 +327,22 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // below all delete in favour of the native API.
   const openLazyDirs = new Set<string>();
 
-  // While the paths effect is RECONCILING — applying batch ops and re-opening
-  // the lazy directories it knows are meant to be open — the store ticks it
+  // The in-flight load per open lazy directory, so SUPERSESSION lives here —
+  // with the record it is superseding — instead of being re-derived by every
+  // host. Aborted when the key is re-reported, collapses, leaves
+  // `lazyDirectories`, when the epoch bumps, or on dispose; an aborted load's
+  // outcome is then ignored (see `onExpandLazyDirectory`'s three states).
+  const lazyLoads = new Map<string, AbortController>();
+  const abortLazyLoad = (key: string): void => {
+    const ctl = lazyLoads.get(key);
+    if (!ctl) return;
+    lazyLoads.delete(key);
+    ctl.abort();
+  };
+
+  // While the wrapper is APPLYING ITS OWN WRITES — reconciling a path change and
+  // re-opening the lazy directories it knows are meant to be open, revealing a
+  // selected file's ancestors, applying a reveal request — the store ticks it
   // causes describe construction states, not user intent. Without this guard a
   // probe fired by the batch's own tick saw the recreated folder COLLAPSED
   // (the remove destroyed the node carrying the expansion, the add rebuilt it
@@ -308,9 +350,23 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // effect's own re-expand for a fresh user expansion and re-fired the load —
   // whose superseding abort of its predecessor then collapsed the row for
   // good (#2138's plain-directory e2e: load resolves OK, folder ends shut).
-  // Probes hold while the flag is up; the effect runs one deliberate probe
-  // after settling, so a genuinely-new open-and-childless state still reports.
-  let reconciling = false;
+  //
+  // ONE flag around EVERY wrapper-initiated expansion, not just the paths
+  // effect: the selection effect and `revealDirectory` expand rows too, and a
+  // rule enforced at one of three mutation sites is a rule that rots. Each site
+  // runs inside `withOwnWrites`, which drops the flag and then fires ONE
+  // deliberate probe — so a row left genuinely open-and-childless by the write
+  // still reports, which is how a revealed lazy folder gets its level.
+  let applyingOwnWrites = false;
+  const withOwnWrites = (fn: () => void): void => {
+    applyingOwnWrites = true;
+    try {
+      fn();
+    } finally {
+      applyingOwnWrites = false;
+      safeApply(reportLazyExpansions, props.onError);
+    }
+  };
 
   // Pierre fires `onSelectionChange` for directory clicks too, which would
   // produce an EISDIR if the consumer reads the path as a file. Directories
@@ -343,7 +399,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   const reportLazyExpansions = (): void => {
     const t = tree;
     if (!t) return;
-    if (reconciling) return; // mid-reconcile states are not user intent
+    if (applyingOwnWrites) return; // our own writes are not user intent
     for (const key of props.lazyDirectories ?? []) {
       const item = t.getItem(key);
       // No row for this key right now — a search projection hid it (the host
@@ -354,11 +410,20 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // filter keystroke wipe the user's expansion for the rest of the mount.
       if (!item || !("isExpanded" in item)) continue;
       if (!item.isExpanded()) {
-        openLazyDirs.delete(key);
+        // The CLOSE edge — reported, not swallowed, so the host can retire the
+        // level's watch/subscription. Guarded on the record so only a genuine
+        // open → closed transition fires it.
+        if (openLazyDirs.delete(key)) retireLazyDir(key);
         continue;
       }
       if (openLazyDirs.has(key)) continue;
       openLazyDirs.add(key);
+      // This key's own supersession token. Aborting any predecessor first keeps
+      // ONE writer per key: a rapid collapse → expand → collapse cannot leave
+      // two loads racing to answer for one row.
+      abortLazyLoad(key);
+      const ctl = new AbortController();
+      lazyLoads.set(key, ctl);
       // A rejected load must not leave an open, empty folder on screen: the
       // ROW's own expansion state (`item.isExpanded()`) is untouched by a load
       // failure, so merely forgetting the key here — without also collapsing
@@ -369,14 +434,31 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // `collapse()` closes the row so its visible state agrees with the
       // bookkeeping — the user sees the folder shut instead of a silent retry
       // storm, and a deliberate re-open is what re-arms the probe.
-      void Promise.resolve(props.onExpandLazyDirectory?.(key)).catch(() => {
-        openLazyDirs.delete(key);
-        safeApply(() => {
-          const row = t.getItem(key);
-          if (row && "collapse" in row) row.collapse();
-        }, props.onError);
-      });
+      void Promise.resolve(props.onExpandLazyDirectory?.(key, ctl.signal))
+        .then(() => {
+          if (lazyLoads.get(key) === ctl) lazyLoads.delete(key);
+        })
+        .catch(() => {
+          // Supersession is not a verdict — the aborter owns the row's fate, so
+          // an aborted load neither retires the record nor shuts the row. ONE
+          // spelling of that rule, here, where the record lives: every host
+          // that had to invent its own got it different (#2138).
+          if (ctl.signal.aborted) return;
+          if (lazyLoads.get(key) === ctl) lazyLoads.delete(key);
+          openLazyDirs.delete(key);
+          safeApply(() => {
+            const row = t.getItem(key);
+            if (row && "collapse" in row) row.collapse();
+          }, props.onError);
+        });
     }
+  };
+
+  /** This level is no longer open: drop the wrapper's record's in-flight load
+   *  and tell the host to retire whatever it spun up. */
+  const retireLazyDir = (key: string): void => {
+    abortLazyLoad(key);
+    safeApply(() => props.onCollapseLazyDirectory?.(key), props.onError);
   };
 
   /** Every key that should be open, from every source that has an opinion — the
@@ -564,70 +646,64 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         const prev = dropRedundantDirKeys(appliedPaths);
         const next = dropRedundantDirKeys(paths);
         // Hold expansion probes for the whole reconcile (batch + reopen), then
-        // probe once deliberately — see `reconciling`'s note. The `finally`
-        // covers every exit, including the recovery branch's returns.
-        reconciling = true;
-        try {
-          const pathOps = pathDiffOperations(prev, next).filter((op) => {
-            // Pierre promotes an emptied directory to an explicit empty-folder
-            // node on file remove — so files→collapsed-dir can try to `add` a
-            // dir key that already exists. Skip those adds (mirrors getItem
-            // guard on dirOps).
-            if (
-              op.type === "add" &&
-              isDirectoryPath(op.path) &&
-              t.getItem(op.path)
-            ) {
-              return false;
-            }
-            return true;
-          });
-          if (pathOps.length > 0) t.batch(pathOps);
-          // Pierre's `remove` promotes an emptied directory to an explicit
-          // empty folder instead of deleting it (see `directoryRemovalOps`),
-          // so the file removals above would otherwise strand a filter's
-          // emptied directories as hollow rows. Prune them in one batch,
-          // mirroring the file pass: the ops are disjoint maximal subtrees,
-          // each removed recursively. The `getItem` guard is defensive — every
-          // root still resolves after the file batch — and pruning never
-          // touches a surviving directory's expansion, so a hand-collapsed
-          // match folder stays collapsed.
-          const dirOps: FileTreeRemoveOperation[] = [];
-          for (const op of directoryRemovalOps(prev, next)) {
-            if (t.getItem(op.path)) dirOps.push(op);
-          }
-          if (dirOps.length > 0) t.batch(dirOps);
-          appliedPaths = next;
-          expandDirs(t, toOpen);
-        } catch (err) {
+        // probe once deliberately — see `withOwnWrites`'s note. It covers every
+        // exit, including the recovery branch's returns.
+        withOwnWrites(() => {
           try {
-            t.resetPaths(next, { initialExpandedPaths: toOpen });
+            const pathOps = pathDiffOperations(prev, next).filter((op) => {
+              // Pierre promotes an emptied directory to an explicit empty-folder
+              // node on file remove — so files→collapsed-dir can try to `add` a
+              // dir key that already exists. Skip those adds (mirrors getItem
+              // guard on dirOps).
+              if (
+                op.type === "add" &&
+                isDirectoryPath(op.path) &&
+                t.getItem(op.path)
+              ) {
+                return false;
+              }
+              return true;
+            });
+            if (pathOps.length > 0) t.batch(pathOps);
+            // Pierre's `remove` promotes an emptied directory to an explicit
+            // empty folder instead of deleting it (see `directoryRemovalOps`),
+            // so the file removals above would otherwise strand a filter's
+            // emptied directories as hollow rows. Prune them in one batch,
+            // mirroring the file pass: the ops are disjoint maximal subtrees,
+            // each removed recursively. The `getItem` guard is defensive — every
+            // root still resolves after the file batch — and pruning never
+            // touches a surviving directory's expansion, so a hand-collapsed
+            // match folder stays collapsed.
+            const dirOps: FileTreeRemoveOperation[] = [];
+            for (const op of directoryRemovalOps(prev, next)) {
+              if (t.getItem(op.path)) dirOps.push(op);
+            }
+            if (dirOps.length > 0) t.batch(dirOps);
             appliedPaths = next;
             expandDirs(t, toOpen);
-            // Recovered — tree matches desired inventory. Log the original
-            // throw so recurrence is visible; do not toast as render failure.
-            console.error(
-              "FileTree paths batch failed; recovered via resetPaths:",
-              err,
-            );
-            return;
-          } catch (recoverErr) {
-            // Recovery failed — bookkeeping may still be desynced; surface
-            // loudly and leave appliedPaths so a later inventory can retry.
-            const recovered = toError(recoverErr);
-            props.onError(
-              recovered.cause == null
-                ? new Error(recovered.message, { cause: err })
-                : recovered,
-            );
-            return;
+          } catch (err) {
+            try {
+              t.resetPaths(next, { initialExpandedPaths: toOpen });
+              appliedPaths = next;
+              expandDirs(t, toOpen);
+              // Recovered — tree matches desired inventory. Log the original
+              // throw so recurrence is visible; do not toast as render failure.
+              console.error(
+                "FileTree paths batch failed; recovered via resetPaths:",
+                err,
+              );
+            } catch (recoverErr) {
+              // Recovery failed — bookkeeping may still be desynced; surface
+              // loudly and leave appliedPaths so a later inventory can retry.
+              const recovered = toError(recoverErr);
+              props.onError(
+                recovered.cause == null
+                  ? new Error(recovered.message, { cause: err })
+                  : recovered,
+              );
+            }
           }
-        } finally {
-          reconciling = false;
-          // The one deliberate post-reconcile probe: reports a row that ended
-          // this reconcile genuinely open-and-childless, with the guard down.
-          safeApply(reportLazyExpansions, props.onError);
-        }
+        });
       },
       { defer: true },
     ),
@@ -648,10 +724,17 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         // dedupe against. Retiring it is what makes its next appearance report
         // AFRESH: without this an eye-toggle round trip showed an arbitrarily
         // old cached level with the documented collapse-and-reopen refresh
-        // unavailable, because the probe saw the key already recorded.
+        // unavailable, because the probe saw the key already recorded. The host
+        // hears the same close edge a collapse gives it, because it means the
+        // same thing: this level is no longer open, retire what feeds it (a
+        // query left polling a directory that has left the listing is exactly
+        // the leak the close edge exists to close).
         const declared = new Set(lazy ?? []);
         for (const key of openLazyDirs) {
-          if (!declared.has(key)) openLazyDirs.delete(key);
+          if (!declared.has(key)) {
+            openLazyDirs.delete(key);
+            retireLazyDir(key);
+          }
         }
         safeApply(reportLazyExpansions, props.onError);
       },
@@ -669,6 +752,11 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     on(
       () => props.lazyEpoch,
       () => {
+        // No close edge for these: the epoch says the host has ALREADY declared
+        // its whole loaded world void (it is the same signal that clears it), so
+        // there is nothing left to retire — only the in-flight loads, whose
+        // answers now belong to a tree that no longer exists.
+        for (const key of [...lazyLoads.keys()]) abortLazyLoad(key);
         openLazyDirs.clear();
       },
       { defer: true },
@@ -716,39 +804,44 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     on(
       () => props.selectedPath ?? null,
       (path) => {
-        safeApply(() => {
-          const current = tree?.getSelectedPaths()[0] ?? null;
-          if (current === path) return;
-          // Drop every selected row except `keep` (pass null to clear
-          // all). Pierre's `select()` is additive — it never clears the
-          // prior pick — so a switch must deselect the old row first or
-          // the tree holds both, fires `onSelectionChange` with the stale
-          // path at `paths[0]`, and the host reads that back as a
-          // selection revert (the "first click after a file is already
-          // open does nothing, second click works" bug).
-          const deselectOthers = (keep: string | null) => {
-            for (const p of tree?.getSelectedPaths() ?? []) {
-              if (p !== keep) tree?.getItem(p)?.deselect();
+        // Inside `withOwnWrites`: the `expandDirs` below is the wrapper's own
+        // expansion, not user intent, and the deliberate post-probe it fires is
+        // what reports a LAZY ancestor this reveal left open-and-childless.
+        withOwnWrites(() =>
+          safeApply(() => {
+            const current = tree?.getSelectedPaths()[0] ?? null;
+            if (current === path) return;
+            // Drop every selected row except `keep` (pass null to clear
+            // all). Pierre's `select()` is additive — it never clears the
+            // prior pick — so a switch must deselect the old row first or
+            // the tree holds both, fires `onSelectionChange` with the stale
+            // path at `paths[0]`, and the host reads that back as a
+            // selection revert (the "first click after a file is already
+            // open does nothing, second click works" bug).
+            const deselectOthers = (keep: string | null) => {
+              for (const p of tree?.getSelectedPaths() ?? []) {
+                if (p !== keep) tree?.getItem(p)?.deselect();
+              }
+            };
+            deselectOthers(path);
+            if (path !== null) {
+              // Open the picked file's ancestors so the row is visible —
+              // an external caller can drive selection into a collapsed
+              // subtree (e.g. a terminal `path:line` click resolving into a
+              // nested file). Expanding each directory handle in place
+              // preserves every other open folder; routing this through
+              // `resetPaths` would rebuild the tree and collapse the user's
+              // hand-expanded siblings.
+              if (tree) expandDirs(tree, ancestorDirectoryPaths(path));
+              tree?.getItem(path)?.select();
+              // `select()` marks aria-selected but doesn't move the
+              // virtualizer; deep paths in large worktrees would stay
+              // off-screen until the user scrolled. `scrollToPath`
+              // reveals the row.
+              tree?.scrollToPath(path);
             }
-          };
-          deselectOthers(path);
-          if (path !== null) {
-            // Open the picked file's ancestors so the row is visible —
-            // an external caller can drive selection into a collapsed
-            // subtree (e.g. a terminal `path:line` click resolving into a
-            // nested file). Expanding each directory handle in place
-            // preserves every other open folder; routing this through
-            // `resetPaths` would rebuild the tree and collapse the user's
-            // hand-expanded siblings.
-            if (tree) expandDirs(tree, ancestorDirectoryPaths(path));
-            tree?.getItem(path)?.select();
-            // `select()` marks aria-selected but doesn't move the
-            // virtualizer; deep paths in large worktrees would stay
-            // off-screen until the user scrolled. `scrollToPath`
-            // reveals the row.
-            tree?.scrollToPath(path);
-          }
-        }, props.onError);
+          }, props.onError),
+        );
       },
       { defer: true },
     ),
@@ -766,16 +859,26 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       () => props.revealRequest,
       (req) => {
         if (!req) return;
-        safeApply(() => {
-          if (!tree) return;
-          revealDirectory(tree, req.path);
-        }, props.onError);
+        // Also a wrapper-initiated expansion (see the selection effect): the
+        // reveal opens the folder and its ancestors, and only the deliberate
+        // post-probe should read the result as "this lazy folder is open now".
+        withOwnWrites(() =>
+          safeApply(() => {
+            if (!tree) return;
+            revealDirectory(tree, req.path);
+          }, props.onError),
+        );
       },
       { defer: true },
     ),
   );
 
-  onCleanup(() => tree?.cleanUp());
+  onCleanup(() => {
+    // Every in-flight load is superseded by the tree ceasing to exist — abort
+    // so a late rejection can't try to collapse a row in a torn-down Pierre.
+    for (const key of [...lazyLoads.keys()]) abortLazyLoad(key);
+    tree?.cleanUp();
+  });
 
   return (
     <div
