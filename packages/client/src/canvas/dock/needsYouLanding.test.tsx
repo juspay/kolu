@@ -68,12 +68,20 @@ function metaFor(id: TerminalId): TerminalMetadata {
 vi.mock("../../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({
     getMetadata: (id: TerminalId) => metaFor(id),
-    getDisplayInfo: () => ({
-      repoColor: "#aaa",
-      annotationColor: "#aaa",
-      subCount: 1,
-      key: { group: "kolu", label: "feat-x" },
-    }),
+    // FAITHFUL to the real store: `displayInfos` is keyed on `terminalIds()`,
+    // which is TOP-LEVEL tiles, so a split has NO display info. Mocking this to
+    // answer for every id is what hid the defect this file now guards — the
+    // entry asked `createDockRowData(split)` for a display row, got `null`, and
+    // rendered nothing at all for the one case the tile/blocked pair exists for.
+    getDisplayInfo: (id: TerminalId) =>
+      id === PARENT
+        ? {
+            repoColor: "#aaa",
+            annotationColor: "#aaa",
+            subCount: 1,
+            key: { group: "kolu", label: "feat-x" },
+          }
+        : undefined,
     isUnread: () => false,
   }),
 }));
@@ -139,7 +147,31 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("NeedsYouStrip — the click lands on the blocked row", () => {
+describe("NeedsYouStrip — the split-blocked entry", () => {
+  // The entry must EXIST before anything about it can be right. A split has no
+  // display info of its own, so an entry that demanded one for its blocked half
+  // rendered nothing — the strip dropping the very case it was built for, in
+  // the real app, while every unit test passed.
+  it("renders at all when the blocked agent is a split", () => {
+    const { host, dispose } = renderStrip();
+    try {
+      expect(
+        host.querySelector('[data-testid="dock-needs-you-entry"]'),
+        "a split-blocked tile must produce a strip entry",
+      ).not.toBeNull();
+      // And it is the SPLIT's attention that got painted…
+      const pip = host.querySelector('[data-testid="state-pip"]');
+      expect(pip?.getAttribute("data-pip")).toBe("awaiting");
+      // …while the display identity still came off the TILE, which is the only
+      // half that has one. (The label's own text is `IntentMarkdownInline`'s
+      // business; `data-tile-id` is this component's assertion to make.)
+      const entry = host.querySelector('[data-testid="dock-needs-you-entry"]');
+      expect(entry?.getAttribute("data-tile-id")).toBe(PARENT);
+    } finally {
+      dispose();
+    }
+  });
+
   it("selects the SPLIT that is asking, not the tile that holds it", () => {
     const { host, dispose } = renderStrip();
     try {

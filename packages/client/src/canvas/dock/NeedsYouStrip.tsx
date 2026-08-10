@@ -61,11 +61,19 @@ const NeedsYouEntryRow: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileData = createDockRowData(props.entry.tile.id);
-  const blockedData = createDockRowData(props.entry.blocked.id);
+  // The blocked half gives METADATA only. `getDisplayInfo` is keyed on
+  // `terminalIds()` — TOP-LEVEL tiles — so it answers `undefined` for any split,
+  // and `pairDisplayRow` turns that into `null`. Asking it for a split's display
+  // row therefore made the whole entry render NOTHING: the strip silently
+  // dropped the split-blocked agent, which is the exact case this pair exists
+  // for. `SubTerminalRow`, the other surface that renders a split, reads only
+  // `getMetadata` for the same reason — a split has no display identity of its
+  // own, which is precisely WHY the entry carries a tile beside it.
+  const blockedMeta = () => store.getMetadata(props.entry.blocked.id);
   const unread = () => store.isUnread(props.entry.blocked.id);
   const combined = createMemo(() => {
     const tile = tileData();
-    const blocked = blockedData();
+    const blocked = blockedMeta();
     return tile && blocked ? { tile, blocked } : null;
   });
   return (
@@ -74,7 +82,7 @@ const NeedsYouEntryRow: Component<{
         const pip = useStatePip(
           encActiveHost,
           () => props.entry.blocked.id,
-          () => c().blocked.meta,
+          () => c().blocked,
           unread,
           () => props.entry.blocked.pip,
         );
@@ -86,7 +94,7 @@ const NeedsYouEntryRow: Component<{
           displayRecencyAt(
             mode(),
             props.entry.tile.ts,
-            rowRecencyAt(c().blocked.meta),
+            rowRecencyAt(c().blocked),
           );
         // The EXACT string the violet capsule shows, for the icon density's
         // tooltip — `useDuration`, not `formatTimeAgo`. The two are not
@@ -128,7 +136,7 @@ const NeedsYouEntryRow: Component<{
             {...dockRowAttrs({
               id: props.entry.blocked.id,
               bucket: props.entry.blocked.bucket,
-              agentState: activeArm(c().blocked.meta)?.agent?.state,
+              agentState: activeArm(c().blocked)?.agent?.state,
               asking: pip().asking,
               unread: unread(),
             })}
