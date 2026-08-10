@@ -325,6 +325,27 @@ describe("createSettleEvents", () => {
     expect(events[0]?.intent).toBe("fix the flaky test");
   });
 
+  it("a departure reports the CURRENT edge, not the one from the terminal's birth", async () => {
+    // The edge memory is MAINTAINED in place rather than rebuilt per frame (it
+    // runs on the ~150 ms terminals cadence), so an edge that changes mid-life
+    // must still refresh — otherwise a lane renamed after it was spawned would
+    // report its original intent on the way out.
+    const { events, source } = collector();
+    source.observe(
+      urgency({}),
+      terminals({ w: { agent: null, parentId: "boss", intent: "first" } }),
+    );
+    source.observe(
+      urgency({}),
+      terminals({ w: { agent: null, parentId: "boss", intent: "renamed" } }),
+    );
+    source.observe(urgency({}), terminals());
+    await settled();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.kind).toBe("gone");
+    expect(events[0]?.intent).toBe("renamed");
+  });
+
   it("a departure fires once, not on every later frame", async () => {
     const { events, source } = collector();
     source.observe(urgency({}), terminals({ w: { agent: null } }));

@@ -41,6 +41,7 @@ import {
   WaitAgentStateArgsSchema,
   WaitOutputSettledArgsSchema,
 } from "./wait.ts";
+import { WatchNextArgsSchema } from "./watchNext.ts";
 
 type JsonNode = Record<string, unknown>;
 
@@ -155,6 +156,25 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
     }
     // `idleMs` is the one required knob; `timeoutMs` is optional.
     expect(settled.required).toEqual(["id", "idleMs"]);
+  });
+
+  it("watch_next's timeoutMs rides the SAME shared milliseconds field", () => {
+    // It re-derived this shape once, which left the package's third bespoke
+    // tool the only one doing the annotate-then-check dance unpinned by this
+    // file. It now reuses `MillisecondsSchema`, so it is covered here for free.
+    const node = property(toInputSchema(WatchNextArgsSchema), "timeoutMs");
+    expect(node.type).toBe("integer");
+    expect(node.anyOf).toBe(undefined);
+    expect(node.allOf).toEqual([
+      { exclusiveMinimum: 0 },
+      { maximum: 2_147_483_647 },
+    ]);
+    expect(typeof node.description).toBe("string");
+    // `after` is an acknowledgement watermark, so ZERO is legal where a
+    // duration's zero is not.
+    const after = property(toInputSchema(WatchNextArgsSchema), "after");
+    expect(after.type).toBe("integer");
+    expect(after.allOf).toEqual([{ minimum: 0 }]);
   });
 
   it("wait_agentState advertises the three buckets as a literal enum", () => {

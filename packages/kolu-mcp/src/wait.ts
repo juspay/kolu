@@ -51,7 +51,7 @@ import { Effect, Schema } from "effect";
  *  the field as an integer rather than as bare `Schema.Number`, whose encoded
  *  form admits the strings `"NaN"`/`"Infinity"` (D8/#14 divergence 2). Pinned
  *  in `argSchemas.test.ts`. */
-const MillisecondsSchema = (description: string) =>
+export const MillisecondsSchema = (description: string) =>
   Schema.Number.annotate({ description }).check(
     Schema.isInt(),
     Schema.isGreaterThan(0),

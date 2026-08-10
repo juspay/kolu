@@ -110,6 +110,24 @@ const WATCH_SUBSCRIPTION_NOT_FOUND_TAG: string = new WatchSubscriptionNotFound({
   known: [],
 })._tag;
 
+/** Does `err` carry this tagged-error `_tag`?
+ *
+ *  The STRUCTURAL counterpart to {@link isPadiDeclaredError}'s `instanceof`, and
+ *  the reason that one documents its own narrowness: a value that crossed a wire
+ *  was decoded in another realm, so its class identity is not ours and
+ *  `instanceof` silently answers `false`. Spelled once here because padi already
+ *  had a second hand-rolled copy of this check (`isPtyNotFound` in
+ *  `terminalEndpoint/reattachingDeltas.ts`) and a third was about to appear.
+ *  Each caller still reads its OWN tag off its OWN class — that part is
+ *  legitimately per-error; what stops being copy-pasted is the comparison. */
+export function hasTag(err: unknown, tag: string): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { _tag?: unknown })._tag === tag
+  );
+}
+
 /** Is `err` a {@link WatchSubscriptionNotFound} that may have CROSSED A WIRE?
  *
  *  Structural on `_tag`, deliberately — the sibling of `isPadiDeclaredError`'s
@@ -119,11 +137,7 @@ const WATCH_SUBSCRIPTION_NOT_FOUND_TAG: string = new WatchSubscriptionNotFound({
  *  silently answers `false` and the failure collapses into the retryable arm —
  *  precisely the collapse this predicate exists to stop. */
 export function isWatchSubscriptionNotFound(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { _tag?: unknown })._tag === WATCH_SUBSCRIPTION_NOT_FOUND_TAG
-  );
+  return hasTag(err, WATCH_SUBSCRIPTION_NOT_FOUND_TAG);
 }
 
 // ── Byte writes / reads ───────────────────────────────────────────────────

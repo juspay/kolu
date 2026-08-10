@@ -43,16 +43,22 @@ type DrainReply = {
  *  order, so a test scripts the interleaving precisely. */
 function fakeClient(opts: {
   pulses: Stream.Stream<{ seq: number }, unknown>;
-  onDrain: (call: number) => DrainReply | Error;
-}): { client: PadiSurfaceClient; drainCalls: () => number } {
+  onDrain: (call: number, input: unknown) => DrainReply | Error;
+}): {
+  client: PadiSurfaceClient;
+  drainCalls: () => number;
+  lastInput: () => unknown;
+} {
   let calls = 0;
+  let lastInput: unknown;
   const client = {
     surface: {
       watchPulse: { get: () => opts.pulses },
       watch: {
-        drain: () =>
+        drain: (input: unknown) =>
           Effect.suspend(() => {
-            const reply = opts.onDrain(calls++);
+            lastInput = input;
+            const reply = opts.onDrain(calls++, lastInput);
             return reply instanceof Error
               ? Effect.fail(reply)
               : Effect.succeed(reply);
@@ -60,7 +66,7 @@ function fakeClient(opts: {
       },
     },
   } as unknown as PadiSurfaceClient;
-  return { client, drainCalls: () => calls };
+  return { client, drainCalls: () => calls, lastInput: () => lastInput };
 }
 
 const empty: DrainReply = { events: [], dropped: 0, ackAfter: 0 };
@@ -145,40 +151,22 @@ describe("awaitWatchEvents", () => {
   });
 
   it("forwards the caller's acknowledgement to the drain", async () => {
-    let seen: unknown;
-    const client = {
-      surface: {
-        watchPulse: { get: () => Stream.make({ seq: 0 }) },
-        watch: {
-          drain: (input: unknown) =>
-            Effect.sync(() => {
-              seen = input;
-              return { events: [settle(3)], dropped: 0, ackAfter: 3 };
-            }),
-        },
-      },
-    } as unknown as PadiSurfaceClient;
+    const { client, lastInput } = fakeClient({
+      pulses: Stream.make({ seq: 0 }),
+      onDrain: () => ({ events: [settle(3)], dropped: 0, ackAfter: 3 }),
+    });
     await awaitWatchEvents(client, { name: NAME, after: 2 });
-    expect(seen).toEqual({ name: NAME, after: 2 });
+    expect(lastInput()).toEqual({ name: NAME, after: 2 });
   });
 
   it("OMITS `after` entirely on a first call rather than spelling undefined", async () => {
     // The wire field is an `optionalKey`, which accepts an absent key and
     // REJECTS a present-but-undefined one (#17).
-    let seen: Record<string, unknown> = {};
-    const client = {
-      surface: {
-        watchPulse: { get: () => Stream.make({ seq: 0 }) },
-        watch: {
-          drain: (input: Record<string, unknown>) =>
-            Effect.sync(() => {
-              seen = input;
-              return { events: [settle(1)], dropped: 0, ackAfter: 1 };
-            }),
-        },
-      },
-    } as unknown as PadiSurfaceClient;
+    const { client, lastInput } = fakeClient({
+      pulses: Stream.make({ seq: 0 }),
+      onDrain: () => ({ events: [settle(1)], dropped: 0, ackAfter: 1 }),
+    });
     await awaitWatchEvents(client, { name: NAME });
-    expect("after" in seen).toBe(false);
+    expect("after" in (lastInput() as object)).toBe(false);
   });
 });

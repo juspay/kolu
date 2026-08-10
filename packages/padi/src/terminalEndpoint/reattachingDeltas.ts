@@ -30,6 +30,7 @@ import type { PtyHostDataMsg } from "kaval";
 import { PtyNotFound } from "kaval";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { abortableDelay } from "../abortableDelay.ts";
+import { hasTag } from "../errors.ts";
 import { log } from "../log.ts";
 import { TERMINAL_RESET, type TerminalAttachFrame } from "../endpoint.ts";
 
@@ -132,12 +133,7 @@ const NEVER_ABORTS: AbortSignal = new AbortController().signal;
  *  the recognition honest across that hop, and across two copies of the class in
  *  one bundle. */
 function isPtyNotFound(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "_tag" in err &&
-    (err as { _tag: unknown })._tag === PTY_NOT_FOUND_TAG
-  );
+  return hasTag(err, PTY_NOT_FOUND_TAG);
 }
 
 /** The tag string, read OFF the class rather than re-spelled — a rename in

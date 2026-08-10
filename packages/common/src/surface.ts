@@ -98,10 +98,7 @@ export type {
   AttentionTransition,
   AttentionTransitions,
 } from "@kolu/terminal-vocab/attentionTransitions";
-export {
-  attentionTransitions,
-  createAttentionTransitions,
-} from "@kolu/terminal-vocab/attentionTransitions";
+export { createAttentionTransitions } from "@kolu/terminal-vocab/attentionTransitions";
 // The renderer-agnostic agent-state projection (bucket · urgency · needs-you
 // rank) is OWNED by `@kolu/terminal-vocab/agentProjection` — the ONE source
 // padi-tui and downstream dashboards (drishti) already share. The kolu client reaches it through the

@@ -122,6 +122,17 @@ function edgeOf(record: PadiTerminal | undefined): SupervisionEdge {
   };
 }
 
+/** Does a remembered edge still describe this record? Two string compares,
+ *  which is what lets the edge memory be MAINTAINED rather than rebuilt: this
+ *  runs per terminal per ~150 ms tick, and `parentId`/`intent` almost never move
+ *  after a terminal is born, so the steady state should allocate nothing. */
+function edgeMatches(
+  edge: SupervisionEdge,
+  record: PadiTerminal | undefined,
+): boolean {
+  return edge.parentId === record?.parentId && edge.intent === record?.intent;
+}
+
 /** Build the settle-event source. `now` is injectable so tests stamp
  *  deterministically; production passes `Date.now`. */
 export function createSettleEvents(opts: {
@@ -142,11 +153,16 @@ export function createSettleEvents(opts: {
   // parent is unknowable at emit time. Remembering it here is what lets a
   // departure reach the supervisor at all — a `gone` event with no `parentId`
   // is one the supervision edge can never deliver.
-  // `null` until the first frame, so a fresh daemon's initial inventory is a
-  // discovery rather than a storm of arrivals/departures. It is also the ONE
-  // record of "have we observed yet": it and the transition memory advance
-  // together by construction, at the single assignment at the end of `observe`.
-  let lastEdges: ReadonlyMap<TerminalId, SupervisionEdge> | null = null;
+  //
+  // MAINTAINED IN PLACE, never rebuilt: this is the ~150 ms terminals cadence,
+  // and rebuilding a Map of N freshly-spread objects each tick would allocate
+  // for every terminal that merely still exists. Arrivals insert, departures
+  // delete, and a survivor whose edge is unchanged costs two string compares.
+  //
+  // `empty` until the first real observation, so a fresh daemon's initial
+  // inventory is a discovery rather than a storm of arrivals and departures.
+  const lastEdges = new Map<TerminalId, SupervisionEdge>();
+  let observed = false;
   let seq = 0;
 
   return {
@@ -159,7 +175,7 @@ export function createSettleEvents(opts: {
       // be re-announced to its supervisor on every padi restart. Wait for a real
       // observation instead. This is exactly the guard `finishQuiet.syncWaiting`
       // already applies to its own bootstrap, for the same reason.
-      if (lastEdges === null && terminals.size === 0) return;
+      if (!observed && terminals.size === 0) return;
 
       // ONE stamp for the whole fold. `servePadi` observes where the LEVEL is
       // computed so a supervisor's nudge and the Dock's paint describe the same
@@ -198,18 +214,24 @@ export function createSettleEvents(opts: {
       // DEPARTURES. A supervisor blocked on a worker that no longer exists is
       // the same failure as one blocked on a worker nobody reported — so a
       // terminal leaving the collection is an event, not silence.
-      const curEdges = new Map<TerminalId, SupervisionEdge>();
-      for (const [id, record] of terminals) curEdges.set(id, edgeOf(record));
-      if (lastEdges !== null) {
-        for (const [id, edge] of lastEdges) {
-          // The record is gone, so the edge comes from the LAST frame that still
-          // had it. That remembered parent is the whole point: it is what lets
-          // the departure be delivered to the supervisor rather than only
-          // buffered for whoever happens to be subscribed.
-          if (!curEdges.has(id)) emit(id, "gone", edge);
+      for (const [id, edge] of lastEdges) {
+        if (terminals.has(id)) continue;
+        // The record is gone, so the edge comes from the LAST frame that still
+        // had it. That remembered parent is the whole point: it is what lets the
+        // departure be delivered to the supervisor rather than only buffered for
+        // whoever happens to be subscribed. Emitting BEFORE the delete keeps the
+        // read and the eviction on one pass.
+        if (observed) emit(id, "gone", edge);
+        lastEdges.delete(id);
+      }
+      // ARRIVALS and edge CHANGES — the only two things that need an allocation.
+      for (const [id, record] of terminals) {
+        const known = lastEdges.get(id);
+        if (known === undefined || !edgeMatches(known, record)) {
+          lastEdges.set(id, edgeOf(record));
         }
       }
-      lastEdges = curEdges;
+      observed = true;
 
       if (batch.length === 0) return;
       // LEAVE THE DERIVATION before any sink runs. The fold stays a level
@@ -241,7 +263,8 @@ export function createSettleEvents(opts: {
     dispose() {
       listeners.clear();
       transitions.reset();
-      lastEdges = null;
+      lastEdges.clear();
+      observed = false;
     },
   };
 }
