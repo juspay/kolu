@@ -334,20 +334,28 @@ export function pwaManifestLayer(
  *  here — where `surfaceAppLayer` lives — so `serveSurfaceApp` can EXTEND it
  *  rather than re-spell it: a new shell option is then one edit, not three. */
 export interface SurfaceAppLayerOptions extends FreshnessPaths {
-  /** The built browser bundle, served fresh. */
-  readonly clientDist: string;
+  /** The built browser bundle, served fresh — ABSENT in dev, where a bundler
+   *  (Vite) serves the client on its own port and proxies the app's routes here.
+   *  A missing dist is NO static route, never a degraded one: an unmatched path
+   *  404s through the router's own `RouteNotFound`. */
+  readonly clientDist?: string;
   /** The web app manifest, if this app installs. */
   readonly manifest?: ManifestOptions;
   /** Which `/sw.js` worker to serve (default `"retire"`). */
   readonly serviceWorker?: ServiceWorkerMode;
 }
 
-/** The greenfield convenience: manifest (if given) + fresh static serving
- *  (incl. `/sw.js`), in one layer. The granular layers are exported for apps that
- *  compose them by hand — kolu serves the manifest UNCONDITIONALLY (its dev proxy
- *  forwards `/manifest.webmanifest` to a server with no built client) and adds
- *  the static layer only when a dist exists, which is exactly why the two stay
- *  separable. */
+/** The shell half of a surface app: the manifest (when the app installs) plus
+ *  fresh static serving (incl. `/sw.js`) of the built bundle (when there is
+ *  one), in one layer.
+ *
+ *  The two halves are mounted INDEPENDENTLY, and that is the point rather than a
+ *  detail: kolu serves its manifest unconditionally (its dev proxy forwards
+ *  `/manifest.webmanifest` to a server with no built client) and its statics only
+ *  in production. While this layer PAIRED them, kolu had to hand-compose
+ *  `pwaManifestLayer` + `freshStaticLayer` to say that — which is exactly the
+ *  hand-wiring `serveSurfaceApp` exists to end. The granular layers stay exported
+ *  for an app that mounts them at paths of its own. */
 export function surfaceAppLayer(
   opts: SurfaceAppLayerOptions,
 ): Layer.Layer<
@@ -358,12 +366,15 @@ export function surfaceAppLayer(
   | Path.Path
   | HttpPlatform.HttpPlatform
 > {
-  const statics = freshStaticLayer({
-    root: opts.clientDist,
-    assetPrefix: opts.assetPrefix,
-    shellPaths: opts.shellPaths,
-    serviceWorker: opts.serviceWorker,
-  });
+  const statics =
+    opts.clientDist === undefined
+      ? Layer.empty
+      : freshStaticLayer({
+          root: opts.clientDist,
+          assetPrefix: opts.assetPrefix,
+          shellPaths: opts.shellPaths,
+          serviceWorker: opts.serviceWorker,
+        });
   return opts.manifest === undefined
     ? statics
     : Layer.merge(pwaManifestLayer(opts.manifest), statics);

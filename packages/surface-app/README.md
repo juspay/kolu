@@ -21,6 +21,10 @@ const url = yield* serveSurfaceApp({
 });
 ```
 
+`clientDist` is optional (omit it in dev and there is simply no static route),
+and `routes`, `tls` and `middleware` cover what a real listener also needs —
+kolu's own server is one of these calls.
+
 Connecting is one call too:
 
 ```ts

@@ -14,6 +14,7 @@
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { get as httpsGet } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -25,7 +26,12 @@ import { surfaceProcessId } from "@kolu/surface/identity";
 import { defineSurface } from "@kolu/surface/define";
 import { implementSurface } from "@kolu/surface/server";
 import { Context, Effect, Exit, Layer, Schema, Scope } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import {
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http";
+import { generate as generateSelfSigned } from "selfsigned";
 import { WebSocket as WsClient } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSurfaceSocket } from "./connect";
@@ -171,6 +177,45 @@ async function boot<Svc = never>(
   return entry;
 }
 
+/** A throwaway certificate for `localhost`. Generated rather than committed:
+ *  the TLS claims below are only worth anything against a REAL handshake, and a
+ *  checked-in cert expires. */
+async function selfSignedTls(): Promise<{ key: string; cert: string }> {
+  const pems = await generateSelfSigned(
+    [{ name: "commonName", value: "localhost" }],
+    {
+      algorithm: "sha256",
+      extensions: [
+        {
+          name: "subjectAltName",
+          altNames: [
+            { type: 2, value: "localhost" },
+            { type: 7, ip: "127.0.0.1" },
+          ],
+        },
+      ],
+    },
+  );
+  return { key: pems.private, cert: pems.cert };
+}
+
+/** `GET` over TLS, trusting the throwaway cert above. Node's global `fetch` has
+ *  no seam for that, so this is `node:https` directly. */
+function httpsText(url: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    httpsGet(url, { rejectUnauthorized: false }, (response) => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk: string) => {
+        body += chunk;
+      });
+      response.on("end", () =>
+        resolve({ status: response.statusCode ?? 0, body }),
+      );
+    }).on("error", reject);
+  });
+}
+
 /** A real dial at the served surface, over a real `ws` client socket. */
 async function dial(server: Booted, url = server.wsUrl) {
   const socket = await createSurfaceSocket({
@@ -308,6 +353,150 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
         : false,
     ).toBe(true);
   });
+
+  it("numbers each connection, and says HOW its socket closed", async () => {
+    // Both facts kolu's per-connection log lines are built from: the `ws:` field
+    // that correlates a connect with its disconnect, and the close code that
+    // tells an abrupt drop apart from a frame-cap 1009 or a deliberate goodbye.
+    const events: SurfaceAppEvent[] = [];
+    const server = await boot({ onEvent: (event) => events.push(event) });
+    // A RAW socket, so the close is ours to spell — a surface client's own
+    // `dispose` picks the code, and there would be nothing to assert about.
+    const first = new WsClient(server.wsUrl);
+    await new Promise<void>((resolve, reject) => {
+      first.on("open", () => resolve());
+      first.on("error", reject);
+    });
+    first.close(4001, "goodbye");
+    await vi.waitFor(() => expect(events).toHaveLength(2));
+    expect(events[0]).toMatchObject({
+      _tag: "Connected",
+      connection: { id: 1 },
+    });
+    expect(events[1]).toMatchObject({
+      _tag: "Disconnected",
+      connection: { id: 1 },
+      code: 4001,
+      reason: "goodbye",
+    });
+
+    // The next connection is the next ordinal — not a reused 1, and not global.
+    const second = await dial(server);
+    await Effect.runPromise(
+      second.link.dispatch.unary("surface/echo/length", { text: "2" }),
+    );
+    expect(events[2]).toMatchObject({
+      _tag: "Connected",
+      connection: { id: 2 },
+    });
+    await second.dispose();
+  });
+});
+
+describe("serveSurfaceApp — the shell it serves", () => {
+  it("serves the manifest with NO built bundle, and answers no shell at all", async () => {
+    // The dev shape, and the one that used to force kolu to hand-compose the two
+    // granular layers: the manifest is served UNCONDITIONALLY (a dev proxy
+    // forwards `/manifest.webmanifest` here) while the statics wait for a build.
+    const server = await boot({
+      clientDist: undefined,
+      manifest: { name: "dev shell", icons: [] },
+    });
+
+    const manifest = await fetch(`${server.url}/manifest.webmanifest`);
+    expect(manifest.status).toBe(200);
+    expect(manifest.headers.get("content-type")).toContain(
+      "application/manifest+json",
+    );
+    expect(((await manifest.json()) as { name: string }).name).toBe(
+      "dev shell",
+    );
+
+    // A missing dist is NO route, never a degraded one: an unmatched path 404s
+    // through the router rather than answering some placeholder shell.
+    expect((await fetch(`${server.url}/`)).status).toBe(404);
+
+    // …and the surface is served regardless. The websocket leg does not wait on
+    // a bundle, which is exactly what makes `just dev` work.
+    const socket = await dial(server);
+    expect(
+      await Effect.runPromise(
+        socket.link.dispatch.unary("surface/echo/length", { text: "dev" }),
+      ),
+    ).toEqual({ length: 3 });
+    await socket.dispose();
+  });
+
+  it("wraps every HTTP request in the app's middleware — and never the websocket", async () => {
+    // What a middleware is FOR at this seam: kolu's bridge from the serving
+    // stack to pino. It wraps the whole HANDLED pipeline — the response bytes are
+    // already on the wire by the time it sees the value, which is why kolu's own
+    // two halves log and re-raise rather than rewrite — so what it observes, and
+    // what it does NOT, is the whole contract.
+    const seen: Array<{ url: string; status: number }> = [];
+    const server = await boot({
+      routes: HttpRouter.add("GET", "/mcp", HttpServerResponse.text("ok")),
+      middleware: (httpApp) =>
+        Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) =>
+          Effect.map(httpApp, (response) => {
+            seen.push({ url: request.url, status: response.status });
+            return response;
+          }),
+        ),
+    });
+
+    // Both halves of what the handler serves — the SHELL and the app's own
+    // routes — go through the one middleware, because it wraps the merged app
+    // rather than either layer.
+    await fetch(`${server.url}/`);
+    await fetch(`${server.url}/mcp`);
+    expect(seen).toEqual([
+      { url: "/", status: 200 },
+      { url: "/mcp", status: 200 },
+    ]);
+
+    // The upgrade never reaches the request handler — it is answered off the
+    // `upgrade` event this module owns, which is why `middleware` is an HTTP-leg
+    // option and not a listener-wide one.
+    const socket = await dial(server);
+    await Effect.runPromise(
+      socket.link.dispatch.unary("surface/echo/length", { text: "ws" }),
+    );
+    expect(seen).toHaveLength(2);
+    await socket.dispose();
+  });
+});
+
+describe("serveSurfaceApp — TLS", () => {
+  it("serves HTTPS when handed TLS material, and says so in the URL it returns", async () => {
+    const server = await boot({ tls: await selfSignedTls() });
+    // The returned URL is what an operator is told to open, so the scheme has to
+    // be the one the listener actually speaks.
+    expect(server.url.startsWith("https://")).toBe(true);
+
+    const shell = await httpsText(`${server.url}/`);
+    expect(shell.status).toBe(200);
+    expect(shell.body).toContain("<title>shell</title>");
+
+    // And the surface rides the SAME server, so it is `wss://` — derived by
+    // `surfaceWsUrl` off the returned URL, exactly as a browser derives it.
+    expect(server.wsUrl.startsWith("wss://")).toBe(true);
+    const socket = await createSurfaceSocket({
+      group: server.runtime.group,
+      url: server.wsUrl,
+      retired: () => {},
+      connect: (target) =>
+        new WsClient(target, {
+          rejectUnauthorized: false,
+        }) as unknown as WebSocket,
+    });
+    expect(
+      await Effect.runPromise(
+        socket.link.dispatch.unary("surface/echo/length", { text: "tls" }),
+      ),
+    ).toEqual({ length: 3 });
+    await socket.dispose();
+  }, 20_000);
 });
 
 describe("serveSurfaceApp — the gates in front of dispatch", () => {
@@ -447,6 +636,14 @@ describe("serveSurfaceApp — binding and teardown", () => {
     // loop with the listener still live, so an upgrade landing in that window
     // built a whole serving stack AFTER the `[...servings]` snapshot and was
     // never awaited — reintroducing exactly what the drain exists to prevent.
+    //
+    // The guard is the listener's OWN `draining` flag, not `server.close()`
+    // having been called early: the close moved to the very end of teardown (it
+    // hangs under bun if a socket was open when it was requested), so the
+    // listening socket is still up throughout this window and the upgrade has to
+    // be refused by us. That is why the assertion below is "the dial never
+    // became a connection", which holds either way, rather than "the TCP connect
+    // was refused", which would only have held under the old order.
     const connected: URL[] = [];
     const server = await boot({
       onEvent: (event) => {
@@ -479,11 +676,56 @@ describe("serveSurfaceApp — binding and teardown", () => {
     });
     await torndown;
 
-    // The listening socket was already closed, so the late dial never reached an
-    // upgrade at all…
+    // The upgrade was refused — `draining` destroys the raw socket, so the dial
+    // errors instead of opening…
     expect(refused).toBe(true);
-    // …and no second serving stack was built behind the drain's back.
+    // …and no second serving stack was built behind the drain's back, which is
+    // the claim that survives whichever way the listening socket is closed.
     expect(connected).toHaveLength(1);
+    await socket.dispose();
+  }, 20_000);
+
+  it("closes the listening socket LAST, with nothing left for it to wait on", async () => {
+    // The bun hang, pinned by its MECHANISM rather than its symptom. Bun's
+    // `server.close` callback never fires when a socket was open at the moment
+    // close was requested, so a finalizer that registered the close FIRST — as
+    // this one did, to lean on node stopping accepting synchronously — never
+    // settled: the runtime never unwound and a SIGINT'd process never exited.
+    // Node settles either way, so no node test can observe the HANG; what it can
+    // observe is the ordering that makes the hang impossible.
+    //
+    // The port is that observation, and it is deterministic (a bind either
+    // succeeds or does not — no delivery race): mid-drain the listening socket
+    // must still be BOUND. Under the old order it was already closed by then, so
+    // this second bind would have succeeded.
+    const server = await boot({
+      services: () =>
+        Layer.effect(Viewer)(
+          Effect.acquireRelease(Effect.succeed({ seen: "live" }), () =>
+            // A slow release, so the drain is a real window to look inside.
+            Effect.promise(
+              () => new Promise<void>((resolve) => setTimeout(resolve, 500)),
+            ),
+          ),
+        ),
+    });
+    const socket = await dial(server);
+    await Effect.runPromise(
+      socket.link.dispatch.unary("surface/viewer/seen", {}),
+    );
+    const port = Number(new URL(server.url).port);
+
+    const torndown = server.teardown();
+    // Comfortably inside the drain: teardown has begun and cannot have finished.
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    const midDrain = await boot({ port }).catch((cause: unknown) => cause);
+    expect(midDrain).toBeInstanceOf(SurfaceAppListenFailed);
+
+    await torndown;
+    // …and released by the time teardown resolves, which is the other half: last
+    // is not "never".
+    const after = await boot({ port });
+    expect(Number(new URL(after.url).port)).toBe(port);
     await socket.dispose();
   }, 20_000);
 

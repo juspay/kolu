@@ -31,6 +31,7 @@
  *  is ever wanted, it is additive to this, not a replacement. */
 
 import type { Logger } from "@kolu/log";
+import type { SurfaceAppHttpMiddleware } from "@kolu/surface-app/serve";
 import { Cause, Effect } from "effect";
 import {
   HttpServerError,
@@ -38,25 +39,17 @@ import {
   HttpServerResponse,
 } from "effect/unstable/http";
 
-/** The middleware shape, spelled PRECISELY rather than as Effect's own
- *  `HttpMiddleware` interface.
- *
- *  `HttpMiddleware` answers `Effect<HttpServerResponse, any, any>` — it erases
- *  the wrapped app's error and service channels. That erasure is not free at the
- *  composition root: `NodeHttpServer.makeHandler` derives its own requirement
- *  from the MIDDLEWARE's result, so an `any` there surfaces as an `any`
- *  requirement on the whole handler, which the boot then cannot discharge (an
- *  `any` requirement is not `never`, so it fails to run). Stating the
- *  transformation exactly keeps it honest: these middlewares change neither the
- *  error type nor the response type, and add exactly ONE requirement —
- *  `HttpServerRequest`, which the node handler provides per request. */
-export type KoluHttpMiddleware = <E, R>(
-  httpApp: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
-) => Effect.Effect<
-  HttpServerResponse.HttpServerResponse,
-  E,
-  R | HttpServerRequest.HttpServerRequest
->;
+/** The middleware shape, which is the listener's — `SurfaceAppHttpMiddleware` is
+ *  what `serveSurfaceApp`'s `middleware` option takes, and this is the one thing
+ *  kolu installs there, so the shape is stated once at the seam that consumes it
+ *  rather than twice. It is spelled precisely rather than as Effect's own
+ *  `HttpMiddleware` for the reason recorded there: `HttpMiddleware` erases the
+ *  wrapped app's error and service channels into `any`, and `makeHandler` derives
+ *  the whole handler's requirement from the middleware's result, so the erasure
+ *  becomes a requirement the boot cannot discharge. These middlewares change
+ *  neither the error type nor the response type, and add exactly ONE requirement
+ *  — `HttpServerRequest`, which the node handler provides per request. */
+export type KoluHttpMiddleware = SurfaceAppHttpMiddleware;
 
 /** A cause the ROUTER already has an answer for, in either of the two shapes
  *  Effect's `Respondable` protocol uses:

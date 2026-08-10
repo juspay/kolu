@@ -17,9 +17,10 @@
  * sequence — the module's former top-level script, function-ized at kolu-cli PR1
  * when the bin moved to `packages/kolu-cli`): the local-arm pin statement must
  * (a) exist, (b) NOT be an `await` (so it can't block), and (c) be reached, in
- * source order, before the `server.listen(...)` call that starts accepting
- * connections — the boot body is a flat await-bearing sequence with no function
- * indirection between these two points, so source order IS execution order here.
+ * source order, before the `serveSurfaceApp(...)` call that binds and starts
+ * accepting connections — the boot body is a flat await-bearing sequence with no
+ * function indirection between these two points, so source order IS execution
+ * order here.
  */
 
 import { readFileSync } from "node:fs";
@@ -108,17 +109,15 @@ function isAwaitStatement(stmt: AstNode): boolean {
   return isAstNode(expr) && expr.type === "AwaitExpression";
 }
 
-/** Is this the `server.listen(...)` call that starts accepting HTTP connections?
- *  kolu-server OWNS its node `http(s).Server` now (the hono `serve()` helper is
- *  gone, and with it the one call that both created and bound the socket), so the
- *  landmark is the BIND: constructing the server and attaching its `request`
- *  handler accept nothing until `listen` runs. Text-matched on the receiver +
- *  method so the argument shape (host/port object, callback) stays free. */
+/** Is this the statement that starts accepting connections? `serveSurfaceApp`
+ *  (`@kolu/surface-app/serve`) owns the node `http(s).Server` now — it creates
+ *  it, mounts the app, stands up the ws seam AND binds, all inside the one call
+ *  — so that call IS the landmark the bare `server.listen(...)` used to be.
+ *  Matched on the call text and not on the statement KIND: the bind's result is
+ *  the bound address, so it is a `const … = await …` declaration rather than a
+ *  bare expression. */
 function isServeListenStatement(stmt: AstNode): boolean {
-  return (
-    stmt.type === "ExpressionStatement" &&
-    nodeText(stmt).includes("server.listen(")
-  );
+  return nodeText(stmt).includes("serveSurfaceApp(");
 }
 
 describe("index.ts boot ordering — the LOCAL padi arm's pin never blocks the listen", () => {
@@ -135,7 +134,7 @@ describe("index.ts boot ordering — the LOCAL padi arm's pin never blocks the l
     expect(isAwaitStatement(statements[pinIndex] as AstNode)).toBe(false);
   });
 
-  it("the LOCAL arm's pin is kicked off BEFORE `server.listen()` starts accepting — the pin is reached, but never blocks reaching the listen", () => {
+  it("the LOCAL arm's pin is kicked off BEFORE `serveSurfaceApp()` starts accepting — the pin is reached, but never blocks reaching the listen", () => {
     expect(pinIndex).toBeLessThan(serveIndex);
   });
 });

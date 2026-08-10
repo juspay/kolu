@@ -30,26 +30,29 @@
  * it calls `serveSurfaceApp` and keeps only its app-specific parts (its live
  * connection count, off {@link SurfaceAppEvent}'s lifecycle arms).
  *
- * ## What still blocks kolu's own listener
+ * ## kolu rides it too, and that is what shaped the options
  *
- * kolu (`packages/server/src/index.ts`) still hand-wires, and the reason is three
- * named, grounded gaps rather than anything about its routing — it upgrades ONE
- * path over ONE runtime, which is exactly this module's shape:
+ * kolu (`packages/server/src/index.ts`) is the second in-tree plug. It hand-wired
+ * until three named gaps closed, and each option below landed with that
+ * migration rather than ahead of it:
  *
- *   - it builds an `https.Server` when TLS material is configured, and this
- *     module creates a plaintext `http.Server` unconditionally;
- *   - it passes `middleware: koluHttpMiddleware(log)` to
- *     `NodeHttpServer.makeHandler`, and this module passes only `scope`;
- *   - it mounts the static shell layer ONLY when a built dist exists (its dev
- *     proxy serves the client), and `clientDist` here is required. That is why
- *     kolu composes `pwaManifestLayer` and `freshStaticLayer` by hand rather
- *     than taking `surfaceAppLayer`: it serves the manifest UNCONDITIONALLY and
- *     the statics conditionally, and the convenience layer pairs the two —
- *     a pairing {@link ServeSurfaceAppOptions} inherits by extending
- *     `SurfaceAppLayerOptions`.
+ *   - {@link ServeSurfaceAppOptions.tls} — kolu serves HTTPS when TLS material is
+ *     configured, so the server here is an `https.Server` when TLS options are
+ *     given and a plaintext `http.Server` otherwise. TLS OPTIONS and not a
+ *     caller-supplied `Server`: this module owning the server is precisely what
+ *     keeps the `upgrade` event ours (below), so the one thing it cannot accept
+ *     is somebody else's.
+ *   - {@link ServeSurfaceAppOptions.middleware} — kolu bridges its HTTP surface
+ *     to pino (`koluHttpMiddleware`), which is a `makeHandler` middleware and has
+ *     nowhere else to be installed.
+ *   - `clientDist` is now OPTIONAL — fixed in `SurfaceAppLayerOptions` itself,
+ *     not worked around here. kolu serves its manifest UNCONDITIONALLY (its dev
+ *     proxy forwards `/manifest.webmanifest` to a server with no built client)
+ *     and its statics only when a dist exists; it hand-composed
+ *     `pwaManifestLayer` + `freshStaticLayer` *because* `surfaceAppLayer` paired
+ *     the two. Unpairing them at the source dissolves the reason instead of
+ *     routing around it.
  *
- * Each is a real option this interface would have to grow, and none is added
- * speculatively: they land with the migration that needs them, not before.
  * drishti is a different story — its per-host `?host=` dispatch picks WHICH
  * runtime serves a socket, which is the one decision the accept seam deliberately
  * leaves at the call site.
@@ -97,15 +100,27 @@
  *   its finalizer is already on the scope.
  */
 
-import { createServer, type IncomingMessage, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+} from "node:http";
+import {
+  createServer as createHttpsServer,
+  type ServerOptions as HttpsServerOptions,
+} from "node:https";
+import type { AddressInfo, Server as NetServer } from "node:net";
 import { NodeHttpServer } from "@effect/platform-node";
 import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
 import type { SurfaceHandlers } from "@kolu/surface/server";
 import { gateWsOrigin } from "@kolu/surface/ws-origin";
 import { hostAuthority } from "@kolu/url-shape";
 import { Data, Effect, type FileSystem, Layer, type Path, Scope } from "effect";
-import { type HttpPlatform, HttpRouter } from "effect/unstable/http";
+import {
+  type HttpPlatform,
+  HttpRouter,
+  type HttpServerRequest,
+  type HttpServerResponse,
+} from "effect/unstable/http";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { WebSocketServer } from "ws";
 import { SURFACE_WS_PATH } from "./index";
@@ -138,8 +153,17 @@ export class SurfaceAppListenFailed extends Data.TaggedError(
 
 /** One accepted browser connection, as the facts a per-connection `Layer` can
  *  be built from: the upgrade request (its peer address, its forwarded-for
- *  header) and its parsed URL (the `pid` echo, a `?host=` selector). */
+ *  header) and its parsed URL (the `pid` echo, a `?host=` selector).
+ *
+ *  Every arm of {@link SurfaceAppEvent} that describes a given connection is
+ *  handed the SAME object — so a consumer may key a map on it — but {@link id} is
+ *  what a LOG line wants: a listener-scoped ordinal, stable across the arms and
+ *  short enough to read, which is what kolu's per-connection `ws:` field has
+ *  always been. Not global and not a uuid: it identifies a connection within one
+ *  listener's lifetime, which is the only span anything correlates over. */
 export interface SurfaceAppConnection {
+  /** This connection's ordinal within this listener — 1 for the first accepted. */
+  readonly id: number;
   readonly request: IncomingMessage;
   readonly url: URL;
 }
@@ -160,8 +184,19 @@ export type SurfaceAppEvent =
   /** Gated, enrolled, and about to be served. The place a live-connection count
    *  increments and a consumer writes its `connected` line. */
   | { readonly _tag: "Connected"; readonly connection: SurfaceAppConnection }
-  /** That same connection hung up (peer, reaper, or our own teardown). */
-  | { readonly _tag: "Disconnected"; readonly connection: SurfaceAppConnection }
+  /** That same connection hung up (peer, reaper, or our own teardown), with the
+   *  close frame's own account of why: a `1006` with no reason is an abrupt drop,
+   *  a `1009` is the frame cap (`FRAME_TOO_LARGE_CLOSE_CODE`), and a reaper's
+   *  terminate looks different again. Carried because an operator reading
+   *  "disconnected" needs the code to tell those apart — `reason` is decoded to a
+   *  string here (`ws` hands it over as a `Buffer`) and is `""` when the peer
+   *  sent none, which is the ordinary case. */
+  | {
+      readonly _tag: "Disconnected";
+      readonly connection: SurfaceAppConnection;
+      readonly code: number;
+      readonly reason: string;
+    }
   /** A transport error on an accepted socket. */
   | { readonly _tag: "SocketError"; readonly error: Error; readonly url: URL }
   /** A tab bound to a PREVIOUS process, closed at the handshake. */
@@ -221,6 +256,29 @@ export const reportSurfaceAppEvent = (event: SurfaceAppEvent): void => {
   }
 };
 
+/** An HTTP middleware `serveSurfaceApp` installs on the request handler, spelled
+ *  PRECISELY rather than as Effect's own `HttpMiddleware` interface.
+ *
+ *  `HttpMiddleware` answers `Effect<HttpServerResponse, any, any>` — it erases
+ *  the wrapped app's error and service channels. That erasure is not free here:
+ *  `NodeHttpServer.makeHandler` derives its own requirement from the MIDDLEWARE's
+ *  result, so an `any` there surfaces as an `any` requirement on the whole
+ *  handler, which nothing can then discharge (an `any` requirement is not
+ *  `never`, so the handler fails to run). Stating the transformation exactly
+ *  keeps it honest: a middleware may not change the error type or the response
+ *  type, and may add exactly ONE requirement — `HttpServerRequest`, which the
+ *  node handler provides per request. */
+export type SurfaceAppHttpMiddleware = <E, R>(
+  httpApp: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) => Effect.Effect<
+  HttpServerResponse.HttpServerResponse,
+  E,
+  R | HttpServerRequest.HttpServerRequest
+>;
+
+/** The neutral element: what "no middleware" means, spelled once. */
+const passThroughMiddleware: SurfaceAppHttpMiddleware = (httpApp) => httpApp;
+
 /** Everything `serveSurfaceApp` needs. The required half is the app's identity —
  *  what is served on the wire, what is served over HTTP, and where. Every option
  *  below it is observational or a shell-freshness passthrough. */
@@ -242,9 +300,28 @@ export interface ServeSurfaceAppOptions<Svc = never>
     | FileSystem.FileSystem
     | Path.Path
     | HttpPlatform.HttpPlatform
+    // A route that can FAIL carries its error as a `Request<"Error", E>` mark on
+    // the layer's requirement, and `toHttpEffect` lifts those marks into the
+    // handler's error channel — where the 500 path, and any `middleware`, answers
+    // them. kolu's artifact-sdk bundle route is the in-tree case. ERROR marks
+    // ONLY: a `Request<"Requires", …>` is a per-request service nothing at this
+    // seam can discharge, so a route that needs one is a type error here rather
+    // than an unsatisfied requirement at runtime.
+    | HttpRouter.Request<"Error", unknown>
+    | HttpRouter.Request<"GlobalError", unknown>
   >;
   readonly host: string;
   readonly port: number;
+  /** TLS material. Present, the listener is an `https.Server` and the URL it
+   *  returns is an `https://` one; absent, a plaintext `http.Server`. Resolving
+   *  the material — a key pair on disk, a `tailscale cert`, nothing at all — is
+   *  the app's decision, and passing `undefined` for "no TLS" is what says so. */
+  readonly tls?: HttpsServerOptions;
+  /** Wrap every HTTP request — an app's bridge from the serving stack to its own
+   *  logger, and where an uncaught route fault gets logged before the 500 goes
+   *  out. Only the HTTP leg: the websocket is upgraded off the `upgrade` event,
+   *  which never reaches the request handler. */
+  readonly middleware?: SurfaceAppHttpMiddleware;
   /** Browser origins allowed to open the websocket, beyond same-origin — the
    *  reverse-proxy / `tailscale serve` escape hatch. `parseAllowedOrigins`
    *  (`@kolu/surface/ws-origin`) of the app's own env var. */
@@ -289,13 +366,27 @@ export const serveSurfaceApp = <Svc = never>(
     const app =
       options.routes === undefined ? shell : Layer.merge(options.routes, shell);
 
-    const server = createServer();
+    // TLS material present ⇒ an `https.Server`. Everything below is written
+    // against `net.Server`, which is what the two have in common and all that
+    // binding, closing and reading an address needs.
+    const server =
+      options.tls === undefined
+        ? createHttpServer()
+        : createHttpsServer(options.tls);
     server.on(
       "request",
       yield* Effect.gen(function* () {
         const httpEffect = yield* HttpRouter.toHttpEffect(app);
+        // Resolved to the identity wrapper rather than passed through as
+        // `Middleware | undefined`: `makeHandler` derives the handler's whole
+        // requirement from the middleware's RESULT, and an optional one leaves
+        // that inference with nothing to read (the requirement lands as
+        // `unknown`, which no scope can discharge). "No middleware" is the
+        // neutral element of a wrapper, and saying so is what keeps the type
+        // concrete.
         return yield* NodeHttpServer.makeHandler(httpEffect, {
           scope: httpScope,
+          middleware: options.middleware ?? passThroughMiddleware,
         });
       }).pipe(
         Scope.provide(httpScope),
@@ -334,8 +425,19 @@ export const serveSurfaceApp = <Svc = never>(
 
     // The LIVE population of serving stacks — drained first in the finalizer.
     const servings = new Set<SurfaceSocketServing>();
+    let accepted = 0;
+    // Teardown has begun. THIS module's own "stop accepting", not the server's:
+    // the finalizer closes the listening socket LAST (see there), so between the
+    // first finalizer line and that close the server is still listening and an
+    // upgrade could still land. Without this flag such an upgrade would build a
+    // whole serving stack behind the drain's back and never be awaited.
+    let draining = false;
 
     server.on("upgrade", (request, socket, head) => {
+      if (draining) {
+        socket.destroy();
+        return;
+      }
       const url = requestUrl(request);
       if (url.pathname !== SURFACE_WS_PATH) {
         socket.destroy();
@@ -356,10 +458,19 @@ export const serveSurfaceApp = <Svc = never>(
         acceptor.accept(peer, url, () => {
           // Gated and enrolled — so this is the first instant at which there IS a
           // connection to narrate, and the pair a live-connection count needs.
-          const connection: SurfaceAppConnection = { request, url };
+          const connection: SurfaceAppConnection = {
+            id: ++accepted,
+            request,
+            url,
+          };
           report({ _tag: "Connected", connection });
-          peer.once("close", () =>
-            report({ _tag: "Disconnected", connection }),
+          peer.once("close", (code: number, reason: Buffer) =>
+            report({
+              _tag: "Disconnected",
+              connection,
+              code,
+              reason: reason.toString(),
+            }),
           );
           const serving = serveSurfaceSocket({
             group: options.group,
@@ -409,28 +520,39 @@ export const serveSurfaceApp = <Svc = never>(
     // running — the listener owning acceptance deterministically and release only
     // by luck. `terminate()` below then reaps what no serving stack owned (a
     // stale tab mid-close), which is what it was for.
+    //
+    // THE ORDER OF THE LAST LINE IS LOAD-BEARING, and it is not a tidiness
+    // preference: `server.close()` is called — and its callback awaited — only
+    // once every socket is already gone. Registering it EARLIER (to lean on the
+    // fact that node stops accepting synchronously) is what this used to do, and
+    // it HANGS UNDER BUN: bun's `close` callback does not fire for a server that
+    // still had an open socket when close was requested, so the finalizer never
+    // settles, the runtime never unwinds, and a SIGINT'd process simply never
+    // exits. Found downstream by olai's shutdown fence. Node is happy either way,
+    // so nothing here would have caught it — hence this note. The "stop
+    // accepting" job that early close was doing is `draining`'s now, which is
+    // this module's own flag and therefore true on every runtime.
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
+        // 1. Refuse anything new. (`acceptor.stop()` only clears the heartbeat
+        //    interval — it does not stop accepting, which is why `draining`
+        //    exists.)
+        draining = true;
         acceptor.stop();
-        // `server.close()` stops ACCEPTING synchronously; only its callback
-        // waits. Start it first so nothing new can be built during the drain
-        // below — the drain yields the event loop, and an upgrade that landed
-        // while it did would build a whole serving stack AFTER the snapshot and
-        // never be awaited. (`acceptor.stop()` only clears the heartbeat
-        // interval; it does not stop accepting.)
-        const closed = new Promise<void>((resolve) =>
-          server.close(() => resolve()),
-        );
+        // 2. Release what is live, and WAIT for it — the drain.
         await Promise.all(
           [...servings].map((serving) => {
             serving.close();
             return serving.done.catch(() => {});
           }),
         );
+        // 3. Drop every socket: the websockets, then the keep-alive HTTP
+        //    connections a browser's own page requests left behind.
         for (const client of sockets.clients) client.terminate();
         sockets.close();
         server.closeAllConnections();
-        await closed;
+        // 4. ONLY NOW the listening socket, with nothing left for it to wait on.
+        await new Promise<void>((resolve) => server.close(() => resolve()));
       }),
     );
 
@@ -447,8 +569,12 @@ const requestUrl = (request: IncomingMessage): URL =>
  *  bind for the bound one: this function's whole job is to say where we actually
  *  landed, and `port: 0` means only the OS knows. */
 const bind = (
-  server: Server,
-  options: { readonly host: string; readonly port: number },
+  server: NetServer,
+  options: {
+    readonly host: string;
+    readonly port: number;
+    readonly tls?: HttpsServerOptions;
+  },
 ): Effect.Effect<string, SurfaceAppListenFailed> =>
   Effect.callback<string, SurfaceAppListenFailed>((resume) => {
     const failed = (cause: unknown) =>
@@ -479,13 +605,18 @@ const bind = (
           `serveSurfaceApp bound a non-TCP address (${JSON.stringify(info)}) — expected a host/port`,
         );
       }
-      resume(Effect.succeed(originOf(info)));
+      resume(
+        Effect.succeed(
+          originOf(info, options.tls === undefined ? "http" : "https"),
+        ),
+      );
     });
   });
 
-/** The origin a browser can be pointed at. The bracketing of an IPv6 literal is
- *  {@link hostAuthority}'s, not re-derived here — `http://::1:7714` is not a URL,
- *  and the one thing this string is for is being pasted somewhere that parses
- *  it. */
-const originOf = (info: AddressInfo): string =>
-  `http://${hostAuthority(info.address, info.port)}`;
+/** The origin a browser can be pointed at. The scheme is the one the listener
+ *  ACTUALLY speaks, so an operator handed this string can follow it. The
+ *  bracketing of an IPv6 literal is {@link hostAuthority}'s, not re-derived here
+ *  — `http://::1:7714` is not a URL, and the one thing this string is for is
+ *  being pasted somewhere that parses it. */
+const originOf = (info: AddressInfo, scheme: "http" | "https"): string =>
+  `${scheme}://${hostAuthority(info.address, info.port)}`;

@@ -28,12 +28,14 @@ both, and a browser-only consumer of `./solid` never pulls them in.
 const url = yield* serveSurfaceApp({
   group: runtime.group,
   handlers: runtime.handlers,
-  clientDist,
+  clientDist, // omit in dev — no bundle means no static route, never a fake one
   manifest: { name: "my app" },
   routes: myOwnRoutes, // merged alongside the shell — an MCP route, media, …
   host,
   port,
   allowedOrigins,
+  tls, // present → an `https.Server`, and the returned URL says `https://`
+  middleware, // wraps every HTTP request — an app's bridge to its own logger
 });
 ```
 
@@ -44,11 +46,24 @@ rather than matching a message string. The surface runtime's own lifetime is
 **not** owned here: pass `{ group, handlers }` and keep `close`/`done` at the
 composition root that built them.
 
-Closing the scope **drains before it drops**: every connection's serving stack is
-closed and awaited first — that is what releases its RPC fibers and every
-in-flight subscription it opened — and only then are the remaining raw sockets
-terminated and the server closed. So when the finalizer resolves, nothing this
-listener started is still running.
+`clientDist` is optional, and its absence is the **dev** shape: no bundle means
+no static route at all — an unmatched path 404s through the router — while the
+`manifest` is still served, because a dev proxy forwards `/manifest.webmanifest`
+to a server with no built client. The two mount independently.
+
+Closing the scope **drains before it drops**, in this order: new upgrades are
+refused, every connection's serving stack is closed and awaited (that is what
+releases its RPC fibers and every in-flight subscription it opened), the raw
+sockets are terminated, and the listening socket is closed **last**. So when the
+finalizer resolves, nothing this listener started is still running.
+
+<Aside type="caution" title="The listening socket closes last, deliberately">
+  Asking the server to close while a socket is still open is what made this hang
+  under **Bun**: its `close` callback never fires, so the finalizer never
+  settles and a `SIGINT`'d process never exits. Node tolerates either order, so
+  nothing upstream catches it. Refusing new upgrades is therefore the listener's
+  own job (a `draining` flag), not a side effect of closing early.
+</Aside>
 
 <Aside type="caution" title="The inbound frame cap is not a knob">
   `serveSurfaceApp` sets `ws`'s `maxPayload` to `RPC_MAX_FRAME_BYTES` — the
@@ -69,8 +84,9 @@ handler cannot drift.
 | --- | --- | --- |
 | `serveSurfaceApp(opts)` | `/serve` | the whole listener — shell, socket, gates, heartbeat, bind, teardown |
 | `SurfaceAppListenFailed` | `/serve` | the one failure it reports, `cause` intact |
-| `SurfaceAppConnection` | `/serve` | one accepted connection's `{ request, url }` — what a per-connection `services` layer is built from |
+| `SurfaceAppConnection` | `/serve` | one accepted connection's `{ id, request, url }` — what a per-connection `services` layer is built from |
 | `SurfaceAppEvent` | `/serve` | the tagged union `onEvent` narrates |
+| `SurfaceAppHttpMiddleware` | `/serve` | the shape `middleware` takes — error and response types preserved, adding only `HttpServerRequest` |
 | `reportSurfaceAppEvent(event)` | `/serve` | the default narration policy, exported so an `onEvent` can delegate to it |
 | `SURFACE_WS_PATH` | `.` | `/rpc/ws`, the one path a surface speaks on — both legs import it |
 | `surfaceWsUrl(httpBaseUrl)` | `.` | the dial URL from the http(s) base — the ONE `https:` → `wss:` swap, browser-safe |
@@ -81,22 +97,24 @@ consumer has exactly one logger:
 | `_tag` | Carries | Default (`reportSurfaceAppEvent`) |
 | --- | --- | --- |
 | `Connected` | `connection` | silent — the accept a live-connection count increments on |
-| `Disconnected` | `connection` | silent — the same connection hung up |
+| `Disconnected` | `connection`, `code`, `reason` | silent — the same connection hung up, with the close frame's own account of why |
 | `SocketError` | `error`, `url` | loud `console.error` |
 | `StaleTab` | `claimedPid`, `url` | silent — a server that restarted while a tab was open is ordinary, not a fault |
 | `DisallowedOrigin` | `origin`, `url` | loud `console.warn` — a blocked hijack nobody can see is the one thing a shared gate must not ship |
 | `ServingFailed` | `cause`, `connection` | loud `console.error` — `done` MUST be observed |
 
 `Connected`/`Disconnected` are the pair a live-connection count is built from
-(the package's own example counts its `serverStats.connections` on them), and
-they carry the same `SurfaceAppConnection` object both times, so a consumer can
-pair them by identity. `services` stays a separate option: it returns a `Layer`,
-which is a different kind of thing from narration.
+(the package's own example counts its `serverStats.connections` on them). They
+carry the same `SurfaceAppConnection` object both times, so a consumer can pair
+them by identity — or by its `id`, a listener-scoped ordinal that is what a log
+line wants (kolu's per-connection `ws:` field). `services` stays a separate
+option: it returns a `Layer`, which is a different kind of thing from narration.
 
 The sections below are the pieces `serveSurfaceApp` composes; reach for them
 directly when an app's listener needs something the primitive does not take
-today. The module header of `@kolu/surface-app/serve` names which listeners those
-are, and why.
+today — drishti's per-host `?host=` dispatch, which picks *which* runtime serves
+a socket, is the in-tree case. Both kolu and this package's example ride the
+primitive.
 
 ## Serving the fresh shell
 
@@ -118,7 +136,7 @@ files — `FileSystem`, `Path`, `HttpPlatform` — which on Node come from
 | Export | Subpath | Role |
 | --- | --- | --- |
 | `surfaceAppLayer(opts)` | `/server` | the no-store shell + immutable assets + (optional) manifest, in one layer |
-| `SurfaceAppLayerOptions` | `/server` | that layer's options (`clientDist`, `manifest`, `serviceWorker`, the freshness paths) — `ServeSurfaceAppOptions` **extends** it, so the shell half is named once |
+| `SurfaceAppLayerOptions` | `/server` | that layer's options (optional `clientDist`, `manifest`, `serviceWorker`, the freshness paths) — `ServeSurfaceAppOptions` **extends** it, so the shell half is named once |
 | `freshStaticLayer(opts)` | `/server` | fresh static + optional notification worker |
 | `pwaManifestLayer(manifest, path?)` | `/server` | the web manifest |
 
