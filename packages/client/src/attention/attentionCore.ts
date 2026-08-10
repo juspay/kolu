@@ -9,7 +9,8 @@
 
 import {
   type AttentionFrame,
-  attentionTransitions,
+  type AttentionTransitions,
+  createAttentionTransitions,
   type TerminalId,
 } from "kolu-common/surface";
 import { nextUnseenFinished } from "./unseenFinished";
@@ -41,7 +42,12 @@ export interface AttentionCore {
 }
 
 export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
-  const prevByHost = new Map<string, AttentionFrame>();
+  // The per-host previous-frame MEMORY — the shared vocabulary's stateful form,
+  // not a local `Map<encHost, AttentionFrame>` plus a hand-written snapshot rule.
+  // padi's settle-event source holds the same thing for the same reason; two
+  // copies of "copy the arrays or nothing ever fires" is a silent failure waiting
+  // for one of them to be edited.
+  const transitionsByHost = new Map<string, AttentionTransitions>();
   const unseenByHost = new Map<string, Set<TerminalId>>();
   // Per-host fire-once latch — same `Map<encHost, …>` shape as its two siblings, so
   // a host's latch is data the structure holds directly (a `forgetHost` delete),
@@ -57,9 +63,21 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     return set;
   };
 
+  /** This host's transition memory, created on first touch. */
+  const transitionsOf = (encHost: string): AttentionTransitions => {
+    let t = transitionsByHost.get(encHost);
+    if (!t) {
+      t = createAttentionTransitions();
+      transitionsByHost.set(encHost, t);
+    }
+    return t;
+  };
+
   const observe = (encHost: string, cur: AttentionFrame): void => {
-    const prev = prevByHost.get(encHost) ?? null;
-    const { candidates, ended } = attentionTransitions(prev, cur);
+    // Is this the host's BASELINE frame? Asked before the memory is touched,
+    // because `observe` below advances it.
+    const baseline = !transitionsByHost.has(encHost);
+    const { candidates, ended } = transitionsOf(encHost).observe(cur);
 
     // The quiet host-tab dot — folded every frame so it tracks back to zero. Reuses
     // the `candidates` already computed above (the ONE transition per frame) rather
@@ -84,7 +102,7 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     // guarantee. A baseline FINISHED id is deliberately NOT pre-latched, so a later
     // genuine finished→asking gate over it still fires (#1177); and the latch clears
     // when the terminal leaves both sets (`ended`), so a real NEW episode chimes.
-    if (prev === null && cur.asking.length > 0) {
+    if (baseline && cur.asking.length > 0) {
       for (const id of cur.asking) latchOf(encHost).add(id);
     }
 
@@ -101,21 +119,10 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
       // while watched is NOT latched, so a later real gate still fires (#1177).
       if (alerted || (asking && seen)) latchOf(encHost).add(id);
     }
-
-    // SNAPSHOT the frame — never keep a reference. The mirror delivers these
-    // lists off a SolidJS store that replaces them per frame, and the caller may
-    // hand back the same arrays; storing the reference would risk the next
-    // frame's `prev` and `cur` being the SAME object, so no transition is ever
-    // seen and nothing fires. Copy the two id arrays the diff reads — and only
-    // those, because `AttentionFrame` carries only what the engine diffs.
-    prevByHost.set(encHost, {
-      asking: [...cur.asking],
-      finished: [...cur.finished],
-    });
   };
 
   const forgetHost = (encHost: string): void => {
-    prevByHost.delete(encHost);
+    transitionsByHost.delete(encHost);
     unseenByHost.delete(encHost);
     latched.delete(encHost);
     // The mark is cleared by the caller's `onCleanup` (which DELETES the host's

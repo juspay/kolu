@@ -35,7 +35,12 @@ import type { TerminalId } from "./schema.ts";
  *  Structural, so a caller holding a richer per-class record (the client's
  *  `Pick<HostAttentionFrame["byClass"], "asking" | "finished">`, padi's own fold
  *  of the urgency cell) satisfies it without minting an adapter object per
- *  frame. */
+ *  frame.
+ *
+ *  The key names are `attentionClass`'s own, which this package owns. A caller
+ *  whose wire dialect spells the same partition differently (padi's
+ *  `awaitingIds`/`finishedIds`) adapts at ITS edge, once, in a named place —
+ *  see padi's `attentionFrameOf` — never ad hoc per call site. */
 export interface AttentionFrame {
   /** Terminals whose agent is blocked on a human/supervisor (`awaiting_user`). */
   readonly asking: readonly TerminalId[];
@@ -94,4 +99,39 @@ export function attentionTransitions(
     }
   }
   return { candidates, ended };
+}
+
+/** The STATEFUL form of the decision above — the previous frame, remembered. */
+export interface AttentionTransitions {
+  /** Diff this frame against the one before it and advance the memory. The
+   *  FIRST frame is the baseline (no candidates, no ends). */
+  observe(cur: AttentionFrame): AttentionTransition;
+  /** Forget the memory — a host left the pool, a daemon disposed. The next
+   *  frame is a baseline again. */
+  reset(): void;
+}
+
+/** Remember the previous frame so a caller only ever hands over the current one.
+ *
+ *  The pure function above is the decision; this is the MEMORY the decision needs,
+ *  and the memory is where the sharp edge lives: the incoming lists are COPIED
+ *  here, once. A caller may hand back the SAME arrays every frame (a SolidJS store
+ *  that mutates in place, a re-folded urgency cell), and holding the reference
+ *  would make `prev` and `cur` the same object — so no transition is ever seen and
+ *  NOTHING FIRES. That rule used to live twice, as a paragraph of comment, in the
+ *  client's attention core and in padi's settle-event source; a silent-failure rule
+ *  enforced by two copies of a comment is one edit away from being enforced by
+ *  none. It lives here now, beside the diff it protects. */
+export function createAttentionTransitions(): AttentionTransitions {
+  let prev: AttentionFrame | null = null;
+  return {
+    observe(cur) {
+      const transition = attentionTransitions(prev, cur);
+      prev = { asking: [...cur.asking], finished: [...cur.finished] };
+      return transition;
+    },
+    reset() {
+      prev = null;
+    },
+  };
 }

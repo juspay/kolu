@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   type AttentionFrame,
   attentionTransitions,
+  createAttentionTransitions,
 } from "./attentionTransitions.ts";
 import type { TerminalId } from "./schema.ts";
 
@@ -56,5 +57,37 @@ describe("attentionTransitions", () => {
     expect(attentionTransitions(u([], []), u([], ["a"])).candidates).toEqual([
       { id: "a", asking: false },
     ]);
+  });
+});
+
+describe("createAttentionTransitions — the MEMORY the decision needs", () => {
+  it("the FIRST frame is a baseline, and the next one diffs against it", () => {
+    const t = createAttentionTransitions();
+    expect(t.observe(u(["a"], []))).toEqual({ candidates: [], ended: [] });
+    expect(t.observe(u(["a"], ["b"])).candidates).toEqual([
+      { id: "b", asking: false },
+    ]);
+  });
+
+  it("COPIES the incoming lists — a caller may hand back the same arrays", () => {
+    const t = createAttentionTransitions();
+    // The real callers do exactly this: a SolidJS store that mutates its arrays
+    // in place, and padi's re-folded urgency cell. Holding the reference would
+    // make `prev` and `cur` the same object, so no transition is ever seen and
+    // NOTHING FIRES — a silent failure, which is the one this whole vocabulary
+    // exists to remove.
+    const asking: TerminalId[] = [];
+    const finished: TerminalId[] = [];
+    const live: AttentionFrame = { asking, finished };
+    t.observe(live);
+    finished.push("a" as TerminalId);
+    expect(t.observe(live).candidates).toEqual([{ id: "a", asking: false }]);
+  });
+
+  it("reset() makes the next frame a baseline again", () => {
+    const t = createAttentionTransitions();
+    t.observe(u([], []));
+    t.reset();
+    expect(t.observe(u([], ["a"])).candidates).toEqual([]);
   });
 });
