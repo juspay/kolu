@@ -111,6 +111,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "padi-tui's process edge; a Promise rather than `NodeRuntime.runMain` because that turns SIGINT into fiber interruption, and this CLI's stop semantics are PER COMMAND — a `watch` the user stopped is a clean 0, a `wait` interrupted is a 130 that must still print which terminal was left waiting",
   },
   {
+    path: "packages/padi/src/cliClient/watch.ts",
+    sites: 1,
+    why: "`awaitWatchEvents`' drain, crossing into `@kolu/surface/wait`'s `runWait` — the shared bounded-wait scaffold is Promise+AbortSignal shaped BY DESIGN (it is what the two sibling waits in this same file already ride), so its watcher body is a non-Effect runtime with no Effect caller above it to compose into; one crossing, for the one procedure a standing-subscription wait calls (`watch.drain`), where its siblings need none because they consume streams rather than procedures",
+  },
+  {
     path: "packages/padi/src/daemonBoot/daemonMain.ts",
     sites: 1,
     why: "padi's daemon process edge; a Promise rather than `NodeRuntime.runMain` because the exit-code map lives in the spine's `daemonProcessMain`, which kaval rides too",
