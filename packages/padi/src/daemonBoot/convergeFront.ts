@@ -186,6 +186,8 @@ export function convergeStdioFront(
       runtimeDir: home.dir,
       socketPath: home.socketPath,
       ownBake,
+      // Same-build residents only — a foreign build is the kit's own axis.
+      ownBuildId: currentPadiBuildId(),
       probe,
     });
     if (drift.kind === "drained") {

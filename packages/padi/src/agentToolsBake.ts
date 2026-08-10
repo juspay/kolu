@@ -46,6 +46,18 @@
  * daemon permanently "mismatched". A separate, same-machine-only pre-check
  * leaves the kit and the wire untouched.
  *
+ * ## Subordinate to the kit's build axis, by construction
+ *
+ * The drain fires ONLY when the resident is the SAME build as the supervisor
+ * (`buildsMatch` on the probed identity) — the one transition the kit is blind
+ * to. A resident of a DIFFERENT build is answered `foreign-build` and left
+ * untouched for the kit's own build-mismatch drain, which owns that
+ * transition's breadcrumb (`padi build change on boot:` — pinned by the
+ * adoption-padi-upgrade VM proof), its drain budget, and its anomaly surface.
+ * Without this gate the pre-check would drain a build-mismatched resident
+ * FIRST, the kit would meet an empty rendezvous and log `spawned-fresh`, and
+ * the VM proof's grep would hang — which is exactly how CI caught it.
+ *
  * ## Dispositions across a mixed-version window
  *
  *   - Record ABSENT (a pre-record daemon, or a probe racing the boot write):
@@ -63,7 +75,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  buildsMatch,
   type ConvergenceProbe,
+  daemonBuild,
   drainAndAwaitExit,
   drainRejectionSuffix,
 } from "@kolu/surface-daemon-supervisor";
@@ -109,11 +123,14 @@ export function readAgentToolsBakeRecord(
 }
 
 /** What the drift pre-check found and did. `in-sync` folds every no-verdict
- *  case (no drift, absent record, unbaked supervisor); the failure arms carry
- *  the error TEXT so the caller logs it loudly — a failed drain is surfaced,
- *  never swallowed, but it must not brick the boot that follows. */
+ *  case (no drift, absent record, unbaked supervisor); `foreign-build` is a
+ *  drift the kit's own build axis will handle (see the module header); the
+ *  failure arms carry the error TEXT so the caller logs it loudly — a failed
+ *  drain is surfaced, never swallowed, but it must not brick the boot that
+ *  follows. */
 export type AgentToolsBakeDriftOutcome =
   | { readonly kind: "in-sync" }
+  | { readonly kind: "foreign-build"; readonly recorded: string }
   | { readonly kind: "no-resident"; readonly recorded: string }
   | {
       readonly kind: "probe-failed";
@@ -149,6 +166,13 @@ export function drainResidentOnAgentToolsBakeDrift(opts: {
   readonly socketPath: string;
   /** The bake THIS supervisor's build carries (raw env value; `""` = unbaked). */
   readonly ownBake: string;
+  /** This supervisor's `PADI_BUILD_ID` (`currentPadiBuildId()`; `""` off-nix).
+   *  A resident of a DIFFERENT build is `foreign-build` — deferred untouched to
+   *  the kit's own build axis, so its drain-once breadcrumb, budget, and the
+   *  adoption-padi-upgrade VM proof stay exactly as they were. This check adds
+   *  signal only in the one case the kit is blind to: same build, different
+   *  toolchain (#2146). */
+  readonly ownBuildId: string;
   /** The caller's convergence probe (drainable capability). */
   readonly probe: (
     socketPath: string,
@@ -179,6 +203,10 @@ export function drainResidentOnAgentToolsBakeDrift(opts: {
       return { kind: "no-resident", recorded } as const;
     }
     const probe = probed.probe;
+    if (!buildsMatch(daemonBuild(opts.ownBuildId), probe.identity.build)) {
+      probe.dispose();
+      return { kind: "foreign-build", recorded } as const;
+    }
     return yield* drainAndAwaitExit(probe.fireDrain, probe.awaitExit, {
       ceilingMs: probe.drainCeilingMs,
     }).pipe(

@@ -25,6 +25,9 @@ import {
 
 const NEW_BAKE = "/nix/store/new-kolu/bin:/nix/store/new-tools/bin";
 const OLD_BAKE = "/nix/store/old-padi-agent/bin";
+/** The build id the fake probe reports — supervisors pass the same value to
+ *  land in the same-build arm this check exists for. */
+const SAME_BUILD = "t";
 
 const dirs: string[] = [];
 function runtimeDir(): string {
@@ -82,6 +85,7 @@ describe("drainResidentOnAgentToolsBakeDrift", () => {
         runtimeDir: runtimeDir(),
         socketPath: "/nowhere.sock",
         ownBake: NEW_BAKE,
+        ownBuildId: SAME_BUILD,
         probe: probeNever,
       }),
     );
@@ -96,6 +100,7 @@ describe("drainResidentOnAgentToolsBakeDrift", () => {
         runtimeDir: dir,
         socketPath: "/nowhere.sock",
         ownBake: "",
+        ownBuildId: SAME_BUILD,
         probe: probeNever,
       }),
     );
@@ -110,6 +115,7 @@ describe("drainResidentOnAgentToolsBakeDrift", () => {
         runtimeDir: dir,
         socketPath: "/nowhere.sock",
         ownBake: NEW_BAKE,
+        ownBuildId: SAME_BUILD,
         probe: probeNever,
       }),
     );
@@ -124,6 +130,7 @@ describe("drainResidentOnAgentToolsBakeDrift", () => {
         runtimeDir: dir,
         socketPath: "/nowhere.sock",
         ownBake: NEW_BAKE,
+        ownBuildId: SAME_BUILD,
         probe: () => Effect.succeed(null),
       }),
     );
@@ -138,6 +145,7 @@ describe("drainResidentOnAgentToolsBakeDrift", () => {
         runtimeDir: dir,
         socketPath: "/nowhere.sock",
         ownBake: NEW_BAKE,
+        ownBuildId: SAME_BUILD,
         probe: () => Effect.fail(new Error("unspeakable peer")),
       }),
     );
@@ -145,6 +153,43 @@ describe("drainResidentOnAgentToolsBakeDrift", () => {
     if (outcome.kind !== "probe-failed") throw new Error("unreachable");
     expect(outcome.recorded).toBe(OLD_BAKE);
     expect(outcome.error).toContain("unspeakable peer");
+  });
+
+  it("drift + a DIFFERENT build → foreign-build, untouched for the kit's own axis", async () => {
+    const dir = runtimeDir();
+    writeAgentToolsBakeRecord(dir, { [AGENT_TOOLS_BAKE_ENV]: OLD_BAKE });
+    const { probe, calls } = fakeProbe({ exits: true });
+    const outcome = await Effect.runPromise(
+      drainResidentOnAgentToolsBakeDrift({
+        runtimeDir: dir,
+        socketPath: "/resident.sock",
+        ownBake: NEW_BAKE,
+        ownBuildId: "a-different-build",
+        probe: () => Effect.succeed(probe),
+      }),
+    );
+    expect(outcome).toEqual({ kind: "foreign-build", recorded: OLD_BAKE });
+    // The kit's build-mismatch drain owns this transition (and its VM-proof
+    // breadcrumb) — this check must not fire the drain, only step aside.
+    expect(calls.fired).toBe(0);
+    expect(calls.disposed).toBe(1);
+  });
+
+  it("drift + an off-nix supervisor build → foreign-build (never proven the same)", async () => {
+    const dir = runtimeDir();
+    writeAgentToolsBakeRecord(dir, { [AGENT_TOOLS_BAKE_ENV]: OLD_BAKE });
+    const { probe, calls } = fakeProbe({ exits: true });
+    const outcome = await Effect.runPromise(
+      drainResidentOnAgentToolsBakeDrift({
+        runtimeDir: dir,
+        socketPath: "/resident.sock",
+        ownBake: NEW_BAKE,
+        ownBuildId: "",
+        probe: () => Effect.succeed(probe),
+      }),
+    );
+    expect(outcome).toEqual({ kind: "foreign-build", recorded: OLD_BAKE });
+    expect(calls.fired).toBe(0);
   });
 
   it("drift + live resident → fires the drain, confirms exit, disposes the probe", async () => {
@@ -156,6 +201,7 @@ describe("drainResidentOnAgentToolsBakeDrift", () => {
         runtimeDir: dir,
         socketPath: "/resident.sock",
         ownBake: NEW_BAKE,
+        ownBuildId: SAME_BUILD,
         probe: () => Effect.succeed(probe),
       }),
     );
@@ -173,6 +219,7 @@ describe("drainResidentOnAgentToolsBakeDrift", () => {
         runtimeDir: dir,
         socketPath: "/resident.sock",
         ownBake: NEW_BAKE,
+        ownBuildId: SAME_BUILD,
         probe: () => Effect.succeed(probe),
       }),
     );

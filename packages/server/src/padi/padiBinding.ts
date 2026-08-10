@@ -784,6 +784,9 @@ export function ensurePadiBindingWith(
           runtimeDir: home.dir,
           socketPath: home.socketPath,
           ownBake,
+          // Same-build residents only — a foreign build is the kit's own axis
+          // (its breadcrumb below, its budget), never this pre-check's.
+          ownBuildId: currentPadiBuildId(),
           probe: deps.probe,
         });
         if (drift.kind === "drained") {
