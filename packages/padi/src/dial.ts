@@ -62,6 +62,9 @@ import {
 // compute a socket path.
 export {
   discoverPadiDaemons,
+  type LocalPadiSocket,
+  localPadiSocket,
+  type LocalPadiTarget,
   type PadiDaemon,
   type PadiSocketResolution,
   padiSocketPath,
@@ -70,24 +73,28 @@ export {
   resolveRunningPadiSocket,
 } from "./stateRoot.ts";
 
-// The client-side terminal WATCH kit — `watchTerminals` + `awaitAgentState` +
-// `awaitOutputSettled` and the bucket vocabulary they predicate on — rides the
+// The client-side terminal WATCH kit — `watchTerminals` + the three
+// block-on-a-condition primitives (`awaitAgentState` · `awaitOutputSettled` ·
+// `awaitOutputMatch`) and the bucket vocabulary they predicate on — rides the
 // dial entry too: the same "a daemon's package owns the client kit its
-// consumers share" rule, and both consumers (padi-tui's `wait`/`watch`, the
-// kolu MCP face's `wait_agentState`/`wait_outputSettled`) already import this
-// entry to dial.
+// consumers share" rule, and every consumer (padi-tui's `wait`/`watch`, the
+// kolu MCP face's `wait_agentState`/`wait_outputSettled`, `kolu wait`'s three
+// `--until` forms) already imports this entry to dial.
 export {
   activeAgent,
-  agentMatchesUntil,
   type AgentStateOutcome,
+  isWaitState,
+  PADI_LINK_CLOSED,
   awaitAgentState,
+  awaitOutputMatch,
   awaitOutputSettled,
+  type OutputMatchOutcome,
   type OutputSettledOutcome,
   WAIT_STATES,
   type WaitState,
   type WatchHandlers,
   watchTerminals,
-} from "./watch.ts";
+} from "./cliClient/watch.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

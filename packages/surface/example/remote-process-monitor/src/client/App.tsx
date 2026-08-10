@@ -74,7 +74,13 @@ export default function App() {
         if (msg.kind === "snapshot") {
           const next: Record<Pid, Process> = {};
           for (const [pid, value] of msg.entries) next[pid] = value;
-          setProcesses(reconcile(next));
+          // `{ key: null }`, always. Solid's default (`key: "id"`) reads a field
+          // named `id` as an element's IDENTITY and recycles the previous objects
+          // it thinks matched — which is a guess about YOUR payload, and a wrong
+          // guess leaves an object holding a record it never described. The
+          // framework's own bound stores do the same thing for the same reason
+          // (see `@kolu/surface/solid`'s `writeValue`); a raw stream should too.
+          setProcesses(reconcile(next, { key: null }));
         } else {
           for (const [pid, value] of msg.upserts) setProcesses(pid, value);
           for (const pid of msg.removes) setProcesses(pid, undefined!);

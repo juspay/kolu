@@ -27,13 +27,13 @@ import {
   koluIdentityEnv,
   OSC2_PRECMD_BASH,
   OSC2_PRECMD_ZSH,
-  OSC2_PREEXEC_BASH_GUARD,
   OSC2_PREEXEC_FN,
   OSC7_FN,
   PATH_PREPEND_CASES,
   PATH_REASSERT,
   prepareShellInit,
   prependPathEntries,
+  PS0_PREEXEC_BASH,
   readAgentToolsBake,
   SPAWN_ENV_ALLOWLIST,
   SPAWN_ENV_FUNCTIONAL,
@@ -490,166 +490,82 @@ describeDaemon("OSC2_PRECMD_BASH", () => {
   });
 });
 
-describeDaemon("OSC2_PREEXEC_BASH_GUARD", () => {
-  /** Common prelude that sets up preexec fn + guard. */
-  const prelude = `${OSC2_PREEXEC_FN}\n${OSC2_PREEXEC_BASH_GUARD}\n`;
+describeDaemon("PS0_PREEXEC_BASH", () => {
+  // The PS0-riding preexec (#2119). PS0 itself only expands in an INTERACTIVE
+  // bash — the real prompt→PS0 cycle is exercised end-to-end on a PTY in
+  // kaval's shellPreexecCapture.test.ts (including under bash-preexec). Here
+  // the machinery is driven directly in a subshell: `history -s` plays the
+  // role of readline appending the accepted command, `__kolu_hist_sync` the
+  // prompt-time baseline, and a direct `__kolu_ps0` call the PS0 expansion.
+  // Each ShellRunner script runs in its own `( … )` subshell, so the enabled
+  // history is isolated per test.
 
-  it("arm sets the ready flag", async () => {
+  /** Emitter + PS0 machinery, with history writable in a non-interactive
+   *  subshell (no HISTFILE side effects). */
+  const prelude = [
+    OSC2_PREEXEC_FN,
+    PS0_PREEXEC_BASH,
+    `HISTFILE=/dev/null`,
+    `set -o history`,
+    "",
+  ].join("\n");
+
+  it("emits both OSC marks for the entry readline just appended", async () => {
     const out = await runBash(
-      `${prelude}__kolu_preexec_arm; printf 'ready=%s\\n' "$__kolu_preexec_ready" >&2`,
+      `${prelude}history -s "ls -la"\n` + // an earlier command already in history
+        `__kolu_hist_sync\n` + // prompt draws → baseline
+        `history -s "claude --resume abc"\n` + // readline accepts the next command
+        `__kolu_ps0\n`, // PS0 expands
     );
-    // stdout is empty (no OSC), stderr has ready=1 — but runBash only returns stdout.
-    // Re-run capturing both streams:
-    const combined = await execFileSyncBoth(
-      `${prelude}__kolu_preexec_arm; echo "ready=$__kolu_preexec_ready"`,
-    );
-    expect(combined).toContain("ready=1");
-    expect(out).toBe("");
+    expect(out).toContain("\x1b]633;E;claude --resume abc\x1b\\");
+    expect(out).toContain("\x1b]2;claude --resume abc\x1b\\");
   });
 
-  it("dispatch is no-op when ready flag is empty (no DEBUG trap installed)", async () => {
-    // Without arm(), dispatch should return immediately with no output
-    const out = await runBash(`${prelude}__kolu_preexec_dispatch; echo "done"`);
-    // "done" is printed to stdout; the OSC 2 line should NOT appear
-    expect(out).not.toContain("\x1b]2;");
+  it("emits for the FIRST command of a session (the #2119 slot)", async () => {
+    // Empty history at the first prompt, then the session's first command —
+    // the agent-launch slot the DEBUG-trap design lost under bash-preexec.
+    const out = await runBash(
+      `${prelude}__kolu_hist_sync\nhistory -s "claude"\n__kolu_ps0\n`,
+    );
+    expect(out).toContain("\x1b]633;E;claude\x1b\\");
+  });
+
+  it("skips when history gained nothing (HISTCONTROL=ignorespace)", async () => {
+    // A space-prefixed command adds no history entry; emitting would replay
+    // the PREVIOUS command's line as if it had just been run.
+    const out = await runBash(
+      `${prelude}history -s "claude"\n__kolu_hist_sync\n__kolu_ps0\necho done\n`,
+    );
+    expect(out).not.toContain("\x1b]633;E;");
     expect(out).toContain("done");
   });
 
-  it("DEBUG trap emits for user command when armed via PS0", async () => {
-    // Real integration: install DEBUG trap + arm manually (PS0 simulated),
-    // then run a no-op command. The trap fires with BASH_COMMAND set by bash itself.
+  it("emits nothing when history is off entirely", async () => {
+    // No `set -o history`: `builtin history 1` is empty — the shell behaves
+    // like one without the integration, never emitting a stale line.
     const out = await runBash(
-      `${prelude}` +
-        `trap '__kolu_preexec_dispatch' DEBUG\n` +
-        `__kolu_preexec_arm\n` +
-        `true\n`,
+      `${OSC2_PREEXEC_FN}\n${PS0_PREEXEC_BASH}\n__kolu_hist_sync\n__kolu_ps0\necho done\n`,
     );
-    // The DEBUG trap fires for __kolu_preexec_arm itself BEFORE arm runs (flag is ""),
-    // then for `true` after arm set flag=1 — so we should see ONE OSC 2 emission
-    // with the command "true".
-    const matches = [...out.matchAll(/\x1b\]2;([^\x1b]*)\x1b\\/g)];
-    // At least one emission, and at least one should be "true"
-    expect(matches.length).toBeGreaterThan(0);
-    const titles = matches.map((m) => m[1]);
-    expect(titles).toContain("true");
+    expect(out).not.toContain("\x1b]633;E;");
+    expect(out).toContain("done");
   });
 
-  it("DEBUG trap does NOT emit when not armed (PROMPT_COMMAND simulation)", async () => {
-    // Simulate the state after a user command: ready flag was set, dispatch
-    // was called, flag got cleared. Now a PROMPT_COMMAND hook runs — no arm,
-    // flag stays "". Verify no OSC 2 is emitted.
+  it("strips history's numeric prefix, preserving the command verbatim", async () => {
+    // `history 1` renders "  123  cmd"; only that prefix may be removed —
+    // inner double spaces and quotes belong to the command.
     const out = await runBash(
-      `${prelude}` +
-        `trap '__kolu_preexec_dispatch' DEBUG\n` +
-        // No arm — simulates PROMPT_COMMAND context
-        `__zoxide_hook() { :; }\n` +
-        `__zoxide_hook\n`,
+      `${prelude}__kolu_hist_sync\nhistory -s 'grep "a  b" file.txt'\n__kolu_ps0\n`,
     );
-    // The command "__zoxide_hook" would fire DEBUG with BASH_COMMAND="__zoxide_hook"
-    // but flag is empty so dispatch returns early.
-    expect(out).not.toContain("__zoxide_hook");
+    expect(out).toContain('\x1b]633;E;grep "a  b" file.txt\x1b\\');
   });
 
-  it("readline widget (fzf Ctrl+R) does not consume the ready flag", async () => {
-    // Regression: when fzf's Ctrl+R binding fires, BASH_COMMAND is set to
-    // `__fzf_history__` — a readline widget, not a user command. Before
-    // the `__*` guard, dispatch would clear the ready flag for it, causing
-    // the user's NEXT real command to see flag="" and get silently dropped
-    // (the "had to run it twice" bug).
+  it("appends to a user PS0 rather than clobbering it", async () => {
     const out = await runBash(
-      `${prelude}` +
-        `trap '__kolu_preexec_dispatch' DEBUG\n` +
-        `__fzf_history__() { :; }\n` +
-        // Arm flag (as PROMPT_COMMAND would after the prompt draws)
-        `__kolu_preexec_arm\n` +
-        // Simulate Ctrl+R: widget runs, should NOT consume the flag
-        `__fzf_history__\n` +
-        // Now the user's real command — flag must still be armed
-        `true\n`,
+      `PS0='user-ps0'\n${OSC2_PREEXEC_FN}\n${PS0_PREEXEC_BASH}\necho "PS0=$PS0"\n`,
     );
-    const titles = [...out.matchAll(/\x1b\]2;([^\x1b]*)\x1b\\/g)].map(
-      (m) => m[1],
-    );
-    // The widget should be skipped, the real command should fire.
-    expect(titles).not.toContain("__fzf_history__");
-    expect(titles).toContain("true");
-  });
-
-  it("full flow: user command emitted, PROMPT_COMMAND hook skipped", async () => {
-    // Most realistic test: install trap, simulate user command (arm + run),
-    // then simulate PROMPT_COMMAND hook (no arm + run another command).
-    const out = await runBash(
-      `${prelude}` +
-        `trap '__kolu_preexec_dispatch' DEBUG\n` +
-        `__zoxide_hook() { :; }\n` +
-        // Simulate user command via PS0 arm
-        `__kolu_preexec_arm\n` +
-        `true\n` +
-        // After the user command, flag is cleared. Now PROMPT_COMMAND hooks run.
-        `__zoxide_hook\n`,
-    );
-    const titles = [...out.matchAll(/\x1b\]2;([^\x1b]*)\x1b\\/g)].map(
-      (m) => m[1],
-    );
-    // "true" should appear (user command), "__zoxide_hook" should NOT
-    expect(titles).toContain("true");
-    expect(titles).not.toContain("__zoxide_hook");
-  });
-
-  // REGRESSION: PS0 command substitution runs in a subshell, so
-  // `PS0='$(__kolu_preexec_arm)'` would set the flag in a subshell that
-  // immediately exits — the parent shell's flag stays empty and dispatch
-  // never emits. We now arm via PROMPT_COMMAND (end) instead.
-  it("regression: arming via PS0 subshell does NOT work (wrong approach)", async () => {
-    const out = await runBash(
-      `${prelude}` +
-        `trap '__kolu_preexec_dispatch' DEBUG\n` +
-        // BAD: PS0 runs arm in a subshell, flag never reaches parent
-        `PS0='$(__kolu_preexec_arm)'\n` +
-        // Force PS0 evaluation by... actually, PS0 only fires in interactive
-        // mode after readline reads a line. Non-interactive bash doesn't
-        // evaluate PS0 at all. So we simulate the broken behavior by
-        // running arm inside `$(...)` directly.
-        `$(__kolu_preexec_arm)\n` +
-        `true\n`,
-    );
-    // The subshell arm doesn't leak to parent → dispatch for `true` sees
-    // flag="" → no emission.
-    expect(out).not.toContain("\x1b]2;true");
-  });
-
-  it("correct approach: arming at end of PROMPT_COMMAND reaches parent", async () => {
-    // Simulate the real PROMPT_COMMAND cycle: arm runs as the last step of
-    // PROMPT_COMMAND, which executes in the parent shell (no subshell).
-    const out = await runBash(
-      `${prelude}` +
-        `trap '__kolu_preexec_dispatch' DEBUG\n` +
-        // PROMPT_COMMAND = "...;__kolu_preexec_arm" (simplified to just arm)
-        // In real bash this runs before each prompt; here we call it directly.
-        `__kolu_preexec_arm\n` +
-        // Now the user's command runs — DEBUG fires with flag=1 → emit
-        `true\n` +
-        // Next cycle: arm again, then another command
-        `__kolu_preexec_arm\n` +
-        `:\n`,
-    );
-    const titles = [...out.matchAll(/\x1b\]2;([^\x1b]*)\x1b\\/g)].map(
-      (m) => m[1],
-    );
-    // Both user commands should have emitted their OSC 2
-    expect(titles).toContain("true");
-    expect(titles).toContain(":");
+    expect(out).toContain("PS0=user-ps0$(__kolu_ps0)");
   });
 });
-
-/** Like runBash but returns combined stdout+stderr. */
-async function execFileSyncBoth(script: string): Promise<string> {
-  try {
-    return await runBash(`${script} 2>&1`);
-  } catch {
-    return "";
-  }
-}
 
 /** The sole init file of a plan, asserted present (the bash/zsh wrappers always
  *  produce exactly one). Keeps the golden assertions free of index-access

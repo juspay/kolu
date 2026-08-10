@@ -56,8 +56,9 @@ export const EvidenceLineSchema: WireSchema<EvidenceLine> = Schema.Struct({
  *  classified from. A post-mortem record, not a live view.
  *
  *  It rides the FAILURE, not the live `connection` payload, and that is the whole
- *  point: `floorOnLiveness` DROPS `connection` over a dead link (a frozen live word
- *  keeps narrating work that is no longer happening) while keeping `failure` — so
+ *  point: `floorOnLiveness` takes the live arms off `connection` over a dead link (a
+ *  frozen live word keeps narrating work that is no longer happening — the floored
+ *  `unobservable` arm has no such field) while keeping `failure` — so
  *  before this existed, a consumer could hold a reason with its evidence already
  *  floored away, and kolu did exactly that for a year (juspay/kolu#2007). Carrying
  *  the tail on the failure record makes reason-without-evidence UNSPELLABLE: the

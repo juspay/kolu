@@ -15,9 +15,15 @@
  *
  * Each used to spell the key outright, which would have made the published entry
  * un-encodable the moment a map that declares a `connection` schema met a frame
- * without one. Both pins below therefore run the REAL encode
+ * without one. The pins below therefore run the REAL encode
  * (`map.entriesSpec.schema`) rather than `toEqual`, which cannot tell a present
  * `undefined` from an absent key — the precise blind spot the #17 audit exists for.
+ *
+ * The second half of the audit has since been settled by SHAPE rather than by care: the
+ * client's demoted value now lands on the `unobservable` arm, which has no `connection`
+ * field and no wire schema, so it cannot spell the key wrongly and cannot be republished
+ * at all. Those pins now assert exactly that, and only the SERVER half still turns on the
+ * absent-vs-undefined distinction.
  */
 
 import { defineSurface } from "@kolu/surface/define";
@@ -112,12 +118,19 @@ describe("a session-backed entry that carries NO fine connection", () => {
   });
 });
 
-describe("floorOnLiveness drops the word as an ABSENT key, not an undefined one", () => {
+describe("floorOnLiveness's demotion leaves the published union entirely", () => {
   const schema = mapWithConnection().entriesSpec.schema as never;
   const encodes = (v: unknown) =>
     JSON.stringify(Schema.encodeUnknownSync(schema)(v));
 
-  it("a demoted `connected` carries neither clockOffset nor connection", () => {
+  // REWRITTEN, deliberately, and STRONGER than what it replaces. These two used to pin
+  // that a demoted value spelled its missing `connection` as an ABSENT key rather than a
+  // present-`undefined`, so that a floored value reaching an encode (a mirror, a relay)
+  // would not throw. The floored value now leaves the published union for `unobservable`,
+  // an arm with no `connection` field to spell either way — so the old pins have nothing
+  // left to distinguish, and the property that MATTERS flipped: a client-local projection
+  // of OUR transport must never be republishable at all. That is what is pinned instead.
+  it("a demoted `connected` keeps neither clockOffset nor connection — and is UNENCODABLE", () => {
     const floored = floorOnLiveness(
       {
         kind: "connected",
@@ -127,13 +140,17 @@ describe("floorOnLiveness drops the word as an ABSENT key, not an undefined one"
       },
       false,
     );
+    expect(floored).toEqual({
+      kind: "unobservable",
+      membershipId: testMembershipId("m1"),
+      published: "connected",
+    });
     expect(Object.hasOwn(floored, "connection")).toBe(false);
-    expect(encodes(floored)).toBe('{"kind":"warming","membershipId":"m1"}');
+    expect(Object.hasOwn(floored, "clockOffset")).toBe(false);
+    expect(() => encodes(floored)).toThrow();
   });
 
-  it("a demoted `warming` drops the word the SAME way its sibling arm does", () => {
-    // The arm that used to spread `connection: undefined` — the one spelling the
-    // published schema refuses. Falsify by restoring that spread.
+  it("a demoted `warming` leaves the union the SAME way its sibling arm does", () => {
     const floored = floorOnLiveness(
       {
         kind: "warming",
@@ -142,8 +159,13 @@ describe("floorOnLiveness drops the word as an ABSENT key, not an undefined one"
       },
       false,
     );
+    expect(floored).toEqual({
+      kind: "unobservable",
+      membershipId: testMembershipId("m1"),
+      published: "warming",
+    });
     expect(Object.hasOwn(floored, "connection")).toBe(false);
-    expect(encodes(floored)).toBe('{"kind":"warming","membershipId":"m1"}');
+    expect(() => encodes(floored)).toThrow();
   });
 
   it("a LIVE link still carries the word through to the bytes", () => {

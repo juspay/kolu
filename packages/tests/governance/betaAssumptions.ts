@@ -46,6 +46,14 @@ export interface BetaAssumption {
 
 const MARKER = /BETA-ASSUMPTION\(([^)\n]*)\):[ \t]*([^\n]*)/g;
 
+/** A version named in the EVIDENCE beneath a marker — `measured against
+ *  effect@4.0.0-beta.103`, a quoted dist path, the version a value was read
+ *  from. `MARKER` matches only the marker's own line, so a bump that re-stamps
+ *  the marker and leaves this prose behind ships green while the marker now
+ *  cites a measurement nobody took against the pinned build. That is the same
+ *  silent version-drift this registry exists to catch, one line lower. */
+const VERSION_REF = /effect@([0-9][^\s`,:)"']*)/g;
+
 /** The shortest assumption worth writing down; below this the marker says
  *  nothing a re-verifier could check. */
 const MIN_ASSUMPTION_CHARS = 30;
@@ -56,6 +64,29 @@ const MIN_ASSUMPTION_CHARS = 30;
 export function assumptionTag(version: string): string {
   const dash = version.indexOf("-");
   return dash === -1 ? version : version.slice(dash + 1);
+}
+
+/** One `effect@<version>` named in prose. */
+export interface EffectVersionRef {
+  /** Repo-relative path, POSIX separators. */
+  readonly path: string;
+  /** 1-based line number. */
+  readonly line: number;
+  /** The version exactly as written. */
+  readonly version: string;
+}
+
+/** Every `effect@<version>` in `source`, with 1-based line numbers. */
+export function findEffectVersionRefs(source: string): EffectVersionRef[] {
+  const out: EffectVersionRef[] = [];
+  for (const match of source.matchAll(VERSION_REF)) {
+    out.push({
+      path: "",
+      line: source.slice(0, match.index).split("\n").length,
+      version: match[1] ?? "",
+    });
+  }
+  return out;
 }
 
 /** Every marker in `source`, with 1-based line numbers. */
@@ -143,15 +174,39 @@ export function collectBetaAssumptions(repoRoot: string): BetaAssumption[] {
   return out;
 }
 
+/** Every `effect@<version>` written in prose under `packages/` — the evidence
+ *  beneath the markers, gated the same way the markers are. */
+export function collectEffectVersionRefs(repoRoot: string): EffectVersionRef[] {
+  const files: string[] = [];
+  walk(path.join(repoRoot, "packages"), files);
+  const out: EffectVersionRef[] = [];
+  for (const full of files.sort()) {
+    const file = path.relative(repoRoot, full).split(path.sep).join("/");
+    if (file.startsWith(`${SKIPPED_TREE}/`)) continue;
+    for (const hit of findEffectVersionRefs(readFileSync(full, "utf8"))) {
+      out.push({ ...hit, path: file });
+    }
+  }
+  return out;
+}
+
 /** Throw unless every marker is stamped with the current pin's tag, states an
  *  assumption, and every known site still carries one. */
 export function validateBetaAssumptions(
   found: readonly BetaAssumption[],
   version: string,
   sites: readonly string[] = BETA_ASSUMPTION_SITES,
+  versionRefs: readonly EffectVersionRef[] = [],
 ): void {
   const tag = assumptionTag(version);
   const problems: string[] = [];
+  for (const ref of versionRefs) {
+    if (ref.version !== version) {
+      problems.push(
+        `  ${ref.path}:${ref.line} cites effect@${ref.version}, but the pin is now ${version}. This is the EVIDENCE under a marker: re-measure against ${version} and update the prose (or drop the version from it), so a re-stamped marker never cites a measurement nobody took.`,
+      );
+    }
+  }
   for (const hit of found) {
     if (hit.tag !== tag) {
       problems.push(

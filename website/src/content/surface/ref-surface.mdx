@@ -78,7 +78,7 @@ trust. Per-member precision lives in the spec-derived `SurfaceRpcsFor<S>` and it
 ### Declared errors — tagged classes, narrowed by `_tag`
 
 A procedure may declare an **error channel** — `ProcedureSpec.error`, one Effect
-Schema, normally a `Schema.Union` of `Schema.TaggedErrorClass`es. A declaring
+Schema, normally a `Schema.Union` of `Schema.TaggedError`s. A declaring
 handler *fails* with an instance of a declared class; the caller receives it
 decoded, `_tag` and data intact, and narrows on the `_tag`. A typed domain error
 can no longer flatten to an opaque transport failure at a generic hop — through a
@@ -254,7 +254,8 @@ end) and a handler nobody advertises are both boot crashes.
 
 `opts.identity` is the server's declared build triple — what the reserved
 `system/identity` member serves as its `identified` arm (the framework stamps
-`startedAt`). Omit it and the surface is served `anonymous`.
+`startedAt` and `processId`). Omit it and the surface is served `anonymous`,
+stamped with the same two.
 
 Dependency shapes, per member:
 
@@ -458,7 +459,22 @@ never needs it.
 
 A cell's `authority` is `"server"` (default — every push reconciles) or
 `"local"` (the local store wins after the first server yield). An `inputFn`
-that returns `null` pauses a stream or event. `surfaceClients(transport, map)`
+that returns `null` pauses a stream or event.
+
+**How a push reconciles: positionally, never by an inferred key.** Every merge
+into a bound store passes Solid's `reconcile(..., { key: null })`. Solid's own
+default is `key: "id"`, which reads a field called `id` as an element's IDENTITY
+and RECYCLES the previous row objects for the records it thinks matched — so on a
+payload whose elements have no top-level `id` (every element's key reads
+`undefined`, and they all "match") the object that held one record comes to hold
+another. A reader that goes by position never notices; a `<For>` keyed by
+reference, a per-row memo, or a component holding a row across frames sees a row
+whose identity and whose fields disagree. A framework merging arbitrary app
+payloads has no basis for inferring identity from a field name, so it does not:
+an element is replaced rather than recycled. Per-key granularity within a
+collection's dictionary is unaffected — a collection's `keySchema` is the
+dictionary key, and it says nothing about the identity of array elements inside a
+value. A keyed merge, if one is ever wanted, would be DECLARED on the member. `surfaceClients(transport, map)`
 splits one combined transport into a sibling client per surface — each built over
 a **tag-scoped** dispatch, so the face mints standalone tags and the wrapper
 splices the sibling key in, landing on exactly the tags `implementSurfaces` bound.
@@ -856,7 +872,7 @@ example.
 ### The tagged-error vocabulary (`@kolu/surface/errors`)
 
 Every error that has to be **recognised on the far side of a wire hop** lives in
-one module all three tiers import, as a `Schema.TaggedErrorClass`. That single
+one module all three tiers import, as a `Schema.TaggedError`. That single
 home is the requirement, not tidiness: a re-serving parent decodes an error from
 upstream and re-encodes it downstream, and only a schema both ends were built
 from survives serialize → deserialize → re-serialize with its `_tag` and data
@@ -1000,7 +1016,19 @@ own probe. `probeSurfaceLive(client)` is the one-liner that calls it (it walks
 `.surface.system.live` structurally); the socket and ssh seams default their
 watchdog to it. `probeSurfaceIdentity(client)` is its `system/identity` twin,
 returning the `identified | anonymous` union `implementSurface`'s `identity`
-option declares.
+option declares — both arms carrying `startedAt` (the UPTIME axis) and
+`processId` (the RESTART axis).
+
+`surfaceProcessId()` (`@kolu/surface/identity`) is that `processId`: a nonce minted
+once per process, on first read. It is what the reserved member answers with, what
+a surface app's client echoes back as `?pid=` on every reconnect, and what
+`gateStaleSocket` compares a reconnecting claim against — one value, read from one
+place, so a stale-tab handshake cannot come to compare two unrelated strings.
+There is deliberately no way to inject one: a process has one identity, and
+anything that wants to stamp a log line with it reads it from here. It is
+DISTINCT from `startedAt` on purpose — two processes can start in the same
+millisecond, and a timestamp read as an identity is a near-miss waiting to
+happen.
 
 `monotonicNow()` (`@kolu/surface/time`) is the shared monotonic-clock primitive
 both the heartbeat's suspension check and a consumer's own dead-man ceiling clock
@@ -1058,7 +1086,7 @@ Two consequences a member author owns:
 - `1009` must stay OUT of any `isTerminalClose` set — it is recoverable, and
   halting the retry schedule on it would strand the tab with no subscriptions.
 
-The close-on-exceed semantics carry a `BETA-ASSUMPTION(beta.103)` marker
+The close-on-exceed semantics carry a `BETA-ASSUMPTION(beta.106)` marker
 (governed by `packages/tests/governance/betaAssumptions.ts`), so an Effect bump
 must re-measure them before it can land.
 

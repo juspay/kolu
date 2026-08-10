@@ -93,6 +93,22 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     why: "Padi's persistent store: session + activityFeed + lastPairedDaemon. Survives deploys; old shape must restore or refuse by name.",
   },
   {
+    id: "padi-state-backup-ring",
+    pathShape: "<stateRoot>/backups/config.<fs-safe UTC stamp>.json",
+    role: "config",
+    coveredByTest: "padi/sharedArtifacts.watchdog.test.ts",
+    versionField:
+      "__internal__.migrations.version (each member is a byte-copy of config.json)",
+    versionDisposition: "inert-to-boot-restore-refuses",
+    diskBasenames: [],
+    // The ring's member-name grammar (kolu-shared/state-backup): base derived
+    // from the state file, fs-safe UTC stamp, optional same-millisecond bump.
+    diskBasenamePatterns: [
+      /(^|\/)backups\/config\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(?:-\d+)?\.json$/,
+    ],
+    why: "The #1658 backup ring: boot-time (and daily) snapshots of config.json under backups/. Never read by any boot path (a version+1 member gates nothing); read only by the explicit backups.list/restore RPCs, whose restore decodes the payload fail-fast and refuses what does not decode.",
+  },
+  {
     id: "padi-session-blob",
     pathShape: "<stateRoot>/config.json#session",
     role: "session",

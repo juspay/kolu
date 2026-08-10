@@ -90,7 +90,7 @@ describe("padiSurface contract", () => {
     // reading a restore's active tile off the `session` cell's next snapshot. That
     // was a race the client cannot win: the snapshot publishes behind a
     // synchronous disk write while the restored terminals publish as they spawn.
-    expect(PADI_SURFACE_VERSION).toBe("5.1");
+    expect(PADI_SURFACE_VERSION).toBe("5.2");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -150,6 +150,7 @@ describe("padiSurface contract", () => {
       "preview",
       "transcript",
       "session",
+      "backups",
     ]);
   });
 
@@ -539,7 +540,7 @@ describe("the declared error vocabulary (PLAN D4)", () => {
       new KavalContractSkew({ daemonVersion: "6.0", requiredVersion: "7.0" }),
     ];
     for (const original of cases) {
-      // The class IS the schema — a `Schema.TaggedErrorClass` is both. The cast
+      // The class IS the schema — a `Schema.TaggedError` is both. The cast
       // erases only the per-class type parameter, which this loop deliberately
       // does not name (the point is that EVERY member behaves the same way).
       const schema = original.constructor as unknown as Schema.Codec<

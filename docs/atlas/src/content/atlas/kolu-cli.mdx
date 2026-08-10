@@ -1,10 +1,10 @@
 ---
 title: kolu CLI — web · tui · mcp, the binary's three faces
-description: The kolu binary grows subcommands — kolu web (today's default), kolu tui (a tmux-like canvas), kolu mcp (the agent face) — the latter two pure padiSurface clients with no kolu-server, the graduation proof that padi serves a second frontend.
+description: The kolu binary grows subcommands — kolu web (the server), kolu tui (a tmux-like canvas), kolu mcp (the agent face) — the latter two pure padiSurface clients with no kolu-server, the graduation proof that padi serves a second frontend. Amended 2026-08-09 — kolu also subsumed the TUIs' scripting verbs.
 parents: [padi, feature]
 status: accepted
 maturity: seedling
-updated: 2026-07-16
+updated: 2026-08-09
 ---
 
 import Svg from "../../components/Svg.astro";
@@ -12,6 +12,21 @@ import Terminal from "../../components/Terminal.astro";
 import Callout from "../../components/Callout.astro";
 import Footnote from "../../components/Footnote.astro";
 import arch from "../../diagrams/kolu-cli-arch.svg?raw";
+
+<Callout kind="accent" title="Amended 2026-08-09 — read the ratified paragraph below with two clauses struck">
+The paragraph that follows stands **as ratified** — that is what this note is
+for — but two of its clauses no longer describe the shipped binary, and the
+[amendment](#amendment--kolu-subsumes-the-tuis-verbs) at the bottom records why
+each changed:
+
+- **“still the bare-`kolu` default”** — it is not. Bare `kolu` prints the
+  subcommand list and exits **non-zero**; the server is **`kolu web`**. With a
+  dozen faces, silently booting a web server for a bare invocation is a footgun,
+  and a stale `ExecStart=kolu` must be loud rather than quietly serving.
+- **“Neither is a scripting CLI”** — `kolu` **did** grow the verbs. The
+  objection recorded below turned out to be answerable rather than binding, and
+  the amendment says *why it no longer applies*.
+</Callout>
 
 One binary, three faces: **`kolu web`** (today's server+browser, still the
 bare-`kolu` default), **`kolu tui`** (the terminal canvas), **`kolu mcp`**
@@ -230,6 +245,20 @@ The MCP face's discipline across that gap, in order:
    restarted padi that no longer speaks our contract **fails the gate loudly
    and the MCP server exits with that error** — it never keeps serving a
    surface it can't honestly represent (fail-fast; no silent degradation).
+   **The death is ANNOUNCED, not discovered.** Redial says *where* a restart
+   heals; it does not say *when* the adapter finds out, and that omission had a
+   price ([#2082](https://github.com/juspay/kolu/issues/2082)): the adapter
+   learned only by sending a request into the dead socket, so the first
+   padi-backed request after every restart was destroyed. `connectPadi` already
+   hands back a `DaemonConnection` whose `onClose` fires when the socket
+   closes — kolu-cli carries it through to the adapter, which drops the corpse
+   the moment it hears. A restart across an idle gap now costs zero requests.
+   (Local socket arm only. The ssh `--host` dial does not yet **carry** the
+   announcement: `sshConnector` observes its child's exit and the session
+   exposes it per attempt as `Connection.closed`, but `AgentDial` projects
+   neither, so `connectKoluCliViaHost` has nothing to pass on. A missing
+   projection at one hop — the same shape as #2082 itself — not a limitation
+   of ssh. Closing it is the remote follow-up.)
 3. **Tools during the gap fail fast, typed, retryable** — a `create` or
    `sendInput` while disconnected returns an explicit
    transport-down error the agent can retry; nothing queues locally (a queued
@@ -244,6 +273,11 @@ The MCP face's discipline across that gap, in order:
 The pin for this section rides the e2e (step 9): mid-attach and mid-subscribe,
 recycle kaval and restart padi; assert ids survive, resources re-seed, the
 in-gap tool call fails typed, and the compat-gate failure path exits loudly.
+A second restart leg covers the *idle* gap — restart padi with no MCP traffic
+in flight, then assert the very FIRST request afterwards lands, with no retry
+and no warm-up. That is the leg #2082 needed and the mid-subscribe one could
+never catch: calling *during* the gap spends the wasted request on a call that
+was going to fail anyway, which hides it.
 
 ## Architecture-level changes
 
@@ -448,3 +482,99 @@ Steps, in build order (PR1 = the kolu-cli package + dispatch + boot-function ext
   here (the criterion moves, one owner), and the §207 wait-helper upstream
   item becomes actionable once this ships — recorded there as the follow-up,
   gated on this PR merging, not part of it.
+
+## Amendment — kolu subsumes the TUIs' verbs
+
+*Appended 2026-08-09. It supersedes one clause of the ratified scope above; the
+rest of the note stands.*
+
+**Superseded:** "Neither is a scripting CLI: `padi-tui` and `kaval-tui` keep
+their verbs as their daemons' scripting faces", and with it the recorded
+rejection of subsuming the CLIs. `kolu` **is** the one terminal CLI now, and
+the two TUI binaries are the ones being retired.
+
+### Why the objection no longer applies
+
+The rejection had a real reason, not a preference: *verb parity would drag a
+kaval dependency into the CLI faces and blur the proof.* That reasoning rested
+on an assumption about `padiSurface`'s reach that its own growth has since
+falsified. By **v5.2** the contract already carries the **union** of what the
+two TUIs each needed:
+
+| what a TUI verb needed | the padiSurface member it is already |
+| --- | --- |
+| `kaval-tui create` / `send` / `kill`, terminal geometry | `lifecycle.create` · `lifecycle.sendInput` · `lifecycle.kill` · `lifecycle.resize` |
+| `kaval-tui snapshot` / `history` | `screen.text` · `screen.history` |
+| `kaval-tui wait --until idle:/match:` | the `terminalAttach` `{seq}` stream, watched not rendered |
+| "the terminal I was driving died" (exit 3) | the `terminalExit` event |
+| `padi-tui status` / `watch` / `wait --until <buckets>` | the `terminals` collection + `activity` / `urgency` |
+
+So verb parity is reachable **as a pure padi client**: kolu-cli imports
+`@kolu/padi` and `@kolu/surface`, and **no kaval dependency enters it** — the
+manifest fence the note already relies on for the face packages is exactly what
+proves it. The objection is **answered, not overruled**. Had `padiSurface`
+still lacked `sendInput`'s key vocabulary or the exit event, the honest move
+would have been to leave the verbs where they were.
+
+The second half of the rejection — *and blur the proof* — is likewise answered
+by the shape rather than waived: the verbs are the **strongest** available form
+of the graduation criterion recorded above, because a scripting face that
+creates, writes to, waits on, reads, and kills terminals exercises the named
+path (`padiSurface` through `surfaceClient`, including the `{seq}` stream) on
+every invocation a user makes, not only in an e2e.
+
+### What shipped
+
+`kolu ls` · `create` · `send` · `wait` · `snapshot` · `history` · `kill` ·
+`watch`, alongside the `web` and `mcp` faces. Three consequences worth pinning
+here, because each is a decision a later reader would otherwise re-litigate:
+
+- **The endpoint moved to the ROOT as shared flags.** `--socket` /
+  `--state-root` / `--host` are mutually exclusive and parse on **either side
+  of the verb** (`kolu --host box create` ≡ `kolu create --host box`). That is
+  what retired cleye for `effect/unstable/cli`: cleye binds a flag to the
+  subcommand that *precedes* it, so the first spelling was a usage error. The
+  parser ships inside the `effect` the workspace already pins, so it costs no
+  new dependency.
+- **`wait` is ONE verb with three condition forms**, not two verbs merged into
+  a mode flag: `idle:<ms>` / `match:<regex>` (raw bytes — agent-agnostic, works
+  on any terminal) and the agent buckets `working` / `awaiting` / `waiting`
+  (precise — it *distinguishes* asking-you from finished — but only where padi
+  detects an agent). The two done-signals stay two *forms* because they
+  genuinely read different things; one verb because a driver shouldn't pick a
+  binary to express that choice.
+- **`snapshot` has no `--viewport`.** padi's wire cannot express a viewport
+  extent, so the read face is `--tail <N>` (or nothing for the whole rendered
+  text) — the exact shape of the MCP `screen_text { tail }` tool. One idea,
+  one spelling, across both faces.
+
+**Two breaking changes**, both forced by the above: bare `kolu` no longer boots
+the web server (it prints the subcommand list and exits non-zero — the server
+is `kolu web`), and `kolu web --host <addr>` is renamed **`--bind <addr>`**,
+because `--host` now means "which padi" everywhere and Effect CLI refuses a
+parent/child flag collision outright.
+
+### What is deliberately NOT in it
+
+- **`kolu attach` does not exist yet** — deferred to a follow-up. For
+  interactive attach the browser is the face, with `kaval-tui attach` as the
+  terminal-side fallback. The canvas (`kolu tui`, PR3 above) is unaffected;
+  attach lands with it or before it, not in the verb set.
+- **`padi-tui` and `kaval-tui` still ship and still work.** They are retired in
+  a later PR, not by this one — so no driving script breaks on the day the
+  verbs land. The exit-code contract (0 · 1 · 2 · 3 · 130) is carried over
+  unchanged for exactly that reason.
+- The **skill-parity contract** above is unchanged in substance and cheaper to
+  state: /kolu's and /bridge's CLI fallback is now one command's verbs rather
+  than a two-binary verb map.
+
+### The graduation this earned
+
+`padi-tui`'s pure view and read layers followed the verbs out of the TUI:
+`render.ts` (the roster table's columns and folds) and `read.ts`
+(`readTerminalKeys`, `settledSnapshot`) now ship as **`@kolu/padi/render`** and
+**`@kolu/padi/read`** — the same move, and the same trigger, as the LIVE
+watchers (`watchTerminals` / `awaitAgentState`) graduating into the `dial`
+entry when the MCP face became their verbatim second consumer. Two faces
+rendering the same records from one implementation, rather than two copies held
+in lockstep by a JSDoc cross-reference.

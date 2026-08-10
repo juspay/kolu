@@ -1,6 +1,6 @@
 ---
 title: Terminal UI
-description: "Drive kolu from outside the browser — from a coding agent over MCP, or from the shell with kolu's command-line tools."
+description: "Drive kolu from outside the browser — from a coding agent over MCP, or from the shell with the kolu command."
 order: 90
 section: Command Line
 koluHero:
@@ -10,6 +10,7 @@ koluHero:
     from a terminal.
 ---
 
+import Aside from "../../components/docs/Aside.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 
 The canvas is one way to use kolu — the browser. But every terminal kolu owns is
@@ -21,8 +22,63 @@ Two ways in:
 - **[MCP](/mcp)** — connect your **coding agent** (Claude Code, Codex, any MCP
   host) to kolu, so it can create, drive, and observe terminals itself. This is
   how one agent drives a fleet of others.
-- **The command-line tools** — drive the same terminals from a shell: list them,
-  create one, read a screen, send a prompt, wait for a turn to end. See
-  [Kaval](/kaval) for the terminal commands.
+- **The `kolu` command** — the same terminals from a shell: list them, create
+  one, read a screen, send a prompt, wait for a turn to end.
+
+## The `kolu` command
+
+One command carries the whole toolkit. Every verb talks to the same terminals
+the canvas shows, so a terminal you create from the shell appears on the canvas
+immediately, and one you created in the browser is drivable from the shell.
+
+| verb | what it does |
+| --- | --- |
+| `kolu ls` | the roster — state, repo·branch, PR, agent, and what each is running |
+| `kolu create` | open a terminal; `--parent` splits a tile, `--worktree` cuts a branch first, `-- <cmd>` launches an agent in it |
+| `kolu send` | type into a terminal — text, or a named key with `--key` |
+| `kolu wait` | block until output settles or matches, or until an agent's turn ends |
+| `kolu snapshot` | read a terminal's screen as plain text (`--tail N` for what's on screen now) |
+| `kolu history` | the scrollback above the current screen |
+| `kolu kill` | end a terminal |
+| `kolu watch` | a live feed of terminal changes and output activity |
+
+A short driving loop — create an agent, give it a prompt, wait for its turn to
+end, read the reply:
+
+```sh
+id=$(kolu create --worktree fix-parser -- claude)
+kolu send "$id" "read /tmp/brief.md and take it end-to-end"
+kolu wait "$id" --until idle:300          # the text landed
+kolu send "$id" --key Enter               # submit — its own step
+kolu wait "$id" --until awaiting,waiting  # its turn ended
+kolu snapshot "$id" --tail 40             # read what it said
+```
+
+Three things that make the verbs pleasant to script: **stdout is data** (so
+`id=$(kolu create …)` captures exactly the id, with the human-readable trailer
+on stderr), **ids accept any unique prefix** (`kolu send 3f9c …`), and the
+**exit codes are a contract** — `0` done, `1` a usage or connection error, `2`
+a wait timed out, `3` the terminal exited first, `130` interrupted. Read verbs
+take `--json`.
+
+Which machine a verb talks to is one flag — `--socket`, `--state-root`, or
+`--host user@box` for a [remote host](/remote-hosts) over ssh — and it can go on
+either side of the verb. Inside a kolu terminal you pass none at all: the daemon
+that owns you is already in the environment.
+
+<Aside type="note" title="`kolu` is on every terminal's PATH">
+  Every terminal kolu spawns — local or on a remote host — gets `kolu` on its
+  PATH from the same build as the daemon that spawned it, so an agent running
+  inside a terminal can drive its siblings with no setup. `kolu web` runs the
+  server itself; running `kolu` with no subcommand lists the verbs.
+</Aside>
+
+<Aside type="caution" title="alpha">
+  These verbs are new. [`kaval-tui`](/kaval) and [`padi-tui`](/padi) still ship
+  and still work — they were the two tools these verbs replace — but new
+  scripting should use `kolu`. Attaching interactively from the shell is not
+  part of this yet; the browser is the way to sit inside a pane.
+</Aside>
 
 <LinkCard title="MCP" href="/mcp" description="drive kolu from your coding agent — create, drive, and observe terminals over MCP" />
+<LinkCard title="Agent fleets" href="/agent-fleets" description="the driving loop in full — briefs, done-signals, and running several agents at once" />

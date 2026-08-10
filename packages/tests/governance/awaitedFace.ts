@@ -39,7 +39,7 @@
  * A name bound to anything that STARTS as a face path is marked, and then any
  * `await <that name>` in the same file is a hit. Banning the binding itself —
  * the simpler rule — was rejected: three legitimate non-call face bindings exist
- * today (`surfaceAppProbe`'s `identity?.info` narrowing, the map harness's
+ * today (kolu's `unaryMember` narrowing in `client/src/wire.ts`, the map harness's
  * per-member cast, a `.test-d.ts` type pin), each of which then CALLS or
  * composes the value. Marking is precise where a ban would be merely loud, and a
  * loud rule gets turned off.

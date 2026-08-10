@@ -4,9 +4,13 @@ import { daemonScanCause, scanUnavailableText } from "./daemonScan";
 import { HOST_DOWN_COPY } from "./hostDownCopy";
 
 /** A typed entry fixture — cast so the tests don't over-specify surface-map's internal
- *  membership fields (the fold only reads `.kind` and, on `failed`, `.failure.cause`). */
-const entry = (e: { kind: string; failure?: unknown }): PadiEntry =>
-  e as unknown as PadiEntry;
+ *  membership fields (the fold only reads `.kind` and, on `failed`, `.failure.cause`;
+ *  `published` is the blind arm's last-known word). */
+const entry = (e: {
+  kind: string;
+  failure?: unknown;
+  published?: string;
+}): PadiEntry => e as unknown as PadiEntry;
 
 describe("daemonScanCause — total fold over the host's entry state × frame presence (#1793)", () => {
   it("connected + live bind + a real frame ⇒ live; live bind without a frame ⇒ no-frame (not 'too old')", () => {
@@ -67,6 +71,23 @@ describe("daemonScanCause — total fold over the host's entry state × frame pr
         { bindLive: false, framePresent: false },
       ),
     ).toEqual({ kind: "failed", cause: "unconverged" });
+  });
+
+  it("unobservable ⇒ its OWN cause — 'we cannot see kolu' is never folded into 'padi is connecting'", () => {
+    // The pin that would fail under the old collapsed shape. A dead browser↔server link used
+    // to reach this fold as `warming`, so the section said "padi is connecting" — a claim
+    // about a dial campaign we are in no position to observe, over a host that may be
+    // perfectly up. Now the entry says which it is, and the copy follows.
+    expect(
+      daemonScanCause(entry({ kind: "unobservable", published: "connected" }), {
+        bindLive: false,
+        framePresent: false,
+      }),
+    ).toEqual({ kind: "unobservable" });
+    expect(scanUnavailableText({ kind: "unobservable" })).not.toBe(
+      scanUnavailableText({ kind: "connecting" }),
+    );
+    expect(scanUnavailableText({ kind: "unobservable" })).toContain("kolu");
   });
 
   it("not-a-member ⇒ no-host", () => {

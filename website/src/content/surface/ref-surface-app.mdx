@@ -99,9 +99,9 @@ per-request header channel.
 | --- | --- |
 | `acceptSurfaceSocket` | accept + reap + sequence, in one call |
 | `serveSurfaceSocket` | serve `{ group, handlers }` over one accepted socket, with per-connection `services` |
-| `gateStaleSocket` | the WS-upgrade handshake gate (error-handler-first; close `4001`) |
+| `gateStaleSocket` | the WS-upgrade handshake gate (error-handler-first; close `4001`). It takes **no** live id: it compares the echoed `pid` against this process's `surfaceProcessId()` (`@kolu/surface/identity`) — the same value the reserved `system/identity` member answers with, so the two sides cannot be pointed at different strings |
 | `startWsHeartbeat` · `heartbeatSweep` | the server-side liveness reaper and its one sweep |
-| `rejectStaleProcess` · `STALE_PROCESS_CLOSE_CODE` · `SERVER_PROCESS_ID_PARAM` | the stale-tab vocabulary the gate and the client's close classifier share |
+| `STALE_PROCESS_CLOSE_CODE` · `SERVER_PROCESS_ID_PARAM` | the stale-tab vocabulary the gate and the client's close classifier share |
 
 ## Connecting from the client
 
@@ -131,15 +131,15 @@ a tag.
 
 <Snippet src="packages/surface/example/snippets/consume-solid.ts" region="connect" />
 
-`connectSurface` returns `{ link, echo, client, status, dispose }`;
-`connectSurfaces` returns `{ link, echo, clients, transport, status, health, dispose }`.
+`connectSurface` returns `{ link, client, status, dispose }`;
+`connectSurfaces` returns `{ link, clients, transport, status, health, dispose }`.
 
 | Member | Meaning |
 | --- | --- |
 | `link` | the `WebsocketLink` — `{ dispatch, wire, dispose }`. Read `link.wire` for the status stream / `forceReconnect` (was `ws: PartySocket`) |
 | `client` / `clients` | the reactive surface client, or one scoped client per sibling |
 | `transport` | *(multi only)* the branded `LiveSignalHandle` — pass it whole to `connectSurfaceMap(map, conn.transport)`, which slices the sibling by `map.name` **after** the guard so the map inherits this wire's watchdog `live` |
-| `status` | `connecting` / `live` / `reconnecting` / `down`, derived from the wire's own status stream |
+| `status` | `connecting` / `live` / `reconnecting` / `retired`, derived from the wire's own status stream. The terminal arm is named `retired`, not `down`: "the server was replaced and this link will never dial again" must not read as the transient state `reconnecting` already covers |
 | `health` | *(multi only)* `surfaceClientsHealth(clients)` — every sibling's subs AND-reduced with the shared transport leg |
 | `dispose` | async: stop the heartbeat, tear down standing subscriptions, release the link's scope |
 
@@ -148,9 +148,39 @@ watchdog-backed brand `surfaceClient` requires, and a disabled watchdog would mi
 a branded-but-blind signal. A wire whose liveness another layer owns simply does
 not use this seam.
 
+### The stale-tab handshake, and the one option you must spell
+
+Both seams own the `pid` handshake end to end. On every wire **open** they probe
+the framework-reserved `system/identity` member over the link's own dispatch and
+feed the `processId` it answers into the echo their URL thunk appends — so every
+reconnect carries `?pid=<the process that served this page>`, and the server's
+`gateStaleSocket` closes a tab bound to a process that is gone. No app code
+observes an identity, and there is no returned `echo` for an app to feed. (An app
+that shares ONE echo across several wires still creates it —
+`createProcessIdEcho()` from `@kolu/surface-app/connect` — and passes it **in**.)
+
+`retired` is **required**, and has no default:
+
+| Option | Effect |
+| --- | --- |
+| `retired: () => void` | run once when the server retires this wire — this tab is bound to a process that no longer exists, the link has stopped dialling for good, and every call on it now fails with `SurfaceTransportRetired`. `retired: reloadForUpdate` is the one-liner; pass your own handler to take the screen instead |
+
+Requiring it does not make an app render anything — nothing at the type level can —
+but it does make the terminal state impossible to be *unaware* of: a wire that
+compiles has been asked what happens when it dies, and answered. The two values a
+connection used to hand back for an app to remember to use — the echo and the
+`status` — were both droppable, and an app that dropped both shipped a tab that
+sat on a dead server looking healthy forever. The echo is no longer an app's to
+drop; the terminal state is no longer an app's to ignore.
+
 `createServerLifecycle({ wire, probe })` derives the connection lifecycle
 (`connecting → connected → disconnected → reconnected / restarted`) from the
-wire's own status stream plus a `processId` probe. It observes a
+wire's own status stream plus a `processId` probe — pass
+`() => probeSurfaceIdentity(client.rpc)` (`@kolu/surface/identity`), the
+framework-reserved round-trip every surface answers. surface-app declares no
+identity member of its own: it used to ship an `identity.info` beside `buildInfo`,
+which meant two per-process ids in one server and a stale-tab gate that only
+worked while a consumer kept them in step. It observes a
 **`WatchableWire`** — `link.wire` — not a socket object, so the same lifecycle
 rides any transport that can report status and force a re-dial. Deriving a
 lifecycle cannot leave the wire un-watched: it owns a default-on half-open
@@ -163,7 +193,6 @@ sleep, Wi-Fi roam, NAT idle-eviction).
 | `livenessProbe` | the watchdog's round-trip — pass `() => probeSurfaceLive(client.rpc)` so it asks the one reserved question, not an app-nominated verb. `probe` answers *which* process; this answers *is it answering at all* |
 | `heartbeat: false` | opt out of the default-on watchdog (only when you wire your own `createHeartbeat`); an object tunes `intervalMs` / `timeoutMs` / `onStale`, and observes every definitive verdict with `onProbeSettled(ok, atMs)` |
 | `onProbeError` | surface a failed identity probe instead of silently holding the prior state |
-| `onProcessId` | publish each observed id to echo back as the next reconnect's `pid` |
 
 There is no `onStaleRestart` and no `restartCloseCode`. The **link** owns the
 close-code classifier now: a `4001` close retires the wire (status `retired`,

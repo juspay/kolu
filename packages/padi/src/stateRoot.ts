@@ -42,6 +42,8 @@ import {
   PTY_HOST_SOCK_FILE,
   readStateRootManifest,
 } from "kaval";
+import { match } from "ts-pattern";
+import { errMessage } from "./errText.ts";
 
 // The `state-root` manifest (digest → state-root) is OWNED by kaval, beside the
 // discovery that reads it (the dependency arrow points padi → kaval, never the
@@ -440,6 +442,95 @@ export function resolveRunningPadiSocket(opts?: {
     kind: "none",
     socket: padiSocketPath(namePadiStateRootForDiscovery()),
   };
+}
+
+/** WHICH local padi a client means, as data — the client-side half of the
+ *  selection policy {@link resolveRunningPadiSocket} enacts. `auto` is "whatever
+ *  this host is running" (`$PADI_SOCKET`, else discovery); the other two name
+ *  one exactly. */
+export type LocalPadiTarget =
+  | { readonly kind: "auto" }
+  | { readonly kind: "socket"; readonly path: string }
+  | { readonly kind: "stateRoot"; readonly dir: string };
+
+/** The socket a {@link LocalPadiTarget} names, or the sentence saying why no
+ *  single padi could be named. Not an error type: the two callers wrap it in
+ *  their own (a `CliFailure` for the verbs, a `PadiNotAddressable` for the MCP
+ *  face's tagged alphabet), and only the SENTENCE is common to them. */
+export type LocalPadiSocket =
+  | { readonly kind: "ok"; readonly socket: string }
+  | { readonly kind: "unaddressable"; readonly message: string };
+
+/**
+ * Name the ONE local padi socket a client should dial, or say why it cannot be
+ * named — the whole "which padi, locally" policy INCLUDING the two sentences a
+ * user reads when the answer is zero or several.
+ *
+ * It lives here, beside {@link resolveRunningPadiSocket}, because both halves
+ * are one fact about one host: which daemons are live, and what to tell a human
+ * when that set is not exactly one. kolu-cli owned two near-copies of the
+ * sentences — one for the eight verbs, one for the MCP face's own dial — which
+ * differed only in the clause naming the flag that picks a padi, and could
+ * therefore drift apart without anything noticing. Now the sentences are one and
+ * the two callers differ only in the error type they wrap the string in.
+ *
+ * A `--state-root` that cannot be resolved (a missing `$HOME`, an unnameable
+ * root) THROWS one layer down; it is caught here and joins the other refusals,
+ * because "you named a padi I cannot find" is the same kind of usage fact as
+ * "there are none" — never a defect dump.
+ */
+export function localPadiSocket(target: LocalPadiTarget): LocalPadiSocket {
+  // Both dispatches are `match(...).exhaustive()` (the same shape
+  // `terminalEndpoint/resolve.ts` uses for `HostLocation`) rather than a ternary
+  // chain and an if-cascade. The gain is not brevity, it is the compiler:
+  // written as a cascade, the `ok` return was the FALLTHROUGH, so a sixth
+  // `PadiSocketResolution` arm — say a future "the daemon is draining" — would
+  // have been silently reported as a dialable socket. Exhaustive, adding one
+  // fails the build until this function says what it means.
+  const lookup = match<
+    LocalPadiTarget,
+    Parameters<typeof resolveRunningPadiSocket>[0]
+  >(target)
+    .with({ kind: "socket" }, ({ path }) => ({ socket: path }))
+    .with({ kind: "stateRoot" }, ({ dir }) => ({ stateRoot: dir }))
+    // `auto` is "whatever this host is running": no override, so resolution
+    // falls through to `$PADI_SOCKET` and then discovery.
+    .with({ kind: "auto" }, () => ({}))
+    .exhaustive();
+
+  let resolved: PadiSocketResolution;
+  try {
+    resolved = resolveRunningPadiSocket(lookup);
+  } catch (err) {
+    return { kind: "unaddressable", message: errMessage(err) };
+  }
+
+  return (
+    match<PadiSocketResolution, LocalPadiSocket>(resolved)
+      .with({ kind: "many" }, ({ candidates }) => ({
+        kind: "unaddressable",
+        message: `more than one padi daemon is running on this host — set $PADI_SOCKET or pass --socket to pick one:\n${candidates
+          .map((c) => `  PADI_SOCKET=${c.socket}`)
+          .join("\n")}`,
+      }))
+      .with({ kind: "none" }, () => ({
+        kind: "unaddressable",
+        message:
+          "no running padi daemon found on this host — start kolu (its padi serves the terminals), or pass --socket / set $PADI_SOCKET.",
+      }))
+      // The four arms that NAMED one padi — however it was named (a flag, a
+      // state-root digest, `$PADI_SOCKET`, or the sole discovered daemon). They
+      // are spelled out, not left as a default arm, so the exhaustiveness above
+      // is real.
+      .with(
+        { kind: "explicit" },
+        { kind: "stateRoot" },
+        { kind: "env" },
+        { kind: "one" },
+        ({ socket }) => ({ kind: "ok", socket }),
+      )
+      .exhaustive()
+  );
 }
 
 /** Read-only chair naming for dial/error paths when no live daemon was found.

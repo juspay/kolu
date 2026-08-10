@@ -518,7 +518,13 @@ export function forfeitSession(): void {
 /** Import a session blob and restore it host-side — the diagnostic "Import
  *  session" flow moved off the client. Backfills the imported blob to the
  *  current schema (idempotent on an already-current record), persists it as the
- *  saved session, then runs the restore path with the same resume intent. */
+ *  saved session, then runs the restore path with the same resume intent.
+ *  Answers nothing: neither of its two callers (`session.import`,
+ *  `backups.restore`) seeds a view from the call — both restore a blob the user
+ *  just chose — so an active-marker here would be shape for its own sake, which
+ *  is exactly the argument the 5.1 ledger note makes about `session.import`.
+ *  `session.restore`, whose client DOES seed its active tile from the call,
+ *  keeps its answer. */
 export async function importSession(input: {
   session: SavedSession;
   resumeAgents?: boolean;

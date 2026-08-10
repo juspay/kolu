@@ -1,7 +1,7 @@
 /**
- * The read paths, exercised against a hand-rolled fake `PadiTuiClient` (no
+ * The read paths, exercised against a hand-rolled fake `PadiSurfaceClient` (no
  * socket): `readTerminalKeys` (the id-prefix read), `settledSnapshot` (the
- * `status` read) and `awaitAgentState` (the `wait` read). Four regressions are
+ * `status` read) and `awaitAgentState` (the `wait` read). Six regressions are
  * pinned here:
  *
  *   - `wait` must resolve `gone` — not hang — when the watched terminal exited in
@@ -16,16 +16,27 @@
  *   - the one-shot key read must TEAR ITS SUBSCRIPTION DOWN. Under Effect there is
  *     no `signal` left to pass a member verb (D10/#18), so the only thing that
  *     closes it is returning out of the `for await` — and if that ever stopped
- *     interrupting, every `padi-tui wait`/`create --parent` would leak a live
- *     `keys` subscription for the life of the link with nothing to show for it.
+ *     interrupting, every `wait` / `create --parent` on either CLI face would leak
+ *     a live `keys` subscription for the life of the link with nothing to show
+ *     for it.
+ *   - `status`'s trailing wait must be QUIET, and quiet must be measured in FACTS.
+ *     It used to sleep a fixed 1.5s after the sensors resolved, paid on every
+ *     roster read whether or not anything was still landing. Three cases pin it: a
+ *     settled roster returns one window after its last fact; a roster still gaining
+ *     facts holds the read open past that window, so the speedup cannot be
+ *     "achieved" by shortening the wait and losing the sensors behind it; and a
+ *     roster merely republishing the SAME facts (a busy agent) does not extend it
+ *     at all, which is what a frame-counting window got wrong.
+ *   - an EMPTY roster must not wait out `maxMs`. Nothing upserts, so nothing calls
+ *     the settle check from the sink; without the read arming it itself, zero
+ *     terminals meant a full `maxMs` wait for a frame that never comes.
  */
 
-import type { PadiTerminal } from "@kolu/padi/surface";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import type { PadiTuiClient } from "./connect.ts";
-import { awaitAgentState } from "@kolu/padi/dial";
+import { awaitAgentState, type PadiSurfaceClient } from "../dial.ts";
+import type { PadiTerminal } from "../surface.ts";
 import { readTerminalKeys, settledSnapshot } from "./read.ts";
 
 const id = (s: string): TerminalId => s as TerminalId;
@@ -101,7 +112,7 @@ class FakeSource<T> {
   }
 }
 
-/** A structural `PadiTuiClient` over three pushable sources — enough of
+/** A structural `PadiSurfaceClient` over three pushable sources — enough of
  *  `.surface.terminals.keys` / `.terminals.get` / `.activity.get` for the mirror
  *  and the direct reads. Each verb returns a `Stream` SYNCHRONOUSLY, the shape
  *  every member ref has under Effect. */
@@ -109,7 +120,7 @@ function fakeClient(streams: {
   keys: FakeSource<readonly TerminalId[]>;
   activity: FakeSource<readonly TerminalId[]>;
   get: (key: TerminalId) => FakeSource<PadiTerminal>;
-}): PadiTuiClient {
+}): PadiSurfaceClient {
   return {
     surface: {
       terminals: {
@@ -118,7 +129,7 @@ function fakeClient(streams: {
       },
       activity: { get: () => streams.activity.stream() },
     },
-  } as unknown as PadiTuiClient;
+  } as unknown as PadiSurfaceClient;
 }
 
 /** A `keys` source whose iterator DOES expose `return`, so
@@ -159,15 +170,15 @@ function observableKeys(frames: ReadonlyArray<readonly TerminalId[]>) {
   return { stream, isClosed: () => closed };
 }
 
-/** A `PadiTuiClient` whose ONLY member is `terminals.keys` — everything
+/** A `PadiSurfaceClient` whose ONLY member is `terminals.keys` — everything
  *  `readTerminalKeys` touches, and nothing else, so a read that reached further
  *  would crash rather than quietly pass. */
 function keysOnlyClient(
   stream: Stream.Stream<readonly TerminalId[], unknown>,
-): PadiTuiClient {
+): PadiSurfaceClient {
   return {
     surface: { terminals: { keys: () => stream } },
-  } as unknown as PadiTuiClient;
+  } as unknown as PadiSurfaceClient;
 }
 
 describe("readTerminalKeys — the one-shot key set", () => {
@@ -268,7 +279,7 @@ describe("settledSnapshot — the `status` read", () => {
     });
 
     await expect(
-      Effect.runPromise(settledSnapshot(client, { maxMs: 5000, graceMs: 50 })),
+      Effect.runPromise(settledSnapshot(client, { maxMs: 5000, quietMs: 50 })),
     ).rejects.toThrow(/link closed/i);
   });
 
@@ -279,7 +290,7 @@ describe("settledSnapshot — the `status` read", () => {
     keys.push([id("t1")]);
     activity.push([]);
     tget.push(active({ git: { branch: "main" } })); // git non-null → resolved
-    // Streams stay OPEN — the settle is driven by grace, not a dropped link.
+    // Streams stay OPEN — the settle is driven by the sensors, not a dropped link.
     const client = fakeClient({
       keys,
       activity,
@@ -287,8 +298,145 @@ describe("settledSnapshot — the `status` read", () => {
     });
 
     const entries = await Effect.runPromise(
-      settledSnapshot(client, { maxMs: 5000, graceMs: 20 }),
+      settledSnapshot(client, { maxMs: 5000, quietMs: 20 }),
     );
     expect(entries.map(([k]) => k)).toEqual([id("t1")]);
+  });
+
+  it("returns one QUIET WINDOW after the last fact, not a flat wait", async () => {
+    // The `kolu ls` case, and the one paid constantly. A settled roster publishes
+    // its snapshot and gains nothing after it, so the read owes it exactly one
+    // quiet window — the flat 1.5s this replaced was 1.5s of sleeping on data
+    // already in hand.
+    const keys = new FakeSource<TerminalId[]>();
+    const activity = new FakeSource<TerminalId[]>();
+    const tget = new FakeSource<PadiTerminal>();
+    keys.push([id("t1")]);
+    activity.push([]);
+    tget.push(active({ git: { branch: "main" } })); // resolved on ARRIVAL
+    const client = fakeClient({
+      keys,
+      activity,
+      get: (k) => (k === id("t1") ? tget : new FakeSource<PadiTerminal>()),
+    });
+
+    const startedAt = Date.now();
+    const entries = await Effect.runPromise(
+      settledSnapshot(client, { maxMs: 10_000, quietMs: 100 }),
+    );
+    expect(entries.map(([k]) => k)).toEqual([id("t1")]);
+    // One window, not the `maxMs` cap and not a multiple of the window.
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+  });
+
+  it("is NOT extended by a busy terminal republishing the same facts", async () => {
+    // The measurement that killed the frame-counting version of this window: on a
+    // machine with agents at work, records are republished several times a second
+    // — an agent flips thinking→tools, a spinner retitles — and NONE of it adds a
+    // fact. Counting those frames as "the roster is still moving" made the read
+    // slower than the flat sleep it replaced (measured: 952ms against a live padi,
+    // and unbounded in principle, for a roster that had nothing left to say).
+    const keys = new FakeSource<TerminalId[]>();
+    const activity = new FakeSource<TerminalId[]>();
+    const tget = new FakeSource<PadiTerminal>();
+    keys.push([id("t1")]);
+    activity.push([]);
+    const busy = (state: string): PadiTerminal =>
+      active({
+        git: { branch: "main" },
+        agent: claudeAgent(state),
+        foreground: { name: "claude", title: `${state}…` },
+      });
+    tget.push(busy("thinking"));
+    const client = fakeClient({
+      keys,
+      activity,
+      get: (k) => (k === id("t1") ? tget : new FakeSource<PadiTerminal>()),
+    });
+
+    // A frame every 40ms, forever — well inside a 300ms window, so a window that
+    // re-armed on frames would never close.
+    const churn = setInterval(
+      () => tget.push(busy(Math.random() < 0.5 ? "thinking" : "tools")),
+      40,
+    );
+    try {
+      const startedAt = Date.now();
+      const entries = await Effect.runPromise(
+        settledSnapshot(client, { maxMs: 10_000, quietMs: 300 }),
+      );
+      expect(entries.map(([k]) => k)).toEqual([id("t1")]);
+      expect(Date.now() - startedAt).toBeLessThan(1500);
+    } finally {
+      clearInterval(churn);
+    }
+  });
+
+  it("re-arms the quiet window on every new FACT, so a whole sensor burst is caught", async () => {
+    // Why the trailing wait may not just be SHORTENED. `t1` resolves early (its
+    // foreground landed — `isResolved` is an ANY), but padi keeps sensing: `t1`'s
+    // branch lands later, and `t2` — spawned in the same burst, absent from the
+    // first `keys` frame — lands later still. Each new fact pushes the deadline
+    // out, so the read follows the burst instead of betting on its length. A flat
+    // wait of `quietMs` from the settle would have cut off before `t2`.
+    const keys = new FakeSource<TerminalId[]>();
+    const activity = new FakeSource<TerminalId[]>();
+    const t1 = new FakeSource<PadiTerminal>();
+    const t2 = new FakeSource<PadiTerminal>();
+    keys.push([id("t1")]);
+    activity.push([]);
+    t1.push(active({ foreground: { name: "bash", title: null } }));
+    const client = fakeClient({
+      keys,
+      activity,
+      get: (k) => (k === id("t1") ? t1 : t2),
+    });
+
+    // Frames spaced closer than `quietMs` but spanning far more than it in total.
+    setTimeout(() => {
+      t1.push(
+        active({
+          foreground: { name: "bash", title: null },
+          git: { branch: "main" },
+        }),
+      );
+    }, 60);
+    setTimeout(() => {
+      t2.push(active({ git: { branch: "main" } }));
+      keys.push([id("t1"), id("t2")]);
+    }, 120);
+
+    const entries = await Effect.runPromise(
+      settledSnapshot(client, { maxMs: 10_000, quietMs: 100 }),
+    );
+    expect(entries.map(([k]) => k).sort()).toEqual([id("t1"), id("t2")]);
+    // `t1` is the LAST frame it published, not the first one that resolved it.
+    expect(
+      entries.find(([k]) => k === id("t1"))?.[1] as
+        | { git: unknown }
+        | undefined,
+    ).toMatchObject({ git: { branch: "main" } });
+  });
+
+  it("does not wait out `maxMs` on an empty roster", async () => {
+    // Zero terminals is a defined answer, not an absence to sit through: the sink
+    // is the only thing that runs the settle check and it is never called here, so
+    // the read has to arm the check itself or spend the whole cap on `no terminals.`
+    const keys = new FakeSource<TerminalId[]>();
+    const activity = new FakeSource<TerminalId[]>();
+    keys.push([]);
+    activity.push([]);
+    const client = fakeClient({
+      keys,
+      activity,
+      get: () => new FakeSource<PadiTerminal>(),
+    });
+
+    const startedAt = Date.now();
+    const entries = await Effect.runPromise(
+      settledSnapshot(client, { maxMs: 10_000, quietMs: 100 }),
+    );
+    expect(entries).toEqual([]);
+    expect(Date.now() - startedAt).toBeLessThan(1000);
   });
 });

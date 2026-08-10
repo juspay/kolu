@@ -94,7 +94,8 @@ export function daemonTransportLive(): boolean {
  *  entry (`activeScope().wire.daemonStatus`, W9), so for a
  *  REMOTE host the server→remote link is part of the channel that refreshes it, a leg the
  *  ws (`daemonTransportLive`) alone doesn't reflect. When the active entry is not
- *  `connected` (ssh flap/warming/failed) the re-served status is FROZEN stale. For
+ *  `connected` (ssh flap/warming/failed, or `unobservable` — this browser blind) the
+ *  re-served status is FROZEN stale. For
  *  LOCAL_HOST this is the SAME leg a `daemon.restart` drain drops out of `connected` (the
  *  local session is a `pool` member like any other) — there is no separate local leg any
  *  more (W4 daemon-rail unification). A reactive accessor; read it inside a tracking
@@ -103,7 +104,7 @@ function activeEntryConnected(): boolean {
   return padiMap.entry(activeHost()).state().kind === "connected";
 }
 
-/** The padi map's entry-state type — the discriminated `(connected | warming | failed |
+/** The padi map's entry-state type — the discriminated `(connected | warming | failed | unobservable |
  *  not-a-member)` value `padiMap.entry(host).state()` returns. The CANONICAL spelling: the
  *  `Conn` parameter is pinned to {@link ConnectionInfo} (`padiHostMap`'s
  *  `connection: ConnectionInfoSchema`, what `.state()` actually carries — not the `unknown`
@@ -113,7 +114,7 @@ function activeEntryConnected(): boolean {
 export type PadiEntry = EntryState<PadiEntryFailure, ConnectionInfo>;
 
 /** The ACTIVE host entry's FULL connection state — the typed discriminant
- *  (`warming`/`connected`/`failed`/`not-a-member`) plus, on `failed`, the typed
+ *  (`warming`/`connected`/`failed`/`unobservable`/`not-a-member`) plus, on `failed`, the typed
  *  {@link PadiEntryFailure} value. `canvasModeResolver` keys its facts on this
  *  ONE read: the `failed` arm drives the host-down card's cause-typed copy, while a
  *  REMOTE host merely still `warming` (source evaluation + remote-store build, which projects to the `warming`

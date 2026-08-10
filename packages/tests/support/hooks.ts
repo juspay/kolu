@@ -784,6 +784,10 @@ async function startServerChild(koluServer: string): Promise<void> {
     const child = spawn(
       koluServer,
       [
+        // `web` is spelled explicitly: bare `kolu` lists its subcommands and
+        // exits non-zero now — it stopped being an alias for the server when
+        // the terminal verbs landed on the binary.
+        "web",
         "--allow-nix-shell-with-env-whitelist",
         envWhitelist,
         "--port",

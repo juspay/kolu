@@ -19,8 +19,13 @@ export {
   type ToolExposure,
 } from "./expose";
 export { toInputSchema } from "./jsonschema";
+// `OwnedSurfaceConnection` IS this type at the adapter's client shape, and the
+// public doc links to it — so a consumer reading that doc has to be able to
+// import the name it names.
+export type { PusherConnection } from "./pusher";
 export {
   type ClientOrConnection,
+  type OwnedSurfaceConnection,
   type ServeSurfaceAsMcpOptions,
   serveSurfaceAsMcp,
   type SurfaceClientCallable,

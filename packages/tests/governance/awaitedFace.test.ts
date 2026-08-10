@@ -110,7 +110,7 @@ test("does NOT flag a stored description that is RUN rather than awaited", () =>
     ).length,
     0,
   );
-  // An alias that is CALLED and composed — `surfaceAppProbe`'s real shape.
+  // An alias that is CALLED and composed — a narrowed member reference that is CALLED, kolu's `unaryMember` shape.
   assert.equal(
     hits(
       [

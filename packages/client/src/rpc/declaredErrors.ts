@@ -2,7 +2,7 @@
  * The padi failures this client BRANCHES on, matched by `_tag`.
  *
  * D4 replaced oRPC's `ORPCError` + magic code string with a
- * `Schema.TaggedErrorClass` vocabulary (`@kolu/padi/surface`'s `./errors.ts`), so
+ * `Schema.TaggedError` vocabulary (`@kolu/padi/surface`'s `./errors.ts`), so
  * "the server said no, and told you why" is now a `_tag` on a schema-carried
  * value. Three sites in this client act on one — the terminal-exit stream's
  * stale-session swallow, and the Code tab's un-fetched-base and

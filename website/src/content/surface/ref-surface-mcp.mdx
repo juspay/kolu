@@ -23,7 +23,7 @@ and leaves the consumer in control of *what* is exposed.
 | Option | Meaning |
 | --- | --- |
 | `surface` | the `Surface<S>` being projected (`expose` is checked against its `spec` at boot) |
-| `client` | a factory `() => client` for a live implementation — return `{ client, dispose }` when the adapter owns a dialled socket, or the bare client when there is nothing to dispose. Re-invoked on retry after a drop |
+| `client` | a factory `() => client` for a live implementation — return an `OwnedSurfaceConnection` (`{ client, dispose, onClose? }`) when the adapter owns a dialled socket, or the bare client when there is nothing to dispose. Re-invoked on retry after a drop |
 | `expose` | the default-deny allowlist (see below) |
 | `tools?` | hand-authored bespoke tools |
 | `serverInfo?` | MCP server identity |
@@ -56,6 +56,55 @@ Resources are readable and subscribable; procedures become callable tools.
 
 - **Serve fresh** — `client` is `buildSurfaceFace(surface, directDispatch(runtime))` over an in-process `implementSurface`; the MCP server *is* the surface's backend.
 - **Bridge a live surface** — `client` dials an already-running served surface over a socket or ssh stdio; the MCP server is a *face* on an existing server (odu's `odu mcp` dials `.ci/odu.sock`).
+
+## `OwnedSurfaceConnection` — surviving a restart of the served daemon
+
+The bridge shape returns `{ client, dispose, onClose? }`. The adapter memoises
+**one** connection for reads and bespoke tools, so it needs to know when that
+connection dies — and there are two ways it can find out.
+
+| Field | Meaning |
+| --- | --- |
+| `client` | the live face the adapter dispatches over |
+| `dispose` | close the transport the factory opened; the adapter calls it on teardown and before every re-dial |
+| `onClose?` | subscribe to this transport dropping — fires at most once |
+
+Supply `onClose` whenever the dial can reach its transport's close. The adapter
+then discards the dead connection **the instant it is announced**, so the next
+request dials fresh. Omit it only where there is genuinely nothing to
+announce — the in-process `directDispatch` case has no transport at all.
+
+<Aside type="caution" title="Without onClose, a restart costs one request">
+  The fallback is discovery-by-failure: the adapter finds out the socket died by
+  **spending a request on it** (the reset in the read/tool catch path). The first
+  request after every restart of the served daemon then fails and every later one
+  succeeds — and the message names the *link* ("stdio transport closed … the peer
+  process exited"), which an agent reads on its own stdio channel as *the MCP
+  server died*. That misread cost a whole session in
+  [kolu#2082](https://github.com/juspay/kolu/issues/2082). An absent `onClose`
+  states "this connection carries no close announcement" — either because the
+  transport has none to give, or because the dial does not project one it could.
+  (`kolu mcp --host` is the second case today: the ssh layer observes its child's
+  exit, but `AgentDial` has no field to carry it. That is a gap in the dial's
+  face, not a limit of ssh — and it is the same shape of omission as #2082.)
+  Either way it is not a tuning knob.
+</Aside>
+
+A transport death that still slips through — the genuine race where the socket
+dies with a request already in flight — is re-framed before it reaches the host:
+it names the dropped **connection**, confirms the MCP server is still running,
+and says the next request re-dials. Nothing is ever replayed, because a retried
+mutation against a fresh daemon generation is the bug that fix would introduce.
+*That also bounds what the message can promise: a call cut off in flight has an
+**unknown** outcome, not an undone one — the served side may have acted and only
+the reply been lost. The adapter never decides that for the host.*
+
+The one case `onClose` creates rather than solves is a connection that is **born
+dead** — the transport announces its close during registration, synchronously or
+on a microtask. The adapter re-checks the slot by identity after each dial and
+re-dials rather than hand out a corpse, bounded, then fails loudly. *Re-dialing
+is legitimate exactly where re-requesting is not: a dial carries no caller
+intent, so repeating one replays nothing.*
 
 ## Bespoke tools and curation
 

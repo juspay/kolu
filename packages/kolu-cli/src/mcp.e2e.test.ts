@@ -22,7 +22,10 @@
  * Plus the RESTART legs (the "Across padi/kaval restarts" discipline):
  * kaval recycle (ids survive), padi restart mid-subscribe (the in-gap tool
  * call fails TYPED and queues nothing; the id survives the warm rebind; the
- * subscribed resource re-seeds with a fresh snapshot notification).
+ * subscribed resource re-seeds with a fresh snapshot notification) — and a
+ * restart across an IDLE gap, where the agent's FIRST request after the restart
+ * must simply work (juspay/kolu#2082: it used to be the one the adapter spent
+ * discovering the socket had died).
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -33,7 +36,6 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   assertPadiSurfaceCompatible,
-  connectPadi,
   padiClientOver,
   padiSocketPath,
   resolvePadiStateRoot,
@@ -55,7 +57,7 @@ import {
 } from "@kolu/daemon-test-gate";
 import { Effect } from "effect";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
-import { classifyDialFailure } from "./connect.ts";
+import { connectKoluCliLocal } from "./connect.ts";
 import { guardedMcpDial } from "./mcp.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -232,6 +234,40 @@ function toolJson(result: unknown): unknown {
 async function readJson(mcp: Client, uri: string): Promise<unknown> {
   const { contents } = await mcp.readResource({ uri });
   return JSON.parse((contents[0] as { text: string }).text);
+}
+
+/** The REAL local composition behind a connected MCP client:
+ *  `connectKoluCliLocal` → `guardedMcpDial` → `serveKoluMcp`, re-dialing the
+ *  SAME digest-keyed path on every invocation (the adapter's redial hook), with
+ *  the Promise crossing where `runKoluMcp` puts it.
+ *
+ *  It drives the product's OWN dial rather than a re-composition of its parts:
+ *  `connectKoluCliLocal` now takes the endpoint (`kolu mcp --socket <path>` is
+ *  spellable), so the leg that used to rebuild `connectPadi` +
+ *  `koluCliConnectionOf` by hand can simply BE the product path — including
+ *  that projection, whose forgetting-to-carry-`onClose` failure is precisely
+ *  juspay/kolu#2082. A look-alike could drift from the product; this cannot. */
+async function serveMcpOverPadi(
+  socketPath: string,
+  clientName: string,
+): Promise<Client> {
+  const dial = guardedMcpDial(
+    connectKoluCliLocal({ kind: "socket", path: socketPath }),
+  );
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  const { close } = await serveKoluMcp({
+    connect: () => Effect.runPromise(dial),
+    serverInfo: { name: "kolu-mcp", version: "0.0.0-e2e" },
+    transport: serverTransport,
+  });
+  const mcp = new Client({ name: clientName, version: "0.0.0" });
+  await mcp.connect(clientTransport);
+  cleanups.push(async () => {
+    await mcp.close();
+    await close();
+  });
+  return mcp;
 }
 
 // ── The round-trip each transport leg must prove ──────────────────────────
@@ -420,33 +456,7 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
     const p = await startPadi(stateRoot);
     const socketPath = p.socketPath;
 
-    // The REAL local connect composition (guarded): re-dials the SAME
-    // digest-keyed path each invocation — the adapter's redial hook.
-    const dial = guardedMcpDial(
-      Effect.map(
-        Effect.mapError(connectPadi(socketPath), classifyDialFailure),
-        (conn) => ({
-          client: scopePadiSurface(conn.client),
-          dispose: conn.dispose,
-        }),
-      ),
-    );
-    // The adapter's face is a Promise thunk it owns the lifetime behind, so
-    // the crossing happens here exactly as it does in `runKoluMcp`.
-    const connect = () => Effect.runPromise(dial);
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveKoluMcp({
-      connect,
-      serverInfo: { name: "kolu-mcp", version: "0.0.0-e2e" },
-      transport: serverTransport,
-    });
-    const mcp = new Client({ name: "pin-client-restart", version: "0.0.0" });
-    await mcp.connect(clientTransport);
-    cleanups.push(async () => {
-      await mcp.close();
-      await close();
-    });
+    const mcp = await serveMcpOverPadi(socketPath, "pin-client-restart");
 
     // A terminal to survive the restarts.
     const created = toolJson(
@@ -576,5 +586,57 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
       startedAt: number;
     };
     expect(identityAfter.startedAt).toBeGreaterThan(identityBefore.startedAt);
+  });
+
+  // ── Leg 4: a restart across an IDLE gap costs no request (#2082) ─────────
+  //
+  // Leg 3 restarts padi and calls DURING the gap, so the dying socket is
+  // discovered by a call that was going to fail anyway (padi is down). This leg
+  // is the shape the field hit: padi restarts while the agent is idle, comes
+  // back, and the agent's next call is its FIRST since the restart. That call
+  // used to fail — the adapter had no way to learn the socket died except by
+  // spending a request on it — with a message naming the stdio transport, which
+  // the agent read as "the MCP server exited". It stopped using MCP for the rest
+  // of the session; a single retry would have worked.
+  it("restart across an IDLE gap: the FIRST padi-backed request after it succeeds (#2082)", {
+    timeout: 180000,
+  }, async () => {
+    const stateRoot = makeStateRoot();
+    const p = await startPadi(stateRoot);
+    const socketPath = p.socketPath;
+
+    const mcp = await serveMcpOverPadi(socketPath, "pin-client-idle-restart");
+
+    // Establish the shared connection the restart will kill.
+    const before = (await readJson(mcp, "surface://cells/identity")) as {
+      startedAt: number;
+    };
+    expect(before.startedAt).toBeGreaterThan(0);
+
+    // Restart padi with NO MCP traffic in the gap — the routine upgrade.
+    p.child.kill("SIGTERM");
+    await p.exited;
+    const p2 = spawnPadi(stateRoot);
+    await waitForPadi(p2.socketPath);
+
+    // THE ASSERTION. Not "eventually succeeds", not "succeeds on retry" — the
+    // FIRST request after the restart, with no retry and no warm-up, must land.
+    const after = (await readJson(mcp, "surface://cells/identity")) as {
+      startedAt: number;
+    };
+    expect(after.startedAt).toBeGreaterThan(before.startedAt);
+
+    // The other half of fact #3 in the issue: the failure was POSITIONAL, so
+    // whichever padi-backed request went first ate it. Prove the tool path is
+    // equally unharmed — this call reaches padi and comes back with padi's OWN
+    // application answer (no such terminal), never a transport complaint.
+    const bogus = (await mcp.callTool({
+      name: "screen_text",
+      arguments: { id: "00000000-0000-4000-8000-000000000000" },
+    })) as { content?: { text: string }[] };
+    const text = bogus.content?.[0]?.text ?? "";
+    expect(text).toContain("not found");
+    expect(text).not.toContain("dropped");
+    expect(text).not.toContain("transport");
   });
 });

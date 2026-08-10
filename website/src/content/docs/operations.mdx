@@ -33,6 +33,13 @@ they are what a careless stop or a careless test run damages.
 everything else. The production launcher supplies both; a bare `padi` with
 neither set refuses to start rather than guess.
 
+Each `config.json` also keeps its own **backup ring**: a `backups/` directory
+beside the file holding the ten most recent boot-time (and daily) snapshots,
+byte-identical restarts skipped. They exist for the day a bug persists a
+bad-but-valid value over good state — restore one from **Debug → Restore state
+from backup** in the command palette, or copy it over `config.json` by hand.
+See [Troubleshooting](/troubleshooting) for the in-app flow.
+
 **The padi state root is an identity.** Its absolute path is hashed to a short
 digest, and that digest names every socket and pid gate the daemons use. Two
 kolus with different padi state roots cannot see each other's daemons at all —
@@ -156,7 +163,7 @@ Three environment settings make a `nix run` instance its own thing:
 ```sh
 export KOLU_STATE_DIR="$HOME/tmp/kolu-test/state"     # server config store (default: ~/.config/kolu)
 export KOLU_PADI_STATE_DIR="$HOME/tmp/kolu-test/padi" # padi state root: sessions, gates, sockets
-nix run github:juspay/kolu -- --port 8681             # production listens on 7681
+nix run github:juspay/kolu -- web --port 8681             # production listens on 7681
 ```
 
 The launcher honours both variables when they are already set, and falls back to

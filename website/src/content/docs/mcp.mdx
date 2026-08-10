@@ -74,6 +74,10 @@ to install if you already run kolu; no browser involved.
    claude mcp add kolu-prod -- kolu mcp --host nix@prod
    ```
 
+   `kolu mcp` takes the same endpoint flags every verb does, so `--socket <path>`
+   and `--state-root <dir>` name a specific **local** daemon the same way — which
+   is how you point an agent at a development kolu instead of the running one.
+
 </Steps>
 
 ## Inside a kolu terminal
@@ -163,6 +167,36 @@ the first column is what appears in your MCP host.
 
 These update live — an agent subscribed to `urgency` is notified the moment a
 worker terminal starts waiting on it.
+
+## It survives kolu restarting underneath it
+
+kolu's background service restarts routinely — an upgrade does it — and the
+restart deliberately keeps your terminals running, so nothing else notices.
+`kolu mcp` doesn't need restarting alongside it, and your agent doesn't need to
+reconnect: the moment the old connection drops, the next tool call opens a new
+one against the restarted service. Terminals your agent was driving are still
+there afterwards, and their ids still work.
+
+_That "the moment it drops" is specific to the default, local connection, which
+is told when the service goes away. Pointed at another machine with `--host`,
+`kolu mcp` does not yet carry the drop announcement, so it still finds out by
+making one call that fails — the retryable failure described below, just after
+an idle gap rather than only mid-call._
+
+If a restart happens to land in the middle of a call, that one call fails and
+says so — that it is the *connection* that dropped, that `kolu mcp` is still
+running, and that retrying will re-open it. Nothing is queued and nothing is
+re-sent behind your back.
+
+<Aside type="caution" title="A call that died mid-flight has an unknown outcome">
+  "The connection dropped" does not tell you whether the service had already
+  **done the thing** — the reply may simply not have made it back. Reads and the
+  `wait_*` tools are safe to retry regardless. For a *mutating* tool
+  (`lifecycle_create`, `lifecycle_kill`, `lifecycle_sendInput`), check before you
+  repeat it: read the `terminals` roster and see whether the terminal is already
+  there, already gone, or already has your input. Retrying a `lifecycle_create`
+  blind can leave you with two terminals.
+</Aside>
 
 ## What an agent can't touch
 

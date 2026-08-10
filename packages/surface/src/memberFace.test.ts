@@ -35,7 +35,7 @@ import { directDispatch } from "./links/direct";
 import { implementSurface } from "./server";
 import { surfaceClient } from "./solid/surfaceClient";
 
-class DemoRefused extends Schema.TaggedErrorClass<DemoRefused>(
+class DemoRefused extends Schema.TaggedError<DemoRefused>(
   "@kolu/surface/test/DemoRefused",
 )("DemoRefused", {
   because: Schema.String,

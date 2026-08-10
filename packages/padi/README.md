@@ -65,7 +65,10 @@ The package graduated to a **process**: `package = process = restart-hash`.
   (#1334). Production nix wrappers supply `$HOME/.local/state/padi` (not
   `$XDG_STATE_HOME`); dev/test pass a private dir. That folder holds padi's
   `session` / `activityFeed` / `lastPairedDaemon` in its OWN `Conf` (`./stateStore`,
-  a twin of kolu-server's — `preferences` stays kolu-server's). The socket + gate
+  a twin of kolu-server's — `preferences` stays kolu-server's), snapshotted into a
+  rotated `backups/` ring at every open and daily (#1658, `kolu-shared`'s
+  `stateBackup`; browsed/restored via the `backups.list` / `backups.restore`
+  surface members, 5.2). The socket + gate
   live in the **boot-wiped runtime dir** keyed by a **digest** of the state-root
   (`$XDG_RUNTIME_DIR/padi-<digest>/`, `kaval-<digest>/`), so a stale gate can never
   outlive a reboot and two padis at distinct state-roots never touch each other's
@@ -198,6 +201,28 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   log, transcript, and upload modules compose and serve that contract. Padi is
   the native authority; kolu-server binds or mirrors it rather than supplying a
   backing shim.
+
+- **`@kolu/padi/render`** and **`@kolu/padi/read`** — the CLI faces' shared
+  view + data layers. `render` is pure formatting (the roster table's
+  `ID · STATE · REPO·BRANCH · PR · AGENT · FOREGROUND` columns, the PR/checks
+  and agent-status folds, plus `shortId` and `resolveTerminalId` — the
+  id-prefix resolution every `<id>` argument accepts, which is a pure fold over
+  an id list and so belongs on this side of the line) with no I/O; `read` is
+  the one-shot reads off the `terminals` collection — `readTerminalKeys` (the
+  live id list `resolveTerminalId` folds) and `settledSnapshot` — as Effects,
+  so a Ctrl+C tears their subscriptions down.
+  Both **graduated out of `padi-tui`** when `kolu`'s terminal verbs became
+  their second consumer, the same move and the same reason as the LIVE side
+  (`watchTerminals`/`awaitAgentState`) graduating into the `dial` entry when
+  kolu's MCP face became *its* verbatim second consumer: one padi-shaped
+  vocabulary with two faces reading it, not two copies held in lockstep by
+  JSDoc cross-reference. They stay here rather than in `@kolu/surface` because
+  they speak **padi's** records — the generic wait scaffold went the other way.
+  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, plus the
+  `terminalVocab.ts` both fold over and the `watch.ts` wait kit the `dial` entry
+  re-exports — the same one-cluster-one-directory shape as `terminalEndpoint/`
+  and `terminalWorkspace/`. The **subpaths above are unchanged**: the directory
+  is padi's internal layout, not its public one.
 
 ## What padi knows nothing about
 

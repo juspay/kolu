@@ -10,12 +10,15 @@
  *      saved session. A failure to list is a FAILED adoption, not a quiet skip
  *      (F3): it throws, and the boot recycles the daemon so it never leaves a
  *      connected survivor holding PTYs kolu has no registry entry for.
- *   2. **Adopt every representable live PTY**, both kinds (never reap a
+ *   2. **Adopt every representable live PTY**, all three kinds (never reap a
  *      survivor just because the debounced autosave lagged the daemon — F1):
  *        - survivors WITH a saved record → whole-record (`adoptLocalTerminal`),
  *          live `cwd`/`foreground` from the daemon snapshot (F2);
  *        - survivors with NO saved record (a create that never reached the
- *          debounced autosave) → live-snapshot defaults (`adoptLocalOrphan`).
+ *          debounced autosave) → live-snapshot defaults (`adoptLocalOrphan`);
+ *        - survivors whose saved record does not DECODE (#2122 — a session
+ *          written by a build whose vocabulary is wider than this one's) → the
+ *          same live-snapshot defaults. The record is forfeit, the shell is not.
  *      Either way the provider DAG re-runs against the surviving taps. The ONE
  *      survivor kolu does NOT adopt is one whose wire id is not a UUID — kolu's
  *      registry cannot represent it, so it is killed (`reapUnrepresentablePty`)
@@ -35,6 +38,7 @@
 
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Effect, Result, Schema } from "effect";
+import type { PtyHostListEntry } from "kaval";
 
 /** zod's `.safeParse` in Effect terms, bound once at module scope. */
 const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
@@ -113,6 +117,35 @@ export function parkSavedSession(): void {
   log.info({ seeded }, `session-trace park: seeded ${seeded} parked`);
 }
 
+/** Adopt a live survivor from the DAEMON SNAPSHOT alone — the shape used both for
+ *  a PTY with no saved record (F1) and for one whose record did not decode
+ *  (#2122). Returns whether it was adopted.
+ *
+ *  Validates the wire id against `TerminalIdSchema` at this boundary (the contract
+ *  doc assigns id validation to kolu-server — ptyHostSurface.ts:36) so
+ *  `adoptLocalOrphan` receives a branded `TerminalId`, not a re-cast raw string. A
+ *  malformed (non-UUID) id is FAIL-CLOSED — the live PTY is KILLED
+ *  (`reapUnrepresentablePty`), never left running hidden (F1): every real client
+ *  mints a UUID (`crypto.randomUUID()` — kolu-server and kaval-tui alike), so a
+ *  non-UUID PTY is an anomaly outside kolu's domain. kolu cannot register it (the
+ *  registry is keyed on `TerminalId`), and leaving it alive would be a hidden live
+ *  process behind a stale restore card — exactly the fail-open the boot recycle
+ *  (index.ts) guards against. So it is killed rather than dropped and forgotten;
+ *  the contract's kill RPC takes the opaque wire string.
+ *
+ *  Note the deliberate asymmetry with an undecodable RECORD: an unusable *id*
+ *  leaves kolu no way to hold the terminal at all, while an unusable *record*
+ *  costs only the chrome beside a perfectly usable PTY. */
+function adoptSurvivorAsOrphan(entry: PtyHostListEntry): boolean {
+  const parsed = decodeTerminalId(entry.id);
+  if (Result.isFailure(parsed)) {
+    reapUnrepresentablePty(entry.id);
+    return false;
+  }
+  adoptLocalOrphan(parsed.success, entry);
+  return true;
+}
+
 /** Reconcile a SURVIVING kaval daemon's live PTYs against the saved session and
  *  adopt the survivors. See the module doc. Called from `ensureLocalEndpoint`
  *  only when the boot adopted a surviving daemon.
@@ -171,32 +204,27 @@ export const adoptSurvivingSession: Effect.Effect<void, unknown> = Effect.gen(
     // because the debounced session lagged the daemon would break the headline
     // "terminals survive a kolu update" guarantee. `reconcile` already paired each
     // adopted record with its live PTY, so there is no join to redo here.
-    for (const pair of adopt) adoptLocalTerminal(pair.record, pair.live);
-    // Validate each orphan's wire id against `TerminalIdSchema` at this boundary
-    // (the contract doc assigns id validation to kolu-server — ptyHostSurface.ts:36)
-    // so `adoptLocalOrphan` receives a branded `TerminalId`, not a re-cast raw
-    // string. A malformed (non-UUID) id is FAIL-CLOSED — the live PTY is killed
-    // (`reapUnrepresentablePty`), never left running hidden (F1).
+    //
+    // A record this build cannot DECODE takes the orphan path too (#2122) — the
+    // PTY is alive either way, and "never reap a survivor" does not become false
+    // because the record beside it is unreadable. Before, the decode threw, this
+    // whole Effect failed, and the boot's fail-closed arm recycled the daemon —
+    // one record written by a wider-vocabulary build cost the host every terminal
+    // it had. The terminal comes back as a live shell without its saved chrome.
+    let adoptedWhole = 0;
     let orphansAdopted = 0;
-    for (const orphan of adoptOrphans) {
-      const parsed = decodeTerminalId(orphan.id);
-      if (Result.isFailure(parsed)) {
-        // Fail CLOSED on an id kolu cannot represent (F1): every real client
-        // mints a UUID (`crypto.randomUUID()` — kolu-server and kaval-tui alike),
-        // so a non-UUID PTY is an anomaly outside kolu's domain. We cannot register
-        // it (the registry is keyed on `TerminalId`), and leaving it alive would be
-        // a hidden live process behind a stale restore card — exactly the fail-open
-        // the boot recycle (index.ts) guards against. So KILL it rather than drop
-        // and forget: kolu's domain genuinely cannot hold it, and the contract's
-        // kill RPC takes the opaque wire string.
-        reapUnrepresentablePty(orphan.id);
+    for (const pair of adopt) {
+      if (adoptLocalTerminal(pair.record, pair.live)) {
+        adoptedWhole += 1;
         continue;
       }
-      adoptLocalOrphan(parsed.success, orphan);
-      orphansAdopted += 1;
+      if (adoptSurvivorAsOrphan(pair.live)) orphansAdopted += 1;
+    }
+    for (const orphan of adoptOrphans) {
+      if (adoptSurvivorAsOrphan(orphan)) orphansAdopted += 1;
     }
 
-    const adoptedCount = adopt.length + orphansAdopted;
+    const adoptedCount = adoptedWhole + orphansAdopted;
 
     // Seed every SLEEPING saved record dormant — they have no PTY to adopt, so they
     // would otherwise be absent from the registry and wiped by the converge below.
@@ -261,7 +289,7 @@ export const adoptSurvivingSession: Effect.Effect<void, unknown> = Effect.gen(
     if (adoptedCount > 0) {
       setAdoptedCount(encodeHostLocation(LOCAL_LOCATION), adoptedCount);
       log.info(
-        { adopted: adopt.length, orphansAdopted },
+        { adopted: adoptedWhole, orphansAdopted },
         "adopted surviving terminals after restart",
       );
     }

@@ -56,6 +56,12 @@ const ENTRY_AS_PADI_LINK: Record<EntryState["kind"], PadiLink | undefined> = {
   connected: "connected",
   warming: "connecting",
   failed: "degraded",
+  // `undefined` — the SAME "no claim" the non-member arm makes, and for the same reason.
+  // `PadiLink` is a vocabulary about padi's own dial (connected / connecting / degraded);
+  // while this browser cannot reach kolu at all, every one of those words would be a claim
+  // about a campaign we are not watching. "connecting" in particular is the exact lie #2129
+  // was: it reads as "padi is working on it" when the truth is that we cannot see padi.
+  unobservable: undefined,
   "not-a-member": undefined,
 };
 function entryAsPadiLink(state: EntryState): PadiLink | undefined {

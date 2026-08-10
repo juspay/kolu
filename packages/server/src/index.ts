@@ -91,6 +91,11 @@ import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { buildAppRouter, CurrentViewer } from "./router.ts";
 import {
+  listServerStateBackups,
+  restoreServerStateBackup,
+} from "./stateBackups.ts";
+import { stateBackupRing } from "./state.ts";
+import {
   assembleServedHandlers,
   currentNewTerminalPolicy,
   implementKoluSurface,
@@ -99,11 +104,13 @@ import {
 import { resolveTlsOptions } from "./tls.ts";
 
 // The web face's boot contract (`KoluBootFlags`) lives in `bootFlags.ts` —
-// the leaf `packages/kolu-cli`'s parse also imports, so schema and contract
-// can't drift. The PARSE lives in `packages/kolu-cli` (the composition root
-// owning the cleye subcommand dispatch — kolu-cli PR1,
+// the leaf `packages/kolu-cli`'s command tree also imports, so schema and
+// contract can't drift. The PARSE lives in `packages/kolu-cli` (the composition
+// root owning the `effect/unstable/cli` command tree —
 // docs/atlas/src/content/atlas/kolu-cli.mdx); this package only receives the
-// result via `bootKoluWeb`'s signature.
+// result via `bootKoluWeb`'s signature. Note the server is reached as
+// `kolu web` now: bare `kolu` lists subcommands, and the bind address is
+// `--bind` (`--host` names which padi a terminal verb talks to).
 
 /** "Runs once per process" was mechanical while this was a top-level script
  *  (the module cache); the function form re-enforces it here — a second call
@@ -144,6 +151,15 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   if (flags.verbose) {
     log.level = "debug";
   }
+
+  // The slow re-snapshot tick (#1658): `state.ts` took the boot snapshot at
+  // module load (it must precede the `Conf` construction, which rewrites the
+  // file); the daily tick is armed HERE instead, because "this process runs
+  // long" is a boot fact, not an import fact — every unit test that imports
+  // `state.ts` would otherwise arm a process-lifetime timer. padi's `daemonMain`
+  // makes the same split, for the same reason. `unref`'d — disarming rides
+  // process exit.
+  stateBackupRing.startTicker();
 
   // The local-supervisor gate's release (set once the gate is claimed at boot,
   // below). Released on a clean shutdown so a same-lineage restart re-claims
@@ -868,6 +884,21 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
           );
         return s.renew();
       }),
+    // The state-backup ring (#1658). Restore drives the two Conf-backed cells'
+    // server-internal writers (returned by `implementKoluSurface` above) and
+    // converges the pool through the SAME add/remove path the strip's
+    // `hosts/add`/`hosts/remove` take — the pool stays membership's one writer.
+    listStateBackups: listServerStateBackups,
+    restoreStateBackup: (input) =>
+      restoreServerStateBackup(input, {
+        ...koluServed.storeCellWriters,
+        currentHostKeys: getPersistedHosts,
+        // `getHandler` is the documented membership probe — entry presence,
+        // never the handler's own value.
+        hasLiveHost: (key) => pool.getHandler(key) !== undefined,
+        addHostKey: (key) => pool.add(key),
+        removeHostKey: (key) => pool.remove(key),
+      }),
   });
 
   // --- The served surface: one group, one handler record ---------------------
@@ -1012,7 +1043,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // --- TLS setup ---
   const tlsOptions = await resolveTlsOptions(flags);
 
-  const { host, port } = flags;
+  // `bind` is the flag's name (`kolu web --bind`); `host` stays the local name
+  // because that is the key `server.listen` takes.
+  const { bind: host, port } = flags;
 
   // --- Start server ---
   // kolu-server OWNS the node `http(s).Server` and hands its `request` event an
@@ -1107,8 +1140,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // half (the watchdog folded into `createServerLifecycle`) un-freezes the tab.
   // The stale-tab gate closes a tab bound to a PREVIOUS instance BEFORE any RPC
   // dispatch (so dead-terminal subscriptions never replay and storm the logs) and
-  // such a socket never enrols — so #1231's gate is untouched. `serverProcessId` is
-  // the same id the `identity.info` probe reports.
+  // such a socket never enrols — so #1231's gate is untouched. The gate takes no
+  // id from here: it compares against this process's own `surfaceProcessId()`,
+  // which is exactly what the reserved `system/identity` member answers and so
+  // exactly what a reconnecting tab echoes back (`serverProcessId` in
+  // `./hostname` IS that value — the log line and the wire name one process).
   //
   // This is the HAND-WIRED ws seam PLAN D5/#6/#15 requires, and it is why the
   // turnkey `RpcServer.layerProtocolWebsocket` / `layerHttp` paths are NOT used:
@@ -1121,7 +1157,6 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // behind `Socket.fromWebSocket`).
   const acceptor = acceptSurfaceSocket({
     server: wss,
-    liveProcessId: serverProcessId,
     onError: (err) => log.error({ err }, "ws error"),
     onReject: (claimedPid) =>
       log.info(
