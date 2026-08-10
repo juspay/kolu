@@ -7442,6 +7442,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "efb8d8ca34b373c1cde6797e94f170890f10e24e"
+    },
+    {
+      "revisionId": "revision-5a18f74ded3e6dc47798",
+      "scenarioKey": "scenario-3f40413f91f799740921",
+      "feature": "features/terminal-switcher.feature",
+      "scenario": "Mod+Shift+K then Enter jumps to the previous terminal, never the active one",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "de7630e50fb7e0ebe9e2da7e10aa002cb0bda3d8174e638dcb5de94fbd2630ee",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1af6b58408912601859086cb914a8b6b3e783842"
     }
   ]
 }
