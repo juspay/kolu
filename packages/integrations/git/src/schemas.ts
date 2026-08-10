@@ -278,10 +278,14 @@ export type FsListIgnoredOutput = typeof FsListIgnoredOutputSchema.Type;
  *  would put a per-expansion input in that query's value key and blank the
  *  tree on every click. */
 export const FsListDirectoryInputSchema = Schema.Struct({
-  /** Absolute path to the repo root. */
+  /** Absolute path to the browse ROOT. Historically a git repo root (the name
+   *  stays for wire compatibility), but since plain-directory browsing (5.3's
+   *  `subscribeDirChange`, which shares this input) it may be ANY absolute
+   *  directory — this read and its watch counterpart never consult git. */
   repoPath: Schema.String,
-  /** Directory to read, relative to the repo root. Pierre's folder key carries
-   *  a trailing slash; both spellings resolve to the same listing. */
+  /** Directory to read, relative to the root (`""` for the root itself).
+   *  Pierre's folder key carries a trailing slash; both spellings resolve to
+   *  the same listing. */
   dirPath: Schema.String,
 });
 

@@ -42,6 +42,11 @@ Feature: Code tab (review + browse)
     Then the file browser should show a file "notes/inner.txt"
     When I click the file "notes/inner.txt" in the file browser
     Then the selected file should show content "nested-content"
+    # Live refresh without git: the root level rides a non-recursive
+    # per-directory watch, so a file created in the browsed directory appears
+    # without any user gesture.
+    When I run "echo fresh > /tmp/kolu-plain-browse/fresh.txt"
+    Then the file browser should show a file "fresh.txt"
 
   Scenario: Shows "no changes" when the repo is clean
     When I run "rm -rf /tmp/kolu-review-clean && git init /tmp/kolu-review-clean && cd /tmp/kolu-review-clean"

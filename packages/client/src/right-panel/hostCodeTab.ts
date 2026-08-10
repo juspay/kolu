@@ -76,7 +76,7 @@ import {
   padiRpcOf,
   padiMap,
 } from "../wire";
-import { armedBrowseRoot } from "./browseArm";
+import { armedRootMatching } from "./browseArm";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
 import { mergeBrowseInventory } from "./browseInventory";
 import type { CodeTabScope } from "./codeTabOpenController";
@@ -122,7 +122,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     if (!m || m.git) return null;
     const tid = shownTerminalId();
     if (tid === null) return null;
-    return armedBrowseRoot(host, tid) === m.cwd ? m.cwd : null;
+    return armedRootMatching(host, tid, m.cwd);
   };
   const codeView = (): CodeTabView => rightPanel.codeMode();
   const codeDiffMode = (): GitDiffMode | undefined =>

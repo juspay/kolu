@@ -299,6 +299,19 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // below all delete in favour of the native API.
   const openLazyDirs = new Set<string>();
 
+  // While the paths effect is RECONCILING — applying batch ops and re-opening
+  // the lazy directories it knows are meant to be open — the store ticks it
+  // causes describe construction states, not user intent. Without this guard a
+  // probe fired by the batch's own tick saw the recreated folder COLLAPSED
+  // (the remove destroyed the node carrying the expansion, the add rebuilt it
+  // closed) while still recorded, retired the record, then mistook the
+  // effect's own re-expand for a fresh user expansion and re-fired the load —
+  // whose superseding abort of its predecessor then collapsed the row for
+  // good (#2138's plain-directory e2e: load resolves OK, folder ends shut).
+  // Probes hold while the flag is up; the effect runs one deliberate probe
+  // after settling, so a genuinely-new open-and-childless state still reports.
+  let reconciling = false;
+
   // Pierre fires `onSelectionChange` for directory clicks too, which would
   // produce an EISDIR if the consumer reads the path as a file. Directories
   // mostly don't appear in `paths` (Pierre infers them from path prefixes) —
@@ -330,6 +343,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   const reportLazyExpansions = (): void => {
     const t = tree;
     if (!t) return;
+    if (reconciling) return; // mid-reconcile states are not user intent
     for (const key of props.lazyDirectories ?? []) {
       const item = t.getItem(key);
       // No row for this key right now — a search projection hid it (the host
@@ -549,6 +563,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         // path and the recovery rebuild so mixed keys never re-enter Pierre.
         const prev = dropRedundantDirKeys(appliedPaths);
         const next = dropRedundantDirKeys(paths);
+        // Hold expansion probes for the whole reconcile (batch + reopen), then
+        // probe once deliberately — see `reconciling`'s note. The `finally`
+        // covers every exit, including the recovery branch's returns.
+        reconciling = true;
         try {
           const pathOps = pathDiffOperations(prev, next).filter((op) => {
             // Pierre promotes an emptied directory to an explicit empty-folder
@@ -604,6 +622,11 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             );
             return;
           }
+        } finally {
+          reconciling = false;
+          // The one deliberate post-reconcile probe: reports a row that ended
+          // this reconcile genuinely open-and-childless, with the guard down.
+          safeApply(reportLazyExpansions, props.onError);
         }
       },
       { defer: true },

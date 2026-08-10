@@ -43,3 +43,18 @@ export function armedBrowseRoot(
 ): string | undefined {
   return armed[armKey(host, terminalId)];
 }
+
+/** The ONE stale-vs-live fold every consumer must apply, spelled once: the
+ *  armed root, but only while it still matches the terminal's live `cwd` —
+ *  otherwise null (a different directory is a different approval). Entries are
+ *  deliberately never reaped on terminal/host removal: each is one short
+ *  string per terminal armed this session, and reaping would couple this leaf
+ *  to the terminal lifecycle for a leak bounded by a session's arm count. */
+export function armedRootMatching(
+  host: HostKey,
+  terminalId: TerminalId,
+  cwd: string | null | undefined,
+): string | null {
+  if (cwd == null) return null;
+  return armedBrowseRoot(host, terminalId) === cwd ? cwd : null;
+}

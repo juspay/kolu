@@ -78,7 +78,7 @@ import { isDesktop, isTouch } from "../useMobile";
 import { activeHost, activePadiRpc, activePadiStreams, padiMap } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
-import { armBrowseRoot, armedBrowseRoot } from "./browseArm";
+import { armBrowseRoot, armedRootMatching } from "./browseArm";
 import {
   type BrowseInventory,
   diffInventory,
@@ -313,9 +313,8 @@ const CodeTab: Component<{
   const armedDirRoot = () => {
     if (gitRoot()) return null;
     const tid = props.terminalId;
-    const cwd = terminalCwd();
-    if (tid === null || cwd === null) return null;
-    return armedBrowseRoot(activeHost(), tid) === cwd ? cwd : null;
+    if (tid === null) return null;
+    return armedRootMatching(activeHost(), tid, terminalCwd());
   };
   const browseRoot = () => gitRoot() ?? armedDirRoot();
 
@@ -504,6 +503,13 @@ const CodeTab: Component<{
         for (const ctl of inFlight.values()) ctl.abort();
         inFlight.clear();
         setLoadedChildren(new Map());
+        // The non-git expansion registrations were scoped to the previous
+        // root the same way. Settle superseded waiters with no outcome — the
+        // epoch that cleared them owns the tree now (`lazyEpoch` invalidates
+        // the wrapper's own expansion records on this same signal).
+        setExpandedDirs(new Set<string>());
+        for (const pending of pendingLevelLoad.values()) pending.resolve();
+        pendingLevelLoad.clear();
       },
       { defer: true },
     ),
@@ -585,9 +591,43 @@ const CodeTab: Component<{
   // package's one named bridge.
   const inFlight = new Map<string, AbortController>();
 
+  // Plain-directory (non-git) mode: the levels the user has EXPANDED — the
+  // keys the per-directory polled queries below are spawned from. Distinct
+  // from `loadedChildren` (what has ARRIVED): a click only registers intent
+  // here, so the polled query is each level's single writer — the two-writer
+  // ordering race a click-read racing a pulse-read allowed is unspellable.
+  const [expandedDirs, setExpandedDirs] = createSignal<ReadonlySet<string>>(
+    new Set(),
+  );
+  // The click-path waiters for a level's FIRST arrival, settled by its polled
+  // query (resolve on value, reject on error — the FileTree outcome contract).
+  // Not reactive: nothing renders from it.
+  const pendingLevelLoad = new Map<
+    string,
+    { resolve: () => void; reject: (err: Error) => void }
+  >();
+
   const loadLazyDirectory = (dirPath: string): Promise<void> => {
     const p = browseRoot();
     if (!p) return Promise.resolve();
+    // Plain-directory (non-git) mode: the per-directory polled query below is
+    // the ONE writer of a level — registering the key spawns it, and its first
+    // result settles this promise (the FileTree contract: resolve = loaded,
+    // reject = forget the expansion). A re-expand of an already-loaded level
+    // resolves immediately: the standing per-directory watch has kept the
+    // level fresh, so the git-mode collapse-and-reopen refetch gesture has
+    // nothing left to re-read. One authority per level; the two-writer race a
+    // click-read racing the pulse-read allowed is unspellable.
+    if (!gitRoot()) {
+      if (loadedChildren().has(dirPath)) return Promise.resolve();
+      return new Promise<void>((resolve, reject) => {
+        // A re-registration supersedes the previous waiter: settle it quietly
+        // (no outcome — the new registration owns the row's fate).
+        pendingLevelLoad.get(dirPath)?.resolve();
+        pendingLevelLoad.set(dirPath, { resolve, reject });
+        setExpandedDirs((prev) => new Set(prev).add(dirPath));
+      });
+    }
     inFlight.get(dirPath)?.abort();
     const ctl = new AbortController();
     inFlight.set(dirPath, ctl);
@@ -631,32 +671,50 @@ const CodeTab: Component<{
         ),
       ),
       ctl.signal,
-    );
+    ).catch((err) => {
+      // A superseded read owns no outcome — the aborter does. Rejecting here
+      // would make `<FileTree>` read supersession as load FAILURE and collapse
+      // the row (the #2138 silent-collapse: interruption rejects the promise
+      // without ever running `tapError`). Interruption is the cancellation,
+      // not a verdict; a real failure (signal un-aborted) still propagates so
+      // the wrapper forgets the expansion.
+      if (ctl.signal.aborted) return;
+      throw err;
+    });
   };
 
-  // Plain-directory roots: every LOADED level stays WATCHED while it stays
-  // loaded — one polled query per expanded directory, riding the non-recursive
-  // `subscribeDirChange` pulse and re-reading just that level in place. Lazy
-  // listing and lazy watching are the same decision (the root level rides its
-  // own retained query in `hostCodeTab`), which is what keeps browsing `~`
-  // cheap: N expanded folders cost N single-directory handles, never a
-  // recursive crawl. In git mode this maps over the empty set — the ignored
-  // overlay's loaded levels are deliberately unwatched (see `loadedChildren`'s
-  // note: watching exactly the churn the ignore set exists to exclude).
+  // Plain-directory roots: every EXPANDED level is read AND watched by one
+  // polled query — the level's single writer — riding the non-recursive
+  // `subscribeDirChange` pulse and re-reading just that level in place (the
+  // snapshot pulse performs the first read, so the click issues no RPC of its
+  // own). Lazy listing and lazy watching are the same decision (the root level
+  // rides its own retained query in `hostCodeTab`), which is what keeps
+  // browsing `~` cheap: N expanded folders cost N single-directory handles,
+  // never a recursive crawl. In git mode this maps over the empty set — the
+  // ignored overlay's loaded levels are deliberately unwatched (see
+  // `loadedChildren`'s note: watching exactly the churn the ignore set exists
+  // to exclude).
   //
   // `mapArray` gives each directory key its own reactive owner, disposed when
-  // the key leaves the set (a `slotKey` change clears the map, which also
-  // covers the root/host/terminal switches), so a query's pulse subscription
-  // ends exactly with its level's presence. The root is CAPTURED per entry —
+  // the key leaves the set (a `slotKey` change clears it, which also covers
+  // the root/host/terminal switches), so a query's pulse subscription ends
+  // exactly with its level's registration. The root is CAPTURED per entry —
   // the pulse input must be a stable key (streaming rule: inputs are replayed
   // on retry), and the clear-on-slotKey guarantee makes it stable for the
   // entry's whole life.
   createEffect(
     mapArray(
-      () => (gitRoot() ? [] : [...loadedChildren().keys()]),
+      () => (gitRoot() ? [] : [...expandedDirs()]),
       (dirKey) => {
         const root = browseRoot();
         if (!root) return;
+        const settle = (outcome: "resolve" | "reject", err?: Error): void => {
+          const pending = pendingLevelLoad.get(dirKey);
+          if (!pending) return;
+          pendingLevelLoad.delete(dirKey);
+          if (outcome === "resolve") pending.resolve();
+          else pending.reject(err ?? new Error("directory load failed"));
+        };
         const level = createPolledQuery<
           { repoPath: string; dirPath: string },
           { repoPath: string; dirPath: string },
@@ -670,8 +728,12 @@ const CodeTab: Component<{
           pulseProc: () => activePadiStreams.subscribeDirChange.unenrolled,
           pulseInput: (i) => i,
           query: (i) => activePadiRpc.fs.listDirectory(i),
-          onError: (err) =>
-            toast.error(`Failed to refresh ${dirKey}: ${err.message}`),
+          onError: (err) => {
+            toast.error(`Failed to list ${dirKey}: ${err.message}`);
+            // Reject the click's waiter so `<FileTree>` forgets the expansion
+            // (its rejection contract) — a retry is a deliberate reopen.
+            settle("reject", err);
+          },
           // A level whose directory vanished mid-watch: keep the last listing;
           // the parent's own pulse re-lists and drops the row authoritatively.
           swallowError: (err) => isDeclared(err, FILE_GONE),
@@ -680,6 +742,7 @@ const CodeTab: Component<{
           const r = level();
           if (r) {
             setLoadedChildren((prev) => new Map(prev).set(dirKey, r.paths));
+            settle("resolve");
           }
         });
       },
