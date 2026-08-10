@@ -177,15 +177,19 @@ async function boot<Svc = never>(
   return entry;
 }
 
-/** A throwaway certificate for `localhost`. Generated rather than committed:
- *  the TLS claims below are only worth anything against a REAL handshake, and a
- *  checked-in cert expires. */
+/** A throwaway certificate for `localhost` + `127.0.0.1`. Generated rather than
+ *  committed: the TLS claims below are only worth anything against a REAL
+ *  handshake, and a checked-in cert expires. `cA: true` because the clients
+ *  below TRUST this cert as their certificate authority — see {@link httpsText}.
+ *  The SAN entries are what make `https://127.0.0.1:<port>` verify, since that
+ *  is the address the OS-chosen bind actually lands on. */
 async function selfSignedTls(): Promise<{ key: string; cert: string }> {
   const pems = await generateSelfSigned(
     [{ name: "commonName", value: "localhost" }],
     {
       algorithm: "sha256",
       extensions: [
+        { name: "basicConstraints", cA: true },
         {
           name: "subjectAltName",
           altNames: [
@@ -199,11 +203,22 @@ async function selfSignedTls(): Promise<{ key: string; cert: string }> {
   return { key: pems.private, cert: pems.cert };
 }
 
-/** `GET` over TLS, trusting the throwaway cert above. Node's global `fetch` has
- *  no seam for that, so this is `node:https` directly. */
-function httpsText(url: string): Promise<{ status: number; body: string }> {
+/** `GET` over TLS, with the throwaway cert supplied as the trusted CA. Node's
+ *  global `fetch` has no seam for a per-request trust store, so this is
+ *  `node:https` directly.
+ *
+ *  `ca` and NOT `rejectUnauthorized: false`: the two are not interchangeable
+ *  here. Disabling verification would make the test pass against ANY
+ *  certificate — including none of ours — which is exactly the assertion this
+ *  test is trying to make. Trusting THIS cert keeps the handshake fully
+ *  verified (chain, validity and hostname), so the test proves the listener is
+ *  serving the material it was handed. */
+function httpsText(
+  url: string,
+  ca: string,
+): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    httpsGet(url, { rejectUnauthorized: false }, (response) => {
+    httpsGet(url, { ca }, (response) => {
       let body = "";
       response.setEncoding("utf8");
       response.on("data", (chunk: string) => {
@@ -469,12 +484,15 @@ describe("serveSurfaceApp — the shell it serves", () => {
 
 describe("serveSurfaceApp — TLS", () => {
   it("serves HTTPS when handed TLS material, and says so in the URL it returns", async () => {
-    const server = await boot({ tls: await selfSignedTls() });
+    const tls = await selfSignedTls();
+    const server = await boot({ tls });
     // The returned URL is what an operator is told to open, so the scheme has to
     // be the one the listener actually speaks.
     expect(server.url.startsWith("https://")).toBe(true);
 
-    const shell = await httpsText(`${server.url}/`);
+    // A FULLY VERIFIED handshake (see `httpsText`), so this passing means the
+    // listener really served the cert it was handed.
+    const shell = await httpsText(`${server.url}/`, tls.cert);
     expect(shell.status).toBe(200);
     expect(shell.body).toContain("<title>shell</title>");
 
@@ -486,9 +504,9 @@ describe("serveSurfaceApp — TLS", () => {
       url: server.wsUrl,
       retired: () => {},
       connect: (target) =>
-        new WsClient(target, {
-          rejectUnauthorized: false,
-        }) as unknown as WebSocket,
+        // Same trust decision as above, and for the same reason: the cert is
+        // trusted, verification is not switched off.
+        new WsClient(target, { ca: tls.cert }) as unknown as WebSocket,
     });
     expect(
       await Effect.runPromise(
