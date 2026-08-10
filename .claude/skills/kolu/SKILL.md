@@ -6,7 +6,7 @@ description: >-
   the reply, prompt again. PRIMARY PATH: the kolu MCP tools
   (`lifecycle_create`/`lifecycle_sendInput`, `wait_outputSettled`/
   `wait_agentState`, `screen_text`, the `terminals` resource). FALLBACK: the
-  `kaval-tui`/`padi-tui` CLIs — same verbs, same discipline. Triggers on "drive
+  `kolu` CLI — same verbs, same discipline. Triggers on "drive
   another agent", "agent drives agent", "make Claude drive Codex", or wiring a
   loop where one coding agent supervises another.
 ---
@@ -16,9 +16,9 @@ description: >-
 Run a coding agent inside a kolu-owned PTY and steer it from outside. **Use the
 kolu MCP tools first** (`mcp__kolu__*`, wired in this repo's `.mcp.json`; other
 hosts: `claude mcp add kolu -- kolu mcp`) — structured results, typed refusals,
-no quoting hazards. Fall back to the `kaval-tui`/`padi-tui` CLIs (last section)
-when no MCP is connected. Both faces drive the same daemon, so every discipline
-here applies to both.
+no quoting hazards. Fall back to the `kolu` CLI's verbs (last section) when no
+MCP is connected. Both faces are pure padi clients driving the same daemon, so
+every discipline here applies to both.
 
 ## The loop
 
@@ -134,7 +134,7 @@ nothing to forget. `watch_*` is for a supervisor with no terminal of its own.
 ## Provisioning the inner agent
 
 - **Worktree'd agent:** no MCP path in v1 (`git.worktreeCreate` is a named
-  denial) — `padi-tui create --repo /abs/repo --worktree my-branch -- claude
+  denial) — `kolu create --repo /abs/repo --worktree my-branch -- claude
   --dangerously-skip-permissions`, then drive the returned id over MCP.
 - **Never hardcode the agent CLI** — default to the agent *you* run as, unless
   the human named one.
@@ -149,22 +149,30 @@ nothing to forget. `watch_*` is for a supervisor with no terminal of its own.
   stale mid-run. Re-find the terminal via the `terminals` resource by its
   stable `intent` label (set it at create for exactly this).
 
-## Fallback — the `kaval-tui` / `padi-tui` CLIs
+## Fallback — the `kolu` CLI
 
-Full CLI treatment (three-step submit in CLI form, `--file`, exit codes, daemon
-discovery, worktree provisioning, the interim agent-spawn doctrine):
-**[TUI.md](TUI.md)**. The verb map:
+`kolu` is the ONE terminal CLI: the same verbs, spelled for a shell. Full
+treatment (three-step submit in CLI form, `--file`, exit codes, endpoint flags,
+worktree provisioning, the interim agent-spawn doctrine): **[TUI.md](TUI.md)**.
+The verb map:
 
 | MCP | CLI |
 | --- | --- |
-| `lifecycle_create` | `padi-tui create [--parent <id>] [--repo … --worktree …] -- <agent>` · `kaval-tui create -- <agent>` (raw) |
-| `lifecycle_sendInput { text }` | `kaval-tui send "$id" "text"` (`--file <path>` for tricky payloads) |
-| `lifecycle_sendInput { key: "Enter" }` | `kaval-tui send "$id" --key Enter` |
-| `wait_outputSettled` | `kaval-tui wait "$id" --until idle:<ms> --timeout <ms>` (also `--until match:'<regex>'`) |
-| `wait_agentState` | `padi-tui wait "$id" --until working\|awaiting,waiting` |
-| `screen_text { tail }` | `kaval-tui snapshot "$id" --viewport` (never bare `snapshot \| tail` — that's the buffer bottom, not the screen) |
-| `terminals` resource | `kaval-tui list` · `padi-tui status` |
-| `lifecycle_kill` | `kaval-tui kill "$id"` |
+| `lifecycle_create` | `kolu create [--parent <id>] [--intent …] [--repo … --worktree …] -- <agent>` |
+| `lifecycle_sendInput { text }` | `kolu send "$id" "text"` (`--file <path>` for tricky payloads) |
+| `lifecycle_sendInput { key: "Enter" }` | `kolu send "$id" --key Enter` |
+| `wait_outputSettled` | `kolu wait "$id" --until idle:<ms> --timeout <ms>` (also `--until match:'<regex>'`) |
+| `wait_agentState` | `kolu wait "$id" --until working` · `--until awaiting,waiting` |
+| `screen_text { tail }` | `kolu snapshot "$id" [--tail N]` (never bare `snapshot \| tail` — that's the buffer bottom incl. trailing blanks; `--tail` drops them) |
+| `screen_history` | `kolu history "$id" [--lines N]` |
+| `terminals` resource | `kolu ls [--json]` · `kolu watch [id]` for the live feed |
+| `lifecycle_kill` | `kolu kill "$id"` |
+
+Every verb takes the same **endpoint flags** — `--socket <path>` ·
+`--state-root <dir>` · `--host <ssh>`, mutually exclusive, and accepted on
+**either side of the verb** (`kolu --host box create` ≡ `kolu create --host
+box`). Inside a kolu terminal `$PADI_SOCKET` is already stamped, so you pass
+none. Ids accept **any unique prefix**.
 
 ## Acceptance
 

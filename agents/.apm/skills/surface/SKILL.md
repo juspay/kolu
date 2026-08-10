@@ -23,7 +23,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 | **kolu** (`client`+`server`) | one browser ⇄ one Node server, ONE ws | single-tier; two sibling surfaces; uses `surface`+`surface-app` only (**not** `-remote`) |
 | **drishti** (`srid/drishti`) | browser ⇄ Node ⇄ ssh agent mirror | the canonical twin; 3 workspaces (common/agent/app) |
 | **odu** (`juspay/odu`) | CI runner: stdio lanes → unix-socket fan-in → CLI/MCP | serve+consume+mirror over every transport at once; `surface-mcp` projection |
-| **padi-tui / kaval-tui** | one-shot CLI/TUI, no browser | transport-blind `{client,dispose}`; unix-socket local, ssh remote; **no `.use()` hooks** |
+| **kolu-cli** (`kolu ls/create/send/wait/…`) | one-shot CLI verbs, no browser | the primary CLI consumer: a PURE padi client — transport-blind `{client,dispose}`, unix-socket local, ssh remote (`--host`); **no `.use()` hooks**. `padi-tui`/`kaval-tui` are the same shape, retiring |
 
 ## The spine (real import paths)
 

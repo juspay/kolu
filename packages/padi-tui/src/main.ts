@@ -49,7 +49,10 @@
 import { NodeSink } from "@effect/platform-node";
 import {
   awaitAgentState,
+  isWaitState,
   resolveRunningPadiSocket,
+  WAIT_STATES,
+  type WaitState,
   watchTerminals,
 } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
@@ -83,7 +86,7 @@ import {
   WaitTimedOut,
 } from "./exit.ts";
 import { connectPadiTuiViaHost } from "./hostConnect.ts";
-import { readTerminalKeys, settledSnapshot } from "./read.ts";
+import { readTerminalKeys, settledSnapshot } from "@kolu/padi/read";
 import {
   formatStatus,
   formatStatusJson,
@@ -94,10 +97,40 @@ import {
   formatWatchJson,
   formatWatchRemoval,
   formatWatchRemovalJson,
-  parseUntilStates,
   resolveTerminalId,
   shortId,
-} from "./render.ts";
+} from "@kolu/padi/render";
+
+/** Parse this TUI's `--until` — a comma list of bucket names — into the set of
+ *  target buckets, or a loud error. Whitespace is trimmed, case folded, and
+ *  duplicates collapse; an empty list or any token outside `WAIT_STATES` is
+ *  rejected (fail-fast — no silent drop of an unrecognized state).
+ *
+ *  LOCAL, and that is the boundary rather than an oversight: `watch.ts`'s header
+ *  in padi states it — "the CLI-flag grammar (`--until`'s comma parse and its
+ *  error strings) stays in the face; only the surface-shaped vocabulary and the
+ *  watch/wait machinery live here". It briefly lived in `@kolu/padi/render`,
+ *  where its `--until:`-prefixed message was argv grammar inside a formatter.
+ *  What padi owns is {@link isWaitState}: whether a token names a bucket. */
+function parseUntilStates(
+  raw: string,
+):
+  | { kind: "ok"; targets: Set<WaitState> }
+  | { kind: "error"; message: string } {
+  const tokens = raw
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0);
+  const unknown = tokens.filter((t) => !isWaitState(t));
+  if (tokens.length === 0 || unknown.length > 0) {
+    const offending = unknown.length > 0 ? unknown.join(", ") : "(none given)";
+    return {
+      kind: "error",
+      message: `--until: unknown state(s) ${offending} — use a comma list of: ${WAIT_STATES.join(", ")} (e.g. --until awaiting,waiting).`,
+    };
+  }
+  return { kind: "ok", targets: new Set(tokens as WaitState[]) };
+}
 
 // Declared on each subcommand — cleye binds flags only AFTER the subcommand (it
 // does not inherit a parent flag), so `--socket` goes after the command:

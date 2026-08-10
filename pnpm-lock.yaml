@@ -757,6 +757,9 @@ importers:
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
+      '@kolu/shell-quote':
+        specifier: workspace:*
+        version: link:../shell-quote
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -766,12 +769,18 @@ importers:
       '@kolu/surface-remote':
         specifier: workspace:*
         version: link:../surface-remote
-      cleye:
-        specifier: ^2.3.0
-        version: 2.3.0
+      '@kolu/terminal-protocol':
+        specifier: workspace:*
+        version: link:../terminal-protocol
+      '@kolu/terminal-vocab':
+        specifier: workspace:*
+        version: link:../terminal-vocab
       effect:
         specifier: 4.0.0-beta.106
         version: 4.0.0-beta.106
+      kolu-common:
+        specifier: workspace:*
+        version: link:../common
       kolu-mcp:
         specifier: workspace:*
         version: link:../kolu-mcp
@@ -794,9 +803,6 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
-      kolu-common:
-        specifier: workspace:*
-        version: link:../common
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
@@ -898,6 +904,9 @@ importers:
       anyforge:
         specifier: workspace:*
         version: link:../integrations/anyforge
+      columnify:
+        specifier: ^1.6.0
+        version: 1.6.0
       conf:
         specifier: ^15.1.0
         version: 15.1.0
@@ -968,6 +977,9 @@ importers:
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../shell-quote
+      '@types/columnify':
+        specifier: ^1.5.4
+        version: 1.5.4
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -1004,9 +1016,6 @@ importers:
       cleye:
         specifier: ^2.3.0
         version: 2.3.0
-      columnify:
-        specifier: ^1.6.0
-        version: 1.6.0
       effect:
         specifier: 4.0.0-beta.106
         version: 4.0.0-beta.106
@@ -1014,9 +1023,6 @@ importers:
         specifier: workspace:*
         version: link:../integrations/pty
     devDependencies:
-      '@types/columnify':
-        specifier: ^1.5.4
-        version: 1.5.4
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -1190,9 +1196,6 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
-      cleye:
-        specifier: ^2.3.0
-        version: 2.3.0
       tsx:
         specifier: ^4.19.0
         version: 4.21.0

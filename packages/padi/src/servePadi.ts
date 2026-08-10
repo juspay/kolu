@@ -109,7 +109,7 @@ import {
   samplePadiMemory,
 } from "./memorySampler.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
-import { activeAgent } from "./surface.ts";
+import { activeAgent } from "./terminalVocab.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { appendTerminalFile, saveTerminalFile } from "./terminalScratch.ts";
 import {

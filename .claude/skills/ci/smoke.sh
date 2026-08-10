@@ -214,7 +214,7 @@ json_field() {
 (
     exec env -i HOME="$tmp" SHELL=/bin/sh XDG_RUNTIME_DIR="$runtime" \
         KOLU_DAEMON_BIND_PID="$BASHPID" \
-        "$KOLU" --host 127.0.0.1 --port 0
+        "$KOLU" web --bind 127.0.0.1 --port 0
 ) >"$log" 2>&1 &
 pid=$!
 
@@ -274,7 +274,7 @@ state_log="$state_tmp/kolu.log"
 (
     exec env -i HOME="$state_tmp/home" XDG_RUNTIME_DIR="$runtime" \
         KOLU_STATE_DIR="$custom_state" KOLU_DAEMON_BIND_PID="$BASHPID" \
-        "$KOLU" --host 127.0.0.1 --port 0
+        "$KOLU" web --bind 127.0.0.1 --port 0
 ) >"$state_log" 2>&1 &
 state_pid=$!
 

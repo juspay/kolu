@@ -69,7 +69,6 @@ import {
   controlCoreProcedureSpec,
 } from "@kolu/surface-daemon/control-core";
 import {
-  type AgentInfo,
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
   RepoChangePulseSchema,
@@ -642,22 +641,6 @@ export function activePadiTerminal(
   record: PadiTerminal | null | undefined,
 ): PadiActiveTerminal | undefined {
   return record?.state === "active" ? record : undefined;
-}
-
-/** The LIVE agent of a composed record, or `null` — only the `active` arm carries
- *  a running agent (`sleeping`/`parked` are dormant, their PTY released), so the
- *  union is narrowed here rather than at every read site.
- *
- *  Spelled OVER {@link activePadiTerminal} rather than re-testing the
- *  discriminant, so "which arm is live" stays one decision. It lives here beside
- *  that sibling — on the BROWSER-SAFE contract module both the daemon's serve
- *  graph and its client kit already import — rather than in the client-side dial
- *  kit that first needed it: the server's supervision delivery is a consumer too,
- *  and a daemon module reaching into `@kolu/padi/dial` for a narrowing would
- *  point the dependency arrow backwards. Every consumer imports it from HERE —
- *  there is no compatibility re-export through the dial kit. */
-export function activeAgent(record: PadiTerminal): AgentInfo | null {
-  return activePadiTerminal(record)?.agent ?? null;
 }
 
 // ── The urgency projection (recency-free) ─────────────────────────────────

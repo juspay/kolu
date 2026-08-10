@@ -1,19 +1,26 @@
 /**
- * Pure rendering helpers for the padi-tui CLI — no I/O, no transport, no tty — so
- * the formatting is unit-tested without a socket or a terminal. `main.ts` is the
- * thin glue that reads padi's `terminals` collection and prints these.
+ * Pure rendering helpers for padi's CLI faces — no I/O, no transport, no tty — so
+ * the formatting is unit-tested without a socket or a terminal. Each CLI's `main`
+ * is the thin glue that reads padi's `terminals` collection and prints these.
+ * Shared here (beside the dial kit) because padi-tui and kolu's CLI render the
+ * SAME table from the same records; a second copy would be a second truth.
  *
- * padi-tui shows what each terminal *is in* — its record state (active · sleeping
- * · parked) · repo·branch · PR + checks · agent state · foreground — read off
- * padi's composed `terminals` collection (the same record the canvas Dock reads).
- * The `wait` verb compares the agent's coarse BUCKET (`agentBucket`), never the
- * raw `AgentInfo['state']`, so the one fold in
+ * These views show what each terminal *is in* — its record state (active ·
+ * sleeping · parked) · repo·branch · PR + checks · agent state · foreground —
+ * read off padi's composed `terminals` collection (the same record the canvas
+ * Dock reads). The `wait` verb compares the agent's coarse BUCKET
+ * (`agentBucket`), never the raw `AgentInfo['state']`, so the one fold in
  * `@kolu/terminal-vocab/agentProjection` stays the single source of truth.
  */
 
-import { WAIT_STATES, type WaitState } from "@kolu/padi/dial";
-import { activeAgent } from "@kolu/padi/surface";
-import type { PadiTerminal } from "@kolu/padi/surface";
+// `../terminalVocab.ts`, NOT `./dial.ts`. The three symbols are the same ones —
+// `dial.ts` merely re-exports them — but reaching them through the dial kit put
+// `socketDuplexLink`, `@kolu/surface-daemon-supervisor`, `@kolu/surface-remote`
+// and `kolu-pty` in this formatter's module graph, refuting the "no I/O, no
+// transport, no tty" promise on line 1. A stated invariant the import graph
+// contradicts will be relied on and will break.
+import type { PadiTerminal } from "../surface.ts";
+import { activeAgent } from "../terminalVocab.ts";
 import {
   agentBucket,
   agentShortName,
@@ -33,9 +40,8 @@ export function shortId(id: string): string {
 }
 
 /** The live foreground process of a composed record, or `null` — active-only,
- *  same as `activeAgent` (which lives on `@kolu/padi/surface` beside
- *  `activePadiTerminal` — padi's own serve graph is its other consumer, and a
- *  daemon module must not reach into the client dial kit for a narrowing). */
+ *  same as `activeAgent` (which now lives in the dial kit's watch module,
+ *  beside the wait predicate it feeds). */
 function activeForeground(v: PadiTerminal): { name: string } | null {
   return v.state === "active" ? v.foreground : null;
 }
@@ -72,30 +78,37 @@ export function resolveTerminalId(
   return { kind: "found", id: first };
 }
 
-/** Parse a `--until` value — a comma list of bucket names — into the set of
- *  target buckets, or a loud error. Whitespace is trimmed, case folded, and
- *  duplicates collapse; an empty list or any token outside `WAIT_STATES` is
- *  rejected (fail-fast — no silent drop of an unrecognized state). The caller maps
- *  the error to `fail()`/exit. */
-export function parseUntilStates(
-  raw: string,
-):
-  | { kind: "ok"; targets: Set<WaitState> }
-  | { kind: "error"; message: string } {
-  const tokens = raw
-    .split(",")
-    .map((t) => t.trim().toLowerCase())
-    .filter((t) => t.length > 0);
-  const valid = new Set<string>(WAIT_STATES);
-  const unknown = tokens.filter((t) => !valid.has(t));
-  if (tokens.length === 0 || unknown.length > 0) {
-    const offending = unknown.length > 0 ? unknown.join(", ") : "(none given)";
-    return {
-      kind: "error",
-      message: `--until: unknown state(s) ${offending} — use a comma list of: ${WAIT_STATES.join(", ")} (e.g. --until awaiting,waiting).`,
-    };
-  }
-  return { kind: "ok", targets: new Set(tokens as WaitState[]) };
+// `parseUntilStates` used to live here: the comma split, plus a `--until:`-
+// prefixed error string, inside a module that renders. `watch.ts`'s header states
+// the rule it broke — "the CLI-flag grammar (`--until`'s comma parse and its
+// error strings) stays in the face; only the surface-shaped vocabulary and the
+// watch/wait machinery live here" — and the tell was that its one caller THREW
+// the returned message away and re-spelled it, because a padi-side error cannot
+// name the three `--until` FORMS a CLI user needs. What padi owns is
+// `isWaitState` (`terminalVocab.ts`): whether a token is a bucket, and nothing
+// about commas.
+
+/** The last `tail` lines of a rendered screen, with the trailing run of
+ *  whitespace-only rows dropped first.
+ *
+ *  A pure fold over `screen.text`'s output, and it lives beside padi's other
+ *  formatters because the rule it encodes is about padi's REPLY: the rendered
+ *  buffer ends in the empty viewport below the cursor, which carries zero
+ *  information and would otherwise BE the tail (`tail: 6` on a fresh shell
+ *  returned six blank lines — a real bug, caught on the MCP face). Blank lines
+ *  BETWEEN content are kept verbatim.
+ *
+ *  It was `kolu-mcp/screenText`'s until `kolu snapshot --tail` became its second
+ *  consumer and imported it from there — a CLI verb reaching sideways into a
+ *  sibling FACE's adapter for domain knowledge, which also made `cli.ts`'s
+ *  per-face fence claim false (a terminal verb was building an MCP argument
+ *  schema at module load). Both faces now import it from the package that owns
+ *  the reply it folds. */
+export function tailLines(text: string, tail: number): string {
+  const lines = text.split("\n");
+  let end = lines.length;
+  while (end > 0 && (lines[end - 1] as string).trim() === "") end -= 1;
+  return lines.slice(Math.max(0, end - tail), end).join("\n");
 }
 
 /** Strip terminal-hostile bytes from a human-rendered value. A shell can set its

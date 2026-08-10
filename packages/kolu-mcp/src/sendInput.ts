@@ -18,13 +18,20 @@
  * Multiline text is auto-wrapped in BRACKETED PASTE (kaval-tui's auto rule):
  * the agent's input box takes it as one block instead of firing a half-written
  * prompt per `\n`. Single-line text types literally.
+ *
+ * An EMPTY `text` is refused, not written: a 0-byte write answered with success
+ * reads, to the agent whose prompt template rendered empty, exactly like a send
+ * that landed. That refusal is the shared policy's, so this face and `kolu send`
+ * give the same answer to the same intent.
  */
 
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import {
   ACCEPTED_KEY_NAMES,
-  encodeKey,
-  wrapBracketedPaste,
+  encodeSend,
+  type SendPlan,
+  type SendVocabulary,
+  sendShapeRefusal,
 } from "@kolu/terminal-protocol";
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import type { BespokeTool } from "@kolu/surface-mcp";
@@ -51,32 +58,74 @@ export const SendInputArgsSchema = Schema.Struct({
 });
 export type SendInputArgs = typeof SendInputArgsSchema.Type;
 
-/** Resolve the tool args to the raw bytes `lifecycle.sendInput` writes — pure,
- *  so the XOR matrix and the key grammar are unit-tested apart from the wire.
- *  Throws loud on: both text and key (the dropped-Enter trap), neither
- *  (nothing to send), and an unknown key name (never a silent no-op). */
+/** This face's spelling of the shared send policy — the field it names in a
+ *  refusal, and the tool-call ritual it quotes. The RULES themselves
+ *  (text-XOR-key, the unknown-key refusal, auto bracketed paste, the
+ *  empty-payload refusal) are
+ *  `@kolu/terminal-protocol`'s `sendPolicy`, shared with `kolu send`: they are
+ *  one policy about a TUI's paste debounce, not two faces' vocabularies, and
+ *  they used to be implemented independently on each — so a driver that
+ *  switched from argv to MCP could get a different answer to the same intent. */
+const MCP_SEND_VOCABULARY: SendVocabulary = {
+  keyName: "key",
+  submitRitual:
+    "  lifecycle_sendInput { text }   # 1. the text\n" +
+    "  wait_outputSettled             # 2. observe the terminal settle\n" +
+    "  lifecycle_sendInput { key: 'Enter' }   # 3. submit",
+};
+
+/** Resolve the tool args to the WRITE PLAN `lifecycle.sendInput` carries out —
+ *  pure, so the XOR matrix and the key grammar are unit-tested apart from the
+ *  wire. The plan, not the bare string, because the encoder already counted the
+ *  UTF-8 bytes it wrote and the acknowledgement below reports them: recounting
+ *  here is how the two faces would come to disagree about the size of the
+ *  identical send the next time a paste marker moves.
+ *
+ *  Throws loud on: both text and key (the dropped-Enter trap), neither (nothing
+ *  to send), an EMPTY text (a 0-byte write is a no-op, not a submit), and an
+ *  unknown key name (never a silent no-op). All but the second are the shared
+ *  policy's; this face only supplies its vocabulary.
+ *
+ *  The NEITHER-field rule is the one that stays HERE: what counts as a text
+ *  source is each face's own (this face has one field; `kolu send` has a
+ *  positional, `--file` and piped stdin), so the sentence names this face's. */
 export function resolveSendInputData(args: {
   text?: string;
   key?: string;
-}): string {
-  if (args.text !== undefined && args.key !== undefined) {
-    throw new Error(
-      "text and key can't be combined in one send — a same-breath Enter is raced by the driven TUI's paste debounce and silently dropped. Send the text, wait for the terminal to settle (wait_outputSettled), then submit Enter as its own lifecycle_sendInput call.",
-    );
-  }
+}): SendPlan {
+  const illegal = sendShapeRefusal(
+    { hasText: args.text !== undefined, hasKeys: args.key !== undefined },
+    MCP_SEND_VOCABULARY,
+  );
+  if (illegal !== undefined) throw new Error(illegal);
+
   if (args.key !== undefined) {
-    const bytes = encodeKey(args.key);
-    if (bytes === undefined) {
-      throw new Error(
-        `unknown key ${JSON.stringify(args.key)} — use a name (${ACCEPTED_KEY_NAMES}) or a chord (C-c, M-b).`,
-      );
-    }
-    return bytes;
+    const encoded = encodeSend(
+      { kind: "keys", names: [args.key] },
+      MCP_SEND_VOCABULARY,
+    );
+    if (encoded.kind === "refused") throw new Error(encoded.message);
+    return encoded.plan;
   }
   if (args.text !== undefined) {
-    // kaval-tui's auto-paste rule: a single-line argument types literally;
-    // multiline is wrapped so the agent's input box takes it as ONE block.
-    return args.text.includes("\n") ? wrapBracketedPaste(args.text) : args.text;
+    // Auto-paste with no override and no stream: a single-line argument types
+    // literally, multiline is wrapped so the agent's input box takes it as ONE
+    // block. This face has no `--paste` and no file/pipe payload, so both
+    // knobs are stated as absent rather than left to a default. `sourceLabel` is
+    // this face's ONE text source, named as the caller spells it, so an empty
+    // payload is refused as `text is empty` rather than argv's `--file "…"`.
+    const encoded = encodeSend(
+      {
+        kind: "text",
+        text: args.text,
+        sourceLabel: "text",
+        paste: undefined,
+        fromStream: false,
+      },
+      MCP_SEND_VOCABULARY,
+    );
+    if (encoded.kind === "refused") throw new Error(encoded.message);
+    return encoded.plan;
   }
   throw new Error(
     "nothing to send — pass text (to type) or key (to press, e.g. Enter).",
@@ -96,18 +145,21 @@ export const sendInputTool: BespokeTool = {
   // `surface-mcp`'s ONE CallTool edge.
   handler: (args, client) => {
     const { id, ...rest } = args as SendInputArgs;
-    const data = resolveSendInputData(rest);
+    const plan = resolveSendInputData(rest);
     return Effect.as(
-      (client as PadiSurfaceClient).surface.lifecycle.sendInput({ id, data }),
+      (client as PadiSurfaceClient).surface.lifecycle.sendInput({
+        id,
+        data: plan.write,
+      }),
       // A named acknowledgement (sendInput's procedure output is void) so the
       // driving agent sees what landed rather than an empty null. The byte count
-      // is the actual UTF-8 wire length (`data.length` counts UTF-16 code units,
-      // which lies for non-ASCII input).
+      // is the encoder's own UTF-8 total for the write it planned — the same
+      // number `kolu send` reports for the same send, paste markers included.
       {
         sent:
           rest.key !== undefined
             ? { key: rest.key }
-            : { textBytes: Buffer.byteLength(data, "utf8") },
+            : { textBytes: plan.bytes },
       },
     );
   },

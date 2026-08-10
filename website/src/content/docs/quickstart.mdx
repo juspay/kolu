@@ -27,7 +27,7 @@ flake cache so you pull the current commit.
 2. Run kolu. It serves the app on `127.0.0.1:7681`.
 
    ```sh
-   nix --refresh run github:juspay/kolu
+   nix --refresh run github:juspay/kolu -- web
    ```
 
 3. Open the local URL.
@@ -97,11 +97,11 @@ from source if the cache doesn't have it yet.
 
 ## Bind a different address
 
-By default, kolu listens on loopback. To expose it on your LAN, pass a host and
-port after `--`:
+By default, kolu listens on loopback. To expose it on your LAN, pass an address
+and port after `--`:
 
 ```sh
-nix --refresh run github:juspay/kolu -- --host 0.0.0.0 --port 8080
+nix --refresh run github:juspay/kolu -- web --bind 0.0.0.0 --port 8080
 ```
 
 Open the address you chose. You should see an empty canvas. The empty canvas is
@@ -117,12 +117,15 @@ badges, or notifications.
 
 ## Subcommands
 
-The bare command is an alias of `kolu web` — the two spellings accept the same
-flags and boot the same server, so everything above works spelled either way:
+`kolu` picks a face by name: **`kolu web`** is the server everything above runs
+on. A bare `kolu` starts nothing — it prints the subcommand list and exits,
+because with a dozen faces, silently booting a web server is a footgun rather
+than a convenience.
 
-```sh
-nix --refresh run github:juspay/kolu -- web --host 0.0.0.0 --port 8080
-```
+`kolu` also drives this host's terminals from the shell — `kolu ls`, `create`,
+`send`, `wait`, `snapshot`, `history`, `kill`, `watch`, with `--host user@box`
+to reach another machine. That is the loop the
+[agent fleets](/agent-fleets) pattern is built on.
 
 `kolu mcp` connects a **coding agent** — Claude Code, Codex, any MCP host — to
 this host's terminals over MCP (stdio), no browser involved. Register it and the

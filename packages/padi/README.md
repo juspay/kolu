@@ -202,6 +202,32 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   the native authority; kolu-server binds or mirrors it rather than supplying a
   backing shim.
 
+- **`@kolu/padi/render`** and **`@kolu/padi/read`** — the CLI faces' shared
+  view + data layers. `render` is pure formatting (the roster table's
+  `ID · STATE · REPO·BRANCH · PR · AGENT · FOREGROUND` columns, the PR/checks
+  and agent-status folds, plus `shortId` and `resolveTerminalId` — the
+  id-prefix resolution every `<id>` argument accepts, which is a pure fold over
+  an id list and so belongs on this side of the line) with no I/O; `read` is
+  the one-shot reads off the `terminals` collection — `readTerminalKeys` (the
+  live id list `resolveTerminalId` folds) and `settledSnapshot` — as Effects,
+  so a Ctrl+C tears their subscriptions down.
+  Both **graduated out of `padi-tui`** when `kolu`'s terminal verbs became
+  their second consumer, the same move and the same reason as the LIVE side
+  (`watchTerminals`/`awaitAgentState`) graduating into the `dial` entry when
+  kolu's MCP face became *its* verbatim second consumer: one padi-shaped
+  vocabulary with two faces reading it, not two copies held in lockstep by
+  JSDoc cross-reference. They stay here rather than in `@kolu/surface` because
+  they speak **padi's** records — the generic wait scaffold went the other way.
+  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, and the
+  `watch.ts` wait kit the `dial` entry re-exports — the same
+  one-cluster-one-directory shape as `terminalEndpoint/` and
+  `terminalWorkspace/`. The pure `terminalVocab.ts` they all fold over sits one
+  level UP, at the package root: the SERVER speaks it too (supervision-edge
+  delivery narrows a supervisor with `activeAgent` before writing into its
+  mailbox), and a daemon module reaching into a `cliClient/` directory would
+  point the arrow backwards. The **subpaths above are unchanged**: the directory
+  is padi's internal layout, not its public one.
+
 ## The attention flow — the supervision edge IS the subscription
 
 padi already computed WHO needs attention: the `urgency` cell's `awaitingIds` (an

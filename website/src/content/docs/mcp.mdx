@@ -74,6 +74,10 @@ to install if you already run kolu; no browser involved.
    claude mcp add kolu-prod -- kolu mcp --host nix@prod
    ```
 
+   `kolu mcp` takes the same endpoint flags every verb does, so `--socket <path>`
+   and `--state-root <dir>` name a specific **local** daemon the same way — which
+   is how you point an agent at a development kolu instead of the running one.
+
 </Steps>
 
 ## Inside a kolu terminal

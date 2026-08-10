@@ -17,9 +17,9 @@
 
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import type { PadiSurfaceClient } from "./dial.ts";
-import { WatchSubscriptionNotFound } from "./errors.ts";
-import type { PadiSettleEvent } from "./surface.ts";
+import type { PadiSurfaceClient } from "../dial.ts";
+import { WatchSubscriptionNotFound } from "../errors.ts";
+import type { PadiSettleEvent } from "../surface.ts";
 import { awaitWatchEvents } from "./watch.ts";
 
 const NAME = "campaign";

@@ -215,7 +215,7 @@ lib.mkAdoptionTest {
     systemd.user.services.kolu-new = {
       description = "kolu (padi-build-bumped) — the newer build for the padi-upgrade test";
       serviceConfig = {
-        ExecStart = "${koluNew}/bin/kolu --host 127.0.0.1 --port ${port}";
+        ExecStart = "${koluNew}/bin/kolu web --bind 127.0.0.1 --port ${port}";
         Restart = "no";
       };
       # deliberately NOT wantedBy anything — the testScript starts it by hand.

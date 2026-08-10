@@ -5,18 +5,21 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "dev": "KOLU_STATE_DIR=\"$(git rev-parse --show-toplevel)/.kolu-dev\" KOLU_PADI_STATE_DIR=\"$(git rev-parse --show-toplevel)/.kolu-dev/padi\" node --watch --import tsx src/main.ts --allow-nix-shell-with-env-whitelist default",
+    "dev": "KOLU_STATE_DIR=\"$(git rev-parse --show-toplevel)/.kolu-dev\" KOLU_PADI_STATE_DIR=\"$(git rev-parse --show-toplevel)/.kolu-dev/padi\" node --watch --import tsx src/main.ts web --allow-nix-shell-with-env-whitelist default",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run"
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
     "@kolu/padi": "workspace:*",
+    "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
     "@kolu/surface-remote": "workspace:*",
-    "cleye": "^2.3.0",
+    "@kolu/terminal-protocol": "workspace:*",
+    "@kolu/terminal-vocab": "workspace:*",
     "effect": "catalog:",
+    "kolu-common": "workspace:*",
     "kolu-mcp": "workspace:*",
     "kolu-pty": "workspace:*",
     "kolu-server": "workspace:*",
@@ -26,7 +29,6 @@
     "@kolu/daemon-test-gate": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^22.0.0",
-    "kolu-common": "workspace:*",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"
