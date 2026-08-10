@@ -41,7 +41,12 @@
  *   - it passes `middleware: koluHttpMiddleware(log)` to
  *     `NodeHttpServer.makeHandler`, and this module passes only `scope`;
  *   - it mounts the static shell layer ONLY when a built dist exists (its dev
- *     proxy serves the client), and `clientDist` here is required.
+ *     proxy serves the client), and `clientDist` here is required. That is why
+ *     kolu composes `pwaManifestLayer` and `freshStaticLayer` by hand rather
+ *     than taking `surfaceAppLayer`: it serves the manifest UNCONDITIONALLY and
+ *     the statics conditionally, and the convenience layer pairs the two —
+ *     a pairing {@link ServeSurfaceAppOptions} inherits by extending
+ *     `SurfaceAppLayerOptions`.
  *
  * Each is a real option this interface would have to grow, and none is added
  * speculatively: they land with the migration that needs them, not before.
