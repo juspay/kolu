@@ -171,10 +171,18 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
     ]);
     expect(typeof node.description).toBe("string");
     // `after` is an acknowledgement watermark, so ZERO is legal where a
-    // duration's zero is not.
+    // duration's zero is not — and its blurb must be ON THE NODE, not buried in
+    // the `allOf` branch (reusing padi's already-checked `NonNegativeInt` put it
+    // there, which this assertion caught).
     const after = property(toInputSchema(WatchNextArgsSchema), "after");
     expect(after.type).toBe("integer");
     expect(after.allOf).toEqual([{ minimum: 0 }]);
+    expect(typeof after.description).toBe("string");
+    // Same for the name: bounded, and its blurb readable by a host.
+    const name = property(toInputSchema(WatchNextArgsSchema), "name");
+    expect(name.type).toBe("string");
+    expect(name.allOf).toEqual([{ minLength: 1 }, { maxLength: 128 }]);
+    expect(typeof name.description).toBe("string");
   });
 
   it("wait_agentState advertises the three buckets as a literal enum", () => {

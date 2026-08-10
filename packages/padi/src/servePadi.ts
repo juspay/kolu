@@ -295,9 +295,11 @@ export function buildPadiSurfaceDeps(deps: {
   const settleEvents = createSettleEvents({ log });
   const watchRegistry = createWatchRegistry({
     log,
-    // A fresh subscription is acknowledged up to the daemon's CURRENT sequence,
-    // so it reports what happens next rather than replaying history.
-    initialCursor: () => settleEvents.lastSeq(),
+    // The daemon's CURRENT settle sequence — where a fresh subscription starts
+    // acknowledged, and the ceiling an acknowledgement is sanity-checked against
+    // (a cursor from a previous padi generation would otherwise set a watermark
+    // no future event could climb past).
+    daemonSeq: () => settleEvents.lastSeq(),
   });
   const supervision = createSupervisionDelivery({
     write: (id, data) => {
@@ -635,7 +637,7 @@ export function buildPadiSurfaceDeps(deps: {
           handle(() => {
             // `open` answers `reattached` itself — the registry is the only thing
             // that can know it without a race, and it seeds a fresh
-            // subscription's cursor from the `initialCursor` it was built with.
+            // subscription's watermark from the `daemonSeq` it was built with.
             const { sub, reattached } = watchRegistry.open(
               input.name,
               input.ids,

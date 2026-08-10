@@ -22,21 +22,31 @@
  */
 
 import { awaitWatchEvents, type PadiSurfaceClient } from "@kolu/padi/dial";
-import type { PadiSettleEvent } from "@kolu/padi/surface";
+import {
+  type PadiSettleEvent,
+  WATCH_NAME_MAX_LENGTH,
+} from "@kolu/padi/surface";
 import { waitOutcomeJson } from "@kolu/surface/wait";
 import { MillisecondsSchema } from "./wait.ts";
 import type { BespokeTool } from "@kolu/surface-mcp";
 import { Effect, Schema } from "effect";
 
 export const WatchNextArgsSchema = Schema.Struct({
+  // ANNOTATE FIRST, CHECK SECOND — the trap `wait.ts`'s `MillisecondsSchema`
+  // documents and `argSchemas.test.ts` pins: annotating an ALREADY-checked schema
+  // attaches the blurb to its last check, which is emitted inside an `allOf`
+  // branch no MCP host reads. That is why these spell their own schema over the
+  // wire's exported BOUND rather than reusing padi's checked `WatchNameSchema` /
+  // `NonNegativeInt` objects — the number is shared, the annotation order is the
+  // face's own requirement.
   name: Schema.String.annotate({
     description:
       "The subscription name you passed to watch_open. Reuse the SAME name across restarts — it reattaches to the existing queue.",
-  }).check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+  }).check(Schema.isMinLength(1), Schema.isMaxLength(WATCH_NAME_MAX_LENGTH)),
   after: Schema.optionalKey(
     Schema.Number.annotate({
       description:
-        "The `ackAfter` value from the last batch you actually PROCESSED — your acknowledgement. Omit on your first call, then pass back the `ackAfter` each result gives you. Until you acknowledge, those events stay queued and come again: that is what makes a reply lost in flight (a timeout, an interruption) cost a repeat rather than a lost report.",
+        "The `ackAfter` value from the last batch you actually PROCESSED — your acknowledgement. Omit on your first call, then pass back the `ackAfter` each result gives you. Until you acknowledge, those events stay queued and come again: that is what makes a reply lost in flight (a timeout, an interruption) cost a repeat rather than a lost report. Do NOT carry one across a kolu restart — padi says so and ignores it, but a fresh watch_open deserves a fresh cursor.",
     }).check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
   ),
   // The SHARED milliseconds field — same annotate-then-check ordering trap

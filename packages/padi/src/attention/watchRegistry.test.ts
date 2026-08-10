@@ -25,9 +25,18 @@ const event = (
   at: 1_700_000_000_000,
 });
 
+/** A registry whose `daemonSeq` tracks the module counter `event()` mints from —
+ *  i.e. the daemon's real high-water mark, which is what the stale-cursor guard
+ *  checks an acknowledgement against. A test that wants to model a cursor from a
+ *  PREVIOUS daemon generation overrides it. */
 const registry = (
-  opts: { limit?: number; initialCursor?: () => number } = {},
-): WatchRegistry => createWatchRegistry({ log: silentLogger, ...opts });
+  opts: { limit?: number; subLimit?: number; daemonSeq?: () => number } = {},
+): WatchRegistry =>
+  createWatchRegistry({
+    log: silentLogger,
+    daemonSeq: () => seq,
+    ...opts,
+  });
 
 /** Accept one frame carrying a single event — the shape most of these pins want.
  *  `accept` takes a FRAME because that is what the source emits. */
@@ -97,7 +106,7 @@ describe("watch registry", () => {
     // to the sinks. Letting that frame land would make the subscription's own
     // promise — "reports what happens NEXT" — false on its very first drain.
     const stale = event("a");
-    const r = registry({ initialCursor: () => stale.seq });
+    const r = registry({ daemonSeq: () => stale.seq });
     r.open("late");
     r.accept([stale]); // exactly AT the watermark — already declined history
     expect(r.drain("late").events).toEqual([]);
@@ -107,7 +116,7 @@ describe("watch registry", () => {
 
   it("a FRESH subscription starts acknowledged at the daemon's current sequence", () => {
     let clock = 0;
-    const r = registry({ initialCursor: () => clock });
+    const r = registry({ daemonSeq: () => clock });
     clock = 41;
     const { sub, reattached } = r.open("late");
     expect(reattached).toBe(false);
@@ -167,6 +176,40 @@ describe("watch registry", () => {
     // Zeroing the whole counter would erase these two exactly as silently as the
     // truncation this module refuses to do.
     expect(r.drain("campaign", first.ackAfter).dropped).toBe(2);
+  });
+
+  it("IGNORES an acknowledgement from a previous daemon generation — the restart-recovery trap", () => {
+    // `seq` restarts at 0 on every padi boot while a supervisor keeps passing
+    // back the `ackAfter` it remembers, and nothing on the wire tells it a
+    // restart happened. Taken as truth, that cursor sets a watermark no future
+    // event can climb past and `accept` discards every settle for the rest of
+    // the daemon's life — silent, permanent blindness, which is the exact
+    // failure this module exists to remove.
+    let clock = 0;
+    const r = registry({ daemonSeq: () => clock });
+    r.open("campaign");
+    // A cursor from before the restart, far beyond anything this daemon emitted.
+    r.drain("campaign", 5_000);
+    // The daemon's own sequence advances normally afterwards.
+    const fresh = event("a");
+    clock = fresh.seq;
+    r.accept([fresh]);
+    expect(r.drain("campaign").events.map((e) => e.id)).toEqual(["a"]);
+  });
+
+  it("REFUSES to open past the subscription cap rather than evicting somebody else's queue", () => {
+    const r = registry({ subLimit: 2 });
+    r.open("one");
+    r.open("two");
+    // Re-opening an EXISTING name is always fine — that is the reuse the cap is
+    // there to encourage.
+    expect(() => r.open("one")).not.toThrow();
+    // A third NAME is refused: evicting a queue to make room would blind a
+    // supervisor that did nothing wrong.
+    expect(() => r.open("three")).toThrow(/already open/);
+    // And the existing queues are untouched.
+    acceptOne(r, "a");
+    expect(r.drain("one").events).toHaveLength(1);
   });
 
   it("REFUSES a drain against a name nobody opened, naming what IS open", () => {

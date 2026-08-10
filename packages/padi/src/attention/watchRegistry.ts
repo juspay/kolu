@@ -50,6 +50,17 @@ import type { SettleEvent } from "./settleEvents.ts";
  *  to turn over 25 times each before a drop is even possible. */
 export const WATCH_BUFFER_LIMIT = 512;
 
+/** How many subscriptions one daemon will hold at once.
+ *
+ *  The per-subscription buffer was capped from the start; the COLLECTION was
+ *  not, and `watch.open` is reachable from any MCP client. A supervisor that
+ *  derives a fresh name per call — a bug, a retry loop, or just many short-lived
+ *  agents that never close — would otherwise leak one subscription per call for
+ *  the daemon's lifetime. Generous: a real campaign runs a handful of named
+ *  subscriptions, so hitting this means something is minting names, which is
+ *  worth being told about rather than absorbing. */
+export const WATCH_SUBSCRIPTION_LIMIT = 64;
+
 export interface WatchSubscription {
   readonly name: string;
   /** The terminals this subscription cares about — `undefined` means every
@@ -128,15 +139,20 @@ export interface WatchRegistry {
 export function createWatchRegistry(opts: {
   log: Logger;
   limit?: number;
-  /** The sequence a FRESH subscription starts acknowledged at, so it reports
-   *  what happens NEXT rather than replaying edges the supervisor already
-   *  acted on. Injected rather than read from a module global, so the registry
-   *  owns the whole of `open`'s answer and no caller has to reach past it. */
-  initialCursor?: () => number;
+  /** How many subscriptions may be open at once. */
+  subLimit?: number;
+  /** The daemon's CURRENT settle sequence. Two jobs, both needing the same
+   *  fact: it is where a FRESH subscription starts acknowledged (so it reports
+   *  what happens NEXT rather than replaying edges the supervisor already acted
+   *  on), and it is the CEILING an acknowledgement is checked against. Injected
+   *  rather than read from a module global, so the registry owns the whole of
+   *  `open`'s answer and no caller has to reach past it. */
+  daemonSeq?: () => number;
 }): WatchRegistry {
   const { log } = opts;
   const limit = opts.limit ?? WATCH_BUFFER_LIMIT;
-  const initialCursor = opts.initialCursor ?? (() => 0);
+  const daemonSeq = opts.daemonSeq ?? (() => 0);
+  const subLimit = opts.subLimit ?? WATCH_SUBSCRIPTION_LIMIT;
   const subs = new Map<string, WatchSubscription>();
   // Doorbell listeners, keyed by NAME rather than held on the subscription, so a
   // pulse stream opened first — or one that outlives a close/re-open — keeps
@@ -207,6 +223,18 @@ export function createWatchRegistry(opts: {
         subs.set(name, next);
         return { sub: next, reattached: true };
       }
+      // A NEW name, so this is where the collection itself can grow. Refuse
+      // rather than evict: evicting somebody else's queue to make room would
+      // silently blind a supervisor that did nothing wrong, which is the one
+      // outcome this module never trades for. Hitting the cap means something is
+      // minting names instead of reusing one, and the error says so with the
+      // names already open — the same "tell them what IS subscribed" answer the
+      // not-found error gives.
+      if (subs.size >= subLimit) {
+        throw new Error(
+          `cannot open standing subscription "${name}": ${subs.size} are already open (limit ${subLimit}). Subscriptions are meant to be REUSED by name across restarts, not minted per call — close the ones you are done with (open: ${[...subs.keys()].join(", ")}).`,
+        );
+      }
       const sub: WatchSubscription = {
         name,
         ...(scope === undefined ? {} : { ids: scope }),
@@ -215,7 +243,7 @@ export function createWatchRegistry(opts: {
         // happens next rather than replaying edges the supervisor already acted
         // on. A re-attach (above) keeps the watermark it had, which is exactly
         // what preserves what it missed while away.
-        acknowledged: initialCursor(),
+        acknowledged: daemonSeq(),
         dropped: 0,
         reportedDropped: 0,
       };
@@ -254,7 +282,30 @@ export function createWatchRegistry(opts: {
 
     drain(name, after) {
       const sub = require_(name);
-      // ACKNOWLEDGE first. `after` is the highest seq the caller has actually
+      // A CURSOR FROM ANOTHER DAEMON GENERATION IS NOT AN ACKNOWLEDGEMENT.
+      // `seq` restarts at 0 on every padi boot, while a supervisor is told to
+      // keep passing back the `ackAfter` it last saw and is given no way to spot
+      // a restart. So the ordinary recovery path — padi restarts, the drain
+      // raises `WatchSubscriptionNotFound`, the agent re-opens and retries with
+      // the cursor it remembers — hands us a number far above anything this
+      // daemon has emitted. Taken as truth it would set a watermark no future
+      // event can climb past, and `accept` would discard every settle for the
+      // rest of the daemon's life: silent, permanent blindness, which is the
+      // exact failure this module exists to remove.
+      //
+      // IGNORE it rather than clamp it. Clamping to the current sequence would
+      // acknowledge events this caller has never seen; ignoring re-delivers at
+      // worst, and re-delivery is already the contract (at-least-once, dedupe on
+      // `seq`). Loud, because the caller's bookkeeping is genuinely desynced.
+      const ceiling = daemonSeq();
+      if (after !== undefined && after > ceiling) {
+        log.warn(
+          { name, after, daemonSeq: ceiling },
+          "watch drain: acknowledgement is beyond anything this daemon has emitted (a cursor from a previous padi generation) — ignoring it; the queue is intact and will be re-delivered",
+        );
+        after = undefined;
+      }
+      // ACKNOWLEDGE. `after` is the highest seq the caller has actually
       // processed; everything at or below it is now safe to forget. Anything
       // above it stays — so a reply lost in flight (a host's call timeout, an
       // interrupted agent, a dropped socket) costs a repeat, never an event.

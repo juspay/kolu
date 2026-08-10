@@ -942,9 +942,16 @@ export type PadiSettleEvent = typeof PadiSettleEventSchema.Type;
 /** A subscription NAME — caller-chosen and stable across restarts, which is the
  *  point: re-opening the same name after the agent, the MCP process, or kaval
  *  restarted reattaches to the same queue instead of minting an empty one. */
+/** The cap on a subscription name. Exported as the BOUND rather than as the
+ *  checked schema: an MCP arg schema must annotate BEFORE it checks (or the
+ *  blurb is buried in an `allOf` branch no host reads — see `kolu-mcp`'s
+ *  `MillisecondsSchema`), so a face reuses this NUMBER and spells its own
+ *  annotate-first schema over it. */
+export const WATCH_NAME_MAX_LENGTH = 128;
+
 const WatchNameSchema = Schema.String.check(
   Schema.isMinLength(1),
-  Schema.isMaxLength(128),
+  Schema.isMaxLength(WATCH_NAME_MAX_LENGTH),
 );
 
 export const PadiWatchOpenInputSchema = Schema.Struct({

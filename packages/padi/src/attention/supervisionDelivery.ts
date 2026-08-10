@@ -35,6 +35,7 @@
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
+import { match } from "ts-pattern";
 import { activeAgent, type PadiTerminal } from "../surface.ts";
 import type { SettleEvent } from "./settleEvents.ts";
 
@@ -111,16 +112,31 @@ function settleSentence(event: SettleEvent): string {
   const safeIntent =
     event.intent === undefined ? "" : ptySafe(event.intent, INTENT_BUDGET);
   const intent = safeIntent === "" ? "" : ` (${safeIntent})`;
-  if (event.kind === "gone") {
-    // A departure has no screen left to read, so the instruction differs: there
-    // is nothing to respond to, only a lane to account for.
-    return `Worker terminal ${event.id}${intent} is gone — it exited, was killed, or its id was retired. Do not wait for it.`;
-  }
-  const what =
-    event.kind === "asking"
-      ? "is asking for input"
-      : "finished its turn and went quiet";
-  return `Worker terminal ${event.id}${intent} ${what}. Read it with screen_text and respond — nobody else was told.`;
+  // `exhaustive()` is the point: a fourth `SettleKind` becomes a compile error
+  // HERE, rather than silently taking the "finished" wording because it fell
+  // through a ternary. The repo's convention for a union dispatch with real
+  // per-branch content (newTerminalTheme, transcript, resolve, fold all use it).
+  return (
+    match(event.kind)
+      // A departure has no screen left to read, so the instruction differs: there
+      // is nothing to respond to, only a lane to account for.
+      .with(
+        "gone",
+        () =>
+          `Worker terminal ${event.id}${intent} is gone — it exited, was killed, or its id was retired. Do not wait for it.`,
+      )
+      .with(
+        "asking",
+        () =>
+          `Worker terminal ${event.id}${intent} is asking for input. Read it with screen_text and respond — nobody else was told.`,
+      )
+      .with(
+        "finished",
+        () =>
+          `Worker terminal ${event.id}${intent} finished its turn and went quiet. Read it with screen_text and respond — nobody else was told.`,
+      )
+      .exhaustive()
+  );
 }
 
 /** The line a supervisor receives for ONE frame's worth of its lanes. Prefixed
