@@ -182,8 +182,8 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   },
   {
     path: "packages/surface-app/example/src/server/main.ts",
-    sites: 1,
-    why: "the example server's node `request` callback — the same boundary `packages/server/src/index.ts` carries, spelled out for a reader who will copy it",
+    sites: 2,
+    why: "boot and shutdown of the listener's ONE scope, in a top-level script: `serveSurfaceApp(...)` at module load, and `Scope.close` inside the SIGINT/SIGTERM handler — a node signal callback is a non-Effect runtime, so the close cannot compose into the boot. The `request`-callback edge this file used to carry is GONE: `serveSurfaceApp` owns that boundary now, which is the whole point of the primitive",
   },
   {
     path: "packages/surface-app/src/connect.ts",

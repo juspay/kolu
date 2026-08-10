@@ -26,10 +26,13 @@ can change it later without touching a single call site.
 | A subprocess, or a remote box over ssh | `stdioLink({ group, read, write })` | `@kolu/surface/links/stdio` |
 
 Match each to its serve side: nothing for `directDispatch` (it calls the handlers
-directly), `serveSurfaceSocket` from `@kolu/surface-app/server` for the browser,
-`serveOverUnixSocket` for the daemon, `serveOverStdio` for the subprocess or ssh
-peer. Every one of those takes the same `{ group, handlers }` pair
-`implementSurface` returns.
+directly), `serveSurfaceApp` from `@kolu/surface-app/serve` for the browser —
+the turnkey one, which owns the whole listener (shell and socket, gates,
+heartbeat, bind and teardown) — `serveOverUnixSocket` for the daemon,
+`serveOverStdio` for the subprocess or ssh peer. Every one of those takes the
+same `{ group, handlers }` pair `implementSurface` returns. Reach past it to the
+granular `serveSurfaceSocket` (`@kolu/surface-app/server`) only when the app owns
+its own listener — routing each upgrade to a different runtime by `?host=`, say.
 
 - **`directDispatch`** is the identity element: hand it the served surface itself
   — `directDispatch(implementSurface(surface, deps))` — and every call runs the

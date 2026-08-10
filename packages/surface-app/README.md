@@ -7,6 +7,22 @@ delivered *around* it: served fresh (a returning client always converges to the
 build you deployed), installable, and liveness-watched by construction — no
 caching service worker, ever.
 
+Serving is **one call**, which owns the listener's whole order — origin gate →
+upgrade → stale-tab check → heartbeat enrolment → serve — plus the shell HTTP
+layers, the bind, and a teardown registered on the enclosing scope:
+
+```ts
+import { serveSurfaceApp } from "@kolu/surface-app/serve";
+
+// `{ group, handlers }` is what `implementSurface` returned; the runtime's own
+// close/done stay with the composition root that built it.
+const url = yield* serveSurfaceApp({
+  group, handlers, clientDist, host, port, allowedOrigins,
+});
+```
+
+Connecting is one call too:
+
 ```ts
 import { connectSurface } from "@kolu/surface-app/solid";
 import { reloadForUpdate } from "@kolu/surface-app/lifecycle";
