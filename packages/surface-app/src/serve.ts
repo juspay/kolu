@@ -276,9 +276,6 @@ export type SurfaceAppHttpMiddleware = <E, R>(
   R | HttpServerRequest.HttpServerRequest
 >;
 
-/** The neutral element: what "no middleware" means, spelled once. */
-const passThroughMiddleware: SurfaceAppHttpMiddleware = (httpApp) => httpApp;
-
 /** Everything `serveSurfaceApp` needs. The required half is the app's identity —
  *  what is served on the wire, what is served over HTTP, and where. Every option
  *  below it is observational or a shell-freshness passthrough. */
@@ -377,17 +374,21 @@ export const serveSurfaceApp = <Svc = never>(
       "request",
       yield* Effect.gen(function* () {
         const httpEffect = yield* HttpRouter.toHttpEffect(app);
-        // Resolved to the identity wrapper rather than passed through as
-        // `Middleware | undefined`: `makeHandler` derives the handler's whole
-        // requirement from the middleware's RESULT, and an optional one leaves
-        // that inference with nothing to read (the requirement lands as
-        // `unknown`, which no scope can discharge). "No middleware" is the
-        // neutral element of a wrapper, and saying so is what keeps the type
-        // concrete.
-        return yield* NodeHttpServer.makeHandler(httpEffect, {
-          scope: httpScope,
-          middleware: options.middleware ?? passThroughMiddleware,
-        });
+        // BRANCHED rather than passed through as `Middleware | undefined`, for
+        // two independent reasons. Types: `makeHandler` derives the handler's
+        // whole requirement from the middleware's RESULT, and an optional one
+        // leaves that inference nothing to read — the requirement lands as
+        // `unknown`, which no scope can discharge. Behaviour: `makeHandler` does
+        // not treat "no middleware" and "a middleware that returns its argument"
+        // alike — it wraps a supplied one in an extra outer failure arm — so an
+        // identity default would quietly change the shape of the path every
+        // caller that passes no middleware is already on.
+        return yield* options.middleware === undefined
+          ? NodeHttpServer.makeHandler(httpEffect, { scope: httpScope })
+          : NodeHttpServer.makeHandler(httpEffect, {
+              scope: httpScope,
+              middleware: options.middleware,
+            });
       }).pipe(
         Scope.provide(httpScope),
         // The platform services the static layer asks for — file system, path,
