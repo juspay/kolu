@@ -422,6 +422,47 @@ describe("defaultSelectionIndex", () => {
     ]);
   });
 
+  // The seat and the highlight share ONE argmax (`toggleTarget`). The guard
+  // that used to live only in `defaultSelectionIndex` — "never the row you are
+  // already on" — is the one the band leaned on its CALLER to have applied
+  // upstream. Hand the band a list that still contains the active tile and the
+  // two answers must still be the same row: the band must not spend its
+  // reserved seat on the row the highlight is required to skip.
+  it("the reserved seat is never spent on the row the highlight must skip", () => {
+    const rows: IndexableItem[] = [
+      // Warmest visit in the list, and the tile you are ON.
+      item("active", "terminal", {
+        recencyAt: 0,
+        visitedAt: 900,
+        hostKey: "local",
+        terminalId: TID_A,
+      }),
+      item("came-from", "terminal", {
+        recencyAt: 0,
+        visitedAt: 400,
+        hostKey: "local",
+        terminalId: TID_B,
+      }),
+      ...[1, 2, 3].map((n) =>
+        item(`chatty-${n}`, "terminal", {
+          recencyAt: 9_000_000 + n,
+          visitedAt: 0,
+          hostKey: "local",
+          terminalId: `ffffffff-bbbb-4ccc-8ddd-00000000000${n}`,
+        }),
+      ),
+    ];
+    const ranked = filterAndRankPaletteItems(rows, {
+      query: "",
+      atRoot: true,
+      current: onLocalTerminal(TID_A),
+    });
+    expect(ranked).toHaveLength(RECENT_TERMINAL_LIMIT);
+    expect(ranked.map((i) => i.name)).toContain("came-from");
+    const idx = defaultSelectionIndex(ranked, onLocalTerminal(TID_A), "");
+    expect(ranked[idx]?.name).toBe("came-from");
+  });
+
   // ⌘⇧K browse lists every terminal INCLUDING the active one, in host order —
   // the rule skips it and picks the most recently visited of the rest.
   it("skips the active terminal in a list that still contains it", () => {

@@ -145,6 +145,36 @@ function rowVisitedAt(item: IndexableItem): number {
   return item.row?.visitedAt ?? 0;
 }
 
+/** The row a no-query Enter should land on among `items` — the one YOU visited
+ *  most recently, never the one you are already on.
+ *
+ *  **The ONE answer**, and that is the whole point: {@link recentBand} reserves a
+ *  seat for it and {@link defaultSelectionIndex} points the highlight at it, and
+ *  the reserved seat's guarantee is only worth anything while those two agree
+ *  about which row it is. They used to be two `reduce`s in this one file with
+ *  two different guard sets — the band's excluded nothing and leaned on its
+ *  caller having filtered the active tile out upstream, the highlight's excluded
+ *  the current row and every non-leading kind. Give either one a new condition
+ *  and the band reserves a seat the highlight will not land on: the exact defect
+ *  the seat exists to prevent, one edit away. Now it cannot be spelled.
+ *
+ *  The `> 0` guard says "no visit behind it, no claim on the toggle" out loud,
+ *  rather than leaving it to emerge from a `>` comparison over zeroes. */
+function toggleTarget<T extends IndexableItem>(
+  items: readonly T[],
+  current?: CurrentSelection | null,
+): T | undefined {
+  let best: T | undefined;
+  for (const item of items) {
+    if (rowVisitedAt(item) <= 0) continue;
+    if (current && isCurrentRow(item, current)) continue;
+    if (best === undefined || rowVisitedAt(item) > rowVisitedAt(best)) {
+      best = item;
+    }
+  }
+  return best;
+}
+
 /** The empty-root **Recent** band: the warmest {@link RECENT_TERMINAL_LIMIT}
  *  candidates, in warmth order — **with the row you last visited guaranteed a
  *  seat.**
@@ -162,19 +192,17 @@ function rowVisitedAt(item: IndexableItem): number {
  *  takes its honest position, which is usually last — the highlight is what
  *  points at it, not its rank. A candidate set with no visits behind it (a
  *  fresh tab) reserves nothing and the band is the plain top N. */
-function recentBand<T extends IndexableItem>(candidates: readonly T[]): T[] {
+function recentBand<T extends IndexableItem>(
+  candidates: readonly T[],
+  current?: CurrentSelection | null,
+): T[] {
   const byWarmth = [...candidates].sort((a, b) => rankOf(b) - rankOf(a));
   if (byWarmth.length <= RECENT_TERMINAL_LIMIT) return byWarmth;
   const kept = new Set(byWarmth.slice(0, RECENT_TERMINAL_LIMIT));
-  const target = candidates.reduce<T | null>(
-    (best, item) =>
-      rowVisitedAt(item) > 0 &&
-      (best === null || rowVisitedAt(item) > rowVisitedAt(best))
-        ? item
-        : best,
-    null,
-  );
-  if (target !== null && !kept.has(target)) {
+  // The SAME argmax the highlight uses — see {@link toggleTarget}. The seat and
+  // the highlight are now one answer read twice, not two reduces that matched.
+  const target = toggleTarget(candidates, current);
+  if (target !== undefined && !kept.has(target)) {
     // Evict the coldest row we were keeping — never the warmest, and never a
     // row that is itself the target.
     const coldest = byWarmth[RECENT_TERMINAL_LIMIT - 1];
@@ -214,6 +242,7 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
       matched
         .filter((item) => itemKind(item) === "terminal")
         .filter((item) => !isActiveTerminalRow(item, opts.current)),
+      opts.current,
     );
     const hosts = matched.filter((item) => itemKind(item) === "host");
     const commands = matched
@@ -263,13 +292,12 @@ export function defaultSelectionIndex(
   const lead = items[0];
   if (lead === undefined) return 0;
   const kind = itemKind(lead);
-  const best = items.reduce<{ i: number; rank: number } | null>(
-    (acc, item, i) => {
-      if (itemKind(item) !== kind || isCurrentRow(item, current)) return acc;
-      const rank = rowVisitedAt(item);
-      return acc === null || rank > acc.rank ? { i, rank } : acc;
-    },
-    null,
-  );
-  return best?.i ?? 0;
+  const leading = items.filter((item) => itemKind(item) === kind);
+  const target = toggleTarget(leading, current);
+  if (target !== undefined) return items.indexOf(target);
+  // Nothing in the leading band has a visit behind it — everything ties at 0.
+  // Land on the first row that is not the one you are already on, so the chord
+  // is still a toggle rather than a no-op.
+  const firstOther = leading.find((item) => !isCurrentRow(item, current));
+  return firstOther === undefined ? 0 : items.indexOf(firstOther);
 }
