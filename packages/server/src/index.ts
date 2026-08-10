@@ -1,10 +1,4 @@
 import {
-  createServer as createHttpServer,
-  type IncomingMessage,
-} from "node:http";
-import { createServer as createHttpsServer } from "node:https";
-import { NodeHttpServer } from "@effect/platform-node";
-import {
   artifactSdkBundleLayer,
   type SdkScriptPath,
   withArtifactSdk,
@@ -27,15 +21,9 @@ import {
 } from "@kolu/padi/surface";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClientRef } from "@kolu/surface/project";
-import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
-import { SURFACE_WS_PATH } from "@kolu/surface-app";
-import { hostAuthority } from "@kolu/url-shape";
-import {
-  acceptSurfaceSocket,
-  freshStaticLayer,
-  pwaManifestLayer,
-  serveSurfaceSocket,
-} from "@kolu/surface-app/server";
+import { parseAllowedOrigins } from "@kolu/surface/ws-origin";
+import type { ManifestOptions } from "@kolu/surface-app/server";
+import { serveSurfaceApp } from "@kolu/surface-app/serve";
 import {
   buildRemotePool,
   type ReServedSurface,
@@ -54,7 +42,6 @@ import {
   type PadiEntryFailure,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
-import { type WebSocket, WebSocketServer } from "ws";
 import type { KoluBootFlags } from "./bootFlags.ts";
 import { healthRouteLayer } from "./healthRoute.ts";
 import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
@@ -930,16 +917,17 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // it. The ws-upgrade gate (`gateWsOrigin`, below) is untouched and still
   // load-bearing. Same call the surface examples made in W2.
 
-  // --- The HTTP app: ONE composed router layer --------------------------------
+  // --- kolu's OWN routes: one composed router layer ---------------------------
   //
-  // Every route kolu-server serves is an `HttpRouter` layer, merged here and
-  // turned into a node request handler at the listen site below. Registration
-  // ORDER carries no meaning any more: the router ranks by SPECIFICITY, so the
-  // literal `/api/health`, the parameterised preview pattern and static's `/*`
-  // catch-all each win where they should whatever order they were merged in.
-  // (Under hono the preview route had to be registered before the static
-  // catch-all or `serveStatic`'s `/*` shadowed it; that ordering constraint died
-  // with hono.)
+  // Every route kolu-server serves beyond the shell is an `HttpRouter` layer,
+  // merged here and handed to `serveSurfaceApp` as its `routes` (the shell
+  // itself — the manifest and, in production, the static bundle — is that call's
+  // business, not this layer's). Registration ORDER carries no meaning: the
+  // router ranks by SPECIFICITY, so the literal `/api/health`, the parameterised
+  // preview pattern and the shell's `/*` catch-all each win where they should
+  // whichever way round they were merged. (Under hono the preview route had to be
+  // registered before the static catch-all or `serveStatic`'s `/*` shadowed it;
+  // that ordering constraint died with hono.)
 
   /** Where the in-iframe artifact-sdk bundle is served AND the `src` the HTML
    *  decorator injects — one constant, so the route and the tag cannot drift. */
@@ -953,7 +941,47 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // Vite, which proxies `/api`, `/manifest.webmanifest` and `/rpc` here), so the
   // static layer is simply absent and an unmatched path 404s through the
   // router's own `RouteNotFound` — which is exactly what `ci::dev-smoke` proves.
+  // `undefined` is how `serveSurfaceApp` is told there is no bundle.
   const clientDist = process.env.KOLU_CLIENT_DIST;
+
+  // --- The dynamic PWA manifest (it carries the hostname) ---
+  // Served UNCONDITIONALLY, dist or no dist: in dev the Vite proxy forwards
+  // `/manifest.webmanifest` here, so it must answer with no built client. That
+  // used to force this file to hand-compose `pwaManifestLayer` +
+  // `freshStaticLayer`, because the convenience layer PAIRED the manifest with
+  // the dist; `surfaceAppLayer` mounts the two independently now, so both are
+  // plain options on the one listener call below.
+  const manifest: ManifestOptions = {
+    name: pwaIdentity.name,
+    // `...extra` passthrough in pwaManifestLayer carries these through to the
+    // served manifest — they upgrade Chromium's native install card (and the
+    // pwa-install preview) from a bare icon to a richer app entry.
+    description:
+      "Real terminals on an infinite canvas — run any coding agent, pin it as an app, reach it from anywhere.",
+    // Deep-link PWA capture: an in-scope https link (`#/t/…`, `#/h/…`, …) focuses
+    // the ALREADY-OPEN installed window and hands the URL to the app's
+    // `launchQueue`, instead of spawning a second window. Rides the `...extra`
+    // passthrough (a plain manifest key — no surface-app change). See the
+    // deep-links Atlas note + `useDeepLinks`.
+    launch_handler: { client_mode: "focus-existing" },
+    themeColor: pwaIdentity.themeColor,
+    backgroundColor: PWA_BACKGROUND_COLOR,
+    icons: [
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      // Maskable variant (logo inside the safe zone on the brand background) so
+      // installed icons fill the OS mask instead of being letterboxed.
+      {
+        src: "/icon-512-maskable.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
+    ],
+    // No `screenshots`: they only prettify the install card (install works without
+    // them), and committed product shots go stale as the UI moves. Not worth the
+    // maintenance — the icon + description carry the install entry.
+  };
 
   const appLayer = Layer.mergeAll(
     // `/api/health` — the liveness probe four independent consumers freeze; see
@@ -987,55 +1015,6 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       PREVIEW_ROUTE_PATTERN,
       withArtifactSdk(SDK_SCRIPT_PATH)(previewRouteHandler({ pool, log })),
     ),
-
-    // --- Dynamic PWA manifest (includes hostname) ---
-    // Served UNCONDITIONALLY — in dev the Vite proxy forwards
-    // `/manifest.webmanifest` here, so it must exist with no built client. That
-    // is why kolu composes the two granular surface-app layers by hand instead
-    // of taking `surfaceAppLayer`, which pairs the manifest with the dist.
-    pwaManifestLayer({
-      name: pwaIdentity.name,
-      // `...extra` passthrough in pwaManifestLayer carries these through to the
-      // served manifest — they upgrade Chromium's native install card (and the
-      // pwa-install preview) from a bare icon to a richer app entry.
-      description:
-        "Real terminals on an infinite canvas — run any coding agent, pin it as an app, reach it from anywhere.",
-      // Deep-link PWA capture: an in-scope https link (`#/t/…`, `#/h/…`, …) focuses
-      // the ALREADY-OPEN installed window and hands the URL to the app's
-      // `launchQueue`, instead of spawning a second window. Rides the `...extra`
-      // passthrough (a plain manifest key — no surface-app change). See the
-      // deep-links Atlas note + `useDeepLinks`.
-      launch_handler: { client_mode: "focus-existing" },
-      themeColor: pwaIdentity.themeColor,
-      backgroundColor: PWA_BACKGROUND_COLOR,
-      icons: [
-        { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-        { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-        // Maskable variant (logo inside the safe zone on the brand background) so
-        // installed icons fill the OS mask instead of being letterboxed.
-        {
-          src: "/icon-512-maskable.png",
-          sizes: "512x512",
-          type: "image/png",
-          purpose: "maskable",
-        },
-      ],
-      // No `screenshots`: they only prettify the install card (install works without
-      // them), and committed product shots go stale as the UI moves. Not worth the
-      // maintenance — the icon + description carry the install entry.
-    }),
-
-    // --- Static files (production) ---
-    // surface-app's freshness contract on the wire: no-store shell, immutable
-    // hashed `/assets/*`, 404 on an asset miss (never the HTML shell), the `/sw.js`
-    // worker, and the SPA fallback. `serviceWorker: "notify"` serves the fetch-less
-    // notification worker (kolu fires agent-finished alerts via
-    // `ServiceWorkerRegistration.showNotification()`, the only notification path
-    // that works in an installed PWA). Pairs with `registerServiceWorker()` in the
-    // client's `index.tsx`.
-    clientDist
-      ? freshStaticLayer({ root: clientDist, serviceWorker: "notify" })
-      : Layer.empty,
   );
 
   // (SR8.c: `padiLink` + `processStartedAt` are now PUSH-source derived cells scanning the
@@ -1046,219 +1025,194 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   const tlsOptions = await resolveTlsOptions(flags);
 
   // `bind` is the flag's name (`kolu web --bind`); `host` stays the local name
-  // because that is the key `server.listen` takes.
+  // because that is the key the listener takes.
   const { bind: host, port } = flags;
 
-  // --- Start server ---
-  // kolu-server OWNS the node `http(s).Server` and hands its `request` event an
-  // Effect handler, instead of letting `HttpServer.serve` own the listener. That
-  // ownership is what leaves the `upgrade` event to the ws seam below: node fans
-  // an event out to EVERY listener, so a framework-installed upgrade listener
-  // would ALSO run the http app for a socket we have already upgraded and write
-  // a 404 into it. The ws seam must stay the ONLY `upgrade` listener here.
-  const server = tlsOptions
-    ? createHttpsServer(tlsOptions)
-    : createHttpServer();
+  // --- Start serving: the shell over HTTP, the surface over ONE websocket -----
+  //
+  // ONE call. `serveSurfaceApp` (`@kolu/surface-app/serve`) owns the node
+  // `http(s).Server` and the whole order this file used to spell out by hand:
+  // the CSWSH origin gate on the RAW pre-upgrade socket → the upgrade (on
+  // `SURFACE_WS_PATH` and no other path) → the stale-tab gate → heartbeat
+  // enrolment → one Effect `RpcServer` per connection over the shared handlers.
+  // Every step is still load-bearing and every argument for it still holds —
+  // they are just made in one place now (see that module's header) rather than
+  // re-made in each app that grew a listener. PLAN D5/#6/#15's requirement that
+  // the ws seam be hand-wired rather than `RpcServer.layerProtocolWebsocket` is
+  // satisfied by the primitive, which hand-wires it for exactly those reasons:
+  // owning the upgrade is owning the ordering, and all three gates need the RAW
+  // `ws` socket that Effect's `HttpServerRequest.upgrade` wraps away.
+  //
+  // Three things that used to be gaps are now options, because this listener is
+  // what asked for them: `tls` (an `https.Server` when material is configured),
+  // `middleware` (kolu's pino bridge), and an OPTIONAL `clientDist` — so the
+  // manifest can be unconditional while the statics are not, which is the exact
+  // pairing that kept kolu hand-composing shell layers.
+  //
+  // The inbound frame cap arrives with it, which is what closes
+  // juspay/kolu#2142: the primitive reads `RPC_MAX_FRAME_BYTES` and offers no
+  // option to move it, where this listener used to leave `ws`'s `maxPayload`
+  // unset — a 100 MiB default buffering six times what the 16 MiB decoder can
+  // ever deliver.
 
-  // The handler's scope is the PROCESS's: this server serves until the process
+  // The listener's scope is the PROCESS's: this server serves until the process
   // ends, and the fatal boundary above (never a scope close) is what ends it.
-  // `makeHandler` forks each request as a fiber IN this scope, so no in-flight
-  // request is orphaned by a narrower lifetime.
-  const httpScope = Scope.makeUnsafe();
-  server.on(
-    "request",
+  // Its finalizers — every socket dropped, the server closed — are registered on
+  // this scope by `serveSurfaceApp`, so nothing here holds a shutdown function.
+  const listenerScope = Scope.makeUnsafe();
+
+  /** Live browser connections, for the `total` / `remaining` an operator reads
+   *  off the connect and disconnect lines. Counted here rather than asked of the
+   *  listener: its sink reports each connection's OWN transitions, and exactly
+   *  one `Disconnected` follows every `Connected`, so the count is this file's to
+   *  keep and the aggregate is nobody's to guess. */
+  let liveConnections = 0;
+
+  const address = await Effect.runPromise(
     // The http stack's ONE run edge (governance: `packages/tests/governance/
     // runEdges.ts`). `bootKoluWeb` is an orderly async function (locked decision
-    // 1) and node's `request` event takes a plain callback, so turning the
-    // composed layer into that callback is a genuine process edge.
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const httpEffect = yield* HttpRouter.toHttpEffect(appLayer);
-        return yield* NodeHttpServer.makeHandler(httpEffect, {
-          scope: httpScope,
-          // pino stays the sink. `koluHttpMiddleware` is the successor to BOTH
-          // hono pieces this replaced: `app.onError` (log every uncaught route
-          // fault, then answer 500) and `hono-pino` (one debug line per request
-          // and response). Scoped to the HTTP surface deliberately — see
-          // `httpMiddleware.ts` for why not a process-wide `ErrorReporter`.
-          middleware: koluHttpMiddleware(log),
-        });
-      }).pipe(
-        Scope.provide(httpScope),
-        // The platform services the static layer asks for: file system, path,
-        // the file-response platform, ETags.
-        Effect.provide(NodeHttpServer.layerHttpServices),
-      ),
-    ),
-  );
-
-  server.listen({ host, port }, () => {
-    const protocol = tlsOptions ? "https" : "http";
-    const bound = server.address();
-    // The `listening` callback fires with the socket bound, and kolu only ever
-    // binds TCP — a `null` or a string (unix socket) here means the boot's own
-    // assumption broke, so say so rather than log a lie about where the server
-    // is reachable.
-    if (bound === null || typeof bound === "string") {
-      throw new Error(
-        `kolu listening on a non-TCP address (${JSON.stringify(bound)}) — expected a bound host/port`,
-      );
-    }
-    log.info(
-      {
-        version: serverVersion,
-        pid: process.pid,
-        node: process.version,
-        rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
-        // `hostAuthority`, not a hand-rolled `host:port`: this is the line an
-        // operator reads to open a browser, and an all-interfaces IPv6 bind
-        // printed bare is `http://:::7314` — not a URL anything can follow.
-        address: `${protocol}://${hostAuthority(bound.address, bound.port)}`,
-      },
-      "kolu listening",
-    );
-    // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the
-    // heap curve with kolu-server's OWN subsystem counts. The padi-domain columns
-    // (live-terminal count, active claude sessions) dropped at the cutover: they
-    // read padi's in-process registry, which lives in the padi PROCESS now, and
-    // padi keeps its OWN heap diag. This log tracks kolu-server's memory.
-    startHeapDiagnostics({
-      log,
-      snapshotPrefix: "baseline",
-      // "diag" preserves the server's long-standing log events
-      // (diag_enabled / diag / diag_baseline_snapshot_*) that grep/alerting
-      // depend on — kept decoupled from the snapshot file basename above.
-      logPrefix: "diag",
-      extraColumns: () => ({
-        publisherSize: publisherSize(),
-        pendingSummaryFetches: getPendingSummaryFetches(),
-      }),
-    });
-  });
-
-  // --- The WebSocket RPC mount (the ONE transport) ---
-  const wss = new WebSocketServer({ noServer: true });
-  // The acceptance seam (`@kolu/surface-app/server`) owns the liveness reaper AND
-  // sequences the per-socket stale-tab gate → reaper enrolment → dispatch in one
-  // `accept(...)` call. Reaping the server-side zombie (and its stream
-  // subscriptions) a half-open client would leak is the server half; the client
-  // half (the watchdog folded into `createServerLifecycle`) un-freezes the tab.
-  // The stale-tab gate closes a tab bound to a PREVIOUS instance BEFORE any RPC
-  // dispatch (so dead-terminal subscriptions never replay and storm the logs) and
-  // such a socket never enrols — so #1231's gate is untouched. The gate takes no
-  // id from here: it compares against this process's own `surfaceProcessId()`,
-  // which is exactly what the reserved `system/identity` member answers and so
-  // exactly what a reconnecting tab echoes back (`serverProcessId` in
-  // `./hostname` IS that value — the log line and the wire name one process).
-  //
-  // This is the HAND-WIRED ws seam PLAN D5/#6/#15 requires, and it is why the
-  // turnkey `RpcServer.layerProtocolWebsocket` / `layerHttp` paths are NOT used:
-  // both OWN the upgrade, and owning the upgrade means owning the ordering these
-  // three steps must run in front of. The upgrade stays here — a raw
-  // `server.on("upgrade")` + `ws.WebSocketServer` — so the CSWSH origin gate runs
-  // before a socket exists, the stale-tab gate runs before any dispatch, and the
-  // ping/terminate reaper holds every socket it will later sweep (all three need
-  // the RAW `ws` socket, which Effect's `HttpServerRequest.upgrade` wraps away
-  // behind `Socket.fromWebSocket`).
-  const acceptor = acceptSurfaceSocket({
-    server: wss,
-    onError: (err) => log.error({ err }, "ws error"),
-    onReject: (claimedPid) =>
-      log.info(
-        { claimedPid, serverProcessId },
-        "rejecting stale client — server restarted since it last connected",
-      ),
-  });
-
-  let nextConnId = 0;
-  wss.on("connection", (ws: WebSocket, req: IncomingMessage, url: URL) => {
-    const connId = ++nextConnId;
-    const connLog = log.child({ ws: connId });
-    // `accept` gates (stale-tab) → enrols in the reaper → runs our dispatch. A
-    // stale tab is closed and never dispatched or enrolled.
-    acceptor.accept(ws, url, () => {
-      connLog.info({ total: wss.clients.size }, "connected");
-      // H2 (juspay/kolu#2101): a waking laptop's FIRST observable act is its browser
-      // reconnecting — so that signal fast-forwards every down host's already-scheduled
-      // probe instead of leaving it to a wait of up to the 60s backoff cap. No phase
-      // filter here: the filter IS the verb (`nudge()` no-ops on a live link, an
-      // in-flight dial, and a terminal `failed`, and never refills the give-up budget —
-      // unlike `recheck()`), so a wake storm across N tabs coalesces to one dial per host.
-      for (const h of pool.hosts()) pool.getSession(h)?.nudge();
-      // DISPATCH — the third and last step of the seam's gate → enrol → dispatch
-      // order. `serveSurfaceSocket` stands up an Effect `RpcServer` for THIS socket
-      // over the SHARED handler record: one Layer-composed serving stack per
-      // connection (ndjson over the accepted websocket), so one peer's teardown
-      // cannot touch another's.
-      const serving = serveSurfaceSocket({
-        group: servedGroup,
-        handlers: servedHandlers,
-        // A `ws` socket satisfies `ServableSocket` structurally; its typings
-        // narrow `addEventListener` per event name, which the seam's generic
-        // `(type: string, listener: (e: Event) => void)` shape cannot express.
-        socket: ws as unknown as Parameters<
-          typeof serveSurfaceSocket
-        >[0]["socket"],
-        // The viewer's connection facts, provided as this connection's OWN service
-        // — the shape review #15 forced. Effect's socket-server RPC protocol
-        // forwards no per-request context and no headers (`makeProtocolSocketServer`
-        // calls `run(onSocket)` with the socket alone), so a per-caller fact cannot
-        // ride the request; a per-connection serving stack simply PROVIDES it.
-        // BOTH the direct peer and the forwarded header, because behind a reverse
-        // proxy they name different machines; `viewerHost` gates which to believe.
-        // An absent address stays an honest `undefined` — never a guess.
-        services: Layer.succeed(CurrentViewer)({
-          viewerAddress: req.socket.remoteAddress,
-          forwardedFor: req.headers["x-forwarded-for"]?.toString(),
-        }),
-      });
-      // `done` MUST be observed (the seam's contract): it rejects if this
-      // connection's serving stack failed to build, and an ignored rejection is an
-      // unhandled one — which the process-level `unhandledRejection` boundary would
-      // turn into a whole-server exit over ONE dead socket. A per-connection fault
-      // is per-connection: log it loudly and let the socket die.
-      serving.done.catch((err: unknown) =>
-        connLog.error({ err }, "ws rpc serving stack faulted"),
-      );
-      ws.on("close", (code, reason) => {
-        const reasonStr = reason.toString();
-        connLog.info(
-          {
-            code,
-            ...(reasonStr && { reason: reasonStr }),
-            remaining: wss.clients.size,
-          },
-          "disconnected",
-        );
-      });
-    });
-  });
-
-  server.on("upgrade", (req, socket, head) => {
-    const url = new URL(req.url ?? "", `http://${req.headers.host}`);
-    if (url.pathname === SURFACE_WS_PATH) {
+    // 1), so binding the listener — an `Effect` needing a `Scope` — into that
+    // sequence is a genuine process edge.
+    serveSurfaceApp({
+      group: servedGroup,
+      handlers: servedHandlers,
+      // kolu's own routes; the shell (manifest + statics) is the two options
+      // below. MERGED, not ordered — the router ranks by specificity.
+      routes: appLayer,
+      manifest,
+      // Absent in dev, and then there is simply no static route. surface-app's
+      // freshness contract on the wire when there IS one: no-store shell,
+      // immutable hashed `/assets/*`, 404 on an asset miss (never the HTML
+      // shell), the `/sw.js` worker, and the SPA fallback.
+      clientDist,
+      // The fetch-less notification worker: kolu fires agent-finished alerts via
+      // `ServiceWorkerRegistration.showNotification()`, the only notification
+      // path that works in an installed PWA. Pairs with `registerServiceWorker()`
+      // in the client's `index.tsx`.
+      serviceWorker: "notify",
+      host,
+      port,
+      // `undefined` unless `--tls` / `--tls-cert` asked for it, and then the
+      // listener is an `https.Server` and the address below an `https://` one.
+      tls: tlsOptions,
+      // pino stays the sink. `koluHttpMiddleware` is the successor to BOTH hono
+      // pieces it replaced: `app.onError` (log every uncaught route fault, then
+      // answer 500) and `hono-pino` (one debug line per request and response).
+      // Scoped to the HTTP surface deliberately — see `httpMiddleware.ts` for
+      // why not a process-wide `ErrorReporter`.
+      middleware: koluHttpMiddleware(log),
       // CSWSH gate: reject a cross-site browser Origin before a socket exists at
-      // all. The RPC surface is unauthenticated and cookie-less, so without
-      // this any page the operator visits could open `/rpc/ws` and drive every
+      // all. The RPC surface is unauthenticated and cookie-less, so without this
+      // any page the operator visits could open `/rpc/ws` and drive every
       // procedure. Loopback binding does NOT help — the attacker page runs in the
       // operator's own browser. Non-browser clients send no Origin and pass;
       // same-origin UI traffic passes; see `@kolu/surface/ws-origin`.
-      if (
-        gateWsOrigin(req, socket, {
-          allowedOrigins,
-          onReject: (origin) =>
-            log.warn({ origin }, "rejecting ws upgrade: disallowed Origin"),
-        })
-      ) {
-        return;
-      }
-      // Pass the pre-parsed `url` as a 3rd arg so the connection handler reads
-      // `pid` without re-parsing `req.url`.
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit("connection", ws, req, url);
-      });
-    } else {
-      socket.destroy();
-    }
+      allowedOrigins,
+      // The viewer's connection facts, provided as this connection's OWN service
+      // — the shape review #15 forced. Effect's socket-server RPC protocol
+      // forwards no per-request context and no headers
+      // (`makeProtocolSocketServer` calls `run(onSocket)` with the socket alone),
+      // so a per-caller fact cannot ride the request; a per-connection serving
+      // stack simply PROVIDES it. BOTH the direct peer and the forwarded header,
+      // because behind a reverse proxy they name different machines; `viewerHost`
+      // gates which to believe. An absent address stays an honest `undefined` —
+      // never a guess.
+      services: (connection) =>
+        Layer.succeed(CurrentViewer)({
+          viewerAddress: connection.request.socket.remoteAddress,
+          forwardedFor:
+            connection.request.headers["x-forwarded-for"]?.toString(),
+        }),
+      // The listener's ONE narration sink — every line this file used to write
+      // from four separate callbacks, and the `nudge` fan-out that has to happen
+      // the moment a tab comes back.
+      onEvent: (event) => {
+        switch (event._tag) {
+          case "Connected":
+            log.info(
+              { ws: event.connection.id, total: ++liveConnections },
+              "connected",
+            );
+            // H2 (juspay/kolu#2101): a waking laptop's FIRST observable act is its
+            // browser reconnecting — so that signal fast-forwards every down host's
+            // already-scheduled probe instead of leaving it to a wait of up to the
+            // 60s backoff cap. No phase filter here: the filter IS the verb
+            // (`nudge()` no-ops on a live link, an in-flight dial, and a terminal
+            // `failed`, and never refills the give-up budget — unlike `recheck()`),
+            // so a wake storm across N tabs coalesces to one dial per host.
+            for (const h of pool.hosts()) pool.getSession(h)?.nudge();
+            return;
+          case "Disconnected":
+            log.info(
+              {
+                ws: event.connection.id,
+                code: event.code,
+                ...(event.reason && { reason: event.reason }),
+                remaining: --liveConnections,
+              },
+              "disconnected",
+            );
+            return;
+          case "SocketError":
+            log.error({ err: event.error }, "ws error");
+            return;
+          case "StaleTab":
+            log.info(
+              { claimedPid: event.claimedPid, serverProcessId },
+              "rejecting stale client — server restarted since it last connected",
+            );
+            return;
+          case "DisallowedOrigin":
+            log.warn(
+              { origin: event.origin },
+              "rejecting ws upgrade: disallowed Origin",
+            );
+            return;
+          case "ServingFailed":
+            // A per-connection fault is per-connection: log it loudly and let the
+            // socket die. The listener already keeps the rejection observed, so it
+            // can never reach the process-level `unhandledRejection` boundary and
+            // take the whole server down over ONE dead socket.
+            log.error(
+              { err: event.cause, ws: event.connection.id },
+              "ws rpc serving stack faulted",
+            );
+            return;
+        }
+      },
+    }).pipe(Scope.provide(listenerScope)),
+  );
+
+  log.info(
+    {
+      version: serverVersion,
+      pid: process.pid,
+      node: process.version,
+      rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
+      // The address the listener ACTUALLY bound, scheme and all — the line an
+      // operator reads to open a browser. An all-interfaces IPv6 bind printed
+      // bare is `http://:::7314`, not a URL anything can follow; the primitive
+      // brackets it (`hostAuthority`) so this is always paste-able.
+      address,
+    },
+    "kolu listening",
+  );
+
+  // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the
+  // heap curve with kolu-server's OWN subsystem counts. The padi-domain columns
+  // (live-terminal count, active claude sessions) dropped at the cutover: they
+  // read padi's in-process registry, which lives in the padi PROCESS now, and
+  // padi keeps its OWN heap diag. This log tracks kolu-server's memory.
+  startHeapDiagnostics({
+    log,
+    snapshotPrefix: "baseline",
+    // "diag" preserves the server's long-standing log events
+    // (diag_enabled / diag / diag_baseline_snapshot_*) that grep/alerting
+    // depend on — kept decoupled from the snapshot file basename above.
+    logPrefix: "diag",
+    extraColumns: () => ({
+      publisherSize: publisherSize(),
+      pendingSummaryFetches: getPendingSummaryFetches(),
+    }),
   });
 }
