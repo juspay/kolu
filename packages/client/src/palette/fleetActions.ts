@@ -20,7 +20,7 @@ import type {
 } from "../CommandPalette";
 import { workspaceSearchText } from "../canvas/dockModel";
 import { hostLabel, hostRowContext } from "../host/hostChipTone";
-import { useHostRecency } from "../host/hostRecency";
+import { hostRecency, type HostVisit } from "../host/hostRecency";
 import { assignColors } from "../terminal/terminalDisplay";
 import {
   useVisitRecency,
@@ -46,6 +46,15 @@ export function terminalRankScore(
     visitedAtOf(visits, hostKey, terminalId),
     serverActivityAt ?? 0,
   );
+}
+
+/** Palette ranking policy for host rows: the switch trail's stamp. Lives here
+ *  (not in the trail store) so hostRecency stays trail-only. */
+export function hostRankScore(
+  mru: readonly HostVisit[],
+  hostKey: string,
+): number {
+  return mru.find((e) => e.hostKey === hostKey)?.switchedAt ?? 0;
 }
 
 /** Switch host when the row is foreign, then activate. Pure sequencing
@@ -220,7 +229,7 @@ export function hostRootActions(
   active: HostKey,
   switchHost: (host: HostKey) => void,
 ): PaletteAction[] {
-  const recency = useHostRecency();
+  const mru = hostRecency.mru;
   return hosts.map((h): PaletteAction => {
     const label = hostLabel(h);
     const state = padiMap.entry(h).state();
@@ -236,7 +245,7 @@ export function hostRootActions(
         kind: "host",
         hostKey: h,
         context,
-        rankAt: recency.rankOf(h),
+        rankAt: hostRankScore(mru(), encodeHostKey(h)),
         searchText: `${label} ${context} ${state.kind}`.trim(),
       },
     };
