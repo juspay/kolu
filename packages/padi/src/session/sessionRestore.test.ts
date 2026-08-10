@@ -227,6 +227,60 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     await done;
   });
 
+  // The registry is a `Map`, and `listTerminals` contracts its insertion order
+  // as the client's row order — which kolu#2141 made the dock's row order and
+  // `Cmd+1..9`. The SURVIVOR reattach leg is pinned in
+  // `terminalEndpoint/reattachOrder.test.ts`; the COLD leg had no order test at
+  // all, so the invariant survived here only as a property of the walk nobody
+  // was checking. It is the same defect shape: restore every active in one pass
+  // and every sleeper in another and each ☾ tile lands at the bottom of its repo
+  // section, taking that section's position with it if the sleeper was its
+  // earliest terminal.
+  it("restores TOP-LEVEL records in SAVED order, with a sleeper keeping its slot between two actives", async () => {
+    const A_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const S_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    const B_ID = "99999999-9999-4999-8999-999999999999";
+    const activeA: SavedActiveTerminal = {
+      ...base,
+      id: A_ID,
+      state: "active",
+      cwd: "/order-a",
+      lastActivityAt: 1,
+      restoreTarget: { kind: "none" },
+    };
+    const midSleeper: SavedTerminal = {
+      ...base,
+      id: S_ID,
+      state: "sleeping",
+      sleptAt: 2,
+      cwd: "/order-sleep",
+      lastActivityAt: 2,
+    };
+    const activeB: SavedActiveTerminal = {
+      ...base,
+      id: B_ID,
+      state: "active",
+      cwd: "/order-b",
+      lastActivityAt: 3,
+      restoreTarget: { kind: "none" },
+    };
+    setSavedSession({
+      terminals: [activeA, midSleeper, activeB],
+      activeTerminalId: A_ID,
+      savedAt: 1,
+    });
+    expect(seedParkedTerminal(activeA)).toBe(true);
+    expect(seedParkedTerminal(activeB)).toBe(true);
+
+    const done = restoreSession({});
+    // Read the SYNCHRONOUS registry the flip established, exactly as the gate
+    // test above does. Identify by cwd: the two actives came back on FRESH ids.
+    expect(
+      [...terminalEntries()].map(([, entry]) => entry.snapshot.cwd),
+    ).toEqual(["/order-a", "/order-sleep", "/order-b"]);
+    await done;
+  });
+
   it("is idempotent — a concurrent second restore does not duplicate terminals", async () => {
     setSavedSession(savedSession());
     seedParkedTerminal(parentRecord);

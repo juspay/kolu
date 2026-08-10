@@ -16,8 +16,11 @@
  * dock SECTION order is decided by each repo's first row, a repo whose earliest
  * terminal was the sleeper lost its section position too. It is one walk now.
  *
- * The cold-boot restore path (`restoreSession`) already walked its saved list
- * once, in order; this is the survivor path agreeing with it.
+ * The cold-boot restore path (`restoreSession`) walks its saved list as
+ * top-levels first, then sub-terminals — so its TOP-LEVEL insertion order is
+ * saved order, which is the order the dock's rows and `Cmd+1..9` read (splits
+ * claim no shortcut number). This is the survivor path agreeing with it on that
+ * leg; the cold leg is pinned by `session/sessionRestore.test.ts`.
  */
 
 import type { PtyHostListEntry } from "kaval";

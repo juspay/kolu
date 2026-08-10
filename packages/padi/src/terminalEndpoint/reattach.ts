@@ -227,9 +227,18 @@ export const adoptSurvivingSession: Effect.Effect<void, unknown> = Effect.gen(
     // therefore moved every ☾ tile to the bottom of its repo section on a padi
     // restart, and could move a whole section with it, renumbering `Cmd+1..9`.
     // Invisible while the dock re-sorted everything by recency; load-bearing since
-    // kolu#2141 made dock order structural. The cold-boot restore path
-    // (`restoreSession`) already walked its saved list once, in order; this makes
-    // the survivor path agree with it.
+    // kolu#2141 made dock order structural.
+    //
+    // The cold-boot restore path (`restoreSession`) is the leg this agrees with,
+    // and it is worth being exact about which leg that is: it walks `topLevel`
+    // first and `subTerminals` second, so its registry order is all top-levels in
+    // saved order, then all subs. TOP-LEVEL relative order — the only order the
+    // dock's rows and `Cmd+1..9` read, since splits claim no shortcut number — is
+    // therefore saved order on both paths. Nothing in the code obliges a third
+    // rebuild path to preserve that; today it is three hand-written walks (here,
+    // `restoreSession`, `parkSavedSession`) each holding the invariant privately.
+    // The structural fix is an ordered PLAN returned by `reconcile`, which owns
+    // the join — recorded as a follow-up rather than done here.
     const adoptByRecordId = new Map(
       adopt.map((pair) => [pair.record.id, pair]),
     );
