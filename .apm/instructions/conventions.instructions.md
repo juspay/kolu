@@ -6,11 +6,13 @@ applyTo: "**"
 ## Communication
 
 - **Answer in plain words.** When the user asks you to explain, summarize, or reason about something (not write code), reach for everyday language first and keep it short. Introduce a piece of jargon, a symbol-heavy phrasing, or an internal codename only when it carries weight the plain word can't — then gloss it once. This is the default for *every* turn, not a per-request favor: the user should never have to ask twice.
+- **Lead with the conclusion.** Same turns as above: open with the answer itself — the proposal, the verdict, the number — then add only what that answer can't stand without. Around 150 words is the ceiling; the reasoning, the alternatives you weighed, and the comparison tables are things to *offer*, not to include. When there is genuinely more to say, put it in a file or a PR body the user can read on their own time.
 
 ## Workflow
 
 - Use `/be` to take a task end-to-end. It owns its own phase list and review gauntlet — don't restate them here.
 - Run `just fmt` (formatting) before declaring done.
+- **Change a file with the Edit tool, not a stream editor.** `sed -i` / `perl -0pi` against one file is silent when the pattern misses and destructive when it over-matches — a wrong quantifier truncates or empties the file, and you only notice later. Edit fails loudly on a missed anchor, which is the fail-fast behaviour this repo wants everywhere else. Reach for a stream editor only for the same mechanical substitution across *many* files, where per-file Edits aren't practical.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
 
 ## Design philosophy
