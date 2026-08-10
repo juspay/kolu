@@ -392,8 +392,8 @@ const RailOrCards: Component<{
        *  to scroll to find is the defect this replaces, not a milder form of
        *  it. Renders nothing when nothing is blocked. */}
       <NeedsYouStrip
-        rows={props.tree.needsYou}
-        rail={props.mode === "rail"}
+        entries={props.tree.needsYou}
+        density={props.mode === "rail" ? "icon" : "full"}
         onSelect={tileStore.activate}
       />
       <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none flex-1 min-h-0">

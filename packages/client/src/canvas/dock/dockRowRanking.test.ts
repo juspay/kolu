@@ -17,11 +17,40 @@ import { isStale } from "../../terminal/staleness";
 import type { PaneNode } from "../../terminal/terminalTree";
 import { paintBucket } from "../dockModel";
 import {
-  DOCK_ROW_BUCKET_PRIORITY,
   type DockRowBucket,
   rankDockRows,
   rowRecencyAt,
 } from "./dockRowRanking";
+
+/** A row's URGENCY, as a number. Lower = more urgent.
+ *
+ *  This table lives HERE, not in production, because no production code reads
+ *  it: nothing in the dock orders by urgency any more, and strip membership is
+ *  the attention class. It survived as an exported constant purely so this file
+ *  had something to assert about — a test fixture type-checked and re-read as if
+ *  it were a runtime contract, needing eleven lines of doc telling the next
+ *  reader not to wire a surface through it. A comment was doing a structure's
+ *  job; now nothing may read it because nothing CAN.
+ *
+ *  The claim it exists for is still worth pinning: the dock's three agent-state
+ *  buckets inherit the shared needs-you-first rank (`need=0 < work=1 < idle=2`),
+ *  with `sleeping`/`parked`/`none` as the dock's own quieter tail below them —
+ *  which is what stops `classifyDockRow` drifting from the shared vocabulary the
+ *  rest of the fleet speaks (see `.claude/rules/dock-fleet-mirror.md`). The
+ *  `Record<DockRowBucket, number>` annotation still compile-fails this file when
+ *  a bucket is added, which is the drift the table guards. */
+const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
+  awaiting: URGENCY_RANK.need,
+  working: URGENCY_RANK.work,
+  // `linger` is a PAINT-only bucket (`classifyDockRow` never emits it — a
+  // post-turn `waiting` agent ORDERS as idle), listed here only because the
+  // priority table is total over the union; it ranks with idle, honestly.
+  linger: URGENCY_RANK.idle,
+  idle: URGENCY_RANK.idle,
+  sleeping: 3,
+  parked: 4,
+  none: 5,
+};
 
 function makeAgent(state: AgentInfo["state"]): AgentInfo {
   return {
@@ -311,7 +340,7 @@ describe("dock ⇄ agentProjection urgency parity (the cross-consumer differenti
   // the SAME way pulam-tui / pulam-web do". This asserts it structurally: for
   // every agent state, the dock's row RANK equals the shared
   // `agentProjection.agentUrgency`'s rank. Both sides read PRODUCTION constants —
-  // the dock's own `DOCK_ROW_BUCKET_PRIORITY` and the shared `URGENCY_RANK` — so
+  // the shared `URGENCY_RANK` and this file's own bucket table — so
   // there is no hand-written fixture table to drift from the production tables
   // (the bug a parallel `{awaiting→need, …}` map would reintroduce). If the dock
   // ever re-grows a bucket that disagrees (the historical `waiting`→awaiting

@@ -4,25 +4,30 @@ import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { RankedDockRow } from "./dockRowRanking";
 import { buildDockTree } from "./dockTree";
 
-/** A row whose two folds AGREE — the ordinary case, where the attention frame
- *  has landed and metadata and paint say the same thing.
+/** A row whose folds AGREE — the ordinary case, where the attention frame has
+ *  landed and metadata, paint and attention say the same thing.
  *
- *  The `pip` argument exists because they can disagree, and which one a
- *  consumer reads is now load-bearing: strip membership is the PAINT fold
- *  (`needsYou` → `pip`), because that is the fold the wash, the wait chip and
- *  the section count all read. Passing them separately is what lets
- *  {@link row} model a frame that has not arrived yet. `none` has no paint
- *  spelling, so it paints the quiet `idle`, exactly as `paintDockRow` does. */
+ *  The `pip` and `asking` arguments exist because they can disagree, and which
+ *  one a consumer reads is load-bearing. Strip membership is the ATTENTION
+ *  CLASS (`asking`) — the fold the wash, the wait chip and the section count all
+ *  read. `pip` is that class narrowed by the dormancy overlay, which is a paint
+ *  rule: a parked or sleeping row paints `parked`/`sleeping` while still being
+ *  asking. Passing them separately is what lets {@link row} model both a frame
+ *  that has not arrived yet and a blocked row the window has parked. `none` has
+ *  no paint spelling, so it paints the quiet `idle`, exactly as `paintDockRow`
+ *  does. */
 function row(
   id: string,
   bucket: RankedDockRow["bucket"],
   ts: number,
   pip: RankedDockRow["pip"] = bucket === "none" ? "idle" : bucket,
+  asking: boolean = pip === "awaiting",
 ): RankedDockRow {
   return {
     id: id as TerminalId,
     bucket,
     pip,
+    asking,
     ts,
     subRows: [],
   };
@@ -39,6 +44,7 @@ function shellSubRow(
     kind: "shell",
     bucket: "idle",
     pip: "idle",
+    asking: false,
     ts: 1,
     depth,
   };
@@ -50,13 +56,16 @@ function agentSubRow(
   bucket: Extract<SubRow, { kind: "agent" }>["bucket"] = "idle",
   depth = 1,
   pip: Extract<SubRow, { kind: "agent" }>["pip"] = bucket,
+  asking: boolean = pip === "awaiting",
+  ts = 1,
 ): Extract<SubRow, { kind: "agent" }> {
   return {
     id: id as TerminalId,
     kind: "agent",
     bucket,
     pip,
-    ts: 1,
+    asking,
+    ts,
     depth,
   };
 }
@@ -274,7 +283,10 @@ describe("buildDockTree", () => {
     });
     const tree = buildDockTree(ranked, getInfo, false);
     // The blocked row is surfaced…
-    expect(tree.needsYou.map((r) => r.id)).toEqual(["b"]);
+    expect(tree.needsYou.map((e) => e.tile.id)).toEqual(["b"]);
+    // …naming ITSELF as the blocked row, not just as a clickable tile…
+    expect(tree.needsYou.map((e) => e.blocked.id)).toEqual(["b"]);
+    expect(tree.needsYou.map((e) => e.hiddenByFilter)).toEqual([false]);
     // …and is STILL exactly where it was, in the section it belongs to. The
     // mirror is what makes both of those true at once.
     expect(tree.flatShortcutRows.map((r) => r.id)).toEqual(["a", "c", "b"]);
@@ -294,13 +306,36 @@ describe("buildDockTree", () => {
       false,
     );
 
-    // The strip names the PARENT — the row you can actually click — even though
-    // the blocked agent is the split underneath it.
-    expect(tree.needsYou.map((r) => r.id)).toEqual(["parent"]);
+    // The strip names the PARENT as the row you can actually click…
+    expect(tree.needsYou.map((e) => e.tile.id)).toEqual(["parent"]);
+    // …and the SPLIT as the row that is actually blocked. Collapsing that to a
+    // boolean is what made the entry paint the parent's pip (no violet capsule
+    // at all) and report the parent's tile-wide `ts` as a wait duration.
+    expect(tree.needsYou.map((e) => e.blocked.id)).toEqual(["blocked"]);
     expect(tree.groups[0]?.topRows.map((entry) => entry.id)).toEqual([
       "recent",
       "parent",
     ]);
+  });
+
+  it("names the BLOCKED split even when a chattier sibling owns the tile's clock", () => {
+    // The defect this pins: `parent.ts` is the tile-wide fold, so a noisy
+    // sibling split makes it read "3s" while the blocked agent has waited
+    // twenty hours. The entry has to carry the blocked row so the capsule can
+    // read the blocked row's own clock.
+    const parent = row("parent", "idle", 9_000_000);
+    parent.subRows = [
+      agentSubRow("chatty", "working", 1, "working", false, 9_000_000),
+      agentSubRow("blocked", "awaiting", 1, "awaiting", true, 10),
+    ];
+    const tree = buildDockTree(
+      [parent],
+      makeGetInfo({ parent: { group: "kolu", color: "#aaa" } }),
+      false,
+    );
+    expect(tree.needsYou[0]?.blocked.id).toBe("blocked");
+    expect(tree.needsYou[0]?.blocked.ts).toBe(10);
+    expect(tree.needsYou[0]?.tile.ts).toBe(9_000_000);
   });
 
   it("the strip claims no shortcut numbers", () => {
@@ -320,51 +355,85 @@ describe("buildDockTree", () => {
       getInfo,
       false,
     );
-    expect(blocked.needsYou.map((r) => r.id)).toEqual(["b"]);
+    expect(blocked.needsYou.map((e) => e.tile.id)).toEqual(["b"]);
     expect(blocked.flatShortcutRows.map((r) => r.id)).toEqual(
       quiet.flatShortcutRows.map((r) => r.id),
     );
   });
 
-  // The strip is an ATTENTION surface, so it must read the attention fold —
-  // `pip`, the same value its own entry paints its violet wait capsule from —
-  // not the ORDER fold. The two arrive on independent subscriptions, so they
-  // can differ for a frame; reading `bucket` here put an entry under a "Needs
-  // you" heading whose own pip painted idle and whose cell read "3m ago",
-  // inside a component whose whole claim is that it cannot drift from the row
-  // it mirrors. It also disagreed with the section header, which counts asking
-  // rows off the attention fold.
-  it("takes strip membership from the paint fold, not the order fold", () => {
+  // The strip is an ATTENTION surface, so it reads the attention CLASS
+  // (`asking`) — the same value its own entry paints its violet wait capsule
+  // from, and the same value the section header counts. Reading the ORDER fold
+  // (`bucket`) put an entry under a "Needs you" heading whose own pip painted
+  // idle and whose cell read "3m ago", inside a component whose whole claim is
+  // that it cannot drift from the row it mirrors.
+  it("takes strip membership from the attention class, not the order fold", () => {
     const getInfo = makeGetInfo({
       frameLate: { group: "kolu", color: "#aaa", label: "one" },
       painted: { group: "kolu", color: "#aaa", label: "two" },
     });
     const tree = buildDockTree(
       [
-        // Metadata says blocked; the attention frame has not landed, so the row
-        // still paints idle. No entry — the strip would have nothing to show.
+        // Metadata says blocked; the attention frame has not landed, so neither
+        // the paint nor the class agrees. No entry — the strip would have
+        // nothing to show.
         row("frameLate", "awaiting", 100, "idle"),
         row("painted", "awaiting", 200, "awaiting"),
       ],
       getInfo,
       false,
     );
-    expect(tree.needsYou.map((r) => r.id)).toEqual(["painted"]);
+    expect(tree.needsYou.map((e) => e.tile.id)).toEqual(["painted"]);
   });
 
-  it("the strip mirrors only rows the filters actually left on screen", () => {
-    // A parked row can still be `awaiting` — that is exactly the row the
-    // activity window hides. Mirroring it would put a chip on the strip with
-    // no row under it to jump to.
+  it("keeps a blocked row the activity window parked — marked, not dropped", () => {
+    // THE fucknotif case, and the one the module header promises: an agent that
+    // has waited twenty hours falls out of every finite activity window, so a
+    // strip built from the visible rows hid exactly the row it exists for —
+    // while the section header above went on counting it. `pip` is `parked`
+    // here (the dormancy overlay wins for colour) and `asking` is still true,
+    // which is why membership reads the class and not the paint.
     const tree = buildDockTree(
-      [row("shown", "awaiting", 1000), row("gone", "parked", 5)],
+      [
+        row("shown", "awaiting", 1000),
+        row("waited20h", "parked", 5, "parked", true),
+      ],
       makeGetInfo({
         shown: { group: "kolu", color: "#aaa", label: "one" },
-        gone: { group: "kolu", color: "#aaa", label: "two" },
+        waited20h: { group: "kolu", color: "#aaa", label: "two" },
       }),
       false,
     );
-    expect(tree.needsYou.map((r) => r.id)).toEqual(["shown"]);
+    expect(tree.needsYou.map((e) => e.tile.id)).toEqual(["shown", "waited20h"]);
+    expect(tree.needsYou.map((e) => e.hiddenByFilter)).toEqual([false, true]);
+    // It is genuinely absent from the sections — the strip is the only place
+    // it surfaces, which is the point of carrying the flag rather than the row.
+    expect(tree.flatShortcutRows.map((r) => r.id)).toEqual(["shown"]);
+  });
+
+  it("keeps a blocked row the ☾ toggle is hiding, and one whose whole repo vanished", () => {
+    // Two independent legs the "derive from the visible list" shape lost:
+    // a shown-or-hidden SLEEPING row that is asking (the ☾ toggle is a
+    // different filter from the window), and a blocked row whose repo has no
+    // surviving section at all — that group is dropped from `groups`, so a
+    // strip walking the surviving groups would lose the row with it.
+    const tree = buildDockTree(
+      [
+        row("dozing", "sleeping", 900, "sleeping", true),
+        row("lonely", "parked", 5, "parked", true),
+      ],
+      makeGetInfo({
+        dozing: { group: "kolu", color: "#aaa", label: "one" },
+        lonely: { group: "pierre", color: "#bbb", label: "two" },
+      }),
+      true,
+    );
+    expect(tree.groups.map((g) => g.name)).toEqual([]);
+    expect(tree.needsYou.map((e) => e.tile.id)).toEqual(["dozing", "lonely"]);
+    expect(tree.needsYou.map((e) => e.hiddenByFilter)).toEqual([true, true]);
+    // The filter rule has ONE spelling now — `hiddenCount` is counted through
+    // the same predicate the entries carry, not re-derived as arithmetic.
+    expect(tree.hiddenCount).toBe(2);
   });
 
   it("skips rows whose display info is missing", () => {

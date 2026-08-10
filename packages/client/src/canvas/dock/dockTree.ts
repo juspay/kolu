@@ -29,6 +29,13 @@
  *  reflows. A fixed place that fills and empties beats a list that rearranges
  *  itself around the thing you were meant to notice.
  *
+ *  That claim is only true if the strip is folded over the UNFILTERED rows, and
+ *  it now is. A twenty-hour wait falls out of every finite activity window, so a
+ *  strip built from the visible rows hid exactly the agent the sentence above
+ *  promises to surface — and hid it silently, while the section header above
+ *  went on counting it. The strip carries `hiddenByFilter` instead, so the
+ *  filters still decide the SECTIONS and no longer decide attention.
+ *
  *  Parked rows are filtered out — the activity-window selector becomes a
  *  hard hide, not a dim. The dropped count is surfaced as `parkedCount`
  *  so the dock's `Filters` footer can render a combined "N hidden · show
@@ -51,7 +58,11 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { needsYou, type RankedDockRow } from "./dockRowRanking";
+import {
+  type NeedsYouEntry,
+  needsYouEntry,
+  type RankedDockRow,
+} from "./dockRowRanking";
 
 export type DockGroup = {
   /** `info.key.group` — git repo name or cwd basename. */
@@ -78,6 +89,18 @@ export type DockRailEntry =
   | { kind: "top"; row: RankedDockRow }
   | { kind: "split"; row: RankedDockRow["subRows"][number] };
 
+/** One entry of the pinned strip: `needsYouEntry`'s tile/blocked pair plus the
+ *  one fact only this module can answer — whether the dock's own filters
+ *  removed the tile from the sections below. */
+export type DockNeedsYouEntry = NeedsYouEntry & {
+  /** The activity window parked this tile, or the ☾ toggle is hiding it. The
+   *  strip shows it ANYWAY, marked: an agent that has waited long enough to
+   *  fall out of a 4h window is the exact agent this strip exists for, and
+   *  hiding it there was the module header's own stated failure mode. The
+   *  entry still lands — `tileStore.activate` does not need a dock row. */
+  hiddenByFilter: boolean;
+};
+
 export type DockTree = {
   groups: readonly DockGroup[];
   /** Flat top-level order across all groups. `App.tsx` projects ids from this
@@ -92,14 +115,25 @@ export type DockTree = {
   flatShortcutRows: readonly RankedDockRow[];
 
   /** Rows blocked on YOU, in the same structural order they appear below — the
-   *  pinned strip's contents ({@link needsYou}).
+   *  pinned strip's contents ({@link needsYouEntry}).
    *
    *  A MIRROR, not a relocation: each row keeps its slot, its section, and its
    *  shortcut number, and appears here as well. That duplication is the point —
    *  it is what lets the list underneath stay perfectly still while attention
    *  still gets a fixed, glanceable home. Empty (the common case) means the
-   *  strip renders nothing at all. */
-  needsYou: readonly RankedDockRow[];
+   *  strip renders nothing at all.
+   *
+   *  Folded over **`allTopRows`** — the UNFILTERED set, the same one the repo
+   *  section headers count — through the same `asking` test their fold uses. So
+   *  a header capsule reading "1" can no longer sit above an empty strip. It
+   *  used to: the header deliberately counts unfiltered rows ("an agent blocked
+   *  long enough to fall out of the activity window is precisely the one whose
+   *  count must still show") while the strip was built from the FILTERED
+   *  `flatShortcutRows` for the opposite documented reason. Both reasons were
+   *  good and nothing recorded that they were in tension; with a 4h window set,
+   *  the twenty-hour agent this module's header names was the one row missing.
+   *  Filtered rows now arrive here carrying `hiddenByFilter` instead. */
+  needsYou: readonly DockNeedsYouEntry[];
   /** How many rows the activity window filtered out. The dock surfaces
    *  this as a footer hint with a "show all" link. */
   parkedCount: number;
@@ -139,6 +173,7 @@ export function buildDockTree(
   >();
   let parkedCount = 0;
   let sleepingCount = 0;
+  let hiddenCount = 0;
 
   /** Is this row one the two filters remove from the tree? ONE reading of the
    *  rule, used to drop rows at the end — never to decide where the survivors
@@ -163,6 +198,12 @@ export function buildDockTree(
     // Count every fresh sleeping row so the footer toggle knows the total,
     // whether or not the ☾ toggle is currently showing it.
     if (row.bucket === "sleeping") sleepingCount++;
+    // Counted THROUGH the predicate, not re-derived as arithmetic beside it.
+    // `parkedCount`/`sleepingCount` are footer DISCLOSURES with their own
+    // meanings; this is the filter rule, and it has exactly one spelling — so
+    // "add a third filter and this term grows here" is true of the code and not
+    // only of the doc.
+    if (filteredOut(row)) hiddenCount++;
     const list = group.byLabel.get(info.key.label);
     if (list) list.push(row);
     else group.byLabel.set(info.key.label, [row]);
@@ -181,38 +222,45 @@ export function buildDockTree(
   // renumber `Cmd+1..9` with them. `byName` was already filter-independent;
   // this makes `byLabel` agree, so a row's slot is a function of the row set
   // and its label, and hiding a row only ever removes it.
-  const groups: DockGroup[] = [...byName.entries()]
-    .map(([name, g]) => {
-      const topRows = [...g.byLabel.values()]
-        .flat()
-        .filter((row) => !filteredOut(row));
-      const railEntries = topRows.flatMap<DockRailEntry>((row) => [
-        { kind: "top", row },
-        ...row.subRows.map((sub) => ({ kind: "split" as const, row: sub })),
-      ]);
-      return {
-        name,
-        color: g.color,
-        topRows,
-        allTopRows: g.allTopRows,
-        railEntries,
-      };
-    })
-    // A repo whose every row is filtered out has no header to hang its
-    // attention on; the footer's "N hidden" disclosure is what surfaces it.
-    .filter((g) => g.topRows.length > 0);
+  const allGroups: DockGroup[] = [...byName.entries()].map(([name, g]) => {
+    const topRows = [...g.byLabel.values()]
+      .flat()
+      .filter((row) => !filteredOut(row));
+    const railEntries = topRows.flatMap<DockRailEntry>((row) => [
+      { kind: "top", row },
+      ...row.subRows.map((sub) => ({ kind: "split" as const, row: sub })),
+    ]);
+    return {
+      name,
+      color: g.color,
+      topRows,
+      allTopRows: g.allTopRows,
+      railEntries,
+    };
+  });
+  // A repo whose every row is filtered out has no header to hang its
+  // attention on; the footer's "N hidden" disclosure is what surfaces it.
+  // The strip still walks `allGroups` below — a repo whose ONLY row is a
+  // parked blocked agent must not lose it along with its header.
+  const groups = allGroups.filter((g) => g.topRows.length > 0);
 
   const flatShortcutRows = groups.flatMap((g) => g.topRows);
   return {
     groups,
     flatShortcutRows,
-    // Derived from the SAME flat list the sections render, so the strip can
-    // only ever hold rows that are actually visible below it — a mirror of a
-    // row the filters dropped would be a chip that leads nowhere.
-    needsYou: flatShortcutRows.filter(needsYou),
+    // Folded over the UNFILTERED rows, in structural order — the same set and
+    // the same `asking` test the section headers count with, so the capsule and
+    // the strip are two reads of one rule instead of two folds that happened to
+    // agree. Filtered rows come through marked rather than dropped.
+    needsYou: allGroups.flatMap((g) =>
+      g.allTopRows.flatMap<DockNeedsYouEntry>((row) => {
+        const entry = needsYouEntry(row);
+        return entry ? [{ ...entry, hiddenByFilter: filteredOut(row) }] : [];
+      }),
+    ),
     parkedCount,
     sleepingCount,
-    hiddenCount: parkedCount + (hideSleeping ? sleepingCount : 0),
+    hiddenCount,
     hasContent:
       flatShortcutRows.length > 0 || parkedCount > 0 || sleepingCount > 0,
   };
