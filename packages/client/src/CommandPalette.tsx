@@ -817,26 +817,36 @@ const CommandPalette: Component<{
   // Registered AFTER the open/close lifecycle effect above so it observes the
   // FINAL `path` of an `applyInitialPath` run, not the intermediate one.
   //
-  // Intentionally keyed on `path`/`filterQuery`/`open`, not on `filtered` —
-  // filtered returns a new array reference on every recomputation, so tracking
-  // it would reset the index whenever upstream data (the commands memo)
-  // recomputes in the background.
+  // `currentSelection` is a dep, not just a read: `on()` runs its callback
+  // untracked, and the "current" row CAN move while the palette stays open —
+  // Ctrl+Tab reaches the global dispatcher as well as this component, and the
+  // host-membership reconcile can bounce the canvas to local on its own. Both
+  // re-derive `filtered()` (the Recent band drops a different row), so a
+  // highlight left behind would point at a row that shifted under it, and Enter
+  // would run the wrong one. Tracking the fact re-lands the highlight instead.
+  //
+  // Still NOT keyed on `filtered` itself — that returns a new array reference on
+  // every recomputation, so tracking it would reset the index whenever upstream
+  // data (the commands memo) recomputes in the background.
   createEffect(
-    on([path, filterQuery, () => props.open], ([, , open]) => {
-      if (!open) return;
-      // A value leaf's children are passive labels, not a switcher: nothing
-      // there has a recency or a "current" row, so the highlight starts at the
-      // top. Keying on `filterQuery` (which is "" throughout value mode) is
-      // what keeps a keystroke from re-landing it off the label you picked,
-      // while a SCOPE change still does.
-      if (mode().kind === "value") {
-        setSelectedIndex(0);
-        return;
-      }
-      setSelectedIndex(
-        defaultSelectionIndex(filtered(), currentSelection(), query()),
-      );
-    }),
+    on(
+      [path, filterQuery, () => props.open, currentSelection],
+      ([, , open]) => {
+        if (!open) return;
+        // A value leaf's children are passive labels, not a switcher: nothing
+        // there has a recency or a "current" row, so the highlight starts at the
+        // top. Keying on `filterQuery` (which is "" throughout value mode) is
+        // what keeps a keystroke from re-landing it off the label you picked,
+        // while a SCOPE change still does.
+        if (mode().kind === "value") {
+          setSelectedIndex(0);
+          return;
+        }
+        setSelectedIndex(
+          defaultSelectionIndex(filtered(), currentSelection(), query()),
+        );
+      },
+    ),
   );
 
   // Keep selectedIndex in range when the live list shrinks (terminal exit,
