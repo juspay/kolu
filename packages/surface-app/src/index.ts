@@ -367,3 +367,10 @@ export const SERVER_PROCESS_ID_PARAM = "pid";
  *  process (its `pid` no longer matches the live `processId`). In the application
  *  range (4000–4999, per RFC 6455 §7.4.2). */
 export const STALE_PROCESS_CLOSE_CODE = 4001;
+
+/** The path a surface app's ONE websocket lives at. Every consumer already
+ *  spelled this literal on both legs — the server's `upgrade` handler and the
+ *  client's dial URL — which is two spellings of one fact kept in step by hand.
+ *  `serveSurfaceApp` upgrades exactly here and nowhere else, and a client builds
+ *  its URL from the same constant, so the two cannot drift. */
+export const SURFACE_WS_PATH = "/rpc/ws";

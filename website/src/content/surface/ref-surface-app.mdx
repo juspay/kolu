@@ -13,6 +13,66 @@ layer for apps you run against your own server (kolu, [drishti](https://github.c
 live wire; surface-app is the shell served fresh around it. Exports are grouped
 by subpath.
 
+## The whole listener, in one call
+
+`serveSurfaceApp` (`@kolu/surface-app/serve`) is the turnkey seam: the shell over
+HTTP and the surface over one WebSocket, in the one correct order — **origin gate
+→ upgrade → stale-tab check → heartbeat enrolment → serve**. It owns the
+`http.Server` (so the `upgrade` event stays yours), mounts `surfaceAppLayer`
+alongside your own routes, stands up the `ws` server, binds, and registers its
+whole teardown on the enclosing `Scope`.
+
+```ts
+const url = yield* serveSurfaceApp({
+  group: runtime.group,
+  handlers: runtime.handlers,
+  clientDist,
+  manifest: { name: "my app" },
+  routes: myOwnRoutes, // merged alongside the shell — an MCP route, media, …
+  host,
+  port,
+  allowedOrigins,
+});
+```
+
+It returns the URL **actually** bound (so `port: 0` reports the port the OS
+gave), and fails with the typed `SurfaceAppListenFailed`, which carries the
+`cause` verbatim — a consumer's port policy reads `cause.code === "EADDRINUSE"`
+rather than matching a message string. The surface runtime's own lifetime is
+**not** owned here: pass `{ group, handlers }` and keep `close`/`done` at the
+composition root that built them.
+
+<Aside type="caution" title="The inbound frame cap is not a knob">
+  `ws`'s `maxPayload` and the RPC decoder's `maxBufferSize` police the **same**
+  inbound leg, so if they disagree the tighter one silently governs.
+  `serveSurfaceApp` reads the cap from `RPC_MAX_FRAME_BYTES`
+  (`@kolu/surface/frame-limit`) and offers no option to lower it. An app that
+  hand-rolled `maxPayload: 8 * 1024 * 1024` got a 10 MiB frame — one the framework
+  promises to carry, and that `exceedsFrameLimit` and every margin derived from it
+  size against — killed at the raw `ws` layer instead of on the handled path.
+</Aside>
+
+The path is fixed at `SURFACE_WS_PATH` (`/rpc/ws`); any other upgrade target is
+destroyed. Both legs read that one constant, so the dial URL and the upgrade
+handler cannot drift.
+
+| Export | Subpath | Role |
+| --- | --- | --- |
+| `serveSurfaceApp(opts)` | `/serve` | the whole listener — shell, socket, gates, heartbeat, bind, teardown |
+| `SurfaceAppListenFailed` | `/serve` | the one failure it reports, `cause` intact |
+| `SurfaceAppConnection` | `/serve` | one accepted connection's `{ request, url }` — what a per-connection `services` layer is built from |
+| `SURFACE_WS_PATH` | `.` | `/rpc/ws`, the one path a surface speaks on |
+
+Optional hooks are observational and default **loud**: `onSocketError` (a
+transport error on an accepted socket), `onDisallowedOrigin` (a refused
+cross-site upgrade), `onServingFailed` (this connection's serving stack faulted).
+`onStaleTab` is silent by default — a server that restarted while a tab was open
+is ordinary, not a fault — but every real consumer wires it to a log line.
+
+The sections below are the pieces `serveSurfaceApp` composes; reach for them
+directly when an app owns its own listener (kolu's multi-host dispatch, drishti's
+per-host routing).
+
 ## Serving the fresh shell
 
 `surfaceAppLayer` (`@kolu/surface-app/server`) serves the shell: a `no-store`

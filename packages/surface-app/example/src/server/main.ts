@@ -17,6 +17,15 @@
  * gate → enrol → dispatch order (a stale tab bound to a previous server
  * instance is closed BEFORE any dispatch), and `serveSurfaceSocket` is the
  * dispatch — a per-connection Effect RPC server over the SHARED handlers.
+ *
+ * THIS FILE IS THE DECOMPOSITION, NOT THE RECOMMENDED SHAPE. It spells the
+ * listener out seam by seam because that is what an example is for. An app that
+ * wants the sequence rather than the lesson calls `serveSurfaceApp`
+ * (`@kolu/surface-app/serve`) — origin gate → upgrade → stale-tab check →
+ * heartbeat → serve, plus the shell layers, the bind and the teardown, in one
+ * call, with the inbound frame cap read from the framework constant instead of
+ * guessed at. What stays hand-wired here is the one thing that seam does not
+ * own: this example's per-connection stats counting.
  */
 
 import { randomUUID } from "node:crypto";
