@@ -13,13 +13,20 @@
  * refutes will be relied on and will break, so the vocabulary moved BELOW both
  * of them instead of the formatter reaching sideways for it.
  *
- * `watch.ts` and `dial.ts` re-export from here, so every existing consumer's
- * import path is unchanged.
+ * `cliClient/watch.ts` and `dial.ts` re-export from here, so every existing
+ * consumer's import path is unchanged.
+ *
+ * It sits at the package ROOT rather than under `cliClient/` because the server
+ * speaks this vocabulary too: padi's supervision-edge delivery narrows a
+ * supervisor record with `activeAgent` before writing into its mailbox. A daemon
+ * module reaching into a directory named `cliClient` for a narrowing would point
+ * the dependency arrow backwards — location is structure — even though the leaf
+ * itself is pure. Same leaf, one directory up, so both sides reach it downhill.
  */
 
 import type { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
-import type { PadiTerminal } from "../surface.ts";
+import type { PadiTerminal } from "./surface.ts";
 
 /** The LIVE agent of a composed record, or `null` — only the `active` arm
  *  carries a running agent (`sleeping`/`parked` are dormant, their PTY

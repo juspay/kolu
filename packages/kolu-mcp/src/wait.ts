@@ -51,7 +51,7 @@ import { Effect, Schema } from "effect";
  *  the field as an integer rather than as bare `Schema.Number`, whose encoded
  *  form admits the strings `"NaN"`/`"Infinity"` (D8/#14 divergence 2). Pinned
  *  in `argSchemas.test.ts`. */
-const MillisecondsSchema = (description: string) =>
+export const MillisecondsSchema = (description: string) =>
   Schema.Number.annotate({ description }).check(
     Schema.isInt(),
     Schema.isGreaterThan(0),
@@ -93,7 +93,7 @@ export const waitOutputSettledTool: BespokeTool = {
   input: WaitOutputSettledArgsSchema,
   mutates: false,
   description:
-    'Block until a terminal\'s output has been idle for idleMs milliseconds — the agent-agnostic done-signal (the dispatch loop\'s "observe the TUI settle" step). Returns {result: "met", met: {fired, elapsedMs}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}.',
+    'Block until a terminal\'s output has been idle for idleMs milliseconds — the agent-agnostic done-signal (the dispatch loop\'s "observe the TUI settle" step). Returns {result: "met", met: {fired, elapsedMs}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
   // The one bespoke tool that does NOT compose a surface member: padi's
   // `awaitOutputSettled` is a Promise-shaped waiter that takes an AbortSignal,
   // so this LIFTS it rather than composing it. That is why `signal` survives on
@@ -131,7 +131,7 @@ export const waitAgentStateTool: BespokeTool = {
   input: WaitAgentStateArgsSchema,
   mutates: false,
   description:
-    'Block until a terminal\'s detected agent state enters a target bucket (working / awaiting / waiting) — the precise agent-state done-signal. An agent ALREADY in a target bucket resolves immediately. Returns {result: "met", met: {agent, elapsedMs}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}.',
+    'Block until a terminal\'s detected agent state enters a target bucket (working / awaiting / waiting) — the precise agent-state done-signal. An agent ALREADY in a target bucket resolves immediately. Returns {result: "met", met: {agent, elapsedMs}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
   // Lifted, not composed — same reason as `wait_outputSettled` above.
   handler: (args, client, signal) =>
     Effect.tryPromise(async () => {

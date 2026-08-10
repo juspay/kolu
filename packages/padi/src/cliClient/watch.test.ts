@@ -422,7 +422,7 @@ describe("awaitOutputMatch — the `match:` wait over a fake attach feed", () =>
     // delta is 4097 units long with the emoji at index 0 of the kept tail.
     const emoji = "\u{1F600}"; // 2 code units
     const attach = new FakeSource<AttachFrame>();
-    attach.push(delta("a" + emoji + "b".repeat(4095)));
+    attach.push(delta(`a${emoji}${"b".repeat(4095)}`));
     attach.push(delta("Z\n"));
 
     const outcome = await awaitOutputMatch(

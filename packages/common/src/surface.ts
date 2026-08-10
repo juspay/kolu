@@ -90,6 +90,15 @@ export type {
   AttentionClass,
   Urgency,
 } from "@kolu/terminal-vocab/agentProjection";
+// The attention TRANSITION decision (which terminals just entered the attention
+// class) rides the same door for the same reason — padi is its other consumer,
+// so the browser's alert and a supervisor agent's nudge fire on one definition.
+export type {
+  AttentionFrame,
+  AttentionTransition,
+  AttentionTransitions,
+} from "@kolu/terminal-vocab/attentionTransitions";
+export { createAttentionTransitions } from "@kolu/terminal-vocab/attentionTransitions";
 // The renderer-agnostic agent-state projection (bucket · urgency · needs-you
 // rank) is OWNED by `@kolu/terminal-vocab/agentProjection` — the ONE source
 // padi-tui and downstream dashboards (drishti) already share. The kolu client reaches it through the

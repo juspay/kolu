@@ -134,7 +134,8 @@ and observed:
 | note rendering | `@kolu/solid-markdown` + standard marked extensions (alerts + footnotes **shipped**; add: live `#1234` pills via the server's forge access, directive syntax, the `html` fence → the existing sandboxed preview iframe) | *P0, small* |
 | durable knowledge | plain files in git — no new store, no schema | **shipped** (it's a filesystem) |
 | reset-to-stable (let it crash) | the agent CLI's own compaction / a fresh terminal | **shipped** — nothing to build |
-| **the attention flow — a blocking ask can't exist without a listener** | padi delivers `[kolu] worker <id> (<intent>) needs you` into the SUPERVISOR terminal's mailbox (the `parentId`/creator edge names it; kaval's serialized input is the transport), fired only when **agent-state is `awaiting`/`waiting` AND raw PTY output settled ≥ N s** (the conjunction — agent-idle alone false-fires on subagent/background churn). Only agent-terminal supervisors are notified, never a human shell. | *new, small — both signals shipped (`wait_agentState` + `wait_outputSettled`); the edge and the mailbox exist* |
+| **the attention flow — a supervisor is never left to discover an ask** | Standing named subscriptions (`watch_*`) over the attention EDGE: events buffer in padi, so the gap between two drains is not a hole. | **shipped — [#2135](https://github.com/juspay/kolu/pull/2135)** |
+| the mailbox PUSH — padi writing `[kolu] …` into a supervisor terminal so the ask cannot even be un-asked-for | *not built.* Tried in #2135 and withdrawn: it wrote into every parented agent terminal, and it could not tell a campaign from a stray split. The subscription above already closes the reported failure; what the push adds is only "you cannot forget to subscribe", which is not worth unsolicited writes into a terminal someone is using. | *withdrawn* |
 | the chat mirror | pesu: `postMessage` out, `sendInput` in — the chat-native note's bridge | *P3, per that note* |
 
 Read the Status column's shape: **most rows are shipped.** The feature is
@@ -170,18 +171,37 @@ because the edge is the subscription** (P5: padi is the knowing endpoint for
 
 The signal must be the **conjunction**, not agent-state alone: a coding
 agent's subagents and background tasks flap its detected state to idle while
-the terminal is still working. Fire only when *agent-state is `awaiting`/`waiting`* **and** *raw PTY output has settled* for a debounce window —
-both already shipped as `wait_agentState` and `wait_outputSettled`
-("terminal-activity idle", distinct from agent-state idle). Guard: notify only
-supervisors that are themselves agent terminals — never inject into a human's
-shell.
+the terminal is still working. Guard: notify only supervisors that are
+themselves agent terminals — never inject into a human's shell.
 
-*Interim, until this ships:* every dispatch carrying an "ask me" gate arms
-`wait --until idle:<ms>` (the same conjunction) as a background task in the
-same turn — the harness re-invokes the coordinator when it fires. The ask and
-its listener created together, never apart.
+**Partly shipped in [#2135](https://github.com/juspay/kolu/pull/2135), and it
+needed less than this note assumed.** The conjunction was already computed —
+padi's [effective finish (EF2)](effective-finish.html) is exactly *agent-state
+`waiting` ∧ PTY output quiet*, and it is what the `urgency` cell's
+`finishedIds` has always meant. So nothing re-conjoins two wait tools. One
+correction to the design above: `asking` (`awaiting_user`) is ungated, because
+an agent that declares it is blocked is definitionally not mid-output; the quiet
+window only ever guarded turn-END, which is where the subagent flap actually
+lives. Kolu's shipped `attentionClass` partition already drew that line.
 
-## The Board — a third right-panel tab, shaped like the graph
+What is genuinely new is the **edge**: the `urgency` cell is a level (who is in
+each class now) and a notification needs a transition (who just entered one).
+That diff graduated to `@kolu/terminal-vocab/attentionTransitions` from the
+browser's own alert engine, so a human at the canvas and a subscribing agent
+fire on ONE definition rather than two that agree by luck. A departure
+(`kind: "gone"`) rides the same channel: a supervisor blocked on a worker that
+no longer exists is the same failure as one blocked on a worker nobody reported.
+
+**What did NOT ship is the mailbox push**, and the reason is worth recording
+because this note argued for it. The claim was that a *listener* is a separate,
+forgettable act, so only delivery-by-construction makes ask-without-listener
+unrepresentable. That argument was written against the old world, where watching
+meant re-arming a wait per worker per turn. A standing subscription is opened
+**once** per campaign — not the kind of thing that gets forgotten — so the
+subscription had already dissolved most of what the push was for. What the push
+cost was real: it wrote into every agent terminal carrying a `parentId`, could
+not distinguish a campaign from a stray split, and submitted the line. Built,
+reviewed, and withdrawn before merge.## The Board — a third right-panel tab, shaped like the graph
 
 The right panel today has two tabs (`inspector` | `code`). The Board is the
 third: the repo's supervision graph, live.
