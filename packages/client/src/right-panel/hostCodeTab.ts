@@ -371,6 +371,15 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
           }
         : null;
     },
+    // Outside git the file's pulse is its PARENT DIRECTORY's non-recursive
+    // watch. That covers the editor temp+rename idiom and (on the fs.watch
+    // edge) in-place child writes — but it is BEST-EFFORT for content-only
+    // writes: the watcher's dropped-edge poll floor observes directory-entry
+    // facts, not child bytes, so an in-place write whose edge is dropped under
+    // load waits for the next event. Accepted deliberately over a narrow
+    // per-file stream member (see the PR's adjudication note): bounded
+    // staleness on an already-open preview, vs a second wire member and a
+    // per-open-file handle in both root kinds.
     pulse: (i) =>
       i.git
         ? bindPulse(activePadiStreams.subscribeFileChange.unenrolled, {
@@ -471,6 +480,11 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
         // (its snapshot frame performs the first read, so the click issues no
         // RPC of its own). N expanded folders cost N single-directory handles,
         // never a recursive crawl.
+        //
+        // A plain boolean rather than reading `level()` inside its own config:
+        // the self-reference defeats TS's inference, and the fact wanted is
+        // exactly "has any listing ever landed", not the current value.
+        let levelHasValue = false;
         const level = createPolledQuery<
           { repoPath: string; dirPath: string },
           unknown,
@@ -487,10 +501,17 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
           },
           // A level whose directory vanished mid-watch: keep the last listing;
           // the parent's own pulse re-lists and drops the row authoritatively.
-          swallowError: (err) => isDeclared(err, FILE_GONE),
+          // ONLY once a listing exists, though — a FIRST frame that fails with
+          // FileGone has no value to keep, and swallowing it would leave the
+          // expand waiter unsettled forever: no reject, no toast, the folder
+          // wedged open-and-empty (root level ``""``: stuck on Loading…).
+          swallowError: (err) => isDeclared(err, FILE_GONE) && levelHasValue,
         });
         createEffect(() => {
-          if (level()) settle("resolve");
+          if (level()) {
+            levelHasValue = true;
+            settle("resolve");
+          }
         });
         return {
           dirKey,

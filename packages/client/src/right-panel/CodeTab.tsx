@@ -196,7 +196,7 @@ const NavButton: Component<{
 
 /** The collapsed root node a non-git cwd renders — nothing is listed or
  *  watched until the user clicks it (consent expressed in the flow, per
- *  session, never persisted — `browseArm.ts`). Styled as the folder row the
+ *  session, never persisted — `browseRoot.ts`). Styled as the folder row the
  *  click turns it into. The 32px row clears the WCAG 2.2 24px tap floor. */
 const BrowseRootArm: Component<{ cwd: string; onBrowse: () => void }> = (
   props,

@@ -70,8 +70,11 @@ lazily-read level per expanded folder — the same click-to-descend walk the
 ignored-directory rows use, so browsing even your home directory costs a
 handful of directory reads, never a recursive crawl. Unlike the ignored rows,
 each folder you have open here **is** watched — non-recursively, one cheap
-handle per open folder — so the levels you're looking at, and the file you have
-open, repaint live.
+handle per open folder — so the levels you're looking at repaint live. The
+file you have open rides its parent folder's watch: saves from editors (which
+write-and-rename) repaint live, while a rare in-place write under heavy load
+can wait for the next filesystem event — reselect the file to re-read it
+immediately.
 
 The git surfaces — the Local/Branch views, status tinting, the scope switcher,
 the ignored-files eye — stay hidden there: they genuinely need a repo. `cd`

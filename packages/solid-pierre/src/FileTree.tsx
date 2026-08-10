@@ -877,6 +877,16 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     // Every in-flight load is superseded by the tree ceasing to exist — abort
     // so a late rejection can't try to collapse a row in a torn-down Pierre.
     for (const key of [...lazyLoads.keys()]) abortLazyLoad(key);
+    // Fire the close edge for every still-open lazy directory: this wrapper
+    // instance is the only holder of `openLazyDirs`, so an unmount without
+    // this would strand the host's per-level machinery (watches, cached
+    // levels) registered against expansions no surviving tree remembers — a
+    // remounted tree starts collapsed and re-reports afresh. Same total-
+    // contract reasoning as the declared-set removal loop above.
+    for (const key of [...openLazyDirs]) {
+      openLazyDirs.delete(key);
+      retireLazyDir(key);
+    }
     tree?.cleanUp();
   });
 
