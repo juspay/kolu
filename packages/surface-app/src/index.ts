@@ -368,9 +368,32 @@ export const SERVER_PROCESS_ID_PARAM = "pid";
  *  range (4000–4999, per RFC 6455 §7.4.2). */
 export const STALE_PROCESS_CLOSE_CODE = 4001;
 
-/** The path a surface app's ONE websocket lives at. Every consumer already
- *  spelled this literal on both legs — the server's `upgrade` handler and the
- *  client's dial URL — which is two spellings of one fact kept in step by hand.
- *  `serveSurfaceApp` upgrades exactly here and nowhere else, and a client builds
- *  its URL from the same constant, so the two cannot drift. */
+/** `host:port` in the form a URL parser accepts — the ONE place an IPv6 literal
+ *  is re-bracketed, and therefore the one authority on how a door is addressed.
+ *
+ *  `location.hostname` and Node's `AddressInfo.address` both strip the brackets
+ *  the URL form requires, so an IPv6 address (a tailnet `fd7a:…` is the ordinary
+ *  case, not an exotic one) yields `fd7a::2:8123` — where a parser reads the last
+ *  `:8123` as part of the address and the whole thing is simply malformed.
+ *  Detected by the colon: a registered hostname or an IPv4 literal can never
+ *  contain one, so this needs no address parsing.
+ *
+ *  It lives here, at the root both a server leg (`serveSurfaceApp`'s bound
+ *  origin) and a browser leg (kolu's port-forward URLs) already import, because
+ *  an address shown in one spelling and dialled in another is an address where
+ *  only one of them works. */
+export const hostAuthority = (host: string, port: number): string =>
+  `${host.includes(":") ? `[${host}]` : host}:${port}`;
+
+/** The path a surface app's ONE websocket lives at — the single source for both
+ *  legs. Every consumer used to spell this literal twice, at the server's
+ *  `upgrade` handler and at the client's dial URL, which is one fact kept in step
+ *  by hand. Both legs now read it here: `serveSurfaceApp` upgrades exactly here
+ *  and nowhere else, and kolu's browser wire, its `wireCall` CLI dialler, the e2e
+ *  harness's wire and this package's example all build their URL from it.
+ *
+ *  `serveSurfaceApp` compares `pathname` for EQUALITY, where a hand-written
+ *  consumer typically wrote `startsWith("/rpc/ws")` — a deliberate tightening
+ *  that a URL built from this constant can never trip, and a hand-typed one with
+ *  a trailing slash can. */
 export const SURFACE_WS_PATH = "/rpc/ws";

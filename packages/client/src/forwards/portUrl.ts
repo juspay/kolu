@@ -7,22 +7,24 @@
  *  complaint. A URL builder depends on neither.
  */
 
-/** `host:port` in the form a URL parser accepts — the ONE place an IPv6 literal
- *  is re-bracketed, and therefore the one authority on how a door is addressed.
+import { hostAuthority } from "@kolu/surface-app";
+
+/** `host:port` in the form a URL parser accepts. The rule itself is
+ *  `@kolu/surface-app`'s {@link hostAuthority} — the ONE place an IPv6 literal is
+ *  re-bracketed, and therefore the one authority on how a door is addressed,
+ *  shared with the server leg that prints a bound origin.
  *
  *  `location.hostname` strips the brackets the URL form requires, so a kolu
  *  reached over IPv6 (a tailnet `fd7a:…` address is the ordinary case, not an
  *  exotic one) yielded `fd7a::2:8123` — where a parser reads the last `:8123` as
- *  part of the address and the whole thing is simply malformed. Detected by the
- *  colon: a registered hostname or an IPv4 literal can never contain one, so
- *  this needs no address parsing.
+ *  part of the address and the whole thing is simply malformed.
  *
- *  It is factored out of {@link portUrl} because the address is shown as well as
- *  linked — a pill renders it, a copy button copies it — and a row that displays
- *  one spelling while copying another is a row where only one of them works. */
+ *  It is named here, rather than inlined into {@link portUrl}, because the
+ *  address is shown as well as linked — a pill renders it, a copy button copies
+ *  it — and a row that displays one spelling while copying another is a row where
+ *  only one of them works. */
 export function portAuthority(hostname: string, port: number): string {
-  const host = hostname.includes(":") ? `[${hostname}]` : hostname;
-  return `${host}:${port}`;
+  return hostAuthority(hostname, port);
 }
 
 /** The URL a port answers on: the host the page was served from, which IS the

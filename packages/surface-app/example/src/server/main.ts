@@ -6,50 +6,40 @@
  * transport by `implementSurfaces`. The `surfaceApp` entry's deps come from
  * `surfaceAppServer()` in one call (commit auto-resolved, the buildInfo cell's
  * async `connect` fired internally by the surface runtime); the `demo` entry
- * wires only the example's own cell. `surfaceAppLayer` serves the shell fresh
- * + the manifest + the `/sw.js` retirement worker, as an `HttpRouter` layer this
- * server mounts on an `http.Server` it OWNS (so the `upgrade` event below stays
- * ours alone). The example writes no cell store wiring, no `/sw.js` route, and
- * no commit literal. To see skew in dev, boot with `SURFACE_APP_COMMIT=<other>`
- * — a real deploy-simulating override.
+ * wires only the example's own cell. The example writes no cell store wiring, no
+ * `/sw.js` route, and no commit literal. To see skew in dev, boot with
+ * `SURFACE_APP_COMMIT=<other>` — a real deploy-simulating override.
  *
- * The RPC leg is ONE WebSocket: `acceptSurfaceSocket` keeps the
- * gate → enrol → dispatch order (a stale tab bound to a previous server
- * instance is closed BEFORE any dispatch), and `serveSurfaceSocket` is the
- * dispatch — a per-connection Effect RPC server over the SHARED handlers.
+ * THE LISTENER IS ONE CALL. `serveSurfaceApp` (`@kolu/surface-app/serve`) owns
+ * the whole order — origin gate → upgrade (on `SURFACE_WS_PATH` and no
+ * other path) → stale-tab check → heartbeat enrolment → serve — plus the shell
+ * layers (fresh SPA + manifest + the `/sw.js` retirement worker), the bind, and
+ * the teardown, with the inbound frame cap read from the framework constant
+ * instead of guessed at. This file used to spell those five steps out by hand,
+ * which is exactly how every downstream copy of it acquired a step to drop.
  *
- * THIS FILE IS THE DECOMPOSITION, NOT THE RECOMMENDED SHAPE. It spells the
- * listener out seam by seam because that is what an example is for. An app that
- * wants the sequence rather than the lesson calls `serveSurfaceApp`
- * (`@kolu/surface-app/serve`) — origin gate → upgrade → stale-tab check →
- * heartbeat → serve, plus the shell layers, the bind and the teardown, in one
- * call, with the inbound frame cap read from the framework constant instead of
- * guessed at. What stays hand-wired here is the one thing that seam does not
- * own: this example's per-connection stats counting.
+ * What stays here is the app's own half and nothing else: which surfaces are
+ * served, where the dist is, and the live connection count — the last of which
+ * rides the listener's ONE event sink (`onEvent`'s `Connected`/`Disconnected`
+ * arms) rather than a second callback shape.
  */
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { NodeHttpServer } from "@effect/platform-node";
 import {
   implementSurfacesOnPublisher,
   inMemoryPublisher,
   publisherChannel,
 } from "@kolu/surface/server";
-import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
+import { parseAllowedOrigins } from "@kolu/surface/ws-origin";
+import { surfaceAppServer } from "@kolu/surface-app/server";
 import {
-  acceptSurfaceSocket,
-  type ServableSocket,
-  serveSurfaceSocket,
-  surfaceAppLayer,
-  surfaceAppServer,
-} from "@kolu/surface-app/server";
+  reportSurfaceAppEvent,
+  serveSurfaceApp,
+} from "@kolu/surface-app/serve";
 import { resolveCommit } from "@kolu/surface-app/vite";
-import { Effect, Layer, Scope } from "effect";
-import { HttpRouter } from "effect/unstable/http";
-import { WebSocketServer } from "ws";
+import { Effect, Exit, Scope } from "effect";
 import {
   EMPTY_STATS,
   type ExampleBuildInfo,
@@ -62,7 +52,8 @@ const PORT = Number(process.env.PORT ?? 7710);
 const HOST = process.env.HOST ?? "127.0.0.1";
 // CSWSH gate: same-origin is always allowed; list extra browser origins (a
 // reverse proxy / `tailscale serve` FQDN) in `ALLOWED_ORIGINS` if you front
-// this example with one. See `gateWsOrigin` in the upgrade handler below.
+// this example with one. Handed to `serveSurfaceApp`, which runs the gate on the
+// RAW socket before the upgrade.
 const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 const DIST_DIR =
   process.env.KOLU_SURFACE_APP_DIST ??
@@ -149,102 +140,57 @@ function pushStats(patch: Partial<ServerStats>): void {
 // Tick the server clock once a second so even a single tab sees the cell update live.
 setInterval(() => pushStats({ now: Date.now() }), 1000);
 
-// The HTTP app is a LAYER, not a framework instance: `surfaceAppLayer` is one
-// call for the fresh shell + manifest + `/sw.js` retirement. With no dist yet
-// there is simply no route, and every request 404s.
-const appLayer = existsSync(DIST_DIR)
-  ? surfaceAppLayer({
-      clientDist: DIST_DIR,
-      manifest: { name: "surface-app hello", themeColor: "#6b4eff", icons: [] },
-    })
-  : Layer.empty;
-
-// We own the `http.Server` and hand its `request` event an Effect handler,
-// rather than letting `HttpServer.serve` own the listener. That is what leaves
-// the `upgrade` event to US (below): Node fans an event out to EVERY listener,
-// so a second, framework-owned upgrade handler would also try to answer a socket
-// we have already upgraded.
-const server = createServer();
-const httpScope = Scope.makeUnsafe();
-server.on(
-  "request",
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const httpEffect = yield* HttpRouter.toHttpEffect(appLayer);
-      return yield* NodeHttpServer.makeHandler(httpEffect, {
-        scope: httpScope,
-      });
-    }).pipe(
-      Scope.provide(httpScope),
-      // The platform services the static layer asks for: file system, path, the
-      // file-response platform, ETags.
-      Effect.provide(NodeHttpServer.layerHttpServices),
-    ),
-  ),
-);
-server.listen({ host: HOST, port: PORT }, () => {
-  console.log(
-    `@kolu/surface-app-example on http://${HOST}:${PORT} (server commit ${resolveCommit()})`,
-  );
-  if (!existsSync(DIST_DIR)) {
-    console.log(
-      "  (no dist yet — run `pnpm build:client`, or start Vite for dev)",
-    );
-  }
-});
-
-const wss = new WebSocketServer({ noServer: true });
-
-// The server-side acceptance seam: it owns the liveness reaper and sequences
-// gate → enrol → dispatch, so a socket CANNOT be dispatched without first being
-// gated and enrolled (kolu#1231). The stale-tab gate needs no id from here: it
-// compares against this process's own `surfaceProcessId()`, which is also what the
-// reserved `system/identity` member answers and so what a client echoes back.
-const acceptor = acceptSurfaceSocket({
-  server: wss,
-  onReject: (claimedPid) =>
-    console.log(`stale tab rejected (claimed pid ${claimedPid})`),
-});
-
-wss.on("connection", (peer, req) => {
-  acceptor.accept(
-    peer,
-    new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`),
-    () => {
-      // app-specific: reflect the live client count in the serverStats cell
-      pushStats({ connections: stats.connections + 1 });
-      peer.on("close", () =>
-        pushStats({ connections: Math.max(0, stats.connections - 1) }),
-      );
-      const serving = serveSurfaceSocket({
-        group,
-        handlers,
-        // `ws`'s socket satisfies `ServableSocket` structurally; its typings
-        // narrow `addEventListener` per event name, which the seam does not.
-        socket: peer as unknown as ServableSocket,
-      });
-      // A serving site OWNS `done`: it resolves on hang-up and REJECTS if the
-      // serving stack failed. An ignored rejection is an unhandled one.
-      serving.done.catch((err) =>
-        console.error("surface connection failed:", err),
-      );
+// The listener's whole lifetime hangs off ONE scope: `serveSurfaceApp` registers
+// its teardown there (sockets dropped, server closed), so shutdown below is
+// "close the scope" rather than a hand-ordered sequence this file could get
+// wrong.
+const scope = Scope.makeUnsafe();
+const url = await Effect.runPromise(
+  serveSurfaceApp({
+    group,
+    handlers,
+    // With no dist yet there is simply nothing to serve, and every request 404s.
+    clientDist: DIST_DIR,
+    manifest: { name: "surface-app hello", themeColor: "#6b4eff", icons: [] },
+    host: HOST,
+    port: PORT,
+    // CSWSH gate: same-origin is always allowed; list extra browser origins (a
+    // reverse proxy / `tailscale serve` FQDN) in `ALLOWED_ORIGINS`.
+    allowedOrigins: ALLOWED_ORIGINS,
+    // The listener's ONE narration sink. The example uses it for the two things
+    // an app actually wants from it: the live client count in the `serverStats`
+    // cell, and a line when a tab bound to a previous process is retired.
+    onEvent: (event) => {
+      switch (event._tag) {
+        case "Connected":
+          return pushStats({ connections: stats.connections + 1 });
+        case "Disconnected":
+          return pushStats({
+            connections: Math.max(0, stats.connections - 1),
+          });
+        case "StaleTab":
+          return console.log(
+            `stale tab rejected (claimed pid ${event.claimedPid})`,
+          );
+        default:
+          // Every fault arm keeps the framework's loud default — see
+          // `reportSurfaceAppEvent`.
+          return reportSurfaceAppEvent(event);
+      }
     },
+  }).pipe(Scope.provide(scope)),
+);
+console.log(
+  `@kolu/surface-app-example on ${url} (server commit ${resolveCommit()})`,
+);
+if (!existsSync(DIST_DIR)) {
+  console.log(
+    "  (no dist yet — run `pnpm build:client`, or start Vite for dev)",
   );
-});
-server.on("upgrade", (req, socket, head) => {
-  if (req.url?.startsWith("/rpc/ws")) {
-    // CSWSH gate — reject a cross-site browser Origin before we upgrade.
-    if (gateWsOrigin(req, socket, { allowedOrigins: ALLOWED_ORIGINS })) return;
-    wss.handleUpgrade(req, socket, head, (ws) =>
-      wss.emit("connection", ws, req),
-    );
-  } else {
-    socket.destroy();
-  }
-});
+}
 
-// Orderly shutdown: release the runtime's owned sources (its `close`), then stop
-// the HTTP/WS server. A serving site OWNS `close` — process death alone would
+// Orderly shutdown: release the runtime's owned sources (its `close`), then close
+// the listener's scope. A serving site OWNS `close` — process death alone would
 // leak the buildInfo connector's abort-then-settle. Idempotent + guarded so a
 // double signal can't run teardown twice.
 let shuttingDown = false;
@@ -253,9 +199,8 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   shuttingDown = true;
   console.log(`\n${signal} — closing surface runtime and server`);
   await close();
-  acceptor.stop();
-  wss.close();
-  server.close(() => process.exit(0));
+  await Effect.runPromise(Scope.close(scope, Exit.void));
+  process.exit(0);
 }
 process.on("SIGINT", (s) => void shutdown(s));
 process.on("SIGTERM", (s) => void shutdown(s));

@@ -37,6 +37,7 @@ import type { UnaryEffect } from "@kolu/surface/client";
 import type { WatchableWire } from "@kolu/surface/link";
 import type { WireDiagnostics } from "@kolu/surface/links/websocket";
 import type { SurfaceClient, SurfaceFace } from "@kolu/surface/solid";
+import { SURFACE_WS_PATH } from "@kolu/surface-app";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
@@ -80,7 +81,7 @@ import { runAction } from "./runAction.ts";
 import { recordProbeSettled, recordWireRetired } from "./wireProbes.ts";
 
 const { protocol, host } = window.location;
-const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
+const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}${SURFACE_WS_PATH}`;
 
 /** The ONE kolu client-error interpreter (SR11, fork-A) — the single place kolu's
  *  app-owned {@link ClientErrorPolicy} arms are rendered. Registered at BOTH seams

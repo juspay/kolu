@@ -52,6 +52,7 @@
  */
 
 import { websocketLink } from "@kolu/surface/links/websocket";
+import { SURFACE_WS_PATH } from "@kolu/surface-app";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";
 import { Cause, Effect, Exit, Schema } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
@@ -134,12 +135,12 @@ export function parseArgs(argv: readonly string[]): Args {
   return { baseUrl, tag, payload, timeoutMs };
 }
 
-/** The websocket URL for an http(s) base — the same `/rpc/ws` path the browser
- *  dials, derived from the base rather than spelled twice. */
+/** The websocket URL for an http(s) base — the same {@link SURFACE_WS_PATH} the
+ *  browser dials, derived from the base rather than spelled twice. */
 export function wsUrlFor(httpBaseUrl: string): string {
   const url = new URL(httpBaseUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = "/rpc/ws";
+  url.pathname = SURFACE_WS_PATH;
   return url.toString();
 }
 

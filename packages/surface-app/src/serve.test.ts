@@ -16,7 +16,11 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
+import {
+  exceedsFrameLimit,
+  isFrameTooLargeClose,
+  RPC_MAX_FRAME_BYTES,
+} from "@kolu/surface/frame-limit";
 import { surfaceProcessId } from "@kolu/surface/identity";
 import { defineSurface } from "@kolu/surface/define";
 import { implementSurface } from "@kolu/surface/server";
@@ -30,6 +34,7 @@ import {
   serveSurfaceApp,
   SurfaceAppListenFailed,
   type ServeSurfaceAppOptions,
+  type SurfaceAppEvent,
 } from "./serve";
 
 /** A viewer fact only a per-connection `Layer` can supply — the seam kolu's
@@ -69,11 +74,14 @@ const makeRuntime = () =>
         // This handler REQUIRES a service no in-process caller supplies — it is
         // satisfied per CONNECTION, which is exactly the claim under test. The
         // deps type has no room for an unsatisfied requirement (kolu's own
-        // `hosts/viewer` is in the same position), so the cast is the seam.
+        // `hosts/viewer` is in the same position), so the cast erases the
+        // REQUIREMENT and nothing else: input and output stay checked, the way
+        // kolu's own record-level erasure (`packages/server/src/router.ts`) does
+        // it. `as never` would have made a wrong shape compile too.
         seen: (() =>
           Viewer.use((viewer) =>
             Effect.succeed({ seen: viewer.seen }),
-          )) as never,
+          )) as unknown as () => Effect.Effect<{ readonly seen: string }>,
       },
     },
   });
@@ -99,14 +107,17 @@ afterEach(async () => {
   while (booted.length > 0) await booted.pop()?.teardown();
 });
 
-async function boot(
-  overrides: Partial<ServeSurfaceAppOptions> = {},
+/** Generic in `Svc`, so a test supplying `services` exercises the TYPE-level seam
+ *  (a `Layer<Viewer>` reaching a handler that requires `Viewer`) and not only the
+ *  runtime passthrough — the whole reason `services` is generic. */
+async function boot<Svc = never>(
+  overrides: Partial<ServeSurfaceAppOptions<Svc>> = {},
 ): Promise<Booted> {
   const dist = makeDist();
   const runtime = makeRuntime();
   const scope = Scope.makeUnsafe();
   const url = await Effect.runPromise(
-    serveSurfaceApp({
+    serveSurfaceApp<Svc>({
       group: runtime.group,
       handlers: runtime.handlers,
       clientDist: dist.dir,
@@ -197,6 +208,34 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
     await socket.dispose();
   }, 60_000);
 
+  it("refuses a frame whose BYTES bust the budget, agreeing with the published predicate", async () => {
+    // The two caps count different units: `ws`'s `maxPayload` counts UTF-8
+    // BYTES, the RPC decoder's `maxBufferSize` counts UTF-16 code units. For
+    // non-ASCII text the decoder is the LAXER of the two — and that laxness is
+    // not a promise. `exceedsFrameLimit(bytes)` is what every sender in this repo
+    // budgets against, so the wire must refuse exactly what it refuses.
+    const text = "あ".repeat(RPC_MAX_FRAME_BYTES / 2);
+    const bytes = Buffer.byteLength(text, "utf8");
+    // Under the decoder's code-unit cap…
+    expect(text.length).toBeLessThan(RPC_MAX_FRAME_BYTES);
+    // …and over the published byte budget.
+    expect(exceedsFrameLimit(bytes)).toBe(true);
+
+    const server = await boot();
+    const raw = new WsClient(server.wsUrl, { origin: server.url });
+    await new Promise<void>((resolve, reject) => {
+      raw.on("open", () => resolve());
+      raw.on("error", reject);
+    });
+    const code = await new Promise<number>((resolve) => {
+      raw.on("close", (closeCode) => resolve(closeCode));
+      raw.send(text);
+    });
+    // The wire and the predicate agree: what senders were told to refuse is
+    // exactly what the transport refuses.
+    expect(isFrameTooLargeClose(code)).toBe(true);
+  }, 60_000);
+
   it("supplies each connection's own services to its handlers", async () => {
     const server = await boot({
       services: (connection) =>
@@ -209,12 +248,41 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
     expect(answer).toEqual({ seen: SURFACE_WS_PATH });
     await socket.dispose();
   });
+
+  it("narrates a connection's whole life on the ONE sink", async () => {
+    // The inc/dec pair a live-connection count is built from — the example's
+    // `serverStats.connections`, and the reason the sink has lifecycle arms at
+    // all rather than only fault arms.
+    const events: SurfaceAppEvent[] = [];
+    const server = await boot({ onEvent: (event) => events.push(event) });
+    const socket = await dial(server);
+    // One answered call, so the socket is demonstrably open and served before
+    // the narration is read (the link dials lazily).
+    await Effect.runPromise(
+      socket.link.dispatch.unary("surface/echo/length", { text: "hi" }),
+    );
+    expect(events.map((event) => event._tag)).toEqual(["Connected"]);
+    await socket.dispose();
+    await vi.waitFor(() =>
+      expect(events.map((event) => event._tag)).toEqual([
+        "Connected",
+        "Disconnected",
+      ]),
+    );
+    // The SAME connection both times: a counter keyed on it can pair them.
+    const [connected, disconnected] = events;
+    expect(
+      connected?._tag === "Connected" && disconnected?._tag === "Disconnected"
+        ? connected.connection === disconnected.connection
+        : false,
+    ).toBe(true);
+  });
 });
 
 describe("serveSurfaceApp — the gates in front of dispatch", () => {
   it("refuses a cross-site Origin BEFORE the upgrade", async () => {
-    const onDisallowedOrigin = vi.fn();
-    const server = await boot({ onDisallowedOrigin });
+    const onEvent = vi.fn();
+    const server = await boot({ onEvent });
     const raw = new WsClient(server.wsUrl, {
       origin: "http://evil.example",
     });
@@ -222,7 +290,17 @@ describe("serveSurfaceApp — the gates in front of dispatch", () => {
       raw.on("error", () => resolve());
       raw.on("open", () => reject(new Error("the upgrade was allowed")));
     });
-    expect(onDisallowedOrigin).toHaveBeenCalledWith("http://evil.example");
+    expect(onEvent).toHaveBeenCalledWith({
+      _tag: "DisallowedOrigin",
+      origin: "http://evil.example",
+      // The refused upgrade's own target — the gate runs one line after the
+      // parse, so the sink never has to say "some upgrade, somewhere".
+      url: expect.any(URL),
+    });
+    // …and nothing was ever narrated as a connection: the gate is in front.
+    expect(onEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ _tag: "Connected" }),
+    );
   });
 
   it("allows a same-origin browser through the gate", async () => {
@@ -253,16 +331,22 @@ describe("serveSurfaceApp — the gates in front of dispatch", () => {
   });
 
   it("closes a tab bound to a PREVIOUS process, and never serves it", async () => {
-    const onStaleTab = vi.fn();
-    const server = await boot({ onStaleTab });
+    const onEvent = vi.fn();
+    const server = await boot({ onEvent });
     const stale = new WsClient(`${server.wsUrl}?pid=a-process-that-is-gone`);
     const code = await new Promise<number>((resolve) => {
       stale.on("close", (closeCode) => resolve(closeCode));
     });
     expect(code).toBe(STALE_PROCESS_CLOSE_CODE);
-    expect(onStaleTab).toHaveBeenCalledWith(
-      "a-process-that-is-gone",
-      expect.any(URL),
+    expect(onEvent).toHaveBeenCalledWith({
+      _tag: "StaleTab",
+      claimedPid: "a-process-that-is-gone",
+      url: expect.any(URL),
+    });
+    // The gate is in FRONT of the accept: a rejected tab is never narrated as a
+    // connection, because it never became one.
+    expect(onEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ _tag: "Connected" }),
     );
   });
 
@@ -310,6 +394,36 @@ describe("serveSurfaceApp — binding and teardown", () => {
     dist.cleanup();
   });
 
+  it("closing the scope RELEASES each connection's serving stack, not just its socket", async () => {
+    // The listener owns ACCEPTANCE, so it owns RELEASE. A `SurfaceSocketServing`
+    // holds this connection's RPC fibers and every in-flight subscription it
+    // opened; terminating the raw socket and awaiting nothing would resolve the
+    // finalizer while those releases were still running. A per-connection layer
+    // finalizer is the observable proof: it runs inside the serving stack's own
+    // scope, and it has run by the time teardown resolves.
+    const released: string[] = [];
+    const server = await boot({
+      services: () =>
+        Layer.effect(Viewer)(
+          Effect.acquireRelease(Effect.succeed({ seen: "live" }), () =>
+            Effect.sync(() => {
+              released.push("released");
+            }),
+          ),
+        ),
+    });
+    const socket = await dial(server);
+    await Effect.runPromise(
+      socket.link.dispatch.unary("surface/viewer/seen", {}),
+    );
+    expect(released).toEqual([]);
+
+    await server.teardown();
+    booted.length = 0;
+    expect(released).toEqual(["released"]);
+    await socket.dispose();
+  });
+
   it("closing the scope DROPS a live connection and frees the port", async () => {
     const server = await boot();
     const socket = await dial(server);
@@ -323,7 +437,7 @@ describe("serveSurfaceApp — binding and teardown", () => {
 
     // The port is free: a second server binds it, which it could not do while
     // anything was still listening.
-    const again = await boot({ port } as Partial<ServeSurfaceAppOptions>);
+    const again = await boot({ port });
     expect(Number(new URL(again.url).port)).toBe(port);
     await socket.dispose();
   });

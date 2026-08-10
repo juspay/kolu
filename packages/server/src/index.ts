@@ -28,6 +28,7 @@ import {
 import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClientRef } from "@kolu/surface/project";
 import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
+import { SURFACE_WS_PATH } from "@kolu/surface-app";
 import {
   acceptSurfaceSocket,
   freshStaticLayer,
@@ -1231,7 +1232,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
 
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "", `http://${req.headers.host}`);
-    if (url.pathname === "/rpc/ws") {
+    if (url.pathname === SURFACE_WS_PATH) {
       // CSWSH gate: reject a cross-site browser Origin before a socket exists at
       // all. The RPC surface is unauthenticated and cookie-less, so without
       // this any page the operator visits could open `/rpc/ws` and drive every

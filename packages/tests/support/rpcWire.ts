@@ -54,6 +54,7 @@ import {
   websocketLink,
   type WebsocketLink,
 } from "@kolu/surface/links/websocket";
+import { SURFACE_WS_PATH } from "@kolu/surface-app";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";
 import { fold } from "@kolu/surface-map";
 import { Cause, Effect, Exit, Option, Result, Schema, Stream } from "effect";
@@ -178,13 +179,13 @@ interface Wire {
 let wire: Wire | undefined;
 let baseUrl: string | undefined;
 
-/** The websocket URL for a server's HTTP base — the same `/rpc/ws` path the browser
- *  dials (`packages/client/src/wire.ts`), derived from the base rather than spelled
- *  twice. */
+/** The websocket URL for a server's HTTP base — the same {@link SURFACE_WS_PATH}
+ *  the browser dials (`packages/client/src/wire.ts`), derived from the base rather
+ *  than spelled twice. */
 function wsUrlFor(httpBaseUrl: string): string {
   const u = new URL(httpBaseUrl);
   u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
-  u.pathname = "/rpc/ws";
+  u.pathname = SURFACE_WS_PATH;
   return u.toString();
 }
 

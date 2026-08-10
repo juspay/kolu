@@ -26,6 +26,39 @@
  * `WebSocketServer`, binding, and dropping every connection at shutdown. That is
  * what this module owns, and why a consumer's listener collapses to one call.
  *
+ * This package's own example (`example/src/server/main.ts`) is the in-tree plug:
+ * it calls `serveSurfaceApp` and keeps only its app-specific parts (its live
+ * connection count, off {@link SurfaceAppEvent}'s lifecycle arms).
+ *
+ * ## What still blocks kolu's own listener
+ *
+ * kolu (`packages/server/src/index.ts`) still hand-wires, and the reason is three
+ * named, grounded gaps rather than anything about its routing — it upgrades ONE
+ * path over ONE runtime, which is exactly this module's shape:
+ *
+ *   - it builds an `https.Server` when TLS material is configured, and this
+ *     module creates a plaintext `http.Server` unconditionally;
+ *   - it passes `middleware: koluHttpMiddleware(log)` to
+ *     `NodeHttpServer.makeHandler`, and this module passes only `scope`;
+ *   - it mounts the static shell layer ONLY when a built dist exists (its dev
+ *     proxy serves the client), and `clientDist` here is required.
+ *
+ * Each is a real option this interface would have to grow, and none is added
+ * speculatively: they land with the migration that needs them, not before.
+ * drishti is a different story — its per-host `?host=` dispatch picks WHICH
+ * runtime serves a socket, which is the one decision the accept seam deliberately
+ * leaves at the call site.
+ *
+ * ## The Node runtime is the app's, not the package's
+ *
+ * `ws` and `@effect/platform-node` are PEER dependencies (optional ones), not
+ * dependencies. Every consumer of this module already runs Node and already
+ * declares both; declaring them here instead would put a Node HTTP server and a
+ * Node websocket implementation in the install graph of every browser-facing
+ * entry point — `packages/client` depends on `@kolu/surface-app` for `./solid`
+ * and `./connect` alone. The arrow reads the right way round: the app supplies
+ * its runtime, this module supplies the order.
+ *
  * ## Why the `http.Server` is ours and not the platform's
  *
  * `NodeHttpServer.makeHandler` on a server we created keeps the `upgrade` event
@@ -35,14 +68,12 @@
  *
  * ## The frame cap is not a knob
  *
- * `ws`'s `maxPayload` and the RPC decoder's `maxBufferSize` police the SAME
- * inbound leg, so if they disagree the tighter one silently governs. An app that
- * set `maxPayload` to 8 MiB while `@kolu/surface`'s `RPC_MAX_FRAME_BYTES` says
- * 16 MiB got exactly that: a 10 MiB frame the framework promises to carry — and
- * that `exceedsFrameLimit` (and every margin derived from it, e.g. padi's
- * `UPLOAD_CHUNK_BYTES`) reports as fine — died at the raw `ws` layer instead of
- * on the framework's handled path. So the cap is read from the framework
- * constant here, and there is no option to undercut it: one number, one leg.
+ * `ws`'s `maxPayload` is `RPC_MAX_FRAME_BYTES` — the framework's published byte
+ * budget, the same one `exceedsFrameLimit` publishes to every sender — and there
+ * is no option to move it. `@kolu/surface/frame-limit` owns the number and the
+ * argument: why a transport cap below that budget breaks the promise (olai's
+ * 8 MiB, which killed a 10 MiB frame the framework said it would carry) and one
+ * above it would accept frames senders were told to refuse.
  *
  * ## What it deliberately does NOT own
  *
@@ -54,6 +85,11 @@
  *   and nothing else. An app that wants "if the port is taken, take any port"
  *   composes that itself (`Effect.catchIf` on the `EADDRINUSE` cause) — it is a
  *   product decision about whose port it is, not a property of serving a shell.
+ *   Compose it over the WHOLE call, not over the bind: the retry is a second
+ *   `serveSurfaceApp({ …, port: 0 })`, with its own `http.Server` and its own
+ *   `WebSocketServer`. There is no `server` handle to re-bind, and there is
+ *   nothing to clean up by hand — the abandoned first listener never bound, and
+ *   its finalizer is already on the scope.
  */
 
 import { createServer, type IncomingMessage, type Server } from "node:http";
@@ -73,14 +109,14 @@ import {
 } from "effect";
 import { type HttpPlatform, HttpRouter } from "effect/unstable/http";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { WebSocketServer } from "ws";
-import { type FreshnessPaths, SURFACE_WS_PATH } from "./index";
+import { type WebSocket, WebSocketServer } from "ws";
+import { hostAuthority, SURFACE_WS_PATH } from "./index";
 import {
   acceptSurfaceSocket,
-  type ManifestOptions,
   type ServableSocket,
-  type ServiceWorkerMode,
   serveSurfaceSocket,
+  type SurfaceAppLayerOptions,
+  type SurfaceSocketServing,
   surfaceAppLayer,
 } from "./server";
 
@@ -110,20 +146,86 @@ export interface SurfaceAppConnection {
   readonly url: URL;
 }
 
+/** Something the listener wants narrated. ONE sink, because every consumer has
+ *  exactly one logger: the four separate callbacks this replaced were the same
+ *  pino / `log` threaded four times, with their defaults scattered across three
+ *  modules.
+ *
+ *  The `url` is on every arm that has one — `DisallowedOrigin` included, since
+ *  the upgrade target is parsed one line before the gate runs. The phase
+ *  distinction is structural instead: only the two lifecycle arms carry a
+ *  {@link SurfaceAppConnection}, because only after the gate and the enrolment is
+ *  there a connection to describe. */
+export type SurfaceAppEvent =
+  /** Gated, enrolled, and about to be served. The place a live-connection count
+   *  increments and a consumer writes its `connected` line. */
+  | { readonly _tag: "Connected"; readonly connection: SurfaceAppConnection }
+  /** That same connection hung up (peer, reaper, or our own teardown). */
+  | { readonly _tag: "Disconnected"; readonly connection: SurfaceAppConnection }
+  /** A transport error on an accepted socket. */
+  | { readonly _tag: "SocketError"; readonly error: Error; readonly url: URL }
+  /** A tab bound to a PREVIOUS process, closed at the handshake. */
+  | {
+      readonly _tag: "StaleTab";
+      readonly claimedPid: string;
+      readonly url: URL;
+    }
+  /** A cross-site `Origin` refused BEFORE the upgrade. */
+  | {
+      readonly _tag: "DisallowedOrigin";
+      readonly origin: string | undefined;
+      readonly url: URL;
+    }
+  /** This ONE connection's serving stack faulted. */
+  | {
+      readonly _tag: "ServingFailed";
+      readonly cause: unknown;
+      readonly url: URL;
+    };
+
+/** What a listener says when nobody is listening: loud on every fault, silent on
+ *  the ordinary. A restarted server closing a tab bound to the previous process
+ *  is ordinary, and so is a connection opening or closing — but a refused hijack
+ *  attempt, a transport error, or a faulted serving stack that nobody can see is
+ *  the one thing a shared listener must not ship.
+ *
+ *  Exported so it is readable and testable as a policy, and so a consumer's own
+ *  `onEvent` can delegate to it for the arms it does not care about. */
+export const reportSurfaceAppEvent = (event: SurfaceAppEvent): void => {
+  switch (event._tag) {
+    case "Connected":
+    case "Disconnected":
+    case "StaleTab":
+      return;
+    case "DisallowedOrigin":
+      console.warn(
+        `serveSurfaceApp: refused a websocket upgrade to ${event.url.href} from disallowed Origin ${String(event.origin)}.`,
+      );
+      return;
+    case "SocketError":
+      console.error(
+        `serveSurfaceApp: transport error on ${event.url.href}`,
+        event.error,
+      );
+      return;
+    case "ServingFailed":
+      console.error(
+        `serveSurfaceApp: serving stack faulted for ${event.url.href}`,
+        event.cause,
+      );
+      return;
+  }
+};
+
 /** Everything `serveSurfaceApp` needs. The required half is the app's identity —
  *  what is served on the wire, what is served over HTTP, and where. Every option
  *  below it is observational or a shell-freshness passthrough. */
-export interface ServeSurfaceAppOptions<Svc = never> extends FreshnessPaths {
+export interface ServeSurfaceAppOptions<Svc = never>
+  extends SurfaceAppLayerOptions {
   /** The served surface's flat `RpcGroup` — `runtime.group`. */
   readonly group: RpcGroup.RpcGroup<Rpc.Any>;
   /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
   readonly handlers: SurfaceHandlers;
-  /** The built browser bundle, served fresh (`surfaceAppLayer`). */
-  readonly clientDist: string;
-  /** The web app manifest, if this app installs. */
-  readonly manifest?: ManifestOptions;
-  /** Which `/sw.js` worker to serve (default `"retire"`). */
-  readonly serviceWorker?: ServiceWorkerMode;
   /** The app's OWN routes, merged alongside the shell — an MCP endpoint, a
    *  media route, anything answering with bytes the bundle does not hold.
    *  MERGED, not ordered: `HttpRouter` ranks by specificity, so a literal or
@@ -148,23 +250,9 @@ export interface ServeSurfaceAppOptions<Svc = never> extends FreshnessPaths {
    *  carries no per-request headers, so a per-connection serving stack simply
    *  provides them. */
   readonly services?: (connection: SurfaceAppConnection) => Layer.Layer<Svc>;
-  /** Liveness sweep cadence (defaults to `startWsHeartbeat`'s 30s). */
-  readonly heartbeatIntervalMs?: number;
-  /** Standing transport-error handler for every accepted socket. Defaults to
-   *  `gateStaleSocket`'s loud `console.error`. */
-  readonly onSocketError?: (err: Error, requestUrl: URL) => void;
-  /** A tab bound to a previous process, closed at the handshake. Silent by
-   *  default — a server that restarted while a tab was open is ordinary, not a
-   *  fault — but every real consumer logs it. */
-  readonly onStaleTab?: (claimedPid: string, requestUrl: URL) => void;
-  /** A cross-site `Origin` refused before the upgrade. Defaults to a loud
-   *  `console.warn`: a blocked hijack attempt that nobody can see is the one
-   *  thing a shared gate must not ship. */
-  readonly onDisallowedOrigin?: (origin: string | undefined) => void;
-  /** This ONE connection's serving stack faulted. Defaults to a loud
-   *  `console.error` — `SurfaceSocketServing.done` MUST be observed, and an
-   *  ignored rejection is an unhandled one. */
-  readonly onServingFailed?: (cause: unknown, requestUrl: URL) => void;
+  /** Narrate a listener event — connects, disconnects, and every fault, on ONE
+   *  sink. Defaults to {@link reportSurfaceAppEvent}. */
+  readonly onEvent?: (event: SurfaceAppEvent) => void;
 }
 
 /**
@@ -180,17 +268,23 @@ export const serveSurfaceApp = <Svc = never>(
   options: ServeSurfaceAppOptions<Svc>,
 ): Effect.Effect<string, SurfaceAppListenFailed, Scope.Scope> =>
   Effect.gen(function* () {
-    // The HTTP handler's own scope. `makeHandler` forks each request as a fiber
+    // The ONE sink, resolved once: every narration below goes through `report`,
+    // so "what does this listener do when nobody is listening" has exactly one
+    // answer and it is readable in one place.
+    const report = options.onEvent ?? reportSurfaceAppEvent;
+    // The HTTP handler's own scope: `makeHandler` forks each request as a fiber
     // in it, so it must outlive every in-flight request and die with the
-    // listener — which is what the finalizer below does, last.
-    const httpScope = Scope.makeUnsafe();
-    const shell = surfaceAppLayer({
-      clientDist: options.clientDist,
-      manifest: options.manifest,
-      serviceWorker: options.serviceWorker,
-      assetPrefix: options.assetPrefix,
-      shellPaths: options.shellPaths,
-    });
+    // listener. Acquired FIRST, which is the whole point — finalizers run LIFO,
+    // so this one runs LAST by construction rather than by a comment above an
+    // `await` at the bottom of another finalizer.
+    const httpScope = yield* Effect.acquireRelease(
+      Effect.sync(() => Scope.makeUnsafe()),
+      (scope) => Scope.close(scope, Exit.void),
+    );
+    // `options` IS a `SurfaceAppLayerOptions` (it extends one), so the shell
+    // half is passed straight through: no field is re-spelled here, and adding a
+    // shell option is one edit in `server.ts` rather than three.
+    const shell = surfaceAppLayer(options);
     const app =
       options.routes === undefined ? shell : Layer.merge(options.routes, shell);
 
@@ -226,40 +320,66 @@ export const serveSurfaceApp = <Svc = never>(
     // The gate takes no id from here: it compares against this process's own
     // `surfaceProcessId()`, which is exactly what the reserved `system/identity`
     // member answers and so exactly what a reconnecting tab echoes back.
+    // No `intervalMs`: the sweep cadence is PAIRED with the client's watchdog
+    // (it must comfortably exceed `createHeartbeat`'s recovery so a reconnect
+    // wins the race), which makes it the same class of number as the frame cap —
+    // one a consumer who guesses turns into sockets reaped mid-revival, silently.
     const acceptor = acceptSurfaceSocket({
       server: sockets,
-      intervalMs: options.heartbeatIntervalMs,
-      onError: options.onSocketError,
-      onReject: options.onStaleTab,
+      onError: (error, url) => report({ _tag: "SocketError", error, url }),
+      onReject: (claimedPid, url) =>
+        report({ _tag: "StaleTab", claimedPid, url }),
     });
 
-    sockets.on("connection", (peer, request: IncomingMessage) => {
-      const url = requestUrl(request);
-      acceptor.accept(peer, url, () => {
-        const serving = serveSurfaceSocket({
-          group: options.group,
-          handlers: options.handlers,
-          // `ws`'s socket satisfies `ServableSocket` structurally; its typings
-          // narrow `addEventListener` per event name, which the seam does not.
-          socket: peer as unknown as ServableSocket,
-          services: options.services?.({ request, url }),
+    // Every serving stack this listener started and has not yet seen end. The
+    // listener OWNS acceptance, so it owns release too: a `SurfaceSocketServing`
+    // holds this connection's RPC fibers and every in-flight subscription it
+    // opened, and dropping the handle would leave exactly the connection-scoped
+    // resources the reaper exists to reap running past the scope that started
+    // them. Drained at the head of the finalizer, before any socket is dropped.
+    const servings = new Set<SurfaceSocketServing>();
+
+    // `url` is the one the upgrade handler already parsed, carried through the
+    // emit below — one derivation of one fact, rather than two parses trusted to
+    // agree.
+    sockets.on(
+      "connection",
+      (peer: WebSocket, request: IncomingMessage, url: URL) => {
+        acceptor.accept(peer, url, () => {
+          // Gated and enrolled — so this is the first instant at which there IS a
+          // connection to narrate, and the pair a live-connection count needs.
+          const connection: SurfaceAppConnection = { request, url };
+          report({ _tag: "Connected", connection });
+          peer.once("close", () =>
+            report({ _tag: "Disconnected", connection }),
+          );
+          const serving = serveSurfaceSocket({
+            group: options.group,
+            handlers: options.handlers,
+            // `ws`'s socket satisfies `ServableSocket` structurally; its typings
+            // narrow `addEventListener` per event name, which the seam does not.
+            socket: peer as unknown as ServableSocket,
+            services: options.services?.(connection),
+          });
+          servings.add(serving);
+          // A serving site owns its `done`: it resolves on hang-up and REJECTS if
+          // the serving stack failed. An ignored rejection is an unhandled one,
+          // and one dead socket must never take the listener with it.
+          serving.done.catch((cause: unknown) =>
+            report({ _tag: "ServingFailed", cause, url }),
+          );
+          // Forgotten the moment it ends, however it ended, so the set is the
+          // LIVE population rather than a log of everything ever served.
+          void serving.done
+            .catch(() => {})
+            .finally(() => servings.delete(serving));
         });
-        // A serving site owns its `done`: it resolves on hang-up and REJECTS if
-        // the serving stack failed. An ignored rejection is an unhandled one,
-        // and one dead socket must never take the listener with it.
-        serving.done.catch((cause: unknown) => {
-          if (options.onServingFailed) options.onServingFailed(cause, url);
-          else
-            console.error(
-              `serveSurfaceApp: serving stack faulted for ${url.href} (pass \`onServingFailed\` to handle this).`,
-              cause,
-            );
-        });
-      });
-    });
+      },
+    );
 
     server.on("upgrade", (request, socket, head) => {
-      if (requestUrl(request).pathname !== SURFACE_WS_PATH) {
+      const url = requestUrl(request);
+      if (url.pathname !== SURFACE_WS_PATH) {
         socket.destroy();
         return;
       }
@@ -268,18 +388,16 @@ export const serveSurfaceApp = <Svc = never>(
       if (
         gateWsOrigin(request, socket, {
           allowedOrigins: options.allowedOrigins,
-          onReject:
-            options.onDisallowedOrigin ??
-            ((origin) =>
-              console.warn(
-                `serveSurfaceApp: refused a websocket upgrade from disallowed Origin ${String(origin)} (pass \`onDisallowedOrigin\` to handle this).`,
-              )),
+          onReject: (origin) =>
+            report({ _tag: "DisallowedOrigin", origin, url }),
         })
       ) {
         return;
       }
+      // The parsed `url` rides the emit, so the connection handler reads the
+      // `pid` echo (and a `?host=` selector) without re-deriving it.
       sockets.handleUpgrade(request, socket, head, (ws) =>
-        sockets.emit("connection", ws, request),
+        sockets.emit("connection", ws, request, url),
       );
     });
 
@@ -299,15 +417,28 @@ export const serveSurfaceApp = <Svc = never>(
     // `terminate` rather than `close`: a close handshake waits for a reply from
     // a peer we are about to stop being able to answer, which is the same wait
     // in a politer spelling.
+    //
+    // The serving stacks are drained FIRST, and this is the one part of shutdown
+    // that is awaited rather than dropped: each `close()` releases that
+    // connection's RPC fibers and every in-flight subscription it opened, and
+    // `done` settles when that has finished. Terminating the raw sockets without
+    // it would resolve the listener's finalizer while those releases were still
+    // running — the listener owning acceptance deterministically and release only
+    // by luck. `terminate()` below then reaps what no serving stack owned (a
+    // stale tab mid-close), which is what it was for.
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
         acceptor.stop();
+        await Promise.all(
+          [...servings].map((serving) => {
+            serving.close();
+            return serving.done.catch(() => {});
+          }),
+        );
         for (const client of sockets.clients) client.terminate();
         sockets.close();
         server.closeAllConnections();
         await new Promise<void>((resolve) => server.close(() => resolve()));
-        // Last: the HTTP handler's fibers, once nothing can arrive for them.
-        await Effect.runPromise(Scope.close(httpScope, Exit.void));
       }),
     );
 
@@ -346,16 +477,23 @@ const bind = (
     server.listen({ host: options.host, port: options.port }, () => {
       server.removeListener("error", failed);
       const info: AddressInfo | string | null = server.address();
+      // NOT a `SurfaceAppListenFailed`: the bind SUCCEEDED. A non-TCP address
+      // after a TCP `listen` is this module's own assumption breaking, and a
+      // consumer's `EADDRINUSE` port policy must never be handed it as something
+      // to retry — it would retry forever against a defect. Throw, as kolu's own
+      // listener does in the same spot.
       if (info === null || typeof info === "string") {
-        failed(`expected a TCP address, got ${JSON.stringify(info)}`);
-        return;
+        throw new Error(
+          `serveSurfaceApp bound a non-TCP address (${JSON.stringify(info)}) — expected a host/port`,
+        );
       }
       resume(Effect.succeed(originOf(info)));
     });
   });
 
-/** The origin a browser can be pointed at. An IPv6 literal is bracketed —
- *  `http://::1:7714` is not a URL, and the one thing this string is for is being
- *  pasted somewhere that parses it. */
+/** The origin a browser can be pointed at. The bracketing of an IPv6 literal is
+ *  {@link hostAuthority}'s, not re-derived here — `http://::1:7714` is not a URL,
+ *  and the one thing this string is for is being pasted somewhere that parses
+ *  it. */
 const originOf = (info: AddressInfo): string =>
-  `http://${info.address.includes(":") ? `[${info.address}]` : info.address}:${info.port}`;
+  `http://${hostAuthority(info.address, info.port)}`;

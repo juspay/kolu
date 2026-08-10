@@ -16,11 +16,15 @@
  * for the rejection that earns.
  */
 
+import { SURFACE_WS_PATH } from "@kolu/surface-app";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { reloadForUpdate } from "@kolu/surface-app/lifecycle";
 import { surfaces } from "../common/surface";
 
-const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/rpc/ws`;
+// The path the server upgrades on, read from the ONE constant both legs share —
+// `serveSurfaceApp` compares `pathname` for equality, so a hand-typed dial URL
+// with a trailing slash would simply be destroyed.
+const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}${SURFACE_WS_PATH}`;
 
 export const conn = await connectSurfaces({
   surfaces,

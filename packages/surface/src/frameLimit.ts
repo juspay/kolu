@@ -54,11 +54,36 @@
  * the client-side refusal both need re-deriving, which is what the marker
  * forces.
  *
- * The cap counts UTF-16 code units of the decoded frame text, not UTF-8 bytes
- * (`buffer` is a JS string and the check is `nlIndex - position`). For the
- * base64 and ASCII-JSON payloads that get anywhere near the cap the two are
- * equal, and where they differ a code unit is never MORE than a UTF-8 byte, so
- * treating the cap as a byte budget is conservative in the safe direction.
+ * ## The budget is BYTES — and it is what a transport cap must enforce
+ *
+ * This is the whole argument, kept HERE because this file owns the number; every
+ * other site (`@kolu/surface-app/serve`'s `maxPayload`, the surface-app Reference
+ * page, padi's chunk margins) states the claim and points back.
+ *
+ * `exceedsFrameLimit(bytes)` is the framework's PUBLISHED sender-side predicate,
+ * and every sender in this repo budgets against it in BYTES — the terminal's
+ * paste delivery (`frameBytes = base64Chars + envelope`), padi's whole
+ * `UPLOAD_CHUNK_BYTES` derivation. So a transport-level payload cap — `ws`'s
+ * `maxPayload`, which counts the UTF-8 bytes of the frame — is set to
+ * `RPC_MAX_FRAME_BYTES` and to nothing else: it then refuses exactly the frames
+ * the published predicate refuses, and no others.
+ *
+ * The decoder's own cap counts UTF-16 code units of the decoded frame text, not
+ * UTF-8 bytes (`buffer` is a JS string and the check is `nlIndex - position`).
+ * For the base64 and ASCII-JSON payloads that get anywhere near the cap the two
+ * are equal; for non-ASCII text the code-unit cap is LAXER — `"あ".repeat(10e6)`
+ * is 10 M code units (under the decoder's cap) and 30 MB (over the byte budget,
+ * and `exceedsFrameLimit(30_000_000)` is `true`). That laxness is an
+ * implementation detail of the decoder, NOT a promise anyone may rely on:
+ *
+ *   - a transport cap set BELOW `RPC_MAX_FRAME_BYTES` breaks the published budget
+ *     — a frame every sender was told was fine dies at the raw transport instead
+ *     of on the handled path (olai shipped exactly this at 8 MiB);
+ *   - a transport cap set ABOVE it would accept frames senders were told to
+ *     refuse — moving the disagreement in the permissive direction rather than
+ *     removing it.
+ *
+ * One budget, in bytes, and no consumer option to move it.
  */
 
 import { RpcSerialization } from "effect/unstable/rpc";

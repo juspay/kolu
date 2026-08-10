@@ -20,7 +20,9 @@ HTTP and the surface over one WebSocket, in the one correct order — **origin g
 → upgrade → stale-tab check → heartbeat enrolment → serve**. It owns the
 `http.Server` (so the `upgrade` event stays yours), mounts `surfaceAppLayer`
 alongside your own routes, stands up the `ws` server, binds, and registers its
-whole teardown on the enclosing `Scope`.
+whole teardown on the enclosing `Scope`. `ws` and `@effect/platform-node` are
+**peer** dependencies of the package — an app serving on Node already declares
+both, and a browser-only consumer of `./solid` never pulls them in.
 
 ```ts
 const url = yield* serveSurfaceApp({
@@ -42,14 +44,21 @@ rather than matching a message string. The surface runtime's own lifetime is
 **not** owned here: pass `{ group, handlers }` and keep `close`/`done` at the
 composition root that built them.
 
+Closing the scope **drains before it drops**: every connection's serving stack is
+closed and awaited first — that is what releases its RPC fibers and every
+in-flight subscription it opened — and only then are the remaining raw sockets
+terminated and the server closed. So when the finalizer resolves, nothing this
+listener started is still running.
+
 <Aside type="caution" title="The inbound frame cap is not a knob">
-  `ws`'s `maxPayload` and the RPC decoder's `maxBufferSize` police the **same**
-  inbound leg, so if they disagree the tighter one silently governs.
-  `serveSurfaceApp` reads the cap from `RPC_MAX_FRAME_BYTES`
-  (`@kolu/surface/frame-limit`) and offers no option to lower it. An app that
-  hand-rolled `maxPayload: 8 * 1024 * 1024` got a 10 MiB frame — one the framework
-  promises to carry, and that `exceedsFrameLimit` and every margin derived from it
-  size against — killed at the raw `ws` layer instead of on the handled path.
+  `serveSurfaceApp` sets `ws`'s `maxPayload` to `RPC_MAX_FRAME_BYTES` — the
+  framework's published byte budget, the one `exceedsFrameLimit` publishes to
+  senders — and offers no option to move it. See
+  [`@kolu/surface/frame-limit`](/surface/ref-surface#the-wires-frame-cap-kolusurfaceframe-limit)
+  for why a transport cap
+  that disagrees with that budget breaks the promise in one direction (an app
+  that hand-rolled 8 MiB killed a 10 MiB frame the framework said it would carry)
+  or the wire in the other.
 </Aside>
 
 The path is fixed at `SURFACE_WS_PATH` (`/rpc/ws`); any other upgrade target is
@@ -61,17 +70,35 @@ handler cannot drift.
 | `serveSurfaceApp(opts)` | `/serve` | the whole listener — shell, socket, gates, heartbeat, bind, teardown |
 | `SurfaceAppListenFailed` | `/serve` | the one failure it reports, `cause` intact |
 | `SurfaceAppConnection` | `/serve` | one accepted connection's `{ request, url }` — what a per-connection `services` layer is built from |
-| `SURFACE_WS_PATH` | `.` | `/rpc/ws`, the one path a surface speaks on |
+| `SurfaceAppEvent` | `/serve` | the tagged union `onEvent` narrates |
+| `reportSurfaceAppEvent(event)` | `/serve` | the default narration policy, exported so an `onEvent` can delegate to it |
+| `SURFACE_WS_PATH` | `.` | `/rpc/ws`, the one path a surface speaks on — both legs import it |
+| `hostAuthority(host, port)` | `.` | `host:port` a URL parser accepts — the ONE place an IPv6 literal is re-bracketed |
 
-Optional hooks are observational and default **loud**: `onSocketError` (a
-transport error on an accepted socket), `onDisallowedOrigin` (a refused
-cross-site upgrade), `onServingFailed` (this connection's serving stack faulted).
-`onStaleTab` is silent by default — a server that restarted while a tab was open
-is ordinary, not a fault — but every real consumer wires it to a log line.
+Observation is **one** option, `onEvent`, taking one tagged union — because every
+consumer has exactly one logger:
+
+| `_tag` | Carries | Default (`reportSurfaceAppEvent`) |
+| --- | --- | --- |
+| `Connected` | `connection` | silent — the accept a live-connection count increments on |
+| `Disconnected` | `connection` | silent — the same connection hung up |
+| `SocketError` | `error`, `url` | loud `console.error` |
+| `StaleTab` | `claimedPid`, `url` | silent — a server that restarted while a tab was open is ordinary, not a fault |
+| `DisallowedOrigin` | `origin`, `url` | loud `console.warn` — a blocked hijack nobody can see is the one thing a shared gate must not ship |
+| `ServingFailed` | `cause`, `url` | loud `console.error` — `done` MUST be observed |
+
+`Connected`/`Disconnected` are the pair a live-connection count is built from
+(the package's own example counts its `serverStats.connections` on them), and
+they carry the same `SurfaceAppConnection` object both times, so a consumer can
+pair them by identity. `services` stays a separate option: it returns a `Layer`,
+which is a different kind of thing from narration.
 
 The sections below are the pieces `serveSurfaceApp` composes; reach for them
-directly when an app owns its own listener (kolu's multi-host dispatch, drishti's
-per-host routing).
+directly when an app's listener needs something the primitive does not take
+today. kolu's does: an `https.Server` when TLS is configured, a `middleware`
+passthrough to `NodeHttpServer.makeHandler`, and a shell layer mounted only when
+a built dist exists. drishti's per-host `?host=` routing picks WHICH runtime
+serves a socket, which the accept seam deliberately leaves at the call site.
 
 ## Serving the fresh shell
 
@@ -93,6 +120,7 @@ files — `FileSystem`, `Path`, `HttpPlatform` — which on Node come from
 | Export | Subpath | Role |
 | --- | --- | --- |
 | `surfaceAppLayer(opts)` | `/server` | the no-store shell + immutable assets + (optional) manifest, in one layer |
+| `SurfaceAppLayerOptions` | `/server` | that layer's options (`clientDist`, `manifest`, `serviceWorker`, the freshness paths) — `ServeSurfaceAppOptions` **extends** it, so the shell half is named once |
 | `freshStaticLayer(opts)` | `/server` | fresh static + optional notification worker |
 | `pwaManifestLayer(manifest, path?)` | `/server` | the web manifest |
 
