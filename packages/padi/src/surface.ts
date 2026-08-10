@@ -383,8 +383,20 @@ export * from "./vocab.ts";
  *  suffices for the usual reason — a newer binder against a 5.1 padi fails
  *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming
  *  its surface, so a 5.2 client never calls `backups.*` on a padi that lacks
- *  the ring. */
-export const PADI_SURFACE_VERSION = "5.2";
+ *  the ring.
+ *
+ *  5.3 (additive · minor): a NEW `subscribeDirChange` stream — live change
+ *  pulses for ONE directory's direct children, non-recursive, the watch
+ *  counterpart of 4.6's `fs.listDirectory`. It is what lets the Code tab
+ *  browse a working directory that is NOT a git repo: `subscribeRepoChange`'s
+ *  recursive watcher is affordable only under git's ignore pruning, so a
+ *  plain-directory root watches (and lists) one level at a time instead —
+ *  lazily, per expanded folder. Purely additive, so the plainest minor there
+ *  is, and the minor suffices for the usual reason — a newer binder against a
+ *  5.2 padi fails `isContractVersionCompatible`'s minor rule and DRAINS it
+ *  before consuming its surface, so a 5.3 client never subscribes a stream
+ *  the padi lacks. */
+export const PADI_SURFACE_VERSION = "5.3";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1423,6 +1435,16 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       inputSchema: FsFileInputSchema,
       outputSchema: RepoChangePulseSchema,
     },
+    /** Live change-pulses for ONE directory's direct children, non-recursive —
+     *  the watch counterpart of `fs.listDirectory`, for browse roots that are
+     *  NOT git repos (plain-directory browsing). `subscribeRepoChange`'s
+     *  recursive watcher is affordable only under git's ignore pruning; this
+     *  one costs a single handle per subscribed directory regardless of the
+     *  subtree beneath it. Same pulse-then-requery shape as its siblings. */
+    subscribeDirChange: {
+      inputSchema: FsListDirectoryInputSchema,
+      outputSchema: RepoChangePulseSchema,
+    },
     /** The per-subscriber terminal byte stream — snapshot (serialized screen)
      *  as the first frame, then live output, 1:1 through each hop. DELTA/
      *  fail-through: the scrollback snapshot is ONLY ever the first frame of a
@@ -1772,6 +1794,7 @@ export const PADI_FORWARDING_POLICY = {
   watchPulse: "value",
   subscribeRepoChange: "value",
   subscribeFileChange: "value",
+  subscribeDirChange: "value",
   terminalAttach: "delta",
   // events
   terminalExit: "value",

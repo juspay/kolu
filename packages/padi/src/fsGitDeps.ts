@@ -44,7 +44,7 @@ export function padiFsGitDeps(
 ): {
   streams: Pick<
     NonNullable<PadiDeps["streams"]>,
-    "subscribeRepoChange" | "subscribeFileChange"
+    "subscribeRepoChange" | "subscribeFileChange" | "subscribeDirChange"
   >;
 } {
   return {
@@ -64,6 +64,18 @@ export function padiFsGitDeps(
               endpoint.fs.subscribeFileChange(repoPath, filePath, onEvent),
             log,
             "subscribeFileChange",
+          ),
+      },
+      // The non-git browse pulse: one directory's direct children,
+      // non-recursive (`kolu-git`'s `subscribeDirChange` — not a git watcher,
+      // but the same fs-volatility axis this module already fronts).
+      subscribeDirChange: {
+        source: ({ repoPath, dirPath }) =>
+          pulseSource(
+            (onEvent) =>
+              endpoint.fs.subscribeDirChange(repoPath, dirPath, onEvent),
+            log,
+            "subscribeDirChange",
           ),
       },
     },

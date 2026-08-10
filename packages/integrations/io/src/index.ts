@@ -17,6 +17,12 @@ export {
 } from "./file-append-watcher.ts";
 
 export {
+  _dirChildrenWatcherCount,
+  _resetDirChildrenWatchers,
+  subscribeDirChildren,
+} from "./dir-children-watcher.ts";
+
+export {
   COALESCE_DEBOUNCE_MS,
   COALESCE_MAX_WAIT_MS,
   createCoalesceSchedule,

@@ -24,6 +24,7 @@ import {
   listIgnored,
   readFile,
   filePreviewTag,
+  subscribeDirChange,
   subscribeFileChange,
   subscribeRepoChange,
 } from "kolu-git";
@@ -75,6 +76,16 @@ export interface TerminalEndpointFs {
     signal?: AbortSignal,
   ): Promise<string>;
   subscribeRepoChange(repoPath: string, onChange: () => void): () => void;
+  /** Change ticks for ONE directory's direct children, non-recursive — the
+   *  watch counterpart of {@link listDirectory}, for browse roots that are not
+   *  git repos (`subscribeRepoChange`'s recursive watcher is affordable only
+   *  under git's ignore pruning). `dirPath` is relative to `rootPath`, `""`
+   *  for the root itself. */
+  subscribeDirChange(
+    rootPath: string,
+    dirPath: string,
+    onChange: () => void,
+  ): () => void;
   subscribeFileChange(
     repoPath: string,
     filePath: string,
@@ -184,6 +195,9 @@ export function createTerminalWorkspaceEndpoint(
     },
     subscribeRepoChange(repoPath, onChange) {
       return subscribeRepoChange(repoPath, onChange, log);
+    },
+    subscribeDirChange(rootPath, dirPath, onChange) {
+      return subscribeDirChange(rootPath, dirPath, onChange, log);
     },
     subscribeFileChange(repoPath, filePath, onChange) {
       return subscribeFileChange(repoPath, filePath, onChange, log);

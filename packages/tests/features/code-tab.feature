@@ -19,10 +19,29 @@ Feature: Code tab (review + browse)
     When I click the Code tab
     Then the Code tab should be active
 
-  Scenario: Shows "not a git repo" message outside a repo
+  # ── Plain-directory browsing (no git) ──
+
+  # Outside a git repo the tree browser still works — rooted at the terminal's
+  # cwd, one lazily-listed level at a time. Nothing is listed or watched until
+  # the user clicks the collapsed root node (consent in the flow, per session,
+  # never persisted); the diff views and their scope switcher stay hidden
+  # because they genuinely need git.
+  Scenario: Offers a collapsed browse root outside a git repo
     When I run "cd /tmp"
     And I click the Code tab
-    Then the Code tab should indicate no git repository
+    Then the Code tab should offer to browse the current directory
+
+  Scenario: Browses a plain directory after opening the root
+    When I run "rm -rf /tmp/kolu-plain-browse && mkdir -p /tmp/kolu-plain-browse/notes && echo hello-plain > /tmp/kolu-plain-browse/readme.txt && echo nested-content > /tmp/kolu-plain-browse/notes/inner.txt && cd /tmp/kolu-plain-browse"
+    And I click the Code tab
+    Then the Code tab should offer to browse the current directory
+    When I click the browse root node in the Code tab
+    Then the file browser should show a file "readme.txt"
+    And the file browser should show a directory "notes"
+    When I click the directory "notes" in the file browser
+    Then the file browser should show a file "notes/inner.txt"
+    When I click the file "notes/inner.txt" in the file browser
+    Then the selected file should show content "nested-content"
 
   Scenario: Shows "no changes" when the repo is clean
     When I run "rm -rf /tmp/kolu-review-clean && git init /tmp/kolu-review-clean && cd /tmp/kolu-review-clean"
@@ -1284,11 +1303,12 @@ Feature: Code tab (review + browse)
     When I note the Code tab preview pane height
     And I create a terminal
     And I run "rm -rf /tmp/kolu-split-otherdir && mkdir -p /tmp/kolu-split-otherdir && cd /tmp/kolu-split-otherdir"
-    # Wait for the non-git fallback to actually mount — this is what
-    # unmounts the inner Resizable and fires Corvu's unregister emission
-    # (the bug). Switching back before this races past the path the fix
-    # guards, so the regression could pass vacuously without it.
-    Then the Code tab should indicate no git repository
+    # Wait for the non-git fallback (the un-armed collapsed browse root) to
+    # actually mount — this is what unmounts the inner Resizable and fires
+    # Corvu's unregister emission (the bug). Switching back before this races
+    # past the path the fix guards, so the regression could pass vacuously
+    # without it.
+    Then the Code tab should offer to browse the current directory
     When I click dock row 1
     Then the selected file should show content "aaa"
     And the Code tab preview pane height should match the noted height

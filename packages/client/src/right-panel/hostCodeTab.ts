@@ -76,6 +76,7 @@ import {
   padiRpcOf,
   padiMap,
 } from "../wire";
+import { armedBrowseRoot } from "./browseArm";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
 import { mergeBrowseInventory } from "./browseInventory";
 import type { CodeTabScope } from "./codeTabOpenController";
@@ -112,6 +113,17 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   const shownRepoPath = (): string | null =>
     store.active().meta?.git?.repoRoot ?? null;
   const shownTerminalId = (): TerminalId | null => store.active().id;
+  // The shown terminal's PLAIN-DIRECTORY browse root — its cwd, outside a git
+  // repo, and only after the user armed it (the collapsed-root click,
+  // `./browseArm.ts`). A stale approval — the terminal has since `cd`'d away —
+  // reads as null. Inside a git repo this is null: git owns the root there.
+  const shownDirRoot = (): string | null => {
+    const m = store.active().meta;
+    if (!m || m.git) return null;
+    const tid = shownTerminalId();
+    if (tid === null) return null;
+    return armedBrowseRoot(host, tid) === m.cwd ? m.cwd : null;
+  };
   const codeView = (): CodeTabView => rightPanel.codeMode();
   const codeDiffMode = (): GitDiffMode | undefined =>
     codeView() === "browse" ? undefined : (codeView() as GitDiffMode);
@@ -261,10 +273,44 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     onError: (err) => toast.error(`Git diff stream: ${err.message}`),
   });
 
+  // ONE file-content read, shared by the git-mode and plain-directory queries
+  // below, so the binary/text partition and the URL build cannot fork. The
+  // decision + build are verbatim from the retired `BrowseFileDispatcher` owner.
+  const readFileContent = (i: {
+    terminalId: TerminalId;
+    repoPath: string;
+    filePath: string;
+  }): Effect.Effect<BrowseFileContent, unknown> =>
+    isBinaryPreviewable(i.filePath)
+      ? activePadiRpc.fs
+          .filePreviewTag({ repoPath: i.repoPath, filePath: i.filePath })
+          .pipe(
+            Effect.map(
+              (previewTag): BrowseFileContent => ({
+                kind: "binary",
+                // Cache-bust by CONTENT hash, not mtime, and key the URL by the ACTIVE
+                // host's canonical string so the route reads bytes from the same padi
+                // the tag came from — a remote host's preview must not resolve against
+                // the local default.
+                url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${previewTag}`,
+              }),
+            ),
+          )
+      : activePadiRpc.fs
+          .readFile({ repoPath: i.repoPath, filePath: i.filePath })
+          .pipe(
+            Effect.map(
+              ({ content, truncated }): BrowseFileContent => ({
+                kind: "text",
+                content,
+                truncated,
+              }),
+            ),
+          );
+
   // The browse file-content read — pulses on `subscribeFileChange` (repo+file). Idle
   // outside browse mode / with no selected file (the old dispatcher's mount condition,
-  // now expressed as an idle input). The binary/text decision + URL build are verbatim
-  // from the retired `BrowseFileDispatcher` owner.
+  // now expressed as an idle input).
   const fileContent = createPolledQuery<
     { terminalId: TerminalId; repoPath: string; filePath: string },
     { repoPath: string; filePath: string },
@@ -282,38 +328,84 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     },
     pulseProc: () => activePadiStreams.subscribeFileChange.unenrolled,
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
-    query: (i) =>
-      isBinaryPreviewable(i.filePath)
-        ? activePadiRpc.fs
-            .filePreviewTag({ repoPath: i.repoPath, filePath: i.filePath })
-            .pipe(
-              Effect.map(
-                (previewTag): BrowseFileContent => ({
-                  kind: "binary",
-                  // Cache-bust by CONTENT hash, not mtime, and key the URL by the ACTIVE
-                  // host's canonical string so the route reads bytes from the same padi
-                  // the tag came from — a remote host's preview must not resolve against
-                  // the local default.
-                  url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${previewTag}`,
-                }),
-              ),
-            )
-        : activePadiRpc.fs
-            .readFile({ repoPath: i.repoPath, filePath: i.filePath })
-            .pipe(
-              Effect.map(
-                ({ content, truncated }): BrowseFileContent => ({
-                  kind: "text",
-                  content,
-                  truncated,
-                }),
-              ),
-            ),
+    query: readFileContent,
     onError: (err) => toast.error(`File content stream: ${err.message}`),
     // Delete-while-viewing parity: a file removed under the open Code tab fails
     // with padi's declared `FileGone`; swallow it (keep the last content until the
     // selection changes), exactly as the old value stream did (it just stopped
     // yielding).
+    swallowError: (err) => isDeclared(err, FILE_GONE),
+  });
+
+  // ── The plain-directory (non-git) browse world ──────────────────────────
+  // Outside a git repo there is no `git ls-files` inventory and no affordable
+  // recursive watcher, so browsing goes ONE LEVEL at a time: this query reads
+  // the armed root's top level (`fs.listDirectory` with `dirPath: ""`) and
+  // rides the non-recursive `subscribeDirChange` pulse for that one directory.
+  // Deeper levels are the Code tab's lazy-expansion machinery (#2091's
+  // `loadedChildren`), each expanded level with its own per-directory pulse —
+  // lazy listing and lazy watching are the same decision. No view gate on the
+  // input: outside git the Code tab coerces its view to browse.
+  const dirPaths = createPolledQuery<
+    { terminalId: TerminalId; repoPath: string },
+    { repoPath: string; dirPath: string },
+    unknown,
+    ScopedCodePaths
+  >({
+    ...authorities,
+    input: () => {
+      const root = shownDirRoot();
+      const tid = shownTerminalId();
+      return root && tid !== null ? { terminalId: tid, repoPath: root } : null;
+    },
+    pulseProc: () => activePadiStreams.subscribeDirChange.unenrolled,
+    pulseInput: (i) => ({ repoPath: i.repoPath, dirPath: "" }),
+    query: (i) =>
+      activePadiRpc.fs
+        .listDirectory({ repoPath: i.repoPath, dirPath: "" })
+        .pipe(
+          Effect.map(
+            (result): ScopedCodePaths => ({
+              scope: {
+                host,
+                terminalId: i.terminalId,
+                repoRoot: i.repoPath,
+                mode: "browse",
+              },
+              paths: result.paths,
+            }),
+          ),
+        ),
+    onError: (err) => toast.error(`Directory list stream: ${err.message}`),
+  });
+
+  // The plain-directory file-content read — same read as `fileContent`, but its
+  // pulse rides `subscribeDirChange` on the file's PARENT directory: without
+  // git there is no head/working-tree watcher to compose a per-file pulse
+  // from, and the parent-dir handle already carries direct-child writes and
+  // the editor temp+rename idiom (see `refcounted-dir-watcher.ts`'s rationale).
+  const dirFileContent = createPolledQuery<
+    { terminalId: TerminalId; repoPath: string; filePath: string },
+    { repoPath: string; dirPath: string },
+    unknown,
+    BrowseFileContent
+  >({
+    ...authorities,
+    input: () => {
+      const root = shownDirRoot();
+      const s = rightPanel.selectedFile("browse");
+      const tid = shownTerminalId();
+      return root && s && tid !== null
+        ? { terminalId: tid, repoPath: root, filePath: s }
+        : null;
+    },
+    pulseProc: () => activePadiStreams.subscribeDirChange.unenrolled,
+    pulseInput: (i) => ({
+      repoPath: i.repoPath,
+      dirPath: parentDirOf(i.filePath),
+    }),
+    query: readFileContent,
+    onError: (err) => toast.error(`File content stream: ${err.message}`),
     swallowError: (err) => isDeclared(err, FILE_GONE),
   });
 
@@ -323,9 +415,18 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     activeStatus,
     allPaths,
     ignoredPaths,
+    dirPaths,
     diff,
     fileContent,
+    dirFileContent,
   };
+}
+
+/** The slash-separated parent of a repo-relative path (`""` for a top-level
+ *  entry) — the directory whose non-recursive watch covers the file. */
+function parentDirOf(filePath: string): string {
+  const i = filePath.lastIndexOf("/");
+  return i === -1 ? "" : filePath.slice(0, i);
 }
 
 /** One host's retained Code-tab query world. */
@@ -376,13 +477,27 @@ export const codeIgnoredPaths = windowedSub(
   (v) => v,
   undefined,
 );
+export const codeDirPaths = windowedSub(
+  () => activeHostCodeTab()?.dirPaths,
+  (v) => v,
+  undefined,
+);
 export const codeDiff = windowedSub(
   () => activeHostCodeTab()?.diff,
   (v) => v,
   undefined,
 );
 export const codeFileContent = windowedSub(
-  () => activeHostCodeTab()?.fileContent,
+  // Git presence picks the query — same read, different pulse (per-file via the
+  // git watchers, vs the parent directory's non-recursive handle). The facade
+  // is where the fork lives so `BrowseFileDispatcher` stays pulse-agnostic.
+  () => {
+    const t = activeHostCodeTab();
+    if (!t) return undefined;
+    return useTerminalStore().active().meta?.git
+      ? t.fileContent
+      : t.dirFileContent;
+  },
   (v) => v,
   undefined,
 );

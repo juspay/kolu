@@ -160,3 +160,46 @@ export function diffInventory(
 ): BrowseInventory {
   return { paths, ignored: [], lazyDirs: [], pending };
 }
+
+/** Inventory for a PLAIN-DIRECTORY browse root (no git): the root's one-level
+ *  listing plus one loaded level per expanded directory. EVERY directory entry
+ *  is lazy — children are absent until the user expands it — and nothing is
+ *  dimmed, because without git there is no ignore authority to dim by. The
+ *  walk is rule 4's, minus the overlay partition: a loaded key yields to its
+ *  children (Pierre re-infers the folder row from their prefixes), an
+ *  empty-or-unloaded key stands as the row's only spelling, a `visited` guard
+ *  bounds self-reference, and a cached level whose directory has left the
+ *  listing is dropped rather than resurrected. */
+export function directoryInventory(
+  listing: readonly string[] | undefined,
+  loadedChildren: ReadonlyMap<string, readonly string[]> | undefined,
+  pending: boolean,
+): BrowseInventory {
+  // Absent is not empty (rule 1): no listing yet ⇒ nothing to paint.
+  if (!listing) return { paths: [], ignored: [], lazyDirs: [], pending };
+  const paths: string[] = [];
+  const lazyDirs: string[] = [];
+  const visited = new Set<string>();
+  const emit = (entry: string): void => {
+    if (!isDirectoryPath(entry)) {
+      paths.push(entry);
+      return;
+    }
+    if (visited.has(entry)) return;
+    visited.add(entry);
+    // Every directory is watchable: unloaded so its first expand is reported,
+    // loaded so a collapse-and-reopen refetches.
+    lazyDirs.push(entry);
+    const children = loadedChildren?.get(entry);
+    if (!children?.length) {
+      // Not loaded, or loaded and genuinely empty — the trailing-slash key is
+      // the only thing naming the directory, so it must stand (see the
+      // mergeBrowseInventory walk for the disappearing-row failure otherwise).
+      paths.push(entry);
+      return;
+    }
+    for (const child of children) emit(child);
+  };
+  for (const entry of listing) emit(entry);
+  return { paths, ignored: [], lazyDirs, pending };
+}
