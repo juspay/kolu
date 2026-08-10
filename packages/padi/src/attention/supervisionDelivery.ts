@@ -115,14 +115,40 @@ export function createSupervisionDelivery(
           continue;
         }
 
-        // THE HUMAN-SHELL GUARD. `activeAgent` is null for a sleeping/parked
-        // record and for a live terminal running no agent — a person's shell.
-        // Writing a line into that would type into whatever they were composing.
+        // THE HUMAN-SHELL GUARD. `activeAgent` is null for a live terminal
+        // running no agent — a person's shell. Writing a line into that would
+        // type into whatever they were composing, and a human already has the
+        // canvas, the Dock and an OS notification for this exact fact. A
+        // by-design skip, so it stays at debug.
         if (activeAgent(parent) === null) {
-          deps.log.debug(
-            { terminals: mine.map((e) => e.id), parentId },
-            "settle events: supervisor is not an agent terminal, not delivering",
-          );
+          // ...EXCEPT when the supervisor is DORMANT (sleeping/parked — its PTY
+          // released), which is not the same skip at all. There is no mailbox to
+          // write into and no second chance: this push is the only one, so the
+          // event reaches that supervisor never. The fact itself is not lost —
+          // it is in the `urgency` cell and in every standing subscription that
+          // matched — but the EDGE is, and the whole premise of this module is
+          // that the edge cannot be. Retention across a wake would need a
+          // delivery contract this module does not have (how long to hold, what
+          // flushes it, what if the supervisor never wakes), so what it does
+          // instead is REFUSE TO BE QUIET about it: an operator reading logs
+          // sees a supervision edge that could not be honoured, rather than the
+          // silence that reads exactly like a calm workspace.
+          const dormant = parent.state !== "active";
+          if (dormant) {
+            deps.log.warn(
+              {
+                terminals: mine.map((e) => e.id),
+                parentId,
+                state: parent.state,
+              },
+              "settle events NOT delivered — supervisor is dormant (no live PTY); it will not learn of these on wake",
+            );
+          } else {
+            deps.log.debug(
+              { terminals: mine.map((e) => e.id), parentId },
+              "settle events: supervisor is a plain shell, not delivering",
+            );
+          }
           continue;
         }
 

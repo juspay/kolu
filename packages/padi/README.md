@@ -247,7 +247,17 @@ one definition. It fans out to two sinks:
 
 A terminal LEAVING is an event too (`kind: "gone"`), for the same reason: a
 supervisor waiting on a worker that no longer exists must be told, not left
-waiting. A kaval recycle retires every active terminal id, so this is the signal
+waiting.
+
+**The one honest limit of the edge**: delivery is a PUSH into a live mailbox, so
+a supervisor that is *dormant* (slept or parked — its PTY released) is not told,
+and is not told on wake either. The fact survives — it is in the `urgency` cell
+and in every standing subscription that matched — but that particular edge does
+not, and padi logs a **warning** rather than skipping quietly, because a silently
+undeliverable supervision edge is the same shape of silence this whole flow
+exists to remove. Retention across a wake would need a delivery contract with
+answers this module does not have (how long to hold, what flushes it, what if the
+supervisor never wakes); the standing subscriptions are the durable half today. A kaval recycle retires every active terminal id, so this is the signal
 that a lane's id is stale rather than merely quiet.
 
 ## What padi knows nothing about

@@ -84,14 +84,19 @@ const event = (over: Partial<SettleEvent> = {}): SettleEvent => ({
  *  supplies that frame rather than a lookup function. */
 function harness(parent: PadiTerminal | undefined) {
   const writes: Array<{ id: string; data: string }> = [];
+  const warnings: unknown[] = [];
   const delivery = createSupervisionDelivery({
     write: (id, data) => writes.push({ id, data }),
-    log: silentLog,
+    log: {
+      ...(silentLog as object),
+      warn: (...args: unknown[]) => warnings.push(args),
+    } as unknown as Parameters<typeof createSupervisionDelivery>[0]["log"],
   });
   const frame = new Map<TerminalId, PadiTerminal>();
   if (parent !== undefined) frame.set("supervisor-1" as TerminalId, parent);
   return {
     writes,
+    warnings,
     deliver: (...events: SettleEvent[]) => delivery.deliver(events, frame),
   };
 }
@@ -109,15 +114,23 @@ describe("supervision delivery", () => {
   });
 
   it("NEVER writes into a human's shell — the guard the whole feature rests on", () => {
-    const { writes, deliver } = harness(humanShell());
+    const { writes, warnings, deliver } = harness(humanShell());
     deliver(event());
     expect(writes).toEqual([]);
+    // A by-design skip over a LIVE terminal: the human has the canvas, the Dock
+    // and an OS notification for this. Not a warning — it would fire constantly.
+    expect(warnings).toEqual([]);
   });
 
-  it("never writes into a sleeping/parked terminal (no live PTY behind it)", () => {
-    const { writes, deliver } = harness(sleepingTerminal());
+  it("never writes into a dormant terminal — and REFUSES to do it quietly", () => {
+    const { writes, warnings, deliver } = harness(sleepingTerminal());
     deliver(event());
     expect(writes).toEqual([]);
+    // This skip loses the EDGE for good: there is no mailbox now and no second
+    // chance on wake. The fact survives in `urgency` and in the standing
+    // subscriptions, but an undeliverable supervision edge must never be
+    // silent — silence is what this whole flow exists to remove.
+    expect(warnings).toHaveLength(1);
   });
 
   it("a ROOT terminal's settle delivers nowhere — nobody spawned it", () => {
