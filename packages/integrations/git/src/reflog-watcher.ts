@@ -13,10 +13,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { createDirFilenameWatcher } from "kolu-io";
+import { createDirWatcher } from "kolu-io";
 import { resolveGitDir, WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 
-const reflogWatcher = createDirFilenameWatcher({
+const reflogWatcher = createDirWatcher({
   resolveDir: async (cwd) => {
     const gitDir = await resolveGitDir(cwd);
     if (gitDir === null) return null;

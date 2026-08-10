@@ -5,9 +5,10 @@
  *  can adopt these primitives without taking a feature-package dependency. */
 
 export {
-  createDirFilenameWatcher,
-  type DirFilenameWatcher,
-  type DirFilenameWatcherConfig,
+  createDirWatcher,
+  DIR_WATCH_POLL_MS,
+  type DirWatcher,
+  type DirWatcherConfig,
 } from "./refcounted-dir-watcher.ts";
 
 export {
@@ -15,11 +16,6 @@ export {
   subscribeFileAppends,
   type SubscribeFileAppendsOpts,
 } from "./file-append-watcher.ts";
-
-// Test-only helpers (`_dirChildrenWatcherCount`, `_resetDirChildrenWatchers`)
-// are deliberately NOT re-exported: the test imports the module file directly,
-// and the package surface carries only what production consumers call.
-export { subscribeDirChildren } from "./dir-children-watcher.ts";
 
 export {
   COALESCE_DEBOUNCE_MS,

@@ -86,7 +86,7 @@ export interface SubscribeFileAppendsOpts {
   /** Poll interval in milliseconds for the level-triggered floor. **Required**
    *  — not optional-with-default (that shape is the dead knob the fail-fast law
    *  forbids). Production passes `DEFAULT_APPEND_POLL_MS`; tests inject a short
-   *  real interval, exactly as `createDirFilenameWatcher` takes `debounceMs`. */
+   *  real interval, exactly as `createDirWatcher` takes `debounceMs`. */
   intervalMs: number;
   log?: Logger;
   /** Lifecycle log label for error lines, e.g. `"grok: events"`. **Required**

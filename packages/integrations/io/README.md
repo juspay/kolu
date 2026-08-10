@@ -8,8 +8,7 @@ these without taking a feature-package dependency.
 
 | Module                    | Exports                                                            | Purpose                                                                                                    |
 | ------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `refcounted-dir-watcher`  | `createDirFilenameWatcher`                                         | Refcounted `fs.watch` on a directory, narrowed to ONE filename inside it (survives editors' temp+rename)   |
-| `dir-children-watcher`    | `subscribeDirChildren`                                             | Refcounted, non-recursive `fs.watch` for one directory's direct children — cost independent of the subtree |
+| `refcounted-dir-watcher`  | `createDirWatcher`                                                 | Refcounted, non-recursive `fs.watch` on a directory — every direct child, or narrowed to ONE `filename` inside it (survives editors' temp+rename). Cost is independent of the subtree |
 | `file-append-watcher`     | `subscribeFileAppends`                                             | Tail a growing file (append-only reads)                                                                    |
 | `coalesce-schedule`       | `createCoalesceSchedule`, `COALESCE_DEBOUNCE_MS`                   | Trailing-edge debounce with a hard max-wait — the shared tick coalescer behind the watchers                |
 
