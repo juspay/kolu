@@ -51,11 +51,6 @@ exists, so stop waiting on it). Read the terminal's screen yourself with
 `screen_text`; the event carries no transcript, so you always act on current
 output rather than a copy that aged in a queue.
 
-If your supervisor is itself a kolu terminal, you may need none of this: padi
-delivers a worker's settle into its parent terminal's input by construction (see
-[`packages/padi`](../padi/README.md)), so an agent that spawned a worker with
-`parentId` is told without subscribing to anything.
-
 kolu-cli (the composition root) owns the connect layer and injects the
 connected client; `serveKoluMcp` here owns zero transport code. The e2e pin
 (`kolu-cli/src/mcp.e2e.test.ts`) drives a real padi over both transports —

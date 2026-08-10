@@ -228,63 +228,44 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   point the arrow backwards. The **subpaths above are unchanged**: the directory
   is padi's internal layout, not its public one.
 
-## The attention flow — the supervision edge IS the subscription
+## Settle events — the standing subscriptions
 
 padi already computed WHO needs attention: the `urgency` cell's `awaitingIds` (an
 agent blocked on a person) and `finishedIds` (a turn that ended *and* whose output
 then went quiet — the [effective-finish](../../docs/atlas/src/content/atlas/effective-finish.mdx)
 conjunction, which is what keeps a background sub-agent's churn from reading as
 "done"). What `src/attention/` adds is the derivative: the cell is a LEVEL, and a
-notification needs an EDGE.
+subscriber needs an EDGE.
 
 That edge is shared, not re-derived — `@kolu/terminal-vocab/attentionTransitions`
 is the same decision kolu's browser fires its sound and OS popup on, so a person
-at the canvas and a supervising agent in a PTY are told about the same events by
-one definition. It fans out to two sinks:
+at the canvas and a subscribing agent are told about the same events by one
+definition.
 
-- **The supervision edge.** A terminal records who spawned it (`parentId`), and
-  kaval serializes input into a terminal — a single-writer mailbox. So a worker
-  going blocked delivers into its supervisor's mailbox *by construction*: nothing
-  arms this, because dispatching the worker already did. The recurring failure it
-  ends is a worker's ask waiting to be **discovered** rather than **delivered** —
-  every fix that adds a *listener* leaves "dispatch a worker without arming its
-  notification" spellable, and a coordinator that forgets once drops a report on
-  the floor. **Only agent terminals are written to**; a person's shell is never
-  typed into (they have the canvas, the Dock and the OS notification instead).
-  One fold's edges arrive as one **frame**, so a supervisor is woken *once* per
-  frame however many of its lanes moved — a kaval recycle that retires twenty
-  workers is one fact, not twenty submits into one mailbox.
+It feeds **standing subscriptions** (`watch.open` / `drain` / `close` + the
+`watchPulse` doorbell). The `wait_*` tools are edge-triggered on a live call, so
+anything between two waits is unobservable — which is how a worker's report
+reached nobody when its watcher had returned and had not been re-armed. These are
+level-triggered with memory: events accumulate whether or not anyone is asking, so
+the gap between drains is not a hole.
 
-- **Standing subscriptions** (`watch.open` / `drain` / `close` + the `watchPulse`
-  doorbell), for a supervisor that has no terminal for the edge to reach — an
-  MCP-only agent. Events buffer in padi, which outlives both a `kolu mcp` process
-  and kaval, so the gap between two drains is not a hole, and a subscription is
-  keyed by a caller-chosen NAME so those restarts reattach rather than start
-  empty. (padi's OWN restart clears them — they are process memory. A drain
-  against a name it no longer holds raises the declared `WatchSubscriptionNotFound`
-  rather than answering an empty batch, because "not subscribed" and "nothing
-  happened" are the two states a supervisor must never confuse — and `close`
-  raises the same error rather than answering `false`, for the same reason.) A
-  drain is **acknowledged** (send its `ackAfter` back as the next `after`), not
-  destructive, so a reply lost in flight costs a repeat rather than a report;
-  overflow is *reported* (a `dropped` count), never silently truncated — and a
-  drop that lands *after* a reported batch is not covered by that batch's
-  acknowledgement, so it rides the next report rather than being erased.
+Events buffer in padi, which outlives both a `kolu mcp` process and kaval, and a
+subscription is keyed by a caller-chosen NAME so those restarts reattach rather
+than start empty. (padi's OWN restart clears them — they are process memory. A
+drain against a name it no longer holds raises the declared
+`WatchSubscriptionNotFound` rather than answering an empty batch, because "not
+subscribed" and "nothing happened" are the two states a supervisor must never
+confuse — and `close` raises the same error rather than answering `false`, for the
+same reason.) A drain is **acknowledged** (send its `ackAfter` back as the next
+`after`), not destructive, so a reply lost in flight costs a repeat rather than a
+report; overflow is *reported* (a `dropped` count), never silently truncated — and
+a drop that lands *after* a reported batch is not covered by that batch's
+acknowledgement, so it rides the next report rather than being erased.
 
-A terminal LEAVING is an event too (`kind: "gone"`), for the same reason: a
-supervisor waiting on a worker that no longer exists must be told, not left
-waiting.
-
-**The one honest limit of the edge**: delivery is a PUSH into a live mailbox, so
-a supervisor that is *dormant* (slept or parked — its PTY released) is not told,
-and is not told on wake either. The fact survives — it is in the `urgency` cell
-and in every standing subscription that matched — but that particular edge does
-not, and padi logs a **warning** rather than skipping quietly, because a silently
-undeliverable supervision edge is the same shape of silence this whole flow
-exists to remove. Retention across a wake would need a delivery contract with
-answers this module does not have (how long to hold, what flushes it, what if the
-supervisor never wakes); the standing subscriptions are the durable half today. A kaval recycle retires every active terminal id, so this is the signal
-that a lane's id is stale rather than merely quiet.
+A terminal LEAVING is an event too (`kind: "gone"`): a supervisor waiting on a
+worker that no longer exists must be told, not left waiting. A kaval recycle
+retires every active terminal id, so this is the signal that a lane's id is stale
+rather than merely quiet.
 
 ## What padi knows nothing about
 

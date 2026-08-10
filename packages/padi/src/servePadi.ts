@@ -18,46 +18,46 @@
  */
 
 import { rmSync } from "node:fs";
-import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import {
   type ImplementSurfaceDeps,
   inMemoryStore,
   streamFromAbortableSource,
 } from "@kolu/surface/server";
-import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
-import { Effect } from "effect";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
-import {
-  isPadiDeclaredError,
-  KavalContractSkew,
-  ScratchWriteRejected,
-} from "./errors.ts";
+import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
+import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
+import { Effect } from "effect";
 import {
   currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,
   SNAPSHOT_SCROLLBACK,
 } from "kaval";
-import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
-import { cancelPendingAutosave } from "./session/autosaveGate.ts";
-import {
-  requirePadiActivityFeedStore,
-  requirePadiSessionStore,
-} from "./session/confStores.ts";
+import { createFinishQuiet } from "./activity/finishQuiet.ts";
+import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import { createSettleEvents } from "./attention/settleEvents.ts";
+import { createWatchRegistry } from "./attention/watchRegistry.ts";
 import type {
   EndpointGrid,
   TerminalAttachFrame,
   TerminalEndpoint,
 } from "./endpoint.ts";
+import {
+  isPadiDeclaredError,
+  KavalContractSkew,
+  ScratchWriteRejected,
+} from "./errors.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
-import { pulseSource } from "./pulseSource.ts";
-import { createFinishQuiet } from "./activity/finishQuiet.ts";
-import { createLiveActivitySource } from "./activity/liveActivity.ts";
-import { createSettleEvents } from "./attention/settleEvents.ts";
-import { createSupervisionDelivery } from "./attention/supervisionDelivery.ts";
-import { createWatchRegistry } from "./attention/watchRegistry.ts";
+import {
+  HOST_INVENTORY_SAMPLE_INTERVAL_MS,
+  samplePadiHostInventory,
+} from "./hostInventory.ts";
+import {
+  MEMORY_SAMPLE_INTERVAL_MS,
+  samplePadiMemory,
+} from "./memorySampler.ts";
 import {
   newTerminalPolicyStore,
   resolveNewTerminalTheme,
@@ -69,6 +69,12 @@ import {
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
+import { pulseSource } from "./pulseSource.ts";
+import { cancelPendingAutosave } from "./session/autosaveGate.ts";
+import {
+  requirePadiActivityFeedStore,
+  requirePadiSessionStore,
+} from "./session/confStores.ts";
 import { resumableTerminalIds } from "./session/resumable.ts";
 import {
   forfeitSession,
@@ -100,16 +106,7 @@ import {
   discardLocalSleeping,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
-import {
-  HOST_INVENTORY_SAMPLE_INTERVAL_MS,
-  samplePadiHostInventory,
-} from "./hostInventory.ts";
-import {
-  MEMORY_SAMPLE_INTERVAL_MS,
-  samplePadiMemory,
-} from "./memorySampler.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
-import { activeAgent } from "./terminalVocab.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { appendTerminalFile, saveTerminalFile } from "./terminalScratch.ts";
 import {
@@ -125,6 +122,7 @@ import {
   setTerminalTheme,
   sleepTerminal,
 } from "./terminals.ts";
+import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { exportTranscriptHtml } from "./transcript/transcript.ts";
 import { base64DecodedLength, rejectionFor } from "./upload.ts";
 
@@ -279,19 +277,12 @@ export function buildPadiSurfaceDeps(deps: {
   // agent-state change).
   const finish = createFinishQuiet({ log });
 
-  // THE ATTENTION FLOW. One event source — "a terminal just started needing
-  // someone", derived from the SAME urgency level the Dock and the browser's
-  // alerts read — fanned out to two sinks, so the fact is computed once:
-  //
-  //   • the SUPERVISION EDGE: a settle on a terminal with a `parentId` is
-  //     delivered into that parent's mailbox, if the parent is an agent terminal.
-  //     Nothing arms this — dispatching a worker IS arming it — which is what
-  //     makes "a blocked worker nobody is listening for" unspellable.
-  //   • the STANDING SUBSCRIPTIONS: named, buffered queues for a supervisor that
-  //     has no terminal to be delivered into (an MCP-only agent).
-  //
-  // Disposed alongside the finish tracker (one `disposeStanding`) so a servePadi
-  // rebuild in tests cannot stack two sets of listeners on one daemon.
+  // SETTLE EVENTS → the standing subscriptions. One event source — "a terminal
+  // just started needing someone", derived from the SAME urgency level the Dock
+  // and the browser's alerts read — feeding the named, buffered queues an
+  // MCP-only supervisor drains. Disposed alongside the finish tracker (one
+  // `disposeStanding`) so a servePadi rebuild in tests cannot stack two sets of
+  // listeners on one daemon.
   const settleEvents = createSettleEvents({ log });
   const watchRegistry = createWatchRegistry({
     log,
@@ -301,35 +292,11 @@ export function buildPadiSurfaceDeps(deps: {
     // no future event could climb past).
     daemonSeq: () => settleEvents.lastSeq(),
   });
-  const supervision = createSupervisionDelivery({
-    write: (id, data) => {
-      // The same quiet-drop as `lifecycle.sendInput`: a nudge landing just after
-      // the supervisor was killed is an expected race, not a failure (#1628).
-      const entry = getActiveTerminal(id);
-      if (entry === undefined) return false;
-      // RE-CHECK THE HUMAN-SHELL GUARD ON LIVE STATE. The delivery grouped these
-      // events off an observed frame, but the flush is deferred — so a supervisor
-      // whose agent exited in that gap still has a live PTY here, and a
-      // frame-only guard would type into what is now a person's shell. A live
-      // PTY proves a terminal exists, never that an agent still owns it.
-      if (activeAgent(composePadiTerminal(entry)) === null) return false;
-      entry.handle.write(data);
-      return true;
-    },
-    log,
-  });
-  // Both sinks take the whole FRAME plus the terminals map it was folded from —
-  // so the mailbox sink resolves a supervisor's record from the frame the events
-  // describe, rather than taking a second read path back into the registry for a
-  // fact this fold already held.
-  const unsubscribeSettle = [
-    settleEvents.onFrame((events, terminals) =>
-      supervision.deliver(events, terminals),
-    ),
-    settleEvents.onFrame((events) => watchRegistry.accept(events)),
-  ];
+  const unsubscribeSettle = settleEvents.onFrame((events) =>
+    watchRegistry.accept(events),
+  );
   disposeStanding = () => {
-    for (const off of unsubscribeSettle) off();
+    unsubscribeSettle();
     watchRegistry.dispose();
     settleEvents.dispose();
     finish.dispose();
