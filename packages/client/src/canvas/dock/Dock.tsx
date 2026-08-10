@@ -370,10 +370,10 @@ const RailOrCards: Component<{
   onCreate: () => void;
   onOpenWorkspaceSearch: () => void;
 }> = (props) => {
-  // The DESKTOP landing verb, which composes canvas centering — the same one
-  // `DockRow` uses, so the needs-you strip and the row it mirrors go to the
-  // identical place. The touch surfaces pass their own (see `NeedsYouStrip`).
-  const tileStore = useTileStore();
+  // The DESKTOP landing verb for the needs-you strip: split-aware, and it
+  // composes canvas centering. The touch surfaces pass their own (see
+  // `NeedsYouStrip`), which are split-aware too.
+  const dockFocus = useDockFocus();
   // Pre-built `id → flat position` map. RepoSection used to compute
   // each row's flat index via `findIndex` over `flatShortcutRows`, costing
   // O(rows²) per render. The map is rebuilt only when the tree
@@ -394,7 +394,13 @@ const RailOrCards: Component<{
       <NeedsYouStrip
         entries={props.tree.needsYou}
         density={props.mode === "rail" ? "icon" : "full"}
-        onSelect={tileStore.activate}
+        // `useDockFocus`, NOT `tileStore.activate` — the same landing verb the
+        // section-header asking capsule and `SubTerminalRow` use. The strip
+        // hands it the BLOCKED id, which for a split-blocked tile is a split
+        // id, and `activate` → `focusMainTerminal` cannot focus one (it throws
+        // on a split, and otherwise lands on the parent's main pane). This verb
+        // resolves a split to its tab and still centres the canvas.
+        onSelect={dockFocus}
       />
       <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none flex-1 min-h-0">
         <Show

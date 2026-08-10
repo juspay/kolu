@@ -19,11 +19,11 @@
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { activeArm } from "@kolu/padi/surface";
-import type { TerminalId } from "kolu-common/surface";
+import { DASH, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
-import { formatTimeAgo } from "../../terminal/staleness";
+import { useDuration } from "../../terminal/staleness";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
@@ -88,11 +88,23 @@ const NeedsYouEntryRow: Component<{
             props.entry.tile.ts,
             rowRecencyAt(c().blocked.meta),
           );
-        // Same clock the capsule shows, in words, for the icon density's
-        // tooltip. `formatTimeAgo` answers "" for a never-active row and the
-        // dash for clock skew — both deliberate "nothing honest to report"
-        // answers, so the clause DROPS rather than inventing a duration.
-        const waitLabel = () => formatTimeAgo(waitAt());
+        // The EXACT string the violet capsule shows, for the icon density's
+        // tooltip — `useDuration`, not `formatTimeAgo`. The two are not
+        // interchangeable: `formatTimeAgo` answers "20h ago", which composes
+        // into "waiting on you for 20h ago". A duration is what belongs after
+        // "for", and it is the same reading the full density renders, so the
+        // two densities cannot report different waits.
+        //
+        // `formatDuration` answers the dash on clock skew and the clock is
+        // absent for a never-active row — both deliberate "nothing honest to
+        // report" answers, so the clause DROPS rather than inventing one.
+        const duration = useDuration();
+        const waitLabel = () => {
+          const at = waitAt();
+          if (at === null) return "";
+          const d = duration(at);
+          return d === DASH ? "" : d;
+        };
         const title = () => {
           const where = `${c().tile.info.key.group} · ${c().tile.info.key.label}`;
           const wait =
@@ -127,7 +139,16 @@ const NeedsYouEntryRow: Component<{
             // still belongs here (that is the twenty-hour case), so the mark is
             // deliberately quiet — a slight recede, not a second badge.
             data-filtered-hidden={props.entry.hiddenByFilter ? "" : undefined}
-            onClick={() => props.onSelect(props.entry.tile.id)}
+            // The BLOCKED id, not the tile. When a split is the one asking, this
+            // entry names that split — its pip, its wait, its `data-terminal-id`
+            // — so landing on the parent's MAIN pane would send you to a pane
+            // that is not waiting: the strip would name one agent and navigate
+            // to another, the same lie as painting the wrong clock. Every host's
+            // verb resolves a split to its tab (`focusTerminal` /
+            // `focusTerminalSilently`, the same landing `SubTerminalRow` and the
+            // section-header capsule use). For an ordinary row
+            // `blocked.id === tile.id`, so nothing else changes.
+            onClick={() => props.onSelect(props.entry.blocked.id)}
             // The icon density is 44px, so it drops the label and the wait
             // capsule and shows the pip alone. The duration is the reason to
             // glance at this strip at all, so it rides in the tooltip rather
