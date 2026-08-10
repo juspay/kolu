@@ -27,7 +27,7 @@
  *  activity window and the row's own "3m ago" cell (`ts`, below).
  *
  *  Urgency did not stop mattering either: a row blocked on you is surfaced by
- *  the dock's pinned needs-you strip ({@link needsYouEntry} → `dockTree.needsYou`),
+ *  the dock's pinned needs-you strip ({@link needsYouEntries} → `dockTree.needsYou`),
  *  a fixed place that fills and empties, rather than by floating the row up
  *  through a list that then reflows around it.
  *
@@ -389,17 +389,19 @@ export function rankDockRows(
  *  Spelled through `subRows` so `SubDockRow` stays module-private. */
 export type NeedsYouRow = RankedDockRow | RankedDockRow["subRows"][number];
 
-/** What the pinned strip renders: the row you CLICK and the row that is
- *  actually BLOCKED. They are the same object in the ordinary case and differ
- *  when a SPLIT is the one asking — a split is part of its parent's visible
- *  dock entry, so the tile is what you can click, but the split is what carries
- *  the pip and the wait.
+/** What the pinned strip renders: ONE BLOCKED AGENT, plus the tile it lives in.
  *
- *  A boolean here threw the second half away, and the strip then painted the
- *  PARENT: no violet capsule at all (the parent's own `recencyMode` is `ago` or
- *  `hidden`), and a tooltip asserting the tile's newest activity as a wait —
- *  "waiting on you for 3s" over an agent that has waited twenty hours, because
- *  a chattier sibling split moved the tile-wide fold. */
+ *  - `blocked` is what is asked, painted, timed and navigated to.
+ *  - `tile` is the DISPLAY IDENTITY (repo · branch, colour, intent). A split has
+ *    none of its own — `getDisplayInfo` is keyed on top-level tiles — which is
+ *    the whole reason the pair exists. They are the same object in the ordinary
+ *    case.
+ *
+ *  A boolean here threw the second half away, and the strip painted the PARENT:
+ *  no violet capsule at all (the parent's own `recencyMode` is `ago`/`hidden`),
+ *  and a tooltip asserting the tile's newest activity as a wait — "waiting on
+ *  you for 3s" over an agent that had waited twenty hours, because a chattier
+ *  sibling split moved the tile-wide fold. */
 export type NeedsYouEntry = {
   tile: RankedDockRow;
   blocked: NeedsYouRow;
@@ -429,11 +431,20 @@ export type NeedsYouEntry = {
  *  and carries their verdict on the entry (`hiddenByFilter`); a row the
  *  activity window parked still earns the strip, because a twenty-hour wait
  *  falling out of a four-hour window is precisely the agent the strip exists
- *  for. */
-export function needsYouEntry(row: RankedDockRow): NeedsYouEntry | undefined {
-  if (row.asking) return { tile: row, blocked: row };
-  const sub = row.subRows.find((s) => s.asking);
-  return sub ? { tile: row, blocked: sub } : undefined;
+ *  for.
+ *
+ *  Returns EVERY blocked row in the tile, not the first. A tile can hold
+ *  several agents — the main pane plus its splits, or two splits — and any of
+ *  them can be `awaiting_user` at once. Answering with one (a `.find()`) left
+ *  the second agent surfaced by colour and animation alone, which is the exact
+ *  failure this strip exists to end. One entry per blocked agent, so the strip's
+ *  length is the number of agents waiting on you, not the number of tiles that
+ *  contain one. */
+export function needsYouEntries(row: RankedDockRow): NeedsYouEntry[] {
+  const blocked: NeedsYouRow[] = [];
+  if (row.asking) blocked.push(row);
+  for (const sub of row.subRows) if (sub.asking) blocked.push(sub);
+  return blocked.map((b) => ({ tile: row, blocked: b }));
 }
 
 /** Fold the tile's pane TREE into its dock sub-entries: siblings in the store's

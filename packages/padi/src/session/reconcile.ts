@@ -72,10 +72,6 @@ export interface ReconcileResult {
    *  True orphans are NOT here: they have no saved position, and the caller
    *  appends them after (they are the newest things on the host). */
   plan: ReconcileStep[];
-  /** Saved terminals whose PTY is still alive, each paired with its live PTY.
-   *  The same pairs {@link plan}'s `adopt` steps carry, kept for callers that
-   *  want the set rather than the sequence. */
-  adopt: AdoptPair[];
   /** Live daemon PTYs with no saved record — adopt from the live snapshot
    *  (`orphanSnapshot`), never reap. See the module doc (F1). */
   adoptOrphans: PtyHostListEntry[];
@@ -104,7 +100,6 @@ export function reconcile(
       .filter((terminal) => terminal.state === "sleeping")
       .map((terminal) => terminal.id),
   );
-  const adopt: AdoptPair[] = [];
   const plan: ReconcileStep[] = [];
   for (const record of savedTerminals) {
     // A SLEEPING record released its PTY at sleep, so it is seeded dormant and
@@ -120,14 +115,10 @@ export function reconcile(
     // `record` the active arm for the whole-record adopt.
     if (record.state !== "active") continue;
     const liveEntry = liveById.get(record.id);
-    if (liveEntry) {
-      adopt.push({ record, live: liveEntry });
-      plan.push({ kind: "adopt", record, live: liveEntry });
-    }
+    if (liveEntry) plan.push({ kind: "adopt", record, live: liveEntry });
   }
   return {
     plan,
-    adopt,
     adoptOrphans: live.filter((entry) => !savedIds.has(entry.id)),
     // A sleeping record's id is a saved id, so its surviving PTY is excluded from
     // adoptOrphans above; surface it here so the caller reaps it.

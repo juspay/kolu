@@ -338,6 +338,40 @@ describe("buildDockTree", () => {
     expect(tree.needsYou[0]?.tile.ts).toBe(9_000_000);
   });
 
+  // A tile can hold several agents at once — the main pane plus its splits, or
+  // two splits — and any of them can be blocked. Answering with the FIRST left
+  // every other blocked agent in that tile surfaced by colour and animation
+  // alone, which is the precise failure (fucknotif) this strip exists to end,
+  // and no fixture had ever put two asking rows in one tile.
+  it("gives every blocked agent in a tile its own entry, not just the first", () => {
+    const tile = row("tile", "awaiting", 100);
+    tile.subRows = [
+      agentSubRow("split-a", "awaiting"),
+      agentSubRow("split-quiet", "idle"),
+      agentSubRow("split-b", "awaiting"),
+    ];
+    const tree = buildDockTree(
+      [tile],
+      makeGetInfo({ tile: { group: "kolu", color: "#aaa", label: "one" } }),
+      false,
+    );
+    // The main pane and BOTH blocked splits — three agents waiting, three
+    // entries. The quiet split earns none.
+    expect(tree.needsYou.map((e) => e.blocked.id)).toEqual([
+      "tile",
+      "split-a",
+      "split-b",
+    ]);
+    // Every entry names the same clickable tile; only `blocked` differs.
+    expect(tree.needsYou.map((e) => e.tile.id)).toEqual([
+      "tile",
+      "tile",
+      "tile",
+    ]);
+    // And the tile still occupies exactly one row in the list below.
+    expect(tree.flatShortcutRows.map((r) => r.id)).toEqual(["tile"]);
+  });
+
   it("the strip claims no shortcut numbers", () => {
     // Blocking the LAST row is the case that would expose a strip feeding
     // `flatShortcutRows`: it would jump to position 1 and renumber everything.

@@ -60,7 +60,7 @@ import type { TerminalId } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import {
   type NeedsYouEntry,
-  needsYouEntry,
+  needsYouEntries,
   type RankedDockRow,
 } from "./dockRowRanking";
 
@@ -115,7 +115,7 @@ export type DockTree = {
   flatShortcutRows: readonly RankedDockRow[];
 
   /** Rows blocked on YOU, in the same structural order they appear below — the
-   *  pinned strip's contents ({@link needsYouEntry}).
+   *  pinned strip's contents ({@link needsYouEntries}).
    *
    *  A MIRROR, not a relocation: each row keeps its slot, its section, and its
    *  shortcut number, and appears here as well. That duplication is the point —
@@ -218,8 +218,9 @@ export function buildDockTree(
     // `needsYouEntry`, every split beneath it) would be re-deriving what this
     // iteration holds. It runs on every tree rebuild, including the ones the
     // 60s staleness tick drives and the common one where nothing is blocked.
-    const blocked = needsYouEntry(row);
-    if (blocked) group.needsYou.push({ ...blocked, hiddenByFilter: hidden });
+    for (const entry of needsYouEntries(row)) {
+      group.needsYou.push({ ...entry, hiddenByFilter: hidden });
+    }
     const list = group.byLabel.get(info.key.label);
     if (list) list.push(row);
     else group.byLabel.set(info.key.label, [row]);
