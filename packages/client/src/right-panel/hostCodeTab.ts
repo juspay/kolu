@@ -54,14 +54,26 @@
 
 import type { CodeTabView } from "@kolu/padi/surface";
 import { Effect } from "effect";
+import {
+  type Accessor,
+  createEffect,
+  createMemo,
+  createSignal,
+  mapArray,
+  on,
+  onCleanup,
+} from "solid-js";
 import { scopedByEntry } from "@kolu/surface-map/client";
 import type { Subscription } from "@kolu/surface/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import { ancestorDirectoryPaths } from "@kolu/solid-pierre/paths";
 import { buildTerminalFileUrl, isBinaryPreviewable } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
+import { toError } from "@kolu/surface/run-stream";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
+import { runActionPromise } from "../runAction";
 import { windowedSub } from "../hostScope/windowedSub.ts";
 import {
   FILE_GONE,
@@ -76,8 +88,12 @@ import {
   padiRpcOf,
   padiMap,
 } from "../wire";
-import { armedRootMatching } from "./browseArm";
-import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
+import { type BrowseRoot, browsableRoot, browseRootOf } from "./browseRoot";
+import {
+  bindPulse,
+  createPolledQuery,
+  type PolledQueryConfig,
+} from "./createPolledQuery";
 import { mergeBrowseInventory } from "./browseInventory";
 import type { CodeTabScope } from "./codeTabOpenController";
 import { showIgnoredFiles } from "./showIgnoredFiles";
@@ -110,21 +126,26 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
 
   // The shown terminal's selection, read off the app-lifetime singletons (the active
   // projection). Meaningful only under `ctx.isActive` — see the header.
-  const shownRepoPath = (): string | null =>
-    store.active().meta?.git?.repoRoot ?? null;
   const shownTerminalId = (): TerminalId | null => store.active().id;
-  // The shown terminal's PLAIN-DIRECTORY browse root — its cwd, outside a git
-  // repo, and only after the user armed it (the collapsed-root click,
-  // `./browseArm.ts`). A stale approval — the terminal has since `cd`'d away —
-  // reads as null. Inside a git repo this is null: git owns the root there.
-  const shownDirRoot = (): string | null => {
-    const m = store.active().meta;
-    if (!m || m.git) return null;
-    const tid = shownTerminalId();
-    if (tid === null) return null;
-    return armedRootMatching(host, tid, m.cwd);
+  // The shown terminal's browse root and its authority — the ONE derivation,
+  // shared with `CodeTab` (`./browseRoot.ts`), so the view and the query world
+  // cannot disagree about which root kind is in play.
+  const shownRoot = (): BrowseRoot =>
+    browseRootOf(host, shownTerminalId(), store.active().meta);
+  const shownRepoPath = (): string | null => {
+    const r = shownRoot();
+    return r?.kind === "git" ? r.root : null;
   };
-  const codeView = (): CodeTabView => rightPanel.codeMode();
+  /** The armed PLAIN-DIRECTORY root, or null (inside a repo git owns the root;
+   *  un-armed means the user hasn't consented to the read yet). */
+  const shownDirRoot = (): string | null => {
+    const r = shownRoot();
+    return r?.kind === "plain" ? r.root : null;
+  };
+  // The EFFECTIVE view, from the one accessor that owns the coercion — not a
+  // second copy of "outside git it's browse" (`useRightPanel.effectiveCodeMode`).
+  const codeView = (): CodeTabView =>
+    rightPanel.effectiveCodeMode(shownRoot()?.kind === "git");
   const codeDiffMode = (): GitDiffMode | undefined =>
     codeView() === "browse" ? undefined : (codeView() as GitDiffMode);
   const codeSelectedPath = (): string | null =>
@@ -145,15 +166,17 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   // local helper — this is the only site, so it is a leaf, not a receptacle.
   function repoQuery<Input extends { repoPath: string }, Result>(
     config: Omit<
-      PolledQueryConfig<Input, { repoPath: string }, unknown, Result>,
-      "live" | "pulseHost" | "active" | "pulseProc" | "pulseInput"
+      PolledQueryConfig<Input, unknown, Result>,
+      "live" | "pulseHost" | "active" | "pulse"
     >,
   ): Subscription<Result> {
     return createPolledQuery({
       ...config,
       ...authorities,
-      pulseProc: () => activePadiStreams.subscribeRepoChange.unenrolled,
-      pulseInput: (i) => ({ repoPath: i.repoPath }),
+      pulse: (i) =>
+        bindPulse(activePadiStreams.subscribeRepoChange.unenrolled, {
+          repoPath: i.repoPath,
+        }),
     });
   }
 
@@ -308,26 +331,56 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
             ),
           );
 
-  // The browse file-content read — pulses on `subscribeFileChange` (repo+file). Idle
-  // outside browse mode / with no selected file (the old dispatcher's mount condition,
-  // now expressed as an idle input).
+  // ONE browse file-content read for BOTH root kinds — same query, same retained
+  // value, and the PULSE chosen from the input:
+  //
+  //   - inside a git repo, `subscribeFileChange` (repo + file): the narrow
+  //     per-file axis, so `git commit` / `git add` fire no wasted re-reads;
+  //   - outside one, `subscribeDirChange` on the file's PARENT directory —
+  //     without git there is no head/working-tree watcher to compose a per-file
+  //     pulse from, and the parent-dir handle already carries direct-child
+  //     writes and the editor temp+rename idiom (see `refcounted-dir-watcher`).
+  //
+  // Deliberately not two queries: each would own its own retained value and
+  // shown key, so a git-presence flip (a `cd` from a repo to a plain directory)
+  // discarded the other's content and blanked the panel — the exact
+  // instant-switch-back-by-ownership invariant this module exists to protect.
+  // The root kind is a pulse-SOURCE fact, which is why it belongs in `pulse`.
   const fileContent = createPolledQuery<
-    { terminalId: TerminalId; repoPath: string; filePath: string },
-    { repoPath: string; filePath: string },
+    {
+      terminalId: TerminalId;
+      repoPath: string;
+      filePath: string;
+      git: boolean;
+    },
     unknown,
     BrowseFileContent
   >({
     ...authorities,
     input: () => {
-      const p = shownRepoPath();
+      const r = shownRoot();
+      const root = browsableRoot(r);
       const s = codeSelectedPath();
       const tid = shownTerminalId();
-      return codeView() === "browse" && p && s && tid !== null
-        ? { terminalId: tid, repoPath: p, filePath: s }
+      return codeView() === "browse" && root && s && tid !== null
+        ? {
+            terminalId: tid,
+            repoPath: root,
+            filePath: s,
+            git: r?.kind === "git",
+          }
         : null;
     },
-    pulseProc: () => activePadiStreams.subscribeFileChange.unenrolled,
-    pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
+    pulse: (i) =>
+      i.git
+        ? bindPulse(activePadiStreams.subscribeFileChange.unenrolled, {
+            repoPath: i.repoPath,
+            filePath: i.filePath,
+          })
+        : bindPulse(activePadiStreams.subscribeDirChange.unenrolled, {
+            repoPath: i.repoPath,
+            dirPath: parentDirKey(i.filePath),
+          }),
     query: readFileContent,
     onError: (err) => toast.error(`File content stream: ${err.message}`),
     // Delete-while-viewing parity: a file removed under the open Code tab fails
@@ -337,77 +390,241 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     swallowError: (err) => isDeclared(err, FILE_GONE),
   });
 
-  // ── The plain-directory (non-git) browse world ──────────────────────────
-  // Outside a git repo there is no `git ls-files` inventory and no affordable
-  // recursive watcher, so browsing goes ONE LEVEL at a time: this query reads
-  // the armed root's top level (`fs.listDirectory` with `dirPath: ""`) and
-  // rides the non-recursive `subscribeDirChange` pulse for that one directory.
-  // Deeper levels are the Code tab's lazy-expansion machinery (#2091's
-  // `loadedChildren`), each expanded level with its own per-directory pulse —
-  // lazy listing and lazy watching are the same decision. No view gate on the
-  // input: outside git the Code tab coerces its view to browse.
-  const dirPaths = createPolledQuery<
-    { terminalId: TerminalId; repoPath: string },
-    { repoPath: string; dirPath: string },
-    unknown,
-    ScopedCodePaths
-  >({
-    ...authorities,
-    input: () => {
-      const root = shownDirRoot();
-      const tid = shownTerminalId();
-      return root && tid !== null ? { terminalId: tid, repoPath: root } : null;
-    },
-    pulseProc: () => activePadiStreams.subscribeDirChange.unenrolled,
-    pulseInput: (i) => ({ repoPath: i.repoPath, dirPath: "" }),
-    query: (i) =>
-      activePadiRpc.fs
-        .listDirectory({ repoPath: i.repoPath, dirPath: "" })
-        .pipe(
-          Effect.map(
-            (result): ScopedCodePaths => ({
-              scope: {
-                host,
-                terminalId: i.terminalId,
-                repoRoot: i.repoPath,
-                mode: "browse",
-              },
-              paths: result.paths,
-            }),
-          ),
-        ),
-    onError: (err) => toast.error(`Directory list stream: ${err.message}`),
+  // ── The browse tree's LEVELS ────────────────────────────────────────────
+  // "The levels of this browse tree" is ONE thing with ONE home and ONE
+  // lifetime: level `""` (a plain root's top level) and one level per directory
+  // the user has expanded are members of the same family, born here, in this
+  // host's retained world.
+  //
+  // They used to be split by DEPTH, which is not an axis: level 1 lived here as
+  // its own named query (paused-not-destroyed on a host switch, value retained)
+  // while levels 2..N lived in the `CodeTab` singleton across four state
+  // locations (an intent signal, a loaded-children signal, a promise-waiter map,
+  // an in-flight AbortController map) and were DISPOSED whenever `slotKey`
+  // changed — so a host switch and back left the root warm and every expanded
+  // folder shut. Half the invariant kept, and a five-statement reset ritual to
+  // keep the four locations agreeing.
+  //
+  // And ONE mechanism, chosen by REFRESH POLICY rather than by an unrelated
+  // axis. A level is either WATCHED — a plain-directory level, whose own
+  // `subscribeDirChange` handle keeps it fresh — or a ONE-SHOT read — a
+  // gitignored overlay level, which nothing watches BY CONSTRUCTION (the
+  // watcher's ignore set is built from `listIgnored`, so inventing a pulse for
+  // it would mean watching exactly the churn — `node_modules`, build output —
+  // that the ignore set exists to keep out; re-expanding is its refresh). Both
+  // are entries of the same `mapArray`, so both get one writer per level, owner
+  // disposal as supersession, and the same settlement — instead of two
+  // hand-rolled implementations selected by a `gitRoot()` test, with two
+  // different supersession stories that disagreed (#2138).
+  const [expandedDirs, setExpandedDirs] = createSignal<ReadonlySet<string>>(
+    new Set(),
+  );
+  /** The click's waiter per level — resolved by that level's first arrival,
+   *  rejected by its failure. `<FileTree>`'s outcome contract, settled from the
+   *  ONE place a level can land. Not reactive: nothing renders from it. */
+  const levelWaiters = new Map<
+    string,
+    { resolve: () => void; reject: (err: Error) => void }
+  >();
+
+  /** One level's read, whatever its policy: the contents, the readiness, and the
+   *  scope it was produced under. */
+  interface CodeLevel {
+    dirKey: string;
+    paths: Accessor<readonly string[] | undefined>;
+    pending: Accessor<boolean>;
+    error: Accessor<Error | undefined>;
+  }
+
+  // The level keys, each carrying EVERYTHING the entry is scoped to — policy,
+  // terminal, root — so a change to any of them disposes the entry
+  // STRUCTURALLY rather than through a reset effect. `\0` can't appear in a
+  // path, so the split is unambiguous.
+  const levelKeys = (): string[] => {
+    const r = shownRoot();
+    const tid = shownTerminalId();
+    if (r === null || r.kind === "unarmed" || tid === null) return [];
+    if (codeView() !== "browse") return [];
+    // A plain root's own top level is level `""` — the always-registered member
+    // of this family, not a special case. Inside a repo the root inventory is
+    // `allPaths` (git's whole-repo listing), and only the overlay's collapsed
+    // directories are levels.
+    const keys =
+      r.kind === "plain" ? ["", ...expandedDirs()] : [...expandedDirs()];
+    return keys.map((k) => `${r.kind}\0${tid}\0${r.root}\0${k}`);
+  };
+
+  const levelEntries = createMemo(
+    mapArray(levelKeys, (key): CodeLevel => {
+      const [kind, , root, ...rest] = key.split("\0");
+      const dirKey = rest.join("\0");
+      const settle = (outcome: "resolve" | "reject", err?: Error): void => {
+        const waiter = levelWaiters.get(dirKey);
+        if (!waiter) return;
+        levelWaiters.delete(dirKey);
+        if (outcome === "resolve") waiter.resolve();
+        else waiter.reject(err ?? new Error("directory load failed"));
+      };
+      if (kind === "plain") {
+        // WATCHED: read AND watched by one polled query riding the
+        // non-recursive `subscribeDirChange` pulse for exactly this directory
+        // (its snapshot frame performs the first read, so the click issues no
+        // RPC of its own). N expanded folders cost N single-directory handles,
+        // never a recursive crawl.
+        const level = createPolledQuery<
+          { repoPath: string; dirPath: string },
+          unknown,
+          { paths: readonly string[] }
+        >({
+          ...authorities,
+          input: () => ({ repoPath: root as string, dirPath: dirKey }),
+          pulse: (i) =>
+            bindPulse(activePadiStreams.subscribeDirChange.unenrolled, i),
+          query: (i) => activePadiRpc.fs.listDirectory(i),
+          onError: (err) => {
+            toast.error(`Failed to list ${dirKey || root}: ${err.message}`);
+            settle("reject", err);
+          },
+          // A level whose directory vanished mid-watch: keep the last listing;
+          // the parent's own pulse re-lists and drops the row authoritatively.
+          swallowError: (err) => isDeclared(err, FILE_GONE),
+        });
+        createEffect(() => {
+          if (level()) settle("resolve");
+        });
+        return {
+          dirKey,
+          paths: () => level()?.paths,
+          pending: level.pending,
+          error: level.error,
+        };
+      }
+      // ONE-SHOT: nothing watches an ignored path, so this level is read once
+      // and refreshed only by a deliberate reopen. Owner disposal IS the
+      // supersession — `onCleanup` interrupts the read's fiber, which is what
+      // the hand-rolled controller map, its identity guards and its
+      // `ensuring` retirement used to do by hand.
+      const [paths, setPaths] = createSignal<readonly string[] | undefined>();
+      const [error, setError] = createSignal<Error | undefined>();
+      const ctl = new AbortController();
+      onCleanup(() => ctl.abort());
+      void runActionPromise(
+        activePadiRpc.fs.listDirectory({
+          repoPath: root as string,
+          dirPath: dirKey,
+        }),
+        ctl.signal,
+      )
+        .then((result) => {
+          setPaths(result.paths);
+          settle("resolve");
+        })
+        .catch((err: unknown) => {
+          // A superseded read owns no outcome — neither the toast (a failure
+          // belonging to a tree the user has already left is not theirs to see)
+          // nor the rejection.
+          if (ctl.signal.aborted) return;
+          const e = toError(err);
+          toast.error(`Failed to list ${dirKey}: ${e.message}`);
+          setError(e);
+          settle("reject", e);
+        });
+      return {
+        dirKey,
+        paths,
+        pending: () => paths() === undefined && error() === undefined,
+        error,
+      };
+    }),
+  );
+
+  /** The browse tree's levels AND the ROOT level's readiness, minted as ONE
+   *  value — DERIVED from the live entries rather than pushed into a shared map
+   *  by N effects, so a level's contents leave exactly when its owner dies and
+   *  no explicit clear is needed. The root level carries the scope it was read
+   *  under, the same stamp `allPaths` carries. */
+  const dirLevels = createMemo(() => {
+    const levels = new Map<string, readonly string[]>();
+    let root: ScopedCodePaths | undefined;
+    let pending = true;
+    let error: Error | undefined;
+    const repoRoot = shownDirRoot();
+    const tid = shownTerminalId();
+    for (const entry of levelEntries()) {
+      const paths = entry.paths();
+      if (paths) levels.set(entry.dirKey, paths);
+      if (entry.dirKey !== "") continue;
+      pending = entry.pending();
+      error = entry.error();
+      if (paths && repoRoot !== null && tid !== null) {
+        root = {
+          scope: { host, terminalId: tid, repoRoot, mode: "browse" },
+          paths,
+        };
+      }
+    }
+    return { levels, root, pending, error };
   });
 
-  // The plain-directory file-content read — same read as `fileContent`, but its
-  // pulse rides `subscribeDirChange` on the file's PARENT directory: without
-  // git there is no head/working-tree watcher to compose a per-file pulse
-  // from, and the parent-dir handle already carries direct-child writes and
-  // the editor temp+rename idiom (see `refcounted-dir-watcher.ts`'s rationale).
-  const dirFileContent = createPolledQuery<
-    { terminalId: TerminalId; repoPath: string; filePath: string },
-    { repoPath: string; dirPath: string },
-    unknown,
-    BrowseFileContent
-  >({
-    ...authorities,
-    input: () => {
-      const root = shownDirRoot();
-      const s = rightPanel.selectedFile("browse");
-      const tid = shownTerminalId();
-      return root && s && tid !== null
-        ? { terminalId: tid, repoPath: root, filePath: s }
-        : null;
-    },
-    pulseProc: () => activePadiStreams.subscribeDirChange.unenrolled,
-    pulseInput: (i) => ({
-      repoPath: i.repoPath,
-      dirPath: parentDirOf(i.filePath),
-    }),
-    query: readFileContent,
-    onError: (err) => toast.error(`File content stream: ${err.message}`),
-    swallowError: (err) => isDeclared(err, FILE_GONE),
-  });
+  /** Register the intent to have a level. The ONLY entry point for BOTH
+   *  policies: registering spawns the level's owner, and that owner is the
+   *  level's single writer — the two-writer race a click-read racing a
+   *  pulse-read allowed is unspellable.
+   *
+   *  `signal` is `<FileTree>`'s supersession token (it owns the row's fate, and
+   *  aborts when the same key is re-reported / collapses / the epoch bumps), so
+   *  this settles the superseded waiter quietly and lets the newest registration
+   *  own the outcome. */
+  const expandLevel = (dirPath: string, signal: AbortSignal): Promise<void> => {
+    // Already loaded and still registered — a re-report with no collapse in
+    // between (a key that left `lazyDirectories` and came back). The standing
+    // level owner has kept it fresh, so there is nothing to wait for.
+    if (dirLevels().levels.has(dirPath)) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      const waiter = { resolve, reject };
+      levelWaiters.set(dirPath, waiter);
+      signal.addEventListener("abort", () => {
+        if (levelWaiters.get(dirPath) === waiter) levelWaiters.delete(dirPath);
+        // Supersession is not a verdict — settle quietly; the wrapper ignores
+        // an aborted load's outcome.
+        resolve();
+      });
+      setExpandedDirs((prev) =>
+        prev.has(dirPath) ? prev : new Set(prev).add(dirPath),
+      );
+    });
+  };
+
+  /** Retire a level — `<FileTree>`'s CLOSE edge. Dropping the registration
+   *  disposes its owner, which takes the pulse subscription, the server-side
+   *  handle and the level's contents with it. */
+  const collapseLevel = (dirPath: string): void => {
+    levelWaiters.delete(dirPath);
+    setExpandedDirs((prev) => {
+      if (!prev.has(dirPath)) return prev;
+      const next = new Set(prev);
+      next.delete(dirPath);
+      return next;
+    });
+  };
+
+  // The intent is scoped to the SLOT that was browsed — its terminal, its root,
+  // and its view: repo-relative keys collide across roots (`out/` exists in
+  // both), so carrying them over would spawn a level query for a directory the
+  // new root may not even have, and intent surviving a switch to a diff view
+  // would keep N levels registered behind rows the tree no longer paints.
+  // `<FileTree>`'s own record of which lazy dirs are open is invalidated on this
+  // same transition (`lazyEpoch` is `slotKey`). This ONE clear is all that is
+  // left of the five-statement reset ritual: the entries need none, because their
+  // keys carry the slot and they are disposed structurally.
+  createEffect(
+    on(
+      () =>
+        `${shownTerminalId() ?? ""}\0${browsableRoot(shownRoot()) ?? ""}\0${codeView()}`,
+      () => setExpandedDirs(new Set<string>()),
+      { defer: true },
+    ),
+  );
 
   return {
     localStatus,
@@ -415,19 +632,26 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     activeStatus,
     allPaths,
     ignoredPaths,
-    dirPaths,
+    dirLevels,
+    expandLevel,
+    collapseLevel,
     diff,
     fileContent,
-    dirFileContent,
   };
 }
 
-/** The slash-separated parent of a repo-relative path (`""` for a top-level
- *  entry) — the directory whose non-recursive watch covers the file. */
-function parentDirOf(filePath: string): string {
-  const i = filePath.lastIndexOf("/");
-  return i === -1 ? "" : filePath.slice(0, i);
-}
+/** The directory key whose non-recursive watch covers `filePath` — Pierre's
+ *  folder key WITH its trailing slash (`""` for a root-level entry), which is
+ *  the spelling every other directory key the client puts on the wire uses (the
+ *  per-level queries pass `dirKey` straight through). Built from the client's
+ *  EXISTING parent-directory derivation rather than a second hand-rolled
+ *  `lastIndexOf("/")` slice that invented a slash-less spelling for the same
+ *  directory — two names on the wire for one thing, working only because the
+ *  server normalises both. */
+const parentDirKey = (filePath: string): string => {
+  const parents = ancestorDirectoryPaths(filePath);
+  return parents[parents.length - 1] ?? "";
+};
 
 /** One host's retained Code-tab query world. */
 export type HostCodeTab = ReturnType<typeof buildHostCodeTab>;
@@ -477,27 +701,46 @@ export const codeIgnoredPaths = windowedSub(
   (v) => v,
   undefined,
 );
-export const codeDirPaths = windowedSub(
-  () => activeHostCodeTab()?.dirPaths,
-  (v) => v,
-  undefined,
-);
+/** The browse tree's levels + the root level's readiness, for the ACTIVE host.
+ *  Not a `windowedSub`: this is one derived VALUE (levels + root + readiness), not
+ *  a `Subscription`, and its removal-race floor is the same empty world an
+ *  un-armed root reads as. */
+const EMPTY_LEVELS = {
+  levels: new Map<string, readonly string[]>(),
+  root: undefined,
+  pending: true,
+  error: undefined,
+} as const;
+export const codeDirLevels = (): {
+  levels: ReadonlyMap<string, readonly string[]>;
+  root: ScopedCodePaths | undefined;
+  pending: boolean;
+  error: Error | undefined;
+} => activeHostCodeTab()?.dirLevels() ?? EMPTY_LEVELS;
+
+/** Register a lazy level (`<FileTree>`'s open edge) and retire one (its close
+ *  edge) on the active host's retained level family. During the removal race
+ *  there is no world to register in, so the expand settles quietly — the tree's
+ *  own record is invalidated by the same transition. */
+export const codeExpandLevel = (
+  dirPath: string,
+  signal: AbortSignal,
+): Promise<void> =>
+  activeHostCodeTab()?.expandLevel(dirPath, signal) ?? Promise.resolve();
+export const codeCollapseLevel = (dirPath: string): void =>
+  activeHostCodeTab()?.collapseLevel(dirPath);
 export const codeDiff = windowedSub(
   () => activeHostCodeTab()?.diff,
   (v) => v,
   undefined,
 );
+// ONE query, so no fork here: the git-vs-plain pulse choice is a property of the
+// query's INPUT (see `fileContent`), not of which query a facade picks. The
+// facade used to re-derive git presence a THIRD time to make that pick — a
+// third authority on one fact, over the same `store.active().meta` the other two
+// read.
 export const codeFileContent = windowedSub(
-  // Git presence picks the query — same read, different pulse (per-file via the
-  // git watchers, vs the parent directory's non-recursive handle). The facade
-  // is where the fork lives so `BrowseFileDispatcher` stays pulse-agnostic.
-  () => {
-    const t = activeHostCodeTab();
-    if (!t) return undefined;
-    return useTerminalStore().active().meta?.git
-      ? t.fileContent
-      : t.dirFileContent;
-  },
+  () => activeHostCodeTab()?.fileContent,
   (v) => v,
   undefined,
 );

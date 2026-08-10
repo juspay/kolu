@@ -14,8 +14,6 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
-import { toError } from "@kolu/surface/run-stream";
-import { Effect } from "effect";
 import {
   CODE_TAB_VIEW_ORDER,
   type CodeTabView,
@@ -23,9 +21,7 @@ import {
   viewLabel,
 } from "@kolu/padi/surface";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
-import { FILE_GONE, isDeclared } from "../rpc/declaredErrors";
 import { FileTree, rowPathsCss } from "@kolu/solid-pierre";
-
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
@@ -36,7 +32,6 @@ import {
   createMemo,
   createSignal,
   type JSX,
-  mapArray,
   Match,
   on,
   onCleanup,
@@ -72,19 +67,18 @@ import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
-import { runActionPromise } from "../runAction";
 import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
-import { activeHost, activePadiRpc, activePadiStreams, padiMap } from "../wire";
+import { activeHost } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
-import { armBrowseRoot, armedRootMatching } from "./browseArm";
 import {
   type BrowseInventory,
   diffInventory,
   directoryInventory,
   mergeBrowseInventory,
 } from "./browseInventory";
+import { armBrowseRoot, browsableRoot, browseRootOf } from "./browseRoot";
 import {
   type CodeTabOpenResolutionSource,
   type CodeTabScope,
@@ -94,19 +88,20 @@ import {
   createCodeTabOpenController,
   type OpenInCodeTabRequest,
 } from "./codeTabOpenController";
+import FileSearchInput from "./FileSearchInput";
+import { projectFileTreeSearch } from "./fileSearch";
 import {
   codeActiveStatus,
   codeAllPaths,
   codeBranchStatus,
+  codeCollapseLevel,
   codeDiff,
-  codeDirPaths,
+  codeDirLevels,
+  codeExpandLevel,
   codeIgnoredPaths,
   codeLocalStatus,
   readFreshCodePaths,
 } from "./hostCodeTab";
-import FileSearchInput from "./FileSearchInput";
-import { projectFileTreeSearch } from "./fileSearch";
-import { createPolledQuery } from "./createPolledQuery";
 import { openInCodeTab, pendingOpen } from "./openInCodeTab";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import { setShowIgnoredFiles, showIgnoredFiles } from "./showIgnoredFiles";
@@ -259,8 +254,13 @@ const CodeTab: Component<{
   // mode the user actually picked for the next repo this terminal enters. Not
   // a slotKey-churn hazard: `view()` only flips when git presence itself flips,
   // which is a genuine root transition that resets the slot anyway.
+  //
+  // The coercion itself lives beside the mode it coerces
+  // (`useRightPanel.effectiveCodeMode`) — spelled here alone, it had to be
+  // re-assumed in `hostCodeTab`, which then disagreed about the effective view
+  // by construction.
   const view = (): CodeTabView =>
-    gitRoot() ? rightPanel.codeMode() : "browse";
+    rightPanel.effectiveCodeMode(root()?.kind === "git");
   const setView = rightPanel.setCodeMode;
 
   // Tree right-click menu: "Copy path" plus view-switch entries (All files ⇄
@@ -298,25 +298,20 @@ const CodeTab: Component<{
     },
   });
 
-  // The two root authorities, split on purpose. Inside a git repo the browse
-  // root IS the repo root, exactly as before, and every git-only surface (diff
-  // modes, status overlay, the ignored toggle) keys on `gitRoot`. Outside one,
-  // the browse root is the terminal's cwd — but only after the user clicked
-  // the collapsed root node (`browseArm.ts`): the tree browser never needed
-  // git, only the diff machinery did, so browsing follows the cwd the shell
-  // already told us while the git surfaces simply don't render.
-  const gitRoot = () => props.meta?.git?.repoRoot ?? null;
-  const terminalCwd = () => props.meta?.cwd ?? null;
-  // The armed plain-directory root: consent is compared against the LIVE cwd,
-  // so a `cd` elsewhere retires it (a different directory is a different
-  // approval) and the collapsed root node returns.
-  const armedDirRoot = () => {
-    if (gitRoot()) return null;
-    const tid = props.terminalId;
-    if (tid === null) return null;
-    return armedRootMatching(activeHost(), tid, terminalCwd());
-  };
-  const browseRoot = () => gitRoot() ?? armedDirRoot();
+  // The root and its AUTHORITY, as one sum type from the ONE derivation
+  // (`browseRoot.ts`) — the same function `hostCodeTab` feeds its query inputs
+  // from, so the tree this component paints and the query world feeding it can
+  // never disagree about which root kind is in play. Inside a git repo the
+  // browse root IS the repo root and every git-only surface (diff modes, status
+  // overlay, the ignored toggle) keys on `kind === "git"`. Outside one it is the
+  // terminal's cwd, but only once the user clicked the collapsed root node: the
+  // tree browser never needed git, only the diff machinery did.
+  //
+  // A memo, not a plain accessor: every question below reads it.
+  const root = createMemo(() =>
+    browseRootOf(activeHost(), props.terminalId, props.meta),
+  );
+  const browseRoot = () => browsableRoot(root());
 
   // History records repo-relative `{ mode, path }` locations with no repo
   // identity of their own, so a stack captured in repo A must not be replayed
@@ -465,7 +460,6 @@ const CodeTab: Component<{
   const activeStatus = codeActiveStatus;
   const allPaths = codeAllPaths;
   const ignoredPaths = codeIgnoredPaths;
-  const dirPaths = codeDirPaths;
   const diff = codeDiff;
   const status = () => activeStatus();
   const statusPending = () => activeStatus.pending();
@@ -492,24 +486,12 @@ const CodeTab: Component<{
         // the view switch: that switch fires this effect while fsListAll is
         // still loading, before the gated resolution effect sets `revealDir`.
         setRevealDir(null);
-        // The loaded levels were read out of the PREVIOUS repo, and repo-
-        // relative keys collide across repos (`out/` exists in both), so
-        // keeping them would paint one repo's build output inside another's.
-        // Aborting first covers the reads still in flight, which would
-        // otherwise resolve afterwards and write the previous repo's listing
-        // into the new repo's map under an identical folder name. The tree's
-        // own record of which lazy directories are open is invalidated by the
-        // same signal, via `lazyEpoch` below.
-        for (const ctl of inFlight.values()) ctl.abort();
-        inFlight.clear();
-        setLoadedChildren(new Map());
-        // The non-git expansion registrations were scoped to the previous
-        // root the same way. Settle superseded waiters with no outcome — the
-        // epoch that cleared them owns the tree now (`lazyEpoch` invalidates
-        // the wrapper's own expansion records on this same signal).
-        setExpandedDirs(new Set<string>());
-        for (const pending of pendingLevelLoad.values()) pending.resolve();
-        pendingLevelLoad.clear();
+        // The loaded levels need no clearing here: they live in this host's
+        // retained level family (`hostCodeTab`'s `dirLevels`), whose entries are
+        // keyed by (policy, terminal, root, dirKey) and are therefore disposed
+        // STRUCTURALLY by the same transition — contents and in-flight reads
+        // with them. The tree's own record of which lazy directories are open is
+        // invalidated on this same signal, via `lazyEpoch` below.
       },
       { defer: true },
     ),
@@ -545,209 +527,19 @@ const CodeTab: Component<{
   // click of the same folder.
   const [revealDir, setRevealDir] = createSignal<{ path: string } | null>(null);
 
-  // One level of contents per gitignored directory the user has opened, keyed
-  // by Pierre's folder key. `fs.listIgnored` collapses a wholly-ignored
-  // directory to its name alone — one `node_modules/` row instead of thousands
-  // — which left those rows expandable but empty (#2091); this holds what an
-  // expand read back so the merge can substitute it for the collapsed key.
+  // The lazily-loaded tree LEVELS — one level of contents per directory the
+  // user has opened, keyed by Pierre's folder key. The family lives in this
+  // host's RETAINED world (`hostCodeTab`'s `dirLevels`), which owns the
+  // registration intent, the per-level reader (a watched polled query for a
+  // plain-directory level, a one-shot read for a gitignored one — nothing
+  // watches an ignored path), and the click's settlement. This component only
+  // READS the levels and reports the tree's two edges into them.
   //
-  // Deliberately NOT a `createPolledQuery` beside the two listings in
-  // `hostCodeTab`: those are keyed by REPO and refreshed by the repo-change
-  // pulse, whereas this is keyed by DIRECTORY and driven by a click. The
-  // watcher's ignore set is built from `listIgnored`, so an ignored path emits
-  // no pulse by construction — there is no pulse to ride, and inventing one
-  // would mean watching exactly the churn (`node_modules`, build output) the
-  // ignore set exists to keep out. Re-expanding a folder is the refresh
-  // instead: the wrapper reports every expansion, so a collapse-and-reopen
-  // re-reads the level.
-  const [loadedChildren, setLoadedChildren] = createSignal<
-    ReadonlyMap<string, readonly string[]>
-  >(new Map());
-
-  // The newest read per directory, as a controller rather than a bookkeeping
-  // pair. A rapid expand → collapse → expand is three store ticks, so the
-  // second expand fires before the first read resolves — two calls in flight
-  // for one `dirPath`, resolving in completion order rather than issue order.
-  // A repo/host switch supersedes every read the same way, since
-  // `loadedChildren` is keyed by a REPO-RELATIVE path and those collide across
-  // repos by construction (`out/`, `dist/`, `node_modules/`).
-  //
-  // Aborting the predecessor makes "is this response still wanted" ONE fact
-  // both callbacks read, rather than two conditions each has to repeat and can
-  // drift on. Not reactive: nothing renders from it.
-  //
-  // The controller is now the INTERRUPTION driver, not just a bookkeeping flag:
-  // `runActionPromise(effect, signal)` ties the read's fiber to it, so an abort
-  // really tears the in-flight read down here rather than merely disowning its
-  // answer. What it still cannot do is stop the host: a padi procedure carries
-  // no cancellation token over the wire (D10/#18), so a superseded read runs to
-  // completion there — one bounded `readdir` per superseded expand, which is
-  // cheap. The `.aborted` checks below stay for the reason `attachAttempts`
-  // states: interruption is asynchronous, so a frame already past its last
-  // suspension can still arrive, and the gate is what refuses it.
-  //
-  // `<FileTree>`'s lazy-load contract is a `Promise` (it is
-  // `@kolu/solid-pierre`'s, not ours), so this is a run edge — through the
-  // package's one named bridge.
-  const inFlight = new Map<string, AbortController>();
-
-  // Plain-directory (non-git) mode: the levels the user has EXPANDED — the
-  // keys the per-directory polled queries below are spawned from. Distinct
-  // from `loadedChildren` (what has ARRIVED): a click only registers intent
-  // here, so the polled query is each level's single writer — the two-writer
-  // ordering race a click-read racing a pulse-read allowed is unspellable.
-  const [expandedDirs, setExpandedDirs] = createSignal<ReadonlySet<string>>(
-    new Set(),
-  );
-  // The click-path waiters for a level's FIRST arrival, settled by its polled
-  // query (resolve on value, reject on error — the FileTree outcome contract).
-  // Not reactive: nothing renders from it.
-  const pendingLevelLoad = new Map<
-    string,
-    { resolve: () => void; reject: (err: Error) => void }
-  >();
-
-  const loadLazyDirectory = (dirPath: string): Promise<void> => {
-    const p = browseRoot();
-    if (!p) return Promise.resolve();
-    // Plain-directory (non-git) mode: the per-directory polled query below is
-    // the ONE writer of a level — registering the key spawns it, and its first
-    // result settles this promise (the FileTree contract: resolve = loaded,
-    // reject = forget the expansion). A re-expand of an already-loaded level
-    // resolves immediately: the standing per-directory watch has kept the
-    // level fresh, so the git-mode collapse-and-reopen refetch gesture has
-    // nothing left to re-read. One authority per level; the two-writer race a
-    // click-read racing the pulse-read allowed is unspellable.
-    if (!gitRoot()) {
-      if (loadedChildren().has(dirPath)) return Promise.resolve();
-      return new Promise<void>((resolve, reject) => {
-        // A re-registration supersedes the previous waiter: settle it quietly
-        // (no outcome — the new registration owns the row's fate).
-        pendingLevelLoad.get(dirPath)?.resolve();
-        pendingLevelLoad.set(dirPath, { resolve, reject });
-        setExpandedDirs((prev) => new Set(prev).add(dirPath));
-      });
-    }
-    inFlight.get(dirPath)?.abort();
-    const ctl = new AbortController();
-    inFlight.set(dirPath, ctl);
-    return runActionPromise(
-      activePadiRpc.fs.listDirectory({ repoPath: p, dirPath }).pipe(
-        Effect.tap((result) =>
-          Effect.sync(() => {
-            if (ctl.signal.aborted) return;
-            // A fresh Map per write: the merge memo reads this by reference, and
-            // an in-place `set` would leave the tree painting the previous level.
-            setLoadedChildren((prev) =>
-              new Map(prev).set(dirPath, result.paths),
-            );
-          }),
-        ),
-        Effect.tapError((err) =>
-          Effect.sync(() => {
-            // A superseded read owns no outcome — neither the write nor the
-            // toast, since a failure that belongs to a repo the user has already
-            // left is not theirs to see.
-            if (ctl.signal.aborted) return;
-            toast.error(`Failed to list ${dirPath}: ${toError(err).message}`);
-          }),
-        ),
-        // The failure PROPAGATES (this rejects the promise) so `<FileTree>`
-        // forgets the expansion it recorded: without that the folder stays
-        // open-and-empty for the rest of the mount with no way to refetch short
-        // of collapsing it by hand.
-        Effect.asVoid,
-        // `ensuring`, so this also runs when the fiber is INTERRUPTED — the case
-        // a `.finally` on a promise Effect had already stopped awaiting would
-        // have missed. Retire this read's own entry, guarded on identity so a
-        // newer read for the same directory keeps its controller. Without it the
-        // map only ever shrank on a repo switch, so browsing many ignored
-        // folders in one repo accumulated a settled entry per directory for the
-        // life of the session.
-        Effect.ensuring(
-          Effect.sync(() => {
-            if (inFlight.get(dirPath) === ctl) inFlight.delete(dirPath);
-          }),
-        ),
-      ),
-      ctl.signal,
-    ).catch((err) => {
-      // A superseded read owns no outcome — the aborter does. Rejecting here
-      // would make `<FileTree>` read supersession as load FAILURE and collapse
-      // the row (the #2138 silent-collapse: interruption rejects the promise
-      // without ever running `tapError`). Interruption is the cancellation,
-      // not a verdict; a real failure (signal un-aborted) still propagates so
-      // the wrapper forgets the expansion.
-      if (ctl.signal.aborted) return;
-      throw err;
-    });
-  };
-
-  // Plain-directory roots: every EXPANDED level is read AND watched by one
-  // polled query — the level's single writer — riding the non-recursive
-  // `subscribeDirChange` pulse and re-reading just that level in place (the
-  // snapshot pulse performs the first read, so the click issues no RPC of its
-  // own). Lazy listing and lazy watching are the same decision (the root level
-  // rides its own retained query in `hostCodeTab`), which is what keeps
-  // browsing `~` cheap: N expanded folders cost N single-directory handles,
-  // never a recursive crawl. In git mode this maps over the empty set — the
-  // ignored overlay's loaded levels are deliberately unwatched (see
-  // `loadedChildren`'s note: watching exactly the churn the ignore set exists
-  // to exclude).
-  //
-  // `mapArray` gives each directory key its own reactive owner, disposed when
-  // the key leaves the set (a `slotKey` change clears it, which also covers
-  // the root/host/terminal switches), so a query's pulse subscription ends
-  // exactly with its level's registration. The root is CAPTURED per entry —
-  // the pulse input must be a stable key (streaming rule: inputs are replayed
-  // on retry), and the clear-on-slotKey guarantee makes it stable for the
-  // entry's whole life.
-  createEffect(
-    mapArray(
-      () => (gitRoot() ? [] : [...expandedDirs()]),
-      (dirKey) => {
-        const root = browseRoot();
-        if (!root) return;
-        const settle = (outcome: "resolve" | "reject", err?: Error): void => {
-          const pending = pendingLevelLoad.get(dirKey);
-          if (!pending) return;
-          pendingLevelLoad.delete(dirKey);
-          if (outcome === "resolve") pending.resolve();
-          else pending.reject(err ?? new Error("directory load failed"));
-        };
-        const level = createPolledQuery<
-          { repoPath: string; dirPath: string },
-          { repoPath: string; dirPath: string },
-          unknown,
-          { paths: readonly string[] }
-        >({
-          input: () => ({ repoPath: root, dirPath: dirKey }),
-          live: () => padiMap.live(),
-          pulseHost: activeHost,
-          active: () => true,
-          pulseProc: () => activePadiStreams.subscribeDirChange.unenrolled,
-          pulseInput: (i) => i,
-          query: (i) => activePadiRpc.fs.listDirectory(i),
-          onError: (err) => {
-            toast.error(`Failed to list ${dirKey}: ${err.message}`);
-            // Reject the click's waiter so `<FileTree>` forgets the expansion
-            // (its rejection contract) — a retry is a deliberate reopen.
-            settle("reject", err);
-          },
-          // A level whose directory vanished mid-watch: keep the last listing;
-          // the parent's own pulse re-lists and drops the row authoritatively.
-          swallowError: (err) => isDeclared(err, FILE_GONE),
-        });
-        createEffect(() => {
-          const r = level();
-          if (r) {
-            setLoadedChildren((prev) => new Map(prev).set(dirKey, r.paths));
-            settle("resolve");
-          }
-        });
-      },
-    ),
-  );
+  // It is not local state, and it is not two mechanisms: the root level and the
+  // deep levels are one family with one lifetime, so a `canvasMode` round-trip
+  // that unmounts this tab no longer loses every expanded folder while keeping
+  // the root warm.
+  const dirLevels = codeDirLevels;
 
   const finishOpenRequest = (
     req: OpenInCodeTabRequest,
@@ -906,20 +698,17 @@ const CodeTab: Component<{
     // overlap, readiness covers only the consulted sources) live in
     // `mergeBrowseInventory`, where a table test pins each one.
     if (view() === "browse") {
-      // Plain-directory root (no git): one level from `fs.listDirectory` plus
-      // the lazily-loaded levels — every subdirectory is a lazy row, nothing
-      // is dimmed (no ignore authority without git). Same fresh-reference
-      // discipline as the git branch: `directoryInventory` mints new arrays
-      // from the reconciled store's elements on every run.
-      if (!gitRoot()) {
-        const listing = dirPaths();
+      // Plain-directory root (no git): the level family's root level plus every
+      // deeper level the user has open — one value, so the paths can't be paired
+      // with a readiness picked from somewhere else. Every subdirectory is a
+      // lazy row and nothing is dimmed (no ignore authority without git). Same
+      // fresh-reference discipline as the git branch: `directoryInventory` mints
+      // new arrays from the reconciled store's elements on every run.
+      if (root()?.kind !== "git") {
+        const { root: rootLevel, levels, pending } = dirLevels();
         return {
-          ...directoryInventory(
-            listing?.paths,
-            loadedChildren(),
-            dirPaths.pending(),
-          ),
-          scope: listing?.scope ?? null,
+          ...directoryInventory(rootLevel?.paths, levels, pending),
+          scope: rootLevel?.scope ?? null,
         };
       }
       const tracked = allPaths();
@@ -928,7 +717,7 @@ const CodeTab: Component<{
       const inventory = mergeBrowseInventory(
         tracked?.paths,
         ignored?.paths,
-        loadedChildren(),
+        dirLevels().levels,
         {
           trackedPending: allPaths.pending(),
           ignoredPending: ignoredPaths.pending(),
@@ -1154,12 +943,15 @@ const CodeTab: Component<{
     );
   };
 
+  // The authority feeding the tree, picked ONCE by root kind instead of at each
+  // of the questions below (a nested ternary per question is how the two used to
+  // be able to disagree about which source they were reporting on).
   const treeError = (): Error | undefined =>
     isDiffView()
       ? statusError()
-      : gitRoot()
+      : root()?.kind === "git"
         ? allPaths.error()
-        : dirPaths.error();
+        : dirLevels().error;
   // "Is there a tree to paint at all", which is the TRACKED authority's
   // question alone — deliberately not `treeInventory().pending`. The gitignored
   // overlay is additive decoration; waiting on it here would hold the whole
@@ -1168,7 +960,11 @@ const CodeTab: Component<{
   // they ask a different question: is this inventory complete enough to
   // conclude a path is absent.
   const treeReady = () =>
-    isDiffView() ? status() : gitRoot() ? allPaths() : dirPaths();
+    isDiffView()
+      ? status()
+      : root()?.kind === "git"
+        ? allPaths()
+        : dirLevels().root;
   // Branch base, read off the always-on `branchStatus` so it's correct in
   // any view (the scope switcher annotates the Branch segment even from
   // Local/Browse). `undefined` while pending; `null` once loaded with no
@@ -1265,8 +1061,8 @@ const CodeTab: Component<{
   // opened it. Distinct from the metadata-less fallback below (no terminal, no
   // cwd observed yet), which keeps the old empty-state message.
   const unarmedCwd = () => {
-    if (gitRoot() || props.terminalId === null) return null;
-    return terminalCwd();
+    const r = root();
+    return r?.kind === "unarmed" ? r.cwd : null;
   };
 
   return (
@@ -1325,7 +1121,7 @@ const CodeTab: Component<{
           {/* Scope switcher — git only: the diff views are meaningless without
            *  a repo to diff against, so outside one the tree is all there is
            *  and a one-segment control would be chrome without a choice. */}
-          <Show when={gitRoot()}>
+          <Show when={root()?.kind === "git"}>
             <SegmentedControl
               options={scopeSegments()}
               value={view()}
@@ -1347,7 +1143,7 @@ const CodeTab: Component<{
            *  flipping it arms the SEPARATE fs.listIgnored query in
            *  `hostCodeTab` — fs.listAll is untouched, so the mounted tree keeps
            *  its expansion and scroll. */}
-          <Show when={view() === "browse" && gitRoot()}>
+          <Show when={view() === "browse" && root()?.kind === "git"}>
             <ToolbarIconButton
               testId="code-tab-show-ignored-toggle"
               label="Show gitignored files"
@@ -1420,7 +1216,7 @@ const CodeTab: Component<{
                       {(() => {
                         const m = diffMode();
                         if (!m)
-                          return gitRoot()
+                          return root()?.kind === "git"
                             ? "Empty repository"
                             : "Empty directory";
                         // No resolvable base (remote-less repo, #1244): there's
@@ -1460,7 +1256,13 @@ const CodeTab: Component<{
                       // a chevron but whose children were never sent, so an
                       // expand has to go read them (#2091).
                       lazyDirectories={treeInventory().lazyDirs}
-                      onExpandLazyDirectory={loadLazyDirectory}
+                      // The tree's two edges into this host's retained level
+                      // family: an open registers the level (and the promise
+                      // settles when it lands), a close retires it — which
+                      // disposes its query, its pulse subscription and the
+                      // server-side handle behind it.
+                      onExpandLazyDirectory={codeExpandLevel}
+                      onCollapseLazyDirectory={codeCollapseLevel}
                       // Invalidate the wrapper's record of which lazy
                       // directories are open on the same signal that clears the
                       // loaded levels above — two halves of one fact. Without
