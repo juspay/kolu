@@ -10,18 +10,37 @@ import {
   agentUrgency,
   attentionClass,
   type TerminalId,
-  URGENCY_RANK,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { isStale } from "../../terminal/staleness";
 import type { PaneNode } from "../../terminal/terminalTree";
 import { paintBucket } from "../dockModel";
 import {
-  DOCK_ROW_BUCKET_PRIORITY,
   type DockRowBucket,
   rankDockRows,
   rowRecencyAt,
 } from "./dockRowRanking";
+
+/** Which shared urgency class each of the dock's three AGENT-STATE buckets IS.
+ *
+ *  A translation between two vocabularies, not a copy of a rank table. The dock
+ *  ranks nothing now, so the one claim left worth pinning is that
+ *  `classifyDockRow` agrees with `agentUrgency` state for state — which is what
+ *  stops it drifting from the vocabulary the rest of the fleet speaks (see
+ *  `.claude/rules/dock-fleet-mirror.md`).
+ *
+ *  It replaces a seven-entry rank table that spelled its own numbers as
+ *  `URGENCY_RANK.need` / `.work` / `.idle` and was then asserted against
+ *  `URGENCY_RANK` — two constants in one scope, which no production change
+ *  could make disagree. The dock's quieter tail (`sleeping`/`parked`/`none`) is
+ *  absent because no agent state can reach it; `classifyDockRow`'s own
+ *  exhaustive switch is what guards that, not an inequality between two
+ *  literals. */
+const BUCKET_URGENCY = {
+  awaiting: "need",
+  working: "work",
+  idle: "idle",
+} as const;
 
 function makeAgent(state: AgentInfo["state"]): AgentInfo {
   return {
@@ -307,15 +326,13 @@ describe("row ORDER vs row COLOUR are decoupled — the pip matches the tile tit
 });
 
 describe("dock ⇄ agentProjection urgency parity (the cross-consumer differential)", () => {
-  // The #1535 review flagged that nothing pinned "the dock ranks an agent state
-  // the SAME way pulam-tui / pulam-web do". This asserts it structurally: for
-  // every agent state, the dock's row RANK equals the shared
-  // `agentProjection.agentUrgency`'s rank. Both sides read PRODUCTION constants —
-  // the dock's own `DOCK_ROW_BUCKET_PRIORITY` and the shared `URGENCY_RANK` — so
-  // there is no hand-written fixture table to drift from the production tables
-  // (the bug a parallel `{awaiting→need, …}` map would reintroduce). If the dock
-  // ever re-grows a bucket that disagrees (the historical `waiting`→awaiting
-  // drift), this goes red.
+  // The #1535 review flagged that nothing pinned "the dock buckets an agent
+  // state the SAME way every other `agentProjection` consumer does". This
+  // asserts it where it is still assertable: for every agent state, the dock's
+  // BUCKET (a production value, off `classifyDockRow`) names the same urgency
+  // class the shared `agentUrgency` fold returns (the other production value).
+  // If the dock ever re-routes a state — the historical `waiting`→awaiting
+  // drift — this goes red.
   const STATES: AgentInfo["state"][] = [
     "thinking",
     "tool_use",
@@ -325,29 +342,23 @@ describe("dock ⇄ agentProjection urgency parity (the cross-consumer differenti
   ];
 
   for (const state of STATES) {
-    it(`ranks a fresh ${state} agent at agentProjection's urgency`, () => {
+    it(`buckets a fresh ${state} agent at agentProjection's urgency`, () => {
       // A non-null lastActivityAt so an idle-urgency agent lands in `idle`, not
       // the never-touched `none` tail (which carries no agent and no urgency).
       const meta = makeMeta({ agent: makeAgent(state), lastActivityAt: 1 });
-      expect(DOCK_ROW_BUCKET_PRIORITY[bucket(meta, false)]).toBe(
-        URGENCY_RANK[agentUrgency(makeAgent(state))],
+      const emitted = bucket(meta, false);
+      // An agent state reaching the dock's quieter tail IS the misroute this
+      // guards (`waiting`→`parked` and the like), so an unmapped bucket fails
+      // here rather than being silently skipped.
+      expect(
+        Object.hasOwn(BUCKET_URGENCY, emitted),
+        `an agent state must not route to the dock's own tail — got "${emitted}"`,
+      ).toBe(true);
+      expect(BUCKET_URGENCY[emitted as keyof typeof BUCKET_URGENCY]).toBe(
+        agentUrgency(makeAgent(state)),
       );
     });
   }
-
-  it("excludes the dock-only tail buckets from the agent-state rank set", () => {
-    // The three agent-state buckets share the shared urgency ranks; the dock's
-    // own quieter tail (sleeping/parked/none) sits BELOW them. Pinning that the
-    // tail ranks strictly above (later than) idle catches a future misroute that
-    // sent an agent state into the tail (e.g. waiting→parked) — it would no
-    // longer satisfy the parity assertion above, and this guards the boundary.
-    const tail: DockRowBucket[] = ["sleeping", "parked", "none"];
-    for (const bucketKey of tail) {
-      expect(DOCK_ROW_BUCKET_PRIORITY[bucketKey]).toBeGreaterThan(
-        URGENCY_RANK.idle,
-      );
-    }
-  });
 });
 
 describe("rowRecencyAt — the one recency the window and the row display share", () => {
@@ -404,7 +415,7 @@ describe("rankDockRows — split sub-entries", () => {
     ).toEqual([AGENT_SPLIT, PLAIN_SPLIT]);
   });
 
-  it("orders sibling splits needs-you first, then by recency", () => {
+  it("keeps sibling splits in the store's order — urgency does not reorder tabs", () => {
     const blocked = "split-blocked" as TerminalId;
     const newerBusy = "split-newer-busy" as TerminalId;
     metas[blocked] = makeMeta({
@@ -416,8 +427,12 @@ describe("rankDockRows — split sub-entries", () => {
       lastActivityAt: 1_000,
     });
 
+    // The pane tree arrives from the store — the same index the canvas paints
+    // as a tab strip. Re-ordering here made the dock and the canvas disagree
+    // about which tab is second; the blocked split is surfaced by the dock's
+    // needs-you strip instead, which moves nothing.
     expect(rank([newerBusy, blocked])[0]?.subRows.map((row) => row.id)).toEqual(
-      [blocked, newerBusy],
+      [newerBusy, blocked],
     );
   });
 
@@ -484,10 +499,12 @@ describe("rankDockRows — split sub-entries", () => {
       ]);
     });
 
-    it("keeps each split next to its own children when siblings re-sort", () => {
-      // The blocked grandchild floats its own sibling group, but it must stay
-      // UNDER its parent — depth-first, not a global urgency sort that would
-      // strand it beneath an unrelated row.
+    it("keeps each split immediately followed by its own children", () => {
+      // Depth-first, in the store's sibling order: a grandchild rides directly
+      // under its own parent rather than being stranded beneath an unrelated
+      // sibling. This held under the old urgency sort too — what changed is
+      // that the sibling order is now the store's, so nothing can re-sort the
+      // sequence out from under the indent.
       const blocked = "split-blocked" as TerminalId;
       metas[blocked] = makeMeta({
         agent: makeAgent("awaiting_user"),
@@ -498,9 +515,9 @@ describe("rankDockRows — split sub-entries", () => {
         { id: AGENT_SPLIT, children: [] },
       ]);
       expect(rows[0]?.subRows.map((row) => row.id)).toEqual([
-        AGENT_SPLIT, // working outranks the idle shell among siblings…
         PLAIN_SPLIT,
-        blocked, // …and the blocked grandchild still rides under its parent.
+        blocked, // the grandchild, directly under its own parent…
+        AGENT_SPLIT, // …and only then the next top sibling.
       ]);
     });
 

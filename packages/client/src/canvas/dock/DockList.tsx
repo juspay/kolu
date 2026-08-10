@@ -1,6 +1,6 @@
-/** DockList — the recency-sorted live-terminal list shared by the two touch
- *  layouts: the phone's left-edge swipe drawer (inlined in `MobileTileView`)
- *  and the compact layout's persistent left rail (`CompactTileView`).
+/** DockList — the live-terminal list shared by the two touch layouts: the
+ *  phone's left-edge swipe drawer (inlined in `MobileTileView`) and the compact
+ *  layout's persistent left rail (`CompactTileView`).
  *
  *  Rows match the desktop bare-dock layout — `[indicator] branch [pips] time`
  *  over a CSS subgrid — but with uniform `py-3` so every tap target clears the iOS /
@@ -9,7 +9,9 @@
  *
  *  Row order mirrors the desktop dock: same `useDockOrder` singleton, so every
  *  surface (desktop dock, phone drawer, compact rail) agrees on group order, row
- *  order, and which rows the activity window hides.
+ *  order, and which rows the activity window hides — creation order throughout,
+ *  never a clock. The pinned needs-you strip rides that same singleton, so a
+ *  blocked agent is as findable on a phone as it is on the desktop.
  *
  *  Renders as a fragment (header · scroll list · hidden footer); the host
  *  supplies a `flex flex-col h-full` container and decides selection semantics —
@@ -37,6 +39,7 @@ import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
+import { NeedsYouStrip } from "./NeedsYouStrip";
 import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
 import { createDockRowData } from "./dockRowData";
 import { PrPip } from "./PrPip";
@@ -54,6 +57,11 @@ export function DockList(props: { onSelect: (id: TerminalId) => void }) {
           Terminals
         </span>
       </div>
+      <NeedsYouStrip
+        entries={tree().needsYou}
+        density="full"
+        onSelect={props.onSelect}
+      />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2.5 p-2">
           <For each={tree().groups}>

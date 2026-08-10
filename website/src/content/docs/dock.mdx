@@ -1,6 +1,6 @@
 ---
 title: The Dock
-description: "kolu's left-edge navigator: one row per live terminal, a status indicator that folds agent state and activity into one glyph, recency ordering, per-repo grouping, and the filters that keep a busy workspace scannable."
+description: "kolu's left-edge navigator: one row per live terminal, a status indicator that folds agent state and activity into one glyph, a stable structural order, per-repo grouping, and the filters that keep a busy workspace scannable."
 order: 45
 section: Use Kolu
 koluHero:
@@ -77,12 +77,20 @@ repo name is just how many terminals it holds. The counts include rows a filter
 is currently hiding: an agent that has been blocked long enough to fall out of
 the activity window is exactly the one whose count must still reach you.
 
-Rows sort **blocked-first, then by recency**: a terminal whose agent is waiting on
-your input floats to the top of its section, and everything else orders by what
-changed most recently. Clicking a row centres its tile on the canvas. A terminal
-running one long-lived agent session stays fresh on its *output*, not only when the
-agent's identity changes, so a busy week-old session doesn't sink to the bottom
-reading "24h ago".
+**The dock does not rearrange itself.** Rows are ordered by structure — repo, then
+branch, then the order you created them — so a terminal stays exactly where you
+last saw it until you close it, and a new one appends at the bottom. Nothing
+moves because an agent somewhere finished a turn. That is what makes
+<kbd>Cmd/Ctrl</kbd> + <kbd>1..9</kbd> (which walks this same list) worth
+committing to memory: the third row is still the third row tomorrow.
+
+Recency has not gone anywhere — it just stopped deciding *positions*. Each row
+still shows how long ago it moved, still pulses while its agent is working, and
+still falls out of the dock when it ages past the activity window. If you want a
+list ordered by *what is warm*, that is what the [switcher](/switcher)'s Recent
+band is for; the dock answers *where things are*.
+
+Clicking a row centres its tile on the canvas.
 
 Every split is an indented sub-entry directly beneath its parent row — its real
 parent, which may itself be a split: a split of a split sits one notch further
@@ -96,10 +104,30 @@ agent brand mark and violet/amber attention wash when an agent is present — so
 shell and agent splits cannot drift. The entries are the inventory, so there is
 no separate split-count chip on the parent row.
 
+## The Needs-you strip
+
+When an agent is genuinely blocked on your input, it appears in a small **Needs
+you** strip pinned to the top of the dock, showing how long it has been waiting.
+The strip is a *mirror*, not a move: the row itself stays in its section, keeps
+its number, and nothing below it shifts. An empty strip renders nothing at all,
+so the dock only grows this band when there is something in it.
+
+Only an agent genuinely **awaiting you** earns the strip — a just-finished agent
+does not, it merely dims to its lingering colour. Clicking an entry jumps to that
+terminal. Nothing dismisses the strip except the agent no longer needing you.
+
+The strip reaches past the dock's own filters, exactly as the section counts do.
+An agent blocked since yesterday has aged out of a 12h activity window and a
+slept terminal can still be the one asking — so a filter that hides a row from
+the list below does not hide it here. Those entries sit slightly faded, and
+clicking one still takes you straight to the terminal. Waiting the longest is
+the one thing that must never cost you your place in the strip.
+
+If the blocked agent is a **split**, the entry shows that split's colour and its
+wait, and clicking it lands on the tile that holds it.
+
 <Aside type="note" title="Attention rolls up here first">
-  Only an agent genuinely **awaiting you** floats — a just-finished agent keeps
-  its place in recency order rather than sitting where something is blocked on
-  your input. The counts, the app-icon badge, and the cross-machine story live in
+  The counts, the app-icon badge, and the cross-machine story live in
   [Notifications &amp; Attention](/notifications).
 </Aside>
 

@@ -7456,6 +7456,30 @@
       "firstSeenSha": "1af6b58408912601859086cb914a8b6b3e783842"
     },
     {
+      "revisionId": "revision-c578153351d95ca90637",
+      "scenarioKey": "scenario-2365426d45f568f52cff",
+      "feature": "features/dock.feature",
+      "scenario": "A blocked agent joins the Needs-you strip without renumbering the dock",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "258365d8fb0fe67fd4e238f2127fc43860870aca5a88293b686ce18f997311a7",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1d660868a339ed61cb49db960b4a0393172df025"
+    },
+    {
+      "revisionId": "revision-5c101717367b90e5cc29",
+      "scenarioKey": "scenario-f2c8e4323a354851dfdd",
+      "feature": "features/dock.feature",
+      "scenario": "Cmd+1 activates the first dock row (creation order)",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "d9fe80cb14ea0434416a1027868c7d39eb030b05fddba6df99d0f4d18e626456",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1d660868a339ed61cb49db960b4a0393172df025"
+    },
+    {
       "revisionId": "revision-6bcdb13211ca884eeed5",
       "scenarioKey": "scenario-daea9383ada5c2684778",
       "feature": "features/code-tab.feature",

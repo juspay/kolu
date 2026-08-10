@@ -1,6 +1,6 @@
 import type { PtyHostListEntry } from "kaval";
 import { describe, expect, it } from "vitest";
-import { reconcile } from "./reconcile.ts";
+import { reconcile, type ReconcileResult } from "./reconcile.ts";
 import {
   LOCAL_LOCATION,
   type SavedSession,
@@ -50,20 +50,32 @@ function saved(...terminals: SavedTerminal[]): SavedSession {
   return { terminals, activeTerminalId: terminals[0]?.id ?? null, savedAt: 1 };
 }
 
+/** The plan's adopt steps, in plan order. These read the ORDERED plan rather
+ *  than a separate `adopt` array: that array existed only so the caller could
+ *  re-derive an ordering this module already had, and once the caller took the
+ *  plan it had no production reader left — a set beside a sequence that carries
+ *  the same pairs is a second answer waiting to disagree. */
+function adoptedSteps(plan: ReconcileResult["plan"]) {
+  return plan.filter((s) => s.kind === "adopt");
+}
+function adoptedRecords(plan: ReconcileResult["plan"]) {
+  return adoptedSteps(plan).map((s) => s.record);
+}
+
 describe("reconcile — boot-time adoption partition (B3.3)", () => {
   it("adopts a saved terminal whose PTY is still alive, as the whole record", () => {
     const t = term("a");
-    const { adopt, adoptOrphans } = reconcile([live("a")], saved(t));
-    expect(adopt.map((a) => a.record)).toEqual([t]); // the WHOLE record, never rebuilt
-    expect(adopt[0]?.live.id).toBe("a"); // paired with its live PTY (the join)
+    const { plan, adoptOrphans } = reconcile([live("a")], saved(t));
+    expect(adoptedRecords(plan)).toEqual([t]); // the WHOLE record, never rebuilt
+    expect(adoptedSteps(plan)[0]?.live.id).toBe("a"); // paired with its live PTY (the join)
     expect(adoptOrphans).toEqual([]);
   });
 
   it("DROPS a saved terminal with no live PTY — an exited shell, in neither list", () => {
     const a = term("a");
     const b = term("b"); // 'b' exited in the restart window — not live
-    const { adopt, adoptOrphans } = reconcile([live("a")], saved(a, b));
-    expect(adopt.map((a) => a.record.id)).toEqual(["a"]); // 'b' dropped, not restore-carded
+    const { plan, adoptOrphans } = reconcile([live("a")], saved(a, b));
+    expect(adoptedRecords(plan).map((r) => r.id)).toEqual(["a"]); // 'b' dropped, not restore-carded
     expect(adoptOrphans).toEqual([]);
   });
 
@@ -71,49 +83,49 @@ describe("reconcile — boot-time adoption partition (B3.3)", () => {
     // 'z' is live in the daemon but absent from the debounced saved session —
     // a create that raced the restart. It must survive (adopt), never be killed.
     const a = term("a");
-    const { adopt, adoptOrphans } = reconcile([live("a"), live("z")], saved(a));
-    expect(adopt.map((a) => a.record.id)).toEqual(["a"]);
+    const { plan, adoptOrphans } = reconcile([live("a"), live("z")], saved(a));
+    expect(adoptedRecords(plan).map((r) => r.id)).toEqual(["a"]);
     expect(adoptOrphans.map((e) => e.id)).toEqual(["z"]); // adopted from the snapshot
   });
 
   it("partial survival: adopts the saved-live, drops the exited, adopts the orphan", () => {
     const a = term("a"); // live + saved → adopt whole-record
     const b = term("b"); // saved but exited → drop
-    const { adopt, adoptOrphans } = reconcile(
+    const { plan, adoptOrphans } = reconcile(
       [live("a"), live("c")], // 'c' is a live orphan; 'b' is gone
       saved(a, b),
     );
-    expect(adopt.map((a) => a.record.id)).toEqual(["a"]);
+    expect(adoptedRecords(plan).map((r) => r.id)).toEqual(["a"]);
     expect(adoptOrphans.map((e) => e.id)).toEqual(["c"]); // adopted, not reaped
   });
 
   it("no saved session: every live PTY is an orphan to adopt", () => {
-    const { adopt, adoptOrphans } = reconcile([live("a"), live("b")], null);
-    expect(adopt).toEqual([]);
+    const { plan, adoptOrphans } = reconcile([live("a"), live("b")], null);
+    expect(adoptedRecords(plan)).toEqual([]);
     expect(adoptOrphans.map((e) => e.id)).toEqual(["a", "b"]);
   });
 
   it("empty daemon: nothing adopted, nothing orphaned (saved shells all dropped)", () => {
-    const { adopt, adoptOrphans } = reconcile([], saved(term("a")));
-    expect(adopt).toEqual([]);
+    const { plan, adoptOrphans } = reconcile([], saved(term("a")));
+    expect(adoptedRecords(plan)).toEqual([]);
     expect(adoptOrphans).toEqual([]);
   });
 
   it("keeps the SAVED order in the adopt list, not the daemon's list order", () => {
     const [a, b, c] = [term("a"), term("b"), term("c")];
-    const { adopt } = reconcile(
+    const { plan } = reconcile(
       [live("c"), live("a"), live("b")], // daemon order differs
       saved(a, b, c),
     );
-    expect(adopt.map((a) => a.record.id)).toEqual(["a", "b", "c"]); // saved order wins
+    expect(adoptedRecords(plan).map((r) => r.id)).toEqual(["a", "b", "c"]); // saved order wins
   });
 
   it("never adopts a sleeping record, and reaps nothing when its PTY is gone", () => {
-    const { adopt, adoptOrphans, reapSleeping } = reconcile(
+    const { plan, adoptOrphans, reapSleeping } = reconcile(
       [],
       saved(sleepingTerm("s")),
     );
-    expect(adopt).toEqual([]);
+    expect(adoptedRecords(plan)).toEqual([]);
     expect(adoptOrphans).toEqual([]);
     expect(reapSleeping).toEqual([]);
   });
@@ -122,21 +134,21 @@ describe("reconcile — boot-time adoption partition (B3.3)", () => {
     // Persist-before-kill crashed after the flip but before the PTY kill: the PTY
     // outlived the sleep. Its id is a saved id, so it's not an orphan — and the
     // record is sleeping, so it's reaped, never re-woken.
-    const { adopt, adoptOrphans, reapSleeping } = reconcile(
+    const { plan, adoptOrphans, reapSleeping } = reconcile(
       [live("s")],
       saved(sleepingTerm("s")),
     );
-    expect(adopt).toEqual([]);
+    expect(adoptedRecords(plan)).toEqual([]);
     expect(adoptOrphans).toEqual([]);
     expect(reapSleeping.map((e) => e.id)).toEqual(["s"]);
   });
 
   it("partitions a mixed session: adopt the active survivor, reap the sleeping survivor", () => {
-    const { adopt, adoptOrphans, reapSleeping } = reconcile(
+    const { plan, adoptOrphans, reapSleeping } = reconcile(
       [live("a"), live("s")],
       saved(term("a"), sleepingTerm("s")),
     );
-    expect(adopt.map((p) => p.record.id)).toEqual(["a"]);
+    expect(adoptedRecords(plan).map((r) => r.id)).toEqual(["a"]);
     expect(adoptOrphans).toEqual([]);
     expect(reapSleeping.map((e) => e.id)).toEqual(["s"]);
   });

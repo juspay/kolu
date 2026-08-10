@@ -52,10 +52,19 @@ export type PaletteRowMeta = {
   searchText?: string;
   /** Server activity / visit-unrelated age for the right-rail stamp (null = never). */
   recencyAt?: number | null;
-  /** Switcher recency rank, in milliseconds — `max(visit, activity)` for a
-   *  terminal row, the host-switch stamp for a host row. Never painted as age
-   *  (that is `recencyAt`, the activity clock). */
-  rankAt?: number | null;
+  /** When YOU were last on this row, in milliseconds — the visit trail for a
+   *  terminal, the switch trail for a host. Never painted as age (that is
+   *  `recencyAt`, the activity clock).
+   *
+   *  These two clocks are the row's whole time story, and both are GROUNDED
+   *  measurements. The palette's two questions — how warm is this row (ORDER)
+   *  and when were you last here (HIGHLIGHT) — are derived from them where they
+   *  are asked, in `rootIndex`. There is deliberately no stored rank.
+   *
+   *  A plain `number` (0 = never here), unlike `recencyAt` above: both
+   *  producers emit a number, so `null` only ever existed in the type. Same
+   *  shape as `rootIndex`'s — one field, one spelling. */
+  visitedAt?: number;
   terminalId?: TerminalId;
   /** Meta snapshot for fleet rows (may be off the active host). */
   terminalMeta?: TerminalMetadata;

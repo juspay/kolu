@@ -148,7 +148,7 @@ export function parseTolerantList<T>(
 
 /** How far past `now` a persisted stamp may sit before it reads as corruption
  *  rather than clock skew. Spelled once because BOTH recency trails' stamps end
- *  up in the same comparison (a palette row's `rankAt`): two copies of this
+ *  up in the same comparison (a palette row's `visitedAt`): two copies of this
  *  window is exactly how that one number space silently forks. */
 const MAX_STAMP_SKEW_MS = 365 * 24 * 60 * 60 * 1000;
 
@@ -167,7 +167,7 @@ export function isSaneStamp(v: unknown, now: number): v is number {
  *  which is the tie-break both trails rely on. `rest` is the trail MINUS the
  *  entry being (re)stamped; `stampOf` reads each entry's clock.
  *
- *  Shared because the two trails' stamps meet in one `rankAt` comparison — a
+ *  Shared because the two trails' stamps meet in one `visitedAt` comparison — a
  *  tie-break rule maintained in two places is one that can quietly disagree. */
 export function monotonicStamp<T>(
   rest: readonly T[],

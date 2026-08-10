@@ -22,12 +22,14 @@ into scoped views of the same surface, not separate apps.
 
 At the empty root you see:
 
-1. **Recent** — the three terminals **you were just in** (client visit trail —
-   last time each tile became active), interleaved across every **connected**
-   host — **except the tile that is already active**. Rank is
-   `max(your last visit, server activity)`, so a fresh browser still orders by
-   agent/output clocks until you navigate; after that your own trail wins over
-   background chatter. Cross-host rows show the same host chip as search hits.
+1. **Recent** — the three **warmest** terminals, interleaved across every
+   **connected** host — **except the tile that is already active**. Warmth is
+   `max(your last visit, server activity)`, so a terminal a background agent is
+   working in can lead the band even if you have not opened it. One seat is
+   always reserved for the terminal you were last in, so no amount of
+   background chatter can push it out of the list; the *highlight* then lands
+   on it, which is what makes ⌘K → Enter a toggle. Cross-host rows show the
+   same host chip as search hits.
    Because the active tile is omitted and the highlight starts on the first
    Recent row, **⌘K then Enter** toggles between your last two terminals
    (including across hosts) — the same [default-highlight
@@ -95,7 +97,7 @@ string match is:
 
 | Priority | Kind | Tie-break |
 | --- | --- | --- |
-| 1 | Terminals | Recency — max(last client visit, server/Dock activity) |
+| 1 | Terminals | Warmth — max(last client visit, server/Dock activity) |
 | 2 | Hosts | Pool order |
 | 3 | Commands | Existing section order |
 
@@ -106,22 +108,29 @@ scoping is the existing drill-in path (below), not a mode character.
 ## Where the highlight lands
 
 The three **switcher** scopes — ⌘K, ⌘⇧K, ⌘⇧H — open with the highlight on **the
-most recent row that isn't the one you are already on**. One rule, so all three
+row you were last on that isn't the one you are on now**. One rule, so all three
 share a muscle memory: **press the chord, press Enter, you are back where you
 just were.** Press it again and you are back — a two-key toggle for terminals
 and for machines alike.
 
-"Most recent" means the row's **rank**: for **terminals**, `max(your last visit,
-that terminal's own activity)` — so a terminal that has been chattering can win
-over your last visit — and for **machines**, purely **your** switch trail, since
-a machine has no activity clock of its own.
+"Last on" means **your own trail** and nothing else: which tile you activated,
+which machine you switched to. A background agent printing output does not count
+as you having been there, so a chatty terminal can never take the highlight off
+the one you came from — the toggle works the same whether the workspace is idle
+or busy.
 
-Rank decides the *highlight*; it does not always decide the *order*. Empty-root
-**Recent** is itself sorted by rank, so its highlight lands on the top row. The
-**Hosts** list keeps pool order and **Terminals** browse keeps its host-by-host
-order — both paint in a stable order you can learn, and only the highlight
-moves. So a highlighted row part-way down a list is not a bug: the rows above it
-are simply ones you visited longer ago.
+That is deliberately a *different* number from the one the list is **ordered**
+by. Empty-root **Recent** ranks by `max(your last visit, that terminal's own
+activity)`, because "what is warm" is the right question for deciding what to
+show you first — and output is a fair answer to it. So the two can disagree, and
+when they do, the order shows you what is happening while the highlight keeps
+pointing home.
+
+Which is why a highlighted row part-way down a list is not a bug — the rows
+above it are simply warmer, or ones you visited longer ago. The **Hosts** list
+makes that plainest: it keeps **pool order** and never re-sorts, so the
+highlight is the only thing that moves. In **Terminals** browse the host
+headers are likewise fixed, while the rows inside each host are warmest-first.
 
 Selecting the row you are already on would be a no-op, so no switcher offers it
 as the default. Plain **command** lists carry neither recency nor a "current"

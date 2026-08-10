@@ -12,6 +12,7 @@ const parent: RankedDockRow = {
   id: parentId,
   bucket: "idle",
   pip: "idle",
+  asking: false,
   ts: 1,
   subRows: [
     {
@@ -19,6 +20,7 @@ const parent: RankedDockRow = {
       kind: "shell",
       bucket: "idle",
       pip: "idle",
+      asking: false,
       ts: 1,
       depth: 1,
     },
@@ -27,6 +29,7 @@ const parent: RankedDockRow = {
       kind: "agent",
       bucket: "working",
       pip: "working",
+      asking: false,
       // A split OF the shell split — the section fold must reach it too, or a
       // nested agent's attention never lands in the header count.
       ts: 1,

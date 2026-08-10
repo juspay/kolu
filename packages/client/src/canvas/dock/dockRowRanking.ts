@@ -1,14 +1,35 @@
-/** Dock row ranking — the single source for "what live terminals does the dock
- *  show, and how is each one classified".
+/** **"Ranked" in this module's name is HISTORICAL — it classifies, in creation
+ *  order, and sorts nothing.** `dockRowRanking.ts` / `rankDockRows` /
+ *  `RankedDockRow` / `rankSubTree` kept their names through the #2141 change
+ *  that deleted the dock's three sorts; read every "rank" below as "classify".
+ *  Renaming them touches every dock surface at once, so it is a standing
+ *  follow-up rather than a rider on the change that made the names stale.
  *
- *  It owns the row SET (which terminals earn a row, and each row's order bucket,
- *  paint bucket and recency key) and the two ordering ingredients every dock
- *  surface shares: `DOCK_ROW_BUCKET_PRIORITY` and `tsRank`. It does NOT own the
- *  final painted order of top-level rows: `dockTree.ts` re-sorts them
- *  blocked-first (`compareRows`, layered on THIS module's priority table) after
- *  clustering them by branch, so the recency-first order `rankDockRows` returns
- *  is a baseline the tree refines — not the sequence on screen. Sub-entries
- *  (`rankSubTree`) keep this module's order all the way to the pixel.
+ *  Dock row classification — the single source for "what live terminals does
+ *  the dock show, and how is each one classified".
+ *
+ *  It owns the row SET (which terminals earn a row, and each row's order
+ *  bucket, paint bucket, attention flag and recency key) plus `tsRank`.
+ *
+ *  **It sorts nothing.** Rows come out in the order the ids arrived, which is
+ *  padi's registry insertion order — the creation order `listTerminals` already
+ *  contracts ("new terminals append to the tail; clients render this order
+ *  directly"). That order survives a browser reload and a reconnect (both
+ *  re-read the same full snapshot), a sleep/wake (the entry keeps its `Map`
+ *  slot), a cold-boot restore, and — since #2141 taught its reattach to rebuild
+ *  in one saved-order walk — a padi restart with surviving PTYs.
+ *
+ *  The dock used to discard all of that and re-sort by `ts`, which made
+ *  every row's position a function of a clock nobody controls: a background
+ *  agent finishing a turn reshuffled the list, and `Cmd+1..9` — bound to this
+ *  order — meant something different every few minutes. Recency did not stop
+ *  being visible; it stopped deciding WHERE a row sits. It still keys the
+ *  activity window and the row's own "3m ago" cell (`ts`, below).
+ *
+ *  Urgency did not stop mattering either: a row blocked on you is surfaced by
+ *  the dock's pinned needs-you strip ({@link needsYouEntries} → `dockTree.needsYou`),
+ *  a fixed place that fills and empties, rather than by floating the row up
+ *  through a list that then reflows around it.
  *
  *  Desktop `Dock.tsx`, the touch `DockList.tsx`, and the `Cmd+1..9`
  *  keyboard shortcut all read the same rows, through the same tree, so the
@@ -16,9 +37,8 @@
  *  never disagree. Without this single source the Alt-held hint chips
  *  can lie about which terminal `Cmd+N` targets — the dock paints rows
  *  with parked terminals dimmed and pushed down, but a parallel
- *  pure-recency derivation in `ActionContext.dockOrderedIds` would
- *  send the keystroke to whichever terminal had the most recent
- *  `lastActivityAt` regardless of its dock position.
+ *  derivation in `ActionContext.dockOrderedIds` would send the keystroke
+ *  somewhere else entirely.
  *
  *  The agent-state core — awaiting/working/idle and their needs-you-first
  *  rank — is the shared `agentProjection` (`agentUrgency` · `URGENCY_RANK`),
@@ -42,7 +62,6 @@ import {
   agentUrgency,
   paintClassOf,
   type TerminalId,
-  URGENCY_RANK,
 } from "kolu-common/surface";
 import { match, P } from "ts-pattern";
 import type { PaneNode } from "../../terminal/terminalTree";
@@ -69,27 +88,6 @@ type DockPaintBucket = Exclude<DockRowBucket, "none">;
 /** A split shares its parent's window fate, so it cannot independently park. */
 type SubDockOrderBucket = Exclude<DockOrderBucket, "parked">;
 type SubDockPaintBucket = Exclude<DockPaintBucket, "parked">;
-
-/** Tiebreak ordering for rows with equal `ts` (typically never-touched
- *  shells whose `lastActivityAt === null`). Pure-recency sort dominates
- *  everywhere else; this table only decides the order of rows that
- *  carry no recency signal at all, so the result stays deterministic.
- *  Lower number = shown first. The three agent-state buckets inherit the
- *  shared needs-you-first rank (`need=0 < work=1 < idle=2`) so the dock can't
- *  drift from the shared `agentProjection` ordering; `sleeping`/`parked`/`none`
- *  are the dock's own quieter tail below them. */
-export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
-  awaiting: URGENCY_RANK.need,
-  working: URGENCY_RANK.work,
-  // `linger` is a PAINT-only bucket (`classifyDockRow` never emits it — a
-  // post-turn `waiting` agent ORDERS as idle), listed here only because the
-  // priority table is total over the union; it ranks with idle, honestly.
-  linger: URGENCY_RANK.idle,
-  idle: URGENCY_RANK.idle,
-  sleeping: 3,
-  parked: 4,
-  none: 5,
-};
 
 /** The row-overlay precedence shared by BOTH folds (order and paint): parked
  *  wins over sleeping. Parked is checked FIRST because a sleeping tile is still
@@ -209,12 +207,25 @@ export function paintDockRow(
 /** The neutral projection shared by every dock row. */
 type DockRowCore = {
   id: TerminalId;
-  /** The ORDER bucket — read through `DOCK_ROW_BUCKET_PRIORITY` by BOTH sorts
-   *  that touch a row: this module's `ts`-tiebreak below, and `dockTree.ts`'s
-   *  blocked-first leg for top-level rows. Also the `data-bucket` attribute /
-   *  rail-glow. Reads `agentUrgency`, so `waiting` is `idle` here (it does not
-   *  float into the needs-you order). */
+  /** The row's ORDER/FILTER bucket. Two live readers: `dockTree.ts`'s
+   *  `filteredOut` (does the activity window / the ☾ toggle hide this row) and
+   *  `dockRowAttrs`'s `data-bucket` (rail glow, styling hook, e2e). It does
+   *  **not** decide strip membership — that is {@link DockRowCore.asking}.
+   *  Reads `agentUrgency`, so a post-turn `waiting` is `idle` here. */
   bucket: DockOrderBucket;
+  /** Blocked on YOU — the terminal's ATTENTION CLASS verbatim
+   *  (`classOf(id) === "asking"`), which is exactly `statePipBind`'s `asking`,
+   *  the ONE test every needs-you surface reads.
+   *
+   *  Carried on the row so the pinned strip's MEMBERSHIP and the entry's violet
+   *  WAIT CHIP are the same fold rather than two folds that agree by luck.
+   *  `pip` is this same class NARROWED by `dockOverlayBucket` — a parked or
+   *  sleeping row paints `parked`/`sleeping` and never `awaiting` — and that
+   *  narrowing is a PAINT rule, not an attention rule: a blocked agent is
+   *  blocked whether or not the dock is currently colouring it dormant.
+   *  Visibility is decided once, by `dockTree`'s filters, and carried on the
+   *  strip's entry; it is never re-decided here. */
+  asking: boolean;
   /** The PIP bucket — drives the row's `StatePip` colour, decoupled from order
    *  so it reads identically to the tile title's pip. Reads the terminal's
    *  ATTENTION CLASS (the same value its motion and every count read), so a
@@ -229,7 +240,7 @@ type DockRowCore = {
  * whole subtree arrives as ONE depth-first sequence on the tile's row (see
  * `rankSubTree`), because the dock paints sub-entries as flat siblings of their
  * section and reads nesting off the indent. A nested `subRows` would have made
- * every consumer (rail entries, section attention, blocked-first) re-walk a
+ * every consumer (rail entries, section attention, `needsYouEntry`) re-walk a
  * tree to answer "which splits are in this tile", and the ones that forgot
  * would silently miss depth ≥ 2 — which is exactly how the grandchild
  * disappeared from the Dock after the canvas flattened (#2059).
@@ -288,29 +299,45 @@ export type RankedDockRow = DockRowCore & {
  *  drop a JUST-slept tile whose agent last transitioned outside the window,
  *  contradicting "a freshly-slept one still shows with its ☾".
  *
- *  This is the ONE source for that derivation: `rankDockRows` feeds it to the
- *  window predicate AND the sort key, and the row's `RecencyCell` displays it,
- *  so the "Xs ago" a row shows is the exact age the window acts on — a 4h
- *  window never hides a row that reads "1h ago" or keeps one that reads "3d
- *  ago". `null` (never-active, never-slept) passes through honestly — the
- *  sort below ranks it last rather than forging a fake epoch. */
+ *  This is the ONE source for that derivation, and it has exactly two consumers
+ *  left: `rankDockRows` feeds it to the staleness/window predicate, and the
+ *  row's `RecencyCell` displays it. So the "Xs ago" a row shows is the exact age
+ *  the window acts on — a 4h window never hides a row that reads "1h ago" or
+ *  keeps one that reads "3d ago". It decides no POSITION: nothing here sorts.
+ *  `null` (never-active, never-slept) passes through honestly rather than
+ *  forging a fake epoch; both consumers render it as such. */
 export function rowRecencyAt(meta: TerminalMetadata): number | null {
   return sleepingArm(meta)?.sleptAt ?? meta.lastActivityAt;
 }
 
-/** `ts`'s sort rank for a most-recent-first order — `null` (never-active)
- *  sorts LAST, mirroring `agentProjection.ts`'s `recencyRank`. Exported so
- *  `dockTree.ts`'s cluster/group/row recency sorts share the SAME null
- *  handling rather than re-deriving it. */
+/** `ts` as a comparable number — `null` (never-active) ranks LAST, mirroring
+ *  `agentProjection.ts`'s `recencyRank`.
+ *
+ *  Two consumers, and neither is the Recent band. INSIDE this module it folds a
+ *  tile's newest activity (parent vs splits) for the staleness window; in
+ *  `palette/fleetTerminals.ts`'s `rankFleetTerminalRows` it orders the fleet row
+ *  list, which is what the ⌘⇧K *Terminals browse* list shows.
+ *
+ *  It is NOT what the ⌘K Recent band shows: `rootIndex.recentBand` re-sorts the
+ *  same rows on WARMTH (`max(visitedAt, recencyAt)`), discarding this ordering
+ *  entirely, so "most relevant terminal first" is currently computed twice on
+ *  two keys and which one you see depends on which chord you pressed. That
+ *  reconciliation — ordering is a palette policy, and `rootIndex.ts` claims to
+ *  be its one home — is a standing follow-up; this comment at least stops
+ *  naming the one view that is not time-ordered as the reason this exists.
+ *
+ *  It is no longer a dock ORDERING primitive: the dock's three sorts went away
+ *  with #2141. */
 export function tsRank(ts: number | null): number {
   return ts ?? Number.NEGATIVE_INFINITY;
 }
 
-/** Project a terminal id list into the recency-sorted, bucket-classified rows
- *  the dock renders — the BASELINE order (`dockTree.ts` clusters and re-sorts
- *  top-level rows blocked-first on top of it; see the module header). Secondary
- *  key is bucket priority so never-touched plain shells don't outrank an idle
- *  terminal with the same `ts === null`. `isStale` is a pure-temporal predicate
+/** Project a terminal id list into the bucket-classified rows the dock renders,
+ *  **in the order the ids arrived** — creation order, straight off padi's
+ *  registry (see the module header). `dockTree.ts` buckets these into repo
+ *  sections and branch clusters; neither layer re-orders them.
+ *
+ *  `isStale` is a pure-temporal predicate
  *  over the newest recency in the whole tile: the parent's `rowRecencyAt` or
  *  any DESCENDANT split's. A split shares its parent's window fate, so its
  *  activity must keep that parent — and therefore every split landing —
@@ -341,25 +368,97 @@ export function rankDockRows(
       if (tsRank(sub.ts) > tsRank(recencyAt)) recencyAt = sub.ts;
     }
     const parked = isStale(recencyAt);
+    // Read the attention class ONCE and carry both answers off it: the paint
+    // bucket (class, narrowed by the dormancy overlay) and the raw membership
+    // fact (`asking`). One read, so the row's colour and the strip's membership
+    // can never come off two different frames of the same fold.
+    const klass = classOf(id);
     rows.push({
       id,
       bucket: classifyDockRow(meta, parked),
-      pip: paintDockRow(meta, classOf(id), parked),
+      pip: paintDockRow(meta, klass, parked),
+      asking: klass === "asking",
       ts: recencyAt,
       subRows,
     });
   }
-  rows.sort(byRecencyThenBucket);
   return rows;
 }
 
-/** Fold the tile's pane TREE into its dock sub-entries: siblings ordered
- *  needs-you-first, each one immediately followed by its own splits, one level
+/** Either half of a tile: the top-level row, or one of its splits at any depth.
+ *  Spelled through `subRows` so `SubDockRow` stays module-private. */
+export type NeedsYouRow = RankedDockRow | RankedDockRow["subRows"][number];
+
+/** What the pinned strip renders: ONE BLOCKED AGENT, plus the tile it lives in.
+ *
+ *  - `blocked` is what is asked, painted, timed and navigated to.
+ *  - `tile` is the DISPLAY IDENTITY (repo · branch, colour, intent). A split has
+ *    none of its own — `getDisplayInfo` is keyed on top-level tiles — which is
+ *    the whole reason the pair exists. They are the same object in the ordinary
+ *    case.
+ *
+ *  A boolean here threw the second half away, and the strip painted the PARENT:
+ *  no violet capsule at all (the parent's own `recencyMode` is `ago`/`hidden`),
+ *  and a tooltip asserting the tile's newest activity as a wait — "waiting on
+ *  you for 3s" over an agent that had waited twenty hours, because a chattier
+ *  sibling split moved the tile-wide fold. */
+export type NeedsYouEntry = {
+  tile: RankedDockRow;
+  blocked: NeedsYouRow;
+};
+
+/** Is this tile blocked on YOU, and which row inside it is — the pinned
+ *  needs-you strip's membership test.
+ *
+ *  Reads the row's ATTENTION CLASS (`asking`), which is `statePipBind`'s
+ *  `asking`: "the ONE test every surface reads for it — the row wash, the wait
+ *  chip, the section count and the section jump all come off this rather than
+ *  each re-testing `bucket === "awaiting"`, which is a different fold (ORDER)
+ *  that agreed with the attention class only by luck". The strip's entry paints
+ *  its violet capsule off `recencyMode(pip().asking)` — the same class — so the
+ *  component's claim that its two renderings of one terminal cannot drift is
+ *  now true by construction rather than by two folds coinciding.
+ *
+ *  It deliberately does NOT read `pip`. `pip` is this class narrowed by
+ *  `dockOverlayBucket`, so `pip === "awaiting"` silently meant `asking ∧
+ *  ¬parked ∧ ¬sleeping` — three independent axes, two of them undeclared. A
+ *  shown-but-sleeping blocked agent wore the violet wash and the wait chip on
+ *  its own row, was counted by its section header, and was missing from the
+ *  strip above it, as a side effect of an overlay precedence written for
+ *  colour.
+ *
+ *  **Nothing here decides visibility.** `dockTree` owns the dock's two filters
+ *  and carries their verdict on the entry (`hiddenByFilter`); a row the
+ *  activity window parked still earns the strip, because a twenty-hour wait
+ *  falling out of a four-hour window is precisely the agent the strip exists
+ *  for.
+ *
+ *  Returns EVERY blocked row in the tile, not the first. A tile can hold
+ *  several agents — the main pane plus its splits, or two splits — and any of
+ *  them can be `awaiting_user` at once. Answering with one (a `.find()`) left
+ *  the second agent surfaced by colour and animation alone, which is the exact
+ *  failure this strip exists to end. One entry per blocked agent, so the strip's
+ *  length is the number of agents waiting on you, not the number of tiles that
+ *  contain one. */
+export function needsYouEntries(row: RankedDockRow): NeedsYouEntry[] {
+  const blocked: NeedsYouRow[] = [];
+  if (row.asking) blocked.push(row);
+  for (const sub of row.subRows) if (sub.asking) blocked.push(sub);
+  return blocked.map((b) => ({ tile: row, blocked: b }));
+}
+
+/** Fold the tile's pane TREE into its dock sub-entries: siblings in the store's
+ *  own order, each one immediately followed by its own splits, one level
  *  deeper. A grandchild is a real parent→child edge — the Dock keeps that true
  *  tree, where the canvas flattens the same panes into one tab strip (#2059).
  *
+ *  Siblings used to sort needs-you-first-then-recency here, which meant a
+ *  tile's split tabs could sit in one order on the canvas and another in the
+ *  dock, and either could reshuffle mid-glance. Taking the store's order
+ *  verbatim is what makes the two surfaces agree by construction.
+ *
  *  The tree ARRIVES from the store (`getPaneTree`), the same index whose flat
- *  shape the canvas paints; this module only orders and classifies it. Ranking
+ *  shape the canvas paints; this module only classifies it. Ranking
  *  used to walk the raw one-hop parent edge itself and stopped at depth 1, so a
  *  split of a split had a canvas tab and no dock row at all — a live terminal
  *  the Dock could not reach. Consuming the shared index is what makes that
@@ -371,22 +470,16 @@ function rankSubTree(
   classOf: (id: TerminalId) => AttentionClass,
   depth = 1,
 ): SubDockRow[] {
-  const siblings: Array<{ row: SubDockRow; children: readonly PaneNode[] }> =
-    [];
-  for (const node of nodes) {
+  return nodes.flatMap((node) => {
     const row = rankSubRow(node.id, depth, getMeta, classOf);
     // IDs and projected metadata are independent reactive reads. Match the
     // top-level row contract above: reading a missing slot subscribes this memo
     // to its arrival, so omit the not-yet-paintable row for this frame; the
     // reactive recomputation includes it. Its own splits wait with it — an
     // entry indented under a row that isn't there reads as a lie.
-    if (row) siblings.push({ row, children: node.children });
-  }
-  siblings.sort((a, b) => byBucketThenRecency(a.row, b.row));
-  return siblings.flatMap(({ row, children }) => [
-    row,
-    ...rankSubTree(children, getMeta, classOf, depth + 1),
-  ]);
+    if (!row) return [];
+    return [row, ...rankSubTree(node.children, getMeta, classOf, depth + 1)];
+  });
 }
 
 /** One split's entry. A sub-entry shares its parent's activity window fate, so
@@ -402,12 +495,16 @@ function rankSubRow(
   if (!meta) return undefined;
   const bucket = classifyDockRow(meta, false);
   // Paint once here — the same fact DockRow / DockListRow / SubTerminalRow /
-  // RailSubChip all hand to `useStatePip`. Never synthesize per-surface.
+  // RailSubChip all hand to `useStatePip`. Never synthesize per-surface. The
+  // attention class is read ONCE and feeds both the paint bucket and `asking`,
+  // exactly as at top level.
+  const klass = classOf(id);
   const core = {
     id,
     depth,
     ts: rowRecencyAt(meta),
-    pip: paintDockRow(meta, classOf(id), false),
+    pip: paintDockRow(meta, klass, false),
+    asking: klass === "asking",
   };
   const agent = activeArm(meta)?.agent;
   if (!agent) {
@@ -436,21 +533,4 @@ function rankSubRow(
       );
     })
     .exhaustive();
-}
-
-function byRecencyThenBucket(
-  a: Pick<DockRowCore, "bucket" | "ts">,
-  b: Pick<DockRowCore, "bucket" | "ts">,
-): number {
-  if (a.ts !== b.ts) return tsRank(b.ts) - tsRank(a.ts);
-  return (
-    DOCK_ROW_BUCKET_PRIORITY[a.bucket] - DOCK_ROW_BUCKET_PRIORITY[b.bucket]
-  );
-}
-
-/** Needs-you first for sibling splits, then newest within the same urgency. */
-function byBucketThenRecency(a: SubDockRow, b: SubDockRow): number {
-  const urgency =
-    DOCK_ROW_BUCKET_PRIORITY[a.bucket] - DOCK_ROW_BUCKET_PRIORITY[b.bucket];
-  return urgency !== 0 ? urgency : tsRank(b.ts) - tsRank(a.ts);
 }

@@ -767,7 +767,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:b140c5465ea1228c065c50a4efbbc7d22e1181649c51639a2ad85d09d1777ed1
+  content_hash: sha256:10b8b8a82496f6736bc38de7133e6c8e057da3323d8465827368745a19ac5ad3
 - kind: project-relative
   target: claude
   value: .claude/rules/docs.md
@@ -2803,7 +2803,7 @@ local_deployed_file_hashes:
   .claude/rules/changelog.md: sha256:e74edc80adeff7a9408c132ea6e9b6dd4f5b58e402c6f89a30e721249c34336b
   .claude/rules/conventions.md: sha256:ea54600c3e0f5e05c53c7eb08b67650098741f6aa10bd202db955d69b069a015
   .claude/rules/doc-links.md: sha256:280a14103c848247ab9f2bf0f2284569c0d9cf00b7d1deafb29bf60b12a661c3
-  .claude/rules/dock-fleet-mirror.md: sha256:b140c5465ea1228c065c50a4efbbc7d22e1181649c51639a2ad85d09d1777ed1
+  .claude/rules/dock-fleet-mirror.md: sha256:10b8b8a82496f6736bc38de7133e6c8e057da3323d8465827368745a19ac5ad3
   .claude/rules/docs.md: sha256:c78ee3eb709a228c4d8c86031ac2c9de2967fed129c97c07f8e5998d5c1f085c
   .claude/rules/e2e-testing.md: sha256:4ac4aedce1a35c58c54ae3029f931f75feb852308b1601a3e0da2e5b6cb6fbdd
   .claude/rules/logo.md: sha256:05f412b96dcdd5a7e6de9bce3cdb164a89cabe5da6ed0c865662b33743470e25

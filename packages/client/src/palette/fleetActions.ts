@@ -20,42 +20,15 @@ import type {
 } from "../CommandPalette";
 import { workspaceSearchText } from "../canvas/dockModel";
 import { hostLabel, hostRowContext } from "../host/hostChipTone";
-import { hostRecency, type HostVisit } from "../host/hostRecency";
+import { hostRecency, switchedAtOf } from "../host/hostRecency";
 import { assignColors } from "../terminal/terminalDisplay";
-import {
-  useVisitRecency,
-  type VisitEntry,
-  visitedAtOf,
-} from "../terminal/visitRecency";
+import { useVisitRecency, visitedAtOf } from "../terminal/visitRecency";
 import { padiMap } from "../wire";
 import {
   type FleetTerminalRow,
   groupFleetByHost,
   orderHostsActiveFirst,
 } from "./fleetTerminals";
-
-/** Palette ranking policy: max(client visit, server activity). Lives here
- *  (not in the trail store) so visitRecency stays trail-only. */
-export function terminalRankScore(
-  visits: readonly VisitEntry[],
-  hostKey: string,
-  terminalId: TerminalId,
-  serverActivityAt: number | null | undefined,
-): number {
-  return Math.max(
-    visitedAtOf(visits, hostKey, terminalId),
-    serverActivityAt ?? 0,
-  );
-}
-
-/** Palette ranking policy for host rows: the switch trail's stamp. Lives here
- *  (not in the trail store) so hostRecency stays trail-only. */
-export function hostRankScore(
-  mru: readonly HostVisit[],
-  hostKey: string,
-): number {
-  return mru.find((e) => e.hostKey === hostKey)?.switchedAt ?? 0;
-}
 
 /** Switch host when the row is foreign, then activate. Pure sequencing
  *  extracted so unit tests can spy without mounting the palette. */
@@ -86,6 +59,11 @@ function terminalSwitchActionsForHost(
       cwd: r.meta.cwd,
     })),
   );
+  // Read the visit trail ONCE, not per row — same reason `hostRootActions`
+  // hoists its own: Solid does not dedupe repeated reads, so a read inside the
+  // map registers one subscription per terminal on a trail that moves on every
+  // tile activation.
+  const visits = useVisitRecency().visits();
   return rows.map((row): PaletteAction => {
     const k = keys.get(row.id);
     if (k === undefined) {
@@ -110,14 +88,13 @@ function terminalSwitchActionsForHost(
     }
     const hostName = hostLabel(row.host);
     const hostKey = encodeHostKey(row.host);
-    // activity clock for paint; rankScore for sort — never jam them into one field.
+    // TWO grounded clocks, and only grounded ones: the terminal's own activity
+    // and your own visit. The palette's two questions — how warm is this row
+    // (ORDER) and when were you last here (HIGHLIGHT) — are both DERIVED from
+    // this pair at the sites that ask them (`rootIndex.rankOf` /
+    // `rootIndex.rowVisitedAt`). Storing the warmth derivation as a third field
+    // let a row carry a rank its own inputs contradicted.
     const activityAt = row.recencyAt;
-    const rankAt = terminalRankScore(
-      useVisitRecency().visits(),
-      hostKey,
-      row.id,
-      activityAt,
-    );
     return {
       kind: "action",
       name: branchLabel,
@@ -134,7 +111,7 @@ function terminalSwitchActionsForHost(
         branchLabel,
         annotationColor,
         recencyAt: activityAt,
-        rankAt,
+        visitedAt: visitedAtOf(visits, hostKey, row.id),
         searchText: [
           workspaceSearchText({
             repoName,
@@ -220,10 +197,18 @@ export function terminalHostGroups(
 /** Host rows for root index and the Hosts scoped group — one source of truth.
  *
  *  Order stays membership order (a host list that reshuffles under the cursor
- *  is not a list you can learn); it is `rankAt` that carries the switch trail,
- *  so ⌘⇧H's default highlight lands on the host you came from — the same
+ *  is not a list you can learn); it is `visitedAt` that carries the switch
+ *  trail, so ⌘⇧H's default highlight lands on the host you came from — the same
  *  `defaultSelectionIndex` rule the terminal rows above feed with their own
- *  visit trail. */
+ *  visit trail, through the same field. The stamp itself comes from the trail's
+ *  own lookup (`hostRecency.switchedAtOf`), the mirror of `visitedAtOf`.
+ *
+ *  A host row carries no activity clock to pair the visit stamp with, and that
+ *  asymmetry is the design: the Hosts list keeps POOL order, because a machine
+ *  list that reshuffles under the cursor is unlearnable — the same reason the
+ *  dock stopped sorting on a clock. So a host's warmth (`rootIndex.rankOf`)
+ *  degenerates to its visit stamp, which is harmless because no path ever
+ *  rank-sorts hosts. */
 export function hostRootActions(
   hosts: HostKey[],
   active: HostKey,
@@ -248,7 +233,7 @@ export function hostRootActions(
         kind: "host",
         hostKey: h,
         context,
-        rankAt: hostRankScore(trail, encodeHostKey(h)),
+        visitedAt: switchedAtOf(trail, encodeHostKey(h)),
         searchText: `${label} ${context} ${state.kind}`.trim(),
       },
     };
