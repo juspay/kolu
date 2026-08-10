@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { hasOwnScheme, isLoopbackHostname, parseLoopbackUrl } from "./index";
+import {
+  hasOwnScheme,
+  hostAuthority,
+  isLoopbackHostname,
+  parseLoopbackUrl,
+} from "./index";
 
 describe("hasOwnScheme", () => {
   it("recognises schemes, protocol-relative, and anchors", () => {
@@ -12,6 +17,34 @@ describe("hasOwnScheme", () => {
     expect(hasOwnScheme("logo.png")).toBe(false);
     expect(hasOwnScheme("./docs/logo.png")).toBe(false);
     expect(hasOwnScheme("/img/x.png")).toBe(false);
+  });
+});
+
+describe("hostAuthority", () => {
+  it("re-brackets an IPv6 literal, which every source hands over bare", () => {
+    // `location.hostname` and Node's `AddressInfo.address` both strip the
+    // brackets the URL form requires, so without this a kolu reached over IPv6
+    // builds `http://fd7a::2:8123` — the parser reads the trailing `:8123` as
+    // part of the address and the URL is simply malformed. A tailnet address is
+    // the ordinary way kolu is reached, not an exotic case.
+    expect(hostAuthority("fd7a:1:2::2", 8123)).toBe("[fd7a:1:2::2]:8123");
+    expect(hostAuthority("::", 7314)).toBe("[::]:7314");
+    expect(`http://${hostAuthority("::1", 7714)}`).toBe("http://[::1]:7714");
+  });
+
+  it("leaves a registered name or an IPv4 literal exactly as it was", () => {
+    // Neither can ever contain a colon, so the colon IS the test — no address
+    // parsing needed.
+    expect(hostAuthority("pureintent", 5173)).toBe("pureintent:5173");
+    expect(hostAuthority("192.168.1.10", 5173)).toBe("192.168.1.10:5173");
+  });
+
+  it("is the inverse of the unbracketing this module already did", () => {
+    // Bracketing and unbracketing are one fact, which is why they live together:
+    // what `hostAuthority` writes, `parseLoopbackUrl` reads back bare.
+    expect(
+      parseLoopbackUrl(`http://${hostAuthority("::1", 3000)}/app`)?.host,
+    ).toBe("::1");
   });
 });
 

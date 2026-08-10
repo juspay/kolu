@@ -37,6 +37,7 @@ import type { UnaryEffect } from "@kolu/surface/client";
 import type { WatchableWire } from "@kolu/surface/link";
 import type { WireDiagnostics } from "@kolu/surface/links/websocket";
 import type { SurfaceClient, SurfaceFace } from "@kolu/surface/solid";
+import { surfaceWsUrl } from "@kolu/surface-app";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
@@ -79,8 +80,10 @@ import { rootProcedures } from "./rpc/rootProcedures.ts";
 import { runAction } from "./runAction.ts";
 import { recordProbeSettled, recordWireRetired } from "./wireProbes.ts";
 
-const { protocol, host } = window.location;
-const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
+// The dial URL, derived once from the page's own origin — `surfaceWsUrl` owns
+// both halves (the `https:` → `wss:` swap and the surface path), so no leg of
+// kolu spells either by hand.
+const wsBaseUrl = surfaceWsUrl(window.location.origin);
 
 /** The ONE kolu client-error interpreter (SR11, fork-A) — the single place kolu's
  *  app-owned {@link ClientErrorPolicy} arms are rendered. Registered at BOTH seams

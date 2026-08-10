@@ -13,6 +13,91 @@ layer for apps you run against your own server (kolu, [drishti](https://github.c
 live wire; surface-app is the shell served fresh around it. Exports are grouped
 by subpath.
 
+## The whole listener, in one call
+
+`serveSurfaceApp` (`@kolu/surface-app/serve`) is the turnkey seam: the shell over
+HTTP and the surface over one WebSocket, in the one correct order — **origin gate
+→ upgrade → stale-tab check → heartbeat enrolment → serve**. It owns the
+`http.Server` (so the `upgrade` event stays yours), mounts `surfaceAppLayer`
+alongside your own routes, stands up the `ws` server, binds, and registers its
+whole teardown on the enclosing `Scope`. `ws` and `@effect/platform-node` are
+**peer** dependencies of the package — an app serving on Node already declares
+both, and a browser-only consumer of `./solid` never pulls them in.
+
+```ts
+const url = yield* serveSurfaceApp({
+  group: runtime.group,
+  handlers: runtime.handlers,
+  clientDist,
+  manifest: { name: "my app" },
+  routes: myOwnRoutes, // merged alongside the shell — an MCP route, media, …
+  host,
+  port,
+  allowedOrigins,
+});
+```
+
+It returns the URL **actually** bound (so `port: 0` reports the port the OS
+gave), and fails with the typed `SurfaceAppListenFailed`, which carries the
+`cause` verbatim — a consumer's port policy reads `cause.code === "EADDRINUSE"`
+rather than matching a message string. The surface runtime's own lifetime is
+**not** owned here: pass `{ group, handlers }` and keep `close`/`done` at the
+composition root that built them.
+
+Closing the scope **drains before it drops**: every connection's serving stack is
+closed and awaited first — that is what releases its RPC fibers and every
+in-flight subscription it opened — and only then are the remaining raw sockets
+terminated and the server closed. So when the finalizer resolves, nothing this
+listener started is still running.
+
+<Aside type="caution" title="The inbound frame cap is not a knob">
+  `serveSurfaceApp` sets `ws`'s `maxPayload` to `RPC_MAX_FRAME_BYTES` — the
+  framework's published byte budget, the one `exceedsFrameLimit` publishes to
+  senders — and offers no option to move it. See
+  [`@kolu/surface/frame-limit`](/surface/ref-surface#the-wires-frame-cap-kolusurfaceframe-limit)
+  for why a transport cap
+  that disagrees with that budget breaks the promise in one direction (an app
+  that hand-rolled 8 MiB killed a 10 MiB frame the framework said it would carry)
+  or the wire in the other.
+</Aside>
+
+The path is fixed at `SURFACE_WS_PATH` (`/rpc/ws`); any other upgrade target is
+destroyed. Both legs read that one constant, so the dial URL and the upgrade
+handler cannot drift.
+
+| Export | Subpath | Role |
+| --- | --- | --- |
+| `serveSurfaceApp(opts)` | `/serve` | the whole listener — shell, socket, gates, heartbeat, bind, teardown |
+| `SurfaceAppListenFailed` | `/serve` | the one failure it reports, `cause` intact |
+| `SurfaceAppConnection` | `/serve` | one accepted connection's `{ request, url }` — what a per-connection `services` layer is built from |
+| `SurfaceAppEvent` | `/serve` | the tagged union `onEvent` narrates |
+| `reportSurfaceAppEvent(event)` | `/serve` | the default narration policy, exported so an `onEvent` can delegate to it |
+| `SURFACE_WS_PATH` | `.` | `/rpc/ws`, the one path a surface speaks on — both legs import it |
+| `surfaceWsUrl(httpBaseUrl)` | `.` | the dial URL from the http(s) base — the ONE `https:` → `wss:` swap, browser-safe |
+
+Observation is **one** option, `onEvent`, taking one tagged union — because every
+consumer has exactly one logger:
+
+| `_tag` | Carries | Default (`reportSurfaceAppEvent`) |
+| --- | --- | --- |
+| `Connected` | `connection` | silent — the accept a live-connection count increments on |
+| `Disconnected` | `connection` | silent — the same connection hung up |
+| `SocketError` | `error`, `url` | loud `console.error` |
+| `StaleTab` | `claimedPid`, `url` | silent — a server that restarted while a tab was open is ordinary, not a fault |
+| `DisallowedOrigin` | `origin`, `url` | loud `console.warn` — a blocked hijack nobody can see is the one thing a shared gate must not ship |
+| `ServingFailed` | `cause`, `connection` | loud `console.error` — `done` MUST be observed |
+
+`Connected`/`Disconnected` are the pair a live-connection count is built from
+(the package's own example counts its `serverStats.connections` on them), and
+they carry the same `SurfaceAppConnection` object both times, so a consumer can
+pair them by identity. `services` stays a separate option: it returns a `Layer`,
+which is a different kind of thing from narration.
+
+The sections below are the pieces `serveSurfaceApp` composes; reach for them
+directly when an app's listener needs something the primitive does not take
+today. The module header of `@kolu/surface-app/serve` names which listeners those
+are, and why.
+
 ## Serving the fresh shell
 
 `surfaceAppLayer` (`@kolu/surface-app/server`) serves the shell: a `no-store`
@@ -33,6 +118,7 @@ files — `FileSystem`, `Path`, `HttpPlatform` — which on Node come from
 | Export | Subpath | Role |
 | --- | --- | --- |
 | `surfaceAppLayer(opts)` | `/server` | the no-store shell + immutable assets + (optional) manifest, in one layer |
+| `SurfaceAppLayerOptions` | `/server` | that layer's options (`clientDist`, `manifest`, `serviceWorker`, the freshness paths) — `ServeSurfaceAppOptions` **extends** it, so the shell half is named once |
 | `freshStaticLayer(opts)` | `/server` | fresh static + optional notification worker |
 | `pwaManifestLayer(manifest, path?)` | `/server` | the web manifest |
 
