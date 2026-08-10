@@ -24,6 +24,7 @@
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { NodeHttpServer } from "@effect/platform-node";
+import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
 import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
   freshStaticLayer,
@@ -87,7 +88,15 @@ server.listen({ host: HOST, port: PORT }, () => {
 });
 
 // ── WebSocket: the surface's one transport ────────────────────────────
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({
+  noServer: true,
+  // The FRAMEWORK's published byte budget, never a guess — and never left to
+  // `ws`'s own default either. Unset, `ws` allows 100 MiB while the decoder caps
+  // at 16 MiB, so the wire buffers six times what it can ever deliver before
+  // answering 1009. `exceedsFrameLimit` polices the same leg for senders; one
+  // number, stated here, is what keeps the two ends agreeing.
+  maxPayload: RPC_MAX_FRAME_BYTES,
+});
 wss.on("connection", (peer) => {
   const serving = serveSurfaceSocket({
     group: runtime.group,

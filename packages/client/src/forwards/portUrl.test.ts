@@ -4,8 +4,9 @@
  * at all.
  */
 
+import { hostAuthority } from "@kolu/url-shape";
 import { describe, expect, it } from "vitest";
-import { portAuthority, portUrl } from "./portUrl";
+import { portUrl } from "./portUrl";
 describe("portUrl", () => {
   it("builds the URL from the host it was given, never a literal localhost", () => {
     // The whole point of the function is the hostname it does NOT use: kolu's real
@@ -31,17 +32,13 @@ describe("portUrl", () => {
     // left exactly as they were.
     expect(portUrl("192.168.1.10", 5173)).toBe("http://192.168.1.10:5173");
   });
-});
 
-describe("portAuthority", () => {
-  it("is the half of the URL a row can SHOW as well as link", () => {
-    // The pill renders it and the copy button copies the URL built from it, so
-    // there is one derivation behind both: a row that displays one spelling and
-    // copies another is a row where only one of them works.
-    expect(portAuthority("fd7a:1:2::2", 8123)).toBe("[fd7a:1:2::2]:8123");
-    expect(portAuthority("pureintent", 5173)).toBe("pureintent:5173");
+  it("is the SAME derivation a row shows, so the pill and the link agree", () => {
+    // `ForwardPill` renders `hostAuthority(...)` and copies `portUrl(...)`. A row
+    // that displays one spelling and copies another is a row where only one of
+    // them works, so the URL must literally contain the shown address.
     expect(portUrl("fd7a:1:2::2", 8123)).toContain(
-      portAuthority("fd7a:1:2::2", 8123),
+      hostAuthority("fd7a:1:2::2", 8123),
     );
   });
 });

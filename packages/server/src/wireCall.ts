@@ -52,6 +52,7 @@
  */
 
 import { websocketLink } from "@kolu/surface/links/websocket";
+import { surfaceWsUrl } from "@kolu/surface-app";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";
 import { Cause, Effect, Exit, Schema } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
@@ -134,15 +135,6 @@ export function parseArgs(argv: readonly string[]): Args {
   return { baseUrl, tag, payload, timeoutMs };
 }
 
-/** The websocket URL for an http(s) base — the same `/rpc/ws` path the browser
- *  dials, derived from the base rather than spelled twice. */
-export function wsUrlFor(httpBaseUrl: string): string {
-  const url = new URL(httpBaseUrl);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = "/rpc/ws";
-  return url.toString();
-}
-
 /** Look a tag up in the served group, failing with the tag's own name — so a
  *  mistyped tag says so here instead of dying as an opaque defect inside Effect
  *  RPC's flat client, which resolves a call's schemas by lookup. */
@@ -184,7 +176,7 @@ export async function runWireCall(argv: readonly string[]): Promise<void> {
   const link = await websocketLink({
     group: wireGroup,
     // A THUNK, as the browser passes: the link re-evaluates it on every re-dial.
-    url: () => wsUrlFor(args.baseUrl),
+    url: () => surfaceWsUrl(args.baseUrl),
     // The app's own close-code vocabulary — the same classifier the browser's link
     // gets, so a retirement means here what it means there.
     isTerminalClose: isStaleProcessClose,

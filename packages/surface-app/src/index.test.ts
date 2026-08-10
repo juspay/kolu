@@ -19,9 +19,37 @@ import {
   SHELL_CACHE_CONTROL,
   SHELL_COMMIT_GLOBAL,
   shellCommitScript,
+  SURFACE_WS_PATH,
+  surfaceWsUrl,
   SW_MESSAGE_TYPE,
   SW_SOURCE,
 } from "./index";
+
+describe("surfaceWsUrl", () => {
+  it("maps the scheme and pins the surface path, whatever the base carried", () => {
+    // The scheme swap is the part that is easy to get wrong, and wrong only in
+    // deployment: a TLS-served app that dials `ws:` fails nowhere else.
+    expect(surfaceWsUrl("http://127.0.0.1:7681")).toBe(
+      `ws://127.0.0.1:7681${SURFACE_WS_PATH}`,
+    );
+    expect(surfaceWsUrl("https://kolu.example")).toBe(
+      `wss://kolu.example${SURFACE_WS_PATH}`,
+    );
+    // A base carrying its own path is REPLACED, not appended to — the surface
+    // speaks on exactly one path and the upgrade handler compares for equality.
+    expect(surfaceWsUrl("http://box:5173/some/page")).toBe(
+      `ws://box:5173${SURFACE_WS_PATH}`,
+    );
+  });
+
+  it("keeps a bracketed IPv6 authority intact", () => {
+    // The other half of the address story: what `hostAuthority` bracketed must
+    // survive the parse-and-reserialize round trip.
+    expect(surfaceWsUrl("http://[::1]:7714/")).toBe(
+      `ws://[::1]:7714${SURFACE_WS_PATH}`,
+    );
+  });
+});
 
 // The stale-tab DECISION is no longer a pure kernel here: `rejectStaleProcess`
 // took the "live" id as an argument, and that argument was the way to point the
