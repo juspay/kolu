@@ -18,7 +18,6 @@
     "./render": "./src/cliClient/render.ts",
     "./read": "./src/cliClient/read.ts",
     "./convergence-policy": "./src/convergencePolicy.ts",
-    "./agent-tools-bake": "./src/agentToolsBake.ts",
     "./daemonMain": "./src/daemonBoot/daemonMain.ts",
     "./stateRoot": "./src/stateRoot.ts",
     "./buildId": "./src/daemonBoot/buildId.ts",

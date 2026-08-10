@@ -40,6 +40,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   currentPadiBuildId,
+  drainResidentOnAgentToolsBakeDrift,
   padiRuntimeHome,
   padiStderrLogPath,
   residentPadiSocket,
@@ -95,7 +96,6 @@ import {
   osfactsSocketHolders,
   processIdentityAsync,
 } from "osfacts-client";
-import { drainResidentOnAgentToolsBakeDrift } from "@kolu/padi/agent-tools-bake";
 import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
