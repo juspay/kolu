@@ -118,8 +118,38 @@ function parseBool(raw: string): boolean {
   throw new Error(`expected boolean pref "true"/"false", got: ${raw}`);
 }
 
+/** The tolerant-array `parse` every persisted LIST pref shares — the list twin of
+ *  {@link parseBool}. Throws only when the stored value is not an array (so the
+ *  caller's `fallback` takes over wholesale); a corrupt or duplicate ENTRY is a
+ *  branch, not a throw, so one bad row never costs the user the whole trail.
+ *  Spelled once here so `visitRecency` and `hostRecency` reuse it instead of
+ *  re-hand-rolling the parse (the {@link parseBool} precedent). */
+export function parseTolerantList<T>(
+  raw: string,
+  what: string,
+  accept: (item: unknown) => T | undefined,
+  identity: (item: T) => string,
+  cap: number,
+): T[] {
+  const data: unknown = JSON.parse(raw);
+  if (!Array.isArray(data)) throw new Error(`${what}: expected a JSON array`);
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of data) {
+    const ok = accept(item);
+    if (ok === undefined) continue;
+    const id = identity(ok);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(ok);
+  }
+  return out.slice(0, cap);
+}
+
 /** The default `onInvalid` a {@link perHostPref} or {@link boolPref} installs when
- *  the caller supplies none: a `console.warn` naming the offending key and the
+ *  the caller supplies none — and the one a trail pref (`visitRecency`,
+ *  `hostRecency`) passes explicitly rather than hand-rolling a fourth copy of the
+ *  same message: a `console.warn` naming the offending key and the
  *  fallback it degraded to,
  *  so a corrupt value is a visible diagnostic rather than a silent reset (without it
  *  a bad value would collapse to the fallback with zero signal). `warn` — not `error`
@@ -130,7 +160,7 @@ function parseBool(raw: string): boolean {
  *  composed key `name` from the layer that already owns it, so a caller never recomposes
  *  the key to log it. Generic in `T` (not boolean-specific): "which key was corrupt" is
  *  a useful diagnostic for every per-host pref. */
-function defaultInvalidWarning<T>(
+export function defaultInvalidWarning<T>(
   name: string,
   fallback: T,
 ): (err: unknown, raw: string) => void {

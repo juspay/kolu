@@ -21,7 +21,7 @@ import { Result, Schema } from "effect";
 import { TerminalIdSchema, type TerminalId } from "kolu-common/surface";
 import type { Accessor } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
-import { persistedPref } from "../persistedPref";
+import { parseTolerantList, persistedPref } from "../persistedPref";
 
 /** Hard cap on the MRU — enough trail for Recent + Ctrl+Tab, bounded storage. */
 export const VISIT_MRU_CAP = 50;
@@ -60,31 +60,29 @@ function isVisitEntry(v: unknown, now: number): v is VisitEntry {
 
 /**
  * Validate persisted JSON. Well-formed entries are kept; corrupt rows and
- * duplicates are dropped (tolerant array read). Throws only when the top-level
- * value is not an array, so {@link persistedPref} can fall back to [].
+ * duplicates are dropped — the shared {@link parseTolerantList} cassette, so the
+ * "how a persisted list degrades" policy is spelled once for both trails. Throws
+ * only when the top-level value is not an array, so {@link persistedPref} can
+ * fall back to [].
  */
 export function parseVisitList(
   raw: string,
   now: number = Date.now(),
 ): VisitEntry[] {
-  const data: unknown = JSON.parse(raw);
-  if (!Array.isArray(data)) {
-    throw new Error("visit recency: expected a JSON array");
-  }
-  const seen = new Set<string>();
-  const out: VisitEntry[] = [];
-  for (const item of data) {
-    if (!isVisitEntry(item, now)) continue;
-    const key = visitLiveKey(item.hostKey, item.terminalId);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
-      hostKey: item.hostKey,
-      terminalId: item.terminalId as TerminalId,
-      visitedAt: item.visitedAt,
-    });
-  }
-  return out.slice(0, VISIT_MRU_CAP);
+  return parseTolerantList<VisitEntry>(
+    raw,
+    "visit recency",
+    (item) =>
+      isVisitEntry(item, now)
+        ? {
+            hostKey: item.hostKey,
+            terminalId: item.terminalId,
+            visitedAt: item.visitedAt,
+          }
+        : undefined,
+    (e) => visitLiveKey(e.hostKey, e.terminalId),
+    VISIT_MRU_CAP,
+  );
 }
 
 /** Upsert one visit to the front of the MRU, dedupe by (hostKey, terminalId),
