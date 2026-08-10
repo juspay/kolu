@@ -54,24 +54,39 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
       "lifecycle_create",
       "lifecycle_kill",
       "screen_history",
+      "watch_close",
+      "watch_open",
     ]);
-    // The read/write split is the authz bit the host renders — pin it.
+    // The read/write split is the authz bit the host renders — pin it. The two
+    // watch verbs MUTATE: they create and destroy daemon-side state that
+    // outlives the call, which is exactly what a standing subscription is.
     const mutating = resolved.tools.filter((t) => t.mutates).map((t) => t.name);
-    expect(mutating.sort()).toEqual(["lifecycle_create", "lifecycle_kill"]);
+    expect(mutating.sort()).toEqual([
+      "lifecycle_create",
+      "lifecycle_kill",
+      "watch_close",
+      "watch_open",
+    ]);
   });
 
-  it("the bespoke registry carries the four face-local tools", () => {
+  it("the bespoke registry carries the five face-local tools", () => {
     expect(Object.keys(KOLU_MCP_TOOLS).sort()).toEqual([
       "lifecycle_sendInput",
       "screen_text",
       "wait_agentState",
       "wait_outputSettled",
+      "watch_next",
     ]);
-    // The wait tools + snapshot read are read-only; the send mutates.
+    // The wait/watch reads + snapshot read are read-only; the send mutates.
+    // `watch_next` DRAINS a queue, which is a daemon-side write — but it is
+    // declared read-only deliberately: what it mutates is the caller's OWN
+    // cursor, and marking it mutating would put a confirmation prompt in front
+    // of the one call a supervisor makes in a loop.
     expect(KOLU_MCP_TOOLS.lifecycle_sendInput?.mutates).toBe(true);
     expect(KOLU_MCP_TOOLS.screen_text?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.wait_outputSettled?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.wait_agentState?.mutates).toBe(false);
+    expect(KOLU_MCP_TOOLS.watch_next?.mutates).toBe(false);
   });
 });
 
@@ -142,6 +157,9 @@ describe("the served face — default deny at the wire", () => {
       "screen_text",
       "wait_agentState",
       "wait_outputSettled",
+      "watch_close",
+      "watch_next",
+      "watch_open",
     ]);
   });
 

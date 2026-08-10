@@ -18,42 +18,46 @@
  */
 
 import { rmSync } from "node:fs";
-import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import {
   type ImplementSurfaceDeps,
   inMemoryStore,
   streamFromAbortableSource,
 } from "@kolu/surface/server";
-import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
-import { Effect } from "effect";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
-import {
-  isPadiDeclaredError,
-  KavalContractSkew,
-  ScratchWriteRejected,
-} from "./errors.ts";
+import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
+import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
+import { Effect } from "effect";
 import {
   currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,
   SNAPSHOT_SCROLLBACK,
 } from "kaval";
-import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
-import { cancelPendingAutosave } from "./session/autosaveGate.ts";
-import {
-  requirePadiActivityFeedStore,
-  requirePadiSessionStore,
-} from "./session/confStores.ts";
+import { createFinishQuiet } from "./activity/finishQuiet.ts";
+import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import { createSettleEvents } from "./attention/settleEvents.ts";
+import { createWatchRegistry } from "./attention/watchRegistry.ts";
 import type {
   EndpointGrid,
   TerminalAttachFrame,
   TerminalEndpoint,
 } from "./endpoint.ts";
+import {
+  isPadiDeclaredError,
+  KavalContractSkew,
+  ScratchWriteRejected,
+} from "./errors.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
-import { createFinishQuiet, type FinishQuiet } from "./activity/finishQuiet.ts";
-import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import {
+  HOST_INVENTORY_SAMPLE_INTERVAL_MS,
+  samplePadiHostInventory,
+} from "./hostInventory.ts";
+import {
+  MEMORY_SAMPLE_INTERVAL_MS,
+  samplePadiMemory,
+} from "./memorySampler.ts";
 import {
   newTerminalPolicyStore,
   resolveNewTerminalTheme,
@@ -65,6 +69,12 @@ import {
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
+import { pulseSource } from "./pulseSource.ts";
+import { cancelPendingAutosave } from "./session/autosaveGate.ts";
+import {
+  requirePadiActivityFeedStore,
+  requirePadiSessionStore,
+} from "./session/confStores.ts";
 import { resumableTerminalIds } from "./session/resumable.ts";
 import {
   forfeitSession,
@@ -96,14 +106,6 @@ import {
   discardLocalSleeping,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
-import {
-  HOST_INVENTORY_SAMPLE_INTERVAL_MS,
-  samplePadiHostInventory,
-} from "./hostInventory.ts";
-import {
-  MEMORY_SAMPLE_INTERVAL_MS,
-  samplePadiMemory,
-} from "./memorySampler.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { appendTerminalFile, saveTerminalFile } from "./terminalScratch.ts";
@@ -120,6 +122,7 @@ import {
   setTerminalTheme,
   sleepTerminal,
 } from "./terminals.ts";
+import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { exportTranscriptHtml } from "./transcript/transcript.ts";
 import { base64DecodedLength, rejectionFor } from "./upload.ts";
 
@@ -225,12 +228,17 @@ async function* attachFrames(
   for await (const frame of deltas) yield frame;
 }
 
-/** Prior standing finish-quiet handle — disposed when deps are rebuilt (tests). */
-let standingFinishQuiet: FinishQuiet | undefined;
-function disposeStandingFinishQuiet(): void {
-  standingFinishQuiet?.dispose();
-  standingFinishQuiet = undefined;
-}
+/** The DAEMON-LIFETIME teardown for everything `buildPadiSurfaceDeps` stands up
+ *  and keeps running past its own return: the finish-quiet tracker (its kaval
+ *  activity subscription) and the attention flow (the settle-event source, the
+ *  standing subscription registry, and the two sinks wired between them).
+ *
+ *  ONE handle, because it is one lifetime — a `servePadi` rebuild in tests must
+ *  dispose the prior set rather than stack a second one on the same daemon, and
+ *  two singletons with two dispose functions guarding the same moment is two
+ *  chances to forget one. Nothing READS the pieces through here: every consumer
+ *  is a closure inside the same function body, holding the value lexically. */
+let disposeStanding: (() => void) | undefined;
 
 /** Assemble the FULL `padiSurface` server deps (minus `channel`). Every member
  *  gets a functional read/procedure/source handler AND a live write path (the padi
@@ -260,13 +268,39 @@ export function buildPadiSurfaceDeps(deps: {
 }): PadiDeps {
   const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
   const fsGit = padiFsGitDeps(endpoint, log);
+  // Dispose the PRIOR daemon-lifetime set (finish tracker + attention flow) so a
+  // servePadi test rebuild doesn't stack resubscribe loops or two sets of sinks.
+  disposeStanding?.();
+  disposeStanding = undefined;
   // EF2 — daemon-lifetime finish tracker + standing kaval activity sub. Dual-edge
   // with terminals via `finish.project` (quiet-exit re-folds without an
-  // agent-state change). Dispose any prior handle so servePadi test rebuilds
-  // don't stack resubscribe loops.
-  disposeStandingFinishQuiet();
+  // agent-state change).
   const finish = createFinishQuiet({ log });
-  standingFinishQuiet = finish;
+
+  // SETTLE EVENTS → the standing subscriptions. One event source — "a terminal
+  // just started needing someone", derived from the SAME urgency level the Dock
+  // and the browser's alerts read — feeding the named, buffered queues an
+  // MCP-only supervisor drains. Disposed alongside the finish tracker (one
+  // `disposeStanding`) so a servePadi rebuild in tests cannot stack two sets of
+  // listeners on one daemon.
+  const settleEvents = createSettleEvents({ log });
+  const watchRegistry = createWatchRegistry({
+    log,
+    // The daemon's CURRENT settle sequence — where a fresh subscription starts
+    // acknowledged, and the ceiling an acknowledgement is sanity-checked against
+    // (a cursor from a previous padi generation would otherwise set a watermark
+    // no future event could climb past).
+    daemonSeq: () => settleEvents.lastSeq(),
+  });
+  const unsubscribeSettle = settleEvents.onFrame((events) =>
+    watchRegistry.accept(events),
+  );
+  disposeStanding = () => {
+    unsubscribeSettle();
+    watchRegistry.dispose();
+    settleEvents.dispose();
+    finish.dispose();
+  };
 
   // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
   // moment a daemon's status changes — so a fresh daemon's readout reflects its
@@ -365,7 +399,20 @@ export function buildPadiSurfaceDeps(deps: {
       // and the finish generation (quiet-exit promote re-folds without an
       // agent-state change). Spec `equals` (`urgencyEqual`) is the ONE wire
       // dedup point. No `store`/`equals` here — the graph is the one writer.
-      urgency: derived.cell(($) => finish.project($.terminals())),
+      urgency: derived.cell(($) => {
+        const terminals = $.terminals();
+        const next = finish.project(terminals);
+        // The settle EDGE, taken where the LEVEL is computed — one fold, one
+        // arrival time, so a supervisor's nudge and the Dock's paint can never
+        // describe different worlds. Observing from inside a derivation is the
+        // latitude the reactor's DUAL EDGE note already grants this exact cell
+        // (`finish.project` writes the episode map and bumps its generation
+        // here), and it is safe for a second reason of its own: the transition is
+        // computed against the PREVIOUS frame, so a redundant recompute yields no
+        // candidates and emits nothing.
+        settleEvents.observe(next, terminals);
+        return next;
+      }),
       // The saved session — backed by padi's OWN state-root Conf, set by padi's
       // daemonMain at boot (`setPadiSessionStore`, see `confStores.ts`), read here
       // via `requirePadiSessionStore`. The
@@ -491,6 +538,18 @@ export function buildPadiSurfaceDeps(deps: {
       // `terminalAttach` bytes. The fs/git change-pulses are pure reuse of
       // `padiFsGitDeps(...).streams`.
       activity: createLiveActivitySource(log),
+      // The standing-subscription doorbell — pulse-then-requery, the same shape
+      // as the fs/git change pulses. It carries only a counter: the buffer behind
+      // `watch.drain` is the authority, so a pulse lost to a dropped stream costs
+      // the caller a wait, never an event.
+      watchPulse: {
+        source: (input: { name: string }) =>
+          pulseSource(
+            (onEvent) => watchRegistry.onPulse(input.name, onEvent),
+            log,
+            `watchPulse[${input.name}]`,
+          ),
+      },
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on
@@ -536,6 +595,44 @@ export function buildPadiSurfaceDeps(deps: {
     },
 
     procedures: {
+      // Standing settle-event subscriptions. All three verbs are INSTANT — the
+      // waiting happens on the caller's side, parked on `watchPulse`, so no
+      // handler is held open for the minutes or hours a supervisor may idle
+      // between a worker's turns.
+      watch: {
+        open: ({ input }) =>
+          handle(() => {
+            // `open` answers `reattached` itself — the registry is the only thing
+            // that can know it without a race, and it seeds a fresh
+            // subscription's watermark from the `daemonSeq` it was built with.
+            const { sub, reattached } = watchRegistry.open(
+              input.name,
+              input.ids,
+            );
+            log.info(
+              {
+                name: input.name,
+                reattached,
+                scope: input.ids === undefined ? "all" : input.ids.length,
+              },
+              reattached
+                ? "watch subscription re-attached"
+                : "watch subscription opened",
+            );
+            return {
+              name: sub.name,
+              acknowledged: sub.acknowledged,
+              reattached,
+            };
+          }),
+        drain: ({ input }) =>
+          handle(() => watchRegistry.drain(input.name, input.after)),
+        close: ({ input }) =>
+          handle(() => {
+            watchRegistry.close(input.name);
+            return {};
+          }),
+      },
       lifecycle: {
         create: ({ input }) =>
           handle(() => {

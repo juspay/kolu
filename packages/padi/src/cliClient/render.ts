@@ -13,14 +13,14 @@
  * `@kolu/terminal-vocab/agentProjection` stays the single source of truth.
  */
 
-// `./terminalVocab.ts`, NOT `./dial.ts`. The three symbols are the same ones —
+// `../terminalVocab.ts`, NOT `./dial.ts`. The three symbols are the same ones —
 // `dial.ts` merely re-exports them — but reaching them through the dial kit put
 // `socketDuplexLink`, `@kolu/surface-daemon-supervisor`, `@kolu/surface-remote`
 // and `kolu-pty` in this formatter's module graph, refuting the "no I/O, no
 // transport, no tty" promise on line 1. A stated invariant the import graph
 // contradicts will be relied on and will break.
 import type { PadiTerminal } from "../surface.ts";
-import { activeAgent } from "./terminalVocab.ts";
+import { activeAgent } from "../terminalVocab.ts";
 import {
   agentBucket,
   agentShortName,

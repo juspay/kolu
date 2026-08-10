@@ -20,7 +20,8 @@
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { isDeadTransportError } from "@kolu/surface/errors";
-import { Stream } from "effect";
+import { isWatchSubscriptionNotFound } from "../errors.ts";
+import { Effect, Stream } from "effect";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,
@@ -34,8 +35,12 @@ import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PadiSurfaceClient } from "../dial.ts";
 import { errMessage } from "../errText.ts";
-import { padiSurface, type PadiTerminal } from "../surface.ts";
-import { activeAgent } from "./terminalVocab.ts";
+import {
+  padiSurface,
+  type PadiSettleEvent,
+  type PadiTerminal,
+} from "../surface.ts";
+import { activeAgent } from "../terminalVocab.ts";
 
 /** Consume a member `Stream` as an async iterable whose teardown is bound to
  *  `signal`.
@@ -74,7 +79,7 @@ export {
   PADI_LINK_CLOSED,
   WAIT_STATES,
   type WaitState,
-} from "./terminalVocab.ts";
+} from "../terminalVocab.ts";
 
 /** The live agent of a record IF it is in one of the target buckets, else
  *  `null` — THE wait predicate, and its match payload in one. A record with no
@@ -508,6 +513,130 @@ async function watchAttachFeed<Met extends WaitMet>(
   };
 
   await Promise.all([consumeOutput(), consumeExit()]);
+}
+
+/** The outcome of a standing-subscription wait — the shared {@link WaitOutcome}
+ *  with the drained batch as its met payload. */
+export type WatchEventsOutcome = WaitOutcome<{
+  events: readonly PadiSettleEvent[];
+  dropped: number;
+  ackAfter: number;
+  elapsedMs: number;
+}>;
+
+/** Block until the named standing subscription has settle events, then drain and
+ *  return them; or `timeout` after `timeoutMs`.
+ *
+ *  The third sibling of {@link awaitAgentState} / {@link awaitOutputSettled}, and
+ *  the one that differs in kind: those two watch a LIVE condition and see only
+ *  what happens while the call is open, so anything between two calls is
+ *  unobservable. This one drains a padi-side BUFFER, so the gaps between calls
+ *  are not holes — which is the whole reason a supervisor can stop hand-rolling
+ *  watcher processes.
+ *
+ *  **The subscribe-then-drain order is load-bearing.** The pulse is taken FIRST
+ *  and its baseline frame read BEFORE the drain, so an event landing in the
+ *  window between them still rings a pulse the wait is already listening for.
+ *  Draining first and subscribing after would drop exactly that event into the
+ *  gap — the same shape of hole this whole feature exists to close.
+ *
+ *  A missed pulse is survivable by construction: the buffer, not the pulse, is
+ *  the authority, so the worst case is waiting out the timeout and finding the
+ *  events on the next call. */
+export async function awaitWatchEvents(
+  client: PadiSurfaceClient,
+  opts: {
+    name: string;
+    /** The `ackAfter` from the caller's last SUCCESSFULLY-received batch — the
+     *  acknowledgement. Omit on a first call. Until an ack comes back, padi
+     *  keeps handing the same events over, which is what makes a lost reply cost
+     *  a repeat rather than an event. */
+    after?: number;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<WatchEventsOutcome> {
+  return runWait<{
+    events: readonly PadiSettleEvent[];
+    dropped: number;
+    ackAfter: number;
+    elapsedMs: number;
+  }>({ timeoutMs: opts.timeoutMs, signal: opts.signal }, async (ctx) => {
+    const drainNow = async (): Promise<boolean> => {
+      // A procedure ref is an `Effect` (D10/#18); `runWait` is the non-Effect
+      // scaffold this wait is driven by, so the crossing happens here.
+      //
+      // `after` acknowledges the batch the CALLER told us it processed on its
+      // last successful call. This wait cannot acknowledge on its own behalf: it
+      // hands its batch to an MCP tool whose reply may never reach the agent, so
+      // "received" is a fact only the agent's NEXT call can assert.
+      const drained = await Effect.runPromise(
+        client.surface.watch.drain({
+          name: opts.name,
+          ...(opts.after === undefined ? {} : { after: opts.after }),
+        }),
+      );
+      if (drained.events.length === 0 && drained.dropped === 0) return false;
+      ctx.settle({
+        kind: "met",
+        events: drained.events,
+        dropped: drained.dropped,
+        ackAfter: drained.ackAfter,
+        elapsedMs: ctx.elapsedMs(),
+      });
+      return true;
+    };
+
+    let baseline: number | undefined;
+    try {
+      const stream = unenrolledStreamCall(
+        (input: { name: string }) => client.surface.watchPulse.get(input),
+        { name: opts.name },
+        { label: `watchPulse[${opts.name}] (padi watch)` },
+      );
+      for await (const frame of iterateUntilAborted(stream, ctx.signal)) {
+        if (baseline === undefined) {
+          // The subscription is live from here on. Drain now: anything already
+          // buffered settles immediately, and anything arriving from this moment
+          // rings a pulse this loop will see.
+          baseline = frame.seq;
+          if (await drainNow()) return;
+          continue;
+        }
+        // A ring. Re-drain; a pulse that races an empty buffer (another consumer
+        // drained first) just keeps waiting rather than settling a false empty.
+        if (frame.seq !== baseline) {
+          baseline = frame.seq;
+          if (await drainNow()) return;
+        }
+      }
+      // The pulse feed ended without an outcome and without an abort we caused.
+      // The subscription itself may be perfectly healthy, so this is `closed`
+      // (retryable) and never `gone` — a lost feed is not a lost subscription.
+      if (!ctx.signal.aborted) {
+        ctx.settle({
+          kind: "closed",
+          error: `the daemon ended the pulse feed for subscription "${opts.name}" — retry watch_next; buffered events are not lost.`,
+        });
+      }
+    } catch (err) {
+      if (ctx.signal.aborted) return;
+      // A DEAD transport poisons the shared connection and must PROPAGATE so the
+      // MCP face resets it before the next call (see `awaitOutputSettled`).
+      if (isDeadTransportError(err)) throw err;
+      // "NO SUCH SUBSCRIPTION" MUST NOT BECOME "closed". `closed` means the
+      // notification channel dropped over a queue that is still there, and every
+      // caller is told to simply retry — which for an unopened (or typo'd, or
+      // padi-restart-cleared) name is an infinite loop being reassured its
+      // events are safe. This is the exact confusion `WatchSubscriptionNotFound`
+      // was declared to prevent, and folding it in here would have re-created it
+      // one layer up. Propagate so the caller sees the name it must re-open.
+      if (isWatchSubscriptionNotFound(err)) throw err;
+      const m = errMessage(err);
+      ctx.recordUpstreamError(m);
+      ctx.settle({ kind: "closed", error: m });
+    }
+  });
 }
 
 /** The outcome of an output-settled wait — the shared {@link WaitOutcome} union

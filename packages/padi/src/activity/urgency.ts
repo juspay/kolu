@@ -25,6 +25,7 @@
  */
 
 import { attentionClass } from "@kolu/terminal-vocab/agentProjection";
+import type { AttentionFrame } from "@kolu/terminal-vocab/attentionTransitions";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PadiTerminal, PadiUrgency } from "../surface.ts";
 
@@ -86,4 +87,15 @@ export function recomputeUrgency(
     }
   }
   return { awaitingIds, finishedIds, workingIds, lingerIds };
+}
+
+/** `PadiUrgency`'s wire dialect, read as the shared {@link AttentionFrame}.
+ *
+ *  The wire spells the `attentionClass` partition `awaitingIds`/`finishedIds`;
+ *  the shared vocabulary spells it `asking`/`finished`, which are
+ *  `attentionClass`'s own names. THE ONE place the two dialects meet — a named
+ *  adapter beside the fold that mints the wire value, rather than an object
+ *  literal re-spelled at each consumer. */
+export function attentionFrameOf(urgency: PadiUrgency): AttentionFrame {
+  return { asking: urgency.awaitingIds, finished: urgency.finishedIds };
 }

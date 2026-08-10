@@ -75,7 +75,9 @@ export {
 
 // The client-side terminal WATCH kit — `watchTerminals` + the three
 // block-on-a-condition primitives (`awaitAgentState` · `awaitOutputSettled` ·
-// `awaitOutputMatch`) and the bucket vocabulary they predicate on — rides the
+// `awaitOutputMatch`) plus `awaitWatchEvents` (the standing-subscription drain,
+// which differs in kind: it drains a padi-side BUFFER, so the gaps between calls
+// are not holes) and the bucket vocabulary they predicate on — rides the
 // dial entry too: the same "a daemon's package owns the client kit its
 // consumers share" rule, and every consumer (padi-tui's `wait`/`watch`, the
 // kolu MCP face's `wait_agentState`/`wait_outputSettled`, `kolu wait`'s three
@@ -88,8 +90,10 @@ export {
   awaitAgentState,
   awaitOutputMatch,
   awaitOutputSettled,
+  awaitWatchEvents,
   type OutputMatchOutcome,
   type OutputSettledOutcome,
+  type WatchEventsOutcome,
   WAIT_STATES,
   type WaitState,
   type WatchHandlers,

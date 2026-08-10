@@ -218,11 +218,54 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   vocabulary with two faces reading it, not two copies held in lockstep by
   JSDoc cross-reference. They stay here rather than in `@kolu/surface` because
   they speak **padi's** records — the generic wait scaffold went the other way.
-  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, plus the
-  `terminalVocab.ts` both fold over and the `watch.ts` wait kit the `dial` entry
-  re-exports — the same one-cluster-one-directory shape as `terminalEndpoint/`
-  and `terminalWorkspace/`. The **subpaths above are unchanged**: the directory
+  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, and the
+  `watch.ts` wait kit the `dial` entry re-exports — the same
+  one-cluster-one-directory shape as `terminalEndpoint/` and
+  `terminalWorkspace/`. The pure `terminalVocab.ts` they all fold over sits one
+  level UP, at the package root: the SERVER speaks it too (supervision-edge
+  delivery narrows a supervisor with `activeAgent` before writing into its
+  mailbox), and a daemon module reaching into a `cliClient/` directory would
+  point the arrow backwards. The **subpaths above are unchanged**: the directory
   is padi's internal layout, not its public one.
+
+## Settle events — the standing subscriptions
+
+padi already computed WHO needs attention: the `urgency` cell's `awaitingIds` (an
+agent blocked on a person) and `finishedIds` (a turn that ended *and* whose output
+then went quiet — the [effective-finish](../../docs/atlas/src/content/atlas/effective-finish.mdx)
+conjunction, which is what keeps a background sub-agent's churn from reading as
+"done"). What `src/attention/` adds is the derivative: the cell is a LEVEL, and a
+subscriber needs an EDGE.
+
+That edge is shared, not re-derived — `@kolu/terminal-vocab/attentionTransitions`
+is the same decision kolu's browser fires its sound and OS popup on, so a person
+at the canvas and a subscribing agent are told about the same events by one
+definition.
+
+It feeds **standing subscriptions** (`watch.open` / `drain` / `close` + the
+`watchPulse` doorbell). The `wait_*` tools are edge-triggered on a live call, so
+anything between two waits is unobservable — which is how a worker's report
+reached nobody when its watcher had returned and had not been re-armed. These are
+level-triggered with memory: events accumulate whether or not anyone is asking, so
+the gap between drains is not a hole.
+
+Events buffer in padi, which outlives both a `kolu mcp` process and kaval, and a
+subscription is keyed by a caller-chosen NAME so those restarts reattach rather
+than start empty. (padi's OWN restart clears them — they are process memory. A
+drain against a name it no longer holds raises the declared
+`WatchSubscriptionNotFound` rather than answering an empty batch, because "not
+subscribed" and "nothing happened" are the two states a supervisor must never
+confuse — and `close` raises the same error rather than answering `false`, for the
+same reason.) A drain is **acknowledged** (send its `ackAfter` back as the next
+`after`), not destructive, so a reply lost in flight costs a repeat rather than a
+report; overflow is *reported* (a `dropped` count), never silently truncated — and
+a drop that lands *after* a reported batch is not covered by that batch's
+acknowledgement, so it rides the next report rather than being erased.
+
+A terminal LEAVING is an event too (`kind: "gone"`): a supervisor waiting on a
+worker that no longer exists must be told, not left waiting. A kaval recycle
+retires every active terminal id, so this is the signal that a lane's id is stale
+rather than merely quiet.
 
 ## What padi knows nothing about
 

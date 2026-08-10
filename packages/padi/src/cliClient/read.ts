@@ -24,7 +24,7 @@ import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Data, Deferred, Effect } from "effect";
 import { padiSurface, type PadiTerminal } from "../surface.ts";
-import { PADI_LINK_CLOSED } from "./terminalVocab.ts";
+import { PADI_LINK_CLOSED } from "../terminalVocab.ts";
 
 /** The current terminal key set — the FIRST frame of the `keys` snapshot-then-delta
  *  stream. The `keys` collection ALWAYS opens with a snapshot frame (zero terminals

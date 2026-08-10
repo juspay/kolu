@@ -76,6 +76,70 @@ export class TerminalParentCycle extends Schema.TaggedError<TerminalParentCycle>
   }
 }
 
+// ── Standing settle-event subscriptions ───────────────────────────────────
+
+/** A `watch.drain` against a name nobody opened.
+ *
+ *  DECLARED rather than answered with an empty result, and that is the whole
+ *  point of the class: "no subscription" and "no events yet" are the two states a
+ *  supervisor must never confuse. Returning `{events: []}` for an unopened name
+ *  would let an agent that typo'd its subscription name — or that assumed a
+ *  subscription surviving something that did not survive — sit in a drain loop
+ *  reading silence as calm. The known names ride as data so the answer to "then
+ *  what AM I subscribed to" is in the failure itself. */
+export class WatchSubscriptionNotFound extends Schema.TaggedError<WatchSubscriptionNotFound>(
+  "padi/WatchSubscriptionNotFound",
+)("WatchSubscriptionNotFound", {
+  name: Schema.String,
+  /** Every subscription this padi currently holds. */
+  known: Schema.Array(Schema.String),
+}) {
+  override get message(): string {
+    const known = this.known.length === 0 ? "none" : this.known.join(", ");
+    return `No standing subscription named "${this.name}" — open one first (known: ${known})`;
+  }
+}
+
+/** The tag string, read OFF the class rather than re-spelled — a rename moves
+ *  this with it instead of silently un-matching (the same discipline as
+ *  `reattachingDeltas.ts`'s `PTY_NOT_FOUND_TAG`). A hand-copied literal here
+ *  would make the predicate answer `false` for every real occurrence, which is
+ *  exactly the collapse it exists to stop. */
+const WATCH_SUBSCRIPTION_NOT_FOUND_TAG: string = new WatchSubscriptionNotFound({
+  name: "",
+  known: [],
+})._tag;
+
+/** Does `err` carry this tagged-error `_tag`?
+ *
+ *  The STRUCTURAL counterpart to {@link isPadiDeclaredError}'s `instanceof`, and
+ *  the reason that one documents its own narrowness: a value that crossed a wire
+ *  was decoded in another realm, so its class identity is not ours and
+ *  `instanceof` silently answers `false`. Spelled once here because padi already
+ *  had a second hand-rolled copy of this check (`isPtyNotFound` in
+ *  `terminalEndpoint/reattachingDeltas.ts`) and a third was about to appear.
+ *  Each caller still reads its OWN tag off its OWN class — that part is
+ *  legitimately per-error; what stops being copy-pasted is the comparison. */
+export function hasTag(err: unknown, tag: string): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { _tag?: unknown })._tag === tag
+  );
+}
+
+/** Is `err` a {@link WatchSubscriptionNotFound} that may have CROSSED A WIRE?
+ *
+ *  Structural on `_tag`, deliberately — the sibling of `isPadiDeclaredError`'s
+ *  `instanceof` and the reason that one documents its own narrowness. This is
+ *  read by a CLIENT (`awaitWatchEvents`), where the value was decoded from a
+ *  wire frame and its class identity is another realm's. An `instanceof` there
+ *  silently answers `false` and the failure collapses into the retryable arm —
+ *  precisely the collapse this predicate exists to stop. */
+export function isWatchSubscriptionNotFound(err: unknown): boolean {
+  return hasTag(err, WATCH_SUBSCRIPTION_NOT_FOUND_TAG);
+}
+
 // ── Byte writes / reads ───────────────────────────────────────────────────
 
 /** A scratch write the host REFUSES — a disallowed extension or an oversized
@@ -249,6 +313,7 @@ export const WorktreeCreateErrorSchema = Schema.Union([
 const PADI_ERROR_CLASSES = [
   TerminalNotFound,
   TerminalParentCycle,
+  WatchSubscriptionNotFound,
   ScratchWriteRejected,
   PreviewTooLarge,
   TranscriptNoAgent,

@@ -57,6 +57,16 @@ export const KOLU_MCP_EXPOSE = {
   "lifecycle.create": { tool: { mutates: true } },
   /** Kill one terminal by id. */
   "lifecycle.kill": { tool: { mutates: true } },
+
+  // ── Standing settle-event subscriptions ──────────────────────────────────
+  /** Open (or re-attach to) a named subscription. `mutates` because it creates
+   *  daemon-side state that outlives the call — that is the point of it. */
+  "watch.open": { tool: { mutates: true } },
+  /** Drop a subscription and its buffer. */
+  "watch.close": { tool: { mutates: true } },
+  // `watch.drain` is NOT exposed raw: it never blocks (by design — padi holds no
+  // handler open), so an agent handed only that verb would poll. The bespoke
+  // `watch_next` tool is the drain, and it parks on the pulse instead.
 } as const satisfies ExposeMap<PadiSurfaceSpec>;
 
 /** The NAMED denials — every member deliberately refused in v1, with the
@@ -170,6 +180,16 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
   {
     member: "transcript.exportHtml",
     reason: "a browser export flow — not an agent verb (expandable on demand)",
+  },
+  {
+    member: "watch.drain",
+    reason:
+      "served by the bespoke `watch_next` tool, which adds the blocking half — the raw verb never blocks (padi holds no handler open), so exposing it alone would teach agents to poll the very thing this feature exists to stop",
+  },
+  {
+    member: "watchPulse",
+    reason:
+      "input-bearing pulse stream — the doorbell `watch_next` consumes internally; the events themselves ride the drain, never the pulse",
   },
   {
     member: "subscribeRepoChange",
