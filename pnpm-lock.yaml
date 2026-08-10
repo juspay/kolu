@@ -1117,6 +1117,9 @@ importers:
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
+      '@kolu/url-shape':
+        specifier: workspace:*
+        version: link:../url-shape
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
@@ -1451,6 +1454,9 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
+      '@kolu/url-shape':
+        specifier: workspace:*
+        version: link:../url-shape
       effect:
         specifier: 4.0.0-beta.106
         version: 4.0.0-beta.106

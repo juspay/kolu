@@ -24,6 +24,7 @@
     "@kolu/surface-remote": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
+    "@kolu/url-shape": "workspace:*",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
     "conf": "^15.1.0",

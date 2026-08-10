@@ -17,6 +17,7 @@
  */
 
 import { toError } from "@kolu/surface/run-stream";
+import { hostAuthority } from "@kolu/url-shape";
 import { Effect } from "effect";
 import type { KoluForward } from "kolu-common/surface";
 import { type Component, createSignal, onCleanup, Show } from "solid-js";
@@ -24,14 +25,14 @@ import { toast } from "solid-sonner";
 import { runAction } from "../runAction";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { FORWARD_PILL, originTooltip, originWord } from "./forwardTone";
-import { portAuthority, portUrl } from "./portUrl";
+import { portUrl } from "./portUrl";
 import { cancelForward } from "./useForwards";
 
 /** The address a user can paste — the machine serving this page, and the port
- *  the door answers on. Built through `portAuthority`, so an IPv6-served kolu
+ *  the door answers on. Built through `hostAuthority`, so an IPv6-served kolu
  *  shows the same bracketed spelling the copy button writes. */
 export function pasteableAddress(forward: KoluForward): string {
-  return portAuthority(window.location.hostname, forward.localPort);
+  return hostAuthority(window.location.hostname, forward.localPort);
 }
 
 /** The URL a forward answers on. Always built from `location.hostname` and the

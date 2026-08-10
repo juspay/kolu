@@ -98,19 +98,12 @@ import { NodeHttpServer } from "@effect/platform-node";
 import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
 import type { SurfaceHandlers } from "@kolu/surface/server";
 import { gateWsOrigin } from "@kolu/surface/ws-origin";
-import {
-  Data,
-  Effect,
-  Exit,
-  type FileSystem,
-  Layer,
-  type Path,
-  Scope,
-} from "effect";
+import { hostAuthority } from "@kolu/url-shape";
+import { Data, Effect, type FileSystem, Layer, type Path, Scope } from "effect";
 import { type HttpPlatform, HttpRouter } from "effect/unstable/http";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { type WebSocket, WebSocketServer } from "ws";
-import { hostAuthority, SURFACE_WS_PATH } from "./index";
+import { WebSocketServer } from "ws";
+import { SURFACE_WS_PATH } from "./index";
 import {
   acceptSurfaceSocket,
   type ServableSocket,
@@ -151,11 +144,13 @@ export interface SurfaceAppConnection {
  *  pino / `log` threaded four times, with their defaults scattered across three
  *  modules.
  *
- *  The `url` is on every arm that has one — `DisallowedOrigin` included, since
- *  the upgrade target is parsed one line before the gate runs. The phase
- *  distinction is structural instead: only the two lifecycle arms carry a
- *  {@link SurfaceAppConnection}, because only after the gate and the enrolment is
- *  there a connection to describe. */
+ *  The phase distinction is structural: an arm carries a
+ *  {@link SurfaceAppConnection} exactly when it fires after the gates and the
+ *  enrolment, because only then is there a connection to describe. The arms in
+ *  front of that (`DisallowedOrigin`, `StaleTab`, and `SocketError` — whose
+ *  handler the stale gate installs before enrolment) carry the `url` instead,
+ *  parsed one line before the origin gate runs, so the sink never has to say
+ *  "some upgrade, somewhere". */
 export type SurfaceAppEvent =
   /** Gated, enrolled, and about to be served. The place a live-connection count
    *  increments and a consumer writes its `connected` line. */
@@ -176,11 +171,15 @@ export type SurfaceAppEvent =
       readonly origin: string | undefined;
       readonly url: URL;
     }
-  /** This ONE connection's serving stack faulted. */
+  /** This ONE connection's serving stack faulted. Post-accept by definition, so
+   *  it carries the {@link SurfaceAppConnection} the lifecycle arms do — with a
+   *  single-path listener the `url` is the same string on every connection, and a
+   *  fault nobody can attribute to the entry they keyed on `Connected` is a fault
+   *  nobody can act on. */
   | {
       readonly _tag: "ServingFailed";
       readonly cause: unknown;
-      readonly url: URL;
+      readonly connection: SurfaceAppConnection;
     };
 
 /** What a listener says when nobody is listening: loud on every fault, silent on
@@ -210,7 +209,7 @@ export const reportSurfaceAppEvent = (event: SurfaceAppEvent): void => {
       return;
     case "ServingFailed":
       console.error(
-        `serveSurfaceApp: serving stack faulted for ${event.url.href}`,
+        `serveSurfaceApp: serving stack faulted for ${event.connection.url.href}`,
         event.cause,
       );
       return;
@@ -274,13 +273,10 @@ export const serveSurfaceApp = <Svc = never>(
     const report = options.onEvent ?? reportSurfaceAppEvent;
     // The HTTP handler's own scope: `makeHandler` forks each request as a fiber
     // in it, so it must outlive every in-flight request and die with the
-    // listener. Acquired FIRST, which is the whole point — finalizers run LIFO,
-    // so this one runs LAST by construction rather than by a comment above an
-    // `await` at the bottom of another finalizer.
-    const httpScope = yield* Effect.acquireRelease(
-      Effect.sync(() => Scope.makeUnsafe()),
-      (scope) => Scope.close(scope, Exit.void),
-    );
+    // listener. `Scope.fork` is the library contract for exactly that —
+    // "closing the parent closes the child with the same exit value" — and
+    // forking FIRST puts its close last in the parent's LIFO order.
+    const httpScope = yield* Scope.fork(yield* Effect.scope);
     // `options` IS a `SurfaceAppLayerOptions` (it extends one), so the shell
     // half is passed straight through: no field is re-spelled here, and adding a
     // shell option is one edit in `server.ts` rather than three.
@@ -331,51 +327,8 @@ export const serveSurfaceApp = <Svc = never>(
         report({ _tag: "StaleTab", claimedPid, url }),
     });
 
-    // Every serving stack this listener started and has not yet seen end. The
-    // listener OWNS acceptance, so it owns release too: a `SurfaceSocketServing`
-    // holds this connection's RPC fibers and every in-flight subscription it
-    // opened, and dropping the handle would leave exactly the connection-scoped
-    // resources the reaper exists to reap running past the scope that started
-    // them. Drained at the head of the finalizer, before any socket is dropped.
+    // The LIVE population of serving stacks — drained first in the finalizer.
     const servings = new Set<SurfaceSocketServing>();
-
-    // `url` is the one the upgrade handler already parsed, carried through the
-    // emit below — one derivation of one fact, rather than two parses trusted to
-    // agree.
-    sockets.on(
-      "connection",
-      (peer: WebSocket, request: IncomingMessage, url: URL) => {
-        acceptor.accept(peer, url, () => {
-          // Gated and enrolled — so this is the first instant at which there IS a
-          // connection to narrate, and the pair a live-connection count needs.
-          const connection: SurfaceAppConnection = { request, url };
-          report({ _tag: "Connected", connection });
-          peer.once("close", () =>
-            report({ _tag: "Disconnected", connection }),
-          );
-          const serving = serveSurfaceSocket({
-            group: options.group,
-            handlers: options.handlers,
-            // `ws`'s socket satisfies `ServableSocket` structurally; its typings
-            // narrow `addEventListener` per event name, which the seam does not.
-            socket: peer as unknown as ServableSocket,
-            services: options.services?.(connection),
-          });
-          servings.add(serving);
-          // A serving site owns its `done`: it resolves on hang-up and REJECTS if
-          // the serving stack failed. An ignored rejection is an unhandled one,
-          // and one dead socket must never take the listener with it.
-          serving.done.catch((cause: unknown) =>
-            report({ _tag: "ServingFailed", cause, url }),
-          );
-          // Forgotten the moment it ends, however it ended, so the set is the
-          // LIVE population rather than a log of everything ever served.
-          void serving.done
-            .catch(() => {})
-            .finally(() => servings.delete(serving));
-        });
-      },
-    );
 
     server.on("upgrade", (request, socket, head) => {
       const url = requestUrl(request);
@@ -394,11 +347,36 @@ export const serveSurfaceApp = <Svc = never>(
       ) {
         return;
       }
-      // The parsed `url` rides the emit, so the connection handler reads the
-      // `pid` echo (and a `?host=` selector) without re-deriving it.
-      sockets.handleUpgrade(request, socket, head, (ws) =>
-        sockets.emit("connection", ws, request, url),
-      );
+      sockets.handleUpgrade(request, socket, head, (peer) => {
+        acceptor.accept(peer, url, () => {
+          // Gated and enrolled — so this is the first instant at which there IS a
+          // connection to narrate, and the pair a live-connection count needs.
+          const connection: SurfaceAppConnection = { request, url };
+          report({ _tag: "Connected", connection });
+          peer.once("close", () =>
+            report({ _tag: "Disconnected", connection }),
+          );
+          const serving = serveSurfaceSocket({
+            group: options.group,
+            handlers: options.handlers,
+            // `ws`'s socket satisfies `ServableSocket` structurally; its typings
+            // narrow `addEventListener` per event name, which the seam does not.
+            socket: peer as unknown as ServableSocket,
+            services: options.services?.(connection),
+          });
+          servings.add(serving);
+          // A serving site owns its `done`: it resolves on hang-up and REJECTS if
+          // the serving stack failed. An unobserved rejection is an unhandled
+          // one, and one dead socket must never take the listener with it.
+          // Forgotten the moment it ends, however it ended, so the set stays the
+          // LIVE population rather than a log of everything ever served.
+          void serving.done
+            .catch((cause: unknown) =>
+              report({ _tag: "ServingFailed", cause, connection }),
+            )
+            .finally(() => servings.delete(serving));
+        });
+      });
     });
 
     // Registered BEFORE the bind, so a failed bind still tears down everything
@@ -429,6 +407,15 @@ export const serveSurfaceApp = <Svc = never>(
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
         acceptor.stop();
+        // `server.close()` stops ACCEPTING synchronously; only its callback
+        // waits. Start it first so nothing new can be built during the drain
+        // below — the drain yields the event loop, and an upgrade that landed
+        // while it did would build a whole serving stack AFTER the snapshot and
+        // never be awaited. (`acceptor.stop()` only clears the heartbeat
+        // interval; it does not stop accepting.)
+        const closed = new Promise<void>((resolve) =>
+          server.close(() => resolve()),
+        );
         await Promise.all(
           [...servings].map((serving) => {
             serving.close();
@@ -438,7 +425,7 @@ export const serveSurfaceApp = <Svc = never>(
         for (const client of sockets.clients) client.terminate();
         sockets.close();
         server.closeAllConnections();
-        await new Promise<void>((resolve) => server.close(() => resolve()));
+        await closed;
       }),
     );
 

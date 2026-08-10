@@ -16,15 +16,16 @@
  * for the rejection that earns.
  */
 
-import { SURFACE_WS_PATH } from "@kolu/surface-app";
+import { surfaceWsUrl } from "@kolu/surface-app";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { reloadForUpdate } from "@kolu/surface-app/lifecycle";
 import { surfaces } from "../common/surface";
 
-// The path the server upgrades on, read from the ONE constant both legs share —
-// `serveSurfaceApp` compares `pathname` for equality, so a hand-typed dial URL
-// with a trailing slash would simply be destroyed.
-const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}${SURFACE_WS_PATH}`;
+// The dial URL, derived from the page's own origin by the ONE derivation both
+// legs share — `serveSurfaceApp` compares `pathname` for equality, so a
+// hand-typed URL with a trailing slash would simply be destroyed, and a
+// hand-spelled scheme swap breaks only once the app is served over TLS.
+const wsUrl = surfaceWsUrl(location.origin);
 
 export const conn = await connectSurfaces({
   surfaces,

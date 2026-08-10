@@ -29,6 +29,7 @@ import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClientRef } from "@kolu/surface/project";
 import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import { SURFACE_WS_PATH } from "@kolu/surface-app";
+import { hostAuthority } from "@kolu/url-shape";
 import {
   acceptSurfaceSocket,
   freshStaticLayer,
@@ -1109,7 +1110,10 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         pid: process.pid,
         node: process.version,
         rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
-        address: `${protocol}://${bound.address}:${bound.port}`,
+        // `hostAuthority`, not a hand-rolled `host:port`: this is the line an
+        // operator reads to open a browser, and an all-interfaces IPv6 bind
+        // printed bare is `http://:::7314` — not a URL anything can follow.
+        address: `${protocol}://${hostAuthority(bound.address, bound.port)}`,
       },
       "kolu listening",
     );

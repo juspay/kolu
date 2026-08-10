@@ -27,6 +27,27 @@ export function hasOwnScheme(src: string): boolean {
   );
 }
 
+/** `host:port` in the form a URL parser accepts — the ONE place an IPv6 literal
+ *  is re-bracketed, and therefore the one authority on how a door is addressed.
+ *
+ *  `location.hostname` and Node's `AddressInfo.address` both strip the brackets
+ *  the URL form requires, so an IPv6 address (a tailnet `fd7a:…` is the ordinary
+ *  case, not an exotic one) yields `fd7a::2:8123` — where a parser reads the last
+ *  `:8123` as part of the address and the whole thing is simply malformed.
+ *  Detected by the colon: a registered hostname or an IPv4 literal can never
+ *  contain one, so this needs no address parsing.
+ *
+ *  It lives here because bracketing and its inverse are one fact: this package
+ *  already owns the UNbracketing ({@link isLoopbackHostname} and
+ *  {@link parseLoopbackUrl} both strip `[]`), and it is the zero-dependency leaf
+ *  unrelated owners share — a server leg (`serveSurfaceApp`'s bound origin, kolu's
+ *  "listening" line) and a browser leg (kolu's port-forward URLs) both reach it
+ *  without a dependency arrow between them. An address shown in one spelling and
+ *  dialled in another is an address where only one of them works. */
+export function hostAuthority(host: string, port: number): string {
+  return `${host.includes(":") ? `[${host}]` : host}:${port}`;
+}
+
 /** Is this hostname a loopback / all-interfaces bind spelling — the set a
  *  printed dev-server URL uses for "this machine"?
  *

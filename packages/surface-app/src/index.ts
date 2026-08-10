@@ -368,23 +368,6 @@ export const SERVER_PROCESS_ID_PARAM = "pid";
  *  range (4000–4999, per RFC 6455 §7.4.2). */
 export const STALE_PROCESS_CLOSE_CODE = 4001;
 
-/** `host:port` in the form a URL parser accepts — the ONE place an IPv6 literal
- *  is re-bracketed, and therefore the one authority on how a door is addressed.
- *
- *  `location.hostname` and Node's `AddressInfo.address` both strip the brackets
- *  the URL form requires, so an IPv6 address (a tailnet `fd7a:…` is the ordinary
- *  case, not an exotic one) yields `fd7a::2:8123` — where a parser reads the last
- *  `:8123` as part of the address and the whole thing is simply malformed.
- *  Detected by the colon: a registered hostname or an IPv4 literal can never
- *  contain one, so this needs no address parsing.
- *
- *  It lives here, at the root both a server leg (`serveSurfaceApp`'s bound
- *  origin) and a browser leg (kolu's port-forward URLs) already import, because
- *  an address shown in one spelling and dialled in another is an address where
- *  only one of them works. */
-export const hostAuthority = (host: string, port: number): string =>
-  `${host.includes(":") ? `[${host}]` : host}:${port}`;
-
 /** The path a surface app's ONE websocket lives at — the single source for both
  *  legs. Every consumer used to spell this literal twice, at the server's
  *  `upgrade` handler and at the client's dial URL, which is one fact kept in step
@@ -397,3 +380,20 @@ export const hostAuthority = (host: string, port: number): string =>
  *  that a URL built from this constant can never trip, and a hand-typed one with
  *  a trailing slash can. */
 export const SURFACE_WS_PATH = "/rpc/ws";
+
+/** The websocket URL a surface app is dialled at, derived from the http(s) base
+ *  it is served on. The ONE derivation of that fact: {@link SURFACE_WS_PATH}
+ *  unified the path, but the scheme swap stayed copied — kolu's browser wire, its
+ *  `wireCall` CLI dialler, the e2e harness's wire and this package's example each
+ *  spelled `https: → wss:` by hand, and that mapping is the part that is easy to
+ *  get wrong (get it wrong and a TLS-served app dials plaintext, which fails only
+ *  in deployment).
+ *
+ *  Browser-safe: `URL` and nothing else, so the page's own
+ *  `` `${location.protocol}//${location.host}` `` goes straight in. */
+export const surfaceWsUrl = (httpBaseUrl: string): string => {
+  const url = new URL(httpBaseUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = SURFACE_WS_PATH;
+  return url.toString();
+};

@@ -73,7 +73,7 @@ handler cannot drift.
 | `SurfaceAppEvent` | `/serve` | the tagged union `onEvent` narrates |
 | `reportSurfaceAppEvent(event)` | `/serve` | the default narration policy, exported so an `onEvent` can delegate to it |
 | `SURFACE_WS_PATH` | `.` | `/rpc/ws`, the one path a surface speaks on — both legs import it |
-| `hostAuthority(host, port)` | `.` | `host:port` a URL parser accepts — the ONE place an IPv6 literal is re-bracketed |
+| `surfaceWsUrl(httpBaseUrl)` | `.` | the dial URL from the http(s) base — the ONE `https:` → `wss:` swap, browser-safe |
 
 Observation is **one** option, `onEvent`, taking one tagged union — because every
 consumer has exactly one logger:
@@ -85,7 +85,7 @@ consumer has exactly one logger:
 | `SocketError` | `error`, `url` | loud `console.error` |
 | `StaleTab` | `claimedPid`, `url` | silent — a server that restarted while a tab was open is ordinary, not a fault |
 | `DisallowedOrigin` | `origin`, `url` | loud `console.warn` — a blocked hijack nobody can see is the one thing a shared gate must not ship |
-| `ServingFailed` | `cause`, `url` | loud `console.error` — `done` MUST be observed |
+| `ServingFailed` | `cause`, `connection` | loud `console.error` — `done` MUST be observed |
 
 `Connected`/`Disconnected` are the pair a live-connection count is built from
 (the package's own example counts its `serverStats.connections` on them), and
@@ -95,10 +95,8 @@ which is a different kind of thing from narration.
 
 The sections below are the pieces `serveSurfaceApp` composes; reach for them
 directly when an app's listener needs something the primitive does not take
-today. kolu's does: an `https.Server` when TLS is configured, a `middleware`
-passthrough to `NodeHttpServer.makeHandler`, and a shell layer mounted only when
-a built dist exists. drishti's per-host `?host=` routing picks WHICH runtime
-serves a socket, which the accept seam deliberately leaves at the call site.
+today. The module header of `@kolu/surface-app/serve` names which listeners those
+are, and why.
 
 ## Serving the fresh shell
 

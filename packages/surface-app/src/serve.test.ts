@@ -29,7 +29,11 @@ import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { WebSocket as WsClient } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSurfaceSocket } from "./connect";
-import { STALE_PROCESS_CLOSE_CODE, SURFACE_WS_PATH } from "./index";
+import {
+  STALE_PROCESS_CLOSE_CODE,
+  SURFACE_WS_PATH,
+  surfaceWsUrl,
+} from "./index";
 import {
   serveSurfaceApp,
   SurfaceAppListenFailed,
@@ -98,6 +102,9 @@ interface Booted {
   url: string;
   wsUrl: string;
   runtime: ReturnType<typeof makeRuntime>;
+  /** IDEMPOTENT, and it de-registers itself — so a test that tears its own
+   *  server down mid-body says exactly that, and nothing has to be crossed off a
+   *  hand-maintained list afterwards. */
   teardown: () => Promise<void>;
 }
 
@@ -116,7 +123,22 @@ async function boot<Svc = never>(
   const dist = makeDist();
   const runtime = makeRuntime();
   const scope = Scope.makeUnsafe();
-  const url = await Effect.runPromise(
+  let closed = false;
+  let entry: Booted | undefined;
+  // The three-step release, owned here whether the bind succeeded or not — a
+  // failed bind still leaves a scope to close, a runtime to stop and a temp dist
+  // to remove. Idempotent, and it de-registers itself, so a test that tears its
+  // own server down mid-body needs no bookkeeping afterwards.
+  const release = async () => {
+    if (closed) return;
+    closed = true;
+    const at = entry === undefined ? -1 : booted.indexOf(entry);
+    if (at >= 0) booted.splice(at, 1);
+    await Effect.runPromise(Scope.close(scope, Exit.void));
+    await runtime.close();
+    dist.cleanup();
+  };
+  const bound = await Effect.runPromise(
     serveSurfaceApp<Svc>({
       group: runtime.group,
       handlers: runtime.handlers,
@@ -127,17 +149,23 @@ async function boot<Svc = never>(
       port: 0,
       allowedOrigins: [],
       ...overrides,
-    }).pipe(Scope.provide(scope)),
+    }).pipe(Scope.provide(scope), Effect.result),
   );
-  const entry: Booted = {
+  // `Effect.result` so the TYPED failure survives the promise boundary intact —
+  // a `runPromise` rejection would hand the test a wrapper to unpick, and the
+  // whole claim of `SurfaceAppListenFailed` is that it arrives whole.
+  if (bound._tag === "Failure") {
+    await release();
+    throw bound.failure;
+  }
+  const url = bound.success;
+  entry = {
     url,
-    wsUrl: `${url.replace(/^http/, "ws")}${SURFACE_WS_PATH}`,
+    // The SAME derivation the browser leg uses, so this suite dials what a real
+    // client dials rather than a lookalike built by string surgery.
+    wsUrl: surfaceWsUrl(url),
     runtime,
-    teardown: async () => {
-      await Effect.runPromise(Scope.close(scope, Exit.void));
-      await runtime.close();
-      dist.cleanup();
-    },
+    teardown: release,
   };
   booted.push(entry);
   return entry;
@@ -214,7 +242,10 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
     // non-ASCII text the decoder is the LAXER of the two — and that laxness is
     // not a promise. `exceedsFrameLimit(bytes)` is what every sender in this repo
     // budgets against, so the wire must refuse exactly what it refuses.
-    const text = "あ".repeat(RPC_MAX_FRAME_BYTES / 2);
+    // Three UTF-8 bytes per character, so one char past a third of the budget is
+    // the SMALLEST string that makes both claims below — no reason to build a
+    // 1.5x-larger one and carry the peak memory for it.
+    const text = "あ".repeat(Math.floor(RPC_MAX_FRAME_BYTES / 3) + 1);
     const bytes = Buffer.byteLength(text, "utf8");
     // Under the decoder's code-unit cap…
     expect(text.length).toBeLessThan(RPC_MAX_FRAME_BYTES);
@@ -369,29 +400,16 @@ describe("serveSurfaceApp — binding and teardown", () => {
   it("reports a bind failure as SurfaceAppListenFailed, cause intact", async () => {
     const taken = await boot();
     const port = Number(new URL(taken.url).port);
-    const dist = makeDist();
-    const runtime = makeRuntime();
-    const scope = Scope.makeUnsafe();
-    // `flip` so the failure IS the value: a bind failure has to be a typed
-    // failure a consumer can catch, never a defect.
-    const failure = await Effect.runPromise(
-      serveSurfaceApp({
-        group: runtime.group,
-        handlers: runtime.handlers,
-        clientDist: dist.dir,
-        host: "127.0.0.1",
-        port,
-        allowedOrigins: [],
-      }).pipe(Scope.provide(scope), Effect.flip),
-    );
+    // The SAME harness, so the six required options and the three-step teardown
+    // are spelled once — `boot` re-raises the typed failure as a rejection, and
+    // `SurfaceAppListenFailed` being an `Error` is exactly what makes that legal.
+    const failure = await boot({ port }).catch((cause: unknown) => cause);
     expect(failure).toBeInstanceOf(SurfaceAppListenFailed);
     // The `cause` is carried verbatim, which is what lets a consumer write a
     // port policy against `EADDRINUSE` instead of matching on a message string.
-    expect(failure.cause).toMatchObject({ code: "EADDRINUSE" });
-    expect(failure.message).toContain(`127.0.0.1:${port}`);
-    await Effect.runPromise(Scope.close(scope, Exit.void));
-    await runtime.close();
-    dist.cleanup();
+    const listenFailed = failure as SurfaceAppListenFailed;
+    expect(listenFailed.cause).toMatchObject({ code: "EADDRINUSE" });
+    expect(listenFailed.message).toContain(`127.0.0.1:${port}`);
   });
 
   it("closing the scope RELEASES each connection's serving stack, not just its socket", async () => {
@@ -419,10 +437,55 @@ describe("serveSurfaceApp — binding and teardown", () => {
     expect(released).toEqual([]);
 
     await server.teardown();
-    booted.length = 0;
     expect(released).toEqual(["released"]);
     await socket.dispose();
   });
+
+  it("stops ACCEPTING before the drain, so nothing is built mid-teardown", async () => {
+    // The defect this pins: `acceptor.stop()` only clears the heartbeat interval
+    // — it does NOT stop accepting. `await`ing the drain then yields the event
+    // loop with the listener still live, so an upgrade landing in that window
+    // built a whole serving stack AFTER the `[...servings]` snapshot and was
+    // never awaited — reintroducing exactly what the drain exists to prevent.
+    const connected: URL[] = [];
+    const server = await boot({
+      onEvent: (event) => {
+        if (event._tag === "Connected") connected.push(event.connection.url);
+      },
+      services: () =>
+        Layer.effect(Viewer)(
+          Effect.acquireRelease(Effect.succeed({ seen: "live" }), () =>
+            // A SLOW release, so the drain is a real window rather than an
+            // instant — the window is the whole subject of this test.
+            Effect.promise(
+              () => new Promise<void>((resolve) => setTimeout(resolve, 500)),
+            ),
+          ),
+        ),
+    });
+    const socket = await dial(server);
+    await Effect.runPromise(
+      socket.link.dispatch.unary("surface/viewer/seen", {}),
+    );
+    expect(connected).toHaveLength(1);
+
+    const torndown = server.teardown();
+    // Comfortably inside the drain: teardown has begun and cannot have finished.
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    const late = new WsClient(server.wsUrl);
+    const refused = await new Promise<boolean>((resolve) => {
+      late.on("error", () => resolve(true));
+      late.on("open", () => resolve(false));
+    });
+    await torndown;
+
+    // The listening socket was already closed, so the late dial never reached an
+    // upgrade at all…
+    expect(refused).toBe(true);
+    // …and no second serving stack was built behind the drain's back.
+    expect(connected).toHaveLength(1);
+    await socket.dispose();
+  }, 20_000);
 
   it("closing the scope DROPS a live connection and frees the port", async () => {
     const server = await boot();
@@ -433,7 +496,6 @@ describe("serveSurfaceApp — binding and teardown", () => {
     const port = Number(new URL(server.url).port);
 
     await server.teardown();
-    booted.length = 0;
 
     // The port is free: a second server binds it, which it could not do while
     // anything was still listening.
