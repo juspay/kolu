@@ -445,19 +445,28 @@ describe("serveSurfaceApp — the shell it serves", () => {
   it("wraps every HTTP request in the app's middleware — and never the websocket", async () => {
     // What a middleware is FOR at this seam: kolu's bridge from the serving
     // stack to pino. It wraps the whole HANDLED pipeline — the response bytes are
-    // already on the wire by the time it sees the value, which is why kolu's own
+    // already on the wire by the time it sees an outcome, which is why kolu's own
     // two halves log and re-raise rather than rewrite — so what it observes, and
     // what it does NOT, is the whole contract.
-    const seen: Array<{ url: string; status: number }> = [];
+    //
+    // Recorded on the way IN, deliberately. An outcome-side `Effect.map` would
+    // see only the SUCCESS channel, and the SPA shell does not reliably arrive
+    // there: `GET /` intermittently comes back as a Fail CARRYING its own
+    // fully-formed `HttpServerResponse` (the index.html file stream), which is
+    // load-dependent — see `packages/server/src/httpMiddleware.ts`, where the
+    // same fact is the reason `routeErrorLogging` inspects the cause instead of
+    // treating every failure as a fault. A first draft of this test asserted on
+    // the outcome, passed on an idle machine and on darwin, and failed on the
+    // busy linux CI box. Entry is the channel-independent observation, and it is
+    // also the one kolu's own request log is written from.
+    const seen: string[] = [];
     const server = await boot({
       routes: HttpRouter.add("GET", "/mcp", HttpServerResponse.text("ok")),
       middleware: (httpApp) =>
-        Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) =>
-          Effect.map(httpApp, (response) => {
-            seen.push({ url: request.url, status: response.status });
-            return response;
-          }),
-        ),
+        Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) => {
+          seen.push(request.url);
+          return httpApp;
+        }),
     });
 
     // Both halves of what the handler serves — the SHELL and the app's own
@@ -465,10 +474,7 @@ describe("serveSurfaceApp — the shell it serves", () => {
     // rather than either layer.
     await fetch(`${server.url}/`);
     await fetch(`${server.url}/mcp`);
-    expect(seen).toEqual([
-      { url: "/", status: 200 },
-      { url: "/mcp", status: 200 },
-    ]);
+    expect(seen).toEqual(["/", "/mcp"]);
 
     // The upgrade never reaches the request handler — it is answered off the
     // `upgrade` event this module owns, which is why `middleware` is an HTTP-leg
