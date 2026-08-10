@@ -329,6 +329,19 @@ export function pwaManifestLayer(
   );
 }
 
+/** What the shell half of a surface app is: where the built bundle is, whether
+ *  the app installs, which `/sw.js` it serves, and the freshness paths. Named
+ *  here — where `surfaceAppLayer` lives — so `serveSurfaceApp` can EXTEND it
+ *  rather than re-spell it: a new shell option is then one edit, not three. */
+export interface SurfaceAppLayerOptions extends FreshnessPaths {
+  /** The built browser bundle, served fresh. */
+  readonly clientDist: string;
+  /** The web app manifest, if this app installs. */
+  readonly manifest?: ManifestOptions;
+  /** Which `/sw.js` worker to serve (default `"retire"`). */
+  readonly serviceWorker?: ServiceWorkerMode;
+}
+
 /** The greenfield convenience: manifest (if given) + fresh static serving
  *  (incl. `/sw.js`), in one layer. The granular layers are exported for apps that
  *  compose them by hand — kolu serves the manifest UNCONDITIONALLY (its dev proxy
@@ -336,11 +349,7 @@ export function pwaManifestLayer(
  *  the static layer only when a dist exists, which is exactly why the two stay
  *  separable. */
 export function surfaceAppLayer(
-  opts: {
-    clientDist: string;
-    manifest?: ManifestOptions;
-    serviceWorker?: ServiceWorkerMode;
-  } & FreshnessPaths,
+  opts: SurfaceAppLayerOptions,
 ): Layer.Layer<
   never,
   never,
@@ -567,7 +576,16 @@ export function surfaceAppServer<T extends BuildInfo = BuildInfo>(
 
 /** A server-side WebSocket the stale-tab gate acts on — the structural subset of
  *  the `ws` package's socket both kolu (single `/rpc/ws`) and drishti (per-host
- *  dispatch) upgrade. Kept structural so surface-app needn't depend on `ws`. */
+ *  dispatch) upgrade.
+ *
+ *  **Why structural, now that the package DOES depend on `ws`.** `./serve` needs
+ *  a real `WebSocketServer` — it owns the upgrade — so `ws` is a dependency of
+ *  the package. It is not a dependency of this module or of any browser-facing
+ *  entry point (`.`, `./solid`, `./connect`, `./client`, `./lifecycle`), and a
+ *  nominal `ws` type here would put it in their import graph. Structural also
+ *  keeps the seam open to a server socket that is not `ws`'s at all (Bun's,
+ *  Deno's), which is a real axis for a package two runtimes consume. The same
+ *  reason holds for {@link HeartbeatableSocket} and {@link ServableSocket}. */
 export interface GateableSocket {
   on: (event: "error", listener: (err: Error) => void) => unknown;
   close: (code: number, reason?: string) => void;
@@ -643,8 +661,8 @@ export function gateStaleSocket(
 export const DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS = 30_000;
 
 /** A server-side WebSocket the liveness heartbeat acts on — the structural subset
- *  of the `ws` package's socket the reaper pings and reaps. Kept structural (the
- *  `GateableSocket` twin) so surface-app needn't depend on `ws`. `pong` is the one
+ *  of the `ws` package's socket the reaper pings and reaps. Structural for the
+ *  reason spelled out on {@link GateableSocket}, its twin. `pong` is the one
  *  inbound event; `ping`/`terminate` are the outbound actions; `readyState`/`OPEN`
  *  gate the non-OPEN skip. */
 export interface HeartbeatableSocket {
@@ -757,7 +775,8 @@ export interface SurfaceSocketAcceptor {
  * no `startWsHeartbeat` call to forget) and the per-socket gate+enrol into one
  * call, so a socket cannot be dispatched without first being gated and enrolled.
  *
- * Structural-only (no `ws` dependency, like `gateStaleSocket`/`startWsHeartbeat`):
+ * Structural, like `gateStaleSocket`/`startWsHeartbeat` (see {@link GateableSocket}
+ * for why this module stays off `ws` even though `./serve` does not):
  * `accept`'s socket is `GateableSocket & HeartbeatableSocket`, which every real
  * `ws` socket satisfies. The pieces that stay at the call site are the genuinely
  * app-specific ones the seam can't generically own: the **origin gate**
@@ -815,8 +834,8 @@ export function acceptSurfaceSocket(opts: {
 
 /** An ACCEPTED server-side WebSocket the RPC serving seam drives — the structural
  *  subset of the `ws` package's socket (and of the browser `WebSocket`) that
- *  Effect's `Socket.fromWebSocket` touches. Structural, like `GateableSocket` and
- *  `HeartbeatableSocket`, so surface-app needn't depend on `ws`. */
+ *  Effect's `Socket.fromWebSocket` touches. Structural, like {@link GateableSocket}
+ *  and {@link HeartbeatableSocket}, and for the same reason. */
 export interface ServableSocket {
   readonly readyState: number;
   addEventListener(
@@ -918,9 +937,8 @@ function oneConnectionSocketServer(
           // The socket is ALREADY open (the app accepted it), so
           // `fromWebSocket`'s open-wait short-circuits.
           // The cast is structural: `ServableSocket` is exactly the slice of
-          // `WebSocket` this consumes, kept structural so surface-app needn't
-          // depend on `ws` (whose server socket is not nominally a DOM
-          // `WebSocket` either).
+          // `WebSocket` this consumes, and a `ws` server socket is not nominally
+          // a DOM `WebSocket` anyway.
           Effect.succeed(socket as unknown as WebSocket),
           (ws) =>
             Effect.sync(() => {

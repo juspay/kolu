@@ -16,6 +16,7 @@
 
 import { createServer } from "node:http";
 import { NodeHttpServer } from "@effect/platform-node";
+import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
 import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
   type ServableSocket,
@@ -65,7 +66,10 @@ server.listen({ host: HOST, port: PORT }, () => {
 // ── WebSocket: the surface's one transport ─────────────────────────────
 const wss = new WebSocketServer({
   noServer: true,
-  maxPayload: 8 * 1024 * 1024,
+  // The FRAMEWORK's published byte budget, never a guess: `ws`'s `maxPayload` and
+  // `exceedsFrameLimit` police the same inbound leg, so a lower cap here would
+  // silently govern and kill a frame every sender was told it could send.
+  maxPayload: RPC_MAX_FRAME_BYTES,
 });
 wss.on("connection", (peer) => {
   const serving = serveSurfaceSocket({

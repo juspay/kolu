@@ -54,6 +54,7 @@ import {
   websocketLink,
   type WebsocketLink,
 } from "@kolu/surface/links/websocket";
+import { surfaceWsUrl } from "@kolu/surface-app";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";
 import { fold } from "@kolu/surface-map";
 import { Cause, Effect, Exit, Option, Result, Schema, Stream } from "effect";
@@ -178,16 +179,6 @@ interface Wire {
 let wire: Wire | undefined;
 let baseUrl: string | undefined;
 
-/** The websocket URL for a server's HTTP base — the same `/rpc/ws` path the browser
- *  dials (`packages/client/src/wire.ts`), derived from the base rather than spelled
- *  twice. */
-function wsUrlFor(httpBaseUrl: string): string {
-  const u = new URL(httpBaseUrl);
-  u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
-  u.pathname = "/rpc/ws";
-  return u.toString();
-}
-
 /** Point the shared wire at `url` (an http(s) base). Disposes a wire dialled at a
  *  DIFFERENT server — a worker that restarts its server lands on a fresh random port,
  *  and a socket left on the old one would retry against a corpse forever. Idempotent
@@ -218,7 +209,7 @@ async function dispatch(): Promise<SurfaceDispatch> {
     group: clientGroup,
     // A THUNK, as the browser passes: the link re-evaluates it on every re-dial. The
     // harness sends no `pid` echo, so it is never the stale tab the server retires.
-    url: () => wsUrlFor(url),
+    url: () => surfaceWsUrl(url),
     // The app's own close-code vocabulary — the same classifier `createSurfaceSocket`
     // hands the browser's link, so a retirement means here what it means there.
     isTerminalClose: isStaleProcessClose,
