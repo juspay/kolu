@@ -40,16 +40,16 @@ import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
  *  sites. */
 export type NeedsYouDensity = "icon" | "full";
 
-/** One mirrored entry.
+/** One mirrored entry. Two rows ride on it, split by what each can answer:
  *
- *  Two rows ride on it, and keeping them apart is the point. The **tile** is
- *  what you click and what the label names — a split has no dock row of its
- *  own to land on. The **blocked** row is what the pip, the violet wait capsule
- *  and the shared row attributes come off: when a split is the one asking, the
- *  parent's own pip paints `ago`/`hidden` and its `ts` is the tile-wide fold, so
- *  painting the parent gave the strip an entry with no capsule at all under a
- *  heading reading "Needs you", and a tooltip reporting a chattier sibling's
- *  three seconds as the blocked agent's twenty hours.
+ *  - **tile** — the DISPLAY IDENTITY (repo · branch, annotation colour,
+ *    intent). A split has none of its own: `getDisplayInfo` is keyed on
+ *    top-level tiles. That is the whole reason the pair exists.
+ *  - **blocked** — what is asked, painted, timed and navigated to. When a split
+ *    is the one asking, the parent's pip paints `ago`/`hidden` and its `ts` is
+ *    the tile-wide fold, so reading the parent gave an entry with no violet
+ *    capsule under a heading reading "Needs you", and a tooltip reporting a
+ *    chattier sibling's three seconds as this agent's twenty hours.
  *
  *  It reads the same pip binding and the same recency cell the structural row
  *  does, so the two renderings of one terminal cannot drift — the whole point
@@ -107,21 +107,23 @@ const NeedsYouEntryRow: Component<{
         // absent for a never-active row — both deliberate "nothing honest to
         // report" answers, so the clause DROPS rather than inventing one.
         const duration = useDuration();
-        const waitLabel = () => {
-          const at = waitAt();
-          if (at === null) return "";
-          const d = duration(at);
-          return d === DASH ? "" : d;
-        };
         const title = () => {
           const where = `${c().tile.info.key.group} · ${c().tile.info.key.label}`;
-          const wait =
-            props.density === "icon" && waitLabel()
-              ? ` for ${waitLabel()}`
-              : "";
           const hidden = props.entry.hiddenByFilter
             ? " (hidden by the dock filters)"
             : "";
+          // The wait rides the tooltip ONLY at icon density, where the capsule
+          // has no room. Reading the clock outside that branch would subscribe
+          // every full-density entry to the shared 1s tick to build a string it
+          // never renders — and hold that subscription for the whole length of
+          // the block, i.e. longest in exactly the twenty-hour case this strip
+          // exists for. Computed once, not twice.
+          if (props.density !== "icon") {
+            return `${where} — waiting on you${hidden}`;
+          }
+          const at = waitAt();
+          const d = at === null ? "" : duration(at);
+          const wait = d && d !== DASH ? ` for ${d}` : "";
           return `${where} — waiting on you${wait}${hidden}`;
         };
         return (
@@ -143,10 +145,6 @@ const NeedsYouEntryRow: Component<{
             // The tile this entry lands on — distinct from `data-terminal-id`
             // above, which names the row the pip and the wait come off.
             data-tile-id={props.entry.tile.id}
-            // A row the dock's own filters removed from the sections below. It
-            // still belongs here (that is the twenty-hour case), so the mark is
-            // deliberately quiet — a slight recede, not a second badge.
-            data-filtered-hidden={props.entry.hiddenByFilter ? "" : undefined}
             // The BLOCKED id, not the tile. When a split is the one asking, this
             // entry names that split — its pip, its wait, its `data-terminal-id`
             // — so landing on the parent's MAIN pane would send you to a pane
@@ -169,8 +167,16 @@ const NeedsYouEntryRow: Component<{
           >
             <StatePip {...pip()} class={DOCK_ROW_PIP_BOX} />
             <Show when={props.density === "full"}>
+              {/* The SHARED label class, not three of its six rules re-spelled
+               *  as utilities. `[data-dock-row]:is([data-unread],[data-asking])
+               *  .dock-cards-row-label` lifts a blocked row's label to weight
+               *  700 — these entries carry both attributes, so that rule was
+               *  already targeting them and finding no element: every blocked
+               *  row in the sections rendered bold and the surface named "Needs
+               *  you" rendered default. It supplies `min-width:0` and the
+               *  ellipsis too, so `flex-1` is all that is left to add. */}
               <span
-                class="flex-1 min-w-0 truncate text-[0.8rem]"
+                class="dock-cards-row-label flex-1 text-[0.8rem]"
                 style={{ color: c().tile.info.annotationColor }}
               >
                 <IntentMarkdownInline

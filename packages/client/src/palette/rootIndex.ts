@@ -208,18 +208,20 @@ function recentBand<T extends IndexableItem>(
 ): T[] {
   const byWarmth = [...candidates].sort((a, b) => rankOf(b) - rankOf(a));
   if (byWarmth.length <= RECENT_TERMINAL_LIMIT) return byWarmth;
-  const kept = new Set(byWarmth.slice(0, RECENT_TERMINAL_LIMIT));
   // The SAME argmax the highlight uses — see {@link toggleTarget}. The seat and
-  // the highlight are now one answer read twice, not two reduces that matched.
+  // the highlight are one answer read twice, not two reduces that matched.
   const target = toggleTarget(candidates, current);
-  if (target !== undefined && !kept.has(target)) {
-    // Evict the coldest row we were keeping — never the warmest, and never a
-    // row that is itself the target.
-    const coldest = byWarmth[RECENT_TERMINAL_LIMIT - 1];
-    if (coldest !== undefined) kept.delete(coldest);
-    kept.add(target);
-  }
-  return byWarmth.filter((item) => kept.has(item));
+  // Already warm enough to be in on its own merit — the seat costs nothing.
+  if (target === undefined) return byWarmth.slice(0, RECENT_TERMINAL_LIMIT);
+  const at = byWarmth.indexOf(target);
+  if (at < RECENT_TERMINAL_LIMIT)
+    return byWarmth.slice(0, RECENT_TERMINAL_LIMIT);
+  // Outside the cap. A row the cap excluded is by construction colder than
+  // every row it kept, so the seat is the LAST slot and the band is simply the
+  // warmest N-1 with the target appended — the substitution stated as one
+  // expression rather than restored by an eviction step a later edit can
+  // perturb. Display order stays pure warmth either way.
+  return [...byWarmth.slice(0, RECENT_TERMINAL_LIMIT - 1), target];
 }
 
 /** Filter by AND-token match, then rank for root (or leave registration

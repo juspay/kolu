@@ -169,6 +169,9 @@ export function buildDockTree(
       color: string;
       byLabel: Map<string, RankedDockRow[]>;
       allTopRows: RankedDockRow[];
+      /** Blocked entries accumulated in the SAME pass that visits the row, so
+       *  the strip costs no second walk over every row and every split. */
+      needsYou: DockNeedsYouEntry[];
     }
   >();
   let parkedCount = 0;
@@ -190,7 +193,12 @@ export function buildDockTree(
     if (!info) continue;
     let group = byName.get(info.key.group);
     if (!group) {
-      group = { color: info.repoColor, byLabel: new Map(), allTopRows: [] };
+      group = {
+        color: info.repoColor,
+        byLabel: new Map(),
+        allTopRows: [],
+        needsYou: [],
+      };
       byName.set(info.key.group, group);
     }
     group.allTopRows.push(row);
@@ -203,7 +211,15 @@ export function buildDockTree(
     // meanings; this is the filter rule, and it has exactly one spelling — so
     // "add a third filter and this term grows here" is true of the code and not
     // only of the doc.
-    if (filteredOut(row)) hiddenCount++;
+    const hidden = filteredOut(row);
+    if (hidden) hiddenCount++;
+    // The strip's entry, decided HERE — the row and its filter verdict are both
+    // already in hand, so a second walk over every row (and, through
+    // `needsYouEntry`, every split beneath it) would be re-deriving what this
+    // iteration holds. It runs on every tree rebuild, including the ones the
+    // 60s staleness tick drives and the common one where nothing is blocked.
+    const blocked = needsYouEntry(row);
+    if (blocked) group.needsYou.push({ ...blocked, hiddenByFilter: hidden });
     const list = group.byLabel.get(info.key.label);
     if (list) list.push(row);
     else group.byLabel.set(info.key.label, [row]);
@@ -248,16 +264,12 @@ export function buildDockTree(
   return {
     groups,
     flatShortcutRows,
-    // Folded over the UNFILTERED rows, in structural order — the same set and
-    // the same `asking` test the section headers count with, so the capsule and
-    // the strip are two reads of one rule instead of two folds that happened to
-    // agree. Filtered rows come through marked rather than dropped.
-    needsYou: allGroups.flatMap((g) =>
-      g.allTopRows.flatMap<DockNeedsYouEntry>((row) => {
-        const entry = needsYouEntry(row);
-        return entry ? [{ ...entry, hiddenByFilter: filteredOut(row) }] : [];
-      }),
-    ),
+    // Accumulated in the build loop above, over the UNFILTERED rows and in
+    // structural order — the same set and the same `asking` test the section
+    // headers count with, so the capsule and the strip are two reads of one
+    // rule instead of two folds that happened to agree. Filtered rows come
+    // through marked rather than dropped.
+    needsYou: [...byName.values()].flatMap((g) => g.needsYou),
     parkedCount,
     sleepingCount,
     hiddenCount,

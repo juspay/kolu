@@ -10,7 +10,6 @@ import {
   agentUrgency,
   attentionClass,
   type TerminalId,
-  URGENCY_RANK,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { isStale } from "../../terminal/staleness";
@@ -22,35 +21,26 @@ import {
   rowRecencyAt,
 } from "./dockRowRanking";
 
-/** A row's URGENCY, as a number. Lower = more urgent.
+/** Which shared urgency class each of the dock's three AGENT-STATE buckets IS.
  *
- *  This table lives HERE, not in production, because no production code reads
- *  it: nothing in the dock orders by urgency any more, and strip membership is
- *  the attention class. It survived as an exported constant purely so this file
- *  had something to assert about — a test fixture type-checked and re-read as if
- *  it were a runtime contract, needing eleven lines of doc telling the next
- *  reader not to wire a surface through it. A comment was doing a structure's
- *  job; now nothing may read it because nothing CAN.
+ *  A translation between two vocabularies, not a copy of a rank table. The dock
+ *  ranks nothing now, so the one claim left worth pinning is that
+ *  `classifyDockRow` agrees with `agentUrgency` state for state — which is what
+ *  stops it drifting from the vocabulary the rest of the fleet speaks (see
+ *  `.claude/rules/dock-fleet-mirror.md`).
  *
- *  The claim it exists for is still worth pinning: the dock's three agent-state
- *  buckets inherit the shared needs-you-first rank (`need=0 < work=1 < idle=2`),
- *  with `sleeping`/`parked`/`none` as the dock's own quieter tail below them —
- *  which is what stops `classifyDockRow` drifting from the shared vocabulary the
- *  rest of the fleet speaks (see `.claude/rules/dock-fleet-mirror.md`). The
- *  `Record<DockRowBucket, number>` annotation still compile-fails this file when
- *  a bucket is added, which is the drift the table guards. */
-const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
-  awaiting: URGENCY_RANK.need,
-  working: URGENCY_RANK.work,
-  // `linger` is a PAINT-only bucket (`classifyDockRow` never emits it — a
-  // post-turn `waiting` agent ORDERS as idle), listed here only because the
-  // priority table is total over the union; it ranks with idle, honestly.
-  linger: URGENCY_RANK.idle,
-  idle: URGENCY_RANK.idle,
-  sleeping: 3,
-  parked: 4,
-  none: 5,
-};
+ *  It replaces a seven-entry rank table that spelled its own numbers as
+ *  `URGENCY_RANK.need` / `.work` / `.idle` and was then asserted against
+ *  `URGENCY_RANK` — two constants in one scope, which no production change
+ *  could make disagree. The dock's quieter tail (`sleeping`/`parked`/`none`) is
+ *  absent because no agent state can reach it; `classifyDockRow`'s own
+ *  exhaustive switch is what guards that, not an inequality between two
+ *  literals. */
+const BUCKET_URGENCY = {
+  awaiting: "need",
+  working: "work",
+  idle: "idle",
+} as const;
 
 function makeAgent(state: AgentInfo["state"]): AgentInfo {
   return {
@@ -336,15 +326,13 @@ describe("row ORDER vs row COLOUR are decoupled — the pip matches the tile tit
 });
 
 describe("dock ⇄ agentProjection urgency parity (the cross-consumer differential)", () => {
-  // The #1535 review flagged that nothing pinned "the dock ranks an agent state
-  // the SAME way pulam-tui / pulam-web do". This asserts it structurally: for
-  // every agent state, the dock's row RANK equals the shared
-  // `agentProjection.agentUrgency`'s rank. Both sides read PRODUCTION constants —
-  // the shared `URGENCY_RANK` and this file's own bucket table — so
-  // there is no hand-written fixture table to drift from the production tables
-  // (the bug a parallel `{awaiting→need, …}` map would reintroduce). If the dock
-  // ever re-grows a bucket that disagrees (the historical `waiting`→awaiting
-  // drift), this goes red.
+  // The #1535 review flagged that nothing pinned "the dock buckets an agent
+  // state the SAME way every other `agentProjection` consumer does". This
+  // asserts it where it is still assertable: for every agent state, the dock's
+  // BUCKET (a production value, off `classifyDockRow`) names the same urgency
+  // class the shared `agentUrgency` fold returns (the other production value).
+  // If the dock ever re-routes a state — the historical `waiting`→awaiting
+  // drift — this goes red.
   const STATES: AgentInfo["state"][] = [
     "thinking",
     "tool_use",
@@ -354,29 +342,23 @@ describe("dock ⇄ agentProjection urgency parity (the cross-consumer differenti
   ];
 
   for (const state of STATES) {
-    it(`ranks a fresh ${state} agent at agentProjection's urgency`, () => {
+    it(`buckets a fresh ${state} agent at agentProjection's urgency`, () => {
       // A non-null lastActivityAt so an idle-urgency agent lands in `idle`, not
       // the never-touched `none` tail (which carries no agent and no urgency).
       const meta = makeMeta({ agent: makeAgent(state), lastActivityAt: 1 });
-      expect(DOCK_ROW_BUCKET_PRIORITY[bucket(meta, false)]).toBe(
-        URGENCY_RANK[agentUrgency(makeAgent(state))],
+      const emitted = bucket(meta, false);
+      // An agent state reaching the dock's quieter tail IS the misroute this
+      // guards (`waiting`→`parked` and the like), so an unmapped bucket fails
+      // here rather than being silently skipped.
+      expect(
+        Object.hasOwn(BUCKET_URGENCY, emitted),
+        `an agent state must not route to the dock's own tail — got "${emitted}"`,
+      ).toBe(true);
+      expect(BUCKET_URGENCY[emitted as keyof typeof BUCKET_URGENCY]).toBe(
+        agentUrgency(makeAgent(state)),
       );
     });
   }
-
-  it("excludes the dock-only tail buckets from the agent-state rank set", () => {
-    // The three agent-state buckets share the shared urgency ranks; the dock's
-    // own quieter tail (sleeping/parked/none) sits BELOW them. Pinning that the
-    // tail ranks strictly above (later than) idle catches a future misroute that
-    // sent an agent state into the tail (e.g. waiting→parked) — it would no
-    // longer satisfy the parity assertion above, and this guards the boundary.
-    const tail: DockRowBucket[] = ["sleeping", "parked", "none"];
-    for (const bucketKey of tail) {
-      expect(DOCK_ROW_BUCKET_PRIORITY[bucketKey]).toBeGreaterThan(
-        URGENCY_RANK.idle,
-      );
-    }
-  });
 });
 
 describe("rowRecencyAt — the one recency the window and the row display share", () => {

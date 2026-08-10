@@ -906,14 +906,20 @@ body {
  * Tailwind variant per row component — a row surface can no longer be outside
  * this rule, because the rule reads the same attribute the row already has to
  * carry. */
-.dock-cards-section > [data-dock-row][data-active] {
+/* Both row containers, one selector list. The pinned needs-you strip speaks the
+ * SAME row vocabulary off the same shared hook, so widening the parent is what
+ * keeps them in step — enumerating a second container and copying the values
+ * across would reintroduce, one level up, exactly the failure this block's own
+ * comment records: a surface silently outside the wash rather than by anyone's
+ * decision. Retune a mix here and both containers follow. */
+:is(.dock-cards-section, .dock-needs-you-strip) > [data-dock-row][data-active] {
   background: color-mix(in oklab, var(--color-accent) 15%, transparent);
   border-left-color: var(--color-accent);
 }
-.dock-cards-section > [data-dock-row][data-unread] {
+:is(.dock-cards-section, .dock-needs-you-strip) > [data-dock-row][data-unread] {
   --attn: var(--color-attention);
 }
-.dock-cards-section > [data-dock-row][data-asking] {
+:is(.dock-cards-section, .dock-needs-you-strip) > [data-dock-row][data-asking] {
   --attn: var(--color-alert);
 }
 .dock-cards-section
@@ -924,8 +930,8 @@ body {
 /* Hover still has to answer — the wash out-specifies Tailwind's
  * `hover:bg-surface-2/40`, so a washed row would otherwise go dead under the
  * pointer. Deepen the hue instead of replacing it with the neutral hover. */
-.dock-cards-section
-> [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
+:is(.dock-cards-section, .dock-needs-you-strip)
+  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
   background: color-mix(in oklab, var(--attn) 20%, transparent);
 }
 /* Dark mode: the same mix over near-black reads as sludge — lift it, exactly
@@ -936,29 +942,18 @@ body {
   background: color-mix(in oklab, var(--attn) 20%, transparent);
 }
 :root.dark
-  .dock-cards-section
+  :is(.dock-cards-section, .dock-needs-you-strip)
   > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
   background: color-mix(in oklab, var(--attn) 27%, transparent);
 }
-/* The pinned needs-you strip speaks the SAME row vocabulary, keyed on the same
- * shared `[data-dock-row]` hook its entries now carry. It used to hand-spell a
- * neutral `hover:bg-surface-2/60` and carry none of the attributes at all, so
- * the one surface named "Needs you" was the one dock surface outside the
- * attention wash — silently, by rendering plainer than every other row.
- * Every entry here is asking by construction, so the hue is a given; the wash
- * itself stays on hover and on the active entry, because a solid violet block
- * is area spent on a fact the heading already states. */
-.dock-needs-you-strip > [data-dock-row] {
-  --attn: var(--color-alert);
-}
-.dock-needs-you-strip > [data-dock-row][data-active] {
-  background: color-mix(in oklab, var(--color-accent) 15%, transparent);
-}
-.dock-needs-you-strip > [data-dock-row]:not([data-active]):hover {
-  background: color-mix(in oklab, var(--attn) 20%, transparent);
-}
-:root.dark .dock-needs-you-strip > [data-dock-row]:not([data-active]):hover {
-  background: color-mix(in oklab, var(--attn) 27%, transparent);
+/* The strip's ONE genuine deviation, so it is the only thing spelled twice:
+ * every entry there is asking BY CONSTRUCTION, so the static wash above would
+ * paint the whole band solid violet — area spent restating what the heading
+ * already says. The hue, the active highlight and the hover deepening all come
+ * from the shared rules; only the resting background is suppressed. */
+.dock-needs-you-strip
+> [data-dock-row]:is([data-unread], [data-asking]):not([data-active]) {
+  background: transparent;
 }
 
 /* The label leans in with the row — weight is the one contrast channel that
