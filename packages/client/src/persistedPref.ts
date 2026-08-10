@@ -1,4 +1,5 @@
-/** Validated, persisted per-device preference — a thin policy layer over
+/** Validated, persisted preference — per device by default, or per browser tab
+ *  when the caller picks `sessionStorage` (see `storage` below) — a thin policy layer over
  *  `@solid-primitives/storage`'s `makePersisted` that adds the one thing the
  *  off-the-shelf primitive lacks: **validate-on-read with a typed fallback**.
  *
@@ -52,8 +53,11 @@ export interface PersistedPrefOptions<T> {
    *  toast, so notifications stay colocated with their trigger per
    *  `.claude/rules/toast-conventions.md`. */
   onInvalid?: (err: unknown, raw: string) => void;
-  /** Storage backend. Defaults to `localStorage` (via `makePersisted`).
-   *  Injected by tests with a synchronous in-memory fake. */
+  /** Storage backend — a first-class DURABILITY choice, not just a test seam:
+   *  `localStorage` (device-wide, the default via `makePersisted`) or
+   *  `sessionStorage` for a fact that is per BROWSER TAB and must not be
+   *  decided by another tab (the `activeHost` pref and the host-switch trail
+   *  that shadows it). Tests also inject a synchronous in-memory fake. */
   storage?: Storage;
 }
 

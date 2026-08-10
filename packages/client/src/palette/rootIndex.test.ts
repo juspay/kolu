@@ -146,7 +146,7 @@ describe("filterAndRankPaletteItems", () => {
     const out = filterAndRankPaletteItems(withIds, {
       query: "",
       atRoot: true,
-      excludeFromRecent: {
+      current: {
         hostKey: "local",
         terminalId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
       },
@@ -177,7 +177,7 @@ describe("filterAndRankPaletteItems", () => {
     const out = filterAndRankPaletteItems(withIds, {
       query: "edge",
       atRoot: true,
-      excludeFromRecent: {
+      current: {
         hostKey: "local",
         terminalId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
       },
@@ -261,12 +261,12 @@ describe("defaultSelectionIndex", () => {
   const TID_A = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
   const TID_B = "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee";
   const onLocalTerminal = (terminalId: string): CurrentSelection => ({
-    terminal: { hostKey: "local", terminalId },
     hostKey: "local",
+    terminalId,
   });
   const onHost = (hostKey: string): CurrentSelection => ({
-    terminal: null,
     hostKey,
+    terminalId: null,
   });
 
   it("lands on the first row of a plain, rankless command list", () => {
@@ -353,6 +353,22 @@ describe("defaultSelectionIndex", () => {
       item("local", "host", { rankAt: 5, hostKey: "local" }),
     ];
     expect(defaultSelectionIndex(hosts, onHost("local"))).toBe(0);
+  });
+
+  // The root list leads with hosts exactly when Recent is empty — one terminal
+  // open, or none. There is no terminal to toggle to, so ⌘K → Enter falls
+  // through to "the host you came from", which beats the alternative it
+  // replaced: a hard-coded row 0, i.e. whichever machine the pool happens to
+  // list first (sometimes the active one, a no-op; sometimes an arbitrary
+  // other). Pinned so the fall-through stays a decision, not an accident.
+  it("falls through to the previous HOST at root when Recent is empty", () => {
+    const rows: IndexableItem[] = [
+      item("local", "host", { rankAt: 3, hostKey: "local" }),
+      item("gpu-box", "host", { rankAt: 1, hostKey: "remote:gpu-box" }),
+      item("builder", "host", { rankAt: 2, hostKey: "remote:builder" }),
+      item("Toggle dock", "command"),
+    ];
+    expect(defaultSelectionIndex(rows, onHost("local"))).toBe(2);
   });
 
   // The two trails carry different units (wall clock vs MRU ordinal): a host

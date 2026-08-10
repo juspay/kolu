@@ -12,7 +12,6 @@
 
 import Dialog from "@corvu/dialog";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { encodeHostKey } from "kolu-common/hostKey";
 import {
   type Accessor,
   type Component,
@@ -44,7 +43,7 @@ import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
 import RepoMonogram from "./ui/RepoMonogram";
 import { useViewState } from "./useViewState";
-import { activeHost } from "./wire";
+import { encActiveHost } from "./wire";
 
 /** Top-level sections, in render order. Items tagged with a section are
  *  grouped under a sticky header at the root level; untagged items
@@ -412,18 +411,16 @@ const CommandPalette: Component<{
     return out;
   }
 
-  /** Where the user already is — the active tile and the active host. Read by
-   *  the empty-root Recent exclusion below and by the default-highlight rule
-   *  under it, which are the same idea (never offer "go where you already
-   *  are") applied at two levels. */
-  const currentSelection = (): CurrentSelection => {
-    const activeId = view.activeId();
-    const hostKey = encodeHostKey(activeHost());
-    return {
-      terminal: activeId === null ? null : { hostKey, terminalId: activeId },
-      hostKey,
-    };
-  };
+  /** Where the user already is. Read by the empty-root Recent exclusion below
+   *  and by the default-highlight rule under it, which are the same idea
+   *  (never offer "go where you already are") applied at two levels — so both
+   *  take this one value rather than two shapes of it. The host key comes off
+   *  `encActiveHost`, the ONE memo every surface that keys on the active host
+   *  reads, not a re-derived `encodeHostKey(activeHost())` thunk. */
+  const currentSelection = (): CurrentSelection => ({
+    hostKey: encActiveHost(),
+    terminalId: view.activeId(),
+  });
 
   /** Interactive rows at the current level (filter is bypassed in
    *  value mode). Filter mode produces `PaletteCommand[]`;
@@ -458,10 +455,13 @@ const CommandPalette: Component<{
       ...cmd,
       sectionOrder: sectionIndex(cmd.section) * 1000 + i,
     }));
+    // No `atRoot ?` gate on `current`: the ranker already returns early for a
+    // drilled-in level, so re-stating that condition here would only teach the
+    // call site the callee's own gating.
     return filterAndRankPaletteItems(stamped, {
       query: q,
       atRoot,
-      excludeFromRecent: atRoot ? currentSelection().terminal : null,
+      current: currentSelection(),
     });
   });
 

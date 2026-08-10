@@ -35,14 +35,14 @@ const BUILDER: HostKey = { kind: "remote", target: "builder" };
 // the visit order, so a test that passes by accident of position can't.
 const POOL = [LOCAL, GPU, BUILDER];
 
+const enc = (h: HostKey): string =>
+  h.kind === "local" ? "local" : `remote:${h.target}`;
+
 /** The row ⌘⇧H would activate on Enter, given who is active now. */
-function landsOn(active: HostKey): string | undefined {
-  const rows = hostRootActions(POOL, active, () => {});
+function landsOn(active: HostKey, pool: HostKey[] = POOL): string | undefined {
+  const rows = hostRootActions(pool, active, () => {});
   return rows[
-    defaultSelectionIndex(rows, {
-      terminal: null,
-      hostKey: active.kind === "local" ? "local" : `remote:${active.target}`,
-    })
+    defaultSelectionIndex(rows, { hostKey: enc(active), terminalId: null })
   ]?.name;
 }
 
@@ -67,12 +67,14 @@ describe("⌘⇧H default highlight", () => {
     expect(landsOn(LOCAL)).not.toBe("local");
   });
 
-  it("falls back to the first other host before the trail has two entries", () => {
-    const rows = hostRootActions(POOL, LOCAL, () => {});
-    // A trail that has only ever seen `local` ranks the rest at 0 — the
-    // highlight still has to move off the active row.
-    const picked =
-      rows[defaultSelectionIndex(rows, { terminal: null, hostKey: "local" })];
-    expect(picked?.name).not.toBe("local");
+  it("ranks by the trail, not by pool position — a never-seen host loses", () => {
+    // The trail is shared across this file's cases, so this one states the
+    // switches it depends on rather than assuming a clean slate.
+    bag.setActive(BUILDER);
+    bag.setActive(LOCAL);
+    const NEVER: HostKey = { kind: "remote", target: "never-seen" };
+    // NEVER leads the pool but has no trail entry; builder is the way back.
+    // A position-based fallback would pick NEVER — the rank is what decides.
+    expect(landsOn(LOCAL, [NEVER, GPU, BUILDER, LOCAL])).toBe("builder");
   });
 });

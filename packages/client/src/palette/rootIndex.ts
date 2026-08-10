@@ -1,10 +1,18 @@
-/** Root-index ranking + filter for the unified command palette.
+/** The palette's two pure policies — kept together because both answer
+ *  "given these rows, what does the user see first?", and both are unit-tested
+ *  without mounting the palette.
  *
- *  Pure helpers so the cross-kind order (terminals → hosts → commands,
- *  recency within terminals, recent-cap on empty root) is unit-tested
- *  without mounting the palette. The dock's AND-token matcher
- *  (`matchesAllTokens` / `tokenize`) is the single filter implementation —
- *  this module only composes it with kind rank. */
+ *  1. **Root ranking + filter** ({@link filterAndRankPaletteItems},
+ *     {@link kindRank}, {@link RECENT_TERMINAL_LIMIT}) — the ROOT list's
+ *     cross-kind order (terminals → hosts → commands, recency within
+ *     terminals, recent-cap on empty root). The dock's AND-token matcher
+ *     (`matchesAllTokens` / `tokenize`) is the single filter implementation;
+ *     this module only composes it with kind rank.
+ *  2. **The default highlight** ({@link defaultSelectionIndex},
+ *     {@link CurrentSelection}) — CROSS-LEVEL, not root-only: every switcher
+ *     list funnels through it (⌘K root, ⌘⇧K Terminals browse, the ⌘⇧H Hosts
+ *     group), which is what keeps "press the chord, press Enter" one gesture
+ *     instead of six hand-rolled `setSelectedIndex(0)` calls. */
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { matchesAllTokens, tokenize } from "../search";
@@ -26,22 +34,18 @@ export function kindRank(kind: ResultKind): number {
 /** Empty-root Recent band: top N terminals by recency. */
 export const RECENT_TERMINAL_LIMIT = 3;
 
-/** Identity of the canvas-active terminal — used only to drop that row from
- *  empty-root Recent so ⌘K → Enter toggles the previous visit. */
-export type ActiveTerminalRef = {
-  /** Canonical `encodeHostKey` wire form. */
-  hostKey: string;
-  terminalId: string;
-};
-
-/** Where the user already IS, one entry per switchable kind. Every switcher
- *  skips it when choosing its default highlight, which is what makes
- *  open-then-Enter a TOGGLE rather than a no-op. */
+/** Where the user already IS — the canvas host, plus the tile active on it.
+ *
+ *  ONE host key, not one per kind: the active tile is on the active host by
+ *  definition, so "the tile is on gpu-box while the canvas is on local" is a
+ *  state this type cannot express. Every switcher skips this row when it picks
+ *  its default highlight, which is what makes open-then-Enter a TOGGLE rather
+ *  than a no-op; the empty-root Recent band drops it for the same reason. */
 export type CurrentSelection = {
-  /** The canvas-active terminal, or null when no tile is active. */
-  terminal: ActiveTerminalRef | null;
-  /** Canonical `encodeHostKey` wire form of the active host. */
+  /** Canonical `encodeHostKey` wire form of the canvas host. */
   hostKey: string;
+  /** The tile active on that host, or null when the canvas has none. */
+  terminalId: string | null;
 };
 
 /** Fields the root index needs off a palette row. Intentionally minimal so
@@ -66,38 +70,36 @@ export type IndexableItem = {
   };
 };
 
+/** This row's host, canonically encoded. Fleet rows carry `HostKey` objects;
+ *  pure tests may pass the encoded string. `undefined` = the row names no host
+ *  (a command), which can never BE the current row. */
+function rowHostKey(item: IndexableItem): string | undefined {
+  const hk = item.row?.hostKey;
+  if (hk === undefined) return undefined;
+  return typeof hk === "string" ? hk : encodeHostKey(hk);
+}
+
 /** Whether this terminal row is the canvas-active tile (host + id). */
 export function isActiveTerminalRow(
   item: IndexableItem,
-  active: ActiveTerminalRef | null | undefined,
+  current: CurrentSelection | null | undefined,
 ): boolean {
-  if (!active) return false;
+  if (!current || current.terminalId === null) return false;
   if (itemKind(item) !== "terminal") return false;
-  const id = item.row?.terminalId;
-  if (id === undefined || id !== active.terminalId) return false;
-  const hk = item.row?.hostKey;
-  if (hk === undefined) return false;
-  // Fleet rows pass HostKey objects; pure tests may pass the encoded string.
-  const encoded = typeof hk === "string" ? hk : encodeHostKey(hk);
-  return encoded === active.hostKey;
+  if (item.row?.terminalId !== current.terminalId) return false;
+  return rowHostKey(item) === current.hostKey;
 }
 
 /** Whether this row is the one the user is already on — the active tile for a
- *  terminal row, the active host for a host row. Commands have no "current". */
-export function isCurrentRow(
-  item: IndexableItem,
-  current: CurrentSelection,
-): boolean {
+ *  terminal row, the canvas host for a host row. Commands have no "current".
+ *  Module-private on purpose: {@link defaultSelectionIndex} is the ONE entry
+ *  point, so a second surface can't build a rival policy from the predicate. */
+function isCurrentRow(item: IndexableItem, current: CurrentSelection): boolean {
   switch (itemKind(item)) {
     case "terminal":
-      return isActiveTerminalRow(item, current.terminal);
-    case "host": {
-      const hk = item.row?.hostKey;
-      if (hk === undefined) return false;
-      // Fleet rows pass HostKey objects; pure tests may pass the encoded string.
-      const encoded = typeof hk === "string" ? hk : encodeHostKey(hk);
-      return encoded === current.hostKey;
-    }
+      return isActiveTerminalRow(item, current);
+    case "host":
+      return rowHostKey(item) === current.hostKey;
     case "command":
       return false;
   }
@@ -125,9 +127,11 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
   opts: {
     query: string;
     atRoot: boolean;
-    /** Empty-root Recent omits this terminal so ⌘K → Enter jumps to the
-     *  previous visit. Search results and Terminals browse are unaffected. */
-    excludeFromRecent?: ActiveTerminalRef | null;
+    /** Where the user is. Empty-root Recent omits the active tile so ⌘K →
+     *  Enter jumps to the previous visit; search results and Terminals browse
+     *  are unaffected (this is read only on the empty-root path). The SAME
+     *  value {@link defaultSelectionIndex} takes — one fact, one shape. */
+    current?: CurrentSelection | null;
   },
 ): T[] {
   const tokens = tokenize(opts.query);
@@ -144,7 +148,7 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
     // Recent entry the previous visit — ⌘K then Enter toggles last two.
     const terminals = matched
       .filter((item) => itemKind(item) === "terminal")
-      .filter((item) => !isActiveTerminalRow(item, opts.excludeFromRecent))
+      .filter((item) => !isActiveTerminalRow(item, opts.current))
       .sort((a, b) => rankOf(b) - rankOf(a))
       .slice(0, RECENT_TERMINAL_LIMIT);
     const hosts = matched.filter((item) => itemKind(item) === "host");

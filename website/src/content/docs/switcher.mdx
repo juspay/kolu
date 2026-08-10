@@ -105,16 +105,23 @@ scoping is the existing drill-in path (below), not a mode character.
 
 ## Where the highlight lands
 
-Every scope opens with the highlight on **the row you were on before this one** —
-the most recently visited row of whatever the list is a switcher *for*, minus the
-one you are already on. One rule, so every chord has the same muscle memory:
-**press the chord, press Enter, you are back where you came from.** Press it
-again and you are back — a two-key toggle for terminals (⌘K, ⌘⇧K) and for
-machines (⌘⇧H) alike.
+The three **switcher** scopes — ⌘K, ⌘⇧K, ⌘⇧H — open with the highlight on **the
+most recent row that isn't the one you are already on**. One rule, so all three
+share a muscle memory: **press the chord, press Enter, you are back where you
+just were.** Press it again and you are back — a two-key toggle for terminals
+and for machines alike.
 
-Selecting the row you are already on would be a no-op, so no scope ever offers
-it as the default. The moment you **type**, recency stops mattering and the
-highlight moves to the top match instead.
+"Most recent" is the same ranking each list already sorts by, so the highlight
+never contradicts what you see: for **terminals** that is `max(your last visit,
+that terminal's own activity)` — so a terminal that has been chattering can win
+over your last visit — and for **machines** it is purely **your** switch trail,
+since a machine has no activity clock of its own.
+
+Selecting the row you are already on would be a no-op, so no switcher offers it
+as the default. Plain **command** lists carry neither recency nor a "current"
+row, so they still open on their first entry — the rule only has something to
+say where the list is a switcher. And the moment you **type**, recency stops
+mattering: the highlight moves to the top match.
 
 ## Deep-link chords
 
@@ -150,8 +157,10 @@ host re-keys the canvas with no reload — same as the [host strip](/remote-host
 The rows stay in **pool order** (a machine list that reshuffles under the cursor
 is not one you can learn), and the **highlight** opens on the host you switched
 away from, so **⌘⇧H then Enter** hops between the last two machines the same way
-⌘K hops between the last two terminals. The trail is per browser tab, so two
-tabs parked on two machines each keep their own way back.
+⌘K hops between the last two terminals. Until a tab has switched at least once
+there is no such machine, so the highlight falls back to the first *other* row.
+The trail is **per browser tab** — two tabs parked on two machines each keep
+their own way back — and it survives a reload of that tab, not a new one.
 
 Host status text is quiet by default:
 
