@@ -56,7 +56,7 @@ retirements:
           test: "cameraSwap pure core > switchInNeedsCenter: seed on first visit, re-center only when the tile is out of view"
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-b4cf7c5a1a21a208576f
+      - revision-5c101717367b90e5cc29
       - revision-9cb8d7f6e6a3a9b2c109
     sameCodePathEvidence:
       file: packages/tests/features/dock.feature
@@ -448,7 +448,7 @@ retirements:
           test: data-active across the dock's row states > lights the parent while focus is in the main pane
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-b4cf7c5a1a21a208576f
+      - revision-5c101717367b90e5cc29
     sameCodePathEvidence:
       file: packages/tests/features/dock.feature
       symbol: "Scenario: Cmd+1 activates the first dock row (recency-sorted)"
@@ -2022,3 +2022,16 @@ retirements:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Tree/content split survives switching to another terminal and back"
       test: Same split-fraction round-trip and the same non-git-fallback unmount it guards; only the fallback-mounted wait changed spelling — the fallback is now the collapsed browse-root node instead of the "Not in a git repository" message (PR #2138).
+  - id: rename-b4cf7c5a1a21a208576f
+    revisionId: revision-b4cf7c5a1a21a208576f
+    action: renamed
+    status: landed
+    promise: Cmd+1 activates the first dock row
+    defectSurface: [dock, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-5c101717367b90e5cc29]
+    sameCodePathEvidence:
+      file: packages/tests/features/dock.feature
+      symbol: "Scenario: Cmd+1 activates the first dock row (creation order)"
+      test: Same scenario, same steps, same assertion — only the parenthetical changed, because the order it names stopped being recency and became creation order (#2141). The promise it guards is unchanged.
