@@ -749,7 +749,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:ea54600c3e0f5e05c53c7eb08b67650098741f6aa10bd202db955d69b069a015
+  content_hash: sha256:1c14c83840ba61a88f2d526a0bc618af04ba81c30041025e2690adc96fe036a3
 - kind: project-relative
   target: claude
   value: .claude/rules/doc-links.md
@@ -2801,7 +2801,7 @@ local_deployed_file_hashes:
   .claude/rules/atlas.md: sha256:57ea93f2bc1378ed4eb5b7ac66d96fc8bcd1a03dad53654984e9c0644b46a8b9
   .claude/rules/be-workflow-atlas.md: sha256:7fcd2ab066ff94398defe85dacaab23ac11739521b02187c49bda0d6502ec1ea
   .claude/rules/changelog.md: sha256:e74edc80adeff7a9408c132ea6e9b6dd4f5b58e402c6f89a30e721249c34336b
-  .claude/rules/conventions.md: sha256:ea54600c3e0f5e05c53c7eb08b67650098741f6aa10bd202db955d69b069a015
+  .claude/rules/conventions.md: sha256:1c14c83840ba61a88f2d526a0bc618af04ba81c30041025e2690adc96fe036a3
   .claude/rules/doc-links.md: sha256:280a14103c848247ab9f2bf0f2284569c0d9cf00b7d1deafb29bf60b12a661c3
   .claude/rules/dock-fleet-mirror.md: sha256:b140c5465ea1228c065c50a4efbbc7d22e1181649c51639a2ad85d09d1777ed1
   .claude/rules/docs.md: sha256:c78ee3eb709a228c4d8c86031ac2c9de2967fed129c97c07f8e5998d5c1f085c
