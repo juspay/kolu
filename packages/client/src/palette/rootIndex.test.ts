@@ -14,7 +14,6 @@ function item(
   kind: "terminal" | "host" | "command",
   extras: Partial<IndexableItem> & {
     recencyAt?: number;
-    rankAt?: number;
     visitedAt?: number;
     searchText?: string;
     sectionOrder?: number;
@@ -24,7 +23,6 @@ function item(
 ): IndexableItem {
   const {
     recencyAt,
-    rankAt,
     visitedAt,
     searchText,
     sectionOrder,
@@ -40,7 +38,6 @@ function item(
     row: {
       kind,
       recencyAt,
-      rankAt,
       visitedAt,
       searchText,
       hostKey,
@@ -324,30 +321,30 @@ describe("defaultSelectionIndex", () => {
     ).toBe(0);
   });
 
-  // THE #2141 guard, and the one test that was red before it. `rankAt` and
-  // `visitedAt` are made to DISAGREE here — a background agent is the warmest
-  // row in the list, and a terminal you actually came from is the one you last
-  // visited. When the highlight rode `rankAt`, ⌘K → Enter went to the chatty
+  // THE #2141 guard, and the one test that was red before it. Warmth and your
+  // trail are made to DISAGREE here — a background agent is the warmest row in
+  // the list, and a terminal you actually came from is the one you last
+  // visited. When the highlight read warmth, ⌘K → Enter went to the chatty
   // stranger; the toggle only worked while nothing else was running, which is
   // not when anyone needs it.
   it("a chatty terminal you have never visited does not steal the highlight", () => {
     const rows: IndexableItem[] = [
       item("active", "terminal", {
-        rankAt: 500,
+        recencyAt: 500,
         visitedAt: 500,
         hostKey: "local",
         terminalId: TID_A,
       }),
       // Loudest row in the list, and you have never once opened it.
       item("chatty-stranger", "terminal", {
-        rankAt: 9_000_000,
+        recencyAt: 9_000_000,
         visitedAt: 0,
         hostKey: "local",
         terminalId: TID_B,
       }),
       // Quiet, but it is where you came from.
       item("came-from", "terminal", {
-        rankAt: 400,
+        recencyAt: 400,
         visitedAt: 400,
         hostKey: "local",
         terminalId: "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee",
@@ -355,6 +352,74 @@ describe("defaultSelectionIndex", () => {
     ];
     const idx = defaultSelectionIndex(rows, onLocalTerminal(TID_A), "");
     expect(rows[idx]?.name).toBe("came-from");
+  });
+
+  // The test above hands `defaultSelectionIndex` a list built by hand, so it
+  // proves the RULE and nothing about the list the rule is given. At empty root
+  // that list is capped at RECENT_TERMINAL_LIMIT by a DIFFERENT key (warmth),
+  // and a cap on another key can defeat the rule without touching it: three
+  // background agents printing after you outrank the terminal you came from,
+  // it is sliced out, every survivor ties at `visitedAt: 0`, and Enter lands on
+  // the loudest stranger. Compose the two exactly as the palette does.
+  it("the Recent cap cannot evict the row ⌘K → Enter is meant to reach", () => {
+    const rows: IndexableItem[] = [
+      item("active", "terminal", {
+        recencyAt: 500,
+        visitedAt: 500,
+        hostKey: "local",
+        terminalId: TID_A,
+      }),
+      item("came-from", "terminal", {
+        recencyAt: 400,
+        visitedAt: 400,
+        hostKey: "local",
+        terminalId: TID_B,
+      }),
+      // Three strangers, every one warmer than where you came from.
+      ...[1, 2, 3].map((n) =>
+        item(`chatty-${n}`, "terminal", {
+          recencyAt: 9_000_000 + n,
+          visitedAt: 0,
+          hostKey: "local",
+          terminalId: `dddddddd-bbbb-4ccc-8ddd-00000000000${n}`,
+        }),
+      ),
+    ];
+    const ranked = filterAndRankPaletteItems(rows, {
+      query: "",
+      atRoot: true,
+      current: onLocalTerminal(TID_A),
+    });
+    const names = ranked.map((i) => i.name);
+    // The band is still RECENT_TERMINAL_LIMIT rows and still warmth-ordered —
+    // it just cannot drop the one row the highlight has a claim on.
+    expect(names).toHaveLength(RECENT_TERMINAL_LIMIT);
+    expect(names).toContain("came-from");
+    expect(names).not.toContain("active");
+    const idx = defaultSelectionIndex(ranked, onLocalTerminal(TID_A), "");
+    expect(ranked[idx]?.name).toBe("came-from");
+  });
+
+  it("reserves nothing when no candidate has a visit behind it", () => {
+    const rows: IndexableItem[] = [1, 2, 3, 4].map((n) =>
+      item(`fresh-${n}`, "terminal", {
+        recencyAt: n * 100,
+        visitedAt: 0,
+        hostKey: "local",
+        terminalId: `eeeeeeee-bbbb-4ccc-8ddd-00000000000${n}`,
+      }),
+    );
+    const ranked = filterAndRankPaletteItems(rows, {
+      query: "",
+      atRoot: true,
+      current: { hostKey: "local", terminalId: null },
+    });
+    // Plain top-N by warmth — a fresh tab has no trail to protect.
+    expect(ranked.map((i) => i.name)).toEqual([
+      "fresh-4",
+      "fresh-3",
+      "fresh-2",
+    ]);
   });
 
   // ⌘⇧K browse lists every terminal INCLUDING the active one, in host order —
@@ -452,13 +517,11 @@ describe("defaultSelectionIndex", () => {
       item("local", "host", { visitedAt: 3, hostKey: "local" }),
       item("gpu-box", "host", { visitedAt: 2, hostKey: "remote:gpu-box" }),
       item("prev-visit", "terminal", {
-        rankAt: 1,
         visitedAt: 1,
         hostKey: "local",
         terminalId: TID_B,
       }),
       item("active", "terminal", {
-        rankAt: 900,
         visitedAt: 900,
         hostKey: "local",
         terminalId: TID_A,
@@ -471,7 +534,7 @@ describe("defaultSelectionIndex", () => {
     });
     const idx = defaultSelectionIndex(ranked, onLocalTerminal(TID_A), "");
     // Terminals lead (kindRank), so the highlight is a TERMINAL even though a
-    // host row carries a larger raw rankAt.
+    // host row carries a larger raw visit stamp.
     expect(ranked[idx]?.row?.kind).toBe("terminal");
     expect(ranked[idx]?.name).toBe("prev-visit");
   });

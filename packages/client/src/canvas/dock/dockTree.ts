@@ -60,7 +60,7 @@ export type DockGroup = {
   color: string;
   /** Top-level rows inside this group, in creation order, with same-branch
    *  siblings kept adjacent via cluster grouping. */
-  topRows: RankedDockRow[];
+  topRows: readonly RankedDockRow[];
   /** Every row belonging to this repo, INCLUDING the ones the activity window
    *  parked and the ☾ toggle is hiding — what the header's attention summary
    *  counts. The counts must not move when you toggle a filter: an agent that
@@ -68,7 +68,7 @@ export type DockGroup = {
    *  the one you most need told about, and folding over the visible rows alone
    *  reported it as zero — the header quietly agreeing with a dock that had
    *  hidden the problem. Same order as `rows`, filters not applied. */
-  allTopRows: RankedDockRow[];
+  allTopRows: readonly RankedDockRow[];
   /** Expanded rendered-entry projection. Its length is the section's visible
    * terminal count; shortcut indices remain on top-level rows only. */
   railEntries: readonly DockRailEntry[];
@@ -79,7 +79,7 @@ export type DockRailEntry =
   | { kind: "split"; row: RankedDockRow["subRows"][number] };
 
 export type DockTree = {
-  groups: DockGroup[];
+  groups: readonly DockGroup[];
   /** Flat top-level order across all groups. `App.tsx` projects ids from this
    *  list for `Cmd+1..9`; splits are intentionally absent because the rail's
    *  expanded entry projection does not change shortcut numbering.
@@ -140,9 +140,17 @@ export function buildDockTree(
   let parkedCount = 0;
   let sleepingCount = 0;
 
+  /** Is this row one the two filters remove from the tree? ONE reading of the
+   *  rule, used to drop rows at the end — never to decide where the survivors
+   *  sit. That distinction is the whole point: see the bucketing note below. */
+  const filteredOut = (row: RankedDockRow): boolean =>
+    row.bucket === "parked" || (row.bucket === "sleeping" && hideSleeping);
+
   for (const row of ranked) {
-    // Resolve the repo BEFORE the filters, so a hidden row still joins its
-    // group's `allTopRows` and its attention still reaches the header.
+    // Resolve the repo AND the branch cluster BEFORE the filters, so a hidden
+    // row still joins its group's `allTopRows` (its attention must reach the
+    // header) and — the #2141 correction — so the filters cannot decide where
+    // the VISIBLE rows sit.
     const info = getDisplayInfo(row.id);
     if (!info) continue;
     let group = byName.get(info.key.group);
@@ -151,17 +159,10 @@ export function buildDockTree(
       byName.set(info.key.group, group);
     }
     group.allTopRows.push(row);
-    if (row.bucket === "parked") {
-      parkedCount++;
-      continue;
-    }
-    if (row.bucket === "sleeping") {
-      // Count every fresh sleeping row so the footer toggle knows the total,
-      // then drop it from the tree when the ☾ toggle is off — the same
-      // hard-hide the activity window applies to parked rows.
-      sleepingCount++;
-      if (hideSleeping) continue;
-    }
+    if (row.bucket === "parked") parkedCount++;
+    // Count every fresh sleeping row so the footer toggle knows the total,
+    // whether or not the ☾ toggle is currently showing it.
+    if (row.bucket === "sleeping") sleepingCount++;
     const list = group.byLabel.get(info.key.label);
     if (list) list.push(row);
     else group.byLabel.set(info.key.label, [row]);
@@ -171,9 +172,20 @@ export function buildDockTree(
   // arrived in creation order — so plain iteration already yields
   // first-appearance sections holding first-appearance clusters. There is no
   // sort here to delete a comparator from; the order is the input's.
+  //
+  // Both maps are filled from the UNFILTERED stream, and the filters apply
+  // only at the flatten below. Bucketing after the filters looked equivalent
+  // and was not: cluster first-appearance would then be decided by the visible
+  // rows alone, so a row crossing the activity window — a pure 60s CLOCK tick,
+  // no user action behind it — could reorder the rows that remain, and
+  // renumber `Cmd+1..9` with them. `byName` was already filter-independent;
+  // this makes `byLabel` agree, so a row's slot is a function of the row set
+  // and its label, and hiding a row only ever removes it.
   const groups: DockGroup[] = [...byName.entries()]
     .map(([name, g]) => {
-      const topRows = [...g.byLabel.values()].flat();
+      const topRows = [...g.byLabel.values()]
+        .flat()
+        .filter((row) => !filteredOut(row));
       const railEntries = topRows.flatMap<DockRailEntry>((row) => [
         { kind: "top", row },
         ...row.subRows.map((sub) => ({ kind: "split" as const, row: sub })),

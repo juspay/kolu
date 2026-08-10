@@ -4,17 +4,25 @@ import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { RankedDockRow } from "./dockRowRanking";
 import { buildDockTree } from "./dockTree";
 
+/** A row whose two folds AGREE — the ordinary case, where the attention frame
+ *  has landed and metadata and paint say the same thing.
+ *
+ *  The `pip` argument exists because they can disagree, and which one a
+ *  consumer reads is now load-bearing: strip membership is the PAINT fold
+ *  (`needsYou` → `pip`), because that is the fold the wash, the wait chip and
+ *  the section count all read. Passing them separately is what lets
+ *  {@link row} model a frame that has not arrived yet. `none` has no paint
+ *  spelling, so it paints the quiet `idle`, exactly as `paintDockRow` does. */
 function row(
   id: string,
   bucket: RankedDockRow["bucket"],
   ts: number,
+  pip: RankedDockRow["pip"] = bucket === "none" ? "idle" : bucket,
 ): RankedDockRow {
-  // dockTree only reads `bucket`/`ts`; the pip is exercised in dockRowRanking's
-  // own tests, so mirror the order bucket here.
   return {
     id: id as TerminalId,
     bucket,
-    pip: "idle",
+    pip,
     ts,
     subRows: [],
   };
@@ -36,16 +44,18 @@ function shellSubRow(
   };
 }
 
+/** Same agreeing-folds default as {@link row}, for a split. */
 function agentSubRow(
   id: string,
   bucket: Extract<SubRow, { kind: "agent" }>["bucket"] = "idle",
   depth = 1,
+  pip: Extract<SubRow, { kind: "agent" }>["pip"] = bucket,
 ): Extract<SubRow, { kind: "agent" }> {
   return {
     id: id as TerminalId,
     kind: "agent",
     bucket,
-    pip: "idle",
+    pip,
     ts: 1,
     depth,
   };
@@ -189,6 +199,68 @@ describe("buildDockTree", () => {
     expect(tree.flatShortcutRows.map((entry) => entry.id)).toEqual(["a"]);
   });
 
+  // The sibling of the guard above, covering the leg it cannot reach: the row
+  // set is FIXED there, so no row ever crosses the activity window. Here one
+  // row does — on a 60s clock tick, with no user action behind it — and the
+  // survivors must keep their relative order. Two rows share a branch cluster
+  // on purpose: bucketing after the filter made cluster first-appearance a
+  // function of the VISIBLE rows, which is how hiding one row moved two others.
+  it("hiding a row on the clock does not reorder the rows that remain", () => {
+    const getInfo = makeGetInfo({
+      t1: { group: "kolu", color: "#aaa", label: "main" },
+      t2: { group: "kolu", color: "#aaa", label: "feat" },
+      t3: { group: "kolu", color: "#aaa", label: "main" },
+    });
+    const before = buildDockTree(
+      [row("t1", "idle", 100), row("t2", "idle", 200), row("t3", "idle", 300)],
+      getInfo,
+      false,
+    );
+    // Clusters are main{t1,t3} then feat{t2} — first appearance, so t1 leads.
+    expect(before.flatShortcutRows.map((r) => r.id)).toEqual([
+      "t1",
+      "t3",
+      "t2",
+    ]);
+
+    // t1 ages past the activity window. Nothing else changed.
+    const after = buildDockTree(
+      [
+        row("t1", "parked", 100),
+        row("t2", "idle", 200),
+        row("t3", "idle", 300),
+      ],
+      getInfo,
+      false,
+    );
+    // t1 leaves; t3 and t2 keep their order. Deciding cluster order from the
+    // visible rows instead would have promoted feat (t2 became the first
+    // visible row) and returned ["t2", "t3"] — two rows moving because one was
+    // hidden, and `Cmd+1`/`Cmd+2` swapping with them.
+    expect(after.flatShortcutRows.map((r) => r.id)).toEqual(["t3", "t2"]);
+    expect(after.parkedCount).toBe(1);
+  });
+
+  it("the ☾ toggle hides sleeping rows without reordering the rest", () => {
+    const getInfo = makeGetInfo({
+      t1: { group: "kolu", color: "#aaa", label: "main" },
+      t2: { group: "kolu", color: "#aaa", label: "feat" },
+      t3: { group: "kolu", color: "#aaa", label: "main" },
+    });
+    const rows = [
+      row("t1", "sleeping", 100),
+      row("t2", "idle", 200),
+      row("t3", "idle", 300),
+    ];
+    expect(
+      buildDockTree(rows, getInfo, false).flatShortcutRows.map((r) => r.id),
+    ).toEqual(["t1", "t3", "t2"]);
+    const hidden = buildDockTree(rows, getInfo, true);
+    expect(hidden.flatShortcutRows.map((r) => r.id)).toEqual(["t3", "t2"]);
+    // The count is filter-independent — it reports what the toggle is holding.
+    expect(hidden.sleepingCount).toBe(1);
+  });
+
   it("a blocked row is mirrored onto the strip and does NOT move in the list", () => {
     const ranked = [
       row("a", "working", 1000),
@@ -254,6 +326,32 @@ describe("buildDockTree", () => {
     );
   });
 
+  // The strip is an ATTENTION surface, so it must read the attention fold —
+  // `pip`, the same value its own entry paints its violet wait capsule from —
+  // not the ORDER fold. The two arrive on independent subscriptions, so they
+  // can differ for a frame; reading `bucket` here put an entry under a "Needs
+  // you" heading whose own pip painted idle and whose cell read "3m ago",
+  // inside a component whose whole claim is that it cannot drift from the row
+  // it mirrors. It also disagreed with the section header, which counts asking
+  // rows off the attention fold.
+  it("takes strip membership from the paint fold, not the order fold", () => {
+    const getInfo = makeGetInfo({
+      frameLate: { group: "kolu", color: "#aaa", label: "one" },
+      painted: { group: "kolu", color: "#aaa", label: "two" },
+    });
+    const tree = buildDockTree(
+      [
+        // Metadata says blocked; the attention frame has not landed, so the row
+        // still paints idle. No entry — the strip would have nothing to show.
+        row("frameLate", "awaiting", 100, "idle"),
+        row("painted", "awaiting", 200, "awaiting"),
+      ],
+      getInfo,
+      false,
+    );
+    expect(tree.needsYou.map((r) => r.id)).toEqual(["painted"]);
+  });
+
   it("the strip mirrors only rows the filters actually left on screen", () => {
     // A parked row can still be `awaiting` — that is exactly the row the
     // activity window hides. Mirroring it would put a chip on the strip with
@@ -280,11 +378,16 @@ describe("buildDockTree", () => {
     expect(tree.parkedCount).toBe(0);
   });
 
-  it("keeps same-branch terminals adjacent within a section, regardless of recency", () => {
+  it("keeps same-branch terminals adjacent within a section", () => {
+    // Creation order a, b, c — and the clocks deliberately DISAGREE with it, so
+    // the assertion cannot be satisfied by a recency sort that happens to
+    // coincide. (It could before: the old fixture's clocks descended in
+    // creation order, so the test went on passing after the sorts were deleted
+    // while its comment explained the result by a mechanism that had gone.)
     const ranked = [
-      row("a", "working", 1000), // feat-x — newest of all three
-      row("b", "idle", 500), // feat-y — between a and c in pure ts order
-      row("c", "idle", 200), // feat-x — older than b, but same branch as a
+      row("a", "working", 200), // feat-x — created first, OLDEST clock
+      row("b", "idle", 1000), // feat-y — newest clock of the three
+      row("c", "idle", 500), // feat-x — same branch as a, created last
     ];
     const getInfo = makeGetInfo({
       a: { group: "kolu", color: "#aaa", label: "feat-x" },
@@ -292,11 +395,11 @@ describe("buildDockTree", () => {
       c: { group: "kolu", color: "#aaa", label: "feat-x" },
     });
     const tree = buildDockTree(ranked, getInfo, false);
-    // Cluster feat-x (headline a@1000) outranks cluster feat-y
-    // (headline b@500) on recency. Within feat-x, a@1000 > c@200.
-    // Pure-recency interleaving would have been [a, b, c]; clustering
-    // keeps a and c adjacent. The cluster headline is the same key
-    // (-ts) as the section sort.
+    // feat-x leads because `a` appeared first; `c` joins its cluster and so
+    // sits beside it, ahead of feat-y — even though `b` is the newest row in
+    // the section. Clustering is the one thing that moves a row off strict
+    // creation order, and it moves on a branch, never on a clock.
+    // (Recency would have given [b, c, a]; strict creation order [a, b, c].)
     expect(tree.groups[0]?.topRows.map((r) => r.id)).toEqual(["a", "c", "b"]);
   });
 

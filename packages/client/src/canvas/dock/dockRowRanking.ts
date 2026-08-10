@@ -8,7 +8,12 @@
  *  **It sorts nothing.** Rows come out in the order the ids arrived, which is
  *  padi's registry insertion order — the creation order `listTerminals` already
  *  contracts ("new terminals append to the tail; clients render this order
- *  directly"). The dock used to discard that and re-sort by `ts`, which made
+ *  directly"). That order survives a browser reload and a reconnect (both
+ *  re-read the same full snapshot), a sleep/wake (the entry keeps its `Map`
+ *  slot), a cold-boot restore, and — since #2141 taught its reattach to rebuild
+ *  in one saved-order walk — a padi restart with surviving PTYs.
+ *
+ *  The dock used to discard all of that and re-sort by `ts`, which made
  *  every row's position a function of a clock nobody controls: a background
  *  agent finishing a turn reshuffled the list, and `Cmd+1..9` — bound to this
  *  order — meant something different every few minutes. Recency did not stop
@@ -79,16 +84,20 @@ type DockPaintBucket = Exclude<DockRowBucket, "none">;
 type SubDockOrderBucket = Exclude<DockOrderBucket, "parked">;
 type SubDockPaintBucket = Exclude<DockPaintBucket, "parked">;
 
-/** A row's URGENCY, as a number. Nothing in the dock ORDERS by it any more —
- *  {@link needsYou} reads it to decide strip membership, and the rail/row paint
- *  reads the bucket itself. Lower number = more urgent.
+/** A row's URGENCY, as a number. Lower = more urgent.
  *
- *  The three agent-state buckets inherit the shared needs-you-first rank
- *  (`need=0 < work=1 < idle=2`) so the dock can't drift from the shared
- *  `agentProjection` vocabulary; `sleeping`/`parked`/`none` are the dock's own
- *  quieter tail below them. Keeping the whole table (rather than a
- *  one-entry "is it awaiting" constant) is what keeps that shared-vocabulary
- *  claim checkable by the parity test. */
+ *  **No production code reads this any more** — nothing in the dock orders by
+ *  urgency, and strip membership is the PAINT fold ({@link needsYou}). It
+ *  survives, exported, as the subject of the dock ⇄ `agentProjection` PARITY
+ *  TEST: the claim that the dock's three agent-state buckets inherit the shared
+ *  needs-you-first rank (`need=0 < work=1 < idle=2`), with
+ *  `sleeping`/`parked`/`none` as the dock's own quieter tail below them, is
+ *  worth keeping checkable even with no runtime consumer — it is what stops
+ *  `classifyDockRow` drifting from the shared vocabulary the rest of the fleet
+ *  speaks (see `.claude/rules/dock-fleet-mirror.md`).
+ *
+ *  Said plainly so the next reader does not mistake a test fixture for a live
+ *  ordering contract, or "re-wire" a surface through it. */
 export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   awaiting: URGENCY_RANK.need,
   working: URGENCY_RANK.work,
@@ -299,12 +308,13 @@ export type RankedDockRow = DockRowCore & {
  *  drop a JUST-slept tile whose agent last transitioned outside the window,
  *  contradicting "a freshly-slept one still shows with its ☾".
  *
- *  This is the ONE source for that derivation: `rankDockRows` feeds it to the
- *  window predicate AND the sort key, and the row's `RecencyCell` displays it,
- *  so the "Xs ago" a row shows is the exact age the window acts on — a 4h
- *  window never hides a row that reads "1h ago" or keeps one that reads "3d
- *  ago". `null` (never-active, never-slept) passes through honestly — the
- *  sort below ranks it last rather than forging a fake epoch. */
+ *  This is the ONE source for that derivation, and it has exactly two consumers
+ *  left: `rankDockRows` feeds it to the staleness/window predicate, and the
+ *  row's `RecencyCell` displays it. So the "Xs ago" a row shows is the exact age
+ *  the window acts on — a 4h window never hides a row that reads "1h ago" or
+ *  keeps one that reads "3d ago". It decides no POSITION: nothing here sorts.
+ *  `null` (never-active, never-slept) passes through honestly rather than
+ *  forging a fake epoch; both consumers render it as such. */
 export function rowRecencyAt(meta: TerminalMetadata): number | null {
   return sleepingArm(meta)?.sleptAt ?? meta.lastActivityAt;
 }
@@ -368,23 +378,34 @@ export function rankDockRows(
   return rows;
 }
 
-/** Is this row blocked on YOU — the pinned needs-you strip's membership test,
- *  and the one place a row's urgency still moves anything on screen.
+/** Is this row blocked on YOU — the pinned needs-you strip's membership test.
  *
- *  `awaiting` is exactly `awaiting_user` (the post-turn `waiting` linger ranks
- *  idle, per the order≠colour law), read OFF the shared
- *  {@link DOCK_ROW_BUCKET_PRIORITY} rather than off a one-entry table of its
- *  own. A split is part of its parent's visible dock entry, so a blocked split
- *  puts the PARENT on the strip — that is the row you can actually click.
+ *  Reads the **PAINT** fold (`pip`), not the ORDER fold (`bucket`), and that is
+ *  load-bearing rather than incidental. `statePipBind`'s `asking` names itself
+ *  "the ONE test every surface reads for it — the row wash, the wait chip, the
+ *  section count and the section jump all come off this rather than each
+ *  re-testing `bucket === "awaiting"`, which is a different fold (ORDER) that
+ *  agreed with the attention class only by luck". `pip` is
+ *  `paintDockRow(meta, classOf(id))` and `paintClassOf("asking") === "awaiting"`,
+ *  so this IS that fold, already on the row.
  *
- *  This used to be `dockTree.ts`'s `blockedFirstRank`, a sort key that floated
- *  the row to the top of its section. Same fact, same threshold; what changed
- *  is that answering it no longer moves anything else. */
+ *  Reading `bucket` here was defensible only while the answer drove a SORT —
+ *  the order≠colour law says sort by urgency, colour by paint. Strip membership
+ *  is a visibility decision, so it belongs on the paint side, and the two folds
+ *  arrive on independent subscriptions: a strip filled from `bucket` could show
+ *  an entry whose own pip painted idle and whose cell read "3m ago" instead of
+ *  the violet wait capsule — inside a component whose whole claim is that its
+ *  two renderings of one terminal cannot drift.
+ *
+ *  A split is part of its parent's visible dock entry, so a blocked split puts
+ *  the PARENT on the strip — that is the row you can actually click.
+ *
+ *  Parked and sleeping rows are excluded for free: `dockOverlayBucket` runs
+ *  ahead of the agent-state tail in BOTH folds, so an overlaid row paints
+ *  `parked`/`sleeping`, never `awaiting`. */
 export function needsYou(row: RankedDockRow): boolean {
-  if (DOCK_ROW_BUCKET_PRIORITY[row.bucket] === URGENCY_RANK.need) return true;
-  return row.subRows.some(
-    (sub) => DOCK_ROW_BUCKET_PRIORITY[sub.bucket] === URGENCY_RANK.need,
-  );
+  if (row.pip === "awaiting") return true;
+  return row.subRows.some((sub) => sub.pip === "awaiting");
 }
 
 /** Fold the tile's pane TREE into its dock sub-entries: siblings in the store's

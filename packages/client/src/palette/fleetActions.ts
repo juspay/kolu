@@ -22,11 +22,7 @@ import { workspaceSearchText } from "../canvas/dockModel";
 import { hostLabel, hostRowContext } from "../host/hostChipTone";
 import { hostRecency, type HostVisit } from "../host/hostRecency";
 import { assignColors } from "../terminal/terminalDisplay";
-import {
-  useVisitRecency,
-  type VisitEntry,
-  visitedAtOf,
-} from "../terminal/visitRecency";
+import { useVisitRecency, visitedAtOf } from "../terminal/visitRecency";
 import { padiMap } from "../wire";
 import {
   type FleetTerminalRow,
@@ -34,33 +30,15 @@ import {
   orderHostsActiveFirst,
 } from "./fleetTerminals";
 
-/** Palette ORDER policy for the Recent band: max(client visit, server activity)
- *  — "how warm is this terminal", which output legitimately answers. Lives here
- *  (not in the trail store) so visitRecency stays trail-only.
- *
- *  Pair it with {@link visitedAtOf} on every row: that is the HIGHLIGHT key, and
- *  the two must stay distinct. Folding them back into one number is precisely
- *  what let a chatty background agent steal ⌘K → Enter (#2141). */
-export function terminalRankScore(
-  visits: readonly VisitEntry[],
-  hostKey: string,
-  terminalId: TerminalId,
-  serverActivityAt: number | null | undefined,
-): number {
-  return Math.max(
-    visitedAtOf(visits, hostKey, terminalId),
-    serverActivityAt ?? 0,
-  );
-}
-
-/** Palette HIGHLIGHT policy for host rows: the switch trail's stamp — when YOU
- *  last switched to this host. Lives here (not in the trail store) so
+/** When YOU last switched to this host — the switch trail's stamp, which a host
+ *  row carries as `visitedAt`. Lives here (not in the trail store) so
  *  hostRecency stays trail-only.
  *
- *  There is no host ORDER policy to pair this with, and that asymmetry is the
- *  design: the Hosts list keeps POOL order, because a machine list that
+ *  A host row carries no activity clock to pair it with, and that asymmetry is
+ *  the design: the Hosts list keeps POOL order, because a machine list that
  *  reshuffles under the cursor is unlearnable — the same reason the dock stopped
- *  sorting on a clock. Hosts therefore set `visitedAt` and no `rankAt`. */
+ *  sorting on a clock. So a host's warmth (`rootIndex.rankOf`) degenerates to
+ *  its visit stamp, which is harmless because no path ever rank-sorts hosts. */
 export function hostVisitedAt(
   mru: readonly HostVisit[],
   hostKey: string,
@@ -126,11 +104,13 @@ function terminalSwitchActionsForHost(
     }
     const hostName = hostLabel(row.host);
     const hostKey = encodeHostKey(row.host);
-    // Three clocks, three jobs, never jammed into one field: the activity clock
-    // PAINTS the "3m ago" cell, `rankAt` ORDERS the Recent band, `visitedAt`
-    // HIGHLIGHTS the row Enter lands on.
+    // TWO grounded clocks, and only grounded ones: the terminal's own activity
+    // and your own visit. The palette's two questions — how warm is this row
+    // (ORDER) and when were you last here (HIGHLIGHT) — are both DERIVED from
+    // this pair at the sites that ask them (`rootIndex.rankOf` /
+    // `rootIndex.rowVisitedAt`). Storing the warmth derivation as a third field
+    // let a row carry a rank its own inputs contradicted.
     const activityAt = row.recencyAt;
-    const rankAt = terminalRankScore(visits, hostKey, row.id, activityAt);
     return {
       kind: "action",
       name: branchLabel,
@@ -147,7 +127,6 @@ function terminalSwitchActionsForHost(
         branchLabel,
         annotationColor,
         recencyAt: activityAt,
-        rankAt,
         visitedAt: visitedAtOf(visits, hostKey, row.id),
         searchText: [
           workspaceSearchText({

@@ -370,6 +370,10 @@ const RailOrCards: Component<{
   onCreate: () => void;
   onOpenWorkspaceSearch: () => void;
 }> = (props) => {
+  // The DESKTOP landing verb, which composes canvas centering — the same one
+  // `DockRow` uses, so the needs-you strip and the row it mirrors go to the
+  // identical place. The touch surfaces pass their own (see `NeedsYouStrip`).
+  const tileStore = useTileStore();
   // Pre-built `id → flat position` map. RepoSection used to compute
   // each row's flat index via `findIndex` over `flatShortcutRows`, costing
   // O(rows²) per render. The map is rebuilt only when the tree
@@ -387,7 +391,11 @@ const RailOrCards: Component<{
       {/* Pinned ABOVE the scrollport, not inside it: a blocked agent you have
        *  to scroll to find is the defect this replaces, not a milder form of
        *  it. Renders nothing when nothing is blocked. */}
-      <NeedsYouStrip rows={props.tree.needsYou} rail={props.mode === "rail"} />
+      <NeedsYouStrip
+        rows={props.tree.needsYou}
+        rail={props.mode === "rail"}
+        onSelect={tileStore.activate}
+      />
       <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none flex-1 min-h-0">
         <Show
           when={props.mode === "rail"}

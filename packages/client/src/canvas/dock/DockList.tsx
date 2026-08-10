@@ -57,7 +57,11 @@ export function DockList(props: { onSelect: (id: TerminalId) => void }) {
           Terminals
         </span>
       </div>
-      <NeedsYouStrip rows={tree().needsYou} rail={false} />
+      <NeedsYouStrip
+        rows={tree().needsYou}
+        rail={false}
+        onSelect={props.onSelect}
+      />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2.5 p-2">
           <For each={tree().groups}>

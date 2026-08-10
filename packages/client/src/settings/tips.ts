@@ -178,6 +178,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "canvas",
   },
   {
+    id: "amb-dock-numbers",
+    text: `${formatKeybind(ACTIONS.switchTo1.keybind)}…9 jump straight to dock rows 1-9 — the dock is ordered by repo → branch → when you made it and never reshuffles itself, so those numbers stay put and are worth learning`,
+    doc: "dock",
+  },
+  {
     id: "amb-dock-sleeping",
     text: "The dock's Filters row has two chips: the activity window (hides stale terminals) and a ☾ chip that hides sleeping ones — click ☾ when you want the dock to show only what's awake",
     doc: "dock",

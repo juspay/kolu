@@ -52,13 +52,14 @@ export type PaletteRowMeta = {
   searchText?: string;
   /** Server activity / visit-unrelated age for the right-rail stamp (null = never). */
   recencyAt?: number | null;
-  /** Switcher ORDER rank, in milliseconds — `max(visit, activity)`, i.e. how
-   *  warm the terminal is. Host rows carry none (the Hosts list keeps pool
-   *  order). Never painted as age (that is `recencyAt`, the activity clock). */
-  rankAt?: number | null;
-  /** Switcher HIGHLIGHT key, in milliseconds — when YOU were last on this row
-   *  (visit trail for a terminal, switch trail for a host). Distinct from
-   *  {@link rankAt} on purpose; see `rootIndex.defaultSelectionIndex`. */
+  /** When YOU were last on this row, in milliseconds — the visit trail for a
+   *  terminal, the switch trail for a host. Never painted as age (that is
+   *  `recencyAt`, the activity clock).
+   *
+   *  These two clocks are the row's whole time story, and both are GROUNDED
+   *  measurements. The palette's two questions — how warm is this row (ORDER)
+   *  and when were you last here (HIGHLIGHT) — are derived from them where they
+   *  are asked, in `rootIndex`. There is deliberately no stored rank. */
   visitedAt?: number | null;
   terminalId?: TerminalId;
   /** Meta snapshot for fleet rows (may be off the active host). */

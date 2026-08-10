@@ -94,7 +94,7 @@ Feature: Dock
     Then the active terminal should show "first-dock-row"
 
   Scenario: A blocked agent joins the Needs-you strip without renumbering the dock
-    # The two halves of #2140 in one pass. A newer terminal goes
+    # The two halves of #2141 in one pass. A newer terminal goes
     # `awaiting_user`, which under the old ordering floated it to the top of
     # its section and quietly stole `Cmd+1` from the row that had held it all
     # session. Now the blocked row is surfaced in the pinned strip and the list

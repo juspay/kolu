@@ -4,7 +4,7 @@
  *
  *  1. **Root ranking + filter** ({@link filterAndRankPaletteItems},
  *     {@link kindRank}, {@link RECENT_TERMINAL_LIMIT}) — the ROOT list's
- *     cross-kind order (terminals → hosts → commands, recency within
+ *     cross-kind order (terminals → hosts → commands, warmth within
  *     terminals, recent-cap on empty root). The dock's AND-token matcher
  *     (`matchesAllTokens` / `tokenize`) is the single filter implementation;
  *     this module only composes it with kind rank.
@@ -32,7 +32,8 @@ export function kindRank(kind: ResultKind): number {
   }
 }
 
-/** Empty-root Recent band: top N terminals by recency. */
+/** Empty-root Recent band: how many terminals it holds, warmest first (plus
+ *  the reserved seat — see `recentBand`). */
 export const RECENT_TERMINAL_LIMIT = 3;
 
 /** Where the user already IS — the canvas host, plus the tile active on it.
@@ -59,24 +60,22 @@ export type IndexableItem = {
   row?: {
     kind: ResultKind;
     searchText?: string;
-    /** Display age (activity clock). Not used for root sort when rankAt set. */
+    /** The terminal's OWN activity clock — server/dock activity, painted as the
+     *  row's "3m ago". Absent on rows that have no such clock. */
     recencyAt?: number | null;
-    /** ORDER key for the Recent band — max(your visit, the terminal's own
-     *  activity), in milliseconds. Answers "what is WARM", which is the right
-     *  question for a list of what to look at, and a background agent's output
-     *  is a legitimate answer to it. Higher = more recent. Missing → 0. */
-    rankAt?: number | null;
-    /** HIGHLIGHT key — when YOU were last on this row, in milliseconds: the
-     *  visit trail for a terminal, the switch trail for a host. Never the
-     *  server's activity clock.
+    /** When YOU were last on this row, in milliseconds: the visit trail for a
+     *  terminal, the switch trail for a host. Never the server's activity
+     *  clock. Missing → 0, so a list with no trail behind it (a fresh tab, a
+     *  plain command list) lands on its first row.
      *
-     *  Separate from {@link rankAt} because ordering and highlighting answer
-     *  different questions, and jamming them into one number broke the toggle:
-     *  ⌘K → Enter is meant to hop back to where you came FROM, but with the
-     *  highlight riding `rankAt` any chattier background agent outranked it and
-     *  Enter went somewhere you had never been. Activity has no opinion on
-     *  where you have been. Missing → 0, so a list with no trail behind it
-     *  (a fresh tab, a plain command list) lands on its first row. */
+     *  These two are the row's only stored clocks, and they are GROUNDED —
+     *  each is a fact somebody measured. The two questions the palette asks
+     *  are both derived from them, at the sites that ask:
+     *  {@link rankOf} (warmth → ORDER) and {@link rowVisitedAt} (your trail →
+     *  HIGHLIGHT). A third stored `rankAt` used to hold the warmth derivation,
+     *  which meant a row could carry a rank contradicting its own inputs — and
+     *  meant "fold the two questions back into one number" was a thing an edit
+     *  could do. With no such field there is nothing to fold. */
     visitedAt?: number | null;
     /** Host + id — present on fleet terminal rows for Recent exclusion. */
     hostKey?: string | HostKey;
@@ -128,16 +127,61 @@ export function searchCorpus(item: IndexableItem): string {
   return `${item.name} ${item.description ?? ""}`;
 }
 
-/** The ORDER key — how warm is this row. */
+/** The ORDER key — how WARM is this row: the later of your last visit and its
+ *  own activity. Output is a legitimate answer to "what should I look at", so
+ *  the activity clock belongs here. Derived, never stored. */
 function rankOf(item: IndexableItem): number {
-  return item.row?.rankAt ?? item.row?.recencyAt ?? 0;
+  return Math.max(item.row?.visitedAt ?? 0, item.row?.recencyAt ?? 0);
 }
 
-/** The HIGHLIGHT key — when were YOU last here. Deliberately does NOT fall back
- *  to `rankAt`/`recencyAt`: a row with no visit behind it must tie at 0 rather
- *  than borrow an activity stamp and win a toggle it has no claim to. */
-function visitedAtOf(item: IndexableItem): number {
+/** The HIGHLIGHT key — when were YOU last here. Deliberately does NOT consider
+ *  `recencyAt`: a row with no visit behind it must tie at 0 rather than borrow
+ *  an activity stamp and win a toggle it has no claim to.
+ *
+ *  Named for the field rather than reusing `visitRecency`'s `visitedAtOf` name:
+ *  that one is the trail LOOKUP (the producer), this is the row ACCESSOR (the
+ *  consumer), and they sit at the two ends of the same field. */
+function rowVisitedAt(item: IndexableItem): number {
   return item.row?.visitedAt ?? 0;
+}
+
+/** The empty-root **Recent** band: the warmest {@link RECENT_TERMINAL_LIMIT}
+ *  candidates, in warmth order — **with the row you last visited guaranteed a
+ *  seat.**
+ *
+ *  That guarantee lives HERE, not in {@link defaultSelectionIndex}, because
+ *  this is the layer that knows what will be in the list. The highlight rule
+ *  can only choose among rows it is handed, so a cap applied on a different key
+ *  can silently defeat it: leave terminal A, let three background agents print
+ *  after you, and all three outrank A on warmth. A is sliced out, every
+ *  survivor has `visitedAt: 0`, they tie, and Enter lands on the chattiest
+ *  stranger — #2141's exact defect, moved one layer down and just as invisible.
+ *
+ *  So the band reserves one seat for the toggle target and gives it to the
+ *  coldest kept row's slot. Display order stays pure warmth: the reserved row
+ *  takes its honest position, which is usually last — the highlight is what
+ *  points at it, not its rank. A candidate set with no visits behind it (a
+ *  fresh tab) reserves nothing and the band is the plain top N. */
+function recentBand<T extends IndexableItem>(candidates: readonly T[]): T[] {
+  const byWarmth = [...candidates].sort((a, b) => rankOf(b) - rankOf(a));
+  if (byWarmth.length <= RECENT_TERMINAL_LIMIT) return byWarmth;
+  const kept = new Set(byWarmth.slice(0, RECENT_TERMINAL_LIMIT));
+  const target = candidates.reduce<T | null>(
+    (best, item) =>
+      rowVisitedAt(item) > 0 &&
+      (best === null || rowVisitedAt(item) > rowVisitedAt(best))
+        ? item
+        : best,
+    null,
+  );
+  if (target !== null && !kept.has(target)) {
+    // Evict the coldest row we were keeping — never the warmest, and never a
+    // row that is itself the target.
+    const coldest = byWarmth[RECENT_TERMINAL_LIMIT - 1];
+    if (coldest !== undefined) kept.delete(coldest);
+    kept.add(target);
+  }
+  return byWarmth.filter((item) => kept.has(item));
 }
 
 /** Filter by AND-token match, then rank for root (or leave registration
@@ -163,14 +207,14 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
   if (!opts.atRoot) return matched;
 
   if (tokens.length === 0) {
-    // Empty root: Recent (top N terminals by recency, **minus the active
-    // tile**) · Hosts · Commands. Dropping the active row makes the first
-    // Recent entry the previous visit — ⌘K then Enter toggles last two.
-    const terminals = matched
-      .filter((item) => itemKind(item) === "terminal")
-      .filter((item) => !isActiveTerminalRow(item, opts.current))
-      .sort((a, b) => rankOf(b) - rankOf(a))
-      .slice(0, RECENT_TERMINAL_LIMIT);
+    // Empty root: Recent (top N terminals by warmth, **minus the active
+    // tile**) · Hosts · Commands. Dropping the active row is what makes ⌘K →
+    // Enter a toggle rather than a no-op.
+    const terminals = recentBand(
+      matched
+        .filter((item) => itemKind(item) === "terminal")
+        .filter((item) => !isActiveTerminalRow(item, opts.current)),
+    );
     const hosts = matched.filter((item) => itemKind(item) === "host");
     const commands = matched
       .filter((item) => itemKind(item) === "command")
@@ -178,7 +222,7 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
     return [...terminals, ...hosts, ...commands];
   }
 
-  // Queried root: kind rank, recency within terminals, section among commands.
+  // Queried root: kind rank, warmth within terminals, section among commands.
   // Active terminal stays visible — you may legitimately search for it.
   return matched.sort((a, b) => {
     const kr = kindRank(itemKind(a)) - kindRank(itemKind(b));
@@ -197,7 +241,7 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
  *  (recency has nothing to say); with no query, **the row of the leading kind
  *  that YOU visited most recently and are not on right now.**
  *
- *  "Visited" is {@link visitedAtOf} — your own trail, never the activity clock
+ *  "Visited" is {@link rowVisitedAt} — your own trail, never the activity clock
  *  the list is ORDERED by. The two were one number until #2141, which meant a
  *  background agent could take the highlight off the terminal you came from and
  *  send Enter somewhere you had never been.
@@ -222,7 +266,7 @@ export function defaultSelectionIndex(
   const best = items.reduce<{ i: number; rank: number } | null>(
     (acc, item, i) => {
       if (itemKind(item) !== kind || isCurrentRow(item, current)) return acc;
-      const rank = visitedAtOf(item);
+      const rank = rowVisitedAt(item);
       return acc === null || rank > acc.rank ? { i, rank } : acc;
     },
     null,

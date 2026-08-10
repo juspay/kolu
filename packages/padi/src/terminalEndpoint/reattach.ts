@@ -213,26 +213,46 @@ export const adoptSurvivingSession: Effect.Effect<void, unknown> = Effect.gen(
     // it had. The terminal comes back as a live shell without its saved chrome.
     let adoptedWhole = 0;
     let orphansAdopted = 0;
-    for (const pair of adopt) {
+
+    // ONE walk over the saved session, in SAVED ORDER, dispatching per record:
+    // adopt an active whose PTY survived, seed a sleeping one dormant (it has no
+    // PTY to adopt, and would otherwise be absent from the registry and wiped by
+    // the converge below — that seeding is what makes a slept terminal survive a
+    // restart and ride the wire as ☾). A malformed record drops itself (tolerant).
+    //
+    // The walk is ONE loop rather than two passes because the registry is a `Map`
+    // and **insertion order IS the client's row order** (`listTerminals`: "new
+    // terminals append to the tail; clients render this order directly"). Seeding
+    // every sleeper after every adopted active — which is what two passes did —
+    // therefore moved every ☾ tile to the bottom of its repo section on a padi
+    // restart, and could move a whole section with it, renumbering `Cmd+1..9`.
+    // Invisible while the dock re-sorted everything by recency; load-bearing since
+    // kolu#2141 made dock order structural. The cold-boot restore path
+    // (`restoreSession`) already walked its saved list once, in order; this makes
+    // the survivor path agree with it.
+    const adoptByRecordId = new Map(
+      adopt.map((pair) => [pair.record.id, pair]),
+    );
+    for (const record of saved?.terminals ?? []) {
+      if (record.state === "sleeping") {
+        seedSleepingTerminal(record);
+        continue;
+      }
+      const pair = adoptByRecordId.get(record.id);
+      if (!pair) continue; // saved but not live — an exited shell, already dropped
       if (adoptLocalTerminal(pair.record, pair.live)) {
         adoptedWhole += 1;
         continue;
       }
       if (adoptSurvivorAsOrphan(pair.live)) orphansAdopted += 1;
     }
+    // True orphans last — a create the debounced autosave never saw, so it has no
+    // saved position to honour and IS the newest thing on the host.
     for (const orphan of adoptOrphans) {
       if (adoptSurvivorAsOrphan(orphan)) orphansAdopted += 1;
     }
 
     const adoptedCount = adoptedWhole + orphansAdopted;
-
-    // Seed every SLEEPING saved record dormant — they have no PTY to adopt, so they
-    // would otherwise be absent from the registry and wiped by the converge below.
-    // Seeding here makes a slept terminal survive a server restart and ride the wire
-    // as ☾ (the reboot-then-wake journey). A malformed record drops itself (tolerant).
-    for (const record of saved?.terminals ?? []) {
-      if (record.state === "sleeping") seedSleepingTerminal(record);
-    }
     // Adopt-or-REAP the crash-window survivors: a sleep that persisted the dormant
     // record but crashed before the PTY kill completed leaves a PTY whose id is a
     // sleeping saved id. The record is sleeping, so REAP the orphan (never re-wake) —

@@ -18,27 +18,27 @@
 
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
+import { formatTimeAgo } from "../../terminal/staleness";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { useTileStore } from "../../tile/useTileStore";
 import { encActiveHost } from "../../wire";
 import { createDockRowData } from "./dockRowData";
-import { rowRecencyAt } from "./dockRowRanking";
-import type { DockTree } from "./dockTree";
+import { type RankedDockRow, rowRecencyAt } from "./dockRowRanking";
 import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
 
 /** One mirrored entry. Reads the same pip binding and the same recency cell the
  *  structural row does, so the two renderings of one terminal cannot drift —
  *  the whole point of a mirror is that it agrees with what it mirrors. */
 const NeedsYouEntry: Component<{
-  row: DockTree["needsYou"][number];
+  row: RankedDockRow;
   rail: boolean;
+  onSelect: (id: TerminalId) => void;
 }> = (props) => {
   const store = useTerminalStore();
-  const tileStore = useTileStore();
   const combined = createDockRowData(props.row.id);
   const unread = () => store.isUnread(props.row.id);
   return (
@@ -52,12 +52,22 @@ const NeedsYouEntry: Component<{
           () => props.row.pip,
         );
         const mode = () => recencyMode(pip());
+        const waitAt = () =>
+          displayRecencyAt(mode(), props.row.ts, rowRecencyAt(c().meta));
+        // Same clock the capsule shows, in words, for the rail's tooltip.
+        const waitLabel = () => formatTimeAgo(waitAt()) || "a moment";
         return (
           <button
             type="button"
             data-testid="dock-needs-you-entry"
-            onClick={() => tileStore.activate(props.row.id)}
-            title={`${c().info.key.group} — jump to the agent waiting on you`}
+            onClick={() => props.onSelect(props.row.id)}
+            // The rail is 44px, so it drops the label and the wait capsule and
+            // shows the pip alone. The duration is the reason to glance at this
+            // strip at all, so the rail carries it in the tooltip rather than
+            // losing it — an unlabelled band of pips is not the feature.
+            title={`${c().info.key.group} · ${c().info.key.label} — waiting on you${
+              props.rail ? ` for ${waitLabel()}` : ""
+            }`}
             class={`flex items-center gap-1.5 w-full rounded-md cursor-pointer text-left transition-colors duration-150 hover:bg-surface-2/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${
               props.rail ? "justify-center py-1" : "px-1.5 py-1"
             }`}
@@ -76,11 +86,7 @@ const NeedsYouEntry: Component<{
                *  one number that makes this strip worth glancing at, and the
                *  same cell the row below renders. */}
               <RecencyCell
-                recencyAt={displayRecencyAt(
-                  mode(),
-                  props.row.ts,
-                  rowRecencyAt(c().meta),
-                )}
+                recencyAt={waitAt()}
                 textSize="text-[0.6rem]"
                 mode={mode()}
               />
@@ -93,10 +99,19 @@ const NeedsYouEntry: Component<{
 };
 
 /** The strip itself — pinned above the scrollport so it cannot scroll out of
- *  reach, which is the difference between a fixed place and just another row. */
+ *  reach, which is the difference between a fixed place and just another row.
+ *
+ *  `onSelect` is the HOST's, never this module's. The desktop dock centres the
+ *  tile on its canvas; the phone drawer focuses silently and dismisses itself;
+ *  the compact rail focuses silently and stays. Baking the desktop verb in here
+ *  meant a phone tap left the 78vw drawer sitting over the agent it had just
+ *  jumped to — and it failed silently, because the skipped step throws
+ *  nothing. `DockList` already states this contract for its rows; the strip
+ *  lives inside `DockList` too, so it owes the same. */
 export const NeedsYouStrip: Component<{
-  rows: DockTree["needsYou"];
+  rows: readonly RankedDockRow[];
   rail: boolean;
+  onSelect: (id: TerminalId) => void;
 }> = (props) => (
   <Show when={props.rows.length > 0}>
     <section
@@ -111,10 +126,14 @@ export const NeedsYouStrip: Component<{
         </span>
       </Show>
       <For each={props.rows}>
-        {(row) => <NeedsYouEntry row={row} rail={props.rail} />}
+        {(row) => (
+          <NeedsYouEntry
+            row={row}
+            rail={props.rail}
+            onSelect={props.onSelect}
+          />
+        )}
       </For>
     </section>
   </Show>
 );
-
-export default NeedsYouStrip;
