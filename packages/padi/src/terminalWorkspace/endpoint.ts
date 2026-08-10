@@ -168,7 +168,7 @@ export type TerminalWorkspaceEndpoint = {
 
 /** The host-side fs/git endpoint — shell out to `kolu-git` on this machine. One
  *  impl the Code tab's reads + watcher pulses bind to: kolu-server binds it to
- *  its in-process `TerminalEndpoint`, and padi's `padiFsGitDeps` exposes its
+ *  its in-process `TerminalEndpoint`, and padi's `padiFsDeps` exposes its
  *  watcher streams on `padiSurface`. `log` is injected — the package's lone host
  *  coupling, never a fallback knob. */
 export function createTerminalWorkspaceEndpoint(

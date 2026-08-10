@@ -5,7 +5,7 @@
  * `subscribeFileChange`, `watchPulse`) and they are all the same cassette: wrap
  * the producer edge in `streamFromAbortableSource`, drive the framework's
  * `pollOnEvent` over a callback watcher, dedup on `seq`, and REPORT a read
- * failure rather than swallow it. Lifted out of `fsGitDeps.ts` (whose header
+ * failure rather than swallow it. Lifted out of `fsDeps.ts` (whose header
  * says, correctly, that it is fs/git plumbing) the day the standing-subscription
  * doorbell became the third member of the family — two implementations of one
  * shape is how their `onReadError` came to disagree about whether a read failure

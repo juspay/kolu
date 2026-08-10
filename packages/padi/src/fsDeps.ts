@@ -1,11 +1,19 @@
 /**
- * `@kolu/padi/fsGitDeps` — the fs/git WATCHER-STREAM backings for
- * `padiSurface`'s `subscribeRepoChange` / `subscribeFileChange` members, absorbed
- * out of the retired `@kolu/terminal-vocab/serveFsGit` (which served the dead
+ * `@kolu/padi/fsDeps` — the FILESYSTEM WATCHER-STREAM backings for
+ * `padiSurface`'s `subscribeRepoChange` / `subscribeFileChange` /
+ * `subscribeDirChange` members, absorbed out of the retired
+ * `@kolu/terminal-vocab/serveFsGit` (which served the dead
  * `terminalWorkspaceSurface`). The fs/git PROCEDURES already live inline in
  * `servePadi` (padi's own handlers carry the ENOENT→NOT_FOUND wrapping and the
  * worktree mutations `serveFsGit` never had), so only the pulse streams needed a
  * new home.
+ *
+ * NOT `fsGitDeps`: the axis these three members share is the FILESYSTEM, not
+ * git. Two of them happen to read git state to decide what to watch and the
+ * third (`subscribeDirChange`) never consults git at all — a name that has to
+ * be excused in a comment beside its own member is a boundary that has already
+ * moved, and a reader looking for the non-git pulse wiring would not look in a
+ * file called `fsGitDeps`.
  *
  * The live deltas are watcher streams that carry a `seq` PULSE, not data: a
  * consumer re-queries the `fs.*` / `git.*` procedures on each pulse. The pulse
@@ -26,7 +34,7 @@ type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
 
 /** Build the two watcher `streams` deps for `padiSurface`'s
  *  `subscribeRepoChange` / `subscribeFileChange`, backed by padi's own
- *  `TerminalEndpoint` fs watchers. `servePadi` spreads `...padiFsGitDeps(...).streams`
+ *  `TerminalEndpoint` fs watchers. `servePadi` spreads `...padiFsDeps(...).streams`
  *  into its full `streams` deps (its own `activity` + `terminalAttach` ride
  *  alongside).
  *
@@ -38,7 +46,7 @@ type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
  *  `terminalWorkspaceSurface` was deleted (W2.3); pulling the procedures in
  *  here to "finish the dedupe" would REGRESS that richer serving. Keep the
  *  procedures in `servePadi`. */
-export function padiFsGitDeps(
+export function padiFsDeps(
   endpoint: TerminalEndpoint,
   log: Logger,
 ): {
@@ -66,9 +74,10 @@ export function padiFsGitDeps(
             "subscribeFileChange",
           ),
       },
-      // The non-git browse pulse: one directory's direct children,
-      // non-recursive (`kolu-git`'s `subscribeDirChange` — not a git watcher,
-      // but the same fs-volatility axis this module already fronts).
+      // The browse pulse: one directory's direct children, non-recursive
+      // (`kolu-git`'s `subscribeDirChange`, a config of `kolu-io`'s one
+      // directory-watch receptacle — the same fs axis as its two siblings,
+      // narrowed to a single level instead of a whole repo).
       subscribeDirChange: {
         source: ({ repoPath, dirPath }) =>
           pulseSource(

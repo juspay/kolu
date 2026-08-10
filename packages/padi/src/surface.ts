@@ -71,7 +71,7 @@ import {
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
-  RepoChangePulseSchema,
+  ChangePulseSchema,
   TerminalIdSchema,
 } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
@@ -1428,12 +1428,12 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  pulse-then-requery: a `{seq}` distinguisher, no fs/git data on the pulse. */
     subscribeRepoChange: {
       inputSchema: Schema.Struct({ repoPath: Schema.String }),
-      outputSchema: RepoChangePulseSchema,
+      outputSchema: ChangePulseSchema,
     },
     /** Live change-pulses narrowed to one file. Value-bearing pulse-then-requery. */
     subscribeFileChange: {
       inputSchema: FsFileInputSchema,
-      outputSchema: RepoChangePulseSchema,
+      outputSchema: ChangePulseSchema,
     },
     /** Live change-pulses for ONE directory's direct children, non-recursive —
      *  the watch counterpart of `fs.listDirectory`, for browse roots that are
@@ -1443,7 +1443,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  subtree beneath it. Same pulse-then-requery shape as its siblings. */
     subscribeDirChange: {
       inputSchema: FsListDirectoryInputSchema,
-      outputSchema: RepoChangePulseSchema,
+      outputSchema: ChangePulseSchema,
     },
     /** The per-subscriber terminal byte stream — snapshot (serialized screen)
      *  as the first frame, then live output, 1:1 through each hop. DELTA/
