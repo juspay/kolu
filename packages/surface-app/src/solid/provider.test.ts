@@ -118,29 +118,9 @@ describe("SurfaceAppProvider — updateReady", () => {
     });
   });
 
-  it("forwards `onProcessId` through the turnkey `{ wire, probe }` source", async () => {
-    const w = fakeWire();
-    const seen: string[] = [];
-    await createRoot(async (dispose) => {
-      createComponent(SurfaceAppProvider, {
-        controlPlane: fakeControlPlane("0784979"),
-        clientCommit: "0784979",
-        wire: w.wire,
-        probe: () => Effect.succeed({ processId: "p1" }),
-        onProcessId: (id: string) => seen.push(id),
-        get children() {
-          useSurfaceApp();
-          return null;
-        },
-      });
-      w.set("open");
-      await flushProbe();
-      // The provider derives the lifecycle internally, but still publishes the
-      // observed id outward so the turnkey caller can echo the `pid` param.
-      expect(seen).toEqual(["p1"]);
-      dispose();
-    });
-  });
+  // The `onProcessId` forward is GONE with the option: nothing outside
+  // `createSurfaceSocket` feeds the `pid` echo any more, so the provider has no
+  // observation to publish and a turnkey caller has nothing to wire.
 
   it("starts a heartbeat in the turnkey source — a half-open wire forces a reconnect", async () => {
     vi.useFakeTimers();

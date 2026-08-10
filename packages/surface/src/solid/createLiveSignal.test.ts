@@ -171,7 +171,7 @@ describe("createLiveSignal — the unforgeable, watchdog-backed live signal", ()
     handle.dispose();
   });
 
-  it("a RETIRED wire is terminal — status `down`, live false (the close-code classification the link now owns)", () => {
+  it("a RETIRED wire is terminal — status `retired`, live false (the close-code classification the link now owns)", () => {
     // `retireOnStaleClose` / `restartCloseCode` are gone from this module: the link's
     // own close classifier raises the terminal `"retired"` status instead. The fact
     // those options existed for must still hold here.
@@ -180,7 +180,7 @@ describe("createLiveSignal — the unforgeable, watchdog-backed live signal", ()
     f.open();
     expect(handle.status()).toBe("live");
     f.retire();
-    expect(handle.status()).toBe("down");
+    expect(handle.status()).toBe("retired");
     expect(handle.live()).toBe(false);
     handle.dispose();
   });

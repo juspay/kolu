@@ -124,6 +124,10 @@ export interface DiagnosticSnapshot {
     readonly lastProbeAt: number | undefined;
     readonly lastProbeOk: boolean | undefined;
     readonly lastStaleAt: number | undefined;
+    /** When the SERVER retired this tab — the terminal fact of the wire's life:
+     *  it presented a `?pid=` from a process that is gone, and will never dial
+     *  again. `undefined` ⇒ still bound to the process that served this page. */
+    readonly retiredAt: number | undefined;
     readonly dials: readonly DialAttempt[];
   };
   readonly subscriptions: readonly SubscriptionRow[];
@@ -203,6 +207,7 @@ export function collectDiagnosticSnapshot(
       lastProbeAt: probes.lastProbeAt,
       lastProbeOk: probes.lastProbeOk,
       lastStaleAt: probes.lastStaleAt,
+      retiredAt: probes.retiredAt,
       dials,
     },
     subscriptions: liveness.map((record) => ({
@@ -310,6 +315,7 @@ export function formatDiagnosticSnapshot(snap: DiagnosticSnapshot): string {
     }`,
   );
   lines.push(`last stale verdict: ${ago(snap.wire.lastStaleAt, now)}`);
+  lines.push(`server retired this tab: ${ago(snap.wire.retiredAt, now)}`);
   lines.push(`dials (${snap.wire.dials.length}, oldest first):`);
   if (snap.wire.dials.length === 0) lines.push("  (none recorded)");
   for (const dial of snap.wire.dials) {

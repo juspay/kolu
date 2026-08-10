@@ -40,9 +40,8 @@ export {
 } from "../lifecycle";
 
 import { Effect } from "effect";
-import type { UnaryEffect } from "@kolu/surface/client";
 import type { WatchableWire } from "@kolu/surface/link";
-import { gracedDown, onWake, type SurfaceFace } from "@kolu/surface/solid";
+import { gracedDown, onWake } from "@kolu/surface/solid";
 import {
   createHeartbeat,
   type HeartbeatConfig,
@@ -58,6 +57,9 @@ export {
   connectSurface,
   type SurfaceConnection,
 } from "./connectSurface";
+// The REQUIRED `retired` policy both connect seams take — re-exported so a
+// consumer naming the handler's type reaches it from the same import as the seam.
+export type { RetiredHandler } from "../connect";
 // The turnkey MULTI-surface connect seam (one socket → a `surfaceClients`
 // bundle + one default-on heartbeat + the combined `surfaceClientsHealth` fact).
 export {
@@ -114,11 +116,11 @@ export type ServerLifecycleEvent =
 
 /** What an identity probe reports: the server process id — a value that changes
  *  when the server restarts (so a reconnect to a *different* process is a restart,
- *  not a transient drop). Kept distinct from build identity (`commit`). Re-exported
- *  from `@kolu/surface-app/surface`, where it is derived (`typeof …Schema.Type`)
- *  from `ServerProbeSchema` — the single source of the probe's wire shape, so the
- *  type and the runtime validator can't desync. An app may send a superset (the
- *  provider is generic over the probe response — see `P`). */
+ *  not a transient drop). Kept distinct from build identity (`commit`). A
+ *  STRUCTURAL bound, satisfied by the framework-reserved `system/identity` answer —
+ *  `probeSurfaceIdentity(client.rpc)` from `@kolu/surface/identity`, which is what
+ *  a consumer passes as `probe`. An app may send a superset (the provider is
+ *  generic over the probe response — see `P`). */
 export type { ServerProbe };
 
 /** Pure A→B table — exhaustive at the type level (Record requires every key). */
@@ -160,7 +162,7 @@ export const DISCONNECT_OVERLAY_GRACE_MS = 1_000;
  * `system.live` off the branded dispatch it guards and has NO caller-supplied
  * probe target on purpose (#1564 — a consumer once handed back a target that
  * resolved off a literal and branded a dead link), while this runs
- * `identity.info` and READS its `processId` as the classification input. Same
+ * `system/identity` and READS its `processId` as the classification input. Same
  * shape, different question, and one of them is a hardening we would be undoing.
  */
 function runProbe<A>(effect: Effect.Effect<A, unknown>): Promise<A> {
@@ -185,8 +187,8 @@ export function createServerLifecycle<
    *  watchdog (below), calls `forceReconnect()` on a silently half-open wire. */
   wire: WatchableWire;
   /** The identity round-trip. An `Effect`, because a surface member call is one
-   *  — {@link surfaceAppProbe} builds it and this lifecycle runs it, at
-   *  {@link runProbe}. */
+   *  `probeSurfaceIdentity(client.rpc)` (`@kolu/surface/identity`) builds it and
+   *  this lifecycle runs it, at {@link runProbe}. */
   probe: () => Effect.Effect<P, unknown>;
   /** The liveness round-trip the half-open watchdog uses — independent of `probe`.
    *  `probe` answers "WHICH process is on the other end?" (identity, for lifecycle
@@ -205,21 +207,18 @@ export function createServerLifecycle<
    *  `timeoutMs` / `onStale`. The same {@link HeartbeatConfig} knob `connectSurface`
    *  accepts (a `heartbeat.probe` override here wins over `livenessProbe`). */
   heartbeat?: HeartbeatConfig;
-  /** Surface a failed identity probe. A broken `identity.info` otherwise leaves
+  /** Surface a failed identity probe. A broken `system/identity` otherwise leaves
    *  the UI stuck in its prior state with no diagnostic — pass this to log it.
    *  The next `open` still retries; this is observation, not a transition. */
   onProbeError?: (err: unknown) => void;
-  /** Fires after each successful identity probe with the observed `processId`,
-   *  AFTER the lifecycle has already classified and committed the transition
-   *  (`knownProcessId` / `setLifecycle`). It only PUBLISHES the observation
-   *  outward so a consumer can echo it back as the `pid` handshake param on the
-   *  next reconnect — without re-wrapping `probe` to carry a side-effect. It runs
-   *  in a guarded block: a throwing consumer is reported via `onProbeError`, never
-   *  unwinding the lifecycle transition. Distinct from `serverProcessId()`, which
-   *  is `undefined` on a stale-close restart; the echo needs the last *snapshot*
-   *  id, which this is. */
-  onProcessId?: (processId: string) => void;
-  // There is no `onStaleRestart` any more. It existed so a consumer could
+  // There is no `onProcessId` any more. It existed so a consumer could feed the
+  // `pid` echo from the lifecycle's probe — an obligation the app had to know it
+  // owed, and the one olai#61 didn't: nothing fed the echo, so no reconnect carried
+  // a `pid`, the server's gate never rejected anything, and the wire's `retired`
+  // state could not be reached. `createSurfaceSocket` feeds the echo itself now,
+  // off the reserved `system/identity` member, on the wire it dialled. A lifecycle
+  // derived beside that wire OBSERVES; it no longer carries a load-bearing wire.
+  // There is no `onStaleRestart` any more either. It existed so a consumer could
   // `retireSocket(ws)` at the one site that decoded the stale close — and both
   // halves are gone: the LINK owns the close-code classifier now (it halts its
   // retry schedule and fails every call with `SurfaceTransportRetired`), so a
@@ -244,13 +243,6 @@ export function createServerLifecycle<
   const onOpen = () => {
     runProbe(opts.probe())
       .then(({ processId }) => {
-        // Classify and transition FIRST, independent of the observer. The
-        // `onProcessId` publish is fired afterwards in a guarded block: an
-        // observer hook must not be able to poison the core lifecycle — a
-        // throwing callback would otherwise turn a successful probe into a probe
-        // failure, skip the transition, and leave the UI stuck in `connecting` /
-        // `disconnected`.
-        //
         // First *successful* identity (regardless of how many opens preceded it):
         // the initial connect. Only once an identity is on record does a later
         // probe become reconnect (same id) / restart (changed id).
@@ -263,19 +255,13 @@ export function createServerLifecycle<
           setLifecycle(
             restarted
               ? // Probe-driven restart: this open landed against a fresh
-                // process, so the socket is OPEN.
+                // process, so the socket is OPEN. Reachable only where the server
+                // runs NO stale-tab gate — with one installed, a tab that outlived
+                // its server is closed at the handshake and arrives as the
+                // `transport: "closed"` arm instead.
                 { kind: "restarted", processId, transport: "open" }
               : { kind: "reconnected", processId },
           );
-        }
-        // Publish the observation — consumers echo it back as the next
-        // reconnect's `pid` handshake param. Guarded so a throwing consumer is
-        // reported (not silently swallowed) without unwinding the transition
-        // already committed above.
-        try {
-          opts.onProcessId?.(processId);
-        } catch (err) {
-          opts.onProbeError?.(err);
         }
       })
       .catch((err) => {
@@ -369,44 +355,13 @@ export function createServerLifecycle<
   };
 }
 
-/** surface-app's own `identity.info` restart probe, as a typed call on a surface
- *  client's `.rpc`. A client whose surface registers surface-app under a key
- *  exposes the probe at the SCOPED wire path `surface.identity.info` (the key is
- *  consumed by the scope and does not reappear). `.rpc` is the STRUCTURAL
- *  `SurfaceFace` (per-member precision lives in the bound faces — PLAN D2), so the
- *  one narrowing lives HERE, beside the surface that defines the probe, instead of
- *  being hand-pinned at every `createServerLifecycle({ probe })` site.
- *
- *  A face with no `identity.info` is a wrong-client mistake (drishti's per-host
- *  client vs. its admin one), so it CRASHES rather than answering with a failed
- *  effect that would read as a transient probe failure and leave the lifecycle
- *  silently stuck in `connecting`. The check is EAGER — outside the returned
- *  effect — deliberately: `createServerLifecycle` and `createHeartbeat` both
- *  distinguish a probe that threw SYNCHRONOUSLY (miswired: no round-trip was
- *  made) from one that failed asynchronously (the link answered with an error),
- *  and burying this inside an `Effect.suspend` would collapse the two.
- *
- *  It returns an **`Effect`**, because a unary member call is one: nothing
- *  dispatches until the caller runs it. `createServerLifecycle`'s `probe` /
- *  `livenessProbe` seams stay Promise-shaped (they are the framework-free
- *  watchdog contract — a probe raced against a timer, shared with non-Effect
- *  consumers), so a consumer wiring this in runs it at whatever Promise edge it
- *  already owns rather than this module opening a new one. */
-export function surfaceAppProbe(client: {
-  rpc: SurfaceFace;
-}): Effect.Effect<ServerProbe, unknown> {
-  const info = client.rpc.surface.identity?.info as
-    | UnaryEffect<Record<string, never>, ServerProbe, never>
-    | undefined;
-  if (typeof info !== "function") {
-    throw new Error(
-      "surfaceAppProbe: this client's surface carries no `identity.info` — it is " +
-        "not a surface-app surface (did you pass a per-entity client instead of " +
-        "the control plane?).",
-    );
-  }
-  return info({});
-}
+// `surfaceAppProbe` is GONE with the `identity.info` member it narrowed. The
+// restart probe is `probeSurfaceIdentity(client.rpc)` from
+// `@kolu/surface/identity` — the framework-reserved `system/identity` round-trip,
+// which every surface answers and which reports the SAME `processId` the stale-tab
+// gate compares against. Its `ServedIdentity` result satisfies `createServerLifecycle`'s
+// `ServerProbe` bound structurally, so a lifecycle now needs no app-declared member
+// at all.
 
 /** The environment facts that decide PWA install state — passed in so the
  *  decision is pure and unit-testable (the provider reads them from the DOM). */
@@ -526,13 +481,11 @@ const SurfaceAppContext = createContext<SurfaceAppModel>();
  *      same lifecycle — one source, no disagreement, no double probe.
  *    - `{ wire, probe }` — the provider derives the lifecycle itself (the turnkey
  *      shape for an app with no other lifecycle consumer); a failed identity
- *      probe is reported through the provider's `onError` prop. Because this
- *      source OWNS the wire's observation, it handles the whole stale-tab
- *      handshake: the link's terminal-close classifier retires the wire and the
- *      lifecycle reads the `retired` status as `restarted` (no close code to
- *      pass, nothing to retire by hand), and `onProcessId` echoes the `pid`
- *      param from your URL thunk. A consumer with its own lifecycle uses
- *      `{ status }` instead and wires those itself.
+ *      probe is reported through the provider's `onError` prop. The link's
+ *      terminal-close classifier retires the wire and the lifecycle reads the
+ *      `retired` status as `restarted` (no close code to pass, nothing to retire
+ *      by hand); the `pid` echo is not wired here at all — the socket seam feeds
+ *      it. A consumer with its own lifecycle uses `{ status }` instead.
  *    - neither — `status()` is permanently `"live"` (build-skew only). */
 export type ConnectionSource<P extends ServerProbe = ServerProbe> =
   | {
@@ -556,11 +509,6 @@ export type ConnectionSource<P extends ServerProbe = ServerProbe> =
        *  branded-but-blind signal). Omit it (default) for a wire no other layer
        *  watches. */
       heartbeat?: HeartbeatConfig;
-      /** Fired with each observed `processId` (forwards `createServerLifecycle`'s
-       *  `onProcessId`). A turnkey caller stashes it in the mutable its wire's
-       *  URL thunk echoes as the `pid` handshake param — without re-wrapping its
-       *  own `probe` to carry the side-effect. */
-      onProcessId?: (processId: string) => void;
       status?: undefined;
     }
   | { wire?: undefined; probe?: undefined; status?: undefined };
@@ -636,7 +584,7 @@ export function SurfaceAppProvider<
   const server = () => cell.value();
   // The connection status. Prefer a caller-supplied `status` accessor (the app
   // already derived the lifecycle once — read it, don't re-derive it: a second
-  // `createServerLifecycle` would double the `identity.info` probe per reconnect
+  // `createServerLifecycle` would double the `system/identity` probe per reconnect
   // and let two observers disagree). Otherwise derive it here from `ws`+`probe`
   // (the turnkey shape), or stay permanently `"live"` when neither is given.
   let status: Accessor<ConnectionStatus>;
@@ -651,9 +599,6 @@ export function SurfaceAppProvider<
       // lifecycle takes `heartbeat: false` so the wire isn't double-watched — it
       // mints no brand, so this is ownership coordination, not a blind signal.
       heartbeat: props.heartbeat,
-      // Forward the snapshot-id publisher so a turnkey caller can echo the `pid`
-      // handshake param from its own URL thunk without re-wrapping `probe`.
-      onProcessId: props.onProcessId,
       // Route probe failures through the same `onError` the buildInfo
       // stream uses — a turnkey caller has no separate `createServerLifecycle`
       // to attach `onProbeError` to, so a broken probe would otherwise be

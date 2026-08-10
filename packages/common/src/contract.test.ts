@@ -82,7 +82,10 @@ describe("the composed surface siblings", () => {
       "surface/kolu/forwards/create",
       "surface/kolu/forwards/cancel",
       "surface/surfaceApp/buildInfo/get",
-      "surface/surfaceApp/identity/info",
+      // The RESTART axis is the framework-reserved member every surface carries —
+      // surface-app's duplicate `identity/info` came out with the second process
+      // id it forced kolu to keep in step.
+      "surface/surfaceApp/system/identity",
     ]) {
       expect(koluSurfaceGroup.requests.has(tag)).toBe(true);
     }

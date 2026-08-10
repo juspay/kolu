@@ -6,10 +6,11 @@
  * `/sw.js` worker (self-destructing by default; the fetch-less notification
  * worker when `serviceWorker: "notify"`), and the SPA fallback. `pwaManifestLayer`
  * serves the desktop-app manifest. `surfaceAppLayer` merges both.
- * `buildInfoServer` is the buildInfo cell's server impl; `surfaceAppServer`
- * bundles it with the `identity.info` probe impl as the deps a consumer drops
- * into an `implementSurfaces` entry — surface-app is served as a SIBLING surface,
- * not merged into the app surface.
+ * `buildInfoServer` is the buildInfo cell's server impl; `surfaceAppServer` shapes
+ * it as the deps a consumer drops into an `implementSurfaces` entry — surface-app
+ * is served as a SIBLING surface, not merged into the app surface. The restart
+ * axis is NOT here: a process's identity is the framework's reserved
+ * `system/identity` member (`@kolu/surface/identity`), which every surface answers.
  *
  * These are `HttpRouter` LAYERS, not `app.use(...)` installers: registration
  * order carries no meaning any more. `HttpRouter` ranks routes by specificity
@@ -18,9 +19,9 @@
  * documented is gone by construction.
  */
 
-import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { rpcSerializationLayer } from "@kolu/surface/frame-limit";
+import { surfaceProcessId } from "@kolu/surface/identity";
 import {
   type CellConnector,
   type SurfaceHandlers,
@@ -46,7 +47,6 @@ import {
   type FreshnessPaths,
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
-  rejectStaleProcess,
   SERVER_PROCESS_ID_PARAM,
   SHELL_CACHE_CONTROL,
   STALE_PROCESS_CLOSE_CODE,
@@ -536,39 +536,21 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
   };
 }
 
-/** The `identity.info` probe's server implementation, as a composable
- *  fragment: it sits in `surfaceAppServer`'s `procedures` under the `identity`
- *  namespace. Mints one `processId` per process (so a reconnect to a *different*
- *  process reads as a restart) — the restart axis's turnkey counterpart to
- *  `buildInfoServer()`. Pass `processId` to override (e.g. a stable id in
- *  tests). Pairs with the surface's `identity.info` procedure and with the
- *  provider's `probe={() => surfaceAppProbe(client)}` (the scoped sibling client
- *  consumes the `surfaceApp` key).
- *
- *  The handler returns an `Effect` (PLAN D10 / S2 §5.4): a surface procedure impl
- *  is `({ input, ctx }) => Effect<O, E>` now, so the probe answers with
- *  `Effect.succeed`. It has no declared error channel — a `processId` read from a
- *  closure cannot fail. */
-export function serverIdentity(opts: { processId?: string } = {}): {
-  /** The id this process minted (or the injected override). This is the
-   *  read-back seam for a consumer that lets `serverIdentity` MINT the id
-   *  internally (no external source): it captures `const { processId } =
-   *  serverIdentity()` and feeds that to `rejectStaleProcess`, so the stale-tab
-   *  gate and the `identity.info` probe single-source one id. A consumer that
-   *  mints its own id externally (like kolu) single-sources by INJECTING it via
-   *  `opts.processId` and need not read this field back. */
-  processId: string;
-  identity: { info: () => Effect.Effect<{ processId: string }> };
-} {
-  const processId = opts.processId ?? randomUUID();
-  return { processId, identity: { info: () => Effect.succeed({ processId }) } };
-}
+// `serverIdentity()` is GONE, and with it surface-app's `identity.info` member.
+// It minted a SECOND per-process id beside the framework's, and every consumer
+// then owed the plumbing that kept the two in step: read the id back, hand it to
+// the gate, and hope the client was probing the same member the gate compared
+// against. `@kolu/surface`'s reserved `system/identity` answers `processId` now
+// (`surfaceProcessId()`), the client-side echo probes exactly that, and
+// `gateStaleSocket` compares against exactly that. One id, one member, no plumbing
+// — and an app (olai#61) that would otherwise have declared its own `identity.info`
+// because the reserved member reported only a start TIME does not have to.
 
-/** The whole surface-app server side in one call — the `buildInfo` cell impl
- *  AND the `identity.info` probe impl, shaped as the implementation DEPS bundle
- *  a consumer drops into an `implementSurfaces` entry (`{ surface:
- *  surfaceAppSurface, deps: surfaceAppServer() }`). No `channel` here —
- *  `implementSurfaces` supplies a key-namespaced channel per sibling surface.
+/** The whole surface-app server side in one call — the `buildInfo` cell impl,
+ *  shaped as the implementation DEPS bundle a consumer drops into an
+ *  `implementSurfaces` entry (`{ surface: surfaceAppSurface, deps:
+ *  surfaceAppServer() }`). No `channel` here — `implementSurfaces` supplies a
+ *  key-namespaced channel per sibling surface.
  *
  *  The buildInfo cell entry carries `.connect` (the async boot axis — kolu's
  *  `system.version`, the example's `bootId`; a deduped no-op for the sync
@@ -576,28 +558,11 @@ export function serverIdentity(opts: { processId?: string } = {}): {
  *  the cell ctx is built — so there is NO app-visible connect to call. The
  *  turnkey counterpart to `surfaceAppSurfaceWith` on the surface side. */
 export function surfaceAppServer<T extends BuildInfo = BuildInfo>(
-  opts: Parameters<typeof buildInfoServer<T>>[0] & { processId?: string } = {},
+  opts: Parameters<typeof buildInfoServer<T>>[0] = {},
 ): {
   cells: BuildInfoServerFragment<T>;
-  /** The minted (or injected) per-process id — the same one the `identity.info`
-   *  probe reports. This is the read-back seam for a consumer that lets
-   *  `surfaceAppServer` MINT the id internally (no external source): it captures
-   *  `const { processId } = surfaceAppServer(...)` and feeds that to
-   *  `rejectStaleProcess`, so the stale-tab gate and the probe single-source one
-   *  id (a second mint would never match). A consumer that mints its own id
-   *  externally (like kolu) single-sources by INJECTING it via `opts.processId`
-   *  and need not read this field back. */
-  processId: string;
-  procedures: {
-    identity: { info: () => Effect.Effect<{ processId: string }> };
-  };
 } {
-  const identity = serverIdentity({ processId: opts.processId });
-  return {
-    cells: buildInfoServer<T>(opts),
-    processId: identity.processId,
-    procedures: { identity: identity.identity },
-  };
+  return { cells: buildInfoServer<T>(opts) };
 }
 
 /** A server-side WebSocket the stale-tab gate acts on — the structural subset of
@@ -619,26 +584,32 @@ export interface GateableSocket {
  *      before the early return is the ordering a hand-rolled gate gets wrong —
  *      drishti's pre-extraction upgrade handler did, and only avoided the crash
  *      by luck of timing.
- *   2. **Decide via `rejectStaleProcess`**, reading the claimed `pid` off the
- *      request URL with `SERVER_PROCESS_ID_PARAM` — the param name stays internal
- *      here, single-sourced with the client echo in `./connect`.
+ *   2. **Decide**, reading the claimed `pid` off the request URL with
+ *      `SERVER_PROCESS_ID_PARAM` — the param name stays internal here,
+ *      single-sourced with the client echo in `./connect` — and comparing it
+ *      against {@link surfaceProcessId}. An absent `pid` (the first-ever connect,
+ *      before the client observed an identity) always passes.
  *   3. **On a stale tab, `close(STALE_PROCESS_CLOSE_CODE, …)`** and report `true`
  *      so the caller returns WITHOUT upgrading; `false` means proceed.
  *
- *  `liveProcessId` MUST be the id the `identity.info` probe reports
- *  (`surfaceAppServer().processId` / an externally-minted id injected into it),
- *  or the gate compares against an id the client never saw. The `error` listener
- *  is installed for ACCEPTED sockets too (it must, to survive the reject window),
- *  so it's also this socket's standing transport-error handler. `onError` thus
- *  defaults to a LOUD `console.error` (matching `buildInfoServer`) rather than a
- *  silent no-op — a swallowed transport error on an accepted socket is the exact
- *  footgun a shared helper should not bake in; pass your own logger to override,
- *  or an explicit no-op at the call site if you genuinely want silence. `onReject`
- *  logs the rejection. */
+ *  There is no `liveProcessId` parameter. There used to be, and it was the gate's
+ *  one real hazard: the id it compared against was whatever a consumer passed, so a
+ *  consumer that minted a second id — or passed the one its logs used — built a
+ *  gate that rejected every reconnect, or none, with nothing to notice it by. The
+ *  live id is this process's `surfaceProcessId()`, which is also exactly what the
+ *  reserved `system/identity` member answers and therefore exactly what the client
+ *  echoes back. The two sides cannot be pointed at different strings.
+ *
+ *  The `error` listener is installed for ACCEPTED sockets too (it must, to survive
+ *  the reject window), so it's also this socket's standing transport-error handler.
+ *  `onError` thus defaults to a LOUD `console.error` (matching `buildInfoServer`)
+ *  rather than a silent no-op — a swallowed transport error on an accepted socket
+ *  is the exact footgun a shared helper should not bake in; pass your own logger to
+ *  override, or an explicit no-op at the call site if you genuinely want silence.
+ *  `onReject` logs the rejection. */
 export function gateStaleSocket(
   ws: GateableSocket,
   requestUrl: URL,
-  liveProcessId: string,
   opts: {
     onError?: (err: Error) => void;
     onReject?: (claimedPid: string) => void;
@@ -654,7 +625,7 @@ export function gateStaleSocket(
         )),
   );
   const claimedPid = requestUrl.searchParams.get(SERVER_PROCESS_ID_PARAM);
-  if (claimedPid !== null && rejectStaleProcess(claimedPid, liveProcessId)) {
+  if (claimedPid !== null && claimedPid !== surfaceProcessId()) {
     // Close FIRST (the critical operation), then fire the observational
     // `onReject` — a throwing reporter must never leave the stale tab connected.
     ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
@@ -792,16 +763,13 @@ export interface SurfaceSocketAcceptor {
  * app-specific ones the seam can't generically own: the **origin gate**
  * (`gateWsOrigin`, which acts on the raw pre-upgrade socket/request — a different
  * phase) and the **dispatch** itself (`?host=` routing, an `__admin__` sentinel)
- * — supplied as the `onAccepted` closure. `liveProcessId` MUST be the id the
- * `identity.info` probe reports (`surfaceAppServer().processId`).
+ * — supplied as the `onAccepted` closure. The stale-tab gate needs no id from the
+ * caller: it compares against this process's own `surfaceProcessId()`.
  */
 export function acceptSurfaceSocket(opts: {
   /** The WS server whose accepted-socket population the reaper sweeps (a `ws`
    *  `WebSocketServer` IS this structurally). */
   server: { clients: Iterable<HeartbeatableSocket> };
-  /** The live server process id the stale-tab gate compares the echoed `pid`
-   *  against — `surfaceAppServer().processId` / the externally-minted id. */
-  liveProcessId: string;
   /** Heartbeat sweep cadence (defaults to `startWsHeartbeat`'s 30s). */
   intervalMs?: number;
   /** Standing transport-error handler installed on every accepted socket by the
@@ -823,7 +791,7 @@ export function acceptSurfaceSocket(opts: {
       // A rejected socket is closing — never enrol or dispatch it. The per-socket
       // callbacks carry `requestUrl` so a fleet server keeps its per-host context.
       if (
-        gateStaleSocket(ws, requestUrl, opts.liveProcessId, {
+        gateStaleSocket(ws, requestUrl, {
           onError: opts.onError && ((err) => opts.onError?.(err, requestUrl)),
           onReject:
             opts.onReject && ((pid) => opts.onReject?.(pid, requestUrl)),

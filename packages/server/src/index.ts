@@ -1140,8 +1140,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // half (the watchdog folded into `createServerLifecycle`) un-freezes the tab.
   // The stale-tab gate closes a tab bound to a PREVIOUS instance BEFORE any RPC
   // dispatch (so dead-terminal subscriptions never replay and storm the logs) and
-  // such a socket never enrols — so #1231's gate is untouched. `serverProcessId` is
-  // the same id the `identity.info` probe reports.
+  // such a socket never enrols — so #1231's gate is untouched. The gate takes no
+  // id from here: it compares against this process's own `surfaceProcessId()`,
+  // which is exactly what the reserved `system/identity` member answers and so
+  // exactly what a reconnecting tab echoes back (`serverProcessId` in
+  // `./hostname` IS that value — the log line and the wire name one process).
   //
   // This is the HAND-WIRED ws seam PLAN D5/#6/#15 requires, and it is why the
   // turnkey `RpcServer.layerProtocolWebsocket` / `layerHttp` paths are NOT used:
@@ -1154,7 +1157,6 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // behind `Socket.fromWebSocket`).
   const acceptor = acceptSurfaceSocket({
     server: wss,
-    liveProcessId: serverProcessId,
     onError: (err) => log.error({ err }, "ws error"),
     onReject: (claimedPid) =>
       log.info(
