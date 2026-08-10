@@ -20,6 +20,7 @@ import type {
 } from "../CommandPalette";
 import { workspaceSearchText } from "../canvas/dockModel";
 import { hostLabel, hostRowContext } from "../host/hostChipTone";
+import { useHostRecency } from "../host/hostRecency";
 import { assignColors } from "../terminal/terminalDisplay";
 import {
   useVisitRecency,
@@ -207,12 +208,19 @@ export function terminalHostGroups(
   });
 }
 
-/** Host rows for root index and the Hosts scoped group — one source of truth. */
+/** Host rows for root index and the Hosts scoped group — one source of truth.
+ *
+ *  Order stays membership order (a host list that reshuffles under the cursor
+ *  is not a list you can learn); it is `rankAt` that carries the switch trail,
+ *  so ⌘⇧H's default highlight lands on the host you came from — the same
+ *  `defaultSelectionIndex` rule the terminal rows above feed with their own
+ *  visit trail. */
 export function hostRootActions(
   hosts: HostKey[],
   active: HostKey,
   switchHost: (host: HostKey) => void,
 ): PaletteAction[] {
+  const recency = useHostRecency();
   return hosts.map((h): PaletteAction => {
     const label = hostLabel(h);
     const state = padiMap.entry(h).state();
@@ -228,6 +236,7 @@ export function hostRootActions(
         kind: "host",
         hostKey: h,
         context,
+        rankAt: recency.rankOf(h),
         searchText: `${label} ${context} ${state.kind}`.trim(),
       },
     };

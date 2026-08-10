@@ -10,6 +10,7 @@ import { toggleRailCards } from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { showsWorkspaceSwitcher } from "./capabilities";
+import { useHostRecency } from "./host/hostRecency";
 import type { ActionContext } from "./input/actions";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
@@ -36,6 +37,11 @@ export function useActionContext(): ActionContext {
   const terminalSearch = useTerminalSearch();
   const { handleShuffleTheme } = useThemeManager();
   const dockTree = useDockOrder();
+  // The host switch trail behind `openHostSwitcher`'s default highlight. Born
+  // HERE — the one fan-in every session mounts — rather than lazily on the
+  // palette's first read of a host row, so the trail records from boot and the
+  // very first ⌘⇧H already knows where the user came from.
+  useHostRecency();
 
   return {
     terminalIds: store.terminalIds,

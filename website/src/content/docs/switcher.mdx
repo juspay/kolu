@@ -28,9 +28,10 @@ At the empty root you see:
    `max(your last visit, server activity)`, so a fresh browser still orders by
    agent/output clocks until you navigate; after that your own trail wins over
    background chatter. Cross-host rows show the same host chip as search hits.
-   Because the active tile is omitted and selection starts on the first Recent
-   row, **⌘K then Enter** toggles between your last two terminals (including
-   across hosts).
+   Because the active tile is omitted and the highlight starts on the first
+   Recent row, **⌘K then Enter** toggles between your last two terminals
+   (including across hosts) — the same [default-highlight
+   rule](#where-the-highlight-lands) every scope follows.
 2. **Hosts** — every machine in the pool (when more than local is configured),
    quiet when healthy; `active` only for the canvas host.
 3. **Terminals** section — the Terminals group (⌘⇧K) and New terminal.
@@ -102,6 +103,19 @@ So a branch name outranks a host that happens to share a substring, and both
 outrank a command. There are **no prefix sigils** (`>` commands, `@` hosts) —
 scoping is the existing drill-in path (below), not a mode character.
 
+## Where the highlight lands
+
+Every scope opens with the highlight on **the row you were on before this one** —
+the most recently visited row of whatever the list is a switcher *for*, minus the
+one you are already on. One rule, so every chord has the same muscle memory:
+**press the chord, press Enter, you are back where you came from.** Press it
+again and you are back — a two-key toggle for terminals (⌘K, ⌘⇧K) and for
+machines (⌘⇧H) alike.
+
+Selecting the row you are already on would be a no-op, so no scope ever offers
+it as the default. The moment you **type**, recency stops mattering and the
+highlight moves to the top match instead.
+
 ## Deep-link chords
 
 | Chord / control | Opens |
@@ -132,6 +146,12 @@ a row **switches host if needed and activates** the terminal.
 **⌘⇧H** opens the **Hosts** scope — the **same host rows** as the root index
 (one source of truth; there is no separate “Switch host” list). Selecting a
 host re-keys the canvas with no reload — same as the [host strip](/remote-hosts).
+
+The rows stay in **pool order** (a machine list that reshuffles under the cursor
+is not one you can learn), and the **highlight** opens on the host you switched
+away from, so **⌘⇧H then Enter** hops between the last two machines the same way
+⌘K hops between the last two terminals. The trail is per browser tab, so two
+tabs parked on two machines each keep their own way back.
 
 Host status text is quiet by default:
 

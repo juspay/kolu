@@ -32,6 +32,8 @@ import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
 import { notePointerMove, type PointerPos } from "./palette/pointerHoverGate";
 import {
+  type CurrentSelection,
+  defaultSelectionIndex,
   filterAndRankPaletteItems,
   itemKind,
   type ResultKind,
@@ -274,7 +276,7 @@ const CommandPalette: Component<{
     for (const g of p.slice(valid.length)) g.onCancel?.();
     setPath(valid);
     setQuery("");
-    setSelectedIndex(0);
+    resetSelection();
   });
 
   /** Items at the current navigation level (may include hints).
@@ -410,6 +412,19 @@ const CommandPalette: Component<{
     return out;
   }
 
+  /** Where the user already is — the active tile and the active host. Read by
+   *  the empty-root Recent exclusion below and by the default-highlight rule
+   *  under it, which are the same idea (never offer "go where you already
+   *  are") applied at two levels. */
+  const currentSelection = (): CurrentSelection => {
+    const activeId = view.activeId();
+    const hostKey = encodeHostKey(activeHost());
+    return {
+      terminal: activeId === null ? null : { hostKey, terminalId: activeId },
+      hostKey,
+    };
+  };
+
   /** Interactive rows at the current level (filter is bypassed in
    *  value mode). Filter mode produces `PaletteCommand[]`;
    *  value mode produces `PaletteLabel[]`.
@@ -443,17 +458,26 @@ const CommandPalette: Component<{
       ...cmd,
       sectionOrder: sectionIndex(cmd.section) * 1000 + i,
     }));
-    const activeId = view.activeId();
-    const excludeFromRecent =
-      atRoot && activeId !== null
-        ? { hostKey: encodeHostKey(activeHost()), terminalId: activeId }
-        : null;
     return filterAndRankPaletteItems(stamped, {
       query: q,
       atRoot,
-      excludeFromRecent,
+      excludeFromRecent: atRoot ? currentSelection().terminal : null,
     });
   });
+
+  /** Land the highlight for a freshly-painted list — every open, drill-in,
+   *  drill-out and path repair funnels here instead of assuming row 0. A typed
+   *  query means "top match"; a query-less switcher lands on the previous visit
+   *  ({@link defaultSelectionIndex}), which is what makes ⌘K → Enter and
+   *  ⌘⇧H → Enter toggle between the last two. Call it AFTER `path`/`query` are
+   *  written — it reads the list those produce. */
+  function resetSelection() {
+    setSelectedIndex(
+      query().trim().length > 0
+        ? 0
+        : defaultSelectionIndex(filtered(), currentSelection()),
+    );
+  }
 
   /** Breadcrumb labels — path names, plus a virtual host segment when a
    *  Terminals search highlight lands on a terminal (so the path reads
@@ -566,7 +590,7 @@ const CommandPalette: Component<{
     setPath((p) => [...p, cmd]);
     if (cmd.kind === "value") setQuery(cmd.prefill());
     else setQuery("");
-    setSelectedIndex(0);
+    resetSelection();
     // Drill-ins always re-focus the input — Enter / click on a drillable
     // row may have left focus on the row's div (click steals focus from
     // the input, Enter on a div option doesn't restore it), so the user
@@ -597,7 +621,7 @@ const CommandPalette: Component<{
     for (const g of p.slice(depth)) g.onCancel?.();
     setPath(p.slice(0, depth));
     setQuery("");
-    setSelectedIndex(0);
+    resetSelection();
   }
 
   /** From Terminals browse, drill into a named host group (breadcrumb or
@@ -616,7 +640,7 @@ const CommandPalette: Component<{
     if (!hostGroup) return;
     setPath([terminals, hostGroup]);
     setQuery("");
-    setSelectedIndex(0);
+    resetSelection();
     requestAnimationFrame(() => inputRef.focus());
   }
 
@@ -638,7 +662,7 @@ const CommandPalette: Component<{
     }
     setPath(built);
     setQuery("");
-    setSelectedIndex(0);
+    resetSelection();
     const leaf = built.at(-1);
     requestAnimationFrame(() =>
       leaf?.kind === "value" ? inputRef.select() : inputRef.focus(),
@@ -750,7 +774,6 @@ const CommandPalette: Component<{
       ([isOpen, pathKey]) => {
         if (isOpen) {
           setQuery("");
-          setSelectedIndex(0);
           setAmbientTip(peekAmbientTipText());
           setMouseActive(false);
           lastPointerPos = null;
@@ -760,12 +783,16 @@ const CommandPalette: Component<{
           if (names.length > 0) {
             // Exact path only — no prefix fallback (a missing host must not
             // open the broader Terminals list as if the deep-link succeeded).
+            // A rejected path leaves the root list showing, so it lands the
+            // highlight itself (`applyInitialPath` only does so on success).
             if (!applyInitialPath(names)) {
+              resetSelection();
               requestAnimationFrame(() =>
                 requestAnimationFrame(() => inputRef.focus()),
               );
             }
           } else {
+            resetSelection();
             // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
             // only fires on first mount. Re-focus explicitly on every root open.
             // When a path is set, applyInitialPath is the sole focus owner —
@@ -802,7 +829,7 @@ const CommandPalette: Component<{
       () => {
         // Skip in value mode: query is a value, not a filter.
         if (mode().kind === "value") return;
-        setSelectedIndex(0);
+        resetSelection();
       },
       { defer: true },
     ),
@@ -844,9 +871,10 @@ const CommandPalette: Component<{
 
   // Auto-scroll the highlighted row into view. One effect outside <For>:
   // the per-row JSX sets data-selected on the matching row; this effect
-  // queries it. Filter changes already reset selectedIndex to 0 (see the
-  // selection-reset effect above), so the top item is structurally in
-  // view — no need to re-scroll on `filtered()` changes.
+  // queries it. Tracks `selectedIndex` and `props.open`, which together cover
+  // every way a fresh list lands its highlight (`resetSelection`) — including
+  // an open whose default row is not the first one — so there is no need to
+  // re-scroll on `filtered()` reference churn.
   createEffect(() => {
     selectedIndex();
     if (!props.open) return;

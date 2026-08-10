@@ -34,6 +34,16 @@ export type ActiveTerminalRef = {
   terminalId: string;
 };
 
+/** Where the user already IS, one entry per switchable kind. Every switcher
+ *  skips it when choosing its default highlight, which is what makes
+ *  open-then-Enter a TOGGLE rather than a no-op. */
+export type CurrentSelection = {
+  /** The canvas-active terminal, or null when no tile is active. */
+  terminal: ActiveTerminalRef | null;
+  /** Canonical `encodeHostKey` wire form of the active host. */
+  hostKey: string;
+};
+
 /** Fields the root index needs off a palette row. Intentionally minimal so
  *  tests construct plain objects without the full PaletteAction shape. */
 export type IndexableItem = {
@@ -46,7 +56,9 @@ export type IndexableItem = {
     searchText?: string;
     /** Display age (activity clock). Not used for root sort when rankAt set. */
     recencyAt?: number | null;
-    /** Sort key — max(visit, activity). Higher = more recent. Missing → 0. */
+    /** Recency rank — max(visit, activity) for terminals, the host-switch MRU
+     *  ordinal for hosts. Higher = more recent. Missing → 0. Only ever
+     *  compared within one kind (the units differ). */
     rankAt?: number | null;
     /** Host + id — present on fleet terminal rows for Recent exclusion. */
     hostKey?: string | HostKey;
@@ -68,6 +80,27 @@ export function isActiveTerminalRow(
   // Fleet rows pass HostKey objects; pure tests may pass the encoded string.
   const encoded = typeof hk === "string" ? hk : encodeHostKey(hk);
   return encoded === active.hostKey;
+}
+
+/** Whether this row is the one the user is already on — the active tile for a
+ *  terminal row, the active host for a host row. Commands have no "current". */
+export function isCurrentRow(
+  item: IndexableItem,
+  current: CurrentSelection,
+): boolean {
+  switch (itemKind(item)) {
+    case "terminal":
+      return isActiveTerminalRow(item, current.terminal);
+    case "host": {
+      const hk = item.row?.hostKey;
+      if (hk === undefined) return false;
+      // Fleet rows pass HostKey objects; pure tests may pass the encoded string.
+      const encoded = typeof hk === "string" ? hk : encodeHostKey(hk);
+      return encoded === current.hostKey;
+    }
+    case "command":
+      return false;
+  }
 }
 
 export function itemKind(item: IndexableItem): ResultKind {
@@ -132,4 +165,40 @@ export function filterAndRankPaletteItems<T extends IndexableItem>(
     }
     return (a.sectionOrder ?? 0) - (b.sectionOrder ?? 0);
   });
+}
+
+/** THE default-highlight rule — one policy behind every switcher chord, so a
+ *  "press the chord, press Enter" toggle works the same for terminals (⌘K) and
+ *  hosts (⌘⇧H): **the most-recently-visited row of the leading kind that isn't
+ *  the row you are already on.**
+ *
+ *  "Leading kind" is the kind of the first row, which is what the list is a
+ *  switcher FOR: terminals lead the root index (`kindRank`), host rows are all
+ *  the Hosts group holds, and a command group leads with commands. Confining
+ *  the search to that kind is also what lets the two trails keep their own
+ *  units — a terminal's `rankAt` is a wall clock, a host's is a small MRU
+ *  ordinal (`hostRecency.hostVisitRank`), and they are never compared.
+ *
+ *  Rows without a rank all tie at 0, so a plain command list keeps landing on
+ *  its first row. Only ever called for a query-LESS list: with a query typed,
+ *  the top match wins and recency has nothing to say. */
+export function defaultSelectionIndex(
+  items: readonly IndexableItem[],
+  current: CurrentSelection,
+): number {
+  const lead = items[0];
+  if (lead === undefined) return 0;
+  const kind = itemKind(lead);
+  let best = -1;
+  let bestRank = 0;
+  items.forEach((item, i) => {
+    if (itemKind(item) !== kind) return;
+    if (isCurrentRow(item, current)) return;
+    const rank = rankOf(item);
+    if (best === -1 || rank > bestRank) {
+      best = i;
+      bestRank = rank;
+    }
+  });
+  return best === -1 ? 0 : best;
 }
