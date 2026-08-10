@@ -22,6 +22,7 @@ import {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
   isStaleProcessClose,
+  type ProcessIdEcho,
 } from "./connect";
 import { FakeWebSocket, fakeWire } from "./fakeSocket.testlib";
 import { FRAME_TOO_LARGE_CLOSE_CODE } from "@kolu/surface/frame-limit";
@@ -80,7 +81,7 @@ describe("createProcessIdEcho", () => {
 
   it("its `remember` is safe to detach (closure-based, no `this`)", () => {
     const echo = createProcessIdEcho();
-    const remember = echo.remember; // kolu re-exports this as `rememberServerProcessId`
+    const remember = echo.remember;
     remember("p9");
     expect(echo.appendTo("ws://h/rpc/ws")).toBe("ws://h/rpc/ws?pid=p9");
   });
@@ -124,12 +125,27 @@ const surface = defineSurface({
 
 /** Dial through `createSurfaceSocket` with a fake WebSocket constructor, so the
  *  test drives the socket the REAL link built (no mocking of surface-app's own
- *  seam — that is the thing under test). */
-function dial(opts: { url?: string | (() => string) } = {}) {
+ *  seam — that is the thing under test).
+ *
+ *  These sockets have no peer, so nothing answers the reserved `system/identity`
+ *  round-trip the seam fires on each open — which is exactly what makes them the
+ *  right double for the URL-THUNK half of the handshake: the echo is driven by
+ *  hand (a shared instance, the same public option drishti passes) so the thunk is
+ *  observed in isolation. The self-feeding half needs a real server and is proved
+ *  end to end in `server.test.ts`. */
+function dial(
+  opts: {
+    url?: string | (() => string);
+    echo?: ProcessIdEcho;
+    retired?: () => void;
+  } = {},
+) {
   const dialled: FakeWebSocket[] = [];
   const socket = createSurfaceSocket({
     group: surface.group,
     url: opts.url ?? "ws://test/rpc/ws",
+    echo: opts.echo,
+    retired: opts.retired ?? (() => {}),
     connect: (url) => {
       const ws = new FakeWebSocket(url);
       dialled.push(ws);
@@ -155,25 +171,26 @@ async function nthSocket(
 
 describe("createSurfaceSocket — the stale-tab handshake, app side", () => {
   it("echoes the remembered `pid` on EVERY re-dial (the URL is a thunk)", async () => {
-    const d = dial();
-    const { link, echo } = await d.socket;
+    const echo = createProcessIdEcho();
+    const d = dial({ echo });
+    const { dispose } = await d.socket;
     const first = await nthSocket(d.dialled, 1);
     // First-ever connect: nothing observed yet, so no `pid` param at all.
     expect(first.url).toBe("ws://test/rpc/ws");
     first.open();
 
-    // The lifecycle's probe observed the server's id, then the link dropped.
+    // The identity probe observed the server's id, then the link dropped.
     echo.remember("p1");
     first.close(1006, "abnormal closure");
 
     const second = await nthSocket(d.dialled, 2);
     expect(second.url).toBe("ws://test/rpc/ws?pid=p1");
-    await link.dispose();
+    await dispose();
   });
 
   it("retires the wire on the server's stale close — one dial, no re-dial", async () => {
     const d = dial();
-    const { link } = await d.socket;
+    const { link, dispose } = await d.socket;
     const ws = await nthSocket(d.dialled, 1);
     ws.open();
 
@@ -185,12 +202,34 @@ describe("createSurfaceSocket — the stale-tab handshake, app side", () => {
     await new Promise((r) => setTimeout(r, 1_200));
     expect(d.dialled).toHaveLength(1);
     expect(link.wire.status()).toBe("retired");
-    await link.dispose();
+    await dispose();
   });
 
-  it("re-dials through an ordinary drop (only the stale close is terminal)", async () => {
-    const d = dial();
-    const { link } = await d.socket;
+  it("runs the REQUIRED `retired` handler exactly once, on the stale close", async () => {
+    // The option has no default and cannot be omitted (a compile error), so the
+    // one state a wire never recovers from is one the app has been made to answer
+    // for. Firing it here — at the seam that dials, beside the echo that earned the
+    // rejection — is what makes "a lifeless wire is invisible" unrepresentable.
+    const retired = vi.fn();
+    const d = dial({ retired });
+    const { dispose } = await d.socket;
+    const ws = await nthSocket(d.dialled, 1);
+    ws.open();
+    expect(retired).not.toHaveBeenCalled();
+
+    ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
+    await expect.poll(() => retired.mock.calls.length).toBe(1);
+
+    // Terminal means terminal: no later status event re-fires it.
+    await new Promise((r) => setTimeout(r, 1_200));
+    expect(retired).toHaveBeenCalledTimes(1);
+    await dispose();
+  });
+
+  it("leaves `retired` unrun through an ordinary drop (only the stale close is terminal)", async () => {
+    const retired = vi.fn();
+    const d = dial({ retired });
+    const { link, dispose } = await d.socket;
     const first = await nthSocket(d.dialled, 1);
     first.open();
 
@@ -199,16 +238,8 @@ describe("createSurfaceSocket — the stale-tab handshake, app side", () => {
     const second = await nthSocket(d.dialled, 2);
     expect(second).not.toBe(first);
     expect(link.wire.status()).not.toBe("retired");
-    await link.dispose();
-  });
-
-  it("builds a PRIVATE echo when none is passed (kolu's single wire)", async () => {
-    const d = dial();
-    const { link, echo } = await d.socket;
-    expect(echo.appendTo("ws://h")).toBe("ws://h");
-    echo.remember("p7");
-    expect(echo.appendTo("ws://h")).toBe("ws://h?pid=p7");
-    await link.dispose();
+    expect(retired).not.toHaveBeenCalled();
+    await dispose();
   });
 });
 

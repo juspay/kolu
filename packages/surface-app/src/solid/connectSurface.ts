@@ -25,6 +25,13 @@
  * ASYNC (PLAN D5): the dial is `websocketLink`, and building a protocol and its
  * fibers is an effect — so this seam, like every wire link factory, returns a
  * Promise.
+ *
+ * WHAT THE CALLER MUST STILL SPELL: `retired`. Everything else this seam produces
+ * is optional to read — you can build a client and ignore `status` — but the wire's
+ * terminal state is not something an app is allowed to be unaware of, so the
+ * handler is a required option rather than an ignorable return value (see
+ * `RetiredHandler`). The `pid` handshake, which used to be the OTHER ignorable
+ * return value, is gone from the result entirely: the socket feeds its own echo.
  */
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
@@ -37,14 +44,10 @@ import {
   surfaceClient,
 } from "@kolu/surface/solid";
 import type { Accessor } from "solid-js";
-import {
-  createSurfaceSocket,
-  type ProcessIdEcho,
-  type SurfaceSocketOptions,
-} from "../connect";
+import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
 
 export interface ConnectSurfaceOptions<S extends SurfaceSpec>
-  extends Omit<SurfaceSocketOptions, "group"> {
+  extends Omit<SurfaceSocketOptions, "group" | "siblingKey"> {
   /** The surface to build a reactive client for. Its `group` is what the wire
    *  link is built over, so the seam takes the surface (not a separate group) —
    *  a client and a wire that disagreed about the contract is unspellable. */
@@ -58,15 +61,20 @@ export interface ConnectSurfaceOptions<S extends SurfaceSpec>
   heartbeat?: HeartbeatTuning;
 }
 
-/** A live single-surface connection: the wire link, its `pid` echo, the reactive
- *  client, a reactive transport `status` (for a per-connection indicator), and a
- *  `dispose` that stops the liveness heartbeat and closes the wire. */
+/** A live single-surface connection: the wire link, the reactive client, a
+ *  reactive transport `status` (for a per-connection indicator), and a `dispose`
+ *  that stops the liveness heartbeat and closes the wire.
+ *
+ *  There is no `echo` here any more. It used to be returned for an app to feed, and
+ *  an app that dropped it shipped a dead stale-tab handshake (olai#61);
+ *  `createSurfaceSocket` feeds it itself now, so there is nothing on this value
+ *  whose omission breaks the wire. An app that shares ONE echo across several wires
+ *  still creates it (`createProcessIdEcho()`) and passes it IN. */
 export interface SurfaceConnection<S extends SurfaceSpec> {
   /** The wire this connection rides — `{ dispatch, wire, dispose }`. Read
    *  `link.wire` for the status stream / `forceReconnect`; `link.dispatch` is the
    *  branded seam the client is built over. (Was `ws: PartySocket`.) */
   link: WebsocketLink;
-  echo: ProcessIdEcho;
   /** The reactive surface client. `.cells` / `.collections` / `.streams` are
    *  fully typed off `S`; declared imperative procedures ride the bound
    *  `client.procedures.<ns>.<verb>(input)` face — typed straight from `S`, no cast.
@@ -75,9 +83,12 @@ export interface SurfaceConnection<S extends SurfaceSpec> {
    *  (`system.live` / `system.identity` / `system.clockNow`) and as the escape
    *  hatch for a member the bound shapes can't model. */
   client: SurfaceClient<S>;
-  /** Reactive transport status — `connecting` / `live` / `reconnecting` / `down`
-   *  — derived from the wire's own status stream (no identity probe). Render it so
-   *  the watchdog's recovery is VISIBLE rather than silent. */
+  /** Reactive transport status — `connecting` / `live` / `reconnecting` /
+   *  `retired` — derived from the wire's own status stream (no identity probe).
+   *  Render it so the watchdog's recovery is VISIBLE rather than silent. The
+   *  terminal `retired` is spelled out here (it used to project as `down`, which
+   *  read as a transient drop), so a four-state indicator built on this accessor
+   *  alone can say "the server was replaced" — no lifecycle required. */
   status: Accessor<SurfaceConnectionStatus>;
   /** Stop the liveness heartbeat, tear down the client's standing subscriptions,
    *  and close the wire. A per-app-lifetime wire (cached for the page's life,
@@ -90,10 +101,11 @@ export async function connectSurface<const S extends SurfaceSpec>(
   opts: ConnectSurfaceOptions<S>,
 ): Promise<SurfaceConnection<S>> {
   const { surface, heartbeat: hb, ...socketOptions } = opts;
-  const { link, echo } = await createSurfaceSocket({
+  const socket = await createSurfaceSocket({
     ...socketOptions,
     group: surface.group,
   });
+  const { link } = socket;
   // `createLiveSignal` takes the WHOLE `{ dispatch, wire }` the link factory
   // minted together: it derives the reactive transport `status`, wires the
   // half-open watchdog (probing the reserved `system/live` TAG over the very
@@ -107,17 +119,17 @@ export async function connectSurface<const S extends SurfaceSpec>(
   const client = surfaceClient(surface, transport);
   return {
     link,
-    echo,
     client,
     status: transport.status,
     // Stop the watchdog, tear down the client's build-time standing
     // subscriptions (the eager `liveWhen`-cell readiness subs — present when the
-    // surface is mirrored), and release the link's scope (its dial/ping/response
-    // fibers), so a torn-down connection leaks none of the three.
+    // surface is mirrored), and release the socket (its identity/retired observers
+    // plus the link's dial/ping/response fibers), so a torn-down connection leaks
+    // none of the three.
     dispose: async () => {
       transport.dispose();
       client.dispose();
-      await link.dispose();
+      await socket.dispose();
     },
   };
 }

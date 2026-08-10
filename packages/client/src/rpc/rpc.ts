@@ -3,44 +3,42 @@
  * restarted, plus the facets (transport status, server process identity) kolu's
  * UI reads. The derivation itself is NOT hand-rolled here — it's
  * `@kolu/surface-app/solid`'s `createServerLifecycle`, the encapsulated form of
- * what this file used to re-derive (the `surfaceApp.info` probe on every wire
- * open, comparing the returned process UUID against the last-known one to tell a
+ * what this file used to re-derive (an identity probe on every wire open,
+ * comparing the returned process UUID against the last-known one to tell a
  * transient drop from a restart). This module is just the kolu-shaped, module-
- * level signal layer above it: it wires the library to kolu's transport
- * (`wire`) and probe (`surface/surfaceApp/identity/info`, surface-app's identity
- * surface served as a sibling) and re-exports the facets under the names kolu's
- * call sites already use.
+ * level signal layer above it: it wires the library to kolu's transport (`wire`)
+ * and to the framework-reserved `surface/surfaceApp/system/identity` probe, and
+ * re-exports the facets under the names kolu's call sites already use.
  *
  * Transport setup (the reconnecting websocket link + the surface clients) lives
  * in `../wire.ts`.
  */
 
+import { probeSurfaceIdentity } from "@kolu/surface/identity";
 import {
   createServerLifecycle,
   type ServerLifecycleEvent,
-  surfaceAppProbe,
 } from "@kolu/surface-app/solid";
 import { createMemo } from "solid-js";
 import { match } from "ts-pattern";
-import { rememberServerProcessId, surfaceApp, wire } from "../wire";
+import { surfaceApp, wire } from "../wire";
 
 export type WsStatus = "connecting" | "open" | "closed";
 export type { ServerLifecycleEvent };
 
 // The library derives the lifecycle from kolu's transport + identity probe.
-// The probe is surface-app's identity surface, served as a sibling under the
-// `surfaceApp` key — wire path `surface.surfaceApp.identity.info` (returns
-// `{ processId }`) — composed, not hand-written.
+// The probe is the FRAMEWORK-RESERVED `system/identity` member — no app-declared
+// member at all. surface-app used to ship an `identity.info` beside its buildInfo
+// cell; it duplicated this one, and kolu had to pin the two to a single id by
+// injecting `serverProcessId` into the server deps. The reserved member carries
+// `processId` now, so there is one member, one id, and nothing to keep in step.
 const { lifecycle, serverProcessId, status } = createServerLifecycle({
   wire,
-  // surface-app is served as a sibling under the `surfaceApp` key; its client's
-  // FACE (`surfaceApp.rpc`) is tag-scoped, so the probe namespace `identity`
-  // resolves at the wire tag `surface/surfaceApp/identity/info` — the key is
-  // consumed by the scope and does NOT reappear after it. The face is
-  // deliberately structural per member (D2), so the probe call shape lives in
-  // surface-app's `surfaceAppProbe`, beside the surface that defines the probe —
-  // not re-narrowed here.
-  probe: () => surfaceAppProbe(surfaceApp),
+  // Any sibling answers the reserved member (they all report this process's
+  // `surfaceProcessId()`); the `surfaceApp` client's FACE is tag-scoped, so this
+  // resolves at the wire tag `surface/surfaceApp/system/identity` — the key is
+  // consumed by the scope and does NOT reappear after it.
+  probe: () => probeSurfaceIdentity(surfaceApp.rpc),
   // The half-open watchdog is NOT wired here — it lives in `wire.ts`'s
   // `createLiveSignal` over this same wire, beside the transport it guards (and
   // the branded `LiveSignal` it mints for the clients). So this lifecycle opts the
@@ -48,18 +46,16 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
   // one wire; the wire-side watchdog calls `forceReconnect()` on a half-open
   // socket, which this lifecycle observes as a close/open like any other.
   heartbeat: false,
-  // Echo each observed identity back as the `pid` handshake param on the next
-  // reconnect — that's how the server recognizes a stale tab after a restart and
-  // rejects it with `STALE_PROCESS_CLOSE_CODE`. The lifecycle PUBLISHES the id via
-  // this hook (the probe stays pure); `wire.ts` stashes it in the mutable its URL
-  // thunk reads. Distinct from `serverProcessId()`, which is `undefined` on a
-  // stale-close — the echo must keep re-presenting the last *snapshot* (now dead)
-  // id so each reconnect is re-rejected.
-  onProcessId: rememberServerProcessId,
+  // The `pid` echo is NOT fed from here any more. It used to be — this lifecycle
+  // published each observed id and `wire.ts` stashed it — which meant the server's
+  // stale-tab gate only worked because kolu remembered to wire an optional hook.
+  // `createSurfaceSocket` runs that probe itself now, over the wire it dialled, so
+  // the handshake holds with no app step. This lifecycle only OBSERVES.
+  //
   // A persistently-broken probe would otherwise silently leave the UI stuck in
   // its prior connection state. Log it (the next open retries) — same as the
   // pre-extraction rpc.ts.
-  onProbeError: (err) => console.error("surfaceApp.info probe failed:", err),
+  onProbeError: (err) => console.error("system/identity probe failed:", err),
 });
 
 // The stale-tab retirement is no longer wired from here. The server still closes

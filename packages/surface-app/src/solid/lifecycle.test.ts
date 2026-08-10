@@ -250,52 +250,10 @@ describe("createServerLifecycle", () => {
     });
   });
 
-  it("publishes each observed processId via onProcessId (so the consumer can echo it)", async () => {
-    const w = fakeWire();
-    const seen: string[] = [];
-    let id = "p1";
-    await createRoot(async (dispose) => {
-      createServerLifecycle({
-        wire: w.wire,
-        probe: () => Effect.succeed({ processId: id }),
-        onProcessId: (pid) => seen.push(pid),
-      });
-      w.set("open");
-      await flushProbe();
-      // A restart: the hook still fires with the NEW id — and keeps firing the
-      // last observed id even though `serverProcessId()` would diverge on a
-      // retirement (that's why the echo reads this, not the accessor).
-      id = "p2";
-      w.set("closed");
-      w.set("open");
-      await flushProbe();
-      expect(seen).toEqual(["p1", "p2"]);
-      dispose();
-    });
-  });
-
-  it("a throwing onProcessId does not poison the lifecycle transition", async () => {
-    const w = fakeWire();
-    const errors: unknown[] = [];
-    await createRoot(async (dispose) => {
-      const { lifecycle } = createServerLifecycle({
-        wire: w.wire,
-        probe: () => Effect.succeed({ processId: "p1" }),
-        // An observer that throws must not convert a successful probe into a
-        // probe failure: the transition is already committed before it runs, and
-        // the throw is reported via onProbeError instead of unwinding it.
-        onProcessId: () => {
-          throw new Error("observer blew up");
-        },
-        onProbeError: (err) => errors.push(err),
-      });
-      w.set("open");
-      await flushProbe();
-      // Lifecycle still reached `connected`; the throw surfaced separately.
-      expect(lifecycle()).toEqual({ kind: "connected", processId: "p1" });
-      expect(errors).toHaveLength(1);
-      expect((errors[0] as Error).message).toBe("observer blew up");
-      dispose();
-    });
-  });
+  // The `onProcessId` publisher is GONE, and with it the two tests that pinned it
+  // (its firing, and its throw not poisoning a transition). It existed so a
+  // consumer could feed the `pid` echo from here — an obligation an app had to
+  // know it owed, and olai#61 did not. `createSurfaceSocket` feeds the echo off
+  // the reserved `system/identity` member now; `server.test.ts` pins that a
+  // re-dial carries the id with NO app code in the loop.
 });

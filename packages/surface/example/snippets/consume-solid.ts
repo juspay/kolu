@@ -12,6 +12,7 @@ import { Effect } from "effect";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClient } from "@kolu/surface/solid";
 import { connectSurface } from "@kolu/surface-app/solid";
+import { reloadForUpdate } from "@kolu/surface-app/lifecycle";
 import { runtime } from "./serve";
 import { surface } from "./surface";
 
@@ -46,6 +47,11 @@ const url = "wss://example.test/rpc/ws";
 const { link, client, status, dispose } = await connectSurface({
   surface,
   url,
+  // REQUIRED: what happens when the server retires this wire (a tab bound to a
+  // process that is gone — the link will never dial again). No default, so a
+  // connection that compiles has an answer. `reloadForUpdate` is the one-liner;
+  // pass your own handler to take the screen instead.
+  retired: reloadForUpdate,
 });
 // #endregion connect
 

@@ -40,16 +40,14 @@ import {
 } from "@kolu/surface/solid";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import type { Accessor } from "solid-js";
-import {
-  createSurfaceSocket,
-  type ProcessIdEcho,
-  type SurfaceSocketOptions,
-} from "../connect";
+import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
 
 export interface ConnectSurfacesOptions<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
   E extends Record<string, Surface<any>>,
-> extends Omit<SurfaceSocketOptions, "group"> {
+  // The sibling key is DERIVED here (the first surface), not passed: this seam is
+  // the one that knows the surface map.
+> extends Omit<SurfaceSocketOptions, "group" | "siblingKey"> {
   /** The sibling surfaces to build a client bundle for — the same map
    *  `surfaceClients` takes (`{ admin: adminSurface, surfaceApp: appSurface }`).
    *  Each becomes a scoped client at the tags `surface/<key>/<member>/<verb>`.
@@ -100,11 +98,14 @@ export interface ConnectSurfacesOptions<
   onClientError?: OnClientError;
 }
 
-/** A live multi-surface connection: the shared wire, its `pid` echo, the per-key
- *  client bundle, the branded transport handle (for framework composition), the
- *  reactive transport `status`, the COMBINED health fact across every sibling, and a
- *  `dispose` that stops the heartbeat, tears down every client's standing
- *  subscriptions, and closes the wire. */
+/** A live multi-surface connection: the shared wire, the per-key client bundle,
+ *  the branded transport handle (for framework composition), the reactive transport
+ *  `status`, the COMBINED health fact across every sibling, and a `dispose` that
+ *  stops the heartbeat, tears down every client's standing subscriptions, and
+ *  closes the wire.
+ *
+ *  No `echo`: the socket feeds its own `pid` handshake (see `../connect`), so there
+ *  is no longer a returned value whose omission silently kills it. */
 export interface SurfacesConnection<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces.
   E extends Record<string, Surface<any>>,
@@ -112,7 +113,6 @@ export interface SurfacesConnection<
   /** The wire this bundle rides — `{ dispatch, wire, dispose }`. (Was
    *  `ws: PartySocket`.) */
   link: WebsocketLink;
-  echo: ProcessIdEcho;
   /** One scoped `surfaceClient` per sibling surface (the `surfaceClients` shape).
    *  Reach a sibling's primitives through `clients.<key>` and its reserved members
    *  through `clients.<key>.rpc` (the tag-scoped face). */
@@ -127,7 +127,7 @@ export interface SurfacesConnection<
    *  members multiplexed at the same wire. The handle is unforgeable (module-private
    *  brand), so exposing it invites no green-over-dead lie. */
   transport: LiveSignalHandle;
-  /** Reactive transport status (`connecting`/`live`/`reconnecting`/`down`) from
+  /** Reactive transport status (`connecting`/`live`/`reconnecting`/`retired`) from
    *  the one shared wire's status stream. */
   status: Accessor<SurfaceConnectionStatus>;
   /** The COMBINED health fact — `surfaceClientsHealth(clients)` — folding every
@@ -187,10 +187,16 @@ export async function connectSurfaces<
         "(or with another extra group), and the merge silently dropped one of them.",
     );
   }
-  const { link, echo } = await createSurfaceSocket({
+  const socket = await createSurfaceSocket({
     ...socketOptions,
     group,
+    // The reserved `system/identity` member the echo probe reads lives under EVERY
+    // sibling's tag prefix and answers the same per-process id, so the first
+    // sibling — the same one the watchdog probes for `system/live` — is the one
+    // both reserved round-trips address.
+    siblingKey,
   });
+  const { link } = socket;
   // `createLiveSignal` takes the WHOLE `{ dispatch, wire }` the link factory
   // minted: it wires the half-open watchdog (probing the reserved liveness member
   // at the FIRST sibling's tag — every sibling answers it) AND mints the BRANDED
@@ -202,7 +208,6 @@ export async function connectSurfaces<
   const clients = surfaceClients(transport, surfaces, onClientError);
   return {
     link,
-    echo,
     clients,
     transport,
     status: transport.status,
@@ -212,7 +217,7 @@ export async function connectSurfaces<
       for (const client of Object.values(clients)) {
         (client as { dispose: () => void }).dispose();
       }
-      await link.dispose();
+      await socket.dispose();
     },
   };
 }

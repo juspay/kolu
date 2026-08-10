@@ -2,7 +2,7 @@
  * The app's reactive surfaces — surface-app's build-identity surface served as a
  * SIBLING of the app's OWN live surface, multiplexed over one transport. They
  * are NOT merged: surface-app is already a complete surface (its `buildInfo`
- * cell + `identity.info` restart probe), so the app serves it under the
+ * cell), so the app serves it under the
  * `surfaceApp` key alongside its own `demo` surface (the live `serverStats`
  * cell). One transport, two independent surfaces, each namespaced by its key —
  * this is the composition the example exists to show.
@@ -46,7 +46,8 @@ export const EMPTY_STATS: ServerStats = {
 
 /** surface-app's standalone surface, extended with the example's `bootId` axis.
  *  Served as a sibling under the `surfaceApp` key — its `buildInfo` cell drives
- *  the rail and its `identity.info` probe drives the connection lifecycle. */
+ *  the rail, and the reserved `system/identity` member every surface carries
+ *  drives the connection lifecycle. */
 export const surfaceAppSurface = surfaceAppSurfaceWith(buildInfo);
 
 /** The app's OWN surface — just the live `serverStats` cell. A complete surface

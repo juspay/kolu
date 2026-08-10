@@ -76,12 +76,7 @@ import {
   surfaces,
 } from "kolu-common/surface";
 import { padiHostMap } from "kolu-common/surfacesWithPadi";
-import {
-  serverCommit,
-  serverProcessId,
-  serverStartedAt,
-  serverVersion,
-} from "./hostname.ts";
+import { serverCommit, serverStartedAt, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import {
   MEMORY_SAMPLE_INTERVAL_MS,
@@ -504,7 +499,7 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
 
   // The two SIBLING surfaces kolu-server OWNS, multiplexed over one transport
   // (kolu#1197): kolu's own primitives under the `kolu` key, and surface-app's
-  // COMPLETE surface (the buildInfo cell + the `identity.info` restart probe) under
+  // COMPLETE surface (the buildInfo cell) under
   // `surfaceApp`. They are NOT merged — `implementSurfaces` keys each surface,
   // serving them at `/surface/kolu/…` and `/surface/surfaceApp/…`. The third
   // sibling, `padi`, is NOT implemented here: `index.ts`'s async boot RE-SERVES it
@@ -539,20 +534,20 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
     },
     {
       // ── surface-app's server deps (sibling under `surfaceApp`) ───────────
-      // The build-identity cell's server fragment (skew axis) PLUS the
-      // `identity.info` restart probe pinned to kolu's boot UUID. `commit` is
+      // The build-identity cell's server fragment (the SKEW axis). `commit` is
       // kolu's single source (`serverCommit` ← `KOLU_COMMIT_HASH`); `version`
       // lands as a `Partial<KoluBuildInfo>` patch over the library-seeded
       // `{ commit }`. Per-key deps are typed against the surface's own spec, so
       // this needs no cast.
+      //
+      // The RESTART axis is not wired here any more: surface-app's `identity.info`
+      // probe is gone, and the framework's reserved `system/identity` — served on
+      // every sibling, stamped with `surfaceProcessId()` — answers it. That is the
+      // same id `serverProcessId` reads and the same one the stale-tab gate
+      // compares against, so there is nothing left to pin them together with.
       surfaceApp: surfaceAppServer<KoluBuildInfo>({
         buildInfo: async () => ({ version: serverVersion }),
         commit: serverCommit,
-        // surface-app's identity probe (restart axis) —
-        // `surface.surfaceApp.identity.info`. Pin it to the existing boot UUID
-        // (`serverProcessId`) so the value is stable within a process and
-        // changes on restart. Composed, not hand-written.
-        processId: serverProcessId,
         // `version` is a build constant — this read can't fail — but keep the
         // fragment's error sink for the cell's contract.
         onError: (err) =>

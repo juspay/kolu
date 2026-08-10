@@ -80,7 +80,9 @@ describe("the served group — the wire surface kolu-server advertises", () => {
     const tags = servedTags();
     expect(tags).toContain("surface/kolu/preferences/get");
     expect(tags).toContain("surface/kolu/forwards/create");
-    expect(tags).toContain("surface/surfaceApp/identity/info");
+    expect(tags).toContain("surface/surfaceApp/buildInfo/get");
+    // The restart axis: the framework-reserved member, not a surface-app duplicate.
+    expect(tags).toContain("surface/surfaceApp/system/identity");
     for (const tag of ROOT_RPC_TAGS) expect(tags).toContain(tag);
     // A root tag is not under `surface/` — which is exactly what keeps a
     // hand-written root procedure from ever colliding with a surface member.

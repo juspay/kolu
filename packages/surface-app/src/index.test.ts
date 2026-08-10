@@ -16,7 +16,6 @@ import {
   isCleanRef,
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
-  rejectStaleProcess,
   SHELL_CACHE_CONTROL,
   SHELL_COMMIT_GLOBAL,
   shellCommitScript,
@@ -24,17 +23,12 @@ import {
   SW_SOURCE,
 } from "./index";
 
-describe("rejectStaleProcess", () => {
-  it("passes the first-ever connect (no claimed pid)", () => {
-    expect(rejectStaleProcess(null, "live-1")).toBe(false);
-  });
-  it("passes a matching pid (transient drop, same process)", () => {
-    expect(rejectStaleProcess("live-1", "live-1")).toBe(false);
-  });
-  it("rejects a mismatched pid (tab bound to a previous process)", () => {
-    expect(rejectStaleProcess("dead-0", "live-1")).toBe(true);
-  });
-});
+// The stale-tab DECISION is no longer a pure kernel here: `rejectStaleProcess`
+// took the "live" id as an argument, and that argument was the way to point the
+// gate at an id the wire never reports. The decision now lives inside
+// `gateStaleSocket`, which reads this process's own `surfaceProcessId()` — see
+// `server.test.ts`, where it is tested through the door it is now only reachable
+// by.
 
 describe("cacheControlFor", () => {
   it("pins content-hashed assets immutable", () => {

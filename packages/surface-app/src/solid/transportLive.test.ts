@@ -69,6 +69,7 @@ describe("transport live → health().live (createLiveSignal's branded handle)",
     const { link } = await createSurfaceSocket({
       group: surface.group,
       url: "ws://test",
+      retired: () => {},
       connect: d.connect,
     });
     await createRoot(async (dispose) => {
@@ -101,11 +102,12 @@ describe("transport live → health().live (createLiveSignal's branded handle)",
     await link.dispose();
   });
 
-  it("a retired stale-close (terminally `down`) reads not-live", async () => {
+  it("a retired stale-close (terminally `retired`) reads not-live", async () => {
     const d = dialRecorder();
     const { link } = await createSurfaceSocket({
       group: surface.group,
       url: "ws://test",
+      retired: () => {},
       connect: d.connect,
     });
     await createRoot(async (dispose) => {
@@ -121,7 +123,7 @@ describe("transport live → health().live (createLiveSignal's branded handle)",
       ws.close(STALE_PROCESS_CLOSE_CODE);
       await settle();
       expect(app.health().live).toBe(false);
-      expect(transport.status()).toBe("down");
+      expect(transport.status()).toBe("retired");
       transport.dispose();
       app.dispose();
       dispose();
@@ -144,6 +146,7 @@ describe("connectSurface threads the real wire liveness into health().live", () 
       const conn = await connectSurface({
         surface,
         url: "ws://test",
+        retired: () => {},
         connect: d.connect,
       });
       // Before the first open: `connecting` → not live (NOT the default `true`).
@@ -181,6 +184,7 @@ describe("kolu's wire pattern: a multi-surface bundle MUST pass the BRANDED hand
     const { link } = await createSurfaceSocket({
       group: surface.group,
       url: "ws://test",
+      retired: () => {},
       connect: d.connect,
     });
     await createRoot(async (dispose) => {
@@ -209,6 +213,7 @@ describe("kolu's wire pattern: a multi-surface bundle MUST pass the BRANDED hand
     const { link } = await createSurfaceSocket({
       group: surface.group,
       url: "ws://test",
+      retired: () => {},
       connect: d.connect,
     });
     expect(() => surfaceClients(link.dispatch, { a: surface })).toThrow(
