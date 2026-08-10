@@ -40,6 +40,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   currentPadiBuildId,
+  drainResidentOnAgentToolsBakeDrift,
   padiRuntimeHome,
   padiStderrLogPath,
   residentPadiSocket,
@@ -650,6 +651,10 @@ export function ensurePadiBindingWith(
   // Standing convergence anomaly from the last converge — surfaces via
   // `convergence()` (adopted-stale when the budget is spent, etc.). Null when clean.
   let standingConvergence: PadiConvergence | null = null;
+  // The #2146 toolchain-drift pre-check runs ONCE per binder boot: drift can
+  // only arise when the SUPERVISOR's build changes, which is a boot. A per-dial
+  // check would re-read the record on every reconnect for no possible new answer.
+  let toolsBakeChecked = false;
   const driver =
     deps.driver ??
     localPadiDriver(
@@ -761,6 +766,48 @@ export function ensurePadiBindingWith(
         const gone = new PadiStateRootGoneError(stateRoot);
         reportFatalBindingError(gone, opts.onFatalBindingError);
         return yield* Effect.fail(gone);
+      }
+      // ── Toolchain-drift pre-check (juspay/kolu#2146), once per binder boot ──
+      // The kit's build axis cannot see the agent-tools bake (an env fact, not a
+      // dependency edge of padi's source closure), so a padi surviving a kolu
+      // upgrade keeps stamping its dead build's toolchain — the stale `kolu`
+      // shadow — into every NEW terminal. The daemon records its bake beside its
+      // manifest; when a resident's record names a different toolchain than this
+      // build forwards (`daemonEnv`'s unconditional forward), drain it once
+      // (persist + exit; its kaval + PTYs survive) so the converge below
+      // respawns it with the current bake. Same-machine comparison only — the
+      // ssh binder must never run this (see agentToolsBake.ts).
+      if (!toolsBakeChecked) {
+        toolsBakeChecked = true;
+        const ownBake = process.env[AGENT_TOOLS_BAKE_ENV] ?? "";
+        const drift = yield* drainResidentOnAgentToolsBakeDrift({
+          runtimeDir: home.dir,
+          socketPath: home.socketPath,
+          ownBake,
+          // Same-build residents only — a foreign build is the kit's own axis
+          // (its breadcrumb below, its budget), never this pre-check's.
+          ownBuildId: currentPadiBuildId(),
+          probe: deps.probe,
+        });
+        if (drift.kind === "drained") {
+          log.info(
+            { recorded: drift.recorded, ownBake },
+            `padi toolchain change on boot: recorded=${drift.recorded} expected=${ownBake}` +
+              " — draining the survivor once (persist + exit; its kaval + PTYs survive) and " +
+              "respawning with this build's toolchain (drain-on-tools-drift, #2146).",
+          );
+        } else if (
+          drift.kind === "probe-failed" ||
+          drift.kind === "drain-failed"
+        ) {
+          // Surfaced loudly, then fail open into the ordinary converge: an
+          // unreachable or undrainable resident is exactly what the kit's own
+          // probe/budget machinery is built to classify.
+          log.warn(
+            { recorded: drift.recorded, ownBake, error: drift.error },
+            `padi toolchain drift detected but ${drift.kind === "probe-failed" ? "the probe failed" : "the drain did not take"} — proceeding to converge`,
+          );
+        }
       }
       const outcome = yield* convergePadi;
       const conn = ep.current();

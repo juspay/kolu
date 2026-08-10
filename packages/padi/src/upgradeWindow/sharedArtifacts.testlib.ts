@@ -82,6 +82,16 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     why: "Padi's serving socket; the binder dials it and must name a contract skew.",
   },
   {
+    id: "padi-agent-tools-bake",
+    pathShape: "$XDG_RUNTIME_DIR/padi-<digest>/agent-tools-bake",
+    role: "manifest",
+    coveredByTest: "padi/agentToolsBakeRecord.test.ts",
+    versionField: null,
+    diskBasenames: ["agent-tools-bake"],
+    diskBasenamePatterns: [],
+    why: "The toolchain bake the running daemon stamps into terminals, recorded so a same-machine supervisor of a newer build can see toolchain drift and recycle the daemon (#2146). Absent (an older daemon) → no drift verdict; the build-mismatch drain covers that window because the build introducing the record changed padi's source closure.",
+  },
+  {
     id: "padi-state-root-config",
     pathShape: "<stateRoot>/config.json",
     role: "config",

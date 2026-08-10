@@ -26,6 +26,11 @@ export {
 // the package-boundary seal: on boot it compares its own baked `PADI_BUILD_ID`
 // against the running padi's `hello.buildId` and drains a same-contract build change.
 export { currentPadiBuildId } from "./daemonBoot/buildId.ts";
+// The #2146 toolchain-drift pre-check — the binder's same-machine twin of the
+// `padi --stdio` front's. Re-exported through this barrel (not a deep
+// `@kolu/padi/agent-tools-bake` import) for the same package-boundary-seal
+// reason as `currentPadiBuildId` above.
+export { drainResidentOnAgentToolsBakeDrift } from "./agentToolsBake.ts";
 // ── host-daemon inventory scanner (the "Running daemons" leak diagnostic) ─
 // The ONE scanner both padi (its `hostInventory` member) and kolu-server's web shell
 // (its local-machine `daemonInventory.localScan` under a remote binding) reuse. Padi

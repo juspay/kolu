@@ -82,6 +82,7 @@ import {
   NewerPadiStateProjectVersionError,
   openPadiStateStores,
 } from "../session/stateStore.ts";
+import { writeAgentToolsBakeRecord } from "../agentToolsBake.ts";
 import {
   padiKavalHome,
   padiRuntimeHome,
@@ -685,6 +686,10 @@ function padiDaemonProgram(
     // Manifests (digest → state-root) so a flag-less kaval-tui can label what it
     // discovers — written into both padi's and its kaval's runtime dirs.
     writeStateRootManifest(home.dir, stateRoot);
+    // The toolchain this daemon will stamp into terminals, recorded beside the
+    // manifest so a SAME-MACHINE supervisor of a newer build can see toolchain
+    // drift and recycle this daemon (juspay/kolu#2146; see agentToolsBake.ts).
+    writeAgentToolsBakeRecord(home.dir);
     // Beside the kaval this padi ACTUALLY holds — `getLocalSocketPath()` is the digest
     // socket normally, but the adopted LEGACY port socket after an upgrade adoption, so
     // discovery labels the real daemon and no empty digest dir is minted.

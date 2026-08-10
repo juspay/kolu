@@ -69,11 +69,13 @@ import {
 } from "@kolu/surface-daemon-supervisor";
 import type { StdioReadinessVerdict } from "@kolu/surface/links/readiness";
 import { Effect } from "effect";
+import { AGENT_TOOLS_BAKE_ENV } from "kolu-pty";
 import {
   bakedOsFactsBin,
   osfactsSocketHolders,
   processIdentityAsync,
 } from "osfacts-client";
+import { drainResidentOnAgentToolsBakeDrift } from "../agentToolsBake.ts";
 import { padiConvergencePolicy } from "../convergencePolicy.ts";
 import { padiRuntimeHome, padiStderrLogPath } from "../stateRoot.ts";
 import { currentPadiBuildId } from "./buildId.ts";
@@ -141,6 +143,14 @@ export function convergeStdioFront(
       }),
     };
 
+    // Hoisted so the #2146 toolchain-drift pre-check below and the endpoint
+    // share ONE probe value — two probeDaemonIdentity calls with the same args
+    // is how the two dials drift apart.
+    const probe = probeDaemonIdentity({
+      capability: "drainable",
+      drainCeilingMs: FRONT_DRAIN_TEARDOWN_CEILING_MS,
+    });
+
     const endpoint = createEndpoint<
       PadiDaemonClient,
       PadiHelloIdentity,
@@ -149,10 +159,7 @@ export function convergeStdioFront(
       hostId: "padi-stdio-front",
       home,
       policy: padiConvergencePolicy(currentPadiBuildId()),
-      probe: probeDaemonIdentity({
-        capability: "drainable",
-        drainCeilingMs: FRONT_DRAIN_TEARDOWN_CEILING_MS,
-      }),
+      probe,
       readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
       readSocketHolders: osfactsSocketHolders(osfactsBin),
       driver,
@@ -165,6 +172,37 @@ export function convergeStdioFront(
       onStatus: (_hostId, status) =>
         log.info({ state: status.state }, "padi --stdio: converge"),
     });
+
+    // ── Toolchain-drift pre-check (juspay/kolu#2146) ────────────────────────
+    // The remote-host twin of kolu-server's binder pre-check: this front runs
+    // from the freshly provisioned closure, so its own bake IS the toolchain a
+    // current daemon would hand terminals. A resident whose record names a
+    // different one survived a provision that changed only the client CLIs —
+    // invisible to the build axis — and must be drained (persist + exit; kaval
+    // + PTYs survive) so the converge below respawns it from THIS closure.
+    // Same-machine comparison by construction: front and resident share a host.
+    const ownBake = process.env[AGENT_TOOLS_BAKE_ENV] ?? "";
+    const drift = yield* drainResidentOnAgentToolsBakeDrift({
+      runtimeDir: home.dir,
+      socketPath: home.socketPath,
+      ownBake,
+      // Same-build residents only — a foreign build is the kit's own axis.
+      ownBuildId: currentPadiBuildId(),
+      probe,
+    });
+    if (drift.kind === "drained") {
+      log.info(
+        { recorded: drift.recorded, ownBake },
+        "padi --stdio: toolchain change — drained the survivor; converge respawns this closure's build (drain-on-tools-drift, #2146)",
+      );
+    } else if (drift.kind === "probe-failed" || drift.kind === "drain-failed") {
+      // Loud, then fail open into converge — the kit's probe/classify machinery
+      // owns unreachable/undrainable residents.
+      log.warn(
+        { recorded: drift.recorded, ownBake, error: drift.error },
+        "padi --stdio: toolchain drift detected but the drain step failed — proceeding to converge",
+      );
+    }
 
     const outcome = yield* converge(endpoint);
     const anomaly = outcomeAnomaly(outcome);
