@@ -135,12 +135,14 @@ describe("padiSurface contract", () => {
     ]);
     expect(Object.keys(spec.streams ?? {})).toEqual([
       "activity",
+      "watchPulse",
       "subscribeRepoChange",
       "subscribeFileChange",
       "terminalAttach",
     ]);
     expect(Object.keys(spec.events ?? {})).toEqual(["terminalExit"]);
     expect(Object.keys(spec.procedures ?? {})).toEqual([
+      "watch",
       "lifecycle",
       "chrome",
       "screen",
@@ -518,6 +520,12 @@ describe("the declared error vocabulary (PLAN D4)", () => {
         "screen.text",
         "scratch.write",
         "transcript.exportHtml",
+        // `watch.drain` refuses an unopened name — the ONE watch verb that can:
+        // `open` creates what it names and `close` answers a boolean, so neither
+        // has a refusal to declare. "No such subscription" is declared rather
+        // than answered with an empty batch precisely so a supervisor cannot
+        // read a typo'd name as a quiet workspace.
+        "watch.drain",
       ].sort(),
     );
   });
