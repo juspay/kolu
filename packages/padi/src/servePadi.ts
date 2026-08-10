@@ -23,7 +23,6 @@ import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import {
   type ImplementSurfaceDeps,
   inMemoryStore,
-  pollOnEvent,
   streamFromAbortableSource,
 } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
@@ -53,17 +52,12 @@ import type {
   TerminalEndpoint,
 } from "./endpoint.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
-import { createFinishQuiet, type FinishQuiet } from "./activity/finishQuiet.ts";
+import { pulseSource } from "./pulseSource.ts";
+import { createFinishQuiet } from "./activity/finishQuiet.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
-import {
-  createSettleEvents,
-  type SettleEventSource,
-} from "./attention/settleEvents.ts";
+import { createSettleEvents } from "./attention/settleEvents.ts";
 import { createSupervisionDelivery } from "./attention/supervisionDelivery.ts";
-import {
-  createWatchRegistry,
-  type WatchRegistry,
-} from "./attention/watchRegistry.ts";
+import { createWatchRegistry } from "./attention/watchRegistry.ts";
 import {
   newTerminalPolicyStore,
   resolveNewTerminalTheme,
@@ -235,39 +229,17 @@ async function* attachFrames(
   for await (const frame of deltas) yield frame;
 }
 
-/** Prior standing finish-quiet handle — disposed when deps are rebuilt (tests). */
-let standingFinishQuiet: FinishQuiet | undefined;
-function disposeStandingFinishQuiet(): void {
-  standingFinishQuiet?.dispose();
-  standingFinishQuiet = undefined;
-}
-
-/** The daemon-lifetime attention flow — the settle-event source and the standing
- *  subscription registry it feeds. Held module-level for the same reason as the
- *  finish tracker above: a `servePadi` rebuild in tests must dispose the prior
- *  set of listeners rather than stack a second one on the same daemon. */
-interface StandingAttention {
-  settleEvents: SettleEventSource;
-  watchRegistry: WatchRegistry;
-  dispose: () => void;
-}
-let standingAttention: StandingAttention | undefined;
-function disposeStandingAttention(): void {
-  standingAttention?.dispose();
-  standingAttention = undefined;
-}
-
-/** The live registry, for the surface handlers. Throws before deps are built —
- *  the same fail-fast posture as the late-bound surface ctx: a handler reaching
- *  it early is a boot-order defect, never a case to degrade around. */
-function requireWatchRegistry(): WatchRegistry {
-  if (standingAttention === undefined) {
-    throw new Error(
-      "padi watch registry read before buildPadiSurfaceDeps — boot order defect",
-    );
-  }
-  return standingAttention.watchRegistry;
-}
+/** The DAEMON-LIFETIME teardown for everything `buildPadiSurfaceDeps` stands up
+ *  and keeps running past its own return: the finish-quiet tracker (its kaval
+ *  activity subscription) and the attention flow (the settle-event source, the
+ *  standing subscription registry, and the two sinks wired between them).
+ *
+ *  ONE handle, because it is one lifetime — a `servePadi` rebuild in tests must
+ *  dispose the prior set rather than stack a second one on the same daemon, and
+ *  two singletons with two dispose functions guarding the same moment is two
+ *  chances to forget one. Nothing READS the pieces through here: every consumer
+ *  is a closure inside the same function body, holding the value lexically. */
+let disposeStanding: (() => void) | undefined;
 
 /** Assemble the FULL `padiSurface` server deps (minus `channel`). Every member
  *  gets a functional read/procedure/source handler AND a live write path (the padi
@@ -297,13 +269,14 @@ export function buildPadiSurfaceDeps(deps: {
 }): PadiDeps {
   const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
   const fsGit = padiFsGitDeps(endpoint, log);
+  // Dispose the PRIOR daemon-lifetime set (finish tracker + attention flow) so a
+  // servePadi test rebuild doesn't stack resubscribe loops or two sets of sinks.
+  disposeStanding?.();
+  disposeStanding = undefined;
   // EF2 — daemon-lifetime finish tracker + standing kaval activity sub. Dual-edge
   // with terminals via `finish.project` (quiet-exit re-folds without an
-  // agent-state change). Dispose any prior handle so servePadi test rebuilds
-  // don't stack resubscribe loops.
-  disposeStandingFinishQuiet();
+  // agent-state change).
   const finish = createFinishQuiet({ log });
-  standingFinishQuiet = finish;
 
   // THE ATTENTION FLOW. One event source — "a terminal just started needing
   // someone", derived from the SAME urgency level the Dock and the browser's
@@ -316,23 +289,16 @@ export function buildPadiSurfaceDeps(deps: {
   //   • the STANDING SUBSCRIPTIONS: named, buffered queues for a supervisor that
   //     has no terminal to be delivered into (an MCP-only agent).
   //
-  // Disposed alongside the finish tracker so a servePadi rebuild in tests cannot
-  // stack two sets of listeners on one daemon.
-  disposeStandingAttention();
-  const settleEvents = createSettleEvents();
+  // Disposed alongside the finish tracker (one `disposeStanding`) so a servePadi
+  // rebuild in tests cannot stack two sets of listeners on one daemon.
+  const settleEvents = createSettleEvents({ log });
   const watchRegistry = createWatchRegistry({
+    log,
     // A fresh subscription is acknowledged up to the daemon's CURRENT sequence,
     // so it reports what happens next rather than replaying history.
     initialCursor: () => settleEvents.lastSeq(),
   });
   const supervision = createSupervisionDelivery({
-    // The SAME per-key read the `terminals` collection serves (`readOne`), so the
-    // record the guard narrows is byte-for-byte the record a client would see —
-    // never a second, registry-shaped view of "is this an agent terminal".
-    lookup: (id) => {
-      const entry = getTerminal(id);
-      return entry ? composePadiTerminal(entry) : undefined;
-    },
     write: (id, data) => {
       // The same quiet-drop as `lifecycle.sendInput`: a nudge landing just after
       // the supervisor was killed is an expected race, not a failure (#1628).
@@ -340,18 +306,21 @@ export function buildPadiSurfaceDeps(deps: {
     },
     log,
   });
+  // Both sinks take the whole FRAME plus the terminals map it was folded from —
+  // so the mailbox sink resolves a supervisor's record from the frame the events
+  // describe, rather than taking a second read path back into the registry for a
+  // fact this fold already held.
   const unsubscribeSettle = [
-    settleEvents.onEvent((event) => supervision.deliver(event)),
-    settleEvents.onEvent((event) => watchRegistry.accept(event)),
+    settleEvents.onFrame((events, terminals) =>
+      supervision.deliver(events, terminals),
+    ),
+    settleEvents.onFrame((events) => watchRegistry.accept(events)),
   ];
-  standingAttention = {
-    settleEvents,
-    watchRegistry,
-    dispose: () => {
-      for (const off of unsubscribeSettle) off();
-      watchRegistry.dispose();
-      settleEvents.dispose();
-    },
+  disposeStanding = () => {
+    for (const off of unsubscribeSettle) off();
+    watchRegistry.dispose();
+    settleEvents.dispose();
+    finish.dispose();
   };
 
   // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
@@ -596,17 +565,10 @@ export function buildPadiSurfaceDeps(deps: {
       // the caller a wait, never an event.
       watchPulse: {
         source: (input: { name: string }) =>
-          streamFromAbortableSource<{ seq: number }>((signal) =>
-            (async function* watchPulses(): AsyncGenerator<{ seq: number }> {
-              const registry = requireWatchRegistry();
-              yield* pollOnEvent<{ seq: number }>({
-                read: async () => ({ seq: registry.pulseOf(input.name) }),
-                isEqual: (a, b) => a.seq === b.seq,
-                install: (onEvent) => registry.onPulse(input.name, onEvent),
-                signal,
-                onReadError: () => {},
-              });
-            })(),
+          pulseSource(
+            (onEvent) => watchRegistry.onPulse(input.name, onEvent),
+            log,
+            `watchPulse[${input.name}]`,
           ),
       },
       ...fsGit.streams,
@@ -664,7 +626,7 @@ export function buildPadiSurfaceDeps(deps: {
             // `open` answers `reattached` itself — the registry is the only thing
             // that can know it without a race, and it seeds a fresh
             // subscription's cursor from the `initialCursor` it was built with.
-            const { sub, reattached } = requireWatchRegistry().open(
+            const { sub, reattached } = watchRegistry.open(
               input.name,
               input.ids,
             );
@@ -678,12 +640,19 @@ export function buildPadiSurfaceDeps(deps: {
                 ? "watch subscription re-attached"
                 : "watch subscription opened",
             );
-            return { name: sub.name, cursor: sub.cursor, reattached };
+            return {
+              name: sub.name,
+              acknowledged: sub.acknowledged,
+              reattached,
+            };
           }),
         drain: ({ input }) =>
-          handle(() => requireWatchRegistry().drain(input.name, input.after)),
+          handle(() => watchRegistry.drain(input.name, input.after)),
         close: ({ input }) =>
-          handle(() => ({ closed: requireWatchRegistry().close(input.name) })),
+          handle(() => {
+            watchRegistry.close(input.name);
+            return {};
+          }),
       },
       lifecycle: {
         create: ({ input }) =>

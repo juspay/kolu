@@ -4,6 +4,7 @@
  * assertion here, not an edge case.
  */
 
+import { pino } from "pino";
 import type {
   AgentInfo,
   TerminalId,
@@ -15,12 +16,7 @@ import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
 import type { SettleEvent } from "./settleEvents.ts";
 import { createSupervisionDelivery, nudgeText } from "./supervisionDelivery.ts";
 
-const silentLog = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-} as unknown as Parameters<typeof createSupervisionDelivery>[0]["log"];
+const silentLog = pino({ level: "silent" });
 
 function makeAgent(state: AgentInfo["state"]): AgentInfo {
   return {
@@ -82,21 +78,28 @@ const event = (over: Partial<SettleEvent> = {}): SettleEvent => ({
   ...over,
 });
 
-/** Build a delivery over a fixed parent record, capturing what it wrote. */
+/** Build a delivery over a fixed supervisor record, capturing what it wrote.
+ *  `deliver` reads the supervisor out of the FRAME the events were computed
+ *  from — the one the settle-event source hands its sinks — so the harness
+ *  supplies that frame rather than a lookup function. */
 function harness(parent: PadiTerminal | undefined) {
   const writes: Array<{ id: string; data: string }> = [];
   const delivery = createSupervisionDelivery({
-    lookup: () => parent,
     write: (id, data) => writes.push({ id, data }),
     log: silentLog,
   });
-  return { writes, delivery };
+  const frame = new Map<TerminalId, PadiTerminal>();
+  if (parent !== undefined) frame.set("supervisor-1" as TerminalId, parent);
+  return {
+    writes,
+    deliver: (...events: SettleEvent[]) => delivery.deliver(events, frame),
+  };
 }
 
 describe("supervision delivery", () => {
   it("writes into the SUPERVISOR's mailbox, not the worker's, and submits the line", () => {
-    const { writes, delivery } = harness(agentTerminal());
-    delivery.deliver(event());
+    const { writes, deliver } = harness(agentTerminal());
+    deliver(event());
     expect(writes).toHaveLength(1);
     expect(writes[0]?.id).toBe("supervisor-1");
     // The trailing CR is what re-invokes the supervisor. Without it the nudge
@@ -106,48 +109,50 @@ describe("supervision delivery", () => {
   });
 
   it("NEVER writes into a human's shell — the guard the whole feature rests on", () => {
-    const { writes, delivery } = harness(humanShell());
-    delivery.deliver(event());
+    const { writes, deliver } = harness(humanShell());
+    deliver(event());
     expect(writes).toEqual([]);
   });
 
   it("never writes into a sleeping/parked terminal (no live PTY behind it)", () => {
-    const { writes, delivery } = harness(sleepingTerminal());
-    delivery.deliver(event());
+    const { writes, deliver } = harness(sleepingTerminal());
+    deliver(event());
     expect(writes).toEqual([]);
   });
 
   it("a ROOT terminal's settle delivers nowhere — nobody spawned it", () => {
-    const { writes, delivery } = harness(agentTerminal());
+    const { writes, deliver } = harness(agentTerminal());
     const rootEvent: SettleEvent = {
       seq: 1,
       id: "root" as TerminalId,
       kind: "finished",
       at: 1,
     };
-    delivery.deliver(rootEvent);
+    deliver(rootEvent);
     expect(writes).toEqual([]);
   });
 
   it("a supervisor that has been killed is a quiet no-op, not a throw", () => {
-    const { writes, delivery } = harness(undefined);
-    expect(() => delivery.deliver(event())).not.toThrow();
+    const { writes, deliver } = harness(undefined);
+    expect(() => deliver(event())).not.toThrow();
     expect(writes).toEqual([]);
   });
 
   it("distinguishes asking from finished, and names the intent when there is one", () => {
-    expect(nudgeText(event({ kind: "asking" }))).toContain("asking for input");
-    expect(nudgeText(event({ kind: "finished" }))).toContain(
+    expect(nudgeText([event({ kind: "asking" })])).toContain(
+      "asking for input",
+    );
+    expect(nudgeText([event({ kind: "finished" })])).toContain(
       "finished its turn",
     );
-    expect(nudgeText(event({ intent: "fix the flaky test" }))).toContain(
+    expect(nudgeText([event({ intent: "fix the flaky test" })])).toContain(
       "(fix the flaky test)",
     );
   });
 
   it("tells a supervisor its worker is GONE rather than leaving it waiting", () => {
-    const { writes, delivery } = harness(agentTerminal());
-    delivery.deliver(event({ kind: "gone" }));
+    const { writes, deliver } = harness(agentTerminal());
+    deliver(event({ kind: "gone" }));
     expect(writes).toHaveLength(1);
     expect(writes[0]?.data).toContain("is gone");
     // Nothing to read — a departed terminal has no screen, so the nudge must not
@@ -156,11 +161,53 @@ describe("supervision delivery", () => {
   });
 
   it("the nudge carries the id a supervisor needs to read the screen, and no transcript", () => {
-    const text = nudgeText(event());
+    const text = nudgeText([event()]);
     expect(text).toContain("worker-1");
     expect(text).toContain("screen_text");
     // A single line — delivery must not paste another agent's output into the
     // supervisor's mailbox.
     expect(text).not.toContain("\n");
+  });
+
+  it("wakes a supervisor ONCE per frame, however many of its lanes moved", () => {
+    const { writes, deliver } = harness(agentTerminal());
+    // A kaval recycle retires every active id at once; `killAll` does the same.
+    // That is ONE fact about the supervisor's campaign, so it is one submit into
+    // its mailbox — not one per lane, which is what a per-event fan-out leaves.
+    deliver(
+      event({ id: "worker-1" as TerminalId, kind: "gone" }),
+      event({ id: "worker-2" as TerminalId, kind: "gone" }),
+      event({ id: "worker-3" as TerminalId, kind: "gone" }),
+    );
+    expect(writes).toHaveLength(1);
+    for (const id of ["worker-1", "worker-2", "worker-3"]) {
+      expect(writes[0]?.data).toContain(id);
+    }
+    // Still ONE line: a newline inside a PTY write would submit early.
+    expect(writes[0]?.data.slice(0, -1)).not.toContain("\n");
+    // And still one prefix, so the supervisor reads it as one kolu message.
+    expect(writes[0]?.data.match(/\[kolu\]/g)).toHaveLength(1);
+  });
+
+  it("splits a frame BY supervisor — one worker's report never reaches another's boss", () => {
+    const writes: Array<{ id: string; data: string }> = [];
+    const delivery = createSupervisionDelivery({
+      write: (id, data) => writes.push({ id, data }),
+      log: silentLog,
+    });
+    const frame = new Map<TerminalId, PadiTerminal>([
+      ["boss-a" as TerminalId, agentTerminal()],
+      ["boss-b" as TerminalId, agentTerminal()],
+    ]);
+    delivery.deliver(
+      [
+        event({ id: "w1" as TerminalId, parentId: "boss-a" as TerminalId }),
+        event({ id: "w2" as TerminalId, parentId: "boss-b" as TerminalId }),
+      ],
+      frame,
+    );
+    expect(writes.map((w) => w.id)).toEqual(["boss-a", "boss-b"]);
+    expect(writes[0]?.data).toContain("w1");
+    expect(writes[0]?.data).not.toContain("w2");
   });
 });
