@@ -70,6 +70,12 @@ fail-fast · electricity boundaries · reuse the source of truth) and state in
 the plan or PR body how the change honors each. A violation is a defect to fix
 now, not a review finding to wait for.
 
+**A new dependency is a load-bearing fact — ground it before you build on it.**
+Before adding one, check what the workspace already resolves: a capability often
+ships inside an installed package under a name you didn't grep for (its exports
+map and any bundled docs are the check). Registry metadata for one package name
+is not evidence the capability is absent.
+
 - **Bug:** reproduce before you theorize — and treat an *inherited* diagnosis
   (an issue's trace, a prior session's sketch, a hand-off) as a hypothesis to
   falsify, never a fact to extend; the more authoritative it reads, the more it
@@ -96,6 +102,14 @@ checklist: **grep every doc surface for the term you touched** — `README.md`,
 every `packages/*/README.md`, `website/` (hand-listed commands and roadmap
 prose go stale), `docs/atlas/` — and for each hit either edit it or note why
 it's still accurate. Skip only when genuinely doc-neutral.
+
+**Sweep the callers the same way** when the change breaks an existing contract —
+a renamed flag, a verb that used to be the default, a changed signature.
+Discover them, don't recall them: grep the **whole repo** for every spelling the
+thing is reached by, not the directories you expect hits in — `.nix`, `.sh`,
+`justfile`, and test harnesses launch things too. The sweep is done when
+re-running that grep shows only sites you changed, not when the list you
+enumerated runs out.
 
 **Changelog.** Any user-facing change appends one `<Change kind="…">` line to
 `website/src/content/changelog/unreleased.mdx` under its product-area heading,

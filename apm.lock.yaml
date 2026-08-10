@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-08-08T14:03:48.523159+00:00'
+generated_at: '2026-08-10T00:13:44.326194+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/agents
@@ -81,7 +81,7 @@ dependencies:
     .agents/skills/be-review/RATIONALE.md: sha256:cac9be3c3be87dae93442ed2b6f0549c7d1710fbf4fa9ac2437455810cbcab7a
     .agents/skills/be-review/SKILL.md: sha256:77c2a5be59fbc4223f6022a5ba06c93a685336ff942a138a074c23e92529078c
     .agents/skills/be/RATIONALE.md: sha256:f6e466af26ad16b22447843343993bfc34c62b887f6759f28a8f053096a329ce
-    .agents/skills/be/SKILL.md: sha256:7dd26ca298e70d807033c72a680415e809e543d950e2b3cc30b69adb75aa5309
+    .agents/skills/be/SKILL.md: sha256:414c597f03744c64010d4c88d50f4ef5e178aa67e242159a7398d7e2b53a0658
     .agents/skills/bridge/SKILL.md: sha256:f9220d5e89b38bc6370cf9e601229992aa1f642fae3ef6d92d9c5a884d5b1cca
     .agents/skills/bridge/dashboard/index.html: sha256:7289bb60245087ce5b57c833bd8bb2b766153cec31b92a413647547b3e9742b0
     .agents/skills/bridge/dashboard/index.js: sha256:f58c4b996f6b9df7f13f30fbd061404cbc95ab3e5881f53066cde199f3501f38
@@ -102,7 +102,7 @@ dependencies:
     .claude/skills/be-review/RATIONALE.md: sha256:cac9be3c3be87dae93442ed2b6f0549c7d1710fbf4fa9ac2437455810cbcab7a
     .claude/skills/be-review/SKILL.md: sha256:77c2a5be59fbc4223f6022a5ba06c93a685336ff942a138a074c23e92529078c
     .claude/skills/be/RATIONALE.md: sha256:f6e466af26ad16b22447843343993bfc34c62b887f6759f28a8f053096a329ce
-    .claude/skills/be/SKILL.md: sha256:7dd26ca298e70d807033c72a680415e809e543d950e2b3cc30b69adb75aa5309
+    .claude/skills/be/SKILL.md: sha256:414c597f03744c64010d4c88d50f4ef5e178aa67e242159a7398d7e2b53a0658
     .claude/skills/bridge/SKILL.md: sha256:f9220d5e89b38bc6370cf9e601229992aa1f642fae3ef6d92d9c5a884d5b1cca
     .claude/skills/bridge/dashboard/index.html: sha256:7289bb60245087ce5b57c833bd8bb2b766153cec31b92a413647547b3e9742b0
     .claude/skills/bridge/dashboard/index.js: sha256:f58c4b996f6b9df7f13f30fbd061404cbc95ab3e5881f53066cde199f3501f38
@@ -992,7 +992,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:7dd26ca298e70d807033c72a680415e809e543d950e2b3cc30b69adb75aa5309
+  content_hash: sha256:414c597f03744c64010d4c88d50f4ef5e178aa67e242159a7398d7e2b53a0658
 - kind: project-relative
   target: claude
   value: .claude/skills/blog-post
@@ -1946,7 +1946,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:7dd26ca298e70d807033c72a680415e809e543d950e2b3cc30b69adb75aa5309
+  content_hash: sha256:414c597f03744c64010d4c88d50f4ef5e178aa67e242159a7398d7e2b53a0658
 - kind: project-relative
   target: codex
   value: .agents/skills/bridge
