@@ -225,6 +225,9 @@ one definition. It fans out to two sinks:
   notification" spellable, and a coordinator that forgets once drops a report on
   the floor. **Only agent terminals are written to**; a person's shell is never
   typed into (they have the canvas, the Dock and the OS notification instead).
+  One fold's edges arrive as one **frame**, so a supervisor is woken *once* per
+  frame however many of its lanes moved — a kaval recycle that retires twenty
+  workers is one fact, not twenty submits into one mailbox.
 
 - **Standing subscriptions** (`watch.open` / `drain` / `close` + the `watchPulse`
   doorbell), for a supervisor that has no terminal for the edge to reach — an
@@ -234,10 +237,13 @@ one definition. It fans out to two sinks:
   empty. (padi's OWN restart clears them — they are process memory. A drain
   against a name it no longer holds raises the declared `WatchSubscriptionNotFound`
   rather than answering an empty batch, because "not subscribed" and "nothing
-  happened" are the two states a supervisor must never confuse.) A drain is
-  **acknowledged** (`after`), not destructive, so a reply lost in flight costs a
-  repeat rather than a report; overflow is *reported* (a `dropped` count), never
-  silently truncated.
+  happened" are the two states a supervisor must never confuse — and `close`
+  raises the same error rather than answering `false`, for the same reason.) A
+  drain is **acknowledged** (send its `ackAfter` back as the next `after`), not
+  destructive, so a reply lost in flight costs a repeat rather than a report;
+  overflow is *reported* (a `dropped` count), never silently truncated — and a
+  drop that lands *after* a reported batch is not covered by that batch's
+  acknowledgement, so it rides the next report rather than being erased.
 
 A terminal LEAVING is an event too (`kind: "gone"`), for the same reason: a
 supervisor waiting on a worker that no longer exists must be told, not left

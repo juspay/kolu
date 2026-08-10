@@ -520,11 +520,13 @@ describe("the declared error vocabulary (PLAN D4)", () => {
         "screen.text",
         "scratch.write",
         "transcript.exportHtml",
-        // `watch.drain` refuses an unopened name — the ONE watch verb that can:
-        // `open` creates what it names and `close` answers a boolean, so neither
-        // has a refusal to declare. "No such subscription" is declared rather
-        // than answered with an empty batch precisely so a supervisor cannot
-        // read a typo'd name as a quiet workspace.
+        // `watch.drain` and `watch.close` both refuse an unopened name, with the
+        // SAME declared error: `open` creates what it names, so it is the only
+        // watch verb with no refusal to declare. "No such subscription" is
+        // declared rather than answered with an empty batch (or a `false`)
+        // precisely so a supervisor cannot read a typo'd name as a quiet
+        // workspace, or as "there was nothing to close".
+        "watch.close",
         "watch.drain",
       ].sort(),
     );

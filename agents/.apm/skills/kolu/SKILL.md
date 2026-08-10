@@ -103,13 +103,13 @@ looping waits and reporting back); it drops reports at four seams and it is what
 ```jsonc
 watch_open { name: "campaign" }                                  // once — omit `ids` to watch every terminal
 watch_next { name: "campaign", timeoutMs: 60000 }                // first call
-watch_next { name: "campaign", after: <cursor>, timeoutMs: … }   // then ACK the last batch each time
+watch_next { name: "campaign", after: <ackAfter>, timeoutMs: … } // then ACK the last batch each time
 watch_close { name: "campaign" }                                 // when the campaign ends
 ```
 
 - Events that land while you are **not** calling `watch_next` are buffered in
   padi, so the gap between calls is not a blind spot.
-- **Acknowledge by passing each result's `cursor` back as the next `after`.**
+- **Acknowledge by passing each result's `ackAfter` back as the next `after`.**
   Unacknowledged events are handed over again, so a reply you never received is
   never lost — dedupe on each event's `seq` if you see one twice.
 - The queue outlives your MCP process **and** kaval. Re-`watch_open` the SAME

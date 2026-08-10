@@ -63,12 +63,6 @@ function iterateUntilAborted<T>(
   return { [Symbol.asyncIterator]: () => iter };
 }
 
-// `activeAgent` now lives on the contract module beside `activePadiTerminal`
-// (its second consumer is padi's own SERVE graph, which must not import the
-// client dial kit). Re-exported here so the dial kit's existing consumers —
-// padi-tui, the MCP face — keep their one import path.
-export { activeAgent };
-
 /** The coarse agent buckets a wait accepts as targets — the `agentBucket`
  *  fold's vocabulary minus `other` (an `other` bucket never matches a real
  *  agent, so accepting it would only ever time out). A wait compares against
@@ -308,7 +302,7 @@ function errMessage(err: unknown): string {
 export type WatchEventsOutcome = WaitOutcome<{
   events: readonly PadiSettleEvent[];
   dropped: number;
-  cursor: number;
+  ackAfter: number;
   elapsedMs: number;
 }>;
 
@@ -335,8 +329,8 @@ export async function awaitWatchEvents(
   client: PadiSurfaceClient,
   opts: {
     name: string;
-    /** The `cursor` from the caller's last SUCCESSFULLY-received batch — the
-     *  acknowledgement. Omit on a first call. Until a cursor comes back, padi
+    /** The `ackAfter` from the caller's last SUCCESSFULLY-received batch — the
+     *  acknowledgement. Omit on a first call. Until an ack comes back, padi
      *  keeps handing the same events over, which is what makes a lost reply cost
      *  a repeat rather than an event. */
     after?: number;
@@ -347,7 +341,7 @@ export async function awaitWatchEvents(
   return runWait<{
     events: readonly PadiSettleEvent[];
     dropped: number;
-    cursor: number;
+    ackAfter: number;
     elapsedMs: number;
   }>({ timeoutMs: opts.timeoutMs, signal: opts.signal }, async (ctx) => {
     const drainNow = async (): Promise<boolean> => {
@@ -369,7 +363,7 @@ export async function awaitWatchEvents(
         kind: "met",
         events: drained.events,
         dropped: drained.dropped,
-        cursor: drained.cursor,
+        ackAfter: drained.ackAfter,
         elapsedMs: ctx.elapsedMs(),
       });
       return true;

@@ -654,8 +654,8 @@ export function activePadiTerminal(
  *  graph and its client kit already import — rather than in the client-side dial
  *  kit that first needed it: the server's supervision delivery is a consumer too,
  *  and a daemon module reaching into `@kolu/padi/dial` for a narrowing would
- *  point the dependency arrow backwards. `watch.ts` re-exports it for the dial
- *  kit's existing consumers. */
+ *  point the dependency arrow backwards. Every consumer imports it from HERE —
+ *  there is no compatibility re-export through the dial kit. */
 export function activeAgent(record: PadiTerminal): AgentInfo | null {
   return activePadiTerminal(record)?.agent ?? null;
 }
@@ -897,24 +897,44 @@ export const PadiSendInputSchema = Schema.Struct({
 // authoritative and server-side, so a MISSED pulse costs a wait, never an event.
 
 /** A settle edge on the wire — "this terminal just started needing someone".
+ *
+ *  THE one declaration of the shape: padi's own server-internal source aliases
+ *  `PadiSettleEvent` rather than re-spelling the fields (`attention/settleEvents.ts`),
+ *  so a reader tracing one event from emission to the MCP reply never changes
+ *  vocabulary halfway through and the two halves cannot drift in a direction that
+ *  still type-checks.
+ *
  *  Thin on purpose: the recipient reads the terminal's screen itself, so it acts
- *  on current output rather than a copy that aged in the queue. */
+ *  on CURRENT output rather than a copy that aged in the queue, and one delivery
+ *  can't flood a supervisor's context with another agent's transcript. */
 export const PadiSettleEventSchema = Schema.Struct({
-  /** Monotonic per-daemon sequence — the drain cursor. */
+  /** Monotonic per-daemon sequence — the cursor a standing subscription drains
+   *  against, so "what have I not seen" is a number comparison and never a
+   *  guess. */
   seq: PositiveInt,
   id: TerminalIdSchema,
   /** `asking` — the agent is blocked on a person (`awaiting_user`), reported
-   *  immediately. `finished` — its turn ended AND its output then went quiet for
-   *  padi's effective-finish window; that conjunction is what keeps a background
-   *  sub-agent's churn from reading as "done". `gone` — the terminal left, so a
-   *  supervisor waiting on it learns that instead of waiting forever (a kaval
-   *  recycle retires every active id this way). */
+   *  immediately and UNGATED by the quiet window, because an agent that says it
+   *  is blocked is definitionally not mid-output. `finished` — its turn ended AND
+   *  its output then went quiet for padi's effective-finish window; that
+   *  conjunction is what keeps a background sub-agent's churn from reading as
+   *  "done". `gone` — the terminal left (it exited, was killed, or its id was
+   *  retired by a kaval recycle). It rides this SAME channel deliberately: a
+   *  supervisor waiting on a worker that no longer exists must be TOLD, not left
+   *  waiting for a settle that can never come — otherwise a scoped subscription
+   *  simply goes quiet after a recycle, and silence reads exactly like a calm
+   *  workspace. */
   kind: Schema.Literals(["asking", "finished", "gone"]),
-  /** ms epoch, stamped by padi when the edge was detected. */
+  /** ms epoch, stamped once per observed FRAME (not per event), so every edge one
+   *  fold produced describes the same instant. */
   at: PositiveInt,
-  /** The supervision edge — who spawned this terminal. Absent for a root. */
+  /** The supervision edge — who should hear about this terminal. Absent for a
+   *  root terminal (nobody spawned it). For a DEPARTURE it is the edge REMEMBERED
+   *  from the last frame that still had one, because by then there is no record to
+   *  read. */
   parentId: Schema.optionalKey(TerminalIdSchema),
-  /** The terminal's intent annotation, when it carries one. */
+  /** The terminal's freeform intent annotation, when set — the one piece of "what
+   *  was this lane doing" a recipient can't cheaply re-derive. */
   intent: Schema.optionalKey(Schema.String),
 });
 export type PadiSettleEvent = typeof PadiSettleEventSchema.Type;
@@ -941,10 +961,13 @@ export const PadiWatchOpenInputSchema = Schema.Struct({
 
 export const PadiWatchOpenOutputSchema = Schema.Struct({
   name: Schema.String,
-  /** Sequence already handed out — a fresh subscription starts at the daemon's
-   *  current sequence, so it reports what happens NEXT rather than replaying
-   *  history the supervisor has already acted on. */
-  cursor: NonNegativeInt,
+  /** The highest `seq` this subscription has already ACKNOWLEDGED — the daemon's
+   *  current sequence for a fresh one (so it reports what happens NEXT rather
+   *  than replaying history the supervisor already acted on), and the PRESERVED
+   *  watermark for a re-attach (so a supervisor can see that its place really was
+   *  kept). Informational: the value you echo back as a drain's `after` is the
+   *  DRAIN's `ackAfter`, never this one. */
+  acknowledged: NonNegativeInt,
   /** True when this name already existed and its buffer was preserved. */
   reattached: Schema.Boolean,
 });
@@ -970,14 +993,12 @@ export const PadiWatchDrainOutputSchema = Schema.Struct({
    *  collection — reported rather than silently truncated, because a silent
    *  truncation reads exactly like a quiet workspace. */
   dropped: NonNegativeInt,
-  /** The high-water mark to send back as the next drain's `after`. Until you do,
-   *  these events stay queued — so a reply lost in flight costs a repeat rather
-   *  than an event. */
-  cursor: NonNegativeInt,
-});
-
-export const PadiWatchCloseOutputSchema = Schema.Struct({
-  closed: Schema.Boolean,
+  /** Send this back VERBATIM as the next drain's `after` — the name says where
+   *  it goes, so no doc has to teach the mapping. It is the high-water mark of
+   *  this batch, or the standing watermark when the batch is empty (echoing that
+   *  back is then a no-op). Until you do, these events stay queued — so a reply
+   *  lost in flight costs a repeat rather than an event. */
+  ackAfter: NonNegativeInt,
 });
 
 /** The doorbell frame — no event data, just a distinguisher, exactly like
@@ -1480,9 +1501,16 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
         output: PadiWatchDrainOutputSchema,
         error: WatchSubscriptionNotFound,
       },
+      /** Drop a subscription and its buffer. RAISES the same declared
+       *  `WatchSubscriptionNotFound` a drain does, rather than answering
+       *  `{closed: false}`: "there was no such subscription" is exactly the
+       *  answer that error class exists to keep distinguishable from "there was
+       *  nothing to report", and a boolean handed to an agent reads as the
+       *  latter. */
       close: {
         input: PadiWatchNameInputSchema,
-        output: PadiWatchCloseOutputSchema,
+        output: Schema.Struct({}),
+        error: WatchSubscriptionNotFound,
       },
     },
     /** Terminal lifecycle — create · kill · killAll · sleep · wake ·

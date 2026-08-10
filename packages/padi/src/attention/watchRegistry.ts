@@ -40,6 +40,7 @@
  */
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import type { Logger } from "pino";
 import { WatchSubscriptionNotFound } from "../errors.ts";
 import type { SettleEvent } from "./settleEvents.ts";
 
@@ -59,13 +60,15 @@ export interface WatchSubscription {
    *  keeps them until a later drain's `after` covers them. */
   buffer: SettleEvent[];
   /** The highest `seq` the caller has acknowledged receiving. */
-  cursor: number;
+  acknowledged: number;
   /** Events discarded to overflow, and not yet reported on a drain. */
   dropped: number;
-  /** Monotonic doorbell counter — bumped whenever this subscription gains an
-   *  event. The `watchPulse` stream publishes it so a consumer can tell a fresh
-   *  ring from a re-delivered frame. */
-  pulseSeq: number;
+  /** The slice of {@link dropped} that the LAST drain actually handed over — the
+   *  only part an `after` can acknowledge. `after` acknowledges events at or
+   *  below a SEQ, and a drop count has no seq; zeroing the whole counter under
+   *  that same `after` would erase drops that accrued AFTER the reported batch,
+   *  unreported. Those survive the ack and ride the next report. */
+  reportedDropped: number;
 }
 
 export interface WatchDrain {
@@ -74,10 +77,10 @@ export interface WatchDrain {
    *  was away long enough to miss some, and should reconcile by reading the
    *  terminals collection rather than trusting the delta. */
   readonly dropped: number;
-  /** The highest `seq` in this batch (or the standing cursor when empty). Pass it
-   *  back as the NEXT drain's `after` to acknowledge — until you do, these events
-   *  stay queued and will be handed over again. */
-  readonly cursor: number;
+  /** Send this back VERBATIM as the NEXT drain's `after` to acknowledge — the
+   *  highest `seq` in this batch, or the standing watermark when empty. Until
+   *  you do, these events stay queued and will be handed over again. */
+  readonly ackAfter: number;
 }
 
 export interface WatchOpened {
@@ -92,36 +95,46 @@ export interface WatchRegistry {
   /** Open (or re-attach to) a named subscription. IDEMPOTENT by name: re-opening
    *  after an MCP restart returns the EXISTING queue with its buffer intact,
    *  which is what makes a supervisor's restart survivable. Re-opening with a
-   *  different scope re-scopes it. */
+   *  different scope re-scopes it — the QUEUE included. */
   open(name: string, ids?: readonly TerminalId[]): WatchOpened;
   /** Hand over everything buffered, ACKNOWLEDGING everything at or below `after`
    *  first. Never blocks — a caller that wants to wait parks on the doorbell
    *  (`onPulse`) and drains when it rings. */
   drain(name: string, after?: number): WatchDrain;
-  /** The doorbell counter for `name` — 0 when no such subscription exists yet.
-   *  The `watchPulse` stream's frame. */
-  pulseOf(name: string): number;
-  /** Subscribe to a name's doorbell. Registered by NAME, not by subscription
-   *  object, so the pulse stream may be opened before (or across a close/re-open
-   *  of) the subscription it rings for. Returns an unsubscribe. */
+  /** Subscribe to a NAME's doorbell — the only half of the doorbell there is.
+   *  Registered by name, not by subscription object, so the pulse stream may be
+   *  opened before (or across a close/re-open of) the subscription it rings for.
+   *  Returns an unsubscribe.
+   *
+   *  Deliberately tolerant of a name nobody opened: `awaitWatchEvents` subscribes
+   *  BEFORE it drains (so an event landing between the two still rings a pulse it
+   *  is already listening for), and the DRAIN is the authority that raises
+   *  `WatchSubscriptionNotFound`. There is no counter to read here — the pulse
+   *  stream mints its own per-subscription distinguisher (`pulseSource`), so a
+   *  ring is always a fresh frame and "no such subscription" can never be spelled
+   *  with the same number as "no events yet". */
   onPulse(name: string, listener: () => void): () => void;
-  /** Drop a subscription and its buffer. */
-  close(name: string): boolean;
-  /** The sink registered on the settle-event source. */
-  accept(event: SettleEvent): void;
+  /** Drop a subscription and its buffer. RAISES {@link WatchSubscriptionNotFound}
+   *  for a name nobody opened — the same fail-fast the drain takes, and for the
+   *  same reason: a boolean `false` reads to an agent as "there was nothing to
+   *  report", which is precisely the confusion the error class exists to end. */
+  close(name: string): void;
+  /** The sink registered on the settle-event source — one observed FRAME at a
+   *  time, which is also one doorbell ring at a time. */
+  accept(events: readonly SettleEvent[]): void;
   dispose(): void;
 }
 
-export function createWatchRegistry(
-  opts: {
-    limit?: number;
-    /** The sequence a FRESH subscription starts acknowledged at, so it reports
-     *  what happens NEXT rather than replaying edges the supervisor already
-     *  acted on. Injected rather than read from a module global, so the registry
-     *  owns the whole of `open`'s answer and no caller has to reach past it. */
-    initialCursor?: () => number;
-  } = {},
-): WatchRegistry {
+export function createWatchRegistry(opts: {
+  log: Logger;
+  limit?: number;
+  /** The sequence a FRESH subscription starts acknowledged at, so it reports
+   *  what happens NEXT rather than replaying edges the supervisor already
+   *  acted on. Injected rather than read from a module global, so the registry
+   *  owns the whole of `open`'s answer and no caller has to reach past it. */
+  initialCursor?: () => number;
+}): WatchRegistry {
+  const { log } = opts;
   const limit = opts.limit ?? WATCH_BUFFER_LIMIT;
   const initialCursor = opts.initialCursor ?? (() => 0);
   const subs = new Map<string, WatchSubscription>();
@@ -142,11 +155,11 @@ export function createWatchRegistry(
     return sub;
   };
 
-  /** Ring the doorbell for a subscription that just gained events: bump its
-   *  counter and notify the pulse streams. */
-  const ring = (sub: WatchSubscription): void => {
-    sub.pulseSeq += 1;
-    const listeners = pulseListeners.get(sub.name);
+  /** Ring a NAME's doorbell — once per observed frame, which is what a doorbell
+   *  means. Keyed by name and never by record, so a CLOSE (whose record is
+   *  already detached) rings exactly as loudly as an arrival. */
+  const ring = (name: string): void => {
+    const listeners = pulseListeners.get(name);
     if (listeners === undefined) return;
     for (const l of listeners) {
       // Contain a throwing pulse consumer — one broken stream must not stop the
@@ -154,7 +167,7 @@ export function createWatchRegistry(
       try {
         l();
       } catch (err) {
-        console.error("padi: watch pulse listener threw", err);
+        log.error({ err, name }, "padi: watch pulse listener threw");
       }
     }
   };
@@ -169,15 +182,28 @@ export function createWatchRegistry(
       const scope = ids === undefined ? undefined : new Set(ids);
       const existing = subs.get(name);
       if (existing !== undefined) {
-        // Re-attach. The buffer and cursor SURVIVE — that is the whole reason
-        // this is keyed by a caller-chosen name rather than by connection.
+        // A re-attach REBUILDS the record from the incoming scope. What survives
+        // is the QUEUE (buffer, watermark, drop accounting), which is the whole
+        // reason this is keyed by a caller-chosen name rather than by connection.
+        // Omitting `ids` when no scope is given is not a deletion but the ABSENCE
+        // of a claim — re-opening with no scope widens back to every terminal
+        // because nothing narrows it.
+        //
+        // A scope is a statement about the QUEUE, not only about future events:
+        // narrowing filters what it just stopped caring about, or `ids` and
+        // `buffer` describe two different subscriptions and the next drain hands
+        // over events this caller has said it does not want.
         const next: WatchSubscription = {
-          ...existing,
+          name: existing.name,
           ...(scope === undefined ? {} : { ids: scope }),
+          buffer:
+            scope === undefined
+              ? existing.buffer
+              : existing.buffer.filter((e) => scope.has(e.id)),
+          acknowledged: existing.acknowledged,
+          dropped: existing.dropped,
+          reportedDropped: existing.reportedDropped,
         };
-        // Re-opening with no scope WIDENS back to every terminal, which a spread
-        // alone would not express (it would keep the old set).
-        if (scope === undefined) delete (next as { ids?: unknown }).ids;
         subs.set(name, next);
         return { sub: next, reattached: true };
       }
@@ -187,20 +213,24 @@ export function createWatchRegistry(
         buffer: [],
         // A FRESH subscription is acknowledged up to NOW, so it reports what
         // happens next rather than replaying edges the supervisor already acted
-        // on. A re-attach (above) keeps the cursor it had, which is exactly what
-        // preserves what it missed while away.
-        cursor: initialCursor(),
+        // on. A re-attach (above) keeps the watermark it had, which is exactly
+        // what preserves what it missed while away.
+        acknowledged: initialCursor(),
         dropped: 0,
-        pulseSeq: 0,
+        reportedDropped: 0,
       };
       subs.set(name, sub);
       return { sub, reattached: false };
     },
 
-    accept(event) {
+    accept(events) {
       for (const sub of subs.values()) {
-        if (sub.ids !== undefined && !sub.ids.has(event.id)) continue;
-        sub.buffer.push(event);
+        const mine =
+          sub.ids === undefined
+            ? events
+            : events.filter((e) => sub.ids?.has(e.id) ?? false);
+        if (mine.length === 0) continue;
+        sub.buffer.push(...mine);
         if (sub.buffer.length > limit) {
           // Drop the OLDEST — a supervisor that fell behind wants the most recent
           // truth, and the count below is how it learns the tail is incomplete.
@@ -208,7 +238,9 @@ export function createWatchRegistry(
           sub.buffer.splice(0, overflow);
           sub.dropped += overflow;
         }
-        ring(sub);
+        // ONE ring per frame, not one per event: the doorbell says "there is
+        // something new", and the drain behind it is the authority on what.
+        ring(sub.name);
       }
     },
 
@@ -218,26 +250,28 @@ export function createWatchRegistry(
       // processed; everything at or below it is now safe to forget. Anything
       // above it stays — so a reply lost in flight (a host's call timeout, an
       // interrupted agent, a dropped socket) costs a repeat, never an event.
-      if (after !== undefined && after > sub.cursor) {
-        sub.cursor = after;
+      if (after !== undefined && after > sub.acknowledged) {
+        sub.acknowledged = after;
         sub.buffer = sub.buffer.filter((e) => e.seq > after);
-        // The overflow report is acknowledged with the batch that carried it —
-        // it describes a gap the caller has now been told about.
-        sub.dropped = 0;
+        // Only the drops the acknowledged batch actually REPORTED are covered by
+        // it. Drops that accrued afterwards have never been told to anyone, and
+        // zeroing the counter would erase them exactly as silently as the
+        // truncation this module refuses to do.
+        sub.dropped -= sub.reportedDropped;
+        sub.reportedDropped = 0;
       }
       const events = [...sub.buffer];
       const last = events.at(-1);
+      // What THIS batch carries, so the next `after` acknowledges this much and
+      // no more.
+      sub.reportedDropped = sub.dropped;
       return {
         events,
         dropped: sub.dropped,
         // The high-water mark to acknowledge next time. With an empty buffer the
-        // standing cursor is the honest answer — echoing it back is a no-op.
-        cursor: last?.seq ?? sub.cursor,
+        // standing watermark is the honest answer — echoing it back is a no-op.
+        ackAfter: last?.seq ?? sub.acknowledged,
       };
-    },
-
-    pulseOf(name) {
-      return subs.get(name)?.pulseSeq ?? 0;
     },
 
     onPulse(name, listener) {
@@ -258,14 +292,13 @@ export function createWatchRegistry(
     },
 
     close(name) {
-      // Ring first: a consumer parked on this name's doorbell re-drains, gets
-      // the declared "no such subscription", and learns it was closed — rather
-      // than waiting out its timeout against a queue that no longer exists.
-      const sub = subs.get(name);
-      if (sub === undefined) return false;
+      require_(name);
       subs.delete(name);
-      ring(sub);
-      return true;
+      // Ring AFTER the delete: a consumer parked on this name's doorbell
+      // re-drains, gets the declared "no such subscription", and learns it was
+      // closed — rather than waiting out its timeout against a queue that no
+      // longer exists.
+      ring(name);
     },
 
     dispose() {
