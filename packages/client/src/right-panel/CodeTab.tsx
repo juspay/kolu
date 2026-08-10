@@ -14,8 +14,6 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
-import { toError } from "@kolu/surface/run-stream";
-import { Effect } from "effect";
 import {
   CODE_TAB_VIEW_ORDER,
   type CodeTabView,
@@ -24,8 +22,8 @@ import {
 } from "@kolu/padi/surface";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree, rowPathsCss } from "@kolu/solid-pierre";
-
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { cwdBasename } from "kolu-common/path";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
@@ -70,17 +68,18 @@ import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
-import { runActionPromise } from "../runAction";
 import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
-import { activeHost, activePadiRpc } from "../wire";
+import { activeHost } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import {
   type BrowseInventory,
   diffInventory,
+  directoryInventory,
   mergeBrowseInventory,
 } from "./browseInventory";
+import { armBrowseRoot, browsableRoot, browseRootOf } from "./browseRoot";
 import {
   type CodeTabOpenResolutionSource,
   type CodeTabScope,
@@ -90,17 +89,20 @@ import {
   createCodeTabOpenController,
   type OpenInCodeTabRequest,
 } from "./codeTabOpenController";
+import FileSearchInput from "./FileSearchInput";
+import { projectFileTreeSearch } from "./fileSearch";
 import {
   codeActiveStatus,
   codeAllPaths,
   codeBranchStatus,
+  codeCollapseLevel,
   codeDiff,
+  codeDirLevels,
+  codeExpandLevel,
   codeIgnoredPaths,
   codeLocalStatus,
   readFreshCodePaths,
 } from "./hostCodeTab";
-import FileSearchInput from "./FileSearchInput";
-import { projectFileTreeSearch } from "./fileSearch";
 import { openInCodeTab, pendingOpen } from "./openInCodeTab";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import { setShowIgnoredFiles, showIgnoredFiles } from "./showIgnoredFiles";
@@ -193,6 +195,35 @@ const NavButton: Component<{
   );
 };
 
+/** The collapsed root node a non-git cwd renders — nothing is listed or
+ *  watched until the user clicks it (consent expressed in the flow, per
+ *  session, never persisted — `browseRoot.ts`). Styled as the folder row the
+ *  click turns it into. The 32px row clears the WCAG 2.2 24px tap floor. */
+const BrowseRootArm: Component<{ cwd: string; onBrowse: () => void }> = (
+  props,
+) => {
+  const name = () => cwdBasename(props.cwd);
+  return (
+    <div class="flex flex-col h-full text-[11px]">
+      <button
+        type="button"
+        data-testid="browse-root-node"
+        title={`Browse ${props.cwd}`}
+        onClick={props.onBrowse}
+        class="flex items-center gap-1.5 px-2 h-8 shrink-0 text-left transition-colors hover:bg-surface-2/60"
+      >
+        <ChevronRightIcon class="h-3.5 w-3.5 opacity-60" />
+        <FileBrowseIcon class="h-3.5 w-3.5 opacity-60" />
+        <span class="font-medium truncate">{name()}</span>
+        <span class="text-fg-3/50">browse</span>
+      </button>
+      <div class="px-2 py-1 text-[10px] text-fg-3/40">
+        Not a git repository — expand to browse files. Diff views need git.
+      </div>
+    </div>
+  );
+};
+
 const CodeTab: Component<{
   terminalId: TerminalId | null;
   meta: TerminalMetadata | null;
@@ -217,7 +248,20 @@ const CodeTab: Component<{
   // fallback `"local"` while Inspector is active, then back on return —
   // a real value transition that fires the `slotKey` effect and
   // wipes selection on every Inspector round-trip in non-local modes.
-  const view = rightPanel.codeMode;
+  //
+  // Outside a git repo the view COERCES to browse without touching the
+  // persisted mode: the diff views are meaningless there (nothing to diff
+  // against), and writing the coercion through `setCodeMode` would clobber the
+  // mode the user actually picked for the next repo this terminal enters. Not
+  // a slotKey-churn hazard: `view()` only flips when git presence itself flips,
+  // which is a genuine root transition that resets the slot anyway.
+  //
+  // The coercion itself lives beside the mode it coerces
+  // (`useRightPanel.effectiveCodeMode`) — spelled here alone, it had to be
+  // re-assumed in `hostCodeTab`, which then disagreed about the effective view
+  // by construction.
+  const view = (): CodeTabView =>
+    rightPanel.effectiveCodeMode(root()?.kind === "git");
   const setView = rightPanel.setCodeMode;
 
   // Tree right-click menu: "Copy path" plus view-switch entries (All files ⇄
@@ -255,7 +299,20 @@ const CodeTab: Component<{
     },
   });
 
-  const repoPath = () => props.meta?.git?.repoRoot ?? null;
+  // The root and its AUTHORITY, as one sum type from the ONE derivation
+  // (`browseRoot.ts`) — the same function `hostCodeTab` feeds its query inputs
+  // from, so the tree this component paints and the query world feeding it can
+  // never disagree about which root kind is in play. Inside a git repo the
+  // browse root IS the repo root and every git-only surface (diff modes, status
+  // overlay, the ignored toggle) keys on `kind === "git"`. Outside one it is the
+  // terminal's cwd, but only once the user clicked the collapsed root node: the
+  // tree browser never needed git, only the diff machinery did.
+  //
+  // A memo, not a plain accessor: every question below reads it.
+  const root = createMemo(() =>
+    browseRootOf(activeHost(), props.terminalId, props.meta),
+  );
+  const browseRoot = () => browsableRoot(root());
 
   // History records repo-relative `{ mode, path }` locations with no repo
   // identity of their own, so a stack captured in repo A must not be replayed
@@ -266,7 +323,7 @@ const CodeTab: Component<{
   //
   // `CodeTab` is a singleton over the active terminal, so this effect only ever
   // feeds `syncRepo` the *active* terminal's `(id, repo)`. The reset decision
-  // can't live here as a compare-against-previous-tick: `repoPath()` shifts on
+  // can't live here as a compare-against-previous-tick: `browseRoot()` shifts on
   // both a `cd` (genuine transition) and a plain terminal switch (NOT a
   // transition), and — the case a previous-tick compare misses entirely — a
   // terminal's repo can change while it is INACTIVE (its PTY `cd`s while another
@@ -277,7 +334,7 @@ const CodeTab: Component<{
   // records the baseline, so a session-restored stack survives initial mount.
   createEffect(
     on(
-      () => [props.terminalId, repoPath()] as const,
+      () => [props.terminalId, browseRoot()] as const,
       ([tid, repo]) => {
         if (tid !== null) rightPanel.syncRepo(tid, repo);
       },
@@ -300,7 +357,7 @@ const CodeTab: Component<{
   // still retires terminal-scoped work.
   const currentScope = (): CodeTabScope | null => {
     const terminalId = props.terminalId;
-    const repoRoot = repoPath();
+    const repoRoot = browseRoot();
     if (terminalId === null || repoRoot === null) return null;
     return {
       host: activeHost(),
@@ -311,7 +368,7 @@ const CodeTab: Component<{
   };
   const commentContext = createMemo(() => {
     const terminalId = props.terminalId;
-    const repoRoot = repoPath();
+    const repoRoot = browseRoot();
     return terminalId === null || repoRoot === null
       ? null
       : { terminalId, repoRoot };
@@ -347,7 +404,7 @@ const CodeTab: Component<{
   // Key on the VALUE string, not the raw signals: `on` fires on every
   // INVALIDATION of its source, so an array source re-closes the composer on any
   // incidental invalidation (a same-repo active-terminal *clock* tick
-  // re-evaluates `repoPath()` to the same string). A primitive-string memo (the
+  // re-evaluates `browseRoot()` to the same string). A primitive-string memo (the
   // `slotKey` precedent above) notifies only on a real navigation. `terminalId`
   // is in the key because a comment saves against the ACTIVE terminal: switching
   // to another terminal (or host — a terminal is host-bound) at the same file
@@ -357,7 +414,7 @@ const CodeTab: Component<{
   const composer = useComposer();
   const composerAnchor = createMemo(
     () =>
-      `${props.terminalId ?? ""}\0${selectedPath() ?? ""}\0${view()}\0${repoPath() ?? ""}`,
+      `${props.terminalId ?? ""}\0${selectedPath() ?? ""}\0${view()}\0${browseRoot() ?? ""}`,
   );
   createEffect(on(composerAnchor, () => composer.close(), { defer: true }));
 
@@ -416,7 +473,7 @@ const CodeTab: Component<{
   // per-terminal record) so the new view automatically surfaces its own
   // pick without a clear here. `slotKey` is memoized, so this fires
   // only when the tuple genuinely changes — without the memo, `on(...)`
-  // would re-run its callback on every incidental tick of `repoPath()`
+  // would re-run its callback on every incidental tick of `browseRoot()`
   // (metadata cell) or `view()` (per-terminal in-memory store) and wipe
   // the filter spuriously after #818 made CodeTab survive right-panel
   // tab toggles.
@@ -430,17 +487,12 @@ const CodeTab: Component<{
         // the view switch: that switch fires this effect while fsListAll is
         // still loading, before the gated resolution effect sets `revealDir`.
         setRevealDir(null);
-        // The loaded levels were read out of the PREVIOUS repo, and repo-
-        // relative keys collide across repos (`out/` exists in both), so
-        // keeping them would paint one repo's build output inside another's.
-        // Aborting first covers the reads still in flight, which would
-        // otherwise resolve afterwards and write the previous repo's listing
-        // into the new repo's map under an identical folder name. The tree's
-        // own record of which lazy directories are open is invalidated by the
-        // same signal, via `lazyEpoch` below.
-        for (const ctl of inFlight.values()) ctl.abort();
-        inFlight.clear();
-        setLoadedChildren(new Map());
+        // The loaded levels need no clearing here: they live in this host's
+        // retained level family (`hostCodeTab`'s `dirLevels`), whose entries are
+        // keyed by (policy, terminal, root, dirKey) and are therefore disposed
+        // STRUCTURALLY by the same transition — contents and in-flight reads
+        // with them. The tree's own record of which lazy directories are open is
+        // invalidated on this same signal, via `lazyEpoch` below.
       },
       { defer: true },
     ),
@@ -476,100 +528,19 @@ const CodeTab: Component<{
   // click of the same folder.
   const [revealDir, setRevealDir] = createSignal<{ path: string } | null>(null);
 
-  // One level of contents per gitignored directory the user has opened, keyed
-  // by Pierre's folder key. `fs.listIgnored` collapses a wholly-ignored
-  // directory to its name alone — one `node_modules/` row instead of thousands
-  // — which left those rows expandable but empty (#2091); this holds what an
-  // expand read back so the merge can substitute it for the collapsed key.
+  // The lazily-loaded tree LEVELS — one level of contents per directory the
+  // user has opened, keyed by Pierre's folder key. The family lives in this
+  // host's RETAINED world (`hostCodeTab`'s `dirLevels`), which owns the
+  // registration intent, the per-level reader (a watched polled query for a
+  // plain-directory level, a one-shot read for a gitignored one — nothing
+  // watches an ignored path), and the click's settlement. This component only
+  // READS the levels and reports the tree's two edges into them.
   //
-  // Deliberately NOT a `createPolledQuery` beside the two listings in
-  // `hostCodeTab`: those are keyed by REPO and refreshed by the repo-change
-  // pulse, whereas this is keyed by DIRECTORY and driven by a click. The
-  // watcher's ignore set is built from `listIgnored`, so an ignored path emits
-  // no pulse by construction — there is no pulse to ride, and inventing one
-  // would mean watching exactly the churn (`node_modules`, build output) the
-  // ignore set exists to keep out. Re-expanding a folder is the refresh
-  // instead: the wrapper reports every expansion, so a collapse-and-reopen
-  // re-reads the level.
-  const [loadedChildren, setLoadedChildren] = createSignal<
-    ReadonlyMap<string, readonly string[]>
-  >(new Map());
-
-  // The newest read per directory, as a controller rather than a bookkeeping
-  // pair. A rapid expand → collapse → expand is three store ticks, so the
-  // second expand fires before the first read resolves — two calls in flight
-  // for one `dirPath`, resolving in completion order rather than issue order.
-  // A repo/host switch supersedes every read the same way, since
-  // `loadedChildren` is keyed by a REPO-RELATIVE path and those collide across
-  // repos by construction (`out/`, `dist/`, `node_modules/`).
-  //
-  // Aborting the predecessor makes "is this response still wanted" ONE fact
-  // both callbacks read, rather than two conditions each has to repeat and can
-  // drift on. Not reactive: nothing renders from it.
-  //
-  // The controller is now the INTERRUPTION driver, not just a bookkeeping flag:
-  // `runActionPromise(effect, signal)` ties the read's fiber to it, so an abort
-  // really tears the in-flight read down here rather than merely disowning its
-  // answer. What it still cannot do is stop the host: a padi procedure carries
-  // no cancellation token over the wire (D10/#18), so a superseded read runs to
-  // completion there — one bounded `readdir` per superseded expand, which is
-  // cheap. The `.aborted` checks below stay for the reason `attachAttempts`
-  // states: interruption is asynchronous, so a frame already past its last
-  // suspension can still arrive, and the gate is what refuses it.
-  //
-  // `<FileTree>`'s lazy-load contract is a `Promise` (it is
-  // `@kolu/solid-pierre`'s, not ours), so this is a run edge — through the
-  // package's one named bridge.
-  const inFlight = new Map<string, AbortController>();
-
-  const loadLazyDirectory = (dirPath: string): Promise<void> => {
-    const p = repoPath();
-    if (!p) return Promise.resolve();
-    inFlight.get(dirPath)?.abort();
-    const ctl = new AbortController();
-    inFlight.set(dirPath, ctl);
-    return runActionPromise(
-      activePadiRpc.fs.listDirectory({ repoPath: p, dirPath }).pipe(
-        Effect.tap((result) =>
-          Effect.sync(() => {
-            if (ctl.signal.aborted) return;
-            // A fresh Map per write: the merge memo reads this by reference, and
-            // an in-place `set` would leave the tree painting the previous level.
-            setLoadedChildren((prev) =>
-              new Map(prev).set(dirPath, result.paths),
-            );
-          }),
-        ),
-        Effect.tapError((err) =>
-          Effect.sync(() => {
-            // A superseded read owns no outcome — neither the write nor the
-            // toast, since a failure that belongs to a repo the user has already
-            // left is not theirs to see.
-            if (ctl.signal.aborted) return;
-            toast.error(`Failed to list ${dirPath}: ${toError(err).message}`);
-          }),
-        ),
-        // The failure PROPAGATES (this rejects the promise) so `<FileTree>`
-        // forgets the expansion it recorded: without that the folder stays
-        // open-and-empty for the rest of the mount with no way to refetch short
-        // of collapsing it by hand.
-        Effect.asVoid,
-        // `ensuring`, so this also runs when the fiber is INTERRUPTED — the case
-        // a `.finally` on a promise Effect had already stopped awaiting would
-        // have missed. Retire this read's own entry, guarded on identity so a
-        // newer read for the same directory keeps its controller. Without it the
-        // map only ever shrank on a repo switch, so browsing many ignored
-        // folders in one repo accumulated a settled entry per directory for the
-        // life of the session.
-        Effect.ensuring(
-          Effect.sync(() => {
-            if (inFlight.get(dirPath) === ctl) inFlight.delete(dirPath);
-          }),
-        ),
-      ),
-      ctl.signal,
-    );
-  };
+  // It is not local state, and it is not two mechanisms: the root level and the
+  // deep levels are one family with one lifetime, so a `canvasMode` round-trip
+  // that unmounts this tab no longer loses every expanded folder while keeping
+  // the root warm.
+  const dirLevels = codeDirLevels;
 
   const finishOpenRequest = (
     req: OpenInCodeTabRequest,
@@ -728,13 +699,26 @@ const CodeTab: Component<{
     // overlap, readiness covers only the consulted sources) live in
     // `mergeBrowseInventory`, where a table test pins each one.
     if (view() === "browse") {
+      // Plain-directory root (no git): the level family's root level plus every
+      // deeper level the user has open — one value, so the paths can't be paired
+      // with a readiness picked from somewhere else. Every subdirectory is a
+      // lazy row and nothing is dimmed (no ignore authority without git). Same
+      // fresh-reference discipline as the git branch: `directoryInventory` mints
+      // new arrays from the reconciled store's elements on every run.
+      if (root()?.kind !== "git") {
+        const { root: rootLevel, levels, pending } = dirLevels();
+        return {
+          ...directoryInventory(rootLevel?.paths, levels, pending),
+          scope: rootLevel?.scope ?? null,
+        };
+      }
       const tracked = allPaths();
       const ignored = ignoredPaths();
       const showIgnored = showIgnoredFiles();
       const inventory = mergeBrowseInventory(
         tracked?.paths,
         ignored?.paths,
-        loadedChildren(),
+        dirLevels().levels,
         {
           trackedPending: allPaths.pending(),
           ignoredPending: ignoredPaths.pending(),
@@ -906,7 +890,7 @@ const CodeTab: Component<{
   // deepens or forks history — the cursor stays where back()/forward() left it.
   const applyLocation = (loc: BrowserLocation) => {
     if (loc.ref && loc.path !== null) {
-      const repo = repoPath();
+      const repo = browseRoot();
       const terminalId = props.terminalId;
       if (repo === null || terminalId === null) return;
       openInCodeTab({
@@ -960,16 +944,26 @@ const CodeTab: Component<{
     );
   };
 
-  const treeError = (): Error | undefined =>
-    isDiffView() ? statusError() : allPaths.error();
-  // "Is there a tree to paint at all", which is the TRACKED authority's
-  // question alone — deliberately not `treeInventory().pending`. The gitignored
-  // overlay is additive decoration; waiting on it here would hold the whole
-  // tree behind a second `git ls-files` the user is only ever offered as an
-  // extra. The selection/resolution guards read the merged readiness because
-  // they ask a different question: is this inventory complete enough to
-  // conclude a path is absent.
-  const treeReady = () => (isDiffView() ? status() : allPaths());
+  // The authority feeding the tree, picked ONCE by root kind — one memo owns
+  // the branch, and the two questions below are plain field reads off it (two
+  // hand-copied ternaries is how the pair used to be able to disagree about
+  // which source they were reporting on).
+  //
+  // "Ready" is the TRACKED authority's question alone — deliberately not
+  // `treeInventory().pending`. The gitignored overlay is additive decoration;
+  // waiting on it here would hold the whole tree behind a second
+  // `git ls-files` the user is only ever offered as an extra. The
+  // selection/resolution guards read the merged readiness because they ask a
+  // different question: is this inventory complete enough to conclude a path
+  // is absent.
+  const treeSource = createMemo(() => {
+    if (isDiffView()) return { error: statusError(), ready: status() };
+    return root()?.kind === "git"
+      ? { error: allPaths.error(), ready: allPaths() }
+      : { error: dirLevels().error, ready: dirLevels().root };
+  });
+  const treeError = (): Error | undefined => treeSource().error;
+  const treeReady = () => treeSource().ready;
   // Branch base, read off the always-on `branchStatus` so it's correct in
   // any view (the scope switcher annotates the Branch segment even from
   // Local/Browse). `undefined` while pending; `null` once loaded with no
@@ -1062,17 +1056,40 @@ const CodeTab: Component<{
     return { oldFileName, newFileName };
   });
 
+  // The un-armed non-git state: a cwd exists to offer, the user just hasn't
+  // opened it. Distinct from the metadata-less fallback below (no terminal, no
+  // cwd observed yet), which keeps the old empty-state message.
+  const unarmedCwd = () => {
+    const r = root();
+    return r?.kind === "unarmed" ? r.cwd : null;
+  };
+
   return (
     <Show
-      when={repoPath()}
+      when={browseRoot()}
       fallback={
-        <div
-          class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2 text-[11px]"
-          data-testid="diff-no-repo"
+        <Show
+          when={unarmedCwd()}
+          fallback={
+            <div
+              class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2 text-[11px]"
+              data-testid="diff-no-repo"
+            >
+              <GitBranchIcon class="w-8 h-8 opacity-40" />
+              Not in a git repository
+            </div>
+          }
         >
-          <GitBranchIcon class="w-8 h-8 opacity-40" />
-          Not in a git repository
-        </div>
+          {(cwd) => (
+            <BrowseRootArm
+              cwd={cwd()}
+              onBrowse={() => {
+                const tid = props.terminalId;
+                if (tid !== null) armBrowseRoot(activeHost(), tid, cwd());
+              }}
+            />
+          )}
+        </Show>
       }
     >
       <div
@@ -1100,16 +1117,21 @@ const CodeTab: Component<{
               onClick={goForward}
             />
           </div>
-          <SegmentedControl
-            options={scopeSegments()}
-            value={view()}
-            onChange={setView}
-            testIdPrefix="diff-mode"
-            ariaRole="toolbar"
-            ariaLabel="File scope"
-            dataMode
-            touch={isTouch()}
-          />
+          {/* Scope switcher — git only: the diff views are meaningless without
+           *  a repo to diff against, so outside one the tree is all there is
+           *  and a one-segment control would be chrome without a choice. */}
+          <Show when={root()?.kind === "git"}>
+            <SegmentedControl
+              options={scopeSegments()}
+              value={view()}
+              onChange={setView}
+              testIdPrefix="diff-mode"
+              ariaRole="toolbar"
+              ariaLabel="File scope"
+              dataMode
+              touch={isTouch()}
+            />
+          </Show>
           <FileSearchInput
             value={searchQuery()}
             onChange={setSearchQuery}
@@ -1120,7 +1142,7 @@ const CodeTab: Component<{
            *  flipping it arms the SEPARATE fs.listIgnored query in
            *  `hostCodeTab` — fs.listAll is untouched, so the mounted tree keeps
            *  its expansion and scroll. */}
-          <Show when={view() === "browse"}>
+          <Show when={view() === "browse" && root()?.kind === "git"}>
             <ToolbarIconButton
               testId="code-tab-show-ignored-toggle"
               label="Show gitignored files"
@@ -1192,7 +1214,10 @@ const CodeTab: Component<{
                     >
                       {(() => {
                         const m = diffMode();
-                        if (!m) return "Empty repository";
+                        if (!m)
+                          return root()?.kind === "git"
+                            ? "Empty repository"
+                            : "Empty directory";
                         // No resolvable base (remote-less repo, #1244): there's
                         // nothing to compare against, so "No changes vs base"
                         // would be a false clean signal.
@@ -1230,7 +1255,13 @@ const CodeTab: Component<{
                       // a chevron but whose children were never sent, so an
                       // expand has to go read them (#2091).
                       lazyDirectories={treeInventory().lazyDirs}
-                      onExpandLazyDirectory={loadLazyDirectory}
+                      // The tree's two edges into this host's retained level
+                      // family: an open registers the level (and the promise
+                      // settles when it lands), a close retires it — which
+                      // disposes its query, its pulse subscription and the
+                      // server-side handle behind it.
+                      onExpandLazyDirectory={codeExpandLevel}
+                      onCollapseLazyDirectory={codeCollapseLevel}
                       // Invalidate the wrapper's record of which lazy
                       // directories are open on the same signal that clears the
                       // loaded levels above — two halves of one fact. Without

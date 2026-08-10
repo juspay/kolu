@@ -1996,3 +1996,29 @@ retirements:
       file: packages/tests/features/session-restore.feature
       symbol: "Scenario: A split terminal's agent resumes on session restore"
       test: Same restore+resume-invocation payoff; only the arrangement changed — the fixed 800 ms auto-save sleep (which had to cover BOTH agent detection and the 500 ms save debounce, and did not on aarch64-darwin) is replaced by a wait on padi's persisted session actually listing the split as resumable, counted with padi's own resumableTerminalIds fold.
+  - id: revise-355508eb66b45723f27b
+    revisionId: revision-355508eb66b45723f27b
+    action: revised
+    status: landed
+    promise: The Code tab answers a non-git working directory honestly
+    defectSurface: [code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-09da9a7d17d3edbe7b6e]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Offers a collapsed browse root outside a git repo"
+      test: Same non-git fallback path, stronger promise — the dead-end "Not in a git repository" message became the collapsed browse-root node (PR #2138), so the survivor asserts the affordance that replaced the message, plus the new "Browses a plain directory after opening the root" journey exercising the browse it arms.
+  - id: revise-047c80cf4d95746dd49b
+    revisionId: revision-047c80cf4d95746dd49b
+    action: revised
+    status: landed
+    promise: Tree/content split survives switching to another terminal and back
+    defectSurface: [code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-3fa69947078476d4aa03]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Tree/content split survives switching to another terminal and back"
+      test: Same split-fraction round-trip and the same non-git-fallback unmount it guards; only the fallback-mounted wait changed spelling — the fallback is now the collapsed browse-root node instead of the "Not in a git repository" message (PR #2138).

@@ -8,16 +8,16 @@
  * OSC 7 because the cwd didn't change, so the metadata provider would
  * otherwise stay stuck on "not a git repository" forever.
  *
- * Implementation reuses `createDirFilenameWatcher`: one `fs.watch(cwd)` per
+ * Implementation reuses `createDirWatcher`: one `fs.watch(cwd)` per
  * cwd, debounced, filter on filename `.git`. N callers on the same cwd
  * collapse to one OS handle.
  */
 
 import fs from "node:fs";
-import { createDirFilenameWatcher } from "kolu-io";
+import { createDirWatcher } from "kolu-io";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 
-const cwdGitWatcher = createDirFilenameWatcher({
+const cwdGitWatcher = createDirWatcher({
   // Canonicalize the cwd before `fs.watch`: macOS `/tmp` symlinks to
   // `/private/tmp`, and on darwin FSEvents reports directory-entry events
   // under the realpath. Watching the raw symlinked path means the `.git`
