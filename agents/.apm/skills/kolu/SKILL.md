@@ -87,6 +87,43 @@ Always pass `timeoutMs`, and keep it **under your own harness's per-call cap**
 (most MCP hosts kill a tool call at ~1–2 min) — for a long turn, poll in
 bounded slices, treating each `timeout` as "still busy".
 
+Only `result: "gone"` means the terminal died. **`closed` is a dropped
+subscription over a live terminal** — retry it; never report a worker dead off a
+`closed`, and never bolt on a verify-with-`screen_text` rule to compensate.
+
+## Supervising more than one terminal — subscribe, don't re-arm
+
+The waits above are **edge-triggered on a live call**: they observe only while
+open, so anything between two waits is unobservable. Driving several workers off
+them means one wait per worker, kept armed by hand — and every gap is a hole a
+report falls through. Do not hand-roll that layer (background watcher agents
+looping waits and reporting back); it drops reports at four seams and it is what
+`watch_*` exists to retire.
+
+```jsonc
+watch_open { name: "campaign" }                     // once — omit `ids` to watch every terminal
+watch_next { name: "campaign", timeoutMs: 60000 }   // in a loop; returns everything since last call
+watch_close { name: "campaign" }                    // when the campaign ends
+```
+
+- Events that land while you are **not** calling `watch_next` are buffered in
+  padi, so the gap between calls is not a blind spot.
+- The queue outlives your MCP process **and** kaval. Re-`watch_open` the SAME
+  name after any restart to reattach; a new name starts empty.
+- Each event is `{ id, kind, at, parentId?, intent? }` with `kind` one of
+  `asking` (blocked on input) · `finished` (turn ended AND output settled) ·
+  `gone` (the terminal no longer exists — stop waiting on it).
+- `timeout` loses nothing — the buffer is still there next call. A nonzero
+  `dropped` means you were away long enough to overflow; re-read the `terminals`
+  resource to reconcile rather than trusting the delta.
+- Prefer the default (all terminals) over an `ids` list: a kaval recycle retires
+  every active terminal id, so a frozen id list ages out where "all" does not.
+
+**If you are yourself running in a kolu terminal, you may need none of this.**
+Spawn workers with `parentId` set to your own terminal and padi delivers each
+settle into *your* input by construction — no subscription, nothing to arm,
+nothing to forget. `watch_*` is for a supervisor with no terminal of its own.
+
 ## Provisioning the inner agent
 
 - **Worktree'd agent:** no MCP path in v1 (`git.worktreeCreate` is a named

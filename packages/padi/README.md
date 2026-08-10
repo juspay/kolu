@@ -202,6 +202,43 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   the native authority; kolu-server binds or mirrors it rather than supplying a
   backing shim.
 
+## The attention flow — the supervision edge IS the subscription
+
+padi already computed WHO needs attention: the `urgency` cell's `awaitingIds` (an
+agent blocked on a person) and `finishedIds` (a turn that ended *and* whose output
+then went quiet — the [effective-finish](../../docs/atlas/src/content/atlas/effective-finish.mdx)
+conjunction, which is what keeps a background sub-agent's churn from reading as
+"done"). What `src/attention/` adds is the derivative: the cell is a LEVEL, and a
+notification needs an EDGE.
+
+That edge is shared, not re-derived — `@kolu/terminal-vocab/attentionTransitions`
+is the same decision kolu's browser fires its sound and OS popup on, so a person
+at the canvas and a supervising agent in a PTY are told about the same events by
+one definition. It fans out to two sinks:
+
+- **The supervision edge.** A terminal records who spawned it (`parentId`), and
+  kaval serializes input into a terminal — a single-writer mailbox. So a worker
+  going blocked delivers into its supervisor's mailbox *by construction*: nothing
+  arms this, because dispatching the worker already did. The recurring failure it
+  ends is a worker's ask waiting to be **discovered** rather than **delivered** —
+  every fix that adds a *listener* leaves "dispatch a worker without arming its
+  notification" spellable, and a coordinator that forgets once drops a report on
+  the floor. **Only agent terminals are written to**; a person's shell is never
+  typed into (they have the canvas, the Dock and the OS notification instead).
+
+- **Standing subscriptions** (`watch.open` / `drain` / `close` + the `watchPulse`
+  doorbell), for a supervisor that has no terminal for the edge to reach — an
+  MCP-only agent. Events buffer in padi, which outlives both a `kolu mcp` process
+  and kaval, so the gap between two drains is not a hole, and a subscription is
+  keyed by a caller-chosen NAME so a restart reattaches rather than starting
+  empty. Overflow is *reported* (a `dropped` count), never silently truncated —
+  silent truncation reads to a supervisor exactly like a quiet workspace.
+
+A terminal LEAVING is an event too (`kind: "gone"`), for the same reason: a
+supervisor waiting on a worker that no longer exists must be told, not left
+waiting. A kaval recycle retires every active terminal id, so this is the signal
+that a lane's id is stale rather than merely quiet.
+
 ## What padi knows nothing about
 
 Location is structure, so the boundary is defined as much by what padi refuses to

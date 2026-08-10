@@ -15,13 +15,33 @@ default-deny with named, tested denials:
   kaval health + padi's own generation, so a daemon restart is *data*, not an
   anomaly);
 - **read-only tools**: `screen_text` (tail-mode snapshot) · `screen_history` ·
-  `git_getStatus`/`git_getDiff` · `fs_listAll`/`fs_readFile`, and the two
-  composite done-signals `wait_outputSettled` / `wait_agentState` (the
-  /orchestrator·/kolu dispatch loop's load-bearing verbs);
+  `git_getStatus`/`git_getDiff` · `fs_listAll`/`fs_readFile`, the two composite
+  done-signals `wait_outputSettled` / `wait_agentState` (the /orchestrator·/kolu
+  dispatch loop's load-bearing verbs), and `watch_next` (below);
 - **mutating tools**: `lifecycle_create` · `lifecycle_kill` ·
   `lifecycle_sendInput` (text XOR one named key — `Enter`, `Escape`, `C-c`
   chords — because submit is its OWN Enter after an observed settle, never
-  text+newline fused).
+  text+newline fused) · `watch_open`/`watch_close`.
+
+**Supervising several terminals: subscribe, don't re-arm.** The `wait_*` tools
+watch ONE terminal for ONE condition, and only while the call is open — so a
+supervisor of several workers had to hand-roll a watcher layer on top, and
+anything happening between two waits was unobservable. `watch_open` +
+`watch_next` is the shape without that hole: events accumulate in **padi**, which
+outlives both this process and kaval, so the time between two calls is not a
+blind spot. Subscriptions are keyed by a name you choose, so re-opening the same
+name after any restart reattaches to the queue rather than starting an empty one.
+
+Each event names a terminal and why — `asking` (its agent is blocked on input),
+`finished` (its turn ended *and* its output went quiet), or `gone` (it no longer
+exists, so stop waiting on it). Read the terminal's screen yourself with
+`screen_text`; the event carries no transcript, so you always act on current
+output rather than a copy that aged in a queue.
+
+If your supervisor is itself a kolu terminal, you may need none of this: padi
+delivers a worker's settle into its parent terminal's input by construction (see
+[`packages/padi`](../padi/README.md)), so an agent that spawned a worker with
+`parentId` is told without subscribing to anything.
 
 kolu-cli (the composition root) owns the connect layer and injects the
 connected client; `serveKoluMcp` here owns zero transport code. The e2e pin

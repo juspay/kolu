@@ -124,6 +124,31 @@ rhythm whether you do it by hand or your agent does it in code:
   settle *before* submitting is what makes driving reliable.
 </Aside>
 
+## Workers report back on their own
+
+Step 4 above is the one that used to go wrong. An agent supervising several
+workers had to remember to keep watching each of them, and a worker that finished
+while nobody was looking simply waited — its report sitting on a screen no one
+read.
+
+So kolu delivers it instead. When you create a terminal **as a split of another**,
+kolu records which terminal spawned it. The moment that worker needs its
+supervisor — its agent asks a question, or its turn ends and its output goes
+quiet — kolu writes a short line into the supervising terminal saying which
+worker and why. The supervising agent wakes up, reads that worker's screen, and
+carries on.
+
+Nothing switches this on: creating the worker as a split is what creates the
+report path, so there is no step to forget. The line names the worker and stops
+there — the supervisor reads the screen itself, so it always sees the current
+output rather than a stale copy.
+
+<Aside type="note" title="Only agents are interrupted">
+  kolu writes these lines only into terminals that are running an agent. A
+  terminal where **you** are working is never typed into — you already see a
+  worker needing attention in the Dock, on the canvas, and in your notifications.
+</Aside>
+
 ## What your agent can do
 
 The tools and live views below are what `kolu mcp` gives the agent. The name in
@@ -143,6 +168,25 @@ the first column is what appears in your MCP host.
 | --- | --- |
 | `wait_outputSettled` | Block until a terminal's output goes quiet — the turn ended, or it's waiting for input. |
 | `wait_agentState` | Block until the terminal's agent reaches a state you name (`working`, `awaiting`, `waiting`) — a precise done-signal, not a guess from silence. |
+
+### Supervise several terminals at once
+
+The two waits above each watch **one** terminal, and only while the call is
+open — so an agent running several workers used to need a wait per worker, kept
+re-armed by hand, and anything that happened between two waits was invisible.
+These replace that with one subscription:
+
+| Tool | What it does |
+| --- | --- |
+| `watch_open` | Start watching — every terminal, or a named few. You choose the subscription's name. |
+| `watch_next` | Block until any watched terminal needs you, then hand over everything that has happened since you last asked. |
+| `watch_close` | Stop watching and discard the queue. |
+
+Anything that happens while your agent is **not** asking is kept for it, so the
+time between two calls is not a blind spot — and the queue lives in kolu's
+background service, so it survives your agent restarting. Reopen with the same
+name and you pick up where you left off. Each event says which terminal and why:
+it's **asking** for input, it **finished** its turn, or it's **gone**.
 
 ### Read the screen and the code
 
