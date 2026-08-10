@@ -100,6 +100,16 @@ export class WatchSubscriptionNotFound extends Schema.TaggedError<WatchSubscript
   }
 }
 
+/** The tag string, read OFF the class rather than re-spelled — a rename moves
+ *  this with it instead of silently un-matching (the same discipline as
+ *  `reattachingDeltas.ts`'s `PTY_NOT_FOUND_TAG`). A hand-copied literal here
+ *  would make the predicate answer `false` for every real occurrence, which is
+ *  exactly the collapse it exists to stop. */
+const WATCH_SUBSCRIPTION_NOT_FOUND_TAG: string = new WatchSubscriptionNotFound({
+  name: "",
+  known: [],
+})._tag;
+
 /** Is `err` a {@link WatchSubscriptionNotFound} that may have CROSSED A WIRE?
  *
  *  Structural on `_tag`, deliberately — the sibling of `isPadiDeclaredError`'s
@@ -112,7 +122,7 @@ export function isWatchSubscriptionNotFound(err: unknown): boolean {
   return (
     typeof err === "object" &&
     err !== null &&
-    (err as { _tag?: unknown })._tag === "WatchSubscriptionNotFound"
+    (err as { _tag?: unknown })._tag === WATCH_SUBSCRIPTION_NOT_FOUND_TAG
   );
 }
 

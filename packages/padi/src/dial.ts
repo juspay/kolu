@@ -77,7 +77,6 @@ export {
 // kolu MCP face's `wait_agentState`/`wait_outputSettled`) already import this
 // entry to dial.
 export {
-  activeAgent,
   agentMatchesUntil,
   type AgentStateOutcome,
   awaitAgentState,

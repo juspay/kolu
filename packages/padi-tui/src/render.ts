@@ -11,7 +11,8 @@
  * `@kolu/terminal-vocab/agentProjection` stays the single source of truth.
  */
 
-import { activeAgent, WAIT_STATES, type WaitState } from "@kolu/padi/dial";
+import { WAIT_STATES, type WaitState } from "@kolu/padi/dial";
+import { activeAgent } from "@kolu/padi/surface";
 import type { PadiTerminal } from "@kolu/padi/surface";
 import {
   agentBucket,
@@ -32,8 +33,9 @@ export function shortId(id: string): string {
 }
 
 /** The live foreground process of a composed record, or `null` — active-only,
- *  same as `activeAgent` (which now lives in the dial kit's watch module,
- *  beside the wait predicate it feeds). */
+ *  same as `activeAgent` (which lives on `@kolu/padi/surface` beside
+ *  `activePadiTerminal` — padi's own serve graph is its other consumer, and a
+ *  daemon module must not reach into the client dial kit for a narrowing). */
 function activeForeground(v: PadiTerminal): { name: string } | null {
   return v.state === "active" ? v.foreground : null;
 }
