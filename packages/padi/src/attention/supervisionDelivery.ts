@@ -58,6 +58,11 @@ export interface SupervisionDeliveryDeps {
   log: Logger;
 }
 
+/** Stateless and hoisted — never rebuilt per nudge. padi is node-only, so
+ *  `Intl.Segmenter` is always present; there is deliberately no fallback path to
+ *  a code-unit slice, because that fallback IS the defect this exists to stop. */
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 /** How much of a lane's intent rides the nudge. Long enough to identify the
  *  lane, short enough that twenty of them stay one readable line. */
 const INTENT_BUDGET = 60;
@@ -83,9 +88,19 @@ function ptySafe(text: string, budget: number): string {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping controls is the point
   const flattened = text.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
   const collapsed = flattened.replace(/\s{2,}/g, " ");
-  return collapsed.length > budget
-    ? `${collapsed.slice(0, budget - 1).trimEnd()}…`
-    : collapsed;
+  if (collapsed.length <= budget) return collapsed;
+  // Cut on GRAPHEME CLUSTERS, never UTF-16 code units. Intents are emoji-bearing
+  // by design — the editor ships an emoji quick-row, and `🔧 parser refactor` is
+  // the documented example — so a code-unit slice lands mid-surrogate and emits
+  // one lone half of a pair. Writing broken text down a PTY would undo the
+  // sanitizing directly above it, and a ZWJ sequence (a family glyph, a flag)
+  // needs its whole cluster, not merely a whole code point.
+  const clusters = [...GRAPHEMES.segment(collapsed)].map((c) => c.segment);
+  if (clusters.length <= budget) return collapsed;
+  return `${clusters
+    .slice(0, budget - 1)
+    .join("")
+    .trimEnd()}…`;
 }
 
 /** One event's sentence, WITHOUT the prefix — what a supervisor is told about a

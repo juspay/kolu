@@ -231,6 +231,26 @@ describe("supervision delivery", () => {
     expect(text).toContain("…");
   });
 
+  it("never cuts a grapheme in half — intents are emoji-bearing by design", () => {
+    // The intent editor ships an emoji quick-row and `🔧 parser refactor` is the
+    // documented example, so a truncation that slices UTF-16 code units emits a
+    // LONE SURROGATE onto the very PTY the sanitizer above just protected.
+    const text = nudgeText([
+      event({
+        intent: `${"a".repeat(58)}🚀 and a long tail beyond the budget`,
+      }),
+    ]);
+    expect(text).toContain("…");
+    // No unpaired surrogate anywhere in what would be written.
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(text)).toBe(false);
+    expect(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)).toBe(false);
+    // And a ZWJ cluster survives whole rather than losing its joiners.
+    const zwj = nudgeText([
+      event({ intent: `${"b".repeat(59)}👨‍👩‍👧 tail beyond the budget` }),
+    ]);
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(zwj)).toBe(false);
+  });
+
   it("re-checks the human-shell guard at WRITE time, not just on the frame", () => {
     // The frame says agent; the live write path says the agent has since exited.
     // The deferred flush must believe the live state — a live PTY proves a
