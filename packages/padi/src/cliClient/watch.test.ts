@@ -891,6 +891,42 @@ describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
     });
   });
 
+  it("the same wait WITH a capture is `gone` — a dead terminal has no screen", async () => {
+    // The honest boundary of the arm above, and DETERMINISTIC on purpose.
+    // padi's `screen.text` narrows to an ACTIVE terminal, so once the PTY is
+    // gone there is no screen to read and no met carrying one can exist.
+    // Claiming the conjunct anyway would start a read the `gone` settle
+    // immediately aborts — the same outcome, reached by a race. So the claim is
+    // not made at all when a capture was asked for: the sentinel printed, but
+    // the screen died with the terminal.
+    const exit = new FakeSource<{ code: number }>();
+    exit.push({ code: 0 });
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    attach.push(delta("DONE\n"));
+    attach.end();
+
+    const outcome = await awaitTerminalCondition(
+      matchClient({
+        attach: () => attach.stream(),
+        exit: () => exit.stream(),
+        keys: keysWithout,
+        // Reading it would be the bug; a real padi answers TerminalNotFound.
+        screenText: () => Effect.fail(new TerminalNotFound({ id: T })),
+      }),
+      {
+        id: T as TerminalId,
+        condition: { kind: "match", pattern: /DONE/ },
+        settledMs: 60_000,
+        captureScreen: true,
+        timeoutMs: 5000,
+        retryAdvice: "re-run the wait",
+      },
+    );
+
+    expect(outcome).toMatchObject({ kind: "gone" });
+  });
+
   it("a LIVE terminal's dropped feed is `closed` — a lost feed never mints a met", async () => {
     // The blocking hole the peer review found in the first version of the arm
     // above: `onFeedLost` fires BEFORE the spine has told a `gone` terminal from

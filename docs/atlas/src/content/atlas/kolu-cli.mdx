@@ -560,10 +560,12 @@ re-litigate:
   `wait --until awaiting,waiting --settled <quiet> --snapshot <tail>` and holds
   **no logic of its own** — a second face that could disagree with the primitive
   is the one thing a CLI that just retired two near-duplicate TUIs must not
-  grow. The engine also subsumed the three named waits (`awaitAgentState` ·
-  `awaitOutputSettled` · `awaitOutputMatch`), which are now spellings of it, so
-  the quiescence window and the `match:` scan have one implementation rather
-  than one per wait.
+  grow. TWO named waits survive as spellings of the engine — `awaitAgentState`
+  and `awaitOutputSettled`, because their met payloads ARE the MCP tools' wire
+  frames — while `awaitOutputMatch` was DELETED: `kolu wait` was its only
+  production caller and now calls the engine directly, so keeping it would have
+  been public dial surface with none. The quiescence window and the bounded
+  `match:` scan therefore have one implementation rather than one per wait.
 - **`snapshot` has no `--viewport`.** padi's wire cannot express a viewport
   extent, so the read face is `--tail <N>` (or nothing for the whole rendered
   text) — the exact shape of the MCP `screen_text { tail }` tool. One idea,

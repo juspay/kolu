@@ -1182,9 +1182,10 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
             // A PROVEN-gone terminal discharges a `match` wait's conjunct: the
             // ordered feed has ended, so every byte it will ever produce is in,
             // and the process is dead, so none will follow — the strongest
-            // possible form of the quiet `--settled` asks for. Claimed ONLY for
-            // an already-latched sentinel; a match that never printed leaves
-            // `held` null and the `gone` below stands.
+            // possible form of the quiet `--settled` asks for. `settle` is
+            // first-writer-wins, so claiming here beats the `gone` that follows.
+            // Claimed ONLY for an already-latched sentinel; a match that never
+            // printed leaves `held` null and the `gone` stands.
             //
             // Without it, `--until match:DONE --settled 500` against the
             // ordinary `echo DONE; exit` shape settles `gone` (exit 3) where the
@@ -1197,7 +1198,16 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
             // carrying the sentinel; and not off `onFeedLost` because that fires
             // before the spine has told `gone` from `closed`, where claiming
             // quiet would let a live terminal's dropped feed mint a met.
-            ...(condition.kind === "match"
+            //
+            // NOT claimed when a SCREEN was asked for, and that is the honest
+            // answer rather than a gap: padi's `screen.text` narrows to an
+            // ACTIVE terminal, so a dead one has no screen to read and no met
+            // carrying one can exist. Claiming anyway would only start an async
+            // read that the `gone` settle immediately aborts — the same outcome,
+            // reached nondeterministically. So `--until match:X --settled N`
+            // with a capture, against a terminal that exits, is `gone`: the
+            // sentinel printed, but the screen you asked for died with the PTY.
+            ...(condition.kind === "match" && captureScreen !== true
               ? {
                   onTerminalGone: () => {
                     if (candidate.held !== null) update({ quiet: true });
