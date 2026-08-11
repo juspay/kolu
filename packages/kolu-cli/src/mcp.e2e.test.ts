@@ -58,7 +58,7 @@ import {
 import { Effect } from "effect";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { connectKoluCliLocal } from "./connect.ts";
-import { guardedMcpDial } from "./mcp.ts";
+import { guardedMcpDial, requireReachablePadi } from "./mcp.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const PADI_BIN = resolve(SRC, "../../padi/src/daemonBoot/bin.ts");
@@ -236,10 +236,11 @@ async function readJson(mcp: Client, uri: string): Promise<unknown> {
   return JSON.parse((contents[0] as { text: string }).text);
 }
 
-/** The REAL local composition behind a connected MCP client:
- *  `connectKoluCliLocal` → `guardedMcpDial` → `serveKoluMcp`, re-dialing the
- *  SAME digest-keyed path on every invocation (the adapter's redial hook), with
- *  the Promise crossing where `runKoluMcp` puts it.
+/** The REAL local composition behind a connected MCP client — the same open
+ *  gate + mid-session dial `runKoluMcp` wires:
+ *  `requireReachablePadi(rawDial)` → `guardedMcpDial(rawDial)` →
+ *  `serveKoluMcp`, re-dialing the SAME digest-keyed path on every adapter
+ *  redial, with the Promise crossing where `runKoluMcp` puts it.
  *
  *  It drives the product's OWN dial rather than a re-composition of its parts:
  *  `connectKoluCliLocal` now takes the endpoint (`kolu mcp --socket <path>` is
@@ -251,9 +252,10 @@ async function serveMcpOverPadi(
   socketPath: string,
   clientName: string,
 ): Promise<Client> {
-  const dial = guardedMcpDial(
-    connectKoluCliLocal({ kind: "socket", path: socketPath }),
-  );
+  const rawDial = connectKoluCliLocal({ kind: "socket", path: socketPath });
+  // #2148 open gate — same arm as runKoluMcp; a missing padi never reaches serve.
+  await Effect.runPromise(requireReachablePadi(rawDial));
+  const dial = guardedMcpDial(rawDial);
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
   const { close } = await serveKoluMcp({
