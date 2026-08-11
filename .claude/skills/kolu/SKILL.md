@@ -27,9 +27,13 @@ lifecycle_create   { intent: "🔧 parser refactor", cwd: "/abs/repo" }   → { 
 lifecycle_sendInput{ id, text: "refactor the parser to use a lexer" }   # 1. the text (no Enter)
 wait_outputSettled { id, idleMs: 300, timeoutMs: 15000 }                # 2. observe the TUI settle
 lifecycle_sendInput{ id, key: "Enter" }                                 # 3. submit (its own call)
-wait_outputSettled { id, idleMs: 800, timeoutMs: 600000 }               # 4. let its turn finish
-screen_text        { id, tail: 40 }                                     # 5. read the screen
+wait_outputSettled { id, idleMs: 800, screenTail: 40,                   # 4. let its turn finish
+                     timeoutMs: 600000 }                                #    AND read the screen
 ```
+
+`screenTail` is why step 5 is gone: the screen comes back **on the met**, read
+inside the wait. A follow-up `screen_text` is a second call the terminal can
+move under — that gap is a race, not a formality.
 
 - `lifecycle_create` spawns a padi-tracked canvas tile: `intent` labels it,
   `cwd` sets the directory, `parentId: <id>` opens it as a **split** beside
@@ -76,12 +80,30 @@ do: send text, wait for settle, send Enter as its own call.
 
 - `wait_outputSettled { idleMs, timeoutMs }` — raw output quiescence,
   agent-agnostic. `800` is a good default. It can't tell "finished" from
-  "blocked asking you" — `screen_text` and read before responding.
+  "blocked asking you" — read the screen before responding.
 - `wait_agentState { until: […], timeoutMs }` — padi's detected state:
   `working`, `awaiting` (asking you), `waiting` (post-turn lull). It matches
   the state **the instant it connects**, so right after a submit it can return
   on the *previous* turn's `waiting` — wait in two phases:
   `until: ["working"]`, then `until: ["awaiting","waiting"]`.
+
+Both take two modifiers, and both exist because the thing they close is a race
+**between calls** that no caller can close from outside:
+
+- `settledMs` — a **conjunct**, not a second wait. The met needs the condition
+  to hold AND no output byte for that long; bytes still moving keep the wait
+  open, and a bucket that drops back to `working` re-enters it. This is the fix
+  for the failure that reads as a finished agent: a main loop that ends its turn
+  while an async subagent is three minutes into a deliberate plan is `waiting`
+  within milliseconds. **15000** is the field-calibrated value.
+- `screenTail: N` — the met carries the last N screen lines, read inside the
+  same wait, so nothing can move between the signal and the read.
+
+**The debrief call.** `wait_agentState { until: ["awaiting","waiting"],
+settledMs: 15000, screenTail: 40 }` is "is this worker's turn really over, and
+what did it say?" in one race-free call — the same protocol `kolu debrief`
+spells on the CLI. Prefer it to the three-call version whenever you are driving
+an agent rather than a bare shell.
 
 Always pass `timeoutMs`, and keep it **under your own harness's per-call cap**
 (most MCP hosts kill a tool call at ~1–2 min) — for a long turn, poll in
@@ -158,6 +180,8 @@ The verb map:
 | `lifecycle_sendInput { key: "Enter" }` | `kolu send "$id" --key Enter` |
 | `wait_outputSettled` | `kolu wait "$id" --until idle:<ms> --timeout <ms>` (also `--until match:'<regex>'`) |
 | `wait_agentState` | `kolu wait "$id" --until working` · `--until awaiting,waiting` |
+| `{ settledMs, screenTail }` on either wait | `--settled <ms>` · `--snapshot <N>` on `kolu wait` |
+| `wait_agentState { until: ["awaiting","waiting"], settledMs: 15000, screenTail: 40 }` | **`kolu debrief "$id"`** — the same protocol either way, and what you should reach for when driving an agent: turn over **AND** output quiet, then the screen, in one call. |
 | `screen_text { tail }` | `kolu snapshot "$id" [--tail N]` (never bare `snapshot \| tail` — that's the buffer bottom incl. trailing blanks; `--tail` drops them) |
 | `screen_history` | `kolu history "$id" [--lines N]` |
 | `terminals` resource | `kolu ls [--json]` · `kolu watch [id]` for the live feed |

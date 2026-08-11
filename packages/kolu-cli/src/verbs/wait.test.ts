@@ -25,7 +25,7 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Cause, Effect, Exit, Runtime } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { waitInterrupted } from "../exit.ts";
-import { planUntil, withInterruptReport } from "./wait.ts";
+import { describeWait, planUntil, withInterruptReport } from "./wait.ts";
 
 /** The parse's refusal message, or a loud failure naming what it accepted
  *  instead — a test that let an accepted spec slip through as `undefined` would
@@ -34,7 +34,7 @@ const refusal = (raw: string): string => {
   const parsed = planUntil(raw);
   if (parsed.kind !== "error")
     throw new Error(
-      `expected --until ${JSON.stringify(raw)} to be refused; it parsed as ${parsed.plan.kind}`,
+      `expected --until ${JSON.stringify(raw)} to be refused; it parsed as ${parsed.plan.condition.kind}`,
     );
   return parsed.message;
 };
@@ -52,8 +52,7 @@ const planOf = (raw: string) => {
 describe("--until, the three forms", () => {
   it("reads idle:<ms> as a window, and refuses anything that is not a count", () => {
     expect(planOf("idle:800")).toEqual({
-      kind: "idle",
-      idleMs: 800,
+      condition: { kind: "idle", idleMs: 800 },
       describe: "output idle for 800ms",
     });
     for (const bad of ["idle:", "idle:-5", "idle:8.5", "idle:8e2", "idle: 8"]) {
@@ -67,8 +66,7 @@ describe("--until, the three forms", () => {
 
   it("reads a bucket list as any-of, and names all three forms when a token is none of them", () => {
     expect(planOf("awaiting,working")).toEqual({
-      kind: "agent",
-      targets: new Set(["awaiting", "working"]),
+      condition: { kind: "agent", targets: new Set(["awaiting", "working"]) },
       describe: "awaiting/working",
     });
     const nope = refusal("dnoe");
@@ -79,9 +77,9 @@ describe("--until, the three forms", () => {
 
   it("reads match:<regex> as the sentinel route", () => {
     const plan = planOf("match:DONE");
-    expect(plan.kind).toBe("match");
-    if (plan.kind !== "match") throw new Error("unreachable");
-    expect(plan.regex.source).toBe("DONE");
+    expect(plan.condition.kind).toBe("match");
+    if (plan.condition.kind !== "match") throw new Error("unreachable");
+    expect(plan.condition.pattern.source).toBe("DONE");
     expect(plan.describe).toBe('output matching "DONE"');
     // The forms a caller actually reaches for, all still legal.
     for (const ok of [
@@ -91,7 +89,7 @@ describe("--until, the three forms", () => {
       "match:.+",
       "match:[0-9]+ passed",
     ]) {
-      expect(planOf(ok).kind).toBe("match");
+      expect(planOf(ok).condition.kind).toBe("match");
     }
   });
 
@@ -133,7 +131,31 @@ describe("--until match: the FALSE done-signal refusals", () => {
   it("keeps the ONE-BYTE-of-anything wait spellable, as an explicit ask", () => {
     // `.+` is the honest spelling of "any output at all" — it cannot fire on a
     // zero-length match, so a caller who means it says so.
-    expect(planOf("match:.+").kind).toBe("match");
+    expect(planOf("match:.+").condition.kind).toBe("match");
+  });
+});
+
+describe("the phrase a failure line names", () => {
+  it("names the CONJUNCT too, so a `--settled` timeout says which half never came", () => {
+    // Without this, `kolu wait … --until awaiting,waiting --settled 15000`
+    // times out saying only "waiting for 4bba to reach awaiting/waiting" — and
+    // sends its reader at the wrong half. The bucket may well have landed; it
+    // is the QUIET that never came, because the agent's subagent is still
+    // printing. That distinction is the entire reason the flag exists.
+    expect(describeWait(planOf("awaiting,waiting"), 15000)).toBe(
+      "awaiting/waiting with 15000ms of output quiet",
+    );
+    // Composes with the other two forms, which is why it is a modifier and not
+    // a fourth `--until` prefix.
+    expect(describeWait(planOf("match:DONE"), 2000)).toBe(
+      'output matching "DONE" with 2000ms of output quiet',
+    );
+  });
+
+  it("is the condition alone when no conjunct was asked for", () => {
+    expect(describeWait(planOf("idle:800"), undefined)).toBe(
+      "output idle for 800ms",
+    );
   });
 });
 

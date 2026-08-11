@@ -209,6 +209,36 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   the native authority; kolu-server binds or mirrors it rather than supplying a
   backing shim.
 
+- **The `dial` entry's wait kit** — `awaitTerminalCondition` is the ONE
+  block-on-a-terminal-condition engine every face rides. It takes the condition
+  as data (`idle` · `match` · `agent`) plus two orthogonal modifiers: a
+  `settledMs` **conjunct** (met only once output has also been quiet that long,
+  with a condition that stops holding re-entering the wait) and a `captureScreen`
+  **stamp** (the met carries the terminal's rendered screen, read while the
+  wait's own subscriptions are live and discarded-and-retaken if the met
+  CANDIDATE moved under the read — narrower than "a byte arrived", which has no
+  fixed point). They live here rather than in a driving
+  loop because the races they close are between a caller's separate
+  *invocations* — `kolu wait --settled/--snapshot` and `kolu debrief` are that
+  engine's argv face
+  ([kolu#2139](https://github.com/juspay/kolu/issues/2139)). Two named waits
+  remain — `awaitAgentState` (padi-tui's `cmdWait`, the MCP face's
+  `wait_agentState`) and `awaitOutputSettled` (`wait_outputSettled`) — because
+  their met payloads ARE those tools' wire frames; they are spellings of the
+  engine, each carrying its own `closed` retry advice. The MCP face's
+  `settledMs`/`screenTail` options are forwarded *through* those two rather than
+  around them, so each wire frame keeps exactly one owner
+  ([kolu#2152](https://github.com/juspay/kolu/issues/2152)) —
+  `awaitOutputSettled` deliberately takes only the capture, since a second
+  quiescence window over an `idle` condition just means quiet-for-max. The
+  `match:` form has no wrapper: `kolu wait` is its only consumer and calls the
+  engine directly.
+
+  The three condition FORMS are not braided through the engine body: each has
+  its own runner (`conditionForm`), so the branch on which form this is happens
+  once and the shared spine — the attach feed, the conjunct's window, the
+  met-candidate cell — is lent to it rather than re-decided per wiring point.
+
 - **`@kolu/padi/render`** and **`@kolu/padi/read`** — the CLI faces' shared
   view + data layers. `render` is pure formatting (the roster table's
   `ID · STATE · REPO·BRANCH · PR · AGENT · FOREGROUND` columns, the PR/checks
@@ -225,8 +255,10 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   vocabulary with two faces reading it, not two copies held in lockstep by
   JSDoc cross-reference. They stay here rather than in `@kolu/surface` because
   they speak **padi's** records — the generic wait scaffold went the other way.
-  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, and the
-  `watch.ts` wait kit the `dial` entry re-exports — the same
+  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, `tail.ts`
+  (the tail-mode screen slice, a zero-import leaf `render.ts` re-exports so the
+  wait kit can reuse it without dragging `columnify` into every dial consumer),
+  and the `watch.ts` wait kit the `dial` entry re-exports — the same
   one-cluster-one-directory shape as `terminalEndpoint/` and
   `terminalWorkspace/`. The pure `terminalVocab.ts` they all fold over sits one
   level UP, at the package root: the SERVER speaks it too (supervision-edge

@@ -154,8 +154,44 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
       ]);
       expect(typeof node.description).toBe("string");
     }
-    // `idleMs` is the one required knob; `timeoutMs` is optional.
+    // `idleMs` is the one required knob; the rest are optional.
     expect(settled.required).toEqual(["id", "idleMs"]);
+  });
+
+  it("the kolu#2139 modifiers advertise as bounded integers with their blurb ON the node", () => {
+    // A wire-visible option is only as good as the sentence a host renders
+    // beside it — an agent picks `settledMs: 15000` from the blurb or not at
+    // all. Same annotate-then-check law as every other numeric here.
+    const agent = toInputSchema(WaitAgentStateArgsSchema);
+    const settledMs = property(agent, "settledMs");
+    expect(settledMs.type).toBe("integer");
+    expect(settledMs.allOf).toEqual([
+      { exclusiveMinimum: 0 },
+      { maximum: 2_147_483_647 },
+    ]);
+    expect(settledMs.description).toMatch(/CONJUNCT/);
+
+    // `screenTail` counts LINES, so it rides the line bound, not the timer
+    // ceiling — and it is on BOTH wait tools, because reading the screen after
+    // a done-signal is the second half of the same race on either.
+    for (const schema of [agent, toInputSchema(WaitOutputSettledArgsSchema)]) {
+      const tail = property(schema, "screenTail");
+      expect(tail.type).toBe("integer");
+      expect(tail.allOf).toEqual([{ exclusiveMinimum: 0 }]);
+      expect(tail.description).toMatch(/last N rendered lines/);
+    }
+
+    // Both stay OPTIONAL: every existing caller's request is still valid, and
+    // its met frame still has exactly the keys it always had.
+    expect(agent.required).toEqual(["id", "until"]);
+  });
+
+  // `settledMs` is deliberately NOT on `wait_outputSettled`: that condition IS a
+  // quiescence window, so a second one only ever means quiet-for-max(idleMs,
+  // settledMs) — a knob whose every setting `idleMs` already spells.
+  it("wait_outputSettled does NOT offer a redundant second quiescence window", () => {
+    const settled = toInputSchema(WaitOutputSettledArgsSchema);
+    expect(Object.keys(settled.properties ?? {})).not.toContain("settledMs");
   });
 
   it("watch_next's timeoutMs rides the SAME shared milliseconds field", () => {

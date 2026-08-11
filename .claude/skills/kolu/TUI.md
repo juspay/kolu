@@ -9,9 +9,10 @@ timeouts on every wait) — only the spelling changes.
 
 **`kolu` is the ONE terminal CLI.** One command carries the whole toolkit —
 **ls** (the roster) · **create** (spawn) · **send** (write text, OR a `--key`) ·
-**wait** (block on a done-signal) · **snapshot** (read the rendered text —
-`--tail N` for what's on screen) · **history**
-(read the scrollback) · **kill** · **watch** (the live feed). Every verb is a
+**wait** (block on a done-signal) · **debrief** (the composed done-signal: turn
+over AND quiet, then the screen — what you should type when driving an agent) ·
+**snapshot** (read the rendered text — `--tail N` for what's on screen) ·
+**history** (read the scrollback) · **kill** · **watch** (the live feed). Every verb is a
 pure **padi** client, so there is no second CLI to learn and no second daemon to
 choose between: you name a padi (or, inside a kolu terminal, name nothing) and
 drive its terminals. (The older `padi-tui` / `kaval-tui` binaries still ship and
@@ -25,9 +26,14 @@ id=$(kolu create --intent "parser refactor" -- claude)    # spawn the inner agen
 kolu send  "$id" "refactor the parser to use a lexer"     # 1. the text (no Enter)
 kolu wait  "$id" --until idle:300 --timeout 15000         # 2. observe the TUI settle
 kolu send  "$id" --key Enter                              # 3. submit (its own command)
-kolu wait  "$id" --until idle:800 --timeout 600000        # 4. let its turn finish (below)
-kolu snapshot "$id" --tail 40                             # 5. read the screen
+kolu debrief "$id" --timeout 600000                       # 4. turn over AND quiet → its screen
 ```
+
+Step 4 is **one** call on purpose. It used to be three — wait for the turn, wait
+for quiet, read the screen — and each gap between them is a race the CLI cannot
+close from out here. `kolu debrief` is exactly
+`kolu wait "$id" --until awaiting,waiting --settled 15000 --snapshot 40`; the
+done-signal section below is when to reach for something else.
 
 Submitting a prompt is its **own** `send --key Enter`, sent *after* you observe
 the TUI settle — never folded into the text send. Why: a same-breath Enter races
@@ -35,7 +41,7 @@ the TUI's paste debounce and is silently dropped. See the next section.
 
 **stdout is data, stderr is prose.** `create` prints the new id on stdout and
 its human trailer on stderr, so `id=$(kolu create … )` captures exactly the id
-and nothing else. `--json` (on `ls`/`create`/`send`/`wait`/`watch`) makes the
+and nothing else. `--json` (on `ls`/`create`/`send`/`wait`/`debrief`/`watch`) makes the
 data machine-readable.
 
 **Ids accept any unique prefix.** `kolu send 3f9c "…"` is the whole id's
@@ -191,7 +197,47 @@ kolu wait "$id" --until awaiting,waiting --timeout 600000  # the agent's turn en
 
 Quiescence ≠ "the reply is correct": idle fires whether the agent **finished** or
 is **blocked asking you something** (both mean "your move"). So after `wait`
-returns, **`snapshot --tail N` and read** what's on screen before responding.
+returns, **read what's on screen** before responding — which is what the two
+modifiers below fold into the wait itself.
+
+### The two modifiers — `--settled` and `--snapshot`
+
+```sh
+kolu wait "$id" --until awaiting,waiting --settled 15000 --snapshot 40 --timeout 600000
+```
+
+- **`--settled <ms>`** is a **conjunct on `--until`**: met means the condition
+  holds **and** no output byte has arrived for `<ms>`. It composes with all three
+  forms. Reach for it whenever you are driving an **agent**, because a bucket is
+  not a done-signal on its own: a `claude` main loop that ends its turn while an
+  async `Agent`/`Task` subagent is still running reads as `waiting` within
+  milliseconds, and the subagent keeps printing for as long as it runs. The
+  recorded incident: `--until awaiting,waiting` fired, the orchestrator
+  instructed the worker — whose screen showed a subagent three minutes into a
+  run and a deliberate "wait for it, then push once" plan — and the nudge
+  preempted competent in-flight work. Bytes moving keep the wait open; a bucket
+  dropping back to `working` re-enters it.
+- **`--snapshot <N>`** makes the met carry the screen: in plain mode the `<N>`
+  lines are stdout (pipeable) with the trailer on stderr, under `--json` they are
+  the frame's `screen` key. Read on the same subscription the condition settled
+  on — so it is not "the screen a moment later", which is all a separate `kolu
+  snapshot` can ever be. **Paired with `--settled`** (what `debrief` does) the
+  screen is one taken inside that same quiet stretch, and one the terminal moved
+  under is discarded and retaken; **on its own** it is simply the screen as of
+  the condition landing, with no quiet claimed.
+
+Together they are `kolu debrief`, which is what you should actually type:
+
+```sh
+kolu debrief "$id"                       # ≡ the wait above, with --quiet 15000 --tail 40
+kolu debrief "$id" --quiet 30000 --timeout 900000   # a subagent-heavy worker
+```
+
+Each flag forgotten re-opens a live failure mode — drop `--settled` and you nudge
+an agent whose subagent is still running; drop `--snapshot` and you act without
+reading what the worker believes happened — so the composed verb is the default
+and the raw flags are for the cases it does not cover (a `match:` sentinel that
+also needs quiet, a snapshot on any turn boundary with no settle).
 
 ### Byte-idle vs agent buckets — which `--until` to reach for
 
@@ -222,7 +268,7 @@ didn't merge the distinction:
 > kolu wait "$id" --until idle:300 --timeout 15000            # observe the settle
 > kolu send "$id" --key Enter                                 # submit
 > kolu wait "$id" --until working --timeout 15000             # 1. it picked up the prompt
-> kolu wait "$id" --until awaiting,waiting --timeout 600000   # 2. its turn ended
+> kolu debrief "$id" --timeout 600000                         # 2. its turn ended, quiet, screen
 > ```
 >
 > (Every wait is bounded — the Acceptance rule. A timeout on the phase-1

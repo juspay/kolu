@@ -140,6 +140,23 @@ export function isWatchSubscriptionNotFound(err: unknown): boolean {
   return hasTag(err, WATCH_SUBSCRIPTION_NOT_FOUND_TAG);
 }
 
+/** {@link TerminalNotFound}'s tag, read off the class — see
+ *  {@link WATCH_SUBSCRIPTION_NOT_FOUND_TAG} for why it is never re-spelled. */
+const TERMINAL_NOT_FOUND_TAG: string = new TerminalNotFound({ id: "" })._tag;
+
+/** Is `err` a {@link TerminalNotFound} that may have CROSSED A WIRE?
+ *
+ *  Structural on `_tag`, for the same reason its sibling above is: the reader is
+ *  a CLIENT (the wait kit's screen stamp), where the value was decoded from a
+ *  wire frame in another realm and `instanceof` silently answers `false`. Here
+ *  the collapse it prevents is specific: a terminal that exited between the
+ *  condition landing and its screen being read is `gone`, and folding that into
+ *  the generic `closed` arm would tell a driving loop to retry a terminal that
+ *  no longer exists. */
+export function isTerminalNotFound(err: unknown): boolean {
+  return hasTag(err, TERMINAL_NOT_FOUND_TAG);
+}
+
 // ── Byte writes / reads ───────────────────────────────────────────────────
 
 /** A scratch write the host REFUSES — a disallowed extension or an oversized

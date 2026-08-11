@@ -54,8 +54,7 @@ id=$(kolu create --worktree fix-parser -- claude --dangerously-skip-permissions)
 kolu send "$id" "read /tmp/brief-fix-parser.md and take it end-to-end"  # 1. the brief
 kolu wait "$id" --until idle:300                                        # 2. observe it settle
 kolu send "$id" --key Enter                                             # 3. submit — its own step
-kolu wait "$id" --until awaiting,waiting                                # 4. its turn ended
-kolu snapshot "$id" --tail 40                                           # 5. read what it said
+kolu debrief "$id"                                                      # 4. its turn ended, it went quiet, here's the screen
 ```
 
 The one move that surprises people is that **submitting is separate from typing**. An Enter sent in the same breath as the text races the terminal UI's paste-debounce and gets silently dropped, leaving the prompt sitting unsent — so you type the text, watch the UI go quiet, _then_ send Enter as its own command. That's [why a send carries text or a key but never both](/kaval#why-kaval-tui-send-not-a-message-bus). Every verb takes the same endpoint flags (`--socket`, `--state-root`, `--host`) on either side of the verb name, and inside a kolu terminal you pass none at all — the daemon that owns you is already in the environment. Ids accept any unique prefix.
@@ -77,6 +76,19 @@ The hardest part of driving an agent isn't sending input; it's knowing when to s
 
 That distinction is why a coordinator uses the agent-state condition when it can: piling a new task on top of an agent that stopped to **ask a question** is how a fleet wedges. When the state says `awaiting`, the coordinator reads the screen and answers; when it says `waiting`, the turn is genuinely done. Silence alone can't tell you which, so — after any `wait` returns — the coordinator reads the snapshot before it responds.
 
+### `waiting` is not always "done" — which is why `kolu debrief` exists
+
+There is a third failure the two conditions above can't see between them. Modern agents farm work out to **background subagents**, and an agent's main loop reports its turn as over the moment *it* stops typing — while a subagent it launched is still running, still printing. The state says `waiting`; the work is not done. A coordinator that acts on that signal interrupts real work: the incident behind this was a worker three minutes into a deliberate "wait for it, then push once" plan, nudged off it.
+
+The fix is to require **both**: the turn is over *and* the terminal has actually gone quiet — then read the screen. `kolu debrief` is that whole protocol as one command:
+
+```sh
+kolu debrief "$id"     # blocks until the turn is over AND quiet;
+                       # stdout is what the screen says — judge, then act
+```
+
+It is exactly `kolu wait "$id" --until awaiting,waiting --settled 15000 --snapshot 40`, and those two `wait` flags are usable on their own: `--settled <ms>` adds "…and quiet for this long" to *any* condition, and `--snapshot <N>` makes the wait hand back the screen it settled on. A coordinator driving over [MCP](/mcp) has the same two as `settledMs` and `screenTail` on both wait tools, so this protocol is one call there too. Doing it in one command is not only shorter — it closes a race the three separate commands could not. Output can move in the gap between one `wait` finishing and the next starting, and the screen a separate `snapshot` reads is not the screen the wait settled on. Asked for together, they are judged against the same live subscription: the screen you get back was taken inside the same quiet stretch that ended the turn, and one the terminal moved under is thrown away and retaken. (Use `--snapshot` *without* `--settled` and you still get a screen, just without that promise — nothing asked the terminal to be quiet, so it may still be printing.)
+
 ## Questions flow up to the coordinator, never out to you
 
 An implementing agent that hits a real decision has a problem: it's alone in its own terminal, and the human is one layer up and probably asleep. If it pops an interactive question, that question sits unanswered in a PTY nobody is looking at, and the agent stalls.
@@ -85,7 +97,7 @@ So the discipline is: **an implementing agent routes every question to the coord
 
 ## A fleet can span machines
 
-Nothing about this is local. Because [padi](/padi) binds a per-host daemon over ssh, a coordinator on your laptop can drive agents running on a [remote host](/remote-hosts) — `kolu --host prod wait <id> --until awaiting,waiting`, `kolu --host prod snapshot <id>` — the same loop, a different box. A remote PTY survives the link dropping, so an agent keeps working while your laptop sleeps. The [fleet is a mix of hosts](/remote-hosts); the driving code doesn't change.
+Nothing about this is local. Because [padi](/padi) binds a per-host daemon over ssh, a coordinator on your laptop can drive agents running on a [remote host](/remote-hosts) — `kolu --host prod send <id> "…"`, `kolu --host prod debrief <id>` — the same loop, a different box. A remote PTY survives the link dropping, so an agent keeps working while your laptop sleeps. The [fleet is a mix of hosts](/remote-hosts); the driving code doesn't change.
 
 ## The seams, and when not to bother
 

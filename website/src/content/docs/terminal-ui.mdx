@@ -37,6 +37,7 @@ immediately, and one you created in the browser is drivable from the shell.
 | `kolu create` | open a terminal; `--parent` splits a tile, `--worktree` cuts a branch first, `-- <cmd>` launches an agent in it |
 | `kolu send` | type into a terminal — text, or a named key with `--key` |
 | `kolu wait` | block until output settles or matches, or until an agent's turn ends |
+| `kolu debrief` | wait until a worker's turn is over **and** its output is quiet, then print its screen |
 | `kolu snapshot` | read a terminal's screen as plain text (`--tail N` for what's on screen now) |
 | `kolu history` | the scrollback above the current screen |
 | `kolu kill` | end a terminal |
@@ -50,9 +51,17 @@ id=$(kolu create --worktree fix-parser -- claude)
 kolu send "$id" "read /tmp/brief.md and take it end-to-end"
 kolu wait "$id" --until idle:300          # the text landed
 kolu send "$id" --key Enter               # submit — its own step
-kolu wait "$id" --until awaiting,waiting  # its turn ended
-kolu snapshot "$id" --tail 40             # read what it said
+kolu debrief "$id"                        # its turn ended, it went quiet, here's the screen
 ```
+
+The last step used to be two more commands — wait for the turn, then read the
+screen. `kolu debrief` is both, plus the part that is easy to forget: it also
+waits for the terminal to go **quiet**, because an agent whose main loop ends
+its turn while a background subagent is still running reports "finished" while
+its work is still going. Nudging it there interrupts real work. `debrief` is
+exactly `kolu wait "$id" --until awaiting,waiting --settled 15000 --snapshot 40`
+— `--settled` and `--snapshot` are `wait`'s own flags if you want a different
+window or a different condition.
 
 Three things that make the verbs pleasant to script: **stdout is data** (so
 `id=$(kolu create …)` captures exactly the id, with the human-readable trailer
