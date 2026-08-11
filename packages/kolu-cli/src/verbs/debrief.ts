@@ -64,12 +64,21 @@ export function run(
   endpoint: Endpoint,
   args: DebriefArgs,
 ): Effect.Effect<void, unknown> {
-  return runWait(endpoint, {
-    id: args.id,
-    until: DEBRIEF_UNTIL,
-    settled: args.quiet,
-    snapshot: args.tail,
-    timeout: args.timeout,
-    json: args.json,
-  });
+  return runWait(
+    endpoint,
+    {
+      id: args.id,
+      until: DEBRIEF_UNTIL,
+      settled: args.quiet,
+      snapshot: args.tail,
+      timeout: args.timeout,
+      json: args.json,
+    },
+    // The verb the user typed. `wait` renders it into the one diagnostic that
+    // names a command to re-run, so omitting it would tell a `kolu debrief`
+    // user to re-run a `kolu wait` they never ran — the first drift of the
+    // "no second face to drift" claim this module is built on. Passing your own
+    // name is not logic; the alias stays definitional.
+    "kolu debrief",
+  );
 }

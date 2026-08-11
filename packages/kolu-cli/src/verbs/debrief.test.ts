@@ -24,11 +24,11 @@ import {
 import type { Endpoint } from "../endpoint.ts";
 import type { WaitArgs } from "./wait.ts";
 
-const waited: WaitArgs[] = [];
+const waited: Array<{ args: WaitArgs; invokedAs: string | undefined }> = [];
 
 vi.mock("./wait.ts", () => ({
-  run: (_endpoint: Endpoint, args: WaitArgs) => {
-    waited.push(args);
+  run: (_endpoint: Endpoint, args: WaitArgs, invokedAs?: string) => {
+    waited.push({ args, invokedAs });
     // The real `run` hands back an Effect; nothing here runs it.
     return { _pinned: true };
   },
@@ -56,9 +56,9 @@ const expansionOf = (
     json: false,
     ...over,
   });
-  const args = waited[0];
-  if (args === undefined) throw new Error("debrief did not call wait at all");
-  return args;
+  const call = waited[0];
+  if (call === undefined) throw new Error("debrief did not call wait at all");
+  return call.args;
 };
 
 describe("kolu debrief — the expansion", () => {
@@ -89,6 +89,15 @@ describe("kolu debrief — the expansion", () => {
     const args = expansionOf({ timeout: 900_000, json: true });
     expect(args.timeout).toBe(900_000);
     expect(args.json).toBe(true);
+  });
+
+  it("tells `wait` which verb the USER typed", () => {
+    // `wait` renders this into the one diagnostic that names a command to
+    // re-run. Forget it and a dropped feed under `kolu debrief` tells the user
+    // to re-run a `kolu wait` they never ran — and the mock's own signature is
+    // what made the omission silent the first time.
+    expansionOf({});
+    expect(waited[0]?.invokedAs).toBe("kolu debrief");
   });
 
   it("`--help` promises the invocation that actually runs", () => {

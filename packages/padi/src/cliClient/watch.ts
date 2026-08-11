@@ -320,15 +320,27 @@ async function watchAttachFeed<Met extends WaitMet>(
     /** Every frame of the feed, in order — where the caller's condition lives. */
     readonly onFrame: (frame: AttachFrame) => void;
     /** Drop whatever state was accumulated from a feed we can no longer
-     *  observe. The two callers are NOT the same event and the caller is told
-     *  which: `"retry"` means a fence re-subscribe — a fresh snapshot is coming,
-     *  so drop what you accumulated; `"end"` means the feed is over for good and
-     *  no byte can ever arrive again, which a quiescence conjunct may treat as
-     *  the strongest possible quiet. Collapsing the two forced every caller to
-     *  assume the pessimistic one. */
-    readonly onFeedLost: (reason: "retry" | "end") => void;
+     *  observe: a fence re-subscribe, or the feed dropping for good. Both are
+     *  told the same thing on purpose — when this fires, the spine has NOT yet
+     *  discriminated an exited terminal from a dropped feed over a live one, so
+     *  the only sound reaction to either is to forget what can no longer be
+     *  observed. A caller that wants to act on the terminal being GONE has
+     *  {@link onTerminalGone}, which fires only once that is PROVEN. */
+    readonly onFeedLost: () => void;
     /** What an OBSERVED `terminalExit` does beyond latching it (see above). */
     readonly onExit?: () => void;
+    /** The terminal is PROVEN gone — the ordered feed has ended (so every byte
+     *  it will ever produce has been delivered) AND either its exit was observed
+     *  or its id has left the `terminals` key set. Fired immediately BEFORE the
+     *  `gone` settle, so a caller holding a condition that a dead terminal
+     *  satisfies vacuously can claim it first (`settle` is first-writer-wins).
+     *
+     *  This is the ONLY place that evidence exists. {@link onFeedLost} fires
+     *  before the discrimination, so acting on it would let a LIVE terminal's
+     *  dropped feed — the `closed` arm — mint a met; and `onExit` fires on a
+     *  SEPARATELY ordered subscription, so it can arrive before the bytes that
+     *  decide the condition. */
+    readonly onTerminalGone?: () => void;
     /** The actionable tail of the `closed` line ("retry wait_outputSettled"). */
     readonly retryAdvice: string;
   },
@@ -344,9 +356,10 @@ async function watchAttachFeed<Met extends WaitMet>(
   // state is dropped FIRST — an idle window left armed would fire a FALSE `met`
   // off the last frame of a feed we can no longer observe.
   const settleOnLostFeed = async (): Promise<void> => {
-    opts.onFeedLost("end");
+    opts.onFeedLost();
     // An observed exit already answers the question the key set is read for.
     if (sawExit) {
+      opts.onTerminalGone?.();
       ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
       return;
     }
@@ -379,6 +392,7 @@ async function watchAttachFeed<Met extends WaitMet>(
         );
       }
       if (!keys.includes(opts.id as (typeof keys)[number])) {
+        opts.onTerminalGone?.();
         ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
         return;
       }
@@ -415,7 +429,7 @@ async function watchAttachFeed<Met extends WaitMet>(
           // so anything the caller accumulated from the pre-drop feed is dropped
           // here — the state only ever restarts from the fresh snapshot the
           // reconnect delivers (see the `onFeedLost` note above).
-          onRetry: () => opts.onFeedLost("retry"),
+          onRetry: opts.onFeedLost,
         },
       );
       for await (const frame of iterateUntilAborted(stream, ctx.signal)) {
@@ -875,13 +889,51 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
        *  when a feed we can no longer observe invalidates it. */
       const quietGround = settledMs === undefined;
 
-      /** The ONLY way the candidate moves: replace it, bump the generation, and
-       *  re-check. Even a change that can only make the candidate FALSE bumps —
-       *  an in-flight read must be discarded either way. */
+      /** Are these the SAME met-candidate — would they stamp the same met?
+       *
+       *  Not deep equality of the record: equality of the thing a screen read is
+       *  racing. The `terminals` mirror re-publishes a terminal's record for any
+       *  awareness refresh (a git poll, a PR check, a foreground sample), and
+       *  most of those leave the agent exactly where it was. Treating each as a
+       *  candidate CHANGE would invalidate every in-flight read on a busy roster
+       *  with nothing to re-earn — the same missing fixed point the per-frame
+       *  bump had, reached through the other subscription. */
+      const sameCandidate = (
+        a: ConditionHeld | null,
+        b: ConditionHeld | null,
+      ): boolean => {
+        if (a === null || b === null) return a === b;
+        if (a.fired !== b.fired) return false;
+        switch (a.fired) {
+          case "idle":
+            return true;
+          case "match":
+            return a.matchedLine === (b as typeof a).matchedLine;
+          case "agent": {
+            const other = (b as typeof a).agent;
+            return a.agent.kind === other.kind && a.agent.state === other.state;
+          }
+        }
+      };
+
+      /** The ONLY way the candidate moves: replace it, bump the generation when
+       *  it actually MOVED, and re-check.
+       *
+       *  A change that can only make the candidate false still bumps — an
+       *  in-flight read must be discarded either way. A re-assertion of the same
+       *  candidate does not: the freshest evidence is still written (a met
+       *  should describe the terminal as it is), but nothing was invalidated, so
+       *  nothing is discarded and no read is re-issued. */
       const update = (
         next: Partial<{ held: ConditionHeld | null; quiet: boolean }>,
       ): void => {
-        candidate = { ...candidate, ...next, epoch: candidate.epoch + 1 };
+        const held = next.held !== undefined ? next.held : candidate.held;
+        const quiet = next.quiet !== undefined ? next.quiet : candidate.quiet;
+        if (quiet === candidate.quiet && sameCandidate(held, candidate.held)) {
+          candidate = { ...candidate, held };
+          return;
+        }
+        candidate = { held, quiet, epoch: candidate.epoch + 1 };
         check();
       };
 
@@ -1097,27 +1149,20 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
             // would let the two halves forge a sentinel nobody printed. A
             // latched `match` survives — it is a fact about output we DID see.
             //
-            // The END of a feed is not the same event as a RETRY, which is why
-            // the spine tells them apart. A retry means "a fresh snapshot is
-            // coming"; an end means "no byte can ever arrive again" — and that
-            // is the STRONGEST form of the quiet `--settled` asks for. Without
-            // this arm, `--until match:DONE --settled 500` against the ordinary
-            // `echo DONE; exit` shape settles `gone` (exit 3) where the same
-            // wait WITHOUT `--settled` settles `met` (exit 0): a modifier sold
-            // as a conjunct would silently convert a success into a
-            // terminal-died failure, and no input could ever make it met.
-            onFeedLost: (reason) => {
+            // This handler NEVER claims quiet. A lost feed is not evidence that
+            // the terminal is quiet — it is evidence we cannot SEE it, and the
+            // two are opposites. The spine has not discriminated yet when this
+            // fires: a feed that ended because the PTY exited (`gone`) and a
+            // feed dropped from under a still-running terminal (`closed`) arrive
+            // here identically, so claiming quiet would let a LIVE terminal's
+            // dropped feed mint a met — a false done-signal, the exact class of
+            // lie this whole feature exists to remove. The vacuous-quiet case
+            // that IS legitimate rides `onExit`, where the evidence is an
+            // observed exit rather than an absence of observation.
+            onFeedLost: () => {
               conditionWindow?.disarm();
               settledWindow?.disarm();
               carry = "";
-              if (reason === "end" && candidate.held !== null) {
-                // `settle` is first-writer-wins, so this beats the `gone` the
-                // spine is about to settle. Only a latched condition can take
-                // it: an `idle:` candidate is cleared below, and an agent bucket
-                // whose terminal just exited is `gone` by its own mirror too.
-                update({ quiet: true });
-                return;
-              }
               update({
                 ...(conditionWindow !== undefined ? { held: null } : {}),
                 quiet: quietGround,
@@ -1125,7 +1170,7 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
             },
             // The exit settles `gone` for every form EXCEPT `match`, whose bytes
             // may still be in flight on the (separately-ordered) attach feed — a
-            // sentinel that printed must win, so there the exit is only latched
+            // sentinel that printed must win, so there the exit is only LATCHED
             // and the feed's END is the proof no bytes are left. Nothing an
             // early settle could invalidate exists for the other forms.
             ...(condition.kind === "match"
@@ -1134,6 +1179,31 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
                   onExit: () =>
                     ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() }),
                 }),
+            // A PROVEN-gone terminal discharges a `match` wait's conjunct: the
+            // ordered feed has ended, so every byte it will ever produce is in,
+            // and the process is dead, so none will follow — the strongest
+            // possible form of the quiet `--settled` asks for. Claimed ONLY for
+            // an already-latched sentinel; a match that never printed leaves
+            // `held` null and the `gone` below stands.
+            //
+            // Without it, `--until match:DONE --settled 500` against the
+            // ordinary `echo DONE; exit` shape settles `gone` (exit 3) where the
+            // same wait WITHOUT `--settled` settles `met` (exit 0) — a modifier
+            // sold as a conjunct silently converting a success into a
+            // terminal-died failure that no input could ever satisfy.
+            //
+            // It hangs off THIS hook and not off `onExit` because the exit event
+            // rides its own subscription and can be delivered before the delta
+            // carrying the sentinel; and not off `onFeedLost` because that fires
+            // before the spine has told `gone` from `closed`, where claiming
+            // quiet would let a live terminal's dropped feed mint a met.
+            ...(condition.kind === "match"
+              ? {
+                  onTerminalGone: () => {
+                    if (candidate.held !== null) update({ quiet: true });
+                  },
+                }
+              : {}),
             retryAdvice: opts.retryAdvice,
           }),
         );

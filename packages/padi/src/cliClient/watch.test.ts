@@ -810,19 +810,71 @@ describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
     }
   });
 
-  it("a latched `match` + a conjunct is MET when the feed ENDS, not `gone`", async () => {
-    // `echo DONE; exit` is the ordinary sentinel shape, and the feed ending is
-    // the strongest possible quiet: no byte can ever arrive again. Without the
-    // retry/end discrimination, adding `--settled` to a `match:` wait silently
-    // converted this exit-0 into a terminal-died exit-3 — and no input could
-    // ever make it met, which is not what a conjunct means.
+  it("CONVERGES while the roster re-publishes an unchanged agent — exactly one read", async () => {
+    // The same missing fixed point, reached through the OTHER subscription. The
+    // `terminals` mirror re-publishes a record for any awareness refresh (a git
+    // poll, a PR check, a foreground sample), and most leave the agent exactly
+    // where it was. Counting each as a candidate change would invalidate every
+    // in-flight read with nothing to re-earn — one `screen.text` per refresh,
+    // for the life of the wait.
+    const agents = agentCollection(claude("waiting"));
+    let reads = 0;
+    let churn: ReturnType<typeof setInterval> | undefined;
+    try {
+      const outcome = await awaitTerminalCondition(
+        matchClient({
+          ...agents.parts,
+          screenText: () =>
+            Effect.promise(async () => {
+              reads += 1;
+              // Re-publish the SAME agent throughout the round-trip.
+              churn = setInterval(() => agents.push(claude("waiting")), 5);
+              await sleep(60);
+              clearInterval(churn);
+              return "READY\n";
+            }),
+        }),
+        {
+          id: T as TerminalId,
+          condition: {
+            kind: "agent",
+            targets: new Set(["awaiting", "waiting"]),
+          },
+          captureScreen: true,
+          timeoutMs: 3000,
+          retryAdvice: "re-run the wait",
+        },
+      );
+      expect(outcome).toMatchObject({ kind: "met", fired: "agent" });
+      expect(reads).toBe(1);
+    } finally {
+      if (churn !== undefined) clearInterval(churn);
+    }
+  });
+
+  it("a latched `match` + a conjunct is MET on the terminal's EXIT, not `gone`", async () => {
+    // `echo DONE; exit` is the ordinary sentinel shape: the sentinel prints, the
+    // process exits, the ordered feed ends. Together those are proof no byte can
+    // ever arrive again — the strongest form of the quiet `--settled` asks for —
+    // so adding the conjunct must not convert this exit-0 into a terminal-died
+    // exit-3 that no input could ever satisfy.
+    //
+    // The exit event is pushed FIRST on purpose: it rides its own subscription
+    // and really can be delivered before the delta carrying the sentinel, which
+    // is why the claim cannot hang off `onExit`.
+    const exit = new FakeSource<{ code: number }>();
+    exit.push({ code: 0 });
     const attach = new FakeSource<AttachFrame>();
     attach.push(snapshot("worker\n"));
     attach.push(delta("DONE\n"));
     attach.end();
 
     const outcome = await awaitTerminalCondition(
-      matchClient({ attach: () => attach.stream(), keys: keysWithout }),
+      matchClient({
+        attach: () => attach.stream(),
+        exit: () => exit.stream(),
+        keys: keysWithout,
+      }),
       {
         id: T as TerminalId,
         condition: { kind: "match", pattern: /DONE/ },
@@ -837,5 +889,35 @@ describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
       fired: "match",
       matchedLine: "DONE",
     });
+  });
+
+  it("a LIVE terminal's dropped feed is `closed` — a lost feed never mints a met", async () => {
+    // The blocking hole the peer review found in the first version of the arm
+    // above: `onFeedLost` fires BEFORE the spine has told a `gone` terminal from
+    // a `closed` one, so claiming quiet there let a still-running terminal whose
+    // feed merely dropped settle `met`. A lost feed is evidence we cannot SEE
+    // the terminal — the opposite of evidence that it is quiet.
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    attach.push(delta("DONE\n"));
+    attach.end();
+
+    const outcome = await awaitTerminalCondition(
+      matchClient({
+        attach: () => attach.stream(),
+        // No exit event, and the terminal is STILL IN the key set: the feed
+        // dropped under a live terminal.
+        keys: () => Stream.make([T] as readonly TerminalId[]),
+      }),
+      {
+        id: T as TerminalId,
+        condition: { kind: "match", pattern: /DONE/ },
+        settledMs: 60_000,
+        timeoutMs: 5000,
+        retryAdvice: "re-run the wait",
+      },
+    );
+
+    expect(outcome).toMatchObject({ kind: "closed" });
   });
 });
