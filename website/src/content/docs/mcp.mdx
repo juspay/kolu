@@ -29,7 +29,11 @@ many — a coordinator spawning and steering a fleet of worker agents, each in i
 own terminal, while you sit one layer up.
 
 It runs as a small `kolu mcp` process your agent starts over stdio. Nothing new
-to install if you already run kolu; no browser involved.
+to install if you already run kolu; no browser involved. If no padi is
+reachable when it starts — nothing listening on the resolved socket, or no
+daemon discoverable at all — `kolu mcp` **exits non-zero** before the MCP
+handshake, so a consumer can ask "is kolu usable on this host?" by spawning
+and checking the exit code rather than reimplementing socket discovery.
 
 ## Connect it to your agent
 

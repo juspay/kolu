@@ -56,6 +56,14 @@ connected client; `serveKoluMcp` here owns zero transport code. The e2e pin
 (`kolu-cli/src/mcp.e2e.test.ts`) drives a real padi over both transports —
 the unix socket and the ssh-shaped stdio pipe — plus the restart legs.
 
+**Open fails when padi is unreachable.** `kolu mcp` probes the dialled padi
+before the MCP handshake; if nothing answers, it writes to stderr and exits
+non-zero. Spawn-and-check-exit is therefore a valid "is kolu usable here?"
+probe — a consumer does not reimplement socket discovery, and never receives a
+full tool list whose every call will fail
+([#2148](https://github.com/juspay/kolu/issues/2148)). Mid-session, a padi
+restart still heals without killing the MCP process (see below).
+
 **A padi restart costs the agent nothing.** The injected connection carries
 padi's close announcement, so the adapter discards a dead connection the moment
 padi says the socket closed rather than by spending a request on it
