@@ -369,7 +369,7 @@ function resolveSocketPath(flags: {
     if (resolved.kind === "many") {
       return Effect.fail(
         failure(
-          `more than one padi daemon is running:\n  ${resolved.candidates
+          `several padi daemons are running and none is keyed to this environment's state root (${resolved.primaryStateRoot}):\n  ${resolved.candidates
             .map(
               (d) => `${d.socket}    (${d.stateRoot ?? "unknown state-root"})`,
             )

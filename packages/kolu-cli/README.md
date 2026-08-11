@@ -42,7 +42,7 @@ contradiction to refuse, not a preference to resolve):
 
 | flag | which padi |
 | --- | --- |
-| *(none)* | autodiscover — and inside a kolu terminal `$PADI_SOCKET` is already stamped, so an agent driving its siblings passes nothing |
+| *(none)* | autodiscover — inside a kolu terminal `$PADI_SOCKET` is already stamped, so an agent driving its siblings passes nothing; elsewhere the sole running padi, or the **primary** one when several are up (see below) |
 | `--socket <path>` | that exact padi socket |
 | `--state-root <dir>` | the padi keyed to that state-root (dev/e2e, whose digest you don't want to compute) |
 | `--host <user@host>` | a padi on another machine, over ssh |
@@ -58,6 +58,25 @@ points an agent at a dev kolu). The ONE face left with anything to refuse is
 `web`, which dials no padi at all: it **refuses** what it can't act on rather
 than ignoring it. Even on `mcp` the two rules that are about the *flags* still
 bite — one transport at a time, and never an empty value.
+
+### Which padi, when you name none
+
+`$PADI_SOCKET` first (a kolu terminal stamps it), else the running daemons are
+discovered. One live padi is dialed. **Several is the normal shape** — your
+production padi plus a dev shell's, plus whatever an e2e run left up — and it is
+not several answers: every extra is keyed to an *explicit* `--state-root` /
+`KOLU_PADI_STATE_DIR`, so at most one of them serves the root **this
+environment** names (`$KOLU_PADI_STATE_DIR`, else `$HOME/.local/state/padi` —
+the production `kolu` wrapper exports exactly that). That one is the **primary**,
+and it is what a flag-less client dials. Only when none of the live daemons is
+this environment's does the CLI refuse, naming the root it looked for.
+
+This is what makes `kolu mcp` usable from a **headless** MCP client (#2151): a
+systemd user service has nobody to type an `export`, and it no longer needs to —
+it spawns `kolu mcp` and gets this host's padi. A primary running a build whose
+contract this CLI can't speak is still selected, and the dial then fails with the
+honest upgrade line — skipping it for a reachable dev daemon would silently drive
+another workspace's terminals.
 
 **Ids accept any unique prefix**, everywhere an `<id>` appears. **stdout is
 data, stderr is prose** — `id=$(kolu create … )` captures the bare id while the

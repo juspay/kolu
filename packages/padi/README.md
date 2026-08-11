@@ -80,7 +80,12 @@ The package graduated to a **process**: `package = process = restart-hash`.
   (`$XDG_RUNTIME_DIR/padi-<digest>/`, `kaval-<digest>/`), so a stale gate can never
   outlive a reboot and two padis at distinct state-roots never touch each other's
   kaval (the #1313 property). A `state-root` manifest maps the digest back, so a
-  flag-less `kaval-tui` keeps labelling what it discovers. The state-root is also
+  flag-less `kaval-tui` keeps labelling what it discovers — and so a flag-less
+  client can pick the **primary** padi out of several live ones: the one whose
+  manifest names the state root the client's own environment resolves to
+  (`$KOLU_PADI_STATE_DIR`, else the production formula). Extras are keyed to
+  explicit roots, so that is a read-back of recorded identity, not a guess
+  between equals (`primaryPadiAmong`, #2151). The state-root is also
   padi's **anchor** (#2010): delete it — `git worktree remove` on a dev
   workspace — and the daemon reaps itself (the spine's `anchor-gone` self-exit,
   kaval alike via its manifest) instead of leaking forever, and the kolu-server

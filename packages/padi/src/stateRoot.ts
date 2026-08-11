@@ -366,11 +366,62 @@ export function residentPadiSocket(
       ? discoverPadiDaemons()
       : discoverPadiDaemons(extraRegimes);
   return discovered.find(
-    (d) =>
-      d.stateRoot !== null &&
-      resolve(d.stateRoot) === resolved &&
-      daemonIsLive(d),
+    (d) => daemonServesStateRoot(d, resolved) && daemonIsLive(d),
   )?.socket;
+}
+
+/** Does this discovered daemon serve `resolvedStateRoot`? The manifest it wrote
+ *  about ITSELF is the only evidence accepted — never a digest-path recompute,
+ *  which is exactly what reproduced #1713 — and it is compared RESOLVED, so two
+ *  spellings of one root (a trailing `.`, a `..` hop) are one daemon rather than
+ *  two.
+ *
+ *  Shared by the two questions that ask it: {@link residentPadiSocket}'s
+ *  adopt-path read-back, and {@link primaryPadiAmong}'s "is this the padi the
+ *  environment names". One spelling, so the adopt path and the dial path can
+ *  never disagree about which daemon serves a root. */
+function daemonServesStateRoot(
+  d: PadiDaemon,
+  resolvedStateRoot: string,
+): boolean {
+  return d.stateRoot !== null && resolve(d.stateRoot) === resolvedStateRoot;
+}
+
+/**
+ * The PRIMARY padi among several live ones: the daemon serving `primaryStateRoot`
+ * — the root THIS environment names ({@link namePadiStateRootForDiscovery}:
+ * `$KOLU_PADI_STATE_DIR`, else the production formula) — or `undefined` when none
+ * of them does.
+ *
+ * This exists because "several padis are running" was read as "several ANSWERS",
+ * and it never was (juspay/kolu#2151). Multiple daemons on one host is the NORMAL
+ * shape — the production padi plus a dev shell's, plus whatever an e2e run left
+ * up — and every one of those extras is keyed to an EXPLICIT `--state-root` /
+ * `KOLU_PADI_STATE_DIR`. So at most one live daemon can be the one this
+ * environment names, and picking it is not a guess between equals: it is reading
+ * back the same identity the production wrapper exports (`default.nix`'s
+ * `exportPadiStateDirRun`) and the daemon recorded in its own manifest. A
+ * flag-less client that refused to choose was refusing to read an answer it
+ * already had — fatal for a HEADLESS one (a systemd-run MCP client has nobody to
+ * type the `export`), which is the failure this restores.
+ *
+ * Deliberately makes NO liveness or contract judgement of its own. Liveness is
+ * the caller's filter ({@link daemonIsLive}) so one predicate classifies daemons
+ * everywhere; and a primary whose build speaks a contract this client can't dial
+ * is still THE primary — it is selected, and the dial then fails with the honest
+ * upgrade line. Skipping it for a reachable dev daemon would silently drive the
+ * wrong workspace's terminals, which is the graceful degradation this repo
+ * treats as a defect: a stale build is a reason to upgrade, never to guess.
+ *
+ * Pure over `live` — exported so the selection is testable as data, without a
+ * fabricated registry on disk.
+ */
+export function primaryPadiAmong(
+  live: readonly PadiDaemon[],
+  primaryStateRoot: string,
+): PadiDaemon | undefined {
+  const resolved = resolve(primaryStateRoot);
+  return live.find((d) => daemonServesStateRoot(d, resolved));
 }
 
 /** A discovered daemon whose gate holder is PROVEN alive — the one liveness
@@ -389,10 +440,16 @@ function daemonIsLive(d: PadiDaemon): boolean {
  *  policy lives here (beside the namespace construction it inverts), so a client
  *  (`padi-tui`) only renders the `many` ambiguity in its own error surface. Each
  *  arm carries the socket to dial; `many` carries the labeled candidates instead
- *  so the CLI prints a pick-one list. Mirrors kaval's `KavalSocketResolution`. */
+ *  so the CLI prints a pick-one list, PLUS the state root it looked for and
+ *  found no daemon at — without it the refusal cannot say what would have
+ *  answered, and a headless operator can't tell "your padi is down" from "you
+ *  have no primary". Mirrors kaval's `KavalSocketResolution`. */
 export type PadiSocketResolution =
-  | { kind: "explicit" | "stateRoot" | "env" | "one" | "none"; socket: string }
-  | { kind: "many"; candidates: PadiDaemon[] };
+  | {
+      kind: "explicit" | "stateRoot" | "env" | "one" | "primary" | "none";
+      socket: string;
+    }
+  | { kind: "many"; candidates: PadiDaemon[]; primaryStateRoot: string };
 
 /**
  * Resolve which running padi a client should dial — the client-side companion to
@@ -404,11 +461,12 @@ export type PadiSocketResolution =
  *      `$KAVAL_SOCKET` convention) — points at the daemon that OWNS this terminal,
  *      so a flag-less `padi-tui` inside a kolu terminal "just works" and an agent
  *      driving its siblings never scans or guesses a digest-keyed path;
- *   4. else discover the running padi: exactly one → `one`; several → `many` (the
- *      CLI renders a labeled pick-one); none → `none` with a *named* socket for
- *      the error path: explicit/`KOLU_PADI_STATE_DIR` when set, else the
- *      production formula ({@link productionPadiStateRoot}) — never a throwing
- *      bind resolve.
+ *   4. else discover the running padi: exactly one → `one`; several → the
+ *      PRIMARY one if this environment names a state root a live daemon serves
+ *      (`primary`, see {@link primaryPadiAmong}), else `many` (the CLI renders a
+ *      labeled pick-one); none → `none` with a *named* socket for the error
+ *      path: explicit/`KOLU_PADI_STATE_DIR` when set, else the production
+ *      formula ({@link productionPadiStateRoot}) — never a throwing bind resolve.
  */
 export function resolveRunningPadiSocket(opts?: {
   socket?: string;
@@ -437,7 +495,24 @@ export function resolveRunningPadiSocket(opts?: {
   if (first !== undefined && rest.length === 0) {
     return { kind: "one", socket: first.socket };
   }
-  if (rest.length > 0) return { kind: "many", candidates: found };
+  if (rest.length > 0) {
+    // Several live daemons is not several ANSWERS — see {@link primaryPadiAmong}
+    // for why the tie was never real. Only THIS branch names the root: the
+    // `one` arm must keep dialing a sole daemon whatever its root (a dev box
+    // running only its dev padi has always worked flag-lessly, and an
+    // environment that cannot name a root — no `$HOME`, no override — must not
+    // start failing there). Naming it here can throw for exactly that
+    // unnameable environment, and that throw is the honest answer: with several
+    // daemons up and nothing able to say which is yours, there IS no
+    // resolution. `localPadiSocket` catches it into the same `unaddressable`
+    // refusal the other edges produce, carrying its own sentence.
+    const primaryStateRoot = namePadiStateRootForDiscovery();
+    const primary = primaryPadiAmong(found, primaryStateRoot);
+    if (primary !== undefined) {
+      return { kind: "primary", socket: primary.socket };
+    }
+    return { kind: "many", candidates: found, primaryStateRoot };
+  }
   return {
     kind: "none",
     socket: padiSocketPath(namePadiStateRootForDiscovery()),
@@ -507,10 +582,20 @@ export function localPadiSocket(target: LocalPadiTarget): LocalPadiSocket {
 
   return (
     match<PadiSocketResolution, LocalPadiSocket>(resolved)
-      .with({ kind: "many" }, ({ candidates }) => ({
+      // Reached only when NONE of the live daemons is this environment's
+      // primary — several padis alone is no longer a refusal. So the sentence
+      // leads with the root that was looked for: the reader's real question is
+      // "why can't you pick?", and "none of these is yours" plus the root is the
+      // whole answer. Each candidate carries the state root it serves, because a
+      // digest-keyed socket path is opaque — a human picking one needs to see
+      // WHICH workspace it belongs to, not sixteen hex characters.
+      .with({ kind: "many" }, ({ candidates, primaryStateRoot }) => ({
         kind: "unaddressable",
-        message: `more than one padi daemon is running on this host — set $PADI_SOCKET or pass --socket to pick one:\n${candidates
-          .map((c) => `  PADI_SOCKET=${c.socket}`)
+        message: `several padi daemons are running on this host and none is keyed to this environment's state root (${primaryStateRoot}) — set $PADI_SOCKET, or pass --socket / --state-root, to pick one:\n${candidates
+          .map(
+            (c) =>
+              `  PADI_SOCKET=${c.socket}    (${c.stateRoot ?? "unknown state-root"})`,
+          )
           .join("\n")}`,
       }))
       .with({ kind: "none" }, () => ({
@@ -518,15 +603,16 @@ export function localPadiSocket(target: LocalPadiTarget): LocalPadiSocket {
         message:
           "no running padi daemon found on this host — start kolu (its padi serves the terminals), or pass --socket / set $PADI_SOCKET.",
       }))
-      // The four arms that NAMED one padi — however it was named (a flag, a
-      // state-root digest, `$PADI_SOCKET`, or the sole discovered daemon). They
-      // are spelled out, not left as a default arm, so the exhaustiveness above
-      // is real.
+      // The five arms that NAMED one padi — however it was named (a flag, a
+      // state-root digest, `$PADI_SOCKET`, the sole discovered daemon, or the
+      // primary among several). They are spelled out, not left as a default arm,
+      // so the exhaustiveness above is real.
       .with(
         { kind: "explicit" },
         { kind: "stateRoot" },
         { kind: "env" },
         { kind: "one" },
+        { kind: "primary" },
         ({ socket }) => ({ kind: "ok", socket }),
       )
       .exhaustive()
