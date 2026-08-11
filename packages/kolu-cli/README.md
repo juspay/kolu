@@ -71,7 +71,7 @@ the production `kolu` wrapper exports exactly that). That one is the **primary**
 and it is what a flag-less client dials. Only when none of the live daemons is
 this environment's does the CLI refuse, naming the root it looked for.
 
-This is what makes `kolu mcp` usable from a **headless** MCP client (#2151): a
+This is what makes `kolu mcp` usable from a **headless** MCP client (#2154): a
 systemd user service has nobody to type an `export`, and it no longer needs to —
 it spawns `kolu mcp` and gets this host's padi. A primary running a build whose
 contract this CLI can't speak is still selected, and the dial then fails with the

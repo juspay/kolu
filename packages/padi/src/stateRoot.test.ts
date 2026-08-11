@@ -177,7 +177,7 @@ describe("namePadiStateRootForDiscovery — dial/error naming (not bind)", () =>
 });
 
 /**
- * The PRIMARY rule (juspay/kolu#2151) — WHICH padi a flag-less client dials when
+ * The PRIMARY rule (juspay/kolu#2154) — WHICH padi a flag-less client dials when
  * several are live. The tie the resolver used to refuse was never a real tie: a
  * dev/e2e padi is keyed to an EXPLICIT state-root, so exactly one of the live
  * daemons is the one this environment names (`namePadiStateRootForDiscovery` —
@@ -194,7 +194,7 @@ describe("namePadiStateRootForDiscovery — dial/error naming (not bind)", () =>
  * dir: no real daemon can name that root, so a real daemon can only ever join
  * the candidate list, never win the primary match nor drop the count below two.
  */
-describe("the primary padi — which one a flag-less client dials among several (#2151)", () => {
+describe("the primary padi — which one a flag-less client dials among several (#2154)", () => {
   const servers: Server[] = [];
   const dirs: string[] = [];
   afterEach(async () => {

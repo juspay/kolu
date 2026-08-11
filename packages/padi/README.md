@@ -85,7 +85,7 @@ The package graduated to a **process**: `package = process = restart-hash`.
   manifest names the state root the client's own environment resolves to
   (`$KOLU_PADI_STATE_DIR`, else the production formula). Extras are keyed to
   explicit roots, so that is a read-back of recorded identity, not a guess
-  between equals (`primaryPadiAmong`, #2151). The state-root is also
+  between equals (`primaryPadiAmong`, #2154). The state-root is also
   padi's **anchor** (#2010): delete it — `git worktree remove` on a dev
   workspace — and the daemon reaps itself (the spine's `anchor-gone` self-exit,
   kaval alike via its manifest) instead of leaking forever, and the kolu-server

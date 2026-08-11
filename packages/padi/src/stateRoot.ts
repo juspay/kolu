@@ -394,7 +394,7 @@ function daemonServesStateRoot(
  * of them does.
  *
  * This exists because "several padis are running" was read as "several ANSWERS",
- * and it never was (juspay/kolu#2151). Multiple daemons on one host is the NORMAL
+ * and it never was (juspay/kolu#2154). Multiple daemons on one host is the NORMAL
  * shape — the production padi plus a dev shell's, plus whatever an e2e run left
  * up — and every one of those extras is keyed to an EXPLICIT `--state-root` /
  * `KOLU_PADI_STATE_DIR`. So at most one live daemon can be the one this
