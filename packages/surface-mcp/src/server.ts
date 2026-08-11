@@ -55,15 +55,18 @@ import {
   type ResourceEntry,
   resolveExpose,
 } from "./expose";
-import { inputSchema, WRAPPED_VALUE_KEY } from "./jsonschema";
+import { inputSchema } from "./jsonschema";
 import { type PusherConnection, ResourcePusher } from "./pusher";
 import {
   type BespokeTool,
+  brand,
   fail,
+  failFrom,
+  messageOf,
   ok,
-  ToolFailure,
   type ToolResult,
 } from "./tools";
+import { unwrapArgs } from "./wrapping";
 
 /** The structural shape of a served-surface client the adapter needs. The
  *  concrete client is what `buildSurfaceFace` mints (`surfaceClientRef`, the
@@ -131,17 +134,6 @@ export interface ServeSurfaceAsMcpOptions<S extends SurfaceSpec> {
 
 const DEFAULT_SERVER_INFO = { name: "surface-mcp", version: "0.1.0" };
 
-/** Put this adapter's name on a message a host will read.
- *
- *  ONE rule, one mechanism: an error raised INSIDE the adapter carries the bare
- *  fact, and the REQUEST EDGE that answers the host brands it — `failFrom` for
- *  `tools/call`, the `resources/read` handler for reads. An edge that composes
- *  its own message (an unknown tool, an unknown URI), and a boot-time throw that
- *  never crosses an edge at all, call this directly. Nothing is prefixed twice,
- *  because nothing is prefixed before the edge — which the born-dead error used
- *  to be, reaching agents as `surface-mcp: surface-mcp: …`. */
-const brand = (message: string): string => `surface-mcp: ${message}`;
-
 /** Build + connect an MCP server that re-exposes `surface`. Returns the
  *  low-level `Server` and a `close()` that stops the pusher and disconnects
  *  the transport. */
@@ -194,9 +186,10 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
 
   const server = new Server(opts.serverInfo ?? DEFAULT_SERVER_INFO, {
     capabilities: { tools: {}, resources: { subscribe: true } },
-    ...(opts.instructions === undefined
-      ? {}
-      : { instructions: opts.instructions }),
+    // Passed bare: the SDK emits `...(this._instructions && { instructions })`,
+    // so an absent option and an omitted key are the same value to it, and a
+    // spread-guard here would only be a second spelling of that.
+    instructions: opts.instructions,
   });
 
   // Normalize whatever `opts.client()` returns into an owned connection. The
@@ -419,7 +412,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
       // fails a request too (`getConn`'s bounded loop) and both must read alike.
       throw linkFailure(
         "the connection to the served surface dropped while this request was in " +
-          `flight (${e instanceof Error ? e.message : String(e)})`,
+          `flight (${messageOf(e)})`,
         "retry, and the next request re-dials",
         e,
       );
@@ -500,39 +493,56 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // `outputSchema` owes that case a home first — a union with the refusal shape,
   // or no structured arm on the error side.
   //
-  // The `mutates → annotations` projection lives HERE, once, so the two tool
-  // sources (procedure-derived + bespoke) can't drift on the mapping or on the
-  // undefined edge case. Each source normalizes its own `mutates` to a concrete
-  // boolean BEFORE calling: procedure tools already carry one (`expose.ts`'s
-  // `?? true`), bespoke tools apply the same conservative `?? true` at the call.
+  // The DESCRIPTOR is written ONCE, below, from one normalized record — the two
+  // tool sources differ only in how they fill that record, so a new descriptor
+  // field is a field, not a second object literal to remember. `mutates` in
+  // particular reaches the host through one `mutates → annotations` projection,
+  // and each source normalizes it to a concrete boolean first: procedure tools
+  // already carry one (`expose.ts`'s `?? true`), bespoke tools apply the same
+  // conservative `?? true` here.
+  //
+  // `title` and `description` are bespoke-only TODAY because `ToolExposure` has
+  // no field for either — a gap in the consumer's authoring map, not in this
+  // projection.
   const toolAnnotations = (mutates: boolean) => ({
     readOnlyHint: !mutates,
     destructiveHint: mutates,
   });
+  /** One tool as the host will read it, before `mutates` becomes annotations.
+   *  MCP's `title` is a display name distinct from `description`: a host renders
+   *  it in a tool list, and without one it renders `name` — the machine
+   *  spelling (`lifecycle_sendInput`) rather than a phrase. */
+  interface AdvertisedTool {
+    name: string;
+    title?: string;
+    description?: string;
+    inputSchema: Record<string, unknown>;
+    mutates: boolean;
+  }
+  const advertised: AdvertisedTool[] = [
+    ...resolved.tools.map((t) => ({
+      name: t.name,
+      inputSchema: t.inputSchema,
+      mutates: t.mutates,
+    })),
+    ...[...bespokeTools].map(([name, { tool, schema }]) => ({
+      name,
+      title: tool.title,
+      description: tool.description,
+      inputSchema: schema,
+      // Conservative default (see `BespokeTool.mutates`): an absent `mutates`
+      // is treated as MUTATING, so an unannotated tool is never advertised as
+      // auto-approvable read-only. A genuinely read-only tool opts in with an
+      // explicit `mutates: false`. Mirrors `expose.ts`'s `?? true` for
+      // procedure tools, so both sources default the same way.
+      mutates: tool.mutates ?? true,
+    })),
+  ];
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-      ...resolved.tools.map((t) => ({
-        name: t.name,
-        inputSchema: t.inputSchema,
-        annotations: toolAnnotations(t.mutates),
-      })),
-      ...[...bespokeTools].map(([name, { tool, schema }]) => ({
-        name,
-        description: tool.description,
-        // MCP's display name, distinct from `description`: a host renders it in
-        // a tool list, and without one it renders `name` — the machine spelling.
-        // Only bespoke tools can have one; a procedure-derived tool's name is
-        // generated (`<ns>_<verb>`) and there is no second string to draw from.
-        title: tool.title,
-        inputSchema: schema,
-        // Conservative default (see `BespokeTool.mutates`): an absent `mutates`
-        // is treated as MUTATING, so an unannotated tool is never advertised as
-        // auto-approvable read-only. A genuinely read-only tool opts in with an
-        // explicit `mutates: false`. Mirrors `expose.ts`'s `?? true` for
-        // procedure tools, so both sources default the same way.
-        annotations: toolAnnotations(tool.mutates ?? true),
-      })),
-    ],
+    tools: advertised.map(({ mutates, ...rest }) => ({
+      ...rest,
+      annotations: toolAnnotations(mutates),
+    })),
   }));
 
   // ── tools/call ───────────────────────────────────────────────────────--
@@ -648,8 +658,11 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
         extra.signal,
       ),
     ).catch((e: unknown): never => {
-      const message = e instanceof Error ? e.message : String(e);
-      throw new Error(brand(message), { cause: e });
+      // `messageOf`, the SAME derivation `failFrom` uses on the tools/call side
+      // — which is what makes the comment above a mirror rather than a claim.
+      // Spelled inline, a `Schema.TaggedError` procedure failure (empty
+      // `message`, identity in `_tag`) reached the host as the bare brand.
+      throw new Error(brand(messageOf(e)), { cause: e });
     });
     if (isMiss(result)) {
       // A not-yet-present collection key is a well-formed but empty resource, NOT
@@ -1057,14 +1070,6 @@ function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
   );
 }
 
-/** Undo the `enforceObject` wrapping before handing args to a procedure/tool's
- *  schema. A non-object input (scalar/array/union) is advertised wrapped under a
- *  single `value` property; `wrapped` is the bit `inputSchema` reports for that
- *  case. The one place this rule lives, called by both dispatch branches. */
-function unwrapArgs(wrapped: boolean, args: Record<string, unknown>): unknown {
-  return wrapped ? args[WRAPPED_VALUE_KEY] : args;
-}
-
 /** EVERY failure this adapter reports for a LINK problem, framed for a host
  *  standing on its own stdio channel. The policy, in one place:
  *
@@ -1091,66 +1096,4 @@ function linkFailure(what: string, retry: string, cause?: unknown): Error {
       `connection — ${retry}.`,
     cause === undefined ? undefined : { cause },
   );
-}
-
-/** Coerce an unknown thrown value into a failed `ToolResult` — the `tools/call`
- *  edge's branding (see {@link brand}).
- *
- *  A {@link ToolFailure} is the ONE failure that carries data through: the
- *  raiser said, by choosing that type, both what the model should read and what
- *  the caller should act on. Nothing else is structured, and that is deliberate
- *  — see `ToolFailure`'s own doc for why guessing from an error's own properties
- *  is worse than saying nothing.
- *
- *  Effect's `runPromise` rejects with the DECLARED failure value itself (not a
- *  wrapper), so a handler's domain error arrives here intact — which is what
- *  makes both this discrimination and {@link messageOf} possible at all. */
-function failFrom(e: unknown): ToolResult {
-  // `messageOf` on BOTH arms, so the detail decides only whether there IS a
-  // structured arm — never how the prose is derived. A `ToolFailure` carries its
-  // own message and takes the first branch of `messageOf` unchanged; routing it
-  // through anyway is what stops one built with an empty message from reaching
-  // the host as the bare brand, which is the very regression below.
-  const message = brand(messageOf(e));
-  return e instanceof ToolFailure ? fail(message, e.detail) : fail(message);
-}
-
-/** The best sentence an arbitrary failure value has in it.
- *
- *  `e instanceof Error ? e.message : String(e)` was ALMOST right and wrong for
- *  the two shapes Effect actually delivers here:
- *
- *    - a `Data.TaggedError` is an `Error` whose `message` is `""` — its identity
- *      lives in `_tag` — so it reached agents as the bare brand, `surface-mcp: `;
- *    - a failure declared as a plain object is not an `Error` at all, and
- *      `String(e)` renders it `[object Object]`.
- *
- *  Both are exactly the failures worth reading, so each falls back to the next
- *  most specific thing the value KNOWS about itself — never to a placeholder. */
-function messageOf(e: unknown): string {
-  if (e instanceof Error) {
-    if (e.message !== "") return e.message;
-    const tag = (e as { _tag?: unknown })._tag;
-    return typeof tag === "string" && tag !== "" ? tag : e.name;
-  }
-  if (typeof e === "object" && e !== null) {
-    // A cycle is the one thing `JSON.stringify` refuses. `String(e)` is NOT the
-    // answer there — it is the `[object Object]` this function exists to stop —
-    // so name the value the way a value can always be named: its constructor and
-    // the fields it actually has.
-    try {
-      return JSON.stringify(e) ?? describeObject(e);
-    } catch {
-      return describeObject(e);
-    }
-  }
-  return String(e);
-}
-
-/** Name an object JSON cannot render (a cycle): its constructor and its own
- *  keys. Never `[object Object]` — the point is that the host learns WHAT
- *  failed even when it cannot learn the whole value. */
-function describeObject(e: object): string {
-  const name = e.constructor?.name ?? "Object";
-  return `${name} { ${Object.keys(e).join(", ")} }`;
 }

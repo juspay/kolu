@@ -1317,6 +1317,46 @@ describe("serveSurfaceAsMcp — the structured arm", () => {
     );
   });
 
+  it("resources/read derives its sentence the SAME way — its own comment calls it the mirror of failFrom", async () => {
+    // The `tagged` case above, on the OTHER request edge. `@kolu/surface`'s
+    // whole declared-error vocabulary is `Schema.TaggedError`s, so a read that
+    // hits one is the everyday case here, not an exotic one — and while that
+    // edge spelled `e instanceof Error ? e.message : String(e)` inline it
+    // delivered the bare brand, `surface-mcp: `, to the agent.
+    const surface = defineSurface({
+      cells: { count: { schema: Schema.Finite, default: 0 } },
+    });
+    const brokenRead = {
+      surface: {
+        count: {
+          get: () =>
+            Stream.fail(
+              Object.assign(new Error(""), { _tag: "OutlineBroken" as const }),
+            ),
+        },
+      },
+    };
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface,
+      client: () => brokenRead as unknown as SurfaceClientCallable,
+      expose: { count: "resource" },
+      serverInfo: { name: "read-tagged-test", version: "0.0.0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    await expect(mcp.readResource({ uri: cellUri("count") })).rejects.toThrow(
+      /surface-mcp: OutlineBroken/,
+    );
+  });
+
   it("a non-Error failure value is described, not stringified to [object Object]", async () => {
     const over = buildSurface();
     const { mcp, served } = await connect(over);
@@ -1367,6 +1407,137 @@ describe("serveSurfaceAsMcp — the structured arm", () => {
     expect(byName.get("explode")?.title).toBeUndefined();
     // A procedure-derived tool has no second string to draw a title from.
     expect(byName.get("counter_bump")?.title).toBeUndefined();
+  });
+
+  it("a REFUSAL's detail is normalized exactly like a success — one wire form, both arms", async () => {
+    // Measured before the fix, over this same in-memory client:
+    //   - a detail whose JSON form is NOT an object reached the wire as
+    //     `"structuredContent": 42` — MCP types that field as an object, and
+    //     the success arm's `wrapValue` had guarded it for years;
+    //   - a detail JSON cannot render at all (a cycle) threw inside the
+    //     TRANSPORT's serializer, past every catch, so the request was never
+    //     answered at all.
+    // Both arms now read `wireForm` + `wrapValue`, so a refusal cannot publish a
+    // shape the success arm would have refused.
+    const surface = defineSurface({
+      cells: { count: { schema: Schema.Finite, default: 0 } },
+    });
+    const cyclicDetail: Record<string, unknown> = { kind: "cyclic" };
+    cyclicDetail.self = cyclicDetail;
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface,
+      client: () => ({ surface: {} }) as SurfaceClientCallable,
+      expose: {},
+      tools: {
+        dateDetail: {
+          handler: () =>
+            Effect.fail(
+              new ToolFailure("refused, with a Date in the detail", {
+                at: new Date("2026-08-11T00:00:00.000Z"),
+              }),
+            ),
+        },
+        scalarDetail: {
+          handler: () =>
+            Effect.fail(
+              new ToolFailure("refused, with a detail JSON turns into 42", {
+                toJSON: () => 42,
+              } as unknown as Record<string, unknown>),
+            ),
+        },
+        cyclicDetail: {
+          handler: () =>
+            Effect.fail(new ToolFailure("refused, with a cycle", cyclicDetail)),
+        },
+      },
+      serverInfo: { name: "refusal-shape-test", version: "0.0.0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // A live Date in a detail is an object in memory and a string on the wire —
+    // the same disagreement the success arm was fixed for.
+    const dated = await mcp.callTool({ name: "dateDetail", arguments: {} });
+    expect(dated.isError).toBe(true);
+    expect(dated.structuredContent).toEqual({
+      at: "2026-08-11T00:00:00.000Z",
+    });
+
+    // A detail JSON renders as a non-object rides under `value`, like any other
+    // non-object structured answer.
+    const scalar = await mcp.callTool({ name: "scalarDetail", arguments: {} });
+    expect(scalar.isError).toBe(true);
+    expect(scalar.structuredContent).toEqual({ value: 42 });
+
+    // A detail JSON cannot render is a LOUD failure of the call, not a silently
+    // unanswered request: the throw now happens in front of the SDK's
+    // request-handler boundary, which answers it.
+    await expect(
+      mcp.callTool({ name: "cyclicDetail", arguments: {} }),
+    ).rejects.toThrow(/[Cc]ircular/);
+  });
+
+  it("the two edges wrap by DIFFERENT predicates, and a union input shows it", async () => {
+    // The rule is one KEY, not one predicate, and the difference is observable —
+    // pinned so the next reader meets it as a decision rather than a surprise.
+    // The INPUT side decides from the declared schema: a union has no top-level
+    // `type`, so it is advertised WRAPPED. The RESULT side decides from the
+    // value on the wire, and there is no `outputSchema` to read a bit off — so
+    // the same value answers BARE.
+    const surface = defineSurface({
+      cells: { count: { schema: Schema.Finite, default: 0 } },
+    });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface,
+      client: () => ({ surface: {} }) as SurfaceClientCallable,
+      expose: {},
+      tools: {
+        echoUnion: {
+          input: Schema.Union([
+            Schema.Struct({ a: Schema.Finite }),
+            Schema.String,
+          ]),
+          handler: (args) => Effect.succeed(args),
+        },
+      },
+      serverInfo: { name: "union-wrap-test", version: "0.0.0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const { tools } = await mcp.listTools();
+    const echo = tools.find((t) => t.name === "echoUnion");
+    // Advertised wrapped — the host must send `{ value: … }`.
+    expect(Object.keys(echo?.inputSchema.properties ?? {})).toEqual(["value"]);
+
+    // …and the identical object answers BARE.
+    const res = await mcp.callTool({
+      name: "echoUnion",
+      arguments: { value: { a: 1 } },
+    });
+    expect(res.structuredContent).toEqual({ a: 1 });
+
+    // They agree for every scalar, array and null — only the object-valued
+    // union diverges.
+    const scalar = await mcp.callTool({
+      name: "echoUnion",
+      arguments: { value: "hi" },
+    });
+    expect(scalar.structuredContent).toEqual({ value: "hi" });
   });
 
   it("no tool advertises an outputSchema — the invariant the refusal arm depends on", async () => {

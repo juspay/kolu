@@ -64,6 +64,7 @@
 
 import type { WireSchemaAny } from "@kolu/surface/define";
 import { Schema } from "effect";
+import { wrapSchema } from "./wrapping";
 
 /** A JSON-Schema document or sub-schema. We walk it structurally rather than
  *  typing every keyword, so `unknown`-valued records are the working shape. */
@@ -279,19 +280,11 @@ function pruneRequired(node: JsonSchema): JsonSchema {
   return node;
 }
 
-/** The single property a non-object value travels under when MCP demands an
- *  object. ONE constant because it is one rule spanning three places that must
- *  agree: {@link enforceObject} advertises the input that way, `server.ts`'s
- *  `unwrapArgs` reads the argument back out of it, and `tools.ts`'s
- *  `asStructured` wraps a non-object RESULT the same way. Spelled apart, a
- *  rename would silently desync the advertisement from the read. */
-export const WRAPPED_VALUE_KEY = "value";
-
 /** Ensure the top-level schema is an object — MCP tool inputs must be. A
  *  scalar/array/union input (`Schema.String`, `Schema.Array(...)`) is wrapped
- *  under a single {@link WRAPPED_VALUE_KEY} property so the tool still presents
- *  an object to the host; the dispatch layer unwraps it (signalled by
- *  `wrapped: true`). */
+ *  under a single property so the tool still presents an object to the host;
+ *  the dispatch layer unwraps it (signalled by `wrapped: true`). The wrapping
+ *  itself is `wrapping.ts`'s — this module decides WHETHER, not HOW. */
 function enforceObject(schema: JsonSchema): {
   schema: JsonSchema;
   wrapped: boolean;
@@ -301,12 +294,5 @@ function enforceObject(schema: JsonSchema): {
   // is most useful as "accept any object" rather than a wrapped scalar.
   if (Object.keys(schema).length === 0)
     return { schema: emptyObjectSchema(), wrapped: false };
-  return {
-    schema: {
-      type: "object",
-      properties: { [WRAPPED_VALUE_KEY]: schema },
-      required: [WRAPPED_VALUE_KEY],
-    },
-    wrapped: true,
-  };
+  return { schema: wrapSchema(schema), wrapped: true };
 }

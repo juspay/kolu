@@ -76,8 +76,10 @@ throw new ToolFailure(
 );
 ```
 
-The agent receives an `isError` result whose `structuredContent` is that object,
-so a driver branches on `kind` instead of matching English. Any other failure
+The agent receives an `isError` result whose `structuredContent` is that object —
+through the same JSON round-trip a success takes, so a refusal cannot publish a
+shape a success would have been refused for — and a driver branches on `kind`
+instead of matching English. Any other failure
 comes back as its message alone — structure is something you declare, never
 something the adapter guesses from an error's fields.
 
