@@ -44,6 +44,7 @@
  *     framework-owns-the-exit rule for stdio agents.
  */
 
+import { writeSync } from "node:fs";
 import { type KoluMcpConnection, serveKoluMcp } from "kolu-mcp";
 // The ONE version accessor — `kolu mcp`'s serverInfo can never diverge from
 // what `kolu --version` reports (same leaf import the parse uses).
@@ -58,16 +59,28 @@ import type { Endpoint } from "./endpoint.ts";
 import { CliFailure } from "./exit.ts";
 import { connectKoluCliViaHost } from "./hostConnect.ts";
 
+/** Exact stderr line both exit paths write — one prefix so open (`CliFailure`)
+ *  and mid-session (`exitMcpLoud`) cannot drift. */
+const mcpFaceLine = (message: string): string => `kolu mcp: ${message}\n`;
+
 /** The MCP face's one-line diagnostic + exit-1 value — same shape verbs use,
  *  with the face-prefixed line spawn-and-check consumers already see. */
 const mcpFaceFailure = (message: string): CliFailure =>
-  new CliFailure({ stderr: `kolu mcp: ${message}\n`, code: 1 });
+  new CliFailure({ stderr: mcpFaceLine(message), code: 1 });
 
 /** Mid-session only: kill the process from the Promise connect factory, where
  *  a `CliFailure` cannot reach `runMain`. Open-time failures use
- *  {@link mcpFaceFailure} on the Effect error channel instead. */
+ *  {@link mcpFaceFailure} on the Effect error channel instead.
+ *
+ *  `writeSync` + try/catch so a broken-pipe stderr (common under an MCP host)
+ *  cannot skip `process.exit` and leave a skewed face alive, and so the line
+ *  is flushed before the process tears down (async `stderr.write` is not). */
 function exitMcpLoud(message: string): never {
-  process.stderr.write(`kolu mcp: ${message}\n`);
+  try {
+    writeSync(process.stderr.fd, mcpFaceLine(message));
+  } catch {
+    // diagnostic best-effort — exit is load-bearing
+  }
   process.exit(1);
 }
 
