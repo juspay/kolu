@@ -55,6 +55,7 @@ export type ScreenTextArgs = typeof ScreenTextArgsSchema.Type;
 export const screenTextTool: BespokeTool = {
   input: ScreenTextArgsSchema,
   mutates: false,
+  title: "Read a terminal's screen",
   description:
     "A terminal's rendered screen + scrollback as plain text — the snapshot face. Pass tail: N to read only the last N lines (the cheap settle-check read).",
   // No `signal`: a surface procedure ref carries no cancellation handle any

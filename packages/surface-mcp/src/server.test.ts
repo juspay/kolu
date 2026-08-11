@@ -5,8 +5,10 @@
  * curation gate is **default-deny**.
  *
  * The surface has a `count` cell, a `ticks` stream, and two procedures: a
- * safe `bump` (exposed as a tool) and a DANGEROUS `nuke` (NOT exposed). We
- * also register one bespoke tool (`greet`). Then assert:
+ * safe `bump` (exposed as a tool) and a DANGEROUS `nuke` (NOT exposed). Beside
+ * them ride the bespoke tools — `greet` and one per failure/result shape the
+ * result framing has to answer for (see "the structured arm" below). Then
+ * assert:
  *
  *   - tools/list shows only `counter_bump` + `greet`, and NOT `admin_nuke`;
  *   - tools/call on the exposed procedure mutates the cell;
@@ -39,6 +41,7 @@ import {
   type SurfaceClientCallable,
   serveSurfaceAsMcp,
 } from "./server";
+import { ToolFailure } from "./tools";
 
 /** The in-process client every case here drives the adapter with: the SAME
  *  nested member face a wire link mints (`buildSurfaceFace`), over the no-wire
@@ -136,6 +139,7 @@ async function connect(over: ReturnType<typeof buildSurface>) {
       greet: {
         input: Schema.Struct({ name: Schema.String }),
         description: "Say hello.",
+        title: "Greet somebody",
         handler: (args) =>
           Effect.sync(() => {
             const { name } = args as { name: string };
@@ -146,8 +150,39 @@ async function connect(over: ReturnType<typeof buildSurface>) {
         description: "Always fails — pins the isError framing.",
         handler: () => Effect.fail(new Error("boom: the handler rejected")),
       },
+      // The four failure/result SHAPES the structured arm has to answer for.
+      refuse: {
+        description: "Refuses with machine-readable detail.",
+        handler: () =>
+          Effect.fail(
+            new ToolFailure("`refuse` was refused (validation): 2 bad rows", {
+              kind: "validation",
+              rows: [3, 7],
+            }),
+          ),
+      },
+      tagged: {
+        description: "Fails with a tagged, message-less error.",
+        // The shape `Data.TaggedError` has: an `Error` whose identity is `_tag`
+        // and whose `message` is empty. Hand-built rather than imported so the
+        // test pins the SHAPE, not Effect's spelling of it.
+        handler: () =>
+          Effect.fail(
+            Object.assign(new Error(""), { _tag: "OutlineBroken" as const }),
+          ),
+      },
+      plainObject: {
+        description: "Fails with a non-Error value.",
+        handler: () => Effect.fail({ code: 17, why: "not an Error at all" }),
+      },
+      scalarResult: {
+        description: "Succeeds with a bare number.",
+        handler: () => Effect.succeed(42),
+      },
     },
     serverInfo: { name: "test-surface", version: "0.0.0" },
+    instructions:
+      "Everything here is about the counter, not about files. Bump it, don't nuke it.",
     transport: serverTransport,
   });
 
@@ -179,7 +214,15 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     expect(names).toContain("greet");
     // The dangerous procedure is NOT a tool — default-deny proven.
     expect(names).not.toContain("admin_nuke");
-    expect(names).toEqual(["counter_bump", "explode", "greet"]);
+    expect(names).toEqual([
+      "counter_bump",
+      "explode",
+      "greet",
+      "plainObject",
+      "refuse",
+      "scalarResult",
+      "tagged",
+    ]);
   });
 
   it("a REJECTING handler returns an isError tool result, never a protocol error", async () => {
@@ -1133,5 +1176,184 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     // (The shared `cleanup` closes both ends; `close()` above is this test's
     // ACTION, and re-running it there is inert.)
     expect(disposes).toBe(1);
+  });
+});
+
+/**
+ * The structured arm — MCP's `structuredContent`, on both the answer and the
+ * refusal, plus the two server-level fields a host reads before it calls
+ * anything (`instructions`, a tool's `title`).
+ *
+ * The contract these pin: an agent reads `structuredContent` and never has to
+ * parse the prose — INCLUDING when the answer is "no". That is the half MCP's
+ * spec has had since 2025-06-18 and this adapter used to drop on the floor,
+ * stringifying an object it already held.
+ */
+describe("serveSurfaceAsMcp — the structured arm", () => {
+  it("a successful object answer travels as data as well as prose", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({
+      name: "greet",
+      arguments: { name: "ada" },
+    });
+
+    expect(res.structuredContent).toEqual({ hello: "ada" });
+    // The SAME value twice — the text arm is not a different answer.
+    const text = (res.content as { text: string }[])[0]?.text ?? "null";
+    expect(JSON.parse(text)).toEqual(res.structuredContent);
+  });
+
+  it("a non-object answer rides under `value` — the wrapping the INPUT side already uses", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // A bespoke scalar, and a procedure whose output schema is a bare number:
+    // both are non-objects, and MCP types `structuredContent` as an object, so
+    // both wrap. An agent that learned `{ value: … }` for a scalar ARGUMENT
+    // meets the identical shape coming back.
+    const scalar = await mcp.callTool({ name: "scalarResult", arguments: {} });
+    expect(scalar.structuredContent).toEqual({ value: 42 });
+
+    const bumped = await mcp.callTool({ name: "counter_bump", arguments: {} });
+    expect(bumped.structuredContent).toEqual({ value: 1 });
+  });
+
+  it("a ToolFailure refusal is isError AND carries its detail", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({ name: "refuse", arguments: {} });
+
+    // A refusal is an ANSWER: an `isError` tool result, never a protocol error
+    // (the SDK client would throw), and its reason arrives as data.
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({ kind: "validation", rows: [3, 7] });
+    // The prose still reads as prose, and still carries this adapter's brand.
+    expect((res.content as { text: string }[])[0]?.text).toBe(
+      "surface-mcp: `refuse` was refused (validation): 2 bad rows",
+    );
+  });
+
+  it("an ordinary Error stays message-only — structure is opt-in, never guessed", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({ name: "explode", arguments: {} });
+
+    expect(res.isError).toBe(true);
+    // Structuring whatever an error happens to hold would publish a stack trace
+    // into the agent's data channel and dress an incidental TypeError up as a
+    // contract. Absent, not empty: a host can tell "no detail" from "{}".
+    expect(res.structuredContent).toBeUndefined();
+    expect((res.content as { text: string }[])[0]?.text).toContain(
+      "boom: the handler rejected",
+    );
+  });
+
+  it("a tagged, message-less failure reaches the agent as its tag, not as a bare brand", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({ name: "tagged", arguments: {} });
+
+    // Regression pin: `e instanceof Error ? e.message : String(e)` rendered
+    // every `Data.TaggedError` — an Error whose identity is `_tag` and whose
+    // message is "" — as the brand and nothing else: `surface-mcp: `.
+    expect(res.isError).toBe(true);
+    expect((res.content as { text: string }[])[0]?.text).toBe(
+      "surface-mcp: OutlineBroken",
+    );
+  });
+
+  it("a non-Error failure value is described, not stringified to [object Object]", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({ name: "plainObject", arguments: {} });
+
+    expect(res.isError).toBe(true);
+    const text = (res.content as { text: string }[])[0]?.text ?? "";
+    expect(text).not.toContain("[object Object]");
+    expect(text).toContain('"why":"not an Error at all"');
+    // Still message-only: a plain object is a failure whose author did not say
+    // it was machine-readable, and this adapter does not decide that for them.
+    expect(res.structuredContent).toBeUndefined();
+  });
+
+  it("serves the host its `instructions` at initialize", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // `initialize` is answered inside the SDK's own `Protocol`, so a consumer
+    // cannot re-register it — the option is the only route to this field.
+    expect(mcp.getInstructions()).toBe(
+      "Everything here is about the counter, not about files. Bump it, don't nuke it.",
+    );
+  });
+
+  it("a bespoke tool's `title` reaches tools/list, and an untitled one has none", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const { tools } = await mcp.listTools();
+    const byName = new Map(tools.map((t) => [t.name, t]));
+
+    expect(byName.get("greet")?.title).toBe("Greet somebody");
+    // Absent when undeclared — a host then renders `name`, which is honest.
+    expect(byName.get("explode")?.title).toBeUndefined();
+    // A procedure-derived tool has no second string to draw a title from.
+    expect(byName.get("counter_bump")?.title).toBeUndefined();
+  });
+
+  it("no tool advertises an outputSchema — the invariant the refusal arm depends on", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // The SDK's client validates `structuredContent` against a declared
+    // `outputSchema` whenever the field is present — INCLUDING on an isError
+    // result. A refusal's detail is a different shape from the success it
+    // refused, so declaring a success schema would make every structured
+    // refusal throw inside the client instead of reaching the agent. If this
+    // ever fails, `ToolFailure`'s detail needs a home in that schema FIRST.
+    const { tools } = await mcp.listTools();
+    expect(tools.filter((t) => t.outputSchema !== undefined)).toEqual([]);
   });
 });

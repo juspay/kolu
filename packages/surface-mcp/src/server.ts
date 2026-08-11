@@ -55,9 +55,15 @@ import {
   type ResourceEntry,
   resolveExpose,
 } from "./expose";
-import { inputSchema } from "./jsonschema";
+import { inputSchema, WRAPPED_VALUE_KEY } from "./jsonschema";
 import { type PusherConnection, ResourcePusher } from "./pusher";
-import { type BespokeTool, fail, ok, type ToolResult } from "./tools";
+import {
+  type BespokeTool,
+  fail,
+  ok,
+  ToolFailure,
+  type ToolResult,
+} from "./tools";
 
 /** The structural shape of a served-surface client the adapter needs. The
  *  concrete client is what `buildSurfaceFace` mints (`surfaceClientRef`, the
@@ -109,6 +115,14 @@ export interface ServeSurfaceAsMcpOptions<S extends SurfaceSpec> {
   /** Hand-authored, call-shaped MCP tools composing over the live client. */
   tools?: Record<string, BespokeTool>;
   serverInfo?: { name: string; version: string };
+  /** The server's own `instructions`, answered to a host at `initialize` — where
+   *  an embedding app teaches an agent the domain the surface is about ("a node
+   *  is the smallest thing you can name here; there is no file access"). It is
+   *  passed to the SDK's `Server`, which serves `initialize` inside its own
+   *  `Protocol`: a consumer cannot re-register that method, so this option is
+   *  the ONLY way the field is reachable. Omitted when absent — an empty string
+   *  is instructions that say nothing, which is not the same as none. */
+  instructions?: string;
   /** Transport to connect. Defaults to a `StdioServerTransport`; injectable
    *  for tests (an `InMemoryTransport` half). */
   transport?: Transport;
@@ -179,6 +193,9 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
 
   const server = new Server(opts.serverInfo ?? DEFAULT_SERVER_INFO, {
     capabilities: { tools: {}, resources: { subscribe: true } },
+    ...(opts.instructions === undefined
+      ? {}
+      : { instructions: opts.instructions }),
   });
 
   // Normalize whatever `opts.client()` returns into an owned connection. The
@@ -471,6 +488,17 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // mutating one (`destructiveHint`). Without these the `mutates` flag the API
   // and docs promise never reaches the host.
   //
+  // NO `outputSchema` is advertised, and adding one is not the free win it
+  // looks like. The SDK's client validates `structuredContent` against a
+  // declared `outputSchema` whenever the field is PRESENT — including on an
+  // `isError` result, despite the comment beside that code claiming otherwise
+  // (`client/index.js`: the validate branch sits outside the `isError` guard).
+  // A refusal's `ToolFailure.detail` is a different shape from the success it
+  // refused, so declaring a success schema would make every structured refusal
+  // throw inside the client's SDK instead of reaching the agent. Whoever adds
+  // `outputSchema` owes that case a home first — a union with the refusal shape,
+  // or no structured arm on the error side.
+  //
   // The `mutates → annotations` projection lives HERE, once, so the two tool
   // sources (procedure-derived + bespoke) can't drift on the mapping or on the
   // undefined edge case. Each source normalizes its own `mutates` to a concrete
@@ -490,6 +518,11 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
       ...[...bespokeTools].map(([name, { tool, schema }]) => ({
         name,
         description: tool.description,
+        // MCP's display name, distinct from `description`: a host renders it in
+        // a tool list, and without one it renders `name` — the machine spelling.
+        // Only bespoke tools can have one; a procedure-derived tool's name is
+        // generated (`<ns>_<verb>`) and there is no second string to draw from.
+        title: tool.title,
         inputSchema: schema,
         // Conservative default (see `BespokeTool.mutates`): an absent `mutates`
         // is treated as MUTATING, so an unannotated tool is never advertised as
@@ -1028,7 +1061,7 @@ function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
  *  single `value` property; `wrapped` is the bit `inputSchema` reports for that
  *  case. The one place this rule lives, called by both dispatch branches. */
 function unwrapArgs(wrapped: boolean, args: Record<string, unknown>): unknown {
-  return wrapped ? args.value : args;
+  return wrapped ? args[WRAPPED_VALUE_KEY] : args;
 }
 
 /** EVERY failure this adapter reports for a LINK problem, framed for a host
@@ -1060,7 +1093,49 @@ function linkFailure(what: string, retry: string, cause?: unknown): Error {
 }
 
 /** Coerce an unknown thrown value into a failed `ToolResult` — the `tools/call`
- *  edge's branding (see {@link brand}). */
+ *  edge's branding (see {@link brand}).
+ *
+ *  A {@link ToolFailure} is the ONE failure that carries data through: the
+ *  raiser said, by choosing that type, both what the model should read and what
+ *  the caller should act on. Nothing else is structured, and that is deliberate
+ *  — see `ToolFailure`'s own doc for why guessing from an error's own properties
+ *  is worse than saying nothing.
+ *
+ *  Effect's `runPromise` rejects with the DECLARED failure value itself (not a
+ *  wrapper), so a handler's domain error arrives here intact — which is what
+ *  makes both this discrimination and {@link messageOf} possible at all. */
 function failFrom(e: unknown): ToolResult {
-  return fail(brand(e instanceof Error ? e.message : String(e)));
+  return e instanceof ToolFailure
+    ? fail(brand(e.message), e.detail)
+    : fail(brand(messageOf(e)));
+}
+
+/** The best sentence an arbitrary failure value has in it.
+ *
+ *  `e instanceof Error ? e.message : String(e)` was ALMOST right and wrong for
+ *  the two shapes Effect actually delivers here:
+ *
+ *    - a `Data.TaggedError` is an `Error` whose `message` is `""` — its identity
+ *      lives in `_tag` — so it reached agents as the bare brand, `surface-mcp: `;
+ *    - a failure declared as a plain object is not an `Error` at all, and
+ *      `String(e)` renders it `[object Object]`.
+ *
+ *  Both are exactly the failures worth reading, so each falls back to the next
+ *  most specific thing the value KNOWS about itself — never to a placeholder. */
+function messageOf(e: unknown): string {
+  if (e instanceof Error) {
+    if (e.message !== "") return e.message;
+    const tag = (e as { _tag?: unknown })._tag;
+    return typeof tag === "string" && tag !== "" ? tag : e.name;
+  }
+  if (typeof e === "object" && e !== null) {
+    // A cycle is the one thing `JSON.stringify` refuses; `String(e)` is then the
+    // only description left, and losing the reason entirely would be worse.
+    try {
+      return JSON.stringify(e) ?? String(e);
+    } catch {
+      return String(e);
+    }
+  }
+  return String(e);
 }

@@ -23,6 +23,17 @@ default-deny with named, tested denials:
   chords — because submit is its OWN Enter after an observed settle, never
   text+newline fused) · `watch_open`/`watch_close`.
 
+**A refusal is data, not a sentence to parse.** `lifecycle_sendInput` refuses
+four things on purpose, and a driver recovers from each differently — so each
+one names itself in the result's `structuredContent`: `text-and-key` (re-send as
+two calls), `key-refused` (carrying the spelling that was rejected),
+`text-refused` and `no-input` (the driver's own prompt template rendered
+nothing — precisely what a 0-byte "sent" used to hide). The kinds name the
+BRANCH rather than `@kolu/terminal-protocol`'s internal reason, which the
+unchanged sentence beside them still carries. They ride
+[`@kolu/surface-mcp`](../surface-mcp/README.md)'s `ToolFailure`, the one failure
+the adapter carries detail through.
+
 Both waits take the two kolu#2139 modifiers, because the races they close are
 races **between calls** and an agent driving over MCP makes exactly the same
 three-call loop a CLI one does: `settledMs` is a CONJUNCT (the met needs the

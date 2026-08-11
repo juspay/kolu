@@ -153,6 +153,7 @@ export type WaitOutputSettledArgs = typeof WaitOutputSettledArgsSchema.Type;
 export const waitOutputSettledTool: BespokeTool = {
   input: WaitOutputSettledArgsSchema,
   mutates: false,
+  title: "Wait for a terminal to go quiet",
   description:
     'Block until a terminal\'s output has been idle for idleMs milliseconds — the agent-agnostic done-signal (the dispatch loop\'s "observe the TUI settle" step). Pass screenTail: N to also get the last N screen lines, read inside the same wait, instead of a follow-up screen_text the terminal can move under. Returns {result: "met", met: {fired, elapsedMs, screen?}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
   // The one bespoke tool that does NOT compose a surface member: padi's
@@ -203,6 +204,7 @@ export type WaitAgentStateArgs = typeof WaitAgentStateArgsSchema.Type;
 export const waitAgentStateTool: BespokeTool = {
   input: WaitAgentStateArgsSchema,
   mutates: false,
+  title: "Wait for a terminal's agent state",
   // The recommended combination is named in the description rather than shipped
   // as a third `wait_debrief` tool: over MCP it is three JSON keys, so a
   // composed tool would buy no ergonomics an agent can feel while costing a

@@ -279,10 +279,19 @@ function pruneRequired(node: JsonSchema): JsonSchema {
   return node;
 }
 
+/** The single property a non-object value travels under when MCP demands an
+ *  object. ONE constant because it is one rule spanning three places that must
+ *  agree: {@link enforceObject} advertises the input that way, `server.ts`'s
+ *  `unwrapArgs` reads the argument back out of it, and `tools.ts`'s
+ *  `asStructured` wraps a non-object RESULT the same way. Spelled apart, a
+ *  rename would silently desync the advertisement from the read. */
+export const WRAPPED_VALUE_KEY = "value";
+
 /** Ensure the top-level schema is an object — MCP tool inputs must be. A
  *  scalar/array/union input (`Schema.String`, `Schema.Array(...)`) is wrapped
- *  under a single `value` property so the tool still presents an object to the
- *  host; the dispatch layer unwraps it (signalled by `wrapped: true`). */
+ *  under a single {@link WRAPPED_VALUE_KEY} property so the tool still presents
+ *  an object to the host; the dispatch layer unwraps it (signalled by
+ *  `wrapped: true`). */
 function enforceObject(schema: JsonSchema): {
   schema: JsonSchema;
   wrapped: boolean;
@@ -295,8 +304,8 @@ function enforceObject(schema: JsonSchema): {
   return {
     schema: {
       type: "object",
-      properties: { value: schema },
-      required: ["value"],
+      properties: { [WRAPPED_VALUE_KEY]: schema },
+      required: [WRAPPED_VALUE_KEY],
     },
     wrapped: true,
   };
