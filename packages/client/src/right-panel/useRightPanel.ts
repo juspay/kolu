@@ -369,21 +369,6 @@ export function useRightPanel() {
      *  selection as "local" while Inspector is active and trigger a
      *  spurious reset on the round-trip back. */
     codeMode: (): CodeTabView => activeState().codeMode,
-    /** The EFFECTIVE Code-tab view: the persisted mode inside a git repo,
-     *  coerced to `browse` outside one — the diff views are meaningless with
-     *  nothing to diff against.
-     *
-     *  Here, beside the mode it coerces, because the coercion is deliberately
-     *  NOT a write: pushing it through `setCodeMode` would clobber the mode the
-     *  user picked for the next repo this terminal enters. That makes the
-     *  coerced value a DERIVATION, and a derivation every reader must apply has
-     *  exactly one honest home — the module that owns the value. Spelled in
-     *  `CodeTab` alone, it had to be re-assumed in `hostCodeTab` (once as a
-     *  hardcoded `"browse"` selection slot, once as an absent view gate excused
-     *  by a comment), so the two modules disagreed about the effective view by
-     *  construction. */
-    effectiveCodeMode: (hasGit: boolean): CodeTabView =>
-      hasGit ? activeState().codeMode : "browse",
     /** Switch to Inspector. `codeMode` is preserved so toggling back to Code
      *  restores the user's last sub-mode. */
     showInspector: () => mutateActive({ activeTab: "inspector" }),

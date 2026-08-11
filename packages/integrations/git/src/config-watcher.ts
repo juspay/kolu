@@ -12,10 +12,10 @@
  * watcher, exactly like `watchGitHead`.
  */
 
-import { createDirWatcher } from "kolu-io";
+import { createDirFilenameWatcher } from "kolu-io";
 import { resolveGitCommonDir, WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 
-const configWatcher = createDirWatcher({
+const configWatcher = createDirFilenameWatcher({
   resolveDir: resolveGitCommonDir,
   filename: "config",
   debounceMs: WATCHER_DEBOUNCE_MS,

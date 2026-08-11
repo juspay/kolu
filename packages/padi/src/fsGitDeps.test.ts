@@ -7,12 +7,12 @@
  * debounce timing (kolu-git's watcher firing is covered in kolu-git's own tests).
  */
 
-import type { ChangePulse } from "@kolu/terminal-vocab/schema";
+import type { RepoChangePulse } from "@kolu/terminal-vocab/schema";
 import { Stream } from "effect";
 import pino from "pino";
 import { describe, expect, it } from "vitest";
 import type { TerminalEndpoint } from "./endpoint.ts";
-import { padiFsDeps } from "./fsDeps.ts";
+import { padiFsGitDeps } from "./fsGitDeps.ts";
 
 const log = pino({ level: "silent" });
 
@@ -23,14 +23,14 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
  *  iterator is what RUNS it — which is also what installs the watcher, so the
  *  laziness is visible in these pulls rather than hidden behind an `await`. */
 type PulseSource = {
-  source: (input: { repoPath: string }) => Stream.Stream<ChangePulse>;
+  source: (input: { repoPath: string }) => Stream.Stream<RepoChangePulse>;
 };
 
 /** Pull-shaped view of a member stream — one bridge, used by both cases. */
-const pulls = (stream: Stream.Stream<ChangePulse>) =>
+const pulls = (stream: Stream.Stream<RepoChangePulse>) =>
   Stream.toAsyncIterable(stream)[Symbol.asyncIterator]();
 
-describe("padiFsDeps watcher pulses", () => {
+describe("padiFsGitDeps watcher pulses", () => {
   it("yields a {seq:0} snapshot, then an incrementing seq per change", async () => {
     const installed: Array<() => void> = [];
     const fakeEndpoint = {
@@ -41,7 +41,7 @@ describe("padiFsDeps watcher pulses", () => {
         },
       },
     } as unknown as TerminalEndpoint;
-    const deps = padiFsDeps(fakeEndpoint, log);
+    const deps = padiFsGitDeps(fakeEndpoint, log);
 
     const itr = pulls(
       (deps.streams.subscribeRepoChange as PulseSource).source({
@@ -65,7 +65,7 @@ describe("padiFsDeps watcher pulses", () => {
     const fakeEndpoint = {
       fs: { subscribeRepoChange: () => () => {} },
     } as unknown as TerminalEndpoint;
-    const deps = padiFsDeps(fakeEndpoint, log);
+    const deps = padiFsGitDeps(fakeEndpoint, log);
     const firstFrame = async (repoPath: string) =>
       (
         await pulls(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { directoryInventory, mergeBrowseInventory } from "./browseInventory.ts";
+import { mergeBrowseInventory } from "./browseInventory.ts";
 
 const settled = {
   trackedPending: false,
@@ -334,77 +334,5 @@ describe("mergeBrowseInventory", () => {
       lazyDirs: [],
       pending: false,
     });
-  });
-});
-
-describe("directoryInventory", () => {
-  it("paints nothing while the listing is absent (rule 1: absent ≠ empty)", () => {
-    const out = directoryInventory(undefined, undefined, true);
-    expect(out).toEqual({
-      paths: [],
-      ignored: [],
-      lazyDirs: [],
-      pending: true,
-    });
-  });
-
-  it("marks every directory entry lazy and dims nothing", () => {
-    const out = directoryInventory(["notes/", "readme.txt"], undefined, false);
-    expect(out.paths).toEqual(["notes/", "readme.txt"]);
-    expect(out.lazyDirs).toEqual(["notes/"]);
-    // No git ⇒ no ignore authority ⇒ nothing dimmed, ever.
-    expect(out.ignored).toEqual([]);
-  });
-
-  it("substitutes a loaded directory with its level, child dirs lazy in turn", () => {
-    const out = directoryInventory(
-      ["notes/"],
-      new Map([["notes/", ["notes/inner.txt", "notes/sub/"]]]),
-      false,
-    );
-    expect(out.paths).toEqual(["notes/inner.txt", "notes/sub/"]);
-    expect(out.lazyDirs).toEqual(["notes/", "notes/sub/"]);
-  });
-
-  it("keeps the key for a directory that loaded EMPTY — its only spelling", () => {
-    const out = directoryInventory(
-      ["notes/"],
-      new Map([["notes/", []]]),
-      false,
-    );
-    expect(out.paths).toEqual(["notes/"]);
-    expect(out.lazyDirs).toEqual(["notes/"]);
-  });
-
-  it("drops a cached level whose directory has left the listing", () => {
-    const out = directoryInventory(
-      ["other.txt"],
-      new Map([["notes/", ["notes/stale.txt"]]]),
-      false,
-    );
-    expect(out.paths).toEqual(["other.txt"]);
-    expect(out.lazyDirs).toEqual([]);
-  });
-
-  it("terminates on a self-referential cache entry, visiting it once", () => {
-    // Degenerate input (a directory listed as its own child) must terminate,
-    // with the directory visited exactly once — same `visited` semantics as
-    // mergeBrowseInventory's rule-4 walk.
-    const out = directoryInventory(["a/"], new Map([["a/", ["a/"]]]), false);
-    expect(out.lazyDirs).toEqual(["a/"]);
-    expect(new Set(out.paths).size).toBe(out.paths.length);
-  });
-
-  it("expands a nested load through both levels", () => {
-    const out = directoryInventory(
-      ["a/"],
-      new Map([
-        ["a/", ["a/b/", "a/x.txt"]],
-        ["a/b/", ["a/b/y.txt"]],
-      ]),
-      false,
-    );
-    expect(out.paths).toEqual(["a/b/y.txt", "a/x.txt"]);
-    expect(out.lazyDirs).toEqual(["a/", "a/b/"]);
   });
 });

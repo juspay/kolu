@@ -90,9 +90,7 @@ describe("padiSurface contract", () => {
     // reading a restore's active tile off the `session` cell's next snapshot. That
     // was a race the client cannot win: the snapshot publishes behind a
     // synchronous disk write while the restored terminals publish as they spawn.
-    // 5.3: the additive `subscribeDirChange` stream — the non-recursive
-    // per-directory pulse plain-directory (non-git) browsing stands on.
-    expect(PADI_SURFACE_VERSION).toBe("5.3");
+    expect(PADI_SURFACE_VERSION).toBe("5.2");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -140,7 +138,6 @@ describe("padiSurface contract", () => {
       "watchPulse",
       "subscribeRepoChange",
       "subscribeFileChange",
-      "subscribeDirChange",
       "terminalAttach",
     ]);
     expect(Object.keys(spec.events ?? {})).toEqual(["terminalExit"]);

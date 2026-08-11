@@ -278,22 +278,10 @@ export type FsListIgnoredOutput = typeof FsListIgnoredOutputSchema.Type;
  *  would put a per-expansion input in that query's value key and blank the
  *  tree on every click. */
 export const FsListDirectoryInputSchema = Schema.Struct({
-  /** Absolute path to the browse ROOT. Historically a git repo root, but since
-   *  plain-directory browsing (5.3's `subscribeDirChange`, which shares this
-   *  input) it may be ANY absolute directory — this read and its watch
-   *  counterpart never consult git.
-   *
-   *  The name stays because this ONE input schema is shared by
-   *  `fs.listDirectory` and `streams.subscribeDirChange`, so renaming the field
-   *  is a mechanical change to both plus their client call sites — NOT a
-   *  wire-compatibility constraint. There is no such constraint to invoke: a
-   *  contract-version mismatch DRAINS the padi before its surface is consumed
-   *  (`surface.ts`'s version gate), which is exactly what makes a wire rename
-   *  safe here. Nothing in this repo is kept for backward compatibility. */
+  /** Absolute path to the repo root. */
   repoPath: Schema.String,
-  /** Directory to read, relative to the root (`""` for the root itself).
-   *  Pierre's folder key carries a trailing slash; both spellings resolve to
-   *  the same listing. */
+  /** Directory to read, relative to the repo root. Pierre's folder key carries
+   *  a trailing slash; both spellings resolve to the same listing. */
   dirPath: Schema.String,
 });
 
