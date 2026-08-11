@@ -6,12 +6,16 @@
  *   ≡  kolu wait <id> --until awaiting,waiting --settled <quiet> --snapshot <tail>
  * ```
  *
- * Two modules need these three facts and they must not disagree: `cli.ts` reads
- * them for the flags' defaults and for the `--help` line that PROMISES the
- * expansion, and `verbs/debrief.ts` reads them to PERFORM it. A help text that
- * advertises one invocation while the verb runs another is the exact drift a
- * definitional alias is only worth shipping without — so the facts live here, in
- * a leaf with no imports, rather than being spelled twice.
+ * The fact that genuinely crosses the per-face fence is {@link DEBRIEF_UNTIL}:
+ * `cli.ts` renders it into the `--help` line that PROMISES the expansion, and
+ * `verbs/debrief.ts` passes it to PERFORM one. A help text advertising an
+ * invocation the verb does not make is the exact drift a definitional alias is
+ * only worth shipping without, so that string is declared once, here.
+ *
+ * The two defaults keep it company rather than sitting on the flags in
+ * `cli.ts`, because the protocol reads as one thing — which buckets, how long
+ * quiet, how much screen — and splitting it across two modules would leave the
+ * `--help` sentence assembled from facts a reader has to go and find.
  *
  * It sits beside `cli.ts` rather than under `verbs/` because the command tree
  * reads it at MODULE LOAD (a flag's default is part of the parse), and the whole

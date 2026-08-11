@@ -27,7 +27,6 @@ import {
   MAX_TIMER_MS,
   runWait,
   type WaitCtx,
-  type WaitMet,
   type WaitOutcome,
 } from "@kolu/surface/wait";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
@@ -312,9 +311,9 @@ type AttachFrame =
  * the MCP tool its sibling backs). A dropped feed is re-runnable, and saying so
  * is the difference between a diagnostic and a dead end.
  */
-async function watchAttachFeed<Met extends WaitMet>(
+async function watchAttachFeed(
   client: PadiSurfaceClient,
-  ctx: WaitCtx<Met>,
+  ctx: WaitCtx<ConditionMet>,
   opts: {
     readonly id: string;
     /** Every frame of the feed, in order — where the caller's condition lives. */
@@ -879,15 +878,16 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
        * is stamped onto a met earned by the SECOND. Comparing generations
        * compares the moments (P1: a value, not a place).
        */
+      /** The conjunct's ground state, spelled once: what `quiet` starts at, and
+       *  what it falls back to when a feed we can no longer observe invalidates
+       *  it. Trivially satisfied when no `settledMs` was asked for. */
+      const quietGround = settledMs === undefined;
+
       let candidate: {
         readonly held: ConditionHeld | null;
         readonly quiet: boolean;
         readonly epoch: number;
-      } = { held: null, quiet: settledMs === undefined, epoch: 0 };
-
-      /** The conjunct's ground state, spelled once — what `quiet` falls back to
-       *  when a feed we can no longer observe invalidates it. */
-      const quietGround = settledMs === undefined;
+      } = { held: null, quiet: quietGround, epoch: 0 };
 
       /** Are these the SAME met-candidate — would they stamp the same met?
        *
@@ -937,18 +937,20 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
         check();
       };
 
-      /** A screen read is in flight — never two at once. */
-      let reading = false;
       /** The tail of the output already scanned by the `match:` form, bounded by
        *  {@link MATCH_OVERLAP_CAP}. The ONLY history the scan keeps. */
       let carry = "";
       /** A read failure that must PROPAGATE rather than become an outcome (a
        *  dead transport poisons the shared connection). Latched, thrown below. */
       let readFailure: unknown;
-      /** The in-flight stamp loop, so an unwinding wait never leaves one
-       *  dangling. Assigned once per arming (the loop owns its own retries), so
-       *  awaiting it once at the foot of the wait is sound. */
-      let pendingRead: Promise<void> = Promise.resolve();
+      /** The in-flight stamp loop, or `undefined` when none is running — ONE
+       *  variable for one fact, so "at most one read at a time" and "the read is
+       *  finished before the wait returns" are the same binding rather than a
+       *  guard flag and a promise maintained in step across two functions.
+       *
+       *  Cleared from the OUTER `.finally`, never from inside the loop: a
+       *  synchronous throw would otherwise clear it before the assignment lands. */
+      let pendingRead: Promise<void> | undefined;
 
       /** Stamp the met. The payload spreads FLAT — `ConditionMet` is
        *  `ConditionHeld & {elapsedMs, screen?}` by construction, so the
@@ -978,10 +980,11 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
 
       /**
        * The screen-stamp loop: read, compare generations, retry while the
-       * candidate still holds. ONE promise that owns its own retries, so "at
-       * most one read in flight" and "the read is finished before the wait
-       * returns" are the same fact rather than three mechanisms (a guard flag, a
-       * promise chain, and a self-re-entrant callback) agreeing by accident.
+       * candidate still holds. ONE promise that owns its own retries, held in
+       * ONE binding, so "at most one read in flight" and "the read is finished
+       * before the wait returns" are the same fact rather than three mechanisms
+       * (a guard flag, a promise chain, and a self-re-entrant callback)
+       * agreeing by accident.
        *
        * The payload is re-read from the candidate AFTER the round-trip rather
        * than captured before it, so the met describes the terminal at the
@@ -1041,8 +1044,6 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
             kind: "closed",
             error: `could not read ${id}'s screen at the met — ${message}`,
           });
-        } finally {
-          reading = false;
         }
       };
 
@@ -1056,9 +1057,10 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
           settleMet(candidate.held, undefined);
           return;
         }
-        if (reading) return;
-        reading = true;
-        pendingRead = stampLoop();
+        if (pendingRead !== undefined) return;
+        pendingRead = stampLoop().finally(() => {
+          pendingRead = undefined;
+        });
       }
 
       // The `idle:` condition's window and the `--settled` conjunct's window:
@@ -1077,6 +1079,17 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
           : quietWindow(settledMs, () => {
               update({ quiet: true });
             });
+
+      /** Does this condition's evidence live in the ORDERED attach feed?
+       *
+       *  The real property the two death-policy wirings below key on — spelled
+       *  once so a fourth condition form asks itself the question rather than
+       *  re-deriving `kind === "match"` at each site. `match` reads the bytes
+       *  themselves, so the feed's ordering is what proves a sentinel did or did
+       *  not print; `idle` is decided by the feed's TIMING and `agent` by a
+       *  different subscription entirely, so for those an exit is simply the end
+       *  of the thing being waited on. */
+      const evidenceIsFeedOrdered = condition.kind === "match";
 
       const arms: Promise<void>[] = [];
 
@@ -1173,7 +1186,7 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
             // sentinel that printed must win, so there the exit is only LATCHED
             // and the feed's END is the proof no bytes are left. Nothing an
             // early settle could invalidate exists for the other forms.
-            ...(condition.kind === "match"
+            ...(evidenceIsFeedOrdered
               ? {}
               : {
                   onExit: () =>
@@ -1199,15 +1212,20 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
             // before the spine has told `gone` from `closed`, where claiming
             // quiet would let a live terminal's dropped feed mint a met.
             //
-            // NOT claimed when a SCREEN was asked for, and that is the honest
-            // answer rather than a gap: padi's `screen.text` narrows to an
-            // ACTIVE terminal, so a dead one has no screen to read and no met
-            // carrying one can exist. Claiming anyway would only start an async
-            // read that the `gone` settle immediately aborts — the same outcome,
-            // reached nondeterministically. So `--until match:X --settled N`
+            // NOT claimed when a SCREEN was asked for. padi's `screen.text`
+            // narrows to an ACTIVE terminal, so a dead one has no screen to read
+            // and no met carrying one can exist — `--until match:X --settled N`
             // with a capture, against a terminal that exits, is `gone`: the
             // sentinel printed, but the screen you asked for died with the PTY.
-            ...(condition.kind === "match" && captureScreen !== true
+            //
+            // Stated precisely, because the tempting version overclaims: the
+            // gate changes NO outcome. Claiming anyway would start a read the
+            // `gone` settle immediately aborts, reaching the same `gone` — the
+            // guard buys one doomed round-trip and an explicit statement of the
+            // boundary, nothing more. Nor is the boundary the gate's doing: the
+            // exit-0-becomes-exit-3 step when a capture is added to this one
+            // shape is the dead terminal's, and holds with or without it.
+            ...(evidenceIsFeedOrdered && captureScreen !== true
               ? {
                   onTerminalGone: () => {
                     if (candidate.held !== null) update({ quiet: true });
@@ -1261,7 +1279,7 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
       try {
         await Promise.all(arms);
         // The subscriptions have unwound; a read they started may not have.
-        await pendingRead;
+        if (pendingRead !== undefined) await pendingRead;
       } finally {
         // The scaffold clears ITS timeout; these windows are this wait's own.
         conditionWindow?.disarm();

@@ -259,7 +259,7 @@ export function planUntil(
       };
     }
     // A pattern that also matches the EMPTY STRING is a false done-signal, not a
-    // permissive one. `awaitOutputMatch` searches every delta, so `a*`, `x?`,
+    // permissive one. The engine's scan searches every delta, so `a*`, `x?`,
     // `^`, `.*`, `()` all match at index 0 of the FIRST delta — a shell prompt,
     // a banner, the agent echoing the brief back. `kolu wait` would exit 0
     // before the caller's sentinel ever printed, and a driving loop reading 0 as
@@ -501,9 +501,9 @@ export function describeWait(
  *
  *  The engine is padi's `awaitTerminalCondition`, and it is Promise-shaped, so
  *  it takes the scope-bound `signal` that unwinds its subscriptions. Every
- *  optional is passed as an ABSENT key when unset (an explicit `undefined` would
- *  read as "no timeout" / "no conjunct" only by accident of the option's own
- *  optionality). */
+ *  optional is passed as an ABSENT key when unset — the house spelling for an
+ *  optional argument here (~33 sites), and the one that keeps reading as "not
+ *  asked for" rather than "asked for, as undefined". */
 function awaitPlan(
   client: PadiSurfaceClient,
   id: TerminalId,

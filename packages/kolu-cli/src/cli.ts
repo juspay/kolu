@@ -221,6 +221,17 @@ const timerMsFlag = (name: string, effect: string): Flag.Flag<number> =>
     ),
   );
 
+/** `--timeout` — the shared bound every wait carries, declared ONCE.
+ *
+ *  `wait` and `debrief` had a byte-identical copy each, which is the drift
+ *  {@link timerMsFlag} was introduced to close, one layer up: the range sentence
+ *  was deduped and the flag around it was not. */
+const timeoutFlag = opt(
+  timerMsFlag("timeout", "fires a false timeout").pipe(
+    Flag.withDescription("give up after this many milliseconds (exit 2)"),
+  ),
+);
+
 export const lsFlags = {
   json: Flag.boolean("json").pipe(
     Flag.withDescription("emit the full terminal records as JSON"),
@@ -378,11 +389,7 @@ export const waitFlags = {
   // The shared timer-range rule, on the flag: `runWait` THROWS a RangeError on
   // an out-of-range timeout, and `isValidTimerMs` is the one home for the
   // ceiling (`--until idle:<ms>` calls it too, inside its compound grammar).
-  timeout: opt(
-    timerMsFlag("timeout", "fires a false timeout").pipe(
-      Flag.withDescription("give up after this many milliseconds (exit 2)"),
-    ),
-  ),
+  timeout: timeoutFlag,
   // The two orthogonal modifiers (kolu#2139). Neither is a fourth `--until`
   // form: `--settled` narrows WHEN the condition counts as met, `--snapshot`
   // widens WHAT the met carries, and each is useful without the other.
@@ -451,11 +458,7 @@ export const debriefFlags = {
     ),
     Flag.withDefault(DEBRIEF_TAIL_LINES),
   ),
-  timeout: opt(
-    timerMsFlag("timeout", "fires a false timeout").pipe(
-      Flag.withDescription("give up after this many milliseconds (exit 2)"),
-    ),
-  ),
+  timeout: timeoutFlag,
   json: Flag.boolean("json").pipe(
     Flag.withDescription("`wait`'s outcome frame, with `screen` on the met"),
   ),
