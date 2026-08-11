@@ -413,10 +413,11 @@ function daemonServesStateRoot(
  * wrong workspace's terminals, which is the graceful degradation this repo
  * treats as a defect: a stale build is a reason to upgrade, never to guess.
  *
- * Pure over `live` — exported so the selection is testable as data, without a
- * fabricated registry on disk.
+ * Pure over `live`. Not exported: {@link classifyLivePadis} is the whole
+ * policy's front door and the one thing tests drive, so the primary rule is
+ * covered through the arm it decides rather than as a second published symbol.
  */
-export function primaryPadiAmong(
+function primaryPadiAmong(
   live: readonly PadiDaemon[],
   primaryStateRoot: string,
 ): PadiDaemon | undefined {
@@ -436,14 +437,18 @@ function daemonIsLive(d: PadiDaemon): boolean {
   return d.gatePid !== null && isHolderLive(d.gatePid);
 }
 
-/** The outcome of resolving which running padi to dial — the whole selection
- *  policy lives here (beside the namespace construction it inverts), so a client
- *  (`padi-tui`) only renders the `many` ambiguity in its own error surface. Each
- *  arm carries the socket to dial; `many` carries the labeled candidates instead
- *  so the CLI prints a pick-one list, PLUS the state root it looked for and
- *  found no daemon at — without it the refusal cannot say what would have
- *  answered, and a headless operator can't tell "your padi is down" from "you
- *  have no primary".
+/** The outcome of resolving which running padi to dial, as STRUCTURE — never as
+ *  a sentence. The whole selection policy lives here (beside the namespace
+ *  construction it inverts); {@link localPadiSocket} is the ONE place that turns
+ *  the two unaddressable arms into words, and a face only wraps that string in
+ *  its own error type. No consumer formats a candidate list of its own: padi-tui
+ *  used to, and the copy had already drifted into omitting `$PADI_SOCKET` from
+ *  the way out.
+ *
+ *  Each arm carries the socket to dial; `many` carries the labeled candidates
+ *  instead, PLUS the state root it looked for and found no daemon at — without
+ *  that root the refusal cannot say what would have answered, and a headless
+ *  operator can't tell "your padi is down" from "you have no primary".
  *
  *  Kaval's `KavalSocketResolution` is the near-twin, and the `primary` arm is
  *  where the two now DIVERGE — deliberately, so neither docstring should be read
@@ -500,16 +505,39 @@ export function resolveRunningPadiSocket(opts?: {
   // gets an opaque ECONNREFUSED instead of the honest `none` → named-path
   // error. A registration whose gate-pid is unreadable (`null`) is likewise not
   // a proven-live daemon, so it drops out too.
-  const found = discoverPadiDaemons().filter(daemonIsLive);
-  const [first, ...rest] = found;
+  return classifyLivePadis(discoverPadiDaemons().filter(daemonIsLive));
+}
+
+/**
+ * WHICH of the live daemons to dial — the discovery half of
+ * {@link resolveRunningPadiSocket}'s policy, over a list rather than the disk.
+ *
+ * Split out so every arm is pinned by a test that CANNOT go vacuous. Driven
+ * through the real registry, the `one` arm is unassertable on any machine that
+ * has a padi of its own: the developer's daemons join the scan, the count is
+ * never one, and a test written that way silently asserts nothing on exactly the
+ * multi-daemon hosts this policy exists for (juspay/kolu#2154 review, F2 — the
+ * first draft of that test did precisely this). Over a list, `one` is one
+ * element, and a future change that made the sole-daemon case require a primary
+ * root fails the suite instead of a user's headless client.
+ *
+ * Takes daemons already narrowed to the LIVE ones ({@link daemonIsLive}) — the
+ * name says `live` because passing the raw scan would classify a corpse as an
+ * answer. It reads the environment (only) to name the primary root, which is the
+ * one thing about "which padi" that is not in the list.
+ */
+export function classifyLivePadis(
+  live: readonly PadiDaemon[],
+): PadiSocketResolution {
+  const [first, ...rest] = live;
   if (first !== undefined && rest.length === 0) {
     return { kind: "one", socket: first.socket };
   }
   if (rest.length > 0) {
     // Several live daemons is not several ANSWERS — see {@link primaryPadiAmong}
     // for why the tie was never real. Only THIS branch names the root: the
-    // `one` arm must keep dialing a sole daemon whatever its root (a dev box
-    // running only its dev padi has always worked flag-lessly, and an
+    // `one` arm above must keep dialing a sole daemon whatever its root (a dev
+    // box running only its dev padi has always worked flag-lessly, and an
     // environment that cannot name a root — no `$HOME`, no override — must not
     // start failing there). Naming it here can throw for exactly that
     // unnameable environment, and that throw is the honest answer: with several
@@ -517,11 +545,11 @@ export function resolveRunningPadiSocket(opts?: {
     // resolution. `localPadiSocket` catches it into the same `unaddressable`
     // refusal the other edges produce, carrying its own sentence.
     const primaryStateRoot = namePadiStateRootForDiscovery();
-    const primary = primaryPadiAmong(found, primaryStateRoot);
+    const primary = primaryPadiAmong(live, primaryStateRoot);
     if (primary !== undefined) {
       return { kind: "primary", socket: primary.socket };
     }
-    return { kind: "many", candidates: found, primaryStateRoot };
+    return { kind: "many", candidates: [...live], primaryStateRoot };
   }
   return {
     kind: "none",

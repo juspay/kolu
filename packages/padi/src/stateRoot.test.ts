@@ -29,7 +29,7 @@ import {
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
-  primaryPadiAmong,
+  classifyLivePadis,
   residentPadiSocket,
   resolvePadiStateRoot,
   resolveRunningPadiSocket,
@@ -304,54 +304,88 @@ describe("the primary padi — which one a flag-less client dials among several 
     expect(refusal.message).toContain(`PADI_SOCKET=${a}`);
     expect(refusal.message).toContain(`PADI_SOCKET=${b}`);
   });
-
-  it("leaves the sole-daemon case alone — one live padi is still dialed, whatever its root", async () => {
-    const { primaryRoot } = pinFreshHost();
-    // A drawer of its own, so the union sees exactly this one fabricated daemon
-    // (the assertion below tolerates the developer's real daemons by checking
-    // the arm only when discovery genuinely found one).
-    const only = await registerLivePadi(join(primaryRoot, "..", "solo"));
-    const resolved = resolveRunningPadiSocket();
-    if (resolved.kind === "one") expect(resolved.socket).toBe(only);
-    else expect(resolved.kind).toBe("many"); // this developer's own daemons are up too
-  });
 });
 
-describe("primaryPadiAmong — the selection, as pure data", () => {
+/**
+ * The same policy over a LIST instead of the disk — where every arm can be
+ * asserted outright.
+ *
+ * The sole-daemon arm is why this block exists. Driven through the real
+ * registry it is unassertable on any machine that runs a padi of its own: the
+ * developer's daemons join the scan, the count is never one, and the case
+ * degrades to `expect(kind).toBe("many")` — a test that passes without testing
+ * anything, on exactly the multi-daemon hosts this policy exists for. That is
+ * how the first draft of it was written, and the debate peer was right to call
+ * it (juspay/kolu#2154 review, F2). Over a list, one daemon is one element.
+ */
+describe("classifyLivePadis — which of the live daemons, as pure data", () => {
   const daemon = (stateRoot: string | null, socket: string): PadiDaemon => ({
     socket,
     stateRoot,
     gatePid: 1234,
   });
+  const PROD = "/home/u/.local/state/padi";
 
-  it("picks the daemon whose manifest names the primary root", () => {
-    const live = [
-      daemon("/tmp/dev/padi", "/run/dev.sock"),
-      daemon("/home/u/.local/state/padi", "/run/prod.sock"),
-    ];
-    expect(primaryPadiAmong(live, "/home/u/.local/state/padi")?.socket).toBe(
-      "/run/prod.sock",
-    );
+  beforeEach(() => {
+    process.env.HOME = "/home/u";
+    delete process.env.KOLU_PADI_STATE_DIR;
   });
 
-  it("is undefined when none names it — a genuine tie the caller must refuse", () => {
+  it("dials a SOLE live daemon whatever its root — the flag-less dev box, unchanged", () => {
+    // The arm this PR deliberately did not touch, pinned so a later change that
+    // made it require a primary root fails here rather than in a headless
+    // client. This daemon serves a dev root, NOT the environment's.
+    const resolved = classifyLivePadis([
+      daemon("/tmp/dev/padi", "/run/d.sock"),
+    ]);
+    expect(resolved).toEqual({ kind: "one", socket: "/run/d.sock" });
+  });
+
+  it("picks the daemon serving this environment's root when several are live", () => {
+    const resolved = classifyLivePadis([
+      daemon("/tmp/dev/padi", "/run/dev.sock"),
+      daemon(PROD, "/run/prod.sock"),
+    ]);
+    expect(resolved).toEqual({ kind: "primary", socket: "/run/prod.sock" });
+  });
+
+  it("honors $KOLU_PADI_STATE_DIR over the production formula", () => {
+    process.env.KOLU_PADI_STATE_DIR = "/tmp/dev/padi";
+    const resolved = classifyLivePadis([
+      daemon("/tmp/dev/padi", "/run/dev.sock"),
+      daemon(PROD, "/run/prod.sock"),
+    ]);
+    expect(resolved).toEqual({ kind: "primary", socket: "/run/dev.sock" });
+  });
+
+  it("matches on the RESOLVED path, so two spellings of one root are one daemon", () => {
+    const resolved = classifyLivePadis([
+      daemon("/tmp/dev/padi", "/run/dev.sock"),
+      daemon("/home/u/./x/../.local/state/padi", "/run/prod.sock"),
+    ]);
+    expect(resolved).toEqual({ kind: "primary", socket: "/run/prod.sock" });
+  });
+
+  it("refuses when several are live and none serves this environment's root", () => {
     const live = [
       daemon("/tmp/a/padi", "/run/a.sock"),
       daemon("/tmp/b/padi", "/run/b.sock"),
     ];
-    expect(primaryPadiAmong(live, "/home/u/.local/state/padi")).toBeUndefined();
+    expect(classifyLivePadis(live)).toEqual({
+      kind: "many",
+      candidates: live,
+      primaryStateRoot: PROD,
+    });
   });
 
-  it("ignores a manifest-less daemon — an unlabeled registration is never assumed primary", () => {
-    const live = [daemon(null, "/run/bare.sock")];
-    expect(primaryPadiAmong(live, "/home/u/.local/state/padi")).toBeUndefined();
+  it("never assumes a manifest-less daemon is primary — an unlabeled registration is not an identity", () => {
+    const live = [daemon(null, "/run/bare.sock"), daemon(null, "/run/b2.sock")];
+    expect(classifyLivePadis(live).kind).toBe("many");
   });
 
-  it("matches on the RESOLVED path, so two spellings of one root are one daemon", () => {
-    const live = [daemon("/home/u/./x/../.local/state/padi", "/run/p.sock")];
-    expect(primaryPadiAmong(live, "/home/u/.local/state/padi")?.socket).toBe(
-      "/run/p.sock",
-    );
+  it("names a socket for the error path when none is live — never a throwing bind resolve", () => {
+    const resolved = classifyLivePadis([]);
+    expect(resolved).toEqual({ kind: "none", socket: padiSocketPath(PROD) });
   });
 });
 
