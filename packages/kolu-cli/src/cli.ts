@@ -447,7 +447,7 @@ export const debriefFlags = {
   ),
   tail: positiveLines("tail").pipe(
     Flag.withDescription(
-      `print this many screen lines on stdout (default ${DEBRIEF_TAIL_LINES})`,
+      `print this many screen lines on stdout — this is wait's --snapshot (default ${DEBRIEF_TAIL_LINES})`,
     ),
     Flag.withDefault(DEBRIEF_TAIL_LINES),
   ),
