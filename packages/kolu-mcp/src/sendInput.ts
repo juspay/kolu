@@ -95,7 +95,7 @@ type SendRefusal =
   | { readonly kind: "no-input" };
 
 const refuse = (message: string, detail: SendRefusal): ToolFailure =>
-  new ToolFailure(message, { ...detail });
+  new ToolFailure(message, detail);
 
 /** Resolve the tool args to the WRITE PLAN `lifecycle.sendInput` carries out —
  *  pure, so the XOR matrix and the key grammar are unit-tested apart from the

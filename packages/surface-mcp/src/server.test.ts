@@ -150,7 +150,7 @@ async function connect(over: ReturnType<typeof buildSurface>) {
         description: "Always fails — pins the isError framing.",
         handler: () => Effect.fail(new Error("boom: the handler rejected")),
       },
-      // The four failure/result SHAPES the structured arm has to answer for.
+      // One per failure/result SHAPE the structured arm has to answer for.
       refuse: {
         description: "Refuses with machine-readable detail.",
         handler: () =>
@@ -178,6 +178,11 @@ async function connect(over: ReturnType<typeof buildSurface>) {
       scalarResult: {
         description: "Succeeds with a bare number.",
         handler: () => Effect.succeed(42),
+      },
+      dateResult: {
+        description:
+          "Succeeds with a value that is an object in memory and a string on the wire.",
+        handler: () => Effect.succeed(new Date("2026-08-11T00:00:00.000Z")),
       },
     },
     serverInfo: { name: "test-surface", version: "0.0.0" },
@@ -216,6 +221,7 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     expect(names).not.toContain("admin_nuke");
     expect(names).toEqual([
       "counter_bump",
+      "dateResult",
       "explode",
       "greet",
       "plainObject",
@@ -1226,6 +1232,30 @@ describe("serveSurfaceAsMcp — the structured arm", () => {
 
     const bumped = await mcp.callTool({ name: "counter_bump", arguments: {} });
     expect(bumped.structuredContent).toEqual({ value: 1 });
+  });
+
+  it("an answer that is an object in memory and a string on the wire still travels", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // Regression pin. `typeof` describes the value in MEMORY; `toJSON` decides
+    // the one on the WIRE, and for a Date they disagree. Deciding the structured
+    // arm from the live value published a `structuredContent` that serializes as
+    // a string, which the SDK client rejects as a PROTOCOL error (-32602) —
+    // `mcp.callTool` THREW instead of returning, on the success path, where no
+    // `isError` framing can catch it. Both arms now read one serialization.
+    const res = await mcp.callTool({ name: "dateResult", arguments: {} });
+
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent).toEqual({
+      value: "2026-08-11T00:00:00.000Z",
+    });
+    const text = (res.content as { text: string }[])[0]?.text ?? "null";
+    expect(JSON.parse(text)).toBe("2026-08-11T00:00:00.000Z");
   });
 
   it("a ToolFailure refusal is isError AND carries its detail", async () => {

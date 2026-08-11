@@ -120,8 +120,9 @@ export interface ServeSurfaceAsMcpOptions<S extends SurfaceSpec> {
    *  is the smallest thing you can name here; there is no file access"). It is
    *  passed to the SDK's `Server`, which serves `initialize` inside its own
    *  `Protocol`: a consumer cannot re-register that method, so this option is
-   *  the ONLY way the field is reachable. Omitted when absent — an empty string
-   *  is instructions that say nothing, which is not the same as none. */
+   *  the ONLY way the field is reachable. The SDK itself treats an empty string
+   *  as none (`...(this._instructions && { instructions })`), so there is no
+   *  third state to spell here. */
   instructions?: string;
   /** Transport to connect. Defaults to a `StdioServerTransport`; injectable
    *  for tests (an `InMemoryTransport` half). */
@@ -1105,9 +1106,13 @@ function linkFailure(what: string, retry: string, cause?: unknown): Error {
  *  wrapper), so a handler's domain error arrives here intact — which is what
  *  makes both this discrimination and {@link messageOf} possible at all. */
 function failFrom(e: unknown): ToolResult {
-  return e instanceof ToolFailure
-    ? fail(brand(e.message), e.detail)
-    : fail(brand(messageOf(e)));
+  // `messageOf` on BOTH arms, so the detail decides only whether there IS a
+  // structured arm — never how the prose is derived. A `ToolFailure` carries its
+  // own message and takes the first branch of `messageOf` unchanged; routing it
+  // through anyway is what stops one built with an empty message from reaching
+  // the host as the bare brand, which is the very regression below.
+  const message = brand(messageOf(e));
+  return e instanceof ToolFailure ? fail(message, e.detail) : fail(message);
 }
 
 /** The best sentence an arbitrary failure value has in it.
@@ -1129,13 +1134,23 @@ function messageOf(e: unknown): string {
     return typeof tag === "string" && tag !== "" ? tag : e.name;
   }
   if (typeof e === "object" && e !== null) {
-    // A cycle is the one thing `JSON.stringify` refuses; `String(e)` is then the
-    // only description left, and losing the reason entirely would be worse.
+    // A cycle is the one thing `JSON.stringify` refuses. `String(e)` is NOT the
+    // answer there — it is the `[object Object]` this function exists to stop —
+    // so name the value the way a value can always be named: its constructor and
+    // the fields it actually has.
     try {
-      return JSON.stringify(e) ?? String(e);
+      return JSON.stringify(e) ?? describeObject(e);
     } catch {
-      return String(e);
+      return describeObject(e);
     }
   }
   return String(e);
+}
+
+/** Name an object JSON cannot render (a cycle): its constructor and its own
+ *  keys. Never `[object Object]` — the point is that the host learns WHAT
+ *  failed even when it cannot learn the whole value. */
+function describeObject(e: object): string {
+  const name = e.constructor?.name ?? "Object";
+  return `${name} { ${Object.keys(e).join(", ")} }`;
 }

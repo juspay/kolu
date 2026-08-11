@@ -85,30 +85,46 @@ export interface ToolResult {
 }
 
 /** MCP types `structuredContent` as a JSON OBJECT, so a scalar, array or `null`
- *  payload cannot travel as itself. It is wrapped under the SAME single `value`
+ *  answer cannot travel as itself. It is wrapped under the SAME single `value`
  *  property `enforceObject` wraps a scalar INPUT under — one wrapping rule in
  *  both directions, so a host that learned `{ value: … }` on the way in reads
  *  the same shape on the way out.
  *
+ *  Takes a value that has ALREADY been through JSON (see {@link ok}), which is
+ *  what makes the object test sound: `typeof` describes the value in memory and
+ *  `toJSON` decides the one on the wire, and those disagree for the everyday
+ *  case of a `Date`. Handed a live object this returned `structuredContent` that
+ *  serializes as a string — which the MCP client rejects as a PROTOCOL error, on
+ *  the success path, where no `isError` framing can catch it.
+ *
  *  Always populated on a success, deliberately: "does this tool have a
  *  structured arm?" is not a question an agent should have to branch on, and the
- *  adapter has the object in hand at the moment it stringifies it. */
-function asStructured(payload: unknown): Record<string, unknown> {
-  return typeof payload === "object" &&
-    payload !== null &&
-    !Array.isArray(payload)
-    ? (payload as Record<string, unknown>)
-    : { [WRAPPED_VALUE_KEY]: payload };
+ *  adapter has the value in hand at the moment it stringifies it. */
+function asStructured(json: unknown): Record<string, unknown> {
+  return typeof json === "object" && json !== null && !Array.isArray(json)
+    ? (json as Record<string, unknown>)
+    : { [WRAPPED_VALUE_KEY]: json };
 }
 
 /** Wrap a value as a successful tool result: pretty-printed JSON for the model,
  *  the same value as `structuredContent` for the caller. `undefined` (a void
- *  procedure) becomes an explicit `null` so the text is never empty. */
+ *  procedure) becomes an explicit `null` so the text is never empty.
+ *
+ *  ONE serialization feeds both arms, and the re-parse that costs is the point:
+ *  it is what makes "the same answer twice" true by construction rather than by
+ *  two code paths agreeing. `JSON.stringify` is the transform the wire applies
+ *  anyway, so reading the structured arm off its output is reading what the
+ *  caller will actually receive. */
 export function ok(data: unknown): ToolResult {
-  const payload = data === undefined ? null : data;
+  const text = JSON.stringify(data === undefined ? null : data, null, 2);
+  // `undefined` comes back only for a value JSON has no form for at all (a bare
+  // function or symbol), which is not a wire value: it travels as the same
+  // explicit `null` a void procedure gets, on BOTH arms rather than as the
+  // string "undefined" the `text` field's type forbids.
+  const json: unknown = text === undefined ? null : JSON.parse(text);
   return {
-    content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
-    structuredContent: asStructured(payload),
+    content: [{ type: "text", text: text ?? "null" }],
+    structuredContent: asStructured(json),
   };
 }
 

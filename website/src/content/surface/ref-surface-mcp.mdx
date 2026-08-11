@@ -113,15 +113,20 @@ intent, so repeating one replays nothing.*
 - **Failure framing**: a rejecting handler (or a failing procedure call — e.g. the bridged transport down mid-call) always returns an `isError` **tool result**, never a JSON-RPC protocol error — so the agent sees a typed, retryable failure instead of its SDK throwing.
 - **One tool namespace**: generated (`<ns>_<verb>`) and bespoke names are checked for collision in one pass at boot, each candidate tagged by origin so the error names both sources.
 
+- `projectSurface` (from `@kolu/surface/project`) is the cleanest curation: project the live surface into an observer-safe second surface — drop dangerous procedures, bound logs, derive verdicts — and serve *that*.
+
 ## Tool results — the same answer twice
 
-Every tool result carries prose in `content` and data in `structuredContent`, so
-an agent acts on the value and never parses the sentence. MCP types the
-structured arm as a JSON **object**, so a scalar, array or `null` answer travels
-under the same single `value` property a scalar *input* is wrapped in — one
-wrapping rule in both directions.
+Every **successful** result carries prose in `content` and data in
+`structuredContent`, so an agent acts on the value and never parses the sentence.
+Both arms are read off one serialization, so they cannot disagree — which is also
+what keeps a value that is an object in memory and a string on the wire (a
+`Date`) from publishing a `structuredContent` that is not an object. MCP types
+the structured arm as a JSON **object**, so a scalar, array or `null` answer
+travels under the same single `value` property a scalar *input* is wrapped in —
+one wrapping rule in both directions.
 
-A **refusal is an answer**, and it gets the structured arm too. Fail with a
+A **refusal is an answer**, and it can carry the structured arm too. Fail with a
 `ToolFailure` and the message reaches the model while the detail reaches the
 caller:
 
@@ -135,12 +140,15 @@ Effect.mapError(refusal, (f) =>
   }));
 ```
 
-Every other failure stays **message-only**, deliberately: structuring whatever an
-error happens to hold would publish a `Data.TaggedError`'s stack into the agent's
-data channel and dress an incidental `TypeError` up as a contract. What the
-adapter does do is describe such a failure honestly — a tagged error whose
-identity is `_tag` and whose `message` is empty reaches the host as its tag, and
-a non-`Error` failure value as its JSON.
+*The message is branded with the adapter's name on the way out* (`surface-mcp: …`),
+the same as any other failure it reports; the detail is passed through untouched.
+
+Every other failure is **message-only** — no `structuredContent` at all — and
+deliberately so: structuring whatever an error happens to hold would publish a
+`Data.TaggedError`'s stack into the agent's data channel and dress an incidental
+`TypeError` up as a contract. What the adapter does do is describe such a failure
+honestly: a tagged error whose identity is `_tag` and whose `message` is empty
+reaches the host as its tag, and a non-`Error` failure value as its JSON.
 
 <Aside type="caution" title="structuredContent and outputSchema are coupled">
   No tool advertises an `outputSchema`, and adding one is not free. An MCP client
@@ -150,7 +158,6 @@ a non-`Error` failure value as its JSON.
   make every structured refusal throw inside the client instead of reaching the
   agent. Whoever adds `outputSchema` owes the refusal shape a home in it first.
 </Aside>
-- `projectSurface` (from `@kolu/surface/project`) is the cleanest curation: project the live surface into an observer-safe second surface — drop dangerous procedures, bound logs, derive verdicts — and serve *that*.
 
 ## The schema bridge
 
