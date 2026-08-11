@@ -4,7 +4,7 @@
  */
 import { ToolFailure } from "@kolu/surface-mcp";
 import { describe, expect, it } from "vitest";
-import { resolveSendInputData } from "./sendInput.ts";
+import { resolveSendInputData, type SendRefusal } from "./sendInput.ts";
 
 const write = (args: { text?: string; key?: string }) =>
   resolveSendInputData(args).write;
@@ -14,11 +14,17 @@ const write = (args: { text?: string; key?: string }) =>
  *  `structuredContent` IS this `detail`. Fails the test if the throw was an
  *  ordinary `Error` — a refusal that lost its detail on the way out is exactly
  *  the regression this file guards. */
-const refusalFrom = (args: { text?: string; key?: string }) => {
+const refusalFrom = (args: {
+  text?: string;
+  key?: string;
+}): ToolFailure<SendRefusal> => {
   try {
     resolveSendInputData(args);
   } catch (e) {
-    if (e instanceof ToolFailure) return e;
+    // `refuse` builds every one of these, and its return type is
+    // `ToolFailure<SendRefusal>` — `instanceof` cannot carry the parameter, so
+    // the assertion is stated here rather than lost to `Record<string, unknown>`.
+    if (e instanceof ToolFailure) return e as ToolFailure<SendRefusal>;
     throw new Error(`expected a ToolFailure, got ${String(e)}`);
   }
   throw new Error("expected a refusal, but the args resolved");
@@ -83,6 +89,22 @@ describe("resolveSendInputData — every refusal reaches the agent as DATA", () 
       kind: "key-refused",
       key: "Bogus",
     });
+  });
+
+  it("the KEYS branch's other shared refusal — an empty name list — is unreachable from this face", () => {
+    // `encodeSend`'s keys branch refuses TWO things: an unknown name, and an
+    // EMPTY name list. Both would collapse into `key-refused`, whose recovery
+    // ("pick a name from the accepted list") fits only the first. This face
+    // never reaches the second, structurally: it has one `key` field and passes
+    // `names: [args.key]` inside `args.key !== undefined`, so the list is always
+    // length 1. The emptiest key a caller can express is `""` — one unknown
+    // NAME, which is the unknown-key rule and rides its spelling along.
+    expect(refusalFrom({ key: "" }).detail).toEqual({
+      kind: "key-refused",
+      key: "",
+    });
+    expect(refusalFrom({ key: "" }).message).toMatch(/unknown key/);
+    expect(refusalFrom({ key: "" }).message).not.toMatch(/named no keys/);
   });
 
   it("an empty text and no input at all are DIFFERENT refusals", () => {

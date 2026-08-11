@@ -79,23 +79,42 @@ const MCP_SEND_VOCABULARY: SendVocabulary = {
  *  kind, and reading it out of the prose means parsing English:
  *  `text-and-key` ⇒ re-send as two calls; `key-refused` ⇒ pick a name from the
  *  accepted list (the rejected spelling rides along as `key`); `text-refused`
- *  and `no-input` ⇒ the driver's own prompt template rendered nothing, which is
- *  precisely what a 0-byte "sent" used to hide.
+ *  ⇒ the shared encoder refused this face's text — today, because it was empty;
+ *  `no-input` ⇒ neither field was passed at all.
  *
  *  The kinds name the BRANCH, not the shared policy's internal reason: the
  *  sentence already carries the reason, and a kind that claimed it would go
  *  quietly wrong the day `@kolu/terminal-protocol` adds a refusal. And they are
  *  named HERE rather than pushed into that package, because the caller always
  *  knows which branch it is in — a `kind` on `SendEncoding` would be a field the
- *  shared policy carries for one consumer's benefit. */
-type SendRefusal =
+ *  shared policy carries for one consumer's benefit.
+ *
+ *  WHAT THAT COSTS, stated rather than left to be discovered. A branch can hold
+ *  more than one of the shared policy's rules, and two do:
+ *
+ *    - the KEYS branch refuses on an empty name list as well as on an unknown
+ *      name (`sendPolicy.ts`'s `encodeSend`), and `key-refused`'s recovery
+ *      ("pick a name from the accepted list") fits only the second. It is
+ *      UNREACHABLE from this face, and structurally so rather than by luck: this
+ *      face has ONE `key` field and passes `names: [args.key]` inside the
+ *      `args.key !== undefined` branch, so the list is always length 1. The
+ *      empty-list refusal exists for a face that gathers keys from a variadic
+ *      argv, which this is not.
+ *    - `text-and-key` names the reason, not the branch, and is the deliberate
+ *      exception: it is the recovery a driver most needs to branch on. It is
+ *      sound only while `sendShapeRefusal` refuses exactly the both-supplied
+ *      shape. If that gate ever grows a second refusal, this kind must split
+ *      before it ships. */
+export type SendRefusal =
   | { readonly kind: "text-and-key" }
   | { readonly kind: "key-refused"; readonly key: string }
   | { readonly kind: "text-refused" }
   | { readonly kind: "no-input" };
 
-const refuse = (message: string, detail: SendRefusal): ToolFailure =>
-  new ToolFailure(message, detail);
+const refuse = (
+  message: string,
+  detail: SendRefusal,
+): ToolFailure<SendRefusal> => new ToolFailure(message, detail);
 
 /** Resolve the tool args to the WRITE PLAN `lifecycle.sendInput` carries out —
  *  pure, so the XOR matrix and the key grammar are unit-tested apart from the

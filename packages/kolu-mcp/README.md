@@ -27,10 +27,12 @@ default-deny with named, tested denials:
 four things on purpose, and a driver recovers from each differently — so each
 one names itself in the result's `structuredContent`: `text-and-key` (re-send as
 two calls), `key-refused` (carrying the spelling that was rejected),
-`text-refused` and `no-input` (the driver's own prompt template rendered
-nothing — precisely what a 0-byte "sent" used to hide). The kinds name the
-BRANCH rather than `@kolu/terminal-protocol`'s internal reason, which the
-unchanged sentence beside them still carries. They ride
+`text-refused` (the shared encoder refused this face's text — today, because it
+was empty, precisely what a 0-byte "sent" used to hide) and `no-input` (neither
+field was passed). The kinds name the BRANCH rather than
+`@kolu/terminal-protocol`'s internal reason, which the unchanged sentence beside
+them still carries — so a kind is *not* 1:1 with a reason, and the sentence is
+where a driver reads which rule fired. They ride
 [`@kolu/surface-mcp`](../surface-mcp/README.md)'s `ToolFailure`, the one failure
 the adapter carries detail through.
 
