@@ -17,6 +17,7 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
+import { scrubDaemonLocatorEnv } from "@kolu/daemon-test-gate/setup";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   productionPadiStateRoot,
@@ -86,11 +87,13 @@ const SAVED = {
   XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
   HOME: process.env.HOME,
   KOLU_PADI_STATE_DIR: process.env.KOLU_PADI_STATE_DIR,
-  // `PADI_SOCKET` is read by `resolveRunningPadiSocket` and DELETED by the
-  // primary-rule cases (a flag-less headless client has none). It must be
-  // restored, and this file is normally run from a kolu terminal — where padi
-  // stamps it — so a case that dropped it without saving would strip it from the
-  // worker for every sibling test that ran after.
+  // `PADI_SOCKET` is read by `resolveRunningPadiSocket` and scrubbed by the
+  // primary-rule cases (a flag-less headless client has none). Saved for
+  // symmetry with the other locators, NOT because a real value is expected here:
+  // the worker-level `scrubDaemonLocatorEnv` (`@kolu/daemon-test-gate/setup`,
+  // wired in this package's `vitest.config.ts`) already deletes every locator
+  // before any test runs, so this reads `undefined` even when the suite is run
+  // from a kolu terminal that stamps one.
   PADI_SOCKET: process.env.PADI_SOCKET,
 };
 beforeEach(() => {
@@ -226,25 +229,33 @@ describe("the primary padi — which one a flag-less client dials among several 
     return socket;
   }
 
-  /** A fresh `$HOME` no real daemon on this machine can be keyed to, plus the
-   *  private drawer the fabricated daemons register under. Pins the environment
-   *  a flag-less client reads: no `$PADI_SOCKET`, no `$KOLU_PADI_STATE_DIR`, so
-   *  resolution falls all the way through to discovery and the production
-   *  formula names the primary. */
-  function pinFreshHost(): { home: string; primaryRoot: string } {
+  /** Pin the environment a flag-less headless client reads, and return the state
+   *  root the production formula then names.
+   *
+   *  The locator scrub is `@kolu/daemon-test-gate`'s `scrubDaemonLocatorEnv` —
+   *  the canonical list of "vars that let a process reach a live daemon"
+   *  (`DAEMON_LOCATOR_ENV`), not a hand-picked pair. Picking two of them by hand
+   *  is how a fifth locator, added to that list later, would silently leak into
+   *  these cases — whose whole premise is that NO locator is set — and resolve
+   *  them against the developer's real production daemon.
+   *
+   *  `$HOME` lands in a fresh temp dir, which is what makes every assertion in
+   *  this block hermetic: discovery also unions the real `/tmp` and
+   *  `/run/user/$UID` drawers, and no daemon there can be keyed to a root under
+   *  a directory that did not exist a moment ago. */
+  function pinFreshHost(): string {
+    scrubDaemonLocatorEnv();
     const home = mkdtempSync(join(tmpdir(), "padi-primary-home-"));
     dirs.push(home);
     const drawer = mkdtempSync(join(tmpdir(), "padi-primary-drawer-"));
     dirs.push(drawer);
     process.env.HOME = home;
     process.env.XDG_RUNTIME_DIR = drawer;
-    delete process.env.PADI_SOCKET;
-    delete process.env.KOLU_PADI_STATE_DIR;
-    return { home, primaryRoot: join(home, ".local", "state", "padi") };
+    return join(home, ".local", "state", "padi");
   }
 
   it("dials the daemon keyed to this environment's state root, though a dev daemon is live too", async () => {
-    const { primaryRoot } = pinFreshHost();
+    const primaryRoot = pinFreshHost();
     // The two daemons olai's host actually had up: the primary, and a dev padi
     // keyed to an explicit throwaway root. Registered dev-FIRST so a resolver
     // that merely took the first discovered daemon would pick the wrong one.
@@ -262,31 +273,14 @@ describe("the primary padi — which one a flag-less client dials among several 
     });
   });
 
-  it("honors $KOLU_PADI_STATE_DIR — a dev shell's client dials ITS padi, not production's", async () => {
-    const { primaryRoot } = pinFreshHost();
-    const devRoot = join(
-      primaryRoot,
-      "..",
-      "..",
-      "..",
-      "src",
-      ".kolu-dev/padi",
-    );
-    await registerLivePadi(primaryRoot);
-    const devSocket = await registerLivePadi(devRoot);
-
-    // What a `pnpm dev` shell (and the dev nix wrapper) export: the env names
-    // the DEV chair, so the dev padi is this client's primary even though a
-    // production-rooted daemon is live beside it.
-    process.env.KOLU_PADI_STATE_DIR = devRoot;
-    expect(resolveRunningPadiSocket()).toMatchObject({
-      kind: "primary",
-      socket: devSocket,
-    });
-  });
+  // NOTE: the `$KOLU_PADI_STATE_DIR` override is pinned by the pure case in the
+  // next block, not by a fourth socket-fabricating case here. Through the disk
+  // it asserted nothing the case above does not already prove — the wiring
+  // discovery → liveness → manifest → classify is the same one call — while
+  // paying a full three-regime scan and two socket binds to reach it.
 
   it("still refuses when several are live and NONE is this environment's — naming the root it looked for", async () => {
-    const { primaryRoot } = pinFreshHost();
+    const primaryRoot = pinFreshHost();
     // Two daemons, both keyed to explicit roots — a genuine tie: nothing here
     // is the padi this environment names, so there is no answer to pick.
     const a = await registerLivePadi(join(primaryRoot, "..", "worktree-a"));

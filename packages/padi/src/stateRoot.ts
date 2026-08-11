@@ -464,7 +464,15 @@ export type PadiSocketResolution =
       kind: "explicit" | "stateRoot" | "env" | "one" | "primary" | "none";
       socket: string;
     }
-  | { kind: "many"; candidates: PadiDaemon[]; primaryStateRoot: string };
+  // `candidates` is READONLY: the only consumer maps it into a sentence, and
+  // declaring it mutable meant the producer had to copy the list purely to
+  // launder the `readonly` away. A resolution is a finding about the host, not a
+  // buffer anyone writes into.
+  | {
+      kind: "many";
+      candidates: readonly PadiDaemon[];
+      primaryStateRoot: string;
+    };
 
 /**
  * Resolve which running padi a client should dial — the client-side companion to
@@ -529,32 +537,37 @@ export function resolveRunningPadiSocket(opts?: {
 export function classifyLivePadis(
   live: readonly PadiDaemon[],
 ): PadiSocketResolution {
-  const [first, ...rest] = live;
-  if (first !== undefined && rest.length === 0) {
+  // `[first, second]` rather than `[first, ...rest]`: the question is only
+  // "none, one, or several", and destructuring a rest array copies the whole
+  // list to ask it. Written this way each arm is an explicit return in the order
+  // a reader thinks about them, instead of `none` being whatever falls off the
+  // end. (`live.length === 1` cannot narrow `live[0]` under
+  // `noUncheckedIndexedAccess`, which is why the shape is a destructure at all.)
+  const [first, second] = live;
+  if (first === undefined) {
+    return {
+      kind: "none",
+      socket: padiSocketPath(namePadiStateRootForDiscovery()),
+    };
+  }
+  if (second === undefined) {
     return { kind: "one", socket: first.socket };
   }
-  if (rest.length > 0) {
-    // Several live daemons is not several ANSWERS — see {@link primaryPadiAmong}
-    // for why the tie was never real. Only THIS branch names the root: the
-    // `one` arm above must keep dialing a sole daemon whatever its root (a dev
-    // box running only its dev padi has always worked flag-lessly, and an
-    // environment that cannot name a root — no `$HOME`, no override — must not
-    // start failing there). Naming it here can throw for exactly that
-    // unnameable environment, and that throw is the honest answer: with several
-    // daemons up and nothing able to say which is yours, there IS no
-    // resolution. `localPadiSocket` catches it into the same `unaddressable`
-    // refusal the other edges produce, carrying its own sentence.
-    const primaryStateRoot = namePadiStateRootForDiscovery();
-    const primary = primaryPadiAmong(live, primaryStateRoot);
-    if (primary !== undefined) {
-      return { kind: "primary", socket: primary.socket };
-    }
-    return { kind: "many", candidates: [...live], primaryStateRoot };
-  }
-  return {
-    kind: "none",
-    socket: padiSocketPath(namePadiStateRootForDiscovery()),
-  };
+  // Several live daemons is not several ANSWERS — see {@link primaryPadiAmong}
+  // for why the tie was never real. Only THIS arm names the root: the `one` arm
+  // above must keep dialing a sole daemon whatever its root (a dev box running
+  // only its dev padi has always worked flag-lessly, and an environment that
+  // cannot name a root — no `$HOME`, no override — must not start failing
+  // there). Naming it here can throw for exactly that unnameable environment,
+  // and that throw is the honest answer: with several daemons up and nothing
+  // able to say which is yours, there IS no resolution. `localPadiSocket`
+  // catches it into the same `unaddressable` refusal the other edges produce,
+  // carrying its own sentence.
+  const primaryStateRoot = namePadiStateRootForDiscovery();
+  const primary = primaryPadiAmong(live, primaryStateRoot);
+  return primary !== undefined
+    ? { kind: "primary", socket: primary.socket }
+    : { kind: "many", candidates: live, primaryStateRoot };
 }
 
 /** WHICH local padi a client means, as data — the client-side half of the

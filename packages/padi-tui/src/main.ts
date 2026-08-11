@@ -50,8 +50,6 @@ import { NodeSink } from "@effect/platform-node";
 import {
   awaitAgentState,
   isWaitState,
-  type LocalPadiTarget,
-  localPadiSocket,
   WAIT_STATES,
   type WaitState,
   watchTerminals,
@@ -87,6 +85,7 @@ import {
   WaitTimedOut,
 } from "./exit.ts";
 import { connectPadiTuiViaHost } from "./hostConnect.ts";
+import { resolveSocketPath } from "./socketTarget.ts";
 import { readTerminalKeys, settledSnapshot } from "@kolu/padi/read";
 import {
   formatStatus,
@@ -346,47 +345,6 @@ const shutdownRequest: Effect.Effect<ShutdownRequest, never, Scope.Scope> =
  *  drift. Both guards stay; only the string is shared. */
 const WORKTREE_OVER_HOST_NEEDS_REPO =
   "--worktree over --host needs --repo <path on the host>: the worktree is cut on the REMOTE machine, so it can't default to your local directory. Pass --repo with an absolute path on the host.";
-
-/** The socket to dial. The selection policy (`--socket` wins; else `--state-root`;
- *  else $PADI_SOCKET; else the sole running padi, or the PRIMARY one among
- *  several) and BOTH refusal sentences live in the shared `localPadiSocket` (the
- *  dial kit), so this face decides nothing about wording and renders no
- *  candidate list of its own.
- *
- *  It used to call the lower-level `resolveRunningPadiSocket` and hand-roll the
- *  `many` sentence — the exact duplication `localPadiSocket`'s own docstring
- *  says it exists to end, and it had already drifted: the local copy never
- *  mentioned that `$PADI_SOCKET` picks a padi, so a `padi-tui` user was the one
- *  user never told the easiest way out of the refusal. Worse, hand-rolling only
- *  the `many` arm let `none` fall through to `Effect.succeed` — a face that had
- *  found NO daemon returned the merely-NAMED socket and dialed a path nothing
- *  serves, trading the crafted "no running padi daemon found — start kolu" line
- *  for a raw connect error. Delegating fixes both, and neither can come back:
- *  there is no second sentence left to drift, and `unaddressable` is one arm. */
-function resolveSocketPath(flags: {
-  socket: string | undefined;
-  stateRoot: string | undefined;
-}): Effect.Effect<string, CliFailure> {
-  if (flags.socket !== undefined && flags.stateRoot !== undefined) {
-    return Effect.fail(
-      failure(
-        "--socket and --state-root are mutually exclusive: --socket is a literal socket path, --state-root derives one. Pass just one.",
-      ),
-    );
-  }
-  const target: LocalPadiTarget =
-    flags.socket !== undefined
-      ? { kind: "socket", path: flags.socket }
-      : flags.stateRoot !== undefined
-        ? { kind: "stateRoot", dir: flags.stateRoot }
-        : { kind: "auto" };
-  return Effect.suspend(() => {
-    const resolved = localPadiSocket(target);
-    return resolved.kind === "ok"
-      ? Effect.succeed(resolved.socket)
-      : Effect.fail(failure(resolved.message));
-  });
-}
 
 /** The one daemon a command targets: a REMOTE padi over ssh (`--host`) or a LOCAL
  *  one at a resolved socket path. Each arm carries exactly what its connect needs,
