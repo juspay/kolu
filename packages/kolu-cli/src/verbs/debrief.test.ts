@@ -16,10 +16,10 @@
 
 import { describe, expect, it, vi } from "vitest";
 import {
+  DEBRIEF_EXPANSION,
   DEBRIEF_QUIET_MS,
   DEBRIEF_TAIL_LINES,
   DEBRIEF_UNTIL,
-  debriefExpansion,
 } from "../debriefProtocol.ts";
 import type { Endpoint } from "../endpoint.ts";
 import type { WaitArgs } from "./wait.ts";
@@ -95,7 +95,7 @@ describe("kolu debrief — the expansion", () => {
     // The two are separate code paths — `cli.ts` renders the sentence, this verb
     // performs the call — so they are joined here rather than by convention.
     const args = expansionOf({});
-    const promised = debriefExpansion(DEBRIEF_QUIET_MS, DEBRIEF_TAIL_LINES);
+    const promised = DEBRIEF_EXPANSION;
     expect(promised).toContain(`--until ${args.until}`);
     expect(promised).toContain(`--settled ${args.settled}`);
     expect(promised).toContain(`--snapshot ${args.snapshot}`);

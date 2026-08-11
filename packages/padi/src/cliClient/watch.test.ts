@@ -629,10 +629,13 @@ describe("awaitTerminalCondition — `--settled`, the quiescence conjunct", () =
   });
 });
 
-describe("awaitTerminalCondition — `--snapshot`, the screen stamp", () => {
+describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
   const screen = "prompt$ run\nall 12 passed\n\n\n\n";
 
-  it("stamps the met with the rendered tail, trailing blank rows dropped", async () => {
+  it("stamps the met with the terminal's rendered screen, whole", async () => {
+    // The engine captures; BOUNDING the capture is the face's decision (`kolu
+    // wait --snapshot N` slices with `tailLines`), and it is not even a wire
+    // saving — the read passes no line range, so the buffer already crossed.
     const attach = new FakeSource<AttachFrame>();
     attach.push(snapshot("worker\n"));
     const outcome = await awaitTerminalCondition(
@@ -643,18 +646,12 @@ describe("awaitTerminalCondition — `--snapshot`, the screen stamp", () => {
       {
         id: T as TerminalId,
         condition: { kind: "idle", idleMs: 40 },
-        screenTail: 2,
+        captureScreen: true,
         timeoutMs: 5000,
         retryAdvice: "re-run the wait",
       },
     );
-    // The blank viewport below the cursor is not the tail — the bug `tailLines`
-    // exists to prevent, inherited here rather than re-derived.
-    expect(outcome).toMatchObject({
-      kind: "met",
-      fired: "idle",
-      screen: "prompt$ run\nall 12 passed",
-    });
+    expect(outcome).toMatchObject({ kind: "met", fired: "idle", screen });
   });
 
   it("DISCARDS a screen the terminal moved under, and stamps the next quiet one", async () => {
@@ -688,7 +685,7 @@ describe("awaitTerminalCondition — `--snapshot`, the screen stamp", () => {
         id: T as TerminalId,
         condition: { kind: "idle", idleMs: 40 },
         settledMs: 40,
-        screenTail: 1,
+        captureScreen: true,
         timeoutMs: 5000,
         retryAdvice: "re-run the wait",
       },
@@ -696,7 +693,7 @@ describe("awaitTerminalCondition — `--snapshot`, the screen stamp", () => {
     release?.();
 
     expect(reads).toEqual(["stale", "fresh"]);
-    expect(outcome).toMatchObject({ kind: "met", screen: "FRESH" });
+    expect(outcome).toMatchObject({ kind: "met", screen: "FRESH\n" });
   });
 
   it("reports `gone` when the terminal ends between the condition and the read", async () => {
@@ -712,7 +709,7 @@ describe("awaitTerminalCondition — `--snapshot`, the screen stamp", () => {
       {
         id: T as TerminalId,
         condition: { kind: "idle", idleMs: 40 },
-        screenTail: 10,
+        captureScreen: true,
         timeoutMs: 5000,
         retryAdvice: "re-run the wait",
       },
@@ -752,71 +749,93 @@ describe("awaitTerminalCondition — `--snapshot`, the screen stamp", () => {
         id: T as TerminalId,
         condition: { kind: "idle", idleMs: 20 },
         settledMs: 20,
-        screenTail: 1,
+        captureScreen: true,
         timeoutMs: 5000,
         retryAdvice: "re-run the wait",
       },
     );
 
     expect(reads).toEqual(["stale", "fresh"]);
-    expect(outcome).toMatchObject({ kind: "met", screen: "FRESH" });
+    expect(outcome).toMatchObject({ kind: "met", screen: "FRESH\n" });
   });
 
-  it("opens the output feed for a bare agent condition, so `--snapshot` can SEE a byte arrive", async () => {
-    // Without a feed there is nothing to observe a byte on, so the discard would
-    // be a promise the layer cannot keep: `kolu wait --until awaiting,waiting
-    // --snapshot 40` would stamp a screen the terminal had moved under and
-    // report it as the screen that settled. The pin is that the feed exists —
-    // this client FAILS `terminals.keys`, which only the attach feed's
-    // lost-feed discrimination reads, so a wait that never subscribed would
-    // simply meet instead of surfacing the read.
-    const agents = agentCollection(claude("waiting"));
+  it("CONVERGES on a chattering terminal whose candidate cannot fall back — exactly one read", async () => {
+    // THE fixed-point pin, and the defect both structural lenses raised
+    // independently. `match:` + a capture and NO conjunct is the configuration
+    // that can loop: the feed is open (the scan needs it), `held` LATCHES on the
+    // sentinel, and `quiet` is permanently satisfied — so a generation bumped by
+    // every FRAME rather than by every candidate CHANGE invalidates a read that
+    // nothing can ever make valid. One `screen.text` round-trip per discard, for
+    // as long as the terminal keeps printing, against a `--timeout` the caller
+    // need not even have passed.
+    //
+    // Here the terminal chatters for the whole duration of the read. Exactly one
+    // read must happen, because none of those bytes can change this candidate.
     const attach = new FakeSource<AttachFrame>();
     attach.push(snapshot("worker\n"));
-    const reads: string[] = [];
+    attach.push(delta("DONE\n"));
+    let reads = 0;
+    let chatter: ReturnType<typeof setInterval> | undefined;
+    try {
+      const outcome = await awaitTerminalCondition(
+        matchClient({
+          attach: () => attach.stream(),
+          keys: keysWithout,
+          screenText: () =>
+            Effect.promise(async () => {
+              reads += 1;
+              // Keep bytes moving across the whole round-trip.
+              chatter = setInterval(() => attach.push(delta("·")), 5);
+              await sleep(60);
+              clearInterval(chatter);
+              return "READY\n";
+            }),
+        }),
+        {
+          id: T as TerminalId,
+          condition: { kind: "match", pattern: /DONE/ },
+          captureScreen: true,
+          timeoutMs: 3000,
+          retryAdvice: "re-run the wait",
+        },
+      );
+      expect(outcome).toMatchObject({
+        kind: "met",
+        fired: "match",
+        screen: "READY\n",
+      });
+      expect(reads).toBe(1);
+    } finally {
+      if (chatter !== undefined) clearInterval(chatter);
+    }
+  });
+
+  it("a latched `match` + a conjunct is MET when the feed ENDS, not `gone`", async () => {
+    // `echo DONE; exit` is the ordinary sentinel shape, and the feed ending is
+    // the strongest possible quiet: no byte can ever arrive again. Without the
+    // retry/end discrimination, adding `--settled` to a `match:` wait silently
+    // converted this exit-0 into a terminal-died exit-3 — and no input could
+    // ever make it met, which is not what a conjunct means.
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    attach.push(delta("DONE\n"));
+    attach.end();
+
     const outcome = await awaitTerminalCondition(
-      matchClient({
-        attach: () => attach.stream(),
-        ...agents.parts,
-        screenText: () =>
-          Effect.promise(async () => {
-            if (reads.length === 0) {
-              reads.push("stale");
-              attach.push(delta("late output\n"));
-              await sleep(0);
-              return "STALE\n";
-            }
-            reads.push("fresh");
-            return "FRESH\n";
-          }),
-      }),
+      matchClient({ attach: () => attach.stream(), keys: keysWithout }),
       {
         id: T as TerminalId,
-        condition: { kind: "agent", targets: new Set(["awaiting", "waiting"]) },
-        screenTail: 1,
+        condition: { kind: "match", pattern: /DONE/ },
+        settledMs: 60_000,
         timeoutMs: 5000,
         retryAdvice: "re-run the wait",
       },
     );
 
-    expect(reads).toEqual(["stale", "fresh"]);
     expect(outcome).toMatchObject({
       kind: "met",
-      fired: "agent",
-      screen: "FRESH",
+      fired: "match",
+      matchedLine: "DONE",
     });
-  });
-
-  it("refuses a non-positive tail at the boundary rather than stamping nothing", async () => {
-    // "The last zero lines" would stamp a met with an empty screen that reads
-    // like a dead terminal — the same fail-fast rule the timer windows carry.
-    await expect(
-      awaitTerminalCondition(matchClient({}), {
-        id: T as TerminalId,
-        condition: { kind: "idle", idleMs: 40 },
-        screenTail: 0,
-        retryAdvice: "re-run the wait",
-      }),
-    ).rejects.toThrow(RangeError);
   });
 });

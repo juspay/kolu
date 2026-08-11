@@ -139,12 +139,20 @@ side can close. An orchestrator used to run `wait --until awaiting,waiting`,
 then `wait --until idle:15000`, then `snapshot --tail 40` — and output can move
 between the first and the second, while the screen the third reads is not the
 screen the second settled on. Evaluated together against **one** live
-subscription, there is no gap to race, and the screen on a met is one taken
-during the same unbroken stretch of quiet that met the condition (a read the
-terminal moves under is discarded and retaken). The failure that motivated it:
-`--until awaiting,waiting` fired on an agent whose main loop had ended its turn
-while a subagent was three minutes into a deliberate plan, and the nudge that
-followed preempted competent in-flight work.
+subscription, there is no gap to race. The failure that motivated it: `--until
+awaiting,waiting` fired on an agent whose main loop had ended its turn while a
+subagent was three minutes into a deliberate plan, and the nudge that followed
+preempted competent in-flight work.
+
+**What `--snapshot` promises depends on whether you asked for quiet**, and the
+difference is worth knowing:
+
+- **with `--settled`** (what `kolu debrief` always passes) the screen is one
+  taken inside the *same unbroken stretch of quiet* that met the condition — a
+  read the terminal moves under is discarded and retaken. That is the property a
+  second `kolu snapshot` process can never have.
+- **without it** the screen is the terminal as of the condition landing. No
+  quiet was asked for, so none is claimed — output may well still be moving.
 
 ## `debrief` — the protocol as one verb
 

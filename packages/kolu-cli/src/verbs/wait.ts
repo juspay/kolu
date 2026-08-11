@@ -130,7 +130,7 @@ import {
   type TerminalConditionOutcome,
   WAIT_STATES,
 } from "@kolu/padi/dial";
-import { formatWaitMet, shortId } from "@kolu/padi/render";
+import { formatWaitMet, shortId, tailLines } from "@kolu/padi/render";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,
@@ -352,25 +352,20 @@ function reportOutcome(
   screenTail: number | undefined,
 ): Effect.Effect<void, CliFailure> {
   return Effect.gen(function* () {
-    // `--snapshot` asked for a screen, so a met WITHOUT one is a broken engine,
-    // not an empty terminal. Crash loud rather than print nothing and exit 0 —
-    // which is what a driving loop would read as "the worker's screen was
-    // blank", the collapse-to-empty this repo treats as a defect. The engine
-    // guarantees the field (a failed read settles `gone`/`closed` instead), and
-    // `ConditionMet` cannot express "present iff asked for", so the invariant is
-    // checked at the one boundary that knows both halves.
-    if (screenTail !== undefined && outcome.kind === "met") {
-      if (outcome.screen === undefined) {
-        return yield* Effect.fail(
-          failure(
-            `--snapshot ${screenTail} was asked for but ${shortId(id)}'s met carries no screen — a bug in the wait engine, not an empty terminal.`,
-          ),
-        );
-      }
-    }
+    // The engine hands back the WHOLE rendered buffer; `--snapshot N` is this
+    // face's rendering decision, so the slice happens here — beside `snapshot`'s
+    // identical one, through the same `tailLines` (which also drops the trailing
+    // blank rows a rendered buffer ends in). The engine asserts the screen is
+    // PRESENT when it was asked for, so there is no absent-screen arm to invent.
+    const rendered: TerminalConditionOutcome =
+      outcome.kind === "met" &&
+      screenTail !== undefined &&
+      outcome.screen !== undefined
+        ? { ...outcome, screen: tailLines(outcome.screen, screenTail) }
+        : outcome;
 
     if (json) {
-      // The met payload passes through UNCHANGED. `WaitMetPayload` is already a
+      // The met payload passes through UNCHANGED. `ConditionMet` is already a
       // closed union with exactly the fields the frame carries, so the
       // three-arm switch this replaced was `(met) => met` written as eighteen
       // lines that had to be edited again for every new field — and if one was
@@ -378,22 +373,22 @@ function reportOutcome(
       // genuine per-variant work is `metTrailer`'s, where the switch is
       // load-bearing.
       yield* writeJson(
-        waitOutcomeJson<ConditionMet>(id, outcome, (met) => met),
+        waitOutcomeJson<ConditionMet>(id, rendered, (m) => m),
         "the wait outcome",
       );
     }
 
-    switch (outcome.kind) {
+    switch (rendered.kind) {
       case "met":
         if (!json) {
           // stdout is the SCREEN and nothing else, so `kolu wait … --snapshot 40
           // | grep MARK-` matches the terminal's words — the trailer that names
           // the terminal goes to stderr beside it. Under `--json` the screen is
           // already the frame's `screen` key, so neither is written again.
-          if (outcome.screen !== undefined) {
-            yield* writeOutBlock(outcome.screen, "the screen text");
+          if (rendered.screen !== undefined) {
+            yield* writeOutBlock(rendered.screen, "the screen text");
           }
-          yield* writeErr(metTrailer(id, outcome));
+          yield* writeErr(metTrailer(id, rendered));
         }
         return;
       // The three failing arms pass FACTS; `exit.ts` renders each line beside
@@ -403,7 +398,7 @@ function reportOutcome(
         return yield* Effect.fail(
           waitTimedOut({
             terminal: shortId(id),
-            elapsedMs: outcome.elapsedMs,
+            elapsedMs: rendered.elapsedMs,
             describe,
           }),
         );
@@ -424,7 +419,7 @@ function reportOutcome(
         // padi's shared sentence — `kolu watch` and `settledSnapshot` report the
         // same event, and two of the three used to name a different program to
         // go check on.
-        return yield* Effect.fail(failure(outcome.error ?? PADI_LINK_CLOSED));
+        return yield* Effect.fail(failure(rendered.error ?? PADI_LINK_CLOSED));
     }
   });
 }
@@ -516,11 +511,12 @@ function awaitPlan(
   opts: {
     readonly timeoutMs: number | undefined;
     readonly settledMs: number | undefined;
-    readonly screenTail: number | undefined;
+    readonly captureScreen: boolean;
     readonly signal: AbortSignal;
+    readonly invokedAs: string;
   },
 ): Effect.Effect<TerminalConditionOutcome, unknown> {
-  const { timeoutMs, settledMs, screenTail, signal } = opts;
+  const { timeoutMs, settledMs, captureScreen, signal } = opts;
   return Effect.tryPromise({
     try: () =>
       awaitTerminalCondition(client, {
@@ -529,8 +525,10 @@ function awaitPlan(
         signal,
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
         ...(settledMs !== undefined ? { settledMs } : {}),
-        ...(screenTail !== undefined ? { screenTail } : {}),
-        retryAdvice: "re-run the wait",
+        ...(captureScreen ? { captureScreen } : {}),
+        // The verb the USER typed, so a dropped feed under `kolu debrief` does
+        // not tell them to re-run a command they never ran.
+        retryAdvice: `re-run ${opts.invokedAs}`,
       }),
     catch: (err) => err,
   });
@@ -549,6 +547,11 @@ function awaitPlan(
 export function run(
   endpoint: Endpoint,
   args: WaitArgs,
+  /** The verb the user actually typed. `kolu debrief` expands to this `run`, so
+   *  without it the one diagnostic that names a command to re-run would name a
+   *  command they never ran — the first drift of "no second face to drift".
+   *  Passing your own name is not logic, so the alias stays definitional. */
+  invokedAs = "kolu wait",
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     const parsed = planUntil(args.until);
@@ -578,8 +581,9 @@ export function run(
             awaitPlan(conn.client, id, plan, {
               timeoutMs,
               settledMs,
-              screenTail,
+              captureScreen: screenTail !== undefined,
               signal,
+              invokedAs,
             }),
           );
           return { id, outcome };

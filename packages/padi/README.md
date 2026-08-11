@@ -213,11 +213,11 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   block-on-a-terminal-condition engine every face rides. It takes the condition
   as data (`idle` · `match` · `agent`) plus two orthogonal modifiers: a
   `settledMs` **conjunct** (met only once output has also been quiet that long,
-  with a condition that stops holding re-entering the wait) and a `screenTail`
-  **stamp** (the met carries the rendered tail, read while the wait's own
-  subscriptions are live and discarded-and-retaken if anything moves under the
-  read — which is why asking for it opens the output feed even for a condition
-  that would not otherwise need one). They live here rather than in a driving
+  with a condition that stops holding re-entering the wait) and a `captureScreen`
+  **stamp** (the met carries the terminal's rendered screen, read while the
+  wait's own subscriptions are live and discarded-and-retaken if the met
+  CANDIDATE moved under the read — narrower than "a byte arrived", which has no
+  fixed point). They live here rather than in a driving
   loop because the races they close are between a caller's separate
   *invocations* — `kolu wait --settled/--snapshot` and `kolu debrief` are that
   engine's argv face

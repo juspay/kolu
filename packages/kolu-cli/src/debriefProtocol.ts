@@ -15,8 +15,11 @@
  *
  * It sits beside `cli.ts` rather than under `verbs/` because the command tree
  * reads it at MODULE LOAD (a flag's default is part of the parse), and the whole
- * point of `verbs/` is that nothing there loads until its handler runs.
+ * point of `verbs/` is that nothing there loads until its handler runs. Its one
+ * import is `import type`, so it is erased and the per-face fence is untouched.
  */
+
+import type { WaitState } from "@kolu/padi/dial";
 
 /** The buckets that mean "the worker's turn is over": `awaiting` (it is asking
  *  the human something) and `waiting` (it finished and is idle at its prompt).
@@ -25,8 +28,17 @@
  *
  *  Spelled as the `--until` STRING the expansion passes, so `wait`'s own
  *  `planUntil` is the only thing that ever decides what it means; a pre-parsed
- *  condition here would be a second route into that grammar. */
-export const DEBRIEF_UNTIL = "awaiting,waiting";
+ *  condition here would be a second route into that grammar. The bucket NAMES
+ *  are typed against padi's own vocabulary all the same — a `WaitState` typo
+ *  would otherwise be a plain string that fails at runtime, on the one verb
+ *  whose whole promise is that it cannot be spelled wrong. `import type` keeps
+ *  this a zero-import leaf: the annotation is fully erased. */
+const DEBRIEF_BUCKETS = [
+  "awaiting",
+  "waiting",
+] as const satisfies readonly WaitState[];
+
+export const DEBRIEF_UNTIL = DEBRIEF_BUCKETS.join(",");
 
 /** How long `debrief` waits for quiet before believing the turn is over.
  *
@@ -46,6 +58,11 @@ export const DEBRIEF_QUIET_MS = 15_000;
 export const DEBRIEF_TAIL_LINES = 40;
 
 /** The `wait` invocation `debrief` IS, spelled for a human — the `--help` line,
- *  built from the same constants the verb passes. */
-export const debriefExpansion = (quiet: number, tail: number): string =>
-  `kolu wait <id> --until ${DEBRIEF_UNTIL} --settled ${quiet} --snapshot ${tail}`;
+ *  built from the same constants the verb passes.
+ *
+ *  A CONSTANT, not a function of them: its one caller passed the two constants
+ *  declared just above it, and a parameter with one possible argument is
+ *  variability that is not volatility — it would let some future caller render
+ *  an expansion the verb does not perform, which is the exact drift this module
+ *  exists to prevent. */
+export const DEBRIEF_EXPANSION = `kolu wait <id> --until ${DEBRIEF_UNTIL} --settled ${DEBRIEF_QUIET_MS} --snapshot ${DEBRIEF_TAIL_LINES}`;

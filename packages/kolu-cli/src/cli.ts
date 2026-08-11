@@ -47,9 +47,9 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 // defaults and the `--help` line, and by `verbs/debrief.ts` to perform the
 // expansion. See that module's header for why it is not spelled twice.
 import {
+  DEBRIEF_EXPANSION,
   DEBRIEF_QUIET_MS,
   DEBRIEF_TAIL_LINES,
-  debriefExpansion,
 } from "./debriefProtocol.ts";
 // The ONE version accessor (`hostname.ts` is a leaf: node built-ins + the
 // server's package.json, which `/release` bumps and nix reads too) — so
@@ -200,6 +200,24 @@ const positiveLines = (name: string): Flag.Flag<number> =>
     Flag.filter(
       (n) => n > 0,
       (n) => `--${name} takes a positive whole number of lines, got ${n}.`,
+    ),
+  );
+
+/** "A millisecond window is inside the shared `setTimeout` range" — the sibling
+ *  of {@link positiveLines}, and for the same reason.
+ *
+ *  `isValidTimerMs` is documented as the one home for the timer-range RULE, but
+ *  its user-facing SENTENCE was spelled once per flag; three flags in, two of
+ *  the copies had already drifted in wording. `effect` names what an
+ *  out-of-range value would do to that particular flag ("fires a false timeout"
+ *  vs "reports a false settle"), which is the only part that legitimately
+ *  differs — the overflow is one fact. */
+const timerMsFlag = (name: string, effect: string): Flag.Flag<number> =>
+  Flag.integer(name).pipe(
+    Flag.filter(
+      isValidTimerMs,
+      (n) =>
+        `--${name} must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger value overflows the timer and ${effect} almost immediately, got ${n}.`,
     ),
   );
 
@@ -361,27 +379,17 @@ export const waitFlags = {
   // an out-of-range timeout, and `isValidTimerMs` is the one home for the
   // ceiling (`--until idle:<ms>` calls it too, inside its compound grammar).
   timeout: opt(
-    Flag.integer("timeout").pipe(
+    timerMsFlag("timeout", "fires a false timeout").pipe(
       Flag.withDescription("give up after this many milliseconds (exit 2)"),
-      Flag.filter(
-        isValidTimerMs,
-        (n) =>
-          `--timeout must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger delay overflows the timer and fires a false timeout almost immediately, got ${n}.`,
-      ),
     ),
   ),
   // The two orthogonal modifiers (kolu#2139). Neither is a fourth `--until`
   // form: `--settled` narrows WHEN the condition counts as met, `--snapshot`
   // widens WHAT the met carries, and each is useful without the other.
   settled: opt(
-    Flag.integer("settled").pipe(
+    timerMsFlag("settled", "reports a false settle").pipe(
       Flag.withDescription(
         "report met only once output has ALSO been quiet this many milliseconds — a conjunct on --until, evaluated on the same subscription",
-      ),
-      Flag.filter(
-        isValidTimerMs,
-        (n) =>
-          `--settled must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger window overflows the timer and reports a false settle almost immediately, got ${n}.`,
       ),
     ),
   ),
@@ -431,14 +439,9 @@ export const debriefFlags = {
   id: Argument.string("id").pipe(
     Argument.withDescription("terminal id (any unique prefix)"),
   ),
-  quiet: Flag.integer("quiet").pipe(
+  quiet: timerMsFlag("quiet", "reports a false settle").pipe(
     Flag.withDescription(
-      `require this many milliseconds of output quiet before believing the turn is over (default ${DEBRIEF_QUIET_MS})`,
-    ),
-    Flag.filter(
-      isValidTimerMs,
-      (n) =>
-        `--quiet must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger window overflows the timer and reports a false settle almost immediately, got ${n}.`,
+      `require this many milliseconds of output quiet before believing the turn is over — this is wait's --settled (default ${DEBRIEF_QUIET_MS})`,
     ),
     Flag.withDefault(DEBRIEF_QUIET_MS),
   ),
@@ -449,13 +452,8 @@ export const debriefFlags = {
     Flag.withDefault(DEBRIEF_TAIL_LINES),
   ),
   timeout: opt(
-    Flag.integer("timeout").pipe(
+    timerMsFlag("timeout", "fires a false timeout").pipe(
       Flag.withDescription("give up after this many milliseconds (exit 2)"),
-      Flag.filter(
-        isValidTimerMs,
-        (n) =>
-          `--timeout must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger delay overflows the timer and fires a false timeout almost immediately, got ${n}.`,
-      ),
     ),
   ),
   json: Flag.boolean("json").pipe(
@@ -471,10 +469,7 @@ const debrief = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    `Wait until a worker's turn is over AND its output is quiet, then print its screen — exactly \`${debriefExpansion(
-      DEBRIEF_QUIET_MS,
-      DEBRIEF_TAIL_LINES,
-    )}\`.`,
+    `Wait until a worker's turn is over AND its output is quiet, then print its screen — exactly \`${DEBRIEF_EXPANSION}\`.`,
   ),
   Command.withExamples([
     {
