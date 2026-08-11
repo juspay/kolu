@@ -9,9 +9,10 @@ timeouts on every wait) — only the spelling changes.
 
 **`kolu` is the ONE terminal CLI.** One command carries the whole toolkit —
 **ls** (the roster) · **create** (spawn) · **send** (write text, OR a `--key`) ·
-**wait** (block on a done-signal) · **snapshot** (read the rendered text —
-`--tail N` for what's on screen) · **history**
-(read the scrollback) · **kill** · **watch** (the live feed). Every verb is a
+**wait** (block on a done-signal) · **debrief** (the composed done-signal: turn
+over AND quiet, then the screen — what you should type when driving an agent) ·
+**snapshot** (read the rendered text — `--tail N` for what's on screen) ·
+**history** (read the scrollback) · **kill** · **watch** (the live feed). Every verb is a
 pure **padi** client, so there is no second CLI to learn and no second daemon to
 choose between: you name a padi (or, inside a kolu terminal, name nothing) and
 drive its terminals. (The older `padi-tui` / `kaval-tui` binaries still ship and
@@ -40,7 +41,7 @@ the TUI's paste debounce and is silently dropped. See the next section.
 
 **stdout is data, stderr is prose.** `create` prints the new id on stdout and
 its human trailer on stderr, so `id=$(kolu create … )` captures exactly the id
-and nothing else. `--json` (on `ls`/`create`/`send`/`wait`/`watch`) makes the
+and nothing else. `--json` (on `ls`/`create`/`send`/`wait`/`debrief`/`watch`) makes the
 data machine-readable.
 
 **Ids accept any unique prefix.** `kolu send 3f9c "…"` is the whole id's
