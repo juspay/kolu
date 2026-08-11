@@ -12,6 +12,13 @@ edits; the full stories live in git history and the sessions cited by
 - **Subagent briefs say "execute now".** Delegated subagents don't inherit the
   interview's no-stopping contract — a plan-shaped brief gets a plan back with
   zero tool uses, and the human has to type "go".
+- **A scripted edit must fail on a non-match.** A run applied a debate finding's
+  doc fix with a `node` string-replace whose needle had drifted; `String.replace`
+  no-oped, the file was rewritten unchanged, the script's own `ok` printed, and
+  the `grep -c` beside it printed `0` and was read past. The run reported the
+  finding fixed and the false claim survived a full debate round until the peer
+  checked the tree instead of the claim. That run applied 52 scripted in-place
+  edits and only 8 could have failed loudly.
 - **Reproduce before theorize; inherited diagnoses are hypotheses.** A detailed
   frame-trace talked a run into ~400 lines of client-side fix against a
   mechanism the box repro then disproved — the trace came from a deleted
