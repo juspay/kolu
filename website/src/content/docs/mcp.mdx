@@ -84,6 +84,16 @@ and checking the exit code rather than reimplementing socket discovery.
 
 </Steps>
 
+None of that needs a flag when you are simply running kolu: `kolu mcp` finds this
+machine's kolu on its own. If you also have a development or test kolu up, it
+still picks your everyday one — the daemons differ by where they keep their
+state, and only one of them keeps it where a plain kolu looks. That matters most
+when the thing spawning `kolu mcp` is a **background service** rather than you at
+a shell: there is nobody there to point it at the right daemon, and it no longer
+needs one. If it still can't tell — several kolus are running and none of them is
+the everyday one — it says so and names what it looked for, rather than
+connecting to whichever it found first.
+
 ## Inside a kolu terminal
 
 An agent running **in** a kolu terminal needs no step above, and this is true on a

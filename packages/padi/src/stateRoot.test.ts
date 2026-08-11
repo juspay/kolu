@@ -17,18 +17,23 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
+import { scrubDaemonLocatorEnv } from "@kolu/daemon-test-gate/setup";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   productionPadiStateRoot,
   namePadiStateRootForDiscovery,
   discoverPadiDaemons,
+  localPadiSocket,
   PADI_GATE_FILE,
+  type PadiDaemon,
   padiDigest,
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
+  classifyLivePadis,
   residentPadiSocket,
   resolvePadiStateRoot,
+  resolveRunningPadiSocket,
 } from "./stateRoot.ts";
 
 /** A pid that is definitely dead — spawn a child, kill it, await its exit. Mirrors
@@ -82,6 +87,14 @@ const SAVED = {
   XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
   HOME: process.env.HOME,
   KOLU_PADI_STATE_DIR: process.env.KOLU_PADI_STATE_DIR,
+  // `PADI_SOCKET` is read by `resolveRunningPadiSocket` and scrubbed by the
+  // primary-rule cases (a flag-less headless client has none). Saved for
+  // symmetry with the other locators, NOT because a real value is expected here:
+  // the worker-level `scrubDaemonLocatorEnv` (`@kolu/daemon-test-gate/setup`,
+  // wired in this package's `vitest.config.ts`) already deletes every locator
+  // before any test runs, so this reads `undefined` even when the suite is run
+  // from a kolu terminal that stamps one.
+  PADI_SOCKET: process.env.PADI_SOCKET,
 };
 beforeEach(() => {
   process.env.XDG_RUNTIME_DIR = "/run/user/1000";
@@ -169,6 +182,204 @@ describe("namePadiStateRootForDiscovery — dial/error naming (not bind)", () =>
     delete process.env.KOLU_PADI_STATE_DIR;
     process.env.HOME = "/home/u";
     expect(namePadiStateRootForDiscovery()).toBe("/home/u/.local/state/padi");
+  });
+});
+
+/**
+ * The PRIMARY rule (juspay/kolu#2154) — WHICH padi a flag-less client dials when
+ * several are live. The tie the resolver used to refuse was never a real tie: a
+ * dev/e2e padi is keyed to an EXPLICIT state-root, so exactly one of the live
+ * daemons is the one this environment names (`namePadiStateRootForDiscovery` —
+ * `$KOLU_PADI_STATE_DIR`, else the production formula), and that one is primary.
+ *
+ * These cases fabricate the multi-daemon host the refusal fired on: two real
+ * socket inodes under a private drawer, each with its own `state-root` manifest
+ * and a gate naming a LIVE pid (this process — the same stand-in
+ * `residentPadiSocket`'s cases use, so no child is spawned).
+ *
+ * They are hermetic DESPITE `discoverPadiDaemons` also unioning the real `/tmp`
+ * and `/run/user/$UID` drawers — where this developer's own daemons genuinely
+ * live — because every assertion is anchored to a `$HOME` inside a fresh temp
+ * dir: no real daemon can name that root, so a real daemon can only ever join
+ * the candidate list, never win the primary match nor drop the count below two.
+ */
+describe("the primary padi — which one a flag-less client dials among several (#2154)", () => {
+  const servers: Server[] = [];
+  const dirs: string[] = [];
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => closeServer(s)));
+    for (const d of dirs.splice(0)) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
+  });
+
+  /** Register a LIVE padi for `stateRoot` under the drawer `$XDG_RUNTIME_DIR`
+   *  currently names — socket inode, manifest, live gate — exactly as a running
+   *  padi registers itself. Returns the socket path it now answers at. */
+  async function registerLivePadi(stateRoot: string): Promise<string> {
+    const socket = padiSocketPath(stateRoot);
+    mkdirSync(dirname(socket), { recursive: true, mode: 0o700 });
+    writeStateRootManifest(dirname(socket), stateRoot);
+    writeGate(dirname(socket), process.pid);
+    servers.push(await listenSocket(socket));
+    return socket;
+  }
+
+  /** Pin the environment a flag-less headless client reads, and return the state
+   *  root the production formula then names.
+   *
+   *  The locator scrub is `@kolu/daemon-test-gate`'s `scrubDaemonLocatorEnv` —
+   *  the canonical list of "vars that let a process reach a live daemon"
+   *  (`DAEMON_LOCATOR_ENV`), not a hand-picked pair. Picking two of them by hand
+   *  is how a fifth locator, added to that list later, would silently leak into
+   *  these cases — whose whole premise is that NO locator is set — and resolve
+   *  them against the developer's real production daemon.
+   *
+   *  `$HOME` lands in a fresh temp dir, which is what makes every assertion in
+   *  this block hermetic: discovery also unions the real `/tmp` and
+   *  `/run/user/$UID` drawers, and no daemon there can be keyed to a root under
+   *  a directory that did not exist a moment ago. */
+  function pinFreshHost(): string {
+    scrubDaemonLocatorEnv();
+    const home = mkdtempSync(join(tmpdir(), "padi-primary-home-"));
+    dirs.push(home);
+    const drawer = mkdtempSync(join(tmpdir(), "padi-primary-drawer-"));
+    dirs.push(drawer);
+    process.env.HOME = home;
+    process.env.XDG_RUNTIME_DIR = drawer;
+    return join(home, ".local", "state", "padi");
+  }
+
+  it("dials the daemon keyed to this environment's state root, though a dev daemon is live too", async () => {
+    const primaryRoot = pinFreshHost();
+    // The two daemons olai's host actually had up: the primary, and a dev padi
+    // keyed to an explicit throwaway root. Registered dev-FIRST so a resolver
+    // that merely took the first discovered daemon would pick the wrong one.
+    const devSocket = await registerLivePadi(
+      join(primaryRoot, "..", "dev-e2e"),
+    );
+    const primarySocket = await registerLivePadi(primaryRoot);
+    expect(devSocket).not.toBe(primarySocket);
+
+    const resolved = resolveRunningPadiSocket();
+    expect(resolved).toMatchObject({ kind: "primary", socket: primarySocket });
+    expect(localPadiSocket({ kind: "auto" })).toEqual({
+      kind: "ok",
+      socket: primarySocket,
+    });
+  });
+
+  // NOTE: the `$KOLU_PADI_STATE_DIR` override is pinned by the pure case in the
+  // next block, not by a fourth socket-fabricating case here. Through the disk
+  // it asserted nothing the case above does not already prove — the wiring
+  // discovery → liveness → manifest → classify is the same one call — while
+  // paying a full three-regime scan and two socket binds to reach it.
+
+  it("still refuses when several are live and NONE is this environment's — naming the root it looked for", async () => {
+    const primaryRoot = pinFreshHost();
+    // Two daemons, both keyed to explicit roots — a genuine tie: nothing here
+    // is the padi this environment names, so there is no answer to pick.
+    const a = await registerLivePadi(join(primaryRoot, "..", "worktree-a"));
+    const b = await registerLivePadi(join(primaryRoot, "..", "worktree-b"));
+
+    const resolved = resolveRunningPadiSocket();
+    expect(resolved.kind).toBe("many");
+
+    const refusal = localPadiSocket({ kind: "auto" });
+    expect(refusal.kind).toBe("unaddressable");
+    if (refusal.kind !== "unaddressable") throw new Error("unreachable");
+    // The message must name the root that was looked for — without it a headless
+    // operator cannot tell "your padi is down" from "you have no primary".
+    expect(refusal.message).toContain(primaryRoot);
+    expect(refusal.message).toContain(`PADI_SOCKET=${a}`);
+    expect(refusal.message).toContain(`PADI_SOCKET=${b}`);
+  });
+});
+
+/**
+ * The same policy over a LIST instead of the disk — where every arm can be
+ * asserted outright.
+ *
+ * The sole-daemon arm is why this block exists. Driven through the real
+ * registry it is unassertable on any machine that runs a padi of its own: the
+ * developer's daemons join the scan, the count is never one, and the case
+ * degrades to `expect(kind).toBe("many")` — a test that passes without testing
+ * anything, on exactly the multi-daemon hosts this policy exists for. That is
+ * how the first draft of it was written, and the debate peer was right to call
+ * it (juspay/kolu#2154 review, F2). Over a list, one daemon is one element.
+ */
+describe("classifyLivePadis — which of the live daemons, as pure data", () => {
+  const daemon = (stateRoot: string | null, socket: string): PadiDaemon => ({
+    socket,
+    stateRoot,
+    gatePid: 1234,
+  });
+  const PROD = "/home/u/.local/state/padi";
+
+  beforeEach(() => {
+    process.env.HOME = "/home/u";
+    delete process.env.KOLU_PADI_STATE_DIR;
+  });
+
+  it("dials a SOLE live daemon whatever its root — the flag-less dev box, unchanged", () => {
+    // The arm this PR deliberately did not touch, pinned so a later change that
+    // made it require a primary root fails here rather than in a headless
+    // client. This daemon serves a dev root, NOT the environment's.
+    const resolved = classifyLivePadis([
+      daemon("/tmp/dev/padi", "/run/d.sock"),
+    ]);
+    expect(resolved).toEqual({ kind: "one", socket: "/run/d.sock" });
+  });
+
+  it("picks the daemon serving this environment's root when several are live", () => {
+    const resolved = classifyLivePadis([
+      daemon("/tmp/dev/padi", "/run/dev.sock"),
+      daemon(PROD, "/run/prod.sock"),
+    ]);
+    expect(resolved).toEqual({ kind: "primary", socket: "/run/prod.sock" });
+  });
+
+  it("honors $KOLU_PADI_STATE_DIR over the production formula", () => {
+    process.env.KOLU_PADI_STATE_DIR = "/tmp/dev/padi";
+    const resolved = classifyLivePadis([
+      daemon("/tmp/dev/padi", "/run/dev.sock"),
+      daemon(PROD, "/run/prod.sock"),
+    ]);
+    expect(resolved).toEqual({ kind: "primary", socket: "/run/dev.sock" });
+  });
+
+  it("matches on the RESOLVED path, so two spellings of one root are one daemon", () => {
+    const resolved = classifyLivePadis([
+      daemon("/tmp/dev/padi", "/run/dev.sock"),
+      daemon("/home/u/./x/../.local/state/padi", "/run/prod.sock"),
+    ]);
+    expect(resolved).toEqual({ kind: "primary", socket: "/run/prod.sock" });
+  });
+
+  it("refuses when several are live and none serves this environment's root", () => {
+    const live = [
+      daemon("/tmp/a/padi", "/run/a.sock"),
+      daemon("/tmp/b/padi", "/run/b.sock"),
+    ];
+    expect(classifyLivePadis(live)).toEqual({
+      kind: "many",
+      candidates: live,
+      primaryStateRoot: PROD,
+    });
+  });
+
+  it("never assumes a manifest-less daemon is primary — an unlabeled registration is not an identity", () => {
+    const live = [daemon(null, "/run/bare.sock"), daemon(null, "/run/b2.sock")];
+    expect(classifyLivePadis(live).kind).toBe("many");
+  });
+
+  it("names a socket for the error path when none is live — never a throwing bind resolve", () => {
+    const resolved = classifyLivePadis([]);
+    expect(resolved).toEqual({ kind: "none", socket: padiSocketPath(PROD) });
   });
 });
 

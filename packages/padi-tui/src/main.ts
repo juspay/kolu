@@ -50,7 +50,6 @@ import { NodeSink } from "@effect/platform-node";
 import {
   awaitAgentState,
   isWaitState,
-  resolveRunningPadiSocket,
   WAIT_STATES,
   type WaitState,
   watchTerminals,
@@ -86,6 +85,7 @@ import {
   WaitTimedOut,
 } from "./exit.ts";
 import { connectPadiTuiViaHost } from "./hostConnect.ts";
+import { resolveSocketPath } from "./socketTarget.ts";
 import { readTerminalKeys, settledSnapshot } from "@kolu/padi/read";
 import {
   formatStatus,
@@ -345,43 +345,6 @@ const shutdownRequest: Effect.Effect<ShutdownRequest, never, Scope.Scope> =
  *  drift. Both guards stay; only the string is shared. */
 const WORKTREE_OVER_HOST_NEEDS_REPO =
   "--worktree over --host needs --repo <path on the host>: the worktree is cut on the REMOTE machine, so it can't default to your local directory. Pass --repo with an absolute path on the host.";
-
-/** The socket to dial. The selection policy (`--socket` wins; else `--state-root`;
- *  else $PADI_SOCKET; else discover) plus the candidate labels live in the shared
- *  `resolveRunningPadiSocket` (the dial kit), so here padi-tui only renders the
- *  `many` ambiguity as its own pick-one failure. */
-function resolveSocketPath(flags: {
-  socket: string | undefined;
-  stateRoot: string | undefined;
-}): Effect.Effect<string, CliFailure> {
-  if (flags.socket !== undefined && flags.stateRoot !== undefined) {
-    return Effect.fail(
-      failure(
-        "--socket and --state-root are mutually exclusive: --socket is a literal socket path, --state-root derives one. Pass just one.",
-      ),
-    );
-  }
-  return Effect.suspend(() => {
-    const resolved = resolveRunningPadiSocket({
-      socket: flags.socket,
-      stateRoot: flags.stateRoot,
-    });
-    if (resolved.kind === "many") {
-      return Effect.fail(
-        failure(
-          `more than one padi daemon is running:\n  ${resolved.candidates
-            .map(
-              (d) => `${d.socket}    (${d.stateRoot ?? "unknown state-root"})`,
-            )
-            .join(
-              "\n  ",
-            )}\nPass --socket <path> or --state-root <dir> to pick one.`,
-        ),
-      );
-    }
-    return Effect.succeed(resolved.socket);
-  });
-}
 
 /** The one daemon a command targets: a REMOTE padi over ssh (`--host`) or a LOCAL
  *  one at a resolved socket path. Each arm carries exactly what its connect needs,

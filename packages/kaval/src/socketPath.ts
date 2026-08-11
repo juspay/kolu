@@ -390,8 +390,25 @@ export type KavalSocketResolution =
   | { kind: "explicit" | "env" | "one" | "none"; socket: string }
   | { kind: "many"; candidates: KavalSocketCandidate[] };
 
-/** Resolve which running kaval to dial, in precedence order (the mirror of
- *  padi-tui's `resolveRunningPadiSocket`):
+/** Resolve which running kaval to dial, in precedence order (padi's
+ *  `resolveRunningPadiSocket` is the near-twin — with ONE deliberate difference:
+ *  padi breaks a several-daemons tie by picking the PRIMARY one, and this does
+ *  not. That rule exists because padi's flag-less face is dialed by HEADLESS
+ *  callers that cannot answer a pick-one prompt (`kolu mcp` out of a systemd
+ *  unit, juspay/kolu#2154); a kaval is spawned BY a padi and every kolu PTY
+ *  carries `$KAVAL_SOCKET`, so nothing headless reaches a flag-less `kaval-tui`
+ *  and the several case here has produced no failure to fix. Mirror it if one
+ *  ever does — not on symmetry alone.
+ *
+ *  That argument covers the PRIMARY rule and nothing else. padi's change carried
+ *  a SECOND rule this side has not adopted — a resolution is structure, one
+ *  function (`localPadiSocket`) owns both refusal sentences, and a face renders
+ *  no candidate list — and that one has nothing to do with headless callers.
+ *  There is no `localKavalSocket`, so `kaval-tui` still hand-rolls its `many`
+ *  message (omitting `$KAVAL_SOCKET` from the way out, the same drift padi's
+ *  copy had) and still lets `none` fall through to a bare success that dials a
+ *  socket nothing serves. Known debt, stated here rather than left for the next
+ *  reader to rediscover; it is a `kaval-tui` fix, not a resolution one):
  *   1. an explicit `--socket` path wins verbatim — a user-supplied override;
  *   2. `$KAVAL_SOCKET` — stamped into every PTY a kaval/padi spawns (the `$TMUX`
  *      convention) — names the daemon that OWNS this terminal, so a flag-less

@@ -166,8 +166,10 @@ face agents connect to — taken from padi's own build. On a **remote** host the
 arrive in the closure kolu provisions, so an agent working there has the whole
 loop available with nothing installed on the box, and can never end up holding a
 tool from a different build than the daemon it is talking to. Elsewhere it autodiscovers the running
-padi; `--socket <path>` or `--state-root <dir>` point it at a different local
-daemon, and `--host <ssh>` reaches a padi on **another machine** — the twin of
+padi — and when several are running (your everyday padi plus a dev or test one),
+it picks the one keyed to the state root your environment names rather than
+asking you to choose; `--socket <path>` or `--state-root <dir>` point it at a
+different local daemon, and `--host <ssh>` reaches a padi on **another machine** — the twin of
 [`kaval-tui --host`](/kaval#reach-a-remote-kaval--over-ssh): it provisions the
 daemon with Nix, runs `padi --stdio` over ssh, and runs every verb unchanged
 against the remote (`padi-tui status --host nix@prod`). Read verbs are safe and
