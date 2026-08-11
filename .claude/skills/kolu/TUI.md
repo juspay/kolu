@@ -219,9 +219,12 @@ kolu wait "$id" --until awaiting,waiting --settled 15000 --snapshot 40 --timeout
   dropping back to `working` re-enters it.
 - **`--snapshot <N>`** makes the met carry the screen: in plain mode the `<N>`
   lines are stdout (pipeable) with the trailer on stderr, under `--json` they are
-  the frame's `screen` key. Read at the moment the condition held, on the same
-  subscription — so it is not "the screen a moment later", which is all a
-  separate `kolu snapshot` can ever be.
+  the frame's `screen` key. Read on the same subscription the condition settled
+  on — so it is not "the screen a moment later", which is all a separate `kolu
+  snapshot` can ever be. **Paired with `--settled`** (what `debrief` does) the
+  screen is one taken inside that same quiet stretch, and one the terminal moved
+  under is discarded and retaken; **on its own** it is simply the screen as of
+  the condition landing, with no quiet claimed.
 
 Together they are `kolu debrief`, which is what you should actually type:
 
