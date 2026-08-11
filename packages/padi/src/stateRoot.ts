@@ -587,6 +587,75 @@ export type LocalPadiSocket =
   | { readonly kind: "ok"; readonly socket: string }
   | { readonly kind: "unaddressable"; readonly message: string };
 
+/** The two LOCAL endpoint flags, exactly as a face parses them off argv. */
+export interface LocalPadiFlags {
+  readonly socket: string | undefined;
+  readonly stateRoot: string | undefined;
+}
+
+/**
+ * argv → {@link LocalPadiTarget}, or the sentence saying why those flags name no
+ * padi — the refusals that belong to the FLAGS rather than to the host.
+ *
+ * Two rules, and their ORDER is the point:
+ *
+ *  1. **A flag that is present but blank is refused first.** `--socket "$SOCK"`
+ *     with `$SOCK` unset is an ordinary shell accident, and `""` reads as "no
+ *     socket given" downstream — so it would fall through to discovery and dial
+ *     whatever is running. Since the primary rule that is no longer even a
+ *     refusal: it SUCCEEDS, and the user who named one padi silently drives
+ *     another workspace's terminals. Whitespace counts as blank (`--socket " "`
+ *     is the same accident with a quoted space).
+ *  2. **Then mutual exclusion.** Two spellings of "which padi" is a
+ *     contradiction to refuse, not a preference to resolve.
+ *
+ * Blank-before-exclusive is not cosmetic. A blank string is still *present*, so
+ * checking exclusivity first answers `--socket "" --state-root /srv/padi` with
+ * "pass just one" — advice that is simply wrong, since the user meaningfully
+ * named exactly one. padi-tui shipped that inversion for one commit
+ * (juspay/kolu#2154 police pass) precisely because the rule lived in two
+ * hand-rolled copies; it lives here now so a face cannot get the order wrong.
+ *
+ * kolu-cli's `endpointOf` states the same rule over a THREE-flag alphabet (it
+ * adds the remote `--host` arm, and its sentences name `kolu`); it is the one
+ * remaining copy, and it should collapse onto this the day `--host` becomes part
+ * of a local/remote target this module can spell.
+ */
+export function localPadiTargetOf(flags: LocalPadiFlags):
+  | { readonly kind: "ok"; readonly target: LocalPadiTarget }
+  | {
+      readonly kind: "unaddressable";
+      readonly message: string;
+    } {
+  const given = [
+    ["--socket", flags.socket],
+    ["--state-root", flags.stateRoot],
+  ] as const;
+  const blank = given
+    .filter(([, v]) => v !== undefined && v.trim() === "")
+    .map(([name]) => name);
+  if (blank.length > 0) {
+    return {
+      kind: "unaddressable",
+      message: `${blank.join(" and ")} was passed with an empty value — an unset shell variable, most likely. Name a padi, or drop the flag entirely; kolu will not quietly fall back to whichever daemon it discovers.`,
+    };
+  }
+  const named = given.filter(([, v]) => v !== undefined).map(([name]) => name);
+  if (named.length > 1) {
+    return {
+      kind: "unaddressable",
+      message: `${named.join(" and ")} are mutually exclusive — --socket is a literal socket path, --state-root derives one. Pass just one.`,
+    };
+  }
+  if (flags.socket !== undefined) {
+    return { kind: "ok", target: { kind: "socket", path: flags.socket } };
+  }
+  if (flags.stateRoot !== undefined) {
+    return { kind: "ok", target: { kind: "stateRoot", dir: flags.stateRoot } };
+  }
+  return { kind: "ok", target: { kind: "auto" } };
+}
+
 /**
  * Name the ONE local padi socket a client should dial, or say why it cannot be
  * named — the whole "which padi, locally" policy INCLUDING the two sentences a

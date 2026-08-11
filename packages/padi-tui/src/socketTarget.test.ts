@@ -67,6 +67,23 @@ describe("resolveSocketPath — what this face refuses before it resolves", () =
   it("names BOTH flags when both are blank, rather than only the first", () => {
     const message = refusalOf({ socket: "", stateRoot: "" });
     expect(message).toContain("--socket and --state-root");
+    // Asserting the blank-specific wording, not just the flag names: with the
+    // checks in the other order this case reaches the mutual-exclusion branch
+    // instead, whose sentence ALSO names both flags — so a bare
+    // `toContain("--socket and --state-root")` passes either way and pins
+    // nothing. It did, for one commit.
+    expect(message).toContain("empty value");
+    expect(message).not.toContain("mutually exclusive");
+  });
+
+  // The ordering the case above can no longer hide: a blank flag is still
+  // PRESENT, so a mutual-exclusion check that runs first answers "pass just one"
+  // — advice that is wrong, because the user meaningfully named exactly one.
+  it("reports the BLANK flag, not exclusivity, when one is blank and one is real", () => {
+    const message = refusalOf({ socket: "", stateRoot: "/srv/padi" });
+    expect(message).toContain("empty value");
+    expect(message).toContain("--socket");
+    expect(message).not.toContain("mutually exclusive");
   });
 
   it("passes a NAMED socket straight through — the flag is honored verbatim", () => {

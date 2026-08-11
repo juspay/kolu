@@ -63,8 +63,10 @@ import {
 export {
   discoverPadiDaemons,
   type LocalPadiSocket,
+  type LocalPadiFlags,
   localPadiSocket,
   type LocalPadiTarget,
+  localPadiTargetOf,
   type PadiDaemon,
   type PadiSocketResolution,
   padiSocketPath,

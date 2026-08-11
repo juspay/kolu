@@ -1,15 +1,20 @@
 /**
  * WHICH local padi this face dials — `padi-tui`'s argv→socket step.
  *
- * Its own module, not a private function in `main.ts`, for the reason
- * `create.ts` and `exit.ts` are: `main.ts` is the CLI entry and exports nothing,
- * so anything living there is untestable without executing the command tree. The
- * refusals below are user-visible contract — one of them exists precisely
- * because a silent fall-through was not caught by a test — so they are pinned by
- * `socketTarget.test.ts` rather than trusted.
+ * Its own module, not a private function in `main.ts`, for the reason `create.ts`
+ * and `exit.ts` are: `main.ts` is the CLI entry and exports nothing, so anything
+ * living there is untestable without executing the command tree. This face's
+ * socket resolution had no test at all while it hand-rolled its own refusals,
+ * which is exactly how it drifted.
+ *
+ * Nothing here decides anything any more. Both halves are `@kolu/padi`'s:
+ * `localPadiTargetOf` owns the FLAG refusals (blank before mutually-exclusive —
+ * an order this face got backwards while it owned a copy), and `localPadiSocket`
+ * owns the HOST ones (no daemon, or several with no primary). What is left is
+ * the two-line adapter onto this CLI's error type.
  */
 
-import { type LocalPadiTarget, localPadiSocket } from "@kolu/padi/dial";
+import { localPadiSocket, localPadiTargetOf } from "@kolu/padi/dial";
 import { Effect } from "effect";
 import { type CliFailure, failure } from "./exit.ts";
 
@@ -24,9 +29,8 @@ export interface SocketFlags {
  *
  * The selection policy (`--socket` wins; else `--state-root`; else
  * `$PADI_SOCKET`; else the sole running padi, or the PRIMARY one among several)
- * and BOTH refusal sentences live in the shared `localPadiSocket` (the dial
- * kit), so this face decides nothing about wording and renders no candidate list
- * of its own.
+ * and EVERY refusal sentence live in the shared dial kit, so this face decides
+ * nothing about wording and renders no candidate list of its own.
  *
  * It used to call the lower-level `resolveRunningPadiSocket` and hand-roll the
  * `many` sentence — the exact duplication `localPadiSocket`'s own docstring says
@@ -42,46 +46,12 @@ export interface SocketFlags {
 export function resolveSocketPath(
   flags: SocketFlags,
 ): Effect.Effect<string, CliFailure> {
-  if (flags.socket !== undefined && flags.stateRoot !== undefined) {
-    return Effect.fail(
-      failure(
-        "--socket and --state-root are mutually exclusive: --socket is a literal socket path, --state-root derives one. Pass just one.",
-      ),
-    );
+  const target = localPadiTargetOf(flags);
+  if (target.kind === "unaddressable") {
+    return Effect.fail(failure(target.message));
   }
-  // A flag that is PRESENT but blank is refused, and the primary rule is what
-  // makes that urgent rather than tidy. `--socket "$SOCK"` with `$SOCK` unset is
-  // an ordinary shell accident; the resolver treats `""` as "no socket given",
-  // so it falls through to discovery — which now RESOLVES on a multi-daemon host
-  // instead of refusing. The user who named one padi would silently drive the
-  // primary one's terminals: the very wrong-workspace drive the primary rule
-  // elsewhere refuses to risk. Whitespace counts as blank for the same reason
-  // (`--socket " "` is the same accident with a quoted space). kolu-cli's
-  // `endpointOf` states the identical rule for the identical reason; the two
-  // stay separate only because padi-tui does not depend on kolu-cli.
-  const blank = (
-    [
-      ["--socket", flags.socket],
-      ["--state-root", flags.stateRoot],
-    ] as const
-  )
-    .filter(([, v]) => v !== undefined && v.trim() === "")
-    .map(([name]) => name);
-  if (blank.length > 0) {
-    return Effect.fail(
-      failure(
-        `${blank.join(" and ")} was passed with an empty value — an unset shell variable, most likely. Name a padi, or drop the flag entirely; padi-tui will not quietly fall back to whichever daemon it discovers.`,
-      ),
-    );
-  }
-  const target: LocalPadiTarget =
-    flags.socket !== undefined
-      ? { kind: "socket", path: flags.socket }
-      : flags.stateRoot !== undefined
-        ? { kind: "stateRoot", dir: flags.stateRoot }
-        : { kind: "auto" };
   return Effect.suspend(() => {
-    const resolved = localPadiSocket(target);
+    const resolved = localPadiSocket(target.target);
     return resolved.kind === "ok"
       ? Effect.succeed(resolved.socket)
       : Effect.fail(failure(resolved.message));
