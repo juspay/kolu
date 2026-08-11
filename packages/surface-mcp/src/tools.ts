@@ -272,22 +272,28 @@ export function messageOf(e: unknown): string {
     return typeof tag === "string" && tag !== "" ? tag : e.name;
   }
   if (typeof e === "object" && e !== null) {
-    // A cycle is the one thing `JSON.stringify` refuses. `String(e)` is NOT the
-    // answer there — it is the `[object Object]` this function exists to stop —
-    // so name the value the way a value can always be named: its constructor and
-    // the fields it actually has.
+    // `String(e)` is NOT the answer for an object — it is the `[object Object]`
+    // this function exists to stop — so name the value the way a value can
+    // always be named: its constructor and the fields it actually has.
     try {
       return JSON.stringify(e) ?? describeObject(e);
-    } catch {
-      return describeObject(e);
+    } catch (unstringifiable) {
+      // NOT only a cycle, which is what this catch used to claim. `stringify`
+      // also refuses a `BigInt` anywhere in the tree, and it EVALUATES every
+      // own enumerable getter — so a property that throws on read throws from
+      // here, carrying a real and unrelated reason ("network timeout while
+      // computing x"). Discarding it would swallow the most specific thing
+      // known about the failure inside the one function whose whole job is to
+      // find that. It rides along with the shape.
+      return `${describeObject(e)} (unstringifiable: ${messageOf(unstringifiable)})`;
     }
   }
   return String(e);
 }
 
-/** Name an object JSON cannot render (a cycle): its constructor and its own
- *  keys. Never `[object Object]` — the point is that the host learns WHAT
- *  failed even when it cannot learn the whole value.
+/** Name an object JSON cannot render: its constructor and its own keys. Never
+ *  `[object Object]` — the point is that the host learns WHAT failed even when
+ *  it cannot learn the whole value.
  *
  *  `||`, not `??`: an anonymous class expression HAS a constructor and its
  *  `.name` is `""`, which would render a nameless `{ a, b }`. Same guard

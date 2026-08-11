@@ -175,6 +175,19 @@ async function connect(over: ReturnType<typeof buildSurface>) {
         description: "Fails with a non-Error value.",
         handler: () => Effect.fail({ code: 17, why: "not an Error at all" }),
       },
+      unstringifiable: {
+        description: "Fails with a non-Error value JSON cannot render.",
+        // `JSON.stringify` EVALUATES every own enumerable getter, so a property
+        // that throws on read throws from inside the description attempt —
+        // carrying a real reason that has nothing to do with serialization.
+        handler: () =>
+          Effect.fail({
+            stage: "commit",
+            get detail(): string {
+              throw new Error("network timeout while computing detail");
+            },
+          }),
+      },
       scalarResult: {
         description: "Succeeds with a bare number.",
         handler: () => Effect.succeed(42),
@@ -228,6 +241,7 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
       "refuse",
       "scalarResult",
       "tagged",
+      "unstringifiable",
     ]);
   });
 
@@ -1374,6 +1388,28 @@ describe("serveSurfaceAsMcp — the structured arm", () => {
     // Still message-only: a plain object is a failure whose author did not say
     // it was machine-readable, and this adapter does not decide that for them.
     expect(res.structuredContent).toBeUndefined();
+  });
+
+  it("a failure JSON cannot render keeps BOTH its shape and the reason it could not be rendered", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({ name: "unstringifiable", arguments: {} });
+
+    expect(res.isError).toBe(true);
+    const text = (res.content as { text: string }[])[0]?.text ?? "";
+    // The shape survives — the host still learns WHAT failed.
+    expect(text).toContain("stage, detail");
+    // And so does the real reason. Discarding it would swallow the most
+    // specific thing known about the failure inside the one function whose
+    // whole job is to find it — and a throwing getter, unlike a cycle, carries
+    // a cause that has nothing to do with serialization.
+    expect(text).toContain("network timeout while computing detail");
+    expect(text).not.toContain("[object Object]");
   });
 
   it("serves the host its `instructions` at initialize", async () => {
