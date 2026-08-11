@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-08-11T02:00:21.088908+00:00'
+generated_at: '2026-08-11T11:20:10.204880+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/agents
@@ -89,7 +89,7 @@ dependencies:
     .agents/skills/coordinator/SKILL.md: sha256:abac6960f10c8ce2603f94e9101cbbd3e876f073c13e6b3741698d98eaff39c7
     .agents/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
     .agents/skills/hostility-review/SKILL.md: sha256:2295521025860574236d30601a9f3736af40d22033d06d5c544a79ac79ffc038
-    .agents/skills/kolu/SKILL.md: sha256:e85decdb7f24d0b9f60bf6de9f109dd27a7af75218e686feb4aa4cebd41c283c
+    .agents/skills/kolu/SKILL.md: sha256:ed2a61636433c40366e1760b0fe5ca723cb5eea791b98883788c0f6f70df8bfc
     .agents/skills/kolu/TUI.md: sha256:f0e96b4f5c0ccac75fca3805fd7e7fcf6335b03503c736215514a680853ed42e
     .agents/skills/lens-debate/RATIONALE.md: sha256:5d27af06f554fb81fc344450f2d5031a097287c3282f19945eec2b55712a656a
     .agents/skills/lens-debate/SKILL.md: sha256:e5afec03dd8659583bc724d5bd35691affa8082f0e21f88a137616f062ab813f
@@ -110,7 +110,7 @@ dependencies:
     .claude/skills/coordinator/SKILL.md: sha256:abac6960f10c8ce2603f94e9101cbbd3e876f073c13e6b3741698d98eaff39c7
     .claude/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
     .claude/skills/hostility-review/SKILL.md: sha256:2295521025860574236d30601a9f3736af40d22033d06d5c544a79ac79ffc038
-    .claude/skills/kolu/SKILL.md: sha256:e85decdb7f24d0b9f60bf6de9f109dd27a7af75218e686feb4aa4cebd41c283c
+    .claude/skills/kolu/SKILL.md: sha256:ed2a61636433c40366e1760b0fe5ca723cb5eea791b98883788c0f6f70df8bfc
     .claude/skills/kolu/TUI.md: sha256:f0e96b4f5c0ccac75fca3805fd7e7fcf6335b03503c736215514a680853ed42e
     .claude/skills/lens-debate/RATIONALE.md: sha256:5d27af06f554fb81fc344450f2d5031a097287c3282f19945eec2b55712a656a
     .claude/skills/lens-debate/SKILL.md: sha256:e5afec03dd8659583bc724d5bd35691affa8082f0e21f88a137616f062ab813f
@@ -1415,7 +1415,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:e85decdb7f24d0b9f60bf6de9f109dd27a7af75218e686feb4aa4cebd41c283c
+  content_hash: sha256:ed2a61636433c40366e1760b0fe5ca723cb5eea791b98883788c0f6f70df8bfc
 - kind: project-relative
   target: claude
   value: .claude/skills/kolu/TUI.md
@@ -2261,7 +2261,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:e85decdb7f24d0b9f60bf6de9f109dd27a7af75218e686feb4aa4cebd41c283c
+  content_hash: sha256:ed2a61636433c40366e1760b0fe5ca723cb5eea791b98883788c0f6f70df8bfc
 - kind: project-relative
   target: codex
   value: .agents/skills/kolu/TUI.md

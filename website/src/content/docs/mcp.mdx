@@ -152,6 +152,24 @@ the first column is what appears in your MCP host.
 | `wait_outputSettled` | Block until a terminal's output goes quiet — the turn ended, or it's waiting for input. |
 | `wait_agentState` | Block until the terminal's agent reaches a state you name (`working`, `awaiting`, `waiting`) — a precise done-signal, not a guess from silence. |
 
+Both take two extras that turn a three-call routine into one call, and both
+exist because the gaps between those calls are where a driving agent gets
+misled:
+
+- **`settledMs`** — also require the output to have been quiet that long. It's
+  an *and*, not a second wait: bytes still arriving keep the wait open, and an
+  agent that goes back to work re-enters it. This is what tells a genuinely
+  finished agent from one whose main loop ended while a background helper is
+  still running — the second reads as done within milliseconds otherwise.
+- **`screenTail: N`** — hand back the last N screen lines *on the signal
+  itself*, read while the wait is still watching. A separate read afterwards
+  can catch a screen that has already moved on.
+
+`wait_agentState` with `until: ["awaiting","waiting"]`, `settledMs: 15000` and
+`screenTail: 40` answers "is this worker's turn really over, and what did it
+say?" in one go — the same thing [`kolu debrief`](/agent-fleets) does from a
+shell.
+
 ### Supervise several terminals at once
 
 The two waits above each watch **one** terminal, and only while the call is

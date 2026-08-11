@@ -51,6 +51,8 @@ import type { PadiSurfaceClient } from "../dial.ts";
 import { TerminalNotFound } from "../errors.ts";
 import type { PadiTerminal } from "../surface.ts";
 import {
+  awaitAgentState,
+  awaitOutputSettled,
   awaitTerminalCondition,
   matchingActiveAgent,
   WAIT_STATES,
@@ -455,6 +457,39 @@ describe("the `match:` wait over a fake attach feed", () => {
     expect(outcome).toMatchObject({ kind: "gone" });
     expect(elapsed).toBeLessThan(8000);
   }, 30_000);
+
+  it("a LATCHED match stops scanning — a later line never overwrites the one that fired", async () => {
+    // The latch is what keeps `matchedLine` honest, and nothing else pinned it:
+    // deleting the guard was green across the whole file until this case, which
+    // is why it is here (kolu#2152). Scanning on would re-derive the line from a
+    // carry frozen at the match plus bytes that arrived much later — reporting a
+    // line the sentinel did not fire on, and in general splicing two
+    // non-adjacent stretches of output into a line no terminal ever printed.
+    //
+    // A conjunct is what makes the hazard observable at all: without one the met
+    // settles on the first match and no later delta is ever seen.
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(delta("first MARK here\n"));
+    attach.push(delta("second MARK there\n"));
+
+    const outcome = await awaitTerminalCondition(
+      matchClient({ attach: () => attach.stream() }),
+      {
+        id: T as TerminalId,
+        condition: { kind: "match", pattern: /MARK/ },
+        settledMs: 80,
+        timeoutMs: 5000,
+        retryAdvice: "re-run the match wait",
+      },
+    );
+
+    // The line that FIRED, not the last one that would have.
+    expect(outcome).toMatchObject({
+      kind: "met",
+      fired: "match",
+      matchedLine: "first MARK here",
+    });
+  });
 
   it("never cuts a surrogate pair in half when trimming the overlap", async () => {
     // The trim keeps the trailing 4096 UTF-16 CODE UNITS, and a naive slice can
@@ -955,5 +990,99 @@ describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
     );
 
     expect(outcome).toMatchObject({ kind: "closed" });
+  });
+});
+
+// ── The two named waits — the modifiers reach the MCP face THROUGH them ───────
+//
+// `wait_agentState` / `wait_outputSettled` call these wrappers rather than the
+// engine, so that the met frames those tools document have exactly one owner
+// (kolu#2152). Two things can silently break as a result and neither shows up
+// in the engine's own pins: a modifier the wrapper forgets to forward (the tool
+// advertises an option that does nothing), and a key the wrapper lets through
+// onto a published wire.
+describe("awaitAgentState / awaitOutputSettled — forwarding, and the wire frames", () => {
+  const screen = "prompt$ run\nall 12 passed\n\n\n\n";
+
+  it("forwards `settledMs` — bytes still moving keep an already-matching bucket open", async () => {
+    // The kolu#2139 failure, reached through the wrapper: the agent's bucket is
+    // `waiting` on the FIRST frame while a subagent keeps printing. Unforwarded,
+    // this is a met at t≈0 — which is what the MCP face used to report.
+    const agents = agentCollection(claude("waiting"));
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    const noise = setInterval(() => attach.push(delta("·")), 10);
+    try {
+      const outcome = await awaitAgentState(
+        matchClient({ attach: () => attach.stream(), ...agents.parts }),
+        {
+          id: T as TerminalId,
+          targets: new Set(["awaiting", "waiting"]),
+          settledMs: 300,
+          timeoutMs: 400,
+        },
+      );
+      expect(outcome).toMatchObject({ kind: "timeout" });
+    } finally {
+      clearInterval(noise);
+    }
+  });
+
+  it("forwards `captureScreen`, and the met frame gains `screen` WITHOUT gaining `fired`", async () => {
+    // `met: {agent, elapsedMs}` is `wait_agentState`'s documented frame. The
+    // engine's own met carries a `fired` tag; letting it through here would put
+    // it on that wire. `screen` is additive — a reader that never asks for one
+    // sees the frame it always saw.
+    const agents = agentCollection(claude("waiting"));
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    const outcome = await awaitAgentState(
+      matchClient({
+        attach: () => attach.stream(),
+        screenText: () => Effect.succeed(screen),
+        ...agents.parts,
+      }),
+      {
+        id: T as TerminalId,
+        targets: new Set(["awaiting", "waiting"]),
+        captureScreen: true,
+        timeoutMs: 5000,
+      },
+    );
+    expect(outcome).toMatchObject({ kind: "met", agent: claude("waiting") });
+    expect(outcome).toHaveProperty("screen", screen);
+    expect(outcome).not.toHaveProperty("fired");
+  });
+
+  it("a met with no capture asked for carries NO `screen` key at all", async () => {
+    // Absent, not `undefined`: the key rides a JSON wire, and an explicit
+    // `"screen": null`/undefined would read to a driving agent as "the screen
+    // was captured and there was nothing there".
+    const agents = agentCollection(claude("waiting"));
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    const outcome = await awaitAgentState(
+      matchClient({ attach: () => attach.stream(), ...agents.parts }),
+      {
+        id: T as TerminalId,
+        targets: new Set(["awaiting", "waiting"]),
+        timeoutMs: 5000,
+      },
+    );
+    expect(outcome).toMatchObject({ kind: "met" });
+    expect(Object.keys(outcome)).not.toContain("screen");
+  });
+
+  it("awaitOutputSettled forwards `captureScreen` — the whole buffer, for the face to bound", async () => {
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    const outcome = await awaitOutputSettled(
+      matchClient({
+        attach: () => attach.stream(),
+        screenText: () => Effect.succeed(screen),
+      }),
+      { id: T, idleMs: 40, captureScreen: true, timeoutMs: 5000 },
+    );
+    expect(outcome).toMatchObject({ kind: "met", fired: "idle", screen });
   });
 });

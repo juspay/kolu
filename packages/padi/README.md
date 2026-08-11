@@ -225,8 +225,19 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   remain — `awaitAgentState` (padi-tui's `cmdWait`, the MCP face's
   `wait_agentState`) and `awaitOutputSettled` (`wait_outputSettled`) — because
   their met payloads ARE those tools' wire frames; they are spellings of the
-  engine, each carrying its own `closed` retry advice. The `match:` form has no
-  wrapper: `kolu wait` is its only consumer and calls the engine directly.
+  engine, each carrying its own `closed` retry advice. The MCP face's
+  `settledMs`/`screenTail` options are forwarded *through* those two rather than
+  around them, so each wire frame keeps exactly one owner
+  ([kolu#2152](https://github.com/juspay/kolu/issues/2152)) —
+  `awaitOutputSettled` deliberately takes only the capture, since a second
+  quiescence window over an `idle` condition just means quiet-for-max. The
+  `match:` form has no wrapper: `kolu wait` is its only consumer and calls the
+  engine directly.
+
+  The three condition FORMS are not braided through the engine body: each has
+  its own runner (`conditionForm`), so the branch on which form this is happens
+  once and the shared spine — the attach feed, the conjunct's window, the
+  met-candidate cell — is lent to it rather than re-decided per wiring point.
 
 - **`@kolu/padi/render`** and **`@kolu/padi/read`** — the CLI faces' shared
   view + data layers. `render` is pure formatting (the roster table's

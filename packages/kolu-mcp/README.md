@@ -23,6 +23,17 @@ default-deny with named, tested denials:
   chords — because submit is its OWN Enter after an observed settle, never
   text+newline fused) · `watch_open`/`watch_close`.
 
+Both waits take the two kolu#2139 modifiers, because the races they close are
+races **between calls** and an agent driving over MCP makes exactly the same
+three-call loop a CLI one does: `settledMs` is a CONJUNCT (the met needs the
+condition to hold *and* the output to have been quiet that long — bytes still
+moving keep the wait open), and `screenTail: N` puts the last N screen lines on
+the met, read inside the same wait rather than by a follow-up `screen_text` the
+terminal can move under. `wait_agentState` with `until: ["awaiting","waiting"],
+settledMs: 15000, screenTail: 40` is the `kolu debrief` protocol — named in that
+tool's description rather than shipped as a third composed tool, since over MCP
+it is three JSON keys and a tool costs its whole description in every request.
+
 **Supervising several terminals: subscribe, don't re-arm.** The `wait_*` tools
 watch ONE terminal for ONE condition, and only while the call is open — so a
 supervisor of several workers had to hand-roll a watcher layer on top, and

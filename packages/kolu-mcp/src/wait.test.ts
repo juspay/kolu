@@ -9,7 +9,7 @@ import { awaitOutputSettled, type PadiSurfaceClient } from "@kolu/padi/dial";
 import { SurfaceStdioTransportClosed } from "@kolu/surface/errors";
 import { type Cause, Effect, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { waitJson, waitOutputSettledTool } from "./wait.ts";
+import { waitAgentStateTool, waitJson, waitOutputSettledTool } from "./wait.ts";
 
 type AttachFrame =
   | { kind: "snapshot"; data: string; topLine: number }
@@ -59,16 +59,25 @@ class FakeStream<T> {
   }
 }
 
-function fakeClient(streams: {
-  attach: FakeStream<AttachFrame>;
-  exit: FakeStream<{ exitCode: number }>;
-  keys: FakeStream<string[]>;
-}): PadiSurfaceClient {
+function fakeClient(
+  streams: {
+    attach: FakeStream<AttachFrame>;
+    exit: FakeStream<{ exitCode: number }>;
+    keys: FakeStream<string[]>;
+  },
+  screenText?: string,
+): PadiSurfaceClient {
   return {
     surface: {
       terminalAttach: { get: () => streams.attach.stream() },
       terminalExit: { get: () => streams.exit.stream() },
       terminals: { keys: () => streams.keys.stream() },
+      screen: {
+        text: () =>
+          screenText === undefined
+            ? Effect.fail(new Error("screen.text must not be read here"))
+            : Effect.succeed(screenText),
+      },
     },
   } as unknown as PadiSurfaceClient;
 }
@@ -275,5 +284,136 @@ describe("waitOutputSettledTool — the JSON frame", () => {
     expect(typeof (result.met as { elapsedMs: unknown }).elapsedMs).toBe(
       "number",
     );
+  });
+
+  it("PIN: `screenTail` BOUNDS the screen the engine hands back whole", async () => {
+    // The engine captures the entire rendered buffer on purpose — bounding it is
+    // the face's rendering decision, and this face's is `tailLines`, the same
+    // fold `screen_text { tail }` uses. Unbounded, a 40-line ask would put the
+    // whole scrollback on the wire and into the agent's context (kolu#2152).
+    const s = streams();
+    s.attach.push(snapshot);
+    const whole = ["line one", "line two", "line three", "", ""].join("\n");
+    const result = (await Effect.runPromise(
+      waitOutputSettledTool.handler(
+        { id: ID, idleMs: 25, screenTail: 2 },
+        fakeClient(s, whole),
+        undefined,
+      ),
+    )) as Record<string, unknown>;
+
+    expect(result).toMatchObject({ id: ID, result: "met" });
+    // The last two CONTENT lines — `tailLines` also drops the trailing blank
+    // rows a rendered buffer ends in, which is why this is not "line three\n\n".
+    expect((result.met as { screen: string }).screen).toBe(
+      "line two\nline three",
+    );
+  });
+
+  it("PIN: no `screenTail` means no `screen` key — the frame every caller already reads", async () => {
+    // `screen.text` fails in this client, so a wait that asked for no capture
+    // reading one at all would surface as a `closed` rather than a met.
+    const s = streams();
+    s.attach.push(snapshot);
+    const result = (await Effect.runPromise(
+      waitOutputSettledTool.handler(
+        { id: ID, idleMs: 25 },
+        fakeClient(s),
+        undefined,
+      ),
+    )) as Record<string, unknown>;
+
+    expect(result).toMatchObject({ id: ID, result: "met" });
+    expect(Object.keys(result.met as object)).not.toContain("screen");
+  });
+});
+
+describe("waitAgentStateTool — the modifiers reach padi", () => {
+  /** A client whose roster holds one terminal with a live `waiting` agent, and
+   *  whose attach feed the test drives. Enough for `awaitAgentState` to match on
+   *  its first frame, which is what makes the conjunct's effect observable. */
+  function agentClient(attach: FakeStream<AttachFrame>): PadiSurfaceClient {
+    const record = {
+      state: "active",
+      agent: { kind: "claude-code", state: "waiting" },
+      git: null,
+      pr: { kind: "pending" },
+      foreground: null,
+    };
+    return {
+      surface: {
+        terminalAttach: { get: () => attach.stream() },
+        terminalExit: { get: () => Stream.never },
+        terminals: {
+          keys: () => Stream.concat(Stream.make([ID]), Stream.never),
+          get: () => Stream.concat(Stream.make(record), Stream.never),
+        },
+        screen: {
+          text: () => Effect.fail(new Error("screen.text must not be read")),
+        },
+      },
+    } as unknown as PadiSurfaceClient;
+  }
+
+  it("PIN: `settledMs` keeps the wait open while bytes still move", async () => {
+    // The kolu#2139 failure as an MCP caller sees it: the agent's bucket is
+    // already `waiting` on the first frame while a subagent keeps printing. If
+    // the tool advertises `settledMs` and drops it on the way to padi, this is a
+    // met at t≈0 — an advertised option that does nothing, which is worse than
+    // not having one (kolu#2152).
+    const attach = new FakeStream<AttachFrame>();
+    attach.push(snapshot);
+    const noise = setInterval(
+      () => attach.push({ kind: "delta", data: "·" }),
+      10,
+    );
+    try {
+      const result = (await Effect.runPromise(
+        waitAgentStateTool.handler(
+          {
+            id: ID,
+            until: ["awaiting", "waiting"],
+            settledMs: 300,
+            timeoutMs: 400,
+          },
+          agentClient(attach),
+          undefined,
+        ),
+      )) as Record<string, unknown>;
+      expect(result).toMatchObject({ id: ID, result: "timeout" });
+    } finally {
+      clearInterval(noise);
+    }
+  });
+
+  it("PIN: without it the very same call is met at once — so the timeout above is the conjunct's doing", async () => {
+    const attach = new FakeStream<AttachFrame>();
+    attach.push(snapshot);
+    const noise = setInterval(
+      () => attach.push({ kind: "delta", data: "·" }),
+      10,
+    );
+    try {
+      const result = (await Effect.runPromise(
+        waitAgentStateTool.handler(
+          { id: ID, until: ["awaiting", "waiting"], timeoutMs: 400 },
+          agentClient(attach),
+          undefined,
+        ),
+      )) as Record<string, unknown>;
+      expect(result).toMatchObject({
+        id: ID,
+        result: "met",
+        met: { agent: { kind: "claude-code", state: "waiting" } },
+      });
+      // The published frame, unchanged: the engine's `fired` tag does not ride
+      // it, and a wait that asked for no screen carries no `screen` key.
+      expect(Object.keys(result.met as object).sort()).toEqual([
+        "agent",
+        "elapsedMs",
+      ]);
+    } finally {
+      clearInterval(noise);
+    }
   });
 });

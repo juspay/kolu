@@ -746,19 +746,6 @@ export type MetOf<C extends TerminalCondition> = WaitOutcome<
   Extract<ConditionMet, { fired: C["kind"] }>
 >;
 
-/** The shared timer-range rule at an EXPORTED primitive's boundary. The MCP
- *  schema and the CLI parse each guard their own caller, but a direct caller
- *  could pass 0 / non-finite / a value above the `setTimeout` ceiling, and an
- *  overflowed window fires a FALSE near-instant `met`. `what` names the option
- *  so the crash says which one was wrong. */
-function requireTimerMs(what: string, ms: number): void {
-  if (!isValidTimerMs(ms)) {
-    throw new RangeError(
-      `${what} must be between 1 and ${MAX_TIMER_MS} (~24.8 days), got ${ms} — a larger window overflows setTimeout and fires a false near-instant met.`,
-    );
-  }
-}
-
 /** The engine contradicted itself — not an outcome, and never reportable as
  *  one. Its own class so the `stampLoop` catch that turns unrecognised errors
  *  into a retryable `closed` can tell it apart and re-throw it instead. */
@@ -769,11 +756,24 @@ class EngineInvariantBroken extends Error {}
  *
  *  Spelled once because a wait can run TWO of them at the same time — the
  *  `idle:` CONDITION's window and the `--settled` CONJUNCT's — and they differ
- *  only in what they set when they fire. */
+ *  only in what they set when they fire.
+ *
+ *  The timer-range rule lives HERE, on the one `setTimeout` both windows are:
+ *  the MCP schema and the CLI parse each guard their own caller, but a direct
+ *  caller of an exported primitive could pass 0 / non-finite / a value above
+ *  the ceiling, and an overflowed window does not wait longer — it clamps to
+ *  ~1ms and fires a FALSE near-instant `met`. `what` names the option the
+ *  window was built from, so the crash says which one was wrong. */
 function quietWindow(
+  what: string,
   ms: number,
   onQuiet: () => void,
 ): { readonly arm: () => void; readonly disarm: () => void } {
+  if (!isValidTimerMs(ms)) {
+    throw new RangeError(
+      `${what} must be between 1 and ${MAX_TIMER_MS} (~24.8 days), got ${ms} — a larger window overflows setTimeout and fires a false near-instant met.`,
+    );
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const disarm = (): void => {
     if (timer !== undefined) {
@@ -788,6 +788,252 @@ function quietWindow(
     },
     disarm,
   };
+}
+
+// ── The three condition forms, one runner each ──────────────────────────────
+
+/**
+ * The engine's shared half, as the one thing a form is allowed to touch.
+ *
+ * A form decides WHETHER the condition holds; everything else about the wait —
+ * the met-candidate cell and its generation, the conjunct's window, the screen
+ * stamp, the subscription discipline — is the engine's, and is deliberately not
+ * reachable from here. So the two writers below are the only way a form moves
+ * the candidate (each funnelling into the engine's own `update`), and `held` is
+ * a READER: a form that could assign the cell would be a second writer on the
+ * fact the whole staleness generation is defined against.
+ */
+interface FormContext {
+  readonly client: PadiSurfaceClient;
+  readonly id: TerminalId;
+  readonly ctx: WaitCtx<ConditionMet>;
+  /** Did the caller ask for the met to carry a screen? A form needs this only
+   *  to know that a DEAD terminal cannot satisfy such a wait (see the `match`
+   *  form's `onTerminalGone`). */
+  readonly captureScreen: boolean;
+  /** Write the condition's evidence, or `null` while it does not hold. */
+  readonly setHeld: (held: ConditionHeld | null) => void;
+  /** The condition's current evidence, or `null` while it does not hold. */
+  readonly held: () => ConditionHeld | null;
+  /** Claim the CONJUNCT vacuously — for the one case where a form knows more
+   *  about quiet than the window does: a terminal proven dead will never
+   *  produce another byte, which is the strongest form of the quiet
+   *  `--settled` asks for. Only the `match` form has that evidence (see its
+   *  `onTerminalGone`); every other quiet is the engine's window's to declare. */
+  readonly markQuiet: () => void;
+}
+
+/**
+ * What ONE condition form contributes to a wait — the whole of its
+ * form-specific behaviour, in one value.
+ *
+ * The point of the interface is that the branch on `condition.kind` is taken
+ * ONCE, in {@link conditionForm}, instead of at the seven sites it used to be
+ * re-derived at (the idle range guard, the condition window, the attach-feed
+ * gate, the match scan gate, both death-policy wirings, and the agent
+ * subscription). A FOURTH form is then a compile-time question — the factory's
+ * switch stops being exhaustive — rather than an obligation to remember every
+ * wiring point, which is what a form-shaped diff had to do before.
+ *
+ * It is NOT the whole braid: the forms genuinely share the attach feed, the
+ * conjunct's window and the candidate cell, and pretending otherwise (handing
+ * each form all three as parameters) would relocate the switch rather than
+ * remove it. So the shared spine stays the engine's and is lent through
+ * {@link FormContext}; what lives here is only what differs per form.
+ */
+interface ConditionForm {
+  /** Does this form's evidence live in the ORDERED attach feed?
+   *
+   *  The real property the engine's two death-policy wirings key on. `match`
+   *  reads the bytes themselves, so the feed's ordering is what proves a
+   *  sentinel did or did not print — an exit event, which rides its OWN
+   *  subscription, can arrive before the delta carrying it, so a `match` must
+   *  not settle on one. `idle` is decided by the feed's TIMING and `agent` by a
+   *  different subscription entirely, so for those an exit is simply the end of
+   *  the thing being waited on and settles `gone` at once. */
+  readonly evidenceIsFeedOrdered: boolean;
+  /** Decide the condition from one frame of the output feed.
+   *
+   *  Defining it is also how a form ASKS for that feed: a form with no frame
+   *  handler opens none, which is why the plain agent-state wait still costs
+   *  exactly one subscription. */
+  readonly onFrame?: (frame: AttachFrame) => void;
+  /** Drop what a feed we can no longer observe made stale (a window left armed,
+   *  a scan carry that would splice across the gap). The engine resets the
+   *  conjunct itself; this is the form's own half. */
+  readonly onFeedLost?: () => void;
+  /** The terminal is PROVEN gone — the hook a form uses when a dead terminal
+   *  satisfies the conjunct vacuously. See the `match` form. */
+  readonly onTerminalGone?: () => void;
+  /** A subscription of this form's own, beyond the shared output feed. */
+  readonly subscribe?: () => Promise<void>;
+  /** Cancel whatever this form armed, once the wait has unwound. */
+  readonly dispose?: () => void;
+}
+
+/** Bind `condition` to the engine's shared half — the ONE place the three forms
+ *  are told apart. */
+function conditionForm(
+  condition: TerminalCondition,
+  engine: FormContext,
+): ConditionForm {
+  switch (condition.kind) {
+    // ── idle: no output byte for `idleMs` ──────────────────────────────────
+    //
+    // Its own quiescence window over the same frames the conjunct's runs on.
+    // The two are deliberately NOT collapsed into a `max(idleMs, settledMs)`
+    // special case: two independent countdowns mean `idle:n --settled m` waits
+    // for quiet of max(n, m) by falling out rather than by being written.
+    case "idle": {
+      const window = quietWindow("idleMs", condition.idleMs, () => {
+        engine.setHeld({ fired: "idle" });
+      });
+      return {
+        evidenceIsFeedOrdered: false,
+        // Snapshot AND delta both (re)start the window: the snapshot is the
+        // replay of the current screen — the moment to start counting — and
+        // each delta is fresh output resetting the count.
+        onFrame: () => {
+          engine.setHeld(null);
+          window.arm();
+        },
+        // A window armed by the last pre-drop frame would fire a FALSE quiet
+        // across the reconnect gap, so it is disarmed and the evidence dropped.
+        onFeedLost: () => {
+          window.disarm();
+          engine.setHeld(null);
+        },
+        dispose: () => window.disarm(),
+      };
+    }
+
+    // ── match: NEW output matched `pattern` ────────────────────────────────
+    case "match": {
+      /** The tail of the output already scanned, bounded by
+       *  {@link MATCH_OVERLAP_CAP}. The ONLY history the scan keeps. */
+      let carry = "";
+      return {
+        evidenceIsFeedOrdered: true,
+        onFrame: (frame) => {
+          // A latched match is not re-decided. Scanning on would re-derive
+          // `matchedLine` from `carry + data` — a carry frozen at the match and
+          // bytes that arrived much later — and splice two non-adjacent
+          // stretches of output into a line no terminal ever printed. The
+          // sentinel already fired; later output can only break the conjunct,
+          // which the engine's window handles.
+          if (frame.kind !== "delta" || engine.held() !== null) return;
+          const data = frame.data;
+          // An empty delta brings no new text: its window would be exactly the
+          // carry the previous frame already scanned, for exactly the same
+          // verdict. Skipping it keeps "one scan per new byte" true.
+          if (data === "") return;
+          // The scan window: the new bytes, plus enough already-scanned tail
+          // that a sentinel straddling the chunk boundary is still whole.
+          const window = carry + data;
+          // `search`, not `exec`: it is the one scan that ignores (and restores)
+          // a pattern's `lastIndex`, so a `/g`- or `/y`-flagged pattern can't
+          // resume mid-window and skip the sentinel — and the caller's RegExp is
+          // never mutated. The index is all this needs.
+          const index = window.search(condition.pattern);
+          if (index !== -1) {
+            // A match LATCHES: unlike a bucket, a sentinel that printed cannot
+            // un-print, so later output only breaks the conjunct.
+            engine.setHeld({
+              fired: "match",
+              matchedLine: matchedLineAt(window, index),
+            });
+            return;
+          }
+          carry = carryTail(window);
+        },
+        // Bytes from either side of an unobservable gap must not concatenate
+        // into a sentinel nobody printed. A latched match SURVIVES — it is a
+        // fact about output we DID see.
+        onFeedLost: () => {
+          carry = "";
+        },
+        // A PROVEN-gone terminal discharges a `match` wait's conjunct: the
+        // ordered feed has ended, so every byte it will ever produce is in, and
+        // the process is dead, so none will follow — the strongest possible form
+        // of the quiet `--settled` asks for. `settle` is first-writer-wins, so
+        // claiming here beats the `gone` that follows. Claimed ONLY for an
+        // already-latched sentinel; a match that never printed leaves `held`
+        // null and the `gone` stands.
+        //
+        // Without it, `--until match:DONE --settled 500` against the ordinary
+        // `echo DONE; exit` shape settles `gone` (exit 3) where the same wait
+        // WITHOUT `--settled` settles `met` (exit 0) — a modifier sold as a
+        // conjunct silently converting a success into a terminal-died failure
+        // that no input could ever satisfy.
+        //
+        // NOT claimed when a SCREEN was asked for. padi's `screen.text` narrows
+        // to an ACTIVE terminal, so a dead one has no screen to read and no met
+        // carrying one can exist — `--until match:X --settled N` with a capture,
+        // against a terminal that exits, is `gone`: the sentinel printed, but
+        // the screen you asked for died with the PTY.
+        //
+        // Stated precisely, because the tempting version overclaims: the gate
+        // changes NO outcome. Claiming anyway would start a read the `gone`
+        // settle immediately aborts, reaching the same `gone` — the guard buys
+        // one doomed round-trip and an explicit statement of the boundary,
+        // nothing more. Nor is the boundary the gate's doing: the
+        // exit-0-becomes-exit-3 step when a capture is added to this one shape
+        // is the dead terminal's, and holds with or without it.
+        ...(engine.captureScreen
+          ? {}
+          : {
+              onTerminalGone: () => {
+                if (engine.held() !== null) engine.markQuiet();
+              },
+            }),
+      };
+    }
+
+    // ── agent: the detected agent reached one of `targets` ─────────────────
+    //
+    // Decided by the `terminals` mirror, not by output — so this form defines no
+    // frame handler and opens the attach feed only if the CONJUNCT asks for one.
+    case "agent": {
+      const targets = condition.targets;
+      return {
+        evidenceIsFeedOrdered: false,
+        subscribe: () =>
+          watchTerminals(
+            engine.client,
+            {
+              onUpsert: (upserted, value) => {
+                if (upserted !== engine.id) return;
+                const agent = matchingActiveAgent(value, targets);
+                // Both directions: a bucket that STOPS matching re-enters the
+                // wait. Without that, `--settled` would be waiting for quiet on
+                // an agent that has gone back to work. A record change also
+                // invalidates an in-flight screen read — the met it would stamp
+                // is a different met — which `update` handles for us.
+                engine.setHeld(
+                  agent === null ? null : { fired: "agent", agent },
+                );
+              },
+              // The terminal we're waiting on left the collection — its PTY
+              // exited, so no future frame can carry the target bucket. Resolve
+              // gone rather than hanging. Removals of OTHERS are noise.
+              onRemove: (removed) => {
+                if (removed !== engine.id) return;
+                engine.ctx.settle({
+                  kind: "gone",
+                  elapsedMs: engine.ctx.elapsedMs(),
+                });
+              },
+            },
+            engine.ctx.signal,
+            (line) => engine.ctx.recordUpstreamError(line),
+            // Seed the watched id so a terminal that exited BEFORE this
+            // subscription (in the gap after the caller resolved the id) is
+            // reconciled to gone on the first snapshot instead of hanging.
+            () => [engine.id],
+          ),
+      };
+    }
+  }
 }
 
 /**
@@ -873,11 +1119,9 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
   },
 ): Promise<MetOf<C>> {
   const { id, condition, settledMs, captureScreen } = opts;
-  if (condition.kind === "idle") requireTimerMs("idleMs", condition.idleMs);
-  if (settledMs !== undefined) requireTimerMs("settledMs", settledMs);
   // `runWait` is generic over the met payload and cannot know which ARM this
   // condition dispatches to; the engine does, because each form's `held` is
-  // written by exactly one branch below. So the narrowing is asserted ONCE here,
+  // written by exactly one {@link ConditionForm}. So the narrowing is asserted ONCE here,
   // inside the module that owns the dispatch, instead of by a runtime
   // check-and-cast in every wrapper (`metFired`, deleted).
   return runWait<ConditionMet>(
@@ -959,9 +1203,6 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
         check();
       };
 
-      /** The tail of the output already scanned by the `match:` form, bounded by
-       *  {@link MATCH_OVERLAP_CAP}. The ONLY history the scan keeps. */
-      let carry = "";
       /** A read failure that must PROPAGATE rather than become an outcome (a
        *  dead transport poisons the shared connection). Latched, thrown below. */
       let readFailure: unknown;
@@ -1095,104 +1336,61 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
         });
       }
 
-      // The `idle:` condition's window and the `--settled` conjunct's window:
-      // two independent countdowns over the same frames, each setting its own
-      // half. Both are armed by the attach feed's snapshot (an already-quiet
+      // The `--settled` conjunct's window. The `idle:` CONDITION's window is
+      // the idle FORM's own (see {@link conditionForm}): two independent
+      // countdowns over the same frames, each setting its own half of the
+      // candidate, both armed by the attach feed's snapshot (an already-quiet
       // terminal fires after its window) and reset by every subsequent frame.
-      const conditionWindow =
-        condition.kind === "idle"
-          ? quietWindow(condition.idleMs, () => {
-              update({ held: { fired: "idle" } });
-            })
-          : undefined;
       const settledWindow =
         settledMs === undefined
           ? undefined
-          : quietWindow(settledMs, () => {
+          : quietWindow("settledMs", settledMs, () => {
               update({ quiet: true });
             });
 
-      /** Does this condition's evidence live in the ORDERED attach feed?
-       *
-       *  The real property the two death-policy wirings below key on — spelled
-       *  once so a fourth condition form asks itself the question rather than
-       *  re-deriving `kind === "match"` at each site. `match` reads the bytes
-       *  themselves, so the feed's ordering is what proves a sentinel did or did
-       *  not print; `idle` is decided by the feed's TIMING and `agent` by a
-       *  different subscription entirely, so for those an exit is simply the end
-       *  of the thing being waited on. */
-      const evidenceIsFeedOrdered = condition.kind === "match";
+      // Bind the condition to the engine's shared half. Everything below this
+      // line is form-AGNOSTIC — the branch on which of the three forms this is
+      // was taken once, inside `conditionForm`.
+      const form = conditionForm(condition, {
+        client,
+        id,
+        ctx,
+        captureScreen: captureScreen === true,
+        setHeld: (held) => update({ held }),
+        held: () => candidate.held,
+        markQuiet: () => update({ quiet: true }),
+      });
 
       const arms: Promise<void>[] = [];
 
-      // The OUTPUT feed — needed by the two output condition FORMS to decide the
+      // The OUTPUT feed — needed by a form that reads FRAMES to decide the
       // condition, and by the quiescence conjunct whatever the form. An `agent`
       // condition with no conjunct opens none, so the plain agent-state wait
       // costs exactly what it always cost — and `captureScreen` alone does NOT
       // open one: with no half for a frame to change, a feed would observe bytes
       // that cannot invalidate anything (see the header's fixed-point note).
-      if (condition.kind !== "agent" || settledMs !== undefined) {
+      if (form.onFrame !== undefined || settledWindow !== undefined) {
         arms.push(
           watchAttachFeed(client, ctx, {
             id,
             onFrame: (frame) => {
-              // Snapshot AND delta both (re)start a window: the snapshot is the
-              // replay of the current screen — the moment to start counting —
-              // and each delta is fresh output resetting the count. Each arming
-              // goes through `update`, so the generation moves exactly when a
-              // half does and never merely because a byte arrived.
-              if (conditionWindow !== undefined) {
-                update({ held: null });
-                conditionWindow.arm();
-              }
+              // Snapshot AND delta both (re)start the conjunct's window: the
+              // snapshot is the replay of the current screen — the moment to
+              // start counting — and each delta is fresh output resetting the
+              // count. The arming goes through `update`, so the generation moves
+              // exactly when a half does and never merely because a byte
+              // arrived.
               if (settledWindow !== undefined) {
                 update({ quiet: false });
                 settledWindow.arm();
               }
-              // A latched match is not re-decided. Scanning on would re-derive
-              // `matchedLine` from `carry + data` — a carry frozen at the match
-              // and bytes that arrived much later — and splice two non-adjacent
-              // stretches of output into a line no terminal ever printed. The
-              // sentinel already fired; later output can only break the
-              // conjunct, which the window above already handles.
-              if (
-                condition.kind !== "match" ||
-                frame.kind !== "delta" ||
-                candidate.held !== null
-              ) {
-                return;
-              }
-              const data = frame.data;
-              // An empty delta brings no new text: its window would be exactly
-              // the carry the previous frame already scanned, for exactly the
-              // same verdict. Skipping it keeps "one scan per new byte" true.
-              if (data === "") return;
-              // The scan window: the new bytes, plus enough already-scanned tail
-              // that a sentinel straddling the chunk boundary is still whole.
-              const window = carry + data;
-              // `search`, not `exec`: it is the one scan that ignores (and
-              // restores) a pattern's `lastIndex`, so a `/g`- or `/y`-flagged
-              // pattern can't resume mid-window and skip the sentinel — and the
-              // caller's RegExp is never mutated. The index is all this needs.
-              const index = window.search(condition.pattern);
-              if (index !== -1) {
-                // A match LATCHES: unlike a bucket, a sentinel that printed
-                // cannot un-print, so later output only breaks the conjunct.
-                update({
-                  held: {
-                    fired: "match",
-                    matchedLine: matchedLineAt(window, index),
-                  },
-                });
-                return;
-              }
-              carry = carryTail(window);
+              form.onFrame?.(frame);
             },
-            // State accumulated from a feed we can no longer observe is dropped:
-            // a window left armed would fire a FALSE quiet across the reconnect
-            // gap, and carrying pre-gap bytes into the scan of post-gap ones
-            // would let the two halves forge a sentinel nobody printed. A
-            // latched `match` survives — it is a fact about output we DID see.
+            // State accumulated from a feed we can no longer observe is dropped
+            // — the form's own half first, then the conjunct's. That order can
+            // never mint a met: dropping the condition's evidence only makes the
+            // candidate falser, where relaxing the conjunct first would leave a
+            // stale `held` momentarily paired with a fresh quiet.
             //
             // This handler NEVER claims quiet. A lost feed is not evidence that
             // the terminal is quiet — it is evidence we cannot SEE it, and the
@@ -1202,119 +1400,48 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
             // here identically, so claiming quiet would let a LIVE terminal's
             // dropped feed mint a met — a false done-signal, the exact class of
             // lie this whole feature exists to remove. The vacuous-quiet case
-            // that IS legitimate rides `onExit`, where the evidence is an
-            // observed exit rather than an absence of observation.
+            // that IS legitimate rides `onTerminalGone`, where the evidence is a
+            // terminal proven dead rather than an absence of observation.
             onFeedLost: () => {
-              conditionWindow?.disarm();
               settledWindow?.disarm();
-              carry = "";
-              update({
-                ...(conditionWindow !== undefined ? { held: null } : {}),
-                quiet: quietGround,
-              });
+              form.onFeedLost?.();
+              update({ quiet: quietGround });
             },
-            // The exit settles `gone` for every form EXCEPT `match`, whose bytes
-            // may still be in flight on the (separately-ordered) attach feed — a
-            // sentinel that printed must win, so there the exit is only LATCHED
-            // and the feed's END is the proof no bytes are left. Nothing an
+            // The exit settles `gone` for every form whose evidence is NOT in
+            // this feed. For one whose evidence IS (a `match`'s bytes), those
+            // bytes may still be in flight on the separately-ordered attach feed
+            // — a sentinel that printed must win — so there the exit is only
+            // LATCHED and the feed's END is the proof none are left. Nothing an
             // early settle could invalidate exists for the other forms.
-            ...(evidenceIsFeedOrdered
+            ...(form.evidenceIsFeedOrdered
               ? {}
               : {
                   onExit: () =>
                     ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() }),
                 }),
-            // A PROVEN-gone terminal discharges a `match` wait's conjunct: the
-            // ordered feed has ended, so every byte it will ever produce is in,
-            // and the process is dead, so none will follow — the strongest
-            // possible form of the quiet `--settled` asks for. `settle` is
-            // first-writer-wins, so claiming here beats the `gone` that follows.
-            // Claimed ONLY for an already-latched sentinel; a match that never
-            // printed leaves `held` null and the `gone` stands.
-            //
-            // Without it, `--until match:DONE --settled 500` against the
-            // ordinary `echo DONE; exit` shape settles `gone` (exit 3) where the
-            // same wait WITHOUT `--settled` settles `met` (exit 0) — a modifier
-            // sold as a conjunct silently converting a success into a
-            // terminal-died failure that no input could ever satisfy.
-            //
-            // It hangs off THIS hook and not off `onExit` because the exit event
-            // rides its own subscription and can be delivered before the delta
-            // carrying the sentinel; and not off `onFeedLost` because that fires
-            // before the spine has told `gone` from `closed`, where claiming
-            // quiet would let a live terminal's dropped feed mint a met.
-            //
-            // NOT claimed when a SCREEN was asked for. padi's `screen.text`
-            // narrows to an ACTIVE terminal, so a dead one has no screen to read
-            // and no met carrying one can exist — `--until match:X --settled N`
-            // with a capture, against a terminal that exits, is `gone`: the
-            // sentinel printed, but the screen you asked for died with the PTY.
-            //
-            // Stated precisely, because the tempting version overclaims: the
-            // gate changes NO outcome. Claiming anyway would start a read the
-            // `gone` settle immediately aborts, reaching the same `gone` — the
-            // guard buys one doomed round-trip and an explicit statement of the
-            // boundary, nothing more. Nor is the boundary the gate's doing: the
-            // exit-0-becomes-exit-3 step when a capture is added to this one
-            // shape is the dead terminal's, and holds with or without it.
-            ...(evidenceIsFeedOrdered && captureScreen !== true
-              ? {
-                  onTerminalGone: () => {
-                    if (candidate.held !== null) update({ quiet: true });
-                  },
-                }
-              : {}),
+            // A PROVEN-gone terminal — the one moment a form may claim the
+            // conjunct with no window having fired. Whether it does is the
+            // form's call; see the `match` form's `onTerminalGone`.
+            ...(form.onTerminalGone === undefined
+              ? {}
+              : { onTerminalGone: form.onTerminalGone }),
             retryAdvice: opts.retryAdvice,
           }),
         );
       }
 
-      // The AGENT feed — the `terminals` mirror, which REPLAYS each terminal's
-      // current value on connect, so an agent ALREADY in a target bucket matches
-      // immediately rather than hanging for a transition that already happened.
-      if (condition.kind === "agent") {
-        const targets = condition.targets;
-        arms.push(
-          watchTerminals(
-            client,
-            {
-              onUpsert: (upserted, value) => {
-                if (upserted !== id) return;
-                const agent = matchingActiveAgent(value, targets);
-                // Both directions: a bucket that STOPS matching re-enters the
-                // wait. Without that, `--settled` would be waiting for quiet on
-                // an agent that has gone back to work. A record change also
-                // invalidates an in-flight screen read — the met it would stamp
-                // is a different met — which `update` handles for us.
-                update({
-                  held: agent === null ? null : { fired: "agent", agent },
-                });
-              },
-              // The terminal we're waiting on left the collection — its PTY
-              // exited, so no future frame can carry the target bucket. Resolve
-              // gone rather than hanging. Removals of OTHERS are noise.
-              onRemove: (removed) => {
-                if (removed !== id) return;
-                ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
-              },
-            },
-            ctx.signal,
-            (line) => ctx.recordUpstreamError(line),
-            // Seed the watched id so a terminal that exited BEFORE this
-            // subscription (in the gap after the caller resolved the id) is
-            // reconciled to gone on the first snapshot instead of hanging.
-            () => [id],
-          ),
-        );
-      }
+      // Whatever the form watches BESIDES output — the `agent` form's
+      // `terminals` mirror.
+      if (form.subscribe !== undefined) arms.push(form.subscribe());
 
       try {
         await Promise.all(arms);
         // The subscriptions have unwound; a read they started may not have.
         if (pendingRead !== undefined) await pendingRead;
       } finally {
-        // The scaffold clears ITS timeout; these windows are this wait's own.
-        conditionWindow?.disarm();
+        // The scaffold clears ITS timeout; the conjunct's window and whatever
+        // the form armed are this wait's own.
+        form.dispose?.();
         settledWindow?.disarm();
       }
       // A dead transport is a BUG-shaped failure, not an outcome: `runWait`
@@ -1327,10 +1454,15 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
 
 // ── The two named waits — one engine, two spellings ─────────────────────────
 //
-// Each is the engine with one condition and no modifiers. They stay named
-// because they are what the other faces call (the MCP face's `wait_agentState` /
-// `wait_outputSettled`, padi-tui's `cmdWait`) and because each carries its own
-// `closed` retry advice — the sentence naming the thing to re-run.
+// Each is the engine with one condition. They stay named because they are what
+// the other faces call (the MCP face's `wait_agentState` / `wait_outputSettled`,
+// padi-tui's `cmdWait`) and because each carries its own `closed` retry advice —
+// the sentence naming the thing to re-run.
+//
+// They also OWN their met frames, which is why the modifiers reach the MCP face
+// through them rather than around them: a face that called the engine directly
+// would have to re-spell `{agent, elapsedMs}` for itself, and two owners of one
+// wire shape is how a wire shape drifts.
 //
 // Neither re-narrows the engine's outcome at runtime: `MetOf<C>` resolves the
 // arm statically from the condition literal each passes, so the `metFired`
@@ -1338,30 +1470,42 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
 // broke" guard for a fact the types already carry — is gone.
 
 /** The outcome of an agent-state wait — the shared {@link WaitOutcome} union
- *  with the met payload this wait stamps: the matched agent, plus how long the
- *  wait took. */
+ *  with the met payload this wait stamps: the matched agent, how long the wait
+ *  took, and (when `captureScreen` was asked for) the rendered screen. */
 export type AgentStateOutcome = WaitOutcome<{
   agent: AgentInfo;
   elapsedMs: number;
+  screen?: string;
 }>;
 
-/** Block until one terminal's agent enters a target bucket, then resolve
- *  `met`; or `timeout` after `timeoutMs`, `gone` if the terminal is removed
- *  first (its PTY exited, so the bucket can never land), `interrupted` on
- *  `signal` abort, or `closed` if the link settles without any of those. Pure
- *  data layer (no tty, no `process.exit`) so it is testable over a real
- *  socket — padi-tui's `cmdWait` and the MCP face's `wait_agentState` are the
- *  thin glue mapping the outcome to their own output frames.
+/** Block until one terminal's agent enters a target bucket — optionally only
+ *  once its output has ALSO been quiet for `settledMs` — then resolve `met`; or
+ *  `timeout` after `timeoutMs`, `gone` if the terminal is removed first (its PTY
+ *  exited, so the bucket can never land), `interrupted` on `signal` abort, or
+ *  `closed` if the link settles without any of those. Pure data layer (no tty,
+ *  no `process.exit`) so it is testable over a real socket — padi-tui's `cmdWait`
+ *  and the MCP face's `wait_agentState` are the thin glue mapping the outcome to
+ *  their own output frames.
  *
- *  The met payload keeps its two fields and does NOT gain the engine's `fired`
- *  tag: it is the MCP tool's documented `met: {agent, elapsedMs}` frame, and a
- *  key added here would land on that wire. A caller that wants the tag calls
- *  {@link awaitTerminalCondition} directly, which `kolu wait` does. */
+ *  Both modifiers are {@link awaitTerminalCondition}'s and are simply forwarded;
+ *  see its header for what each guarantees. They are exposed HERE rather than
+ *  bypassed because this wrapper owns the met frame both faces render.
+ *
+ *  That frame keeps its shape and does NOT gain the engine's `fired` tag: it is
+ *  the MCP tool's documented `met: {agent, elapsedMs}`, and a key added here
+ *  would land on that wire. `screen` is additive — present only for a caller
+ *  that asked for it, so an existing reader sees the frame it always saw. A
+ *  caller that wants the tag calls {@link awaitTerminalCondition} directly,
+ *  which `kolu wait` does. */
 export async function awaitAgentState(
   client: PadiSurfaceClient,
   opts: {
     id: TerminalId;
     targets: ReadonlySet<string>;
+    /** Report met only once output has ALSO been quiet for this long. */
+    settledMs?: number;
+    /** Stamp the met with the terminal's whole rendered screen. */
+    captureScreen?: boolean;
     timeoutMs?: number;
     signal?: AbortSignal;
   },
@@ -1369,31 +1513,50 @@ export async function awaitAgentState(
   const outcome = await awaitTerminalCondition(client, {
     id: opts.id,
     condition: { kind: "agent", targets: opts.targets } as const,
+    ...(opts.settledMs === undefined ? {} : { settledMs: opts.settledMs }),
+    ...(opts.captureScreen === undefined
+      ? {}
+      : { captureScreen: opts.captureScreen }),
     timeoutMs: opts.timeoutMs,
     signal: opts.signal,
     retryAdvice: "re-run the agent-state wait",
   });
   // The `fired` tag is dropped rather than passed through — see the note above.
   return outcome.kind === "met"
-    ? { kind: "met", agent: outcome.agent, elapsedMs: outcome.elapsedMs }
+    ? {
+        kind: "met",
+        agent: outcome.agent,
+        elapsedMs: outcome.elapsedMs,
+        ...(outcome.screen === undefined ? {} : { screen: outcome.screen }),
+      }
     : outcome;
 }
 
 /** The outcome of an output-settled wait — the shared {@link WaitOutcome} union
- *  with the met payload this wait stamps: the idle signal fired, plus how long
- *  the wait took. */
+ *  with the met payload this wait stamps: the idle signal fired, how long the
+ *  wait took, and (when `captureScreen` was asked for) the rendered screen. */
 export type OutputSettledOutcome = WaitOutcome<{
   fired: "idle";
   elapsedMs: number;
+  screen?: string;
 }>;
 
 /** Block until terminal `id`'s output has been quiet for `idleMs` — the data
- *  layer of the MCP face's `wait_outputSettled`, exported for the e2e pin. */
+ *  layer of the MCP face's `wait_outputSettled`.
+ *
+ *  It takes `captureScreen` and NOT `settledMs`: the conjunct is a second
+ *  quiescence window, and two of them over one `idle` condition just means
+ *  "quiet for max(idleMs, settledMs)" — a knob whose every setting is already
+ *  spellable by `idleMs` alone. `kolu wait --until idle:n --settled m` can still
+ *  be written, because there the two windows arrive from two independent flags;
+ *  what is refused is a face OFFERING the redundancy as a choice. */
 export async function awaitOutputSettled(
   client: PadiSurfaceClient,
   opts: {
     id: string;
     idleMs: number;
+    /** Stamp the met with the terminal's whole rendered screen. */
+    captureScreen?: boolean;
     timeoutMs?: number;
     signal?: AbortSignal;
   },
@@ -1401,6 +1564,9 @@ export async function awaitOutputSettled(
   return awaitTerminalCondition(client, {
     id: opts.id,
     condition: { kind: "idle", idleMs: opts.idleMs } as const,
+    ...(opts.captureScreen === undefined
+      ? {}
+      : { captureScreen: opts.captureScreen }),
     timeoutMs: opts.timeoutMs,
     signal: opts.signal,
     retryAdvice: "retry wait_outputSettled",
