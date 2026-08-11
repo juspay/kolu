@@ -23,6 +23,14 @@ turn on "let me know if you want me to continue".
 don't wait for confirmation* — a subagent that returns a plan with no tool uses
 gets resumed with "execute now", not surfaced to the user.
 
+**A scripted edit must fail when its pattern doesn't match.** Applying a change
+with `sed -i`, `perl -0pi`, or a `node` string-replace instead of the Edit tool
+writes the file and exits 0 even when the pattern matched nothing — the edit is
+silently absent while every downstream step reads as green. Whenever you edit
+this way, make the script exit non-zero on a non-match; a trailing `ok` print or
+a count you read by eye is not that check. This holds for every edit in the run,
+including a gauntlet round's fix.
+
 ## Arguments
 
 Parse `$ARGUMENTS` for flags; the remainder is the issue URL or task prompt.
