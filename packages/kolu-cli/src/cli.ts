@@ -8,8 +8,8 @@
  *
  * ## `kolu` is the ONE terminal CLI now
  *
- * The scripting verbs (`ls` · `create` · `send` · `wait` · `snapshot` ·
- * `history` · `kill` · `watch`) subsume what `padi-tui` and `kaval-tui` served,
+ * The scripting verbs (`ls` · `create` · `send` · `wait` · `debrief` ·
+ * `snapshot` · `history` · `kill` · `watch`) subsume what `padi-tui` and `kaval-tui` served,
  * so a user — human or agent — drives kolu terminals with one command. Every
  * verb is a PURE padi client: `padiSurface` carries the union of both TUIs'
  * needs (`lifecycle.*`, `screen.*`, `terminalAttach`, `terminalExit`), so no
@@ -21,7 +21,7 @@
  *
  * 1. **Bare `kolu` is no longer an alias of `kolu web`.** It prints the
  *    subcommand list and exits non-zero, so a user picks a face explicitly. With
- *    eleven faces, silently booting a web server for a bare invocation is a
+ *    twelve subcommands, silently booting a web server for a bare invocation is a
  *    footgun rather than a convenience.
  * 2. **`effect/unstable/cli` replaces cleye.** cleye binds a flag to the
  *    subcommand that PRECEDES it, so `kolu --host foo create` was a usage error.

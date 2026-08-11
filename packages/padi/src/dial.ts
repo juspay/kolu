@@ -74,28 +74,29 @@ export {
 } from "./stateRoot.ts";
 
 // The client-side terminal WATCH kit — `watchTerminals` + the ONE
-// block-on-a-condition engine (`awaitTerminalCondition`, which also carries the
-// `--settled` quiescence conjunct and the `--snapshot` screen stamp) and the
-// three named waits that are each a spelling of it (`awaitAgentState` ·
-// `awaitOutputSettled` · `awaitOutputMatch`) plus `awaitWatchEvents` (the standing-subscription drain,
-// which differs in kind: it drains a padi-side BUFFER, so the gaps between calls
-// are not holes) and the bucket vocabulary they predicate on — rides the
-// dial entry too: the same "a daemon's package owns the client kit its
-// consumers share" rule, and every consumer (padi-tui's `wait`/`watch`, the
-// kolu MCP face's `wait_agentState`/`wait_outputSettled`, `kolu wait`'s three
-// `--until` forms) already imports this entry to dial.
+// block-on-a-condition engine (`awaitTerminalCondition`, which takes the
+// condition as data and carries the `--settled` quiescence conjunct and the
+// `--snapshot` screen stamp), the two named waits that are spellings of it
+// (`awaitAgentState` · `awaitOutputSettled` — named because their met payloads
+// ARE the MCP tools' wire frames), plus `awaitWatchEvents` (the
+// standing-subscription drain, which differs in kind: it drains a padi-side
+// BUFFER, so the gaps between calls are not holes) and the bucket vocabulary
+// they predicate on — rides the dial entry too: the same "a daemon's package
+// owns the client kit its consumers share" rule, and every consumer (padi-tui's
+// `wait`/`watch`, the kolu MCP face's `wait_agentState`/`wait_outputSettled`,
+// `kolu wait`'s three `--until` forms) already imports this entry to dial.
+// The `match:` form has NO named wrapper — `kolu wait` is its one consumer and
+// calls the engine directly; see the note at the foot of `cliClient/watch.ts`.
 export {
   activeAgent,
   type AgentStateOutcome,
   isWaitState,
   PADI_LINK_CLOSED,
   awaitAgentState,
-  awaitOutputMatch,
   awaitOutputSettled,
   awaitTerminalCondition,
   awaitWatchEvents,
   type ConditionMet,
-  type OutputMatchOutcome,
   type OutputSettledOutcome,
   type TerminalCondition,
   type TerminalConditionOutcome,

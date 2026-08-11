@@ -214,16 +214,19 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   as data (`idle` · `match` · `agent`) plus two orthogonal modifiers: a
   `settledMs` **conjunct** (met only once output has also been quiet that long,
   with a condition that stops holding re-entering the wait) and a `screenTail`
-  **stamp** (the met carries the rendered tail, read on the same live
-  subscription and discarded-and-retaken if the terminal moves under it). They
-  live here rather than in a driving loop because the races they close are
-  between a caller's separate *invocations* — `kolu wait --settled/--snapshot`
-  and `kolu debrief` are that engine's argv face
-  ([kolu#2139](https://github.com/juspay/kolu/issues/2139)). The three named
-  waits — `awaitAgentState` · `awaitOutputSettled` · `awaitOutputMatch`, what
-  the MCP face and `padi-tui` call — are spellings of it, each carrying its own
-  `closed` retry advice; the quiescence window and the bounded `match:` scan
-  have one implementation between them.
+  **stamp** (the met carries the rendered tail, read while the wait's own
+  subscriptions are live and discarded-and-retaken if anything moves under the
+  read — which is why asking for it opens the output feed even for a condition
+  that would not otherwise need one). They live here rather than in a driving
+  loop because the races they close are between a caller's separate
+  *invocations* — `kolu wait --settled/--snapshot` and `kolu debrief` are that
+  engine's argv face
+  ([kolu#2139](https://github.com/juspay/kolu/issues/2139)). Two named waits
+  remain — `awaitAgentState` (padi-tui's `cmdWait`, the MCP face's
+  `wait_agentState`) and `awaitOutputSettled` (`wait_outputSettled`) — because
+  their met payloads ARE those tools' wire frames; they are spellings of the
+  engine, each carrying its own `closed` retry advice. The `match:` form has no
+  wrapper: `kolu wait` is its only consumer and calls the engine directly.
 
 - **`@kolu/padi/render`** and **`@kolu/padi/read`** — the CLI faces' shared
   view + data layers. `render` is pure formatting (the roster table's

@@ -2,12 +2,21 @@
  * The tail-mode slice of a rendered screen — one pure fold, zero imports.
  *
  * It sat in `render.ts` until the wait kit became its third consumer (`kolu wait
- * --snapshot` stamps a met outcome with the rendered tail). `render.ts` pulls in
- * `columnify` at module load for the roster table, and reaching it from
- * `watch.ts` would have put a table formatter into the module graph of every
- * `kolu wait` and every `kolu mcp` — a dependency arrow drawn for a six-line
- * function. So the leaf moved out and `render.ts` re-exports it: every existing
- * `@kolu/padi/render` consumer's import is unchanged.
+ * --snapshot` stamps a met outcome with the rendered tail). `render.ts` pulls
+ * `columnify` in at module load for the roster table, and the WAIT KIT is
+ * reached through `@kolu/padi/dial` — an entry that today depends on no
+ * formatter at all. Importing `render.ts` from `watch.ts` would draw that arrow
+ * for a six-line pure fold, so the leaf moved out instead and `render.ts`
+ * re-exports it: every existing `@kolu/padi/render` consumer's import is
+ * unchanged.
+ *
+ * Stated precisely, because the tempting version of this sentence is false: it
+ * saves no module-load work TODAY. Both faces that call the wait kit already
+ * load `render.ts` for other reasons — `kolu-cli` through `verbs/shared.ts`
+ * (`resolveTerminalId`/`shortId`), `kolu-mcp` through `screenText.ts`. What it
+ * buys is the dependency DIRECTION: the dial kit does not come to depend on a
+ * table formatter, so a future dial consumer that wants neither does not
+ * inherit one.
  */
 
 /** The last `tail` lines of a rendered screen, with the trailing run of

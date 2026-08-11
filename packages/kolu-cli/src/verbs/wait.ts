@@ -349,8 +349,26 @@ function reportOutcome(
   outcome: TerminalConditionOutcome,
   describe: string,
   json: boolean,
+  screenTail: number | undefined,
 ): Effect.Effect<void, CliFailure> {
   return Effect.gen(function* () {
+    // `--snapshot` asked for a screen, so a met WITHOUT one is a broken engine,
+    // not an empty terminal. Crash loud rather than print nothing and exit 0 —
+    // which is what a driving loop would read as "the worker's screen was
+    // blank", the collapse-to-empty this repo treats as a defect. The engine
+    // guarantees the field (a failed read settles `gone`/`closed` instead), and
+    // `ConditionMet` cannot express "present iff asked for", so the invariant is
+    // checked at the one boundary that knows both halves.
+    if (screenTail !== undefined && outcome.kind === "met") {
+      if (outcome.screen === undefined) {
+        return yield* Effect.fail(
+          failure(
+            `--snapshot ${screenTail} was asked for but ${shortId(id)}'s met carries no screen — a bug in the wait engine, not an empty terminal.`,
+          ),
+        );
+      }
+    }
+
     if (json) {
       // The met payload passes through UNCHANGED. `WaitMetPayload` is already a
       // closed union with exactly the fields the frame carries, so the
@@ -574,6 +592,7 @@ export function run(
       outcome,
       describeWait(plan, settledMs),
       args.json,
+      screenTail,
     );
   });
 }

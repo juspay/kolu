@@ -97,7 +97,7 @@ So the discipline is: **an implementing agent routes every question to the coord
 
 ## A fleet can span machines
 
-Nothing about this is local. Because [padi](/padi) binds a per-host daemon over ssh, a coordinator on your laptop can drive agents running on a [remote host](/remote-hosts) — `kolu --host prod wait <id> --until awaiting,waiting`, `kolu --host prod snapshot <id>` — the same loop, a different box. A remote PTY survives the link dropping, so an agent keeps working while your laptop sleeps. The [fleet is a mix of hosts](/remote-hosts); the driving code doesn't change.
+Nothing about this is local. Because [padi](/padi) binds a per-host daemon over ssh, a coordinator on your laptop can drive agents running on a [remote host](/remote-hosts) — `kolu --host prod send <id> "…"`, `kolu --host prod debrief <id>` — the same loop, a different box. A remote PTY survives the link dropping, so an agent keeps working while your laptop sleeps. The [fleet is a mix of hosts](/remote-hosts); the driving code doesn't change.
 
 ## The seams, and when not to bother
 

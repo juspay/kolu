@@ -52,7 +52,7 @@ parse on **either side of the verb name**: `kolu --host box create` and
 `kolu create --host box` are one parse. A flag declared on a subcommand only
 parses after that subcommand's name — the positional straitjacket this CLI
 exists to drop. **`kolu mcp` honors all three** — `--socket` / `--state-root` /
-`--host` — exactly as the eight verbs do, because its dial resolves through the
+`--host` — exactly as the nine verbs do, because its dial resolves through the
 same `localPadiSocket` policy they do (`kolu mcp --state-root .kolu-dev/padi`
 points an agent at a dev kolu). The ONE face left with anything to refuse is
 `web`, which dials no padi at all: it **refuses** what it can't act on rather
@@ -94,8 +94,8 @@ intercepts would send a driving loop watching for a code kolu never writes.
 ## Two breaking changes
 
 1. **Bare `kolu` no longer starts the web server.** It prints the subcommand
-   list and exits non-zero, so a user picks a face explicitly. With eleven
-   faces, silently booting a web server for a bare invocation is a footgun
+   list and exits non-zero, so a user picks a face explicitly. With twelve
+   subcommands, silently booting a web server for a bare invocation is a footgun
    rather than a convenience. The server is **`kolu web`**.
 2. **`kolu web --host <addr>` is now `kolu web --bind <addr>`.** `--host` is a
    shared flag meaning "which padi to reach" across the whole binary, and Effect

@@ -4,7 +4,8 @@
  *   - the wait predicate over a composed record (`matchingActiveAgent`), moved
  *     here (verbatim fixtures) from padi-tui's `render.test.ts` when it
  *     graduated into the dial kit's watch module;
- *   - `awaitOutputMatch` over a hand-rolled fake `PadiSurfaceClient` — the same
+ *   - the `match:` wait (the engine with a match condition — what `kolu wait`
+ *     runs) over a hand-rolled fake `PadiSurfaceClient` — the same
  *     fake-stream idiom `read.test.ts` uses (a pushable {@link FakeSource} per
  *     member, `Stream`s handed back lazily and synchronously, teardown by fiber
  *     interruption), which is what makes the match watcher testable at all
@@ -40,7 +41,7 @@
  * already unbounded in time (measured on the dev box: `/a*a*Z/`, a merely
  * polynomial pattern, takes ~12s over 4096 `a`s). The bound removes the
  * per-frame multiplier, not the exponent; a test asserting otherwise would
- * either hang or pass vacuously. See `awaitOutputMatch`'s header, which names the
+ * either hang or pass vacuously. See `awaitTerminalCondition`'s header, which names the
  * residual.
  */
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
@@ -50,7 +51,6 @@ import type { PadiSurfaceClient } from "../dial.ts";
 import { TerminalNotFound } from "../errors.ts";
 import type { PadiTerminal } from "../surface.ts";
 import {
-  awaitOutputMatch,
   awaitTerminalCondition,
   matchingActiveAgent,
   WAIT_STATES,
@@ -267,13 +267,30 @@ const keysWithout = (): Stream.Stream<readonly TerminalId[], unknown> =>
 
 const T = "t1";
 
-describe("awaitOutputMatch — the `match:` wait over a fake attach feed", () => {
+/** The `match:` wait as PRODUCTION spells it — the engine with a match
+ *  condition and no modifiers, which is exactly what `kolu wait --until
+ *  match:<regex>` calls. There is no `awaitOutputMatch` wrapper to test through:
+ *  a named wrapper with only a test caller would be public dial surface with no
+ *  production caller (see `watch.ts`'s note at the foot of the named waits), so
+ *  the shorthand lives here, in the only place that wanted one. */
+const matchWait = (
+  client: PadiSurfaceClient,
+  opts: { id: string; pattern: RegExp; timeoutMs?: number },
+) =>
+  awaitTerminalCondition(client, {
+    id: opts.id,
+    condition: { kind: "match", pattern: opts.pattern },
+    ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }),
+    retryAdvice: "re-run the match wait",
+  });
+
+describe("the `match:` wait over a fake attach feed", () => {
   it("matches a sentinel SPLIT across two deltas", async () => {
     const attach = new FakeSource<AttachFrame>();
     attach.push(delta("running... SEN"));
     attach.push(delta("TINEL ok\n"));
 
-    const outcome = await awaitOutputMatch(
+    const outcome = await matchWait(
       matchClient({ attach: () => attach.stream() }),
       { id: T, pattern: /SENTINEL/, timeoutMs: 5000 },
     );
@@ -294,7 +311,7 @@ describe("awaitOutputMatch — the `match:` wait over a fake attach feed", () =>
     // sentinel's bytes are still in flight behind.
     exit.push({ code: 0 });
 
-    const pending = awaitOutputMatch(
+    const pending = matchWait(
       matchClient({ attach: () => attach.stream(), exit: () => exit.stream() }),
       { id: T, pattern: /READY/, timeoutMs: 5000 },
     );
@@ -316,7 +333,7 @@ describe("awaitOutputMatch — the `match:` wait over a fake attach feed", () =>
     // No `keys` wired: an OBSERVED exit already answers the membership question,
     // so a read would fail the stream and settle `closed` instead — the failure
     // this case is watching for.
-    const pending = awaitOutputMatch(
+    const pending = matchWait(
       matchClient({ attach: () => attach.stream(), exit: () => exit.stream() }),
       { id: T, pattern: /READY/, timeoutMs: 5000 },
     );
@@ -338,7 +355,7 @@ describe("awaitOutputMatch — the `match:` wait over a fake attach feed", () =>
     second.end();
 
     let attempt = 0;
-    const outcome = await awaitOutputMatch(
+    const outcome = await matchWait(
       matchClient({
         attach: () => (attempt++ === 0 ? first.stream() : second.stream()),
         keys: keysWithout,
@@ -359,7 +376,7 @@ describe("awaitOutputMatch — the `match:` wait over a fake attach feed", () =>
     attach.push(delta("still working\n"));
     attach.end();
 
-    const outcome = await awaitOutputMatch(
+    const outcome = await matchWait(
       matchClient({ attach: () => attach.stream(), keys: keysWithout }),
       { id: T, pattern: /SENTINEL/, timeoutMs: 5000 },
     );
@@ -375,7 +392,7 @@ describe("awaitOutputMatch — the `match:` wait over a fake attach feed", () =>
     const pattern = /READY/g;
     pattern.lastIndex = 999;
 
-    const outcome = await awaitOutputMatch(
+    const outcome = await matchWait(
       matchClient({ attach: () => attach.stream() }),
       { id: T, pattern, timeoutMs: 5000 },
     );
@@ -403,7 +420,7 @@ describe("awaitOutputMatch — the `match:` wait over a fake attach feed", () =>
     for (let i = 0; i < frames; i++) attach.push(delta("x".repeat(chunk)));
     attach.end();
 
-    const outcome = await awaitOutputMatch(
+    const outcome = await matchWait(
       matchClient({ attach: () => attach.stream(), keys: keysWithout }),
       { id: T, pattern, timeoutMs: 20_000 },
     );
@@ -429,7 +446,7 @@ describe("awaitOutputMatch — the `match:` wait over a fake attach feed", () =>
     attach.end();
 
     const started = Date.now();
-    const outcome = await awaitOutputMatch(
+    const outcome = await matchWait(
       matchClient({ attach: () => attach.stream(), keys: keysWithout }),
       { id: T, pattern: /a*Z/ },
     );
@@ -450,7 +467,7 @@ describe("awaitOutputMatch — the `match:` wait over a fake attach feed", () =>
     attach.push(delta(`a${emoji}${"b".repeat(4095)}`));
     attach.push(delta("Z\n"));
 
-    const outcome = await awaitOutputMatch(
+    const outcome = await matchWait(
       matchClient({ attach: () => attach.stream(), keys: keysWithout }),
       { id: T, pattern: new RegExp(`${emoji}b+Z`, "u"), timeoutMs: 5000 },
     );
@@ -701,6 +718,93 @@ describe("awaitTerminalCondition — `--snapshot`, the screen stamp", () => {
       },
     );
     expect(outcome).toMatchObject({ kind: "gone" });
+  });
+
+  it("DISCARDS a screen whose quiet window re-fired under it — not just one whose flags flipped", async () => {
+    // The subtle version of the same bug, and the one a boolean re-check cannot
+    // see: the read outlives its quiescence window, so by the time it resolves
+    // the window has re-armed AND re-fired. `held` and `quiet` both read `true`
+    // again — the flags say yes — but they are a DIFFERENT met's flags, and the
+    // screen in hand was taken during the previous quiet stretch, before a
+    // screenful of output the terminal has since printed. Only comparing the
+    // moment (the epoch counter) catches it.
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    const reads: string[] = [];
+    const outcome = await awaitTerminalCondition(
+      matchClient({
+        attach: () => attach.stream(),
+        screenText: () =>
+          Effect.promise(async () => {
+            if (reads.length === 0) {
+              reads.push("stale");
+              // Break the quiet, then let the window re-fire — all while this
+              // read is still in flight.
+              attach.push(delta("a screenful of late output\n"));
+              await sleep(80);
+              return "STALE\n";
+            }
+            reads.push("fresh");
+            return "FRESH\n";
+          }),
+      }),
+      {
+        id: T as TerminalId,
+        condition: { kind: "idle", idleMs: 20 },
+        settledMs: 20,
+        screenTail: 1,
+        timeoutMs: 5000,
+        retryAdvice: "re-run the wait",
+      },
+    );
+
+    expect(reads).toEqual(["stale", "fresh"]);
+    expect(outcome).toMatchObject({ kind: "met", screen: "FRESH" });
+  });
+
+  it("opens the output feed for a bare agent condition, so `--snapshot` can SEE a byte arrive", async () => {
+    // Without a feed there is nothing to observe a byte on, so the discard would
+    // be a promise the layer cannot keep: `kolu wait --until awaiting,waiting
+    // --snapshot 40` would stamp a screen the terminal had moved under and
+    // report it as the screen that settled. The pin is that the feed exists —
+    // this client FAILS `terminals.keys`, which only the attach feed's
+    // lost-feed discrimination reads, so a wait that never subscribed would
+    // simply meet instead of surfacing the read.
+    const agents = agentCollection(claude("waiting"));
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    const reads: string[] = [];
+    const outcome = await awaitTerminalCondition(
+      matchClient({
+        attach: () => attach.stream(),
+        ...agents.parts,
+        screenText: () =>
+          Effect.promise(async () => {
+            if (reads.length === 0) {
+              reads.push("stale");
+              attach.push(delta("late output\n"));
+              await sleep(0);
+              return "STALE\n";
+            }
+            reads.push("fresh");
+            return "FRESH\n";
+          }),
+      }),
+      {
+        id: T as TerminalId,
+        condition: { kind: "agent", targets: new Set(["awaiting", "waiting"]) },
+        screenTail: 1,
+        timeoutMs: 5000,
+        retryAdvice: "re-run the wait",
+      },
+    );
+
+    expect(reads).toEqual(["stale", "fresh"]);
+    expect(outcome).toMatchObject({
+      kind: "met",
+      fired: "agent",
+      screen: "FRESH",
+    });
   });
 
   it("refuses a non-positive tail at the boundary rather than stamping nothing", async () => {

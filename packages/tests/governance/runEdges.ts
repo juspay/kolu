@@ -112,8 +112,8 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   },
   {
     path: "packages/padi/src/cliClient/watch.ts",
-    sites: 1,
-    why: "`awaitWatchEvents`' drain, crossing into `@kolu/surface/wait`'s `runWait` — the shared bounded-wait scaffold is Promise+AbortSignal shaped BY DESIGN (it is what the two sibling waits in this same file already ride), so its watcher body is a non-Effect runtime with no Effect caller above it to compose into; one crossing, for the one procedure a standing-subscription wait calls (`watch.drain`), where its siblings need none because they consume streams rather than procedures",
+    sites: 2,
+    why: "both crossings are into `@kolu/surface/wait`'s `runWait`, and both are PROCEDURES. The scaffold is Promise+AbortSignal shaped BY DESIGN, so a watcher body is a non-Effect runtime with no Effect caller above it to compose into; a stream is consumed through this file's own `iterateUntilAborted` bridge, but a procedure has nowhere else to be run. One site is `awaitWatchEvents`' `watch.drain`. The other is `awaitTerminalCondition`'s `screen.text` — the `--snapshot` / `kolu debrief` stamp (kolu#2139), which cannot move outside the wait: it is read while the subscriptions that decide whether it is STILL the screen that settled are live, and it passes `{ signal: ctx.signal }` so a settled timeout is never held open by an unanswered reply",
   },
   {
     path: "packages/padi/src/daemonBoot/daemonMain.ts",

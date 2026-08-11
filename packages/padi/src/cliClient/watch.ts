@@ -758,22 +758,28 @@ function quietWindow(
  *     meaningful signal.
  *   - **`screenTail` is an ENRICHMENT of the payload.** The rendered tail is
  *     read while the subscriptions are still live and BEFORE the met settles;
- *     if any byte arrives — or the condition stops holding — while that read is
- *     in flight, the screen it returned is not the screen that settled, so it is
- *     DISCARDED and the wait resumes. So the screen on a met is one taken during
- *     the same unbroken stretch of quiet that met the condition. That is the
- *     property a second `kolu snapshot` process can never have.
+ *     if any byte arrives — or the condition stops holding, or a quiescence
+ *     window re-arms and re-fires — while that read is in flight, the screen it
+ *     returned is not the screen that settled, so it is DISCARDED and the wait
+ *     resumes. So the screen on a met is one taken during the same unbroken
+ *     stretch of quiet that met the condition. That is the property a second
+ *     `kolu snapshot` process can never have. Asking for it therefore OPENS the
+ *     output feed even for an `agent` condition with no conjunct: without a feed
+ *     "a byte arrived" is unobservable, and a guarantee a layer cannot see is
+ *     not one it may promise.
  *
- * Two things are deliberately NOT special-cased. `idle:<n>` with `settledMs` of
+ * One thing is deliberately NOT special-cased: `idle:<n>` with `settledMs` of
  * `m` runs two independent windows and therefore means "quiet for max(n, m)" —
- * which falls out rather than being written. And an `agent` condition with no
- * `settledMs` opens no attach feed at all, so it costs exactly what the plain
- * agent-state wait always cost.
+ * which falls out rather than being written. An `agent` condition with NEITHER
+ * modifier opens no attach feed at all, so the plain agent-state wait costs
+ * exactly what it always cost.
  *
  * `retryAdvice` is the actionable tail of the `closed` diagnostic (see
  * {@link watchAttachFeed}) and is required, not defaulted: only the caller knows
  * what the thing to re-run is called, and a wrong-but-plausible default is worse
- * than no sentence.
+ * than no sentence. Whether the sentence is ever REACHED depends on the
+ * configuration — a bare agent wait opens no feed to lose — the same way a
+ * `--timeout` a wait never hits is still required to be a real number.
  */
 export async function awaitTerminalCondition(
   client: PadiSurfaceClient,
@@ -809,6 +815,22 @@ export async function awaitTerminalCondition(
       let held: ConditionHeld | null = null;
       /** The conjunct. Trivially satisfied when no `settledMs` was asked for. */
       let quiet = settledMs === undefined;
+      /**
+       * The EPOCH of the current met-candidate — bumped by every event that
+       * makes an in-flight screen read stale: a byte arriving, a window
+       * re-arming, a bucket changing, a feed lost.
+       *
+       * A boolean re-read of `held`/`quiet` after the read is NOT enough, and
+       * that is the subtle version of the bug this whole feature exists to fix.
+       * Booleans record *whether*, never *when*: a screen read that outlives its
+       * quiescence window sees the window re-arm (`quiet = false`) and re-fire
+       * (`quiet = true`) while the read is still in flight, so both cells read
+       * `true` again at resolution and a screen taken during the FIRST quiet
+       * stretch is stamped onto a met earned by the SECOND — the terminal moved
+       * under it and nothing noticed. Comparing a monotone counter compares the
+       * moments, not the flags (P1: a value, not a place).
+       */
+      let epoch = 0;
       /** A screen read is in flight — never two at once. */
       let reading = false;
       /** The tail of the output already scanned by the `match:` form, bounded by
@@ -862,12 +884,23 @@ export async function awaitTerminalCondition(
        *  under the read is reported as what it is now, beside the screen that
        *  shows it. */
       const stampAndSettle = async (tail: number): Promise<void> => {
+        const at = epoch;
         try {
+          // `{ signal }` is load-bearing, not hygiene: `runWait`'s timeout
+          // SETTLES an outcome and aborts, but does not return until this
+          // watcher body resolves — and the body awaits this read. An
+          // unbound read against a wedged-but-alive link would therefore hold
+          // the whole wait open past the `--timeout` it promises, which is the
+          // unbounded-tail hazard `settleOnLostFeed`'s membership read binds
+          // itself against for the same reason.
           const text = await Effect.runPromise(
             client.surface.screen.text({ id }),
+            { signal: ctx.signal },
           );
           if (ctx.signal.aborted) return;
-          if (held === null || !quiet) return;
+          // Same epoch ⇒ nothing invalidated the candidate while the read was in
+          // flight, so this screen IS the screen that settled.
+          if (epoch !== at || held === null || !quiet) return;
           settleMet(held, tailLines(text, tail));
         } catch (err) {
           if (ctx.signal.aborted) return;
@@ -922,6 +955,7 @@ export async function awaitTerminalCondition(
         condition.kind === "idle"
           ? quietWindow(condition.idleMs, () => {
               held = { fired: "idle" };
+              epoch += 1;
               check();
             })
           : undefined;
@@ -930,19 +964,30 @@ export async function awaitTerminalCondition(
           ? undefined
           : quietWindow(settledMs, () => {
               quiet = true;
+              epoch += 1;
               check();
             });
 
       const arms: Promise<void>[] = [];
 
-      // The OUTPUT feed — needed by the two output condition forms, and by the
-      // quiescence conjunct whatever the form. An `agent` condition with no
-      // conjunct opens none, so it costs exactly what it always cost.
-      if (condition.kind !== "agent" || settledMs !== undefined) {
+      // The OUTPUT feed. Two output condition forms need it to decide the
+      // CONDITION; the quiescence conjunct needs it whatever the form; and
+      // `screenTail` needs it to know a byte arrived while its read was in
+      // flight — without a feed that half of the discard is unobservable, so a
+      // bare `--until <buckets> --snapshot N` would stamp a screen the terminal
+      // had moved under. An `agent` condition with NEITHER modifier opens none,
+      // so the plain agent-state wait costs exactly what it always cost.
+      if (
+        condition.kind !== "agent" ||
+        settledMs !== undefined ||
+        screenTail !== undefined
+      ) {
         arms.push(
           watchAttachFeed(client, ctx, {
             id,
             onFrame: (frame) => {
+              // Any frame invalidates an in-flight screen read: bytes moved.
+              epoch += 1;
               // Snapshot AND delta both (re)start a window: the snapshot is the
               // replay of the current screen — the moment to start counting —
               // and each delta is fresh output resetting the count.
@@ -954,7 +999,19 @@ export async function awaitTerminalCondition(
                 quiet = false;
                 settledWindow.arm();
               }
-              if (condition.kind !== "match" || frame.kind !== "delta") return;
+              // A latched match is not re-decided. Scanning on would re-derive
+              // `matchedLine` from `carry + data` — a carry frozen at the match
+              // and bytes that arrived much later — and splice two non-adjacent
+              // stretches of output into a line no terminal ever printed. The
+              // sentinel already fired; later output can only break the
+              // conjunct, which the window above already handles.
+              if (
+                condition.kind !== "match" ||
+                frame.kind !== "delta" ||
+                held !== null
+              ) {
+                return;
+              }
               const data = frame.data;
               // An empty delta brings no new text: its window would be exactly
               // the carry the previous frame already scanned, for exactly the
@@ -986,6 +1043,7 @@ export async function awaitTerminalCondition(
             // would let the two halves forge a sentinel nobody printed. A
             // latched `match` survives — it is a fact about output we DID see.
             onFeedLost: () => {
+              epoch += 1;
               conditionWindow?.disarm();
               settledWindow?.disarm();
               if (condition.kind === "idle") held = null;
@@ -1024,6 +1082,9 @@ export async function awaitTerminalCondition(
                 // wait. Without that, `--settled` would be waiting for quiet on
                 // an agent that has gone back to work.
                 held = agent === null ? null : { fired: "agent", agent };
+                // A record change invalidates an in-flight screen read the same
+                // way a byte does: the met it would stamp is a different met.
+                epoch += 1;
                 check();
               },
               // The terminal we're waiting on left the collection — its PTY
@@ -1167,53 +1228,13 @@ export async function awaitOutputSettled(
   );
 }
 
-/** The outcome of an output-match wait — the shared {@link WaitOutcome} union
- *  with the met payload this wait stamps: that the pattern fired, how long it
- *  took, and the output line it landed on. */
-export type OutputMatchOutcome = WaitOutcome<{
-  fired: "match";
-  elapsedMs: number;
-  matchedLine: string;
-}>;
-
-/**
- * Block until terminal `id`'s NEW output matches `pattern`, then resolve `met`
- * with the matched line; or `timeout` after `timeoutMs`, `gone` if the terminal
- * exits without printing it, `interrupted` on `signal` abort, or `closed` if the
- * feed is dropped under us. The sentinel/marker route — agent-agnostic, so it
- * works on a bare shell, a `less`, or an agent nobody wrote a state sensor for.
- *
- * RESIDUAL, named plainly: `match:` is NOT safe against an untrusted
- * pattern+output pair. The scan is bounded in INPUT, not in TIME — a
- * catastrophically-backtracking pattern (`(a+)+$` and friends) against hostile
- * output still blocks the event loop for the duration of one bounded search,
- * which for such a pattern is effectively unbounded, and `--timeout` cannot fire
- * while it runs. The bound removes the multiplier (one scan per delta over ≤ the
- * overlap plus that delta, instead of a whole-window re-scan every frame), not
- * the exponent. The pattern is the CLI user's own text — their foot — while the
- * output is whatever a program in the terminal chose to print, so the safe use
- * is: your own pattern, and one you know is linear. A caller that must accept a
- * pattern from elsewhere needs a non-backtracking engine (RE2), which this
- * package deliberately does not carry.
- */
-export async function awaitOutputMatch(
-  client: PadiSurfaceClient,
-  opts: {
-    id: string;
-    pattern: RegExp;
-    timeoutMs?: number;
-    signal?: AbortSignal;
-  },
-): Promise<OutputMatchOutcome> {
-  return metFired(
-    await awaitTerminalCondition(client, {
-      id: opts.id,
-      condition: { kind: "match", pattern: opts.pattern },
-      timeoutMs: opts.timeoutMs,
-      signal: opts.signal,
-      retryAdvice: "re-run the match wait",
-    }),
-    "match",
-    "awaitOutputMatch",
-  );
-}
+// There is NO `awaitOutputMatch` wrapper. The `match:` form has exactly one
+// consumer — `kolu wait --until match:<regex>` — and that consumer now calls
+// {@link awaitTerminalCondition} directly, because it is also the consumer of
+// the two modifiers. A named wrapper would be public dial surface with no
+// production caller, which is precisely why `agentMatchesUntil` was deleted (see
+// {@link matchingActiveAgent}); the MCP face states its own position at
+// `kolu-mcp/src/wait.ts` — "v1 is the idle signal only; `match:` stays
+// CLI-only" — so there is no second face waiting for one either. The two
+// wrappers that DO remain are the two that have callers whose wire shapes depend
+// on them.
