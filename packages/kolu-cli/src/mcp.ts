@@ -7,12 +7,13 @@
  * The restart discipline's edges live HERE, at the composition root:
  *
  *   - **Open fails loud when padi is unreachable (juspay/kolu#2148).** Before
- *     the MCP handshake, one probe dial must succeed; otherwise stderr carries
- *     the honest line and the process exits non-zero. Spawn-and-check-exit is
- *     then a valid "is kolu usable on this host?" probe — a consumer never has
- *     to reimplement socket discovery, and never receives a tool list whose
- *     every call will fail. The probe connection is disposed; the adapter owns
- *     every connection it opens on its own redial path.
+ *     the MCP handshake, one probe dial must succeed; otherwise the failure
+ *     rides the package exit contract (`CliFailure` → `main.ts` writes the
+ *     line and exits non-zero). Spawn-and-check-exit is then a valid "is kolu
+ *     usable on this host?" probe — a consumer never has to reimplement socket
+ *     discovery, and never receives a tool list whose every call will fail.
+ *     The probe connection is disposed; the adapter owns every connection it
+ *     opens on its own redial path.
  *   - **Redial = re-resolve.** The connect effect is LAZY and runs the full
  *     resolve + dial + hello/compat gate on every run (see `connect.ts`) — the
  *     adapter re-invokes it after a transport drop, so a padi restart heals
@@ -29,7 +30,9 @@
  *   - **Gate failure exits LOUD.** A (re)dialed padi that no longer speaks our
  *     contract (`PadiContractSkew`) must never keep the MCP server serving a
  *     surface it can't honestly represent: stderr carries the honest "upgrade"
- *     line and the process exits non-zero.
+ *     line and the process exits non-zero. Mid-session this still
+ *     `process.exit`s at the Promise connect factory (outside the Effect tree
+ *     `runMain` owns); open-time failures stay on the `CliFailure` channel.
  *   - **In-gap calls fail fast, typed, retryable.** A dial failure while padi
  *     is down/restarting *after* a successful open is wrapped with the named
  *     `padi transport down:` prefix and surfaces as the tool call's error —
@@ -52,24 +55,35 @@ import {
   type KoluCliConnection,
 } from "./connect.ts";
 import type { Endpoint } from "./endpoint.ts";
+import { CliFailure } from "./exit.ts";
 import { connectKoluCliViaHost } from "./hostConnect.ts";
 
-/** Fail the process if padi cannot be reached — the #2148 open gate.
+/** The MCP face's one-line diagnostic + exit-1 value — same shape verbs use,
+ *  with the face-prefixed line spawn-and-check consumers already see. */
+const mcpFaceFailure = (message: string): CliFailure =>
+  new CliFailure({ stderr: `kolu mcp: ${message}\n`, code: 1 });
+
+/** Mid-session only: kill the process from the Promise connect factory, where
+ *  a `CliFailure` cannot reach `runMain`. Open-time failures use
+ *  {@link mcpFaceFailure} on the Effect error channel instead. */
+function exitMcpLoud(message: string): never {
+  process.stderr.write(`kolu mcp: ${message}\n`);
+  process.exit(1);
+}
+
+/** Fail if padi cannot be reached — the #2148 open gate.
  *
  *  Distinct from {@link guardedMcpDial}: this runs ONCE before the MCP server
  *  starts, and EVERY dial failure (unaddressable, refused socket, contract
- *  skew) is a non-zero exit. Mid-session redials keep the softer policy so a
- *  padi restart does not tear down the agent face. Exported for unit tests. */
+ *  skew) is a `CliFailure` that `main.ts` turns into the honest stderr line and
+ *  a non-zero exit. Mid-session redials keep the softer policy so a padi
+ *  restart does not tear down the agent face. Exported for unit tests and the
+ *  in-process e2e composition twin. */
 export function requireReachablePadi(
   dial: Effect.Effect<KoluCliConnection, KoluCliDialError>,
-): Effect.Effect<void> {
+): Effect.Effect<void, CliFailure> {
   return Effect.flatMap(
-    Effect.catch(dial, (err) =>
-      Effect.sync((): never => {
-        process.stderr.write(`kolu mcp: ${err.message}\n`);
-        process.exit(1);
-      }),
-    ),
+    Effect.mapError(dial, (err) => mcpFaceFailure(err.message)),
     (conn) =>
       Effect.sync(() => {
         // Probe only — the adapter owns every connection it opens thereafter.
@@ -101,10 +115,7 @@ export function guardedMcpDial(
 ): Effect.Effect<KoluMcpConnection, Error> {
   return Effect.catch(dial, (err) =>
     err._tag === "PadiContractSkew"
-      ? Effect.sync((): never => {
-          process.stderr.write(`kolu mcp: ${err.message}\n`);
-          process.exit(1);
-        })
+      ? Effect.sync((): never => exitMcpLoud(err.message))
       : Effect.fail(
           new Error(
             `padi transport down: ${err.message} (retryable — kolu mcp queues nothing; retry once padi is reachable)`,
@@ -115,7 +126,7 @@ export function guardedMcpDial(
 
 export function runKoluMcp(opts: {
   readonly endpoint: Endpoint;
-}): Effect.Effect<void> {
+}): Effect.Effect<void, CliFailure> {
   const endpoint = opts.endpoint;
   const rawDial =
     endpoint.kind === "host"
