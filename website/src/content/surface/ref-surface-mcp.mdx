@@ -27,6 +27,7 @@ and leaves the consumer in control of *what* is exposed.
 | `expose` | the default-deny allowlist (see below) |
 | `tools?` | hand-authored bespoke tools |
 | `serverInfo?` | MCP server identity |
+| `instructions?` | the server's own `initialize` instructions — where an embedding app teaches an agent its domain ("everything here is about nodes, not files"). The SDK answers `initialize` inside its own `Protocol`, so this option is the only route to the field |
 | `transport?` | defaults to `StdioServerTransport`; inject an in-memory half for tests |
 
 ## The projection
@@ -108,10 +109,83 @@ intent, so repeating one replays nothing.*
 
 ## Bespoke tools and curation
 
-- `tools:` — hand-authored, call-shaped capabilities (spawn-and-wait, blocking polls). Each is `{ description, input: Schema.Struct(...), mutates, handler }`; the `handler(args, client, signal)` composes over the live client and still rides the JSON-Schema bridge and lifecycle. A scalar, array, or union input is advertised **wrapped** under `value` and unwrapped before decode.
-- **Failure framing**: a rejecting handler (or a failing procedure call — e.g. the bridged transport down mid-call) always returns an `isError` **tool result** carrying the message, never a JSON-RPC protocol error — so the agent sees a typed, retryable failure instead of its SDK throwing.
+- `tools:` — hand-authored, call-shaped capabilities (spawn-and-wait, blocking polls). Each is `{ description, title?, input: Schema.Struct(...), mutates, handler }`; the `handler(args, client, signal)` composes over the live client and still rides the JSON-Schema bridge and lifecycle. A scalar, array, or union input is advertised **wrapped** under `value` and unwrapped before decode. `title` is MCP's display name — a host that has none renders `name`, the machine spelling. `title` and `description` are **bespoke-only** today: `ToolExposure` has no field for either, so a procedure-derived tool carries neither.
+- **Failure framing**: a rejecting handler (or a failing procedure call — e.g. the bridged transport down mid-call) always returns an `isError` **tool result**, never a JSON-RPC protocol error — so the agent sees a typed, retryable failure instead of its SDK throwing.
 - **One tool namespace**: generated (`<ns>_<verb>`) and bespoke names are checked for collision in one pass at boot, each candidate tagged by origin so the error names both sources.
 - `projectSurface` (from `@kolu/surface/project`) is the cleanest curation: project the live surface into an observer-safe second surface — drop dangerous procedures, bound logs, derive verdicts — and serve *that*.
+
+## Tool results — the same answer twice
+
+Every **successful** result carries prose in `content` and data in
+`structuredContent`, so an agent acts on the value and never parses the sentence.
+Both arms are read off one serialization, so they cannot disagree — which is also
+what keeps a value that is an object in memory and a string on the wire (a
+`Date`) from publishing a `structuredContent` that is not an object. MCP types
+the structured arm as a JSON **object**, so a scalar, array or `null` answer
+travels under the same single `value` property a scalar *input* is wrapped in.
+
+The same **key**, decided independently on each side: the input from its declared
+schema, the result from the value on the wire. They agree for every scalar, array
+and `null`. They diverge in exactly one place, and it is worth knowing about: a
+**union** input has no top-level `type`, so it is advertised wrapped — the host
+sends `{ "value": { "a": 1 } }` — while the same object as an *answer* is already
+an object at runtime and travels bare, `{ "a": 1 }`. A caller therefore cannot
+recover, from a result alone, whether a `{ "value": 42 }` it received was the
+tool's own object or a wrapped scalar `42`. Wrapping every result instead would
+close that, at the price of changing the shape of every success this adapter has
+ever emitted.
+
+*This costs bytes, and the trade is deliberate.* Carrying the answer twice
+roughly **doubles the frame** of a large result — a full 10k-row terminal
+scrollback measures 1.2 MB before and 2.4 MB after — which is the price of MCP's
+own back-compat guidance that a server returning `structuredContent` should also
+return equivalent text. A tool that can return an unbounded payload should bound
+it at the tool, not by dropping an arm.
+
+A **refusal is an answer**, and it can carry the structured arm too. Fail with a
+`ToolFailure` and the message reaches the model while the detail reaches the
+caller:
+
+```ts
+import { ToolFailure } from "@kolu/surface-mcp";
+
+Effect.mapError(refusal, (f) =>
+  new ToolFailure(`set_done was refused (${f.kind}): ${f.message}`, {
+    kind: f.kind,
+    blocking: f.children,
+  }));
+```
+
+*The message is branded with the adapter's name on the way out* (`surface-mcp: …`),
+the same as any other failure it reports. The detail goes through the **same**
+JSON round-trip and object-wrapping the success arm does, so a refusal cannot
+publish a shape a success would have been refused for — a `Date` in a detail
+arrives as its ISO string, and a detail JSON renders as a non-object rides under
+`value` like any other non-object answer.
+
+`ToolFailure` is generic in its detail (`ToolFailure<D>`), so a consumer's own
+refusal union survives to the place it is asserted on instead of widening to
+`Record<string, unknown>` at construction. Two limits are deliberate: the
+discriminant is `instanceof` (sound because the package is private and every
+consumer resolves the one workspace copy), and a failure raised on the **far
+side** of a surface hop is not a `ToolFailure` — a handler that wants such a
+refusal structured catches it and re-raises it as one.
+
+Every other failure is **message-only** — no `structuredContent` at all — and
+deliberately so: structuring whatever an error happens to hold would publish a
+`Data.TaggedError`'s stack into the agent's data channel and dress an incidental
+`TypeError` up as a contract. What the adapter does do is describe such a failure
+honestly: a tagged error whose identity is `_tag` and whose `message` is empty
+reaches the host as its tag, and a non-`Error` failure value as its JSON.
+
+<Aside type="caution" title="structuredContent and outputSchema are coupled">
+  No tool advertises an `outputSchema`, and adding one is not free. An MCP client
+  validates `structuredContent` against a declared `outputSchema` whenever the
+  field is present — **including on an `isError` result**. A refusal's detail is
+  a different shape from the success it refused, so a success-only schema would
+  make every structured refusal throw inside the client instead of reaching the
+  agent. Whoever adds `outputSchema` owes the refusal shape a home in it first.
+</Aside>
 
 ## The schema bridge
 
@@ -137,6 +211,7 @@ cannot see through, so a default declared outside it never reaches the agent.
 | --- | --- |
 | `toInputSchema(schema?)` | Effect Schema → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced |
 | `resolveExpose(spec, expose)` | the default-deny resolver → `{ resources, resourceTemplates, tools }` |
+| `ToolFailure<D>(message, detail)` | the refusal a handler fails with when the reason is machine-readable — `detail` becomes the result's `structuredContent`, normalized the same way a success is |
 | `ExposeMap` · `BespokeTool` · `ToolInputSchema` · `ToolResult` · `ServeSurfaceAsMcpOptions` · `SurfaceClientCallable` | types |
 
 The step-by-step is in [How to expose a surface to agents](/surface/expose-to-agents).

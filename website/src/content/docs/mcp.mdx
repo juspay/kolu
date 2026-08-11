@@ -144,8 +144,16 @@ rhythm whether you do it by hand or your agent does it in code:
 
 ## What your agent can do
 
-The tools and live views below are what `kolu mcp` gives the agent. The name in
-the first column is what appears in your MCP host.
+The tools and live views below are what `kolu mcp` gives the agent, and the name
+in the first column is what your agent calls. Five of them — `screen_text`,
+`lifecycle_sendInput`, the two waits and `watch_next` — also carry a readable
+display name a host can show instead ("Send input to a terminal").
+
+Every **successful** answer comes back as **structured data** as well as text, so
+your agent acts on a field rather than re-reading prose. A refusal carries data
+when the tool has a machine-readable reason to give: `lifecycle_sendInput` labels
+its four refusals `text-and-key`, `key-refused`, `text-refused` or `no-input`,
+beside the sentence explaining it. Other failures arrive as their message alone.
 
 ### Create and drive terminals
 

@@ -64,6 +64,7 @@
 
 import type { WireSchemaAny } from "@kolu/surface/define";
 import { Schema } from "effect";
+import { isRecord, wrapSchema } from "./wrapping";
 
 /** A JSON-Schema document or sub-schema. We walk it structurally rather than
  *  typing every keyword, so `unknown`-valued records are the working shape. */
@@ -256,10 +257,6 @@ function normalizeNumeric(node: JsonSchema): JsonSchema {
   return { ...numeric, ...siblings };
 }
 
-function isRecord(value: unknown): value is JsonSchema {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 /** Drop any `required` name that no longer has a matching property (a
  *  recursive property was dropped during deref). Only touches a node that has
  *  both `properties` and a `required` array. */
@@ -281,8 +278,9 @@ function pruneRequired(node: JsonSchema): JsonSchema {
 
 /** Ensure the top-level schema is an object — MCP tool inputs must be. A
  *  scalar/array/union input (`Schema.String`, `Schema.Array(...)`) is wrapped
- *  under a single `value` property so the tool still presents an object to the
- *  host; the dispatch layer unwraps it (signalled by `wrapped: true`). */
+ *  under a single property so the tool still presents an object to the host;
+ *  the dispatch layer unwraps it (signalled by `wrapped: true`). The wrapping
+ *  itself is `wrapping.ts`'s — this module decides WHETHER, not HOW. */
 function enforceObject(schema: JsonSchema): {
   schema: JsonSchema;
   wrapped: boolean;
@@ -292,12 +290,5 @@ function enforceObject(schema: JsonSchema): {
   // is most useful as "accept any object" rather than a wrapped scalar.
   if (Object.keys(schema).length === 0)
     return { schema: emptyObjectSchema(), wrapped: false };
-  return {
-    schema: {
-      type: "object",
-      properties: { value: schema },
-      required: ["value"],
-    },
-    wrapped: true,
-  };
+  return { schema: wrapSchema(schema), wrapped: true };
 }

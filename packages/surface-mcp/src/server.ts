@@ -57,7 +57,16 @@ import {
 } from "./expose";
 import { inputSchema } from "./jsonschema";
 import { type PusherConnection, ResourcePusher } from "./pusher";
-import { type BespokeTool, fail, ok, type ToolResult } from "./tools";
+import {
+  type BespokeTool,
+  brand,
+  fail,
+  failFrom,
+  messageOf,
+  ok,
+  type ToolResult,
+} from "./tools";
+import { unwrapArgs } from "./wrapping";
 
 /** The structural shape of a served-surface client the adapter needs. The
  *  concrete client is what `buildSurfaceFace` mints (`surfaceClientRef`, the
@@ -109,23 +118,21 @@ export interface ServeSurfaceAsMcpOptions<S extends SurfaceSpec> {
   /** Hand-authored, call-shaped MCP tools composing over the live client. */
   tools?: Record<string, BespokeTool>;
   serverInfo?: { name: string; version: string };
+  /** The server's own `instructions`, answered to a host at `initialize` — where
+   *  an embedding app teaches an agent the domain the surface is about ("a node
+   *  is the smallest thing you can name here; there is no file access"). It is
+   *  passed to the SDK's `Server`, which serves `initialize` inside its own
+   *  `Protocol`: a consumer cannot re-register that method, so this option is
+   *  the ONLY way the field is reachable. The SDK itself treats an empty string
+   *  as none (`...(this._instructions && { instructions })`), so there is no
+   *  third state to spell here. */
+  instructions?: string;
   /** Transport to connect. Defaults to a `StdioServerTransport`; injectable
    *  for tests (an `InMemoryTransport` half). */
   transport?: Transport;
 }
 
 const DEFAULT_SERVER_INFO = { name: "surface-mcp", version: "0.1.0" };
-
-/** Put this adapter's name on a message a host will read.
- *
- *  ONE rule, one mechanism: an error raised INSIDE the adapter carries the bare
- *  fact, and the REQUEST EDGE that answers the host brands it — `failFrom` for
- *  `tools/call`, the `resources/read` handler for reads. An edge that composes
- *  its own message (an unknown tool, an unknown URI), and a boot-time throw that
- *  never crosses an edge at all, call this directly. Nothing is prefixed twice,
- *  because nothing is prefixed before the edge — which the born-dead error used
- *  to be, reaching agents as `surface-mcp: surface-mcp: …`. */
-const brand = (message: string): string => `surface-mcp: ${message}`;
 
 /** Build + connect an MCP server that re-exposes `surface`. Returns the
  *  low-level `Server` and a `close()` that stops the pusher and disconnects
@@ -179,6 +186,10 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
 
   const server = new Server(opts.serverInfo ?? DEFAULT_SERVER_INFO, {
     capabilities: { tools: {}, resources: { subscribe: true } },
+    // Passed bare: the SDK emits `...(this._instructions && { instructions })`,
+    // so an absent option and an omitted key are the same value to it, and a
+    // spread-guard here would only be a second spelling of that.
+    instructions: opts.instructions,
   });
 
   // Normalize whatever `opts.client()` returns into an owned connection. The
@@ -401,7 +412,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
       // fails a request too (`getConn`'s bounded loop) and both must read alike.
       throw linkFailure(
         "the connection to the served surface dropped while this request was in " +
-          `flight (${e instanceof Error ? e.message : String(e)})`,
+          `flight (${messageOf(e)})`,
         "retry, and the next request re-dials",
         e,
       );
@@ -471,34 +482,55 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // mutating one (`destructiveHint`). Without these the `mutates` flag the API
   // and docs promise never reaches the host.
   //
-  // The `mutates → annotations` projection lives HERE, once, so the two tool
-  // sources (procedure-derived + bespoke) can't drift on the mapping or on the
-  // undefined edge case. Each source normalizes its own `mutates` to a concrete
-  // boolean BEFORE calling: procedure tools already carry one (`expose.ts`'s
-  // `?? true`), bespoke tools apply the same conservative `?? true` at the call.
+  // NO `outputSchema` is advertised, and adding one is not the free win it
+  // looks like. The SDK's client validates `structuredContent` against a
+  // declared `outputSchema` whenever the field is PRESENT — including on an
+  // `isError` result, despite the comment beside that code claiming otherwise
+  // (`client/index.js`: the validate branch sits outside the `isError` guard).
+  // A refusal's `ToolFailure.detail` is a different shape from the success it
+  // refused, so declaring a success schema would make every structured refusal
+  // throw inside the client's SDK instead of reaching the agent. Whoever adds
+  // `outputSchema` owes that case a home first — a union with the refusal shape,
+  // or no structured arm on the error side.
+  //
+  // `mutates` reaches the host through ONE `mutates → annotations` projection,
+  // so the two tool sources cannot drift on the mapping or on the undefined
+  // edge case. Each normalizes `mutates` to a concrete boolean before calling:
+  // procedure tools already carry one (`expose.ts`'s `?? true`), bespoke tools
+  // apply the same conservative `?? true` at the call.
+  //
+  // `title` and `description` are bespoke-only TODAY because `ToolExposure` has
+  // no field for either — a gap in the consumer's authoring map, not in this
+  // projection.
   const toolAnnotations = (mutates: boolean) => ({
     readOnlyHint: !mutates,
     destructiveHint: mutates,
   });
+  // Built ONCE, at boot: nothing here reads request state, and `tools/list` is
+  // answered from the finished array rather than re-projecting per call.
+  const advertisedTools = [
+    ...resolved.tools.map((t) => ({
+      name: t.name,
+      inputSchema: t.inputSchema,
+      annotations: toolAnnotations(t.mutates),
+    })),
+    ...[...bespokeTools].map(([name, { tool, schema }]) => ({
+      name,
+      // MCP's display name, distinct from `description`: a host renders it in a
+      // tool list, and without one it renders `name` — the machine spelling
+      // (`lifecycle_sendInput`) rather than a phrase.
+      title: tool.title,
+      description: tool.description,
+      inputSchema: schema,
+      // Conservative default (see `BespokeTool.mutates`): an absent `mutates`
+      // is treated as MUTATING, so an unannotated tool is never advertised as
+      // auto-approvable read-only. A genuinely read-only tool opts in with an
+      // explicit `mutates: false`.
+      annotations: toolAnnotations(tool.mutates ?? true),
+    })),
+  ];
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-      ...resolved.tools.map((t) => ({
-        name: t.name,
-        inputSchema: t.inputSchema,
-        annotations: toolAnnotations(t.mutates),
-      })),
-      ...[...bespokeTools].map(([name, { tool, schema }]) => ({
-        name,
-        description: tool.description,
-        inputSchema: schema,
-        // Conservative default (see `BespokeTool.mutates`): an absent `mutates`
-        // is treated as MUTATING, so an unannotated tool is never advertised as
-        // auto-approvable read-only. A genuinely read-only tool opts in with an
-        // explicit `mutates: false`. Mirrors `expose.ts`'s `?? true` for
-        // procedure tools, so both sources default the same way.
-        annotations: toolAnnotations(tool.mutates ?? true),
-      })),
-    ],
+    tools: advertisedTools,
   }));
 
   // ── tools/call ───────────────────────────────────────────────────────--
@@ -614,8 +646,11 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
         extra.signal,
       ),
     ).catch((e: unknown): never => {
-      const message = e instanceof Error ? e.message : String(e);
-      throw new Error(brand(message), { cause: e });
+      // `messageOf`, the SAME derivation `failFrom` uses on the tools/call side
+      // — which is what makes the comment above a mirror rather than a claim.
+      // Spelled inline, a `Schema.TaggedError` procedure failure (empty
+      // `message`, identity in `_tag`) reached the host as the bare brand.
+      throw new Error(brand(messageOf(e)), { cause: e });
     });
     if (isMiss(result)) {
       // A not-yet-present collection key is a well-formed but empty resource, NOT
@@ -1023,14 +1058,6 @@ function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
   );
 }
 
-/** Undo the `enforceObject` wrapping before handing args to a procedure/tool's
- *  schema. A non-object input (scalar/array/union) is advertised wrapped under a
- *  single `value` property; `wrapped` is the bit `inputSchema` reports for that
- *  case. The one place this rule lives, called by both dispatch branches. */
-function unwrapArgs(wrapped: boolean, args: Record<string, unknown>): unknown {
-  return wrapped ? args.value : args;
-}
-
 /** EVERY failure this adapter reports for a LINK problem, framed for a host
  *  standing on its own stdio channel. The policy, in one place:
  *
@@ -1057,10 +1084,4 @@ function linkFailure(what: string, retry: string, cause?: unknown): Error {
       `connection — ${retry}.`,
     cause === undefined ? undefined : { cause },
   );
-}
-
-/** Coerce an unknown thrown value into a failed `ToolResult` — the `tools/call`
- *  edge's branding (see {@link brand}). */
-function failFrom(e: unknown): ToolResult {
-  return fail(brand(e instanceof Error ? e.message : String(e)));
 }

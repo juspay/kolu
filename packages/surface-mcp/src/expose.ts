@@ -22,6 +22,7 @@
 import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import { Option, Schema } from "effect";
 import { inputSchema } from "./jsonschema";
+import { brand } from "./tools";
 
 // ── Expose map types ────────────────────────────────────────────────────
 
@@ -179,8 +180,10 @@ function assertExposableAsResource(
   // a no-input member declares) does; a struct does not.
   if (Option.isNone(Schema.decodeUnknownOption(inputSchema)(undefined))) {
     throw new Error(
-      `surface-mcp: ${kind} "${key}" requires an input, so it can't be exposed as a static resource ` +
-        `(surface://${kind}s/${key} carries no input). Project it to a no-input ${kind}, or expose a fixed-input view.`,
+      brand(
+        `${kind} "${key}" requires an input, so it can't be exposed as a static resource ` +
+          `(surface://${kind}s/${key} carries no input). Project it to a no-input ${kind}, or expose a fixed-input view.`,
+      ),
     );
   }
 }
@@ -218,12 +221,16 @@ export function resolveExpose<S extends SurfaceSpec>(
       const procSpec = procedures[ns]?.[verb];
       if (procSpec === undefined) {
         throw new Error(
-          `surface-mcp: expose names procedure "${key}" but the spec has no such procedure`,
+          brand(
+            `expose names procedure "${key}" but the spec has no such procedure`,
+          ),
         );
       }
       if (exposure === "resource") {
         throw new Error(
-          `surface-mcp: procedure "${key}" is exposed as "resource"; procedures map to tools`,
+          brand(
+            `procedure "${key}" is exposed as "resource"; procedures map to tools`,
+          ),
         );
       }
       // Conservative default: an exposure that does NOT explicitly say
@@ -251,7 +258,7 @@ export function resolveExpose<S extends SurfaceSpec>(
     // A primitive — must be exposed as a resource.
     if (exposure !== "resource") {
       throw new Error(
-        `surface-mcp: primitive "${key}" must be exposed as "resource", not a tool`,
+        brand(`primitive "${key}" must be exposed as "resource", not a tool`),
       );
     }
     if (key in cells) {
@@ -312,7 +319,9 @@ export function resolveExpose<S extends SurfaceSpec>(
       });
     } else {
       throw new Error(
-        `surface-mcp: expose names "${key}" but the spec has no such cell/collection/stream/event`,
+        brand(
+          `expose names "${key}" but the spec has no such cell/collection/stream/event`,
+        ),
       );
     }
   }

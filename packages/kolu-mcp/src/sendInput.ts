@@ -34,7 +34,7 @@ import {
   sendShapeRefusal,
 } from "@kolu/terminal-protocol";
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import type { BespokeTool } from "@kolu/surface-mcp";
+import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp";
 import { Effect, Schema } from "effect";
 
 export const SendInputArgsSchema = Schema.Struct({
@@ -74,6 +74,48 @@ const MCP_SEND_VOCABULARY: SendVocabulary = {
     "  lifecycle_sendInput { key: 'Enter' }   # 3. submit",
 };
 
+/** The machine-readable half of a refusal, carried beside the shared policy's
+ *  sentence in `ToolFailure.detail` — because a driver's recovery differs per
+ *  kind, and reading it out of the prose means parsing English:
+ *  `text-and-key` ⇒ re-send as two calls; `key-refused` ⇒ pick a name from the
+ *  accepted list (the rejected spelling rides along as `key`); `text-refused`
+ *  ⇒ the shared encoder refused this face's text — today, because it was empty;
+ *  `no-input` ⇒ neither field was passed at all.
+ *
+ *  The kinds name the BRANCH, not the shared policy's internal reason: the
+ *  sentence already carries the reason, and a kind that claimed it would go
+ *  quietly wrong the day `@kolu/terminal-protocol` adds a refusal. And they are
+ *  named HERE rather than pushed into that package, because the caller always
+ *  knows which branch it is in — a `kind` on `SendEncoding` would be a field the
+ *  shared policy carries for one consumer's benefit.
+ *
+ *  WHAT THAT COSTS, stated rather than left to be discovered. A branch can hold
+ *  more than one of the shared policy's rules, and two do:
+ *
+ *    - the KEYS branch refuses on an empty name list as well as on an unknown
+ *      name (`sendPolicy.ts`'s `encodeSend`), and `key-refused`'s recovery
+ *      ("pick a name from the accepted list") fits only the second. It is
+ *      UNREACHABLE from this face, and structurally so rather than by luck: this
+ *      face has ONE `key` field and passes `names: [args.key]` inside the
+ *      `args.key !== undefined` branch, so the list is always length 1. The
+ *      empty-list refusal exists for a face that gathers keys from a variadic
+ *      argv, which this is not.
+ *    - `text-and-key` names the reason, not the branch, and is the deliberate
+ *      exception: it is the recovery a driver most needs to branch on. It is
+ *      sound only while `sendShapeRefusal` refuses exactly the both-supplied
+ *      shape. If that gate ever grows a second refusal, this kind must split
+ *      before it ships. */
+export type SendRefusal =
+  | { readonly kind: "text-and-key" }
+  | { readonly kind: "key-refused"; readonly key: string }
+  | { readonly kind: "text-refused" }
+  | { readonly kind: "no-input" };
+
+const refuse = (
+  message: string,
+  detail: SendRefusal,
+): ToolFailure<SendRefusal> => new ToolFailure(message, detail);
+
 /** Resolve the tool args to the WRITE PLAN `lifecycle.sendInput` carries out —
  *  pure, so the XOR matrix and the key grammar are unit-tested apart from the
  *  wire. The plan, not the bare string, because the encoder already counted the
@@ -86,6 +128,11 @@ const MCP_SEND_VOCABULARY: SendVocabulary = {
  *  unknown key name (never a silent no-op). All but the second are the shared
  *  policy's; this face only supplies its vocabulary.
  *
+ *  Every one of those throws is a {@link ToolFailure}, so the refusal reaches
+ *  the agent as an `isError` result whose `structuredContent` says which rule it
+ *  broke ({@link SendRefusal}) — a driver picks its recovery from a tag instead
+ *  of matching the sentence.
+ *
  *  The NEITHER-field rule is the one that stays HERE: what counts as a text
  *  source is each face's own (this face has one field; `kolu send` has a
  *  positional, `--file` and piped stdin), so the sentence names this face's. */
@@ -97,14 +144,15 @@ export function resolveSendInputData(args: {
     { hasText: args.text !== undefined, hasKeys: args.key !== undefined },
     MCP_SEND_VOCABULARY,
   );
-  if (illegal !== undefined) throw new Error(illegal);
+  if (illegal !== undefined) throw refuse(illegal, { kind: "text-and-key" });
 
   if (args.key !== undefined) {
     const encoded = encodeSend(
       { kind: "keys", names: [args.key] },
       MCP_SEND_VOCABULARY,
     );
-    if (encoded.kind === "refused") throw new Error(encoded.message);
+    if (encoded.kind === "refused")
+      throw refuse(encoded.message, { kind: "key-refused", key: args.key });
     return encoded.plan;
   }
   if (args.text !== undefined) {
@@ -124,11 +172,13 @@ export function resolveSendInputData(args: {
       },
       MCP_SEND_VOCABULARY,
     );
-    if (encoded.kind === "refused") throw new Error(encoded.message);
+    if (encoded.kind === "refused")
+      throw refuse(encoded.message, { kind: "text-refused" });
     return encoded.plan;
   }
-  throw new Error(
+  throw refuse(
     "nothing to send — pass text (to type) or key (to press, e.g. Enter).",
+    { kind: "no-input" },
   );
 }
 
@@ -137,6 +187,7 @@ export function resolveSendInputData(args: {
 export const sendInputTool: BespokeTool = {
   input: SendInputArgsSchema,
   mutates: true,
+  title: "Send input to a terminal",
   description:
     "Write input to a terminal — text (typed; multiline auto-bracketed-pasted) OR one named key / chord (Enter, Escape, Tab, arrows, C-c, M-b, …), never both in one call. The submit protocol: send the text, wait_outputSettled, then send Enter as its own call.",
   // No `signal`: a surface procedure ref carries no cancellation handle any

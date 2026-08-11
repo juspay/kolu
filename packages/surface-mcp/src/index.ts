@@ -30,4 +30,9 @@ export {
   serveSurfaceAsMcp,
   type SurfaceClientCallable,
 } from "./server";
-export type { BespokeTool, ToolInputSchema, ToolResult } from "./tools";
+export {
+  type BespokeTool,
+  ToolFailure,
+  type ToolInputSchema,
+  type ToolResult,
+} from "./tools";
