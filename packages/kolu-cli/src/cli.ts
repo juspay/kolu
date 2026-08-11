@@ -43,6 +43,14 @@
 import { isValidTimerMs, MAX_TIMER_MS } from "@kolu/surface/wait";
 import { Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
+// The `kolu debrief` contract — a zero-import leaf, read HERE for the flags'
+// defaults and the `--help` line, and by `verbs/debrief.ts` to perform the
+// expansion. See that module's header for why it is not spelled twice.
+import {
+  DEBRIEF_QUIET_MS,
+  DEBRIEF_TAIL_LINES,
+  debriefExpansion,
+} from "./debriefProtocol.ts";
 // The ONE version accessor (`hostname.ts` is a leaf: node built-ins + the
 // server's package.json, which `/release` bumps and nix reads too) — so
 // `kolu --version` can never diverge from the version the server reports.
@@ -362,6 +370,28 @@ export const waitFlags = {
       ),
     ),
   ),
+  // The two orthogonal modifiers (kolu#2139). Neither is a fourth `--until`
+  // form: `--settled` narrows WHEN the condition counts as met, `--snapshot`
+  // widens WHAT the met carries, and each is useful without the other.
+  settled: opt(
+    Flag.integer("settled").pipe(
+      Flag.withDescription(
+        "report met only once output has ALSO been quiet this many milliseconds — a conjunct on --until, evaluated on the same subscription",
+      ),
+      Flag.filter(
+        isValidTimerMs,
+        (n) =>
+          `--settled must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger window overflows the timer and reports a false settle almost immediately, got ${n}.`,
+      ),
+    ),
+  ),
+  snapshot: opt(
+    positiveLines("snapshot").pipe(
+      Flag.withDescription(
+        "stamp the met with the last N rendered screen lines — on stdout, or as `screen` in the --json frame",
+      ),
+    ),
+  ),
   json: Flag.boolean("json").pipe(
     Flag.withDescription(
       "emit one outcome frame ({id, result, …}) for EVERY arm — met, timeout, gone, interrupted — so a driver branches on `result`, not on the exit code",
@@ -387,6 +417,74 @@ const wait = Command.make(
     {
       command: "kolu wait 3f9c --until awaiting,waiting --timeout 600000",
       description: "Wait for the agent's turn to END",
+    },
+    {
+      command:
+        "kolu wait 3f9c --until awaiting,waiting --settled 15000 --snapshot 40",
+      description:
+        "…and only once it is genuinely quiet — then print its last 40 lines (see `kolu debrief`)",
+    },
+  ]),
+);
+
+export const debriefFlags = {
+  id: Argument.string("id").pipe(
+    Argument.withDescription("terminal id (any unique prefix)"),
+  ),
+  quiet: Flag.integer("quiet").pipe(
+    Flag.withDescription(
+      `require this many milliseconds of output quiet before believing the turn is over (default ${DEBRIEF_QUIET_MS})`,
+    ),
+    Flag.filter(
+      isValidTimerMs,
+      (n) =>
+        `--quiet must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger window overflows the timer and reports a false settle almost immediately, got ${n}.`,
+    ),
+    Flag.withDefault(DEBRIEF_QUIET_MS),
+  ),
+  tail: positiveLines("tail").pipe(
+    Flag.withDescription(
+      `print this many screen lines on stdout (default ${DEBRIEF_TAIL_LINES})`,
+    ),
+    Flag.withDefault(DEBRIEF_TAIL_LINES),
+  ),
+  timeout: opt(
+    Flag.integer("timeout").pipe(
+      Flag.withDescription("give up after this many milliseconds (exit 2)"),
+      Flag.filter(
+        isValidTimerMs,
+        (n) =>
+          `--timeout must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger delay overflows the timer and fires a false timeout almost immediately, got ${n}.`,
+      ),
+    ),
+  ),
+  json: Flag.boolean("json").pipe(
+    Flag.withDescription("`wait`'s outcome frame, with `screen` on the met"),
+  ),
+} as const;
+
+const debrief = Command.make(
+  "debrief",
+  debriefFlags,
+  Effect.fn(function* (args) {
+    yield* runVerb(() => import("./verbs/debrief.ts"), args);
+  }),
+).pipe(
+  Command.withDescription(
+    `Wait until a worker's turn is over AND its output is quiet, then print its screen — exactly \`${debriefExpansion(
+      DEBRIEF_QUIET_MS,
+      DEBRIEF_TAIL_LINES,
+    )}\`.`,
+  ),
+  Command.withExamples([
+    {
+      command: "kolu debrief 4bba",
+      description:
+        "Block until the worker has actually finished, then read what it thinks happened",
+    },
+    {
+      command: "kolu debrief 4bba --quiet 30000 --timeout 900000",
+      description: "Give a subagent-heavy worker a longer quiet window",
     },
   ]),
 );
@@ -498,6 +596,7 @@ export const koluCli = koluRoot.pipe(
     create,
     send,
     wait,
+    debrief,
     snapshot,
     history,
     kill,

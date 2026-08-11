@@ -20,7 +20,7 @@
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { isDeadTransportError } from "@kolu/surface/errors";
-import { isWatchSubscriptionNotFound } from "../errors.ts";
+import { isTerminalNotFound, isWatchSubscriptionNotFound } from "../errors.ts";
 import { Effect, Stream } from "effect";
 import {
   isValidTimerMs,
@@ -41,6 +41,9 @@ import {
   type PadiTerminal,
 } from "../surface.ts";
 import { activeAgent } from "../terminalVocab.ts";
+// `./tail.ts`, NOT `./render.ts` — the tail slice is a zero-import leaf, while
+// `render.ts` pulls `columnify` in for the roster table. See that file's header.
+import { tailLines } from "./tail.ts";
 
 /** Consume a member `Stream` as an async iterable whose teardown is bound to
  *  `signal`.
@@ -226,72 +229,12 @@ export async function watchTerminals(
   ).done;
 }
 
-/** The outcome of an agent-state wait — the shared {@link WaitOutcome} union
- *  with the met payload this wait stamps: the matched agent, plus how long the
- *  wait took. */
-export type AgentStateOutcome = WaitOutcome<{
-  agent: AgentInfo;
-  elapsedMs: number;
-}>;
+// The three named waits — `awaitAgentState` · `awaitOutputSettled` ·
+// `awaitOutputMatch` — live at the FOOT of this file now, beside the one engine
+// they are each a spelling of ({@link awaitTerminalCondition}). This module
+// reads spine → engine → the named waits.
 
-/** Block until one terminal's agent enters a target bucket, then resolve
- *  `met`; or `timeout` after `timeoutMs`, `gone` if the terminal is removed
- *  first (its PTY exited, so the bucket can never land), `interrupted` on
- *  `signal` abort, or `closed` if the link settles without any of those. Pure
- *  data layer (no tty, no `process.exit`) so it is testable over a real
- *  socket — padi-tui's `cmdWait` and the MCP face's `wait_agentState` are the
- *  thin glue mapping the outcome to their own output frames.
- *
- *  It rides {@link watchTerminals}, so the mirror REPLAYS each terminal's
- *  current value on connect: an agent ALREADY in a target bucket matches
- *  immediately (no hang waiting for a transition that already happened) — this
- *  is what makes the two-phase `--until working` THEN `--until
- *  awaiting,waiting` loop robust against the stale-state race. The watched id
- *  is SEEDED into the mirror, so a terminal that exited before the
- *  subscription reconciles to `gone` on the first snapshot instead of hanging.
- *  A watcher failure (the mirror rejecting) PROPAGATES per `runWait`'s
- *  contract — a bug is never folded into `closed`. */
-export async function awaitAgentState(
-  client: PadiSurfaceClient,
-  opts: {
-    id: TerminalId;
-    targets: ReadonlySet<string>;
-    timeoutMs?: number;
-    signal?: AbortSignal;
-  },
-): Promise<AgentStateOutcome> {
-  return runWait<{ agent: AgentInfo; elapsedMs: number }>(
-    { timeoutMs: opts.timeoutMs, signal: opts.signal },
-    (ctx) =>
-      watchTerminals(
-        client,
-        {
-          onUpsert: (id, value) => {
-            if (id !== opts.id) return;
-            const agent = matchingActiveAgent(value, opts.targets);
-            if (agent !== null) {
-              ctx.settle({ kind: "met", agent, elapsedMs: ctx.elapsedMs() });
-            }
-          },
-          // The terminal we're waiting on left the collection — its PTY exited, so
-          // no future frame can carry the target bucket. Resolve gone and unwind
-          // rather than hanging until the timeout. Removals of OTHERS are noise.
-          onRemove: (id) => {
-            if (id !== opts.id) return;
-            ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
-          },
-        },
-        ctx.signal,
-        (line) => ctx.recordUpstreamError(line),
-        // Seed the watched id so a terminal that exited BEFORE this subscription
-        // (in the gap after the caller resolved the id) is reconciled to gone on
-        // the first snapshot instead of hanging.
-        () => [opts.id],
-      ),
-  );
-}
-
-// ── The attach-feed spine (shared by the two OUTPUT waits) ───────────────────
+// ── The attach-feed spine (shared by every wait that watches OUTPUT) ─────────
 
 /** One frame of the `terminalAttach` feed, as an output wait reads it — the
  *  member's OWN discriminated union (`surface.ts` → `terminalAttach.outputSchema`,
@@ -639,95 +582,7 @@ export async function awaitWatchEvents(
   });
 }
 
-/** The outcome of an output-settled wait — the shared {@link WaitOutcome} union
- *  with the met payload this wait stamps: the idle signal fired, plus how long
- *  the wait took. */
-export type OutputSettledOutcome = WaitOutcome<{
-  fired: "idle";
-  elapsedMs: number;
-}>;
-
-/** Block until terminal `id`'s output has been quiet for `idleMs` — the data
- *  layer of the MCP face's `wait_outputSettled`, exported for the e2e pin. It
- *  rides {@link watchAttachFeed} (padiSurface's `terminalAttach` +
- *  `terminalExit` + the `terminals` key set for the lost-feed discrimination) —
- *  a non-verbatim twin of kaval-tui's watcher over `ptyHostSurface`, kept local
- *  per the port-not-extract doctrine. Its siblings are {@link awaitAgentState}
- *  and {@link awaitOutputMatch}: all three are 'block on a padiSurface
- *  condition, return a WaitOutcome' primitives, so all three live in the one
- *  package that owns padiSurface. */
-export async function awaitOutputSettled(
-  client: PadiSurfaceClient,
-  opts: {
-    id: string;
-    idleMs: number;
-    timeoutMs?: number;
-    signal?: AbortSignal;
-  },
-): Promise<OutputSettledOutcome> {
-  // Fail fast at the boundary — this is an EXPORTED primitive (the MCP schema
-  // guards its own caller, but a direct caller could pass 0 / non-finite / a
-  // value above the setTimeout ceiling, which would fire a FALSE near-instant
-  // `met` off an overflowed idle window). The shared timer-range rule, same as
-  // `runWait`'s `timeoutMs` guard.
-  if (!isValidTimerMs(opts.idleMs)) {
-    throw new RangeError(
-      `awaitOutputSettled: idleMs must be between 1 and ${MAX_TIMER_MS} (~24.8 days), got ${opts.idleMs} — a larger window overflows setTimeout and fires a false near-instant met.`,
-    );
-  }
-  return runWait<{ fired: "idle"; elapsedMs: number }>(
-    { timeoutMs: opts.timeoutMs, signal: opts.signal },
-    async (ctx) => {
-      // The idle window: armed by the snapshot (an already-idle terminal fires
-      // after idleMs), reset by every subsequent frame. A STREAM_RETRY
-      // resubscribe re-delivers a fresh snapshot, which re-arms the window —
-      // quiescence across a reconnect gap is unobservable, so the window
-      // honestly restarts.
-      let idleTimer: ReturnType<typeof setTimeout> | undefined;
-      const disarmIdle = (): void => {
-        if (idleTimer !== undefined) {
-          clearTimeout(idleTimer);
-          idleTimer = undefined;
-        }
-      };
-      const armIdle = (): void => {
-        disarmIdle();
-        idleTimer = setTimeout(
-          () =>
-            ctx.settle({
-              kind: "met",
-              fired: "idle",
-              elapsedMs: ctx.elapsedMs(),
-            }),
-          opts.idleMs,
-        );
-      };
-
-      try {
-        await watchAttachFeed(client, ctx, {
-          id: opts.id,
-          // Snapshot AND delta frames both (re)arm the window — the snapshot is
-          // the replay of the current screen (the moment to start the quiet
-          // window), each delta is fresh output resetting it.
-          onFrame: armIdle,
-          onFeedLost: disarmIdle,
-          // The PRECISE exit signal settles at once: an exited terminal has no
-          // quiescence left to report, so there is nothing an early settle can
-          // invalidate (contrast `awaitOutputMatch`, whose bytes can still be in
-          // flight).
-          onExit: () =>
-            ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() }),
-          retryAdvice: "retry wait_outputSettled",
-        });
-      } finally {
-        // The scaffold clears ITS timeout; the idle window is this watcher's own.
-        disarmIdle();
-      }
-    },
-  );
-}
-
-// ── The `match:` wait ────────────────────────────────────────────────────────
+// ── The `match:` scan ────────────────────────────────────────────────────────
 
 /** How much ALREADY-SCANNED output is carried into the next scan — the OVERLAP
  *  that lets a sentinel split across a chunk boundary still match, and the ONLY
@@ -792,6 +647,526 @@ function matchedLineAt(window: string, index: number): string {
   return cleanLine(window.slice(start, nl === -1 ? window.length : nl));
 }
 
+// ── The engine — one condition, two orthogonal modifiers ────────────────────
+
+/**
+ * What a wait BLOCKS ON, as data — the three forms `kolu wait --until` spells,
+ * with the argv grammar that tells them apart left in the CLI where it belongs.
+ *
+ *   `idle`   no output byte for `idleMs`. Agent-agnostic: a bare shell, a
+ *            `less`, an agent nobody wrote a state sensor for.
+ *   `match`  NEW output matched `pattern` — the sentinel/marker route, likewise
+ *            agent-agnostic.
+ *   `agent`  the terminal's detected agent reached one of `targets`. The PRECISE
+ *            route: it distinguishes "the turn ended" from "the model paused
+ *            mid-thought", which no quiescence window can.
+ */
+export type TerminalCondition =
+  | { readonly kind: "idle"; readonly idleMs: number }
+  | { readonly kind: "match"; readonly pattern: RegExp }
+  | { readonly kind: "agent"; readonly targets: ReadonlySet<string> };
+
+/** The condition's own evidence while it HOLDS — the met payload before the
+ *  wait stamps its clock and (when asked) the screen onto it. Its `fired` tag is
+ *  what makes the three forms tellable apart downstream by ONE discriminant
+ *  rather than by guessing from which field is present. */
+type ConditionHeld =
+  | { readonly fired: "idle" }
+  | { readonly fired: "match"; readonly matchedLine: string }
+  | { readonly fired: "agent"; readonly agent: AgentInfo };
+
+/** What a met carries: which form fired, how long the wait took, that form's own
+ *  evidence — and, when `screenTail` was asked for, `screen`.
+ *
+ *  `screen` is optional in the TYPE and NOT optional in fact: it is present on
+ *  every met of a wait that asked for it, because a read that fails settles a
+ *  failing arm instead of a met without it (a met missing the screen its caller
+ *  asked for is exactly the collapse-to-empty this repo treats as a defect).
+ *  TypeScript cannot tie a payload field to an argument's presence, so the
+ *  guarantee is the implementation's and is stated here. */
+export type ConditionMet =
+  | { fired: "idle"; elapsedMs: number; screen?: string }
+  | { fired: "match"; elapsedMs: number; matchedLine: string; screen?: string }
+  | { fired: "agent"; elapsedMs: number; agent: AgentInfo; screen?: string };
+
+/** The outcome of a {@link awaitTerminalCondition} — the shared
+ *  {@link WaitOutcome} union over {@link ConditionMet}. */
+export type TerminalConditionOutcome = WaitOutcome<ConditionMet>;
+
+/** The shared timer-range rule at an EXPORTED primitive's boundary. The MCP
+ *  schema and the CLI parse each guard their own caller, but a direct caller
+ *  could pass 0 / non-finite / a value above the `setTimeout` ceiling, and an
+ *  overflowed window fires a FALSE near-instant `met`. `what` names the option
+ *  so the crash says which one was wrong. */
+function requireTimerMs(what: string, ms: number): void {
+  if (!isValidTimerMs(ms)) {
+    throw new RangeError(
+      `${what} must be between 1 and ${MAX_TIMER_MS} (~24.8 days), got ${ms} — a larger window overflows setTimeout and fires a false near-instant met.`,
+    );
+  }
+}
+
+/** A re-armable quiescence window. `arm()` restarts the countdown, `disarm()`
+ *  cancels it, and `onQuiet` fires when `ms` pass with neither.
+ *
+ *  Spelled once because a wait can run TWO of them at the same time — the
+ *  `idle:` CONDITION's window and the `--settled` CONJUNCT's — and they differ
+ *  only in what they set when they fire. */
+function quietWindow(
+  ms: number,
+  onQuiet: () => void,
+): { readonly arm: () => void; readonly disarm: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const disarm = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+  return {
+    arm: () => {
+      disarm();
+      timer = setTimeout(onQuiet, ms);
+    },
+    disarm,
+  };
+}
+
+/**
+ * THE wait: block until `condition` holds on terminal `id` — optionally only
+ * once its output has ALSO been quiet for `settledMs`, and optionally stamping
+ * the met with the rendered tail of its screen.
+ *
+ * The one engine {@link awaitAgentState} / {@link awaitOutputSettled} /
+ * {@link awaitOutputMatch} are each a spelling of, and the reason the two
+ * modifiers exist here rather than in a driving loop above: **a caller outside
+ * this process cannot close their races.** The three-call orchestrator loop —
+ * wait for the turn to end, then wait for quiet, then read the screen — has a
+ * hole between each pair of calls, and output moving in one of them is exactly
+ * the case the loop is trying to detect (kolu#2139: a nudge preempted a
+ * subagent three minutes into its run, because "the agent's bucket is `waiting`"
+ * was read as "the agent is done"). Both modifiers are evaluated against the
+ * SAME live subscriptions the condition is:
+ *
+ *   - **`settledMs` is a CONJUNCT on the condition**, not a second wait after
+ *     it. A met needs the condition to hold AND no output byte to have arrived
+ *     for `settledMs`; bytes moving (a subagent's footer, a background shell)
+ *     keep the wait open, and a condition that stops holding — an agent's bucket
+ *     dropping back to `working` — re-enters the wait rather than latching. It
+ *     composes with every form: `match:DONE` + `settledMs` means "the sentinel
+ *     printed and the terminal then went quiet", which is a stronger and equally
+ *     meaningful signal.
+ *   - **`screenTail` is an ENRICHMENT of the payload.** The rendered tail is
+ *     read while the subscriptions are still live and BEFORE the met settles;
+ *     if any byte arrives — or the condition stops holding — while that read is
+ *     in flight, the screen it returned is not the screen that settled, so it is
+ *     DISCARDED and the wait resumes. So the screen on a met is one taken during
+ *     the same unbroken stretch of quiet that met the condition. That is the
+ *     property a second `kolu snapshot` process can never have.
+ *
+ * Two things are deliberately NOT special-cased. `idle:<n>` with `settledMs` of
+ * `m` runs two independent windows and therefore means "quiet for max(n, m)" —
+ * which falls out rather than being written. And an `agent` condition with no
+ * `settledMs` opens no attach feed at all, so it costs exactly what the plain
+ * agent-state wait always cost.
+ *
+ * `retryAdvice` is the actionable tail of the `closed` diagnostic (see
+ * {@link watchAttachFeed}) and is required, not defaulted: only the caller knows
+ * what the thing to re-run is called, and a wrong-but-plausible default is worse
+ * than no sentence.
+ */
+export async function awaitTerminalCondition(
+  client: PadiSurfaceClient,
+  opts: {
+    readonly id: TerminalId;
+    readonly condition: TerminalCondition;
+    /** Report met only once output has ALSO been quiet for this long. */
+    readonly settledMs?: number;
+    /** Stamp the met with this many rendered screen lines. */
+    readonly screenTail?: number;
+    readonly timeoutMs?: number;
+    readonly signal?: AbortSignal;
+    /** "retry wait_outputSettled" — the tail of the `closed` sentence. */
+    readonly retryAdvice: string;
+  },
+): Promise<TerminalConditionOutcome> {
+  const { id, condition, settledMs, screenTail } = opts;
+  if (condition.kind === "idle") requireTimerMs("idleMs", condition.idleMs);
+  if (settledMs !== undefined) requireTimerMs("settledMs", settledMs);
+  if (
+    screenTail !== undefined &&
+    (!Number.isInteger(screenTail) || screenTail <= 0)
+  ) {
+    throw new RangeError(
+      `screenTail must be a positive whole number of lines, got ${screenTail} — "the last zero lines" would stamp a met with an empty screen that reads like a dead terminal.`,
+    );
+  }
+
+  return runWait<ConditionMet>(
+    { timeoutMs: opts.timeoutMs, signal: opts.signal },
+    async (ctx) => {
+      /** The condition's evidence while it holds, else `null`. */
+      let held: ConditionHeld | null = null;
+      /** The conjunct. Trivially satisfied when no `settledMs` was asked for. */
+      let quiet = settledMs === undefined;
+      /** A screen read is in flight — never two at once. */
+      let reading = false;
+      /** The tail of the output already scanned by the `match:` form, bounded by
+       *  {@link MATCH_OVERLAP_CAP}. The ONLY history the scan keeps. */
+      let carry = "";
+      /** A read failure that must PROPAGATE rather than become an outcome (a
+       *  dead transport poisons the shared connection). Latched, thrown below. */
+      let readFailure: unknown;
+      /** The in-flight read, so an unwinding wait never leaves one dangling. */
+      let pendingRead: Promise<void> = Promise.resolve();
+
+      const settleMet = (
+        payload: ConditionHeld,
+        screen: string | undefined,
+      ): void => {
+        const elapsedMs = ctx.elapsedMs();
+        const stamp = screen === undefined ? {} : { screen };
+        switch (payload.fired) {
+          case "idle":
+            ctx.settle({ kind: "met", fired: "idle", elapsedMs, ...stamp });
+            return;
+          case "match":
+            ctx.settle({
+              kind: "met",
+              fired: "match",
+              elapsedMs,
+              matchedLine: payload.matchedLine,
+              ...stamp,
+            });
+            return;
+          case "agent":
+            ctx.settle({
+              kind: "met",
+              fired: "agent",
+              elapsedMs,
+              agent: payload.agent,
+              ...stamp,
+            });
+            return;
+        }
+      };
+
+      /** Read the screen for a met that is otherwise ready, then RE-CHECK: a
+       *  byte that arrived (or a bucket that dropped) while the read was in
+       *  flight means the screen we hold is not the screen that settled, so it
+       *  is discarded and the wait resumes.
+       *
+       *  The payload is re-read from `held` AFTER the round-trip rather than
+       *  captured before it, so the met describes the terminal at the instant it
+       *  settles — an agent record that moved from `awaiting_user` to `waiting`
+       *  under the read is reported as what it is now, beside the screen that
+       *  shows it. */
+      const stampAndSettle = async (tail: number): Promise<void> => {
+        try {
+          const text = await Effect.runPromise(
+            client.surface.screen.text({ id }),
+          );
+          if (ctx.signal.aborted) return;
+          if (held === null || !quiet) return;
+          settleMet(held, tailLines(text, tail));
+        } catch (err) {
+          if (ctx.signal.aborted) return;
+          // The terminal ended between the condition landing and its screen
+          // being read — `gone`, the same answer the feeds give, never a
+          // retryable `closed`.
+          if (isTerminalNotFound(err)) {
+            ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
+            return;
+          }
+          const message = errMessage(err);
+          ctx.recordUpstreamError(message);
+          // A DEAD transport poisons the shared connection and must PROPAGATE so
+          // the MCP face resets it before the next call (see `watchAttachFeed`).
+          // The settle is only how the subscriptions are unwound; the latched
+          // failure is thrown below and wins over the outcome.
+          if (isDeadTransportError(err)) readFailure = err;
+          ctx.settle({
+            kind: "closed",
+            error: `could not read ${id}'s screen at the met — ${message}`,
+          });
+        } finally {
+          reading = false;
+        }
+      };
+
+      /** Both halves hold — settle, reading the screen first if one was asked
+       *  for. Called from every handler that can change either half. */
+      const check = (): void => {
+        if (ctx.signal.aborted || held === null || !quiet || reading) return;
+        if (screenTail === undefined) {
+          settleMet(held, undefined);
+          return;
+        }
+        reading = true;
+        // Chained rather than fired-and-forgotten: the watchers below await it,
+        // so a wait that unwinds never leaves a read (or its failure) dangling.
+        // A discarded read leaves `reading` false and re-enters through `check`,
+        // which only proceeds if BOTH halves hold again — so this cannot spin.
+        pendingRead = pendingRead
+          .then(() => stampAndSettle(screenTail))
+          .then(() => {
+            check();
+          });
+      };
+
+      // The `idle:` condition's window and the `--settled` conjunct's window:
+      // two independent countdowns over the same frames, each setting its own
+      // half. Both are armed by the attach feed's snapshot (an already-quiet
+      // terminal fires after its window) and reset by every subsequent frame.
+      const conditionWindow =
+        condition.kind === "idle"
+          ? quietWindow(condition.idleMs, () => {
+              held = { fired: "idle" };
+              check();
+            })
+          : undefined;
+      const settledWindow =
+        settledMs === undefined
+          ? undefined
+          : quietWindow(settledMs, () => {
+              quiet = true;
+              check();
+            });
+
+      const arms: Promise<void>[] = [];
+
+      // The OUTPUT feed — needed by the two output condition forms, and by the
+      // quiescence conjunct whatever the form. An `agent` condition with no
+      // conjunct opens none, so it costs exactly what it always cost.
+      if (condition.kind !== "agent" || settledMs !== undefined) {
+        arms.push(
+          watchAttachFeed(client, ctx, {
+            id,
+            onFrame: (frame) => {
+              // Snapshot AND delta both (re)start a window: the snapshot is the
+              // replay of the current screen — the moment to start counting —
+              // and each delta is fresh output resetting the count.
+              if (conditionWindow !== undefined) {
+                held = null;
+                conditionWindow.arm();
+              }
+              if (settledWindow !== undefined) {
+                quiet = false;
+                settledWindow.arm();
+              }
+              if (condition.kind !== "match" || frame.kind !== "delta") return;
+              const data = frame.data;
+              // An empty delta brings no new text: its window would be exactly
+              // the carry the previous frame already scanned, for exactly the
+              // same verdict. Skipping it keeps "one scan per new byte" true.
+              if (data === "") return;
+              // The scan window: the new bytes, plus enough already-scanned tail
+              // that a sentinel straddling the chunk boundary is still whole.
+              const window = carry + data;
+              // `search`, not `exec`: it is the one scan that ignores (and
+              // restores) a pattern's `lastIndex`, so a `/g`- or `/y`-flagged
+              // pattern can't resume mid-window and skip the sentinel — and the
+              // caller's RegExp is never mutated. The index is all this needs.
+              const index = window.search(condition.pattern);
+              if (index !== -1) {
+                // A match LATCHES: unlike a bucket, a sentinel that printed
+                // cannot un-print, so later output only breaks the conjunct.
+                held = {
+                  fired: "match",
+                  matchedLine: matchedLineAt(window, index),
+                };
+                check();
+                return;
+              }
+              carry = carryTail(window);
+            },
+            // State accumulated from a feed we can no longer observe is dropped:
+            // a window left armed would fire a FALSE quiet across the reconnect
+            // gap, and carrying pre-gap bytes into the scan of post-gap ones
+            // would let the two halves forge a sentinel nobody printed. A
+            // latched `match` survives — it is a fact about output we DID see.
+            onFeedLost: () => {
+              conditionWindow?.disarm();
+              settledWindow?.disarm();
+              if (condition.kind === "idle") held = null;
+              quiet = settledMs === undefined;
+              carry = "";
+            },
+            // The exit settles `gone` for every form EXCEPT `match`, whose bytes
+            // may still be in flight on the (separately-ordered) attach feed — a
+            // sentinel that printed must win, so there the exit is only latched
+            // and the feed's END is the proof no bytes are left. Nothing an
+            // early settle could invalidate exists for the other forms.
+            ...(condition.kind === "match"
+              ? {}
+              : {
+                  onExit: () =>
+                    ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() }),
+                }),
+            retryAdvice: opts.retryAdvice,
+          }),
+        );
+      }
+
+      // The AGENT feed — the `terminals` mirror, which REPLAYS each terminal's
+      // current value on connect, so an agent ALREADY in a target bucket matches
+      // immediately rather than hanging for a transition that already happened.
+      if (condition.kind === "agent") {
+        const targets = condition.targets;
+        arms.push(
+          watchTerminals(
+            client,
+            {
+              onUpsert: (upserted, value) => {
+                if (upserted !== id) return;
+                const agent = matchingActiveAgent(value, targets);
+                // Both directions: a bucket that STOPS matching re-enters the
+                // wait. Without that, `--settled` would be waiting for quiet on
+                // an agent that has gone back to work.
+                held = agent === null ? null : { fired: "agent", agent };
+                check();
+              },
+              // The terminal we're waiting on left the collection — its PTY
+              // exited, so no future frame can carry the target bucket. Resolve
+              // gone rather than hanging. Removals of OTHERS are noise.
+              onRemove: (removed) => {
+                if (removed !== id) return;
+                ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
+              },
+            },
+            ctx.signal,
+            (line) => ctx.recordUpstreamError(line),
+            // Seed the watched id so a terminal that exited BEFORE this
+            // subscription (in the gap after the caller resolved the id) is
+            // reconciled to gone on the first snapshot instead of hanging.
+            () => [id],
+          ),
+        );
+      }
+
+      try {
+        await Promise.all(arms);
+        // The subscriptions have unwound; a read they started may not have.
+        await pendingRead;
+      } finally {
+        // The scaffold clears ITS timeout; these windows are this wait's own.
+        conditionWindow?.disarm();
+        settledWindow?.disarm();
+      }
+      // A dead transport is a BUG-shaped failure, not an outcome: `runWait`
+      // propagates a watcher's rejection verbatim, and it wins over the `closed`
+      // that was only settled to unwind the subscriptions.
+      if (readFailure !== undefined) throw readFailure;
+    },
+  );
+}
+
+// ── The three named waits — one engine, three spellings ─────────────────────
+//
+// Each is the engine with one condition and no modifiers. They stay named
+// because they are what the other faces call (the MCP face's `wait_agentState` /
+// `wait_outputSettled`, padi-tui's `cmdWait`) and because each carries its own
+// `closed` retry advice — the sentence naming the thing to re-run.
+
+/** The engine's outcome, narrowed to the ONE met arm a given condition can
+ *  fire — the wrappers' shared step.
+ *
+ *  A wrapper KNOWS which arm its condition produces, and this is where that
+ *  knowledge is checked rather than asserted: a dispatch that ever fired the
+ *  wrong arm would otherwise hand a caller a payload of a shape its type
+ *  promises it cannot have, silently. The cast is contained here, behind the
+ *  check that makes it true. */
+function metFired<F extends ConditionMet["fired"]>(
+  outcome: TerminalConditionOutcome,
+  fired: F,
+  wait: string,
+): WaitOutcome<Extract<ConditionMet, { fired: F }>> {
+  if (outcome.kind === "met" && outcome.fired !== fired) {
+    throw new Error(
+      `${wait}: a ${fired} condition fired "${outcome.fired}" — impossible unless the engine's condition dispatch broke.`,
+    );
+  }
+  return outcome as WaitOutcome<Extract<ConditionMet, { fired: F }>>;
+}
+
+/** The outcome of an agent-state wait — the shared {@link WaitOutcome} union
+ *  with the met payload this wait stamps: the matched agent, plus how long the
+ *  wait took. */
+export type AgentStateOutcome = WaitOutcome<{
+  agent: AgentInfo;
+  elapsedMs: number;
+}>;
+
+/** Block until one terminal's agent enters a target bucket, then resolve
+ *  `met`; or `timeout` after `timeoutMs`, `gone` if the terminal is removed
+ *  first (its PTY exited, so the bucket can never land), `interrupted` on
+ *  `signal` abort, or `closed` if the link settles without any of those. Pure
+ *  data layer (no tty, no `process.exit`) so it is testable over a real
+ *  socket — padi-tui's `cmdWait` and the MCP face's `wait_agentState` are the
+ *  thin glue mapping the outcome to their own output frames.
+ *
+ *  The met payload keeps its two fields and does NOT gain the engine's `fired`
+ *  tag: it is the MCP tool's documented `met: {agent, elapsedMs}` frame, and a
+ *  key added here would land on that wire. A caller that wants the tag calls
+ *  {@link awaitTerminalCondition} directly, which `kolu wait` does. */
+export async function awaitAgentState(
+  client: PadiSurfaceClient,
+  opts: {
+    id: TerminalId;
+    targets: ReadonlySet<string>;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<AgentStateOutcome> {
+  const outcome = metFired(
+    await awaitTerminalCondition(client, {
+      id: opts.id,
+      condition: { kind: "agent", targets: opts.targets },
+      timeoutMs: opts.timeoutMs,
+      signal: opts.signal,
+      retryAdvice: "re-run the agent-state wait",
+    }),
+    "agent",
+    "awaitAgentState",
+  );
+  // The `fired` tag is dropped rather than passed through — see the note above.
+  return outcome.kind === "met"
+    ? { kind: "met", agent: outcome.agent, elapsedMs: outcome.elapsedMs }
+    : outcome;
+}
+
+/** The outcome of an output-settled wait — the shared {@link WaitOutcome} union
+ *  with the met payload this wait stamps: the idle signal fired, plus how long
+ *  the wait took. */
+export type OutputSettledOutcome = WaitOutcome<{
+  fired: "idle";
+  elapsedMs: number;
+}>;
+
+/** Block until terminal `id`'s output has been quiet for `idleMs` — the data
+ *  layer of the MCP face's `wait_outputSettled`, exported for the e2e pin. */
+export async function awaitOutputSettled(
+  client: PadiSurfaceClient,
+  opts: {
+    id: string;
+    idleMs: number;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<OutputSettledOutcome> {
+  return metFired(
+    await awaitTerminalCondition(client, {
+      id: opts.id,
+      condition: { kind: "idle", idleMs: opts.idleMs },
+      timeoutMs: opts.timeoutMs,
+      signal: opts.signal,
+      retryAdvice: "retry wait_outputSettled",
+    }),
+    "idle",
+    "awaitOutputSettled",
+  );
+}
+
 /** The outcome of an output-match wait — the shared {@link WaitOutcome} union
  *  with the met payload this wait stamps: that the pattern fired, how long it
  *  took, and the output line it landed on. */
@@ -807,35 +1182,6 @@ export type OutputMatchOutcome = WaitOutcome<{
  * exits without printing it, `interrupted` on `signal` abort, or `closed` if the
  * feed is dropped under us. The sentinel/marker route — agent-agnostic, so it
  * works on a bare shell, a `less`, or an agent nobody wrote a state sensor for.
- *
- * The third sibling of {@link awaitAgentState} / {@link awaitOutputSettled}, and
- * here for the same reason they are: it is a 'block on a padiSurface condition,
- * return a WaitOutcome' primitive, so it belongs in the package that owns
- * padiSurface rather than in whichever CLI happened to need it first. It shares
- * the settle wait's whole subscription spine ({@link watchAttachFeed}) — the
- * retry fence above all, without which a transport blip kills the wait instead
- * of re-subscribing.
- *
- * Three things are specific to matching:
- *
- *   - **Only `delta` frames are scanned.** A `snapshot` frame is the replay of
- *     the screen as it ALREADY was, not bytes that arrived since the call —
- *     matching it would report a marker printed minutes ago as if it had just
- *     landed. (Which is also why the fence's re-subscribe must clear the carry:
- *     the fresh snapshot it delivers is likewise old news.)
- *   - **The match beats the exit.** The exit event is latched, never settled
- *     (see {@link watchAttachFeed}) — a sentinel that printed and was followed
- *     by the process exiting is a MET wait, whatever order the two subscriptions
- *     happen to deliver in. The verdict waits for the ordered attach feed to
- *     end, which is what proves no bytes are left to scan.
- *   - **Each delta is scanned ONCE, in a bounded window.** The scan runs over
- *     `carry + delta` — the new bytes plus at most {@link MATCH_OVERLAP_CAP}
- *     code units of already-scanned tail, which is what keeps a sentinel split
- *     across chunks matchable — never over the whole history. This is a
- *     LIVENESS property, not an optimisation: the search is synchronous on the
- *     event loop that also owns this wait's `--timeout` timer, so per-frame work
- *     that grew with the window let a chatty terminal push the timeout past the
- *     deadline it promises.
  *
  * RESIDUAL, named plainly: `match:` is NOT safe against an untrusted
  * pattern+output pair. The scan is bounded in INPUT, not in TIME — a
@@ -859,49 +1205,15 @@ export async function awaitOutputMatch(
     signal?: AbortSignal;
   },
 ): Promise<OutputMatchOutcome> {
-  return runWait<{ fired: "match"; elapsedMs: number; matchedLine: string }>(
-    { timeoutMs: opts.timeoutMs, signal: opts.signal },
-    async (ctx) => {
-      // The overlap: the tail of the output already scanned, bounded by
-      // MATCH_OVERLAP_CAP. It is the ONLY history kept — each delta is scanned
-      // once, prefixed with this, and never re-scanned.
-      let carry = "";
-      await watchAttachFeed(client, ctx, {
-        id: opts.id,
-        onFrame: (frame) => {
-          if (frame.kind !== "delta") return;
-          const data = frame.data;
-          // An empty delta brings no new text: its window would be exactly the
-          // carry the previous frame already scanned, for exactly the same
-          // verdict. Skipping it keeps "one scan per new byte" true.
-          if (data === "") return;
-          // The scan window: the new bytes, plus enough already-scanned tail
-          // that a sentinel straddling the chunk boundary is still whole.
-          const window = carry + data;
-          // `search`, not `exec`: it is the one scan that ignores (and restores)
-          // a pattern's `lastIndex`, so a `/g`- or `/y`-flagged pattern can't
-          // resume mid-window and skip the sentinel — and the caller's RegExp is
-          // never mutated. The index is all this wait needs.
-          const index = window.search(opts.pattern);
-          if (index !== -1) {
-            ctx.settle({
-              kind: "met",
-              fired: "match",
-              elapsedMs: ctx.elapsedMs(),
-              matchedLine: matchedLineAt(window, index),
-            });
-            return;
-          }
-          carry = carryTail(window);
-        },
-        // A reconnect gap is unobservable output: carrying what we saw before it
-        // into the scan of what arrives after would let the two halves forge a
-        // sentinel no terminal ever printed.
-        onFeedLost: () => {
-          carry = "";
-        },
-        retryAdvice: "re-run the match wait",
-      });
-    },
+  return metFired(
+    await awaitTerminalCondition(client, {
+      id: opts.id,
+      condition: { kind: "match", pattern: opts.pattern },
+      timeoutMs: opts.timeoutMs,
+      signal: opts.signal,
+      retryAdvice: "re-run the match wait",
+    }),
+    "match",
+    "awaitOutputMatch",
   );
 }

@@ -73,9 +73,11 @@ export {
   resolveRunningPadiSocket,
 } from "./stateRoot.ts";
 
-// The client-side terminal WATCH kit — `watchTerminals` + the three
-// block-on-a-condition primitives (`awaitAgentState` · `awaitOutputSettled` ·
-// `awaitOutputMatch`) plus `awaitWatchEvents` (the standing-subscription drain,
+// The client-side terminal WATCH kit — `watchTerminals` + the ONE
+// block-on-a-condition engine (`awaitTerminalCondition`, which also carries the
+// `--settled` quiescence conjunct and the `--snapshot` screen stamp) and the
+// three named waits that are each a spelling of it (`awaitAgentState` ·
+// `awaitOutputSettled` · `awaitOutputMatch`) plus `awaitWatchEvents` (the standing-subscription drain,
 // which differs in kind: it drains a padi-side BUFFER, so the gaps between calls
 // are not holes) and the bucket vocabulary they predicate on — rides the
 // dial entry too: the same "a daemon's package owns the client kit its
@@ -90,9 +92,13 @@ export {
   awaitAgentState,
   awaitOutputMatch,
   awaitOutputSettled,
+  awaitTerminalCondition,
   awaitWatchEvents,
+  type ConditionMet,
   type OutputMatchOutcome,
   type OutputSettledOutcome,
+  type TerminalCondition,
+  type TerminalConditionOutcome,
   type WatchEventsOutcome,
   WAIT_STATES,
   type WaitState,

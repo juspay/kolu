@@ -88,28 +88,13 @@ export function resolveTerminalId(
 // `isWaitState` (`terminalVocab.ts`): whether a token is a bucket, and nothing
 // about commas.
 
-/** The last `tail` lines of a rendered screen, with the trailing run of
- *  whitespace-only rows dropped first.
- *
- *  A pure fold over `screen.text`'s output, and it lives beside padi's other
- *  formatters because the rule it encodes is about padi's REPLY: the rendered
- *  buffer ends in the empty viewport below the cursor, which carries zero
- *  information and would otherwise BE the tail (`tail: 6` on a fresh shell
- *  returned six blank lines — a real bug, caught on the MCP face). Blank lines
- *  BETWEEN content are kept verbatim.
- *
- *  It was `kolu-mcp/screenText`'s until `kolu snapshot --tail` became its second
- *  consumer and imported it from there — a CLI verb reaching sideways into a
- *  sibling FACE's adapter for domain knowledge, which also made `cli.ts`'s
- *  per-face fence claim false (a terminal verb was building an MCP argument
- *  schema at module load). Both faces now import it from the package that owns
- *  the reply it folds. */
-export function tailLines(text: string, tail: number): string {
-  const lines = text.split("\n");
-  let end = lines.length;
-  while (end > 0 && (lines[end - 1] as string).trim() === "") end -= 1;
-  return lines.slice(Math.max(0, end - tail), end).join("\n");
-}
+// `tailLines` — the tail-mode slice — moved to `./tail.ts` and is re-exported
+// here so every `@kolu/padi/render` consumer's import is unchanged. It left
+// because the WAIT kit became its third consumer (`kolu wait --snapshot`), and
+// reaching this module for it would have dragged `columnify` — imported below
+// for the roster table — into the module graph of every `kolu wait` and every
+// `kolu mcp`. See that file's header.
+export { tailLines } from "./tail.ts";
 
 /** Strip terminal-hostile bytes from a human-rendered value. A shell can set its
  *  title / process name / branch to anything (newlines, raw ESC), so painting

@@ -19,6 +19,8 @@ kolu ls [--json]              the roster — ID · STATE · REPO·BRANCH · PR �
 kolu create [flags] [-- argv] spawn a terminal; prints the new id on stdout
 kolu send <id> …              type text, or a named key with --key
 kolu wait <id> --until <cond> block until output settles/matches, or the agent's state lands
+                              [--settled <ms>] also require output quiet; [--snapshot N] stamp the screen
+kolu debrief <id>             the composed protocol: wait until the turn is over AND quiet, print the screen
 kolu snapshot <id> [--tail N] the terminal's rendered text — use --tail N for "what's on screen"
 kolu history <id> [--lines N] the scrollback above the current screen
 kolu kill <id>                end a terminal
@@ -110,6 +112,67 @@ agent buckets `working` / `awaiting` / `waiting` (precise — it *distinguishes*
 detects). This is the merge of `kaval-tui wait --until idle:/match:` and
 `padi-tui wait --until <buckets>` into one verb; the two done-signals stay two
 *forms*, because they genuinely read different things.
+
+### …and two modifiers, because a driving loop cannot close its own races
+
+```
+kolu wait <id> --until awaiting,waiting --settled 15000 --snapshot 40
+```
+
+- **`--settled <ms>`** is a **conjunct on the condition**: met means the
+  condition holds *and* no output byte has arrived for `<ms>`. Bytes moving keep
+  the wait open; a condition that stops holding — an agent's bucket dropping
+  back to `working` — re-enters it. It composes with all three forms
+  (`match:DONE --settled 2000` is equally meaningful).
+- **`--snapshot <N>`** is an **enrichment of the payload**: the met carries the
+  last `N` rendered screen lines. In plain mode that block *is* stdout (so
+  `kolu wait … --snapshot 40 | grep MARK-` works) with the met trailer on
+  stderr; under `--json` it is the frame's `screen` key.
+
+Each is useful alone — settle-without-snapshot for a trustworthy done-signal,
+snapshot-without-settle for "the screen at any turn boundary" — and neither
+changes the outcome arms or the exit codes: a `--settled` wait whose terminal
+never goes quiet is a plain **timeout**.
+
+They exist because the three-call loop they replace has holes only the daemon
+side can close. An orchestrator used to run `wait --until awaiting,waiting`,
+then `wait --until idle:15000`, then `snapshot --tail 40` — and output can move
+between the first and the second, while the screen the third reads is not the
+screen the second settled on. Evaluated together against **one** live
+subscription, there is no gap to race, and the screen on a met is one taken
+during the same unbroken stretch of quiet that met the condition (a read the
+terminal moves under is discarded and retaken). The failure that motivated it:
+`--until awaiting,waiting` fired on an agent whose main loop had ended its turn
+while a subagent was three minutes into a deliberate plan, and the nudge that
+followed preempted competent in-flight work.
+
+## `debrief` — the protocol as one verb
+
+```
+kolu debrief <id> [--quiet <ms>] [--tail <N>] [--timeout <ms>] [--json]
+
+  ≡  kolu wait <id> --until awaiting,waiting --settled <quiet> --snapshot <tail>
+      --quiet   quiescence window, default 15000
+      --tail    screen lines in the payload, default 40
+```
+
+That invocation is the step every driving orchestrator should make, and **each
+flag forgotten re-opens a live failure mode** — drop `--settled` and you nudge
+an agent whose subagent is still running; drop `--snapshot` and you act without
+reading what the worker believes happened. So the protocol is baked into a name:
+
+```sh
+kolu debrief 4bba     # blocks until the worker's turn is over AND quiet;
+                      # stdout is what its screen says — judge, then act
+```
+
+It is **definitional and nothing more**: it expands to the `wait` above and
+inherits its outcome contract, exit codes, `--json` frame, and output rule — it
+has no logic of its own, so there is no second face to drift. (Precedent: bare
+`kolu` was the documented alias of `kolu web`. A CLI that just retired two
+near-duplicate TUIs earns a new verb only if the verb *can't* diverge.) Its
+vocabulary is reused too: `--tail` is `snapshot`'s flag, `--quiet` is the
+sugared spelling of the `--settled` primitive.
 
 ## `snapshot` — the whole rendered buffer, and why `--tail` is the read you want
 

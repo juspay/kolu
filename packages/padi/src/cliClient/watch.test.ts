@@ -44,11 +44,17 @@
  * residual.
  */
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
-import { Stream } from "effect";
+import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { PadiSurfaceClient } from "../dial.ts";
+import { TerminalNotFound } from "../errors.ts";
 import type { PadiTerminal } from "../surface.ts";
-import { awaitOutputMatch, matchingActiveAgent, WAIT_STATES } from "./watch.ts";
+import {
+  awaitOutputMatch,
+  awaitTerminalCondition,
+  matchingActiveAgent,
+  WAIT_STATES,
+} from "./watch.ts";
 
 /** A minimal `active` composed record — the agent the wait predicate reads.
  *  Cast because the full `ActiveTerminalSchema` is large and these are the
@@ -213,13 +219,24 @@ class FakeSource<T> {
  *  a retryable failure, so a test can hand the second subscription a different
  *  stream — which is how the reconnect case is spelled. */
 function matchClient(parts: {
-  attach: () => Stream.Stream<AttachFrame, unknown>;
+  attach?: () => Stream.Stream<AttachFrame, unknown>;
   exit?: () => Stream.Stream<{ code: number }, unknown>;
   keys?: () => Stream.Stream<readonly TerminalId[], unknown>;
+  /** The `terminals` COLLECTION values the mirror replays — only the agent
+   *  condition subscribes them. */
+  get?: (key: TerminalId) => Stream.Stream<PadiTerminal, unknown>;
+  /** `screen.text`, the read `screenTail` stamps a met with. */
+  screenText?: () => Effect.Effect<string, unknown>;
 }): PadiSurfaceClient {
   return {
     surface: {
-      terminalAttach: { get: () => parts.attach() },
+      terminalAttach: {
+        get: () =>
+          parts.attach?.() ??
+          Stream.fail(
+            new Error("terminalAttach must not be subscribed in this case"),
+          ),
+      },
       // No exit event unless a test wires one: a live terminal's exit stream
       // simply never yields.
       terminalExit: { get: () => parts.exit?.() ?? Stream.never },
@@ -229,6 +246,14 @@ function matchClient(parts: {
           Stream.fail(
             new Error("terminals.keys must not be read in this case"),
           ),
+        get: (input: { key: TerminalId }) =>
+          parts.get?.(input.key) ??
+          Stream.fail(new Error("terminals.get must not be read in this case")),
+      },
+      screen: {
+        text: () =>
+          parts.screenText?.() ??
+          Effect.fail(new Error("screen.text must not be read in this case")),
       },
     },
   } as unknown as PadiSurfaceClient;
@@ -431,5 +456,263 @@ describe("awaitOutputMatch — the `match:` wait over a fake attach feed", () =>
     );
 
     expect(outcome).toMatchObject({ kind: "met", fired: "match" });
+  });
+});
+
+// ── The two modifiers: the `--settled` conjunct and the `--snapshot` stamp ────
+//
+// These are the kolu#2139 flags, and what each pins is a way a driving loop gets
+// LIED TO. `--settled` exists because "the agent's bucket says waiting" is not
+// "the agent is done" — a main loop that ends its turn while an async subagent
+// runs reads as `waiting` within milliseconds, and the field incident was an
+// orchestrator nudging a worker three minutes into a deliberate plan. So the
+// conjunct's promise is not "it usually waits a bit longer": it is that bytes
+// moving KEEP THE WAIT OPEN and a bucket that stops matching RE-ENTERS it.
+// `--snapshot`'s promise is narrower and just as easy to lose: the screen on a
+// met is one taken during the same unbroken stretch of quiet that met the
+// condition — never one the terminal moved under while it was being read.
+
+/** A `terminals` collection that starts with `first` and can be pushed to — the
+ *  agent condition's feed. `keys` yields the watched id once and then stays
+ *  live, which is what a real subscription does. */
+function agentCollection(first: AgentInfo | null): {
+  readonly parts: {
+    keys: () => Stream.Stream<readonly TerminalId[], unknown>;
+    get: (key: TerminalId) => Stream.Stream<PadiTerminal, unknown>;
+  };
+  readonly push: (agent: AgentInfo | null) => void;
+} {
+  const values = new FakeSource<PadiTerminal>();
+  values.push(activeWithAgent(first));
+  return {
+    parts: {
+      keys: () =>
+        Stream.concat(
+          Stream.make([T as TerminalId] as readonly TerminalId[]),
+          Stream.never,
+        ),
+      get: () => values.stream(),
+    },
+    push: (agent) => values.push(activeWithAgent(agent)),
+  };
+}
+
+describe("awaitTerminalCondition — `--settled`, the quiescence conjunct", () => {
+  it("keeps the wait OPEN while bytes move, though the bucket already matches", async () => {
+    // The exact field failure: the agent's main loop ended its turn (bucket
+    // `waiting` on the FIRST frame, so the condition holds immediately) while a
+    // subagent keeps printing. Without the conjunct this is a met at t≈0.
+    const agents = agentCollection(claude("waiting"));
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    const noise = setInterval(() => attach.push(delta("·")), 10);
+    try {
+      const outcome = await awaitTerminalCondition(
+        matchClient({ attach: () => attach.stream(), ...agents.parts }),
+        {
+          id: T as TerminalId,
+          condition: {
+            kind: "agent",
+            targets: new Set(["awaiting", "waiting"]),
+          },
+          settledMs: 300,
+          timeoutMs: 400,
+          retryAdvice: "re-run the wait",
+        },
+      );
+      expect(outcome).toMatchObject({ kind: "timeout" });
+    } finally {
+      clearInterval(noise);
+    }
+  });
+
+  it("settles the moment the SAME wait sees its quiet window through", async () => {
+    // No second call, no re-arm: the conjunct is evaluated on the subscription
+    // the condition is, which is the whole race the three-call loop could not
+    // close from outside.
+    const agents = agentCollection(claude("waiting"));
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    let ticks = 0;
+    const noise = setInterval(() => {
+      if (++ticks > 5) {
+        clearInterval(noise);
+        return;
+      }
+      attach.push(delta("·"));
+    }, 10);
+
+    const outcome = await awaitTerminalCondition(
+      matchClient({ attach: () => attach.stream(), ...agents.parts }),
+      {
+        id: T as TerminalId,
+        condition: { kind: "agent", targets: new Set(["awaiting", "waiting"]) },
+        settledMs: 80,
+        timeoutMs: 5000,
+        retryAdvice: "re-run the wait",
+      },
+    );
+
+    clearInterval(noise);
+    expect(outcome).toMatchObject({ kind: "met", fired: "agent" });
+    // It waited for the quiet, not merely for the bucket: the noise ran ~50ms
+    // and the window is 80ms on top of the last byte.
+    if (outcome.kind !== "met") throw new Error("unreachable");
+    expect(outcome.elapsedMs).toBeGreaterThanOrEqual(80);
+  });
+
+  it("RE-ENTERS the wait when the bucket drops back to working", async () => {
+    // A quiet terminal whose agent picks the work back up is not done, and a
+    // conjunct that latched the condition would report the first quiet moment
+    // as a met — the same lie in a different shape.
+    const agents = agentCollection(claude("waiting"));
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+
+    const pending = awaitTerminalCondition(
+      matchClient({ attach: () => attach.stream(), ...agents.parts }),
+      {
+        id: T as TerminalId,
+        condition: { kind: "agent", targets: new Set(["awaiting", "waiting"]) },
+        settledMs: 60,
+        timeoutMs: 5000,
+        retryAdvice: "re-run the wait",
+      },
+    );
+
+    // Back to work before the window elapses — nothing may settle now, however
+    // quiet the terminal gets.
+    agents.push(claude("thinking"));
+    await sleep(200);
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+    await sleep(0);
+    expect(settled).toBe(false);
+
+    // Genuinely finished this time.
+    agents.push(claude("awaiting_user"));
+    const outcome = await pending;
+    expect(outcome).toMatchObject({ kind: "met", fired: "agent" });
+  });
+
+  it("opens NO attach feed for an agent condition with no conjunct", async () => {
+    // The plain agent-state wait must cost exactly what it always cost: this
+    // client FAILS a `terminalAttach` subscription, so a feed opened for a wait
+    // that has no quiescence to measure would surface as a `closed` outcome.
+    const agents = agentCollection(claude("waiting"));
+    const outcome = await awaitTerminalCondition(matchClient(agents.parts), {
+      id: T as TerminalId,
+      condition: { kind: "agent", targets: new Set(["waiting"]) },
+      timeoutMs: 5000,
+      retryAdvice: "re-run the wait",
+    });
+    expect(outcome).toMatchObject({ kind: "met", fired: "agent" });
+  });
+});
+
+describe("awaitTerminalCondition — `--snapshot`, the screen stamp", () => {
+  const screen = "prompt$ run\nall 12 passed\n\n\n\n";
+
+  it("stamps the met with the rendered tail, trailing blank rows dropped", async () => {
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    const outcome = await awaitTerminalCondition(
+      matchClient({
+        attach: () => attach.stream(),
+        screenText: () => Effect.succeed(screen),
+      }),
+      {
+        id: T as TerminalId,
+        condition: { kind: "idle", idleMs: 40 },
+        screenTail: 2,
+        timeoutMs: 5000,
+        retryAdvice: "re-run the wait",
+      },
+    );
+    // The blank viewport below the cursor is not the tail — the bug `tailLines`
+    // exists to prevent, inherited here rather than re-derived.
+    expect(outcome).toMatchObject({
+      kind: "met",
+      fired: "idle",
+      screen: "prompt$ run\nall 12 passed",
+    });
+  });
+
+  it("DISCARDS a screen the terminal moved under, and stamps the next quiet one", async () => {
+    // The property a second `kolu snapshot` process can never have: the screen
+    // on a met was taken during the same unbroken stretch of quiet that met the
+    // condition. Here the first read is held open while a delta lands.
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    let release: (() => void) | undefined;
+    const reads: string[] = [];
+    const outcome = await awaitTerminalCondition(
+      matchClient({
+        attach: () => attach.stream(),
+        screenText: () =>
+          Effect.promise(async () => {
+            if (reads.length === 0) {
+              reads.push("stale");
+              // Move the terminal under the read, then let it resolve.
+              await new Promise<void>((resolve) => {
+                release = resolve;
+                attach.push(delta("late output\n"));
+                setTimeout(resolve, 0);
+              });
+              return "STALE\n";
+            }
+            reads.push("fresh");
+            return "FRESH\n";
+          }),
+      }),
+      {
+        id: T as TerminalId,
+        condition: { kind: "idle", idleMs: 40 },
+        settledMs: 40,
+        screenTail: 1,
+        timeoutMs: 5000,
+        retryAdvice: "re-run the wait",
+      },
+    );
+    release?.();
+
+    expect(reads).toEqual(["stale", "fresh"]);
+    expect(outcome).toMatchObject({ kind: "met", screen: "FRESH" });
+  });
+
+  it("reports `gone` when the terminal ends between the condition and the read", async () => {
+    // Never a `closed`: `closed` tells its reader to retry, and there is nothing
+    // left to retry against a terminal that no longer exists.
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(snapshot("worker\n"));
+    const outcome = await awaitTerminalCondition(
+      matchClient({
+        attach: () => attach.stream(),
+        screenText: () => Effect.fail(new TerminalNotFound({ id: T })),
+      }),
+      {
+        id: T as TerminalId,
+        condition: { kind: "idle", idleMs: 40 },
+        screenTail: 10,
+        timeoutMs: 5000,
+        retryAdvice: "re-run the wait",
+      },
+    );
+    expect(outcome).toMatchObject({ kind: "gone" });
+  });
+
+  it("refuses a non-positive tail at the boundary rather than stamping nothing", async () => {
+    // "The last zero lines" would stamp a met with an empty screen that reads
+    // like a dead terminal — the same fail-fast rule the timer windows carry.
+    await expect(
+      awaitTerminalCondition(matchClient({}), {
+        id: T as TerminalId,
+        condition: { kind: "idle", idleMs: 40 },
+        screenTail: 0,
+        retryAdvice: "re-run the wait",
+      }),
+    ).rejects.toThrow(RangeError);
   });
 });

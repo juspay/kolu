@@ -525,9 +525,10 @@ every invocation a user makes, not only in an e2e.
 
 ### What shipped
 
-`kolu ls` · `create` · `send` · `wait` · `snapshot` · `history` · `kill` ·
-`watch`, alongside the `web` and `mcp` faces. Three consequences worth pinning
-here, because each is a decision a later reader would otherwise re-litigate:
+`kolu ls` · `create` · `send` · `wait` · `debrief` · `snapshot` · `history` ·
+`kill` · `watch`, alongside the `web` and `mcp` faces. Four consequences worth
+pinning here, because each is a decision a later reader would otherwise
+re-litigate:
 
 - **The endpoint moved to the ROOT as shared flags.** `--socket` /
   `--state-root` / `--host` are mutually exclusive and parse on **either side
@@ -543,6 +544,26 @@ here, because each is a decision a later reader would otherwise re-litigate:
   detects an agent). The two done-signals stay two *forms* because they
   genuinely read different things; one verb because a driver shouldn't pick a
   binary to express that choice.
+- **`wait`'s two MODIFIERS are orthogonal to its three forms**, and
+  **`debrief` is definitional sugar over their composition**
+  ([#2139](https://github.com/juspay/kolu/issues/2139)). `--settled <ms>` is a
+  *conjunct on the condition* (met = the condition holds AND no output byte for
+  `<ms>`); `--snapshot <N>` is an *enrichment of the payload* (the met carries
+  the rendered tail). They are modifiers rather than a fourth `--until` prefix
+  precisely because each composes with all three forms, and a mode flag would
+  let a caller name a mode and a condition that disagree — the same reasoning
+  that made the prefixes prefixes. They live **daemon-side**, in padi's
+  `awaitTerminalCondition`, because the races they close are between CLI
+  *invocations* and cannot be closed from out here: output can move between one
+  `wait` returning and the next arming, and a separate `snapshot` reads a screen
+  that is not the one the wait settled on. `kolu debrief <id>` expands to
+  `wait --until awaiting,waiting --settled <quiet> --snapshot <tail>` and holds
+  **no logic of its own** — a second face that could disagree with the primitive
+  is the one thing a CLI that just retired two near-duplicate TUIs must not
+  grow. The engine also subsumed the three named waits (`awaitAgentState` ·
+  `awaitOutputSettled` · `awaitOutputMatch`), which are now spellings of it, so
+  the quiescence window and the `match:` scan have one implementation rather
+  than one per wait.
 - **`snapshot` has no `--viewport`.** padi's wire cannot express a viewport
   extent, so the read face is `--tail <N>` (or nothing for the whole rendered
   text) — the exact shape of the MCP `screen_text { tail }` tool. One idea,

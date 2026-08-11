@@ -158,6 +158,7 @@ The verb map:
 | `lifecycle_sendInput { key: "Enter" }` | `kolu send "$id" --key Enter` |
 | `wait_outputSettled` | `kolu wait "$id" --until idle:<ms> --timeout <ms>` (also `--until match:'<regex>'`) |
 | `wait_agentState` | `kolu wait "$id" --until working` · `--until awaiting,waiting` |
+| `wait_agentState` + settle + `screen_text` | **`kolu debrief "$id"`** — the composed done-signal, and what you should type when driving an agent: turn over **AND** output quiet, then the screen. CLI-only for now; the MCP face still needs the three calls. |
 | `screen_text { tail }` | `kolu snapshot "$id" [--tail N]` (never bare `snapshot \| tail` — that's the buffer bottom incl. trailing blanks; `--tail` drops them) |
 | `screen_history` | `kolu history "$id" [--lines N]` |
 | `terminals` resource | `kolu ls [--json]` · `kolu watch [id]` for the live feed |

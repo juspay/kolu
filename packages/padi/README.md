@@ -209,6 +209,22 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   the native authority; kolu-server binds or mirrors it rather than supplying a
   backing shim.
 
+- **The `dial` entry's wait kit** — `awaitTerminalCondition` is the ONE
+  block-on-a-terminal-condition engine every face rides. It takes the condition
+  as data (`idle` · `match` · `agent`) plus two orthogonal modifiers: a
+  `settledMs` **conjunct** (met only once output has also been quiet that long,
+  with a condition that stops holding re-entering the wait) and a `screenTail`
+  **stamp** (the met carries the rendered tail, read on the same live
+  subscription and discarded-and-retaken if the terminal moves under it). They
+  live here rather than in a driving loop because the races they close are
+  between a caller's separate *invocations* — `kolu wait --settled/--snapshot`
+  and `kolu debrief` are that engine's argv face
+  ([kolu#2139](https://github.com/juspay/kolu/issues/2139)). The three named
+  waits — `awaitAgentState` · `awaitOutputSettled` · `awaitOutputMatch`, what
+  the MCP face and `padi-tui` call — are spellings of it, each carrying its own
+  `closed` retry advice; the quiescence window and the bounded `match:` scan
+  have one implementation between them.
+
 - **`@kolu/padi/render`** and **`@kolu/padi/read`** — the CLI faces' shared
   view + data layers. `render` is pure formatting (the roster table's
   `ID · STATE · REPO·BRANCH · PR · AGENT · FOREGROUND` columns, the PR/checks
@@ -225,8 +241,10 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   vocabulary with two faces reading it, not two copies held in lockstep by
   JSDoc cross-reference. They stay here rather than in `@kolu/surface` because
   they speak **padi's** records — the generic wait scaffold went the other way.
-  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, and the
-  `watch.ts` wait kit the `dial` entry re-exports — the same
+  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, `tail.ts`
+  (the tail-mode screen slice, a zero-import leaf `render.ts` re-exports so the
+  wait kit can reuse it without dragging `columnify` into every dial consumer),
+  and the `watch.ts` wait kit the `dial` entry re-exports — the same
   one-cluster-one-directory shape as `terminalEndpoint/` and
   `terminalWorkspace/`. The pure `terminalVocab.ts` they all fold over sits one
   level UP, at the package root: the SERVER speaks it too (supervision-edge

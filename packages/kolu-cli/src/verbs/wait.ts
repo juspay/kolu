@@ -23,29 +23,64 @@
  * unrecognized bucket is a loud usage error naming all three forms — never a
  * silent fall-through to "wait for something".
  *
+ * ## Two modifiers, and why they are NOT a fourth form
+ *
+ *   `--settled <ms>`  a CONJUNCT on the condition: met means the condition holds
+ *                     AND no output byte has arrived for <ms>.
+ *   `--snapshot <N>`  an ENRICHMENT of the payload: the met carries the last <N>
+ *                     rendered screen lines.
+ *
+ * They exist because the loop they replace could not be written correctly from
+ * out here (kolu#2139). An orchestrator ran three calls — wait for the turn to
+ * end, wait for quiet, read the screen — and each gap between two of them is a
+ * race: output can move (or settle) between the first and the second, and the
+ * screen the third reads is not the screen the second settled on. Inside padi
+ * both modifiers are evaluated against the SAME live subscriptions the condition
+ * is, so there is no gap to race. The failure that motivated it: `--until
+ * awaiting,waiting` fired on an agent whose main loop had ended its turn while a
+ * subagent was three minutes into a deliberate plan, and the nudge that followed
+ * preempted competent in-flight work.
+ *
+ * `--settled` is a modifier rather than a fourth `--until` prefix because it is
+ * orthogonal to all three: `idle:` + settled, `match:DONE` + settled, and
+ * `awaiting,waiting` + settled are each meaningful, and a mode that could be
+ * named alongside a disagreeing condition is exactly what the prefix grammar
+ * above exists to prevent.
+ *
  * ## Every watcher is padi's — one outcome vocabulary
  *
- * All three forms ride padi's OWN primitives — `awaitOutputSettled` /
- * `awaitAgentState` / `awaitOutputMatch` in `@kolu/padi/dial` — the same ones
- * kolu's MCP face calls, so a driver gets the same answer whether it speaks argv
- * or MCP. `match:` was the last one to have a hand-rolled watcher in THIS
- * module, and that copy is exactly what a composition root must not own: it
- * consumed `terminalAttach` raw, outside the per-subscription retry fence (so a
- * transport blip killed the wait instead of re-subscribing —
+ * Every form rides padi's OWN engine — `awaitTerminalCondition` in
+ * `@kolu/padi/dial`, which the three named waits kolu's MCP face calls are each
+ * a spelling of — so a driver gets the same answer whether it speaks argv or
+ * MCP. `match:` was the last form to have a hand-rolled watcher in THIS module,
+ * and that copy is exactly what a composition root must not own: it consumed
+ * `terminalAttach` raw, outside the per-subscription retry fence (so a transport
+ * blip killed the wait instead of re-subscribing —
  * `.claude/rules/streaming.md` rule 1), and it raced `terminalExit` in a way
  * that could report a terminal whose sentinel HAD printed as "gone". It lives in
- * `packages/padi/src/cliClient/watch.ts` now, beside its two siblings, where that
- * subscription spine is written once.
+ * `packages/padi/src/cliClient/watch.ts` now, where that subscription spine is
+ * written once.
  *
  * What stays here is what is genuinely CLI: the `--until` grammar (the three
  * prefixes, their rejections, and the phrase each condition is named by in a
  * failure line) — argv vocabulary padi has no business knowing.
  *
- * All three settle into ONE union — `@kolu/surface/wait`'s `WaitOutcome` — so
+ * Every form settles into ONE union — `@kolu/surface/wait`'s `WaitOutcome` — so
  * there is exactly one place mapping an outcome to the exit contract
  * ({@link reportOutcome}), and a fourth condition form would inherit it for
  * free. That is also what keeps the codes honest: met → 0, timeout → 2, the
- * terminal exited first → 3, a dropped link → 1.
+ * terminal exited first → 3, a dropped link → 1. The modifiers change neither
+ * the codes nor the arms: a `--settled` wait that never goes quiet is a
+ * TIMEOUT, exactly as a condition that never lands is.
+ *
+ * ## stdout is the screen; stderr is the trailer
+ *
+ * Without `--snapshot` this verb writes nothing to stdout in plain mode — the
+ * outcome IS the exit code. With it, stdout is the `<N>` screen lines and
+ * nothing else, so `kolu wait … --snapshot 40 | grep MARK-` matches the
+ * terminal's words while the met trailer (`— 4bba claude waiting after 92s`)
+ * stays on stderr beside it. Under `--json` neither is written twice: the screen
+ * is the frame's `screen` key.
  *
  * ## `--json` is one frame shape for every outcome
  *
@@ -86,23 +121,22 @@
  */
 
 import {
-  type AgentStateOutcome,
-  awaitAgentState,
-  awaitOutputMatch,
-  awaitOutputSettled,
+  awaitTerminalCondition,
+  type ConditionMet,
   isWaitState,
   PADI_LINK_CLOSED,
   type PadiSurfaceClient,
+  type TerminalCondition,
+  type TerminalConditionOutcome,
   WAIT_STATES,
 } from "@kolu/padi/dial";
 import { formatWaitMet, shortId } from "@kolu/padi/render";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,
-  type WaitOutcome,
   waitOutcomeJson,
 } from "@kolu/surface/wait";
-import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, type Scope } from "effect";
 import type { Command } from "effect/unstable/cli";
 // `import type` — fully erased, so this does NOT re-enter the command tree at
@@ -117,7 +151,12 @@ import {
   waitTerminalGone,
   waitTimedOut,
 } from "../exit.ts";
-import { resolveTerminal, writeErr, writeJson } from "./shared.ts";
+import {
+  resolveTerminal,
+  writeErr,
+  writeJson,
+  writeOutBlock,
+} from "./shared.ts";
 
 /** The flags Effect CLI parses for `kolu wait` — DERIVED from `waitFlags` in
  *  `cli.ts`, which also carries the shared timer-range rule, so `timeout`
@@ -142,26 +181,16 @@ const UNTIL_FORMS = `  idle:<ms>      no output byte for <ms> — works on ANY t
   match:<regex>  NEW output matched <regex>
   <buckets>      the agent reached one of: ${WAIT_STATES.join(", ")} (comma-separated means any-of)`;
 
-/** What a parsed `--until` asks this verb to block on. `describe` is the human
- *  phrase the timeout/gone lines name ("timed out … waiting for X to reach
- *  <describe>"), carried on the plan so the failure text can never drift from
- *  the condition that produced it. */
-type WaitPlan =
-  | {
-      readonly kind: "idle";
-      readonly idleMs: number;
-      readonly describe: string;
-    }
-  | {
-      readonly kind: "match";
-      readonly regex: RegExp;
-      readonly describe: string;
-    }
-  | {
-      readonly kind: "agent";
-      readonly targets: ReadonlySet<string>;
-      readonly describe: string;
-    };
+/** What a parsed `--until` asks this verb to block on: padi's own
+ *  {@link TerminalCondition} — the wait vocabulary, which this parse only
+ *  SPELLS — plus `describe`, the human phrase the timeout/gone lines name
+ *  ("timed out … waiting for X to reach <describe>"). The phrase is carried
+ *  beside the condition so the failure text can never drift from the condition
+ *  that produced it, and it is the half padi has no business knowing. */
+export type WaitPlan = {
+  readonly condition: TerminalCondition;
+  readonly describe: string;
+};
 
 /** Parse `--until` into a {@link WaitPlan}, or a loud, actionable message.
  *
@@ -204,7 +233,10 @@ export function planUntil(
     }
     return {
       kind: "ok",
-      plan: { kind: "idle", idleMs, describe: `output idle for ${idleMs}ms` },
+      plan: {
+        condition: { kind: "idle", idleMs },
+        describe: `output idle for ${idleMs}ms`,
+      },
     };
   }
 
@@ -245,8 +277,7 @@ export function planUntil(
     return {
       kind: "ok",
       plan: {
-        kind: "match",
-        regex,
+        condition: { kind: "match", pattern: regex },
         describe: `output matching ${JSON.stringify(pattern)}`,
       },
     };
@@ -272,48 +303,25 @@ export function planUntil(
   const targets = new Set<string>(tokens);
   return {
     kind: "ok",
-    plan: { kind: "agent", targets, describe: [...targets].join("/") },
+    plan: {
+      condition: { kind: "agent", targets },
+      describe: [...targets].join("/"),
+    },
   };
 }
 
 // ── The outcome, and the one place it becomes an exit code ───────────────────
 
-/** What each condition form stamps on a `met`. `fired` discriminates the three,
- *  so the JSON projection and the trailer both follow one tag rather than
- *  guessing from which field is present. */
-type WaitMetPayload =
-  | { readonly fired: "idle"; readonly elapsedMs: number }
-  | {
-      readonly fired: "match";
-      readonly elapsedMs: number;
-      readonly matchedLine: string;
-    }
-  | {
-      readonly fired: "agent";
-      readonly elapsedMs: number;
-      readonly agent: AgentInfo;
-    };
-
-/** The one outcome union all three forms settle into. */
-type KoluWaitOutcome = WaitOutcome<WaitMetPayload>;
-
-/** Re-tag an agent wait's met payload so it joins {@link WaitMetPayload}. The
- *  four terminal arms are already the shared shape and pass through untouched. */
-function withAgentTag(outcome: AgentStateOutcome): KoluWaitOutcome {
-  return outcome.kind === "met"
-    ? {
-        fired: "agent",
-        kind: "met",
-        elapsedMs: outcome.elapsedMs,
-        agent: outcome.agent,
-      }
-    : outcome;
-}
+// The met payload is padi's {@link ConditionMet} — `fired` discriminates the
+// three forms, so the JSON projection and the trailer both follow one tag
+// rather than guessing from which field is present, and `screen` rides it when
+// `--snapshot` asked for one.
 
 /** The human trailer for a met — stderr, because the wait's payload is the exit
- *  code and (under `--json`) the frame, never this line. The agent arm defers to
- *  `formatWaitMet` so the bucket-and-state wording matches `kolu ls`. */
-function metTrailer(id: TerminalId, met: WaitMetPayload): string {
+ *  code, the screen block, and (under `--json`) the frame, never this line. The
+ *  agent arm defers to `formatWaitMet` so the bucket-and-state wording matches
+ *  `kolu ls`. */
+function metTrailer(id: TerminalId, met: ConditionMet): string {
   switch (met.fired) {
     case "idle":
       return `— ${shortId(id)} output idle after ${met.elapsedMs}ms\n`;
@@ -338,7 +346,7 @@ function metTrailer(id: TerminalId, met: WaitMetPayload): string {
  */
 function reportOutcome(
   id: TerminalId,
-  outcome: KoluWaitOutcome,
+  outcome: TerminalConditionOutcome,
   describe: string,
   json: boolean,
 ): Effect.Effect<void, CliFailure> {
@@ -352,14 +360,23 @@ function reportOutcome(
       // genuine per-variant work is `metTrailer`'s, where the switch is
       // load-bearing.
       yield* writeJson(
-        waitOutcomeJson<WaitMetPayload>(id, outcome, (met) => met),
+        waitOutcomeJson<ConditionMet>(id, outcome, (met) => met),
         "the wait outcome",
       );
     }
 
     switch (outcome.kind) {
       case "met":
-        if (!json) yield* writeErr(metTrailer(id, outcome));
+        if (!json) {
+          // stdout is the SCREEN and nothing else, so `kolu wait … --snapshot 40
+          // | grep MARK-` matches the terminal's words — the trailer that names
+          // the terminal goes to stderr beside it. Under `--json` the screen is
+          // already the frame's `screen` key, so neither is written again.
+          if (outcome.screen !== undefined) {
+            yield* writeOutBlock(outcome.screen, "the screen text");
+          }
+          yield* writeErr(metTrailer(id, outcome));
+        }
         return;
       // The three failing arms pass FACTS; `exit.ts` renders each line beside
       // the code it rides, so neither can drift from the other and the matrix
@@ -449,63 +466,56 @@ export function withInterruptReport<A, E, R>(
   );
 }
 
-/** Run the plan's watcher and hand back the one outcome union — the ONE place
- *  the three condition forms differ, so `run` below reads as dial → resolve →
- *  wait → report regardless of which form was asked for.
+/** The phrase a timeout/gone line names — the condition, AND the quiescence
+ *  conjunct when one was asked for.
  *
- *  All three watchers are padi's, and all three are Promise-shaped, so each
- *  takes the scope-bound `signal` that unwinds its subscriptions. `--timeout` is
- *  passed as an ABSENT key when unset (an explicit `undefined` would read as "no
- *  timeout" only by accident of the option's own optionality). */
+ *  Exported for `wait.test.ts`. A `--settled` timeout that said only "timed out
+ *  waiting for 4bba to reach awaiting/waiting" would send its reader looking at
+ *  the wrong half: the bucket may well have landed, and it is the QUIET that
+ *  never came (the agent's subagent is still printing) — which is the whole
+ *  distinction the flag exists to draw. */
+export function describeWait(
+  plan: WaitPlan,
+  settledMs: number | undefined,
+): string {
+  return settledMs === undefined
+    ? plan.describe
+    : `${plan.describe} with ${settledMs}ms of output quiet`;
+}
+
+/** Run the wait — ONE padi call for every `--until` form and both modifiers, so
+ *  `run` below reads as dial → resolve → wait → report whatever was asked for.
+ *
+ *  The engine is padi's `awaitTerminalCondition`, and it is Promise-shaped, so
+ *  it takes the scope-bound `signal` that unwinds its subscriptions. Every
+ *  optional is passed as an ABSENT key when unset (an explicit `undefined` would
+ *  read as "no timeout" / "no conjunct" only by accident of the option's own
+ *  optionality). */
 function awaitPlan(
   client: PadiSurfaceClient,
   id: TerminalId,
   plan: WaitPlan,
   opts: {
     readonly timeoutMs: number | undefined;
+    readonly settledMs: number | undefined;
+    readonly screenTail: number | undefined;
     readonly signal: AbortSignal;
   },
-): Effect.Effect<KoluWaitOutcome, unknown> {
-  const { timeoutMs, signal } = opts;
-  const timeout = timeoutMs !== undefined ? { timeoutMs } : {};
-  switch (plan.kind) {
-    case "match":
-      return Effect.tryPromise({
-        try: () =>
-          awaitOutputMatch(client, {
-            id,
-            pattern: plan.regex,
-            signal,
-            ...timeout,
-          }),
-        catch: (err) => err,
-      });
-    case "idle":
-      return Effect.tryPromise({
-        try: () =>
-          awaitOutputSettled(client, {
-            id,
-            idleMs: plan.idleMs,
-            signal,
-            ...timeout,
-          }),
-        catch: (err) => err,
-      });
-    case "agent":
-      return Effect.map(
-        Effect.tryPromise({
-          try: () =>
-            awaitAgentState(client, {
-              id,
-              targets: plan.targets,
-              signal,
-              ...timeout,
-            }),
-          catch: (err) => err,
-        }),
-        withAgentTag,
-      );
-  }
+): Effect.Effect<TerminalConditionOutcome, unknown> {
+  const { timeoutMs, settledMs, screenTail, signal } = opts;
+  return Effect.tryPromise({
+    try: () =>
+      awaitTerminalCondition(client, {
+        id,
+        condition: plan.condition,
+        signal,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        ...(settledMs !== undefined ? { settledMs } : {}),
+        ...(screenTail !== undefined ? { screenTail } : {}),
+        retryAdvice: "re-run the wait",
+      }),
+    catch: (err) => err,
+  });
 }
 
 /**
@@ -528,11 +538,14 @@ export function run(
       return yield* Effect.fail(failure(parsed.message));
     const plan = parsed.plan;
 
-    // `--timeout` is range-checked by the PARSE (`waitFlags` in `cli.ts`), which
-    // is why `runWait`'s RangeError on an out-of-range delay can never be
-    // reached: the same `isValidTimerMs` guard `idle:<ms>` applies inside its
-    // compound grammar, applied once to the flag that has no grammar around it.
+    // `--timeout`/`--settled`/`--snapshot` are range-checked by the PARSE
+    // (`waitFlags` in `cli.ts`), which is why the engine's RangeError on an
+    // out-of-range delay can never be reached from here: the same
+    // `isValidTimerMs` guard `idle:<ms>` applies inside its compound grammar,
+    // applied once to each flag that has no grammar around it.
     const timeoutMs = args.timeout;
+    const settledMs = args.settled;
+    const screenTail = args.snapshot;
 
     const { id, outcome } = yield* withPadi(endpoint, (conn) =>
       Effect.scoped(
@@ -544,13 +557,23 @@ export function run(
           // the id has resolved.
           const outcome = yield* withInterruptReport(
             id,
-            awaitPlan(conn.client, id, plan, { timeoutMs, signal }),
+            awaitPlan(conn.client, id, plan, {
+              timeoutMs,
+              settledMs,
+              screenTail,
+              signal,
+            }),
           );
           return { id, outcome };
         }),
       ),
     );
 
-    return yield* reportOutcome(id, outcome, plan.describe, args.json);
+    return yield* reportOutcome(
+      id,
+      outcome,
+      describeWait(plan, settledMs),
+      args.json,
+    );
   });
 }

@@ -180,6 +180,63 @@ describe("kolu command tree", () => {
       ];
       expect(Exit.isFailure(await run(beyondSetTimeout))).toBe(true);
     });
+
+    it("holds `wait`'s two modifiers and `debrief`'s sugar to the same rules", async () => {
+      // Every one of these is refused BEFORE the dial, the same as `--timeout`
+      // above — which matters most for `--settled`, whose whole job is to make a
+      // wait longer: an over-ceiling window would overflow `setTimeout` and fire
+      // a FALSE settle in ~1ms, i.e. exactly the premature done-signal the flag
+      // exists to prevent.
+      for (const argv of [
+        ["wait", "3f9c", "--until", "waiting", "--settled", "0"],
+        ["wait", "3f9c", "--until", "waiting", "--settled", "2147483648"],
+        ["wait", "3f9c", "--until", "waiting", "--snapshot", "0"],
+        ["debrief", "3f9c", "--quiet", "0"],
+        ["debrief", "3f9c", "--quiet", "2147483648"],
+        ["debrief", "3f9c", "--tail", "0"],
+      ]) {
+        expect(Exit.isFailure(await run([...argv, "--host", "box"]))).toBe(
+          true,
+        );
+      }
+    });
+  });
+
+  describe("`kolu debrief` — the composed protocol as a verb", () => {
+    it("is a real subcommand whose flags all parse", async () => {
+      // It fails only at the DIAL (there is no padi named `box` here), which is
+      // one step past the parse — so reaching that failure is the pin that
+      // `debrief`, `--quiet`, `--tail`, `--timeout` and `--json` are all
+      // spellable. A missing verb or an unknown flag fails earlier and would
+      // never mention the endpoint.
+      const err = await failureOf([
+        "debrief",
+        "3f9c",
+        "--quiet",
+        "1000",
+        "--tail",
+        "5",
+        "--timeout",
+        "2000",
+        "--json",
+        "--socket",
+        "/tmp/definitely-no-padi-here.sock",
+      ]);
+      expect(textOf(err)).toContain("/tmp/definitely-no-padi-here.sock");
+    });
+
+    it("`--quiet` and `--tail` have defaults, so the bare verb IS the protocol", async () => {
+      // The point of the alias: `kolu debrief <id>` with nothing else must be
+      // the full three-flag `wait` invocation. If either flag were required,
+      // this would fail in the parse rather than at the dial.
+      const err = await failureOf([
+        "debrief",
+        "3f9c",
+        "--socket",
+        "/tmp/definitely-no-padi-here.sock",
+      ]);
+      expect(textOf(err)).toContain("/tmp/definitely-no-padi-here.sock");
+    });
   });
 
   it("the reserved face fails fast with the named message and exit 1", async () => {
