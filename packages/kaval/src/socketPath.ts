@@ -390,8 +390,15 @@ export type KavalSocketResolution =
   | { kind: "explicit" | "env" | "one" | "none"; socket: string }
   | { kind: "many"; candidates: KavalSocketCandidate[] };
 
-/** Resolve which running kaval to dial, in precedence order (the mirror of
- *  padi-tui's `resolveRunningPadiSocket`):
+/** Resolve which running kaval to dial, in precedence order (padi's
+ *  `resolveRunningPadiSocket` is the near-twin — with ONE deliberate difference:
+ *  padi breaks a several-daemons tie by picking the PRIMARY one, and this does
+ *  not. That rule exists because padi's flag-less face is dialed by HEADLESS
+ *  callers that cannot answer a pick-one prompt (`kolu mcp` out of a systemd
+ *  unit, juspay/kolu#2154); a kaval is spawned BY a padi and every kolu PTY
+ *  carries `$KAVAL_SOCKET`, so nothing headless reaches a flag-less `kaval-tui`
+ *  and the several case here has produced no failure to fix. Mirror it if one
+ *  ever does — not on symmetry alone):
  *   1. an explicit `--socket` path wins verbatim — a user-supplied override;
  *   2. `$KAVAL_SOCKET` — stamped into every PTY a kaval/padi spawns (the `$TMUX`
  *      convention) — names the daemon that OWNS this terminal, so a flag-less

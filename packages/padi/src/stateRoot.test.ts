@@ -86,6 +86,12 @@ const SAVED = {
   XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
   HOME: process.env.HOME,
   KOLU_PADI_STATE_DIR: process.env.KOLU_PADI_STATE_DIR,
+  // `PADI_SOCKET` is read by `resolveRunningPadiSocket` and DELETED by the
+  // primary-rule cases (a flag-less headless client has none). It must be
+  // restored, and this file is normally run from a kolu terminal — where padi
+  // stamps it — so a case that dropped it without saving would strip it from the
+  // worker for every sibling test that ran after.
+  PADI_SOCKET: process.env.PADI_SOCKET,
 };
 beforeEach(() => {
   process.env.XDG_RUNTIME_DIR = "/run/user/1000";

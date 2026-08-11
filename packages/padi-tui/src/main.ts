@@ -50,7 +50,8 @@ import { NodeSink } from "@effect/platform-node";
 import {
   awaitAgentState,
   isWaitState,
-  resolveRunningPadiSocket,
+  type LocalPadiTarget,
+  localPadiSocket,
   WAIT_STATES,
   type WaitState,
   watchTerminals,
@@ -347,9 +348,21 @@ const WORKTREE_OVER_HOST_NEEDS_REPO =
   "--worktree over --host needs --repo <path on the host>: the worktree is cut on the REMOTE machine, so it can't default to your local directory. Pass --repo with an absolute path on the host.";
 
 /** The socket to dial. The selection policy (`--socket` wins; else `--state-root`;
- *  else $PADI_SOCKET; else discover) plus the candidate labels live in the shared
- *  `resolveRunningPadiSocket` (the dial kit), so here padi-tui only renders the
- *  `many` ambiguity as its own pick-one failure. */
+ *  else $PADI_SOCKET; else the sole running padi, or the PRIMARY one among
+ *  several) and BOTH refusal sentences live in the shared `localPadiSocket` (the
+ *  dial kit), so this face decides nothing about wording and renders no
+ *  candidate list of its own.
+ *
+ *  It used to call the lower-level `resolveRunningPadiSocket` and hand-roll the
+ *  `many` sentence — the exact duplication `localPadiSocket`'s own docstring
+ *  says it exists to end, and it had already drifted: the local copy never
+ *  mentioned that `$PADI_SOCKET` picks a padi, so a `padi-tui` user was the one
+ *  user never told the easiest way out of the refusal. Worse, hand-rolling only
+ *  the `many` arm let `none` fall through to `Effect.succeed` — a face that had
+ *  found NO daemon returned the merely-NAMED socket and dialed a path nothing
+ *  serves, trading the crafted "no running padi daemon found — start kolu" line
+ *  for a raw connect error. Delegating fixes both, and neither can come back:
+ *  there is no second sentence left to drift, and `unaddressable` is one arm. */
 function resolveSocketPath(flags: {
   socket: string | undefined;
   stateRoot: string | undefined;
@@ -361,25 +374,17 @@ function resolveSocketPath(flags: {
       ),
     );
   }
+  const target: LocalPadiTarget =
+    flags.socket !== undefined
+      ? { kind: "socket", path: flags.socket }
+      : flags.stateRoot !== undefined
+        ? { kind: "stateRoot", dir: flags.stateRoot }
+        : { kind: "auto" };
   return Effect.suspend(() => {
-    const resolved = resolveRunningPadiSocket({
-      socket: flags.socket,
-      stateRoot: flags.stateRoot,
-    });
-    if (resolved.kind === "many") {
-      return Effect.fail(
-        failure(
-          `several padi daemons are running and none is keyed to this environment's state root (${resolved.primaryStateRoot}):\n  ${resolved.candidates
-            .map(
-              (d) => `${d.socket}    (${d.stateRoot ?? "unknown state-root"})`,
-            )
-            .join(
-              "\n  ",
-            )}\nPass --socket <path> or --state-root <dir> to pick one.`,
-        ),
-      );
-    }
-    return Effect.succeed(resolved.socket);
+    const resolved = localPadiSocket(target);
+    return resolved.kind === "ok"
+      ? Effect.succeed(resolved.socket)
+      : Effect.fail(failure(resolved.message));
   });
 }
 

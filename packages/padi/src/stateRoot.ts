@@ -443,7 +443,17 @@ function daemonIsLive(d: PadiDaemon): boolean {
  *  so the CLI prints a pick-one list, PLUS the state root it looked for and
  *  found no daemon at — without it the refusal cannot say what would have
  *  answered, and a headless operator can't tell "your padi is down" from "you
- *  have no primary". Mirrors kaval's `KavalSocketResolution`. */
+ *  have no primary".
+ *
+ *  Kaval's `KavalSocketResolution` is the near-twin, and the `primary` arm is
+ *  where the two now DIVERGE — deliberately, so neither docstring should be read
+ *  as promising a mirror. padi's flag-less face is dialed by HEADLESS callers
+ *  (`kolu mcp` out of a systemd unit, juspay/kolu#2154) that cannot answer a
+ *  pick-one prompt, which is what made the several-daemons tie worth breaking.
+ *  A kaval is spawned BY a padi and every kolu PTY carries `$KAVAL_SOCKET`, so
+ *  no headless caller reaches a flag-less `kaval-tui` and its own several
+ *  case has produced no failure to fix. Extend kaval the same way if one ever
+ *  does — do not extend it on symmetry alone. */
 export type PadiSocketResolution =
   | {
       kind: "explicit" | "stateRoot" | "env" | "one" | "primary" | "none";
@@ -619,10 +629,24 @@ export function localPadiSocket(target: LocalPadiTarget): LocalPadiSocket {
   );
 }
 
-/** Read-only chair naming for dial/error paths when no live daemon was found.
- *  Honors `KOLU_PADI_STATE_DIR` when set so isolated dev/e2e name *their* root;
- *  otherwise the production formula. Never throws for a missing env (unlike
- *  {@link resolvePadiStateRoot}). */
+/** The state root THIS environment names — `KOLU_PADI_STATE_DIR` when set, so an
+ *  isolated dev/e2e names *its own* root, otherwise the production formula.
+ *
+ *  Read-only naming, never a bind: unlike {@link resolvePadiStateRoot} it does
+ *  not refuse a missing env, because both its callers want an answer rather than
+ *  a bind decision. They are two, and the second is newer than this doc used to
+ *  admit:
+ *   - {@link resolveRunningPadiSocket}'s `none` arm — name a socket for the
+ *     error path when NO live daemon was found;
+ *   - the same function's several-daemons arm — the root {@link primaryPadiAmong}
+ *     matches against to pick the primary, i.e. a SELECTION input, reached
+ *     precisely when live daemons WERE found.
+ *
+ *  It can still throw, for the one environment that names nothing (no `$HOME`,
+ *  no override — see {@link productionPadiStateRoot}). That is not a hole in the
+ *  contract but its edge: with several daemons up and nothing able to say which
+ *  is yours, there is no resolution to return, and `localPadiSocket` turns the
+ *  throw into the same `unaddressable` refusal the other edges produce. */
 export function namePadiStateRootForDiscovery(): string {
   const env = process.env.KOLU_PADI_STATE_DIR;
   if (env !== undefined && env !== "") return resolve(env);
