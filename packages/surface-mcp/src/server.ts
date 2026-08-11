@@ -493,13 +493,11 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // `outputSchema` owes that case a home first — a union with the refusal shape,
   // or no structured arm on the error side.
   //
-  // The DESCRIPTOR is written ONCE, below, from one normalized record — the two
-  // tool sources differ only in how they fill that record, so a new descriptor
-  // field is a field, not a second object literal to remember. `mutates` in
-  // particular reaches the host through one `mutates → annotations` projection,
-  // and each source normalizes it to a concrete boolean first: procedure tools
-  // already carry one (`expose.ts`'s `?? true`), bespoke tools apply the same
-  // conservative `?? true` here.
+  // `mutates` reaches the host through ONE `mutates → annotations` projection,
+  // so the two tool sources cannot drift on the mapping or on the undefined
+  // edge case. Each normalizes `mutates` to a concrete boolean before calling:
+  // procedure tools already carry one (`expose.ts`'s `?? true`), bespoke tools
+  // apply the same conservative `?? true` at the call.
   //
   // `title` and `description` are bespoke-only TODAY because `ToolExposure` has
   // no field for either — a gap in the consumer's authoring map, not in this
@@ -508,41 +506,31 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     readOnlyHint: !mutates,
     destructiveHint: mutates,
   });
-  /** One tool as the host will read it, before `mutates` becomes annotations.
-   *  MCP's `title` is a display name distinct from `description`: a host renders
-   *  it in a tool list, and without one it renders `name` — the machine
-   *  spelling (`lifecycle_sendInput`) rather than a phrase. */
-  interface AdvertisedTool {
-    name: string;
-    title?: string;
-    description?: string;
-    inputSchema: Record<string, unknown>;
-    mutates: boolean;
-  }
-  const advertised: AdvertisedTool[] = [
+  // Built ONCE, at boot: nothing here reads request state, and `tools/list` is
+  // answered from the finished array rather than re-projecting per call.
+  const advertisedTools = [
     ...resolved.tools.map((t) => ({
       name: t.name,
       inputSchema: t.inputSchema,
-      mutates: t.mutates,
+      annotations: toolAnnotations(t.mutates),
     })),
     ...[...bespokeTools].map(([name, { tool, schema }]) => ({
       name,
+      // MCP's display name, distinct from `description`: a host renders it in a
+      // tool list, and without one it renders `name` — the machine spelling
+      // (`lifecycle_sendInput`) rather than a phrase.
       title: tool.title,
       description: tool.description,
       inputSchema: schema,
       // Conservative default (see `BespokeTool.mutates`): an absent `mutates`
       // is treated as MUTATING, so an unannotated tool is never advertised as
       // auto-approvable read-only. A genuinely read-only tool opts in with an
-      // explicit `mutates: false`. Mirrors `expose.ts`'s `?? true` for
-      // procedure tools, so both sources default the same way.
-      mutates: tool.mutates ?? true,
+      // explicit `mutates: false`.
+      annotations: toolAnnotations(tool.mutates ?? true),
     })),
   ];
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: advertised.map(({ mutates, ...rest }) => ({
-      ...rest,
-      annotations: toolAnnotations(mutates),
-    })),
+    tools: advertisedTools,
   }));
 
   // ── tools/call ───────────────────────────────────────────────────────--

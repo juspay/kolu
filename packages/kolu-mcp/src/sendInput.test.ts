@@ -3,8 +3,14 @@
  * apart from the wire (the tool handler is a thin sendInput call over this).
  */
 import { ToolFailure } from "@kolu/surface-mcp";
+import { sendShapeRefusal } from "@kolu/terminal-protocol";
 import { describe, expect, it } from "vitest";
 import { resolveSendInputData, type SendRefusal } from "./sendInput.ts";
+
+/** The shape gate reads a vocabulary only to WORD its refusal, never to decide
+ *  which shapes it refuses — so any vocabulary probes the rule this face's
+ *  `text-and-key` kind rests on. */
+const ANY_VOCABULARY = { keyName: "key", submitRitual: "" };
 
 const write = (args: { text?: string; key?: string }) =>
   resolveSendInputData(args).write;
@@ -99,12 +105,26 @@ describe("resolveSendInputData — every refusal reaches the agent as DATA", () 
     // `names: [args.key]` inside `args.key !== undefined`, so the list is always
     // length 1. The emptiest key a caller can express is `""` — one unknown
     // NAME, which is the unknown-key rule and rides its spelling along.
-    expect(refusalFrom({ key: "" }).detail).toEqual({
-      kind: "key-refused",
-      key: "",
-    });
-    expect(refusalFrom({ key: "" }).message).toMatch(/unknown key/);
-    expect(refusalFrom({ key: "" }).message).not.toMatch(/named no keys/);
+    const empty = refusalFrom({ key: "" });
+    expect(empty.detail).toEqual({ kind: "key-refused", key: "" });
+    expect(empty.message).toMatch(/unknown key/);
+    expect(empty.message).not.toMatch(/named no keys/);
+  });
+
+  it("`text-and-key` stays sound: the shape gate refuses exactly ONE of its four inputs", () => {
+    // The one kind that names a REASON rather than a branch, and it is sound
+    // only while `sendShapeRefusal` refuses exactly the both-supplied shape.
+    // That condition was a paragraph; here it is a red test. If the shared gate
+    // ever grows a second rule, this fails and the kind must split BEFORE it
+    // ships mislabelled — which a per-branch test could never notice.
+    const refusedShapes = [
+      { hasText: false, hasKeys: false },
+      { hasText: true, hasKeys: false },
+      { hasText: false, hasKeys: true },
+      { hasText: true, hasKeys: true },
+    ].filter((shape) => sendShapeRefusal(shape, ANY_VOCABULARY) !== undefined);
+
+    expect(refusedShapes).toEqual([{ hasText: true, hasKeys: true }]);
   });
 
   it("an empty text and no input at all are DIFFERENT refusals", () => {

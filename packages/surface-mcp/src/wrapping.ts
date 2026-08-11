@@ -20,6 +20,15 @@ const KEY = "value";
 
 type JsonSchema = Record<string, unknown>;
 
+/** "JSON renders this as an OBJECT" — the one predicate both edges of the rule
+ *  are decided by, so `wrapValue`'s runtime test and `jsonschema.ts`'s node
+ *  walk cannot drift apart into two hand-written expressions that merely happen
+ *  to agree. Lives here rather than beside its other caller because this module
+ *  is the one that must not import anything. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 /** Advertise a non-object INPUT as an object with one property. Decided from
  *  the DECLARED schema, so `wrapped` is a static bit the dispatcher carries
  *  (`ToolEntry.wrapped`) and {@link unwrapArgs} reads back. */
@@ -60,7 +69,5 @@ export function unwrapArgs(
  *  rejects as a PROTOCOL error, on the success path, where no `isError` framing
  *  can catch it. */
 export function wrapValue(json: unknown): Record<string, unknown> {
-  return typeof json === "object" && json !== null && !Array.isArray(json)
-    ? (json as Record<string, unknown>)
-    : { [KEY]: json };
+  return isRecord(json) ? json : { [KEY]: json };
 }

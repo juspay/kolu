@@ -107,8 +107,23 @@ export interface ToolResult {
  *  function or symbol) — not a wire value, so it travels as the same explicit
  *  `null` a void procedure gets, on BOTH arms. */
 function wireForm(data: unknown): { text: string; json: unknown } {
-  const text = JSON.stringify(data ?? null, null, 2) ?? "null";
+  const text = JSON.stringify(data, null, 2) ?? "null";
   return { text, json: JSON.parse(text) };
+}
+
+/** The structured arm of a FAILURE's detail: the value as the wire will carry
+ *  it, wrapped if JSON renders it as a non-object.
+ *
+ *  Only the failure arm has this helper, and deliberately: `ok` needs BOTH
+ *  halves of {@link wireForm} and destructures them from one call, while a
+ *  refusal's prose is the raiser's own message and only the structured half is
+ *  derived. Composing this into `ok` too would read tidier and serialize every
+ *  answer twice — measurably ~2ms and a second full copy on the megabyte
+ *  scrollback `screen_text` can return. */
+function structuredArm(
+  detail: Record<string, unknown>,
+): Record<string, unknown> {
+  return wrapValue(wireForm(detail).json);
 }
 
 /** Wrap a value as a successful tool result: pretty-printed JSON for the model,
@@ -152,7 +167,7 @@ export function fail(
     content: [{ type: "text", text: message }],
     ...(detail === undefined
       ? {}
-      : { structuredContent: wrapValue(wireForm(detail).json) }),
+      : { structuredContent: structuredArm(detail) }),
     isError: true,
   };
 }

@@ -64,7 +64,7 @@
 
 import type { WireSchemaAny } from "@kolu/surface/define";
 import { Schema } from "effect";
-import { wrapSchema } from "./wrapping";
+import { isRecord, wrapSchema } from "./wrapping";
 
 /** A JSON-Schema document or sub-schema. We walk it structurally rather than
  *  typing every keyword, so `unknown`-valued records are the working shape. */
@@ -255,10 +255,6 @@ function normalizeNumeric(node: JsonSchema): JsonSchema {
   }
   const { anyOf: _collapsed, ...siblings } = node;
   return { ...numeric, ...siblings };
-}
-
-function isRecord(value: unknown): value is JsonSchema {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 /** Drop any `required` name that no longer has a matching property (a

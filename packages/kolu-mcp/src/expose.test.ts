@@ -11,7 +11,11 @@
  */
 
 import { padiSurface } from "@kolu/padi/surface";
-import { resolveExpose, serveSurfaceAsMcp } from "@kolu/surface-mcp";
+import {
+  resolveExpose,
+  serveSurfaceAsMcp,
+  type SurfaceClientCallable,
+} from "@kolu/surface-mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
@@ -119,16 +123,25 @@ describe("the served face — default deny at the wire", () => {
   });
 
   /** Serve the REAL map + tools over an in-memory pair. The client factory
-   *  REJECTS — none of the asserted surfaces (tools/list, resources/list, an
-   *  unknown-tool call, an unknown-resource subscribe) may ever dial padi. */
-  async function servedFace(): Promise<Client> {
+   *  REJECTS by default — none of the asserted surfaces (tools/list,
+   *  resources/list, an unknown-tool call, an unknown-resource subscribe) may
+   *  ever dial padi.
+   *
+   *  A caller passes its own factory only to reach a tool body that refuses
+   *  BEFORE it touches the client: dispatch dials first, so the default factory
+   *  would answer with a link failure instead of the refusal under test. */
+  async function servedFace(
+    client?: () => SurfaceClientCallable,
+  ): Promise<Client> {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const { close } = await serveSurfaceAsMcp({
       surface: padiSurface,
-      client: () => {
-        throw new Error("this assertion must not dial padi");
-      },
+      client:
+        client ??
+        (() => {
+          throw new Error("this assertion must not dial padi");
+        }),
       expose: KOLU_MCP_EXPOSE,
       tools: KOLU_MCP_TOOLS,
       transport: serverTransport,
@@ -199,5 +212,36 @@ describe("the served face — default deny at the wire", () => {
         "unknown tool",
       );
     }
+  });
+
+  it("a sendInput refusal reaches the agent as DATA, across the package seam", async () => {
+    // The promise the README, the changelog and docs/mcp.mdx all make is about
+    // what comes back OVER THE WIRE — and the path that delivers it spans two
+    // packages: this face raises `ToolFailure`, `@kolu/surface-mcp`'s `failFrom`
+    // discriminates it by NOMINAL `instanceof` across that boundary, `fail`
+    // normalizes the detail, and the SDK serializes the result. Every hop but
+    // this assertion is covered by a unit test on one side or the other; the
+    // seam itself — the one place a nominal check can silently stop matching —
+    // was covered nowhere.
+    //
+    // The refusal is raised before the handler touches the client, so a stub
+    // that is never called is enough to get past dispatch's dial.
+    const mcp = await servedFace(() => ({ surface: {} }));
+
+    const res = await mcp.callTool({
+      name: "lifecycle_sendInput",
+      arguments: {
+        id: "00000000-0000-4000-8000-000000000000",
+        text: "hi",
+        key: "Enter",
+      },
+    });
+
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({ kind: "text-and-key" });
+    // The prose still reads as prose, and still carries the adapter's brand.
+    expect(String((res.content as { text: string }[])[0]?.text)).toContain(
+      "can't be combined",
+    );
   });
 });
