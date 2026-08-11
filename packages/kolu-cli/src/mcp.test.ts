@@ -1,5 +1,5 @@
 /**
- * The restart discipline's two failure arms, pinned at the two places they now
+ * The restart discipline's failure arms, pinned at the three places they now
  * live:
  *
  *   - `classifyDialFailure` (connect.ts) is where the supervisor's BRAND check
@@ -7,10 +7,13 @@
  *     into the `PadiContractSkew` tag and everything else into
  *     `PadiDialFailed`. This is the misrouting hazard's actual guard, so it is
  *     tested against a REAL skew error, not a stand-in.
- *   - `guardedMcpDial` (mcp.ts) then routes by `_tag` alone: a skew EXITS loud
- *     (the honest upgrade line, never a server left serving a surface it can't
- *     represent); any other dial failure fails fast with the typed `padi
- *     transport down:` prefix (retryable, nothing queues).
+ *   - `requireReachablePadi` (mcp.ts) is the #2148 open gate: ANY dial failure
+ *     before the MCP handshake exits non-zero (spawn-and-check-exit is a
+ *     valid probe). A successful probe disposes the connection.
+ *   - `guardedMcpDial` (mcp.ts) then routes mid-session by `_tag` alone: a skew
+ *     EXITS loud (the honest upgrade line, never a server left serving a
+ *     surface it can't represent); any other dial failure fails fast with the
+ *     typed `padi transport down:` prefix (retryable, nothing queues).
  */
 import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { Cause, Effect, Exit } from "effect";
@@ -20,7 +23,7 @@ import {
   type KoluCliConnection,
   PadiNotAddressable,
 } from "./connect.ts";
-import { guardedMcpDial } from "./mcp.ts";
+import { guardedMcpDial, requireReachablePadi } from "./mcp.ts";
 
 const skew = (): DaemonContractSkewError =>
   new DaemonContractSkewError({
@@ -66,6 +69,61 @@ describe("classifyDialFailure", () => {
     expect(classifyDialFailure("socket vanished").message).toBe(
       "socket vanished",
     );
+  });
+});
+
+describe("requireReachablePadi", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("a missing padi writes the honest line and exits 1", () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit(${code})`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const exit = Effect.runSyncExit(
+      requireReachablePadi(
+        Effect.fail(
+          new PadiNotAddressable({ message: "no running padi daemon found" }),
+        ),
+      ),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain(
+      "no running padi daemon found",
+    );
+  });
+
+  it("a refused socket exits 1 — not a clean MCP handshake", () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit(${code})`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    Effect.runSyncExit(
+      requireReachablePadi(
+        Effect.fail(
+          classifyDialFailure(new Error("connect ECONNREFUSED /tmp/gone.sock")),
+        ),
+      ),
+    );
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("ECONNREFUSED");
+  });
+
+  it("a successful probe disposes the connection and continues", () => {
+    const dispose = vi.fn();
+    const conn = {
+      client: {} as KoluCliConnection["client"],
+      dispose,
+    };
+    Effect.runSync(requireReachablePadi(Effect.succeed(conn)));
+    expect(dispose).toHaveBeenCalledOnce();
   });
 });
 
