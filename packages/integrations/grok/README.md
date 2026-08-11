@@ -6,7 +6,7 @@
 
 - **Detection & resolution** (`core.ts`) — reads `~/.grok/active_sessions.json` to match a foreground pid to a session, and folds `sessions/<enc-cwd>/<uuid>/events.jsonl` + `summary.json` into `GrokInfo` (state, model, title, startedAt). That map is an **acquire-only** signal: Grok rewrites it wholesale from a process-local snapshot, so a concurrent grok starting or exiting erases every other live row. A pid keeps the session it matched until the process dies (swept per resolve) or the foreground moves off it.
 - **The `AgentAdapter`** (`agent-adapter.ts`) — the `kind: "grok"` contract the padi sensors consume: `resolveSession`, `createWatcher`, and the `externalChanges` (active_sessions) install.
-- **Watchers** — a process-wide `active_sessions.json` subscription (`active-sessions-watcher.ts`, over `kolu-io`'s `createDirWatcher`) and a per-session `events.jsonl` + `summary.json` watcher (`session-watcher.ts`).
+- **Watchers** — a process-wide `active_sessions.json` subscription (`active-sessions-watcher.ts`, over `kolu-io`'s `createDirFilenameWatcher`) and a per-session `events.jsonl` + `summary.json` watcher (`session-watcher.ts`).
 - **Schemas** (`schemas.ts`) — `GrokInfoSchema` and friends, browser-safe, re-exported into the `terminal-vocab` `AgentInfoSchema` union.
 - **Paths** (`config.ts`) — env-resolved `~/.grok` layout (`KOLU_GROK_DIR` override for tests/e2e fixtures only).
 

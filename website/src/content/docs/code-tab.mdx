@@ -1,6 +1,6 @@
 ---
 title: The Code Tab
-description: "The Code tab is a file browser scoped to the active terminal's directory: a Pierre tree with git-status tinting, Local/Branch/All views with live diffs, rendered Markdown, inline HTML/SVG/PDF/image/video previews, file comments — and plain-directory browsing when there's no git repo at all."
+description: "The Code tab is a file browser scoped to the active terminal's repo: a Pierre tree with git-status tinting, Local/Branch/All views with live diffs, rendered Markdown, inline HTML/SVG/PDF/image/video previews, and file comments."
 order: 46
 section: Use Kolu
 koluHero:
@@ -59,29 +59,6 @@ on disk — a payload-free repo-change pulse re-running `git status`, with no
 polling — and the same loop works when the Code tab is pointed at
 [another machine](/remote-hosts), so your status and diffs stay live over the
 ssh hop too.
-
-## Not a repo? Still a browser
-
-The tree browser never needed git — only the diff views do. In a terminal whose
-working directory is **not a git repository**, the Code tab shows that directory
-as a single collapsed root node, and nothing is listed or watched until you
-click it. Click the node and the tree opens on the directory's first level, one
-lazily-read level per expanded folder — the same click-to-descend walk the
-ignored-directory rows use, so browsing even your home directory costs a
-handful of directory reads, never a recursive crawl. Unlike the ignored rows,
-each folder you have open here **is** watched — non-recursively, one cheap
-handle per open folder — so the levels you're looking at repaint live. The
-file you have open rides its parent folder's watch: saves from editors (which
-write-and-rename) repaint live, while a rare in-place write under heavy load
-can wait for the next filesystem event — reselect the file to re-read it
-immediately.
-
-The git surfaces — the Local/Branch views, status tinting, the scope switcher,
-the ignored-files eye — stay hidden there: they genuinely need a repo. `cd`
-into a git repo and the tab snaps back to its usual repo-rooted self; `cd`
-somewhere else non-git and the collapsed root returns, waiting for a click.
-Nothing is persisted and there is no allowlist to maintain — the click is the
-approval, per terminal, per session.
 
 ## Markdown and artifacts
 

@@ -28,7 +28,7 @@ import {
   ProcessRssSchema,
   PrResultSchema,
   PrUnavailableSourceSchema,
-  ChangePulseSchema,
+  RepoChangePulseSchema,
   seedMemory,
   seedSnapshot,
   TerminalIdSchema,
@@ -332,13 +332,13 @@ describe("leaf schemas", () => {
     expect(parse(80.5)._tag).toBe("Failure");
   });
 
-  it("ChangePulse holds seq as a non-negative integer", () => {
-    expect(encodeJson(ChangePulseSchema)({ seq: 0 })).toBe('{"seq":0}');
+  it("RepoChangePulse holds seq as a non-negative integer", () => {
+    expect(encodeJson(RepoChangePulseSchema)({ seq: 0 })).toBe('{"seq":0}');
     expect(
-      Schema.decodeUnknownResult(ChangePulseSchema)({ seq: -1 })._tag,
+      Schema.decodeUnknownResult(RepoChangePulseSchema)({ seq: -1 })._tag,
     ).toBe("Failure");
     expect(
-      Schema.decodeUnknownResult(ChangePulseSchema)({ seq: 1.5 })._tag,
+      Schema.decodeUnknownResult(RepoChangePulseSchema)({ seq: 1.5 })._tag,
     ).toBe("Failure");
   });
 });

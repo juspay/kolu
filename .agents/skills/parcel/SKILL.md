@@ -16,25 +16,12 @@ description: >-
 `@parcel/watcher` is Kolu's default filesystem watcher. Reach for it instead
 of `chokidar`, raw `fs.watch`, or hand-rolled polling whenever a feature
 needs to observe a directory subtree. Today's only consumer is the
-working-tree watcher (`packages/integrations/git/src/working-tree-watcher.ts`).
-
-Everything that watches a SINGLE directory non-recursively goes through
-`kolu-io`'s `refcounted-dir-watcher.ts` (`createDirWatcher`) on plain
-`fs.watch` instead, for two different reasons:
-
-- **A single known file inside a directory** — the git-dir axes
-  (`head-watcher`, `reflog-watcher`, `index-watcher`, `config-watcher`,
-  `cwd-git-watcher`): parcel-watcher's recursive model would be overkill for
-  one file (`createDirWatcher`'s `filename` config).
-- **One directory's direct children** — the Code tab's plain-directory browse
-  levels (`kolu-git`'s `dir-change.ts`, `createDirWatcher` with no
-  `filename`): parcel-watcher has **no non-recursive mode**, and a browse root
-  outside a git repo has no ignore authority to prune a recursive crawl with,
-  so watching `$HOME` recursively is unaffordable. One handle per expanded
-  level is the bound the feature stands on.
-
-New fs-monitoring code should default to parcel-watcher unless its target is
-similarly narrow — one file, or one directory level.
+working-tree watcher (`packages/integrations/git/src/working-tree-watcher.ts`)
+— the git-dir watchers (`head-watcher`, `reflog-watcher`, `index-watcher`)
+use plain `fs.watch` via `kolu-io`'s `refcounted-dir-watcher.ts` because they
+target a single known file inside `.git/`, where parcel-watcher's recursive
+model would be overkill. New fs-monitoring code should default to parcel-watcher
+unless it has a similarly narrow target.
 
 ## Backend dispatch
 

@@ -49,7 +49,7 @@ import {
   KavalContractSkew,
   ScratchWriteRejected,
 } from "./errors.ts";
-import { padiFsDeps } from "./fsDeps.ts";
+import { padiFsGitDeps } from "./fsGitDeps.ts";
 import {
   HOST_INVENTORY_SAMPLE_INTERVAL_MS,
   samplePadiHostInventory,
@@ -267,7 +267,7 @@ export function buildPadiSurfaceDeps(deps: {
   stateRoot: string;
 }): PadiDeps {
   const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
-  const fsStreams = padiFsDeps(endpoint, log);
+  const fsGit = padiFsGitDeps(endpoint, log);
   // Dispose the PRIOR daemon-lifetime set (finish tracker + attention flow) so a
   // servePadi test rebuild doesn't stack resubscribe loops or two sets of sinks.
   disposeStanding?.();
@@ -536,7 +536,7 @@ export function buildPadiSurfaceDeps(deps: {
       // client's per-tile green dot now MIRRORS this member off
       // `padiSurface.streams.activity` — it no longer derives from its own
       // `terminalAttach` bytes. The fs/git change-pulses are pure reuse of
-      // `padiFsDeps(...).streams`.
+      // `padiFsGitDeps(...).streams`.
       activity: createLiveActivitySource(log),
       // The standing-subscription doorbell — pulse-then-requery, the same shape
       // as the fs/git change pulses. It carries only a counter: the buffer behind
@@ -550,7 +550,7 @@ export function buildPadiSurfaceDeps(deps: {
             `watchPulse[${input.name}]`,
           ),
       },
-      ...fsStreams.streams,
+      ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on
       // through `reattachingDeltas`. Routed by the terminal's OWN location so a
