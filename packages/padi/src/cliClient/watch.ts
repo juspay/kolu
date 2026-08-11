@@ -348,6 +348,23 @@ async function watchAttachFeed(
   // Did `terminalExit` fire? Latched, never assumed: see the `onExit` note.
   let sawExit = false;
 
+  /** Call a consumer callback without letting it escape into this spine.
+   *
+   *  The same funnel `watchTerminals` puts around its own handlers, and for the
+   *  same reason: a throwing consumer must be contained to the one event, never
+   *  wedge the subscription loop — and here it would be worse than wedging.
+   *  `settleOnLostFeed` runs inside `consumeOutput`'s `try`, so a callback that
+   *  threw would land in the catch that calls `settleOnLostFeed` again. The
+   *  failure is recorded as an upstream diagnostic, which is where a `closed`
+   *  outcome's sentence comes from, so it surfaces rather than vanishing. */
+  const fire = (what: string, run: (() => void) | undefined): void => {
+    try {
+      run?.();
+    } catch (err) {
+      ctx.recordUpstreamError(`${what} handler failed: ${errMessage(err)}`);
+    }
+  };
+
   // The output feed ended before any outcome and without an abort we caused.
   // Same discrimination as kaval-tui's wait: the terminal exited (we saw its
   // exit, or its id has left the `terminals` key set → `gone`), or the feed was
@@ -355,10 +372,10 @@ async function watchAttachFeed(
   // state is dropped FIRST — an idle window left armed would fire a FALSE `met`
   // off the last frame of a feed we can no longer observe.
   const settleOnLostFeed = async (): Promise<void> => {
-    opts.onFeedLost();
+    fire("onFeedLost", opts.onFeedLost);
     // An observed exit already answers the question the key set is read for.
     if (sawExit) {
-      opts.onTerminalGone?.();
+      fire("onTerminalGone", opts.onTerminalGone);
       ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
       return;
     }
@@ -391,7 +408,7 @@ async function watchAttachFeed(
         );
       }
       if (!keys.includes(opts.id as (typeof keys)[number])) {
-        opts.onTerminalGone?.();
+        fire("onTerminalGone", opts.onTerminalGone);
         ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
         return;
       }
@@ -428,7 +445,7 @@ async function watchAttachFeed(
           // so anything the caller accumulated from the pre-drop feed is dropped
           // here — the state only ever restarts from the fresh snapshot the
           // reconnect delivers (see the `onFeedLost` note above).
-          onRetry: opts.onFeedLost,
+          onRetry: () => fire("onFeedLost", opts.onFeedLost),
         },
       );
       for await (const frame of iterateUntilAborted(stream, ctx.signal)) {
@@ -460,7 +477,7 @@ async function watchAttachFeed(
       );
       for await (const _msg of iterateUntilAborted(stream, ctx.signal)) {
         sawExit = true;
-        opts.onExit?.();
+        fire("onExit", opts.onExit);
         return;
       }
     } catch {
@@ -742,6 +759,11 @@ function requireTimerMs(what: string, ms: number): void {
   }
 }
 
+/** The engine contradicted itself — not an outcome, and never reportable as
+ *  one. Its own class so the `stampLoop` catch that turns unrecognised errors
+ *  into a retryable `closed` can tell it apart and re-throw it instead. */
+class EngineInvariantBroken extends Error {}
+
 /** A re-armable quiescence window. `arm()` restarts the countdown, `disarm()`
  *  cancels it, and `onQuiet` fires when `ms` pass with neither.
  *
@@ -963,10 +985,15 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
         // The engine's own invariant, checked where it LIVES rather than
         // re-verified by every face that asks for a screen: a met of a wait that
         // asked for one always carries it. A failed read settles `gone`/`closed`
-        // instead, so reaching here without a screen is a broken engine — and a
-        // `runWait` watcher that throws propagates verbatim.
+        // instead, so reaching here without a screen is a broken engine.
+        //
+        // Thrown as a NAMED class because one of the two call sites is inside
+        // `stampLoop`'s `try`, whose catch turns an unrecognised error into a
+        // retryable `closed` — which would quietly downgrade "the engine is
+        // broken" to "try again", the collapse this repo treats as a defect. The
+        // catch re-throws this one on sight.
         if (captureScreen === true && screen === undefined) {
-          throw new Error(
+          throw new EngineInvariantBroken(
             `awaitTerminalCondition: ${id} met with captureScreen set but no screen — the engine's own invariant, not an empty terminal.`,
           );
         }
@@ -1025,6 +1052,11 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
             return;
           }
         } catch (err) {
+          // A broken invariant is not an outcome and must never be dressed as
+          // one: `runWait` propagates a watcher's throw verbatim, which is the
+          // whole point of raising it. Checked before the abort guard too — a
+          // bug does not stop being a bug because a timeout raced it.
+          if (err instanceof EngineInvariantBroken) throw err;
           if (ctx.signal.aborted) return;
           // The terminal ended between the condition landing and its screen
           // being read — `gone`, the same answer the feeds give, never a
