@@ -625,9 +625,10 @@ creates, writes to, waits on, reads, and kills terminals exercises the named
 path (<code>padiSurface</code> through <code>surfaceClient</code>, including the <code>{seq}</code> stream) on
 every invocation a user makes, not only in an e2e.</p>
 <h3 id="what-shipped">What shipped</h3>
-<p><code>kolu ls</code> · <code>create</code> · <code>send</code> · <code>wait</code> · <code>snapshot</code> · <code>history</code> · <code>kill</code> ·
-<code>watch</code>, alongside the <code>web</code> and <code>mcp</code> faces. Three consequences worth pinning
-here, because each is a decision a later reader would otherwise re-litigate:</p>
+<p><code>kolu ls</code> · <code>create</code> · <code>send</code> · <code>wait</code> · <code>debrief</code> · <code>snapshot</code> · <code>history</code> ·
+<code>kill</code> · <code>watch</code>, alongside the <code>web</code> and <code>mcp</code> faces. Four consequences worth
+pinning here, because each is a decision a later reader would otherwise
+re-litigate:</p>
 <ul>
 <li><strong>The endpoint moved to the ROOT as shared flags.</strong> <code>--socket</code> /
 <code>--state-root</code> / <code>--host</code> are mutually exclusive and parse on <strong>either side
@@ -643,6 +644,26 @@ on any terminal) and the agent buckets <code>working</code> / <code>awaiting</co
 detects an agent). The two done-signals stay two <em>forms</em> because they
 genuinely read different things; one verb because a driver shouldn’t pick a
 binary to express that choice.</li>
+<li><strong><code>wait</code>’s two MODIFIERS are orthogonal to its three forms</strong>, and
+<strong><code>debrief</code> is definitional sugar over their composition</strong>
+(<a href="https://github.com/juspay/kolu/issues/2139">#2139</a>). <code>--settled &lt;ms&gt;</code> is a
+<em>conjunct on the condition</em> (met = the condition holds AND no output byte for
+<code>&lt;ms&gt;</code>); <code>--snapshot &lt;N&gt;</code> is an <em>enrichment of the payload</em> (the met carries
+the rendered tail). They are modifiers rather than a fourth <code>--until</code> prefix
+precisely because each composes with all three forms, and a mode flag would
+let a caller name a mode and a condition that disagree — the same reasoning
+that made the prefixes prefixes. They live <strong>daemon-side</strong>, in padi’s
+<code>awaitTerminalCondition</code>, because the races they close are between CLI
+<em>invocations</em> and cannot be closed from out here: output can move between one
+<code>wait</code> returning and the next arming, and a separate <code>snapshot</code> reads a screen
+that is not the one the wait settled on. <code>kolu debrief &lt;id&gt;</code> expands to
+<code>wait --until awaiting,waiting --settled &lt;quiet&gt; --snapshot &lt;tail&gt;</code> and holds
+<strong>no logic of its own</strong> — a second face that could disagree with the primitive
+is the one thing a CLI that just retired two near-duplicate TUIs must not
+grow. The engine also subsumed the three named waits (<code>awaitAgentState</code> ·
+<code>awaitOutputSettled</code> · <code>awaitOutputMatch</code>), which are now spellings of it, so
+the quiescence window and the <code>match:</code> scan have one implementation rather
+than one per wait.</li>
 <li><strong><code>snapshot</code> has no <code>--viewport</code>.</strong> padi’s wire cannot express a viewport
 extent, so the read face is <code>--tail &lt;N&gt;</code> (or nothing for the whole rendered
 text) — the exact shape of the MCP <code>screen_text { tail }</code> tool. One idea,
