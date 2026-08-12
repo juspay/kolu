@@ -63,6 +63,31 @@ value while degraded" versus "hard-gate until ready" — to the app. A component
 that dims a status dot reads the fact; it can never be handed a "ready" it did
 not earn.
 
+## Green is a claim about the page, not about the socket
+
+A fact only helps if somebody reads it, and for years the indicator every app
+draws had *two* inputs to remember: the connection's transport `status`, and a
+`client.health()` call it could simply never make. Apps never made it. A
+collection whose stream had died then rendered as an empty collection, under a
+green light — the socket really was open, and the light really was about the
+socket.
+
+So the connect seams do not hand back a transport status any more. They hand back
+a **readout** — `connecting · live · degraded · reconnecting · retired` — folded
+from both facts, where `degraded` is the state the transport cannot see (a live
+socket over a stopped subscription) and names which subscriptions stopped. Two
+rules ride with it, and both are the framework's rather than any app's: a
+subscription still waiting for its first frame does **not** degrade the readout
+(that is what every page load looks like, and an indicator that ambers on every
+load is one nobody reads), and `needsReload` is true for `retired` and nothing
+else, so no app keeps its own list of which states are terminal.
+
+What stays the app's is the *look*: what "degraded" is called, what green claims
+in words, which colour each state paints. The framework owns which state is true;
+the app owns what it is called. (The gate is still a separate policy: a `<SurfaceGate>`
+legitimately blocks the body on a pending first frame, which is exactly what the
+readout must not do.)
+
 ## A per-viewer answer is a root RPC, never a cell
 
 A cell is BROADCAST — one value, published to every connected client — so it has

@@ -27,20 +27,30 @@
  * Promise.
  *
  * WHAT THE CALLER MUST STILL SPELL: `retired`. Everything else this seam produces
- * is optional to read — you can build a client and ignore `status` — but the wire's
- * terminal state is not something an app is allowed to be unaware of, so the
+ * is optional to read — you can build a client and ignore the readout — but the
+ * wire's terminal state is not something an app is allowed to be unaware of, so the
  * handler is a required option rather than an ignorable return value (see
  * `RetiredHandler`). The `pid` handshake, which used to be the OTHER ignorable
  * return value, is gone from the result entirely: the socket feeds its own echo.
+ *
+ * WHAT AN INDICATOR READS is `readout`, not a transport `status`. This seam used
+ * to hand back the transport's own four states, leaving the fifth — a live socket
+ * under a DEAD subscription — to a `client.health()` call an app was free to skip.
+ * Apps skipped it, and a page whose collection had stopped arriving drew a green
+ * light over an empty screen. The two facts are folded (and memoized) here now, so
+ * "green" is a claim about what reaches the page; see `@kolu/surface/solid`'s
+ * `./readout` for the five states, and for the line between what the framework
+ * decides (which state is true) and what the app decides (what it is called).
  */
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import type { WebsocketLink } from "@kolu/surface/links/websocket";
 import {
   createLiveSignal,
+  createSurfaceReadout,
   type HeartbeatTuning,
   type SurfaceClient,
-  type SurfaceConnectionStatus,
+  type SurfaceReadout,
   surfaceClient,
 } from "@kolu/surface/solid";
 import type { Accessor } from "solid-js";
@@ -61,9 +71,9 @@ export interface ConnectSurfaceOptions<S extends SurfaceSpec>
   heartbeat?: HeartbeatTuning;
 }
 
-/** A live single-surface connection: the wire link, the reactive client, a
- *  reactive transport `status` (for a per-connection indicator), and a `dispose`
- *  that stops the liveness heartbeat and closes the wire.
+/** A live single-surface connection: the wire link, the reactive client, the
+ *  reactive `readout` (for a per-connection indicator that cannot lie), and a
+ *  `dispose` that stops the liveness heartbeat and closes the wire.
  *
  *  There is no `echo` here any more. It used to be returned for an app to feed, and
  *  an app that dropped it shipped a dead stale-tab handshake (olai#61);
@@ -83,13 +93,25 @@ export interface SurfaceConnection<S extends SurfaceSpec> {
    *  (`system.live` / `system.identity` / `system.clockNow`) and as the escape
    *  hatch for a member the bound shapes can't model. */
   client: SurfaceClient<S>;
-  /** Reactive transport status — `connecting` / `live` / `reconnecting` /
-   *  `retired` — derived from the wire's own status stream (no identity probe).
-   *  Render it so the watchdog's recovery is VISIBLE rather than silent. The
-   *  terminal `retired` is spelled out here (it used to project as `down`, which
-   *  read as a transient drop), so a four-state indicator built on this accessor
-   *  alone can say "the server was replaced" — no lifecycle required. */
-  status: Accessor<SurfaceConnectionStatus>;
+  /** The reactive READOUT (`@kolu/surface/solid`'s {@link SurfaceReadout}) —
+   *  `connecting` / `live` / `degraded` / `reconnecting` / `retired`, plus the
+   *  `needsReload` bit and, when degraded, the NAMES of the subscriptions that
+   *  stopped. Render it so the watchdog's recovery is VISIBLE rather than silent.
+   *
+   *  It is the readout and not the transport's own `status` because the two
+   *  answer different questions, and only one of them is what an indicator
+   *  claims: a socket can be open and answering while a subscription riding it is
+   *  dead, and a page drawn from the transport alone paints that green. `status`
+   *  used to be handed back here beside a `client.health()` an app was free never
+   *  to call — and the app that never called it shipped a dead collection
+   *  rendering as an empty one under a green light. The conjunction is folded in
+   *  now, memoized, so there is no second call left to forget.
+   *
+   *  What the readout does NOT carry is what any of it is CALLED: the app owns
+   *  the words and the colours (see the readout module's docstring for the cut).
+   *  A consumer that genuinely wants the SOCKET rather than the page still has
+   *  it: the raw wire status rides `link.wire.status()` / `link.wire.onStatus`. */
+  readout: Accessor<SurfaceReadout>;
   /** Stop the liveness heartbeat, tear down the client's standing subscriptions,
    *  and close the wire. A per-app-lifetime wire (cached for the page's life,
    *  like drishti's per-host clients) needn't call this. Async because releasing
@@ -117,17 +139,23 @@ export async function connectSurface<const S extends SurfaceSpec>(
   // read `ready` — the green-dot-over-a-dead-link lie.
   const transport = createLiveSignal(link, hb ?? {});
   const client = surfaceClient(surface, transport);
+  // The readout is the transport `status` folded WITH this client's own health
+  // fact — the conjunction, memoized once here rather than re-derived (or
+  // forgotten) at every indicator. It owns a `createRoot`, because this seam runs
+  // outside any reactive owner, so its disposer joins the three below.
+  const readout = createSurfaceReadout(transport.status, client.health);
   return {
     link,
     client,
-    status: transport.status,
-    // Stop the watchdog, tear down the client's build-time standing
-    // subscriptions (the eager `liveWhen`-cell readiness subs — present when the
-    // surface is mirrored), and release the socket (its identity/retired observers
-    // plus the link's dial/ping/response fibers), so a torn-down connection leaks
-    // none of the three.
+    readout: readout.readout,
+    // Stop the watchdog, drop the readout's memo, tear down the client's
+    // build-time standing subscriptions (the eager `liveWhen`-cell readiness subs
+    // — present when the surface is mirrored), and release the socket (its
+    // identity/retired observers plus the link's dial/ping/response fibers), so a
+    // torn-down connection leaks none of the four.
     dispose: async () => {
       transport.dispose();
+      readout.dispose();
       client.dispose();
       await socket.dispose();
     },

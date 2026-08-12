@@ -139,8 +139,16 @@ export interface LiveSignalHandle {
    *  `surfaceClients` read it off the handle themselves; do not pull it out and
    *  pass it alone. */
   live: LiveSignal;
-  /** The richer transport status the brand is derived from — render it for a
-   *  per-connection indicator so the watchdog's recovery is VISIBLE, not silent. */
+  /** The richer transport status the brand is derived from — and an INPUT to a
+   *  connection indicator, never the indicator itself. It is a fact about a
+   *  SOCKET, and a socket can be open and answering while a subscription riding
+   *  it is dead; painting this accessor alone is the green-light-over-a-dead-
+   *  collection lie one module over from the one this file closes. Fold it with
+   *  the client's health fact — `createSurfaceReadout(handle.status,
+   *  client.health)` (`./readout`) — and render THAT, so the watchdog's recovery
+   *  is visible and green means what reaches the page. (The `connectSurface` /
+   *  `connectSurfaces` seams do this fold for you and hand back the readout;
+   *  this is the hand-built path's version of the same step.) */
   status: Accessor<SurfaceConnectionStatus>;
   /** The dispatch this handle guards. `surfaceClient`/`surfaceClients` build the
    *  face over THIS dispatch (read off the handle) so the face and the watchdog's

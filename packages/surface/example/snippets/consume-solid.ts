@@ -10,7 +10,7 @@
 
 import { Effect } from "effect";
 import { directDispatch } from "@kolu/surface/links/direct";
-import { surfaceClient } from "@kolu/surface/solid";
+import { surfaceClient, type SurfaceReadoutStatus } from "@kolu/surface/solid";
 import { connectSurface } from "@kolu/surface-app/solid";
 import { reloadForUpdate } from "@kolu/surface-app/lifecycle";
 import { runtime } from "./serve";
@@ -44,7 +44,7 @@ const url = "wss://example.test/rpc/ws";
 // ASYNC: the dial is an effect. `link` is the `{ dispatch, wire, dispose }` the
 // websocket link minted; `dispose()` releases its scope (dial/ping/response
 // fibers) as well as stopping the watchdog.
-const { link, client, status, dispose } = await connectSurface({
+const { link, client, readout, dispose } = await connectSurface({
   surface,
   url,
   // REQUIRED: what happens when the server retires this wire (a tab bound to a
@@ -55,4 +55,43 @@ const { link, client, status, dispose } = await connectSurface({
 });
 // #endregion connect
 
-export { app, client, dispose, link, load, log, procs, status };
+// #region readout
+// The five states an indicator may report. `Record`, not a function: a state with
+// no wording of its own is a type error HERE, in the app's own table, which is
+// where the words belong. The framework decides which state is TRUE — including
+// `degraded`, the one the transport cannot see (a live socket over a subscription
+// that has stopped) — and this app decides what each is called.
+const LABEL: Record<SurfaceReadoutStatus, string> = {
+  connecting: "connecting",
+  live: "live — everything this page reads is arriving",
+  degraded: "partly live",
+  reconnecting: "reconnecting — showing the last thing the server said",
+  retired: "the server was replaced — reload this page",
+};
+
+// `degraded` NAMES what stopped, and its list is non-empty by type, so this
+// sentence can never come out with a hole in it.
+const label = (): string => {
+  const now = readout();
+  return now.status === "degraded"
+    ? `${LABEL.degraded} — nothing is arriving on ${now.stopped.join(", ")}`
+    : LABEL[now.status];
+};
+
+// The one bit that says a reload is the ONLY recovery (`retired`), read rather
+// than re-derived — a page never has to keep its own list of terminal states.
+const offerReload = (): boolean => readout().needsReload;
+// #endregion readout
+
+export {
+  app,
+  client,
+  dispose,
+  label,
+  link,
+  load,
+  log,
+  offerReload,
+  procs,
+  readout,
+};

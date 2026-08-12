@@ -29,12 +29,13 @@ import { composeSurfaceContracts, type Surface } from "@kolu/surface/define";
 import type { WebsocketLink } from "@kolu/surface/links/websocket";
 import {
   createLiveSignal,
+  createSurfaceReadout,
   type HeartbeatTuning,
   type LiveSignalHandle,
   type OnClientError,
   type SurfaceClients,
-  type SurfaceConnectionStatus,
   type SurfaceHealth,
+  type SurfaceReadout,
   surfaceClients,
   surfaceClientsHealth,
 } from "@kolu/surface/solid";
@@ -99,10 +100,11 @@ export interface ConnectSurfacesOptions<
 }
 
 /** A live multi-surface connection: the shared wire, the per-key client bundle,
- *  the branded transport handle (for framework composition), the reactive transport
- *  `status`, the COMBINED health fact across every sibling, and a `dispose` that
- *  stops the heartbeat, tears down every client's standing subscriptions, and
- *  closes the wire.
+ *  the branded transport handle (for framework composition), the reactive
+ *  `readout` (the wire's state folded with every sibling's subscription health),
+ *  the COMBINED health fact across every sibling, and a `dispose` that stops the
+ *  heartbeat, tears down every client's standing subscriptions, and closes the
+ *  wire.
  *
  *  No `echo`: the socket feeds its own `pid` handshake (see `../connect`), so there
  *  is no longer a returned value whose omission silently kills it. */
@@ -127,12 +129,26 @@ export interface SurfacesConnection<
    *  members multiplexed at the same wire. The handle is unforgeable (module-private
    *  brand), so exposing it invites no green-over-dead lie. */
   transport: LiveSignalHandle;
-  /** Reactive transport status (`connecting`/`live`/`reconnecting`/`retired`) from
-   *  the one shared wire's status stream. */
-  status: Accessor<SurfaceConnectionStatus>;
+  /** The reactive READOUT (`@kolu/surface/solid`'s {@link SurfaceReadout}) —
+   *  `connecting` / `live` / `degraded` / `reconnecting` / `retired`, the
+   *  `needsReload` bit, and the NAMES of whatever stopped — folded from the shared
+   *  wire's status AND the combined fact below, so `live` is a claim about what
+   *  reaches the page rather than about a socket. Across siblings the names arrive
+   *  already prefixed by surface key (`surfaceApp/buildInfo`), which is what makes
+   *  a multi-surface degraded readout say WHICH surface went quiet.
+   *
+   *  It replaced a transport-only `status` beside a `health()` an app could
+   *  forget to call. Memoized, so every indicator bound to it costs one fold. */
+  readout: Accessor<SurfaceReadout>;
   /** The COMBINED health fact — `surfaceClientsHealth(clients)` — folding every
    *  sibling's subs + the shared transport `live` (AND-reduced). Pass it straight
-   *  to `<SurfaceGate health={conn.health}>` / `<HostStatusPip health={conn.health}>`. */
+   *  to `<SurfaceGate health={conn.health}>` / `<HostStatusPip health={conn.health}>`.
+   *
+   *  Still the FACT, and still the gate's input: the gate's policy (pending blocks
+   *  the body) is deliberately not the readout's (pending does not amber the
+   *  light). Note it re-folds the whole registry per READ — bind
+   *  {@link SurfacesConnection.readout} for an indicator; reach for the raw fact
+   *  when a component wants the per-sub `pending`/`error` detail. */
   health: () => SurfaceHealth;
   /** Stop the heartbeat, dispose every sibling client's standing subscriptions,
    *  and release the wire. A page-lifetime cached bundle needn't call it. */
@@ -206,14 +222,21 @@ export async function connectSurfaces<
   // share ONE dispatch — there is no separate, fabricatable probe target.
   const transport = createLiveSignal(link, { siblingKey, ...hb });
   const clients = surfaceClients(transport, surfaces, onClientError);
+  const health = (): SurfaceHealth => surfaceClientsHealth(clients);
+  // ONE fold of the two facts for the whole bundle: the shared wire's status and
+  // every sibling's subs. Memoized here (this seam runs outside any reactive
+  // owner, so the memo brings its own root) rather than re-walked at each
+  // indicator — the merged fact re-folds N registries per read.
+  const readout = createSurfaceReadout(transport.status, health);
   return {
     link,
     clients,
     transport,
-    status: transport.status,
-    health: () => surfaceClientsHealth(clients),
+    readout: readout.readout,
+    health,
     dispose: async () => {
       transport.dispose();
+      readout.dispose();
       for (const client of Object.values(clients)) {
         (client as { dispose: () => void }).dispose();
       }
