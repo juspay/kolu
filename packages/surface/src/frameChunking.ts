@@ -8,8 +8,10 @@
  * surface multiplexes onto ONE socket per tab, so a single fat frame takes every
  * unrelated subscription down with it. The full argument, the beta marker, and
  * the incident that proved it live next door in `./frameLimit.ts`. This module
- * is what a sender does about it: give it bytes and the budget derived from the
- * cap, get legal frames.
+ * is what a sender does about it: give it an encoded payload and the budget
+ * derived from the cap, get legal frames. Encoding stays the caller's —
+ * {@link chunkBase64} splits a base64 STRING, and {@link base64CharsFor} sizes
+ * one before it is built.
  *
  * The arithmetic below has now been derived from scratch TWICE in kolu's orbit —
  * once in `@kolu/padi`'s `upload.ts` (where the incident happened), then copied
@@ -136,9 +138,14 @@ export function chunkBase64(
   data: string,
   chunkChars: number = FRAME_CHUNK_BASE64_CHARS,
 ): readonly [string, ...ReadonlyArray<string>] {
-  if (chunkChars % 4 !== 0) {
+  // POSITIVE and a multiple of 4, in one guard because zero satisfies the
+  // second on its own: `0 % 4` is 0, and a zero stride advances the loop below
+  // by nothing — it spins until the process dies. A negative stride walks
+  // backwards to the same end. Neither is a size anyone means, so neither may
+  // reach the loop.
+  if (chunkChars <= 0 || chunkChars % 4 !== 0) {
     throw new Error(
-      `a base64 chunk must be a multiple of 4 characters, got ${chunkChars}`,
+      `a base64 chunk must be a positive multiple of 4 characters, got ${chunkChars}`,
     );
   }
   // The one case the loop below cannot state: an empty input is still one write.

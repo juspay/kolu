@@ -1095,8 +1095,10 @@ must re-measure them before it can land.
 The sender's half of the cap. An app that ever puts bytes on the wire — a drop,
 a paste, an attachment — has to cut them so no single frame scales with the
 file, and that arithmetic has more terms than it looks like it has. It lives
-here, once, so nobody derives it a third time: **give it bytes and the budget
-derived from the cap, get legal frames.**
+here, once, so nobody derives it a third time: **give it an encoded payload and
+the budget derived from the cap, get legal frames.** (Encoding is the caller's —
+`chunkBase64` splits a base64 *string*, and `base64CharsFor` sizes one before
+you build it.)
 
 | Export | Type | Meaning |
 | --- | --- | --- |

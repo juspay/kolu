@@ -19,6 +19,7 @@ import {
   FRAME_CHUNK_BYTES,
   FRAME_ENVELOPE_BYTES,
   FRAME_PAYLOAD_BUDGET,
+  frameBytesFor,
 } from "./frameChunking.ts";
 import { exceedsFrameLimit, RPC_MAX_FRAME_BYTES } from "./frameLimit.ts";
 
@@ -89,23 +90,48 @@ describe("every boundary lands on a 4-character group", () => {
     expect(last.length).toBeLessThanOrEqual(SMALL_CHUNK_CHARS);
   });
 
-  it("refuses a chunk size that is not a multiple of 4", () => {
+  it("refuses a chunk size that is not a positive multiple of 4", () => {
     // Fail loudly at the call rather than shipping pieces that decode to
     // garbage — the corruption is silent, so the guard cannot be.
     expect(() => chunkBase64("AAAAAAAA", 6)).toThrow(/multiple of 4/);
+    // Zero and negatives pass a bare `% 4 === 0` and then hang the process on a
+    // stride that never advances. They are refusals, not chunk sizes.
+    expect(() => chunkBase64("AAAAAAAA", 0)).toThrow(/positive/);
+    expect(() => chunkBase64("AAAAAAAA", -4)).toThrow(/positive/);
+    // The empty-input short-circuit must not become a way around the guard.
+    expect(() => chunkBase64("", 0)).toThrow(/positive/);
   });
 });
 
 describe("no emitted frame can bust the cap", () => {
+  // Every check below asks the question the way a SENDER asks it — through
+  // `frameBytesFor`, the published helper `pasteDelivery` and every future
+  // uploading app hand to `exceedsFrameLimit`. Restating `+ FRAME_ENVELOPE_BYTES`
+  // inline instead would leave the properties believing one formula while
+  // callers ran another: two copies of the margin, which is the exact #71 shape
+  // this module exists to end. So the helper is pinned to the formula once,
+  // here, and then every property drives through it.
+  it("costs a frame at payload PLUS envelope — the formula callers ride", () => {
+    for (const chars of [0, 1, 4, 1024, FRAME_CHUNK_BASE64_CHARS]) {
+      expect(frameBytesFor(chars)).toBe(chars + FRAME_ENVELOPE_BYTES);
+    }
+    // And the envelope it adds is the real one, not zero: a helper that dropped
+    // it would agree with every "clears the cap" property below while telling a
+    // caller a 16 MiB payload was free.
+    expect(frameBytesFor(0)).toBeGreaterThan(0);
+    expect(exceedsFrameLimit(frameBytesFor(FRAME_PAYLOAD_BUDGET))).toBe(false);
+    expect(exceedsFrameLimit(frameBytesFor(FRAME_PAYLOAD_BUDGET + 1))).toBe(
+      true,
+    );
+  });
+
   it.each(
     RAW_LENGTHS.map((n) => n * 1000),
   )("%i raw bytes: every chunk's frame clears the limit after the envelope", (length) => {
     const pieces = chunkBase64(toBase64(bytes(length, 42)));
     for (const piece of pieces) {
       expect(piece.length).toBeLessThanOrEqual(FRAME_CHUNK_BASE64_CHARS);
-      expect(exceedsFrameLimit(piece.length + FRAME_ENVELOPE_BYTES)).toBe(
-        false,
-      );
+      expect(exceedsFrameLimit(frameBytesFor(piece.length))).toBe(false);
     }
   });
 
@@ -119,16 +145,14 @@ describe("no emitted frame can bust the cap", () => {
     expect(pieces.join("")).toBe(encoded);
     for (const piece of pieces) {
       expect(piece.length % 4).toBe(0);
-      expect(exceedsFrameLimit(piece.length + FRAME_ENVELOPE_BYTES)).toBe(
-        false,
-      );
+      expect(exceedsFrameLimit(frameBytesFor(piece.length))).toBe(false);
     }
   });
 
   it("a FULL chunk still clears the cap with the documented margin", () => {
     // The header's table, as arithmetic. Raise FRAME_CHUNK_BYTES past its margin
     // and this fails here rather than as a closed socket in production.
-    const frame = FRAME_CHUNK_BASE64_CHARS + FRAME_ENVELOPE_BYTES;
+    const frame = frameBytesFor(FRAME_CHUNK_BASE64_CHARS);
     expect(FRAME_CHUNK_BASE64_CHARS).toBeLessThanOrEqual(FRAME_PAYLOAD_BUDGET);
     expect(exceedsFrameLimit(frame)).toBe(false);
     expect(RPC_MAX_FRAME_BYTES / frame).toBeGreaterThan(3.9);

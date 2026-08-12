@@ -1,4 +1,5 @@
 import {
+  base64CharsFor,
   FRAME_CHUNK_BASE64_CHARS,
   frameBytesFor,
 } from "@kolu/surface/frame-chunking";
@@ -89,9 +90,14 @@ type WriteArgs = {
  */
 describe("chunked upload — no single frame scales with the file (G9a)", () => {
   /** A base64 string standing in for `mib` MiB of file content. Content is
-   *  irrelevant here; only its LENGTH drives the chunking. */
+   *  irrelevant here; only its LENGTH drives the chunking — but the length has
+   *  to be a length base64 can actually have, so it comes from the shared
+   *  `base64CharsFor` rather than a local `ceil(R / 3) * 4` written out again.
+   *  The hand-rolled copy put the `ceil` on the outside, which for 26 MiB is
+   *  36350636 instead of 36350635: not a multiple of 4, so the fixture was not
+   *  a legal base64 string at all. */
   const base64OfSize = (mib: number) =>
-    "A".repeat(Math.ceil(((mib * 1024 * 1024) / 3) * 4));
+    "A".repeat(base64CharsFor(mib * 1024 * 1024));
 
   it("splits a 26 MB drop across several bounded calls instead of one huge one", async () => {
     const scratchWrite = vi.fn((_args: WriteArgs) =>
