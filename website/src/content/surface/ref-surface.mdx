@@ -1042,6 +1042,40 @@ conjunction of transport-live and every readiness predicate; a subscription
 error stays in `subs` and is never folded into `live`. This is what lets the
 UI stay honest — see [Reactive honesty](/surface/reactive-honesty).
 
+### The readout
+
+The fact answers *what is true*; the **readout** (`@kolu/surface/solid`) is the
+one verdict the framework does own, because it is the one an app kept getting
+wrong: what a connection indicator may say. It folds the transport's four states
+together with the fact into five, and `connectSurface` / `connectSurfaces` hand it
+back in place of a transport-only `status`.
+
+| Export | Type | Meaning |
+| --- | --- | --- |
+| `SurfaceReadoutStatus` | `"connecting" \| "live" \| "degraded" \| "reconnecting" \| "retired"` | the five states. Type your wording table `Record<SurfaceReadoutStatus, …>` and a new state is a type error in your file, not a silent default |
+| `SurfaceReadout` | `TransportReadout \| DegradedReadout` | `{ status, needsReload }`, plus `stopped` on the degraded arm |
+| `surfaceReadout(status, health)` | `→ SurfaceReadout` | the pure fold — unit-test your look table against every state without a wire |
+| `createSurfaceReadout(status, health)` | `→ { readout, dispose }` | the memoized accessor over the two reactive facts, in a root of its own (the connect seams call this and fold `dispose` into theirs) |
+
+- **`live` is the conjunction.** The socket is live, the fact agrees, and nothing
+  enrolled is erroring. A socket that is open and answering under a dead
+  subscription reads `degraded`, not `live` — that gap is where the
+  green-light-over-an-empty-collection bug lives.
+- **`degraded` names what stopped**: `stopped` carries the erroring subscriptions'
+  own names (`documents.keys`, `terminals[3]`, and across siblings
+  `surfaceApp/buildInfo`), non-empty by type, so an indicator can always say what
+  is missing rather than that "something" is.
+- **Pending does not degrade.** A subscription waiting for its first frame is what
+  every page load looks like. This is a universal default and not app policy —
+  unlike `gateStatus`, the *gate's* verdict, where a pending first frame
+  legitimately blocks the body.
+- **`needsReload`** is true for `retired` and nothing else: the one state a reload,
+  and only a reload, recovers. Read it rather than keeping a list of which states
+  are terminal — a list read `down` as transient once, and drew "reconnecting…"
+  over a page that never would.
+- **The app owns the look.** Which words, which colours, whether the names go in a
+  tooltip or a strip. The framework owns which state is true.
+
 ## Recognizing a transport-loss end (for reconnect retry)
 
 A re-serve relay ends a live downstream with one of two tagged errors on a

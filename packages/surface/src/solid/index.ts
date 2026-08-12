@@ -76,6 +76,21 @@ export {
   type LiveSignalHandle,
   type SurfaceConnectionStatus,
 } from "./liveSignal";
+// The READOUT — the transport's four states folded WITH the health fact into the
+// five an indicator may report, so `live` is a claim about what reaches the page
+// rather than about a socket. The connect seams (`@kolu/surface-app`) hand back
+// `createSurfaceReadout`'s memoized accessor INSTEAD of a transport-only `status`;
+// a consumer that assembles its own wire (a hand-built `createLiveSignal` +
+// `surfaceClient`) folds the same two facts through the same function here.
+export {
+  createSurfaceReadout,
+  type DegradedReadout,
+  type SurfaceReadout,
+  surfaceReadout,
+  type SurfaceReadoutHandle,
+  type SurfaceReadoutStatus,
+  type TransportReadout,
+} from "./readout";
 // The browser wake-event seam (window focus / tab visible → an immediate heartbeat
 // re-probe). Exported so `@kolu/surface-app`'s `createServerLifecycle` wires the
 // same fast resume path over its own watchdog; a no-op off-DOM.

@@ -31,7 +31,7 @@ Connecting is one call too:
 import { connectSurface } from "@kolu/surface-app/solid";
 import { reloadForUpdate } from "@kolu/surface-app/lifecycle";
 
-const { link, client, status, dispose } = await connectSurface({
+const { link, client, readout, dispose } = await connectSurface({
   surface,
   url,
   retired: reloadForUpdate, // required: what happens when the server retires this wire
@@ -40,6 +40,12 @@ const { link, client, status, dispose } = await connectSurface({
 // the stale-tab `pid` handshake are wired for you (the dial is an effect, so the
 // seam is async). The only thing left to spell is what a tab does when the server
 // it came from is gone, because that is the one state nothing else can decide.
+//
+// `readout()` is what an indicator draws: `connecting | live | degraded |
+// reconnecting | retired`, plus `needsReload` and — when degraded — the NAMES of
+// the subscriptions that stopped. `live` is the conjunction of the wire's state
+// and the subscription-health fact, so green is a claim about what reaches the
+// page rather than about a socket. The words and colours stay yours.
 ```
 
 Part of the kolu monorepo — `"@kolu/surface-app": "workspace:*"`.

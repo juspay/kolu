@@ -7,21 +7,33 @@
  */
 
 import { shellCommit } from "@kolu/surface-app/lifecycle";
-import {
-  type ConnectionStatus,
-  SurfaceAppProvider,
-  useSurfaceApp,
-} from "@kolu/surface-app/solid";
+import { SurfaceAppProvider, useSurfaceApp } from "@kolu/surface-app/solid";
 import { probeSurfaceIdentity } from "@kolu/surface/identity";
+import type { SurfaceReadoutStatus } from "@kolu/surface/solid";
 import { createSignal, Show } from "solid-js";
 import { buildInfo, type ExampleBuildInfo } from "../common/surface";
 import { clients, conn } from "./wire";
 
-const STATUS_LABEL: Record<ConnectionStatus, string> = {
+/** The wording, which is the APP's — the framework decides which of the five
+ *  states is true, never what it is called. A `Record`, so a state with no
+ *  sentence of its own is a type error here rather than a silent fallback. */
+const STATUS_LABEL: Record<SurfaceReadoutStatus, string> = {
+  connecting: "connecting…",
   live: "live",
+  degraded: "partly live",
   reconnecting: "reconnecting…",
-  restarted: "server restarted",
-  down: "down",
+  retired: "server restarted",
+};
+
+/** This app's green claim, spelled out: `live` means the cells on this page are
+ *  arriving, not that a socket is open. When they aren't, the readout says WHICH
+ *  ones — a non-empty list by type, so this sentence can't come out with a hole
+ *  in it. */
+const statusDetail = (): string => {
+  const now = conn.readout();
+  return now.status === "degraded"
+    ? `connected, but nothing is arriving on ${now.stopped.join(", ")}`
+    : STATUS_LABEL[now.status];
 };
 
 function Shell() {
@@ -51,8 +63,17 @@ function Shell() {
   return (
     <>
       <header class="rail">
-        <span class={`dot ${pwa.status() === "live" ? "ok" : "warn"}`} />
-        <span class="muted">{STATUS_LABEL[pwa.status()]}</span>
+        {/* The dot reads the READOUT, not the transport: `connectSurfaces` folds
+            the wire's state together with every sibling's subscription health, so
+            green here is a claim about what reaches THIS PAGE. Painting it from a
+            transport status alone is how a stopped `serverStats` would render as
+            a frozen panel under a green light. */}
+        <span
+          class={`dot ${conn.readout().status === "live" ? "ok" : "warn"}`}
+        />
+        <span class="muted" title={statusDetail()}>
+          {STATUS_LABEL[conn.readout().status]}
+        </span>
         <span class="sep">·</span>
         <span>
           SRV <b class="srv">{pwa.server()?.commit || "…"}</b>

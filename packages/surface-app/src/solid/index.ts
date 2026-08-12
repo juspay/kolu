@@ -84,6 +84,17 @@ export {
   type LiveSignalHandle,
   type SurfaceConnectionStatus,
 } from "@kolu/surface/solid";
+// The READOUT both connect seams now hand back INSTEAD of a transport-only
+// `status` — the wire's own states folded with the subscription-health fact, so
+// `live` is a claim about what reaches the page. Re-exported here so an app that
+// types its own LOOK table (`Record<SurfaceReadoutStatus, …>`) names it from the
+// same import as the seam that produced it.
+export type {
+  DegradedReadout,
+  SurfaceReadout,
+  SurfaceReadoutStatus,
+  TransportReadout,
+} from "@kolu/surface/solid";
 
 /** The live relationship to the server this client is bound to. */
 export type ConnectionStatus = "live" | "reconnecting" | "restarted" | "down";
