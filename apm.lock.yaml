@@ -812,7 +812,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:586e518725c578e3ed54ef1290fd52260cc577cb61f5f6b5461138b9ce353fa9
+  content_hash: sha256:11e846469ab1433a9735b1a42818eb8f0fcba508b10df792e74b5a05426b2d3d
 - kind: project-relative
   target: claude
   value: .claude/rules/state.md
@@ -2808,7 +2808,7 @@ local_deployed_file_hashes:
   .claude/rules/e2e-testing.md: sha256:4ac4aedce1a35c58c54ae3029f931f75feb852308b1601a3e0da2e5b6cb6fbdd
   .claude/rules/logo.md: sha256:05f412b96dcdd5a7e6de9bce3cdb164a89cabe5da6ed0c865662b33743470e25
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
-  .claude/rules/solidjs.md: sha256:586e518725c578e3ed54ef1290fd52260cc577cb61f5f6b5461138b9ce353fa9
+  .claude/rules/solidjs.md: sha256:11e846469ab1433a9735b1a42818eb8f0fcba508b10df792e74b5a05426b2d3d
   .claude/rules/state.md: sha256:4f604dec0848e4d23aed72232107e3070c9b9a7fe44c62f68a230b227a136811
   .claude/rules/streaming.md: sha256:5e0fbac463a89ce4dee5d09e2cca2a1c47849d14f8aaca022350d2026731b161
   .claude/rules/surface-reference.md: sha256:2f364010748736ca1dee6acdd488391ef0d25ae138bcc4b453c4ef119ed9b2e4

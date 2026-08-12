@@ -211,11 +211,29 @@ describe("createSurfaceReadout", () => {
     createRoot((dispose) => {
       const [status, setStatus] = createSignal<SurfaceConnectionStatus>("live");
       const health = vi.fn((): SurfaceHealth => fact(true));
-      const { dispose: dropReadout } = createSurfaceReadout(status, health);
-      const folds = health.mock.calls.length;
-      dropReadout();
+      const { readout, dispose: dropReadout } = createSurfaceReadout(
+        status,
+        health,
+      );
+      // OBSERVE the memo first, and keep observing after. Without a live reader
+      // Solid never re-runs a memo at all, so a `dispose` that did nothing would
+      // pass a fold-count assertion just as quietly as one that worked — the
+      // reader is what makes the count evidence.
+      const painted: SurfaceReadoutStatus[] = [];
+      createComputed(() => painted.push(readout().status));
       setStatus("reconnecting");
+      expect(painted).toEqual(["live", "reconnecting"]);
+      const folds = health.mock.calls.length;
+
+      // Now drop the readout's own root. Its memo is gone, so the observer above
+      // is no longer fed and nothing re-walks the fact — which is what keeps a
+      // disposed connection from leaving a standing computation on a registry it
+      // no longer belongs to.
+      dropReadout();
+      setStatus("live");
       expect(health.mock.calls.length).toBe(folds);
+      expect(painted).toEqual(["live", "reconnecting"]);
+      expect(readout().status).toBe("reconnecting");
       dispose();
     });
   });

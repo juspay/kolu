@@ -6,17 +6,19 @@
  * status + `surfaceClients` with NO heartbeat) is what this replaces, so half-open
  * detection is no longer a function of which constructor a consumer called.
  *
- * Three properties are pinned: the combined `live` tracks the one wire (NOT a
+ * Four properties are pinned: the combined `live` tracks the one wire (NOT a
  * constant `true`), the heartbeat probes the FIRST sibling's reserved liveness TAG
- * (the scoped tag must be the one `implementSurfaces` binds), and an empty surface
- * map fails fast (no sibling ⇒ no probe target). The socket is faked through the
+ * (the scoped tag must be the one `implementSurfaces` binds), the `readout` folds
+ * the MERGED fact so a degraded bundle names the stopped sub by its
+ * sibling-prefixed name, and an empty surface map fails fast (no sibling ⇒ no
+ * probe target). The socket is faked through the
  * link's own `connect` seam — no module mocking — and `createHeartbeat` is
  * captured so the probe thunk can be fired without waiting on its interval.
  */
 
 import { defineSurface } from "@kolu/surface/define";
 import { Schema } from "effect";
-import { createRoot } from "solid-js";
+import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
@@ -133,6 +135,40 @@ describe("connectSurfaces — one wire, multi-surface, heartbeat by construction
       const frames = ws.sent.map((f) => String(f)).join("");
       expect(frames).toContain('"tag":"surface/a/system/live"');
       expect(frames).not.toContain('"tag":"surface/b/system/live"');
+      await conn.dispose();
+      dispose();
+    });
+  });
+
+  it("degrades the readout over a stopped sub, naming it by SIBLING-prefixed name", async () => {
+    // The multi-surface readout folds the MERGED fact, whose names are prefixed
+    // by surface key (`mergeSurfaceHealth`). That prefix is what makes a degraded
+    // bundle say WHICH surface went quiet — a documented claim (the seam's own
+    // docstring, `ref-surface.mdx`), so it is pinned at the seam that produces
+    // it rather than inferred from the single-surface fold.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface, b: surface },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+      expect(conn.readout().status).toBe("live");
+
+      const [error, setError] = createSignal<Error | undefined>(undefined);
+      conn.clients.b.enroll("conn", { pending: () => false, error });
+      expect(conn.readout().status).toBe("live");
+
+      setError(new Error("Internal server error"));
+      expect(conn.readout()).toEqual({
+        status: "degraded",
+        stopped: ["b/conn"],
+        needsReload: false,
+      });
+
       await conn.dispose();
       dispose();
     });
