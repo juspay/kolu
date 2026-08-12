@@ -28,9 +28,9 @@
  *
  * Raising it was considered and rejected. A cap only converts "one huge frame"
  * into "one huger frame" — the fix for payloads that scale with user content is
- * to stop letting any single frame scale with user content at all (see
- * `@kolu/padi`'s `UPLOAD_CHUNK_BYTES`, derived FROM this constant). The cap is
- * the backstop, not the budget.
+ * to stop letting any single frame scale with user content at all. That is the
+ * sender's half of this module, and it lives next door in `./frameChunking.ts`,
+ * derived FROM this constant. The cap is the backstop, not the budget.
  *
  * ## The measurement behind the marker
  *
@@ -62,8 +62,8 @@
  *
  * `exceedsFrameLimit(bytes)` is the framework's PUBLISHED sender-side predicate,
  * and every sender in this repo budgets against it in BYTES — the terminal's
- * paste delivery (`frameBytes = base64Chars + envelope`), padi's whole
- * `UPLOAD_CHUNK_BYTES` derivation. So a transport-level payload cap — `ws`'s
+ * paste delivery, and the whole `./frameChunking.ts` derivation it rides
+ * (`frameBytesFor(base64Chars)`). So a transport-level payload cap — `ws`'s
  * `maxPayload`, which counts the UTF-8 bytes of the frame — is set to
  * `RPC_MAX_FRAME_BYTES` and to nothing else: it then refuses exactly the frames
  * the published predicate refuses, and no others.

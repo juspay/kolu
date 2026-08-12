@@ -1081,7 +1081,7 @@ export const PadiScreenHistoryOutputSchema = Schema.Union([
  *  scale with the dropped file: a 26 MB drop became a ~35 MB frame, and the
  *  ndjson decoder answers an oversized frame by CLOSING THE SOCKET (1009),
  *  taking every other subscription on that tab's multiplexed wire with it. So
- *  the file arrives as a sequence of `UPLOAD_CHUNK_BYTES`-bounded calls: the
+ *  the file arrives as a sequence of `FRAME_CHUNK_BYTES`-bounded calls: the
  *  first omits `appendTo` and creates the file, each subsequent one passes back
  *  the path it was given and appends. No single frame scales with user data. */
 export const PadiScratchWriteInputSchema = Schema.Struct({

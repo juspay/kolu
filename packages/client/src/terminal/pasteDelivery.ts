@@ -25,7 +25,7 @@
  *  every subscription the tab had (production incident: the terminal pane
  *  blanked mid-drop).
  *
- *  So the base64 is split into `UPLOAD_CHUNK_BYTES`-bounded pieces and sent in
+ *  So the base64 is split into `FRAME_CHUNK_BYTES`-bounded pieces and sent in
  *  order: the first call creates the file, each later one passes back the path
  *  it was handed and appends. The chunks are SEQUENTIAL, not concurrent — the
  *  server appends to one growing file, so two chunks in flight would interleave
@@ -35,19 +35,17 @@
  *  Extracted from Terminal.tsx so the delivery gate is unit-testable without an
  *  xterm/DOM harness (Terminal.tsx cannot be imported under the node runner). */
 
-import { chunkBase64, UPLOAD_CHUNK_BASE64_CHARS } from "@kolu/padi/upload";
+import {
+  chunkBase64,
+  FRAME_CHUNK_BASE64_CHARS,
+  frameBytesFor,
+} from "@kolu/surface/frame-chunking";
 import {
   exceedsFrameLimit,
   RPC_MAX_FRAME_BYTES,
 } from "@kolu/surface/frame-limit";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-
-/** Bytes of JSON envelope budgeted around a chunk's payload — procedure path,
- *  request id, terminal id, the scratch path, the filename, and JSON's quoting.
- *  Generous on purpose: it is the same 64 KiB ceiling `UPLOAD_CHUNK_BYTES`'
- *  derivation reserves, so the two sides of the margin agree. */
-const FRAME_ENVELOPE_BUDGET_BYTES = 64 * 1024;
 
 /** The pre-send refusal (G9b).
  *
@@ -63,7 +61,7 @@ export function oversizedFrameRefusal(
   label: string,
   base64Chars: number,
 ): string | null {
-  const frameBytes = base64Chars + FRAME_ENVELOPE_BUDGET_BYTES;
+  const frameBytes = frameBytesFor(base64Chars);
   if (!exceedsFrameLimit(frameBytes)) return null;
   const mib = (n: number) => (n / (1024 * 1024)).toFixed(1);
   return `Couldn't upload "${label}" — one piece of it came to ${mib(frameBytes)} MB and the connection's limit is ${mib(RPC_MAX_FRAME_BYTES)} MB. Nothing was sent. That's a bug, please report it.`;
@@ -91,7 +89,7 @@ export function deliverScratchPaste(deps: {
   /** Wrap the scratch path in the bracketed-paste markers. */
   wrapPath: (path: string) => string;
   /** Base64 characters per chunk. Defaults to the derived
-   *  `UPLOAD_CHUNK_BASE64_CHARS`, and production never passes anything else.
+   *  `FRAME_CHUNK_BASE64_CHARS`, and production never passes anything else.
    *  It is a parameter so the pre-send refusal below is REACHABLE in a test:
    *  the failure that guard exists for is a bad chunk size, and a guard nobody
    *  can drive is a guard nobody knows works. */
@@ -100,7 +98,7 @@ export function deliverScratchPaste(deps: {
   return Effect.gen(function* () {
     const chunks = chunkBase64(
       deps.base64,
-      deps.chunkChars ?? UPLOAD_CHUNK_BASE64_CHARS,
+      deps.chunkChars ?? FRAME_CHUNK_BASE64_CHARS,
     );
 
     // Refuse BEFORE the first byte goes out, not chunk by chunk: a refusal

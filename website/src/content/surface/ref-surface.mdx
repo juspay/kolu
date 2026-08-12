@@ -1090,6 +1090,50 @@ The close-on-exceed semantics carry a `BETA-ASSUMPTION(beta.106)` marker
 (governed by `packages/tests/governance/betaAssumptions.ts`), so an Effect bump
 must re-measure them before it can land.
 
+### Fitting under it (`@kolu/surface/frame-chunking`)
+
+The sender's half of the cap. An app that ever puts bytes on the wire — a drop,
+a paste, an attachment — has to cut them so no single frame scales with the
+file, and that arithmetic has more terms than it looks like it has. It lives
+here, once, so nobody derives it a third time: **give it an encoded payload and
+the budget derived from the cap, get legal frames.** (Encoding is the caller's —
+`chunkBase64` splits a base64 *string*, and `base64CharsFor` sizes one before
+you build it.)
+
+| Export | Type | Meaning |
+| --- | --- | --- |
+| `FRAME_CHUNK_BYTES` | `number` | 3 MiB. Raw bytes one frame carries. A multiple of 3, so the base64 division is exact. |
+| `FRAME_CHUNK_BASE64_CHARS` | `number` | 4 MiB. `FRAME_CHUNK_BYTES` after the 4/3 expansion — a multiple of 4 by construction. |
+| `FRAME_ENVELOPE_BYTES` | `number` | 64 KiB. What everything on the frame other than the payload is budgeted at. |
+| `FRAME_PAYLOAD_BUDGET` | `number` | `RPC_MAX_FRAME_BYTES − FRAME_ENVELOPE_BYTES`. |
+| `chunkBase64(data, chunkChars?)` | `(string, number?) → readonly [string, ...string[]]` | Splits a base64 string on 4-character boundaries. Always at least one piece, so an empty input still performs exactly one write. Throws if `chunkChars` is not a multiple of 4. |
+| `base64CharsFor(rawBytes)` | `(number) → number` | `ceil(R / 3) * 4`. |
+| `base64DecodedLength(data)` | `(string) → number` | Decoded size without decoding — for a size gate that must not materialize a buffer. |
+| `frameBytesFor(base64Chars)` | `(number) → number` | What a frame carrying that payload costs, envelope included. Hand it to `exceedsFrameLimit` for a pre-send refusal. |
+
+Three things the derivation turns on, each of which a re-derivation gets wrong:
+
+- **Two expansions, and only two.** base64 is 4/3; the JSON envelope is a bounded
+  constant. There is no third — base64's alphabet contains no character JSON
+  escapes, so the payload does not grow again inside the JSON string.
+- **The chunk is a multiple of 3.** That is what puts every boundary on a
+  4-character group, and a group is the unit base64 decodes independently. Split
+  off it and the pieces reassemble as a string while decoding to garbage. (A
+  round 4 MiB is *not* divisible by 3; 3 MiB is, and 3 MiB of bytes is exactly
+  4 MiB of base64.)
+- **The chunk does not fill the budget.** ~3.9x headroom, so the number survives
+  a bump that adds envelope fields — while a 50 MB file still costs 17 round
+  trips.
+
+The margin is a test (`frameChunking.test.ts`), not a paragraph: it measures the
+chunk against the imported cap, so a bump that moved the cap fails there rather
+than rotting a comment.
+
+**What stays with the app.** This module pays the arithmetic, not the gate. A
+size policy cap, an extension allowlist, the wording of a refusal, where the
+bytes land on disk — those are the consuming app's (kolu's own live in
+`@kolu/padi/upload`). Chunking is wire physics; what you'll accept is not.
+
 ## Cross-cutting invariants
 
 - **Snapshot-then-deltas.** The first frame of every stream is a fresh full snapshot; every server helper enforces it, because the retry fence re-runs the source on each reconnect and a delta-first frame would silently lose state.
