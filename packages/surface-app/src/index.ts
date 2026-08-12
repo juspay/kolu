@@ -33,6 +33,25 @@ export const ASSET_DIR = "assets";
  *  literal, keeping the "safe to precompress" set single-sourced with the
  *  immutable-asset taxonomy. */
 export const DEFAULT_ASSET_PREFIX = `/${ASSET_DIR}/`;
+/** The build-time precompressed siblings, in SERVER PREFERENCE ORDER: the
+ *  `Content-Encoding` token a client offers, and the file suffix that carries
+ *  those bytes beside the identity asset. ONE table, read by both halves of the
+ *  socket — `./server`'s `freshStaticLayer` walks it to negotiate, `./precompress`
+ *  walks it to EMIT. They lived apart once, and the gap was a silent bug: the
+ *  server has preferred `zstd` since it replaced Hono's `serve-static`, while
+ *  every consumer's hand-rolled post-step wrote only `.br`/`.gz` — so the
+ *  preferred encoding was never on disk and the negotiation quietly fell through
+ *  to second place. A table a builder cannot fail to read is what stops that
+ *  recurring. */
+export const PRECOMPRESSED_ENCODINGS: readonly (readonly [
+  encoding: string,
+  suffix: string,
+])[] = [
+  ["br", ".br"],
+  ["zstd", ".zst"],
+  ["gzip", ".gz"],
+];
+
 /** The default `no-store` shell paths `FreshnessPaths.shellPaths` falls back to.
  *  Exported so the server can assert its `precompressed` route (scoped to
  *  `assetPrefix`) never overlaps the shell — the mechanical half of the kolu#1319

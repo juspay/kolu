@@ -21,12 +21,40 @@
  * would leak Bun globals into every surface-app file), it reaches the runtime
  * `Bun` through a single locally-typed `globalThis` accessor — the same
  * "structural shape, no upstream type dependency" stance `./vite` takes for Vite.
+ *
+ * ## What the dist is, and why it takes no options to be it
+ *
+ * The dist this writes is the one `./server`'s `freshStaticLayer` serves — the
+ * whole of it, not the part every consumer remembered to finish by hand:
+ *
+ * - **Precompressed siblings** (`./precompress`) for the hashed assets, because
+ *   the static layer has always negotiated `br`/`zstd`/`gzip` and nothing here
+ *   ever wrote them. There is no `precompress?: boolean`: a sibling exists only
+ *   when it BEAT identity, is scoped to the immutable dir the layer negotiates
+ *   under, and is skipped for types the layer refuses — so the switch would only
+ *   ever select between "the layer works" and "the layer has nothing to serve".
+ * - **Code splitting**, because `splitting: false` silently INLINED a consumer's
+ *   `import()` into the entry — deferred in evaluation, identical on the wire,
+ *   which is not the thing anyone writes `import()` for. There is no
+ *   `splitting?: boolean` either: an app already says what it wants split by
+ *   writing `import()` (or not), and a flag that turns that statement into a
+ *   no-op is a second, silent opinion about the app's own source. With one
+ *   entrypoint and no dynamic import the output is byte-identical either way.
+ *
+ * Both were paid upstream the way the `serveSurfaceApp` listener sequence and
+ * the RPC frame cap were: by REMOVING the choice where the right answer is
+ * universal, so the consumer's build script gets shorter rather than wider.
  */
 
 import { existsSync } from "node:fs";
 import { cp, mkdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { ASSET_DIR, injectShellCommit } from "./index";
+import {
+  type AssetReport,
+  precompressAssets,
+  pruneAssets,
+} from "./precompress";
 import { resolveCommit } from "./vite";
 
 // --- minimal structural view of the Bun runtime (see module header) ----------
@@ -42,7 +70,10 @@ interface BunBuildResult {
 interface BunBuildConfig {
   entrypoints: string[];
   outdir: string;
-  naming?: string;
+  // The object form, so the `[hash]` that every `immutable` pin rests on covers
+  // CHUNKS too — a string here would name only the entry, and a split-out chunk
+  // with an unhashed name would be pinned for a year under a reusable URL.
+  naming?: { entry: string; chunk: string; asset: string };
   target?: string;
   format?: string;
   splitting?: boolean;
@@ -64,8 +95,23 @@ interface BunLike {
   write(path: string, data: string | ArrayBuffer | Uint8Array): Promise<number>;
   hash(data: string | ArrayBuffer | Uint8Array): bigint;
 }
-const Bun = (globalThis as unknown as { Bun: BunLike }).Bun;
+/** The runtime `Bun`, read at CALL time and never cached at module load: this
+ *  module is imported by kolu's own Node test suite (which drives it over a
+ *  stand-in runtime), and a missing `Bun` must say so in one sentence rather
+ *  than surface as `undefined.build is not a function` deep in a build. */
+const bun = (): BunLike => {
+  const runtime = (globalThis as unknown as { Bun?: BunLike }).Bun;
+  if (runtime === undefined)
+    throw new Error(
+      "buildSurfaceClient: no `Bun` global — @kolu/surface-app/bun is the Bun-runtime build path; run it under `bun`.",
+    );
+  return runtime;
+};
 // -----------------------------------------------------------------------------
+
+/** Re-exported so a caller can NAME what `buildSurfaceClient` reports back; the
+ *  emitter itself is internal (see `./precompress`). */
+export type { AssetReport } from "./precompress";
 
 /** An extra content-hashed asset the app produces with its own toolchain (e.g.
  *  Tailwind CSS), to be emitted under `/assets/<name>-<hash>.<ext>` with the same
@@ -115,17 +161,32 @@ export interface SurfaceClientBuildOptions {
   minify?: boolean;
 }
 
+/** What a built client dist is, told back to its builder. */
+export interface SurfaceClientBuildResult {
+  /** The hashed URL of the JS entry — the one the shell now names. */
+  jsHref: string;
+  /** Hashed URLs of the extra assets, keyed by their `name`. */
+  assetHrefs: Record<string, string>;
+  /** Every file in the hashed-asset dir with its identity and sibling sizes —
+   *  entry, split chunks and extra assets alike. What a build script prints to
+   *  make "2.56 MB became 571 kB on the wire" a number somebody can see. */
+  assets: readonly AssetReport[];
+}
+
 /** Build a surface-app client bundle that satisfies the freshness contract:
  *  content-hashed `/assets/*` (the prerequisite for `immutable` caching), the
  *  build commit published on the shell global (`window.__SURFACE_APP_COMMIT__`
  *  in the `no-store` `index.html` — never inside a hashed asset; kolu#1319),
- *  and the shell rewritten to name the hashed assets. Returns the hashed hrefs
- *  (the JS entry plus one per extra asset, keyed by `name`) — the same URLs
- *  written into the shell, exposed for callers that also template the HTML
- *  elsewhere. */
+ *  and the shell rewritten to name the hashed assets. The hashed dir it leaves
+ *  behind is exactly this build's output plus the precompressed siblings
+ *  `freshStaticLayer` negotiates — see the module header for why neither of
+ *  those is an option. Returns the hashed hrefs (the JS entry plus one per extra
+ *  asset, keyed by `name`) — the same URLs written into the shell, exposed for
+ *  callers that also template the HTML elsewhere — and a size report per asset. */
 export async function buildSurfaceClient(
   opts: SurfaceClientBuildOptions,
-): Promise<{ jsHref: string; assetHrefs: Record<string, string> }> {
+): Promise<SurfaceClientBuildResult> {
+  const Bun = bun();
   const distDir = resolve(opts.distDir);
   const assetsDir = resolve(distDir, ASSET_DIR);
   await mkdir(assetsDir, { recursive: true });
@@ -140,13 +201,23 @@ export async function buildSurfaceClient(
   // stamp-only rebuild silently changes an `immutable` file's content and
   // strands returning browsers on the old stamp (kolu#1319). The commit rides
   // the shell instead — `injectShellCommit` below.
+  //
+  // `splitting` is on and is not an option (module header): a dynamic `import()`
+  // in the app's source is what asks for a chunk, and the same `[hash]` naming
+  // covers chunks, so a split-out chunk lands in the same immutable `/assets/`
+  // dir and is referenced from the entry by a relative URL that resolves inside
+  // it. An app with no dynamic import gets the single file it always got.
   const jsResult = await Bun.build({
     entrypoints: [resolve(opts.entrypoint)],
     outdir: assetsDir,
-    naming: "[name]-[hash].[ext]",
+    naming: {
+      entry: "[name]-[hash].[ext]",
+      chunk: "[name]-[hash].[ext]",
+      asset: "[name]-[hash].[ext]",
+    },
     target: "browser",
     format: "esm",
-    splitting: false,
+    splitting: true,
     minify: opts.minify ?? true,
     sourcemap: "linked",
     plugins: opts.plugins,
@@ -157,8 +228,9 @@ export async function buildSurfaceClient(
       `buildSurfaceClient: Bun.build failed for client\n${detail}`,
     );
   }
-  // The entrypoint output is the one `.js` whose kind isn't a chunk; find it by
-  // `kind` to stay correct even if splitting is later enabled.
+  // The entrypoint output is the one `.js` whose kind isn't a chunk — found by
+  // `kind`, which is what keeps this correct now that splitting is on and the
+  // outputs alongside it are chunks and sourcemaps.
   const jsEntry = jsResult.outputs.find(
     (o) => o.kind === "entry-point" && o.path.endsWith(".js"),
   );
@@ -173,11 +245,17 @@ export async function buildSurfaceClient(
   // `name` so the shell rewrite and the return value agree. Same immutable
   // contract as the JS bundle — identical bytes keep their URL.
   const assetHrefs: Record<string, string> = {};
+  // Every file this build put in the hashed dir, by name — the entry, the split
+  // chunks, the sourcemaps, and the extra assets below. It is what `pruneAssets`
+  // measures the dir against at the end: anything else there is a previous
+  // build's, named by no shell that can still be loaded.
+  const produced = new Set(jsResult.outputs.map((o) => basename(o.path)));
   for (const asset of opts.extraAssets ?? []) {
     const bytes = await asset.build();
     const hash = Bun.hash(bytes).toString(16).slice(0, 8);
     const fileName = `${asset.name}-${hash}.${asset.ext}`;
     await Bun.write(resolve(assetsDir, fileName), bytes);
+    produced.add(fileName);
     assetHrefs[asset.name] = `/${ASSET_DIR}/${fileName}`;
   }
 
@@ -225,5 +303,14 @@ export async function buildSurfaceClient(
     await cp(publicDir, distDir, { recursive: true });
   }
 
-  return { jsHref, assetHrefs };
+  // Finish the dist the server is built to serve. Prune FIRST — an earlier
+  // build's assets are unreachable the moment the shell above stopped naming
+  // them, and compressing them would be a growing bill for bytes nobody can
+  // request. Then write the siblings `freshStaticLayer` negotiates, skipping any
+  // that already sit beside an unchanged (so identically hashed) asset, which is
+  // what keeps a rebuild's brotli bill proportional to what actually changed.
+  await pruneAssets(assetsDir, produced);
+  const assets = await precompressAssets(assetsDir);
+
+  return { jsHref, assetHrefs, assets };
 }

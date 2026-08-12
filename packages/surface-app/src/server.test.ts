@@ -13,20 +13,13 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Readable } from "node:stream";
-import { NodeHttpServer } from "@effect/platform-node";
 import { surfaceProcessId } from "@kolu/surface/identity";
 import { implementSurfaces } from "@kolu/surface/server";
-import { Effect, type FileSystem, type Layer, type Path, Stream } from "effect";
-import {
-  type HttpPlatform,
-  HttpRouter,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { Effect, } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSurfaceSocket } from "./connect";
 import { socketPair } from "./fakeSocket.testlib";
+import { drive } from "./httpDrive.testlib";
 import {
   NOTIFICATION_SW_SOURCE,
   STALE_PROCESS_CLOSE_CODE,
@@ -49,90 +42,6 @@ import {
 } from "./server";
 import type { BuildInfo } from "./surface";
 import { surfaceAppSurface } from "./surface";
-
-/** What a driven request answers with — the shape the old `app.request(...)`
- *  `Response` gave these tests, so the assertions stay about behaviour. */
-interface Answer {
-  status: number;
-  header: (name: string) => string | undefined;
-  text: string;
-}
-
-/** The bytes of a response body, whichever variant carries them. */
-const bodyText = (
-  response: HttpServerResponse.HttpServerResponse,
-): Effect.Effect<string> => {
-  const body = response.body;
-  switch (body._tag) {
-    case "Empty":
-      return Effect.succeed("");
-    case "Uint8Array":
-      return Effect.succeed(new TextDecoder().decode(body.body));
-    case "Stream":
-      return Stream.runFold(
-        Stream.orDie(body.stream),
-        () => "",
-        (acc, chunk) => acc + new TextDecoder().decode(chunk),
-      );
-    // A file response on Node is `Raw` around a node `Readable` — the platform
-    // hands the stream straight to the socket.
-    case "Raw":
-      return Effect.promise(async () => {
-        const chunks: Buffer[] = [];
-        for await (const chunk of body.body as Readable) {
-          chunks.push(Buffer.from(chunk as Uint8Array));
-        }
-        return Buffer.concat(chunks).toString("utf8");
-      });
-    default:
-      return Effect.succeed("");
-  }
-};
-
-/**
- * Drive an app layer the way a Node request reaches it: a RAW request target
- * (`request.url` is the untouched `IncomingMessage.url`, never a WHATWG-parsed
- * URL) through the real router, out an `HttpServerResponse`. The platform
- * services are the real Node ones — these tests read real files off a real temp
- * dist, exactly as the Hono ones did.
- */
-const drive = (
-  appLayer: Layer.Layer<
-    never,
-    never,
-    | HttpRouter.HttpRouter
-    | FileSystem.FileSystem
-    | Path.Path
-    | HttpPlatform.HttpPlatform
-  >,
-  target: string,
-  headers: Record<string, string> = {},
-): Promise<Answer> =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const app = yield* HttpRouter.toHttpEffect(appLayer);
-      const request = HttpServerRequest.fromWeb(
-        new Request("http://test/", { headers }),
-      ).modify({ url: target });
-      const response = yield* app.pipe(
-        Effect.provideService(HttpServerRequest.HttpServerRequest, request),
-        // An unmatched route is a 404 here, the way the server's own error
-        // handling renders it — never a failed test run.
-        Effect.catch((error) =>
-          error.reason._tag === "RouteNotFound"
-            ? Effect.succeed(
-                HttpServerResponse.text("not found", { status: 404 }),
-              )
-            : Effect.die(error),
-        ),
-      );
-      return {
-        status: response.status,
-        header: (name: string) => response.headers[name.toLowerCase()],
-        text: yield* bodyText(response),
-      };
-    }).pipe(Effect.scoped, Effect.provide(NodeHttpServer.layerHttpServices)),
-  );
 
 describe("freshStaticLayer — the /sw.js route", () => {
   it("serves the self-destructing retirement worker by default", async () => {
