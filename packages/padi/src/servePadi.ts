@@ -18,6 +18,7 @@
  */
 
 import { rmSync } from "node:fs";
+import { base64DecodedLength } from "@kolu/surface/frame-chunking";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import {
   type ImplementSurfaceDeps,
@@ -124,7 +125,7 @@ import {
 } from "./terminals.ts";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { exportTranscriptHtml } from "./transcript/transcript.ts";
-import { base64DecodedLength, rejectionFor } from "./upload.ts";
+import { rejectionFor } from "./upload.ts";
 
 // Baked scrollback-backfill invariant, asserted at daemon startup (fail fast, no
 // degrade): a client's own scrollback must hold the ENTIRE reachable history —

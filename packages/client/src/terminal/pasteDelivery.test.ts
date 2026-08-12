@@ -1,7 +1,7 @@
 import {
-  UPLOAD_CHUNK_BASE64_CHARS,
-  UPLOAD_CHUNK_BYTES,
-} from "@kolu/padi/upload";
+  FRAME_CHUNK_BASE64_CHARS,
+  frameBytesFor,
+} from "@kolu/surface/frame-chunking";
 import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
@@ -115,8 +115,8 @@ describe("chunked upload — no single frame scales with the file (G9a)", () => 
 
     // THE invariant: every frame this upload put on the wire fits the cap.
     for (const [args] of scratchWrite.mock.calls) {
-      expect(args.data.length).toBeLessThanOrEqual(UPLOAD_CHUNK_BASE64_CHARS);
-      expect(args.data.length + 64 * 1024).toBeLessThan(RPC_MAX_FRAME_BYTES);
+      expect(args.data.length).toBeLessThanOrEqual(FRAME_CHUNK_BASE64_CHARS);
+      expect(frameBytesFor(args.data.length)).toBeLessThan(RPC_MAX_FRAME_BYTES);
     }
   });
 
@@ -165,7 +165,7 @@ describe("chunked upload — no single frame scales with the file (G9a)", () => 
     );
 
     // Distinguishable chunks: a block of "a", then "b", then "c".
-    const chunk = (c: string) => c.repeat(UPLOAD_CHUNK_BASE64_CHARS);
+    const chunk = (c: string) => c.repeat(FRAME_CHUNK_BASE64_CHARS);
     await Effect.runPromise(
       deliverScratchPaste({
         ...base,
@@ -205,7 +205,7 @@ describe("chunked upload — no single frame scales with the file (G9a)", () => 
  *  discovers a frame is too big. */
 describe("pre-send frame refusal (G9b)", () => {
   it("passes a chunk-sized frame — the refusal must not fire on normal traffic", () => {
-    expect(oversizedFrameRefusal("big.webm", UPLOAD_CHUNK_BASE64_CHARS)).toBe(
+    expect(oversizedFrameRefusal("big.webm", FRAME_CHUNK_BASE64_CHARS)).toBe(
       null,
     );
   });
@@ -246,19 +246,9 @@ describe("pre-send frame refusal (G9b)", () => {
   });
 });
 
-describe("the chunk size derivation holds against the wire cap", () => {
-  it("keeps a full chunk's frame under RPC_MAX_FRAME_BYTES with margin", () => {
-    // The derivation in `@kolu/padi/upload`, re-checked as arithmetic rather
-    // than trusted as a comment: base64 expansion + envelope must clear the cap
-    // with room. If someone raises UPLOAD_CHUNK_BYTES past its margin, this
-    // fails here rather than as a closed socket in production.
-    const frame = UPLOAD_CHUNK_BASE64_CHARS + 64 * 1024;
-    expect(frame).toBeLessThan(RPC_MAX_FRAME_BYTES);
-    expect(RPC_MAX_FRAME_BYTES / frame).toBeGreaterThan(2.5);
-  });
-
-  it("expands base64 by exactly 4/3, and lands on a 4-char boundary", () => {
-    expect(UPLOAD_CHUNK_BASE64_CHARS).toBe((UPLOAD_CHUNK_BYTES / 3) * 4);
-    expect(UPLOAD_CHUNK_BASE64_CHARS % 4).toBe(0);
-  });
-});
+// The chunk-size DERIVATION — base64's 4/3 expansion, the envelope, the
+// multiple-of-3 boundary, and the margin against the cap — is measured where it
+// now lives, in `@kolu/surface`'s `frameChunking.test.ts`. This file tests the
+// delivery seam that consumes it, so it must not keep a second copy of the
+// arithmetic: two copies of a margin is exactly the failure the shared module
+// was extracted to end.
