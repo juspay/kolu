@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { surfaceProcessId } from "@kolu/surface/identity";
 import { implementSurfaces } from "@kolu/surface/server";
-import { Effect, } from "effect";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSurfaceSocket } from "./connect";
 import { socketPair } from "./fakeSocket.testlib";
