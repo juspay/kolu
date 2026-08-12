@@ -191,6 +191,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "THE `pid` echo's edge: the reserved `system/identity` round-trip is an Effect, but `wire.onStatus` is a plain callback with no Effect to compose into, and what the probe produces is a MUTABLE the URL thunk reads on the next dial — there is no continuation to hand it to. Held here, at the one seam that dials a surface app's wire, precisely so it is not one edge per consuming app: the old arrangement made every app open its own (`createServerLifecycle`'s `onProcessId`), and an app that didn't (olai#61) shipped a dead stale-tab handshake",
   },
   {
+    path: "packages/surface-app/src/httpDrive.testlib.ts",
+    sites: 1,
+    why: "the static-layer suite's ONE request edge: `drive` builds an `HttpRouter` app, hands it a raw request and reads the response body, and every caller is a vitest `it` body — the harness's own Promise boundary, with no Effect caller to compose into. It is a `.testlib.ts` and not a `.test.ts` for the reason this scan cares about: two suites need it (`server.test.ts` asserts headers and text, `dist.test.ts` compares COMPRESSED bodies byte for byte), so the alternative is not fewer runs but the SAME run copied into two files this scan excludes — a duplicate that would drift silently and be invisible here by construction. One row is the honest form of that",
+  },
+  {
     path: "packages/surface-app/src/server.ts",
     sites: 2,
     why: "the per-connection serve boundary: build the serving layer into a connection-scoped `Scope` when a socket opens, close that scope when it ends — a `ws` callback either side",
