@@ -16,6 +16,7 @@ import {
   isCleanRef,
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
+  PRECOMPRESSED_ENCODINGS,
   SHELL_CACHE_CONTROL,
   SHELL_COMMIT_GLOBAL,
   shellCommitScript,
@@ -161,6 +162,38 @@ describe("injectShellCommit", () => {
     expect(() => injectShellCommit('<html><head lang="en"', "x")).toThrow(
       /unterminated/,
     );
+  });
+});
+
+describe("PRECOMPRESSED_ENCODINGS", () => {
+  // This table is the ONE place the negotiator (`./server`) and the emitter
+  // (`./precompress`) meet, which makes it the one place a whole encoding can
+  // go missing without anything else disagreeing: drop a row and both halves
+  // forget it together, so an emitter-equals-table assertion stays green while
+  // the encoding silently stops being served. That is exactly how `.zst` came
+  // to be absent from every consumer's dist while the server had supported it
+  // all along. So the rows are pinned as LITERALS here — a deletion has to
+  // survive a test that names the thing, not a test that compares two halves of
+  // the same mistake.
+  it("carries br/zstd/gzip against .br/.zst/.gz, in the server's preference order", () => {
+    expect(PRECOMPRESSED_ENCODINGS).toEqual([
+      ["br", ".br"],
+      ["zstd", ".zst"],
+      ["gzip", ".gz"],
+    ]);
+  });
+
+  it("keeps `zstd` → `.zst` — the row whose absence was the bug", () => {
+    // Named on its own so a diff that drops it reads as what it is, rather than
+    // as one line of a table rewrite.
+    expect(PRECOMPRESSED_ENCODINGS).toContainEqual(["zstd", ".zst"]);
+  });
+
+  it("names each encoding and each suffix once — a duplicate would shadow a row", () => {
+    const encodings = PRECOMPRESSED_ENCODINGS.map(([encoding]) => encoding);
+    const suffixes = PRECOMPRESSED_ENCODINGS.map(([, suffix]) => suffix);
+    expect(new Set(encodings).size).toBe(encodings.length);
+    expect(new Set(suffixes).size).toBe(suffixes.length);
   });
 });
 

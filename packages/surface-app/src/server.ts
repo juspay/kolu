@@ -47,6 +47,7 @@ import {
   type FreshnessPaths,
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
+  PRECOMPRESSED_ENCODINGS,
   SERVER_PROCESS_ID_PARAM,
   SHELL_CACHE_CONTROL,
   STALE_PROCESS_CLOSE_CODE,
@@ -79,16 +80,6 @@ export interface ManifestOptions {
   icons?: { src: string; sizes: string; type: string; purpose?: string }[];
   [extra: string]: unknown;
 }
-
-/** The build-time precompressed siblings, in SERVER preference order — the same
- *  order (and the same suffixes) the Hono `serve-static` this replaced walked, so
- *  a client offering several encodings gets the same one it did. */
-const PRECOMPRESSED: readonly (readonly [encoding: string, suffix: string])[] =
-  [
-    ["br", ".br"],
-    ["zstd", ".zst"],
-    ["gzip", ".gz"],
-  ];
 
 /** Content types worth serving a precompressed sibling for. Ported VERBATIM from
  *  `@hono/node-server`'s `serve-static` (its `COMPRESSIBLE_CONTENT_TYPE_REGEX`),
@@ -218,7 +209,7 @@ export function freshStaticLayer(
               .split(",")
               .map((token) => token.trim()),
           );
-          for (const [encoding, suffix] of PRECOMPRESSED) {
+          for (const [encoding, suffix] of PRECOMPRESSED_ENCODINGS) {
             if (!accepted.has(encoding)) continue;
             const sibling = yield* serveAt(request, target + suffix);
             if (sibling === undefined) continue;

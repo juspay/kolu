@@ -172,14 +172,61 @@ server.on(
   replay a stale same-size shell, which is the bug the whole freshness contract
   exists to prevent.
 </Aside>
-| `surfaceApp()` | `/vite` | Vite plugin that injects the build commit onto the shell |
-| `buildSurfaceClient()` | `/bun` | the Bun build equivalent |
-
 <Aside type="caution" title="The commit rides the shell, never a bundle define">
   The build commit is injected as `window.__SURFACE_APP_COMMIT__` onto the
   `no-store` shell by the `surfaceApp()` plugin — never a bundler define. A
   define bakes the sha into a content-hashed, `immutable` asset and strands
   returning browsers. No app writes a sha.
+</Aside>
+
+## Building the client dist
+
+`buildSurfaceClient(opts)` (`@kolu/surface-app/bun`) is the Bun-runtime build:
+it produces the dist the static layer above is built to serve, and nothing about
+that dist is the app's to remember. Content-hashed `/assets/*` (entry, split
+chunks, extra assets), the `no-store` shell rewritten to name them, the commit
+injected onto that shell, and — since the socket was completed — the
+precompressed siblings and the code splitting every consumer used to bolt on
+afterwards.
+
+| Export | Subpath | Role |
+| --- | --- | --- |
+| `surfaceApp()` | `/vite` | Vite plugin that injects the build commit onto the shell |
+| `buildSurfaceClient(opts)` | `/bun` | the Bun build: hashed assets, rewritten shell, siblings, splitting |
+| `SurfaceClientBuildOptions` | `/bun` | its options — entrypoint, `distDir`, the HTML template + placeholders, `extraAssets`, `publicDir`, `minify`, `commit` |
+| `SurfaceClientBuildResult` | `/bun` | `{ jsHref, assetHrefs, assets }` — the URLs written into the shell, plus an `AssetReport` per **compressible** asset in the hashed dir (sourcemaps and already-compressed media are skipped, and absent from the report) |
+| `AssetReport` | `/bun` | `{ file, bytes, siblings }` — identity size and each sibling's size, keyed by `Content-Encoding` |
+| `PRECOMPRESSED_ENCODINGS` | `.` | the `[encoding, suffix]` table BOTH halves read: `freshStaticLayer` to negotiate, the builder to emit |
+
+```ts
+const { jsHref, assets } = await buildSurfaceClient({
+  entrypoint: resolve(clientDir, "main.tsx"),
+  distDir,
+  htmlTemplate: resolve(clientDir, "index.html"),
+  entryHtmlPlaceholder: `src="./main.tsx"`,
+  plugins: [solidJsx],
+});
+for (const a of assets) console.log(a.file, a.bytes, a.siblings);
+```
+
+<Aside type="note" title="Neither half is an option">
+  There is no `precompress` flag and no `splitting` flag. A sibling is written
+  only when it beat identity, only under the prefix the layer negotiates, and
+  never for a type the layer refuses — so a flag would only choose between the
+  negotiation working and it having nothing to serve. Splitting is what a
+  dynamic `import()` in your own source already asked for; `splitting: false`
+  used to inline it, which is deferred in evaluation and identical on the wire.
+  With one entrypoint and no dynamic import the output is unchanged.
+</Aside>
+
+<Aside type="caution" title="The hashed dir belongs to the build">
+  Every rebuild PRUNES `<distDir>/assets/` down to what it just produced (plus
+  their sourcemaps and siblings): a hashed file the new shell does not name is
+  unreachable, and leaving it there is what makes a long dev session pay brotli
+  over a growing pile. A sibling that already sits beside an unchanged asset is
+  never recompressed — same name means same bytes. Your app's stable-URL files
+  (icons, fonts, a manifest) belong in `publicDir`, which lands at the dist
+  **root** and is never touched.
 </Aside>
 
 ## Accepting a browser socket
