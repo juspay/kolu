@@ -86,6 +86,7 @@ describe("freshStaticLayer — precompressed asset negotiation", () => {
       "console.log('identity')",
     );
     writeFileSync(join(root, "assets", "app-abc123.js.br"), "BROTLI-PAYLOAD");
+    writeFileSync(join(root, "assets", "app-abc123.js.zst"), "ZSTD-PAYLOAD");
     writeFileSync(join(root, "assets", "app-abc123.js.gz"), "GZIP-PAYLOAD");
     // An asset with no precompressed sibling — must still serve identity.
     writeFileSync(
@@ -106,6 +107,33 @@ describe("freshStaticLayer — precompressed asset negotiation", () => {
     expect(res.header("Vary")).toContain("Accept-Encoding");
     // The `.br` extension must NOT leak into the type as octet-stream.
     expect(res.header("Content-Type")).toContain("javascript");
+    expect(res.text).toBe("BROTLI-PAYLOAD");
+  });
+
+  it("serves the .zst sibling to a client that offers only zstd", async () => {
+    // The encoding this layer has always been able to serve and that no
+    // consumer's build wrote until `buildSurfaceClient` started emitting it —
+    // so the negotiation arm itself was never exercised by anything but a test.
+    const res = await drive(
+      freshStaticLayer({ root }),
+      "/assets/app-abc123.js",
+      { "Accept-Encoding": "zstd" },
+    );
+    expect(res.status).toBe(200);
+    expect(res.header("Content-Encoding")).toBe("zstd");
+    expect(res.header("Content-Type")).toContain("javascript");
+    expect(res.text).toBe("ZSTD-PAYLOAD");
+  });
+
+  it("prefers brotli over zstd when the client offers both", async () => {
+    // Order in `PRECOMPRESSED_ENCODINGS` is the SERVER's preference, and it is
+    // walked — not just read for membership.
+    const res = await drive(
+      freshStaticLayer({ root }),
+      "/assets/app-abc123.js",
+      { "Accept-Encoding": "zstd, br, gzip" },
+    );
+    expect(res.header("Content-Encoding")).toBe("br");
     expect(res.text).toBe("BROTLI-PAYLOAD");
   });
 

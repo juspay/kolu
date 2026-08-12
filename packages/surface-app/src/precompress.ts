@@ -11,9 +11,10 @@
  * with that `Content-Encoding`, the ORIGINAL `Content-Type` and an appended
  * `Vary` — identity otherwise. What no half of this package did was WRITE those
  * siblings, so every consumer re-derived a post-build step by hand, and each one
- * got the table slightly wrong: the server has preferred `zstd` since it replaced
- * Hono's `serve-static`, yet no consumer ever emitted a `.zst`, so the preferred
- * encoding silently never existed. `PRECOMPRESSED_ENCODINGS` (in `./index`) is
+ * got the table slightly wrong: the server has been able to serve `zstd` since it
+ * replaced Hono's `serve-static`, yet no consumer ever emitted a `.zst`, so that
+ * arm of the negotiation was dead code in production.
+ * `PRECOMPRESSED_ENCODINGS` (in `./index`) is
  * now the one table both halves read, and `buildSurfaceClient` calls this module
  * — a dist the builder produced is a dist the server can fully serve, by
  * construction rather than by each app remembering.
@@ -42,7 +43,7 @@ import {
   gzipSync,
   zstdCompressSync,
 } from "node:zlib";
-import { PRECOMPRESSED_ENCODINGS } from "./index";
+import { type PrecompressedEncoding, PRECOMPRESSED_ENCODINGS } from "./index";
 
 /** Extensions worth compressing. The server decides by `Content-Type`; a build
  *  only has a filename, so this is the file-name shadow of that guard — kept
@@ -71,13 +72,16 @@ const MIN_BYTES = 1024;
 
 /** Sizes of what sits beside one asset, keyed by `Content-Encoding` token
  *  (`br` / `zstd` / `gzip`) — the very tokens a client offers. */
-export type SiblingSizes = Readonly<Record<string, number>>;
+export type SiblingSizes = Readonly<
+  Partial<Record<PrecompressedEncoding, number>>
+>;
 
-/** One row per asset the hashed-asset dir holds after a build: what the
- *  identity bytes cost, and what each sibling costs. An asset that was skipped
- *  (too small, not a compressible type) or whose every encoding lost to identity
- *  reports no siblings — so a consumer logging this prints the truth about what
- *  is on disk, including on a rebuild that compressed nothing. */
+/** One row per COMPRESSIBLE asset in the hashed-asset dir — the files this
+ *  module considered, which is not every file there: a sourcemap, a `.png` or a
+ *  `.woff2` is skipped outright and never appears. Of the ones that do, an asset
+ *  too small to be worth it, or whose every encoding lost to identity, reports
+ *  no siblings — so a consumer logging this prints the truth about what is on
+ *  disk, including on a rebuild that compressed nothing. */
 export interface AssetReport {
   /** File name inside the hashed-asset dir, e.g. `main-a1b2c3d4.js`. */
   readonly file: string;
@@ -94,24 +98,37 @@ const extOf = (name: string): string => {
 
 const SIBLING_SUFFIXES = PRECOMPRESSED_ENCODINGS.map(([, suffix]) => suffix);
 
-/** Compress once per encoding, at build-time settings — the cost is paid here so
- *  no request ever pays it. `null` for an encoding that did not BEAT identity:
- *  writing it would make the server ship a larger body than the file it sits
- *  beside. */
-const encode = (encoding: string, raw: Buffer): Buffer | null => {
-  const out =
-    encoding === "br"
-      ? brotliCompressSync(raw, {
-          params: {
-            [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
-            [zlibConstants.BROTLI_PARAM_SIZE_HINT]: raw.byteLength,
-          },
-        })
-      : encoding === "zstd"
-        ? zstdCompressSync(raw, {
-            params: { [zlibConstants.ZSTD_c_compressionLevel]: 19 },
-          })
-        : gzipSync(raw, { level: 9 });
+/** One compressor per encoding, at build-time settings — the cost is paid here
+ *  so no request ever pays it.
+ *
+ *  A `Record` keyed by the union rather than an `if`/`else` chain, because a
+ *  chain needs a LAST arm and that arm is a silent default: a fourth row added
+ *  to `PRECOMPRESSED_ENCODINGS` would have been gzipped and written under its
+ *  own suffix, so the server would hand a client bytes in an encoding it did not
+ *  ask for and cannot read. Here a new row simply fails to compile until someone
+ *  says what it compresses with. */
+const COMPRESSORS: Record<PrecompressedEncoding, (raw: Buffer) => Buffer> = {
+  br: (raw) =>
+    brotliCompressSync(raw, {
+      params: {
+        [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
+        [zlibConstants.BROTLI_PARAM_SIZE_HINT]: raw.byteLength,
+      },
+    }),
+  zstd: (raw) =>
+    zstdCompressSync(raw, {
+      params: { [zlibConstants.ZSTD_c_compressionLevel]: 19 },
+    }),
+  gzip: (raw) => gzipSync(raw, { level: 9 }),
+};
+
+/** `null` for an encoding that did not BEAT identity: writing it would make the
+ *  server ship a larger body than the file it sits beside. */
+const encode = (
+  encoding: PrecompressedEncoding,
+  raw: Buffer,
+): Buffer | null => {
+  const out = COMPRESSORS[encoding](raw);
   return out.byteLength < raw.byteLength ? out : null;
 };
 
@@ -172,8 +189,10 @@ export async function pruneAssets(
  * sibling is left alone (content hashing makes it current by construction), and
  * an encoding that lost to identity is not written at all.
  *
- * Returns one row per asset considered — including the ones nothing was written
- * for — so a build can report the win without walking the tree again.
+ * Returns one row per COMPRESSIBLE asset — including the ones nothing was
+ * written for — so a build can report the win without walking the tree again.
+ * Files this module does not consider (sourcemaps, already-compressed media) are
+ * absent from the report rather than present with an empty row.
  */
 export async function precompressAssets(
   assetsDir: string,
@@ -182,7 +201,7 @@ export async function precompressAssets(
   for (const name of (await readdir(assetsDir)).sort()) {
     if (!COMPRESSIBLE_EXT.has(extOf(name))) continue;
     const path = join(assetsDir, name);
-    const siblings: Record<string, number> = {};
+    const siblings: Partial<Record<PrecompressedEncoding, number>> = {};
     const raw = await readFile(path);
     for (const [encoding, suffix] of PRECOMPRESSED_ENCODINGS) {
       const existing = await sizeOf(path + suffix);

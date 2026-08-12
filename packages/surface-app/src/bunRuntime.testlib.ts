@@ -59,11 +59,13 @@ const render = (pattern: string, name: string, content: string): string =>
 /**
  * Install the stand-in on `globalThis.Bun`.
  *
- * `build` writes the entry from the entrypoint's own source; when the source
- * contains a `import(` and `splitting` is on, the dynamically imported half is
- * emitted as a SEPARATE hashed chunk the entry names by a relative URL — which
- * is exactly the shape whose absence made every consumer stand up a second
- * `Bun.build` of its own.
+ * `build` writes the entry from the entrypoint's own source. It does NOT parse
+ * JavaScript: the fixture marks where the dynamic half begins with a literal
+ * `//--dynamic--` line, and when `splitting` is on that half is emitted as a
+ * SEPARATE hashed chunk the entry names by a relative URL — the shape whose
+ * absence made every consumer stand up a second `Bun.build` of its own. A
+ * fixture that writes a real `import("./x")` and no marker gets no chunk here,
+ * which is a limit of the stand-in and not a statement about Bun.
  */
 export const installStandInBun = (): StandInBun => {
   const previous = (globalThis as { Bun?: unknown }).Bun;

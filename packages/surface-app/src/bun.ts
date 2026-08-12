@@ -167,9 +167,11 @@ export interface SurfaceClientBuildResult {
   jsHref: string;
   /** Hashed URLs of the extra assets, keyed by their `name`. */
   assetHrefs: Record<string, string>;
-  /** Every file in the hashed-asset dir with its identity and sibling sizes —
-   *  entry, split chunks and extra assets alike. What a build script prints to
-   *  make "2.56 MB became 571 kB on the wire" a number somebody can see. */
+  /** One row per COMPRESSIBLE file in the hashed-asset dir — entry, split
+   *  chunks and extra assets alike — with its identity and sibling sizes. Not
+   *  every file there: sourcemaps and already-compressed media are skipped and
+   *  do not appear. What a build script prints to make "2.56 MB became 571 kB on
+   *  the wire" a number somebody can see. */
   assets: readonly AssetReport[];
 }
 

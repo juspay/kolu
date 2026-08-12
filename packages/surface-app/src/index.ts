@@ -33,19 +33,28 @@ export const ASSET_DIR = "assets";
  *  literal, keeping the "safe to precompress" set single-sourced with the
  *  immutable-asset taxonomy. */
 export const DEFAULT_ASSET_PREFIX = `/${ASSET_DIR}/`;
-/** The build-time precompressed siblings, in SERVER PREFERENCE ORDER: the
- *  `Content-Encoding` token a client offers, and the file suffix that carries
- *  those bytes beside the identity asset. ONE table, read by both halves of the
- *  socket — `./server`'s `freshStaticLayer` walks it to negotiate, `./precompress`
- *  walks it to EMIT. They lived apart once, and the gap was a silent bug: the
- *  server has preferred `zstd` since it replaced Hono's `serve-static`, while
- *  every consumer's hand-rolled post-step wrote only `.br`/`.gz` — so the
- *  preferred encoding was never on disk and the negotiation quietly fell through
- *  to second place. A table a builder cannot fail to read is what stops that
- *  recurring. */
+/** A `Content-Encoding` token this package will serve a build-time sibling for. */
+export type PrecompressedEncoding = "br" | "zstd" | "gzip";
+/** The file suffix carrying one encoding's bytes beside the identity asset. */
+export type PrecompressedSuffix = ".br" | ".zst" | ".gz";
+
+/** The build-time precompressed siblings: the `Content-Encoding` token a client
+ *  offers, and the suffix that carries those bytes beside the identity asset.
+ *  ONE table, read by both halves of the socket — `./server`'s `freshStaticLayer`
+ *  walks it to negotiate, `./precompress` walks it to EMIT.
+ *
+ *  Order is the SERVER's preference when a client offers several (a browser
+ *  sending `br, zstd, gzip` gets brotli); it is not a ranking of the encodings.
+ *  The historical bug was about EXISTENCE, not order: the server has been able
+ *  to serve `zstd` since it replaced Hono's `serve-static`, while every
+ *  consumer's hand-rolled post-step wrote only `.br`/`.gz` — so `.zst` was never
+ *  on disk anywhere and that arm of the negotiation was dead code in production.
+ *  A table a builder cannot fail to read is what stops that recurring; the
+ *  literal ROWS are pinned in `index.test.ts`, because a table that quietly
+ *  loses a row would take the emitter down with it and no test would notice. */
 export const PRECOMPRESSED_ENCODINGS: readonly (readonly [
-  encoding: string,
-  suffix: string,
+  encoding: PrecompressedEncoding,
+  suffix: PrecompressedSuffix,
 ])[] = [
   ["br", ".br"],
   ["zstd", ".zst"],

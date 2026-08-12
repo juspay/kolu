@@ -7,8 +7,10 @@
  * `serve-static`; the builder emitted content-hashed assets behind a `no-store`
  * shell. What was missing was any place the two were checked against each other,
  * so a build could ship a dist its own server could only half serve, and did:
- * every consumer's hand-rolled post-step wrote `.br` and `.gz` and none wrote the
- * `.zst` the server PREFERS. A comment cannot catch that. A request can.
+ * every consumer's hand-rolled post-step wrote `.br` and `.gz`, and none wrote
+ * the `.zst` the server has been able to serve since day one — so that arm of
+ * the negotiation never once ran in production. A comment cannot catch that. A
+ * request can.
  *
  * So every assertion below goes through the real layer: build the dist, ask for
  * each encoding a client would offer, and require that what comes back
@@ -86,11 +88,15 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
         {
           name: "styles",
           ext: "css",
+          // Comfortably over MIN_BYTES: a real extra asset is a Tailwind
+          // bundle, and a fixture under the threshold would make every
+          // assertion about extra-asset compression vacuously true.
           build: () =>
             Buffer.from(
-              Array.from({ length: 60 }, (_, i) => `.c${i}{color:#fff}`).join(
-                "\n",
-              ),
+              Array.from(
+                { length: 200 },
+                (_, i) => `.class-number-${i} { color: #ffffff; }`,
+              ).join("\n"),
             ),
           htmlPlaceholder: `href="./styles.css"`,
         },
@@ -141,16 +147,44 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
   });
 
   it("emits EVERY encoding the server negotiates — the .zst nobody was writing", async () => {
-    // The regression with a name: the server has preferred `zstd` all along, and
-    // for as long as each consumer hand-rolled the post-step, the preferred
-    // encoding simply was not on disk. Both halves read one table now, so this
-    // asserts against the table rather than against three literals.
+    // The regression with a name: the server has been able to serve `zstd` all
+    // along, and for as long as each consumer hand-rolled the post-step it was
+    // simply not on disk anywhere.
+    //
+    // Asserted against LITERALS, not against the table. Comparing the emitter to
+    // the table proves only that the two halves agree — which they would also do
+    // if the table quietly lost a row, since both read it. `index.test.ts` pins
+    // the table's own contents; this pins what a built dist actually carries.
     const { assets, jsHref } = await build();
     const entry = assets.find((a) => jsHref.endsWith(a.file));
     expect(entry).toBeDefined();
-    expect(Object.keys(entry!.siblings).sort()).toEqual(
-      PRECOMPRESSED_ENCODINGS.map(([encoding]) => encoding).sort(),
+    expect(Object.keys(entry!.siblings).sort()).toEqual(["br", "gzip", "zstd"]);
+    for (const suffix of [".br", ".zst", ".gz"]) {
+      expect(existsSync(join(assetsDir(), entry!.file + suffix))).toBe(true);
+    }
+  });
+
+  it("compresses an EXTRA asset too — the Tailwind-sized one an app hands in", async () => {
+    // An extra asset is bytes the app produced, not bytes the bundler emitted,
+    // so it travels a different path into the hashed dir and could plausibly
+    // miss the emitter entirely. It is also the second-largest thing a real app
+    // ships.
+    const { assets, assetHrefs } = await build();
+    const styles = assets.find((a) => assetHrefs.styles!.endsWith(a.file));
+    expect(styles).toBeDefined();
+    expect(styles!.file).toMatch(/^styles-[0-9a-f]+\.css$/);
+    expect(Object.keys(styles!.siblings).sort()).toEqual([
+      "br",
+      "gzip",
+      "zstd",
+    ]);
+    const res = await drive(
+      freshStaticLayer({ root: distDir }),
+      `/${ASSET_DIR}/${styles!.file}`,
+      { "Accept-Encoding": "zstd" },
     );
+    expect(res.header("Content-Encoding")).toBe("zstd");
+    expect(res.header("Content-Type")).toContain("css");
   });
 
   it("leaves the no-store shell uncompressed, with no sibling to be tempted by", async () => {

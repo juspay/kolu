@@ -54,8 +54,17 @@ const bodyBytes = (
         }
         return Buffer.concat(chunks);
       });
+    // Not a body shape this harness knows how to read. Empty bytes would make a
+    // decode assertion fail somewhere far from the cause — or, worse, pass by
+    // comparing empty to empty. Die where the ignorance is.
     default:
-      return Effect.succeed(Buffer.alloc(0));
+      return Effect.die(
+        new Error(
+          `httpDrive: unhandled response body variant ${JSON.stringify(
+            (body as { _tag: string })._tag,
+          )} — teach this harness to read it rather than reading it as empty.`,
+        ),
+      );
   }
 };
 
