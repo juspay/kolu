@@ -187,25 +187,27 @@ describe("staticImportChunks", () => {
     ).toThrow(/other-9\.js/);
   });
 
-  it("does not preload a non-JS static import — `modulepreload` means 'a JS module'", () => {
-    // The edge kind and the FILE kind are two questions. A stylesheet the entry
-    // `import`s is a real static edge and the wrong tag: fetched as a module,
-    // refused on MIME, warned about. Bun 1.3.13 does not record it as an
-    // `imports` edge (see `PRELOADABLE`), so this pins the rule, not the
-    // bundler — and the walk still passes THROUGH the non-JS output.
-    const chunks = staticImportChunks(
-      graph({
-        "main-1.js": [
-          ["styles-2.css", "import-statement"],
-          ["a-3.js", "import-statement"],
-        ],
-        "styles-2.css": [["deep-4.js", "import-statement"]],
-        "a-3.js": [],
-        "deep-4.js": [],
-      }),
-      "main-1.js",
-    );
-    expect(chunks).toEqual(["a-3.js", "deep-4.js"]);
+  it("REFUSES a non-JS static import — the shell would name that file nowhere at all", () => {
+    // The edge kind and the FILE kind are two questions, and the second one is
+    // not really about the tag. A bundler that emitted a stylesheet as a static
+    // import of the entry has put a file in the hashed dir that this builder
+    // rewrites no placeholder for: the shell names it nowhere and the app ships
+    // unstyled. Tagging it `modulepreload` would be the small half of that;
+    // skipping it quietly would hide the large half. Bun 1.3.13 does not record
+    // such an edge (see `PRELOADABLE`), so this pins the rule, not the bundler.
+    expect(() =>
+      staticImportChunks(
+        graph({
+          "main-1.js": [
+            ["styles-2.css", "import-statement"],
+            ["a-3.js", "import-statement"],
+          ],
+          "styles-2.css": [],
+          "a-3.js": [],
+        }),
+        "main-1.js",
+      ),
+    ).toThrow(/styles-2\.css/);
   });
 });
 

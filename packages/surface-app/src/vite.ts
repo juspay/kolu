@@ -22,6 +22,13 @@
  * here as the one copy: the server entry (`buildInfoServer` in `./server`)
  * imports it from `/vite` rather than carrying its own — so there is a single
  * source of truth for the commit, and no one should duplicate the resolver.
+ *
+ * The commit is the ONLY thing this plugin puts in the head, and the asymmetry
+ * with `./bun` (which also writes a `modulepreload` link per static chunk) is
+ * deliberate: Vite emits those tags itself, from its own chunk graph, under
+ * `build.modulePreload` — on by default. That default is Vite's to keep, not
+ * this package's to guarantee; an app that turns it off gives up a property the
+ * Bun path treats as non-optional, and no test here can see that.
  */
 
 import { execSync } from "node:child_process";

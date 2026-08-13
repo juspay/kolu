@@ -8,10 +8,14 @@
  * this file's existence changes no public surface.
  *
  * Two facts live here and nowhere else. WHERE the head starts — one locator,
- * shared by every injector, so none can drift into its own idea of it. And in
- * what order the prelude is written: one splice, stated once, rather than
- * inferred from the order two calls happened to be typed in — where swapping
- * two adjacent lines would silently change the shipped artifact.
+ * shared by every injector ON THIS PATH (the Bun build and a caller templating
+ * its own shell; the Vite plugin injects through `transformIndexHtml`'s
+ * `head-prepend` and structurally cannot come through here), so none of them can
+ * drift into its own idea of it. And in what order the prelude is written: one
+ * splice, stated once, rather than inferred from the order two calls happened to
+ * be typed in — where swapping two adjacent lines would silently change the
+ * shipped artifact. `injectShellCommit` is that same splice with nothing to
+ * preload, so there is one code path, not two that must be kept in step.
  */
 
 import { modulePreloadLinks } from "./modulePreload";
@@ -58,11 +62,7 @@ export function shellCommitScriptBody(commit: string): string {
  *  `transformIndexHtml`. Throws when the template has no `<head>` rather than
  *  silently emitting a shell with no build identity. */
 export function injectShellCommit(html: string, commit: string): string {
-  return insertAfterHead(
-    html,
-    shellCommitScript(commit),
-    "the shell would carry no build identity",
-  );
+  return injectShellHead(html, { preloadHrefs: [], commit });
 }
 
 /** Everything this package puts in the shell's `<head>`, in the ONE order that
@@ -82,15 +82,13 @@ export function injectShellHead(
   return insertAfterHead(
     html,
     modulePreloadLinks(preloadHrefs) + shellCommitScript(commit),
-    "the shell would carry no build identity, and the entry's static chunks would cost an extra round trip on first paint",
   );
 }
 
 /** Insert `snippet` right after the shell's `<head>` open tag — the ONE place
  *  anything is added to the head, so no injector can drift into its own idea of
- *  where the head starts. `cost` says what a template with no `<head>` would
- *  otherwise silently ship, and goes into the thrown error. */
-function insertAfterHead(html: string, snippet: string, cost: string): string {
+ *  where the head starts. */
+function insertAfterHead(html: string, snippet: string): string {
   // Require a real `head` start tag with a tag-name boundary — `<head>` or
   // `<head …>` but NOT `<header>`/`<headless>`. A loose `/<head[^>]*>/` would
   // match `<header>` and inject at the wrong spot, defeating the fail-loud
@@ -98,7 +96,7 @@ function insertAfterHead(html: string, snippet: string, cost: string): string {
   const head = /<head(?:\s|>)/i.exec(html);
   if (!head) {
     throw new Error(
-      `@kolu/surface-app: the HTML template has no <head> — ${cost}`,
+      "@kolu/surface-app: the HTML template has no <head> — the shell would carry no build identity, and the entry's static chunks would cost an extra round trip on first paint",
     );
   }
   const close = html.indexOf(">", head.index);

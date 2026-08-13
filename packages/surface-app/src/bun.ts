@@ -56,7 +56,7 @@
 import { existsSync } from "node:fs";
 import { cp, mkdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { ASSET_DIR } from "./index";
+import { ASSET_DIR, DEFAULT_ASSET_PREFIX } from "./index";
 import { type ChunkGraph, staticImportChunks } from "./modulePreload";
 import {
   type AssetReport,
@@ -211,10 +211,12 @@ export async function buildSurfaceClient(
   const Bun = bun();
   const distDir = resolve(opts.distDir);
   const assetsDir = resolve(distDir, ASSET_DIR);
-  /** A file in the hashed dir, as the shell must name it — the ONE place the
-   *  served prefix and the on-disk dir are joined, for the entry, the preloaded
-   *  chunks and the extra assets alike. */
-  const assetHref = (file: string) => `/${ASSET_DIR}/${file}`;
+  /** A file in the hashed dir, as the shell must name it — for the entry, the
+   *  preloaded chunks and the extra assets alike, off the same
+   *  `DEFAULT_ASSET_PREFIX` the server pins `immutable` (`isImmutableAssetPath`),
+   *  so an href this build writes cannot land outside the prefix that build's
+   *  own server caches it under. */
+  const assetHref = (file: string) => `${DEFAULT_ASSET_PREFIX}${file}`;
   await mkdir(assetsDir, { recursive: true });
   const commit = opts.commit ?? resolveCommit(opts.commitEnvVar);
 
@@ -265,24 +267,21 @@ export async function buildSurfaceClient(
     throw new Error(
       "buildSurfaceClient: Bun.build produced no JS entry output",
     );
-  const jsHref = assetHref(basename(jsEntry.path));
+  const entryFile = basename(jsEntry.path);
+  const jsHref = assetHref(entryFile);
 
-  // The chunks the entry STATICALLY imports, to be preloaded from the shell.
-  // Splitting hands the entry a shared chunk it imports at the top, and the
-  // browser cannot see that file until it has fetched and parsed the entry — one
-  // extra round trip on every first paint. The shell can name it up front, but
-  // only the build knows what it is called, so this is the only place the list
-  // can be true (see `./modulePreload` for the walk and why dynamic chunks are
-  // excluded). No metafile means no graph and so a shell that silently drops
-  // back to costing that round trip: say so instead.
+  // The chunks the entry STATICALLY imports, to be preloaded from the shell —
+  // `./modulePreload` is where that list is decided and why. Asked for here
+  // because this is the only place that HAS the graph: no metafile means no
+  // graph, and a shell that silently drops back to costing the round trip is
+  // exactly what this must not ship, so say it instead.
   if (jsResult.metafile === undefined)
     throw new Error(
       "buildSurfaceClient: Bun.build reported no metafile — the entry's chunk graph, and so its modulepreloads, cannot be read",
     );
-  const preloadHrefs = staticImportChunks(
-    jsResult.metafile,
-    basename(jsEntry.path),
-  ).map(assetHref);
+  const preloadHrefs = staticImportChunks(jsResult.metafile, entryFile).map(
+    assetHref,
+  );
 
   // Extra assets (e.g. Tailwind CSS): the app builds the bytes; we hash them on
   // their own content, write `/assets/<name>-<hash>.<ext>`, and key the href by

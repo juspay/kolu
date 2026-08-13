@@ -32,6 +32,22 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 
+/** One edge out of an emitted output, as this stand-in records it in the
+ *  metafile AND renders it into that output's source. Spelled once here so the
+ *  two can only ever be the same shape; structurally identical to the
+ *  `ChunkImport` the walk under test reads, deliberately without importing it —
+ *  a double that borrowed the type would agree with a change to it. */
+type Edge = { path: string; kind: string };
+
+/** The markers a fixture entry declares its split shape with, and the stems the
+ *  chunks they produce are named from. Exported because the fixtures that write
+ *  them live in `dist.test.ts`: a protocol spelled in two files is one a rename
+ *  breaks silently, in the other file, as an unrelated assertion. */
+export const SHARED_MARKER = "//--shared--\n";
+export const DYNAMIC_MARKER = "//--dynamic--\n";
+export const SHARED_CHUNK_STEM = "shared";
+export const DYNAMIC_CHUNK_STEM = "chunk";
+
 /** The `Bun.build` config as `./bun` writes it — the fields this stand-in reads
  *  or a test asserts on. Structural, like `./bun`'s own view of the runtime. */
 export interface RecordedBuildConfig {
@@ -107,16 +123,13 @@ export const installStandInBun = (
     const entrypoint = config.entrypoints[0]!;
     const source = readFileSync(entrypoint, "utf8");
     const outputs: { path: string; kind: string }[] = [];
-    const graph: Record<string, { imports: { path: string; kind: string }[] }> =
-      {};
+    const graph: Record<string, { imports: Edge[] }> = {};
 
     /** The statements an output's outgoing edges are written as. One output's
      *  imports are stated ONCE — in the edge list the metafile records — and its
      *  bytes are rendered FROM that list, so the emitted source can never claim
      *  a different graph than the metafile does. */
-    const importStatements = (
-      imports: { path: string; kind: string }[],
-    ): string =>
+    const importStatements = (imports: Edge[]): string =>
       imports
         .map((i) =>
           i.kind === "dynamic-import"
@@ -130,7 +143,7 @@ export const installStandInBun = (
       stem: string,
       body: string,
       kind: string,
-      imports: { path: string; kind: string }[] = [],
+      imports: Edge[] = [],
     ): string => {
       const content = importStatements(imports) + body;
       // Hashed over what is actually written, so equal bytes keep their name —
@@ -152,11 +165,11 @@ export const installStandInBun = (
     // The two split halves, emitted only when splitting is on — otherwise both
     // are inlined into the entry, which is precisely the old behaviour
     // (deferred in evaluation, identical on the wire).
-    const [beforeDynamic = "", dynamic] = source.split("//--dynamic--\n");
-    const [head = "", shared] = beforeDynamic.split("//--shared--\n");
+    const [beforeDynamic = "", dynamic] = source.split(DYNAMIC_MARKER);
+    const [head = "", shared] = beforeDynamic.split(SHARED_MARKER);
 
     let entryBody = source;
-    const entryImports: { path: string; kind: string }[] = [];
+    const entryImports: Edge[] = [];
     if (
       config.splitting === true &&
       (shared !== undefined || dynamic !== undefined)
@@ -164,7 +177,7 @@ export const installStandInBun = (
       entryBody = head;
       let sharedName: string | undefined;
       if (shared !== undefined) {
-        sharedName = emit(naming.chunk, "shared", shared, "chunk");
+        sharedName = emit(naming.chunk, SHARED_CHUNK_STEM, shared, "chunk");
         entryImports.push({
           path: `./${sharedName}`,
           kind: "import-statement",
@@ -175,7 +188,7 @@ export const installStandInBun = (
         // half is its own chunk rather than part of either one.
         const chunkName = emit(
           naming.chunk,
-          "chunk",
+          DYNAMIC_CHUNK_STEM,
           dynamic,
           "chunk",
           sharedName === undefined

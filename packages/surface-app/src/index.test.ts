@@ -165,11 +165,9 @@ describe("injectShellCommit", () => {
   });
 });
 
-// The modulepreload injector is no longer part of this module's surface: the
-// head's prelude — its links AND the commit script, in one splice — lives in the
-// internal `./shellHead`, and is tested through it (`shellHead.test.ts`). What
-// stays here is `injectShellCommit`, which `./client` names as the path for a
-// caller templating its own shell.
+// `injectShellCommit` is the whole of what this module publishes about the head.
+// The prelude the Bun build writes — the same splice, with the modulepreload
+// links ahead of that script — is internal (`./shellHead`) and tested there.
 
 describe("PRECOMPRESSED_ENCODINGS", () => {
   // This table is the ONE place the negotiator (`./server`) and the emitter

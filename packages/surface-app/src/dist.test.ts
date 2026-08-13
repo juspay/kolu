@@ -38,7 +38,14 @@ import {
 } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildSurfaceClient } from "./bun";
-import { installStandInBun, type StandInBun } from "./bunRuntime.testlib";
+import {
+  DYNAMIC_CHUNK_STEM,
+  DYNAMIC_MARKER,
+  installStandInBun,
+  SHARED_CHUNK_STEM,
+  SHARED_MARKER,
+  type StandInBun,
+} from "./bunRuntime.testlib";
 import { drive } from "./httpDrive.testlib";
 import { ASSET_DIR, PRECOMPRESSED_ENCODINGS } from "./index";
 import { freshStaticLayer } from "./server";
@@ -57,11 +64,12 @@ const half = (prefix: string, text: string): string =>
     (_, i) => `export const ${prefix}${i} = "${text} ${i}";`,
   ).join("\n");
 
-/** A client entry, composed from the halves it should split INTO. The markers
- *  are the stand-in bundler's protocol for "this half becomes its own chunk", so
- *  the three fixtures below are BUILT from them rather than carved back out of a
- *  bigger one — a marker that changes then breaks the protocol in one place,
- *  loudly, instead of silently producing a fixture that no longer splits. */
+/** A client entry, composed from the halves it should split INTO. Each half
+ *  carries the stand-in bundler's own marker (imported, never re-typed — it is
+ *  that module's protocol), so a fixture is BUILT from the split it wants rather
+ *  than carved back out of a bigger one: a marker that changes breaks the
+ *  protocol in one place, loudly, instead of silently producing a fixture that
+ *  no longer splits. */
 const entrySource = (label: string, ...halves: readonly string[]): string =>
   [
     `export const label = ${JSON.stringify(label)};`,
@@ -71,21 +79,16 @@ const entrySource = (label: string, ...halves: readonly string[]): string =>
 
 /** The half the entry STATICALLY imports — what a real bundler hoists when the
  *  entry and the deferred half both need it, and the one worth preloading. */
-const SHARED = ["//--shared--", half("common", "both halves parse markdown")];
+const SHARED = SHARED_MARKER + half("common", "both halves parse markdown");
 /** The half an `import()` defers — the one that must never be preloaded. */
-const DYNAMIC = ["//--dynamic--", half("heavy", "a markdown pipeline weighs")];
+const DYNAMIC = DYNAMIC_MARKER + half("heavy", "a markdown pipeline weighs");
 
-/** The ordinary split app: a shared chunk and a deferred one. */
+/** The ordinary split app: a shared chunk and a deferred one. The other two
+ *  shapes are written at their single call sites: `entrySource("lazy", DYNAMIC)`
+ *  defers a chunk it shares nothing with, `entrySource("solo")` splits into
+ *  nothing at all. */
 const splitSource = (label = "one"): string =>
-  entrySource(label, ...SHARED, ...DYNAMIC);
-
-/** An app that writes `import()` and shares nothing with it, so the only chunk
- *  is deferred. */
-const dynamicOnlySource = (): string => entrySource("lazy", ...DYNAMIC);
-
-/** An entry that splits into nothing — one entrypoint, no `import()`. Most apps.
- */
-const noSplitSource = (): string => entrySource("solo");
+  entrySource(label, SHARED, DYNAMIC);
 
 const TEMPLATE = `<!doctype html>
 <html><head><title>t</title><link rel="stylesheet" href="./styles.css" /></head>
@@ -237,7 +240,9 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
     // plus a hand-rewrite of the shell this helper had just written.
     const { assets } = await build();
     expect(stand.builds[0]!.splitting).toBe(true);
-    const chunk = assets.find((a) => a.file.startsWith("chunk-"));
+    const chunk = assets.find((a) =>
+      a.file.startsWith(`${DYNAMIC_CHUNK_STEM}-`),
+    );
     expect(chunk).toBeDefined();
     // A chunk pinned `immutable` for a year is only safe because it is hashed.
     expect(chunk!.file).toMatch(/^chunk-[0-9a-f]{8}\.js$/);
@@ -256,7 +261,9 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
     // ask for that file until the entry has been fetched AND parsed. The shell
     // knows the name now, so it says it now.
     const { assets, jsHref } = await build();
-    const shared = assets.find((a) => a.file.startsWith("shared-"));
+    const shared = assets.find((a) =>
+      a.file.startsWith(`${SHARED_CHUNK_STEM}-`),
+    );
     expect(shared).toBeDefined();
     const html = shell();
     expect(html).toContain(
@@ -291,8 +298,10 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
   it("does NOT preload the dynamic chunk — that would undo the very split it rides on", async () => {
     // The failure this forbids is the tempting one: preload everything the build
     // emitted, and `import()` becomes a slower way to fetch the bytes eagerly.
-    const { assets } = await build(dynamicOnlySource());
-    const deferred = assets.find((a) => a.file.startsWith("chunk-"));
+    const { assets } = await build(entrySource("lazy", DYNAMIC));
+    const deferred = assets.find((a) =>
+      a.file.startsWith(`${DYNAMIC_CHUNK_STEM}-`),
+    );
     expect(deferred).toBeDefined();
     const html = shell();
     expect(html).not.toContain(deferred!.file);
@@ -302,10 +311,14 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
   it("leaves a shell alone when the entry split into nothing — no empty artifact", async () => {
     // Most apps. A helper shared by every consumer must add nothing at all to
     // the one that has nothing to add.
-    const { assets } = await build(noSplitSource());
+    const { assets } = await build(entrySource("solo"));
     expect(assets.some((a) => a.file.endsWith(".js"))).toBe(true);
-    expect(assets.some((a) => a.file.startsWith("chunk-"))).toBe(false);
-    expect(assets.some((a) => a.file.startsWith("shared-"))).toBe(false);
+    expect(
+      assets.some((a) => a.file.startsWith(`${DYNAMIC_CHUNK_STEM}-`)),
+    ).toBe(false);
+    expect(assets.some((a) => a.file.startsWith(`${SHARED_CHUNK_STEM}-`))).toBe(
+      false,
+    );
     expect(shell()).not.toContain("modulepreload");
   });
 
@@ -333,8 +346,8 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
     expect(after).not.toEqual(before);
     for (const name of after) {
       expect(
-        name.startsWith("chunk-") ||
-          name.startsWith("shared-") ||
+        name.startsWith(`${DYNAMIC_CHUNK_STEM}-`) ||
+          name.startsWith(`${SHARED_CHUNK_STEM}-`) ||
           name.startsWith("main-") ||
           name.startsWith("styles-"),
       ).toBe(true);

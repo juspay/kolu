@@ -29,7 +29,16 @@
  * what order its prelude is written.
  */
 
-import { basename } from "node:path";
+/** The file part of a metafile name (`./main-abc.js` → `main-abc.js`) — the flat
+ *  hashed dir is how every other name in this build is handled.
+ *
+ *  Hand-rolled rather than `basename` from `node:path`, and that is the point:
+ *  `./index` re-exports through `./shellHead`, which imports this module, so a
+ *  `node:*` edge here would sit in the import graph of a module the BROWSER
+ *  reaches (`./lifecycle` → `./index`). Metafile names are always `/`-joined,
+ *  which is the whole of what `basename` would add. */
+const fileName = (path: string): string =>
+  path.slice(path.lastIndexOf("/") + 1);
 
 /** One edge out of a built output, as the metafile records it. `kind` is Bun's
  *  `ImportKind` — `"import-statement"`, `"dynamic-import"`, and the rest —
@@ -54,18 +63,18 @@ const STATIC_IMPORT = "import-statement";
 
 /** The one FILE kind a preload may name. `modulepreload` asserts the target is
  *  a JavaScript module, so the edge kind above and the file kind here are two
- *  different questions and both have to be asked: an entry that does
- *  `import "./app.css"` has a real static edge to something that is not a
- *  module, and a `.css` fetched as one is requested with a module `Accept`,
- *  refused on MIME, and warned about — a wasted first-paint request for a file
- *  that wanted `rel="stylesheet"`.
+ *  different questions and both have to be asked.
  *
  *  Measured, not assumed: a real `bun 1.3.13` build of an entry containing
  *  `import "./app.css"` plus a static and a dynamic chunk records the stylesheet
  *  on the JS output as `"cssBundle": "./main-g7y8rkax.css"` and does NOT list it
- *  in that output's `imports`, so today the edge cannot occur. The gate stays
- *  because what makes it right is the tag's meaning, not this version's
- *  bookkeeping — and it costs one test. */
+ *  in that output's `imports`, so today this cannot happen. It is checked, and
+ *  checked LOUDLY, because of what it would mean if it ever did: a bundler that
+ *  emitted a stylesheet as a static import has put a file in the hashed dir that
+ *  this builder rewrites no placeholder for, so the shell would name it nowhere
+ *  and the app would ship unstyled. Preloading it as a module (fetched with a
+ *  module `Accept`, refused on MIME, warned about) would be the small half of
+ *  that; skipping it quietly would hide the large half. */
 const PRELOADABLE = /\.js$/;
 
 /** The tags themselves — one `<link rel="modulepreload">` per href, in order,
@@ -101,11 +110,12 @@ export function modulePreloadLinks(hrefs: readonly string[]): string {
  * graph, so the same build emits the same list, and a rebuild of unchanged
  * sources emits a byte-identical shell.
  *
- * Files are compared and returned by BASENAME — the flat hashed-asset dir is
+ * Files are compared and returned by FILE NAME — the flat hashed-asset dir is
  * how every other name in this build is handled (`produced`, `jsHref`), and it
  * is what a `/assets/<file>` href is built from. A static import that is not an
- * output of this build (an external URL) is not a chunk and is not preloaded,
- * and neither is one that is not a JS module (`PRELOADABLE`).
+ * output of this build (an external URL) is not a chunk and is not preloaded;
+ * one that IS an output but is not a JS module is refused outright
+ * (`PRELOADABLE` says why).
  */
 export function staticImportChunks(
   graph: ChunkGraph,
@@ -113,7 +123,7 @@ export function staticImportChunks(
 ): readonly string[] {
   const edges = new Map<string, readonly ChunkImport[]>();
   for (const [output, { imports }] of Object.entries(graph.outputs)) {
-    edges.set(basename(output), imports);
+    edges.set(fileName(output), imports);
   }
   if (!edges.has(entryFile))
     throw new Error(
@@ -131,12 +141,14 @@ export function staticImportChunks(
   for (const file of queue) {
     for (const edge of edges.get(file)!) {
       if (edge.kind !== STATIC_IMPORT) continue;
-      const imported = basename(edge.path);
+      const imported = fileName(edge.path);
       if (seen.has(imported) || !edges.has(imported)) continue;
+      if (!PRELOADABLE.test(imported))
+        throw new Error(
+          `staticImportChunks: ${file} statically imports ${imported}, which is not a JS module — the shell can neither preload it nor name it, so this build would ship it unreferenced`,
+        );
       seen.add(imported);
-      // The file-kind gate skips the TAG, never the graph: a non-JS output that
-      // ever had static edges of its own still gets walked through.
-      if (PRELOADABLE.test(imported)) preload.push(imported);
+      preload.push(imported);
       queue.push(imported);
     }
   }

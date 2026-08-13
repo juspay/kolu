@@ -51,12 +51,17 @@ describe("injectShellHead", () => {
     );
   });
 
-  it("throws on a template with no <head> — the head prelude must not silently vanish", () => {
+  it("names the preload cost too when there is no <head> to splice into", () => {
+    // The locator itself (the `<header>` trap, the unterminated tag) is pinned in
+    // `index.test.ts` through `injectShellCommit`, which is the same splice. What
+    // is only true here is what the error has to SAY now that the prelude carries
+    // two things: a template with no head loses the round trip as well as the
+    // identity, and a message naming one of them reads like the whole cost.
     expect(() =>
       injectShellHead("<html><body></body></html>", {
         preloadHrefs: ["/assets/a-1.js"],
         commit: "0fab0cc",
       }),
-    ).toThrow(/<head>/);
+    ).toThrow(/no <head>.*round trip/);
   });
 });
