@@ -96,7 +96,7 @@ So the desktop layer needs a _trusted_ HTTPS origin. The recommended paths:
 | `buildInfoServer()` · `surfaceAppServer()` | "The buildInfo cell's server impl (+ the `identity.info` probe impl) — the deps bundle for the surface-app sibling entry in `implementSurfaces`; commit auto-resolved." | <Pill variant="new">/server</Pill> | #2,5 |
 | `surfaceAppSurface` · `surfaceAppSurfaceWith` | "surface-app's complete standalone surface (buildInfo cell + `identity.info` probe) — served as a sibling via `implementSurfaces` / `surfaceClients` / `composeSurfaceContracts`." | <Pill variant="dx">/surface</Pill> | #2,5 |
 | `buildInfo` · `defineBuildInfo` | "The buildInfo cell definition — composed into the surface-app surface; extensible." | <Pill variant="dx">/surface</Pill> | #2,5 |
-| `useSurfaceApp()` · `SurfaceAppProvider` · `retireServiceWorker()` | "The headless model (status/presentingDown/stale/server/reload/setAttention) + SW retirement. You render the UI." | <Pill variant="hi">/solid</Pill> | #3,4,5 |
+| `useSurfaceApp()` · `SurfaceAppProvider` · `SurfaceFaultBoundary` · `retireServiceWorker()` | "The headless model (status/presentingDown/stale/server/reload/setAttention) + the fault boundary (an uncaught render throw is caught, recorded, printed — the provider requires the `fault` LOOK) + SW retirement. You render the UI." | <Pill variant="hi">/solid</Pill> | #3,4,5 |
 | `surfaceApp()` vite plugin · `buildSurfaceClient()` · `resolveCommit()` | "Build the client fresh: content-hashed `/assets/*`, the commit injected onto the no-store shell as `window.__SURFACE_APP_COMMIT__` (read via `shellCommit()`, never a hashed-asset define), the no-store shell rewrite — Vite plugin or Bun helper. Resolve the commit once (env→git→dev). The Bun helper also emits the precompressed siblings `freshStaticLayer` negotiates, splits dynamic imports into hashed chunks, and preloads the entry's static chunks from the shell, so a consumer's dist is a dist the server can fully serve." | <Pill variant="md">/vite · /bun</Pill> | #1,2 |
 | `cacheControlFor` · `clientIsStale` · `SW_SOURCE` | "The pure, framework-free kernels." | <Pill variant="ok">utils/</Pill> | #1,2 |
 
@@ -242,8 +242,9 @@ export const surface = defineSurface(
 ```tsx
 import { retireServiceWorker, SurfaceAppProvider, useSurfaceApp } from "@kolu/surface-app/solid";
 retireServiceWorker();
-// pass your control-plane client + this bundle's baked commit (the bundler define):
-<SurfaceAppProvider controlPlane={app} clientCommit={__SURFACE_APP_COMMIT__}> …your app… </SurfaceAppProvider>
+// pass your control-plane client + this bundle's baked commit (the bundler define),
+// and the REQUIRED `fault` LOOK — what an uncaught render throw is drawn with:
+<SurfaceAppProvider controlPlane={app} clientCommit={__SURFACE_APP_COMMIT__} fault={(text) => <Fault text={text} />}> …your app… </SurfaceAppProvider>
 // then render your own chrome from useSurfaceApp() — README has the snippets.
 ```
 
@@ -281,7 +282,7 @@ const appLayer = surfaceAppLayer({ clientDist, manifest: { name: "drishti", them
 plugins: [solid(), surfaceApp()]
 // drishti — client: provider (this bundle's baked commit) + your own chrome from useSurfaceApp()
 retireServiceWorker();
-<SurfaceAppProvider controlPlane={adminClient} clientCommit={__SURFACE_APP_COMMIT__}> <Header>drishti <DrishtiStatus/></Header> </SurfaceAppProvider>
+<SurfaceAppProvider controlPlane={adminClient} clientCommit={__SURFACE_APP_COMMIT__} fault={(text) => <Fault text={text} />}> <Header>drishti <DrishtiStatus/></Header> </SurfaceAppProvider>
 ```
 
 **Zero hardcoded commits, defines, stores, or `/sw.js` routes** — every line composes a library fragment. kolu is identical but passes its pty-host source to `buildInfoServer` + the extended `defineBuildInfo`. To _see_ skew in dev, boot the server with `SURFACE_APP_COMMIT=<other>` — a real deploy-simulating override, not a sha baked into the client.

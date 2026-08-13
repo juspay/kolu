@@ -48,6 +48,7 @@ import {
   normalizeHeartbeat,
 } from "../connect";
 import { reloadForUpdate } from "../lifecycle";
+import { type FaultLook, SurfaceFaultBoundary } from "./fault";
 
 // The turnkey single-surface connect seam (socket + client + default-on
 // heartbeat). It builds a Solid `surfaceClient`, so it lives in this `/solid`
@@ -60,6 +61,14 @@ export {
 // The REQUIRED `retired` policy both connect seams take — re-exported so a
 // consumer naming the handler's type reaches it from the same import as the seam.
 export type { RetiredHandler } from "../connect";
+// The fault boundary the provider composes off its REQUIRED `fault` prop —
+// exported on its own so an app whose root plumbing does not ride the provider
+// composes it directly around its shell (the reference consumer, olai).
+export {
+  type FaultLook,
+  SurfaceFaultBoundary,
+  type SurfaceFaultBoundaryProps,
+} from "./fault";
 // The turnkey MULTI-surface connect seam (one socket → a `surfaceClients`
 // bundle + one default-on heartbeat + the combined `surfaceClientsHealth` fact).
 export {
@@ -548,6 +557,15 @@ export type SurfaceAppProviderProps<
    *  `probe` otherwise leaves `status()` stuck with no diagnostic) — so a single
    *  handler covers both the build-identity stream and the lifecycle probe. */
   onError?: (err: Error) => void;
+  /** What an UNCAUGHT RENDER THROW looks like — REQUIRED, no default, the way
+   *  the connect seams require `retired`. The provider wraps `children` in
+   *  {@link SurfaceFaultBoundary}, which catches the throw, records it on the
+   *  console (a boundary swallows), and prints it (`thrownText`); this prop
+   *  supplies only the markup, handed the printed text. Required because the
+   *  silent alternative is the white tab: an app that composed a shell without
+   *  being asked shipped a page that went blank with the truth in a console
+   *  nobody opened (the reference consumer's olai#70). */
+  fault: FaultLook;
   children: JSX.Element;
 } & ConnectionSource<P>;
 
@@ -677,7 +695,18 @@ export function SurfaceAppProvider<
   return createComponent(SurfaceAppContext.Provider, {
     value: model as SurfaceAppModel,
     get children() {
-      return props.children;
+      // The fault boundary sits INSIDE the context, so the app's `fault` LOOK
+      // may still read `useSurfaceApp()` (e.g. to offer `reload()`); it wraps
+      // ALL of `children`, so no shell subtree can throw past it into a white
+      // tab. The LOOK itself is the app's — see `./fault` for the cut.
+      return createComponent(SurfaceFaultBoundary, {
+        get fault() {
+          return props.fault;
+        },
+        get children() {
+          return props.children;
+        },
+      });
     },
   });
 }

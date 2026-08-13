@@ -11,6 +11,7 @@ import { render } from "solid-js/web";
 import { toast } from "solid-sonner";
 import App from "./App";
 import { status } from "./rpc/rpc";
+import { Fault } from "./ui/Fault";
 import { surfaceApp } from "./wire";
 import "./index.css";
 
@@ -51,6 +52,10 @@ render(
       buildInfo={koluBuildInfo}
       status={status}
       onError={(err) => toast.error(`Build identity error: ${err.message}`)}
+      // What an uncaught render throw looks like — required by the provider,
+      // which wraps everything below in `SurfaceFaultBoundary` (catch + record
+      // + print); kolu owns only this markup. See `./ui/Fault.tsx`.
+      fault={(text) => <Fault text={text} />}
     >
       <MetaProvider>
         <App />

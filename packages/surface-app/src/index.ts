@@ -1,5 +1,7 @@
 /**
- * @kolu/surface-app — pure, framework-free kernels of the freshness contract.
+ * @kolu/surface-app — pure, framework-free kernels: the freshness contract,
+ * the wire's shared vocabulary (paths, close codes, the dial URL), and the
+ * fault printer.
  *
  * These have no dependency on Hono, SolidJS, or surface; they are the bits the
  * `/server` and `/solid` entrypoints (and your app) build on, and the only bits
@@ -492,4 +494,46 @@ export const surfaceWsUrl = (httpBaseUrl: string): string => {
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = SURFACE_WS_PATH;
   return url.toString();
+};
+
+/** What a thrown value is, said in text a person can put in a bug report — the
+ *  printer half of the fault surface (`SurfaceFaultBoundary` on `/solid` is the
+ *  catching half). It is the one part of that surface that is not markup, so it
+ *  is the part a Node test can pin: a fault card is only worth drawing if what
+ *  it draws IS the fault, and the fault arrives as `unknown` — a render can
+ *  throw a string, an `undefined`, a `DOMException`, anything.
+ *
+ *  The STACK when there is one, because the message alone ("undefined is not an
+ *  object") names no file, and the whole reason a fault card exists is that the
+ *  alternative was a dead tab with the truth in a console nobody opened. V8
+ *  prints the header `name: message` as the stack's first line, so that case
+ *  is not the message twice; a stack that has LOST the message gets it put
+ *  back on the front rather than dropped. "Lost" is decided by whether the
+ *  stack's first line IS the current header — EQUALITY, not a substring test:
+ *  a short message ("app", "12") is routinely a substring of a Safari frame,
+ *  and a shortened reassignment leaves a stale V8 header that contains the
+ *  new message, so anything looser waves real losses through. A message-less
+ *  Error falls back to the name-prefix test (its V8 header is the bare name);
+ *  a multiline message can never equal one line, so it is prepended — the
+ *  safe direction: at worst said twice, never dropped.
+ *
+ *  Never empty: a thrown value that says nothing about itself is still a
+ *  fault, and an empty card would read as a page that broke for no reason. */
+export const thrownText = (error: unknown): string => {
+  if (error instanceof Error) {
+    const named = `${error.name}: ${error.message}`;
+    if (!error.stack) return named;
+    const newline = error.stack.indexOf("\n");
+    const firstLine =
+      newline === -1 ? error.stack : error.stack.slice(0, newline);
+    const carriesMessage =
+      error.message === ""
+        ? firstLine.startsWith(error.name)
+        : firstLine === named;
+    return carriesMessage ? error.stack : `${named}\n${error.stack}`;
+  }
+  const said = String(error);
+  return said === ""
+    ? "the page threw a value that says nothing about itself"
+    : said;
 };

@@ -6,7 +6,7 @@
  * chrome and drishti's; only the pixels differ.
  */
 
-import { shellCommit } from "@kolu/surface-app/lifecycle";
+import { reloadForUpdate, shellCommit } from "@kolu/surface-app/lifecycle";
 import { SurfaceAppProvider, useSurfaceApp } from "@kolu/surface-app/solid";
 import { probeSurfaceIdentity } from "@kolu/surface/identity";
 import type { SurfaceReadoutStatus } from "@kolu/surface/solid";
@@ -180,6 +180,23 @@ export default function App() {
       // stream and a failed identity probe (a broken probe would otherwise
       // leave the connection status stuck silently).
       onError={(err) => console.error("surface-app error:", err)}
+      // What an uncaught render throw looks like — REQUIRED, like `retired` on
+      // the connect seam: the provider wraps the shell in
+      // `SurfaceFaultBoundary`, which catches/records/prints; the app supplies
+      // only this markup, handed the printed text verbatim.
+      fault={(text) => (
+        <main class="body">
+          <h1>This page broke</h1>
+          <p class="lead">
+            The client itself threw while drawing — the text below is what a bug
+            report is made of.
+          </p>
+          <pre>{text}</pre>
+          <button type="button" class="reload" onClick={reloadForUpdate}>
+            Reload
+          </button>
+        </main>
+      )}
     >
       <Shell />
     </SurfaceAppProvider>

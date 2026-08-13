@@ -90,6 +90,7 @@ handler cannot drift.
 | `reportSurfaceAppEvent(event)` | `/serve` | the default narration policy, exported so an `onEvent` can delegate to it |
 | `SURFACE_WS_PATH` | `.` | `/rpc/ws`, the one path a surface speaks on — both legs import it |
 | `surfaceWsUrl(httpBaseUrl)` | `.` | the dial URL from the http(s) base — the ONE `https:` → `wss:` swap, browser-safe |
+| `thrownText(error)` | `.` | an uncaught throw, printed for a bug report — the Safari/V8/`DOMException` normalization behind the [fault boundary](#the-fault-boundary-a-throw-is-not-a-white-tab), framework-free and never empty |
 
 Observation is **one** option, `onEvent`, taking one tagged union — because every
 consumer has exactly one logger:
@@ -421,7 +422,8 @@ handles the stale-tab handshake; its connection source is a union of
 `{ wire, probe }` (the provider derives the lifecycle off the link's
 `WatchableWire` — there is no socket shape to satisfy) or `{ status }` (you
 already did). It takes a typed `controlPlane` whose `buildInfo` cell yields build
-identity, plus `clientCommit={shellCommit()}`.
+identity, plus `clientCommit={shellCommit()}` — and a **required `fault`**, the
+LOOK of an uncaught render throw (below).
 
 `useSurfaceApp()` is the headless model — no styled components ship:
 
@@ -433,6 +435,49 @@ identity, plus `clientCommit={shellCommit()}`.
 | `reload()` | reload for an update |
 | `setAttention(n)` | OS app badge + title |
 | `canInstallPwa()` | true only in a secure context and not already installed |
+
+## The fault boundary: a throw is not a white tab
+
+A client that throws while drawing is not running the code that would draw any
+in-app error surface — Solid unmounts the subtree that faulted, and what a
+reader gets is a blank page with the truth in a console nobody opened. So the
+composition root takes the answer as a **required prop**, the way the connect
+seams require `retired`:
+
+```tsx
+<SurfaceAppProvider fault={(text) => <Fault text={text} />} …>
+```
+
+The provider wraps its children in `SurfaceFaultBoundary`, which owns three
+verbs — it **catches** (an `ErrorBoundary` around the whole shell), **records**
+(one `console.error` naming the moment: a boundary *swallows*, and Solid
+re-throws only when nothing catches, so without that line a faulted page fails
+a browser test as a bare timeout with its "no page errors" assertion green),
+and **prints** (`thrownText`, exported on `.`: the fault arrives as `unknown` —
+a string, an `undefined`, a `DOMException` — and the printer normalizes it,
+puts a Safari-lost message back on the front of its stack, and never returns
+the empty string). The app supplies only the **LOOK** (`FaultLook` —
+`(text: string) => JSX.Element`), handed the printed text verbatim: that text
+is what a bug report is made of, and a LOOK that summarised it would be the
+white tab with extra steps.
+
+An app whose root plumbing does not ride the provider composes the boundary
+directly:
+
+```tsx
+render(
+  () => (
+    <SurfaceFaultBoundary fault={(text) => <Fault text={text} />}>
+      <App />
+    </SurfaceFaultBoundary>
+  ),
+  root,
+);
+```
+
+Requiring the prop does not make an app render anything well — nothing at the
+type level can — but a composition root that compiles has been asked what an
+uncaught throw looks like, and answered.
 
 ## Build identity
 
