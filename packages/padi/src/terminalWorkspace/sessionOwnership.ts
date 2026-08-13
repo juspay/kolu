@@ -95,23 +95,43 @@ function booksFor(kind: string): Books {
   return entry;
 }
 
-/** One session a terminal could be running. `createdAt` is epoch-ms the session
- *  came into being, or null when the adapter cannot say — a null simply means
- *  the episode test below cannot judge this candidate, never that it is old. */
-export interface SessionCandidate {
+/** One session a terminal could be running, with whatever the caller needs back
+ *  when it wins. `createdAt` is epoch-ms the session came into being, or null
+ *  when the adapter cannot say. */
+export interface SessionCandidate<T> {
   key: string;
   createdAt: number | null;
+  value: T;
 }
 
-/** Did this session come into being during the terminal's CURRENT agent episode?
- *  Unknowable (no episode clock, or an adapter that cannot date its sessions)
- *  counts as YES: the episode test exists to dislodge a hold we can PROVE is a
- *  leftover, and absence of proof is not proof. */
-function bornThisEpisode(
-  candidate: SessionCandidate,
+/** Can we PROVE this session predates the terminal's current agent episode —
+ *  that it is a leftover of an earlier run in the same directory?
+ *
+ *  Only a dated candidate against a dated episode can answer. Everything else is
+ *  ignorance, and the two questions the arbiter asks resolve ignorance in
+ *  OPPOSITE directions, which is why this is one predicate and not a shared
+ *  "born this episode":
+ *
+ *    - "should I let go of what I hold?" — only on proof it is a leftover;
+ *    - "is this one worth trading up to?" — only on proof it is not.
+ *
+ *  A single is-it-mine predicate answering "yes" for both would dislodge a hold
+ *  onto a candidate of entirely unknown age, which is the guess the episode
+ *  anchor exists to avoid. */
+function provablyPredatesEpisode(
+  candidate: SessionCandidate<unknown>,
   since: number | null,
 ): boolean {
-  if (since === null || candidate.createdAt === null) return true;
+  if (since === null || candidate.createdAt === null) return false;
+  return candidate.createdAt < since;
+}
+
+/** Can we PROVE this session came into being during the episode? */
+function provablyBornThisEpisode(
+  candidate: SessionCandidate<unknown>,
+  since: number | null,
+): boolean {
+  if (since === null || candidate.createdAt === null) return false;
   return candidate.createdAt >= since;
 }
 
@@ -125,42 +145,52 @@ function bornThisEpisode(
  *  clock, no I/O. The caller must NOT call this when it could not read the
  *  candidate list at all; ignorance is not an empty list, and an empty list here
  *  releases the hold (see the module header). */
-export function claimSession(
+export function claimSession<T>(
   kind: string,
   terminalId: TerminalId,
-  candidates: readonly SessionCandidate[],
+  candidates: readonly SessionCandidate<T>[],
   since: number | null,
-): string | null {
+): T | null {
   const b = booksFor(kind);
   const held = b.heldBy.get(terminalId);
   const heldCandidate =
     held === undefined ? undefined : candidates.find((c) => c.key === held);
   if (heldCandidate !== undefined) {
-    // A hold that postdates the episode is this harness's own — keep it against
-    // every newcomer. A hold that PREDATES the episode was taken only because
-    // nothing better existed: trade it for the best post-episode session nobody
-    // else holds, and keep it when there is none.
-    if (bornThisEpisode(heldCandidate, since)) return held as string;
+    // A hold we cannot prove is a leftover stays — including one we simply
+    // cannot date. Only a hold PROVABLY older than the episode is provisional,
+    // and it gives way only to a candidate PROVABLY born during it: trading a
+    // leftover for a session of unknown age is the guess this anchor avoids.
+    if (!provablyPredatesEpisode(heldCandidate, since))
+      return heldCandidate.value;
     const better = candidates.find(
-      (c) => !b.ownerOf.has(c.key) && bornThisEpisode(c, since),
+      (c) => !b.ownerOf.has(c.key) && provablyBornThisEpisode(c, since),
     );
-    if (better === undefined) return held as string;
-    releaseTerminal(kind, terminalId);
-    return take(b, terminalId, better.key);
+    if (better === undefined) return heldCandidate.value;
+    return take(b, terminalId, better);
   }
   // Either this terminal held nothing, or what it held is no longer on offer.
   releaseTerminal(kind, terminalId);
   for (const candidate of candidates) {
     if (b.ownerOf.has(candidate.key)) continue;
-    return take(b, terminalId, candidate.key);
+    return take(b, terminalId, candidate);
   }
   return null;
 }
 
-function take(b: Books, terminalId: TerminalId, key: string): string {
-  b.ownerOf.set(key, terminalId);
-  b.heldBy.set(terminalId, key);
-  return key;
+/** Record `terminalId` as the holder of `candidate`, dropping whatever it held
+ *  before. The drop is INSIDE this function, not a discipline every call site
+ *  has to remember: the two maps are one relation in two directions, and the
+ *  only way they can disagree is a `set` without the matching release. */
+function take<T>(
+  b: Books,
+  terminalId: TerminalId,
+  candidate: SessionCandidate<T>,
+): T {
+  const previous = b.heldBy.get(terminalId);
+  if (previous !== undefined) b.ownerOf.delete(previous);
+  b.ownerOf.set(candidate.key, terminalId);
+  b.heldBy.set(terminalId, candidate.key);
+  return candidate.value;
 }
 
 /** Drop this terminal's claim — called when it stops running an agent and when

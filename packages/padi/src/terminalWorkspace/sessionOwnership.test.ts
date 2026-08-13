@@ -22,9 +22,16 @@ const BEFORE = 500; // a leftover from an earlier run in this directory
 const AFTER = 1_500; // born while this terminal's harness was running
 const LATER = 2_000;
 
-/** Candidates whose creation time the adapter cannot report (OpenCode). */
-const undated = (...keys: string[]) =>
-  keys.map((key) => ({ key, createdAt: null }));
+/** A candidate. Its `value` is the key itself, so the assertions read as the
+ *  session the arbiter handed back rather than a lookup. */
+const at = (key: string, createdAt: number | null) => ({
+  key,
+  createdAt,
+  value: key,
+});
+
+/** Candidates whose creation time the adapter cannot report. */
+const undated = (...keys: string[]) => keys.map((key) => at(key, null));
 
 beforeEach(resetSessionOwnership);
 
@@ -54,12 +61,9 @@ describe("claimSession — stickiness", () => {
     // A second harness starting in the same repository puts ITS session at the
     // head of everyone's list. Following it is exactly how one row came to show
     // another harness's task.
-    const mine = [{ key: "mine", createdAt: AFTER }];
+    const mine = [at("mine", AFTER)];
     expect(claimSession(KIND, ONE, mine, EPISODE)).toBe("mine");
-    const withNewcomer = [
-      { key: "a-newcomer", createdAt: LATER },
-      { key: "mine", createdAt: AFTER },
-    ];
+    const withNewcomer = [at("a-newcomer", LATER), at("mine", AFTER)];
     expect(claimSession(KIND, ONE, withNewcomer, EPISODE)).toBe("mine");
     expect(claimSession(KIND, TWO, withNewcomer, LATER)).toBe("a-newcomer");
   });
@@ -100,26 +104,20 @@ describe("claimSession — the episode anchor", () => {
     // the moment kolu sees the harness the only candidate is a PREVIOUS run's.
     // Keeping that is how a terminal came to show yesterday's conversation for
     // its whole life.
-    const leftoverOnly = [{ key: "yesterday", createdAt: BEFORE }];
+    const leftoverOnly = [at("yesterday", BEFORE)];
     expect(claimSession(KIND, ONE, leftoverOnly, EPISODE)).toBe("yesterday");
-    const ownLanded = [
-      { key: "mine", createdAt: AFTER },
-      { key: "yesterday", createdAt: BEFORE },
-    ];
+    const ownLanded = [at("mine", AFTER), at("yesterday", BEFORE)];
     expect(claimSession(KIND, ONE, ownLanded, EPISODE)).toBe("mine");
     // The leftover is free again — it was never this terminal's.
-    expect(
-      claimSession(KIND, TWO, [{ key: "yesterday", createdAt: BEFORE }], LATER),
-    ).toBe("yesterday");
+    expect(claimSession(KIND, TWO, [at("yesterday", BEFORE)], LATER)).toBe(
+      "yesterday",
+    );
   });
 
   it("keeps the leftover when nothing newer than the episode is on offer", () => {
     // `codex resume` of an old thread: the only candidate predates the episode
     // and is still the right answer. Never trade for nothing.
-    const leftovers = [
-      { key: "older", createdAt: BEFORE },
-      { key: "oldest", createdAt: 1 },
-    ];
+    const leftovers = [at("older", BEFORE), at("oldest", 1)];
     expect(claimSession(KIND, ONE, leftovers, EPISODE)).toBe("older");
     expect(claimSession(KIND, ONE, leftovers, EPISODE)).toBe("older");
   });
@@ -127,12 +125,9 @@ describe("claimSession — the episode anchor", () => {
   it("does not trade a leftover for a post-episode session someone else holds", () => {
     // The neighbour's session is newer than this terminal's episode too — but
     // it is taken, and exclusivity outranks the episode anchor.
-    const neighbours = [{ key: "theirs", createdAt: AFTER }];
+    const neighbours = [at("theirs", AFTER)];
     expect(claimSession(KIND, TWO, neighbours, EPISODE)).toBe("theirs");
-    const both = [
-      { key: "theirs", createdAt: AFTER },
-      { key: "leftover", createdAt: BEFORE },
-    ];
+    const both = [at("theirs", AFTER), at("leftover", BEFORE)];
     expect(claimSession(KIND, ONE, both, EPISODE)).toBe("leftover");
     expect(claimSession(KIND, ONE, both, EPISODE)).toBe("leftover");
   });
@@ -140,12 +135,9 @@ describe("claimSession — the episode anchor", () => {
   it("holds a post-episode session against every later arrival", () => {
     // Once a terminal has a session its own harness made, nothing dislodges it
     // — this is the external-`codex` case the whole module exists for.
-    const own = [{ key: "own", createdAt: AFTER }];
+    const own = [at("own", AFTER)];
     expect(claimSession(KIND, ONE, own, EPISODE)).toBe("own");
-    const stranger = [
-      { key: "a-stranger", createdAt: LATER },
-      { key: "own", createdAt: AFTER },
-    ];
+    const stranger = [at("a-stranger", LATER), at("own", AFTER)];
     expect(claimSession(KIND, ONE, stranger, EPISODE)).toBe("own");
   });
 
@@ -159,16 +151,11 @@ describe("claimSession — the episode anchor", () => {
   });
 
   it("keeps what it holds when the terminal has no episode clock", () => {
-    const dated = [{ key: "held", createdAt: BEFORE }];
+    const dated = [at("held", BEFORE)];
     expect(claimSession(KIND, ONE, dated, null)).toBe("held");
-    expect(
-      claimSession(
-        KIND,
-        ONE,
-        [{ key: "newer", createdAt: LATER }, ...dated],
-        null,
-      ),
-    ).toBe("held");
+    expect(claimSession(KIND, ONE, [at("newer", LATER), ...dated], null)).toBe(
+      "held",
+    );
   });
 });
 

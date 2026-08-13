@@ -100,7 +100,11 @@ function startHarness(): Harness {
   };
   const stop = startAgentSensor(
     fakeAdapter,
-    { mirror: null, currentAgent: null },
+    {
+      mirror: null,
+      currentAgent: null,
+      episode: { since: null, pid: undefined, watchedShellIdle: false },
+    },
     SHELL_PID,
     "/w",
     "term-1" as TerminalId,

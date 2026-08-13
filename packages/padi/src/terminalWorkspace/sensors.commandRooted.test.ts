@@ -77,7 +77,11 @@ function startHarness(commandRooted: boolean) {
   // `commandRooted` flag is the fix: the root IS the agent, not a shell.
   const stop = startAgentSensor(
     adapter,
-    { mirror: null, currentAgent: "opencode" },
+    {
+      mirror: null,
+      currentAgent: "opencode",
+      episode: { since: null, pid: undefined, watchedShellIdle: false },
+    },
     ROOT_PID,
     "/w",
     "t1" as TerminalId,

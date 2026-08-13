@@ -226,7 +226,11 @@ function startTerminal(id: TerminalId, agentPid: number): Harness {
   };
   const stop = startAgentSensor(
     codexAdapter,
-    { mirror: null, currentAgent: null },
+    {
+      mirror: null,
+      currentAgent: null,
+      episode: { since: null, pid: undefined, watchedShellIdle: false },
+    },
     SHELL_PID,
     REPO,
     id,
@@ -236,6 +240,15 @@ function startTerminal(id: TerminalId, agentPid: number): Harness {
     log,
     false,
   );
+  // A fresh terminal sits at its shell, and kaval pushes a current foreground
+  // snapshot on subscribe. Publishing it is what lets kolu WATCH the shell →
+  // agent transition, which is the only transition it will date an episode from
+  // (see `noteEpisode`): a sensor whose first sample already shows the agent is
+  // an ADOPTED terminal and gets no episode clock at all.
+  signals.foreground.publish({
+    process: "/bin/bash",
+    foregroundPid: SHELL_PID,
+  });
   let pokes = 0;
   return {
     latest: () => {

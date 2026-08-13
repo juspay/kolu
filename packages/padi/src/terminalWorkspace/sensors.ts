@@ -84,6 +84,30 @@ interface AgentEngineState {
    *  set by the agent-command tracker, read by the detectors. Null when no
    *  recognized agent command is in flight (shell idle / non-agent command). */
   currentAgent: string | null;
+  /** When the terminal's CURRENT agent run began — the fact the session-ownership
+   *  arbiter anchors stickiness to (`sessionOwnership.ts`). One per TERMINAL, not
+   *  one per adapter: all four detectors watch the same foreground, so four
+   *  private copies would be four `Date.now()` readings of one event that could
+   *  disagree about which sessions predate it. Re-seeded empty each start, like
+   *  every other field here. */
+  episode: AgentEpisode;
+}
+
+/** The terminal's current agent run, as the ownership arbiter needs to see it. */
+interface AgentEpisode {
+  /** Epoch-ms the run began, or null when kolu cannot honestly say. */
+  since: number | null;
+  /** The foreground pid the run began with — the transition this was stamped on. */
+  pid: number | undefined;
+  /** Has a REAL sample shown this terminal's shell idle? Only then can kolu
+   *  claim to have WATCHED an agent start here. Until it has, an agent in the
+   *  foreground was already running before padi looked (an adopted terminal, a
+   *  padi restart), and `Date.now()` would date the OBSERVER rather than the
+   *  harness — stamping the episode AFTER that harness's own session was
+   *  written, marking it a leftover, and freeing the terminal to trade it away
+   *  for a stranger's newer session. That is #2057's own second symptom, so the
+   *  honest answer there is null. */
+  watchedShellIdle: boolean;
 }
 
 /** A preexec command mark off the `commandRun` tap. `replayed` is true for the
@@ -636,13 +660,6 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   // (the spawn-time cwd the host passes in `inputs.cwd`) and updated only via the
   // `cwd` channel — so agent detection depends on no host store, just the taps.
   let currentCwd = spawnCwd;
-  // Epoch-ms this terminal's CURRENT agent episode began, and the foreground pid
-  // it began with. Read by the ownership arbiter to tell a session this harness
-  // created from a leftover of an earlier run in the same directory; see
-  // `sessionOwnership.ts`. Null while the shell is idle — no episode, nothing
-  // to anchor to.
-  let episodeSince: number | null = null;
-  let episodePid: number | undefined;
   // Foreground source-of-truth for this adapter, tracked from
   // `signals.foreground` (seeded empty → "shell idle" until the first
   // sample arrives). Same rationale as `currentCwd`: read it from the
@@ -659,6 +676,37 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   // freezing that subscription for the terminal's life — and synchronously
   // on the foreground snapshot fire. One try/catch here is the single place
   // that invariant lives, so the bare call sites stay honest.
+  /** Track the terminal's agent episode off a REAL foreground sample.
+   *
+   *  Here rather than inside `reconcileInner` for two reasons. A sample is the
+   *  only honest witness — the seeded `{ process: "", foregroundPid: undefined }`
+   *  is "nothing observed yet", not an idle shell, and reading it as one would
+   *  let an ADOPTED terminal date its episode from the moment padi looked. And
+   *  the reconcile path returns early when the session store is unreadable,
+   *  which is an entirely unrelated axis — the episode would have gone unstamped
+   *  on a transient DB fault. */
+  function noteEpisode(fg: ForegroundSample): void {
+    const episode = agentState.episode;
+    if (isShellIdle(fg.foregroundPid, pid, commandRooted)) {
+      episode.watchedShellIdle = true;
+      episode.since = null;
+      episode.pid = undefined;
+      return;
+    }
+    if (fg.foregroundPid === undefined || fg.foregroundPid === episode.pid)
+      return;
+    // Only a transition kolu WATCHED dates an episode. Everything else — an
+    // adopted terminal, a padi restart, a command-rooted PTY (which never reads
+    // shell-idle, #1872) — leaves it null, which the arbiter already reads as
+    // "cannot judge" and answers with plain stickiness. Weaker than it could be
+    // for a padi-SPAWNED command root, where padi does hold the spawn instant;
+    // threading that through would need a `startedAt` on `SensorInputs` that an
+    // ADOPTED entry cannot honestly fill, so it stays a follow-up rather than a
+    // field that lies half the time.
+    episode.pid = fg.foregroundPid;
+    episode.since = episode.watchedShellIdle ? Date.now() : null;
+  }
+
   function reconcile() {
     // The sensor is torn down synchronously, but a channel value pulled before
     // teardown delivers its `onEvent` on a LATER microtask — so a reconcile can
@@ -714,34 +762,17 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       plog.debug("session store unreadable — holding the previous match");
       return;
     }
-    // The episode clock the arbiter anchors stickiness to: when this terminal's
-    // CURRENT agent run began. Stamped on the foreground moving to a new
-    // non-shell process (which IS the agent starting) and cleared when the
-    // shell comes back, so a session that predates it cannot be one this
-    // harness created.
-    if (shellIdle) {
-      episodeSince = null;
-      episodePid = undefined;
-    } else if (
-      state.foregroundPid !== undefined &&
-      state.foregroundPid !== episodePid
-    ) {
-      episodePid = state.foregroundPid;
-      episodeSince = Date.now();
-    }
-    const candidates = offered.map((session) => ({
-      session,
-      key: adapter.sessionKey(session),
-      createdAt: adapter.sessionStartedAt(session),
-    }));
-    const ownedKey = claimSession(
+    const next = claimSession(
       adapter.kind,
       terminalId,
-      candidates,
-      episodeSince,
+      offered.map((session) => ({
+        key: adapter.sessionKey(session),
+        createdAt: adapter.sessionStartedAt(session),
+        value: session,
+      })),
+      agentState.episode.since,
     );
-    const next = candidates.find((c) => c.key === ownedKey)?.session ?? null;
-    const nextKey = next === null ? null : ownedKey;
+    const nextKey = next === null ? null : adapter.sessionKey(next);
     // The absence FLAVOR is part of the resolution, so dedup on the COMPLETE state
     // (session key + the foreground's shell-idle flavor), not the key alone. A matched
     // resolution dedups on the key as before; an ABSENT one must ALSO re-emit when the
@@ -965,6 +996,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   });
   const cleanupForeground = signals.foreground.consume({
     onEvent: (fg) => {
+      noteEpisode(fg);
       currentForeground = fg;
       reconcile();
     },
@@ -1040,7 +1072,11 @@ export function startSensors(
 ): () => void {
   const { pid, cwd, commandRooted, signals, readScreenText, log } = inputs;
   // Transient working state — re-seeded empty each start (a producer is memoryless).
-  const agentState: AgentEngineState = { mirror: null, currentAgent: null };
+  const agentState: AgentEngineState = {
+    mirror: null,
+    currentAgent: null,
+    episode: { since: null, pid: undefined, watchedShellIdle: false },
+  };
 
   // `emit` is the host's contract and must be INFALLIBLE. The producer (and the
   // upstream git/pr/agent watchers) advance their own dedup baselines BEFORE calling
