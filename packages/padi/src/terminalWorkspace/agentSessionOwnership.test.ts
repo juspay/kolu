@@ -383,21 +383,48 @@ describe("two codex harnesses in ONE project (juspay/kolu#2057)", () => {
   it("ignores a codex kolu does not own that appears in the same directory", async () => {
     // The reporter's second video: a `codex` run OUTSIDE kolu, in a directory
     // kolu has terminals in, writes the newest thread there. No second sensor —
-    // so nothing else has claimed it, and only the KEEPS-WHILE-A-CANDIDATE half
-    // of the rule stands between that thread and this terminal's row. (The
-    // second-harness case above is carried by exclusivity alone: the newcomer is
-    // already held by the time terminal one asks.)
+    // so nothing has claimed it, and only stickiness stands between that thread
+    // and this terminal's row. (The second-harness case above is carried by
+    // exclusivity alone: the newcomer is already held by the time terminal one
+    // asks.) The stranger's thread is stamped AFTER the episode, which is what
+    // makes this test bite: a thread older than the episode would be refused by
+    // the episode anchor without stickiness doing any work at all.
+    seedThreads([
+      {
+        id: YESTERDAY,
+        title: "Yesterday's task",
+        updatedAtMs: 1_000,
+        rollout: finishedRollout("turn-1"),
+      },
+    ]);
     const one = startTerminal(ONE_ID, 201);
     try {
       await one.poke();
+      // Its own thread lands, so the terminal is on a session it started.
+      addThread({
+        id: FRESH,
+        title: "My own task",
+        updatedAtMs: 5_000,
+        rollout: thinkingRollout("turn-1"),
+      });
+      await one.poke();
       const before = one.latest();
-      expect(before?.sessionId).toBe(THREAD_ONE);
+      expect(
+        before?.sessionId,
+        "terminal one never reached its own thread",
+      ).toBe(FRESH);
 
-      addThread(THREAD_TWO_ROW);
+      // A codex kolu does not own writes a NEWER thread in the same directory.
+      addThread({
+        id: FRESH_STRANGER,
+        title: "Somebody else's task",
+        updatedAtMs: 9_000,
+        rollout: thinkingRollout("turn-1"),
+      });
       await one.poke();
 
-      expect(one.latest()?.sessionId).toBe(THREAD_ONE);
-      expect(one.latest()?.summary).toBe("Fix the parser");
+      expect(one.latest()?.sessionId).toBe(FRESH);
+      expect(one.latest()?.summary).toBe("My own task");
       expect(one.latest()?.state).toBe(before?.state);
     } finally {
       one.stop();
