@@ -6,6 +6,20 @@
  * worth unit-testing in isolation. The freshness contract they encode is the
  * hard-won lesson of the four-times-relitigated stale-client bug — see
  * `docs/cache-bug.md` and the Atlas note `docs/atlas/src/content/atlas/surface-app.mdx`.
+ *
+ * ## This file imports NOTHING, and that is a contract
+ *
+ * A Vite config imports it (kolu's own `vite.config.ts:2` takes `ASSET_DIR` and
+ * `NOTIFICATION_SW_SOURCE` from here) and a Vite config is loaded by **Node's
+ * ESM loader**, not by a bundler — the same boundary `./vite`'s header describes
+ * for itself. Node cannot resolve this package's extensionless relative
+ * imports, so ONE `from "./anything"` here — a re-export included — takes down
+ * every consumer's dev server with `ERR_MODULE_NOT_FOUND`, and nothing in this
+ * package's own unit tests can see it because vitest resolves them fine. It is
+ * pinned by `nodeEsm.test.ts`, which READS this file and requires its relative
+ * specifiers to be none — stricter than "Node can resolve them", and the cheap
+ * twin of the `ci::dev-smoke` lane that caught it (that lane takes three minutes
+ * and reads as a timeout waiting for localhost; this fails in milliseconds).
  */
 
 /** Where the immutable, content-hashed assets live, and which paths are the
@@ -139,11 +153,65 @@ export function shellCommitScriptBody(commit: string): string {
 }
 
 /** Inject the shell-commit script into an HTML shell, right after `<head>` so
- *  it runs before the module bundle reads it. Pure — the Bun builder
- *  (`./bun`) applies it to the template it rewrites; the Vite path injects the
- *  same tag through `transformIndexHtml`. Throws when the template has no
- *  `<head>` rather than silently emitting a shell with no build identity. */
+ *  it runs before the module bundle reads it. Pure, and the path for a caller
+ *  templating its own shell (`./client`'s note names it); the Bun builder goes
+ *  through `injectShellHead` below, which writes this script and the preload
+ *  links in one splice. The Vite path injects the same tag through
+ *  `transformIndexHtml`. Throws when the template has no `<head>` rather than
+ *  silently emitting a shell with no build identity. */
 export function injectShellCommit(html: string, commit: string): string {
+  return injectShellHead(html, { preloadHrefs: [], commit });
+}
+
+/** The `<link rel="modulepreload">` tags, one per href, in order (no hrefs ⇒ the
+ *  empty string).
+ *
+ *  An href that is not a plain `/path` is REFUSED, not escaped: these are hashed
+ *  build outputs named from the app's own source filenames, so a quote in one
+ *  means something upstream is already wrong, and interpolating it would end the
+ *  attribute early and ship a silently broken shell. (`shellCommitScript`
+ *  escapes instead — a commit string is arbitrary by nature and it has no
+ *  standing to refuse one.) That the target is a JS module at all is settled
+ *  where the list is BUILT: `./modulePreload`'s walk refuses a static import
+ *  that is not one, so by the time an href reaches this function the assertion
+ *  `rel="modulepreload"` makes is already true. */
+function modulePreloadLinks(hrefs: readonly string[]): string {
+  return hrefs
+    .map((href) => {
+      if (!/^\/[\w./-]+$/.test(href))
+        throw new Error(
+          `@kolu/surface-app: refusing to write ${JSON.stringify(href)} into an href attribute — a preload URL must be a plain /path`,
+        );
+      return `<link rel="modulepreload" href="${href}">`;
+    })
+    .join("");
+}
+
+/** Everything this package puts in the shell's `<head>`, in the ONE order that
+ *  is correct: the preload links FIRST — the point of the tags is to start those
+ *  chunk fetches at the earliest byte the parser reaches, so nothing may push
+ *  them later — then the build identity. Written in a single splice, so the
+ *  order is stated here, once, instead of being the reverse of the order two
+ *  injector calls happen to appear in.
+ *
+ *  `preloadHrefs` is `SurfaceClientBuildResult.preloadHrefs` — only the build can
+ *  name those files (`./bun`). No preload hrefs ⇒ no preload tags: a shell whose
+ *  entry split into nothing carries no trace of this, rather than an empty
+ *  artifact in every shell that never splits. */
+export function injectShellHead(
+  html: string,
+  { preloadHrefs, commit }: { preloadHrefs: readonly string[]; commit: string },
+): string {
+  return insertAfterHead(
+    html,
+    modulePreloadLinks(preloadHrefs) + shellCommitScript(commit),
+  );
+}
+
+/** Insert `snippet` right after the shell's `<head>` open tag — the ONE place
+ *  anything is added to the head, so no injector can drift into its own idea of
+ *  where the head starts. */
+function insertAfterHead(html: string, snippet: string): string {
   // Require a real `head` start tag with a tag-name boundary — `<head>` or
   // `<head …>` but NOT `<header>`/`<headless>`. A loose `/<head[^>]*>/` would
   // match `<header>` and inject at the wrong spot, defeating the fail-loud
@@ -151,17 +219,17 @@ export function injectShellCommit(html: string, commit: string): string {
   const head = /<head(?:\s|>)/i.exec(html);
   if (!head) {
     throw new Error(
-      "injectShellCommit: the HTML template has no <head> — the shell would carry no build identity",
+      "@kolu/surface-app: the HTML template has no <head> — the shell would carry no build identity, and the entry's static chunks would cost an extra round trip on first paint",
     );
   }
   const close = html.indexOf(">", head.index);
   if (close === -1) {
     throw new Error(
-      "injectShellCommit: the HTML template has an unterminated <head> tag",
+      "@kolu/surface-app: the HTML template has an unterminated <head> tag",
     );
   }
   const at = close + 1;
-  return html.slice(0, at) + shellCommitScript(commit) + html.slice(at);
+  return html.slice(0, at) + snippet + html.slice(at);
 }
 
 /** The never-stale sentinel: the commit value that means "don't claim

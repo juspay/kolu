@@ -185,17 +185,19 @@ server.on(
 it produces the dist the static layer above is built to serve, and nothing about
 that dist is the app's to remember. Content-hashed `/assets/*` (entry, split
 chunks, extra assets), the `no-store` shell rewritten to name them, the commit
-injected onto that shell, and — since the socket was completed — the
-precompressed siblings and the code splitting every consumer used to bolt on
-afterwards.
+injected onto that shell, a `<link rel="modulepreload">` for each chunk the entry
+statically imports, and — since the socket was completed — the precompressed
+siblings and the code splitting every consumer used to bolt on afterwards.
 
 | Export | Subpath | Role |
 | --- | --- | --- |
 | `surfaceApp()` | `/vite` | Vite plugin that injects the build commit onto the shell |
 | `buildSurfaceClient(opts)` | `/bun` | the Bun build: hashed assets, rewritten shell, siblings, splitting |
 | `SurfaceClientBuildOptions` | `/bun` | its options — entrypoint, `distDir`, the HTML template + placeholders, `extraAssets`, `publicDir`, `minify`, `commit` |
-| `SurfaceClientBuildResult` | `/bun` | `{ jsHref, assetHrefs, assets }` — the URLs written into the shell, plus an `AssetReport` per **compressible** asset in the hashed dir (sourcemaps and already-compressed media are skipped, and absent from the report) |
+| `SurfaceClientBuildResult` | `/bun` | `{ jsHref, assetHrefs, preloadHrefs, assets }` — every hashed URL the shell now names (the JS entry, one per extra asset, and the entry's static chunks in load order), plus an `AssetReport` per **compressible** asset in the hashed dir (sourcemaps and already-compressed media are skipped, and absent from the report) |
 | `AssetReport` | `/bun` | `{ file, bytes, siblings }` — identity size and each sibling's size, keyed by `Content-Encoding` |
+| `injectShellHead(html, { preloadHrefs, commit })` | `.` | the whole head prelude in one splice — preload links first, then the build identity — for a caller templating its own shell from a build result |
+| `injectShellCommit(html, commit)` | `.` | that same splice with nothing to preload: the build identity alone |
 | `PRECOMPRESSED_ENCODINGS` | `.` | the `[encoding, suffix]` table BOTH halves read: `freshStaticLayer` to negotiate, the builder to emit |
 
 ```ts
@@ -217,6 +219,20 @@ for (const a of assets) console.log(a.file, a.bytes, a.siblings);
   dynamic `import()` in your own source already asked for; `splitting: false`
   used to inline it, which is deferred in evaluation and identical on the wire.
   With one entrypoint and no dynamic import the output is unchanged.
+</Aside>
+
+<Aside type="note" title="The shell preloads the entry's STATIC chunks, and only those">
+  Splitting hands the entry a chunk it imports at the top — the module the
+  bundler hoisted out because the entry and a deferred chunk both need it. A
+  browser handed only the entry's URL cannot ask for that file until it has
+  fetched **and parsed** the entry, so the split costs one extra round trip on
+  first paint. The build reads its own chunk graph (`Bun.build({ metafile: true })`)
+  and names those files in the shell, transitively, so the fetches start while
+  the HTML is still parsing. A `dynamic-import` chunk is never preloaded —
+  that would fetch on first paint exactly what `import()` was written to defer —
+  and an entry that split into nothing gets no tags at all. A static import that
+  is not a JS module is **refused**, loudly: the bundler emitted a file this
+  build rewrites no placeholder for, so the shell would name it nowhere.
 </Aside>
 
 <Aside type="caution" title="The hashed dir belongs to the build">
