@@ -359,18 +359,21 @@ LCP over Tailscale (see [coverage gaps](#from-static-reads-to-live-traces)).
 </Finding>
 
 <Finding sev="medium" title="Publish per-key collection deltas, not the full key set — C (payload) + N (client work)">
-Every upsert/remove publishes the **entire** key array via
-`keysBus.publish(Array.from(...))` — a fresh object each time — which crosses the
-wire and triggers client `mapArray` reconciliation (`surface/server.ts:1218-1223`,
-`useCollection.ts:60-65`). Publishing discriminated `{added:[k]}/{changed:[k]}/{removed:[k]}`
-deltas (full set only on init) **shrinks the per-event payload/allocation (C)**
-and lets `useCollection` apply the change instead of re-reconciling the whole key
-set (N). The batched machinery already exists (`deltasBus` + `createTickCoalescer`,
-`useCollectionDeltas`) but the `useTerminalMetadata` call sites pass explicit
-`keys`, which forces the per-key path regardless of the `deltas` verb — so
-realizing this is a call-site change, not a one-line verb flip. **Measure:**
-`keysBus` publish frequency and payload sizes during terminal spawn/metadata
-churn.
+Every membership change used to publish the **entire** key array via
+`keysBus.publish(Array.from(readAll().keys()))` — a fresh array *and* a full
+backing-store fold per changed key, so a bulk add of M keys cost O(M·N) key
+elements on the bus and M `readAll()` composes. **The server half is fixed**:
+`createKeysetCoalescer` (`surface/server.ts`, beside `createTickCoalescer`) now
+flushes one tick-final snapshot per producer tick — a same-tick M-key burst costs
+one frame and one `readAll()`, pinned by the "ONE keys frame and ONE readAll"
+membership test. Frames are still complete snapshots, so the wire contract is
+unchanged. **Still open (N, client work):** each frame triggers full client
+`mapArray` reconciliation (`useCollection.ts`), and discriminated
+`{added}/{removed}` delivery would shrink it further; the batched machinery
+already exists (`deltasBus` + `createTickCoalescer`, `useCollectionDeltas`) but
+the `useTerminalMetadata` call sites pass explicit `keys`, which forces the
+per-key path regardless of the `deltas` verb — so realizing the client half is a
+call-site change, not a one-line verb flip.
 </Finding>
 
 - <span id="c-metadata" />**Full metadata object per live-field update** (`terminalEndpoint/metadata.ts:96-136`) — `publishAuthored` upserts a full `{...entry.meta}` clone on every field change. Upstream dedup gates (`prResultEqual`, `agentInfoEqual`) already cap the *number* of publishes to PR-poll 30s / screen-scrape 1s, so the remaining lever is *payload size* (C): splitting live vs persisted deltas. Lower priority. <Pill variant="lo">low</Pill>

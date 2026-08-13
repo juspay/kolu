@@ -123,13 +123,21 @@ describe("served collection keys-stream — membership for a registry-backed pro
 
   it("buffers a membership add that lands DURING the snapshot read", async () => {
     // The lost-update window the `deltas` handler closes with subscribe-before-
-    // snapshot — pinned here for the `keys` membership stream, and probed at its
-    // sharpest point: the add fires from INSIDE the framework's own `readAll()`,
-    // i.e. while the snapshot is being computed. With subscribe-AFTER-snapshot
-    // there is no subscriber yet, the publish hits zero subscribers, and — a
-    // quiescent `keys` stream having no later frame to self-heal from — the key is
-    // lost until the next membership change or a reconnect, so the second frame
-    // below never arrives and `Stream.take(2)` hangs.
+    // snapshot — pinned here for the `keys` membership stream. The add fires from
+    // INSIDE the framework's own `readAll()`, i.e. while the snapshot is being
+    // computed. With subscribe-AFTER-snapshot there is no subscriber yet, the
+    // frame hits zero subscribers, and — a quiescent `keys` stream having no
+    // later frame to self-heal from — the key is lost until the next membership
+    // change or a reconnect, so the second frame below never arrives and
+    // `Stream.take(2)` hangs.
+    //
+    // What this pins EXACTLY, now that the publish is coalesced: the add no
+    // longer publishes inside the read, it SCHEDULES, and the frame lands a
+    // microtask later. So the window being closed here is the one that still
+    // exists — the subscription is acquired before the snapshot is composed, so
+    // a frame born anywhere after that point is buffered rather than dropped.
+    // The publish-during-read variant it used to probe is now unreachable by
+    // construction, which is a stronger guarantee than the test could give.
     let armed = false;
     const kolu = serveRegistryBacked(undefined, () => {
       // Armed only for the SNAPSHOT read below, never for the construction-time
@@ -216,6 +224,83 @@ describe("served collection keys-stream — membership for a registry-backed pro
     kolu.add(1, "a-renamed");
     await flush();
     expect(seen.length).toBe(framesAfterConnect);
+
+    await stop();
+  });
+
+  it("a same-tick bulk add of M keys costs ONE keys frame and ONE readAll, not M of each (the O(M·N) fix)", async () => {
+    // Before the per-tick coalescer, each of the M adds published a full key-set
+    // snapshot AND ran the backing `readAll()` to compose it — M frames of a
+    // growing set (Σ i = M·(M+1)/2 key elements on the bus) and M O(N) store
+    // folds per bulk add. The coalescer flushes once per tick: the M-key burst
+    // below must cost exactly one frame (the tick-final set) and exactly one
+    // `readAll()` on the publish path.
+    let readAlls = 0;
+    const kolu = serveRegistryBacked(undefined, () => {
+      readAlls++;
+    });
+    const { seen, stop } = watchKeys(kolu.handlers);
+    await flush();
+    const framesAfterConnect = seen.length;
+    readAlls = 0; // count only the burst below, not the connect snapshot
+
+    const M = 100;
+    for (let k = 1; k <= M; k++) kolu.add(k, `n${k}`);
+    await flush();
+
+    expect(seen.length).toBe(framesAfterConnect + 1);
+    expect([...(seen.at(-1) ?? [])].length).toBe(M);
+    expect(readAlls).toBe(1);
+
+    await stop();
+  });
+
+  it("collapses a same-tick MIX of adds and removes to the tick-final set", async () => {
+    // The shape production actually drives — `test__set` (remove-all then
+    // upsert-each) and the reactor's derived-collection reconcile (an upsert
+    // loop then a remove loop, one synchronous pass). The bulk-add case above
+    // would pass even if only adds coalesced.
+    const kolu = serveRegistryBacked();
+    kolu.add(1, "a");
+    kolu.add(2, "b");
+
+    const { seen, stop } = watchKeys(kolu.handlers);
+    await flush();
+    const framesAfterConnect = seen.length;
+
+    kolu.add(3, "c");
+    kolu.drop(1);
+    kolu.add(4, "d");
+    kolu.drop(2);
+    await flush();
+
+    expect(seen.length).toBe(framesAfterConnect + 1);
+    expect([...(seen.at(-1) ?? [])].sort()).toEqual([3, 4]);
+
+    await stop();
+  });
+
+  it("publishes NOTHING for a tick whose membership edges cancel out", async () => {
+    // A key added and dropped inside one tick leaves the set exactly as it was.
+    // Both `broadcastKeys` guards fire (the key really was new, then really was
+    // a member), so a coalescer that published whatever it was scheduled for
+    // would emit a snapshot identical to the last one — the same redundant
+    // full-snapshot those guards exist to prevent, one tick further out. The
+    // published set is compared against the last, so the stream keeps its
+    // "membership-change only" promise at BOTH time scales.
+    const kolu = serveRegistryBacked();
+    kolu.add(1, "a");
+
+    const { seen, stop } = watchKeys(kolu.handlers);
+    await flush();
+    const framesAfterConnect = seen.length;
+
+    kolu.add(2, "b");
+    kolu.drop(2);
+    await flush();
+
+    expect(seen.length).toBe(framesAfterConnect);
+    expect(seen.at(-1)).toEqual([1]);
 
     await stop();
   });

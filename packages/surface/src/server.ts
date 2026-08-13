@@ -622,12 +622,39 @@ export interface CollectionHandlerDeps<K, T> {
   remove: (key: K) => void;
   /** Bus for per-key value updates. Subscribers watch `(channel, key)`. */
   perKeyBus: (key: K) => Channel<T>;
-  /** Bus for the live key set (broadcasts `K[]` snapshots on add/remove). */
+  /** Bus for the live key set (broadcasts `K[]` snapshots on add/remove,
+   *  coalesced to one tick-final snapshot per producer tick). */
   keysBus: Channel<K[]>;
   /** Bus for the coalesced batched delta stream — one `{upserts, removes}` per
    *  producer tick. Present only when the collection exposes the `deltas` verb
    *  (opt-in); `walkSurface` wires it and the per-tick coalescing together. */
   deltasBus?: Channel<CollectionDelta<K, T>>;
+}
+
+/** Run `run` at most once per producer tick — the shared latch under BOTH
+ *  collection coalescers below, which agree on the time shape (one
+ *  `queueMicrotask` flush after the synchronous producer loop) and on nothing
+ *  else: the `deltas` one carries a last-op-wins `pending` map, the `keys` one
+ *  carries the previously published set.
+ *
+ *  The latch is released BEFORE `run`, not after, and that ordering is
+ *  load-bearing rather than incidental: a mutation fired RE-ENTRANTLY from
+ *  inside the flush — a subscriber that writes back on publish — must schedule
+ *  the NEXT tick instead of being swallowed as a lost update. Its cost, stated
+ *  because it is the other side of the same choice: a `run` that reliably
+ *  causes its own re-schedule spins forever. Nothing in this repo does, and the
+ *  alternative silently drops writes — which is worse than a loop that
+ *  announces itself. */
+function oncePerTick(run: () => void): () => void {
+  let scheduled = false;
+  return () => {
+    if (scheduled) return;
+    scheduled = true;
+    queueMicrotask(() => {
+      scheduled = false;
+      run();
+    });
+  };
 }
 
 /** Per-tick coalescer for a collection's batched `deltas` stream. A `pending`
@@ -643,23 +670,17 @@ function createTickCoalescer<K, V>(
   bus: Channel<CollectionDelta<K, V>>,
 ): { upsert: (k: K, v: V) => void; remove: (k: K) => void } {
   const pending = new Map<K, { value: V } | "remove">();
-  let flushScheduled = false;
-  const scheduleFlush = () => {
-    if (flushScheduled) return;
-    flushScheduled = true;
-    queueMicrotask(() => {
-      flushScheduled = false;
-      if (pending.size === 0) return;
-      const upserts: [K, V][] = [];
-      const removes: K[] = [];
-      for (const [k, op] of pending) {
-        if (op === "remove") removes.push(k);
-        else upserts.push([k, op.value]);
-      }
-      pending.clear();
-      bus.publish({ kind: "delta", upserts, removes });
-    });
-  };
+  const scheduleFlush = oncePerTick(() => {
+    if (pending.size === 0) return;
+    const upserts: [K, V][] = [];
+    const removes: K[] = [];
+    for (const [k, op] of pending) {
+      if (op === "remove") removes.push(k);
+      else upserts.push([k, op.value]);
+    }
+    pending.clear();
+    bus.publish({ kind: "delta", upserts, removes });
+  });
   return {
     upsert: (k, v) => {
       pending.set(k, { value: v });
@@ -670,6 +691,72 @@ function createTickCoalescer<K, V>(
       scheduleFlush();
     },
   };
+}
+
+/** Per-tick coalescer for a collection's `keys` membership stream. Same time
+ *  shape as {@link createTickCoalescer} (see {@link oncePerTick}), but for the
+ *  FULL-SNAPSHOT stream: a producer that changes membership M times in one
+ *  tick publishes ONE `K[]` frame — the live set read once at flush — instead
+ *  of M frames of ~N keys each (the O(M·N) bulk-add storm; a 2000-key bulk add
+ *  used to publish ~2M key elements and run the backing `readAll()` 2000
+ *  times). Every `keys` frame is a complete snapshot that consumers fold
+ *  idempotently (see the `keys` handler doc), so collapsing a tick's
+ *  INTERMEDIATE sets into the tick-final one changes no consumer's converged
+ *  state.
+ *
+ *  It does change WHICH intermediate states are observable, and that is worth
+ *  stating rather than discovering: a key added and removed inside ONE tick is
+ *  never announced, and a key removed and re-added inside one tick is never
+ *  seen to leave. No consumer of a `walkSurface` collection depends on that —
+ *  `mirrorCollection` reconciles against whatever set arrives, and a per-key
+ *  reactive root keyed on departure exists only in `@kolu/surface-map`, which
+ *  serves its own `keysBus` and is deliberately NOT coalesced (its
+ *  `MapRegistry` contract requires every membership transition to be
+ *  observable). Do not "unify" the two.
+ *
+ *  `readKeys` is a THUNK read at FLUSH time, not capture time, so the frame
+ *  carries the backing store's own key order (the "server order" consumers
+ *  render) exactly as the eager publish did — and reading the store rather
+ *  than the framework's own `broadcastKeys` set is what keeps the published
+ *  array literally the live one, the same source the connect snapshot reads.
+ *
+ *  The published set is compared against the last one and a REPEAT is dropped,
+ *  which is what keeps the stream's promise honest under coalescing: a tick
+ *  whose edges cancel out (add then remove the same new key) has a real edge
+ *  behind its schedule but no membership change to report, and re-publishing
+ *  an identical array would be exactly the redundant full-snapshot the
+ *  `broadcastKeys` guards exist to prevent — one tick further out. The compare
+ *  is free on top of an array this already built.
+ *
+ *  The flush runs consumer code (`readKeys` reaches the dep's `readAll`) on a
+ *  DETACHED microtask, where a throw would otherwise become an unhandled
+ *  rejection with no caller to blame — before coalescing it unwound into
+ *  whoever called `upsert`. It is contained and named, the same rule the
+ *  subscriber fan-out follows. */
+function createKeysetCoalescer<K>(
+  bus: Channel<K[]>,
+  collection: string,
+  readKeys: () => K[],
+): () => void {
+  let last: K[] | undefined;
+  return oncePerTick(() => {
+    containThrow(
+      `collection "${collection}"'s keys snapshot`,
+      () => {
+        const next = readKeys();
+        if (
+          last !== undefined &&
+          last.length === next.length &&
+          last.every((k, i) => k === next[i])
+        ) {
+          return;
+        }
+        last = next;
+        bus.publish(next);
+      },
+      "the collection's other streams and future writes keep flowing; this tick's membership frame is lost",
+    );
+  });
 }
 
 export interface CollectionHandlers<K, T> {
@@ -2595,15 +2682,22 @@ function walkSurface<const S extends SurfaceSpec>(
     //
     // `keysBus` fires on MEMBERSHIP change only — the contract its dep doc states
     // ("broadcasts K[] snapshots on add/remove"). BOTH mirror paths enforce that
-    // symmetrically against `broadcastKeys`: `wrappedUpsert` publishes only when a
-    // key is NEW to the set, and `wrappedRemove` only when the key was actually IN
-    // it. A value-only upsert (existing key, new value) leaves the key SET
-    // identical, and a remove of a non-member (a repeat/no-op drop) leaves it
+    // symmetrically against `broadcastKeys`: `wrappedUpsert` schedules a broadcast
+    // only when a key is NEW to the set, and `wrappedRemove` only when the key was
+    // actually IN it. A value-only upsert (existing key, new value) leaves the key
+    // SET identical, and a remove of a non-member (a repeat/no-op drop) leaves it
     // identical too, so in either case re-publishing the whole key array would be a
     // redundant full-snapshot the `keys` subscribers fold to the same set (and a
     // spurious re-render). Value updates travel the per-key `get` stream
     // (`perKeyBus`) and the batched `deltas` stream (`coalescer`), both of which DO
     // fire on every upsert.
+    //
+    // The broadcast itself is COALESCED PER TICK (`createKeysetCoalescer`): a
+    // same-tick burst of membership edges flushes as one tick-final snapshot on
+    // the next microtask, so a bulk add of M keys costs one frame and one
+    // `readAll()`, not M of each — and a tick whose edges cancel out publishes
+    // nothing at all, so the guards below and the coalescer enforce the same
+    // "membership-change only" promise at two time scales.
     //
     // "New key" must mean new to SUBSCRIBERS, NOT new to the store. A registry-
     // PROJECTION collection (kolu's `awareness` / `authored` / `daemonStatus`) has
@@ -2651,12 +2745,15 @@ function walkSurface<const S extends SurfaceSpec>(
       siblingView ? () => siblingView : () => collDeps.readAll(),
     );
     const broadcastKeys = new Set<unknown>(initialEntries.keys());
+    const scheduleKeysBroadcast = createKeysetCoalescer(keysBus, key, () =>
+      Array.from(collDeps.readAll().keys()),
+    );
     const wrappedUpsert = (k: unknown, v: unknown) => {
       depUpsert(k, v);
       siblingView?.set(k, v); // materialized view — the SINGLE write path (opt-in)
       if (!broadcastKeys.has(k)) {
         broadcastKeys.add(k);
-        keysBus.publish(Array.from(collDeps.readAll().keys()));
+        scheduleKeysBroadcast();
       }
       perKeyBus(k).publish(v);
       coalescer?.upsert(k, v);
@@ -2666,7 +2763,7 @@ function walkSurface<const S extends SurfaceSpec>(
       depRemove(k);
       siblingView?.delete(k); // materialized view — the SINGLE write path (opt-in)
       if (broadcastKeys.delete(k)) {
-        keysBus.publish(Array.from(collDeps.readAll().keys()));
+        scheduleKeysBroadcast();
       }
       coalescer?.remove(k);
       siblingChange[key]?.(); // version poke — a removal changes what a $-reader folds

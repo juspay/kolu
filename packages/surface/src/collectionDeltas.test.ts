@@ -42,9 +42,19 @@ function collectFrames<T>(
   ac: AbortController,
   out: T[],
 ): void {
+  watchFrames(bus, ac, (f) => out.push(f));
+}
+
+/** The same drain, handing each frame to a callback — for the one case that
+ *  needs the ARRIVAL ORDER across two buses rather than each bus's own list. */
+function watchFrames<T>(
+  bus: Channel<T>,
+  ac: AbortController,
+  onFrame: (frame: T) => void,
+): void {
   void (async () => {
     try {
-      for await (const f of bus.subscribe(ac.signal)) out.push(f);
+      for await (const f of bus.subscribe(ac.signal)) onFrame(f);
     } catch {
       /* aborted on teardown — expected */
     }
@@ -184,6 +194,8 @@ describe("collection deltas — server coalescing", () => {
     // doesn't change membership, so re-publishing the whole key array would be a
     // redundant snapshot (and a spurious re-render). Membership-gating keeps the
     // producer honest to the `keysBus` doc contract ("broadcasts on add/remove").
+    // One tick per mutation, so each membership edge flushes its own frame and
+    // the value-only gap is visible as "no frame for that tick".
     const { fragment, channel } = buildDeltasFragment();
     const keysBus = channel<number[]>(collectionKeysetChannel("items"));
     const sets: number[][] = [];
@@ -191,13 +203,56 @@ describe("collection deltas — server coalescing", () => {
     collectFrames(keysBus, ac, sets);
 
     fragment.ctx.collections.items.upsert(1, { name: "a" }); // ADD → publishes
+    await tick();
     fragment.ctx.collections.items.upsert(1, { name: "a2" }); // value-only → no publish
+    await tick();
     fragment.ctx.collections.items.upsert(2, { name: "b" }); // ADD → publishes
+    await tick();
     fragment.ctx.collections.items.remove(2); // REMOVE → publishes
-
     await tick();
 
     expect(sets).toEqual([[1], [1, 2], [1]]);
+    ac.abort();
+  });
+
+  it("a burst flushes ONE keys frame and ONE deltas frame, keys first", async () => {
+    // Both streams coalesce on the same microtask window, which is what keeps
+    // their relative order stable within a tick: `wrappedUpsert` schedules the
+    // keys broadcast before it hands the mutation to the deltas coalescer, so
+    // the membership frame lands first — the order the eager (synchronous)
+    // keys publish always produced. A collection serving both verbs is the only
+    // place the two windows meet, so it is the only place that order is
+    // observable at all.
+    //
+    // (The keys stream's own O(M·N) coalescing is pinned against the real
+    // `keys` handler, with its `readAll()` count, in
+    // `collectionKeysMembership.test.ts` — this case is about the interleave.)
+    const { fragment, channel } = buildDeltasFragment();
+    const keysBus = channel<number[]>(collectionKeysetChannel("items"));
+    const deltasBus = channel<CollectionDelta<number, { name: string }>>(
+      collectionDeltasChannel("items"),
+    );
+    // One arrival log for both buses, so the interleave is a fact the test can
+    // read rather than an inference from two separate lists.
+    const arrivals: { bus: "keys" | "deltas"; frame: unknown }[] = [];
+    const ac = new AbortController();
+    watchFrames(keysBus, ac, (frame) => arrivals.push({ bus: "keys", frame }));
+    watchFrames(deltasBus, ac, (frame) =>
+      arrivals.push({ bus: "deltas", frame }),
+    );
+
+    const M = 100;
+    for (let k = 1; k <= M; k++) {
+      fragment.ctx.collections.items.upsert(k, { name: `n${k}` });
+    }
+    await tick();
+
+    expect(arrivals.map((a) => a.bus)).toEqual(["keys", "deltas"]);
+    expect((arrivals[0]?.frame as number[]).length).toBe(M);
+    expect(
+      (arrivals[1]?.frame as CollectionDelta<number, { name: string }>).upserts
+        .length,
+    ).toBe(M);
     ac.abort();
   });
 });
