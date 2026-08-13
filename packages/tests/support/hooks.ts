@@ -91,7 +91,7 @@ const claudeProjectsDir = mkSubDir("claude-projects");
 /** Per-worker temp roots for the Codex and OpenCode mock harnesses —
  *  see `codex_steps.ts` and `opencode_steps.ts`. Both providers key off
  *  `state.cwd`, so the fixture DB rows carry a cwd that the scenario
- *  also `cd`s into so `findSessionByDirectory` returns the mock row. */
+ *  also `cd`s into so `findSessionsByDirectory` returns the mock row. */
 const codexDir = mkSubDir("codex");
 const opencodeDbDir = mkSubDir("opencode");
 const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");

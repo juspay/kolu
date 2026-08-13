@@ -27,7 +27,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { classifyByAwaiting } from "anyagent";
 import type { Logger } from "kolu-shared";
-import { withDb as sharedWithDb } from "kolu-shared/sqlite";
+import { readDbList, withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { match } from "ts-pattern";
 import { OPENCODE_DB_PATH } from "./config.ts";
 import type { OpenCodeInfo, TaskProgress } from "./schemas.ts";
@@ -49,10 +49,23 @@ function withDb<T>(
 
 // --- Database session lookup ---
 
+/** Cap on the candidate list. The arbiter needs at most one distinct candidate
+ *  per terminal sharing the directory, and this query re-runs per terminal on
+ *  every reconcile — so an uncapped ORDER BY over a directory a user has run the
+ *  agent in for years would re-materialize that whole history each time. Ordered
+ *  most-recent-first, so the cap only ever drops sessions older than 64 others in
+ *  the same directory, which no plausible number of concurrent terminals reaches. */
+const MAX_CANDIDATES = 64;
+
 export interface OpenCodeSession {
   id: string;
   title: string | null;
   directory: string;
+  /** Epoch-ms of the session’s earliest message — the same “when did this
+   *  conversation begin” the watcher publishes as `AgentInfo.startedAt`, read at
+   *  MATCH time because session ownership is arbitrated before any watcher
+   *  exists. Null for a session with no messages yet. */
+  startedAt: number | null;
 }
 
 /** Open a read-only connection to OpenCode's database. Returns null if absent.
@@ -61,39 +74,61 @@ export function openDb(log?: Logger): DatabaseSync | null {
   try {
     return new DatabaseSync(OPENCODE_DB_PATH, { readOnly: true });
   } catch (err) {
+    // ENOENT is the answer "OpenCode has never run here". Anything else is a
+    // failure to LOOK — see the twin in kolu-codex core.ts.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     log?.debug({ err, path: OPENCODE_DB_PATH }, "opencode db unavailable");
     return null;
   }
 }
 
 /**
- * Find the most recently updated session for a given directory.
- * Returns null if no sessions exist for that directory or the DB is absent.
+ * Every live session for a given directory, most recently updated FIRST.
+ * Empty if no sessions exist for that directory or the DB is absent.
  *
- * Heuristic: pick the session with the largest `time_updated` — the one
- * the user most recently interacted with. If multiple sessions share a
- * directory, this picks the active one in practice.
+ * `time_updated DESC` is a PREFERENCE, not an answer. `directory` is a property
+ * of the repository, not of a terminal, so two OpenCode harnesses in one repo
+ * match this same list — answering with only the first row handed both of them
+ * the same session and their dock rows converged (juspay/kolu#2057). The
+ * orchestrator's ownership arbiter walks the list and gives each terminal a
+ * session of its own.
  */
-export function findSessionByDirectory(
+export function findSessionsByDirectory(
   directory: string,
   log?: Logger,
-): OpenCodeSession | null {
-  return withDb(
-    (conn) => {
-      const row = conn
-        .prepare(
-          "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",
-        )
-        .get(directory) as
-        | { id: string; title: string; directory: string }
-        | undefined;
-      if (!row) return null;
-      return {
+): OpenCodeSession[] | null {
+  // `readDb`, not `withDb` — see the twin in kolu-codex's `core.ts`: the
+  // ownership arbiter releases a terminal's session on an empty list, so a
+  // caught query error must not wear the same shape as "this directory has no
+  // sessions". A missing database IS that second fact.
+  //
+  // `started_at` is the same "when did this conversation begin" that
+  // `getSessionStartedAt` reads for the watcher, folded into this one query as a
+  // correlated MIN over `message_session_idx` (session_id, time_created) — an
+  // index seek per row rather than a round trip per candidate. It rides the
+  // match result because session ownership is arbitrated before any watcher
+  // exists, and without it a terminal could never tell its own session from an
+  // earlier run's in the same directory.
+  return readDbList(
+    openDb,
+    (conn) =>
+      (
+        conn
+          .prepare(
+            `SELECT s.id, s.title, s.directory, (SELECT MIN(time_created) FROM message m WHERE m.session_id = s.id) AS started_at FROM session s WHERE s.directory = ? AND s.time_archived IS NULL ORDER BY s.time_updated DESC LIMIT ${MAX_CANDIDATES}`,
+          )
+          .all(directory) as {
+          id: string;
+          title: string;
+          directory: string;
+          started_at: number | null;
+        }[]
+      ).map((row) => ({
         id: row.id,
         title: row.title || null,
         directory: row.directory,
-      };
-    },
+        startedAt: row.started_at ?? null,
+      })),
     "opencode session query failed",
     { directory },
     log,

@@ -22,7 +22,7 @@ export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 export {
   type DerivedState,
   deriveSessionState,
-  findSessionByDirectory,
+  findSessionsByDirectory,
   getLatestAssistantContextTokens,
   getSessionTaskProgress,
   getSessionTitle,

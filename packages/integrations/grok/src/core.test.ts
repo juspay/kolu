@@ -312,7 +312,7 @@ describe("resolveGrokSession", () => {
   // from a process-local snapshot, so a *concurrent* grok starting or exiting
   // erases the rows of every other live grok — observed live as `[]` on disk
   // while a grok was mid-turn. The file is therefore how a binding is ACQUIRED,
-  // never how it is released. Without this, resolveSession went null under a
+  // never how it is released. Without this, resolveGrokSession went null under a
   // still-foreground grok, padi tore down the session watcher, and the tile
   // froze on its last state (`thinking`) for the life of the process.
   //

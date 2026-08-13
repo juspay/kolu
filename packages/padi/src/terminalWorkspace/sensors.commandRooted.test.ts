@@ -29,6 +29,7 @@ import { describe, expect, it } from "vitest";
 import {
   type CommandRunSample,
   type SensorSignals,
+  freshAgentEngineState,
   startAgentSensor,
 } from "./sensors.ts";
 
@@ -56,9 +57,10 @@ function startHarness(commandRooted: boolean) {
     kind: "opencode",
     // Resolve via matchesAgent (command hint OR kernel basename), like the real
     // codex/opencode adapters. Here basename is "node", so it hinges on the hint.
-    resolveSession: (state) =>
-      matchesAgent(state, "opencode") ? ROOT_PID : null,
+    resolveSessions: (state) =>
+      matchesAgent(state, "opencode") ? [ROOT_PID] : [],
     sessionKey: (s) => String(s),
+    sessionStartedAt: () => null,
     createWatcher: (_s, onChange) => {
       onChange(AGENT_INFO);
       return { destroy() {} };
@@ -76,7 +78,7 @@ function startHarness(commandRooted: boolean) {
   // `commandRooted` flag is the fix: the root IS the agent, not a shell.
   const stop = startAgentSensor(
     adapter,
-    { mirror: null, currentAgent: "opencode" },
+    { ...freshAgentEngineState(), currentAgent: "opencode" },
     ROOT_PID,
     "/w",
     "t1" as TerminalId,

@@ -99,13 +99,16 @@ export interface SessionFile {
 export function readSessionFile(
   pid: number,
   log?: { debug: (obj: Record<string, unknown>, msg: string) => void },
-): SessionFile | null {
+): SessionFile | null | "unreadable" {
   let raw: string;
   try {
     raw = fs.readFileSync(path.join(SESSIONS_DIR, `${pid}.json`), "utf8");
   } catch (err) {
+    // ENOENT is the answer "this pid is not a claude session". Anything else is
+    // ignorance, and the ownership arbiter must not release a session on it.
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.debug({ err, pid }, "claude session file unreadable");
+      return "unreadable";
     }
     return null;
   }
@@ -127,8 +130,10 @@ export function readSessionFile(
         typeof parsed.startedAt === "number" ? parsed.startedAt : undefined,
     };
   } catch (err) {
+    // A file that is there but will not parse is a read we could not complete,
+    // not evidence that the terminal runs no agent.
     log?.debug({ err, pid }, "claude session file parse failed");
-    return null;
+    return "unreadable";
   }
 }
 

@@ -23,7 +23,6 @@ export {
   deriveGrokInfo,
   deriveStateFromEvents,
   encodeCwd,
-  findLatestSessionByCwd,
   foldEventsState,
   type GrokFoldEvent,
   type GrokSession,
@@ -37,6 +36,7 @@ export {
   readContextTokens,
   readSummary,
   resolveGrokSession,
+  resolveGrokSessions,
   signalsPathFor,
 } from "./core.ts";
 export {
