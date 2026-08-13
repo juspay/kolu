@@ -1,5 +1,5 @@
 /**
- * The two files a CONSUMER'S NODE loads directly, loaded by that same Node.
+ * The two entries a CONSUMER'S NODE loads directly may not import a relative path.
  *
  * `./vite` has always said this about itself — a Vite config imports it through
  * Node's ESM loader, which cannot resolve this package's extensionless relative
@@ -11,47 +11,53 @@
  * `ERR_MODULE_NOT_FOUND` at every consumer's `vite dev`.
  *
  * Nothing else in this package can see that. Vitest, Bun and every bundler
- * resolve those imports happily; the whole suite stays green while the dev server
- * of every consumer is dead. It cost a red `ci::dev-smoke` (a 3-minute lane, and
- * the failure reads as "timed out waiting for http://localhost:…") to find once.
- * These two spawns are that lane's cheap twin: they fail in milliseconds, in the
- * package that owns the mistake, naming it.
+ * resolve those imports happily, so the whole suite stays green while the dev
+ * server of every consumer is dead. It cost a red `ci::dev-smoke` to find once —
+ * a three-minute lane whose failure reads "timed out waiting for
+ * http://localhost:…". This is that lane's cheap twin: it fails in
+ * milliseconds, in the package that owns the mistake, naming it.
  *
- * Node's own loader is the only oracle here, so this shells out to it rather than
- * importing anything — Node 24 strips the types on the way in.
+ * It reads the SOURCE rather than loading it, because the honest way to check a
+ * resolver is to run one and this suite may not: `execFileSync(process.execPath,
+ * …)` is a real fork, and `@kolu/daemon-test-gate` refuses ungated forks
+ * (kolu#1334/#1375) — correctly, since a rule that bends for a cheap spawn is not
+ * a rule. The source check is stricter than Node is anyway: this package is
+ * deliberately extensionless everywhere, so for these two files the answer to
+ * "any relative import?" must be none, not "only resolvable ones".
  */
 
-import { execFileSync } from "node:child_process";
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-/** Load `file` in a fresh Node, through Node's ESM resolver, and report what
- *  came back — the module's export names, or the loader's own error. */
-const loadUnderNode = (file: string): string =>
-  execFileSync(
-    process.execPath,
-    [
-      "-e",
-      `import(${JSON.stringify(resolve(import.meta.dirname, file))})
-         .then((m) => console.log(Object.keys(m).join(",")))
-         .catch((e) => { console.log("LOAD FAILED: " + e.code + " " + e.message); process.exitCode = 1; })`,
-    ],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  ).trim();
+/** Every relative specifier the file imports or re-exports from — `import x from
+ *  "./a"`, `import "./a"`, `export { x } from "./a"`, `export * from "./a"`. */
+const relativeSpecifiers = (file: string): string[] => {
+  const source = readFileSync(new URL(file, import.meta.url), "utf8");
+  // The file must be the one we think it is: a path typo would otherwise make
+  // every assertion below vacuously true.
+  expect(source).toContain("export");
+  // Comments first — these files EXPLAIN this rule in their headers, quoting the
+  // very shape they must not contain.
+  const code = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/.*$/gm, "");
+  return [...code.matchAll(/(?:from|import)\s*\(?\s*"(\.[^"]*)"/g)].map(
+    (m) => m[1] as string,
+  );
+};
 
 describe("the entries a consumer's Node loads directly", () => {
-  it("`.` loads under Node's own ESM loader — a Vite config imports it", () => {
-    // The names are asserted, not just the absence of a throw: a file that
-    // loaded but exported nothing would satisfy the weaker check.
-    const exports = loadUnderNode("./index.ts").split(",");
-    expect(exports).toContain("ASSET_DIR");
-    expect(exports).toContain("NOTIFICATION_SW_SOURCE");
-    expect(exports).toContain("injectShellCommit");
+  it("`.` imports nothing relative — a Vite config imports it under Node's ESM loader", () => {
+    expect(relativeSpecifiers("./index.ts")).toEqual([]);
   });
 
-  it("`/vite` loads under Node's own ESM loader — that is what a plugin IS", () => {
-    const exports = loadUnderNode("./vite.ts").split(",");
-    expect(exports).toContain("surfaceApp");
-    expect(exports).toContain("resolveCommit");
+  it("`/vite` imports nothing relative — that is what a plugin IS", () => {
+    expect(relativeSpecifiers("./vite.ts")).toEqual([]);
+  });
+
+  it("finds the relative specifiers it is looking for, in a file that has them", () => {
+    // The negative assertions above are only worth their green if this reader
+    // can see the thing it is asserting the absence of.
+    expect(relativeSpecifiers("./bun.ts")).toContain("./modulePreload");
   });
 });
