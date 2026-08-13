@@ -689,17 +689,16 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // directory-keyed agent that list is shared with every other terminal in the
     // repository, so which one is THIS terminal's is decided by the ownership
     // arbiter — a session belongs to at most one terminal (juspay/kolu#2057).
-    const candidates = adapter.resolveSessions(state, plog);
+    const candidates = adapter
+      .resolveSessions(state, plog)
+      .map((session) => ({ session, key: adapter.sessionKey(session) }));
     const ownedKey = claimSession(
       adapter.kind,
       terminalId,
-      candidates.map((session) => adapter.sessionKey(session)),
+      candidates.map((c) => c.key),
     );
-    const next =
-      ownedKey === null
-        ? null
-        : (candidates.find((s) => adapter.sessionKey(s) === ownedKey) ?? null);
-    const nextKey = next ? adapter.sessionKey(next) : null;
+    const next = candidates.find((c) => c.key === ownedKey)?.session ?? null;
+    const nextKey = next === null ? null : ownedKey;
     // The absence FLAVOR is part of the resolution, so dedup on the COMPLETE state
     // (session key + the foreground's shell-idle flavor), not the key alone. A matched
     // resolution dedups on the key as before; an ABSENT one must ALSO re-emit when the
