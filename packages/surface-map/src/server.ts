@@ -794,6 +794,19 @@ export function serveSurfaceMap<
     // Keyset: publish ONLY on a real membership change (member order is stable
     // across a status-only frame — the family never coalesces a remove/re-add — so
     // a positional compare never spuriously re-emits the same keyset).
+    //
+    // This is a VALUE gate, and it must not be replaced by (or folded into) the
+    // per-tick keyset coalescer `@kolu/surface`'s `walkSurface` puts in front of
+    // an `implementSurface` collection. That one collapses a whole tick's
+    // membership edges into the tick-final set, which is safe for a collection
+    // whose consumers only reconcile against whatever arrives — and NOT safe
+    // here: CLAUSE 3 requires every membership transition to stay observable,
+    // because `scoped.ts`'s `keyArray` disposes and rebuilds a per-key reactive
+    // root on a departure, and a fresh `membershipId` is minted on the re-add.
+    // A coalescer would hide a same-tick remove/re-add entirely, and the key
+    // would keep a root and an id it is supposed to have lost. This map serves
+    // its own `keysBus` (it never goes through `walkSurface`), so the two gates
+    // are independent by construction; keep them that way.
     if (
       lastKeyset === undefined ||
       lastKeyset.length !== encoded.length ||

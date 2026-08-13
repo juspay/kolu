@@ -306,18 +306,21 @@ lazy-load debate: compressing ships ~2 MB less on the <em>whole</em> eager load,
 unconditionally, dwarfing that deferred 171 kB slice. Covered by a
 <code>freshStaticLayer</code> negotiation test; the remaining trace is on-device cold-start
 LCP over Tailscale (see <a href="#from-static-reads-to-live-traces">coverage gaps</a>).</p></div></article>
-<article class="finding finding-medium" data-astro-cid-adrh2cs3><h3 class="finding-head" data-astro-cid-adrh2cs3><span class="sev sev-medium" data-astro-cid-adrh2cs3>Medium</span> Publish per-key collection deltas, not the full key set — C (payload) + N (client work)</h3><div class="finding-body" data-astro-cid-adrh2cs3><p>Every upsert/remove publishes the <strong>entire</strong> key array via
-<code>keysBus.publish(Array.from(...))</code> — a fresh object each time — which crosses the
-wire and triggers client <code>mapArray</code> reconciliation (<code>surface/server.ts:1218-1223</code>,
-<code>useCollection.ts:60-65</code>). Publishing discriminated <code>{added:[k]}/{changed:[k]}/{removed:[k]}</code>
-deltas (full set only on init) <strong>shrinks the per-event payload/allocation (C)</strong>
-and lets <code>useCollection</code> apply the change instead of re-reconciling the whole key
-set (N). The batched machinery already exists (<code>deltasBus</code> + <code>createTickCoalescer</code>,
-<code>useCollectionDeltas</code>) but the <code>useTerminalMetadata</code> call sites pass explicit
-<code>keys</code>, which forces the per-key path regardless of the <code>deltas</code> verb — so
-realizing this is a call-site change, not a one-line verb flip. <strong>Measure:</strong>
-<code>keysBus</code> publish frequency and payload sizes during terminal spawn/metadata
-churn.</p></div></article>
+<article class="finding finding-medium" data-astro-cid-adrh2cs3><h3 class="finding-head" data-astro-cid-adrh2cs3><span class="sev sev-medium" data-astro-cid-adrh2cs3>Medium</span> Publish per-key collection deltas, not the full key set — C (payload) + N (client work)</h3><div class="finding-body" data-astro-cid-adrh2cs3><p>Every membership change used to publish the <strong>entire</strong> key array via
+<code>keysBus.publish(Array.from(readAll().keys()))</code> — a fresh array <em>and</em> a full
+backing-store fold per changed key, so a bulk add of M keys cost O(M·N) key
+elements on the bus and M <code>readAll()</code> composes. <strong>The server half is fixed</strong>:
+<code>createKeysetCoalescer</code> (<code>surface/server.ts</code>, beside <code>createTickCoalescer</code>) now
+flushes one tick-final snapshot per producer tick — a same-tick M-key burst costs
+one frame and one <code>readAll()</code>, pinned by the “ONE keys frame and ONE readAll”
+membership test. Frames are still complete snapshots, so the wire contract is
+unchanged. <strong>Still open (N, client work):</strong> each frame triggers full client
+<code>mapArray</code> reconciliation (<code>useCollection.ts</code>), and discriminated
+<code>{added}/{removed}</code> delivery would shrink it further; the batched machinery
+already exists (<code>deltasBus</code> + <code>createTickCoalescer</code>, <code>useCollectionDeltas</code>) but
+the <code>useTerminalMetadata</code> call sites pass explicit <code>keys</code>, which forces the
+per-key path regardless of the <code>deltas</code> verb — so realizing the client half is a
+call-site change, not a one-line verb flip.</p></div></article>
 <ul>
 <li><span id="c-metadata"></span><strong>Full metadata object per live-field update</strong> (<code>terminalEndpoint/metadata.ts:96-136</code>) — <code>publishAuthored</code> upserts a full <code>{...entry.meta}</code> clone on every field change. Upstream dedup gates (<code>prResultEqual</code>, <code>agentInfoEqual</code>) already cap the <em>number</em> of publishes to PR-poll 30s / screen-scrape 1s, so the remaining lever is <em>payload size</em> (C): splitting live vs persisted deltas. Lower priority. <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-4xidn2cs>low</span></li>
 <li><span id="c-base64"></span><strong><code>base64</code> stdio framing adds ~33%</strong> (<code>links/stdio-codec.ts:25-64</code>) — <code>encodeFrame</code> base64-encodes every peer message, a fixed 4/3 byte inflation; framing is already swappable, so a length-prefixed binary frame is the upgrade (<em>compact encoding</em>), <strong>gated on measured large-payload ops</strong> (git diff, <code>fsListAll</code>). <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-4xidn2cs>low</span></li>
