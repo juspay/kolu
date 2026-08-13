@@ -373,10 +373,19 @@ describe("a forward the mechanism reports lost", () => {
   // Both cases drive the loss through the REAL map with a REAL logger, which is
   // the only combination that can catch this: a hand-written stub logger ignores
   // `this` entirely, and `pino({ level: "silent" })` — what this file used to
-  // hold — is a `noop` that never reads it. They assert the LINE and the work
-  // that FOLLOWS it (the map's own state, the change edge), because the library
-  // contains a throwing consumer rather than propagating it: a report that dies
-  // mid-flight leaves no line and never reaches `notify()`.
+  // hold — is a `noop` that never reads it.
+  //
+  // What PINS the handler's survival is exactly two things: the formatted LINE,
+  // and the change edge that `notify()` fires AFTER it. The library contains a
+  // throwing consumer rather than propagating it (`announce` catches and re-raises
+  // on its own turn), so a report that dies mid-flight never comes back to the
+  // test body — it just leaves no line and no tick.
+  //
+  // The map's own state is NOT such a pin, and neither case claims it is: `lose`
+  // settles the slot BEFORE it announces (`manager.ts` — `gone` deletes it,
+  // `degraded` deliberately keeps it), so `list()` reads the same either way and
+  // would pass over a handler that threw. It is asserted here as the loss
+  // semantics it actually is, not as evidence anything survived.
 
   /** `[level, message]` for each line the logger actually formatted. */
   const logged = (lines: Array<Record<string, unknown>>) =>
@@ -398,10 +407,12 @@ describe("a forward the mechanism reports lost", () => {
       kind: "gone",
       reason: "ssh transport went away",
     });
-    // The map dropped it and the edge fired — the work AFTER the log line, which
-    // a throw inside the report would have skipped.
-    expect(h.forwards.list()).toEqual([]);
+    // The edge fired — the work AFTER the log line, which a throw inside the
+    // report would have skipped. This is the survival pin, with the line above.
     expect(h.published).toEqual([[]]);
+    // …and a `gone` loss drops the forward. The map had already done that before
+    // it announced, so this says what a loss MEANS, not that anything survived.
+    expect(h.forwards.list()).toEqual([]);
   });
 
   it("REPORTS a `degraded` forward at error, and keeps it listed", async () => {
@@ -421,8 +432,10 @@ describe("a forward the mechanism reports lost", () => {
       ["error", "port forward reported by its mechanism"],
     ]);
     expect(h.lines[0]).toMatchObject({ kind: "degraded" });
-    expect(h.forwards.list()).toHaveLength(1);
     expect(h.published).toHaveLength(1);
+    // Kept, for the reason above — and again the map's own decision, taken
+    // before the consumer ran rather than because it came back.
+    expect(h.forwards.list()).toHaveLength(1);
   });
 });
 
