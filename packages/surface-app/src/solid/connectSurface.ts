@@ -81,11 +81,12 @@ export interface ConnectSurfaceOptions<S extends SurfaceSpec>
    *  the base itself varies (the `pid` echo is appended on top either way; see
    *  `SurfaceSocketOptions.url`). OPTIONAL here, unlike the raw socket seam:
    *  omitted, it defaults to `surfaceWsUrl(location.origin)` — the page's own
-   *  origin through the ONE scheme-swap + path derivation, which is what every
-   *  browser consumer of this seam spelled by hand (the derivation, not a
-   *  choice; a browser app dials the origin that served it). Omitting it
-   *  anywhere without a `location` (a Node caller) throws loudly — pass the
-   *  URL you actually mean there. */
+   *  origin through the ONE scheme-swap + path derivation, which is the value
+   *  a browser consumer spells by hand otherwise (never a choice: a browser
+   *  app dials the origin that served it, and the reference consumer's hand
+   *  wiring re-derived exactly this). Omitting it anywhere without a
+   *  `location` (a Node caller) throws loudly — pass the URL you actually
+   *  mean there. */
   url?: SurfaceSocketOptions["url"];
   /** TUNE the always-on liveness heartbeat (`intervalMs`/`timeoutMs`/`onStale`).
    *  There is deliberately NO disable option: the seam mints the watchdog-backed

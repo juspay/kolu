@@ -16,8 +16,8 @@ import { Schema } from "effect";
 import { createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeWebSocket } from "../fakeSocket.testlib";
-import { surfaceWsUrl } from "../index";
 import { connectSurface } from "./connectSurface";
+import { dialRecorder } from "./dialRecorder.testlib";
 
 const surface = defineSurface({
   cells: {
@@ -38,22 +38,16 @@ describe("connectSurface() — the url default", () => {
     // A browser-shaped `location`. Node has none, so the stub also proves the
     // default reads the PAGE's origin rather than anything ambient.
     vi.stubGlobal("location", new URL("https://box.example:7681/some/page"));
-    const dialled: string[] = [];
+    const d = dialRecorder();
     await createRoot(async (dispose) => {
       const conn = await connectSurface({
         surface,
         retired: () => {},
-        connect: (url: string) => {
-          dialled.push(url);
-          return new FakeWebSocket(url) as unknown as WebSocket;
-        },
+        connect: d.connect,
       });
-      // The dial runs in the protocol's own fiber.
-      await expect.poll(() => dialled.length).toBeGreaterThanOrEqual(1);
       // The one derivation: `https:` → `wss:`, the surface path, the page's
       // own authority — and the page's PATH replaced, not appended to.
-      expect(dialled[0]).toBe("wss://box.example:7681/rpc/ws");
-      expect(dialled[0]).toBe(surfaceWsUrl(location.origin));
+      expect((await d.nth(1)).url).toBe("wss://box.example:7681/rpc/ws");
       await conn.dispose();
       dispose();
     });
