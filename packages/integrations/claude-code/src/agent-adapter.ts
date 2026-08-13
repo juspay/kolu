@@ -47,6 +47,7 @@ export const claudeCodeAdapter: AgentAdapter<SessionFile, ClaudeCodeInfo> = {
   resolveSessions(state, log) {
     if (state.foregroundPid === undefined) return [];
     const session = readSessionFile(state.foregroundPid, log);
+    if (session === "unreadable") return null;
     return session ? [session] : [];
   },
 

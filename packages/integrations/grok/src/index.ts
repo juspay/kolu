@@ -23,7 +23,6 @@ export {
   deriveGrokInfo,
   deriveStateFromEvents,
   encodeCwd,
-  findLatestSessionByCwd,
   foldEventsState,
   type GrokFoldEvent,
   type GrokSession,

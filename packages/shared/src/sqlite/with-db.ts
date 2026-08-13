@@ -63,15 +63,26 @@ export function readDb<Db extends Closable, T>(
   db?: Db,
 ): DbRead<T> {
   const ownsDb = db === undefined;
-  const conn = db ?? openDb(log);
-  if (!conn) return { kind: "absent" };
+  let conn: Db | null;
   try {
-    return { kind: "ok", value: fn(conn) };
+    // Inside the try on purpose: `openDb` returning null is "there is no
+    // database", but `openDb` THROWING is a failure to look — a locked file, a
+    // permission error, EMFILE. Opening outside would have made every one of
+    // those indistinguishable from absence, which is the split this exists for.
+    conn = db ?? openDb(log);
+  } catch (err) {
+    log?.error({ err, ...errorCtx }, errorMsg);
+    return { kind: "failed" };
+  }
+  if (!conn) return { kind: "absent" };
+  const opened = conn;
+  try {
+    return { kind: "ok", value: fn(opened) };
   } catch (err) {
     log?.error({ err, ...errorCtx }, errorMsg);
     return { kind: "failed" };
   } finally {
-    if (ownsDb) conn.close();
+    if (ownsDb) opened.close();
   }
 }
 
@@ -88,8 +99,17 @@ export function readDbList<Db extends Closable, T>(
   db?: Db,
 ): T[] | null {
   const read = readDb(openDb, fn, errorMsg, errorCtx, log, db);
-  if (read.kind === "ok") return read.value;
-  return read.kind === "absent" ? [] : null;
+  switch (read.kind) {
+    case "ok":
+      return read.value;
+    case "absent":
+      return [];
+    case "failed":
+      return null;
+    default:
+      // A fourth outcome must force a decision here, not fall through one.
+      return read satisfies never;
+  }
 }
 
 /**

@@ -60,7 +60,9 @@ export interface ActiveSessionEntry {
 /** Read and parse `active_sessions.json`. Returns [] when the file is
  *  missing or unreadable — the common case before the user has ever run
  *  Grok on this machine. */
-export function readActiveSessions(log?: Logger): ActiveSessionEntry[] {
+export function readActiveSessions(
+  log?: Logger,
+): ActiveSessionEntry[] | "unreadable" {
   try {
     const raw = fs.readFileSync(ACTIVE_SESSIONS_PATH, "utf8");
     const parsed: unknown = JSON.parse(raw);
@@ -93,6 +95,9 @@ export function readActiveSessions(log?: Logger): ActiveSessionEntry[] {
         { err, path: ACTIVE_SESSIONS_PATH },
         "grok active_sessions unreadable",
       );
+      // Not an empty map — a map we could not read. The ownership arbiter
+      // releases a terminal session on "no session", so the two must differ.
+      return "unreadable";
     }
     return [];
   }
@@ -215,7 +220,11 @@ export function resolveGrokSession(
 ): GrokSession | null {
   if (foregroundPid !== undefined) {
     sweepDeadBindings();
-    const active = readActiveSessions(log).find((e) => e.pid === foregroundPid);
+    const rows = readActiveSessions(log);
+    // Unreadable is not an empty map: fall through to the remembered binding
+    // rather than reporting this pid has no session.
+    if (rows === "unreadable") return sessionByPid.get(foregroundPid) ?? null;
+    const active = rows.find((e) => e.pid === foregroundPid);
     if (active) {
       // A present row is still authoritative — it re-binds, so a pid moved to a
       // different session follows the map rather than the memory.
@@ -284,14 +293,6 @@ export function resolveGrokSessions(
  *  and `"unreadable"` when the directory is there but could not be listed.
  *  One scan answers both: the ENOENT test already lived here, and probing it
  *  separately meant two syscalls and two copies of the same rule. */
-export function findLatestSessionByCwd(
-  cwd: string,
-  log?: Logger,
-): GrokSession | null {
-  const scan = scanSessionsByCwd(cwd, log);
-  return scan === "unreadable" ? null : scan;
-}
-
 function scanSessionsByCwd(
   cwd: string,
   log?: Logger,

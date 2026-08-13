@@ -60,6 +60,14 @@ function withDb<T>(
 
 // --- Database session lookup ---
 
+/** Cap on the candidate list. The arbiter needs at most one distinct candidate
+ *  per terminal sharing the directory, and this query re-runs per terminal on
+ *  every reconcile — so an uncapped ORDER BY over a directory a user has run the
+ *  agent in for years would re-materialize that whole history each time. Ordered
+ *  most-recent-first, so the cap only ever drops sessions older than 64 others in
+ *  the same directory, which no plausible number of concurrent terminals reaches. */
+const MAX_CANDIDATES = 64;
+
 export interface CodexSession {
   /** Thread id (uuid v7). */
   id: string;
@@ -137,6 +145,10 @@ export function openDb(log?: Logger): DatabaseSync | null {
   try {
     db = new DatabaseSync(CODEX_DB_PATH, { readOnly: true });
   } catch (err) {
+    // ENOENT is the answer "Codex has never run here". Anything else — a lock, a
+    // permission error, EMFILE — is a failure to LOOK, and must not read as
+    // absence: the ownership arbiter releases a terminal session on absence.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     log?.debug({ err, path: CODEX_DB_PATH }, "codex db unavailable");
     return null;
   }
@@ -207,7 +219,7 @@ export function findSessionsByDirectory(
       (
         conn
           .prepare(
-            "SELECT id, rollout_path FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC",
+            `SELECT id, rollout_path FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC LIMIT ${MAX_CANDIDATES}`,
           )
           .all(directory) as { id: string; rollout_path: string }[]
       ).map((row) => ({

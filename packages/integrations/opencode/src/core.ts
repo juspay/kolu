@@ -49,6 +49,14 @@ function withDb<T>(
 
 // --- Database session lookup ---
 
+/** Cap on the candidate list. The arbiter needs at most one distinct candidate
+ *  per terminal sharing the directory, and this query re-runs per terminal on
+ *  every reconcile — so an uncapped ORDER BY over a directory a user has run the
+ *  agent in for years would re-materialize that whole history each time. Ordered
+ *  most-recent-first, so the cap only ever drops sessions older than 64 others in
+ *  the same directory, which no plausible number of concurrent terminals reaches. */
+const MAX_CANDIDATES = 64;
+
 export interface OpenCodeSession {
   id: string;
   title: string | null;
@@ -66,6 +74,9 @@ export function openDb(log?: Logger): DatabaseSync | null {
   try {
     return new DatabaseSync(OPENCODE_DB_PATH, { readOnly: true });
   } catch (err) {
+    // ENOENT is the answer "OpenCode has never run here". Anything else is a
+    // failure to LOOK — see the twin in kolu-codex core.ts.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     log?.debug({ err, path: OPENCODE_DB_PATH }, "opencode db unavailable");
     return null;
   }
@@ -104,7 +115,7 @@ export function findSessionsByDirectory(
       (
         conn
           .prepare(
-            "SELECT s.id, s.title, s.directory, (SELECT MIN(time_created) FROM message m WHERE m.session_id = s.id) AS started_at FROM session s WHERE s.directory = ? AND s.time_archived IS NULL ORDER BY s.time_updated DESC",
+            `SELECT s.id, s.title, s.directory, (SELECT MIN(time_created) FROM message m WHERE m.session_id = s.id) AS started_at FROM session s WHERE s.directory = ? AND s.time_archived IS NULL ORDER BY s.time_updated DESC LIMIT ${MAX_CANDIDATES}`,
           )
           .all(directory) as {
           id: string;
