@@ -55,13 +55,38 @@ import {
 } from "@kolu/surface/solid";
 import type { Accessor } from "solid-js";
 import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
+import { surfaceWsUrl } from "../index";
+
+/** The dial URL when the caller names none: the page's own origin through
+ *  `surfaceWsUrl`. A thunk deferred to connect time, so merely importing this
+ *  module never touches `location`; called without one (Node), it throws
+ *  loudly instead of dialling a fabricated address. */
+const defaultSurfaceUrl = (): string => {
+  if (typeof location === "undefined") {
+    throw new Error(
+      "connectSurface: no `url` was given and there is no browser `location` " +
+        "to derive one from — pass `url` explicitly outside a browser",
+    );
+  }
+  return surfaceWsUrl(location.origin);
+};
 
 export interface ConnectSurfaceOptions<S extends SurfaceSpec>
-  extends Omit<SurfaceSocketOptions, "group" | "siblingKey"> {
+  extends Omit<SurfaceSocketOptions, "group" | "siblingKey" | "url"> {
   /** The surface to build a reactive client for. Its `group` is what the wire
    *  link is built over, so the seam takes the surface (not a separate group) —
    *  a client and a wire that disagreed about the contract is unspellable. */
   surface: Surface<S>;
+  /** Base WS URL — a string, or a thunk re-evaluated on every reconnect when
+   *  the base itself varies (the `pid` echo is appended on top either way; see
+   *  `SurfaceSocketOptions.url`). OPTIONAL here, unlike the raw socket seam:
+   *  omitted, it defaults to `surfaceWsUrl(location.origin)` — the page's own
+   *  origin through the ONE scheme-swap + path derivation, which is what every
+   *  browser consumer of this seam spelled by hand (the derivation, not a
+   *  choice; a browser app dials the origin that served it). Omitting it
+   *  anywhere without a `location` (a Node caller) throws loudly — pass the
+   *  URL you actually mean there. */
+  url?: SurfaceSocketOptions["url"];
   /** TUNE the always-on liveness heartbeat (`intervalMs`/`timeoutMs`/`onStale`).
    *  There is deliberately NO disable option: the seam mints the watchdog-backed
    *  brand `surfaceClient` requires, and a disabled watchdog would mint a
@@ -122,9 +147,10 @@ export interface SurfaceConnection<S extends SurfaceSpec> {
 export async function connectSurface<const S extends SurfaceSpec>(
   opts: ConnectSurfaceOptions<S>,
 ): Promise<SurfaceConnection<S>> {
-  const { surface, heartbeat: hb, ...socketOptions } = opts;
+  const { surface, heartbeat: hb, url, ...socketOptions } = opts;
   const socket = await createSurfaceSocket({
     ...socketOptions,
+    url: url ?? defaultSurfaceUrl(),
     group: surface.group,
   });
   const { link } = socket;

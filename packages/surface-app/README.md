@@ -33,12 +33,13 @@ import { reloadForUpdate } from "@kolu/surface-app/lifecycle";
 
 const { link, client, readout, dispose } = await connectSurface({
   surface,
-  url,
   retired: reloadForUpdate, // required: what happens when the server retires this wire
 });
 // client.cells.X.use(...) — the dial, the dispatch, the half-open heartbeat AND
 // the stale-tab `pid` handshake are wired for you (the dial is an effect, so the
-// seam is async). The only thing left to spell is what a tab does when the server
+// seam is async). Even the URL is derived — omitted, it defaults to
+// `surfaceWsUrl(location.origin)`, the page's own origin (pass `url` outside a
+// browser). The only thing left to spell is what a tab does when the server
 // it came from is gone, because that is the one state nothing else can decide.
 //
 // `readout()` is what an indicator draws: `connecting | live | degraded |
