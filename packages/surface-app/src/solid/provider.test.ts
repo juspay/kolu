@@ -282,4 +282,21 @@ describe("SurfaceAppProvider — the required `fault` LOOK is WIRED", () => {
     dispose();
     vi.restoreAllMocks();
   });
+
+  it("omitting `fault` is unspellable — the TYPE requires it, like `retired`", () => {
+    // The type-level half of "required": this pin fails the TYPECHECK (not the
+    // run) if `fault` ever grows a `?` or a default. The thunk is never
+    // invoked — nothing here mounts a provider.
+    const spellWithoutFault = () =>
+      // @ts-expect-error — `fault` is required on SurfaceAppProviderProps
+      createComponent(SurfaceAppProvider, {
+        controlPlane: fakeControlPlane("0784979"),
+        clientCommit: "0784979",
+        status: () => "live" as const,
+        get children() {
+          return null;
+        },
+      });
+    expect(typeof spellWithoutFault).toBe("function");
+  });
 });

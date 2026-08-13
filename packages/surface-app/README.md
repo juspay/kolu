@@ -48,6 +48,12 @@ const { link, client, readout, dispose } = await connectSurface({
 // page rather than about a socket. The words and colours stay yours.
 ```
 
+The client model (`<SurfaceAppProvider>` on `/solid`) requires one more answer
+the same way: `fault` — the markup an **uncaught render throw** is drawn with.
+The framework catches it, records it, and prints it (`thrownText`); you supply
+only the LOOK, so a composition root that compiles has been asked what a throw
+looks like instead of shipping a white tab.
+
 Part of the kolu monorepo — `"@kolu/surface-app": "workspace:*"`.
 
 ## Docs

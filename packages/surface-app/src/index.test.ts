@@ -46,6 +46,47 @@ describe("thrownText", () => {
     );
   });
 
+  it("puts a SHORT lost message back even when it appears inside a frame", () => {
+    // The hole a substring test (`includes`) leaves open: a short message —
+    // "app", "12", "null", the shape short DOM/JSON/index errors arrive in —
+    // is routinely a substring of the first frame's function name, file stem,
+    // or line number. The rule is the first line BEING the current header,
+    // not containing the message somewhere.
+    for (const message of ["app", "12", "renderRow"]) {
+      const err = new Error(message);
+      err.stack = "renderRow@app.js:12:3";
+      expect(thrownText(err)).toBe(`Error: ${message}\nrenderRow@app.js:12:3`);
+    }
+  });
+
+  it("puts a reassigned message back when the new one is a SUBSTRING of the old header", () => {
+    // The same hole on the V8 side: shorten the message after the header
+    // materialized and the stale header *contains* (even starts with) the new
+    // one. "Carries" must mean the header IS `name: message`, on a line
+    // boundary — a bare prefix test waves "Error: foobar" through for "foo".
+    const shortened = new Error("foobar");
+    void shortened.stack;
+    shortened.message = "foo";
+    expect(shortened.stack?.startsWith("Error: foobar")).toBe(true);
+    expect(thrownText(shortened)).toBe(`Error: foo\n${shortened.stack}`);
+
+    const substring = new Error("the original reason");
+    void substring.stack;
+    substring.message = "original";
+    expect(thrownText(substring)).toBe(`Error: original\n${substring.stack}`);
+  });
+
+  it("never LOSES a multiline message — a header spanning lines can't match one line, so it errs toward saying it twice", () => {
+    // A multiline message can never equal the stack's first physical line, so
+    // the first-line rule treats it as lost and puts it back on the front.
+    // That is the safe direction — the current message is always at the top
+    // of the card, at worst repeated below — and this pins exactly the
+    // never-lost half without freezing the duplication as a contract.
+    const err = new Error("line one\nline two");
+    expect(err.stack?.startsWith("Error: line one\nline two")).toBe(true);
+    expect(thrownText(err).startsWith("Error: line one\nline two")).toBe(true);
+  });
+
   it("puts a REASSIGNED message back too — a V8 stack keeps the one from construction", () => {
     // `e.message = "the real reason"` after the stack has materialized (V8
     // formats `.stack` lazily and caches the string on first read) leaves the

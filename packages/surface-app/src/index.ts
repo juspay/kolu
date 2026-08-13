@@ -506,14 +506,16 @@ export const surfaceWsUrl = (httpBaseUrl: string): string => {
  *  The STACK when there is one, because the message alone ("undefined is not an
  *  object") names no file, and the whole reason a fault card exists is that the
  *  alternative was a dead tab with the truth in a console nobody opened. V8
- *  prints the message as the stack's first line, so that case is not the
- *  message twice; a stack that has LOST the message gets it put back on the
- *  front rather than dropped. "Lost" is decided by whether the stack's FIRST
- *  LINE carries the CURRENT message — which covers Safari (frames only) and a
- *  V8 error whose `message` was reassigned after construction (the stack still
- *  opens with the old one), where a name-prefix test would wave the stale line
- *  through. A message-less Error falls back to the name-prefix test, since
- *  every first line "carries" an empty message.
+ *  prints the header `name: message` as the stack's first line, so that case
+ *  is not the message twice; a stack that has LOST the message gets it put
+ *  back on the front rather than dropped. "Lost" is decided by whether the
+ *  stack's first line IS the current header — EQUALITY, not a substring test:
+ *  a short message ("app", "12") is routinely a substring of a Safari frame,
+ *  and a shortened reassignment leaves a stale V8 header that contains the
+ *  new message, so anything looser waves real losses through. A message-less
+ *  Error falls back to the name-prefix test (its V8 header is the bare name);
+ *  a multiline message can never equal one line, so it is prepended — the
+ *  safe direction: at worst said twice, never dropped.
  *
  *  Never empty: a thrown value that says nothing about itself is still a
  *  fault, and an empty card would read as a page that broke for no reason. */
@@ -527,7 +529,7 @@ export const thrownText = (error: unknown): string => {
     const carriesMessage =
       error.message === ""
         ? firstLine.startsWith(error.name)
-        : firstLine.includes(error.message);
+        : firstLine === named;
     return carriesMessage ? error.stack : `${named}\n${error.stack}`;
   }
   const said = String(error);
