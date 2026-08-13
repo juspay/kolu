@@ -115,6 +115,30 @@ describe("staticImportChunks", () => {
     expect(chunks).toEqual(["a-2.js"]);
   });
 
+  it("stops at a dynamic edge one hop DOWN too — a preloaded chunk's own `import()` stays deferred", () => {
+    // The same rule as above, moved off the entry: `a` is preloaded, so the walk
+    // continues through it, and the `import()` IN that chunk must still defer.
+    // Worth its own fixture because the entry-level case would stay green under
+    // a "once we're preloading a chunk, take all of its edges" change — which is
+    // exactly the shape of mistake that undoes a split, one level below where
+    // anyone is looking.
+    const chunks = staticImportChunks(
+      graph({
+        "main-1.js": [["a-2.js", "import-statement"]],
+        "a-2.js": [
+          ["c-3.js", "import-statement"],
+          ["lazy-4.js", "dynamic-import"],
+        ],
+        "c-3.js": [],
+        // Deferred by `a`, and its own static import with it.
+        "lazy-4.js": [["deep-5.js", "import-statement"]],
+        "deep-5.js": [],
+      }),
+      "main-1.js",
+    );
+    expect(chunks).toEqual(["a-2.js", "c-3.js"]);
+  });
+
   it("names a diamond once, in discovery order", () => {
     // Two chunks sharing a third is the ordinary shape, and a duplicated
     // `<link>` is a wasted parse at best.

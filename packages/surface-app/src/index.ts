@@ -16,8 +16,10 @@
  * imports, so ONE `from "./anything"` here — a re-export included — takes down
  * every consumer's dev server with `ERR_MODULE_NOT_FOUND`, and nothing in this
  * package's own unit tests can see it because vitest resolves them fine. It is
- * pinned by `index.test.ts` ("loads under Node's own ESM loader"), which is the
- * cheap twin of the `ci::dev-smoke` lane that caught it.
+ * pinned by `nodeEsm.test.ts`, which READS this file and requires its relative
+ * specifiers to be none — stricter than "Node can resolve them", and the cheap
+ * twin of the `ci::dev-smoke` lane that caught it (that lane takes three minutes
+ * and reads as a timeout waiting for localhost; this fails in milliseconds).
  */
 
 /** Where the immutable, content-hashed assets live, and which paths are the

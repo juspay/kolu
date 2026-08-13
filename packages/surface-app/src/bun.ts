@@ -204,12 +204,12 @@ export interface SurfaceClientBuildResult {
  *  each chunk the entry statically imports. The hashed dir it leaves
  *  behind is exactly this build's output plus the precompressed siblings
  *  `freshStaticLayer` negotiates — see the module header for why neither of
- *  those is an option. Returns the hashed hrefs the shell's own elements were
- *  rewritten to name (the JS entry plus one per extra asset, keyed by `name`),
- *  exposed for callers that also template the HTML elsewhere, and a size report
- *  per asset. The preload links are not among them: they are derived from the
- *  build graph rather than from a placeholder a caller wrote, so there is no
- *  second template to keep in step with them. */
+ *  those is an option. Returns every hashed href the shell now names — the JS
+ *  entry, one per extra asset keyed by `name`, and the entry's static chunks in
+ *  load order — plus a size report per asset. The first two came from
+ *  placeholders the caller wrote and the third from the build graph, but a
+ *  caller that also templates the HTML elsewhere needs all of them to write the
+ *  same head (`injectShellHead` takes exactly that shape). */
 export async function buildSurfaceClient(
   opts: SurfaceClientBuildOptions,
 ): Promise<SurfaceClientBuildResult> {
