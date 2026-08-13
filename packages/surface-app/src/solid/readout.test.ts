@@ -19,9 +19,9 @@ import { defineSurface } from "@kolu/surface/define";
 import { Schema } from "effect";
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { FakeWebSocket } from "../fakeSocket.testlib";
 import { STALE_PROCESS_CLOSE_CODE } from "../index";
 import { connectSurface } from "./connectSurface";
+import { dialRecorder } from "./dialRecorder.testlib";
 
 const surface = defineSurface({
   cells: {
@@ -32,27 +32,6 @@ const surface = defineSurface({
     },
   },
 });
-
-/** Collect the sockets the link dials, so a test can open/close them by hand. */
-function dialRecorder() {
-  const dialled: FakeWebSocket[] = [];
-  return {
-    connect: (url: string) => {
-      const ws = new FakeWebSocket(url);
-      dialled.push(ws);
-      return ws as unknown as WebSocket;
-    },
-    /** The dial runs in the protocol's own fiber. */
-    nth: async (n: number): Promise<FakeWebSocket> => {
-      await expect
-        .poll(() => dialled.length, { timeout: 3_000 })
-        .toBeGreaterThanOrEqual(n);
-      const ws = dialled[n - 1];
-      if (ws === undefined) throw new Error(`no socket #${n}`);
-      return ws;
-    },
-  };
-}
 
 /** The readout is derived through Solid signals the WIRE's status callback sets,
  *  so give the reactive graph a turn after driving the socket. */

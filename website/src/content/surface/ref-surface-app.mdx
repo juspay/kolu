@@ -287,6 +287,13 @@ right here, so a client and a wire that disagreed about which members exist is
 unspellable. `connectSurfaces` refuses an empty map: with no sibling there is no
 tag for the watchdog to probe.
 
+`connectSurface`'s `url` is **optional**: omitted, it defaults to
+`surfaceWsUrl(location.origin)` — the page's own origin through the one
+scheme-swap + path derivation, the value a browser consumer spells by hand
+otherwise (never a choice: a browser app dials the origin that served it).
+Omitting it with no `location` in scope (a Node caller) throws loudly — pass
+the URL you actually mean there.
+
 Tags that ride the same wire but are **not** sibling surfaces go in
 `connectSurfaces`' `extraGroups` — a keyed map's group (for
 `connectSurfaceMap(map, conn.transport)`) and a host's hand-written root
