@@ -37,13 +37,33 @@ describe("thrownText", () => {
   });
 
   it("puts a lost message back on the front of a Safari-shaped stack", () => {
-    // Safari's `stack` (and any Error re-thrown with a new message) carries
-    // frames only — printing it alone would name files but not the fault.
+    // Safari's `stack` carries frames only — printing it alone would name
+    // files but not the fault.
     const err = new Error("undefined is not an object");
     err.stack = "renderRow@app.js:12:3\nmain@app.js:1:1";
     expect(thrownText(err)).toBe(
       "Error: undefined is not an object\nrenderRow@app.js:12:3\nmain@app.js:1:1",
     );
+  });
+
+  it("puts a REASSIGNED message back too — a V8 stack keeps the one from construction", () => {
+    // `e.message = "the real reason"` after the stack has materialized (V8
+    // formats `.stack` lazily and caches the string on first read) leaves the
+    // stack opening with the OLD message. A test on the name prefix alone
+    // would wave that stale first line through; the rule is whether the first
+    // line carries the CURRENT message.
+    const err = new Error("original");
+    void err.stack; // materialize the header with the construction-time message
+    err.message = "the real reason";
+    expect(err.stack?.startsWith("Error: original")).toBe(true);
+    expect(thrownText(err)).toBe(`Error: the real reason\n${err.stack}`);
+  });
+
+  it("does not double a message-less Error's stack — every line 'carries' an empty message", () => {
+    const err = new Error();
+    // V8: `stack` opens with the bare name; the fallback name-prefix test
+    // keeps it as-is instead of prepending "Error: ".
+    expect(thrownText(err)).toBe(err.stack);
   });
 
   it("prints `name: message` for a stackless Error, keeping the subclass name", () => {

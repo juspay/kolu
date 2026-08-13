@@ -17,14 +17,7 @@ import type { JSX } from "solid-js";
 import { createComponent, createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SurfaceFaultBoundary } from "./fault";
-
-/** Force evaluation of a lazily-wrapped JSX tree — in a Node test nothing
- *  inserts the element into a DOM, so unwrap accessors by hand. */
-const resolve = (el: JSX.Element): JSX.Element => {
-  let v = el;
-  while (typeof v === "function") v = (v as () => JSX.Element)();
-  return v;
-};
+import { resolveTree } from "./resolveTree.testlib";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -42,7 +35,7 @@ describe("SurfaceFaultBoundary", () => {
     err.stack = "renderRow@app.js:12:3";
     let seen: string | undefined;
     const dispose = createRoot((d) => {
-      resolve(
+      resolveTree(
         createComponent(SurfaceFaultBoundary, {
           fault: (text) => {
             seen = text;
@@ -65,7 +58,7 @@ describe("SurfaceFaultBoundary", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const err = new Error("boom");
     const dispose = createRoot((d) => {
-      resolve(
+      resolveTree(
         createComponent(SurfaceFaultBoundary, {
           fault: () => null,
           get children(): JSX.Element {
@@ -94,7 +87,7 @@ describe("SurfaceFaultBoundary", () => {
           return "the app";
         },
       });
-      expect(resolve(el)).toBe("the app");
+      expect(resolveTree(el)).toBe("the app");
       return d;
     });
     expect(fault).not.toHaveBeenCalled();

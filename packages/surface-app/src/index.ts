@@ -1,5 +1,7 @@
 /**
- * @kolu/surface-app — pure, framework-free kernels of the freshness contract.
+ * @kolu/surface-app — pure, framework-free kernels: the freshness contract,
+ * the wire's shared vocabulary (paths, close codes, the dial URL), and the
+ * fault printer.
  *
  * These have no dependency on Hono, SolidJS, or surface; they are the bits the
  * `/server` and `/solid` entrypoints (and your app) build on, and the only bits
@@ -504,20 +506,29 @@ export const surfaceWsUrl = (httpBaseUrl: string): string => {
  *  The STACK when there is one, because the message alone ("undefined is not an
  *  object") names no file, and the whole reason a fault card exists is that the
  *  alternative was a dead tab with the truth in a console nobody opened. V8
- *  prints the message as the stack's first line, so that branch is not the
- *  message twice; a stack that has LOST the message (Safari's, and any Error
- *  re-thrown with a new message) gets it put back on the front rather than
- *  dropped.
+ *  prints the message as the stack's first line, so that case is not the
+ *  message twice; a stack that has LOST the message gets it put back on the
+ *  front rather than dropped. "Lost" is decided by whether the stack's FIRST
+ *  LINE carries the CURRENT message — which covers Safari (frames only) and a
+ *  V8 error whose `message` was reassigned after construction (the stack still
+ *  opens with the old one), where a name-prefix test would wave the stale line
+ *  through. A message-less Error falls back to the name-prefix test, since
+ *  every first line "carries" an empty message.
  *
  *  Never empty: a thrown value that says nothing about itself is still a
  *  fault, and an empty card would read as a page that broke for no reason. */
 export const thrownText = (error: unknown): string => {
   if (error instanceof Error) {
     const named = `${error.name}: ${error.message}`;
-    if (error.stack === undefined || error.stack === "") return named;
-    return error.stack.startsWith(error.name)
-      ? error.stack
-      : `${named}\n${error.stack}`;
+    if (!error.stack) return named;
+    const newline = error.stack.indexOf("\n");
+    const firstLine =
+      newline === -1 ? error.stack : error.stack.slice(0, newline);
+    const carriesMessage =
+      error.message === ""
+        ? firstLine.startsWith(error.name)
+        : firstLine.includes(error.message);
+    return carriesMessage ? error.stack : `${named}\n${error.stack}`;
   }
   const said = String(error);
   return said === ""

@@ -18,6 +18,8 @@ import {
 } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import { fakeWire } from "../fakeSocket.testlib";
+import { thrownText } from "../index";
+import { resolveTree } from "./resolveTree.testlib";
 import {
   type ConnectionStatus,
   type ControlPlane,
@@ -59,14 +61,6 @@ function mountModel(opts: {
   });
   return captured;
 }
-
-/** Force evaluation of a lazily-wrapped JSX tree — nothing inserts into a DOM
- *  here, so unwrap accessors by hand (the twin lives in `fault.test.ts`). */
-const resolveTree = (el: unknown): unknown => {
-  let v = el;
-  while (typeof v === "function") v = (v as () => unknown)();
-  return v;
-};
 
 /** Let a probe EFFECT settle through the lifecycle's run edge — see the twin in
  *  `lifecycle.test.ts`. A microtask turn no longer covers it: the probe runs on a
@@ -278,12 +272,13 @@ describe("SurfaceAppProvider — the required `fault` LOOK is WIRED", () => {
       resolveTree(el);
       return d;
     });
-    // The PRINTED text (Safari-shaped stack → message put back on front) —
-    // proving the boundary between provider and children is the real one,
-    // printer included.
-    expect(seen).toBe(
-      "Error: undefined is not an object\nrenderShell@app.js:8:2",
-    );
+    // The PRINTED text — proving the boundary between provider and children is
+    // the real one, printer included. Asserted THROUGH `thrownText` (whose own
+    // litany is pinned in `index.test.ts`) rather than as a third literal; the
+    // Safari-shaped stack keeps printed ≠ `String(err)`, so a boundary that
+    // skipped the printer still fails here.
+    expect(seen).toBe(thrownText(err));
+    expect(seen).not.toBe(String(err));
     dispose();
     vi.restoreAllMocks();
   });
