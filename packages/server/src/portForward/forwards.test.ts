@@ -12,6 +12,7 @@ import type {
   ForwardLoss,
   ForwardManager,
   ForwardMechanisms,
+  ForwardReport,
 } from "@kolu/port-forward";
 import { makeForwardManager } from "@kolu/port-forward";
 import type { HostKey } from "kolu-common/hostKey";
@@ -27,7 +28,33 @@ import {
 } from "./forwards.ts";
 import type { HostPorts } from "./hostPorts.ts";
 
-const log = pino({ level: "silent" });
+/** A REAL pino logger, at a level that actually LOGS, writing its lines into an
+ *  array.
+ *
+ *  Deliberately not `pino({ level: "silent" })`, which is what stood here and is
+ *  precisely why #2157 shipped. At `silent` pino swaps every level method for a
+ *  shared `noop` that reads no `this` — so a DETACHED method
+ *  (`const log = deps.log.warn`) sails through the whole suite and throws
+ *  `TypeError: Cannot read properties of undefined (reading
+ *  'Symbol(pino.msgPrefix)')` only in production, inside the one handler whose
+ *  job is to REPORT a lost forward. A logger that formats for real is the only
+ *  kind that can fail the way production fails, so every case in this file now
+ *  uses one; the destination is an array, so the suite stays as quiet as before. */
+function captureLog(): {
+  log: pino.Logger;
+  lines: Array<Record<string, unknown>>;
+} {
+  const lines: Array<Record<string, unknown>> = [];
+  const log = pino(
+    { level: "trace" },
+    {
+      write(chunk: string) {
+        lines.push(JSON.parse(chunk) as Record<string, unknown>);
+      },
+    },
+  );
+  return { log, lines };
+}
 
 /** A host reading: these ports are listening, all on v4.
  *
@@ -51,16 +78,29 @@ function fakeMechanisms(): {
   closed: number[];
   /** Refuse to close — the "a listener we cannot take down" case. */
   refuseClose: (yes: boolean) => void;
+  /** The channel the mechanism was handed for a port's door, so a test can say
+   *  "this forward died on its own" the way the real world does — through the
+   *  map, not by reaching into the policy's `onLost` behind it. */
+  reportFor: (port: number) => ForwardReport;
 } {
   const closed: number[] = [];
+  const reports = new Map<number, ForwardReport>();
   let refuse = false;
   return {
     closed,
     refuseClose: (yes) => {
       refuse = yes;
     },
+    reportFor: (port) => {
+      const report = reports.get(port);
+      if (report === undefined) {
+        throw new Error(`no door was ever opened for port ${port}`);
+      }
+      return report;
+    },
     mechanisms: {
-      async open({ target }) {
+      async open({ target, report }) {
+        reports.set(target.port, report);
         return {
           localPort: target.port,
           close: async () => {
@@ -78,6 +118,7 @@ function harness(
   opts: { onMechanisms?: ReturnType<typeof fakeMechanisms> } = {},
 ) {
   const fake = opts.onMechanisms ?? fakeMechanisms();
+  const { log, lines } = captureLog();
   const published: Array<ReturnType<typeof forwards.list>> = [];
   const readHostPorts = vi.fn(
     async (host: HostKey, _deadlineMs: number): Promise<HostPorts> =>
@@ -115,6 +156,9 @@ function harness(
     readHostPorts,
     fake,
     ports,
+    /** Every line this harness's logger actually FORMATTED — the proof that the
+     *  report survived its own logging call. */
+    lines,
     /** Take every host out of the pool — "kolu no longer has this machine". */
     depart: () => {
       member.all = false;
@@ -313,6 +357,85 @@ describe("the auto-cancel rule", () => {
     fake.refuseClose(false);
     await h.forwards.reconcile();
     expect(h.forwards.list()).toEqual([]);
+  });
+});
+
+describe("a forward the mechanism reports lost", () => {
+  // #2157: the handler whose whole job is to REPORT a loss killed the server
+  // instead. It picked its level by selecting a method off the logger
+  // (`const log = kind === "degraded" ? deps.log.error : deps.log.warn`), and
+  // pino's level methods read their own `this` — so the first real loss (a
+  // Tailscale key expiry dropped every ssh forward at once) threw
+  // `TypeError: Cannot read properties of undefined (reading
+  // 'Symbol(pino.msgPrefix)')` inside pino and took the process down for three
+  // hours.
+  //
+  // Both cases drive the loss through the REAL map with a REAL logger, which is
+  // the only combination that can catch this: a hand-written stub logger ignores
+  // `this` entirely, and `pino({ level: "silent" })` — what this file used to
+  // hold — is a `noop` that never reads it.
+  //
+  // What PINS the handler's survival is exactly two things: the formatted LINE,
+  // and the change edge that `notify()` fires AFTER it. The library contains a
+  // throwing consumer rather than propagating it (`announce` catches and re-raises
+  // on its own turn), so a report that dies mid-flight never comes back to the
+  // test body — it just leaves no line and no tick.
+  //
+  // The map's own state is NOT such a pin, and neither case claims it is: `lose`
+  // settles the slot BEFORE it announces (`manager.ts` — `gone` deletes it,
+  // `degraded` deliberately keeps it), so `list()` reads the same either way and
+  // would pass over a handler that threw. It is asserted here as the loss
+  // semantics it actually is, not as evidence anything survived.
+
+  /** `[level, message]` for each line the logger actually formatted. */
+  const logged = (lines: Array<Record<string, unknown>>) =>
+    lines.map((line) => [pino.levels.labels[Number(line.level)], line.msg]);
+
+  it("REPORTS a `gone` forward at warn, and survives doing it", async () => {
+    const fake = fakeMechanisms();
+    const h = harness(new Map(), { onMechanisms: fake });
+    await h.forwards.create({ host: PU, port: 5173, origin: "auto" });
+    h.published.length = 0;
+
+    fake.reportFor(5173).lost("ssh transport went away");
+
+    expect(logged(h.lines)).toEqual([
+      ["warn", "port forward reported by its mechanism"],
+    ]);
+    expect(h.lines[0]).toMatchObject({
+      key: "remote:pu-dev:5173",
+      kind: "gone",
+      reason: "ssh transport went away",
+    });
+    // The edge fired — the work AFTER the log line, which a throw inside the
+    // report would have skipped. This is the survival pin, with the line above.
+    expect(h.published).toEqual([[]]);
+    // …and a `gone` loss drops the forward. The map had already done that before
+    // it announced, so this says what a loss MEANS, not that anything survived.
+    expect(h.forwards.list()).toEqual([]);
+  });
+
+  it("REPORTS a `degraded` forward at error, and keeps it listed", async () => {
+    // A listener that broke and could NOT be cleaned up may still be reachable,
+    // so the map keeps it — and the report of it is a genuine fault, not the
+    // expected end of a door.
+    const fake = fakeMechanisms();
+    const h = harness(new Map(), { onMechanisms: fake });
+    await h.forwards.create({ host: PU, port: 5173, origin: "manual" });
+    h.published.length = 0;
+
+    fake
+      .reportFor(5173)
+      .fault("the relay's listener errored and would not close");
+
+    expect(logged(h.lines)).toEqual([
+      ["error", "port forward reported by its mechanism"],
+    ]);
+    expect(h.lines[0]).toMatchObject({ kind: "degraded" });
+    expect(h.published).toHaveLength(1);
+    // Kept, for the reason above — and again the map's own decision, taken
+    // before the consumer ran rather than because it came back.
+    expect(h.forwards.list()).toHaveLength(1);
   });
 });
 

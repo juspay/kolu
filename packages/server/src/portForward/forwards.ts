@@ -189,11 +189,22 @@ export function createKoluForwards(deps: {
       // it: `warn`. `degraded` is the map's own doc comment's "broke and
       // could NOT be cleaned up" — a leaked, un-closeable listener nobody can
       // reach to fix — which is a genuine unrecoverable fault: `error`.
-      const log = kind === "degraded" ? deps.log.error : deps.log.warn;
-      log(
-        { key: forward.key, reason, kind },
-        "port forward reported by its mechanism",
-      );
+      //
+      // The LEVEL is chosen by branching over the call, never by selecting a
+      // method into a variable. `Logger` is pino's shape, and pino's methods
+      // read their own `this` — so `const log = deps.log.warn` hands back a
+      // function that throws `TypeError` the moment it is invoked, and this is
+      // the one handler whose whole job is to REPORT a loss. It killed the
+      // production server on the first real one (#2157: a Tailscale key expiry
+      // dropped every ssh forward at once, and the report of it took the
+      // process down). Kept exhaustive for the same reason `loopbackOf` is: a
+      // third loss kind must force a decision here, not silently log at `warn`.
+      const line = { key: forward.key, reason, kind };
+      const msg = "port forward reported by its mechanism";
+      match(kind)
+        .with("degraded", () => deps.log.error(line, msg))
+        .with("gone", () => deps.log.warn(line, msg))
+        .exhaustive();
       notify();
     },
   });
