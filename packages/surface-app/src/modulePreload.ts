@@ -21,22 +21,20 @@
  * preloading it would fetch on first paint exactly what `import()` was written
  * to NOT fetch — the split, undone by the thing meant to speed it up.
  *
- * The TAG lives here too, beside the walk that decides what goes in it: what
- * `modulepreload` asserts about a file is the same fact the walk filters on
- * (`PRELOADABLE` below), and a package that spelled the two in two modules
- * would be free to change one without the other. Both are internal — the shell
- * is written through `./shellHead`, which owns where the head starts and in
- * what order its prelude is written.
+ * This module decides WHICH files; `./index`'s `injectShellHead` writes them
+ * into the shell. The join between the two is `PRELOADABLE` below: it refuses a
+ * static import that is not a JS module, so every href that reaches the tag has
+ * already earned what `rel="modulepreload"` asserts about it.
  */
 
 /** The file part of a metafile name (`./main-abc.js` → `main-abc.js`) — the flat
  *  hashed dir is how every other name in this build is handled.
  *
- *  Hand-rolled rather than `basename` from `node:path`, and that is the point:
- *  `./index` re-exports through `./shellHead`, which imports this module, so a
- *  `node:*` edge here would sit in the import graph of a module the BROWSER
- *  reaches (`./lifecycle` → `./index`). Metafile names are always `/`-joined,
- *  which is the whole of what `basename` would add. */
+ *  Hand-rolled rather than `basename` from `node:path`, which keeps this module
+ *  free of `node:*` altogether: it is reached only from the Bun build today, and
+ *  a builder that runs under Bun has no reason to pull a Node builtin in for a
+ *  string slice. Metafile names are always `/`-joined, which is the whole of what
+ *  `basename` would add. */
 const fileName = (path: string): string =>
   path.slice(path.lastIndexOf("/") + 1);
 
@@ -76,30 +74,6 @@ const STATIC_IMPORT = "import-statement";
  *  module `Accept`, refused on MIME, warned about) would be the small half of
  *  that; skipping it quietly would hide the large half. */
 const PRELOADABLE = /\.js$/;
-
-/** The tags themselves — one `<link rel="modulepreload">` per href, in order,
- *  concatenated (no hrefs ⇒ the empty string). Spelled ONCE, and here rather
- *  than beside the other head injectors, because `rel="modulepreload"` is the
- *  whole instruction to the browser and it is the same assertion `PRELOADABLE`
- *  above filters on.
- *
- *  An href that is not a plain `/path` is REFUSED, not escaped: these are hashed
- *  build outputs named from the app's own source filenames, so a quote in one
- *  means something upstream is already wrong, and interpolating it would end the
- *  attribute early and ship a silently broken shell. (Its sibling
- *  `shellCommitScript` escapes instead — a commit string is arbitrary by nature
- *  and it has no standing to refuse one.) */
-export function modulePreloadLinks(hrefs: readonly string[]): string {
-  return hrefs
-    .map((href) => {
-      if (!/^\/[\w./-]+$/.test(href))
-        throw new Error(
-          `modulePreloadLinks: refusing to write ${JSON.stringify(href)} into an href attribute — a preload URL must be a plain /path`,
-        );
-      return `<link rel="modulepreload" href="${href}">`;
-    })
-    .join("");
-}
 
 /**
  * The chunks the entry statically imports, transitively, in the order the walk

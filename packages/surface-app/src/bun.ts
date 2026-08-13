@@ -56,14 +56,13 @@
 import { existsSync } from "node:fs";
 import { cp, mkdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { ASSET_DIR, DEFAULT_ASSET_PREFIX } from "./index";
+import { ASSET_DIR, DEFAULT_ASSET_PREFIX, injectShellHead } from "./index";
 import { type ChunkGraph, staticImportChunks } from "./modulePreload";
 import {
   type AssetReport,
   precompressAssets,
   pruneAssets,
 } from "./precompress";
-import { injectShellHead } from "./shellHead";
 import { resolveCommit } from "./vite";
 
 // --- minimal structural view of the Bun runtime (see module header) ----------
@@ -183,6 +182,12 @@ export interface SurfaceClientBuildResult {
   jsHref: string;
   /** Hashed URLs of the extra assets, keyed by their `name`. */
   assetHrefs: Record<string, string>;
+  /** The hashed URLs this build named as `<link rel="modulepreload">` — the
+   *  entry's static chunks, transitively, in load order. Empty when the entry
+   *  did not split. Reported for the same reason `jsHref` is: a caller that also
+   *  templates the HTML elsewhere has to be able to write the same tags, and
+   *  only the build can name these files. Feed them to `injectShellHead`. */
+  preloadHrefs: readonly string[];
   /** One row per COMPRESSIBLE file in the hashed-asset dir — entry, split
    *  chunks and extra assets alike — with its identity and sibling sizes. Not
    *  every file there: sourcemaps and already-compressed media are skipped and
@@ -330,7 +335,7 @@ export async function buildSurfaceClient(
     );
   }
   // The head prelude, in one splice: the preload links and the commit script,
-  // written in the order `./shellHead` states (the tags first — their whole job
+  // written in the order `./index`'s `injectShellHead` states (the tags first — their whole job
   // is to start those fetches at the earliest byte the parser reaches). The
   // commit is published on the shell global rather than defined into the bundle
   // because the `no-store` shell is re-fetched on every load, so the identity a
@@ -359,5 +364,5 @@ export async function buildSurfaceClient(
   await pruneAssets(assetsDir, produced);
   const assets = await precompressAssets(assetsDir);
 
-  return { jsHref, assetHrefs, assets };
+  return { jsHref, assetHrefs, preloadHrefs, assets };
 }

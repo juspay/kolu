@@ -6,6 +6,18 @@
  * worth unit-testing in isolation. The freshness contract they encode is the
  * hard-won lesson of the four-times-relitigated stale-client bug — see
  * `docs/cache-bug.md` and the Atlas note `docs/atlas/src/content/atlas/surface-app.mdx`.
+ *
+ * ## This file imports NOTHING, and that is a contract
+ *
+ * A Vite config imports it (kolu's own `vite.config.ts:2` takes `ASSET_DIR` and
+ * `NOTIFICATION_SW_SOURCE` from here) and a Vite config is loaded by **Node's
+ * ESM loader**, not by a bundler — the same boundary `./vite`'s header describes
+ * for itself. Node cannot resolve this package's extensionless relative
+ * imports, so ONE `from "./anything"` here — a re-export included — takes down
+ * every consumer's dev server with `ERR_MODULE_NOT_FOUND`, and nothing in this
+ * package's own unit tests can see it because vitest resolves them fine. It is
+ * pinned by `index.test.ts` ("loads under Node's own ESM loader"), which is the
+ * cheap twin of the `ci::dev-smoke` lane that caught it.
  */
 
 /** Where the immutable, content-hashed assets live, and which paths are the
@@ -104,25 +116,119 @@ export function cacheControlFor(
   return null;
 }
 
-/** The shell-carried build identity — the global the `no-store` shell publishes
- *  the commit on (kolu#1319: identity NEVER rides a hashed asset), the inline
- *  script that publishes it, and the injector a caller templating its own shell
- *  stamps that script in with.
+/** The global the no-store shell publishes the build commit on
+ *  (`window.__SURFACE_APP_COMMIT__`). Build identity rides the SHELL, never a
+ *  hashed `/assets/*` file: a commit stamped INSIDE the bundle rewrites the
+ *  bytes of a file whose NAME — and so whose year-long `immutable` cache
+ *  entry — doesn't change whenever two deploys differ only outside the client
+ *  build (a docs-only commit), so every returning browser stays pinned on the
+ *  old stamp, looks permanently stale, and the update prompt loops forever
+ *  (kolu#1319). The shell is `no-store` — re-fetched on every load — so a
+ *  commit carried here is always the deployed one, and the hashed bundle the
+ *  shell names is paired with it by content, not by stamp. Read it via
+ *  `shellCommit()` (`./lifecycle`). */
+export const SHELL_COMMIT_GLOBAL = "__SURFACE_APP_COMMIT__";
+
+/** The inline `<script>` that publishes `commit` on `SHELL_COMMIT_GLOBAL` —
+ *  what `injectShellCommit` (and the `surfaceApp()` Vite plugin) puts in the
+ *  shell, and what a Nix post-build stamp rewrites (kolu seds its placeholder
+ *  in `dist/index.html` ONLY — never in `dist/assets/`). JSON-encoded with
+ *  `<` escaped so an arbitrary commit string can't terminate the element. */
+export function shellCommitScript(commit: string): string {
+  return `<script>${shellCommitScriptBody(commit)}</script>`;
+}
+
+/** The inner text of `shellCommitScript` — `window.${SHELL_COMMIT_GLOBAL}=<literal>`,
+ *  the `<script>`-less body both the Bun/Nix shell (via `shellCommitScript`) and
+ *  the `/vite` plugin need. This is the ONE authoritative copy of the
+ *  assignment shape and the `<`-escape that stops an arbitrary commit string
+ *  from closing the element. `vite.ts` can't import it across Node's ESM
+ *  boundary (see its header), so it carries a byte-identical inline copy that
+ *  `vite.test.ts` pins to this function across adversarial commits. */
+export function shellCommitScriptBody(commit: string): string {
+  const literal = JSON.stringify(commit).replace(/</g, "\\u003c");
+  return `window.${SHELL_COMMIT_GLOBAL}=${literal}`;
+}
+
+/** Inject the shell-commit script into an HTML shell, right after `<head>` so
+ *  it runs before the module bundle reads it. Pure, and the path for a caller
+ *  templating its own shell (`./client`'s note names it); the Bun builder goes
+ *  through `injectShellHead` below, which writes this script and the preload
+ *  links in one splice. The Vite path injects the same tag through
+ *  `transformIndexHtml`. Throws when the template has no `<head>` rather than
+ *  silently emitting a shell with no build identity. */
+export function injectShellCommit(html: string, commit: string): string {
+  return injectShellHead(html, { preloadHrefs: [], commit });
+}
+
+/** The `<link rel="modulepreload">` tags, one per href, in order (no hrefs ⇒ the
+ *  empty string).
  *
- *  All three are DEFINED in `./shellHead`, which owns where the shell's `<head>`
- *  starts and in what order this package's prelude is written into it — the
- *  commit script and the `modulepreload` links the Bun build adds share one
- *  locator and one splice, and that module is internal (off the `exports` map,
- *  the `./precompress` precedent). Re-exported here because these three are the
- *  public half: `./lifecycle` reads the global, `./vite` pins its inline copy of
- *  the script body against this one, and `./client` names `injectShellCommit` as
- *  the hand-templating path. */
-export {
-  injectShellCommit,
-  SHELL_COMMIT_GLOBAL,
-  shellCommitScript,
-  shellCommitScriptBody,
-} from "./shellHead";
+ *  An href that is not a plain `/path` is REFUSED, not escaped: these are hashed
+ *  build outputs named from the app's own source filenames, so a quote in one
+ *  means something upstream is already wrong, and interpolating it would end the
+ *  attribute early and ship a silently broken shell. (`shellCommitScript`
+ *  escapes instead — a commit string is arbitrary by nature and it has no
+ *  standing to refuse one.) That the target is a JS module at all is settled
+ *  where the list is BUILT: `./modulePreload`'s walk refuses a static import
+ *  that is not one, so by the time an href reaches this function the assertion
+ *  `rel="modulepreload"` makes is already true. */
+function modulePreloadLinks(hrefs: readonly string[]): string {
+  return hrefs
+    .map((href) => {
+      if (!/^\/[\w./-]+$/.test(href))
+        throw new Error(
+          `@kolu/surface-app: refusing to write ${JSON.stringify(href)} into an href attribute — a preload URL must be a plain /path`,
+        );
+      return `<link rel="modulepreload" href="${href}">`;
+    })
+    .join("");
+}
+
+/** Everything this package puts in the shell's `<head>`, in the ONE order that
+ *  is correct: the preload links FIRST — the point of the tags is to start those
+ *  chunk fetches at the earliest byte the parser reaches, so nothing may push
+ *  them later — then the build identity. Written in a single splice, so the
+ *  order is stated here, once, instead of being the reverse of the order two
+ *  injector calls happen to appear in.
+ *
+ *  `preloadHrefs` is `SurfaceClientBuildResult.preloadHrefs` — only the build can
+ *  name those files (`./bun`). No preload hrefs ⇒ no preload tags: a shell whose
+ *  entry split into nothing carries no trace of this, rather than an empty
+ *  artifact in every shell that never splits. */
+export function injectShellHead(
+  html: string,
+  { preloadHrefs, commit }: { preloadHrefs: readonly string[]; commit: string },
+): string {
+  return insertAfterHead(
+    html,
+    modulePreloadLinks(preloadHrefs) + shellCommitScript(commit),
+  );
+}
+
+/** Insert `snippet` right after the shell's `<head>` open tag — the ONE place
+ *  anything is added to the head, so no injector can drift into its own idea of
+ *  where the head starts. */
+function insertAfterHead(html: string, snippet: string): string {
+  // Require a real `head` start tag with a tag-name boundary — `<head>` or
+  // `<head …>` but NOT `<header>`/`<headless>`. A loose `/<head[^>]*>/` would
+  // match `<header>` and inject at the wrong spot, defeating the fail-loud
+  // contract for a shell that has no real `<head>`.
+  const head = /<head(?:\s|>)/i.exec(html);
+  if (!head) {
+    throw new Error(
+      "@kolu/surface-app: the HTML template has no <head> — the shell would carry no build identity, and the entry's static chunks would cost an extra round trip on first paint",
+    );
+  }
+  const close = html.indexOf(">", head.index);
+  if (close === -1) {
+    throw new Error(
+      "@kolu/surface-app: the HTML template has an unterminated <head> tag",
+    );
+  }
+  const at = close + 1;
+  return html.slice(0, at) + snippet + html.slice(at);
+}
 
 /** The never-stale sentinel: the commit value that means "don't claim
  *  staleness." `resolveCommit` (`./vite`) falls back to it, `shellCommit`

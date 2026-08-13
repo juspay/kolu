@@ -11,11 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-  type ChunkGraph,
-  modulePreloadLinks,
-  staticImportChunks,
-} from "./modulePreload";
+import { type ChunkGraph, staticImportChunks } from "./modulePreload";
 
 /**
  * `Bun.build({ metafile: true })`, bun 1.3.13, for an entry that imports a
@@ -208,36 +204,5 @@ describe("staticImportChunks", () => {
         "main-1.js",
       ),
     ).toThrow(/styles-2\.css/);
-  });
-});
-
-describe("modulePreloadLinks", () => {
-  it("emits one tag per href, in order, as one string", () => {
-    // Pinned as a LITERAL: `rel="modulepreload"` is the whole instruction to the
-    // browser, and a test that rebuilt the tag from the same helper would agree
-    // with any typo in it.
-    expect(
-      modulePreloadLinks([
-        "/assets/shared-a1b2c3d4.js",
-        "/assets/base-e5f6a7b8.js",
-      ]),
-    ).toBe(
-      '<link rel="modulepreload" href="/assets/shared-a1b2c3d4.js">' +
-        '<link rel="modulepreload" href="/assets/base-e5f6a7b8.js">',
-    );
-  });
-
-  it("emits nothing at all for no hrefs", () => {
-    expect(modulePreloadLinks([])).toBe("");
-  });
-
-  it("refuses an href that is not a plain /path instead of ending the attribute early", () => {
-    // The sibling `shellCommitScript` ESCAPES its input because a commit message
-    // is arbitrary by nature; a build output name that carries a quote means
-    // something upstream is already wrong, so this one refuses.
-    expect(() => modulePreloadLinks(['/assets/a".js'])).toThrow(/href/);
-    expect(() => modulePreloadLinks(["https://cdn.example/a.js"])).toThrow(
-      /plain \/path/,
-    );
   });
 });
