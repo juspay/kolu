@@ -12,14 +12,41 @@
  * So the bundling is a stand-in and everything downstream of it is real: real
  * files on a real temp dist, the real prune, the real brotli/zstd/gzip, and the
  * real static layer reading them back off disk (`dist.test.ts`). The stand-in
- * emits what a real `Bun.build` emits — a hashed entry, a hashed chunk when
- * `splitting` is on and the source dynamically imports, and linked sourcemaps —
- * and records the config it was handed, so the test can also pin the two build
- * settings the freshness contract rests on rather than trusting a comment.
+ * emits what a real `Bun.build` emits — a hashed entry, hashed chunks when
+ * `splitting` is on and the source splits, linked sourcemaps, and the metafile
+ * describing which output imports which and how — and records the config it was
+ * handed, so the test can also pin the build settings the freshness contract
+ * rests on rather than trusting a comment.
+ *
+ * The metafile is written from what this emitter itself did — and each output's
+ * SOURCE is written from the same edge list the metafile records, so the emitted
+ * bytes cannot claim a different graph than the record does. Its shape is a
+ * copy of a real `Bun.build` metafile (bun 1.3.13): outputs keyed `./<file>`,
+ * each with `imports: [{ path, kind }]` where `kind` is `import-statement` for a
+ * shared chunk and `dynamic-import` for a deferred one, and sourcemaps absent.
+ * `modulePreload.test.ts` pins the walk against a metafile captured from a real
+ * bun build, so the shape here is checked against the real thing rather than
+ * being the only description of it.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
+
+/** One edge out of an emitted output, as this stand-in records it in the
+ *  metafile AND renders it into that output's source. Spelled once here so the
+ *  two can only ever be the same shape; structurally identical to the
+ *  `ChunkImport` the walk under test reads, deliberately without importing it —
+ *  a double that borrowed the type would agree with a change to it. */
+type Edge = { path: string; kind: string };
+
+/** The markers a fixture entry declares its split shape with, and the stems the
+ *  chunks they produce are named from. Exported because the fixtures that write
+ *  them live in `dist.test.ts`: a protocol spelled in two files is one a rename
+ *  breaks silently, in the other file, as an unrelated assertion. */
+export const SHARED_MARKER = "//--shared--\n";
+export const DYNAMIC_MARKER = "//--dynamic--\n";
+export const SHARED_CHUNK_STEM = "shared";
+export const DYNAMIC_CHUNK_STEM = "chunk";
 
 /** The `Bun.build` config as `./bun` writes it — the fields this stand-in reads
  *  or a test asserts on. Structural, like `./bun`'s own view of the runtime. */
@@ -28,6 +55,7 @@ export interface RecordedBuildConfig {
   outdir: string;
   naming?: { entry: string; chunk: string; asset: string };
   splitting?: boolean;
+  metafile?: boolean;
   format?: string;
   sourcemap?: string;
   [extra: string]: unknown;
@@ -38,6 +66,18 @@ export interface StandInBun {
   readonly builds: RecordedBuildConfig[];
   /** Restore whatever `globalThis.Bun` was before (usually nothing). */
   restore(): void;
+}
+
+/** Shapes of `Bun.build` a test needs to DRIVE and a fixture cannot otherwise
+ *  produce. These are test-double knobs, not a mirror of any option the shipping
+ *  build has — `buildSurfaceClient` takes no flags at all (see `./bun`). */
+export interface StandInBunOptions {
+  /** Report NO metafile even though the config asked for one — exactly what a
+   *  Bun that ignored `metafile: true` would hand back. `buildSurfaceClient`'s
+   *  fail-loud check is the only thing between that and a shell that silently
+   *  drops back to costing the extra round trip, so it is driven by a test
+   *  rather than described by a comment. */
+  withholdMetafile?: boolean;
 }
 
 /** Deterministic 8-hex-char stand-in for `Bun.hash` — the point is that equal
@@ -60,14 +100,18 @@ const render = (pattern: string, name: string, content: string): string =>
  * Install the stand-in on `globalThis.Bun`.
  *
  * `build` writes the entry from the entrypoint's own source. It does NOT parse
- * JavaScript: the fixture marks where the dynamic half begins with a literal
- * `//--dynamic--` line, and when `splitting` is on that half is emitted as a
- * SEPARATE hashed chunk the entry names by a relative URL — the shape whose
- * absence made every consumer stand up a second `Bun.build` of its own. A
- * fixture that writes a real `import("./x")` and no marker gets no chunk here,
- * which is a limit of the stand-in and not a statement about Bun.
+ * JavaScript: the fixture marks its halves with literal `//--shared--` and
+ * `//--dynamic--` lines, and when `splitting` is on each is emitted as a
+ * SEPARATE hashed chunk the entry names by a relative URL — the `//--shared--`
+ * half the way a real bundler hoists code the entry and the deferred chunk both
+ * need (a STATIC import of the entry, which is what earns a modulepreload), the
+ * `//--dynamic--` half the way an `import()` defers one. A fixture that writes a
+ * real `import("./x")` and no marker gets no chunk here, which is a limit of the
+ * stand-in and not a statement about Bun.
  */
-export const installStandInBun = (): StandInBun => {
+export const installStandInBun = (
+  options: StandInBunOptions = {},
+): StandInBun => {
   const previous = (globalThis as { Bun?: unknown }).Bun;
   const builds: RecordedBuildConfig[] = [];
 
@@ -79,11 +123,38 @@ export const installStandInBun = (): StandInBun => {
     const entrypoint = config.entrypoints[0]!;
     const source = readFileSync(entrypoint, "utf8");
     const outputs: { path: string; kind: string }[] = [];
+    const graph: Record<string, { imports: Edge[] }> = {};
 
-    const emit = (fileName: string, content: string, kind: string): string => {
+    /** The statements an output's outgoing edges are written as. One output's
+     *  imports are stated ONCE — in the edge list the metafile records — and its
+     *  bytes are rendered FROM that list, so the emitted source can never claim
+     *  a different graph than the metafile does. */
+    const importStatements = (imports: Edge[]): string =>
+      imports
+        .map((i) =>
+          i.kind === "dynamic-import"
+            ? `await import(${JSON.stringify(i.path)});\n`
+            : `import ${JSON.stringify(i.path)};\n`,
+        )
+        .join("");
+
+    const emit = (
+      pattern: string,
+      stem: string,
+      body: string,
+      kind: string,
+      imports: Edge[] = [],
+    ): string => {
+      const content = importStatements(imports) + body;
+      // Hashed over what is actually written, so equal bytes keep their name —
+      // the whole basis of the immutable pin.
+      const fileName = render(pattern, stem, content);
       const path = join(config.outdir, fileName);
       writeFileSync(path, content);
       outputs.push({ path, kind });
+      // Keyed and referenced the way a real metafile is: relative to the outdir,
+      // and sourcemaps not among the outputs at all.
+      graph[`./${fileName}`] = { imports };
       if (config.sourcemap === "linked") {
         writeFileSync(`${path}.map`, `{"version":3,"file":"${fileName}"}`);
         outputs.push({ path: `${path}.map`, kind: "sourcemap" });
@@ -91,26 +162,53 @@ export const installStandInBun = (): StandInBun => {
       return fileName;
     };
 
-    // The dynamically-imported half, split out only when splitting is on —
-    // otherwise it is inlined into the entry, which is precisely the old
-    // behaviour (deferred in evaluation, identical on the wire).
-    const [head, dynamic = ""] = source.split("//--dynamic--\n");
-    let entrySource = source;
-    if (dynamic !== "" && config.splitting === true) {
-      const chunkName = emit(
-        render(naming.chunk, "chunk", dynamic),
-        dynamic,
-        "chunk",
-      );
-      entrySource = `${head}await import("./${chunkName}");\n`;
+    // The two split halves, emitted only when splitting is on — otherwise both
+    // are inlined into the entry, which is precisely the old behaviour
+    // (deferred in evaluation, identical on the wire).
+    const [beforeDynamic = "", dynamic] = source.split(DYNAMIC_MARKER);
+    const [head = "", shared] = beforeDynamic.split(SHARED_MARKER);
+
+    let entryBody = source;
+    const entryImports: Edge[] = [];
+    if (
+      config.splitting === true &&
+      (shared !== undefined || dynamic !== undefined)
+    ) {
+      entryBody = head;
+      let sharedName: string | undefined;
+      if (shared !== undefined) {
+        sharedName = emit(naming.chunk, SHARED_CHUNK_STEM, shared, "chunk");
+        entryImports.push({
+          path: `./${sharedName}`,
+          kind: "import-statement",
+        });
+      }
+      if (dynamic !== undefined) {
+        // The deferred chunk needs the shared half too — that is WHY the shared
+        // half is its own chunk rather than part of either one.
+        const chunkName = emit(
+          naming.chunk,
+          DYNAMIC_CHUNK_STEM,
+          dynamic,
+          "chunk",
+          sharedName === undefined
+            ? []
+            : [{ path: `./${sharedName}`, kind: "import-statement" }],
+        );
+        entryImports.push({ path: `./${chunkName}`, kind: "dynamic-import" });
+      }
     }
     const entryBase = basename(entrypoint, extname(entrypoint));
-    emit(
-      render(naming.entry, entryBase, entrySource),
-      entrySource,
-      "entry-point",
-    );
-    return { success: true, logs: [], outputs };
+    emit(naming.entry, entryBase, entryBody, "entry-point", entryImports);
+    return {
+      success: true,
+      logs: [],
+      outputs,
+      metafile:
+        config.metafile === true && options.withholdMetafile !== true
+          ? { outputs: graph }
+          : undefined,
+    };
   };
 
   (globalThis as { Bun?: unknown }).Bun = {

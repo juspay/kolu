@@ -13,6 +13,7 @@ import {
   cacheControlFor,
   clientIsStale,
   injectShellCommit,
+  injectShellHead,
   isCleanRef,
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
@@ -162,6 +163,96 @@ describe("injectShellCommit", () => {
     expect(() => injectShellCommit('<html><head lang="en"', "x")).toThrow(
       /unterminated/,
     );
+  });
+});
+
+// The head prelude the Bun build writes — the same splice, with the modulepreload
+// links ahead of the commit script. Which chunks end up in that list is
+// `modulePreload.test.ts`'s question; this is the ORDER and the tags.
+const headShell = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+  </head>
+  <body><script type="module" src="/assets/main-D85Q74Rn.js"></script></body>
+</html>`;
+
+describe("injectShellHead", () => {
+  it("writes the preload links first and the commit script after, right after <head>", () => {
+    // Pinned as a LITERAL, in one string: `rel="modulepreload"` is the whole
+    // instruction to the browser, and the adjacency IS the order — a test that
+    // rebuilt the tags from the same helper, or checked the two halves
+    // separately, would agree with a typo or a swap.
+    const out = injectShellHead(headShell, {
+      preloadHrefs: ["/assets/shared-a1b2c3d4.js", "/assets/base-e5f6a7b8.js"],
+      commit: "0fab0cc",
+    });
+    expect(out).toContain(
+      '<head><link rel="modulepreload" href="/assets/shared-a1b2c3d4.js">' +
+        '<link rel="modulepreload" href="/assets/base-e5f6a7b8.js">' +
+        shellCommitScript("0fab0cc"),
+    );
+    // And so ahead of the entry the preloaded chunks belong to.
+    expect(out.indexOf("modulepreload")).toBeLessThan(
+      out.indexOf("/assets/main-D85Q74Rn.js"),
+    );
+  });
+
+  it("adds no preload tags when the entry split into nothing — just the identity", () => {
+    // The no-split app is most apps. It must come out with no empty `<link>`, no
+    // stray whitespace — nothing to explain.
+    const out = injectShellHead(headShell, {
+      preloadHrefs: [],
+      commit: "0fab0cc",
+    });
+    expect(out).not.toContain("modulepreload");
+    expect(out).toBe(
+      headShell.replace("<head>", `<head>${shellCommitScript("0fab0cc")}`),
+    );
+  });
+
+  it("names the preload cost too when there is no <head> to splice into", () => {
+    // The locator itself (the `<header>` trap, the unterminated tag) is pinned in
+    // `index.test.ts` through `injectShellCommit`, which is the same splice. What
+    // is only true here is what the error has to SAY now that the prelude carries
+    // two things: a template with no head loses the round trip as well as the
+    // identity, and a message naming one of them reads like the whole cost.
+    expect(() =>
+      injectShellHead("<html><body></body></html>", {
+        preloadHrefs: ["/assets/a-1.js"],
+        commit: "0fab0cc",
+      }),
+    ).toThrow(/no <head>.*round trip/);
+  });
+});
+
+describe("the modulepreload tags injectShellHead writes", () => {
+  const tags = (hrefs: readonly string[]) =>
+    injectShellHead(headShell, { preloadHrefs: hrefs, commit: "0fab0cc" })
+      .split("<head>")[1]!
+      .split("<script>")[0]!;
+  it("emits one tag per href, in order, as one string", () => {
+    // Pinned as a LITERAL: `rel="modulepreload"` is the whole instruction to the
+    // browser, and a test that rebuilt the tag from the same helper would agree
+    // with any typo in it.
+    expect(
+      tags(["/assets/shared-a1b2c3d4.js", "/assets/base-e5f6a7b8.js"]),
+    ).toBe(
+      '<link rel="modulepreload" href="/assets/shared-a1b2c3d4.js">' +
+        '<link rel="modulepreload" href="/assets/base-e5f6a7b8.js">',
+    );
+  });
+
+  it("emits nothing at all for no hrefs", () => {
+    expect(tags([])).toBe("");
+  });
+
+  it("refuses an href that is not a plain /path instead of ending the attribute early", () => {
+    // The sibling `shellCommitScript` ESCAPES its input because a commit message
+    // is arbitrary by nature; a build output name that carries a quote means
+    // something upstream is already wrong, so this one refuses.
+    expect(() => tags(['/assets/a".js'])).toThrow(/href/);
+    expect(() => tags(["https://cdn.example/a.js"])).toThrow(/plain \/path/);
   });
 });
 

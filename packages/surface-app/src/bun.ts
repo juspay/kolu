@@ -40,6 +40,13 @@
  *   writing `import()` (or not), and a flag that turns that statement into a
  *   no-op is a second, silent opinion about the app's own source. With one
  *   entrypoint and no dynamic import the output is byte-identical either way.
+ * - **`<link rel="modulepreload">`** in the shell for the chunks the entry
+ *   STATICALLY imports (`./modulePreload`), because splitting the entry is what
+ *   creates them and nothing downstream can name them: the browser would
+ *   otherwise discover a shared chunk only after fetching AND parsing the entry,
+ *   one round trip into first paint. No flag here either, for the same reason as
+ *   the two above — a build with no split chunks emits no tags, so the only
+ *   thing a switch could select is whether that round trip gets paid.
  *
  * Both were paid upstream the way the `serveSurfaceApp` listener sequence and
  * the RPC frame cap were: by REMOVING the choice where the right answer is
@@ -49,7 +56,8 @@
 import { existsSync } from "node:fs";
 import { cp, mkdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { ASSET_DIR, injectShellCommit } from "./index";
+import { ASSET_DIR, DEFAULT_ASSET_PREFIX, injectShellHead } from "./index";
+import { type ChunkGraph, staticImportChunks } from "./modulePreload";
 import {
   type AssetReport,
   precompressAssets,
@@ -66,6 +74,9 @@ interface BunBuildResult {
   success: boolean;
   logs: { message: string }[];
   outputs: BunBuildArtifact[];
+  /** Present because the config below asks for it — the bundler's own record of
+   *  which output imports which, and how (`./modulePreload`). */
+  metafile?: ChunkGraph;
 }
 interface BunBuildConfig {
   entrypoints: string[];
@@ -79,6 +90,10 @@ interface BunBuildConfig {
   splitting?: boolean;
   minify?: boolean;
   sourcemap?: string;
+  // Ask the bundler to report the chunk graph, which is the only place the
+  // entry's static imports are stated rather than guessed at (see the
+  // modulepreload block below).
+  metafile?: boolean;
   define?: Record<string, string>;
   // App bundler plugins (e.g. the Solid JSX transform) — opaque here; passed
   // straight through to `Bun.build`, so this module needs no `bun` plugin types.
@@ -167,6 +182,12 @@ export interface SurfaceClientBuildResult {
   jsHref: string;
   /** Hashed URLs of the extra assets, keyed by their `name`. */
   assetHrefs: Record<string, string>;
+  /** The hashed URLs this build named as `<link rel="modulepreload">` — the
+   *  entry's static chunks, transitively, in load order. Empty when the entry
+   *  did not split. Reported for the same reason `jsHref` is: a caller that also
+   *  templates the HTML elsewhere has to be able to write the same tags, and
+   *  only the build can name these files. Feed them to `injectShellHead`. */
+  preloadHrefs: readonly string[];
   /** One row per COMPRESSIBLE file in the hashed-asset dir — entry, split
    *  chunks and extra assets alike — with its identity and sibling sizes. Not
    *  every file there: sourcemaps and already-compressed media are skipped and
@@ -179,18 +200,28 @@ export interface SurfaceClientBuildResult {
  *  content-hashed `/assets/*` (the prerequisite for `immutable` caching), the
  *  build commit published on the shell global (`window.__SURFACE_APP_COMMIT__`
  *  in the `no-store` `index.html` — never inside a hashed asset; kolu#1319),
- *  and the shell rewritten to name the hashed assets. The hashed dir it leaves
+ *  the shell rewritten to name the hashed assets, and a `modulepreload` link for
+ *  each chunk the entry statically imports. The hashed dir it leaves
  *  behind is exactly this build's output plus the precompressed siblings
  *  `freshStaticLayer` negotiates — see the module header for why neither of
- *  those is an option. Returns the hashed hrefs (the JS entry plus one per extra
- *  asset, keyed by `name`) — the same URLs written into the shell, exposed for
- *  callers that also template the HTML elsewhere — and a size report per asset. */
+ *  those is an option. Returns every hashed href the shell now names — the JS
+ *  entry, one per extra asset keyed by `name`, and the entry's static chunks in
+ *  load order — plus a size report per asset. The first two came from
+ *  placeholders the caller wrote and the third from the build graph, but a
+ *  caller that also templates the HTML elsewhere needs all of them to write the
+ *  same head (`injectShellHead` takes exactly that shape). */
 export async function buildSurfaceClient(
   opts: SurfaceClientBuildOptions,
 ): Promise<SurfaceClientBuildResult> {
   const Bun = bun();
   const distDir = resolve(opts.distDir);
   const assetsDir = resolve(distDir, ASSET_DIR);
+  /** A file in the hashed dir, as the shell must name it — for the entry, the
+   *  preloaded chunks and the extra assets alike, off the same
+   *  `DEFAULT_ASSET_PREFIX` the server pins `immutable` (`isImmutableAssetPath`),
+   *  so an href this build writes cannot land outside the prefix that build's
+   *  own server caches it under. */
+  const assetHref = (file: string) => `${DEFAULT_ASSET_PREFIX}${file}`;
   await mkdir(assetsDir, { recursive: true });
   const commit = opts.commit ?? resolveCommit(opts.commitEnvVar);
 
@@ -222,6 +253,7 @@ export async function buildSurfaceClient(
     splitting: true,
     minify: opts.minify ?? true,
     sourcemap: "linked",
+    metafile: true,
     plugins: opts.plugins,
   });
   if (!jsResult.success) {
@@ -240,7 +272,21 @@ export async function buildSurfaceClient(
     throw new Error(
       "buildSurfaceClient: Bun.build produced no JS entry output",
     );
-  const jsHref = `/${ASSET_DIR}/${basename(jsEntry.path)}`;
+  const entryFile = basename(jsEntry.path);
+  const jsHref = assetHref(entryFile);
+
+  // The chunks the entry STATICALLY imports, to be preloaded from the shell —
+  // `./modulePreload` is where that list is decided and why. Asked for here
+  // because this is the only place that HAS the graph: no metafile means no
+  // graph, and a shell that silently drops back to costing the round trip is
+  // exactly what this must not ship, so say it instead.
+  if (jsResult.metafile === undefined)
+    throw new Error(
+      "buildSurfaceClient: Bun.build reported no metafile — the entry's chunk graph, and so its modulepreloads, cannot be read",
+    );
+  const preloadHrefs = staticImportChunks(jsResult.metafile, entryFile).map(
+    assetHref,
+  );
 
   // Extra assets (e.g. Tailwind CSS): the app builds the bytes; we hash them on
   // their own content, write `/assets/<name>-<hash>.<ext>`, and key the href by
@@ -258,7 +304,7 @@ export async function buildSurfaceClient(
     const fileName = `${asset.name}-${hash}.${asset.ext}`;
     await Bun.write(resolve(assetsDir, fileName), bytes);
     produced.add(fileName);
-    assetHrefs[asset.name] = `/${ASSET_DIR}/${fileName}`;
+    assetHrefs[asset.name] = assetHref(fileName);
   }
 
   // index.html is the no-store SPA shell — it stays UNHASHED at the root and is
@@ -288,10 +334,14 @@ export async function buildSurfaceClient(
       `href="${assetHrefs[asset.name]}"`,
     );
   }
-  // Publish the commit on the shell global — the `no-store` shell is re-fetched
-  // on every load, so the identity a client reports is always the deployed one
-  // (kolu#1319; `shellCommit()` is the page-side reader).
-  html = injectShellCommit(html, commit);
+  // The head prelude, in one splice: the preload links and the commit script,
+  // written in the order `./index`'s `injectShellHead` states (the tags first — their whole job
+  // is to start those fetches at the earliest byte the parser reaches). The
+  // commit is published on the shell global rather than defined into the bundle
+  // because the `no-store` shell is re-fetched on every load, so the identity a
+  // client reports is always the deployed one (kolu#1319; `shellCommit()` is the
+  // page-side reader). A build with nothing split adds no preload tags at all.
+  html = injectShellHead(html, { preloadHrefs, commit });
   await Bun.write(resolve(distDir, "index.html"), html);
 
   // Static public assets (icons, etc.) shipped verbatim to the dist root, OUTSIDE
@@ -314,5 +364,5 @@ export async function buildSurfaceClient(
   await pruneAssets(assetsDir, produced);
   const assets = await precompressAssets(assetsDir);
 
-  return { jsHref, assetHrefs, assets };
+  return { jsHref, assetHrefs, preloadHrefs, assets };
 }
