@@ -80,30 +80,34 @@ export function openDb(log?: Logger): DatabaseSync | null {
 export function findSessionsByDirectory(
   directory: string,
   log?: Logger,
-): OpenCodeSession[] {
-  return (
-    withDb(
-      (conn) => {
-        const rows = conn
-          .prepare(
-            "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC",
-          )
-          .all(directory) as {
-          id: string;
-          title: string;
-          directory: string;
-        }[];
-        return rows.map((row) => ({
-          id: row.id,
-          title: row.title || null,
-          directory: row.directory,
-        }));
-      },
-      "opencode session query failed",
-      { directory },
-      log,
-    ) ?? []
-  );
+): OpenCodeSession[] | null {
+  // Deliberately NOT through `withDb` — see the twin in kolu-codex's `core.ts`
+  // for why: the ownership arbiter releases a terminal's session on an empty
+  // list, so a caught query error must not wear the same shape as "this
+  // directory has no sessions". A missing database IS that second fact.
+  const db = openDb(log);
+  if (!db) return [];
+  try {
+    const rows = db
+      .prepare(
+        "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC",
+      )
+      .all(directory) as {
+      id: string;
+      title: string;
+      directory: string;
+    }[];
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title || null,
+      directory: row.directory,
+    }));
+  } catch (err) {
+    log?.error({ err, directory }, "opencode session query failed");
+    return null;
+  } finally {
+    db.close();
+  }
 }
 
 // --- Session title refresh ---

@@ -70,8 +70,18 @@ describe("codexAdapter.resolveSessions", () => {
     ]);
     const state = makeState({ readForegroundBasename: () => "codex" });
     expect(
-      codexAdapter.resolveSessions(state, noopLog).map((s) => s.id),
+      codexAdapter.resolveSessions(state, noopLog)?.map((s) => s.id),
     ).toEqual(["newer", "older"]);
+  });
+
+  it("passes a null through — an unreadable DB is not an empty directory", () => {
+    // `findSessionsByDirectory` answers null when the query THREW, and the
+    // orchestrator must be able to tell that from "this directory has no
+    // threads": the latter releases the terminal's session, the former must
+    // change nothing.
+    findSessionsMock.mockReturnValue(null);
+    const state = makeState({ readForegroundBasename: () => "codex" });
+    expect(codexAdapter.resolveSessions(state, noopLog)).toBeNull();
   });
 
   it("skips lookup when neither signal names codex", () => {

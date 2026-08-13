@@ -35,6 +35,10 @@ export const codexAdapter: AgentAdapter<CodexSession, CodexInfo> = {
     return session.id;
   },
 
+  sessionStartedAt(session) {
+    return session.startedAt;
+  },
+
   createWatcher(session, onChange, log) {
     return createCodexWatcher(session, onChange, log);
   },

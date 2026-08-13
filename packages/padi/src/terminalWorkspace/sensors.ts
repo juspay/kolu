@@ -636,6 +636,13 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   // (the spawn-time cwd the host passes in `inputs.cwd`) and updated only via the
   // `cwd` channel — so agent detection depends on no host store, just the taps.
   let currentCwd = spawnCwd;
+  // Epoch-ms this terminal's CURRENT agent episode began, and the foreground pid
+  // it began with. Read by the ownership arbiter to tell a session this harness
+  // created from a leftover of an earlier run in the same directory; see
+  // `sessionOwnership.ts`. Null while the shell is idle — no episode, nothing
+  // to anchor to.
+  let episodeSince: number | null = null;
+  let episodePid: number | undefined;
   // Foreground source-of-truth for this adapter, tracked from
   // `signals.foreground` (seeded empty → "shell idle" until the first
   // sample arrives). Same rationale as `currentCwd`: read it from the
@@ -653,6 +660,14 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   // on the foreground snapshot fire. One try/catch here is the single place
   // that invariant lives, so the bare call sites stay honest.
   function reconcile() {
+    // The sensor is torn down synchronously, but a channel value pulled before
+    // teardown delivers its `onEvent` on a LATER microtask — so a reconcile can
+    // still arrive after `stop()` has already released this terminal's session
+    // claim. Re-claiming there writes a hold into the process-wide books that
+    // nothing will ever release, and the next terminal to run that session is
+    // told it belongs to a corpse. `reconcileFromCommandRun` has always fenced
+    // on this; the channel path must too.
+    if (stopped) return;
     try {
       reconcileInner();
     } catch (err) {
@@ -689,13 +704,41 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // directory-keyed agent that list is shared with every other terminal in the
     // repository, so which one is THIS terminal's is decided by the ownership
     // arbiter — a session belongs to at most one terminal (juspay/kolu#2057).
-    const candidates = adapter
-      .resolveSessions(state, plog)
-      .map((session) => ({ session, key: adapter.sessionKey(session) }));
+    const offered = adapter.resolveSessions(state, plog);
+    if (offered === null) {
+      // The adapter could not READ its session store — ignorance, not an
+      // answer. Leave the row, the watcher and the ownership claim exactly as
+      // they are and wait for the next reconcile; treating this as "offers
+      // nothing" would hand a live terminal's session to a neighbour on a
+      // transient read fault, which nothing afterwards undoes.
+      plog.debug("session store unreadable — holding the previous match");
+      return;
+    }
+    // The episode clock the arbiter anchors stickiness to: when this terminal's
+    // CURRENT agent run began. Stamped on the foreground moving to a new
+    // non-shell process (which IS the agent starting) and cleared when the
+    // shell comes back, so a session that predates it cannot be one this
+    // harness created.
+    if (shellIdle) {
+      episodeSince = null;
+      episodePid = undefined;
+    } else if (
+      state.foregroundPid !== undefined &&
+      state.foregroundPid !== episodePid
+    ) {
+      episodePid = state.foregroundPid;
+      episodeSince = Date.now();
+    }
+    const candidates = offered.map((session) => ({
+      session,
+      key: adapter.sessionKey(session),
+      createdAt: adapter.sessionStartedAt(session),
+    }));
     const ownedKey = claimSession(
       adapter.kind,
       terminalId,
-      candidates.map((c) => c.key),
+      candidates,
+      episodeSince,
     );
     const next = candidates.find((c) => c.key === ownedKey)?.session ?? null;
     const nextKey = next === null ? null : ownedKey;

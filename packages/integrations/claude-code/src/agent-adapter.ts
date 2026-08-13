@@ -62,6 +62,10 @@ export const claudeCodeAdapter: AgentAdapter<SessionFile, ClaudeCodeInfo> = {
     return `${session.sessionId}:${session.pid}:${session.startedAt ?? ""}`;
   },
 
+  sessionStartedAt(session) {
+    return session.startedAt ?? null;
+  },
+
   createWatcher(session, onChange, log) {
     return createSessionWatcher(session, onChange, log);
   },

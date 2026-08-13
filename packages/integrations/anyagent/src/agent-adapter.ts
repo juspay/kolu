@@ -110,8 +110,19 @@ export interface AgentAdapter<Session, Info extends AgentInfoShape> {
    *  converged (juspay/kolu#2057).
    *
    *  A pid-anchored agent (Claude Code, Grok with a live pid map) is already
-   *  exclusive by construction and simply returns zero or one candidate. */
-  resolveSessions(state: AgentTerminalState, log: Logger): readonly Session[];
+   *  exclusive by construction and simply returns zero or one candidate.
+   *
+   *  Return NULL — never an empty array — when the answer could not be READ at
+   *  all (the session store threw). The two are different facts and the
+   *  orchestrator acts on them differently: an empty list is evidence that this
+   *  terminal runs nothing, and RELEASES the session it holds so a neighbour can
+   *  take it, while null leaves the terminal exactly as it was until the next
+   *  reconcile. A store that is simply ABSENT is the first fact, not the second:
+   *  the agent has never run here, so there is genuinely nothing to offer. */
+  resolveSessions(
+    state: AgentTerminalState,
+    log: Logger,
+  ): readonly Session[] | null;
 
   /** Stable dedup key for a resolved session. The orchestrator compares
    *  successive keys to decide whether to replace the running watcher, and
@@ -119,6 +130,19 @@ export interface AgentAdapter<Session, Info extends AgentInfoShape> {
    *  agent-specific (two sessions from different agents don't need to differ —
    *  the kind field already distinguishes adapters). */
   sessionKey(session: Session): string;
+
+  /** Epoch-ms the session came into being, or null when the adapter cannot say.
+   *  Same meaning as the `startedAt` on `AgentInfoShape` — the age of the
+   *  conversation, which survives a resume — but read off the MATCH result,
+   *  because ownership is decided before any watcher exists.
+   *
+   *  The arbiter asks it one question: did this session appear AFTER the
+   *  terminal's current harness started? A directory-keyed agent writes its
+   *  session row only after the first exchange, so the first candidates kolu
+   *  sees in a directory are always earlier runs'. Without a creation time a
+   *  terminal keeps whichever leftover it grabbed and never moves onto its own
+   *  (juspay/kolu#2057). A null reads as "cannot judge", never as "old". */
+  sessionStartedAt(session: Session): number | null;
 
   /** Start a watcher for a matched session. `onChange` fires whenever the
    *  derived `Info` changes. The returned handle's `destroy()` must tear

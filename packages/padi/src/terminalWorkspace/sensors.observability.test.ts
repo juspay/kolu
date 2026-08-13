@@ -85,6 +85,7 @@ function startHarness(): Harness {
         ? [state.foregroundPid]
         : [],
     sessionKey: (session) => String(session),
+    sessionStartedAt: () => null,
     createWatcher: (_session, onChange) => {
       onChange(AGENT_INFO);
       return { destroy() {} };

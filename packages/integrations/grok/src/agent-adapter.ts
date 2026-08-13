@@ -37,6 +37,10 @@ export const grokAdapter: AgentAdapter<GrokSession, GrokInfo> = {
     return session.id;
   },
 
+  sessionStartedAt(session) {
+    return session.startedAt;
+  },
+
   createWatcher(session, onChange, log) {
     return createGrokWatcher(session, onChange, log);
   },

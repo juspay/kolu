@@ -60,6 +60,22 @@ process.env.KOLU_CODEX_DB = dbPath;
 const THREAD_ONE = "019db605-0000-7abc-89ab-0123456789ab";
 const THREAD_TWO = "019db606-0000-7abc-89ab-0123456789ab";
 
+/** A uuidv7 whose embedded creation time is `ms` — the only thing Codex records
+ *  about when a thread came into being, and what tells a thread this terminal's
+ *  harness created from one that was already lying in the directory. */
+function uuidV7At(ms: number, tail: string): string {
+  const hex = ms.toString(16).padStart(12, "0");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-7abc-89ab-${tail}`;
+}
+
+/** The clock the fixture's threads are placed around. Threads stamped BEFORE a
+ *  terminal's harness starts are leftovers from an earlier run; threads stamped
+ *  after it are candidates for being that harness's own. */
+const NOW = Date.now();
+const YESTERDAY = uuidV7At(NOW - 86_400_000, "0123456789ab");
+const FRESH = uuidV7At(NOW + 60_000, "0123456789ac");
+const FRESH_STRANGER = uuidV7At(NOW + 90_000, "0123456789ad");
+
 const SHELL_PID = 100;
 
 const ONE_ID = "term-one" as TerminalId;
@@ -308,6 +324,46 @@ describe("two codex harnesses in ONE project (juspay/kolu#2057)", () => {
       } finally {
         two.stop();
       }
+    } finally {
+      one.stop();
+    }
+  });
+
+  it("moves onto its OWN thread once it lands, not the leftover it grabbed first", async () => {
+    // The ordinary single-terminal case, and the one a claim-and-keep rule gets
+    // wrong: you type `codex` in a repo you have used codex in before. Codex
+    // writes its thread row only after the first exchange, so at the moment kolu
+    // first sees the harness the ONLY candidate in that directory is the
+    // PREVIOUS run's thread. A terminal that keeps whatever it grabbed first
+    // then shows yesterday's conversation for the whole run — and every later
+    // run stays one conversation behind.
+    seedThreads([
+      {
+        id: YESTERDAY,
+        title: "Yesterday's task",
+        updatedAtMs: 1_000,
+        rollout: finishedRollout("turn-1"),
+      },
+    ]);
+    const one = startTerminal(ONE_ID, 201);
+    try {
+      await one.poke();
+      expect(
+        one.latest()?.sessionId,
+        "nothing else is on offer yet, so the leftover is taken provisionally",
+      ).toBe(YESTERDAY);
+
+      // The harness finishes its first exchange and its own thread appears.
+      addThread({
+        id: FRESH,
+        title: "Today's task",
+        updatedAtMs: 5_000,
+        rollout: thinkingRollout("turn-1"),
+      });
+      await one.poke();
+
+      expect(one.latest()?.sessionId).toBe(FRESH);
+      expect(one.latest()?.summary).toBe("Today's task");
     } finally {
       one.stop();
     }

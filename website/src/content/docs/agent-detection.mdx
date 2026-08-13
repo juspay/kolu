@@ -124,12 +124,16 @@ registration; nothing server-wide changes.
   directory</strong>, which two harnesses in one repository share. kolu therefore
   treats "most recently updated in this directory" as a <em>shortlist</em> rather
   than an answer, and hands each terminal a conversation no other terminal already
-  has. A terminal <strong>keeps</strong> the one it matched until that harness
-  exits, so a second Codex starting in the same repo — or one you ran outside kolu
-  — can no longer take over the rows around it. The cost of having no process id
-  to go on: starting a fresh conversation <em>inside</em> a running Codex or
-  OpenCode (its <code>/new</code>) looks exactly like someone else's new
-  conversation, so the tile stays on the previous one until you exit the agent.
+  has. These agents write their conversation to disk only after the first
+  exchange, so for the first moments the only thing in that directory is the
+  <em>previous</em> run — a terminal shows it because there is nothing else to
+  show, then moves onto its own the instant that one appears. From then on it
+  <strong>keeps</strong> it: a second Codex starting in the same repo, or one you
+  ran outside kolu, can no longer take over the rows around it. The cost of having
+  no process id to go on: once a terminal has a conversation of its own, starting
+  a fresh one <em>inside</em> that same running Codex or OpenCode (its
+  <code>/new</code>) looks exactly like someone else starting one, so the tile
+  stays on the previous conversation until you exit the agent.
 </Aside>
 
 <Aside type="note" title="Some states can't come from the transcript alone">
@@ -202,11 +206,13 @@ The context count is Codex's own `last_token_usage.input_tokens` — the number 
 - **Column-schema changes** — if an upstream release renames a depended-on column,
   detection returns no match; set `KOLU_CODEX_DB` to pin a known-good database
   while a fix ships.
-- **Which thread is which** — Codex records no process id, so with several threads
-  in one directory kolu can only guarantee that no two terminals show the same one.
-  A thread started *inside* a running Codex (`/new`) is indistinguishable from one
-  started elsewhere in that directory, so the tile stays on the previous thread
-  until you exit the agent.
+- **Which thread is which** — Codex records no process id, only a thread creation
+  time, so with several threads in one directory kolu can guarantee that no two
+  terminals show the same one and that a terminal ends up on a thread created
+  after its own harness started — not which of several such threads is really its
+  own. A thread started *inside* a running Codex (`/new`) is therefore
+  indistinguishable from one started elsewhere in that directory, so the tile
+  stays on the previous thread until you exit the agent.
 
 ## Grok
 
@@ -260,11 +266,12 @@ shows the running token count OpenCode pre-sums itself.
 
 **What it can't detect (yet):**
 
-- **Which session is which** — OpenCode records no process id, so with several
-  sessions in one directory kolu can only guarantee that no two terminals show the
-  same one. A session started *inside* a running OpenCode is indistinguishable from
-  one started elsewhere in that directory, so the tile stays on the previous session
-  until you exit the agent.
+- **Which session is which** — OpenCode records neither a process id nor a session
+  creation time kolu can read at match time, so with several sessions in one
+  directory the only guarantee is that no two terminals show the same one. Unlike
+  Codex, a terminal that starts on the previous run's session stays there for that
+  run — and a session started *inside* a running OpenCode is likewise
+  indistinguishable from one started elsewhere in the directory.
 - **Non-default database location** — set `KOLU_OPENCODE_DB` to override the path.
 
 ## Adding an agent

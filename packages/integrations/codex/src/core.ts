@@ -195,26 +195,34 @@ export function openDb(log?: Logger): DatabaseSync | null {
 export function findSessionsByDirectory(
   directory: string,
   log?: Logger,
-): CodexSession[] {
-  return (
-    withDb(
-      (conn) => {
-        const rows = conn
-          .prepare(
-            "SELECT id, rollout_path FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC",
-          )
-          .all(directory) as { id: string; rollout_path: string }[];
-        return rows.map((row) => ({
-          id: row.id,
-          rolloutPath: row.rollout_path,
-          startedAt: uuidV7TimestampMs(row.id),
-        }));
-      },
-      "codex threads query failed",
-      { directory },
-      log,
-    ) ?? []
-  );
+): CodexSession[] | null {
+  // Deliberately NOT through `withDb`: its own header says a caller that must
+  // distinguish "no rows" from "query failed" should not use it, and this is
+  // that caller. Since the ownership arbiter reads an empty list as evidence
+  // that this terminal runs nothing — and RELEASES its session on it — a caught
+  // error laundered into `[]` would surrender a live terminal's thread to a
+  // neighbour on a transient read fault, with only a log line to show for it.
+  // No database is a different fact: Codex is not installed or has never run
+  // here, so the directory genuinely holds no threads, and `[]` is the answer.
+  const db = openDb(log);
+  if (!db) return [];
+  try {
+    const rows = db
+      .prepare(
+        "SELECT id, rollout_path FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC",
+      )
+      .all(directory) as { id: string; rollout_path: string }[];
+    return rows.map((row) => ({
+      id: row.id,
+      rolloutPath: row.rollout_path,
+      startedAt: uuidV7TimestampMs(row.id),
+    }));
+  } catch (err) {
+    log?.error({ err, directory }, "codex threads query failed");
+    return null;
+  } finally {
+    db.close();
+  }
 }
 
 // --- Thread row refresh (title + model) ---

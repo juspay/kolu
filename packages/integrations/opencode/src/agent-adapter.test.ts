@@ -64,8 +64,16 @@ describe("opencodeAdapter.resolveSessions", () => {
     findSessionsMock.mockReturnValue([{ id: "newer" }, { id: "older" }]);
     const state = makeState({ readForegroundBasename: () => "opencode" });
     expect(
-      opencodeAdapter.resolveSessions(state, noopLog).map((s) => s.id),
+      opencodeAdapter.resolveSessions(state, noopLog)?.map((s) => s.id),
     ).toEqual(["newer", "older"]);
+  });
+
+  it("passes a null through — an unreadable DB is not an empty directory", () => {
+    // Null means the query threw; the orchestrator must be able to tell that
+    // from "this directory has no sessions", which releases the terminal's own.
+    findSessionsMock.mockReturnValue(null);
+    const state = makeState({ readForegroundBasename: () => "opencode" });
+    expect(opencodeAdapter.resolveSessions(state, noopLog)).toBeNull();
   });
 
   it("skips lookup when neither signal names opencode", () => {

@@ -59,6 +59,7 @@ function startHarness(commandRooted: boolean) {
     resolveSessions: (state) =>
       matchesAgent(state, "opencode") ? [ROOT_PID] : [],
     sessionKey: (s) => String(s),
+    sessionStartedAt: () => null,
     createWatcher: (_s, onChange) => {
       onChange(AGENT_INFO);
       return { destroy() {} };
