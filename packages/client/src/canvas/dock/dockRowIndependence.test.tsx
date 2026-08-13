@@ -112,7 +112,17 @@ afterEach(() => {
 });
 
 /** Render both rows the way `DockRow` builds them — same leaf functions, same
- *  order — over a reactive metadata store and a reactive unread set. */
+ *  order — over a reactive metadata store and a reactive unread set.
+ *
+ *  This covers BOTH dock surfaces the issue's acceptance criteria name. The
+ *  expanded cards row (`Dock.tsx`'s `DockRow`) and the collapsed rail / mobile
+ *  row (`DockList.tsx`'s `DockListRow`) are separate components by design, but
+ *  they share the three things under test here by construction — the row data
+ *  (`createDockRowData(props.id)`), the unread read (`store.isUnread(props.id)`,
+ *  spelled identically in `DockRow`, `DockListRow` and the rail chip), and the
+ *  attribute contract (`dockRowAttrs`). All three are keyed on the row's own
+ *  terminal id, so a project-keyed leak could not reach one surface without the
+ *  other. */
 function renderDock() {
   const [meta, setMeta] = createStore<Record<TerminalId, TerminalMetadata>>({
     [ALICE]: metaWith(agentInfo("thinking", "Refactor the parser")),

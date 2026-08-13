@@ -35,6 +35,8 @@ import type {
 } from "@kolu/terminal-vocab/schema";
 import type { ForegroundSample } from "kaval";
 import pino from "pino";
+import { recomputeUrgency } from "../activity/urgency.ts";
+import type { PadiTerminal } from "../surface.ts";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 const log = pino({ level: "silent" });
@@ -60,6 +62,16 @@ const THREAD_TWO = "019db606-0000-7abc-89ab-0123456789ab";
 
 const SHELL_PID = 100;
 
+const ONE_ID = "term-one" as TerminalId;
+const TWO_ID = "term-two" as TerminalId;
+
+/** The composed ACTIVE record padi's urgency fold reads — it takes only the
+ *  `state` discriminant and the terminal's own `agent`, which is exactly the
+ *  pair the sensors produce. */
+function activeRecord(agent: AgentInfo | undefined): PadiTerminal {
+  return { state: "active", agent: agent ?? null } as PadiTerminal;
+}
+
 /** A rollout JSONL whose tail parses to `waiting` — a finished turn. */
 function finishedRollout(turn: string): string {
   return `${[
@@ -80,6 +92,26 @@ function thinkingRollout(turn: string): string {
     type: "event_msg",
     payload: { type: "task_started", turn_id: turn },
   })}\n`;
+}
+
+/** A rollout JSONL whose tail parses to `awaiting_user` — an open
+ *  `request_user_input` call, one of Codex's blocking tools. This is the state
+ *  that earns a dock alert. */
+function askingRollout(): string {
+  return `${[
+    JSON.stringify({
+      type: "event_msg",
+      payload: { type: "task_started", turn_id: "turn-1" },
+    }),
+    JSON.stringify({
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        call_id: "call-A",
+        name: "request_user_input",
+      },
+    }),
+  ].join("\n")}\n`;
 }
 
 interface ThreadRow {
@@ -163,7 +195,7 @@ interface Harness {
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-function startTerminal(id: string, agentPid: number): Harness {
+function startTerminal(id: TerminalId, agentPid: number): Harness {
   const emits: TerminalEvent[] = [];
   const signals = {
     cwd: inMemoryChannel<string>(),
@@ -181,7 +213,7 @@ function startTerminal(id: string, agentPid: number): Harness {
     { mirror: null, currentAgent: null },
     SHELL_PID,
     REPO,
-    id as TerminalId,
+    id,
     signals,
     undefined,
     (o) => emits.push(o),
@@ -225,8 +257,8 @@ beforeEach(() => {
 describe("two codex harnesses in ONE project (juspay/kolu#2057)", () => {
   it("gives each terminal its OWN session — never one session mirrored onto both", async () => {
     seedThreads([THREAD_ONE_ROW, THREAD_TWO_ROW]);
-    const one = startTerminal("term-one", 201);
-    const two = startTerminal("term-two", 202);
+    const one = startTerminal(ONE_ID, 201);
+    const two = startTerminal(TWO_ID, 202);
     try {
       await one.poke();
       await two.poke();
@@ -250,7 +282,7 @@ describe("two codex harnesses in ONE project (juspay/kolu#2057)", () => {
     // The reported sequence: one harness has been running a while (its thread is
     // the only one in this repo), then a second harness starts and becomes the
     // most-recently-updated thread in the same directory.
-    const one = startTerminal("term-one", 201);
+    const one = startTerminal(ONE_ID, 201);
     try {
       await one.poke();
       const before = one.latest();
@@ -261,7 +293,7 @@ describe("two codex harnesses in ONE project (juspay/kolu#2057)", () => {
       expect(before?.summary).toBe("Fix the parser");
 
       addThread(THREAD_TWO_ROW);
-      const two = startTerminal("term-two", 202);
+      const two = startTerminal(TWO_ID, 202);
       try {
         await two.poke();
         await one.poke();
@@ -278,6 +310,77 @@ describe("two codex harnesses in ONE project (juspay/kolu#2057)", () => {
       }
     } finally {
       one.stop();
+    }
+  });
+
+  it("ignores a codex kolu does not own that appears in the same directory", async () => {
+    // The reporter's second video: a `codex` run OUTSIDE kolu, in a directory
+    // kolu has terminals in, writes the newest thread there. No second sensor —
+    // so nothing else has claimed it, and only the KEEPS-WHILE-A-CANDIDATE half
+    // of the rule stands between that thread and this terminal's row. (The
+    // second-harness case above is carried by exclusivity alone: the newcomer is
+    // already held by the time terminal one asks.)
+    const one = startTerminal(ONE_ID, 201);
+    try {
+      await one.poke();
+      const before = one.latest();
+      expect(before?.sessionId).toBe(THREAD_ONE);
+
+      addThread(THREAD_TWO_ROW);
+      await one.poke();
+
+      expect(one.latest()?.sessionId).toBe(THREAD_ONE);
+      expect(one.latest()?.summary).toBe("Fix the parser");
+      expect(one.latest()?.state).toBe(before?.state);
+    } finally {
+      one.stop();
+    }
+  });
+
+  it("raises the alert on ONLY the terminal whose harness is blocked", async () => {
+    // The issue's other half: "an unread/status alert associated with one
+    // terminal adds the alert indicator to all terminal rows in that project".
+    // Nothing in the alert path is per-project — `recomputeUrgency` reads each
+    // terminal's OWN agent — so the fan-out was never a bug of its own: two
+    // terminals sharing one session carry the same `awaiting_user`, and the
+    // partition then honestly lists both. This drives the real sensors, folds
+    // what they emit through the real partition, and pins that only the blocked
+    // terminal is in `awaitingIds`. It goes red the moment sessions are shared
+    // again, which is what the client-side unread pin cannot do.
+    seedThreads([
+      THREAD_ONE_ROW,
+      { ...THREAD_TWO_ROW, rollout: askingRollout() },
+    ]);
+    const one = startTerminal(ONE_ID, 201);
+    const two = startTerminal(TWO_ID, 202);
+    try {
+      await one.poke();
+      await two.poke();
+
+      const rows: [TerminalId, AgentInfo | undefined][] = [
+        [ONE_ID, one.latest()],
+        [TWO_ID, two.latest()],
+      ];
+      // WHICH terminal ends up on the asking thread is not the claim — with no
+      // process id to go on, two harnesses starting at once can pair either way
+      // (see `sessionOwnership.ts`). That exactly ONE of them is asking is.
+      const asking = rows
+        .filter(([, agent]) => agent?.state === "awaiting_user")
+        .map(([id]) => id);
+      expect(asking, "exactly one harness is blocked on the user").toHaveLength(
+        1,
+      );
+
+      const urgency = recomputeUrgency(
+        new Map(rows.map(([id, agent]) => [id, activeRecord(agent)])),
+        () => false,
+      );
+      // The other terminal must be nowhere in the list the dock's unread mark
+      // and the app badge are both read off.
+      expect(urgency.awaitingIds).toEqual(asking);
+    } finally {
+      one.stop();
+      two.stop();
     }
   });
 });

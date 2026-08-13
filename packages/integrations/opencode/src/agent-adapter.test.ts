@@ -55,6 +55,19 @@ describe("opencodeAdapter.resolveSessions", () => {
     expect(findSessionsMock).toHaveBeenCalledWith("/repo", noopLog);
   });
 
+  it("hands back EVERY session in the directory, not just the newest", () => {
+    // Two harnesses in one repo: the adapter cannot tell which session is this
+    // terminal's, so it offers both and the orchestrator's ownership arbiter
+    // gives each terminal one of its own (juspay/kolu#2057). A `LIMIT 1` here
+    // would not mirror the rows — the arbiter refuses to lend — but it would
+    // leave the second OpenCode terminal's row permanently blank.
+    findSessionsMock.mockReturnValue([{ id: "newer" }, { id: "older" }]);
+    const state = makeState({ readForegroundBasename: () => "opencode" });
+    expect(
+      opencodeAdapter.resolveSessions(state, noopLog).map((s) => s.id),
+    ).toEqual(["newer", "older"]);
+  });
+
   it("skips lookup when neither signal names opencode", () => {
     const state = makeState({
       readForegroundBasename: () => "node",

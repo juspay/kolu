@@ -262,8 +262,9 @@ shows the running token count OpenCode pre-sums itself.
 
 - **Which session is which** — OpenCode records no process id, so with several
   sessions in one directory kolu can only guarantee that no two terminals show the
-  same one; a session started inside a running OpenCode is indistinguishable from
-  one started elsewhere in that directory.
+  same one. A session started *inside* a running OpenCode is indistinguishable from
+  one started elsewhere in that directory, so the tile stays on the previous session
+  until you exit the agent.
 - **Non-default database location** — set `KOLU_OPENCODE_DB` to override the path.
 
 ## Adding an agent
