@@ -159,6 +159,7 @@ describe("#1793 dialogs must not leak connected-era facts over a dead channel", 
       <SurfaceAppProvider
         controlPlane={koluControlPlane}
         clientCommit={KOLU_BROWSER_COMMIT}
+        fault={() => null}
       >
         <KoluInfoDialog
           open={true}

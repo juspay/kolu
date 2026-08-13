@@ -493,3 +493,34 @@ export const surfaceWsUrl = (httpBaseUrl: string): string => {
   url.pathname = SURFACE_WS_PATH;
   return url.toString();
 };
+
+/** What a thrown value is, said in text a person can put in a bug report — the
+ *  printer half of the fault surface (`SurfaceFaultBoundary` on `/solid` is the
+ *  catching half). It is the one part of that surface that is not markup, so it
+ *  is the part a Node test can pin: a fault card is only worth drawing if what
+ *  it draws IS the fault, and the fault arrives as `unknown` — a render can
+ *  throw a string, an `undefined`, a `DOMException`, anything.
+ *
+ *  The STACK when there is one, because the message alone ("undefined is not an
+ *  object") names no file, and the whole reason a fault card exists is that the
+ *  alternative was a dead tab with the truth in a console nobody opened. V8
+ *  prints the message as the stack's first line, so that branch is not the
+ *  message twice; a stack that has LOST the message (Safari's, and any Error
+ *  re-thrown with a new message) gets it put back on the front rather than
+ *  dropped.
+ *
+ *  Never empty: a thrown value that says nothing about itself is still a
+ *  fault, and an empty card would read as a page that broke for no reason. */
+export const thrownText = (error: unknown): string => {
+  if (error instanceof Error) {
+    const named = `${error.name}: ${error.message}`;
+    if (error.stack === undefined || error.stack === "") return named;
+    return error.stack.startsWith(error.name)
+      ? error.stack
+      : `${named}\n${error.stack}`;
+  }
+  const said = String(error);
+  return said === ""
+    ? "the page threw a value that says nothing about itself"
+    : said;
+};

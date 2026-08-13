@@ -51,6 +51,7 @@ function mountModel(opts: {
     controlPlane: fakeControlPlane(opts.serverCommit),
     clientCommit: opts.clientCommit,
     status: opts.status,
+    fault: () => null,
     get children() {
       captured = useSurfaceApp();
       return null;
@@ -58,6 +59,14 @@ function mountModel(opts: {
   });
   return captured;
 }
+
+/** Force evaluation of a lazily-wrapped JSX tree — nothing inserts into a DOM
+ *  here, so unwrap accessors by hand (the twin lives in `fault.test.ts`). */
+const resolveTree = (el: unknown): unknown => {
+  let v = el;
+  while (typeof v === "function") v = (v as () => unknown)();
+  return v;
+};
 
 /** Let a probe EFFECT settle through the lifecycle's run edge — see the twin in
  *  `lifecycle.test.ts`. A microtask turn no longer covers it: the probe runs on a
@@ -96,6 +105,7 @@ describe("SurfaceAppProvider — updateReady", () => {
         clientCommit: "0784979",
         wire: w.wire,
         probe: () => Effect.succeed({ processId: "p1" }),
+        fault: () => null,
         get children() {
           captured = useSurfaceApp();
           return null;
@@ -141,6 +151,7 @@ describe("SurfaceAppProvider — updateReady", () => {
           clientCommit: "0784979",
           wire: w.wire,
           probe,
+          fault: () => null,
           get children() {
             useSurfaceApp();
             return null;
@@ -234,5 +245,46 @@ describe("SurfaceAppProvider — presentingDown (the #1598 disconnect-overlay gr
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("SurfaceAppProvider — the required `fault` LOOK is WIRED", () => {
+  it("draws a throwing shell with the app's LOOK, handed the printed fault", () => {
+    // The prop being required is the type-level half; this is the runtime half:
+    // the provider must actually compose `SurfaceFaultBoundary` over its
+    // children, or the required LOOK is a prop that routes nowhere and a shell
+    // throw is still a white tab. (The boundary's error signal is written in
+    // the root's own batch, so the LOOK renders when it flushes — assert after
+    // `createRoot` returns; see `fault.test.ts`.)
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let seen: string | undefined;
+    const err = new Error("undefined is not an object");
+    err.stack = "renderShell@app.js:8:2";
+    const dispose = createRoot((d) => {
+      const el = createComponent(SurfaceAppProvider, {
+        controlPlane: fakeControlPlane("0784979"),
+        clientCommit: "0784979",
+        status: () => "live" as const,
+        fault: (text: string) => {
+          seen = text;
+          return null;
+        },
+        get children() {
+          throw err;
+          // biome-ignore lint/correctness/noUnreachable: the getter's type still wants a value
+          return null;
+        },
+      });
+      resolveTree(el);
+      return d;
+    });
+    // The PRINTED text (Safari-shaped stack → message put back on front) —
+    // proving the boundary between provider and children is the real one,
+    // printer included.
+    expect(seen).toBe(
+      "Error: undefined is not an object\nrenderShell@app.js:8:2",
+    );
+    dispose();
+    vi.restoreAllMocks();
   });
 });

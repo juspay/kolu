@@ -25,7 +25,54 @@ import {
   surfaceWsUrl,
   SW_MESSAGE_TYPE,
   SW_SOURCE,
+  thrownText,
 } from "./index";
+
+describe("thrownText", () => {
+  it("returns a V8-shaped stack as-is — the message is already its first line", () => {
+    const err = new Error("boom");
+    // Node/V8: `stack` starts with `Error: boom`. Prepending would double it.
+    expect(err.stack?.startsWith("Error: boom")).toBe(true);
+    expect(thrownText(err)).toBe(err.stack);
+  });
+
+  it("puts a lost message back on the front of a Safari-shaped stack", () => {
+    // Safari's `stack` (and any Error re-thrown with a new message) carries
+    // frames only — printing it alone would name files but not the fault.
+    const err = new Error("undefined is not an object");
+    err.stack = "renderRow@app.js:12:3\nmain@app.js:1:1";
+    expect(thrownText(err)).toBe(
+      "Error: undefined is not an object\nrenderRow@app.js:12:3\nmain@app.js:1:1",
+    );
+  });
+
+  it("prints `name: message` for a stackless Error, keeping the subclass name", () => {
+    const err = new RangeError("day out of range");
+    err.stack = undefined;
+    expect(thrownText(err)).toBe("RangeError: day out of range");
+    err.stack = "";
+    expect(thrownText(err)).toBe("RangeError: day out of range");
+  });
+
+  it("routes a DOMException through the Error branch, name intact", () => {
+    // `DOMException` IS `instanceof Error` (Node and every current browser),
+    // and its `name` is the fault's vocabulary (`AbortError`, `DataError`, …).
+    const text = thrownText(new DOMException("boom", "DataError"));
+    expect(text.startsWith("DataError: boom")).toBe(true);
+  });
+
+  it("stringifies a non-Error throw — a render can throw anything", () => {
+    expect(thrownText("just a string")).toBe("just a string");
+    expect(thrownText(undefined)).toBe("undefined");
+    expect(thrownText(42)).toBe("42");
+  });
+
+  it("never prints an empty card: a value that says nothing is still a fault", () => {
+    expect(thrownText("")).toBe(
+      "the page threw a value that says nothing about itself",
+    );
+  });
+});
 
 describe("surfaceWsUrl", () => {
   it("maps the scheme and pins the surface path, whatever the base carried", () => {
