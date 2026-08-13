@@ -27,7 +27,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { classifyByAwaiting } from "anyagent";
 import type { Logger } from "kolu-shared";
-import { readDb, withDb as sharedWithDb } from "kolu-shared/sqlite";
+import { readDbList, withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { match } from "ts-pattern";
 import { OPENCODE_DB_PATH } from "./config.ts";
 import type { OpenCodeInfo, TaskProgress } from "./schemas.ts";
@@ -98,7 +98,7 @@ export function findSessionsByDirectory(
   // match result because session ownership is arbitrated before any watcher
   // exists, and without it a terminal could never tell its own session from an
   // earlier run's in the same directory.
-  const read = readDb(
+  return readDbList(
     openDb,
     (conn) =>
       (
@@ -122,11 +122,6 @@ export function findSessionsByDirectory(
     { directory },
     log,
   );
-  return match(read)
-    .with({ kind: "ok" }, (r) => r.value)
-    .with({ kind: "absent" }, () => [])
-    .with({ kind: "failed" }, () => null)
-    .exhaustive();
 }
 
 // --- Session title refresh ---

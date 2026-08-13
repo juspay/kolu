@@ -231,7 +231,8 @@ export function resolveGrokSession(
     return sessionByPid.get(foregroundPid) ?? null;
   }
   // No pid sample yet: recency under cwd is the only signal.
-  return findLatestSessionByCwd(cwd, log);
+  const scan = scanSessionsByCwd(cwd, log);
+  return scan === "unreadable" ? null : scan;
 }
 
 function sessionFromIds(
@@ -272,29 +273,29 @@ export function resolveGrokSessions(
     const session = resolveGrokSession(foregroundPid, cwd, log);
     return session ? [session] : [];
   }
-  if (sessionsDirUnreadable(cwd, log)) return null;
-  const session = findLatestSessionByCwd(cwd, log);
-  return session ? [session] : [];
-}
-
-/** True when this cwd's sessions directory exists but could not be listed —
- *  ignorance, as distinct from the ENOENT that means "no Grok here". */
-function sessionsDirUnreadable(cwd: string, log?: Logger): boolean {
-  const dir = path.join(SESSIONS_DIR, encodeCwd(cwd));
-  try {
-    fs.readdirSync(dir);
-    return false;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code !== "ENOENT";
-  }
+  const scan = scanSessionsByCwd(cwd, log);
+  if (scan === "unreadable") return null;
+  return scan ? [scan] : [];
 }
 
 /** Pick the session directory under `sessions/<enc-cwd>/` with the
- *  newest `summary.updated_at` (or mtime). */
+ *  newest `summary.updated_at` (or mtime). `null` when there is none —
+ *  including the ENOENT that means Grok has never run for this cwd —
+ *  and `"unreadable"` when the directory is there but could not be listed.
+ *  One scan answers both: the ENOENT test already lived here, and probing it
+ *  separately meant two syscalls and two copies of the same rule. */
 export function findLatestSessionByCwd(
   cwd: string,
   log?: Logger,
 ): GrokSession | null {
+  const scan = scanSessionsByCwd(cwd, log);
+  return scan === "unreadable" ? null : scan;
+}
+
+function scanSessionsByCwd(
+  cwd: string,
+  log?: Logger,
+): GrokSession | null | "unreadable" {
   const dir = path.join(SESSIONS_DIR, encodeCwd(cwd));
   let entries: fs.Dirent[];
   try {
@@ -302,6 +303,7 @@ export function findLatestSessionByCwd(
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.error({ err, dir }, "grok sessions dir unreadable");
+      return "unreadable";
     }
     return null;
   }

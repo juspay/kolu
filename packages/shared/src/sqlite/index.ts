@@ -13,4 +13,10 @@ export {
   type WalSubscription,
   type WalSubscriptionConfig,
 } from "./wal-subscription.ts";
-export { type Closable, type DbRead, readDb, withDb } from "./with-db.ts";
+export {
+  type Closable,
+  type DbRead,
+  readDb,
+  readDbList,
+  withDb,
+} from "./with-db.ts";

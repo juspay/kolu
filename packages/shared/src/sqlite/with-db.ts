@@ -29,16 +29,6 @@ export interface Closable {
   close(): void;
 }
 
-/**
- * Run `fn` against a SQLite-like handle. If `db` is provided, uses it
- * without owning it (caller manages lifecycle). If absent, opens a
- * fresh connection via `openDb` and closes it after `fn` returns.
- * Returns null if the DB can't be opened or if `fn` throws.
- *
- * Type parameters are inferred from `openDb`'s return type, so each
- * integration keeps its own concrete handle type (`DatabaseSync` from
- * `node:sqlite`) without `withDb` carrying a `node:sqlite` dependency.
- */
 /** The three outcomes of a read, kept apart. `withDb` folds `absent` and
  *  `failed` into one `null` because most callers act the same on both; a caller
  *  that must NOT is the case this exists for. */
@@ -85,6 +75,33 @@ export function readDb<Db extends Closable, T>(
   }
 }
 
+/** A LIST read where absence and failure genuinely differ: `[]` when there is no
+ *  database (nothing recorded), `null` when the query threw (nothing KNOWN).
+ *  The shape kolu's two directory-keyed agent lookups both want, folded once
+ *  here rather than as the same `match` at each of them. */
+export function readDbList<Db extends Closable, T>(
+  openDb: (log?: Logger) => Db | null,
+  fn: (db: Db) => T[],
+  errorMsg: string,
+  errorCtx: Record<string, unknown>,
+  log?: Logger,
+  db?: Db,
+): T[] | null {
+  const read = readDb(openDb, fn, errorMsg, errorCtx, log, db);
+  if (read.kind === "ok") return read.value;
+  return read.kind === "absent" ? [] : null;
+}
+
+/**
+ * Run `fn` against a SQLite-like handle. If `db` is provided, uses it
+ * without owning it (caller manages lifecycle). If absent, opens a
+ * fresh connection via `openDb` and closes it after `fn` returns.
+ * Returns null if the DB can't be opened or if `fn` throws.
+ *
+ * Type parameters are inferred from `openDb`'s return type, so each
+ * integration keeps its own concrete handle type (`DatabaseSync` from
+ * `node:sqlite`) without `withDb` carrying a `node:sqlite` dependency.
+ */
 export function withDb<Db extends Closable, T>(
   openDb: (log?: Logger) => Db | null,
   fn: (db: Db) => T,
@@ -93,15 +110,6 @@ export function withDb<Db extends Closable, T>(
   log?: Logger,
   db?: Db,
 ): T | null {
-  const ownsDb = db === undefined;
-  const conn = db ?? openDb(log);
-  if (!conn) return null;
-  try {
-    return fn(conn);
-  } catch (err) {
-    log?.error({ err, ...errorCtx }, errorMsg);
-    return null;
-  } finally {
-    if (ownsDb) conn.close();
-  }
+  const read = readDb(openDb, fn, errorMsg, errorCtx, log, db);
+  return read.kind === "ok" ? read.value : null;
 }

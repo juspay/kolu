@@ -110,6 +110,17 @@ interface AgentEpisode {
   watchedShellIdle: boolean;
 }
 
+/** A fresh, empty engine state — the producer is memoryless, so this is what
+ *  every start begins from. Exported because the sensor tests construct one too,
+ *  and a literal copied per call site is a field they each have to learn about. */
+export function freshAgentEngineState(): AgentEngineState {
+  return {
+    mirror: null,
+    currentAgent: null,
+    episode: { since: null, pid: undefined, watchedShellIdle: false },
+  };
+}
+
 /** A preexec command mark off the `commandRun` tap. `replayed` is true for the
  *  snapshot-first frame the pty-host emits on subscribe (the last command seen
  *  before the subscriber joined), false for a live mark. */
@@ -684,7 +695,14 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
    *  let an ADOPTED terminal date its episode from the moment padi looked. And
    *  the reconcile path returns early when the session store is unreadable,
    *  which is an entirely unrelated axis — the episode would have gone unstamped
-   *  on a transient DB fault. */
+   *  on a transient DB fault.
+   *
+   *  All four adapters run this against the ONE shared `agentState.episode`, and
+   *  that repetition is deliberate rather than an oversight: hoisting the stamp
+   *  to a single subscription in `startSensors` would make it a FIFTH consumer of
+   *  the same channel, and nothing orders it before the four reconciles that read
+   *  what it writes. Stamping inside each adapter own `onEvent` is the
+   *  ordering-safe arrangement; the pid guard below makes runs 2-4 no-ops. */
   function noteEpisode(fg: ForegroundSample): void {
     const episode = agentState.episode;
     if (isShellIdle(fg.foregroundPid, pid, commandRooted)) {
@@ -767,7 +785,12 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       terminalId,
       offered.map((session) => ({
         key: adapter.sessionKey(session),
-        createdAt: adapter.sessionStartedAt(session),
+        // With no episode clock the arbiter cannot judge a date, so do not pay
+        // for one — this is per candidate, per terminal, per WAL write.
+        createdAt:
+          agentState.episode.since === null
+            ? null
+            : adapter.sessionStartedAt(session),
         value: session,
       })),
       agentState.episode.since,
@@ -1072,11 +1095,7 @@ export function startSensors(
 ): () => void {
   const { pid, cwd, commandRooted, signals, readScreenText, log } = inputs;
   // Transient working state — re-seeded empty each start (a producer is memoryless).
-  const agentState: AgentEngineState = {
-    mirror: null,
-    currentAgent: null,
-    episode: { since: null, pid: undefined, watchedShellIdle: false },
-  };
+  const agentState: AgentEngineState = freshAgentEngineState();
 
   // `emit` is the host's contract and must be INFALLIBLE. The producer (and the
   // upstream git/pr/agent watchers) advance their own dedup baselines BEFORE calling

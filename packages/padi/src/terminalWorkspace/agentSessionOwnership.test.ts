@@ -191,7 +191,9 @@ const THREAD_TWO_ROW: ThreadRow = {
 seedThreads([THREAD_ONE_ROW]);
 
 const { codexAdapter } = await import("kolu-codex");
-const { startAgentSensor } = await import("./sensors.ts");
+const { startAgentSensor, freshAgentEngineState } = await import(
+  "./sensors.ts"
+);
 const { resetSessionOwnership } = await import("./sessionOwnership.ts");
 
 afterAll(() => {
@@ -226,11 +228,7 @@ function startTerminal(id: TerminalId, agentPid: number): Harness {
   };
   const stop = startAgentSensor(
     codexAdapter,
-    {
-      mirror: null,
-      currentAgent: null,
-      episode: { since: null, pid: undefined, watchedShellIdle: false },
-    },
+    freshAgentEngineState(),
     SHELL_PID,
     REPO,
     id,

@@ -38,8 +38,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { classifyByAwaiting } from "anyagent";
 import type { Logger } from "kolu-shared";
-import { readDb, withDb as sharedWithDb } from "kolu-shared/sqlite";
-import { match } from "ts-pattern";
+import { readDbList, withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { CODEX_DB_PATH } from "./config.ts";
 import type { CodexInfo } from "./schemas.ts";
 
@@ -202,7 +201,7 @@ export function findSessionsByDirectory(
   // a caught error must not wear the same shape as "this directory has no
   // threads". No database is that second fact — Codex is not installed or has
   // never run here.
-  const read = readDb(
+  return readDbList(
     openDb,
     (conn) =>
       (
@@ -220,11 +219,6 @@ export function findSessionsByDirectory(
     { directory },
     log,
   );
-  return match(read)
-    .with({ kind: "ok" }, (r) => r.value)
-    .with({ kind: "absent" }, () => [])
-    .with({ kind: "failed" }, () => null)
-    .exhaustive();
 }
 
 // --- Thread row refresh (title + model) ---
