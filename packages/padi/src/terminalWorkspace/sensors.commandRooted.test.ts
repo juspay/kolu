@@ -56,8 +56,8 @@ function startHarness(commandRooted: boolean) {
     kind: "opencode",
     // Resolve via matchesAgent (command hint OR kernel basename), like the real
     // codex/opencode adapters. Here basename is "node", so it hinges on the hint.
-    resolveSession: (state) =>
-      matchesAgent(state, "opencode") ? ROOT_PID : null,
+    resolveSessions: (state) =>
+      matchesAgent(state, "opencode") ? [ROOT_PID] : [],
     sessionKey: (s) => String(s),
     createWatcher: (_s, onChange) => {
       onChange(AGENT_INFO);

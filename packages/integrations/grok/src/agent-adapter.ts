@@ -21,9 +21,16 @@ import { createGrokWatcher } from "./session-watcher.ts";
 export const grokAdapter: AgentAdapter<GrokSession, GrokInfo> = {
   kind: "grok",
 
-  resolveSession(state, log) {
-    if (!matchesAgent(state, "grok")) return null;
-    return resolveGrokSession(state.foregroundPid, state.cwd, log);
+  // Pid-anchored whenever `active_sessions.json` names the foreground pid, so
+  // the usual match is exclusive by construction and yields one candidate. The
+  // one guess left — no pid sample yet, newest session under the cwd — is
+  // offered as a candidate like any other, and the orchestrator's ownership
+  // arbiter keeps it from landing on a terminal that already has a session
+  // (juspay/kolu#2057).
+  resolveSessions(state, log) {
+    if (!matchesAgent(state, "grok")) return [];
+    const session = resolveGrokSession(state.foregroundPid, state.cwd, log);
+    return session ? [session] : [];
   },
 
   sessionKey(session) {

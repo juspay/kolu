@@ -21,7 +21,7 @@ export { CODEX_DB_PATH, CODEX_DB_WAL_PATH, CODEX_DIR } from "./config.ts";
 
 export {
   type CodexSession,
-  findSessionByDirectory,
+  findSessionsByDirectory,
   getThreadMetadata,
   missingThreadColumns,
   openDb,

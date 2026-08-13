@@ -1,13 +1,13 @@
 /**
  * Codex's AgentAdapter — wires the package's existing helpers
- * (`findSessionByDirectory`, `createCodexWatcher`, `subscribeCodexDb`)
+ * (`findSessionsByDirectory`, `createCodexWatcher`, `subscribeCodexDb`)
  * into the shared `AgentAdapter<Session, Info>` contract from anyagent.
  *
  * `externalChanges` IS implemented here — unlike OpenCode, Codex can
  * have a running `codex` TUI process whose thread row doesn't exist in
  * SQLite until the first exchange completes. A bare title event won't
  * fire at that moment, so we also rewake on every WAL write and let
- * `resolveSession` re-check the DB. When the thread appears, match
+ * `resolveSessions` re-check the DB. When the thread appears, match
  * succeeds. `isPresent` gates `install` on either (a) the binary being
  * foregrounded in some terminal, or (b) `~/.codex` existing on disk
  * already (user has used Codex on this machine before). Neither holds
@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import { type AgentAdapter, matchesAgent } from "anyagent";
 import { CODEX_DIR } from "./config.ts";
-import { type CodexSession, findSessionByDirectory } from "./core.ts";
+import { type CodexSession, findSessionsByDirectory } from "./core.ts";
 import type { CodexInfo } from "./schemas.ts";
 import { createCodexWatcher } from "./session-watcher.ts";
 import { subscribeCodexDb } from "./wal-watcher.ts";
@@ -26,9 +26,9 @@ import { subscribeCodexDb } from "./wal-watcher.ts";
 export const codexAdapter: AgentAdapter<CodexSession, CodexInfo> = {
   kind: "codex",
 
-  resolveSession(state, log) {
-    if (!matchesAgent(state, "codex")) return null;
-    return findSessionByDirectory(state.cwd, log);
+  resolveSessions(state, log) {
+    if (!matchesAgent(state, "codex")) return [];
+    return findSessionsByDirectory(state.cwd, log);
   },
 
   sessionKey(session) {

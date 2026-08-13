@@ -69,6 +69,7 @@ import type {
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
 import { portsEqual } from "@kolu/terminal-vocab/schema";
+import { claimSession, releaseTerminal } from "./sessionOwnership.ts";
 
 /** The engine's transient agent working state — the last-emitted agent value (the
  *  mirror that replaces the old `record.meta.agent` read-back) and the recognized
@@ -684,7 +685,20 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
         );
       }
     }
-    const next = adapter.resolveSession(state, plog);
+    // Every session this terminal COULD be running, best first. For a
+    // directory-keyed agent that list is shared with every other terminal in the
+    // repository, so which one is THIS terminal's is decided by the ownership
+    // arbiter — a session belongs to at most one terminal (juspay/kolu#2057).
+    const candidates = adapter.resolveSessions(state, plog);
+    const ownedKey = claimSession(
+      adapter.kind,
+      terminalId,
+      candidates.map((session) => adapter.sessionKey(session)),
+    );
+    const next =
+      ownedKey === null
+        ? null
+        : (candidates.find((s) => adapter.sessionKey(s) === ownedKey) ?? null);
     const nextKey = next ? adapter.sessionKey(next) : null;
     // The absence FLAVOR is part of the resolution, so dedup on the COMPLETE state
     // (session key + the foreground's shell-idle flavor), not the key alone. A matched
@@ -703,8 +717,8 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     const hadCurrent = current !== null;
     destroyCurrent();
     if (!next || !nextKey) {
-      // `resolveSession` found no agent — but two DIFFERENT facts hide behind the one
-      // `null` it returns, and W12 requires they persist differently. The discriminant
+      // No session for this terminal — but two DIFFERENT facts hide behind that one
+      // absence, and W12 requires they persist differently. The discriminant
       // is STRUCTURAL: the triggering sample's OWN content — its `foregroundPid` vs the
       // shell pid — decided by pure data plus a local fs read, with NO cross-stream
       // ordering, so there is no race to win:
@@ -938,6 +952,9 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       activations.get(adapter.kind)?.reconcilers.delete(reconcile);
     }
     destroyCurrent();
+    // The terminal is gone, so the session it held is free for whoever runs it
+    // next.
+    releaseTerminal(adapter.kind, terminalId);
     plog.debug("stopped");
   };
 }

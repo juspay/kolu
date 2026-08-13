@@ -67,36 +67,42 @@ export function openDb(log?: Logger): DatabaseSync | null {
 }
 
 /**
- * Find the most recently updated session for a given directory.
- * Returns null if no sessions exist for that directory or the DB is absent.
+ * Every live session for a given directory, most recently updated FIRST.
+ * Empty if no sessions exist for that directory or the DB is absent.
  *
- * Heuristic: pick the session with the largest `time_updated` — the one
- * the user most recently interacted with. If multiple sessions share a
- * directory, this picks the active one in practice.
+ * `time_updated DESC` is a PREFERENCE, not an answer. `directory` is a property
+ * of the repository, not of a terminal, so two OpenCode harnesses in one repo
+ * match this same list — answering with only the first row handed both of them
+ * the same session and their dock rows converged (juspay/kolu#2057). The
+ * orchestrator's ownership arbiter walks the list and gives each terminal a
+ * session of its own.
  */
-export function findSessionByDirectory(
+export function findSessionsByDirectory(
   directory: string,
   log?: Logger,
-): OpenCodeSession | null {
-  return withDb(
-    (conn) => {
-      const row = conn
-        .prepare(
-          "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",
-        )
-        .get(directory) as
-        | { id: string; title: string; directory: string }
-        | undefined;
-      if (!row) return null;
-      return {
-        id: row.id,
-        title: row.title || null,
-        directory: row.directory,
-      };
-    },
-    "opencode session query failed",
-    { directory },
-    log,
+): OpenCodeSession[] {
+  return (
+    withDb(
+      (conn) => {
+        const rows = conn
+          .prepare(
+            "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC",
+          )
+          .all(directory) as {
+          id: string;
+          title: string;
+          directory: string;
+        }[];
+        return rows.map((row) => ({
+          id: row.id,
+          title: row.title || null,
+          directory: row.directory,
+        }));
+      },
+      "opencode session query failed",
+      { directory },
+      log,
+    ) ?? []
   );
 }
 

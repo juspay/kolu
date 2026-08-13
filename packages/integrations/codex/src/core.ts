@@ -18,7 +18,7 @@
  *    function_call, function_call_output, message, reasoning).
  *
  * Division of labor:
- *  - **SQLite** — session discovery (`findSessionByDirectory` joins
+ *  - **SQLite** — session discovery (`findSessionsByDirectory` joins
  *    cwd→thread in O(indexed-row-count)) and mutable metadata (title,
  *    model). Cheap indexed reads.
  *  - **JSONL** — state derivation (thinking / tool_use / waiting) and
@@ -95,7 +95,7 @@ export function uuidV7TimestampMs(id: string): number | null {
 /** Columns our SELECTs depend on. If Codex renames or drops any of
  *  these, the queries would silently return zero rows, leaving the user
  *  with no Codex badge and no indication why. Keep this list in sync
- *  with `findSessionByDirectory` (id, rollout_path, cwd, source,
+ *  with `findSessionsByDirectory` (id, rollout_path, cwd, source,
  *  archived, updated_at_ms) and `getThreadMetadata` (title, model). */
 export const REQUIRED_THREAD_COLUMNS: readonly string[] = [
   "id",
@@ -173,8 +173,8 @@ export function openDb(log?: Logger): DatabaseSync | null {
 }
 
 /**
- * Find the most recently updated thread for a given directory.
- * Returns null if no threads exist for that directory or the DB is absent.
+ * Every live thread for a given directory, most recently updated FIRST.
+ * Empty if no threads exist for that directory or the DB is absent.
  *
  * Filters:
  *  - `cwd = ?` — exact match on the thread's starting directory.
@@ -184,31 +184,36 @@ export function openDb(log?: Logger): DatabaseSync | null {
  *    they have no foreground terminal to bind to.
  *  - `archived = 0` — excludes archived threads the user has dismissed.
  *
- * Order: `updated_at_ms DESC` to pick the active session when multiple
- * live threads share a cwd. Mirrors OpenCode's `time_updated DESC`
- * heuristic.
+ * Order: `updated_at_ms DESC` — the active session first. It is a
+ * PREFERENCE, not an answer: `cwd` is a property of the repository, not
+ * of a terminal, so two Codex harnesses in one repo match this same list.
+ * Answering with only the first row handed both of them the same thread
+ * and their dock rows converged (juspay/kolu#2057); the orchestrator's
+ * ownership arbiter walks the list and gives each terminal a thread of
+ * its own. Mirrors OpenCode's `time_updated DESC` ordering.
  */
-export function findSessionByDirectory(
+export function findSessionsByDirectory(
   directory: string,
   log?: Logger,
-): CodexSession | null {
-  return withDb(
-    (conn) => {
-      const row = conn
-        .prepare(
-          "SELECT id, rollout_path FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC LIMIT 1",
-        )
-        .get(directory) as { id: string; rollout_path: string } | undefined;
-      if (!row) return null;
-      return {
-        id: row.id,
-        rolloutPath: row.rollout_path,
-        startedAt: uuidV7TimestampMs(row.id),
-      };
-    },
-    "codex threads query failed",
-    { directory },
-    log,
+): CodexSession[] {
+  return (
+    withDb(
+      (conn) => {
+        const rows = conn
+          .prepare(
+            "SELECT id, rollout_path FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC",
+          )
+          .all(directory) as { id: string; rollout_path: string }[];
+        return rows.map((row) => ({
+          id: row.id,
+          rolloutPath: row.rollout_path,
+          startedAt: uuidV7TimestampMs(row.id),
+        }));
+      },
+      "codex threads query failed",
+      { directory },
+      log,
+    ) ?? []
   );
 }
 

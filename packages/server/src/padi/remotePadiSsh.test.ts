@@ -522,7 +522,7 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
 
         // Drive the foreground to a known long-running `sleep` — a stable, non-shell
         // foreground process group the claude adapter can key its session lookup on
-        // (`resolveSession` matches by the terminal's FOREGROUND pid). A unique
+        // (`resolveSessions` matches by the terminal's FOREGROUND pid). A unique
         // duration makes the process findable in /proc by its exact cmdline.
         const sleepSecs = 700000 + Math.floor(Math.random() * 299999);
         const sleepCmd = `sleep ${sleepSecs}`;

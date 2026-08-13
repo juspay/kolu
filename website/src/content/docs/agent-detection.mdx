@@ -117,6 +117,21 @@ process's argv from `/proc`; it uses only the shell's marks and the command it w
 handed at spawn. Adding a new agent is one small adapter and one line of
 registration; nothing server-wide changes.
 
+<Aside type="note" title="One conversation belongs to one terminal">
+  Claude Code and Grok stamp a process id kolu can match a terminal against, so a
+  terminal's conversation is never in doubt. Codex and OpenCode don't — the only
+  thing on disk tying a conversation to a terminal is its <strong>working
+  directory</strong>, which two harnesses in one repository share. kolu therefore
+  treats "most recently updated in this directory" as a <em>shortlist</em> rather
+  than an answer, and hands each terminal a conversation no other terminal already
+  has. A terminal <strong>keeps</strong> the one it matched until that harness
+  exits, so a second Codex starting in the same repo — or one you ran outside kolu
+  — can no longer take over the rows around it. The cost of having no process id
+  to go on: starting a fresh conversation <em>inside</em> a running Codex or
+  OpenCode (its <code>/new</code>) looks exactly like someone else's new
+  conversation, so the tile stays on the previous one until you exit the agent.
+</Aside>
+
 <Aside type="note" title="Some states can't come from the transcript alone">
   A "waiting on you" prompt (a multiple-choice question, a permission gate) often
   isn't written to the session file while it's pending. For agents where that's
@@ -165,10 +180,11 @@ for the framework's prompt chrome and buckets it as _awaiting you_.
 ## Codex
 
 When the foreground process is `codex`, kolu queries Codex's threads SQLite
-database (the highest-numbered `~/.codex/state_<N>.sqlite`) for the most recently
-updated thread whose working directory matches the terminal, and tails that
-thread's rollout JSONL for state and context-token count. Live updates ride a
-watch on the SQLite write-ahead log.
+database (the highest-numbered `~/.codex/state_<N>.sqlite`) for the live threads
+whose working directory matches the terminal — most recently updated first — takes
+the best one no other terminal already holds, and tails that thread's rollout JSONL
+for state and context-token count. Live updates ride a watch on the SQLite
+write-ahead log.
 
 | State | Indicator | Meaning |
 | --- | --- | --- |
@@ -186,14 +202,18 @@ The context count is Codex's own `last_token_usage.input_tokens` — the number 
 - **Column-schema changes** — if an upstream release renames a depended-on column,
   detection returns no match; set `KOLU_CODEX_DB` to pin a known-good database
   while a fix ships.
-- **Same-directory disambiguation** — with multiple Codex threads in one directory,
-  kolu picks the most recently updated.
+- **Which thread is which** — Codex records no process id, so with several threads
+  in one directory kolu can only guarantee that no two terminals show the same one.
+  A thread started *inside* a running Codex (`/new`) is indistinguishable from one
+  started elsewhere in that directory, so the tile stays on the previous thread
+  until you exit the agent.
 
 ## Grok
 
 When the foreground process is `grok`, kolu prefers the entry in
 `~/.grok/active_sessions.json` whose pid matches the terminal; with no pid to go
-on it takes the most recently updated session under `~/.grok/sessions/`. That
+on it takes the most recently updated session under `~/.grok/sessions/` that no
+other terminal already holds. That
 file is only ever used to **find** a session, never to decide one has ended —
 Grok rewrites the whole list from each session's own point of view, so a session
 starting or ending erases the entries of every other Grok running at that moment.
@@ -216,9 +236,10 @@ is a stable first-class count. **Transcript export** reads `chat_history.jsonl`
 ## OpenCode
 
 When the foreground process is `opencode`, kolu queries OpenCode's SQLite database
-directly at `~/.local/share/opencode/opencode.db` for the most recently updated
-session whose directory matches the terminal. The database's write-ahead log
-drives live updates.
+directly at `~/.local/share/opencode/opencode.db` for the live sessions whose
+directory matches the terminal — most recently updated first — and takes the best
+one no other terminal already holds. The database's write-ahead log drives live
+updates.
 
 | State | Indicator | Meaning |
 | --- | --- | --- |
@@ -239,7 +260,10 @@ shows the running token count OpenCode pre-sums itself.
 
 **What it can't detect (yet):**
 
-- **Same-directory disambiguation** — most recently updated session wins.
+- **Which session is which** — OpenCode records no process id, so with several
+  sessions in one directory kolu can only guarantee that no two terminals show the
+  same one; a session started inside a running OpenCode is indistinguishable from
+  one started elsewhere in that directory.
 - **Non-default database location** — set `KOLU_OPENCODE_DB` to override the path.
 
 ## Adding an agent

@@ -9,7 +9,7 @@
  * `externalChanges.isPresent` gates `install` on either (a) `claude`
  * being foregrounded in some terminal, or (b) `~/.claude/sessions/`
  * existing on disk already. Matching is not PID-based here —
- * `resolveSession` returns null until claude writes its session file,
+ * `resolveSessions` returns nothing until claude writes its session file,
  * which is exactly what the SESSIONS_DIR watcher fires on — so we need
  * a cheaper "might be running here" signal to authorize the watcher
  * install. `matchesAgent(state, "claude")` covers the OSC 633;E preexec
@@ -40,9 +40,14 @@ import { createSessionWatcher } from "./session-watcher.ts";
 export const claudeCodeAdapter: AgentAdapter<SessionFile, ClaudeCodeInfo> = {
   kind: "claude-code",
 
-  resolveSession(state, log) {
-    if (state.foregroundPid === undefined) return null;
-    return readSessionFile(state.foregroundPid, log);
+  // Pid-anchored, so the match is exclusive BY CONSTRUCTION: two terminals
+  // cannot share a foreground pid. At most one candidate, and the
+  // orchestrator's ownership arbiter never has a tie to break here — unlike the
+  // directory-keyed agents it exists for (juspay/kolu#2057).
+  resolveSessions(state, log) {
+    if (state.foregroundPid === undefined) return [];
+    const session = readSessionFile(state.foregroundPid, log);
+    return session ? [session] : [];
   },
 
   sessionKey(session) {

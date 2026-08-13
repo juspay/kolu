@@ -21,7 +21,11 @@
  * upstream in `padi/src/terminalWorkspace/agentSessionOwnership.test.ts`.
  */
 
-import { LOCAL_LOCATION, type TerminalMetadata } from "@kolu/padi/surface";
+import {
+  activeArm,
+  LOCAL_LOCATION,
+  type TerminalMetadata,
+} from "@kolu/padi/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
 import { createMemo, For } from "solid-js";
@@ -46,10 +50,12 @@ const BOB = "terminal-bob" as TerminalId;
 const GIT: GitInfo = {
   repoRoot: "/home/dev/proj",
   repoName: "proj",
-  branch: "main",
   worktreePath: "/home/dev/proj",
-  dirty: false,
-} as GitInfo;
+  branch: "main",
+  isWorktree: false,
+  mainRepoRoot: "/home/dev/proj",
+  remoteUrl: null,
+};
 
 function metaWith(agent: AgentInfo | null, intent?: string): TerminalMetadata {
   return {
@@ -158,7 +164,7 @@ function renderDock() {
               {...dockRowAttrs({
                 id,
                 bucket: "working",
-                agentState: combined()?.meta.agent?.state,
+                agentState: activeArm(meta[id])?.agent?.state,
                 asking: pip()?.asking ?? false,
                 unread: unread[id] ?? false,
               })}

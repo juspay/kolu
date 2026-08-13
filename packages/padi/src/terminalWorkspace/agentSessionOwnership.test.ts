@@ -52,10 +52,9 @@ const dbPath = path.join(codexDir, "state_5.sqlite");
 process.env.KOLU_CODEX_DIR = codexDir;
 process.env.KOLU_CODEX_DB = dbPath;
 
-/** Thread rows. `two` is created later and updated later — the row a
- *  `cwd`-keyed match hands to EVERY terminal in the directory. Codex thread ids
- *  are uuidv7, whose leading 48 bits ARE the creation time, so these encode a
- *  real "one was created before two". */
+/** Thread rows. `two` is updated later, so it is the row a `cwd`-keyed match
+ *  hands to EVERY terminal in the directory. Real uuidv7 ids, so `startedAt`
+ *  decodes rather than reading null. */
 const THREAD_ONE = "019db605-0000-7abc-89ab-0123456789ab";
 const THREAD_TWO = "019db606-0000-7abc-89ab-0123456789ab";
 
@@ -145,6 +144,7 @@ seedThreads([THREAD_ONE_ROW]);
 
 const { codexAdapter } = await import("kolu-codex");
 const { startAgentSensor } = await import("./sensors.ts");
+const { resetSessionOwnership } = await import("./sessionOwnership.ts");
 
 afterAll(() => {
   fs.rmSync(codexDir, { recursive: true, force: true });
@@ -192,7 +192,9 @@ function startTerminal(id: string, agentPid: number): Harness {
   return {
     latest: () => {
       const agents = emits.flatMap((e) =>
-        e.kind === "agent" && "value" in e.agent && e.agent.value !== null
+        e.kind === "agent" &&
+        typeof e.agent === "object" &&
+        e.agent.value !== null
           ? [e.agent.value]
           : [],
       );
@@ -214,6 +216,9 @@ function startTerminal(id: string, agentPid: number): Harness {
 }
 
 beforeEach(() => {
+  // The ownership books are process-wide, like the adapter activation registry
+  // they sit beside — so one test's terminals must not be another's neighbours.
+  resetSessionOwnership();
   seedThreads([THREAD_ONE_ROW]);
 });
 

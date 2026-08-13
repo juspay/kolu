@@ -2,11 +2,11 @@ import type { AgentTerminalState } from "anyagent";
 import type { Logger } from "kolu-shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const findSessionMock = vi.fn();
+const findSessionsMock = vi.fn();
 
 vi.mock("./core.ts", () => ({
-  findSessionByDirectory: (dir: string, log?: Logger) =>
-    findSessionMock(dir, log),
+  findSessionsByDirectory: (dir: string, log?: Logger) =>
+    findSessionsMock(dir, log),
 }));
 vi.mock("./session-watcher.ts", () => ({ createOpenCodeWatcher: vi.fn() }));
 
@@ -29,30 +29,30 @@ function makeState(over: Partial<AgentTerminalState>): AgentTerminalState {
   };
 }
 
-describe("opencodeAdapter.resolveSession", () => {
+describe("opencodeAdapter.resolveSessions", () => {
   beforeEach(() => {
-    findSessionMock.mockReset();
+    findSessionsMock.mockReset();
   });
 
   it("matches when the kernel basename is 'opencode' (native install)", () => {
-    findSessionMock.mockReturnValue({ id: "s1" });
+    findSessionsMock.mockReturnValue([{ id: "s1" }]);
     const state = makeState({ readForegroundBasename: () => "opencode" });
-    expect(opencodeAdapter.resolveSession(state, noopLog)).toEqual({
-      id: "s1",
-    });
-    expect(findSessionMock).toHaveBeenCalledWith("/repo", noopLog);
+    expect(opencodeAdapter.resolveSessions(state, noopLog)).toEqual([
+      { id: "s1" },
+    ]);
+    expect(findSessionsMock).toHaveBeenCalledWith("/repo", noopLog);
   });
 
   it("matches when only lastAgentCommandName is 'opencode' (npm shim)", () => {
-    findSessionMock.mockReturnValue({ id: "s2" });
+    findSessionsMock.mockReturnValue([{ id: "s2" }]);
     const state = makeState({
       readForegroundBasename: () => "node",
       lastAgentCommandName: "opencode",
     });
-    expect(opencodeAdapter.resolveSession(state, noopLog)).toEqual({
-      id: "s2",
-    });
-    expect(findSessionMock).toHaveBeenCalledWith("/repo", noopLog);
+    expect(opencodeAdapter.resolveSessions(state, noopLog)).toEqual([
+      { id: "s2" },
+    ]);
+    expect(findSessionsMock).toHaveBeenCalledWith("/repo", noopLog);
   });
 
   it("skips lookup when neither signal names opencode", () => {
@@ -60,7 +60,7 @@ describe("opencodeAdapter.resolveSession", () => {
       readForegroundBasename: () => "node",
       lastAgentCommandName: null,
     });
-    expect(opencodeAdapter.resolveSession(state, noopLog)).toBeNull();
-    expect(findSessionMock).not.toHaveBeenCalled();
+    expect(opencodeAdapter.resolveSessions(state, noopLog)).toEqual([]);
+    expect(findSessionsMock).not.toHaveBeenCalled();
   });
 });

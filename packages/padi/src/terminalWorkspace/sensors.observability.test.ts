@@ -1,7 +1,7 @@
 /**
  * W12 producer-level regression — the resolved-null branch's SAMPLE-CONTENT
  * discriminant, driven through the real `startAgentSensor` (a fake adapter stands in
- * for claude/codex so we control `resolveSession` off the foreground pid + a mutable
+ * for claude/codex so we control `resolveSessions` off the foreground pid + a mutable
  * "session live" set).
  *
  * The `fold.test.ts` "twin pins" pin the FOLD's response to `unknown` vs an
@@ -63,7 +63,7 @@ interface Harness {
    *  SESSIONS_DIR watcher / title / cwd) that fires under blindness with no fresh
    *  foreground sample. */
   poke: () => Promise<void>;
-  /** Kill the agent's on-disk session so `resolveSession` returns null for its pid —
+  /** Kill the agent's on-disk session so `resolveSessions` finds nothing for its pid —
    *  the file-unlink an unclean death (or a genuine quit) produces. */
   killSession: () => void;
   stop: () => void;
@@ -78,12 +78,12 @@ function startHarness(): Harness {
   let sessionLive = true;
   const fakeAdapter: AgentAdapter<number, AgentInfoShape> = {
     kind: "claude-code",
-    resolveSession: (state) =>
+    resolveSessions: (state) =>
       sessionLive &&
       state.foregroundPid !== undefined &&
       state.foregroundPid !== SHELL_PID
-        ? state.foregroundPid
-        : null,
+        ? [state.foregroundPid]
+        : [],
     sessionKey: (session) => String(session),
     createWatcher: (_session, onChange) => {
       onChange(AGENT_INFO);
