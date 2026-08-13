@@ -28,11 +28,8 @@ export const opencodeAdapter: AgentAdapter<OpenCodeSession, OpenCodeInfo> = {
     return session.id;
   },
 
-  // OpenCode records no creation time kolu can read at match time, so the
-  // episode test cannot judge an OpenCode candidate and the arbiter falls back
-  // to plain stickiness for this agent. An honest null beats a guessed date.
-  sessionStartedAt() {
-    return null;
+  sessionStartedAt(session) {
+    return session.startedAt;
   },
 
   createWatcher(session, onChange, log) {

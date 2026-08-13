@@ -27,7 +27,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { classifyByAwaiting } from "anyagent";
 import type { Logger } from "kolu-shared";
-import { withDb as sharedWithDb } from "kolu-shared/sqlite";
+import { readDb, withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { match } from "ts-pattern";
 import { OPENCODE_DB_PATH } from "./config.ts";
 import type { OpenCodeInfo, TaskProgress } from "./schemas.ts";
@@ -53,6 +53,11 @@ export interface OpenCodeSession {
   id: string;
   title: string | null;
   directory: string;
+  /** Epoch-ms of the session’s earliest message — the same “when did this
+   *  conversation begin” the watcher publishes as `AgentInfo.startedAt`, read at
+   *  MATCH time because session ownership is arbitrated before any watcher
+   *  exists. Null for a session with no messages yet. */
+  startedAt: number | null;
 }
 
 /** Open a read-only connection to OpenCode's database. Returns null if absent.
@@ -81,33 +86,47 @@ export function findSessionsByDirectory(
   directory: string,
   log?: Logger,
 ): OpenCodeSession[] | null {
-  // Deliberately NOT through `withDb` — see the twin in kolu-codex's `core.ts`
-  // for why: the ownership arbiter releases a terminal's session on an empty
-  // list, so a caught query error must not wear the same shape as "this
-  // directory has no sessions". A missing database IS that second fact.
-  const db = openDb(log);
-  if (!db) return [];
-  try {
-    const rows = db
-      .prepare(
-        "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC",
-      )
-      .all(directory) as {
-      id: string;
-      title: string;
-      directory: string;
-    }[];
-    return rows.map((row) => ({
-      id: row.id,
-      title: row.title || null,
-      directory: row.directory,
-    }));
-  } catch (err) {
-    log?.error({ err, directory }, "opencode session query failed");
-    return null;
-  } finally {
-    db.close();
-  }
+  // `readDb`, not `withDb` — see the twin in kolu-codex's `core.ts`: the
+  // ownership arbiter releases a terminal's session on an empty list, so a
+  // caught query error must not wear the same shape as "this directory has no
+  // sessions". A missing database IS that second fact.
+  //
+  // `started_at` is the same "when did this conversation begin" that
+  // `getSessionStartedAt` reads for the watcher, folded into this one query as a
+  // correlated MIN over `message_session_idx` (session_id, time_created) — an
+  // index seek per row rather than a round trip per candidate. It rides the
+  // match result because session ownership is arbitrated before any watcher
+  // exists, and without it a terminal could never tell its own session from an
+  // earlier run's in the same directory.
+  const read = readDb(
+    openDb,
+    (conn) =>
+      (
+        conn
+          .prepare(
+            "SELECT s.id, s.title, s.directory, (SELECT MIN(time_created) FROM message m WHERE m.session_id = s.id) AS started_at FROM session s WHERE s.directory = ? AND s.time_archived IS NULL ORDER BY s.time_updated DESC",
+          )
+          .all(directory) as {
+          id: string;
+          title: string;
+          directory: string;
+          started_at: number | null;
+        }[]
+      ).map((row) => ({
+        id: row.id,
+        title: row.title || null,
+        directory: row.directory,
+        startedAt: row.started_at ?? null,
+      })),
+    "opencode session query failed",
+    { directory },
+    log,
+  );
+  return match(read)
+    .with({ kind: "ok" }, (r) => r.value)
+    .with({ kind: "absent" }, () => [])
+    .with({ kind: "failed" }, () => null)
+    .exhaustive();
 }
 
 // --- Session title refresh ---

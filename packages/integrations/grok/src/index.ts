@@ -37,6 +37,7 @@ export {
   readContextTokens,
   readSummary,
   resolveGrokSession,
+  resolveGrokSessions,
   signalsPathFor,
 } from "./core.ts";
 export {

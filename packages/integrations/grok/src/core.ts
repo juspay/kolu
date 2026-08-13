@@ -250,6 +250,45 @@ function sessionFromIds(
   };
 }
 
+/** Every session this terminal could be running, or NULL when the answer could
+ *  not be read at all.
+ *
+ *  The distinction is load-bearing for the ownership arbiter
+ *  (`padi/terminalWorkspace/sessionOwnership.ts`): an empty list is evidence
+ *  that this terminal runs no Grok, and RELEASES the session it holds so a
+ *  neighbour can take it — so a sessions directory kolu could not READ must not
+ *  wear that shape. A directory that is simply ABSENT is the other fact: Grok
+ *  has never run for this cwd, so there is genuinely nothing.
+ *
+ *  The pid path is unaffected: `active_sessions.json` either names the
+ *  foreground pid or it does not, and a pid kolu has never matched deliberately
+ *  resolves to nothing rather than guessing (see `resolveGrokSession`). */
+export function resolveGrokSessions(
+  foregroundPid: number | undefined,
+  cwd: string,
+  log?: Logger,
+): GrokSession[] | null {
+  if (foregroundPid !== undefined) {
+    const session = resolveGrokSession(foregroundPid, cwd, log);
+    return session ? [session] : [];
+  }
+  if (sessionsDirUnreadable(cwd, log)) return null;
+  const session = findLatestSessionByCwd(cwd, log);
+  return session ? [session] : [];
+}
+
+/** True when this cwd's sessions directory exists but could not be listed —
+ *  ignorance, as distinct from the ENOENT that means "no Grok here". */
+function sessionsDirUnreadable(cwd: string, log?: Logger): boolean {
+  const dir = path.join(SESSIONS_DIR, encodeCwd(cwd));
+  try {
+    fs.readdirSync(dir);
+    return false;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== "ENOENT";
+  }
+}
+
 /** Pick the session directory under `sessions/<enc-cwd>/` with the
  *  newest `summary.updated_at` (or mtime). */
 export function findLatestSessionByCwd(

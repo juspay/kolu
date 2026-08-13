@@ -39,6 +39,52 @@ export interface Closable {
  * integration keeps its own concrete handle type (`DatabaseSync` from
  * `node:sqlite`) without `withDb` carrying a `node:sqlite` dependency.
  */
+/** The three outcomes of a read, kept apart. `withDb` folds `absent` and
+ *  `failed` into one `null` because most callers act the same on both; a caller
+ *  that must NOT is the case this exists for. */
+export type DbRead<T> =
+  | { kind: "ok"; value: T }
+  /** No database to open — the tool isn't installed, or has never run here.
+   *  An ANSWER: there is genuinely nothing recorded. */
+  | { kind: "absent" }
+  /** The database was there and the query threw. IGNORANCE, not an answer. */
+  | { kind: "failed" };
+
+/**
+ * `withDb`'s three-outcome twin, for a caller that must not act on a failed read
+ * as though it were an empty one.
+ *
+ * kolu's agent-session lookup is that caller: an empty candidate list is how a
+ * terminal tells the ownership arbiter it runs no agent, and the arbiter RELEASES
+ * the terminal's session on it (`padi/terminalWorkspace/sessionOwnership.ts`). A
+ * transient query failure laundered into "nothing here" would hand a live
+ * terminal's session to a neighbour, irreversibly, with only a log line to show
+ * for it — so codex and opencode read through this and answer `null` on `failed`.
+ *
+ * Same lifetime contract as `withDb`: a caller-supplied `db` is borrowed, an
+ * opened one is closed in a `finally`.
+ */
+export function readDb<Db extends Closable, T>(
+  openDb: (log?: Logger) => Db | null,
+  fn: (db: Db) => T,
+  errorMsg: string,
+  errorCtx: Record<string, unknown>,
+  log?: Logger,
+  db?: Db,
+): DbRead<T> {
+  const ownsDb = db === undefined;
+  const conn = db ?? openDb(log);
+  if (!conn) return { kind: "absent" };
+  try {
+    return { kind: "ok", value: fn(conn) };
+  } catch (err) {
+    log?.error({ err, ...errorCtx }, errorMsg);
+    return { kind: "failed" };
+  } finally {
+    if (ownsDb) conn.close();
+  }
+}
+
 export function withDb<Db extends Closable, T>(
   openDb: (log?: Logger) => Db | null,
   fn: (db: Db) => T,

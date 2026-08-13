@@ -13,7 +13,7 @@ import { subscribeActiveSessions } from "./active-sessions-watcher.ts";
 import {
   grokHomePresent,
   type GrokSession,
-  resolveGrokSession,
+  resolveGrokSessions,
 } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
 import { createGrokWatcher } from "./session-watcher.ts";
@@ -29,8 +29,7 @@ export const grokAdapter: AgentAdapter<GrokSession, GrokInfo> = {
   // (juspay/kolu#2057).
   resolveSessions(state, log) {
     if (!matchesAgent(state, "grok")) return [];
-    const session = resolveGrokSession(state.foregroundPid, state.cwd, log);
-    return session ? [session] : [];
+    return resolveGrokSessions(state.foregroundPid, state.cwd, log);
   },
 
   sessionKey(session) {
