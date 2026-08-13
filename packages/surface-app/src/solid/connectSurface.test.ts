@@ -53,17 +53,41 @@ describe("connectSurface() — the url default", () => {
     });
   });
 
+  it("an explicit url WINS while a location is present — the default fills, never overrides", async () => {
+    vi.stubGlobal("location", new URL("https://box.example:7681/some/page"));
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurface({
+        surface,
+        url: "wss://other.example/rpc/ws",
+        retired: () => {},
+        connect: d.connect,
+      });
+      const dialled = (await d.nth(1)).url;
+      expect(dialled).toBe("wss://other.example/rpc/ws");
+      // …and provably not the stubbed page's derivation.
+      expect(dialled).not.toBe("wss://box.example:7681/rpc/ws");
+      await conn.dispose();
+      dispose();
+    });
+  });
+
   it("throws loudly when no url is given and there is no location (Node)", async () => {
     // vitest's node env has no `location` — exactly the caller the default
     // must refuse: a fabricated dial address would fail later and elsewhere.
     expect(typeof location).toBe("undefined");
+    const connect = vi.fn(
+      (url: string) => new FakeWebSocket(url) as unknown as WebSocket,
+    );
     await expect(
       connectSurface({
         surface,
         retired: () => {},
-        connect: (url: string) =>
-          new FakeWebSocket(url) as unknown as WebSocket,
+        connect,
       }),
     ).rejects.toThrow(/no `url` was given and there is no browser `location`/);
+    // BEFORE allocation: the throw happens while the socket seam's arguments
+    // are still being built — nothing was ever dialled.
+    expect(connect).not.toHaveBeenCalled();
   });
 });
