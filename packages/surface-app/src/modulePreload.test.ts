@@ -11,7 +11,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { type ChunkGraph, staticImportChunks } from "./modulePreload";
+import {
+  type ChunkGraph,
+  modulePreloadLinks,
+  staticImportChunks,
+} from "./modulePreload";
 
 /**
  * `Bun.build({ metafile: true })`, bun 1.3.13, for an entry that imports a
@@ -181,5 +185,57 @@ describe("staticImportChunks", () => {
     expect(() =>
       staticImportChunks(graph({ "main-1.js": [] }), "other-9.js"),
     ).toThrow(/other-9\.js/);
+  });
+
+  it("does not preload a non-JS static import — `modulepreload` means 'a JS module'", () => {
+    // The edge kind and the FILE kind are two questions. A stylesheet the entry
+    // `import`s is a real static edge and the wrong tag: fetched as a module,
+    // refused on MIME, warned about. Bun 1.3.13 does not record it as an
+    // `imports` edge (see `PRELOADABLE`), so this pins the rule, not the
+    // bundler — and the walk still passes THROUGH the non-JS output.
+    const chunks = staticImportChunks(
+      graph({
+        "main-1.js": [
+          ["styles-2.css", "import-statement"],
+          ["a-3.js", "import-statement"],
+        ],
+        "styles-2.css": [["deep-4.js", "import-statement"]],
+        "a-3.js": [],
+        "deep-4.js": [],
+      }),
+      "main-1.js",
+    );
+    expect(chunks).toEqual(["a-3.js", "deep-4.js"]);
+  });
+});
+
+describe("modulePreloadLinks", () => {
+  it("emits one tag per href, in order, as one string", () => {
+    // Pinned as a LITERAL: `rel="modulepreload"` is the whole instruction to the
+    // browser, and a test that rebuilt the tag from the same helper would agree
+    // with any typo in it.
+    expect(
+      modulePreloadLinks([
+        "/assets/shared-a1b2c3d4.js",
+        "/assets/base-e5f6a7b8.js",
+      ]),
+    ).toBe(
+      '<link rel="modulepreload" href="/assets/shared-a1b2c3d4.js">' +
+        '<link rel="modulepreload" href="/assets/base-e5f6a7b8.js">',
+    );
+  });
+
+  it("emits nothing at all for no hrefs", () => {
+    expect(modulePreloadLinks([])).toBe("");
+  });
+
+  it("refuses an href that is not a plain /path instead of ending the attribute early", () => {
+    // The sibling `shellCommitScript` ESCAPES its input because a commit message
+    // is arbitrary by nature; a build output name that carries a quote means
+    // something upstream is already wrong, so this one refuses.
+    expect(() => modulePreloadLinks(['/assets/a".js'])).toThrow(/href/);
+    expect(() => modulePreloadLinks(["https://cdn.example/a.js"])).toThrow(
+      /plain \/path/,
+    );
   });
 });

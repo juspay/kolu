@@ -56,13 +56,14 @@
 import { existsSync } from "node:fs";
 import { cp, mkdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { ASSET_DIR, injectModulePreloads, injectShellCommit } from "./index";
+import { ASSET_DIR } from "./index";
 import { type ChunkGraph, staticImportChunks } from "./modulePreload";
 import {
   type AssetReport,
   precompressAssets,
   pruneAssets,
 } from "./precompress";
+import { injectShellHead } from "./shellHead";
 import { resolveCommit } from "./vite";
 
 // --- minimal structural view of the Bun runtime (see module header) ----------
@@ -198,15 +199,22 @@ export interface SurfaceClientBuildResult {
  *  each chunk the entry statically imports. The hashed dir it leaves
  *  behind is exactly this build's output plus the precompressed siblings
  *  `freshStaticLayer` negotiates — see the module header for why neither of
- *  those is an option. Returns the hashed hrefs (the JS entry plus one per extra
- *  asset, keyed by `name`) — the same URLs written into the shell, exposed for
- *  callers that also template the HTML elsewhere — and a size report per asset. */
+ *  those is an option. Returns the hashed hrefs the shell's own elements were
+ *  rewritten to name (the JS entry plus one per extra asset, keyed by `name`),
+ *  exposed for callers that also template the HTML elsewhere, and a size report
+ *  per asset. The preload links are not among them: they are derived from the
+ *  build graph rather than from a placeholder a caller wrote, so there is no
+ *  second template to keep in step with them. */
 export async function buildSurfaceClient(
   opts: SurfaceClientBuildOptions,
 ): Promise<SurfaceClientBuildResult> {
   const Bun = bun();
   const distDir = resolve(opts.distDir);
   const assetsDir = resolve(distDir, ASSET_DIR);
+  /** A file in the hashed dir, as the shell must name it — the ONE place the
+   *  served prefix and the on-disk dir are joined, for the entry, the preloaded
+   *  chunks and the extra assets alike. */
+  const assetHref = (file: string) => `/${ASSET_DIR}/${file}`;
   await mkdir(assetsDir, { recursive: true });
   const commit = opts.commit ?? resolveCommit(opts.commitEnvVar);
 
@@ -257,7 +265,7 @@ export async function buildSurfaceClient(
     throw new Error(
       "buildSurfaceClient: Bun.build produced no JS entry output",
     );
-  const jsHref = `/${ASSET_DIR}/${basename(jsEntry.path)}`;
+  const jsHref = assetHref(basename(jsEntry.path));
 
   // The chunks the entry STATICALLY imports, to be preloaded from the shell.
   // Splitting hands the entry a shared chunk it imports at the top, and the
@@ -274,7 +282,7 @@ export async function buildSurfaceClient(
   const preloadHrefs = staticImportChunks(
     jsResult.metafile,
     basename(jsEntry.path),
-  ).map((file) => `/${ASSET_DIR}/${file}`);
+  ).map(assetHref);
 
   // Extra assets (e.g. Tailwind CSS): the app builds the bytes; we hash them on
   // their own content, write `/assets/<name>-<hash>.<ext>`, and key the href by
@@ -292,7 +300,7 @@ export async function buildSurfaceClient(
     const fileName = `${asset.name}-${hash}.${asset.ext}`;
     await Bun.write(resolve(assetsDir, fileName), bytes);
     produced.add(fileName);
-    assetHrefs[asset.name] = `/${ASSET_DIR}/${fileName}`;
+    assetHrefs[asset.name] = assetHref(fileName);
   }
 
   // index.html is the no-store SPA shell — it stays UNHASHED at the root and is
@@ -322,15 +330,14 @@ export async function buildSurfaceClient(
       `href="${assetHrefs[asset.name]}"`,
     );
   }
-  // Publish the commit on the shell global — the `no-store` shell is re-fetched
-  // on every load, so the identity a client reports is always the deployed one
-  // (kolu#1319; `shellCommit()` is the page-side reader).
-  html = injectShellCommit(html, commit);
-  // Then the preloads, injected LAST so they land FIRST in the head (both insert
-  // right after the `<head>` tag): the point of the tags is to start those
-  // fetches at the earliest byte the parser reaches, and nothing above them
-  // should push them later. A build with nothing split adds no tags at all.
-  html = injectModulePreloads(html, preloadHrefs);
+  // The head prelude, in one splice: the preload links and the commit script,
+  // written in the order `./shellHead` states (the tags first — their whole job
+  // is to start those fetches at the earliest byte the parser reaches). The
+  // commit is published on the shell global rather than defined into the bundle
+  // because the `no-store` shell is re-fetched on every load, so the identity a
+  // client reports is always the deployed one (kolu#1319; `shellCommit()` is the
+  // page-side reader). A build with nothing split adds no preload tags at all.
+  html = injectShellHead(html, { preloadHrefs, commit });
   await Bun.write(resolve(distDir, "index.html"), html);
 
   // Static public assets (icons, etc.) shipped verbatim to the dist root, OUTSIDE

@@ -49,39 +49,43 @@ const DECODE: Record<string, (bytes: Buffer) => Buffer> = {
   gzip: gunzipSync,
 };
 
-/** A client entry big and repetitive enough to be worth compressing — a real
- *  one is megabytes. The markers split off the halves the stand-in bundler emits
- *  as chunks: `//--shared--` the one the entry STATICALLY imports (what a real
- *  bundler hoists when the entry and the deferred half both need it), and
- *  `//--dynamic--` the one an `import()` defers. */
-const clientSource = (label: string): string =>
+/** 80 repetitive exports — the bulk that makes a fixture worth compressing at
+ *  all (a real client entry is megabytes). */
+const half = (prefix: string, text: string): string =>
+  Array.from(
+    { length: 80 },
+    (_, i) => `export const ${prefix}${i} = "${text} ${i}";`,
+  ).join("\n");
+
+/** A client entry, composed from the halves it should split INTO. The markers
+ *  are the stand-in bundler's protocol for "this half becomes its own chunk", so
+ *  the three fixtures below are BUILT from them rather than carved back out of a
+ *  bigger one — a marker that changes then breaks the protocol in one place,
+ *  loudly, instead of silently producing a fixture that no longer splits. */
+const entrySource = (label: string, ...halves: readonly string[]): string =>
   [
     `export const label = ${JSON.stringify(label)};`,
-    ...Array.from(
-      { length: 80 },
-      (_, i) => `export const pad${i} = "the quick brown fox jumps over ${i}";`,
-    ),
-    "//--shared--",
-    ...Array.from(
-      { length: 80 },
-      (_, i) => `export const common${i} = "both halves parse markdown ${i}";`,
-    ),
-    "//--dynamic--",
-    ...Array.from(
-      { length: 80 },
-      (_, i) => `export const heavy${i} = "a markdown pipeline weighs ${i}";`,
-    ),
+    half("pad", "the quick brown fox jumps over"),
+    ...halves,
   ].join("\n");
 
-/** The same entry with its `//--shared--` half folded back in: an app that
- *  writes `import()` and shares nothing with it, so the only chunk is deferred. */
-const dynamicOnlySource = (): string =>
-  clientSource("lazy").replace("//--shared--\n", "");
+/** The half the entry STATICALLY imports — what a real bundler hoists when the
+ *  entry and the deferred half both need it, and the one worth preloading. */
+const SHARED = ["//--shared--", half("common", "both halves parse markdown")];
+/** The half an `import()` defers — the one that must never be preloaded. */
+const DYNAMIC = ["//--dynamic--", half("heavy", "a markdown pipeline weighs")];
+
+/** The ordinary split app: a shared chunk and a deferred one. */
+const splitSource = (label = "one"): string =>
+  entrySource(label, ...SHARED, ...DYNAMIC);
+
+/** An app that writes `import()` and shares nothing with it, so the only chunk
+ *  is deferred. */
+const dynamicOnlySource = (): string => entrySource("lazy", ...DYNAMIC);
 
 /** An entry that splits into nothing — one entrypoint, no `import()`. Most apps.
  */
-const noSplitSource = (): string =>
-  clientSource("solo").split("//--shared--\n")[0]!;
+const noSplitSource = (): string => entrySource("solo");
 
 const TEMPLATE = `<!doctype html>
 <html><head><title>t</title><link rel="stylesheet" href="./styles.css" /></head>
@@ -94,7 +98,7 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
   let distDir: string;
   let stand: StandInBun;
 
-  const build = (label = "one", source = clientSource(label)) => {
+  const build = (source = splitSource()) => {
     writeFileSync(join(clientDir, "main.ts"), source);
     return buildSurfaceClient({
       entrypoint: join(clientDir, "main.ts"),
@@ -268,12 +272,26 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
     expect(html.indexOf("modulepreload")).toBeLessThan(
       html.indexOf("__SURFACE_APP_COMMIT__"),
     );
+    // Same reason the `splitting` pin above exists: the chunk graph is reported
+    // only because the config asks for it, and nothing else here would notice
+    // the ask going missing.
+    expect(stand.builds[0]!.metafile).toBe(true);
+  });
+
+  it("fails loud when the bundler reports no chunk graph", async () => {
+    // The arm the throw exists for: a Bun that ignored `metafile: true` hands
+    // back exactly this. The alternative to saying so is a shell that quietly
+    // drops back to costing the round trip the tags were added to save — and a
+    // silent regression in a build nobody re-inspects.
+    stand.restore();
+    stand = installStandInBun({ withholdMetafile: true });
+    await expect(build()).rejects.toThrow(/metafile/);
   });
 
   it("does NOT preload the dynamic chunk — that would undo the very split it rides on", async () => {
     // The failure this forbids is the tempting one: preload everything the build
     // emitted, and `import()` becomes a slower way to fetch the bytes eagerly.
-    const { assets } = await build("one", dynamicOnlySource());
+    const { assets } = await build(dynamicOnlySource());
     const deferred = assets.find((a) => a.file.startsWith("chunk-"));
     expect(deferred).toBeDefined();
     const html = shell();
@@ -284,7 +302,7 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
   it("leaves a shell alone when the entry split into nothing — no empty artifact", async () => {
     // Most apps. A helper shared by every consumer must add nothing at all to
     // the one that has nothing to add.
-    const { assets } = await build("one", noSplitSource());
+    const { assets } = await build(noSplitSource());
     expect(assets.some((a) => a.file.endsWith(".js"))).toBe(true);
     expect(assets.some((a) => a.file.startsWith("chunk-"))).toBe(false);
     expect(assets.some((a) => a.file.startsWith("shared-"))).toBe(false);
@@ -307,9 +325,9 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
     // asset AND every old sibling, so each rebuild pays brotli over a pile
     // nothing can request — the hashed name that makes an old asset unreachable
     // is the same fact that makes deleting it safe.
-    const first = await build("one");
+    const first = await build(splitSource("one"));
     const before = names();
-    const second = await build("two");
+    const second = await build(splitSource("two"));
     const after = names();
     expect(second.jsHref).not.toBe(first.jsHref);
     expect(after).not.toEqual(before);
@@ -331,14 +349,14 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
     // sibling beside it was compressed FROM those bytes and cannot be stale.
     const suffixes = PRECOMPRESSED_ENCODINGS.map(([, suffix]) => suffix);
     const isSibling = (name: string) => suffixes.some((s) => name.endsWith(s));
-    await build("one");
+    await build();
     const stamps = new Map(
       names()
         .filter(isSibling)
         .map((n) => [n, statSync(join(assetsDir(), n)).mtimeMs]),
     );
     expect(stamps.size).toBeGreaterThan(0);
-    await build("one");
+    await build();
     // The bundler rewrites the primaries either way; what must NOT be paid again
     // is the compression beside them.
     expect(names().filter(isSibling)).toEqual([...stamps.keys()]);

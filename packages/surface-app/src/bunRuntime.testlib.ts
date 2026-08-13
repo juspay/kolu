@@ -18,7 +18,9 @@
  * handed, so the test can also pin the build settings the freshness contract
  * rests on rather than trusting a comment.
  *
- * The metafile is written from what this emitter itself did, and its shape is a
+ * The metafile is written from what this emitter itself did — and each output's
+ * SOURCE is written from the same edge list the metafile records, so the emitted
+ * bytes cannot claim a different graph than the record does. Its shape is a
  * copy of a real `Bun.build` metafile (bun 1.3.13): outputs keyed `./<file>`,
  * each with `imports: [{ path, kind }]` where `kind` is `import-statement` for a
  * shared chunk and `dynamic-import` for a deferred one, and sourcemaps absent.
@@ -50,6 +52,18 @@ export interface StandInBun {
   restore(): void;
 }
 
+/** Shapes of `Bun.build` a test needs to DRIVE and a fixture cannot otherwise
+ *  produce. These are test-double knobs, not a mirror of any option the shipping
+ *  build has — `buildSurfaceClient` takes no flags at all (see `./bun`). */
+export interface StandInBunOptions {
+  /** Report NO metafile even though the config asked for one — exactly what a
+   *  Bun that ignored `metafile: true` would hand back. `buildSurfaceClient`'s
+   *  fail-loud check is the only thing between that and a shell that silently
+   *  drops back to costing the extra round trip, so it is driven by a test
+   *  rather than described by a comment. */
+  withholdMetafile?: boolean;
+}
+
 /** Deterministic 8-hex-char stand-in for `Bun.hash` — the point is that equal
  *  bytes give an equal name, which is the whole basis of the immutable pin. */
 const hash8 = (data: string): string => {
@@ -79,7 +93,9 @@ const render = (pattern: string, name: string, content: string): string =>
  * real `import("./x")` and no marker gets no chunk here, which is a limit of the
  * stand-in and not a statement about Bun.
  */
-export const installStandInBun = (): StandInBun => {
+export const installStandInBun = (
+  options: StandInBunOptions = {},
+): StandInBun => {
   const previous = (globalThis as { Bun?: unknown }).Bun;
   const builds: RecordedBuildConfig[] = [];
 
@@ -94,12 +110,32 @@ export const installStandInBun = (): StandInBun => {
     const graph: Record<string, { imports: { path: string; kind: string }[] }> =
       {};
 
+    /** The statements an output's outgoing edges are written as. One output's
+     *  imports are stated ONCE — in the edge list the metafile records — and its
+     *  bytes are rendered FROM that list, so the emitted source can never claim
+     *  a different graph than the metafile does. */
+    const importStatements = (
+      imports: { path: string; kind: string }[],
+    ): string =>
+      imports
+        .map((i) =>
+          i.kind === "dynamic-import"
+            ? `await import(${JSON.stringify(i.path)});\n`
+            : `import ${JSON.stringify(i.path)};\n`,
+        )
+        .join("");
+
     const emit = (
-      fileName: string,
-      content: string,
+      pattern: string,
+      stem: string,
+      body: string,
       kind: string,
       imports: { path: string; kind: string }[] = [],
     ): string => {
+      const content = importStatements(imports) + body;
+      // Hashed over what is actually written, so equal bytes keep their name —
+      // the whole basis of the immutable pin.
+      const fileName = render(pattern, stem, content);
       const path = join(config.outdir, fileName);
       writeFileSync(path, content);
       outputs.push({ path, kind });
@@ -119,21 +155,16 @@ export const installStandInBun = (): StandInBun => {
     const [beforeDynamic = "", dynamic] = source.split("//--dynamic--\n");
     const [head = "", shared] = beforeDynamic.split("//--shared--\n");
 
-    let entrySource = source;
+    let entryBody = source;
     const entryImports: { path: string; kind: string }[] = [];
     if (
       config.splitting === true &&
       (shared !== undefined || dynamic !== undefined)
     ) {
-      entrySource = head;
+      entryBody = head;
       let sharedName: string | undefined;
       if (shared !== undefined) {
-        sharedName = emit(
-          render(naming.chunk, "shared", shared),
-          shared,
-          "chunk",
-        );
-        entrySource += `import "./${sharedName}";\n`;
+        sharedName = emit(naming.chunk, "shared", shared, "chunk");
         entryImports.push({
           path: `./${sharedName}`,
           kind: "import-statement",
@@ -143,29 +174,27 @@ export const installStandInBun = (): StandInBun => {
         // The deferred chunk needs the shared half too — that is WHY the shared
         // half is its own chunk rather than part of either one.
         const chunkName = emit(
-          render(naming.chunk, "chunk", dynamic),
+          naming.chunk,
+          "chunk",
           dynamic,
           "chunk",
           sharedName === undefined
             ? []
             : [{ path: `./${sharedName}`, kind: "import-statement" }],
         );
-        entrySource += `await import("./${chunkName}");\n`;
         entryImports.push({ path: `./${chunkName}`, kind: "dynamic-import" });
       }
     }
     const entryBase = basename(entrypoint, extname(entrypoint));
-    emit(
-      render(naming.entry, entryBase, entrySource),
-      entrySource,
-      "entry-point",
-      entryImports,
-    );
+    emit(naming.entry, entryBase, entryBody, "entry-point", entryImports);
     return {
       success: true,
       logs: [],
       outputs,
-      metafile: config.metafile === true ? { outputs: graph } : undefined,
+      metafile:
+        config.metafile === true && options.withholdMetafile !== true
+          ? { outputs: graph }
+          : undefined,
     };
   };
 

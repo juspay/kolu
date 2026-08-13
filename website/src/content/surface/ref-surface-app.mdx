@@ -194,7 +194,7 @@ siblings and the code splitting every consumer used to bolt on afterwards.
 | `surfaceApp()` | `/vite` | Vite plugin that injects the build commit onto the shell |
 | `buildSurfaceClient(opts)` | `/bun` | the Bun build: hashed assets, rewritten shell, siblings, splitting |
 | `SurfaceClientBuildOptions` | `/bun` | its options — entrypoint, `distDir`, the HTML template + placeholders, `extraAssets`, `publicDir`, `minify`, `commit` |
-| `SurfaceClientBuildResult` | `/bun` | `{ jsHref, assetHrefs, assets }` — the URLs written into the shell, plus an `AssetReport` per **compressible** asset in the hashed dir (sourcemaps and already-compressed media are skipped, and absent from the report) |
+| `SurfaceClientBuildResult` | `/bun` | `{ jsHref, assetHrefs, assets }` — the hashed URLs your **placeholders** were rewritten to (the JS entry, and one per extra asset), plus an `AssetReport` per **compressible** asset in the hashed dir (sourcemaps and already-compressed media are skipped, and absent from the report). The shell also carries a `modulepreload` link per static chunk; those come from the build graph, not from a placeholder, and are not reported |
 | `AssetReport` | `/bun` | `{ file, bytes, siblings }` — identity size and each sibling's size, keyed by `Content-Encoding` |
 | `PRECOMPRESSED_ENCODINGS` | `.` | the `[encoding, suffix]` table BOTH halves read: `freshStaticLayer` to negotiate, the builder to emit |
 

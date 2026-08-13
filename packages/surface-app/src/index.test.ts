@@ -12,7 +12,6 @@ import {
   ASSET_MISS_CACHE_CONTROL,
   cacheControlFor,
   clientIsStale,
-  injectModulePreloads,
   injectShellCommit,
   isCleanRef,
   isImmutableAssetPath,
@@ -166,46 +165,11 @@ describe("injectShellCommit", () => {
   });
 });
 
-describe("injectModulePreloads", () => {
-  const shell = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-  </head>
-  <body><script type="module" src="/assets/main-D85Q74Rn.js"></script></body>
-</html>`;
-
-  it("emits one tag per chunk, in order, right after <head>", () => {
-    // Pinned as a LITERAL: `rel="modulepreload"` is the whole instruction to the
-    // browser, and a test that rebuilt the tag from the same helper would agree
-    // with any typo in it.
-    const out = injectModulePreloads(shell, [
-      "/assets/shared-a1b2c3d4.js",
-      "/assets/base-e5f6a7b8.js",
-    ]);
-    expect(out).toContain(
-      '<head><link rel="modulepreload" href="/assets/shared-a1b2c3d4.js">' +
-        '<link rel="modulepreload" href="/assets/base-e5f6a7b8.js">',
-    );
-    // Before the entry — a preload discovered after the script that needs it
-    // saves nothing.
-    expect(out.indexOf("modulepreload")).toBeLessThan(
-      out.indexOf("/assets/main-D85Q74Rn.js"),
-    );
-  });
-
-  it("leaves a shell with nothing to preload byte-identical", () => {
-    // The no-split app is most apps. It must come out with no empty `<link>`, no
-    // stray whitespace — nothing to explain.
-    expect(injectModulePreloads(shell, [])).toBe(shell);
-  });
-
-  it("throws on a template with no <head> — the same fail-loud contract as the commit", () => {
-    expect(() =>
-      injectModulePreloads("<html><body></body></html>", ["/assets/a-1.js"]),
-    ).toThrow(/<head>/);
-  });
-});
+// The modulepreload injector is no longer part of this module's surface: the
+// head's prelude — its links AND the commit script, in one splice — lives in the
+// internal `./shellHead`, and is tested through it (`shellHead.test.ts`). What
+// stays here is `injectShellCommit`, which `./client` names as the path for a
+// caller templating its own shell.
 
 describe("PRECOMPRESSED_ENCODINGS", () => {
   // This table is the ONE place the negotiator (`./server`) and the emitter

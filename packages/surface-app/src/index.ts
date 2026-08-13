@@ -104,101 +104,25 @@ export function cacheControlFor(
   return null;
 }
 
-/** The global the no-store shell publishes the build commit on
- *  (`window.__SURFACE_APP_COMMIT__`). Build identity rides the SHELL, never a
- *  hashed `/assets/*` file: a commit stamped INSIDE the bundle rewrites the
- *  bytes of a file whose NAME — and so whose year-long `immutable` cache
- *  entry — doesn't change whenever two deploys differ only outside the client
- *  build (a docs-only commit), so every returning browser stays pinned on the
- *  old stamp, looks permanently stale, and the update prompt loops forever
- *  (kolu#1319). The shell is `no-store` — re-fetched on every load — so a
- *  commit carried here is always the deployed one, and the hashed bundle the
- *  shell names is paired with it by content, not by stamp. Read it via
- *  `shellCommit()` (`./lifecycle`). */
-export const SHELL_COMMIT_GLOBAL = "__SURFACE_APP_COMMIT__";
-
-/** The inline `<script>` that publishes `commit` on `SHELL_COMMIT_GLOBAL` —
- *  what `injectShellCommit` (and the `surfaceApp()` Vite plugin) puts in the
- *  shell, and what a Nix post-build stamp rewrites (kolu seds its placeholder
- *  in `dist/index.html` ONLY — never in `dist/assets/`). JSON-encoded with
- *  `<` escaped so an arbitrary commit string can't terminate the element. */
-export function shellCommitScript(commit: string): string {
-  return `<script>${shellCommitScriptBody(commit)}</script>`;
-}
-
-/** The inner text of `shellCommitScript` — `window.${SHELL_COMMIT_GLOBAL}=<literal>`,
- *  the `<script>`-less body both the Bun/Nix shell (via `shellCommitScript`) and
- *  the `/vite` plugin need. This is the ONE authoritative copy of the
- *  assignment shape and the `<`-escape that stops an arbitrary commit string
- *  from closing the element. `vite.ts` can't import it across Node's ESM
- *  boundary (see its header), so it carries a byte-identical inline copy that
- *  `vite.test.ts` pins to this function across adversarial commits. */
-export function shellCommitScriptBody(commit: string): string {
-  const literal = JSON.stringify(commit).replace(/</g, "\\u003c");
-  return `window.${SHELL_COMMIT_GLOBAL}=${literal}`;
-}
-
-/** Inject the shell-commit script into an HTML shell, right after `<head>` so
- *  it runs before the module bundle reads it. Pure — the Bun builder
- *  (`./bun`) applies it to the template it rewrites; the Vite path injects the
- *  same tag through `transformIndexHtml`. Throws when the template has no
- *  `<head>` rather than silently emitting a shell with no build identity. */
-export function injectShellCommit(html: string, commit: string): string {
-  return insertAfterHead(
-    html,
-    shellCommitScript(commit),
-    "injectShellCommit",
-    "the shell would carry no build identity",
-  );
-}
-
-/** Insert `snippet` right after the shell's `<head>` open tag — the ONE place
- *  either injector puts anything, so neither can drift into its own idea of
- *  where the head starts. `who` names the caller and `cost` what a template with
- *  no `<head>` would silently ship; both go into the thrown error. */
-function insertAfterHead(
-  html: string,
-  snippet: string,
-  who: string,
-  cost: string,
-): string {
-  // Require a real `head` start tag with a tag-name boundary — `<head>` or
-  // `<head …>` but NOT `<header>`/`<headless>`. A loose `/<head[^>]*>/` would
-  // match `<header>` and inject at the wrong spot, defeating the fail-loud
-  // contract for a shell that has no real `<head>`.
-  const head = /<head(?:\s|>)/i.exec(html);
-  if (!head) {
-    throw new Error(`${who}: the HTML template has no <head> — ${cost}`);
-  }
-  const close = html.indexOf(">", head.index);
-  if (close === -1) {
-    throw new Error(`${who}: the HTML template has an unterminated <head> tag`);
-  }
-  const at = close + 1;
-  return html.slice(0, at) + snippet + html.slice(at);
-}
-
-/** Inject a `<link rel="modulepreload">` for each href into an HTML shell, right
- *  after `<head>` — so the browser starts fetching the entry's static chunks
- *  while it is still parsing the shell, instead of discovering them a round trip
- *  later, once the entry has been fetched AND parsed. Pure; the Bun builder
- *  (`./bun`) applies it with the chunks it read off the build graph, and the
- *  Vite path needs no counterpart (Vite emits these tags itself).
+/** The shell-carried build identity — the global the `no-store` shell publishes
+ *  the commit on (kolu#1319: identity NEVER rides a hashed asset), the inline
+ *  script that publishes it, and the injector a caller templating its own shell
+ *  stamps that script in with.
  *
- *  No hrefs ⇒ the html back untouched: a build with nothing split leaves no
- *  trace, rather than an empty artifact in every shell that never splits. */
-export function injectModulePreloads(
-  html: string,
-  hrefs: readonly string[],
-): string {
-  if (hrefs.length === 0) return html;
-  return insertAfterHead(
-    html,
-    hrefs.map((href) => `<link rel="modulepreload" href="${href}">`).join(""),
-    "injectModulePreloads",
-    "the entry's static chunks would cost an extra round trip on first paint",
-  );
-}
+ *  All three are DEFINED in `./shellHead`, which owns where the shell's `<head>`
+ *  starts and in what order this package's prelude is written into it — the
+ *  commit script and the `modulepreload` links the Bun build adds share one
+ *  locator and one splice, and that module is internal (off the `exports` map,
+ *  the `./precompress` precedent). Re-exported here because these three are the
+ *  public half: `./lifecycle` reads the global, `./vite` pins its inline copy of
+ *  the script body against this one, and `./client` names `injectShellCommit` as
+ *  the hand-templating path. */
+export {
+  injectShellCommit,
+  SHELL_COMMIT_GLOBAL,
+  shellCommitScript,
+  shellCommitScriptBody,
+} from "./shellHead";
 
 /** The never-stale sentinel: the commit value that means "don't claim
  *  staleness." `resolveCommit` (`./vite`) falls back to it, `shellCommit`
