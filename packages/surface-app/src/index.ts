@@ -144,24 +144,60 @@ export function shellCommitScriptBody(commit: string): string {
  *  same tag through `transformIndexHtml`. Throws when the template has no
  *  `<head>` rather than silently emitting a shell with no build identity. */
 export function injectShellCommit(html: string, commit: string): string {
+  return insertAfterHead(
+    html,
+    shellCommitScript(commit),
+    "injectShellCommit",
+    "the shell would carry no build identity",
+  );
+}
+
+/** Insert `snippet` right after the shell's `<head>` open tag — the ONE place
+ *  either injector puts anything, so neither can drift into its own idea of
+ *  where the head starts. `who` names the caller and `cost` what a template with
+ *  no `<head>` would silently ship; both go into the thrown error. */
+function insertAfterHead(
+  html: string,
+  snippet: string,
+  who: string,
+  cost: string,
+): string {
   // Require a real `head` start tag with a tag-name boundary — `<head>` or
   // `<head …>` but NOT `<header>`/`<headless>`. A loose `/<head[^>]*>/` would
   // match `<header>` and inject at the wrong spot, defeating the fail-loud
   // contract for a shell that has no real `<head>`.
   const head = /<head(?:\s|>)/i.exec(html);
   if (!head) {
-    throw new Error(
-      "injectShellCommit: the HTML template has no <head> — the shell would carry no build identity",
-    );
+    throw new Error(`${who}: the HTML template has no <head> — ${cost}`);
   }
   const close = html.indexOf(">", head.index);
   if (close === -1) {
-    throw new Error(
-      "injectShellCommit: the HTML template has an unterminated <head> tag",
-    );
+    throw new Error(`${who}: the HTML template has an unterminated <head> tag`);
   }
   const at = close + 1;
-  return html.slice(0, at) + shellCommitScript(commit) + html.slice(at);
+  return html.slice(0, at) + snippet + html.slice(at);
+}
+
+/** Inject a `<link rel="modulepreload">` for each href into an HTML shell, right
+ *  after `<head>` — so the browser starts fetching the entry's static chunks
+ *  while it is still parsing the shell, instead of discovering them a round trip
+ *  later, once the entry has been fetched AND parsed. Pure; the Bun builder
+ *  (`./bun`) applies it with the chunks it read off the build graph, and the
+ *  Vite path needs no counterpart (Vite emits these tags itself).
+ *
+ *  No hrefs ⇒ the html back untouched: a build with nothing split leaves no
+ *  trace, rather than an empty artifact in every shell that never splits. */
+export function injectModulePreloads(
+  html: string,
+  hrefs: readonly string[],
+): string {
+  if (hrefs.length === 0) return html;
+  return insertAfterHead(
+    html,
+    hrefs.map((href) => `<link rel="modulepreload" href="${href}">`).join(""),
+    "injectModulePreloads",
+    "the entry's static chunks would cost an extra round trip on first paint",
+  );
 }
 
 /** The never-stale sentinel: the commit value that means "don't claim

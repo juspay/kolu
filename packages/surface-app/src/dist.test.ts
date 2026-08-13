@@ -24,6 +24,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -49,8 +50,10 @@ const DECODE: Record<string, (bytes: Buffer) => Buffer> = {
 };
 
 /** A client entry big and repetitive enough to be worth compressing — a real
- *  one is megabytes. The marker splits off the half the stand-in bundler emits
- *  as a dynamic-import chunk. */
+ *  one is megabytes. The markers split off the halves the stand-in bundler emits
+ *  as chunks: `//--shared--` the one the entry STATICALLY imports (what a real
+ *  bundler hoists when the entry and the deferred half both need it), and
+ *  `//--dynamic--` the one an `import()` defers. */
 const clientSource = (label: string): string =>
   [
     `export const label = ${JSON.stringify(label)};`,
@@ -58,12 +61,27 @@ const clientSource = (label: string): string =>
       { length: 80 },
       (_, i) => `export const pad${i} = "the quick brown fox jumps over ${i}";`,
     ),
+    "//--shared--",
+    ...Array.from(
+      { length: 80 },
+      (_, i) => `export const common${i} = "both halves parse markdown ${i}";`,
+    ),
     "//--dynamic--",
     ...Array.from(
       { length: 80 },
       (_, i) => `export const heavy${i} = "a markdown pipeline weighs ${i}";`,
     ),
   ].join("\n");
+
+/** The same entry with its `//--shared--` half folded back in: an app that
+ *  writes `import()` and shares nothing with it, so the only chunk is deferred. */
+const dynamicOnlySource = (): string =>
+  clientSource("lazy").replace("//--shared--\n", "");
+
+/** An entry that splits into nothing — one entrypoint, no `import()`. Most apps.
+ */
+const noSplitSource = (): string =>
+  clientSource("solo").split("//--shared--\n")[0]!;
 
 const TEMPLATE = `<!doctype html>
 <html><head><title>t</title><link rel="stylesheet" href="./styles.css" /></head>
@@ -76,8 +94,8 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
   let distDir: string;
   let stand: StandInBun;
 
-  const build = (label = "one") => {
-    writeFileSync(join(clientDir, "main.ts"), clientSource(label));
+  const build = (label = "one", source = clientSource(label)) => {
+    writeFileSync(join(clientDir, "main.ts"), source);
     return buildSurfaceClient({
       entrypoint: join(clientDir, "main.ts"),
       distDir,
@@ -106,6 +124,8 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
 
   const assetsDir = () => join(distDir, ASSET_DIR);
   const names = () => readdirSync(assetsDir()).sort();
+  /** The shell as it was written to the dist — what a browser is actually served. */
+  const shell = () => readFileSync(join(distDir, "index.html"), "utf8");
 
   beforeEach(() => {
     work = mkdtempSync(join(tmpdir(), "dist-socket-"));
@@ -226,6 +246,51 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
     expect(res.header("Cache-Control")).toContain("immutable");
   });
 
+  it("preloads the entry's STATIC chunk from the shell — the round trip splitting adds, handed back", async () => {
+    // What splitting costs and nothing else pays back: the entry imports the
+    // shared chunk at its top, so a browser given only the entry's URL cannot
+    // ask for that file until the entry has been fetched AND parsed. The shell
+    // knows the name now, so it says it now.
+    const { assets, jsHref } = await build();
+    const shared = assets.find((a) => a.file.startsWith("shared-"));
+    expect(shared).toBeDefined();
+    const html = shell();
+    expect(html).toContain(
+      `<link rel="modulepreload" href="/${ASSET_DIR}/${shared!.file}">`,
+    );
+    // Exactly one — the entry has exactly one static chunk here, and a second
+    // tag would mean something else (the dynamic chunk, the entry itself) crept
+    // into the walk.
+    expect(html.match(/rel="modulepreload"/g)).toHaveLength(1);
+    // First thing in the head, and so ahead of the script that needs it: a
+    // preload the parser reaches after the entry saves nothing at all.
+    expect(html.indexOf("modulepreload")).toBeLessThan(html.indexOf(jsHref));
+    expect(html.indexOf("modulepreload")).toBeLessThan(
+      html.indexOf("__SURFACE_APP_COMMIT__"),
+    );
+  });
+
+  it("does NOT preload the dynamic chunk — that would undo the very split it rides on", async () => {
+    // The failure this forbids is the tempting one: preload everything the build
+    // emitted, and `import()` becomes a slower way to fetch the bytes eagerly.
+    const { assets } = await build("one", dynamicOnlySource());
+    const deferred = assets.find((a) => a.file.startsWith("chunk-"));
+    expect(deferred).toBeDefined();
+    const html = shell();
+    expect(html).not.toContain(deferred!.file);
+    expect(html).not.toContain("modulepreload");
+  });
+
+  it("leaves a shell alone when the entry split into nothing — no empty artifact", async () => {
+    // Most apps. A helper shared by every consumer must add nothing at all to
+    // the one that has nothing to add.
+    const { assets } = await build("one", noSplitSource());
+    expect(assets.some((a) => a.file.endsWith(".js"))).toBe(true);
+    expect(assets.some((a) => a.file.startsWith("chunk-"))).toBe(false);
+    expect(assets.some((a) => a.file.startsWith("shared-"))).toBe(false);
+    expect(shell()).not.toContain("modulepreload");
+  });
+
   it("skips sourcemaps — they are not on the first-paint path", async () => {
     await build();
     const maps = names().filter((n) => n.endsWith(".js.map"));
@@ -251,6 +316,7 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
     for (const name of after) {
       expect(
         name.startsWith("chunk-") ||
+          name.startsWith("shared-") ||
           name.startsWith("main-") ||
           name.startsWith("styles-"),
       ).toBe(true);

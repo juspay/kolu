@@ -12,10 +12,19 @@
  * So the bundling is a stand-in and everything downstream of it is real: real
  * files on a real temp dist, the real prune, the real brotli/zstd/gzip, and the
  * real static layer reading them back off disk (`dist.test.ts`). The stand-in
- * emits what a real `Bun.build` emits — a hashed entry, a hashed chunk when
- * `splitting` is on and the source dynamically imports, and linked sourcemaps —
- * and records the config it was handed, so the test can also pin the two build
- * settings the freshness contract rests on rather than trusting a comment.
+ * emits what a real `Bun.build` emits — a hashed entry, hashed chunks when
+ * `splitting` is on and the source splits, linked sourcemaps, and the metafile
+ * describing which output imports which and how — and records the config it was
+ * handed, so the test can also pin the build settings the freshness contract
+ * rests on rather than trusting a comment.
+ *
+ * The metafile is written from what this emitter itself did, and its shape is a
+ * copy of a real `Bun.build` metafile (bun 1.3.13): outputs keyed `./<file>`,
+ * each with `imports: [{ path, kind }]` where `kind` is `import-statement` for a
+ * shared chunk and `dynamic-import` for a deferred one, and sourcemaps absent.
+ * `modulePreload.test.ts` pins the walk against a metafile captured from a real
+ * bun build, so the shape here is checked against the real thing rather than
+ * being the only description of it.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -28,6 +37,7 @@ export interface RecordedBuildConfig {
   outdir: string;
   naming?: { entry: string; chunk: string; asset: string };
   splitting?: boolean;
+  metafile?: boolean;
   format?: string;
   sourcemap?: string;
   [extra: string]: unknown;
@@ -60,12 +70,14 @@ const render = (pattern: string, name: string, content: string): string =>
  * Install the stand-in on `globalThis.Bun`.
  *
  * `build` writes the entry from the entrypoint's own source. It does NOT parse
- * JavaScript: the fixture marks where the dynamic half begins with a literal
- * `//--dynamic--` line, and when `splitting` is on that half is emitted as a
- * SEPARATE hashed chunk the entry names by a relative URL — the shape whose
- * absence made every consumer stand up a second `Bun.build` of its own. A
- * fixture that writes a real `import("./x")` and no marker gets no chunk here,
- * which is a limit of the stand-in and not a statement about Bun.
+ * JavaScript: the fixture marks its halves with literal `//--shared--` and
+ * `//--dynamic--` lines, and when `splitting` is on each is emitted as a
+ * SEPARATE hashed chunk the entry names by a relative URL — the `//--shared--`
+ * half the way a real bundler hoists code the entry and the deferred chunk both
+ * need (a STATIC import of the entry, which is what earns a modulepreload), the
+ * `//--dynamic--` half the way an `import()` defers one. A fixture that writes a
+ * real `import("./x")` and no marker gets no chunk here, which is a limit of the
+ * stand-in and not a statement about Bun.
  */
 export const installStandInBun = (): StandInBun => {
   const previous = (globalThis as { Bun?: unknown }).Bun;
@@ -79,11 +91,21 @@ export const installStandInBun = (): StandInBun => {
     const entrypoint = config.entrypoints[0]!;
     const source = readFileSync(entrypoint, "utf8");
     const outputs: { path: string; kind: string }[] = [];
+    const graph: Record<string, { imports: { path: string; kind: string }[] }> =
+      {};
 
-    const emit = (fileName: string, content: string, kind: string): string => {
+    const emit = (
+      fileName: string,
+      content: string,
+      kind: string,
+      imports: { path: string; kind: string }[] = [],
+    ): string => {
       const path = join(config.outdir, fileName);
       writeFileSync(path, content);
       outputs.push({ path, kind });
+      // Keyed and referenced the way a real metafile is: relative to the outdir,
+      // and sourcemaps not among the outputs at all.
+      graph[`./${fileName}`] = { imports };
       if (config.sourcemap === "linked") {
         writeFileSync(`${path}.map`, `{"version":3,"file":"${fileName}"}`);
         outputs.push({ path: `${path}.map`, kind: "sourcemap" });
@@ -91,26 +113,60 @@ export const installStandInBun = (): StandInBun => {
       return fileName;
     };
 
-    // The dynamically-imported half, split out only when splitting is on —
-    // otherwise it is inlined into the entry, which is precisely the old
-    // behaviour (deferred in evaluation, identical on the wire).
-    const [head, dynamic = ""] = source.split("//--dynamic--\n");
+    // The two split halves, emitted only when splitting is on — otherwise both
+    // are inlined into the entry, which is precisely the old behaviour
+    // (deferred in evaluation, identical on the wire).
+    const [beforeDynamic = "", dynamic] = source.split("//--dynamic--\n");
+    const [head = "", shared] = beforeDynamic.split("//--shared--\n");
+
     let entrySource = source;
-    if (dynamic !== "" && config.splitting === true) {
-      const chunkName = emit(
-        render(naming.chunk, "chunk", dynamic),
-        dynamic,
-        "chunk",
-      );
-      entrySource = `${head}await import("./${chunkName}");\n`;
+    const entryImports: { path: string; kind: string }[] = [];
+    if (
+      config.splitting === true &&
+      (shared !== undefined || dynamic !== undefined)
+    ) {
+      entrySource = head;
+      let sharedName: string | undefined;
+      if (shared !== undefined) {
+        sharedName = emit(
+          render(naming.chunk, "shared", shared),
+          shared,
+          "chunk",
+        );
+        entrySource += `import "./${sharedName}";\n`;
+        entryImports.push({
+          path: `./${sharedName}`,
+          kind: "import-statement",
+        });
+      }
+      if (dynamic !== undefined) {
+        // The deferred chunk needs the shared half too — that is WHY the shared
+        // half is its own chunk rather than part of either one.
+        const chunkName = emit(
+          render(naming.chunk, "chunk", dynamic),
+          dynamic,
+          "chunk",
+          sharedName === undefined
+            ? []
+            : [{ path: `./${sharedName}`, kind: "import-statement" }],
+        );
+        entrySource += `await import("./${chunkName}");\n`;
+        entryImports.push({ path: `./${chunkName}`, kind: "dynamic-import" });
+      }
     }
     const entryBase = basename(entrypoint, extname(entrypoint));
     emit(
       render(naming.entry, entryBase, entrySource),
       entrySource,
       "entry-point",
+      entryImports,
     );
-    return { success: true, logs: [], outputs };
+    return {
+      success: true,
+      logs: [],
+      outputs,
+      metafile: config.metafile === true ? { outputs: graph } : undefined,
+    };
   };
 
   (globalThis as { Bun?: unknown }).Bun = {

@@ -185,9 +185,9 @@ server.on(
 it produces the dist the static layer above is built to serve, and nothing about
 that dist is the app's to remember. Content-hashed `/assets/*` (entry, split
 chunks, extra assets), the `no-store` shell rewritten to name them, the commit
-injected onto that shell, and — since the socket was completed — the
-precompressed siblings and the code splitting every consumer used to bolt on
-afterwards.
+injected onto that shell, a `<link rel="modulepreload">` for each chunk the entry
+statically imports, and — since the socket was completed — the precompressed
+siblings and the code splitting every consumer used to bolt on afterwards.
 
 | Export | Subpath | Role |
 | --- | --- | --- |
@@ -217,6 +217,18 @@ for (const a of assets) console.log(a.file, a.bytes, a.siblings);
   dynamic `import()` in your own source already asked for; `splitting: false`
   used to inline it, which is deferred in evaluation and identical on the wire.
   With one entrypoint and no dynamic import the output is unchanged.
+</Aside>
+
+<Aside type="note" title="The shell preloads the entry's STATIC chunks, and only those">
+  Splitting hands the entry a chunk it imports at the top — the module the
+  bundler hoisted out because the entry and a deferred chunk both need it. A
+  browser handed only the entry's URL cannot ask for that file until it has
+  fetched **and parsed** the entry, so the split costs one extra round trip on
+  first paint. The build reads its own chunk graph (`Bun.build({ metafile: true })`)
+  and names those files in the shell, transitively, so the fetches start while
+  the HTML is still parsing. A `dynamic-import` chunk is never preloaded —
+  that would fetch on first paint exactly what `import()` was written to defer —
+  and an entry that split into nothing gets no tags at all.
 </Aside>
 
 <Aside type="caution" title="The hashed dir belongs to the build">

@@ -40,6 +40,13 @@
  *   writing `import()` (or not), and a flag that turns that statement into a
  *   no-op is a second, silent opinion about the app's own source. With one
  *   entrypoint and no dynamic import the output is byte-identical either way.
+ * - **`<link rel="modulepreload">`** in the shell for the chunks the entry
+ *   STATICALLY imports (`./modulePreload`), because splitting the entry is what
+ *   creates them and nothing downstream can name them: the browser would
+ *   otherwise discover a shared chunk only after fetching AND parsing the entry,
+ *   one round trip into first paint. No flag here either, for the same reason as
+ *   the two above — a build with no split chunks emits no tags, so the only
+ *   thing a switch could select is whether that round trip gets paid.
  *
  * Both were paid upstream the way the `serveSurfaceApp` listener sequence and
  * the RPC frame cap were: by REMOVING the choice where the right answer is
@@ -49,7 +56,8 @@
 import { existsSync } from "node:fs";
 import { cp, mkdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { ASSET_DIR, injectShellCommit } from "./index";
+import { ASSET_DIR, injectModulePreloads, injectShellCommit } from "./index";
+import { type ChunkGraph, staticImportChunks } from "./modulePreload";
 import {
   type AssetReport,
   precompressAssets,
@@ -66,6 +74,9 @@ interface BunBuildResult {
   success: boolean;
   logs: { message: string }[];
   outputs: BunBuildArtifact[];
+  /** Present because the config below asks for it — the bundler's own record of
+   *  which output imports which, and how (`./modulePreload`). */
+  metafile?: ChunkGraph;
 }
 interface BunBuildConfig {
   entrypoints: string[];
@@ -79,6 +90,10 @@ interface BunBuildConfig {
   splitting?: boolean;
   minify?: boolean;
   sourcemap?: string;
+  // Ask the bundler to report the chunk graph, which is the only place the
+  // entry's static imports are stated rather than guessed at (see the
+  // modulepreload block below).
+  metafile?: boolean;
   define?: Record<string, string>;
   // App bundler plugins (e.g. the Solid JSX transform) — opaque here; passed
   // straight through to `Bun.build`, so this module needs no `bun` plugin types.
@@ -179,7 +194,8 @@ export interface SurfaceClientBuildResult {
  *  content-hashed `/assets/*` (the prerequisite for `immutable` caching), the
  *  build commit published on the shell global (`window.__SURFACE_APP_COMMIT__`
  *  in the `no-store` `index.html` — never inside a hashed asset; kolu#1319),
- *  and the shell rewritten to name the hashed assets. The hashed dir it leaves
+ *  the shell rewritten to name the hashed assets, and a `modulepreload` link for
+ *  each chunk the entry statically imports. The hashed dir it leaves
  *  behind is exactly this build's output plus the precompressed siblings
  *  `freshStaticLayer` negotiates — see the module header for why neither of
  *  those is an option. Returns the hashed hrefs (the JS entry plus one per extra
@@ -222,6 +238,7 @@ export async function buildSurfaceClient(
     splitting: true,
     minify: opts.minify ?? true,
     sourcemap: "linked",
+    metafile: true,
     plugins: opts.plugins,
   });
   if (!jsResult.success) {
@@ -241,6 +258,23 @@ export async function buildSurfaceClient(
       "buildSurfaceClient: Bun.build produced no JS entry output",
     );
   const jsHref = `/${ASSET_DIR}/${basename(jsEntry.path)}`;
+
+  // The chunks the entry STATICALLY imports, to be preloaded from the shell.
+  // Splitting hands the entry a shared chunk it imports at the top, and the
+  // browser cannot see that file until it has fetched and parsed the entry — one
+  // extra round trip on every first paint. The shell can name it up front, but
+  // only the build knows what it is called, so this is the only place the list
+  // can be true (see `./modulePreload` for the walk and why dynamic chunks are
+  // excluded). No metafile means no graph and so a shell that silently drops
+  // back to costing that round trip: say so instead.
+  if (jsResult.metafile === undefined)
+    throw new Error(
+      "buildSurfaceClient: Bun.build reported no metafile — the entry's chunk graph, and so its modulepreloads, cannot be read",
+    );
+  const preloadHrefs = staticImportChunks(
+    jsResult.metafile,
+    basename(jsEntry.path),
+  ).map((file) => `/${ASSET_DIR}/${file}`);
 
   // Extra assets (e.g. Tailwind CSS): the app builds the bytes; we hash them on
   // their own content, write `/assets/<name>-<hash>.<ext>`, and key the href by
@@ -292,6 +326,11 @@ export async function buildSurfaceClient(
   // on every load, so the identity a client reports is always the deployed one
   // (kolu#1319; `shellCommit()` is the page-side reader).
   html = injectShellCommit(html, commit);
+  // Then the preloads, injected LAST so they land FIRST in the head (both insert
+  // right after the `<head>` tag): the point of the tags is to start those
+  // fetches at the earliest byte the parser reaches, and nothing above them
+  // should push them later. A build with nothing split adds no tags at all.
+  html = injectModulePreloads(html, preloadHrefs);
   await Bun.write(resolve(distDir, "index.html"), html);
 
   // Static public assets (icons, etc.) shipped verbatim to the dist root, OUTSIDE
