@@ -55,7 +55,6 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
       "fs_readFile",
       "git_getDiff",
       "git_getStatus",
-      "lifecycle_create",
       "lifecycle_kill",
       "screen_history",
       "watch_close",
@@ -66,26 +65,28 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
     // outlives the call, which is exactly what a standing subscription is.
     const mutating = resolved.tools.filter((t) => t.mutates).map((t) => t.name);
     expect(mutating.sort()).toEqual([
-      "lifecycle_create",
       "lifecycle_kill",
       "watch_close",
       "watch_open",
     ]);
   });
 
-  it("the bespoke registry carries the five face-local tools", () => {
+  it("the bespoke registry carries the six face-local tools", () => {
     expect(Object.keys(KOLU_MCP_TOOLS).sort()).toEqual([
+      "lifecycle_create",
       "lifecycle_sendInput",
       "screen_text",
       "wait_agentState",
       "wait_outputSettled",
       "watch_next",
     ]);
-    // The wait/watch reads + snapshot read are read-only; the send mutates.
+    // The wait/watch reads + snapshot read are read-only; create and the send
+    // mutate.
     // `watch_next` DRAINS a queue, which is a daemon-side write — but it is
     // declared read-only deliberately: what it mutates is the caller's OWN
     // cursor, and marking it mutating would put a confirmation prompt in front
     // of the one call a supervisor makes in a loop.
+    expect(KOLU_MCP_TOOLS.lifecycle_create?.mutates).toBe(true);
     expect(KOLU_MCP_TOOLS.lifecycle_sendInput?.mutates).toBe(true);
     expect(KOLU_MCP_TOOLS.screen_text?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.wait_outputSettled?.mutates).toBe(false);
@@ -111,6 +112,42 @@ describe("KOLU_MCP_DENIED — every denial is real, absent, and unreachable", ()
       expect(exposed.has(member), `denied member "${member}" is exposed`).toBe(
         false,
       );
+    }
+  });
+
+  it("no denied member is served under its own wire name by a bespoke tool", () => {
+    // DENIED means UNREACHABLE, and the wire-level case below proves it by
+    // calling every denial. A bespoke tool named for a denied member would
+    // answer that call and quietly turn the refusal into a service — so the
+    // list keeps its meaning by asserting the absence here rather than by
+    // skipping such members downstream. A verb that SHOULD be served under its
+    // own name is a supersession, not a denial: it belongs out of this list and
+    // in the module doc beside `screen.text` (see the next case).
+    for (const { member } of KOLU_MCP_DENIED) {
+      const wireName = member.replace(".", "_");
+      expect(
+        wireName in KOLU_MCP_TOOLS,
+        `denied member "${member}" is served by bespoke tool "${wireName}"`,
+      ).toBe(false);
+    }
+  });
+
+  it("each SUPERSEDED procedure is absent from the map and served by its same-named bespoke tool", () => {
+    // The third category, which until now was recorded only in a comment: a
+    // procedure the face serves through a bespoke tool of the SAME wire name,
+    // because the raw verb is the lesser one. Both halves have to hold — absent
+    // from the map (or `@kolu/surface-mcp`'s boot-time collision gate throws)
+    // and present in the registry (or the verb silently vanishes from the face).
+    for (const member of [
+      "screen.text",
+      "lifecycle.sendInput",
+      "lifecycle.create",
+    ]) {
+      expect(member in KOLU_MCP_EXPOSE, `${member} is exposed raw`).toBe(false);
+      expect(
+        member.replace(".", "_") in KOLU_MCP_TOOLS,
+        `${member} has no bespoke tool`,
+      ).toBe(true);
     }
   });
 });

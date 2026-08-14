@@ -150,7 +150,7 @@ for the edge.</span></span></span></p>
 <tr>
 <td>tool, <code>mutates</code></td>
 <td><code>lifecycle.create</code></td>
-<td>spawn a terminal (command, cwd) — returns the TerminalInfo</td>
+<td>spawn a terminal — bespoke since the worktree completion: <code>cwd</code> OR <code>repo</code>+<code>worktree</code> (cut at <code>&lt;repo&gt;/.worktrees/&lt;name&gt;</code>, terminal opens in it), <code>parentId</code>, <code>intent</code>, and <code>run</code> (a first command TYPED at the shell prompt — never a spawn argv) — the whole <code>kolu create</code> composition in one call, returning id/pid (+<code>worktree</code>, <code>ran</code>)</td>
 </tr>
 <tr>
 <td>tool, <code>mutates</code></td>
@@ -180,11 +180,12 @@ consumers — <code>screen.text</code> is the read face); <code>lifecycle.killAl
 <code>recycleKaval</code> / <code>discardSleeping</code> (daemon-admin blast radius — human verbs);
 <code>lifecycle.sleep</code>/<code>wake</code>/<code>resize</code> (layout/lifecycle policy the canvas owns);
 <code>chrome.*</code> (browser canvas arrangement — meaningless for an agent and
-hazardous to script); <code>git.worktreeCreate</code>/<code>worktreeRemove</code> and
-<code>scratch.write</code> (write-side beyond terminal control — expandable later, on
-demand, one row at a time); <code>session.restore</code> + every <code>test__set</code> verb
-(admin/test). Widening the map is a one-row diff with a review, never a
-default.</p>
+hazardous to script); <code>git.worktreeCreate</code> as a RAW verb (it is composed
+<em>inside</em> the bespoke <code>lifecycle_create</code>, behind the CLI’s placement gates);
+<code>git.worktreeRemove</code> and <code>scratch.write</code> (write-side beyond terminal control —
+expandable later, on demand, one row at a time); <code>session.restore</code> + every
+<code>test__set</code> verb (admin/test). Widening the map is a one-row diff with a
+review, never a default.</p>
 <h3 id="skill-parity--the-bridge--kolu-migration-contract">Skill parity — the /bridge · /kolu migration contract</h3>
 <p>The end state (ratified): the <strong>/bridge and /kolu skills drive agents
 through this MCP when it’s available, falling back to <code>kaval-tui</code>/<code>padi-tui</code>
@@ -217,7 +218,7 @@ what those skills do today. The audit of their actual verb usage:</p>
 <tr>
 <td><code>kaval-tui</code>/<code>padi-tui create [--parent --repo]</code> (10×)</td>
 <td><code>lifecycle.create</code></td>
-<td>parameter parity: command, cwd/repo, parent — and the returned TerminalInfo must include the id the skills capture</td>
+<td>parameter parity REACHED with the bespoke create: cwd/repo+worktree, parent, intent, and the typed first command (<code>run</code>) — and the returned record carries the id the skills capture</td>
 </tr>
 <tr>
 <td><code>kaval-tui snapshot [--viewport]</code> (10×)</td>

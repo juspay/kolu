@@ -37,8 +37,12 @@ move under — that gap is a race, not a formality.
 
 - `lifecycle_create` spawns a padi-tracked canvas tile: `intent` labels it,
   `cwd` sets the directory, `parentId: <id>` opens it as a **split** beside
-  that tile. It spawns a shell — launch the agent by sending its command line
-  through the three-step submit.
+  that tile. `repo` + `worktree` cut a fresh git worktree at
+  `<repo>/.worktrees/<name>` and open the terminal IN it, and `run` types a
+  command line at the first shell prompt (submitted with Enter) — the whole
+  `kolu create --repo … --worktree … -- <agent>` in ONE call. It spawns a
+  shell — to drive a live TUI prompt afterwards, still use the three-step
+  submit.
 - `lifecycle_sendInput` writes **text OR one named key, never both** —
   `{ text, key }` together is a typed hard error. Keys: `Enter`, `Escape`,
   `Tab`, arrows, `Home`/`End`, `Backspace`, `Space`, `Shift-Tab`,

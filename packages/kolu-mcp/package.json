@@ -21,7 +21,8 @@
     "@kolu/terminal-protocol": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "kolu-git": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

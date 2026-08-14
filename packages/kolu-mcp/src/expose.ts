@@ -16,12 +16,25 @@
  * SEE "the daemon restarted under me" instead of inferring it from weirdness
  * (the restart-discipline section's generation-visibility mandate).
  *
- * `screen.text` and `lifecycle.sendInput` are deliberately NOT exposed as raw
- * procedures here — each is served by a bespoke tool of the same wire name
- * (`screen_text` adds the tail mode the skills' "read the last N lines" call
- * needs; `lifecycle_sendInput` adds the named-key vocabulary with the
- * text-XOR-key submit discipline). The composite `wait_*` tools are likewise
- * bespoke (client-side scaffolding, not padiSurface procedures).
+ * `screen.text`, `lifecycle.sendInput` and `lifecycle.create` are deliberately
+ * NOT exposed as raw procedures here — each is served by a bespoke tool of the
+ * same wire name (`screen_text` adds the tail mode the skills' "read the last N
+ * lines" call needs; `lifecycle_sendInput` adds the named-key vocabulary with
+ * the text-XOR-key submit discipline; `lifecycle_create` adds the worktree
+ * placement and the typed first command, so one call is `kolu create --repo …
+ * --worktree … -- <cmd>`). These are SUPERSESSIONS, not denials: the verb is
+ * still reachable under its own wire name, so it does not belong in
+ * {@link KOLU_MCP_DENIED} (whose members must all fail as `unknown tool`), and
+ * the boot-time name-collision gate in `@kolu/surface-mcp` is what guarantees
+ * the raw and bespoke spellings can never both register. The composite `wait_*`
+ * tools are likewise bespoke (client-side scaffolding, not padiSurface
+ * procedures).
+ *
+ * `lifecycle_create` carries the #1872 protection the raw row used to state:
+ * there is NO `command`/`env` spawn parameter, so a terminal created through
+ * this face always gets the rc-hooked shell with the daemon's own clean env.
+ * Its `run` is typed at that shell's first prompt, never an argv the daemon
+ * execs. See `create.ts`.
  */
 
 import type { PadiSurfaceSpec } from "@kolu/padi/surface";
@@ -46,15 +59,8 @@ export const KOLU_MCP_EXPOSE = {
   "fs.readFile": { tool: { mutates: false } },
 
   // ── Mutating tools ───────────────────────────────────────────────────────
-  /** Spawn a terminal — takes only `cwd` + an optional `parentId` (plus display
-   *  chrome); returns the TerminalInfo whose `id` the driving agent captures.
-   *  There is deliberately NO `command` and NO `env` parameter (`PadiCreateInputSchema`
-   *  is `{ cwd?, parentId? }` — packages/padi/src/surface.ts): a terminal created
-   *  through a face always gets the rc-hooked shell with the daemon's own clean env,
-   *  so an agent literally cannot ask for a shell-less, caller-env-carrying terminal —
-   *  the exact shape that silently lost agent transcripts in #1872. The missing
-   *  `command`/`env` is the protection, not a gap; do not add it here. */
-  "lifecycle.create": { tool: { mutates: true } },
+  // `lifecycle.create` is superseded by the bespoke tool of the same wire name
+  // — see the module doc.
   /** Kill one terminal by id. */
   "lifecycle.kill": { tool: { mutates: true } },
 
@@ -138,7 +144,7 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
   {
     member: "git.worktreeCreate",
     reason:
-      "write-side beyond terminal control — expandable later, on demand, one row at a time",
+      "write-side beyond terminal control — composed INSIDE the bespoke `lifecycle_create` (behind the CLI's placement gates), not exposed as a raw verb; further raw write verbs stay expandable later, on demand, one row at a time",
   },
   {
     member: "git.worktreeRemove",
