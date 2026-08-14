@@ -30,6 +30,7 @@ import {
 } from "@kolu/surface-mcp";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { createTool } from "./create.ts";
 import { KOLU_MCP_EXPOSE } from "./expose.ts";
 import { screenTextTool } from "./screenText.ts";
 import { sendInputTool } from "./sendInput.ts";
@@ -56,9 +57,11 @@ export interface KoluMcpConnection extends OwnedSurfaceConnection {
 }
 
 /** The face's bespoke tools, named once so the serve call and the tests read
- *  one registry: the named-key send, the tail-mode snapshot, the two composite
- *  wait done-signals, and the standing-subscription drain. */
+ *  one registry: the worktree-capable create, the named-key send, the
+ *  tail-mode snapshot, the two composite wait done-signals, and the
+ *  standing-subscription drain. */
 export const KOLU_MCP_TOOLS: Record<string, BespokeTool> = {
+  lifecycle_create: createTool,
   lifecycle_sendInput: sendInputTool,
   screen_text: screenTextTool,
   wait_outputSettled: waitOutputSettledTool,

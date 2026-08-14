@@ -153,13 +153,16 @@ Every **successful** answer comes back as **structured data** as well as text, s
 your agent acts on a field rather than re-reading prose. A refusal carries data
 when the tool has a machine-readable reason to give: `lifecycle_sendInput` labels
 its four refusals `text-and-key`, `key-refused`, `text-refused` or `no-input`,
-beside the sentence explaining it. Other failures arrive as their message alone.
+and `lifecycle_create` labels its placement refusals (`cwd-and-worktree`,
+`worktree-needs-repo`, `repo-without-worktree`, `blank-field`) and the
+partial-failure report `stopped-partway`, beside the sentence explaining each.
+Other failures arrive as their message alone.
 
 ### Create and drive terminals
 
 | Tool | What it does |
 | --- | --- |
-| `lifecycle_create` | Open a new terminal — a command, a working directory, a split of another terminal — and return its `id`. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
+| `lifecycle_create` | Open a new terminal — in a working directory (`cwd`) or a **fresh git worktree** (`repo` + `worktree`, cut at `<repo>/.worktrees/<name>`), as a split of another terminal (`parentId`), labelled on the canvas (`intent`), optionally typing a first command at its shell prompt (`run`) — and return its `id`. One call does what `kolu create --repo … --worktree … -- <cmd>` does. A create that fails after the worktree or terminal already landed names the survivors as data (`stopped-partway`), so nothing orphaned goes unnameable. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
 | `lifecycle_sendInput` | Type into a terminal: text, **or** one named key or chord (`Enter`, `Escape`, `C-c`, arrows…) — never both in one call. |
 | `lifecycle_kill` | Close one terminal by `id`. |
 

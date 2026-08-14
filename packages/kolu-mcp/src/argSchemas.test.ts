@@ -1,5 +1,5 @@
 /**
- * The three bespoke tools' ARG SCHEMAS, pinned at the only place they matter:
+ * The bespoke tools' ARG SCHEMAS, pinned at the only place they matter:
  * the JSON Schema an MCP host reads out of `tools/list`.
  *
  * These schemas exist to be *rendered*, not just decoded — the per-field blurb
@@ -35,6 +35,7 @@
 import { toInputSchema } from "@kolu/surface-mcp";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { CreateArgsSchema } from "./create.ts";
 import { ScreenTextArgsSchema } from "./screenText.ts";
 import { SendInputArgsSchema } from "./sendInput.ts";
 import {
@@ -132,6 +133,35 @@ describe("lifecycle_sendInput args → the JSON Schema a host reads", () => {
     // The XOR is enforced in `resolveSendInputData`, not in the schema — so
     // BOTH stay optional and neither is required.
     expect(doc.required).toEqual(["id"]);
+  });
+});
+
+describe("lifecycle_create args → the JSON Schema a host reads", () => {
+  it("the placement fields carry their blurb ON the node, checks and all", () => {
+    const doc = toInputSchema(CreateArgsSchema);
+    const described = propertyDescriptions(doc);
+    // `worktree` is the one that would lose its blurb to `allOf`: it carries
+    // the wire's git-ref CHECK, so it is spelled annotate-first.
+    expect(described.worktree).toMatch(/<repo>\/\.worktrees\/<name>/);
+    expect(described.repo).toMatch(/Absolute path/);
+    expect(described.run).toMatch(/not a spawn argv/);
+    // …and the check really is there, beside the blurb rather than instead of
+    // it — an agent's name is validated before the tool dials padi.
+    expect(property(doc, "worktree").allOf).toBeDefined();
+    // Nothing is required: a bare create is still a legal call.
+    expect(doc.required).toBe(undefined);
+  });
+
+  it("advertises the create verb's own fields, so the tool cannot drift from the wire", () => {
+    const props = toInputSchema(CreateArgsSchema).properties as JsonNode;
+    // Spread from `PadiCreateInputSchema` — the wire's cwd/parentId/intent…
+    for (const field of ["cwd", "parentId", "intent"]) {
+      expect(Object.hasOwn(props, field), `${field} is advertised`).toBe(true);
+    }
+    // …plus this face's three additions.
+    for (const field of ["repo", "worktree", "run"]) {
+      expect(Object.hasOwn(props, field), `${field} is advertised`).toBe(true);
+    }
   });
 });
 
@@ -234,6 +264,7 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
 
   it("no tool input is CLOSED — a host sending an extra key is not rejected", () => {
     for (const schema of [
+      CreateArgsSchema,
       ScreenTextArgsSchema,
       SendInputArgsSchema,
       WaitOutputSettledArgsSchema,

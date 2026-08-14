@@ -32,6 +32,12 @@ export {
 } from "./server";
 export {
   type BespokeTool,
+  // The adapter's own "name what broke" derivation. Exported because a bespoke
+  // tool that folds a failure INTO its answer (rather than raising it) has to
+  // reach the same one the request edge would have used — a hand-rolled
+  // `e instanceof Error ? e.message : String(e)` is the spelling this function's
+  // own doc records as wrong for two shapes Effect actually delivers.
+  messageOf,
   ToolFailure,
   type ToolInputSchema,
   type ToolResult,
