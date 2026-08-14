@@ -111,6 +111,7 @@ let
     "@kolu/artifact-sdk" = ../packages/artifact-sdk;
     "@kolu/serve-dir" = ../packages/serve-dir;
     "@kolu/heap-diag" = ../packages/heap-diag;
+    "@kolu/detect" = ../packages/detect;
     "@kolu/html-escape" = ../packages/html-escape;
     "@kolu/shell-quote" = ../packages/shell-quote;
     "@kolu/url-shape" = ../packages/url-shape;
