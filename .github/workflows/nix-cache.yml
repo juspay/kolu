@@ -97,7 +97,17 @@ jobs:
       # `nix profile add` (hence v35 above — v31's 2.29 only had
       # `profile install`, which is why #1731 dropped the action once before).
       # No `attic use` — the nix_conf above already wires the substituter.
+      #
+      # FORK PRs: this is `pull_request`, not `pull_request_target`, so a fork
+      # PR receives NO `ATTIC_TOKEN` — there is nothing to log in with and no
+      # cache to push to. Gating the login (and the push branch in the build
+      # step, and the substitutable-verdict below) on the secret being present
+      # turns what used to be an unavoidable `AccessError` hard-fail on every
+      # fork PR into the intended state: the PR's Nix code still BUILDS (that
+      # is the check a PR is for), and the cache-write is simply skipped. A
+      # same-repo PR / master push still carries the token and warms as before.
       - name: Install attic (pinned) and log in
+        if: secrets.ATTIC_TOKEN != ''
         run: |
           nix profile add "$(jq -r .pins.nixpkgs.url npins/sources.json)#attic-client"
           attic login --set-default oss https://cache.nixos.asia '${{ secrets.ATTIC_TOKEN }}'
@@ -132,6 +142,10 @@ jobs:
       #     and it is a decision we can now name instead of an emergent effect.
       - name: Build and push every flake output
         shell: bash
+        env:
+          # Read once so the push branch below can test for presence without
+          # re-interpolating the secret (empty on fork PRs → build only).
+          ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
         run: |
           # Written out rather than inherited from `shell: bash`. Relying on the
           # implicit `-eo pipefail` is what let the old pre-snapshot step run a
@@ -165,7 +179,15 @@ jobs:
             # `--stdin` rather than `xargs`: xargs may silently split a long
             # list across several invocations, which is a behaviour we would be
             # relying on without saying so. One process, one list.
-            printf '%s\n' "$paths" | attic push --stdin oss
+            #
+            # Fork PRs carry no ATTIC_TOKEN (see the login step above), so the
+            # BUILD still runs — the Nix check a PR is for — but the cache-write
+            # is skipped instead of hard-failing on an authentication error.
+            if [ -n "${ATTIC_TOKEN:-}" ]; then
+              printf '%s\n' "$paths" | attic push --stdin oss
+            else
+              echo "no ATTIC_TOKEN on this event (fork PR) — build only, cache push skipped"
+            fi
           }
           warm .
           # The nested flakes, with the SAME --kinds their own CI nodes use
@@ -206,6 +228,11 @@ jobs:
       # It is a HARD failure, not a warning. A soft-fail would restore the state
       # this whole job was already in during the incident: green, and cold.
       - name: Verify the agent closures are substitutable
+        # The verdict re-asks the cache whether the closures a `--host` dial
+        # provisions are really there. A fork PR (no ATTIC_TOKEN) built but
+        # pushed nothing, so the honest answer is "not from this PR" — skip the
+        # check rather than fail a run that was never meant to write.
+        if: secrets.ATTIC_TOKEN != ''
         shell: bash
         run: |
           set -euo pipefail
