@@ -20,12 +20,7 @@
  */
 
 import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
-import {
-  classifyExpose,
-  type ExposeEntry,
-  type ExposeMap,
-  ExposeMapError,
-} from "@kolu/surface/expose";
+import { classifyExpose, type ExposeMap } from "@kolu/surface/expose";
 import { Option, Schema } from "effect";
 import { inputSchema } from "./jsonschema";
 import { ADAPTER_NAME, brand } from "./tools";
@@ -42,27 +37,6 @@ import { ADAPTER_NAME, brand } from "./tools";
 // about where `ExposeMap` lives. What stays here is the RESOLUTION, because only
 // this adapter turns a classified entry into a `surface://` URI or an MCP tool
 // name.
-
-/** `classifyExpose`, with this adapter's brand on the refusal. The grammar is
- *  the framework's, but the consumer called `serveSurfaceAsMcp` — so the failure
- *  says which door it came through, the way every other boot-time refusal from
- *  this package does. The brand is a FIELD on the framework's own error class,
- *  not a rewrite of its message: a consumer handling "my expose map is wrong"
- *  across faces matches the class, never the text. Anything that is not an
- *  `ExposeMapError` is not ours to relabel and travels on untouched. */
-function classify<S extends SurfaceSpec>(
-  spec: S,
-  expose: ExposeMap<S>,
-): ExposeEntry[] {
-  try {
-    return classifyExpose(spec, expose);
-  } catch (err) {
-    if (err instanceof ExposeMapError) {
-      throw new ExposeMapError({ detail: err.detail, face: ADAPTER_NAME });
-    }
-    throw err;
-  }
-}
 
 // ── Resolved registration lists ─────────────────────────────────────────
 
@@ -184,7 +158,15 @@ function assertExposableAsResource(
  *  left here is what only this adapter knows: which `surface://` URI a primitive
  *  gets, which tool name a procedure gets, its JSON-Schema input, and the one gate
  *  a wire face has no equivalent of (an input-bearing stream/event cannot be a
- *  STATIC resource). */
+ *  STATIC resource).
+ *
+ *  The adapter's NAME travels into the classifier, so the framework's refusal
+ *  comes back already saying which door the consumer came through — the way
+ *  every other boot-time refusal from this package does. The brand is a FIELD on
+ *  the framework's own error class, not a rewrite of its message: a consumer
+ *  handling "my expose map is wrong" across faces matches the class, never the
+ *  text, and the original stack survives because nothing was caught and
+ *  rebuilt. */
 export function resolveExpose<S extends SurfaceSpec>(
   spec: S,
   expose: ExposeMap<S>,
@@ -193,7 +175,7 @@ export function resolveExpose<S extends SurfaceSpec>(
   const resourceTemplates: ResourceTemplateEntry[] = [];
   const tools: ToolEntry[] = [];
 
-  for (const entry of classify(spec, expose)) {
+  for (const entry of classifyExpose(spec, expose, ADAPTER_NAME)) {
     if (entry.kind === "procedure") {
       // The spec `classifyExpose` resolved travels ON the entry, so the input
       // schema is read from the same lookup that proved the procedure exists —

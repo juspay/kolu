@@ -6,6 +6,7 @@
  */
 
 import { defineSurface } from "@kolu/surface/define";
+import { ExposeMapError } from "@kolu/surface/expose";
 import { Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -16,6 +17,7 @@ import {
   resolveExpose,
   streamUri,
 } from "./expose";
+import { ADAPTER_NAME, brand } from "./tools";
 
 function buildSpec() {
   return defineSurface({
@@ -119,6 +121,30 @@ describe("resolveExpose", () => {
         "counter.nonexistent": "tool",
       } as Record<string, "tool">),
     ).toThrow(/no such procedure/);
+  });
+
+  it("brands the shared grammar's refusal with this adapter's name", () => {
+    // The grammar is the framework's, but the consumer called
+    // `serveSurfaceAsMcp` — so the refusal says which door it came through, as
+    // a FIELD on the framework's own class (a consumer handling "my expose map
+    // is wrong" across faces matches the class, never the text) and once in the
+    // message, never twice.
+    let thrown: unknown;
+    try {
+      resolveExpose(buildSpec(), { nope: "resource" } as Record<
+        string,
+        "resource"
+      >);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ExposeMapError);
+    expect((thrown as ExposeMapError).face).toBe(ADAPTER_NAME);
+    expect((thrown as ExposeMapError).message).toBe(
+      brand(
+        'expose names "nope" but the spec has no such cell/collection/stream/event',
+      ),
+    );
   });
 
   it("mis-tagging a primitive as a tool throws", () => {

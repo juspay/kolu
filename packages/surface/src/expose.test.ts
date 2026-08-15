@@ -21,18 +21,19 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
-import { Cause, Effect, Exit, Fiber, Schedule, Schema, Stream } from "effect";
+import { Cause, Effect, Exit, Fiber, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { composeSurfaceContracts, defineSurface } from "./define";
+import { defineSurface } from "./define";
 import {
   classifyExpose,
   type ExposeMap,
+  ExposeMapError,
   exposeFace,
   exposeFaces,
   restrictHandlers,
   SurfaceMemberNotExposed,
 } from "./expose";
-import { callUnary, firstFrame } from "./handlerDispatch.testlib";
+import { callUnary, firstFrame, handlerAt } from "./handlerDispatch.testlib";
 import { unixSocketLink } from "./links/unix-socket";
 import {
   implementSurface,
@@ -136,7 +137,8 @@ function gate(runtime: ReturnType<typeof build>["runtime"], map: ExposeMap) {
 }
 
 /** The defect a refused call carries, or `undefined` if the call did anything
- *  else — including succeed. */
+ *  else — including succeed. A member the record does not bind at all is a
+ *  THROW, from the shared lookup, which names every tag that IS bound. */
 async function refusalOf(
   handlers: SurfaceHandlers,
   tag: string,
@@ -144,8 +146,7 @@ async function refusalOf(
 ): Promise<SurfaceMemberNotExposed | undefined> {
   const exit = await Effect.runPromiseExit(
     Effect.suspend(() => {
-      const result = handlers[tag]?.(payload);
-      if (result === undefined) throw new Error(`no handler at ${tag}`);
+      const result = handlerAt(handlers, tag)(payload);
       return Stream.isStream(result)
         ? Stream.runCollect(result)
         : (result as Effect.Effect<unknown>);
@@ -154,6 +155,23 @@ async function refusalOf(
   if (!Exit.isFailure(exit)) return undefined;
   const squashed = Cause.squash(exit.cause);
   return squashed instanceof SurfaceMemberNotExposed ? squashed : undefined;
+}
+
+/** Assert a member is REFUSED on this face. It asserts the VALUE is a
+ *  `SurfaceMemberNotExposed` for that tag rather than poking at `?.tag`, so a
+ *  call that unexpectedly SUCCEEDS reads as "expected undefined to be a
+ *  SurfaceMemberNotExposed" instead of the riddle `expected undefined to be
+ *  "surface/…"`. */
+async function expectRefused(
+  handlers: SurfaceHandlers,
+  tag: string,
+  payload?: unknown,
+): Promise<void> {
+  const refusal = await refusalOf(handlers, tag, payload);
+  expect(refusal, `"${tag}" was not refused on this face`).toBeInstanceOf(
+    SurfaceMemberNotExposed,
+  );
+  expect(refusal?.tag).toBe(tag);
 }
 
 describe("a map grants what it names", () => {
@@ -186,9 +204,27 @@ describe("a map grants what it names", () => {
     // The shape the protocol will run has to be the shape the `Rpc` promised —
     // an `Effect` here is a serving stack that breaks on subscribe.
     expect(Stream.isStream(result)).toBe(true);
-    expect((await refusalOf(restricted, TICKS_GET, undefined))?.tag).toBe(
-      TICKS_GET,
-    );
+    await expectRefused(restricted, TICKS_GET);
+  });
+
+  it("reads membership only — `mutates` is an MCP presentation hint, not a gate", async () => {
+    // Every other test here writes the bare `"tool"`. The OBJECT spellings are
+    // the ones a consumer reaches for when it also serves an MCP face, and a
+    // wire face must read them the same: `{ tool: { mutates: false } }` does not
+    // make a call more allowed, and `{ tool: {} }` (which `@kolu/surface-mcp`
+    // reads as MUTATING) does not make it less.
+    const { runtime, wiped } = build();
+    const restricted = gate(runtime, {
+      "math.double": { tool: { mutates: false } },
+      "admin.wipe": { tool: {} },
+    });
+    await expect(callUnary(restricted, DOUBLE, { x: 21 })).resolves.toEqual({
+      y: 42,
+    });
+    await expect(callUnary(restricted, WIPE, undefined)).resolves.toEqual({
+      ok: true,
+    });
+    expect(wiped).toEqual(["called"]);
   });
 
   it('grants a primitive its READ verbs on "resource" and withholds its writes', async () => {
@@ -196,29 +232,146 @@ describe("a map grants what it names", () => {
     const restricted = gate(runtime, { motd: "resource", notes: "resource" });
     await expect(firstFrame(restricted, MOTD_GET)).resolves.toBe("boot");
     await expect(firstFrame(restricted, NOTES_KEYS)).resolves.toEqual([]);
-    expect((await refusalOf(restricted, MOTD_SET, "hijacked"))?.tag).toBe(
-      MOTD_SET,
-    );
-    expect(
-      (
-        await refusalOf(restricted, NOTES_UPSERT, {
-          key: 1,
-          value: { text: "x" },
-        })
-      )?.tag,
-    ).toBe(NOTES_UPSERT);
+    await expectRefused(restricted, MOTD_SET, "hijacked");
+    await expectRefused(restricted, NOTES_UPSERT, {
+      key: 1,
+      value: { text: "x" },
+    });
     // Refused BEFORE the write, which is the only thing that matters.
     expect(notes.size).toBe(0);
+  });
+
+  it('withholds EVERY write verb on "resource", not just `set` and `upsert`', async () => {
+    // The docs name five withheld writes; `set` and `upsert` are the two the
+    // default verb sets mint. A surface that declares the other three has to
+    // withhold those too — `patch` (a cell with a `patchSchema`), `delete`, and
+    // the test-only `test__set`, which is the one an author is likeliest to
+    // forget is a WRITE.
+    const rich = defineSurface({
+      cells: {
+        doc: {
+          schema: Schema.Struct({ title: Schema.String }),
+          default: { title: "boot" },
+          patchSchema: Schema.Struct({ title: Schema.String }),
+          patch: (current, p) => ({ ...current, ...p }),
+          verbs: ["get", "set", "patch", "test__set"],
+        },
+      },
+      collections: {
+        items: {
+          keySchema: Schema.Number,
+          schema: Schema.Struct({ text: Schema.String }),
+          verbs: ["keys", "get", "deltas", "upsert", "delete", "test__set"],
+        },
+      },
+    });
+    const stored = new Map<number, { text: string }>();
+    const runtime = implementSurface(rich, {
+      cells: { doc: { store: inMemoryStore({ title: "boot" }) } },
+      collections: {
+        items: {
+          readAll: () => stored,
+          upsert: (k, v) => {
+            stored.set(k, v);
+          },
+          remove: (k) => {
+            stored.delete(k);
+          },
+        },
+      },
+    });
+    const restricted = restrictHandlers(
+      runtime.group,
+      runtime.handlers,
+      exposeFace(rich, { doc: "resource", items: "resource" }),
+    );
+    // The reads it declares…
+    await expect(firstFrame(restricted, "surface/doc/get")).resolves.toEqual({
+      title: "boot",
+    });
+    await expect(firstFrame(restricted, "surface/items/keys")).resolves.toEqual(
+      [],
+    );
+    await expect(
+      firstFrame(restricted, "surface/items/deltas"),
+    ).resolves.toEqual({ kind: "snapshot", entries: [] });
+    // …and every write it declares, withheld.
+    for (const tag of [
+      "surface/doc/set",
+      "surface/doc/patch",
+      "surface/doc/test__set",
+      "surface/items/upsert",
+      "surface/items/delete",
+      "surface/items/test__set",
+    ]) {
+      await expectRefused(restricted, tag);
+    }
+    expect(stored.size).toBe(0);
+    await runtime.close();
+  });
+
+  it("grants only the read verbs a member actually DECLARES", () => {
+    // `"resource"` OFFERS every read verb and keeps the ones the surface serves,
+    // so a narrowed member is narrow on the gate too: a `verbs: ["get"]` cell
+    // grants only `get`, and a collection without `deltas` never gets a `deltas`
+    // tag. Asserted on the tag set itself — a granted tag no surface serves is
+    // invisible when applied (the applier walks the GROUP), so nothing
+    // downstream would ever notice.
+    const narrowed = defineSurface({
+      cells: {
+        health: { schema: Schema.String, default: "ok", verbs: ["get"] },
+      },
+      collections: {
+        notes: {
+          keySchema: Schema.Number,
+          schema: Schema.Struct({ text: Schema.String }),
+        },
+      },
+    });
+    expect(
+      [...exposeFace(narrowed, { health: "resource", notes: "resource" }).tags]
+        .slice()
+        .sort(),
+    ).toEqual([
+      "surface/health/get",
+      "surface/notes/get",
+      "surface/notes/keys",
+    ]);
   });
 
   it("keeps the framework-reserved members reachable on a gated face", async () => {
     const { runtime } = build();
     const restricted = gate(runtime, {});
     // An empty map denies the whole app surface…
-    expect((await refusalOf(restricted, DOUBLE, { x: 1 }))?.tag).toBe(DOUBLE);
+    await expectRefused(restricted, DOUBLE, { x: 1 });
     // …and still answers the probe a client's watchdog rides, because a refused
     // `system/live` reads as a dead transport and reconnects forever.
     await expect(callUnary(restricted, LIVE, {})).resolves.toEqual({});
+  });
+
+  it("answers the reserved members for a HAND-BUILT exposure too", async () => {
+    // `FaceExposure` is a structural interface, so an exposure assembled any
+    // other way than by the constructors above is a legal argument. The reserved
+    // carve-out is therefore the APPLIER's guarantee, not the value's — seeding
+    // it at construction would leave this exposure refusing `system/live` and
+    // every client on the face reconnecting forever.
+    const { runtime } = build();
+    const restricted = restrictHandlers(runtime.group, runtime.handlers, {
+      universe: new Set(runtime.group.requests.keys()),
+      tags: new Set<string>(),
+    });
+    await expect(callUnary(restricted, LIVE, {})).resolves.toEqual({});
+    await expectRefused(restricted, DOUBLE, { x: 1 });
+  });
+
+  it("returns the handler record UNCHANGED when there is no policy", () => {
+    // The "omit `expose` and the face serves the whole surface" rule, at its one
+    // implementation — the same record, not an equal copy, so no face can get
+    // the default wrong by rebuilding it.
+    const { runtime } = build();
+    expect(restrictHandlers(runtime.group, runtime.handlers, undefined)).toBe(
+      runtime.handlers,
+    );
   });
 
   it("gates a sibling bundle per sibling, with each sibling's own map", async () => {
@@ -256,15 +409,11 @@ describe("a map grants what it names", () => {
     await expect(callUnary(restricted, "surface/left/math/ping")).resolves.toBe(
       "L",
     );
-    expect((await refusalOf(restricted, "surface/right/math/ping"))?.tag).toBe(
-      "surface/right/math/ping",
-    );
+    await expectRefused(restricted, "surface/right/math/ping");
     await expect(
       firstFrame(restricted, "surface/right/state/get"),
     ).resolves.toBe("R");
-    expect((await refusalOf(restricted, "surface/left/state/get"))?.tag).toBe(
-      "surface/left/state/get",
-    );
+    await expectRefused(restricted, "surface/left/state/get");
 
     // A sibling with NO map is fully denied — an omitted map is an omission,
     // and default-deny is the whole contract…
@@ -273,9 +422,7 @@ describe("a map grants what it names", () => {
       runtime.handlers,
       exposeFaces(surfaces, { left: { "math.ping": "tool" } }),
     );
-    expect((await refusalOf(onlyLeft, "surface/right/state/get"))?.tag).toBe(
-      "surface/right/state/get",
-    );
+    await expectRefused(onlyLeft, "surface/right/state/get");
     // …while its reserved members still answer, per sibling.
     await expect(
       callUnary(onlyLeft, "surface/right/system/live", {}),
@@ -311,9 +458,7 @@ describe("one grammar — a key means the same thing on every face", () => {
     ).resolves.toEqual({ ok: true });
     // The cell was NOT named, so it stays denied — a shared name grants nothing
     // by accident in either direction.
-    expect((await refusalOf(restricted, "surface/nodes/get"))?.tag).toBe(
-      "surface/nodes/get",
-    );
+    await expectRefused(restricted, "surface/nodes/get");
     await runtime.close();
   });
 
@@ -415,32 +560,24 @@ describe("a map that does not describe the surface is a boot crash", () => {
 
   it("refuses an exposure built from a DIFFERENT surface than the group served", () => {
     // Silently gating everything is the one failure mode that looks like
-    // success from the outside, so the mismatch has to be loud.
+    // success from the outside, so the mismatch has to be loud — and it is the
+    // `universe` the exposure CARRIES that catches it, never the tags it
+    // granted. Both maps below drive the identical path for exactly that
+    // reason: the empty one grants nothing at all, so a check that looked only
+    // at the granted tags would read it as a perfectly ordinary strict face.
     const { runtime } = build();
     const other = defineSurface({
       procedures: { other: { ping: { output: Schema.String } } },
     });
-    expect(() =>
-      restrictHandlers(
-        runtime.group,
-        runtime.handlers,
-        exposeFace(other, { "other.ping": "tool" }),
-      ),
-    ).toThrow(/built from a different surface than the group being served/);
-  });
-
-  it("refuses an EMPTY map built from a different surface, which grants only tags every surface has", () => {
-    // The case a "no stray tag" check cannot see: an empty map yields exactly
-    // the three reserved tags, and EVERY surface carries those — so the wrong
-    // surface looks right, the face binds, and the whole app surface is denied
-    // with nothing to say so. The exposure has to CARRY where it came from.
-    const { runtime } = build();
-    const other = defineSurface({
-      procedures: { other: { ping: { output: Schema.String } } },
-    });
-    expect(() =>
-      restrictHandlers(runtime.group, runtime.handlers, exposeFace(other, {})),
-    ).toThrow(/built from a different surface than the group being served/);
+    for (const map of [{ "other.ping": "tool" } as ExposeMap, {}]) {
+      expect(() =>
+        restrictHandlers(
+          runtime.group,
+          runtime.handlers,
+          exposeFace(other, map),
+        ),
+      ).toThrow(/built from a different surface than the group being served/);
+    }
   });
 
   it("refuses a PARTIAL bundle exposure, which would silently deny a whole sibling", () => {
@@ -470,20 +607,14 @@ describe("a map that does not describe the surface is a boot crash", () => {
     ).toThrow(/built from a different surface than the group being served/);
   });
 
-  it("refuses an already-scoped sibling, rather than re-prefixing it", () => {
-    // `Surface.tagPrefix` is carried on the value precisely so a scoped sibling
-    // and a standalone surface are the same shape — so handing the SCOPED
-    // siblings a bundle hands out would mint `surface/left/left/...` tags no
-    // surface serves. Loud, at the constructor.
-    const surfaces = {
-      left: defineSurface({
-        cells: { state: { schema: Schema.String, default: "s" } },
-      }),
-    };
-    const composed = composeSurfaceContracts(surfaces);
-    expect(() =>
-      exposeFaces({ left: composed.siblings.left }, { left: {} }),
-    ).toThrow(/already scoped/);
+  it("names the face on the refusal, and only when there is one", () => {
+    // `ExposeMapError`'s whole reason for being a CLASS is that a face need not
+    // match on message text — so the brand is a field, and the message is the
+    // framework's words with the face's name in front when a face gave one.
+    expect(new ExposeMapError({ detail: "nope" }).message).toBe("nope");
+    expect(new ExposeMapError({ detail: "nope", face: "mcp" }).message).toBe(
+      "mcp: nope",
+    );
   });
 });
 
@@ -597,16 +728,9 @@ describe("two faces of one surface, over real sockets", () => {
         (frame) => Effect.sync(() => void frames.push(frame)),
       ),
     );
-    await Effect.runPromise(
-      Effect.retry(
-        Effect.suspend(() =>
-          frames.length > 0
-            ? Effect.void
-            : Effect.fail(new Error("no first frame yet")),
-        ),
-        { times: 200, schedule: Schedule.spaced(10) },
-      ),
-    );
+    await expect
+      .poll(() => frames.length, { timeout: 2_000 })
+      .toBeGreaterThan(0);
     expect(frames).toEqual(["boot"]);
 
     // The denial, on that same link.
@@ -623,21 +747,10 @@ describe("two faces of one surface, over real sockets", () => {
     // The subscription is still LIVE: a write through the trusted in-process
     // handler pushes a new frame down the very connection that was just
     // refused.
-    await Effect.runPromise(
-      Effect.suspend(
-        () => runtime.handlers[MOTD_SET]?.("after") as Effect.Effect<unknown>,
-      ),
-    );
-    await Effect.runPromise(
-      Effect.retry(
-        Effect.suspend(() =>
-          frames.length > 1
-            ? Effect.void
-            : Effect.fail(new Error("no post-refusal frame yet")),
-        ),
-        { times: 200, schedule: Schedule.spaced(10) },
-      ),
-    );
+    await callUnary(runtime.handlers, MOTD_SET, "after");
+    await expect
+      .poll(() => frames.length, { timeout: 2_000 })
+      .toBeGreaterThan(1);
     expect(frames).toEqual(["boot", "after"]);
 
     await Effect.runPromise(Fiber.interrupt(subscription));
@@ -645,4 +758,29 @@ describe("two faces of one surface, over real sockets", () => {
     listener.close();
     await runtime.close();
   }, 20_000);
+
+  it("REJECTS a mismatched exposure instead of resolving to a refused listener", async () => {
+    // `serveOverUnixSocket`'s contract is that no TRANSPORT failure rejects —
+    // every one of them comes back as an `outcome` a host can survive. A
+    // mismatched exposure is carved out of that on purpose: it is the author's
+    // own mistake, and degrading it to a quiet no-op listener would hide a
+    // security gate that never took effect.
+    const { runtime } = build();
+    const other = defineSurface({
+      procedures: { other: { ping: { output: Schema.String } } },
+    });
+    const dir = mkdtempSync(join(tmpdir(), "surface-expose-mismatch-"));
+    await expect(
+      serveOverUnixSocket({
+        socketPath: join(dir, "mismatched.sock"),
+        group: runtime.group,
+        handlers: runtime.handlers,
+        expose: exposeFace(other, { "other.ping": "tool" }),
+        log: silentLogger,
+      }),
+    ).rejects.toThrow(
+      /built from a different surface than the group being served/,
+    );
+    await runtime.close();
+  });
 });

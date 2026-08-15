@@ -96,16 +96,19 @@ import { Data, Effect, Stream } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcSchema } from "effect/unstable/rpc";
 import {
+  composeSurfaceContracts,
+  isReservedSurfaceTag,
   READ_VERBS,
-  reservedSurfaceTags,
-  scopeSiblingTag,
-  siblingTagPrefix,
-  SURFACE_TAG_PREFIX,
   type Surface,
   type SurfaceSpec,
   surfaceTag,
 } from "./define";
-import type { SurfaceHandler, SurfaceHandlers } from "./server";
+import {
+  assertHandlersMatchGroup,
+  emptyHandlers,
+  type SurfaceHandler,
+  type SurfaceHandlers,
+} from "./server";
 
 // ── Expose map types ────────────────────────────────────────────────────
 
@@ -251,11 +254,21 @@ export type ExposeEntry =
  *  Every key is checked against the live spec — a key that names no
  *  primitive/procedure is a boot-time error, not a silent no-op — as is the
  *  KIND of exposure, so a procedure exposed as a resource and a primitive
- *  exposed as a tool are both refusals rather than surprises. */
+ *  exposed as a tool are both refusals rather than surprises.
+ *
+ *  `face` is the optional brand a non-framework face stamps on the refusal —
+ *  `@kolu/surface-mcp` passes its adapter name, so a consumer who wrote one bad
+ *  map is told which door it came through. Stamped HERE, at the throw, rather
+ *  than by a caller that catches and rebuilds: a rebuilt error is a new error,
+ *  and the stack that says which key failed is the half a rebuild discards. */
 export function classifyExpose<S extends SurfaceSpec>(
   spec: S,
   expose: ExposeMap<S>,
+  face?: string,
 ): ExposeEntry[] {
+  function refuseMap(detail: string): never {
+    throw new ExposeMapError({ detail, face });
+  }
   const cells = spec.cells ?? {};
   const collections = spec.collections ?? {};
   const streams = spec.streams ?? {};
@@ -274,23 +287,21 @@ export function classifyExpose<S extends SurfaceSpec>(
       const verb = key.slice(dot + 1);
       const procSpec = procedures[ns]?.[verb];
       if (procSpec === undefined) {
-        throw new ExposeMapError({
-          detail: `expose names procedure "${key}" but the spec has no such procedure`,
-        });
+        refuseMap(
+          `expose names procedure "${key}" but the spec has no such procedure`,
+        );
       }
       if (exposure === "resource") {
-        throw new ExposeMapError({
-          detail: `procedure "${key}" is exposed as "resource"; procedures map to tools`,
-        });
+        refuseMap(
+          `procedure "${key}" is exposed as "resource"; procedures map to tools`,
+        );
       }
       entries.push({ kind: "procedure", ns, verb, exposure, spec: procSpec });
       continue;
     }
 
     if (exposure !== "resource") {
-      throw new ExposeMapError({
-        detail: `primitive "${key}" must be exposed as "resource", not a tool`,
-      });
+      refuseMap(`primitive "${key}" must be exposed as "resource", not a tool`);
     }
     const cellSpec = cells[key];
     const collectionSpec = collections[key];
@@ -305,9 +316,9 @@ export function classifyExpose<S extends SurfaceSpec>(
     } else if (eventSpec !== undefined) {
       entries.push({ kind: "event", key, exposure, spec: eventSpec });
     } else {
-      throw new ExposeMapError({
-        detail: `expose names "${key}" but the spec has no such cell/collection/stream/event`,
-      });
+      refuseMap(
+        `expose names "${key}" but the spec has no such cell/collection/stream/event`,
+      );
     }
   }
   return entries;
@@ -329,11 +340,16 @@ export interface FaceExposure {
    *  reconstructs by set arithmetic (which cannot tell a partial bundle, or an
    *  empty map against the wrong surface, from a correct one). */
   readonly universe: ReadonlySet<string>;
-  /** The wire tags this face serves, reserved members included. */
+  /** The wire tags this face serves. The three reserved `system/*` members are
+   *  deliberately NOT in here: they are always reachable on a gated face, and
+   *  that is {@link restrictHandlers}' guarantee about every exposure it is
+   *  handed rather than a property of the ones these constructors built. This is
+   *  a structural interface, so a value assembled any other way would otherwise
+   *  refuse the heartbeat and break every client on the face. */
   readonly tags: ReadonlySet<string>;
 }
 
-/** Every wire tag one classified entry stands for, emitted under `emitPrefix`.
+/** Every wire tag one classified entry stands for, at `surface.tagPrefix`.
  *  Membership is asked of the GROUP — not re-derived from the spec — so a
  *  granted tag is one the surface provably serves and the verb rules stay in
  *  `define.ts` where they are minted. A `"resource"` grant offers every read
@@ -342,13 +358,12 @@ export interface FaceExposure {
  *  never gets one. */
 function grantedTags(
   surface: Surface<SurfaceSpec>,
-  emitPrefix: string,
   entry: ExposeEntry,
   into: Set<string>,
 ): void {
   const add = (member: string, verb: string): void => {
-    if (surface.group.requests.has(surfaceTag(surface.tagPrefix, member, verb)))
-      into.add(surfaceTag(emitPrefix, member, verb));
+    const tag = surfaceTag(surface.tagPrefix, member, verb);
+    if (surface.group.requests.has(tag)) into.add(tag);
   };
   if (entry.kind === "procedure") {
     add(entry.ns, entry.verb);
@@ -357,24 +372,17 @@ function grantedTags(
   for (const verb of READ_VERBS) add(entry.key, verb);
 }
 
-/** Bind ONE map to ONE surface, emitting that surface's tags under
- *  `emitPrefix`. The single operation behind both constructors below: a
- *  standalone face emits at the surface's own prefix, a sibling emits at its
- *  bundle prefix, and nothing else differs. */
+/** Bind ONE map to ONE surface, collecting the tags it grants. The single
+ *  operation behind both constructors below — and the prefix is read OFF THE
+ *  VALUE, never assumed: `Surface.tagPrefix` is carried precisely so a scoped
+ *  sibling and a standalone surface are the same shape here. */
 function tagsAt(
   surface: Surface<SurfaceSpec>,
-  emitPrefix: string,
   map: ExposeMap<SurfaceSpec>,
   into: Set<string>,
 ): void {
-  // The framework-reserved members are ALWAYS reachable on a gated face and are
-  // not spellable in a map (they live only in the group, never in `spec`, so
-  // `classifyExpose` rejects them like any other unknown key) — see
-  // `reservedSurfaceTags` for why gating them off would break the link rather
-  // than restrict the face.
-  for (const tag of reservedSurfaceTags(emitPrefix)) into.add(tag);
   for (const entry of classifyExpose(surface.spec, map)) {
-    grantedTags(surface, emitPrefix, entry, into);
+    grantedTags(surface, entry, into);
   }
 }
 
@@ -390,10 +398,7 @@ export function exposeFace<S extends SurfaceSpec>(
   expose: ExposeMap<S>,
 ): FaceExposure {
   const tags = new Set<string>();
-  // The prefix is read OFF THE VALUE, never assumed: `Surface.tagPrefix` is
-  // carried precisely so a scoped sibling and a standalone surface are the same
-  // shape here.
-  tagsAt(surface as Surface<SurfaceSpec>, surface.tagPrefix, expose, tags);
+  tagsAt(surface, expose, tags);
   return { universe: new Set(surface.group.requests.keys()), tags };
 }
 
@@ -406,25 +411,29 @@ export function exposeFace<S extends SurfaceSpec>(
  *  keeps `S` inferable, and what stops `"a.b"` meaning two things depending on
  *  whether `a` is a namespace or a sibling. A sibling with no map is fully
  *  denied: default-deny is the whole contract, and an omitted map is an
- *  omission. */
+ *  omission.
+ *
+ *  A FOLD of {@link exposeFace}'s single-surface step over
+ *  `composeSurfaceContracts` — the same composition `implementSurfaces` binds
+ *  its handlers against, so the scoped tags this gate names and the scoped tags
+ *  that runtime serves come from ONE walk and cannot drift. Nothing here does
+ *  prefix arithmetic of its own: each `composed.siblings[key]` is a `Surface`
+ *  whose `tagPrefix` is already `surface/<key>/`, and the bundle's tag universe
+ *  is just `composed.group.requests`. (It also makes an already-SCOPED sibling a
+ *  non-question — composition rebuilds every sibling from its `spec`, so the
+ *  prefix a caller happens to hand in is never read.) */
 export function exposeFaces<M extends Record<string, Surface<SurfaceSpec>>>(
   surfaces: M,
   expose: { [K in keyof M]?: ExposeMap<M[K]["spec"]> },
 ): FaceExposure {
+  const composed = composeSurfaceContracts(surfaces);
+  const maps = expose as Record<string, ExposeMap<SurfaceSpec> | undefined>;
   const tags = new Set<string>();
-  const universe = new Set<string>();
-  for (const [key, sibling] of Object.entries(surfaces)) {
-    if (sibling.tagPrefix !== SURFACE_TAG_PREFIX) {
-      throw new ExposeMapError({
-        detail: `exposeFaces: sibling "${key}" is already scoped (its tagPrefix is "${sibling.tagPrefix}"). Pass the STANDALONE surfaces the bundle was composed from — an already-scoped sibling would be re-prefixed here and gate a set of tags no surface serves.`,
-      });
-    }
-    for (const tag of sibling.group.requests.keys()) {
-      universe.add(scopeSiblingTag(tag, key));
-    }
-    tagsAt(sibling, siblingTagPrefix(key), expose[key] ?? {}, tags);
+  for (const key of Object.keys(surfaces)) {
+    const sibling = composed.siblings[key] as Surface<SurfaceSpec>;
+    tagsAt(sibling, maps[key] ?? {}, tags);
   }
-  return { universe, tags };
+  return { universe: new Set(composed.group.requests.keys()), tags };
 }
 
 // ── Step 3: the refusal, and applying it ────────────────────────────────
@@ -471,59 +480,73 @@ function refuse(tag: string, streaming: boolean): SurfaceHandler {
  *  `serveOverUnixSocket`); a hand-built serve path calls it itself and serves
  *  the result.
  *
+ *  It is also where the framework-reserved `system/*` members are GRANTED — not
+ *  in the constructors above. Stated once, by the code that applies the policy,
+ *  it holds for every {@link FaceExposure} rather than only the ones this module
+ *  built.
+ *
  *  It also PROVES the exposure describes this group, by comparing the origin
  *  the exposure CARRIES with the tags the group serves. An exposure built from
  *  a different — or merely PARTIAL — surface would otherwise gate silently and
  *  completely, which is the failure a default-deny gate is uniquely good at
  *  hiding (everything is denied and the face still serves, so nothing looks
- *  broken until a caller needs the verb). Set equality, not "no stray tag":
- *  `exposeFace(otherSurface, {})` names only the reserved members, which EVERY
- *  surface carries, so a one-directional check reads it as fine — and a bundle
- *  exposed with one sibling missing would silently deny that whole sibling,
- *  its `system/live` heartbeat included. */
+ *  broken until a caller needs the verb). Set equality, not "no stray tag": a
+ *  map exposed against the wrong surface can easily grant nothing at all, so a
+ *  one-directional check reads it as fine — and a bundle exposed with one
+ *  sibling missing would silently deny that whole sibling, its `system/live`
+ *  heartbeat included. The refusal is an {@link ExposeMapError}, the same class
+ *  every other "this map does not describe this surface" boot crash raises, so a
+ *  face that wants to recognise one never matches on message text. */
 export function restrictHandlers(
   group: RpcGroup.RpcGroup<Rpc.Any>,
   handlers: SurfaceHandlers,
   exposure: FaceExposure | undefined,
 ): SurfaceHandlers {
   if (exposure === undefined) return handlers;
+  // The record must be the group's, exactly — the same proof `implementSurface`
+  // owes when it BUILDS one. An unbound tag would 404 at the far end, and a
+  // handler at a tag the group does not carry would be silently dropped here
+  // while surviving on an ungated face, which is the worse of the two.
+  assertHandlersMatchGroup(group, handlers, "restrictHandlers");
   const served = group.requests;
   const missing = [...exposure.universe].filter((tag) => !served.has(tag));
   const undescribed = [...served.keys()].filter(
     (tag) => !exposure.universe.has(tag),
   );
   if (missing.length > 0 || undescribed.length > 0) {
-    throw new Error(
-      `restrictHandlers: this exposure was built from a different surface than the group being served` +
-        (missing.length > 0
-          ? ` — it describes ${missing.length} tag(s) this surface does not serve [${missing.sort().join(", ")}]`
-          : "") +
-        (undescribed.length > 0
-          ? ` — this surface serves ${undescribed.length} tag(s) the exposure describes nothing about [${undescribed.sort().join(", ")}], which would be denied with nothing to say so`
-          : "") +
-        `.`,
-    );
-  }
-  // Null prototype, for the same reason `implementSurface`'s record has one: a
-  // member legitimately named `toString` must not collide with an inherited
-  // property.
-  const restricted = Object.create(null) as SurfaceHandlers;
-  for (const [tag, rpc] of group.requests) {
-    const handler = handlers[tag];
-    if (handler === undefined) {
-      throw new Error(
-        `restrictHandlers: nothing is bound at "${tag}", which this surface's group advertises. Restrict the handler record implementSurface returned, not one assembled by hand.`,
+    const clauses: string[] = [];
+    if (missing.length > 0) {
+      clauses.push(
+        `it describes ${missing.length} tag(s) this surface does not serve [${missing.sort().join(", ")}]`,
       );
     }
-    restricted[tag] = exposure.tags.has(tag)
-      ? handler
-      : // `Rpc.Any` narrows away the schema fields the whole union carries;
-        // `AnyWithProps` is Effect's own name for reading them off an erased
-        // `Rpc`, which is exactly what a tag-keyed walk has to do.
-        refuse(
-          tag,
-          RpcSchema.isStreamSchema((rpc as Rpc.AnyWithProps).successSchema),
-        );
+    if (undescribed.length > 0) {
+      clauses.push(
+        `this surface serves ${undescribed.length} tag(s) the exposure describes nothing about [${undescribed.sort().join(", ")}], which would be denied with nothing to say so`,
+      );
+    }
+    throw new ExposeMapError({
+      detail: `restrictHandlers: this exposure was built from a different surface than the group being served — ${clauses.join(" — ")}.`,
+    });
+  }
+  const restricted = emptyHandlers();
+  for (const [tag, rpc] of group.requests) {
+    // The framework-reserved members ALWAYS answer, whatever the exposure says.
+    // Asked of the TAG rather than seeded into `exposure.tags` when it was
+    // built, so the invariant holds for every exposure this applier is handed —
+    // `FaceExposure` is a structural interface, and a hand-assembled one that
+    // refused `system/live` would read as a dead transport to every client's
+    // watchdog and reconnect forever.
+    restricted[tag] =
+      exposure.tags.has(tag) || isReservedSurfaceTag(tag)
+        ? (handlers[tag] as SurfaceHandler)
+        : // `Rpc.Any` narrows away the schema fields the whole union carries;
+          // `AnyWithProps` is Effect's own name for reading them off an erased
+          // `Rpc`, which is exactly what a tag-keyed walk has to do.
+          refuse(
+            tag,
+            RpcSchema.isStreamSchema((rpc as Rpc.AnyWithProps).successSchema),
+          );
   }
   return restricted;
 }
