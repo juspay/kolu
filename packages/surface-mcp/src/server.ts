@@ -34,6 +34,7 @@
 import type { Surface, SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import { isDeadTransportError } from "@kolu/surface/errors";
 import { firstFrameOfCollectionItem } from "@kolu/surface/first-frame";
+import type { ExposeMap } from "@kolu/surface/expose";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -49,12 +50,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { Effect, Option, Schema, Stream } from "effect";
 import { match } from "ts-pattern";
-import {
-  COLLECTION_PREFIX,
-  type ExposeMap,
-  type ResourceEntry,
-  resolveExpose,
-} from "./expose";
+import { COLLECTION_PREFIX, type ResourceEntry, resolveExpose } from "./expose";
 import { inputSchema } from "./jsonschema";
 import { type PusherConnection, ResourcePusher } from "./pusher";
 import {

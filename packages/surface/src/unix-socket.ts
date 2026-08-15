@@ -312,24 +312,19 @@ export async function serveOverUnixSocket(opts: {
   /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
   handlers: SurfaceHandlers;
   /** THIS face's default-deny allowlist — `exposeFace(surface, { … })` (or
-   *  `exposeFaces` for a sibling bundle), from `@kolu/surface/expose`. Omit and
-   *  the socket serves the whole surface, which is the right answer when the
-   *  socket is the only face or every face carries the same trust. Declare one
-   *  and every member the map does not name is refused HERE while another face
-   *  may still serve it. */
+   *  `exposeFaces` for a sibling bundle). Omit and the socket serves the whole
+   *  surface. The rule, and which faces take one, live in
+   *  `@kolu/surface/expose`. */
   expose?: FaceExposure;
   /** Where this listener's own lifetime is narrated (bound / post-listen fault /
    *  closed). REQUIRED — see the seam's note at the top of this module. */
   log: Logger;
 }): Promise<UnixSocketListener> {
   const { socketPath, group, log } = opts;
-  // Apply the face's gate ONCE, before anything binds: every connection then
-  // serves the identical record, and an exposure built from a different surface
-  // is caught at construction rather than by whoever connects first.
-  const handlers =
-    opts.expose === undefined
-      ? opts.handlers
-      : restrictHandlers(group, opts.handlers, opts.expose);
+  // This face's gate, before anything binds. `restrictHandlers` is total over an
+  // absent policy (see `./expose`), so there is no conditional here to get the
+  // default wrong.
+  const handlers = restrictHandlers(group, opts.handlers, opts.expose);
   const refused = (outcome: UnixSocketServeOutcome): UnixSocketListener => ({
     socketPath,
     outcome,

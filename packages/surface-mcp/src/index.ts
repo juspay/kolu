@@ -9,14 +9,15 @@
  * resource/tool wiring are the package's.
  */
 
+// `ExposeMap` / `ToolExposure` are deliberately NOT re-exported here: the map
+// shape is the framework's shared vocabulary and has ONE home,
+// `@kolu/surface/expose`, which every face imports it from.
 export {
-  type ExposeMap,
   type ResolvedExpose,
   type ResourceEntry,
   type ResourceTemplateEntry,
   resolveExpose,
   type ToolEntry,
-  type ToolExposure,
 } from "./expose";
 export { toInputSchema } from "./jsonschema";
 // `OwnedSurfaceConnection` IS this type at the adapter's client shape, and the

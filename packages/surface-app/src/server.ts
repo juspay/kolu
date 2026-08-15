@@ -1005,13 +1005,9 @@ export function serveSurfaceSocket<Svc = never>(opts: {
   /** The served surface's flat `RpcGroup` — `runtime.group`. */
   group: RpcGroup.RpcGroup<Rpc.Any>;
   /** Every bound member handler keyed by wire tag — `runtime.handlers`, or the
-   *  record `restrictHandlers` returned. There is no `expose` option here
-   *  because there is nothing this seam could do with one that the caller
-   *  cannot: `serveSurfaceApp` takes a `FaceExposure` and applies it ONCE, at
-   *  bind, while this seam runs per connection — so a hand-built listener
-   *  passes `restrictHandlers(group, handlers, exposeFace(surface, { … }))`
-   *  computed alongside its runtime, and every socket serves that record. See
-   *  `@kolu/surface/expose`. */
+   *  record `restrictHandlers` returned. No `expose` option here: a hand-built
+   *  serve path gates itself once, alongside its runtime (see
+   *  `@kolu/surface/expose`, which owns that rule). */
   handlers: SurfaceHandlers;
   /** The accepted socket (gated and enrolled — see above). */
   socket: ServableSocket;

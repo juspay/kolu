@@ -287,11 +287,11 @@ export interface ServeSurfaceAppOptions<Svc = never>
   /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
   readonly handlers: SurfaceHandlers;
   /** THIS face's default-deny allowlist — `exposeFace(surface, { … })` (or
-   *  `exposeFaces` for a sibling bundle), from `@kolu/surface/expose`. Omit and
-   *  the websocket serves the whole surface, which is what every consumer had
-   *  before there was anything else to have. Declare one and every member the
-   *  map does not name is refused to BROWSERS while a trusted face — the unix
-   *  socket, the MCP adapter — may still serve it. */
+   *  `exposeFaces` for a sibling bundle). Omit and the websocket serves the
+   *  whole surface; declare one and every member it does not name is refused to
+   *  BROWSERS while a trusted face — the unix socket, the MCP adapter — may
+   *  still serve it. The rule, and which faces take one, live in
+   *  `@kolu/surface/expose`. */
   readonly expose?: FaceExposure;
   /** The app's OWN routes, merged alongside the shell — an MCP endpoint, a
    *  media route, anything answering with bytes the bundle does not hold.
@@ -358,15 +358,14 @@ export const serveSurfaceApp = <Svc = never>(
     // so "what does this listener do when nobody is listening" has exactly one
     // answer and it is readable in one place.
     const report = options.onEvent ?? reportSurfaceAppEvent;
-    // This face's gate, applied ONCE and before anything binds. Not per
-    // connection: the allowlist is a property of the LISTENER — of who can
-    // reach it — so applying it per socket would be the same answer computed
-    // again, and would move a construction-time crash behind whoever connects
-    // first.
-    const handlers =
-      options.expose === undefined
-        ? options.handlers
-        : restrictHandlers(options.group, options.handlers, options.expose);
+    // This face's gate, before anything binds. `restrictHandlers` is total over
+    // an absent policy (see `@kolu/surface/expose`), so there is no conditional
+    // here to get the default wrong.
+    const handlers = restrictHandlers(
+      options.group,
+      options.handlers,
+      options.expose,
+    );
     // The HTTP handler's own scope: `makeHandler` forks each request as a fiber
     // in it, so it must outlive every in-flight request and die with the
     // listener. `Scope.fork` is the library contract for exactly that —

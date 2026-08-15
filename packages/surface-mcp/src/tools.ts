@@ -215,6 +215,12 @@ export class ToolFailure<
   }
 }
 
+/** This adapter's own name — what {@link brand} prefixes with, and the `face` an
+ *  `ExposeMapError` carries when the shared grammar refuses a map handed to
+ *  `serveSurfaceAsMcp`. ONE spelling, so a branded message and a branded error
+ *  can never disagree about which door the consumer came through. */
+export const ADAPTER_NAME = "surface-mcp";
+
 /** Put this adapter's name on a message a host will read.
  *
  *  ONE rule, one mechanism: an error raised INSIDE the adapter carries the bare
@@ -224,7 +230,7 @@ export class ToolFailure<
  *  throw that never crosses an edge at all, call this directly. Nothing is
  *  prefixed twice, because nothing is prefixed before the edge — which the
  *  born-dead error used to be, reaching agents as `surface-mcp: surface-mcp: …`. */
-export const brand = (message: string): string => `surface-mcp: ${message}`;
+export const brand = (message: string): string => `${ADAPTER_NAME}: ${message}`;
 
 /** Coerce an unknown thrown value into a failed `ToolResult` — the `tools/call`
  *  edge's branding (see {@link brand}).

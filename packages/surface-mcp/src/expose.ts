@@ -24,11 +24,11 @@ import {
   classifyExpose,
   type ExposeEntry,
   type ExposeMap,
-  type ToolExposure,
+  ExposeMapError,
 } from "@kolu/surface/expose";
 import { Option, Schema } from "effect";
 import { inputSchema } from "./jsonschema";
-import { brand } from "./tools";
+import { ADAPTER_NAME, brand } from "./tools";
 
 // ── Expose map types ────────────────────────────────────────────────────
 
@@ -37,15 +37,19 @@ import { brand } from "./tools";
 // (`serveSurfaceApp`, `serveOverUnixSocket`) take the same map, and a second
 // reading of it here would be two authorities on one contract — a consumer that
 // gates its MCP face and its browser face writes ONE kind of map, and the same
-// key means the same thing on both. What stays here is the RESOLUTION, because
-// only this adapter turns a classified entry into a `surface://` URI or an MCP
-// tool name. Re-exported so this package's public surface is unchanged.
-export type { ExposeMap, ToolExposure };
+// key means the same thing on both. There is deliberately no re-export: one
+// concept gets one import path, so two readers of the same file cannot disagree
+// about where `ExposeMap` lives. What stays here is the RESOLUTION, because only
+// this adapter turns a classified entry into a `surface://` URI or an MCP tool
+// name.
 
-/** `classifyExpose`, with this adapter's brand back on the message. The
- *  grammar is the framework's, but the consumer called `serveSurfaceAsMcp` —
- *  so the failure says which door it came through, the way every other
- *  boot-time refusal from this package does. `cause` keeps the original. */
+/** `classifyExpose`, with this adapter's brand on the refusal. The grammar is
+ *  the framework's, but the consumer called `serveSurfaceAsMcp` — so the failure
+ *  says which door it came through, the way every other boot-time refusal from
+ *  this package does. The brand is a FIELD on the framework's own error class,
+ *  not a rewrite of its message: a consumer handling "my expose map is wrong"
+ *  across faces matches the class, never the text. Anything that is not an
+ *  `ExposeMapError` is not ours to relabel and travels on untouched. */
 function classify<S extends SurfaceSpec>(
   spec: S,
   expose: ExposeMap<S>,
@@ -53,7 +57,10 @@ function classify<S extends SurfaceSpec>(
   try {
     return classifyExpose(spec, expose);
   } catch (err) {
-    throw new Error(brand((err as Error).message), { cause: err });
+    if (err instanceof ExposeMapError) {
+      throw new ExposeMapError({ detail: err.detail, face: ADAPTER_NAME });
+    }
+    throw err;
   }
 }
 
@@ -188,14 +195,10 @@ export function resolveExpose<S extends SurfaceSpec>(
 
   for (const entry of classify(spec, expose)) {
     if (entry.kind === "procedure") {
-      const { ns, verb, exposure } = entry;
-      // `classifyExpose` proved the procedure exists; read its spec for the input.
-      const procSpec = (
-        spec.procedures as Record<
-          string,
-          Record<string, { input?: WireSchemaAny }>
-        >
-      )[ns]?.[verb] as { input?: WireSchemaAny };
+      // The spec `classifyExpose` resolved travels ON the entry, so the input
+      // schema is read from the same lookup that proved the procedure exists —
+      // never a second one this face could disagree with.
+      const { ns, verb, exposure, spec: procSpec } = entry;
       // Conservative default: an exposure that does NOT explicitly say
       // `mutates: false` is treated as MUTATING. `readOnlyHint: true` can let an
       // MCP host auto-execute a tool unconfirmed, so an absent `mutates` must fail
@@ -228,9 +231,7 @@ export function resolveExpose<S extends SurfaceSpec>(
         mimeType: "application/json",
       });
     } else if (entry.kind === "collection") {
-      const collSpec = (
-        spec.collections as Record<string, { keySchema: WireSchemaAny }>
-      )[key] as { keySchema: WireSchemaAny };
+      const collSpec = entry.spec;
       resources.push({
         uri: collectionUri(key),
         kind: "collection",
@@ -252,13 +253,7 @@ export function resolveExpose<S extends SurfaceSpec>(
       // `notifications/resources/updated` stream, not a readable snapshot
       // (`readSnapshot` returns an immediate `null`), but its subscribe path still
       // calls `.get(undefined)`.
-      const memberSpec = (
-        (entry.kind === "stream" ? spec.streams : spec.events) as Record<
-          string,
-          { inputSchema: WireSchemaAny }
-        >
-      )[key] as { inputSchema: WireSchemaAny };
-      assertExposableAsResource(entry.kind, key, memberSpec.inputSchema);
+      assertExposableAsResource(entry.kind, key, entry.spec.inputSchema);
       resources.push({
         uri: entry.kind === "stream" ? streamUri(key) : eventUri(key),
         kind: entry.kind,

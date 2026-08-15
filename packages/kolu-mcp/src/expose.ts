@@ -38,7 +38,7 @@
  */
 
 import type { PadiSurfaceSpec } from "@kolu/padi/surface";
-import type { ExposeMap } from "@kolu/surface-mcp";
+import type { ExposeMap } from "@kolu/surface/expose";
 
 export const KOLU_MCP_EXPOSE = {
   // ── Resources (subscribable) ─────────────────────────────────────────────
