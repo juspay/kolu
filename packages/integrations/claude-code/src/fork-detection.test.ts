@@ -1,12 +1,16 @@
-/** `/fork` detection — the on-disk scan that promotes an idle (`waiting`) main
- *  to `running_background` while a forked sub-agent is still running.
+/** Async sub-agent detection — the on-disk scan that promotes an idle
+ *  (`waiting`) main to `running_background` while a sub-agent — a `/fork`, an
+ *  async `Agent`, or a `Task` run — is still running.
  *
  *  A `/fork`'s launch lands in the transcript ONLY as a `system`/`local_command`
- *  echo (never a `tool_result`), so it is invisible to
- *  `outstandingBackgroundTasks`. These cover the filesystem-based detection that
- *  replaces it: enumerate `subagents/agent-<id>.meta.json` tagged
- *  `agentType:"fork"`, drop the finished (`completed`) and the orphaned (stale
- *  transcript mtime), and keep the live ones. */
+ *  echo (never a `tool_result`), and an async `Agent`/`Task` launch carries a
+ *  runId-less enqueue, so neither is visible to `outstandingBackgroundTasks`
+ *  through `deriveState`'s runId-narrowing. These cover the filesystem-based
+ *  detection that replaces it: enumerate `subagents/agent-<id>.meta.json`
+ *  (regardless of the `agentType` tag — a fork and an async agent write the same
+ *  artifacts and the streaming transcript mtime is the liveness anchor for
+ *  both), drop the finished (`completed`) and the orphaned (stale transcript
+ *  mtime), and keep the live ones. */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -57,25 +61,25 @@ describe("completedBackgroundTaskIds", () => {
   });
 });
 
-describe("outstandingForkRuns / nextStaleDeadline", () => {
+describe("outstandingSubagentRuns / nextStaleDeadline", () => {
   let tmpDir: string;
-  let outstandingForkRuns: typeof import("./index.ts").outstandingForkRuns;
+  let outstandingSubagentRuns: typeof import("./index.ts").outstandingSubagentRuns;
   let nextStaleDeadline: typeof import("./index.ts").nextStaleDeadline;
   let subagentsDirFor: typeof import("./index.ts").subagentsDirFor;
   let staleMs: number;
-  const sessionId = "fork-test-session";
-  const cwd = "/home/user/fork-project";
+  const sessionId = "subagent-test-session";
+  const cwd = "/home/user/subagent-project";
   const session = { pid: 1, sessionId, cwd };
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-fork-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-subagent-test-"));
     process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
     vi.resetModules();
     const mod = await import("./index.ts");
-    outstandingForkRuns = mod.outstandingForkRuns;
+    outstandingSubagentRuns = mod.outstandingSubagentRuns;
     nextStaleDeadline = mod.nextStaleDeadline;
     subagentsDirFor = mod.subagentsDirFor;
-    staleMs = mod.FORK_TRANSCRIPT_STALE_MS;
+    staleMs = mod.SUBAGENT_TRANSCRIPT_STALE_MS;
   });
 
   afterAll(() => {
@@ -123,45 +127,62 @@ describe("outstandingForkRuns / nextStaleDeadline", () => {
 
   it("returns a live fork: agentType fork, fresh transcript, not completed", () => {
     writeAgent("aimplement-it-fresh", { agentType: "fork" });
-    const forks = outstandingForkRuns(session, NONE);
-    expect(forks.map((f) => f.id)).toContain("aimplement-it-fresh");
-    const fork = forks.find((f) => f.id === "aimplement-it-fresh");
-    expect(typeof fork?.anchorMs).toBe("number");
-    // A fork projects to the shared `LiveRun` shape carrying its own window.
-    expect(fork?.staleMs).toBe(staleMs);
+    const runs = outstandingSubagentRuns(session, NONE);
+    expect(runs.map((f) => f.id)).toContain("aimplement-it-fresh");
+    const run = runs.find((f) => f.id === "aimplement-it-fresh");
+    expect(typeof run?.anchorMs).toBe("number");
+    // A sub-agent projects to the shared `LiveRun` shape carrying its own window.
+    expect(run?.staleMs).toBe(staleMs);
   });
 
-  it("excludes a fork whose id is in the completed set (finished)", () => {
-    writeAgent("afork-done", { agentType: "fork" });
-    const forks = outstandingForkRuns(session, new Set(["afork-done"]));
-    expect(forks.map((f) => f.id)).not.toContain("afork-done");
-  });
-
-  it("excludes a fork whose transcript has gone stale (orphaned)", () => {
-    writeAgent("afork-stale", { agentType: "fork", ageMs: staleMs + 60_000 });
-    const forks = outstandingForkRuns(session, NONE);
-    expect(forks.map((f) => f.id)).not.toContain("afork-stale");
-  });
-
-  it("excludes a non-fork async agent (different/absent agentType)", () => {
+  it("promotes an async Agent sub-agent (agentType absent) with a fresh transcript", () => {
     writeAgent("arun-full-ci", {}); // meta = { name, description }, no agentType
+    const runs = outstandingSubagentRuns(session, NONE);
+    expect(runs.map((f) => f.id)).toContain("arun-full-ci");
+  });
+
+  it("promotes an async Task sub-agent (agentType task) with a fresh transcript", () => {
     writeAgent("asome-task", { agentType: "task" });
-    const forks = outstandingForkRuns(session, NONE);
-    const ids = forks.map((f) => f.id);
-    expect(ids).not.toContain("arun-full-ci");
-    expect(ids).not.toContain("asome-task");
+    const runs = outstandingSubagentRuns(session, NONE);
+    expect(runs.map((f) => f.id)).toContain("asome-task");
   });
 
-  it("excludes a fork with no transcript (unobservable — phantom guard)", () => {
-    writeAgent("afork-nojsonl", { agentType: "fork", withTranscript: false });
-    const forks = outstandingForkRuns(session, NONE);
-    expect(forks.map((f) => f.id)).not.toContain("afork-nojsonl");
+  it("excludes a sub-agent whose id is in the completed set (finished)", () => {
+    writeAgent("asub-done", { agentType: "fork" });
+    const runs = outstandingSubagentRuns(session, new Set(["asub-done"]));
+    expect(runs.map((f) => f.id)).not.toContain("asub-done");
   });
 
-  it("excludes a fork whose meta is malformed JSON (can't positively classify)", () => {
-    writeAgent("afork-badmeta", { metaRaw: "{ not json" });
-    const forks = outstandingForkRuns(session, NONE);
-    expect(forks.map((f) => f.id)).not.toContain("afork-badmeta");
+  it("excludes a sub-agent whose transcript has gone stale (orphaned)", () => {
+    writeAgent("asub-stale", { agentType: "fork", ageMs: staleMs + 60_000 });
+    const runs = outstandingSubagentRuns(session, NONE);
+    expect(runs.map((f) => f.id)).not.toContain("asub-stale");
+  });
+
+  it("excludes a sub-agent with no transcript (unobservable — phantom guard)", () => {
+    writeAgent("asub-nojsonl", { agentType: "fork", withTranscript: false });
+    const runs = outstandingSubagentRuns(session, NONE);
+    expect(runs.map((f) => f.id)).not.toContain("asub-nojsonl");
+  });
+
+  it("excludes a sub-agent with no meta file (unobservable — phantom guard)", () => {
+    const dir = subagentsDir();
+    fs.mkdirSync(dir, { recursive: true });
+    // A streaming transcript without its `agent-<id>.meta.json` sibling is not
+    // enumerated as a run — the meta file is what identifies the sub-agent.
+    fs.writeFileSync(path.join(dir, "agent-anometa.jsonl"), "{}\n");
+    const runs = outstandingSubagentRuns(session, NONE);
+    expect(runs.map((f) => f.id)).not.toContain("anometa");
+  });
+
+  it("promotes a sub-agent whose meta content is malformed (meta is not consulted)", () => {
+    // The meta's `agentType` (and even its parseability) is deliberately NOT a
+    // discriminator — the fresh streaming transcript is the liveness evidence,
+    // the same anchor that keeps forks phantom-free. A malformed meta still
+    // enumerates (the filename regex identifies the sub-agent), so it promotes.
+    writeAgent("asub-badmeta", { metaRaw: "{ not json" });
+    const runs = outstandingSubagentRuns(session, NONE);
+    expect(runs.map((f) => f.id)).toContain("asub-badmeta");
   });
 
   it("returns [] when the subagents dir is absent (no throw)", () => {
@@ -170,58 +191,63 @@ describe("outstandingForkRuns / nextStaleDeadline", () => {
       sessionId: "no-subagents-session",
       cwd: "/home/user/no-subagents-project",
     };
-    expect(outstandingForkRuns(fresh, NONE)).toEqual([]);
+    expect(outstandingSubagentRuns(fresh, NONE)).toEqual([]);
   });
 
   it("ignores the workflows/ subdir and stray non-meta entries", () => {
-    writeAgent("afork-ok", { agentType: "fork" });
+    writeAgent("asub-ok", { agentType: "fork" });
     fs.mkdirSync(path.join(subagentsDir(), "workflows"), { recursive: true });
     fs.writeFileSync(path.join(subagentsDir(), "agent-stray.jsonl"), "{}\n");
-    const forks = outstandingForkRuns(session, NONE);
-    // Only the well-formed fork (meta + transcript) surfaces; the bare dir and
-    // the transcript-without-meta are skipped without error.
-    expect(forks.map((f) => f.id)).toContain("afork-ok");
+    const runs = outstandingSubagentRuns(session, NONE);
+    // Only the well-formed sub-agent (meta + transcript) surfaces; the bare dir
+    // and the transcript-without-meta are skipped without error.
+    expect(runs.map((f) => f.id)).toContain("asub-ok");
   });
 
   it("uses the injected `now` for the staleness boundary", () => {
-    writeAgent("afork-now", { agentType: "fork" });
+    writeAgent("asub-now", { agentType: "fork" });
     const anchor = fs.statSync(
-      path.join(subagentsDir(), "agent-afork-now.jsonl"),
+      path.join(subagentsDir(), "agent-asub-now.jsonl"),
     ).mtimeMs;
     expect(
-      outstandingForkRuns(session, NONE, anchor + staleMs - 1).map((f) => f.id),
-    ).toContain("afork-now");
+      outstandingSubagentRuns(session, NONE, anchor + staleMs - 1).map(
+        (f) => f.id,
+      ),
+    ).toContain("asub-now");
     expect(
-      outstandingForkRuns(session, NONE, anchor + staleMs + 1).map((f) => f.id),
-    ).not.toContain("afork-now");
+      outstandingSubagentRuns(session, NONE, anchor + staleMs + 1).map(
+        (f) => f.id,
+      ),
+    ).not.toContain("asub-now");
   });
 
-  // The fork stale deadline now folds through the shared `nextStaleDeadline`
-  // receptacle: each fork projects to a `LiveRun` carrying `FORK_TRANSCRIPT_STALE_MS`.
-  describe("nextStaleDeadline (fork runs)", () => {
-    const fork = (id: string, anchorMs: number) => ({
+  // The sub-agent stale deadline folds through the shared `nextStaleDeadline`
+  // receptacle: each run projects to a `LiveRun` carrying
+  // `SUBAGENT_TRANSCRIPT_STALE_MS`.
+  describe("nextStaleDeadline (sub-agent runs)", () => {
+    const run = (id: string, anchorMs: number) => ({
       id,
       anchorMs,
       staleMs,
     });
 
-    it("returns the transcript mtime plus the stale window for a live fork", () => {
+    it("returns the transcript mtime plus the stale window for a live sub-agent", () => {
       const anchorMs = 1_000_000;
-      expect(nextStaleDeadline([fork("f1", anchorMs)], 0)).toBe(
+      expect(nextStaleDeadline([run("s1", anchorMs)], 0)).toBe(
         anchorMs + staleMs,
       );
     });
 
-    it("clamps an already-stale fork's deadline to `now` (fire immediately)", () => {
+    it("clamps an already-stale sub-agent's deadline to `now` (fire immediately)", () => {
       const now = 10_000_000;
       const anchorMs = now - staleMs - 60_000;
-      expect(nextStaleDeadline([fork("f1", anchorMs)], now)).toBe(now);
+      expect(nextStaleDeadline([run("s1", anchorMs)], now)).toBe(now);
     });
 
-    it("returns the earliest deadline across multiple forks", () => {
+    it("returns the earliest deadline across multiple sub-agents", () => {
       const now = 0;
       expect(
-        nextStaleDeadline([fork("old", 1_000), fork("new", 9_000)], now),
+        nextStaleDeadline([run("old", 1_000), run("new", 9_000)], now),
       ).toBe(1_000 + staleMs);
     });
 
@@ -237,13 +263,13 @@ describe("outstandingForkRuns / nextStaleDeadline", () => {
  * clock; the IO package separately owns real `fs.watch` + append-floor coverage.
  * This test therefore proves the watcher wiring and derivation without making
  * correctness depend on an OS edge or host scheduling latency. */
-describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
+describe("createSessionWatcher — async sub-agent lifecycle (eventing path)", () => {
   let tmpDir: string;
   let createSessionWatcher: typeof import("./index.ts").createSessionWatcher;
   let subagentsDirFor: typeof import("./index.ts").subagentsDirFor;
   let encodeProjectPath: typeof import("./index.ts").encodeProjectPath;
-  const sessionId = "fork-watcher-session";
-  const cwd = "/home/user/fork-watcher-project";
+  const sessionId = "subagent-watcher-session";
+  const cwd = "/home/user/subagent-watcher-project";
   const session = { pid: 1, sessionId, cwd };
   let transcriptChanged: (() => void) | null = null;
 
@@ -255,7 +281,7 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
   };
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-fork-watcher-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-subagent-watcher-"));
     process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
     vi.resetModules();
 
@@ -295,6 +321,14 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
   const projectDir = () => path.join(tmpDir, encodeProjectPath(cwd));
   const transcriptPath = () => path.join(projectDir(), `${sessionId}.jsonl`);
 
+  /** Wipe the session's on-disk state (transcript + subagents) so each test
+   *  starts from a clean slate — the tests below share one `session`, and a
+   *  leftover sub-agent from an earlier test would otherwise promote the next
+   *  test's initial (should-be-idle) read. */
+  function resetSessionDirs(): void {
+    fs.rmSync(projectDir(), { recursive: true, force: true });
+  }
+
   /** Append a JSONL entry to the main transcript (each transcript write is what
    *  fires the file watcher in production). */
   function appendTranscript(entry: object): void {
@@ -308,40 +342,38 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
   });
 
   /** A `queue-operation` enqueue carrying a terminal `<task-notification>` for
-   *  `taskId` — the fork's completion signal on the MAIN transcript. */
+   *  `taskId` — the sub-agent's completion signal on the MAIN transcript. */
   const completion = (taskId: string) => ({
     type: "queue-operation",
     operation: "enqueue",
     content: `<task-notification>\n<task-id>${taskId}</task-id>\n<status>completed</status>\n</task-notification>`,
   });
 
-  /** The `⑂ forked …` echo a `/fork` writes to the MAIN transcript at launch — a
-   *  `system`/`local_command` entry `deriveState` skips (so the trailing state
-   *  stays `waiting`). It is what fires the main-transcript watcher in
-   *  production; repeats are harmless. */
-  const forkEcho = (name: string) => ({
-    type: "system",
-    subtype: "local_command",
-    content: `<local-command-stdout>⑂ forked ${name} (1483)</local-command-stdout>`,
-  });
-
-  /** Write a live `/fork` sub-agent's `agent-<id>.meta.json` + streaming
-   *  `agent-<id>.jsonl` into `subagents/` (fresh mtime → still running). */
-  function writeForkAgent(id: string): void {
+  /** Write a live sub-agent's `agent-<id>.meta.json` + streaming
+   *  `agent-<id>.jsonl` into `subagents/` (fresh mtime → still running).
+   *  `agentType` controls the meta tag — `"fork"`, `"task"`, or absent — all of
+   *  which must promote identically (the tag is not a discriminator). */
+  function writeSubagentAgent(id: string, agentType?: string): void {
     const dir = subagentsDirFor(session);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, `agent-${id}.meta.json`),
-      JSON.stringify({ agentType: "fork", name: id, description: id }),
+      JSON.stringify({
+        ...(agentType ? { agentType } : {}),
+        name: id,
+        description: id,
+      }),
     );
     fs.writeFileSync(path.join(dir, `agent-${id}.jsonl`), "{}\n");
   }
 
   it("promotes a waiting main to running_background when fork artifacts land late, then demotes on completion", async () => {
     vi.useFakeTimers();
+    resetSessionDirs();
     fs.mkdirSync(projectDir(), { recursive: true });
-    // Main is idle BEFORE any fork exists: the watcher's first derivation reads
-    // `waiting`, and the fork scan finds nothing (artifacts don't exist yet).
+    // Main is idle BEFORE any sub-agent exists: the watcher's first derivation
+    // reads `waiting`, and the sub-agent scan finds nothing (artifacts don't
+    // exist yet).
     fs.writeFileSync(transcriptPath(), `${JSON.stringify(endTurn())}\n`);
 
     // Collect every emission rather than a single mutable — reading the tail
@@ -356,30 +388,58 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
       const latest = () => emitted.at(-1) ?? null;
       const state = () => latest()?.state ?? null;
 
-      // Initial derivation: idle, no fork.
+      // Initial derivation: idle, no sub-agent.
       expect(state()).toBe("waiting");
       expect(latest()?.workflow ?? null).toBeNull();
 
       // The fork's artifacts appear AFTER the main already went quiet (the F1
-      // race), then the `/fork` writes its `⑂ forked …` echo to the MAIN
-      // transcript — which fires the captured append-subscription edge. The
-      // coalescer advances under the fake clock, and the synchronous subagents
-      // readdir finds the now-present fork and promotes.
-      writeForkAgent("aimplement-it-late");
-      appendTranscript(forkEcho("implement-it"));
+      // race). The synchronous subagents readdir finds the now-present fork and
+      // promotes — no transcript append is even needed (the subagents-dir
+      // watcher fires the check in production).
+      writeSubagentAgent("aimplement-it-late", "fork");
       expect(transcriptChanged).not.toBeNull();
       transcriptChanged?.();
       await vi.advanceTimersByTimeAsync(150);
       expect(state()).toBe("running_background");
-      // A fork promotes the state but carries no fan-out journal.
+      // A sub-agent promotes the state but carries no fan-out journal.
       expect(latest()?.workflow ?? null).toBeNull();
 
-      // The fork reports completion on the MAIN transcript. The completed-id
-      // signal drops it from the live set on the next scan → demote to waiting.
+      // The sub-agent reports completion on the MAIN transcript. The
+      // completed-id signal drops it from the live set on the next scan →
+      // demote to waiting.
       appendTranscript(completion("aimplement-it-late"));
       transcriptChanged?.();
       await vi.advanceTimersByTimeAsync(150);
       expect(state()).toBe("waiting");
+    } finally {
+      watcher.destroy();
+      vi.useRealTimers();
+    }
+  });
+
+  it("promotes a waiting main to running_background for an async Agent (agentType absent) with fresh artifacts", async () => {
+    vi.useFakeTimers();
+    resetSessionDirs();
+    fs.mkdirSync(projectDir(), { recursive: true });
+    fs.writeFileSync(transcriptPath(), `${JSON.stringify(endTurn())}\n`);
+
+    const emitted: import("./index.ts").ClaudeCodeInfo[] = [];
+    const watcher = createSessionWatcher(
+      session,
+      (info) => emitted.push(info),
+      noopLog,
+    );
+    try {
+      const latest = () => emitted.at(-1) ?? null;
+      const state = () => latest()?.state ?? null;
+
+      expect(state()).toBe("waiting");
+
+      // An async Agent writes the same artifacts WITHOUT an agentType tag.
+      writeSubagentAgent("arun-full-ci");
+      transcriptChanged?.();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(state()).toBe("running_background");
     } finally {
       watcher.destroy();
       vi.useRealTimers();

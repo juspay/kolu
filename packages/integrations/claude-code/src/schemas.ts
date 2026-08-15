@@ -55,15 +55,16 @@ export const ClaudeCodeInfoSchema = Schema.Struct({
    *  - `running_background`: the agent ended its turn (`end_turn`) while an
    *    outstanding background run it launched is still live — either a dynamic
    *    `Workflow` with an observable run journal
-   *    (`<session>/workflows/<runId>.json`), or a `/fork` sub-agent with a
-   *    streaming transcript (`<session>/subagents/agent-<id>.jsonl`). Without
-   *    this the end-of-turn would read as `waiting` (needs-user); the agent is
-   *    actually busy-waiting on that run. A backgrounded `Bash` command or
-   *    `Task`/`Agent` (no observable anchor) does NOT promote here: its launch
-   *    marker outlives the process, so a lost completion notification would spin
-   *    the pill forever (the phantom-`running_background` bug). The `workflow`
-   *    field below is populated only for the `Workflow` case; a fork promotes
-   *    the state but carries no fan-out journal, so `workflow` stays null.
+   *    (`<session>/workflows/<runId>.json`), or an async sub-agent (a `/fork`,
+   *    an `Agent`, or a `Task` run) with a streaming transcript
+   *    (`<session>/subagents/agent-<id>.jsonl`). Without this the end-of-turn
+   *    would read as `waiting` (needs-user); the agent is actually busy-waiting
+   *    on that run. A backgrounded `Bash` command (no sub-agent artifacts) does
+   *    NOT promote here: its launch marker outlives the process, so a lost
+   *    completion notification would spin the pill forever (the
+   *    phantom-`running_background` bug). The `workflow` field below is
+   *    populated only for the `Workflow` case; a sub-agent promotes the state
+   *    but carries no fan-out journal, so `workflow` stays null.
    *    Claude-Code-specific — see `deriveState` and the session-watcher. */
   state: Schema.Literals([
     "thinking",

@@ -40,6 +40,7 @@ type MockState =
   | "journalless_workflow"
   | "background_bash"
   | "fork"
+  | "async_subagent"
   | "interrupted"
   | "interrupted_tool_use"
   | "compact";
@@ -220,10 +221,10 @@ export function buildTranscript(state: MockState): string {
   // NOT a `tool_result`, so it never enters the background-task accounting.
   // `deriveState` walks past the system line to the prior end_turn and reports
   // `waiting`; the watcher then promotes to `running_background` from the fork's
-  // on-disk subagent artifacts (written by `writeForkSubagent`). The trailing
+  // on-disk subagent artifacts (written by `writeSubagent`). The trailing
   // local-command here makes the fixture faithful and guards that it doesn't
   // perturb detection.
-  if (state === "fork") {
+  if (state === "fork" || state === "async_subagent") {
     lines.push(assistantMsg("end_turn"));
     lines.push(
       JSON.stringify({
@@ -232,7 +233,9 @@ export function buildTranscript(state: MockState): string {
         uuid: "u2",
         timestamp: new Date().toISOString(),
         content:
-          "<local-command-stdout>⑂ forked implement-it (1483)</local-command-stdout>",
+          state === "fork"
+            ? "<local-command-stdout>⑂ forked implement-it (1483)</local-command-stdout>"
+            : "<local-command-stdout>Async agent launched successfully. agentId: arun-full-ci</local-command-stdout>",
         level: "info",
       }),
     );
@@ -341,24 +344,31 @@ function writeWorkflowJournal(
   }
 }
 
-/** Write a `/fork`'s on-disk artifacts under `<projectDir>/<SESSION_ID>/subagents`:
- *  `agent-<id>.meta.json` tagged `agentType:"fork"` (the discriminator) and a
- *  freshly-written `agent-<id>.jsonl` (the streaming transcript whose mtime is the
- *  liveness anchor). With these present and no completion notification, the watcher
- *  promotes the idle main to `running_background`. Mirrors `writeWorkflowJournal`. */
-function writeForkSubagent(projectDir: string): void {
+/** Write a sub-agent's on-disk artifacts under
+ *  `<projectDir>/<SESSION_ID>/subagents`: `agent-<id>.meta.json` (tagged
+ *  `agentType:"fork"` for a `/fork`, `agentType:"task"` or absent for an async
+ *  `Agent`/`Task` — the tag is NOT a discriminator) and a freshly-written
+ *  `agent-<id>.jsonl` (the streaming transcript whose mtime is the liveness
+ *  anchor). With these present and no completion notification, the watcher
+ *  promotes the idle main to `running_background`. Mirrors
+ *  `writeWorkflowJournal`. */
+function writeSubagent(
+  projectDir: string,
+  id: string,
+  opts: { agentType?: string } = {},
+): void {
   const subagentsDir = path.join(projectDir, SESSION_ID, "subagents");
   fs.mkdirSync(subagentsDir, { recursive: true });
   fs.writeFileSync(
-    path.join(subagentsDir, `agent-${FORK_SUBAGENT_ID}.meta.json`),
+    path.join(subagentsDir, `agent-${id}.meta.json`),
     JSON.stringify({
-      agentType: "fork",
-      description: "implement it!",
-      name: "implement-it",
+      ...(opts.agentType ? { agentType: opts.agentType } : {}),
+      description: id,
+      name: id,
     }),
   );
   fs.writeFileSync(
-    path.join(subagentsDir, `agent-${FORK_SUBAGENT_ID}.jsonl`),
+    path.join(subagentsDir, `agent-${id}.jsonl`),
     `${JSON.stringify({ type: "user", message: { role: "user", content: "go" } })}\n`,
   );
 }
@@ -423,7 +433,9 @@ When(
     if (state === "running_background") writeWorkflowJournal(mockProjectDir);
     if (state === "orphaned_workflow")
       writeWorkflowJournal(mockProjectDir, { stale: true });
-    if (state === "fork") writeForkSubagent(mockProjectDir);
+    if (state === "fork") writeSubagent(mockProjectDir, FORK_SUBAGENT_ID, { agentType: "fork" });
+    if (state === "async_subagent")
+      writeSubagent(mockProjectDir, "arun-full-ci"); // agentType absent, like an async Agent
 
     // Now the trigger — session file last.
     fs.mkdirSync(sessionsDir, { recursive: true });

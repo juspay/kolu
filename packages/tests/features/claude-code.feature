@@ -84,6 +84,16 @@ Feature: Claude Code status detection
     And the tile chrome should show workflow badge "deep-research"
     And there should be no page errors
 
+  Scenario: An async sub-agent keeps an idle main in running-in-background state
+    # An async `Agent`/`Task` sub-agent writes the same on-disk subagent
+    # artifacts as a `/fork` (meta + streaming transcript) but with a different
+    # / absent agentType. The stale-anchor guard (fresh transcript mtime) is
+    # what makes promotion phantom-safe, so a waiting main busy-waiting on the
+    # sub-agent must read as `running_background`, never `waiting`.
+    When a Claude Code session is mocked with state "async_subagent"
+    Then the tile chrome should show an agent indicator with state "running_background"
+    And there should be no page errors
+
   Scenario: An AskUserQuestion prompt on screen promotes thinking to awaiting (screen scrape, #905)
     # A pending AskUserQuestion reads as `thinking` on disk — the user's prompt is
     # the newest JSONL entry and the assistant's tool_use reply is buffered in the

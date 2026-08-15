@@ -155,7 +155,7 @@ session's title and a running token count.
 | --- | --- | --- |
 | Thinking | pulsing accent dot | an API call is in flight — Claude is generating |
 | Tool use | pulsing amber dot | Claude is executing tools |
-| Running in background | spinning teal ring | Claude ended its turn while a dynamic workflow it launched is still running — busy-waiting, not blocked on you |
+| Running in background | spinning teal ring | Claude ended its turn while a dynamic workflow or an async sub-agent (a `/fork`, an `Agent`, or a `Task` run) it launched is still running — busy-waiting, not blocked on you |
 | Awaiting input | pulsing alert | blocked on you — an `AskUserQuestion` prompt or a tool-permission gate |
 | Waiting | dim dot | finished responding (or interrupted with Esc) and idle |
 
