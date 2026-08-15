@@ -121,6 +121,25 @@ export type CollectionVerb =
   | "deltas"
   | "test__set";
 
+/** The READ half of the verb vocabulary above — a cell's / stream's / event's
+ *  `get`, a collection's `keys` / `get` / `deltas`. It lives HERE, beside the
+ *  unions it partitions, because the read/write split is a property of the
+ *  vocabulary and not of any one reader: `@kolu/surface/expose`'s `"resource"`
+ *  grant is defined against it (a gated face reads the cell, a trusted face
+ *  writes it), and stating the split in the consumer would put the vocabulary
+ *  and its partition in two modules that never reference each other.
+ *
+ *  An ALLOWLIST, not half of a checked partition: a member verb the framework
+ *  grows later is withheld until someone decides it reads, which is the safe
+ *  direction for a gate to be wrong in. `satisfies` pins each entry to a verb
+ *  the framework declares, so a typo here is a compile error rather than a
+ *  member that can never be exposed. */
+export const READ_VERBS = [
+  "get",
+  "keys",
+  "deltas",
+] as const satisfies readonly (CellVerb | CollectionVerb)[];
+
 /** One frame of a collection's batched `deltas` stream: the full keyed set on
  *  (re)subscribe, then one coalesced `{upserts, removes}` per producer tick.
  *  The bulk-friendly twin of the per-key `get` stream — see {@link CollectionVerb}. */
@@ -417,6 +436,27 @@ export function scopeSiblingTag(tag: string, siblingKey: string): string {
     );
   }
   return siblingTagPrefix(siblingKey) + tag.slice(SURFACE_TAG_PREFIX.length);
+}
+
+/** The three framework-RESERVED wire tags every surface carries, at the given
+ *  tag prefix — a client's heartbeat (`system/live`), its stale-tab handshake
+ *  (`system/identity`) and its clock offset (`system/clockNow`).
+ *
+ *  ONE statement of the set, here where the members are claimed (see the
+ *  `claim` calls below), because three readers need it and each of them would
+ *  otherwise grow a copy that a fourth reserved member could silently miss:
+ *  `composeSurfaceRuntimes` (they are the one legitimate overlap between two
+ *  composed runtimes, resolved base-authoritative rather than treated as a
+ *  collision) and `@kolu/surface/expose` (they are ALWAYS reachable on a gated
+ *  face — gating them off would not restrict the face, it would break the link,
+ *  since a watchdog reads a refused probe as a dead transport and reconnects
+ *  forever). */
+export function reservedSurfaceTags(tagPrefix: string): ReadonlySet<string> {
+  return new Set([
+    surfaceTag(tagPrefix, LIVENESS_NAMESPACE, LIVENESS_VERB),
+    surfaceTag(tagPrefix, IDENTITY_NAMESPACE, IDENTITY_VERB),
+    surfaceTag(tagPrefix, CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB),
+  ]);
 }
 
 /** Every name that becomes a tag segment must be a non-empty string free of the

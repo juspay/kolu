@@ -75,6 +75,7 @@ import {
   type ProcedureOutputSchema,
   type ProcedureSpec,
   type ProcedureSpecError,
+  reservedSurfaceTags,
   resolveCellVerbs,
   resolveCollectionVerbs,
   type StreamSpec,
@@ -3188,18 +3189,6 @@ function mergeSurfaceSpecs(a: SurfaceSpec, b: SurfaceSpec): SurfaceSpec {
   return merged as SurfaceSpec;
 }
 
-/** The three framework-RESERVED wire tags every surface carries, for the given
- *  tag prefix. They are the ONE legitimate overlap between two composed
- *  runtimes: every surface claims them, so a composition must resolve them by
- *  policy (base-authoritative) rather than treat them as a collision. */
-function reservedTags(tagPrefix: string): ReadonlySet<string> {
-  return new Set([
-    surfaceTag(tagPrefix, LIVENESS_NAMESPACE, LIVENESS_VERB),
-    surfaceTag(tagPrefix, IDENTITY_NAMESPACE, IDENTITY_VERB),
-    surfaceTag(tagPrefix, CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB),
-  ]);
-}
-
 /** Compose a LOCAL runtime onto a RE-SERVED one, into one served surface (SR5 —
  *  parent-owned additions stay causally separate from mirroring). The BASE is a
  *  re-served surface (`reServeSurface`, a mirror of a remote agent); `ext` is a
@@ -3256,7 +3245,7 @@ export function extendSurface<
   // Merge the two handler records. Extension first, then base — so the reserved
   // `system/*` tags (present in BOTH) resolve base-authoritative, and any other
   // double-claim is a loud throw rather than a silent last-writer-wins overwrite.
-  const reserved = reservedTags(combined.tagPrefix);
+  const reserved = reservedSurfaceTags(combined.tagPrefix);
   const handlers = emptyHandlers();
   for (const [tag, handler] of Object.entries(ext.handlers)) {
     handlers[tag] = handler;
