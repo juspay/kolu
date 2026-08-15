@@ -21,9 +21,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
-import { Cause, Effect, Exit, Schema, Stream } from "effect";
+import { Cause, Effect, Exit, Fiber, Schedule, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { defineSurface } from "./define";
+import { composeSurfaceContracts, defineSurface } from "./define";
 import {
   classifyExpose,
   type ExposeMap,
@@ -333,7 +333,13 @@ describe("one grammar — a key means the same thing on every face", () => {
     const asTool: ExposeMap = { "a.b": "tool" };
     const asResource: ExposeMap = { "a.b": "resource" };
     expect(classifyExpose(dotted.spec, asTool)).toEqual([
-      { kind: "procedure", ns: "a", verb: "b", exposure: "tool" },
+      {
+        kind: "procedure",
+        ns: "a",
+        verb: "b",
+        exposure: "tool",
+        spec: dotted.spec.procedures.a.b,
+      },
     ]);
     // The cell that spells the same key is therefore unreachable by that
     // spelling — and says so, as a category error, rather than silently
@@ -344,18 +350,34 @@ describe("one grammar — a key means the same thing on every face", () => {
   });
 
   it("reads a map exactly as the MCP resolver reads it — one function, one grammar", () => {
+    // Each entry carries the member spec the classifier RESOLVED, by identity —
+    // so a face reads the value this lookup found rather than redeeming the key
+    // with a second lookup of its own that could disagree.
     expect(classifyExpose(surface.spec, { "math.double": "tool" })).toEqual([
-      { kind: "procedure", ns: "math", verb: "double", exposure: "tool" },
+      {
+        kind: "procedure",
+        ns: "math",
+        verb: "double",
+        exposure: "tool",
+        spec: surface.spec.procedures.math.double,
+      },
     ]);
-    expect(classifyExpose(surface.spec, { notes: "resource" })).toEqual([
-      { kind: "collection", key: "notes" },
-    ]);
-    expect(classifyExpose(surface.spec, { ticks: "resource" })).toEqual([
-      { kind: "stream", key: "ticks" },
-    ]);
-    expect(classifyExpose(surface.spec, { motd: "resource" })).toEqual([
-      { kind: "cell", key: "motd" },
-    ]);
+    expect(classifyExpose(surface.spec, { notes: "resource" })[0]?.spec).toBe(
+      surface.spec.collections.notes,
+    );
+    expect(classifyExpose(surface.spec, { ticks: "resource" })[0]?.spec).toBe(
+      surface.spec.streams.ticks,
+    );
+    expect(classifyExpose(surface.spec, { motd: "resource" })[0]?.spec).toBe(
+      surface.spec.cells.motd,
+    );
+    expect(
+      classifyExpose(surface.spec, {
+        notes: "resource",
+        ticks: "resource",
+        motd: "resource",
+      }).map((e) => e.kind),
+    ).toEqual(["collection", "stream", "cell"]);
   });
 });
 
@@ -405,6 +427,63 @@ describe("a map that does not describe the surface is a boot crash", () => {
         exposeFace(other, { "other.ping": "tool" }),
       ),
     ).toThrow(/built from a different surface than the group being served/);
+  });
+
+  it("refuses an EMPTY map built from a different surface, which grants only tags every surface has", () => {
+    // The case a "no stray tag" check cannot see: an empty map yields exactly
+    // the three reserved tags, and EVERY surface carries those — so the wrong
+    // surface looks right, the face binds, and the whole app surface is denied
+    // with nothing to say so. The exposure has to CARRY where it came from.
+    const { runtime } = build();
+    const other = defineSurface({
+      procedures: { other: { ping: { output: Schema.String } } },
+    });
+    expect(() =>
+      restrictHandlers(runtime.group, runtime.handlers, exposeFace(other, {})),
+    ).toThrow(/built from a different surface than the group being served/);
+  });
+
+  it("refuses a PARTIAL bundle exposure, which would silently deny a whole sibling", () => {
+    // Every tag such an exposure names really is in the group, so the mismatch
+    // is invisible from the exposure's side alone. What it leaves out is a whole
+    // sibling — its `system/live` heartbeat included, which a client's watchdog
+    // reads as a dead transport and reconnects on forever.
+    const sibling = () =>
+      defineSurface({
+        cells: { state: { schema: Schema.String, default: "s" } },
+      });
+    const surfaces = { left: sibling(), right: sibling() };
+    const runtime = implementSurfaces(
+      surfaces,
+      {},
+      {
+        left: { cells: { state: { store: inMemoryStore("L") } } },
+        right: { cells: { state: { store: inMemoryStore("R") } } },
+      },
+    );
+    expect(() =>
+      restrictHandlers(
+        runtime.group,
+        runtime.handlers,
+        exposeFaces({ left: surfaces.left }, { left: { state: "resource" } }),
+      ),
+    ).toThrow(/built from a different surface than the group being served/);
+  });
+
+  it("refuses an already-scoped sibling, rather than re-prefixing it", () => {
+    // `Surface.tagPrefix` is carried on the value precisely so a scoped sibling
+    // and a standalone surface are the same shape — so handing the SCOPED
+    // siblings a bundle hands out would mint `surface/left/left/...` tags no
+    // surface serves. Loud, at the constructor.
+    const surfaces = {
+      left: defineSurface({
+        cells: { state: { schema: Schema.String, default: "s" } },
+      }),
+    };
+    const composed = composeSurfaceContracts(surfaces);
+    expect(() =>
+      exposeFaces({ left: composed.siblings.left }, { left: {} }),
+    ).toThrow(/already scoped/);
   });
 });
 
@@ -482,6 +561,88 @@ describe("two faces of one surface, over real sockets", () => {
     await publicLink.dispose();
     trusted.close();
     public_.close();
+    await runtime.close();
+  }, 20_000);
+
+  it("refuses a member without touching a live subscription on the SAME link", async () => {
+    // The property the module claims in prose — `surfaceRpcServerLayer` runs
+    // with `disableFatalDefects`, so a refusal is ONE request's answer and not a
+    // connection event. Proven where it matters: one link, one bystander
+    // subscription, one denial. A refusal that killed the connection would take
+    // out a subscription that never asked for anything.
+    const { runtime } = build();
+    const dir = mkdtempSync(join(tmpdir(), "surface-expose-live-"));
+    const listener = await serveOverUnixSocket({
+      socketPath: join(dir, "gated.sock"),
+      group: runtime.group,
+      handlers: runtime.handlers,
+      // The cell is readable here; `admin.wipe` is not named at all.
+      expose: exposeFace(surface, { motd: "resource" }),
+      log: silentLogger,
+    });
+    const link = await unixSocketLink({
+      group: surface.group,
+      socketPath: listener.socketPath,
+    });
+
+    // A LIVE subscription to an exposed streaming member, held open across the
+    // refusal below.
+    const frames: string[] = [];
+    const subscription = Effect.runFork(
+      Stream.runForEach(
+        link.dispatch.stream(MOTD_GET, undefined) as Stream.Stream<
+          string,
+          unknown
+        >,
+        (frame) => Effect.sync(() => void frames.push(frame)),
+      ),
+    );
+    await Effect.runPromise(
+      Effect.retry(
+        Effect.suspend(() =>
+          frames.length > 0
+            ? Effect.void
+            : Effect.fail(new Error("no first frame yet")),
+        ),
+        { times: 200, schedule: Schedule.spaced(10) },
+      ),
+    );
+    expect(frames).toEqual(["boot"]);
+
+    // The denial, on that same link.
+    const exit = await Effect.runPromiseExit(
+      link.dispatch.unary(WIPE, undefined),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.pretty(exit.cause)).toContain(
+        `"${WIPE}" is not exposed on this face`,
+      );
+    }
+
+    // The subscription is still LIVE: a write through the trusted in-process
+    // handler pushes a new frame down the very connection that was just
+    // refused.
+    await Effect.runPromise(
+      Effect.suspend(
+        () => runtime.handlers[MOTD_SET]?.("after") as Effect.Effect<unknown>,
+      ),
+    );
+    await Effect.runPromise(
+      Effect.retry(
+        Effect.suspend(() =>
+          frames.length > 1
+            ? Effect.void
+            : Effect.fail(new Error("no post-refusal frame yet")),
+        ),
+        { times: 200, schedule: Schedule.spaced(10) },
+      ),
+    );
+    expect(frames).toEqual(["boot", "after"]);
+
+    await Effect.runPromise(Fiber.interrupt(subscription));
+    await link.dispose();
+    listener.close();
     await runtime.close();
   }, 20_000);
 });

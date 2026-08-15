@@ -738,17 +738,17 @@ serve it.
 
 | Export | Role |
 | --- | --- |
-| `ExposeMap<S>` · `ToolExposure` | the map shape. `@kolu/surface-mcp` re-exports these rather than declaring its own |
-| `classifyExpose(spec, map)` | **the** key grammar — what each key names. Every face reads a map through this one function, `serveSurfaceAsMcp` included, which is what makes "the same key means the same thing on every face" true rather than aspirational |
-| `exposeFace(surface, map)` | map + standalone surface → `FaceExposure`, the tag set one face serves |
-| `exposeFaces(surfaces, maps)` | the sibling-bundle twin: one map per sibling, keyed the way the bundle is. A sibling with no map is fully denied |
-| `restrictHandlers(group, handlers, exposure)` | apply it — the filter the two faces above call for you |
-| `SurfaceMemberNotExposed` | the refusal |
+| `ExposeMap<S>` · `ToolExposure` | the map shape — the ONE home for it. `@kolu/surface-mcp` imports it from here rather than re-exporting or declaring its own |
+| `classifyExpose(spec, map)` | **the** key grammar — what each key names, with the member spec it resolved carried on the entry. Every face reads a map through this one function, `serveSurfaceAsMcp` included, which is what makes "the same key means the same thing on every face" true rather than aspirational |
+| `exposeFace(surface, map)` | map + standalone surface → `FaceExposure`: the tag set one **wire** face serves, plus the `universe` of tags the surface it was built from advertises |
+| `exposeFaces(surfaces, maps)` | the sibling-bundle twin: one map per sibling, keyed the way the bundle is, over the **standalone** sibling surfaces. A sibling with no map is fully denied; an already-scoped sibling is refused |
+| `restrictHandlers(group, handlers, exposure?)` | apply it — the filter the two faces above call for you. **Total** over an absent exposure: no policy returns the handlers unchanged, so the "omit `expose` = ungated" rule has one implementation |
+| `SurfaceMemberNotExposed` · `ExposeMapError` | the per-request refusal, and the boot-time refusal of a map that does not describe its surface (`face` carries which door the consumer came through) |
 
 | Key | Grants |
 | --- | --- |
 | `"<ns>.<verb>"` → a `ToolExposure` (`"tool"` / `{ tool: { mutates } }`) | that one procedure; split at the **first** dot. A wire face reads only the membership — `mutates` describes how an MCP host should *present* a call, not whether this face may make it |
-| `"<member>"` → `"resource"` | the **read** verbs that primitive declares (`get` / `keys` / `deltas`), never its writes (`set` / `patch` / `upsert` / `delete` / `test__set`) — the tab reads the cell, the socket writes it |
+| `"<member>"` → `"resource"` | the **read** verbs that primitive declares (`get` / `keys` / `deltas` — `@kolu/surface/define`'s `READ_VERBS`, which lives beside the verb vocabulary it partitions), never its writes (`set` / `patch` / `upsert` / `delete` / `test__set`) — the tab reads the cell, the socket writes it. A primitive that must be **writable** on a gated face therefore has no spelling today: `"resource"` is the read word and there is no second one yet (see the note at the end of this section) |
 
 The three reserved `system/*` members are **always** reachable on a gated face
 (per sibling, in a bundle) and are not spellable in a map: a client's heartbeat
@@ -766,20 +766,22 @@ a primitive's `Rpc` has no error channel and a procedure's defaults to
 `disableFatalDefects`, one member's refusal never touches a sibling
 subscription on the same connection.
 
-Everything is checked before anything is served. `exposeFace` throws on a key
-that names nothing, a procedure exposed as `"resource"`, or a primitive exposed
-as a tool; `restrictHandlers` throws if the exposure was built from a *different*
-surface than the group being served. None of them degrade to a quieter face,
-because a gate that matches nothing denies everything and still binds — the one
-failure mode that looks like success from outside.
+Everything is checked before anything is served. `exposeFace` throws an
+`ExposeMapError` on a key that names nothing, a procedure exposed as
+`"resource"`, or a primitive exposed as a tool. `restrictHandlers` throws if the
+exposure's `universe` — the tags the surface it was built from advertises — is
+not *exactly* the set the group being served carries: a **different** surface and
+a merely **partial** one (a bundle exposed with a sibling left out, which would
+silently deny that sibling's `system/live` heartbeat) are both caught, in both
+directions. None of them degrade to a quieter face, because a gate that matches
+nothing denies everything and still binds — the one failure mode that looks like
+success from outside.
 
 <Aside type="note" title="A hand-built serve path gates itself">
-  `serveSurfaceApp` and `serveOverUnixSocket` take `expose` directly. The other
-  serve paths take `{ group, handlers }` and no map — `serveOverStdio`, and
-  `serveSurfaceSocket` under a per-host dispatch — so they call
-  `restrictHandlers(group, handlers, exposeFace(surface, { … }))` themselves and
-  serve the result. That is the whole of it, and it is why the filter is
-  exported.
+  `serveSurfaceApp` and `serveOverUnixSocket` take `expose` directly; every other
+  serve path calls `restrictHandlers` itself and serves the result. The rule, and
+  why, live in one place — the module header of
+  [`@kolu/surface/expose`](https://github.com/juspay/kolu/blob/master/packages/surface/src/expose.ts).
 </Aside>
 
 A member that must be **writable** on a gated face has no spelling today — a
