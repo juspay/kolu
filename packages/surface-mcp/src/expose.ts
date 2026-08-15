@@ -20,64 +20,24 @@
  */
 
 import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
+import { classifyExpose, type ExposeMap } from "@kolu/surface/expose";
 import { Option, Schema } from "effect";
+import { match, P } from "ts-pattern";
 import { inputSchema } from "./jsonschema";
-import { brand } from "./tools";
+import { ADAPTER_NAME, brand } from "./tools";
 
 // ── Expose map types ────────────────────────────────────────────────────
 
-/** `"<ns>.<verb>"` for every declared procedure — the legal tool keys. */
-type ProcedureName<S extends SurfaceSpec> =
-  S["procedures"] extends Record<string, Record<string, unknown>>
-    ? {
-        [N in keyof S["procedures"] &
-          string]: `${N}.${keyof S["procedures"][N] & string}`;
-      }[keyof S["procedures"] & string]
-    : never;
-
-/** Cell / Stream / Event keys — the singleton resource-shaped primitives. */
-type ResourceCellName<S extends SurfaceSpec> =
-  | (S["cells"] extends Record<string, unknown>
-      ? keyof S["cells"] & string
-      : never)
-  | (S["streams"] extends Record<string, unknown>
-      ? keyof S["streams"] & string
-      : never)
-  | (S["events"] extends Record<string, unknown>
-      ? keyof S["events"] & string
-      : never);
-
-/** Collection keys — the keyed resource primitives (list + template). */
-type CollectionName<S extends SurfaceSpec> =
-  S["collections"] extends Record<string, unknown>
-    ? keyof S["collections"] & string
-    : never;
-
-/** How a procedure is exposed as an MCP tool. `mutates` is the authz bit the
- *  host surfaces as a write capability (`readOnlyHint`/`destructiveHint`) and
- *  defaults CONSERVATIVELY: both the bare `"tool"` shorthand and `{ tool: {} }`
- *  (no explicit flag) are treated as MUTATING, so an unannotated procedure is
- *  never advertised as auto-approvable read-only. Mark a genuinely read-only
- *  procedure with `{ tool: { mutates: false } }`. */
-export type ToolExposure = "tool" | { tool: { mutates?: boolean } };
-
-/** The default-deny allowlist. Keys are constrained to the spec's own
- *  primitives/procedures; omission means *not exposed*. A primitive maps to
- *  `"resource"`; a procedure to a `ToolExposure`.
- *
- *  Typed against `S` where the compiler can narrow; falls back to a `string`
- *  index so a key the generics can't enumerate (a heavily-composed spec)
- *  still type-checks and is validated at runtime against the live spec. */
-export type ExposeMap<S extends SurfaceSpec = SurfaceSpec> = {
-  [K in ProcedureName<S>]?: ToolExposure;
-} & {
-  [K in ResourceCellName<S> | CollectionName<S>]?: "resource";
-} & {
-  // Loosen-to-string escape hatch (noted in the report): keys the mapped
-  // types above can't enumerate stay assignable, and `resolveExpose` checks
-  // each against the spec at boot.
-  [key: string]: ToolExposure | "resource" | undefined;
-};
+// The MAP and the KEY GRAMMAR are shared vocabulary and live in
+// `@kolu/surface/expose`: since juspay/kolu#2169 the wire faces
+// (`serveSurfaceApp`, `serveOverUnixSocket`) take the same map, and a second
+// reading of it here would be two authorities on one contract — a consumer that
+// gates its MCP face and its browser face writes ONE kind of map, and the same
+// key means the same thing on both. There is deliberately no re-export: one
+// concept gets one import path, so two readers of the same file cannot disagree
+// about where `ExposeMap` lives. What stays here is the RESOLUTION, because only
+// this adapter turns a classified entry into a `surface://` URI or an MCP tool
+// name.
 
 // ── Resolved registration lists ─────────────────────────────────────────
 
@@ -190,9 +150,24 @@ function assertExposableAsResource(
 
 // ── Resolver ─────────────────────────────────────────────────────────────
 
-/** Walk a spec + expose map, producing the concrete lists to register. Every
- *  exposed key is checked against the live spec — a key that names no
- *  primitive/procedure is a boot-time error, not a silent no-op. */
+/** Walk a spec + expose map, producing the concrete lists to register.
+ *
+ *  The KEY GRAMMAR is not this function's: `classifyExpose` (`@kolu/surface/expose`)
+ *  owns it, so the MCP face and the wire faces read one map one way — a key that
+ *  names nothing, a procedure exposed as a resource, and a primitive exposed as a
+ *  tool are all refused THERE, once, in the vocabulary every face shares. What is
+ *  left here is what only this adapter knows: which `surface://` URI a primitive
+ *  gets, which tool name a procedure gets, its JSON-Schema input, and the one gate
+ *  a wire face has no equivalent of (an input-bearing stream/event cannot be a
+ *  STATIC resource).
+ *
+ *  The adapter's NAME travels into the classifier, so the framework's refusal
+ *  comes back already saying which door the consumer came through — the way
+ *  every other boot-time refusal from this package does. The brand is a FIELD on
+ *  the framework's own error class, not a rewrite of its message: a consumer
+ *  handling "my expose map is wrong" across faces matches the class, never the
+ *  text, and the original stack survives because nothing was caught and
+ *  rebuilt. */
 export function resolveExpose<S extends SurfaceSpec>(
   spec: S,
   expose: ExposeMap<S>,
@@ -201,129 +176,78 @@ export function resolveExpose<S extends SurfaceSpec>(
   const resourceTemplates: ResourceTemplateEntry[] = [];
   const tools: ToolEntry[] = [];
 
-  const cells = spec.cells ?? {};
-  const collections = spec.collections ?? {};
-  const streams = spec.streams ?? {};
-  const events = spec.events ?? {};
-  const procedures = spec.procedures ?? {};
-
-  for (const [key, exposure] of Object.entries(
-    expose as Record<string, ToolExposure | "resource" | undefined>,
-  )) {
-    if (exposure === undefined) continue;
-
-    // A dotted key names a procedure (`<ns>.<verb>`); anything else names a
-    // primitive by its surface key.
-    const dot = key.indexOf(".");
-    if (dot !== -1) {
-      const ns = key.slice(0, dot);
-      const verb = key.slice(dot + 1);
-      const procSpec = procedures[ns]?.[verb];
-      if (procSpec === undefined) {
-        throw new Error(
-          brand(
-            `expose names procedure "${key}" but the spec has no such procedure`,
-          ),
-        );
-      }
-      if (exposure === "resource") {
-        throw new Error(
-          brand(
-            `procedure "${key}" is exposed as "resource"; procedures map to tools`,
-          ),
-        );
-      }
-      // Conservative default: an exposure that does NOT explicitly say
-      // `mutates: false` is treated as MUTATING. `readOnlyHint: true` can let an
-      // MCP host auto-execute a tool unconfirmed, so an absent `mutates` must fail
-      // SAFE (assume it writes), never silently advertise an unannotated tool as a
-      // harmless read — the inverted-default defect. The bare `"tool"` shorthand
-      // (no object to carry a flag) is likewise mutating; mark a genuinely
-      // read-only procedure with `{ tool: { mutates: false } }`.
-      const mutates =
-        typeof exposure === "object" ? (exposure.tool.mutates ?? true) : true;
-      const built = inputSchema(procSpec.input);
-      tools.push({
-        name: toolName(ns, verb),
-        ns,
-        verb,
-        mutates,
-        inputSchema: built.schema,
-        hasInput: procSpec.input !== undefined,
-        wrapped: built.wrapped,
-      });
-      continue;
-    }
-
-    // A primitive — must be exposed as a resource.
-    if (exposure !== "resource") {
-      throw new Error(
-        brand(`primitive "${key}" must be exposed as "resource", not a tool`),
-      );
-    }
-    if (key in cells) {
-      resources.push({
-        uri: cellUri(key),
-        kind: "cell",
-        key,
-        name: key,
-        mimeType: "application/json",
-      });
-    } else if (key in collections) {
-      const collSpec = collections[key] as { keySchema: WireSchemaAny };
-      resources.push({
-        uri: collectionUri(key),
-        kind: "collection",
-        key,
-        name: key,
-        mimeType: "application/json",
-      });
-      resourceTemplates.push({
-        uriTemplate: collectionItemTemplate(key),
-        key,
-        name: `${key} item`,
-        mimeType: "application/json",
-        keySchema: collSpec.keySchema,
-      });
-    } else if (key in streams) {
-      // A stream is a static resource only if its input accepts no argument (the
-      // adapter reads/subscribes via `.get(undefined)`) — see the shared gate.
-      assertExposableAsResource(
-        "stream",
-        key,
-        (streams[key] as { inputSchema: WireSchemaAny }).inputSchema,
-      );
-      resources.push({
-        uri: streamUri(key),
-        kind: "stream",
-        key,
-        name: key,
-        mimeType: "application/json",
-      });
-    } else if (key in events) {
-      // An event takes the SAME no-input gate as a stream — its live value is the
-      // `notifications/resources/updated` stream, not a readable snapshot
-      // (`readSnapshot` returns an immediate `null`), but its subscribe path still
-      // calls `.get(undefined)`.
-      assertExposableAsResource(
-        "event",
-        key,
-        (events[key] as { inputSchema: WireSchemaAny }).inputSchema,
-      );
-      resources.push({
-        uri: eventUri(key),
-        kind: "event",
-        key,
-        name: key,
-        mimeType: "application/json",
-      });
-    } else {
-      throw new Error(
-        brand(
-          `expose names "${key}" but the spec has no such cell/collection/stream/event`,
-        ),
-      );
-    }
+  // Matched exhaustively on the entry's `kind`, so a member kind the framework
+  // grows later is a COMPILE error here rather than something a trailing `else`
+  // quietly resolves as a stream.
+  for (const entry of classifyExpose(spec, expose, ADAPTER_NAME)) {
+    match(entry)
+      .with({ kind: "procedure" }, ({ ns, verb, exposure, spec: procSpec }) => {
+        // The spec `classifyExpose` resolved travels ON the entry, so the input
+        // schema is read from the same lookup that proved the procedure exists —
+        // never a second one this face could disagree with.
+        //
+        // Conservative default: an exposure that does NOT explicitly say
+        // `mutates: false` is treated as MUTATING. `readOnlyHint: true` can let an
+        // MCP host auto-execute a tool unconfirmed, so an absent `mutates` must fail
+        // SAFE (assume it writes), never silently advertise an unannotated tool as a
+        // harmless read — the inverted-default defect. The bare `"tool"` shorthand
+        // (no object to carry a flag) is likewise mutating; mark a genuinely
+        // read-only procedure with `{ tool: { mutates: false } }`.
+        const mutates =
+          typeof exposure === "object" ? (exposure.tool.mutates ?? true) : true;
+        const built = inputSchema(procSpec.input);
+        tools.push({
+          name: toolName(ns, verb),
+          ns,
+          verb,
+          mutates,
+          inputSchema: built.schema,
+          hasInput: procSpec.input !== undefined,
+          wrapped: built.wrapped,
+        });
+      })
+      .with({ kind: "cell" }, ({ key }) => {
+        resources.push({
+          uri: cellUri(key),
+          kind: "cell",
+          key,
+          name: key,
+          mimeType: "application/json",
+        });
+      })
+      .with({ kind: "collection" }, ({ key, spec: collSpec }) => {
+        resources.push({
+          uri: collectionUri(key),
+          kind: "collection",
+          key,
+          name: key,
+          mimeType: "application/json",
+        });
+        resourceTemplates.push({
+          uriTemplate: collectionItemTemplate(key),
+          key,
+          name: `${key} item`,
+          mimeType: "application/json",
+          keySchema: collSpec.keySchema,
+        });
+      })
+      .with({ kind: P.union("stream", "event") }, ({ kind, key, spec: io }) => {
+        // A stream is a static resource only if its input accepts no argument (the
+        // adapter reads/subscribes via `.get(undefined)`) — see the shared gate. An
+        // event takes the SAME gate: its live value is the
+        // `notifications/resources/updated` stream, not a readable snapshot
+        // (`readSnapshot` returns an immediate `null`), but its subscribe path still
+        // calls `.get(undefined)`.
+        assertExposableAsResource(kind, key, io.inputSchema);
+        resources.push({
+          uri: kind === "stream" ? streamUri(key) : eventUri(key),
+          kind,
+          key,
+          name: key,
+          mimeType: "application/json",
+        });
+      })
+      .exhaustive();
   }
 
   // Tool-name uniqueness (proc-vs-proc, proc-vs-bespoke, bespoke-vs-bespoke) is

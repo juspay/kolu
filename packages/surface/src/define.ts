@@ -121,6 +121,29 @@ export type CollectionVerb =
   | "deltas"
   | "test__set";
 
+/** The READ half of the verb vocabulary above — a cell's / stream's / event's
+ *  `get`, a collection's `keys` / `get` / `deltas`. It lives HERE, beside the
+ *  unions it partitions, because the read/write split is a property of the
+ *  vocabulary and not of any one reader: `@kolu/surface/expose`'s `"resource"`
+ *  grant is defined against it (a gated face reads the cell, a trusted face
+ *  writes it), and stating the split in the consumer would put the vocabulary
+ *  and its partition in two modules that never reference each other.
+ *
+ *  An ALLOWLIST, not half of a checked partition: a member verb the framework
+ *  grows later is withheld until someone decides it reads, which is the safe
+ *  direction for a gate to be wrong in. The declared element type pins each
+ *  entry to a verb the framework declares, so a typo here is a compile error
+ *  rather than a member that can never be exposed — and it is deliberately the
+ *  WIDE union rather than a literal tuple, so the two readers that ask the
+ *  complementary question (`implementSurface`'s derived-cell and
+ *  derived-collection narrowings, which keep the verbs that are NOT reads) can
+ *  spell it as `!READ_VERBS.includes(verb)` without a cast. */
+export const READ_VERBS: readonly (CellVerb | CollectionVerb)[] = [
+  "get",
+  "keys",
+  "deltas",
+];
+
 /** One frame of a collection's batched `deltas` stream: the full keyed set on
  *  (re)subscribe, then one coalesced `{upserts, removes}` per producer tick.
  *  The bulk-friendly twin of the per-key `get` stream — see {@link CollectionVerb}. */
@@ -417,6 +440,47 @@ export function scopeSiblingTag(tag: string, siblingKey: string): string {
     );
   }
   return siblingTagPrefix(siblingKey) + tag.slice(SURFACE_TAG_PREFIX.length);
+}
+
+/** The three framework-RESERVED members every surface carries, as
+ *  `[namespace, verb]` — a client's heartbeat (`system/live`), its stale-tab
+ *  handshake (`system/identity`) and its clock offset (`system/clockNow`).
+ *
+ *  ONE statement of the set, here where the members are claimed (see the
+ *  `claim` calls below), because several readers need it and each of them would
+ *  otherwise grow a copy that a fourth reserved member could silently miss. */
+const RESERVED_MEMBERS: readonly (readonly [string, string])[] = [
+  [LIVENESS_NAMESPACE, LIVENESS_VERB],
+  [IDENTITY_NAMESPACE, IDENTITY_VERB],
+  [CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB],
+];
+
+/** The reserved wire tags at ONE known tag prefix. For a reader that is building
+ *  a tag set it already owns the prefix of — `extendSurface`, where they are the
+ *  one legitimate overlap between two composed runtimes and must resolve
+ *  base-authoritative rather than count as a collision. */
+export function reservedSurfaceTags(tagPrefix: string): ReadonlySet<string> {
+  return new Set(
+    RESERVED_MEMBERS.map(([ns, verb]) => surfaceTag(tagPrefix, ns, verb)),
+  );
+}
+
+/** Is this wire tag a reserved member's — at ANY prefix?
+ *
+ *  Matched on the LAST TWO segments, which is what makes it prefix-independent:
+ *  a standalone `surface/system/live` and a sibling's `surface/left/system/live`
+ *  are the same reserved member, and a reader walking a composed bundle's flat
+ *  group has no one prefix to ask about. `@kolu/surface/expose` is the caller —
+ *  a gated face ALWAYS answers these, because gating them off would not restrict
+ *  the face, it would break the link (a watchdog reads a refused probe as a dead
+ *  transport and reconnects forever). Asking the tag, rather than seeding the
+ *  set when the exposure is built, is what makes that true of every exposure the
+ *  applier is handed and not only of the ones these constructors made. */
+export function isReservedSurfaceTag(tag: string): boolean {
+  const segments = tag.split(TAG_SEPARATOR);
+  const verb = segments.at(-1);
+  const member = segments.at(-2);
+  return RESERVED_MEMBERS.some(([ns, v]) => ns === member && v === verb);
 }
 
 /** Every name that becomes a tag segment must be a non-empty string free of the

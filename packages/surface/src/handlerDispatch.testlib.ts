@@ -14,7 +14,10 @@
 import { Effect, Fiber, Stream } from "effect";
 import type { SurfaceHandlers } from "./server";
 
-function handlerAt(handlers: SurfaceHandlers, tag: string) {
+/** The handler bound at `tag`, or a throw naming every tag that IS bound — the
+ *  one lookup, so a test that mistypes a tag reads the bound set instead of
+ *  guessing. */
+export function handlerAt(handlers: SurfaceHandlers, tag: string) {
   const handler = handlers[tag];
   if (!handler) {
     throw new Error(

@@ -110,6 +110,7 @@ import {
 } from "node:https";
 import type { AddressInfo, Server as NetServer } from "node:net";
 import { NodeHttpServer } from "@effect/platform-node";
+import { type FaceExposure, restrictHandlers } from "@kolu/surface/expose";
 import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
 import type { SurfaceHandlers } from "@kolu/surface/server";
 import { gateWsOrigin } from "@kolu/surface/ws-origin";
@@ -285,6 +286,13 @@ export interface ServeSurfaceAppOptions<Svc = never>
   readonly group: RpcGroup.RpcGroup<Rpc.Any>;
   /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
   readonly handlers: SurfaceHandlers;
+  /** THIS face's default-deny allowlist — `exposeFace(surface, { … })` (or
+   *  `exposeFaces` for a sibling bundle). Omit and the websocket serves the
+   *  whole surface; declare one and every member it does not name is refused to
+   *  BROWSERS while a trusted face — the unix socket, the MCP adapter — may
+   *  still serve it. The rule, and which faces take one, live in
+   *  `@kolu/surface/expose`. */
+  readonly expose?: FaceExposure;
   /** The app's OWN routes, merged alongside the shell — an MCP endpoint, a
    *  media route, anything answering with bytes the bundle does not hold.
    *  MERGED, not ordered: `HttpRouter` ranks by specificity, so a literal or
@@ -350,6 +358,13 @@ export const serveSurfaceApp = <Svc = never>(
     // so "what does this listener do when nobody is listening" has exactly one
     // answer and it is readable in one place.
     const report = options.onEvent ?? reportSurfaceAppEvent;
+    // This face's gate, before anything binds — unconditionally, because
+    // `restrictHandlers` owns what an absent policy means (`@kolu/surface/expose`).
+    const handlers = restrictHandlers(
+      options.group,
+      options.handlers,
+      options.expose,
+    );
     // The HTTP handler's own scope: `makeHandler` forks each request as a fiber
     // in it, so it must outlive every in-flight request and die with the
     // listener. `Scope.fork` is the library contract for exactly that —
@@ -475,7 +490,7 @@ export const serveSurfaceApp = <Svc = never>(
           );
           const serving = serveSurfaceSocket({
             group: options.group,
-            handlers: options.handlers,
+            handlers,
             // `ws`'s socket satisfies `ServableSocket` structurally; its typings
             // narrow `addEventListener` per event name, which the seam does not.
             socket: peer as unknown as ServableSocket,

@@ -45,6 +45,21 @@ key is checked against the surface spec at boot.
 
 Resources are readable and subscribable; procedures become callable tools.
 
+Only the **separator** becomes `_`. A namespace that itself contains a dot keeps
+it: `procedures: { "a.b": { c } }` mints the tool `a.b_c`, not `a_b_c`. That is
+deliberate — the tool name has to be reversible to one `(ns, verb)` pair, and
+rewriting every dot would make `a.b`·`c` and `a`·`b.c` the same tool — but it is
+odd enough on a host's tool list to be worth knowing before you meet it.
+
+The `ExposeMap` shape itself is **not this package's** — it lives in
+[`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)
+and is imported from THERE (there is no re-export: one concept, one import
+path), because the wire faces (`serveSurfaceApp`, `serveOverUnixSocket`) take the
+same map for the same reason. What stays here is
+the *resolver*: only this adapter turns a map entry into a `surface://` URI or an
+MCP tool name. A consumer gating its MCP face and its browser face writes one
+kind of map, and the same key means the same thing on both.
+
 <Aside type="caution" title="mutates defaults to true">
   A procedure exposed as a tool is advertised **mutating unless you say
   otherwise** — `mutates` defaults to `true` when absent. A `readOnlyHint` can let
@@ -213,6 +228,10 @@ cannot see through, so a default declared outside it never reaches the agent.
 | `resolveExpose(spec, expose)` | the default-deny resolver → `{ resources, resourceTemplates, tools }` |
 | `ToolFailure<D>(message, detail)` | the refusal a handler fails with when the reason is machine-readable — `detail` becomes the result's `structuredContent`, normalized the same way a success is |
 | `messageOf(error)` | the adapter's own "name what broke" derivation — the one the request edge uses to word a failure. Reach for it in a bespoke tool that folds a caught failure into its own message instead of raising it, so both paths word the same error the same way; it handles the two shapes `e instanceof Error ? e.message : String(e)` gets wrong (a tagged error whose `message` is empty, a failure declared as a plain object) |
-| `ExposeMap` · `BespokeTool` · `ToolInputSchema` · `ToolResult` · `ServeSurfaceAsMcpOptions` · `SurfaceClientCallable` | types |
+| `BespokeTool` · `ToolInputSchema` · `ToolResult` · `ServeSurfaceAsMcpOptions` · `SurfaceClientCallable` | types |
+
+`ExposeMap` and `ToolExposure` are **not** exported here — import them from
+[`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose),
+their one home.
 
 The step-by-step is in [How to expose a surface to agents](/surface/expose-to-agents).

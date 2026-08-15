@@ -75,6 +75,8 @@ import {
   type ProcedureOutputSchema,
   type ProcedureSpec,
   type ProcedureSpecError,
+  READ_VERBS,
+  reservedSurfaceTags,
   resolveCellVerbs,
   resolveCollectionVerbs,
   type StreamSpec,
@@ -168,8 +170,10 @@ export type SurfaceHandler = (payload: any) => SurfaceHandlerResult;
  *  guard fire falsely and make a lookup return a function nobody bound). */
 export type SurfaceHandlers = Record<string, SurfaceHandler>;
 
-/** A fresh, null-prototype handler record. */
-function emptyHandlers(): SurfaceHandlers {
+/** A fresh, null-prototype handler record. Exported for the one other builder of
+ *  a handler record — `@kolu/surface/expose`'s `restrictHandlers` — so the
+ *  null-prototype reason above has one statement and one implementation. */
+export function emptyHandlers(): SurfaceHandlers {
   return Object.create(null) as SurfaceHandlers;
 }
 
@@ -179,8 +183,10 @@ function emptyHandlers(): SurfaceHandlers {
  *  nobody bound would 404 at the far end, and a handler bound at a tag the group
  *  does not carry is dead code that silently never runs. Both are boot crashes.
  *  This is the runtime half of D1's route-set identity (the type-level half is
- *  `SurfaceTags<S>`). */
-function assertHandlersMatchGroup(
+ *  `SurfaceTags<S>`). Exported because every consumer that REBUILDS a handler
+ *  record owes the same proof — `@kolu/surface/expose`'s `restrictHandlers`
+ *  asks it of the record it is handed, before it filters anything. */
+export function assertHandlersMatchGroup(
   group: RpcGroup.RpcGroup<Rpc.Any>,
   handlers: SurfaceHandlers,
   label: string,
@@ -2367,7 +2373,9 @@ function walkSurface<const S extends SurfaceSpec>(
     // rather than a silent double-writer. The derived value still reaches the
     // wire through the `connect` seam below; `get` is its only exposed verb.
     if (isDerivedCellDeps(cellDeps)) {
-      const writeVerbs = resolveCellVerbs(cellSpec).filter((v) => v !== "get");
+      const writeVerbs = resolveCellVerbs(cellSpec).filter(
+        (v) => !READ_VERBS.includes(v),
+      );
       if (writeVerbs.length > 0) {
         throw new Error(
           `implementSurface: derived cell "${key}" is wire-read-only (its derivation is the one writer) but declares write verb(s) [${writeVerbs.join(", ")}] — declare verbs: ["get"] (test__set included).`,
@@ -2623,7 +2631,7 @@ function walkSurface<const S extends SurfaceSpec>(
     // `keys`/`get`/`deltas`.
     if (derivedColl) {
       const writeVerbs = resolveCollectionVerbs(collSpec).filter(
-        (v) => v === "upsert" || v === "delete" || v === "test__set",
+        (v) => !READ_VERBS.includes(v),
       );
       if (writeVerbs.length > 0) {
         throw new Error(
@@ -3188,18 +3196,6 @@ function mergeSurfaceSpecs(a: SurfaceSpec, b: SurfaceSpec): SurfaceSpec {
   return merged as SurfaceSpec;
 }
 
-/** The three framework-RESERVED wire tags every surface carries, for the given
- *  tag prefix. They are the ONE legitimate overlap between two composed
- *  runtimes: every surface claims them, so a composition must resolve them by
- *  policy (base-authoritative) rather than treat them as a collision. */
-function reservedTags(tagPrefix: string): ReadonlySet<string> {
-  return new Set([
-    surfaceTag(tagPrefix, LIVENESS_NAMESPACE, LIVENESS_VERB),
-    surfaceTag(tagPrefix, IDENTITY_NAMESPACE, IDENTITY_VERB),
-    surfaceTag(tagPrefix, CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB),
-  ]);
-}
-
 /** Compose a LOCAL runtime onto a RE-SERVED one, into one served surface (SR5 —
  *  parent-owned additions stay causally separate from mirroring). The BASE is a
  *  re-served surface (`reServeSurface`, a mirror of a remote agent); `ext` is a
@@ -3256,7 +3252,7 @@ export function extendSurface<
   // Merge the two handler records. Extension first, then base — so the reserved
   // `system/*` tags (present in BOTH) resolve base-authoritative, and any other
   // double-claim is a loud throw rather than a silent last-writer-wins overwrite.
-  const reserved = reservedTags(combined.tagPrefix);
+  const reserved = reservedSurfaceTags(combined.tagPrefix);
   const handlers = emptyHandlers();
   for (const [tag, handler] of Object.entries(ext.handlers)) {
     handlers[tag] = handler;

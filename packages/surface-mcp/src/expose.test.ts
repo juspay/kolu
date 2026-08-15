@@ -6,6 +6,8 @@
  */
 
 import { defineSurface } from "@kolu/surface/define";
+import type { SurfaceSpec } from "@kolu/surface/define";
+import { type ExposeMap, ExposeMapError } from "@kolu/surface/expose";
 import { Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -16,6 +18,7 @@ import {
   resolveExpose,
   streamUri,
 } from "./expose";
+import { ADAPTER_NAME, brand } from "./tools";
 
 function buildSpec() {
   return defineSurface({
@@ -119,6 +122,30 @@ describe("resolveExpose", () => {
         "counter.nonexistent": "tool",
       } as Record<string, "tool">),
     ).toThrow(/no such procedure/);
+  });
+
+  it("brands the shared grammar's refusal with this adapter's name", () => {
+    // The grammar is the framework's, but the consumer called
+    // `serveSurfaceAsMcp` — so the refusal says which door it came through, as
+    // a FIELD on the framework's own class (a consumer handling "my expose map
+    // is wrong" across faces matches the class, never the text) and once in the
+    // message, never twice.
+    let thrown: unknown;
+    try {
+      resolveExpose(buildSpec(), { nope: "resource" } as Record<
+        string,
+        "resource"
+      >);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ExposeMapError);
+    expect((thrown as ExposeMapError).face).toBe(ADAPTER_NAME);
+    expect((thrown as ExposeMapError).message).toBe(
+      brand(
+        'expose names "nope" but the spec has no such cell/collection/stream/event',
+      ),
+    );
   });
 
   it("mis-tagging a primitive as a tool throws", () => {
@@ -227,5 +254,86 @@ describe("resolveExpose", () => {
     const tag = r.tools.find((t) => t.name === "echo_tag");
     expect(shout?.wrapped).toBe(true);
     expect(tag?.wrapped).toBe(false);
+  });
+});
+
+describe("an inherited spec-table key names nothing, and is never advertised", () => {
+  // The BLOCKING finding on juspay/kolu#2170. A spec table is a plain object
+  // literal, so it inherits `Object.prototype`: read with a bare `cells[key]`,
+  // `{ toString: "resource" }` and `{ "admin.toString": "tool" }` classified as
+  // real members and this resolver REGISTERED them — `tools/list` carrying
+  // `admin_toString`, a resource at `surface://cells/toString`. The wire faces
+  // refused (for the wrong reason), but the MCP face is a list-time grant: a key
+  // that names nothing became a tool a host can see.
+  /** Erases the map type, and the reason is worth recording rather than
+   *  scattering casts. Every object type carries `Object`'s own
+   *  `toString: () => string` (and `valueOf`, `hasOwnProperty`, …), so
+   *  `ExposeMap<S>`'s mapped half collides with it: a LITERAL naming one of
+   *  those cannot be written against a typed map at all, whether or not the
+   *  surface declares such a member. That is the type-level limitation; the
+   *  erased map is the call shape this resolver's boot check exists to police,
+   *  and the runtime behaviour below is the part under test. */
+  const erased = <S extends SurfaceSpec>(map: Record<string, unknown>) =>
+    map as unknown as ExposeMap<S>;
+
+  const INHERITED = [
+    "toString",
+    "constructor",
+    "valueOf",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toLocaleString",
+  ] as const;
+
+  it("refuses an inherited name as a primitive key, and registers no resource", () => {
+    for (const key of INHERITED) {
+      expect(
+        () => resolveExpose(buildSpec(), { [key]: "resource" }),
+        key,
+      ).toThrow(ExposeMapError);
+      expect(
+        () => resolveExpose(buildSpec(), { [key]: "resource" }),
+        key,
+      ).toThrow(/no such cell\/collection\/stream\/event/);
+    }
+  });
+
+  it("refuses an inherited name as a procedure verb, and mints no tool", () => {
+    for (const key of INHERITED) {
+      expect(
+        () => resolveExpose(buildSpec(), { [`admin.${key}`]: "tool" }),
+        `admin.${key}`,
+      ).toThrow(/no such procedure/);
+    }
+  });
+
+  it("keeps this adapter's brand on the refusal, like every other bad key", () => {
+    expect(() =>
+      resolveExpose(buildSpec(), erased({ toString: "resource" })),
+    ).toThrow(brand("expose names"));
+    try {
+      resolveExpose(buildSpec(), erased({ toString: "resource" }));
+    } catch (err) {
+      expect((err as ExposeMapError).face).toBe(ADAPTER_NAME);
+    }
+  });
+
+  it("still resolves a member the surface REALLY names toString", () => {
+    // The other half: an own key wins, so a surface may name a member after an
+    // `Object.prototype` member and still expose it.
+    const shadowing = defineSurface({
+      cells: { toString: { schema: Schema.String, default: "own" } },
+      procedures: { admin: { toString: { output: Schema.String } } },
+    }).spec;
+    const r = resolveExpose(
+      shadowing,
+      erased({
+        toString: "resource",
+        "admin.toString": "tool",
+      }),
+    );
+    expect(r.resources.map((e) => e.uri)).toEqual([cellUri("toString")]);
+    expect(r.tools.map((t) => t.name)).toEqual(["admin_toString"]);
   });
 });

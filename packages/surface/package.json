@@ -14,6 +14,7 @@
     "./client": "./src/client.ts",
     "./define": "./src/define.ts",
     "./errors": "./src/errors.ts",
+    "./expose": "./src/expose.ts",
     "./failure-ledger": "./src/failureLedger.ts",
     "./heartbeat": "./src/heartbeat.ts",
     "./link": "./src/link.ts",

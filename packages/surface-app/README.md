@@ -22,8 +22,11 @@ const url = yield* serveSurfaceApp({
 ```
 
 `clientDist` is optional (omit it in dev and there is simply no static route),
-and `routes`, `tls` and `middleware` cover what a real listener also needs —
-kolu's own server is one of these calls.
+and `routes`, `tls`, `middleware` and `expose` cover what a real listener also
+needs — kolu's own server is one of these calls. `expose` is the per-face
+allowlist ([`@kolu/surface/expose`](../surface/src/expose.ts)): name what
+BROWSERS may reach and the rest is refused here while a trusted face — a unix
+socket, an MCP adapter — still serves it.
 
 Connecting is one call too:
 

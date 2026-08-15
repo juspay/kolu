@@ -1004,7 +1004,10 @@ export interface SurfaceSocketServing {
 export function serveSurfaceSocket<Svc = never>(opts: {
   /** The served surface's flat `RpcGroup` — `runtime.group`. */
   group: RpcGroup.RpcGroup<Rpc.Any>;
-  /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
+  /** Every bound member handler keyed by wire tag — `runtime.handlers`, or the
+   *  record `restrictHandlers` returned. No `expose` option here: a hand-built
+   *  serve path gates itself once, alongside its runtime (see
+   *  `@kolu/surface/expose`, which owns that rule). */
   handlers: SurfaceHandlers;
   /** The accepted socket (gated and enrolled — see above). */
   socket: ServableSocket;

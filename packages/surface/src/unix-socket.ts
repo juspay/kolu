@@ -27,6 +27,7 @@ import { Effect, Exit, Layer, Scope } from "effect";
 import { SocketServer } from "effect/unstable/socket";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcServer } from "effect/unstable/rpc";
+import { type FaceExposure, restrictHandlers } from "./expose";
 import { rpcSerializationLayer } from "./frameLimit";
 import { type SurfaceHandlers, surfaceRpcServerLayer } from "./server";
 
@@ -289,24 +290,40 @@ function servingLayer(
   );
 }
 
-/** Serve `handlers` over a unix socket at `socketPath`. NEVER rejects and
- *  never throws — every failure mode resolves to a no-op listener whose
+/** Serve `handlers` over a unix socket at `socketPath`. No TRANSPORT failure
+ *  rejects or throws — every one of them resolves to a no-op listener whose
  *  `outcome` says why, so a host process can treat the socket as purely
  *  additive. The flow: create the parent dir `0700` → verify it's private →
  *  probe the path for a live peer → clear a provably-stale socket inode
  *  (and only that) → listen. Every accepted connection is served by ONE
- *  `RpcServer` over the shared handlers. */
+ *  `RpcServer` over the shared handlers.
+ *
+ *  The ONE thing that does throw is an `expose` built from a different surface
+ *  than the one being served, and it is deliberately not an `outcome`: an
+ *  outcome is a verdict about the host's *environment* (a path someone else
+ *  took, a dir we don't own) which the caller is expected to survive, whereas a
+ *  mismatched exposure is the author's own mistake and there is no listener
+ *  worth having on the far side of it. Degrading it to a no-op would hide a
+ *  security gate that never took effect. */
 export async function serveOverUnixSocket(opts: {
   socketPath: string;
   /** The served surface's flat `RpcGroup` — `runtime.group`. */
   group: RpcGroup.RpcGroup<Rpc.Any>;
   /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
   handlers: SurfaceHandlers;
+  /** THIS face's default-deny allowlist — `exposeFace(surface, { … })` (or
+   *  `exposeFaces` for a sibling bundle). Omit and the socket serves the whole
+   *  surface. The rule, and which faces take one, live in
+   *  `@kolu/surface/expose`. */
+  expose?: FaceExposure;
   /** Where this listener's own lifetime is narrated (bound / post-listen fault /
    *  closed). REQUIRED — see the seam's note at the top of this module. */
   log: Logger;
 }): Promise<UnixSocketListener> {
-  const { socketPath, group, handlers, log } = opts;
+  const { socketPath, group, log } = opts;
+  // This face's gate, before anything binds — unconditionally, because
+  // `restrictHandlers` owns what an absent policy means (`./expose`).
+  const handlers = restrictHandlers(group, opts.handlers, opts.expose);
   const refused = (outcome: UnixSocketServeOutcome): UnixSocketListener => ({
     socketPath,
     outcome,

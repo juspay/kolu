@@ -80,6 +80,16 @@ The path is fixed at `SURFACE_WS_PATH` (`/rpc/ws`); any other upgrade target is
 destroyed. Both legs read that one constant, so the dial URL and the upgrade
 handler cannot drift.
 
+<Aside type="tip" title="`expose` gates THIS face, not the surface">
+  `expose` takes the same `ExposeMap` the MCP adapter takes and applies it to
+  the websocket alone — so a verb can be reachable over a trusted unix socket
+  and refused to browsers, without the app keeping a second write path beside
+  the surface. Omit it and the socket serves the whole surface, as it always
+  did. The shape, the refusal (`SurfaceMemberNotExposed`), the reserved members
+  it can never gate, and the bind-time validation are all
+  [`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)'s.
+</Aside>
+
 | Export | Subpath | Role |
 | --- | --- | --- |
 | `serveSurfaceApp(opts)` | `/serve` | the whole listener — shell, socket, gates, heartbeat, bind, teardown |
