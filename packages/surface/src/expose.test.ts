@@ -136,14 +136,24 @@ function gate(runtime: ReturnType<typeof build>["runtime"], map: ExposeMap) {
   );
 }
 
-/** The defect a refused call carries, or `undefined` if the call did anything
- *  else — including succeed. A member the record does not bind at all is a
- *  THROW, from the shared lookup, which names every tag that IS bound. */
-async function refusalOf(
+/** What a call actually did — three outcomes, told apart.
+ *
+ *  A bare `SurfaceMemberNotExposed | undefined` cannot say them apart: an
+ *  unbound tag, a decode error and a genuine handler bug all collapse to the
+ *  same `undefined` that a SUCCESS returns, so the assertion below would report
+ *  "was not refused" and throw the real cause away. `handlerAt`'s own throw is
+ *  no exception — it runs inside `Effect.suspend`, and the fiber turns a
+ *  synchronous throw into a DIE rather than letting it escape. */
+type CallOutcome =
+  | { readonly kind: "refused"; readonly refusal: SurfaceMemberNotExposed }
+  | { readonly kind: "succeeded"; readonly value: unknown }
+  | { readonly kind: "failed"; readonly cause: string };
+
+async function callOutcome(
   handlers: SurfaceHandlers,
   tag: string,
   payload?: unknown,
-): Promise<SurfaceMemberNotExposed | undefined> {
+): Promise<CallOutcome> {
   const exit = await Effect.runPromiseExit(
     Effect.suspend(() => {
       const result = handlerAt(handlers, tag)(payload);
@@ -152,26 +162,32 @@ async function refusalOf(
         : (result as Effect.Effect<unknown>);
     }),
   );
-  if (!Exit.isFailure(exit)) return undefined;
+  if (!Exit.isFailure(exit)) return { kind: "succeeded", value: exit.value };
   const squashed = Cause.squash(exit.cause);
-  return squashed instanceof SurfaceMemberNotExposed ? squashed : undefined;
+  return squashed instanceof SurfaceMemberNotExposed
+    ? { kind: "refused", refusal: squashed }
+    : { kind: "failed", cause: Cause.pretty(exit.cause) };
 }
 
-/** Assert a member is REFUSED on this face. It asserts the VALUE is a
- *  `SurfaceMemberNotExposed` for that tag rather than poking at `?.tag`, so a
- *  call that unexpectedly SUCCEEDS reads as "expected undefined to be a
- *  SurfaceMemberNotExposed" instead of the riddle `expected undefined to be
- *  "surface/…"`. */
+/** Assert a member is REFUSED on this face — and, when it was not, say what it
+ *  did instead. A call that unexpectedly SUCCEEDS and a call that blew up for an
+ *  unrelated reason are different bugs, so the message carries the real cause
+ *  rather than leaving a reader to re-derive it. */
 async function expectRefused(
   handlers: SurfaceHandlers,
   tag: string,
   payload?: unknown,
 ): Promise<void> {
-  const refusal = await refusalOf(handlers, tag, payload);
-  expect(refusal, `"${tag}" was not refused on this face`).toBeInstanceOf(
-    SurfaceMemberNotExposed,
-  );
-  expect(refusal?.tag).toBe(tag);
+  const outcome = await callOutcome(handlers, tag, payload);
+  expect(
+    outcome.kind,
+    `"${tag}" was not refused on this face — it ${
+      outcome.kind === "succeeded"
+        ? `SUCCEEDED with ${JSON.stringify(outcome.value)}`
+        : `failed for another reason:\n${outcome.kind === "failed" ? outcome.cause : ""}`
+    }`,
+  ).toBe("refused");
+  if (outcome.kind === "refused") expect(outcome.refusal.tag).toBe(tag);
 }
 
 describe("a map grants what it names", () => {
@@ -187,10 +203,12 @@ describe("a map grants what it names", () => {
     await expect(callUnary(restricted, DOUBLE, { x: 21 })).resolves.toEqual({
       y: 42,
     });
-    const refusal = await refusalOf(restricted, WIPE, undefined);
-    expect(refusal).toBeInstanceOf(SurfaceMemberNotExposed);
-    expect(refusal?.tag).toBe(WIPE);
-    expect(refusal?.message).toBe(
+    const outcome = await callOutcome(restricted, WIPE, undefined);
+    expect(outcome.kind).toBe("refused");
+    if (outcome.kind !== "refused") throw new Error("unreachable");
+    expect(outcome.refusal).toBeInstanceOf(SurfaceMemberNotExposed);
+    expect(outcome.refusal.tag).toBe(WIPE);
+    expect(outcome.refusal.message).toBe(
       `surface: "${WIPE}" is not exposed on this face`,
     );
     // The gate is IN FRONT of the handler, not around it.
@@ -266,8 +284,9 @@ describe("a map grants what it names", () => {
       },
     });
     const stored = new Map<number, { text: string }>();
+    const docStore = inMemoryStore({ title: "boot" });
     const runtime = implementSurface(rich, {
-      cells: { doc: { store: inMemoryStore({ title: "boot" }) } },
+      cells: { doc: { store: docStore } },
       collections: {
         items: {
           readAll: () => stored,
@@ -295,18 +314,32 @@ describe("a map grants what it names", () => {
     await expect(
       firstFrame(restricted, "surface/items/deltas"),
     ).resolves.toEqual({ kind: "snapshot", entries: [] });
-    // …and every write it declares, withheld.
-    for (const tag of [
-      "surface/doc/set",
-      "surface/doc/patch",
-      "surface/doc/test__set",
-      "surface/items/upsert",
-      "surface/items/delete",
-      "surface/items/test__set",
-    ]) {
-      await expectRefused(restricted, tag);
+    // …and every write it declares, withheld. Each carries the payload its `Rpc`
+    // actually declares, so the two "nothing was written" assertions below can
+    // go RED: called with `undefined` these would fail their own decode and
+    // leave the store untouched whether or not a gate ran, which asserts nothing.
+    for (const [tag, payload] of [
+      ["surface/doc/set", { title: "hijacked" }],
+      ["surface/doc/patch", { title: "hijacked" }],
+      ["surface/doc/test__set", { title: "hijacked" }],
+      ["surface/items/upsert", { key: 1, value: { text: "x" } }],
+      ["surface/items/delete", { key: 1 }],
+      ["surface/items/test__set", [{ key: 2, value: { text: "y" } }]],
+    ] as const) {
+      await expectRefused(restricted, tag, payload);
     }
     expect(stored.size).toBe(0);
+    expect(docStore.get()).toEqual({ title: "boot" });
+    // …and the same two payloads DO write through the ungated record, which is
+    // what gives the two assertions above their teeth: they read "the gate ran
+    // in front of the handler", not "the handler could not have run anyway".
+    await callUnary(runtime.handlers, "surface/doc/set", { title: "hijacked" });
+    await callUnary(runtime.handlers, "surface/items/upsert", {
+      key: 1,
+      value: { text: "x" },
+    });
+    expect(docStore.get()).toEqual({ title: "hijacked" });
+    expect(stored.size).toBe(1);
     await runtime.close();
   });
 
@@ -462,7 +495,7 @@ describe("one grammar — a key means the same thing on every face", () => {
     await runtime.close();
   });
 
-  it("splits a dotted key at the FIRST dot, whatever else the surface declares", () => {
+  it("resolves a dotted key against the SPEC, not against a fixed dot position", () => {
     // A `.` is legal in a member name (`assertTagSegment` refuses `/`, not
     // `.`), so a key's meaning cannot be "count the dots" — a dotted key is a
     // procedure, and the SPEC says whether that procedure exists.
@@ -605,6 +638,120 @@ describe("a map that does not describe the surface is a boot crash", () => {
         exposeFaces({ left: surfaces.left }, { left: { state: "resource" } }),
       ),
     ).toThrow(/built from a different surface than the group being served/);
+  });
+
+  it("refuses a dotted key TWO of the spec's procedures answer to", () => {
+    // `assertTagSegment` refuses `/` in a member name, never `.`, and `claim`
+    // rejects a duplicate TAG rather than a shared name — so this surface is
+    // legal and both its procedures spell the key `"a.b.c"` (`ProcedureName<S>`
+    // emits it twice, so the type check sees nothing either). Splitting at the
+    // first dot would silently GRANT `a`.`b.c` to a face whose author wrote
+    // `a.b`.`c`: a member the map does not name, reachable on a gated face.
+    const ambiguous = defineSurface({
+      procedures: {
+        a: { "b.c": { output: Schema.String } },
+        "a.b": { c: { output: Schema.String } },
+      },
+    });
+    expect(() => classifyExpose(ambiguous.spec, { "a.b.c": "tool" })).toThrow(
+      /expose key "a\.b\.c" is ambiguous — the spec declares 2 procedures it could name/,
+    );
+    // A key only ONE procedure answers to still resolves — at whichever dot that
+    // procedure lives, which is what makes a dotted member name exposable at all
+    // instead of permanently denied with a message that says it does not exist.
+    const late = defineSurface({
+      procedures: { "a.b": { c: { output: Schema.String } } },
+    });
+    expect(classifyExpose(late.spec, { "a.b.c": "tool" })).toEqual([
+      {
+        kind: "procedure",
+        ns: "a.b",
+        verb: "c",
+        exposure: "tool",
+        spec: late.spec.procedures["a.b"].c,
+      },
+    ]);
+  });
+
+  it("refuses a malformed ToolExposure, not just a malformed key", () => {
+    // `classifyExpose` is the boot check for the call shapes the TYPE cannot see
+    // (an erased map accepts any key and any value). Without the value half,
+    // `{ tool: … }` forgotten is a raw `TypeError` inside `@kolu/surface-mcp`
+    // — neither this module's class nor the face's brand — while a wire face
+    // reads the same garbage as a perfectly good grant.
+    for (const bad of [{ mutates: false }, null, true, { tool: "yes" }]) {
+      expect(() =>
+        classifyExpose(surface.spec, {
+          "math.double": bad,
+        } as unknown as ExposeMap),
+      ).toThrow(
+        /procedure "math\.double" is exposed as something that is not a tool/,
+      );
+    }
+    // …and the shapes the type does allow still pass, unchanged.
+    for (const good of ["tool", { tool: {} }, { tool: { mutates: false } }]) {
+      expect(
+        classifyExpose(surface.spec, {
+          "math.double": good,
+        } as unknown as ExposeMap),
+      ).toHaveLength(1);
+    }
+  });
+
+  it('refuses a "resource" key that grants NOTHING on this surface', () => {
+    // The last silent way for a map to say something the face will not do: a
+    // write-only primitive passes the classifier (the member exists) and then
+    // offers only read verbs the surface does not serve, so the author's key
+    // grants zero tags and the member is denied with nothing saying so —
+    // indistinguishable from a face that is correctly narrow.
+    const writeOnly = defineSurface({
+      cells: {
+        knob: { schema: Schema.String, default: "x", verbs: ["set"] },
+      },
+    });
+    expect(() => exposeFace(writeOnly, { knob: "resource" })).toThrow(
+      /expose names "knob" but that grants nothing on this surface/,
+    );
+  });
+
+  it("refuses an exposure granting a tag the served surface does not have", () => {
+    // The constructors cannot mint a stray (they ask the group before granting),
+    // but `FaceExposure` is a structural interface and a hand-assembled one is a
+    // supported argument — and the applier walks the GROUP, so a stray grant is
+    // read by nobody.
+    const { runtime } = build();
+    expect(() =>
+      restrictHandlers(runtime.group, runtime.handlers, {
+        universe: new Set(runtime.group.requests.keys()),
+        tags: new Set([DOUBLE, "surface/ghost/get"]),
+      }),
+    ).toThrow(
+      /grants 1 tag\(s\) this surface does not serve \[surface\/ghost\/get\]/,
+    );
+  });
+
+  it("refuses a bundle map keyed by a sibling that does not exist", () => {
+    // The member-level twin of "a key that names nothing", one level up. The
+    // fold walks the SURFACES, never the maps, so a misspelled sibling key is
+    // read by nobody — and it fails in the direction that looks like success:
+    // the sibling the author meant to gate is absent from the policy, the
+    // universe still matches the served group, and the face binds serving
+    // nothing of it. The type only catches this for an inline literal against a
+    // non-erased bundle, which is why the runtime check exists.
+    const sibling = () =>
+      defineSurface({
+        cells: { state: { schema: Schema.String, default: "s" } },
+      });
+    const surfaces = { left: sibling(), right: sibling() };
+    const stray: Record<string, ExposeMap> = { lft: { state: "resource" } };
+    expect(() => exposeFaces(surfaces, stray)).toThrow(ExposeMapError);
+    expect(() => exposeFaces(surfaces, stray)).toThrow(
+      /expose names sibling\(s\) \[lft\] this bundle does not have; its siblings are \[left, right\]/,
+    );
+    // An OMITTED sibling stays an omission — fully denied, never a crash.
+    expect(() =>
+      exposeFaces(surfaces, { left: { state: "resource" } }),
+    ).not.toThrow();
   });
 
   it("names the face on the refusal, and only when there is one", () => {

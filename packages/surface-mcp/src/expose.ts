@@ -22,6 +22,7 @@
 import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import { classifyExpose, type ExposeMap } from "@kolu/surface/expose";
 import { Option, Schema } from "effect";
+import { match, P } from "ts-pattern";
 import { inputSchema } from "./jsonschema";
 import { ADAPTER_NAME, brand } from "./tools";
 
@@ -175,75 +176,78 @@ export function resolveExpose<S extends SurfaceSpec>(
   const resourceTemplates: ResourceTemplateEntry[] = [];
   const tools: ToolEntry[] = [];
 
+  // Matched exhaustively on the entry's `kind`, so a member kind the framework
+  // grows later is a COMPILE error here rather than something a trailing `else`
+  // quietly resolves as a stream.
   for (const entry of classifyExpose(spec, expose, ADAPTER_NAME)) {
-    if (entry.kind === "procedure") {
-      // The spec `classifyExpose` resolved travels ON the entry, so the input
-      // schema is read from the same lookup that proved the procedure exists —
-      // never a second one this face could disagree with.
-      const { ns, verb, exposure, spec: procSpec } = entry;
-      // Conservative default: an exposure that does NOT explicitly say
-      // `mutates: false` is treated as MUTATING. `readOnlyHint: true` can let an
-      // MCP host auto-execute a tool unconfirmed, so an absent `mutates` must fail
-      // SAFE (assume it writes), never silently advertise an unannotated tool as a
-      // harmless read — the inverted-default defect. The bare `"tool"` shorthand
-      // (no object to carry a flag) is likewise mutating; mark a genuinely
-      // read-only procedure with `{ tool: { mutates: false } }`.
-      const mutates =
-        typeof exposure === "object" ? (exposure.tool.mutates ?? true) : true;
-      const built = inputSchema(procSpec.input);
-      tools.push({
-        name: toolName(ns, verb),
-        ns,
-        verb,
-        mutates,
-        inputSchema: built.schema,
-        hasInput: procSpec.input !== undefined,
-        wrapped: built.wrapped,
-      });
-      continue;
-    }
-
-    const { key } = entry;
-    if (entry.kind === "cell") {
-      resources.push({
-        uri: cellUri(key),
-        kind: "cell",
-        key,
-        name: key,
-        mimeType: "application/json",
-      });
-    } else if (entry.kind === "collection") {
-      const collSpec = entry.spec;
-      resources.push({
-        uri: collectionUri(key),
-        kind: "collection",
-        key,
-        name: key,
-        mimeType: "application/json",
-      });
-      resourceTemplates.push({
-        uriTemplate: collectionItemTemplate(key),
-        key,
-        name: `${key} item`,
-        mimeType: "application/json",
-        keySchema: collSpec.keySchema,
-      });
-    } else {
-      // A stream is a static resource only if its input accepts no argument (the
-      // adapter reads/subscribes via `.get(undefined)`) — see the shared gate. An
-      // event takes the SAME gate: its live value is the
-      // `notifications/resources/updated` stream, not a readable snapshot
-      // (`readSnapshot` returns an immediate `null`), but its subscribe path still
-      // calls `.get(undefined)`.
-      assertExposableAsResource(entry.kind, key, entry.spec.inputSchema);
-      resources.push({
-        uri: entry.kind === "stream" ? streamUri(key) : eventUri(key),
-        kind: entry.kind,
-        key,
-        name: key,
-        mimeType: "application/json",
-      });
-    }
+    match(entry)
+      .with({ kind: "procedure" }, ({ ns, verb, exposure, spec: procSpec }) => {
+        // The spec `classifyExpose` resolved travels ON the entry, so the input
+        // schema is read from the same lookup that proved the procedure exists —
+        // never a second one this face could disagree with.
+        //
+        // Conservative default: an exposure that does NOT explicitly say
+        // `mutates: false` is treated as MUTATING. `readOnlyHint: true` can let an
+        // MCP host auto-execute a tool unconfirmed, so an absent `mutates` must fail
+        // SAFE (assume it writes), never silently advertise an unannotated tool as a
+        // harmless read — the inverted-default defect. The bare `"tool"` shorthand
+        // (no object to carry a flag) is likewise mutating; mark a genuinely
+        // read-only procedure with `{ tool: { mutates: false } }`.
+        const mutates =
+          typeof exposure === "object" ? (exposure.tool.mutates ?? true) : true;
+        const built = inputSchema(procSpec.input);
+        tools.push({
+          name: toolName(ns, verb),
+          ns,
+          verb,
+          mutates,
+          inputSchema: built.schema,
+          hasInput: procSpec.input !== undefined,
+          wrapped: built.wrapped,
+        });
+      })
+      .with({ kind: "cell" }, ({ key }) => {
+        resources.push({
+          uri: cellUri(key),
+          kind: "cell",
+          key,
+          name: key,
+          mimeType: "application/json",
+        });
+      })
+      .with({ kind: "collection" }, ({ key, spec: collSpec }) => {
+        resources.push({
+          uri: collectionUri(key),
+          kind: "collection",
+          key,
+          name: key,
+          mimeType: "application/json",
+        });
+        resourceTemplates.push({
+          uriTemplate: collectionItemTemplate(key),
+          key,
+          name: `${key} item`,
+          mimeType: "application/json",
+          keySchema: collSpec.keySchema,
+        });
+      })
+      .with({ kind: P.union("stream", "event") }, ({ kind, key, spec: io }) => {
+        // A stream is a static resource only if its input accepts no argument (the
+        // adapter reads/subscribes via `.get(undefined)`) — see the shared gate. An
+        // event takes the SAME gate: its live value is the
+        // `notifications/resources/updated` stream, not a readable snapshot
+        // (`readSnapshot` returns an immediate `null`), but its subscribe path still
+        // calls `.get(undefined)`.
+        assertExposableAsResource(kind, key, io.inputSchema);
+        resources.push({
+          uri: kind === "stream" ? streamUri(key) : eventUri(key),
+          kind,
+          key,
+          name: key,
+          mimeType: "application/json",
+        });
+      })
+      .exhaustive();
   }
 
   // Tool-name uniqueness (proc-vs-proc, proc-vs-bespoke, bespoke-vs-bespoke) is

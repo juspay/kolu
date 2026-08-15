@@ -243,18 +243,74 @@ export type ExposeEntry =
       readonly spec: SpecStream | SpecEvent;
     };
 
+/** Every `<ns>.<verb>` split of a dotted key that names a REAL procedure.
+ *
+ *  ENUMERATED, not split at the first dot, because the first-dot rule's premise
+ *  is false: `assertTagSegment` refuses `/` in a member name, never `.`, and
+ *  `claim` rejects a duplicate TAG rather than a shared name — so
+ *  `procedures: { a: { "b.c": … }, "a.b": { c: … } }` is a LEGAL surface whose
+ *  two procedures mint distinct tags and both spell the key `"a.b.c"`
+ *  (`ProcedureName<S>` emits it twice, so the compile-time key check sees
+ *  nothing either). Taking the first split there grants `a`.`b.c` to a face
+ *  whose author wrote `a.b`.`c` — a member reachable on a gated face that the
+ *  map does not name, which is the ONE thing this gate exists to prevent. So a
+ *  key is read only when exactly one procedure answers to it: zero is the
+ *  "names nothing" refusal, and more than one is refused as ambiguous rather
+ *  than resolved by a tie-break nobody could predict from the map. */
+function procedureSplits(
+  procedures: Record<string, Record<string, SpecProcedure>>,
+  key: string,
+): {
+  readonly ns: string;
+  readonly verb: string;
+  readonly spec: SpecProcedure;
+}[] {
+  const found: { ns: string; verb: string; spec: SpecProcedure }[] = [];
+  for (
+    let dot = key.indexOf(".");
+    dot !== -1;
+    dot = key.indexOf(".", dot + 1)
+  ) {
+    const ns = key.slice(0, dot);
+    const verb = key.slice(dot + 1);
+    const spec = procedures[ns]?.[verb];
+    if (spec !== undefined) found.push({ ns, verb, spec });
+  }
+  return found;
+}
+
+/** Is this value the `ToolExposure` the type promises?
+ *
+ *  Checked at RUNTIME because {@link classifyExpose} is the boot check for
+ *  exactly the call shapes the type cannot see (an erased
+ *  `ExposeMap<SurfaceSpec>` collapses to `{}` and accepts any key AND any
+ *  value). Without it the likeliest hand-authoring slip —
+ *  `{ "ns.verb": { mutates: false } }`, the `tool` wrapper forgotten — reaches
+ *  `@kolu/surface-mcp` as `exposure.tool.mutates` and dies with a raw
+ *  `TypeError` carrying neither this module's class nor the face's brand, while
+ *  a wire face reads the same garbage as a perfectly good grant. The value half
+ *  of the grammar is the grammar's, like the key half. */
+function isToolExposure(value: unknown): value is ToolExposure {
+  if (value === "tool") return true;
+  if (typeof value !== "object" || value === null) return false;
+  const tool = (value as { tool?: unknown }).tool;
+  if (typeof tool !== "object" || tool === null) return false;
+  const mutates = (tool as { mutates?: unknown }).mutates;
+  return mutates === undefined || typeof mutates === "boolean";
+}
+
 /** Walk a spec + expose map and say what each key names. THE authority on the
  *  key grammar, so every face reads one map one way:
  *
- *    - a key with a `.` names a procedure, `<ns>.<verb>`, split at the FIRST
- *      dot (a namespace and a verb are single tag segments, so no later dot can
- *      belong to the split);
+ *    - a key with a `.` names a procedure, `<ns>.<verb>` — at whichever dot the
+ *      spec's own procedures resolve at, uniquely (see {@link procedureSplits});
  *    - any other key names a primitive by its surface key.
  *
  *  Every key is checked against the live spec — a key that names no
- *  primitive/procedure is a boot-time error, not a silent no-op — as is the
- *  KIND of exposure, so a procedure exposed as a resource and a primitive
- *  exposed as a tool are both refusals rather than surprises.
+ *  primitive/procedure, or more than one, is a boot-time error and not a silent
+ *  no-op — as is the KIND of exposure and its VALUE, so a procedure exposed as a
+ *  resource, a primitive exposed as a tool, and a malformed `ToolExposure` are
+ *  all refusals rather than surprises.
  *
  *  `face` is the optional brand a non-framework face stamps on the refusal —
  *  `@kolu/surface-mcp` passes its adapter name, so a consumer who wrote one bad
@@ -281,12 +337,17 @@ export function classifyExpose<S extends SurfaceSpec>(
   )) {
     if (exposure === undefined) continue;
 
-    const dot = key.indexOf(".");
-    if (dot !== -1) {
-      const ns = key.slice(0, dot);
-      const verb = key.slice(dot + 1);
-      const procSpec = procedures[ns]?.[verb];
-      if (procSpec === undefined) {
+    if (key.includes(".")) {
+      const matches = procedureSplits(procedures, key);
+      if (matches.length > 1) {
+        refuseMap(
+          `expose key "${key}" is ambiguous — the spec declares ${matches.length} procedures it could name (${matches
+            .map((m) => `namespace "${m.ns}" verb "${m.verb}"`)
+            .join(", ")}); rename one so the key names exactly one member`,
+        );
+      }
+      const match = matches[0];
+      if (match === undefined) {
         refuseMap(
           `expose names procedure "${key}" but the spec has no such procedure`,
         );
@@ -296,7 +357,18 @@ export function classifyExpose<S extends SurfaceSpec>(
           `procedure "${key}" is exposed as "resource"; procedures map to tools`,
         );
       }
-      entries.push({ kind: "procedure", ns, verb, exposure, spec: procSpec });
+      if (!isToolExposure(exposure)) {
+        refuseMap(
+          `procedure "${key}" is exposed as something that is not a tool — write "tool" or { tool: { mutates?: boolean } }`,
+        );
+      }
+      entries.push({
+        kind: "procedure",
+        ns: match.ns,
+        verb: match.verb,
+        exposure,
+        spec: match.spec,
+      });
       continue;
     }
 
@@ -355,34 +427,56 @@ export interface FaceExposure {
  *  `define.ts` where they are minted. A `"resource"` grant offers every read
  *  verb and keeps the ones this member actually declares, which is why a cell
  *  that declares only `get` grants only `get` and a collection without `deltas`
- *  never gets one. */
+ *  never gets one. Returned rather than only accumulated, because a grant of
+ *  NOTHING is a defect the caller has to refuse — see {@link tagsAt}. */
 function grantedTags(
   surface: Surface<SurfaceSpec>,
   entry: ExposeEntry,
-  into: Set<string>,
-): void {
+): string[] {
+  const granted: string[] = [];
   const add = (member: string, verb: string): void => {
     const tag = surfaceTag(surface.tagPrefix, member, verb);
-    if (surface.group.requests.has(tag)) into.add(tag);
+    if (surface.group.requests.has(tag)) granted.push(tag);
   };
   if (entry.kind === "procedure") {
     add(entry.ns, entry.verb);
-    return;
+    return granted;
   }
   for (const verb of READ_VERBS) add(entry.key, verb);
+  return granted;
 }
 
 /** Bind ONE map to ONE surface, collecting the tags it grants. The single
  *  operation behind both constructors below — and the prefix is read OFF THE
  *  VALUE, never assumed: `Surface.tagPrefix` is carried precisely so a scoped
- *  sibling and a standalone surface are the same shape here. */
+ *  sibling and a standalone surface are the same shape here.
+ *
+ *  A key that resolves but grants NO tag is refused here, not accepted. It is
+ *  the last silent way for a map to say something the face will not do: a
+ *  write-only primitive (`verbs: ["set"]`) passes {@link classifyExpose} — the
+ *  member exists — and then offers only read verbs the surface does not serve,
+ *  so the author's `"resource"` grants zero tags and the member is denied with
+ *  nothing anywhere saying so. Indistinguishable from a face that is correctly
+ *  narrow, which is precisely the failure mode a default-deny gate hides best,
+ *  and the same one every other refusal in this module exists to make loud. */
 function tagsAt(
   surface: Surface<SurfaceSpec>,
   map: ExposeMap<SurfaceSpec>,
   into: Set<string>,
 ): void {
   for (const entry of classifyExpose(surface.spec, map)) {
-    grantedTags(surface, entry, into);
+    const granted = grantedTags(surface, entry);
+    if (granted.length === 0) {
+      const name =
+        entry.kind === "procedure" ? `${entry.ns}.${entry.verb}` : entry.key;
+      throw new ExposeMapError({
+        detail:
+          `expose names "${name}" but that grants nothing on this surface: ` +
+          `a "resource" key offers the read verbs [${READ_VERBS.join(", ")}] and this member declares none of them. ` +
+          `A write-only member has no spelling on a gated face today (juspay/kolu#2169)`,
+      });
+    }
+    for (const tag of granted) into.add(tag);
   }
 }
 
@@ -411,7 +505,9 @@ export function exposeFace<S extends SurfaceSpec>(
  *  keeps `S` inferable, and what stops `"a.b"` meaning two things depending on
  *  whether `a` is a namespace or a sibling. A sibling with no map is fully
  *  denied: default-deny is the whole contract, and an omitted map is an
- *  omission.
+ *  omission. A map for a sibling that does not EXIST is the opposite — an
+ *  {@link ExposeMapError}, the same refusal {@link classifyExpose} raises for a
+ *  key that names nothing, because a policy nobody reads is not a policy.
  *
  *  A FOLD of {@link exposeFace}'s single-surface step over
  *  `composeSurfaceContracts` — the same composition `implementSurfaces` binds
@@ -428,6 +524,23 @@ export function exposeFaces<M extends Record<string, Surface<SurfaceSpec>>>(
 ): FaceExposure {
   const composed = composeSurfaceContracts(surfaces);
   const maps = expose as Record<string, ExposeMap<SurfaceSpec> | undefined>;
+  // A map keyed by a sibling this bundle does not have is {@link
+  // classifyExpose}'s "names nothing" refusal one level UP, and it needs the
+  // same answer for the same reason: the fold below walks `surfaces`, never
+  // `expose`, so a misspelled sibling key is read by nobody. Silently, and in
+  // the direction that looks like success — the sibling the author meant to gate
+  // is simply absent from the policy, `universe` still matches the served group,
+  // and the face binds serving nothing of it. The type catches this only for an
+  // inline literal against a non-erased `M`; this catches the rest, exactly as
+  // the member-level check does for a member-level typo.
+  const strays = Object.keys(maps).filter(
+    (key) => maps[key] !== undefined && !Object.hasOwn(surfaces, key),
+  );
+  if (strays.length > 0) {
+    throw new ExposeMapError({
+      detail: `exposeFaces: expose names sibling(s) [${strays.sort().join(", ")}] this bundle does not have; its siblings are [${Object.keys(surfaces).sort().join(", ")}]`,
+    });
+  }
   const tags = new Set<string>();
   for (const key of Object.keys(surfaces)) {
     const sibling = composed.siblings[key] as Surface<SurfaceSpec>;
@@ -496,7 +609,11 @@ function refuse(tag: string, streaming: boolean): SurfaceHandler {
  *  sibling missing would silently deny that whole sibling, its `system/live`
  *  heartbeat included. The refusal is an {@link ExposeMapError}, the same class
  *  every other "this map does not describe this surface" boot crash raises, so a
- *  face that wants to recognise one never matches on message text. */
+ *  face that wants to recognise one never matches on message text. The `tags`
+ *  are proved the same way, in the one direction that can be wrong: a GRANT of a
+ *  tag the surface does not serve (only reachable on a hand-assembled exposure —
+ *  the constructors ask the group before granting) would be read by nobody,
+ *  since the walk below is over the group. */
 export function restrictHandlers(
   group: RpcGroup.RpcGroup<Rpc.Any>,
   handlers: SurfaceHandlers,
@@ -527,6 +644,19 @@ export function restrictHandlers(
     }
     throw new ExposeMapError({
       detail: `restrictHandlers: this exposure was built from a different surface than the group being served — ${clauses.join(" — ")}.`,
+    });
+  }
+  // …and that every tag it GRANTS is one the surface serves. The constructors
+  // above cannot mint a stray (they ask the group before granting), but
+  // `FaceExposure` is a structural interface and a hand-assembled one is a
+  // supported argument — and the walk below is over the GROUP, so a granted tag
+  // nothing serves is read by nobody. Loud here, rather than an allowance that
+  // quietly does less than it says, is the same answer `universe` gets one line
+  // up: an author who names a member and gets silence has no way to find out.
+  const ungranted = [...exposure.tags].filter((tag) => !served.has(tag));
+  if (ungranted.length > 0) {
+    throw new ExposeMapError({
+      detail: `restrictHandlers: this exposure grants ${ungranted.length} tag(s) this surface does not serve [${ungranted.sort().join(", ")}], which would be silently ignored.`,
     });
   }
   const restricted = emptyHandlers();

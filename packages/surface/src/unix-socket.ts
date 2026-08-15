@@ -321,9 +321,8 @@ export async function serveOverUnixSocket(opts: {
   log: Logger;
 }): Promise<UnixSocketListener> {
   const { socketPath, group, log } = opts;
-  // This face's gate, before anything binds. `restrictHandlers` is total over an
-  // absent policy (see `./expose`), so there is no conditional here to get the
-  // default wrong.
+  // This face's gate, before anything binds — unconditionally, because
+  // `restrictHandlers` owns what an absent policy means (`./expose`).
   const handlers = restrictHandlers(group, opts.handlers, opts.expose);
   const refused = (outcome: UnixSocketServeOutcome): UnixSocketListener => ({
     socketPath,

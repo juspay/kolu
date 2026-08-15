@@ -358,9 +358,8 @@ export const serveSurfaceApp = <Svc = never>(
     // so "what does this listener do when nobody is listening" has exactly one
     // answer and it is readable in one place.
     const report = options.onEvent ?? reportSurfaceAppEvent;
-    // This face's gate, before anything binds. `restrictHandlers` is total over
-    // an absent policy (see `@kolu/surface/expose`), so there is no conditional
-    // here to get the default wrong.
+    // This face's gate, before anything binds — unconditionally, because
+    // `restrictHandlers` owns what an absent policy means (`@kolu/surface/expose`).
     const handlers = restrictHandlers(
       options.group,
       options.handlers,
