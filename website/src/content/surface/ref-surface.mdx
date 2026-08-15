@@ -683,10 +683,11 @@ Matching serve-side entry points, all taking the same `{ group, handlers }` pair
 (`@kolu/surface/unix-socket`), and `serveSurfaceSocket`
 (`@kolu/surface-app/server`) for browsers.
 
-`serveOverUnixSocket` takes one more argument the others do not:
+`serveOverUnixSocket` takes two arguments the others do not — `log`, and the
+optional [per-face `expose`](#per-face-expose-kolusurfaceexpose):
 
 ```ts
-serveOverUnixSocket({ socketPath, group, handlers, log })
+serveOverUnixSocket({ socketPath, group, handlers, log, expose? })
   : Promise<UnixSocketListener>
 ```
 
@@ -712,37 +713,48 @@ for the rest of its life. BIND-TIME verdicts are *not* logged here — they are
 
 One surface is usually served by several faces at once, and they do not carry
 the same trust — a local CLI on a `0700` socket is not an anonymous tab someone
-left open. Each serving face therefore takes its **own** default-deny allowlist,
-in the same `ExposeMap` shape [`@kolu/surface-mcp`](/surface/ref-surface-mcp)
-takes (that package re-exports these two types rather than declaring its own):
+left open. A face therefore takes its **own** default-deny allowlist, in the
+same `ExposeMap` shape [`@kolu/surface-mcp`](/surface/ref-surface-mcp) takes.
+
+Three steps, and the middle one is the point:
 
 ```ts
-serveOverUnixSocket({
-  socketPath, group, handlers, log,
-  expose: { "notes.write": "tool", notes: "resource" },
-})
+import { exposeFace } from "@kolu/surface/expose";
 
-serveSurfaceApp({
-  group, handlers, host, port, allowedOrigins, clientDist,
-  expose: { notes: "resource" },
-})
+// Bind the map to the surface it describes — where the surface is in scope, so
+// `S` is inferred and a typo'd key is a TYPE error, not a boot crash.
+const browser = exposeFace(surface, { notes: "resource" });
+const cli = exposeFace(surface, { notes: "resource", "notes.write": "tool" });
+
+// Hand each face its own.
+serveSurfaceApp({ group, handlers, host, port, allowedOrigins, clientDist, expose: browser });
+serveOverUnixSocket({ socketPath, group, handlers, log, expose: cli });
 ```
 
-Membership is the allowlist. Omit `expose` entirely and the face serves the
-whole surface, which is what every face did before this existed; declare one and
-every member it does not name is refused **on that face** while another face may
-still serve it.
+Membership is the allowlist. Omit `expose` and the face serves the whole
+surface, which is what every face did before this existed; pass one and every
+member it does not name is refused **on that face** while another face may still
+serve it.
+
+| Export | Role |
+| --- | --- |
+| `ExposeMap<S>` · `ToolExposure` | the map shape. `@kolu/surface-mcp` re-exports these rather than declaring its own |
+| `classifyExpose(spec, map)` | **the** key grammar — what each key names. Every face reads a map through this one function, `serveSurfaceAsMcp` included, which is what makes "the same key means the same thing on every face" true rather than aspirational |
+| `exposeFace(surface, map)` | map + standalone surface → `FaceExposure`, the tag set one face serves |
+| `exposeFaces(surfaces, maps)` | the sibling-bundle twin: one map per sibling, keyed the way the bundle is. A sibling with no map is fully denied |
+| `restrictHandlers(group, handlers, exposure)` | apply it — the filter the two faces above call for you |
+| `SurfaceMemberNotExposed` | the refusal |
 
 | Key | Grants |
 | --- | --- |
-| `"<ns>.<verb>"` → a `ToolExposure` (`"tool"` / `{ tool: { mutates } }`) | that one procedure. A wire face reads only the membership — `mutates` describes how an MCP host should *present* a call, not whether this face may make it |
-| `"<member>"` → `"resource"` | that primitive's **read** verbs (`get` / `keys` / `deltas`) and not its writes (`set` / `patch` / `upsert` / `delete` / `test__set`) — the tab reads the cell, the socket writes it |
-| a sibling's member, in a bundle | qualify it: `"kaval.terminals"`, `"kaval.terminal.spawn"` |
+| `"<ns>.<verb>"` → a `ToolExposure` (`"tool"` / `{ tool: { mutates } }`) | that one procedure; split at the **first** dot. A wire face reads only the membership — `mutates` describes how an MCP host should *present* a call, not whether this face may make it |
+| `"<member>"` → `"resource"` | the **read** verbs that primitive declares (`get` / `keys` / `deltas`), never its writes (`set` / `patch` / `upsert` / `delete` / `test__set`) — the tab reads the cell, the socket writes it |
 
 The three reserved `system/*` members are **always** reachable on a gated face
-and are not spellable in a map: a client's heartbeat rides `system/live`, its
-stale-tab handshake `system/identity`, and its clock offset `system/clockNow`.
-Gating those off would not restrict the face, it would break the link.
+(per sibling, in a bundle) and are not spellable in a map: a client's heartbeat
+rides `system/live`, its stale-tab handshake `system/identity`, and its clock
+offset `system/clockNow`. Gating those off would not restrict the face, it would
+break the link.
 
 A denied member **answers** — it does not vanish. Every tag stays bound, and the
 denied ones are replaced with a handler that raises `SurfaceMemberNotExposed`
@@ -754,19 +766,24 @@ a primitive's `Rpc` has no error channel and a procedure's defaults to
 `disableFatalDefects`, one member's refusal never touches a sibling
 subscription on the same connection.
 
-The map is resolved **once, before the face binds**, and a map that does not
-describe the surface throws there — an unknown key, a procedure exposed as
-`"resource"`, a primitive exposed as a tool. That is deliberately not a softer
-outcome: a typo'd default-deny map denies everything and the listener still
-binds, so nothing looks broken until a caller needs the verb.
+Everything is checked before anything is served. `exposeFace` throws on a key
+that names nothing, a procedure exposed as `"resource"`, or a primitive exposed
+as a tool; `restrictHandlers` throws if the exposure was built from a *different*
+surface than the group being served. None of them degrade to a quieter face,
+because a gate that matches nothing denies everything and still binds — the one
+failure mode that looks like success from outside.
 
-```ts
-restrictHandlers(group, handlers, expose): SurfaceHandlers
-```
+<Aside type="note" title="A hand-built serve path gates itself">
+  `serveSurfaceApp` and `serveOverUnixSocket` take `expose` directly. The other
+  serve paths take `{ group, handlers }` and no map — `serveOverStdio`, and
+  `serveSurfaceSocket` under a per-host dispatch — so they call
+  `restrictHandlers(group, handlers, exposeFace(surface, { … }))` themselves and
+  serve the result. That is the whole of it, and it is why the filter is
+  exported.
+</Aside>
 
-is the filter both faces call, exported for a hand-built serve path (a
-`serveOverStdio` leg, say). A member that must be **writable** on a gated face
-has no spelling today — that is a known gap, tracked with the feature itself
+A member that must be **writable** on a gated face has no spelling today — a
+known gap, tracked with the feature itself
 ([#2169](https://github.com/juspay/kolu/issues/2169)).
 
 ### `surfaceRpcServerLayer` — a member's defect is not the wire's

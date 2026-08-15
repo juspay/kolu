@@ -20,21 +20,42 @@
  */
 
 import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
-import type { ExposeMap, ToolExposure } from "@kolu/surface/expose";
+import {
+  classifyExpose,
+  type ExposeEntry,
+  type ExposeMap,
+  type ToolExposure,
+} from "@kolu/surface/expose";
 import { Option, Schema } from "effect";
 import { inputSchema } from "./jsonschema";
 import { brand } from "./tools";
 
 // ── Expose map types ────────────────────────────────────────────────────
 
-// The MAP is shared vocabulary and lives in `@kolu/surface/expose`: since
-// juspay/kolu#2169 the wire faces (`serveSurfaceApp`, `serveOverUnixSocket`)
-// take the same shape, and a second declaration of it here would be two
-// authorities on one contract — a consumer that gates its MCP face and its
-// browser face writes ONE kind of map. What stays here is the RESOLVER, because
-// only this adapter turns a map entry into a `surface://` URI or an MCP tool
-// name. Re-exported so `@kolu/surface-mcp`'s own public surface is unchanged.
+// The MAP and the KEY GRAMMAR are shared vocabulary and live in
+// `@kolu/surface/expose`: since juspay/kolu#2169 the wire faces
+// (`serveSurfaceApp`, `serveOverUnixSocket`) take the same map, and a second
+// reading of it here would be two authorities on one contract — a consumer that
+// gates its MCP face and its browser face writes ONE kind of map, and the same
+// key means the same thing on both. What stays here is the RESOLUTION, because
+// only this adapter turns a classified entry into a `surface://` URI or an MCP
+// tool name. Re-exported so this package's public surface is unchanged.
 export type { ExposeMap, ToolExposure };
+
+/** `classifyExpose`, with this adapter's brand back on the message. The
+ *  grammar is the framework's, but the consumer called `serveSurfaceAsMcp` —
+ *  so the failure says which door it came through, the way every other
+ *  boot-time refusal from this package does. `cause` keeps the original. */
+function classify<S extends SurfaceSpec>(
+  spec: S,
+  expose: ExposeMap<S>,
+): ExposeEntry[] {
+  try {
+    return classifyExpose(spec, expose);
+  } catch (err) {
+    throw new Error(brand((err as Error).message), { cause: err });
+  }
+}
 
 // ── Resolved registration lists ─────────────────────────────────────────
 
@@ -147,9 +168,16 @@ function assertExposableAsResource(
 
 // ── Resolver ─────────────────────────────────────────────────────────────
 
-/** Walk a spec + expose map, producing the concrete lists to register. Every
- *  exposed key is checked against the live spec — a key that names no
- *  primitive/procedure is a boot-time error, not a silent no-op. */
+/** Walk a spec + expose map, producing the concrete lists to register.
+ *
+ *  The KEY GRAMMAR is not this function's: `classifyExpose` (`@kolu/surface/expose`)
+ *  owns it, so the MCP face and the wire faces read one map one way — a key that
+ *  names nothing, a procedure exposed as a resource, and a primitive exposed as a
+ *  tool are all refused THERE, once, in the vocabulary every face shares. What is
+ *  left here is what only this adapter knows: which `surface://` URI a primitive
+ *  gets, which tool name a procedure gets, its JSON-Schema input, and the one gate
+ *  a wire face has no equivalent of (an input-bearing stream/event cannot be a
+ *  STATIC resource). */
 export function resolveExpose<S extends SurfaceSpec>(
   spec: S,
   expose: ExposeMap<S>,
@@ -158,38 +186,16 @@ export function resolveExpose<S extends SurfaceSpec>(
   const resourceTemplates: ResourceTemplateEntry[] = [];
   const tools: ToolEntry[] = [];
 
-  const cells = spec.cells ?? {};
-  const collections = spec.collections ?? {};
-  const streams = spec.streams ?? {};
-  const events = spec.events ?? {};
-  const procedures = spec.procedures ?? {};
-
-  for (const [key, exposure] of Object.entries(
-    expose as Record<string, ToolExposure | "resource" | undefined>,
-  )) {
-    if (exposure === undefined) continue;
-
-    // A dotted key names a procedure (`<ns>.<verb>`); anything else names a
-    // primitive by its surface key.
-    const dot = key.indexOf(".");
-    if (dot !== -1) {
-      const ns = key.slice(0, dot);
-      const verb = key.slice(dot + 1);
-      const procSpec = procedures[ns]?.[verb];
-      if (procSpec === undefined) {
-        throw new Error(
-          brand(
-            `expose names procedure "${key}" but the spec has no such procedure`,
-          ),
-        );
-      }
-      if (exposure === "resource") {
-        throw new Error(
-          brand(
-            `procedure "${key}" is exposed as "resource"; procedures map to tools`,
-          ),
-        );
-      }
+  for (const entry of classify(spec, expose)) {
+    if (entry.kind === "procedure") {
+      const { ns, verb, exposure } = entry;
+      // `classifyExpose` proved the procedure exists; read its spec for the input.
+      const procSpec = (
+        spec.procedures as Record<
+          string,
+          Record<string, { input?: WireSchemaAny }>
+        >
+      )[ns]?.[verb] as { input?: WireSchemaAny };
       // Conservative default: an exposure that does NOT explicitly say
       // `mutates: false` is treated as MUTATING. `readOnlyHint: true` can let an
       // MCP host auto-execute a tool unconfirmed, so an absent `mutates` must fail
@@ -212,13 +218,8 @@ export function resolveExpose<S extends SurfaceSpec>(
       continue;
     }
 
-    // A primitive — must be exposed as a resource.
-    if (exposure !== "resource") {
-      throw new Error(
-        brand(`primitive "${key}" must be exposed as "resource", not a tool`),
-      );
-    }
-    if (key in cells) {
+    const { key } = entry;
+    if (entry.kind === "cell") {
       resources.push({
         uri: cellUri(key),
         kind: "cell",
@@ -226,8 +227,10 @@ export function resolveExpose<S extends SurfaceSpec>(
         name: key,
         mimeType: "application/json",
       });
-    } else if (key in collections) {
-      const collSpec = collections[key] as { keySchema: WireSchemaAny };
+    } else if (entry.kind === "collection") {
+      const collSpec = (
+        spec.collections as Record<string, { keySchema: WireSchemaAny }>
+      )[key] as { keySchema: WireSchemaAny };
       resources.push({
         uri: collectionUri(key),
         kind: "collection",
@@ -242,44 +245,27 @@ export function resolveExpose<S extends SurfaceSpec>(
         mimeType: "application/json",
         keySchema: collSpec.keySchema,
       });
-    } else if (key in streams) {
+    } else {
       // A stream is a static resource only if its input accepts no argument (the
-      // adapter reads/subscribes via `.get(undefined)`) — see the shared gate.
-      assertExposableAsResource(
-        "stream",
-        key,
-        (streams[key] as { inputSchema: WireSchemaAny }).inputSchema,
-      );
-      resources.push({
-        uri: streamUri(key),
-        kind: "stream",
-        key,
-        name: key,
-        mimeType: "application/json",
-      });
-    } else if (key in events) {
-      // An event takes the SAME no-input gate as a stream — its live value is the
+      // adapter reads/subscribes via `.get(undefined)`) — see the shared gate. An
+      // event takes the SAME gate: its live value is the
       // `notifications/resources/updated` stream, not a readable snapshot
       // (`readSnapshot` returns an immediate `null`), but its subscribe path still
       // calls `.get(undefined)`.
-      assertExposableAsResource(
-        "event",
-        key,
-        (events[key] as { inputSchema: WireSchemaAny }).inputSchema,
-      );
+      const memberSpec = (
+        (entry.kind === "stream" ? spec.streams : spec.events) as Record<
+          string,
+          { inputSchema: WireSchemaAny }
+        >
+      )[key] as { inputSchema: WireSchemaAny };
+      assertExposableAsResource(entry.kind, key, memberSpec.inputSchema);
       resources.push({
-        uri: eventUri(key),
-        kind: "event",
+        uri: entry.kind === "stream" ? streamUri(key) : eventUri(key),
+        kind: entry.kind,
         key,
         name: key,
         mimeType: "application/json",
       });
-    } else {
-      throw new Error(
-        brand(
-          `expose names "${key}" but the spec has no such cell/collection/stream/event`,
-        ),
-      );
     }
   }
 

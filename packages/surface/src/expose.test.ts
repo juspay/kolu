@@ -1,15 +1,20 @@
 /**
  * Per-face `expose` — the property the feature exists for, pinned twice.
  *
- * At the SEAM (`restrictHandlers` over a handler record): what each map shape
- * grants, what it withholds, and every boot-time refusal to serve a map that
- * does not describe the surface.
+ * At the SEAM (`exposeFace` + `restrictHandlers` over a handler record): what
+ * each map shape grants, what it withholds, and every boot-time refusal to
+ * serve a map that does not describe the surface.
  *
  * Over a REAL unix socket, twice, from ONE runtime: a verb exposed on face A
  * and not on face B is callable on A and refused on B. That is the whole ask
  * (juspay/kolu#2169) and it cannot be proven at the seam alone — the refusal
  * has to survive the transport, and the two faces have to be provably the same
  * live surface rather than two copies of it.
+ *
+ * The one grammar is pinned here too (`classifyExpose` is what every face reads
+ * a map with): a surface where a procedure NAMESPACE and a primitive share a
+ * name is legal, and the same key has to mean the same thing on the wire face
+ * as it does on the MCP face.
  */
 
 import { mkdtempSync } from "node:fs";
@@ -20,7 +25,10 @@ import { Cause, Effect, Exit, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { defineSurface } from "./define";
 import {
+  classifyExpose,
   type ExposeMap,
+  exposeFace,
+  exposeFaces,
   restrictHandlers,
   SurfaceMemberNotExposed,
 } from "./expose";
@@ -75,8 +83,8 @@ const TICKS_GET = "surface/ticks/get";
 const LIVE = "surface/system/live";
 
 /** A live runtime of {@link surface}. `wiped` is the observable a refusal has to
- *  keep at `false`: a gate that runs AFTER the handler would still fail the
- *  call and still be worthless. */
+ *  keep empty: a gate that runs AFTER the handler would still fail the call and
+ *  still be worthless. */
 function build() {
   let stored = "boot";
   const notes = new Map<number, { text: string }>();
@@ -118,6 +126,15 @@ function build() {
   return { runtime, wiped, notes };
 }
 
+/** A restricted record of {@link surface}, from the map an author writes. */
+function gate(runtime: ReturnType<typeof build>["runtime"], map: ExposeMap) {
+  return restrictHandlers(
+    runtime.group,
+    runtime.handlers,
+    exposeFace(surface, map),
+  );
+}
+
 /** The defect a refused call carries, or `undefined` if the call did anything
  *  else — including succeed. */
 async function refusalOf(
@@ -139,20 +156,16 @@ async function refusalOf(
   return squashed instanceof SurfaceMemberNotExposed ? squashed : undefined;
 }
 
-describe("restrictHandlers — what a map grants", () => {
+describe("a map grants what it names", () => {
   it("keeps a named procedure's own handler, byte-identical", () => {
     const { runtime } = build();
-    const restricted = restrictHandlers(runtime.group, runtime.handlers, {
-      "math.double": "tool",
-    });
+    const restricted = gate(runtime, { "math.double": "tool" });
     expect(restricted[DOUBLE]).toBe(runtime.handlers[DOUBLE]);
   });
 
   it("refuses every procedure the map does not name, without calling it", async () => {
     const { runtime, wiped } = build();
-    const restricted = restrictHandlers(runtime.group, runtime.handlers, {
-      "math.double": "tool",
-    });
+    const restricted = gate(runtime, { "math.double": "tool" });
     await expect(callUnary(restricted, DOUBLE, { x: 21 })).resolves.toEqual({
       y: 42,
     });
@@ -168,9 +181,7 @@ describe("restrictHandlers — what a map grants", () => {
 
   it("refuses a streaming member as a dying STREAM, not a dying effect", async () => {
     const { runtime } = build();
-    const restricted = restrictHandlers(runtime.group, runtime.handlers, {
-      "math.double": "tool",
-    });
+    const restricted = gate(runtime, { "math.double": "tool" });
     const result = restricted[TICKS_GET]?.(undefined);
     // The shape the protocol will run has to be the shape the `Rpc` promised —
     // an `Effect` here is a serving stack that breaks on subscribe.
@@ -182,10 +193,7 @@ describe("restrictHandlers — what a map grants", () => {
 
   it('grants a primitive its READ verbs on "resource" and withholds its writes', async () => {
     const { runtime, notes } = build();
-    const restricted = restrictHandlers(runtime.group, runtime.handlers, {
-      motd: "resource",
-      notes: "resource",
-    });
+    const restricted = gate(runtime, { motd: "resource", notes: "resource" });
     await expect(firstFrame(restricted, MOTD_GET)).resolves.toBe("boot");
     await expect(firstFrame(restricted, NOTES_KEYS)).resolves.toEqual([]);
     expect((await refusalOf(restricted, MOTD_SET, "hijacked"))?.tag).toBe(
@@ -205,7 +213,7 @@ describe("restrictHandlers — what a map grants", () => {
 
   it("keeps the framework-reserved members reachable on a gated face", async () => {
     const { runtime } = build();
-    const restricted = restrictHandlers(runtime.group, runtime.handlers, {});
+    const restricted = gate(runtime, {});
     // An empty map denies the whole app surface…
     expect((await refusalOf(restricted, DOUBLE, { x: 1 }))?.tag).toBe(DOUBLE);
     // …and still answers the probe a client's watchdog rides, because a refused
@@ -213,16 +221,18 @@ describe("restrictHandlers — what a map grants", () => {
     await expect(callUnary(restricted, LIVE, {})).resolves.toEqual({});
   });
 
-  it("gates a sibling bundle per sibling, on the sibling-qualified key", async () => {
+  it("gates a sibling bundle per sibling, with each sibling's own map", async () => {
     // Two siblings with the SAME member names, which is the case a face-level
-    // gate has to keep apart: their tags differ only in the prefix.
+    // gate has to keep apart: their tags differ only in the prefix. Each map is
+    // written against its own sibling's spec, so nothing has to be qualified.
     const sibling = () =>
       defineSurface({
         cells: { state: { schema: Schema.String, default: "s" } },
         procedures: { math: { ping: { output: Schema.String } } },
       });
+    const surfaces = { left: sibling(), right: sibling() };
     const runtime = implementSurfaces(
-      { left: sibling(), right: sibling() },
+      surfaces,
       {},
       {
         left: {
@@ -235,10 +245,14 @@ describe("restrictHandlers — what a map grants", () => {
         },
       },
     );
-    const restricted = restrictHandlers(runtime.group, runtime.handlers, {
-      "left.math.ping": "tool",
-      "right.state": "resource",
-    });
+    const restricted = restrictHandlers(
+      runtime.group,
+      runtime.handlers,
+      exposeFaces(surfaces, {
+        left: { "math.ping": "tool" },
+        right: { state: "resource" },
+      }),
+    );
     await expect(callUnary(restricted, "surface/left/math/ping")).resolves.toBe(
       "L",
     );
@@ -251,40 +265,146 @@ describe("restrictHandlers — what a map grants", () => {
     expect((await refusalOf(restricted, "surface/left/state/get"))?.tag).toBe(
       "surface/left/state/get",
     );
+
+    // A sibling with NO map is fully denied — an omitted map is an omission,
+    // and default-deny is the whole contract…
+    const onlyLeft = restrictHandlers(
+      runtime.group,
+      runtime.handlers,
+      exposeFaces(surfaces, { left: { "math.ping": "tool" } }),
+    );
+    expect((await refusalOf(onlyLeft, "surface/right/state/get"))?.tag).toBe(
+      "surface/right/state/get",
+    );
+    // …while its reserved members still answer, per sibling.
+    await expect(
+      callUnary(onlyLeft, "surface/right/system/live", {}),
+    ).resolves.toEqual({});
+    await runtime.close();
   });
 });
 
-describe("restrictHandlers — a map that does not describe the surface is a boot crash", () => {
-  const restrict = (expose: ExposeMap) => {
-    const { runtime } = build();
-    return () => restrictHandlers(runtime.group, runtime.handlers, expose);
-  };
+describe("one grammar — a key means the same thing on every face", () => {
+  // `defineSurface`'s `claim` rejects a duplicate TAG, not a shared NAME, so a
+  // cell `nodes` next to a procedure namespace `nodes` is a legal surface. An
+  // earlier cut of this module classified keys by walking the GROUP and read
+  // that surface differently from the MCP face; this is the regression test.
+  const overlap = defineSurface({
+    cells: { nodes: { schema: Schema.String, default: "boot" } },
+    procedures: {
+      nodes: { refresh: { output: Schema.Struct({ ok: Schema.Boolean }) } },
+    },
+  });
 
-  it("refuses a key that names nothing, and says what it could have named", () => {
+  it("resolves a procedure whose namespace shares a primitive's name", async () => {
+    const runtime = implementSurface(overlap, {
+      cells: { nodes: { store: inMemoryStore("boot") } },
+      procedures: { nodes: { refresh: () => Effect.succeed({ ok: true }) } },
+    });
+    const restricted = restrictHandlers(
+      runtime.group,
+      runtime.handlers,
+      exposeFace(overlap, { "nodes.refresh": "tool" }),
+    );
+    await expect(
+      callUnary(restricted, "surface/nodes/refresh"),
+    ).resolves.toEqual({ ok: true });
+    // The cell was NOT named, so it stays denied — a shared name grants nothing
+    // by accident in either direction.
+    expect((await refusalOf(restricted, "surface/nodes/get"))?.tag).toBe(
+      "surface/nodes/get",
+    );
+    await runtime.close();
+  });
+
+  it("splits a dotted key at the FIRST dot, whatever else the surface declares", () => {
+    // A `.` is legal in a member name (`assertTagSegment` refuses `/`, not
+    // `.`), so a key's meaning cannot be "count the dots" — a dotted key is a
+    // procedure, and the SPEC says whether that procedure exists.
+    const dotted = defineSurface({
+      cells: { "a.b": { schema: Schema.String, default: "x" } },
+      procedures: { a: { b: { output: Schema.String } } },
+    });
+    // `ExposeMap<S>` already makes this key unspellable when `S` is known — its
+    // procedure half demands a `ToolExposure` and its primitive half demands
+    // `"resource"`, and the intersection is uninhabited, which is why these two
+    // maps are annotated as the bare shape. Both faces still have to AGREE
+    // about a map that reaches them through the string index.
+    const asTool: ExposeMap = { "a.b": "tool" };
+    const asResource: ExposeMap = { "a.b": "resource" };
+    expect(classifyExpose(dotted.spec, asTool)).toEqual([
+      { kind: "procedure", ns: "a", verb: "b", exposure: "tool" },
+    ]);
+    // The cell that spells the same key is therefore unreachable by that
+    // spelling — and says so, as a category error, rather than silently
+    // granting one of the two.
+    expect(() => classifyExpose(dotted.spec, asResource)).toThrow(
+      /procedure "a\.b" is exposed as "resource"/,
+    );
+  });
+
+  it("reads a map exactly as the MCP resolver reads it — one function, one grammar", () => {
+    expect(classifyExpose(surface.spec, { "math.double": "tool" })).toEqual([
+      { kind: "procedure", ns: "math", verb: "double", exposure: "tool" },
+    ]);
+    expect(classifyExpose(surface.spec, { notes: "resource" })).toEqual([
+      { kind: "collection", key: "notes" },
+    ]);
+    expect(classifyExpose(surface.spec, { ticks: "resource" })).toEqual([
+      { kind: "stream", key: "ticks" },
+    ]);
+    expect(classifyExpose(surface.spec, { motd: "resource" })).toEqual([
+      { kind: "cell", key: "motd" },
+    ]);
+  });
+});
+
+describe("a map that does not describe the surface is a boot crash", () => {
+  const bind = (expose: ExposeMap) => () => exposeFace(surface, expose);
+
+  it("refuses a key that names nothing", () => {
     // The failure a default-deny gate hides best: a typo denies EVERYTHING and
     // the face still serves, so nothing looks wrong until a caller needs it.
-    expect(restrict({ "math.dubble": "tool" })).toThrow(
-      /expose names "math\.dubble" but this surface has no such member or procedure/,
+    expect(bind({ "math.dubble": "tool" })).toThrow(
+      /expose names procedure "math\.dubble" but the spec has no such procedure/,
     );
-    expect(restrict({ "math.dubble": "tool" })).toThrow(/math\.double/);
+    expect(bind({ mtod: "resource" })).toThrow(
+      /expose names "mtod" but the spec has no such cell\/collection\/stream\/event/,
+    );
   });
 
   it("refuses a procedure exposed as a resource", () => {
-    expect(restrict({ "math.double": "resource" })).toThrow(
+    expect(bind({ "math.double": "resource" })).toThrow(
       /procedure "math\.double" is exposed as "resource"/,
     );
   });
 
   it("refuses a primitive exposed as a tool", () => {
-    expect(restrict({ motd: "tool" })).toThrow(
+    expect(bind({ motd: "tool" })).toThrow(
       /primitive "motd" must be exposed as "resource"/,
     );
   });
 
   it("refuses to gate a reserved member, which is not a spellable key", () => {
-    expect(restrict({ "system.live": "tool" })).toThrow(
-      /expose names "system\.live" but this surface has no such member or procedure/,
+    expect(bind({ "system.live": "tool" })).toThrow(
+      /expose names procedure "system\.live" but the spec has no such procedure/,
     );
+  });
+
+  it("refuses an exposure built from a DIFFERENT surface than the group served", () => {
+    // Silently gating everything is the one failure mode that looks like
+    // success from the outside, so the mismatch has to be loud.
+    const { runtime } = build();
+    const other = defineSurface({
+      procedures: { other: { ping: { output: Schema.String } } },
+    });
+    expect(() =>
+      restrictHandlers(
+        runtime.group,
+        runtime.handlers,
+        exposeFace(other, { "other.ping": "tool" }),
+      ),
+    ).toThrow(/built from a different surface than the group being served/);
   });
 });
 
@@ -298,7 +418,10 @@ describe("two faces of one surface, over real sockets", () => {
       socketPath: join(dir, "trusted.sock"),
       group: runtime.group,
       handlers: runtime.handlers,
-      expose: { "math.double": "tool", "admin.wipe": "tool" },
+      expose: exposeFace(surface, {
+        "math.double": "tool",
+        "admin.wipe": "tool",
+      }),
       log: silentLogger,
     });
     // Face B — the untrusted one. The same runtime, one verb short.
@@ -306,7 +429,7 @@ describe("two faces of one surface, over real sockets", () => {
       socketPath: join(dir, "public.sock"),
       group: runtime.group,
       handlers: runtime.handlers,
-      expose: { "math.double": "tool" },
+      expose: exposeFace(surface, { "math.double": "tool" }),
       log: silentLogger,
     });
     expect(trusted.outcome).toEqual({ kind: "listening" });

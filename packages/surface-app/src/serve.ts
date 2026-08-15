@@ -110,7 +110,7 @@ import {
 } from "node:https";
 import type { AddressInfo, Server as NetServer } from "node:net";
 import { NodeHttpServer } from "@effect/platform-node";
-import { type ExposeMap, restrictHandlers } from "@kolu/surface/expose";
+import { type FaceExposure, restrictHandlers } from "@kolu/surface/expose";
 import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
 import type { SurfaceHandlers } from "@kolu/surface/server";
 import { gateWsOrigin } from "@kolu/surface/ws-origin";
@@ -286,14 +286,13 @@ export interface ServeSurfaceAppOptions<Svc = never>
   readonly group: RpcGroup.RpcGroup<Rpc.Any>;
   /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
   readonly handlers: SurfaceHandlers;
-  /** THIS face's default-deny allowlist. Omit and the websocket serves the whole
-   *  surface, which is what every consumer had before there was anything else to
-   *  have. Declare one and every member the map does not name is refused to
-   *  BROWSERS while a trusted face — the unix socket, the MCP adapter — may
-   *  still serve it. `@kolu/surface/expose` owns the shape and the rules; the
-   *  map is resolved at BIND time, so a key naming nothing on this surface is a
-   *  boot crash and not a listener that quietly exposes less than it reads. */
-  readonly expose?: ExposeMap;
+  /** THIS face's default-deny allowlist — `exposeFace(surface, { … })` (or
+   *  `exposeFaces` for a sibling bundle), from `@kolu/surface/expose`. Omit and
+   *  the websocket serves the whole surface, which is what every consumer had
+   *  before there was anything else to have. Declare one and every member the
+   *  map does not name is refused to BROWSERS while a trusted face — the unix
+   *  socket, the MCP adapter — may still serve it. */
+  readonly expose?: FaceExposure;
   /** The app's OWN routes, merged alongside the shell — an MCP endpoint, a
    *  media route, anything answering with bytes the bundle does not hold.
    *  MERGED, not ordered: `HttpRouter` ranks by specificity, so a literal or
@@ -359,10 +358,11 @@ export const serveSurfaceApp = <Svc = never>(
     // so "what does this listener do when nobody is listening" has exactly one
     // answer and it is readable in one place.
     const report = options.onEvent ?? reportSurfaceAppEvent;
-    // This face's gate, resolved ONCE and before anything binds. Not per
+    // This face's gate, applied ONCE and before anything binds. Not per
     // connection: the allowlist is a property of the LISTENER — of who can
-    // reach it — so resolving it per socket would be the same answer computed
-    // again, and would move a boot-time crash behind whoever connects first.
+    // reach it — so applying it per socket would be the same answer computed
+    // again, and would move a construction-time crash behind whoever connects
+    // first.
     const handlers =
       options.expose === undefined
         ? options.handlers

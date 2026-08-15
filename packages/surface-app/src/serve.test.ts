@@ -24,6 +24,7 @@ import {
 } from "@kolu/surface/frame-limit";
 import { surfaceProcessId } from "@kolu/surface/identity";
 import { defineSurface } from "@kolu/surface/define";
+import { exposeFace } from "@kolu/surface/expose";
 import { implementSurface } from "@kolu/surface/server";
 import { Cause, Context, Effect, Exit, Layer, Schema, Scope } from "effect";
 import {
@@ -776,7 +777,7 @@ describe("serveSurfaceApp — this face's expose", () => {
     // The browser face gets `echo.length` and nothing else. `viewer.seen` stays
     // for a trusted face — the whole point of a PER-FACE map (juspay/kolu#2169).
     const server = await boot<Viewer>({
-      expose: { "echo.length": "tool" },
+      expose: exposeFace(testSurface, { "echo.length": "tool" }),
       services: () => Layer.succeed(Viewer)({ seen: "10.0.0.1" }),
     });
     const socket = await dial(server);
@@ -806,18 +807,24 @@ describe("serveSurfaceApp — this face's expose", () => {
     await socket.dispose();
   });
 
-  it("refuses to bind on a map that does not describe the surface", async () => {
-    // A typo'd default-deny map denies EVERYTHING and the listener still binds,
-    // so this has to be a crash rather than a quieter face.
-    await expect(boot({ expose: { "echo.lenght": "tool" } })).rejects.toThrow(
-      /expose names "echo\.lenght"/,
+  it("refuses to bind on an exposure that does not describe the served surface", async () => {
+    // A gate that silently matches nothing denies EVERYTHING and the listener
+    // still binds — the one failure mode that looks like success from outside —
+    // so a mismatch has to take the bind down with it.
+    const other = defineSurface({
+      procedures: { other: { ping: { output: Schema.String } } },
+    });
+    await expect(
+      boot({ expose: exposeFace(other, { "other.ping": "tool" }) }),
+    ).rejects.toThrow(
+      /built from a different surface than the group being served/,
     );
   });
 
   it("keeps the reserved system members reachable on a gated face", async () => {
     // A client's watchdog rides `system/live`; gating it off would not restrict
     // the face, it would make every client reconnect forever.
-    const server = await boot({ expose: {} });
+    const server = await boot({ expose: exposeFace(testSurface, {}) });
     const socket = await dial(server);
     await expect(
       Effect.runPromise(socket.link.dispatch.unary("surface/system/live", {})),
