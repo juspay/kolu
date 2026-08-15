@@ -45,6 +45,14 @@ key is checked against the surface spec at boot.
 
 Resources are readable and subscribable; procedures become callable tools.
 
+The `ExposeMap` shape itself is **not this package's** — it lives in
+[`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)
+and is re-exported here, because the wire faces (`serveSurfaceApp`,
+`serveOverUnixSocket`) take the same map for the same reason. What stays here is
+the *resolver*: only this adapter turns a map entry into a `surface://` URI or an
+MCP tool name. A consumer gating its MCP face and its browser face writes one
+kind of map, and the same key means the same thing on both.
+
 <Aside type="caution" title="mutates defaults to true">
   A procedure exposed as a tool is advertised **mutating unless you say
   otherwise** — `mutates` defaults to `true` when absent. A `readOnlyHint` can let

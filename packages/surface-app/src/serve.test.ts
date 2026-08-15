@@ -25,7 +25,7 @@ import {
 import { surfaceProcessId } from "@kolu/surface/identity";
 import { defineSurface } from "@kolu/surface/define";
 import { implementSurface } from "@kolu/surface/server";
-import { Context, Effect, Exit, Layer, Schema, Scope } from "effect";
+import { Cause, Context, Effect, Exit, Layer, Schema, Scope } from "effect";
 import {
   HttpRouter,
   HttpServerRequest,
@@ -767,6 +767,61 @@ describe("serveSurfaceApp — binding and teardown", () => {
     // anything was still listening.
     const again = await boot({ port });
     expect(Number(new URL(again.url).port)).toBe(port);
+    await socket.dispose();
+  });
+});
+
+describe("serveSurfaceApp — this face's expose", () => {
+  it("serves what the map names and refuses what it does not, over a real socket", async () => {
+    // The browser face gets `echo.length` and nothing else. `viewer.seen` stays
+    // for a trusted face — the whole point of a PER-FACE map (juspay/kolu#2169).
+    const server = await boot<Viewer>({
+      expose: { "echo.length": "tool" },
+      services: () => Layer.succeed(Viewer)({ seen: "10.0.0.1" }),
+    });
+    const socket = await dial(server);
+
+    await expect(
+      Effect.runPromise(
+        socket.link.dispatch.unary("surface/echo/length", { text: "hello" }),
+      ),
+    ).resolves.toEqual({ length: 5 });
+
+    const exit = await Effect.runPromise(
+      Effect.exit(socket.link.dispatch.unary("surface/viewer/seen", {})),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.pretty(exit.cause)).toContain(
+        '"surface/viewer/seen" is not exposed on this face',
+      );
+    }
+
+    // The refusal is ONE request's answer: the connection is still serving.
+    await expect(
+      Effect.runPromise(
+        socket.link.dispatch.unary("surface/echo/length", { text: "again" }),
+      ),
+    ).resolves.toEqual({ length: 5 });
+    await socket.dispose();
+  });
+
+  it("refuses to bind on a map that does not describe the surface", async () => {
+    // A typo'd default-deny map denies EVERYTHING and the listener still binds,
+    // so this has to be a crash rather than a quieter face.
+    await expect(boot({ expose: { "echo.lenght": "tool" } })).rejects.toThrow(
+      /expose names "echo\.lenght"/,
+    );
+  });
+
+  it("keeps the reserved system members reachable on a gated face", async () => {
+    // A client's watchdog rides `system/live`; gating it off would not restrict
+    // the face, it would make every client reconnect forever.
+    const server = await boot({ expose: {} });
+    const socket = await dial(server);
+    await expect(
+      Effect.runPromise(socket.link.dispatch.unary("surface/system/live", {})),
+    ).resolves.toEqual({});
     await socket.dispose();
   });
 });

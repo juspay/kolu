@@ -27,6 +27,7 @@ import { Effect, Exit, Layer, Scope } from "effect";
 import { SocketServer } from "effect/unstable/socket";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcServer } from "effect/unstable/rpc";
+import { type ExposeMap, restrictHandlers } from "./expose";
 import { rpcSerializationLayer } from "./frameLimit";
 import { type SurfaceHandlers, surfaceRpcServerLayer } from "./server";
 
@@ -289,24 +290,46 @@ function servingLayer(
   );
 }
 
-/** Serve `handlers` over a unix socket at `socketPath`. NEVER rejects and
- *  never throws — every failure mode resolves to a no-op listener whose
+/** Serve `handlers` over a unix socket at `socketPath`. No TRANSPORT failure
+ *  rejects or throws — every one of them resolves to a no-op listener whose
  *  `outcome` says why, so a host process can treat the socket as purely
  *  additive. The flow: create the parent dir `0700` → verify it's private →
  *  probe the path for a live peer → clear a provably-stale socket inode
  *  (and only that) → listen. Every accepted connection is served by ONE
- *  `RpcServer` over the shared handlers. */
+ *  `RpcServer` over the shared handlers.
+ *
+ *  The ONE thing that does throw is an `expose` map that does not describe this
+ *  surface, and it is deliberately not an `outcome`: an outcome is a verdict
+ *  about the host's *environment* (a path someone else took, a dir we don't
+ *  own) which the caller is expected to survive, whereas a map naming a member
+ *  the surface has not got is the author's own mistake and there is no listener
+ *  worth having on the far side of it. Degrading it to a no-op would hide a
+ *  security gate that never took effect. */
 export async function serveOverUnixSocket(opts: {
   socketPath: string;
   /** The served surface's flat `RpcGroup` — `runtime.group`. */
   group: RpcGroup.RpcGroup<Rpc.Any>;
   /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
   handlers: SurfaceHandlers;
+  /** THIS face's default-deny allowlist. Omit and the socket serves the whole
+   *  surface, which is the right answer when the socket is the only face or
+   *  every face carries the same trust. Declare one and every member the map
+   *  does not name is refused HERE while another face may still serve it —
+   *  see `./expose`, and note that the map is resolved at BIND time, so a key
+   *  naming nothing is a boot crash rather than a silently empty allowlist. */
+  expose?: ExposeMap;
   /** Where this listener's own lifetime is narrated (bound / post-listen fault /
    *  closed). REQUIRED — see the seam's note at the top of this module. */
   log: Logger;
 }): Promise<UnixSocketListener> {
-  const { socketPath, group, handlers, log } = opts;
+  const { socketPath, group, log } = opts;
+  // Resolve the face's gate ONCE, before anything binds: the validation belongs
+  // to the listener's construction, not to whichever peer happens to connect
+  // first, and every connection then serves the identical record.
+  const handlers =
+    opts.expose === undefined
+      ? opts.handlers
+      : restrictHandlers(group, opts.handlers, opts.expose);
   const refused = (outcome: UnixSocketServeOutcome): UnixSocketListener => ({
     socketPath,
     outcome,

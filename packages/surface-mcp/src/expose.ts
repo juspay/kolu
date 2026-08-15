@@ -20,64 +20,21 @@
  */
 
 import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
+import type { ExposeMap, ToolExposure } from "@kolu/surface/expose";
 import { Option, Schema } from "effect";
 import { inputSchema } from "./jsonschema";
 import { brand } from "./tools";
 
 // ── Expose map types ────────────────────────────────────────────────────
 
-/** `"<ns>.<verb>"` for every declared procedure — the legal tool keys. */
-type ProcedureName<S extends SurfaceSpec> =
-  S["procedures"] extends Record<string, Record<string, unknown>>
-    ? {
-        [N in keyof S["procedures"] &
-          string]: `${N}.${keyof S["procedures"][N] & string}`;
-      }[keyof S["procedures"] & string]
-    : never;
-
-/** Cell / Stream / Event keys — the singleton resource-shaped primitives. */
-type ResourceCellName<S extends SurfaceSpec> =
-  | (S["cells"] extends Record<string, unknown>
-      ? keyof S["cells"] & string
-      : never)
-  | (S["streams"] extends Record<string, unknown>
-      ? keyof S["streams"] & string
-      : never)
-  | (S["events"] extends Record<string, unknown>
-      ? keyof S["events"] & string
-      : never);
-
-/** Collection keys — the keyed resource primitives (list + template). */
-type CollectionName<S extends SurfaceSpec> =
-  S["collections"] extends Record<string, unknown>
-    ? keyof S["collections"] & string
-    : never;
-
-/** How a procedure is exposed as an MCP tool. `mutates` is the authz bit the
- *  host surfaces as a write capability (`readOnlyHint`/`destructiveHint`) and
- *  defaults CONSERVATIVELY: both the bare `"tool"` shorthand and `{ tool: {} }`
- *  (no explicit flag) are treated as MUTATING, so an unannotated procedure is
- *  never advertised as auto-approvable read-only. Mark a genuinely read-only
- *  procedure with `{ tool: { mutates: false } }`. */
-export type ToolExposure = "tool" | { tool: { mutates?: boolean } };
-
-/** The default-deny allowlist. Keys are constrained to the spec's own
- *  primitives/procedures; omission means *not exposed*. A primitive maps to
- *  `"resource"`; a procedure to a `ToolExposure`.
- *
- *  Typed against `S` where the compiler can narrow; falls back to a `string`
- *  index so a key the generics can't enumerate (a heavily-composed spec)
- *  still type-checks and is validated at runtime against the live spec. */
-export type ExposeMap<S extends SurfaceSpec = SurfaceSpec> = {
-  [K in ProcedureName<S>]?: ToolExposure;
-} & {
-  [K in ResourceCellName<S> | CollectionName<S>]?: "resource";
-} & {
-  // Loosen-to-string escape hatch (noted in the report): keys the mapped
-  // types above can't enumerate stay assignable, and `resolveExpose` checks
-  // each against the spec at boot.
-  [key: string]: ToolExposure | "resource" | undefined;
-};
+// The MAP is shared vocabulary and lives in `@kolu/surface/expose`: since
+// juspay/kolu#2169 the wire faces (`serveSurfaceApp`, `serveOverUnixSocket`)
+// take the same shape, and a second declaration of it here would be two
+// authorities on one contract — a consumer that gates its MCP face and its
+// browser face writes ONE kind of map. What stays here is the RESOLVER, because
+// only this adapter turns a map entry into a `surface://` URI or an MCP tool
+// name. Re-exported so `@kolu/surface-mcp`'s own public surface is unchanged.
+export type { ExposeMap, ToolExposure };
 
 // ── Resolved registration lists ─────────────────────────────────────────
 

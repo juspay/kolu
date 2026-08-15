@@ -44,6 +44,13 @@ key to `"resource"` (cells, collections, streams, events) or a tool (procedures)
   it, the agent will treat a harmless query as something to confirm.
 </Aside>
 
+The map is not the MCP adapter's own shape — it is
+[`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)'s,
+and `serveSurfaceApp` / `serveOverUnixSocket` take the same one. So the agent
+face and the browser face are curated in the same vocabulary and can be curated
+*differently*: a verb the agent may call is not thereby reachable from a tab
+someone left open.
+
 ## 4. Teach the agent your domain
 
 An expose map says what an agent *may* touch; it says nothing about what any of

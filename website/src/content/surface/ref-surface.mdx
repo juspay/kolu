@@ -708,6 +708,67 @@ for the rest of its life. BIND-TIME verdicts are *not* logged here — they are
 `UnixSocketListener.outcome` values, and the app-flavored advice for each
 ("pass `--pty-host-socket`") belongs to the caller.
 
+### Per-face `expose` (`@kolu/surface/expose`)
+
+One surface is usually served by several faces at once, and they do not carry
+the same trust — a local CLI on a `0700` socket is not an anonymous tab someone
+left open. Each serving face therefore takes its **own** default-deny allowlist,
+in the same `ExposeMap` shape [`@kolu/surface-mcp`](/surface/ref-surface-mcp)
+takes (that package re-exports these two types rather than declaring its own):
+
+```ts
+serveOverUnixSocket({
+  socketPath, group, handlers, log,
+  expose: { "notes.write": "tool", notes: "resource" },
+})
+
+serveSurfaceApp({
+  group, handlers, host, port, allowedOrigins, clientDist,
+  expose: { notes: "resource" },
+})
+```
+
+Membership is the allowlist. Omit `expose` entirely and the face serves the
+whole surface, which is what every face did before this existed; declare one and
+every member it does not name is refused **on that face** while another face may
+still serve it.
+
+| Key | Grants |
+| --- | --- |
+| `"<ns>.<verb>"` → a `ToolExposure` (`"tool"` / `{ tool: { mutates } }`) | that one procedure. A wire face reads only the membership — `mutates` describes how an MCP host should *present* a call, not whether this face may make it |
+| `"<member>"` → `"resource"` | that primitive's **read** verbs (`get` / `keys` / `deltas`) and not its writes (`set` / `patch` / `upsert` / `delete` / `test__set`) — the tab reads the cell, the socket writes it |
+| a sibling's member, in a bundle | qualify it: `"kaval.terminals"`, `"kaval.terminal.spawn"` |
+
+The three reserved `system/*` members are **always** reachable on a gated face
+and are not spellable in a map: a client's heartbeat rides `system/live`, its
+stale-tab handshake `system/identity`, and its clock offset `system/clockNow`.
+Gating those off would not restrict the face, it would break the link.
+
+A denied member **answers** — it does not vanish. Every tag stays bound, and the
+denied ones are replaced with a handler that raises `SurfaceMemberNotExposed`
+(`surface: "<tag>" is not exposed on this face`) as a per-request **defect**, in
+the shape its `Rpc` promised (a dying `Stream` for a streaming member). It is a
+defect and not a typed failure because there is no declared arm to fail into —
+a primitive's `Rpc` has no error channel and a procedure's defaults to
+`Schema.Never` — and because `surfaceRpcServerLayer` runs with
+`disableFatalDefects`, one member's refusal never touches a sibling
+subscription on the same connection.
+
+The map is resolved **once, before the face binds**, and a map that does not
+describe the surface throws there — an unknown key, a procedure exposed as
+`"resource"`, a primitive exposed as a tool. That is deliberately not a softer
+outcome: a typo'd default-deny map denies everything and the listener still
+binds, so nothing looks broken until a caller needs the verb.
+
+```ts
+restrictHandlers(group, handlers, expose): SurfaceHandlers
+```
+
+is the filter both faces call, exported for a hand-built serve path (a
+`serveOverStdio` leg, say). A member that must be **writable** on a gated face
+has no spelling today — that is a known gap, tracked with the feature itself
+([#2169](https://github.com/juspay/kolu/issues/2169)).
+
 ### `surfaceRpcServerLayer` — a member's defect is not the wire's
 
 ```ts
