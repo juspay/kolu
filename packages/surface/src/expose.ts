@@ -257,6 +257,30 @@ export type ExposeEntry =
  *  key is read only when exactly one procedure answers to it: zero is the
  *  "names nothing" refusal, and more than one is refused as ambiguous rather
  *  than resolved by a tie-break nobody could predict from the map. */
+/** A spec table's member at `key` — its OWN member, or `undefined`.
+ *
+ *  Every lookup this module makes into a spec goes through here, because a spec
+ *  table is a plain object literal a surface author wrote, so it inherits
+ *  `Object.prototype`: a bare `cells[key]` answers a FUNCTION for `toString`,
+ *  `constructor`, `valueOf`, `hasOwnProperty`, `isPrototypeOf`,
+ *  `propertyIsEnumerable` and `toLocaleString`. Read that way, `{ toString:
+ *  "resource" }` and `{ "admin.toString": "tool" }` name members no surface
+ *  declares and the classifier says they exist — so `@kolu/surface-mcp`
+ *  ADVERTISED them, `tools/list` carrying `admin_toString` and a resource
+ *  `surface://cells/toString`. A key that names nothing became a grant, which
+ *  is the one failure a default-deny gate exists to prevent (and on the wire
+ *  face it surfaced as the write-only-gap refusal — the right verdict for the
+ *  wrong reason, diagnosed as a different deferred gap entirely).
+ *
+ *  `Object.hasOwn` is what the rest of the stack already uses for exactly this:
+ *  `define.ts` reads a cell-vs-collection collision with it, `exposeFaces`
+ *  reads sibling keys with it, and `implementSurface`'s handler record is
+ *  null-prototype for the same reason. A member a surface legitimately names
+ *  `toString` keeps working — it is an own key, and the tests pin it. */
+function ownMember<T>(table: Record<string, T>, key: string): T | undefined {
+  return Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
 function procedureSplits(
   procedures: Record<string, Record<string, SpecProcedure>>,
   key: string,
@@ -273,7 +297,9 @@ function procedureSplits(
   ) {
     const ns = key.slice(0, dot);
     const verb = key.slice(dot + 1);
-    const spec = procedures[ns]?.[verb];
+    const namespace = ownMember(procedures, ns);
+    if (namespace === undefined) continue;
+    const spec = ownMember(namespace, verb);
     if (spec !== undefined) found.push({ ns, verb, spec });
   }
   return found;
@@ -306,11 +332,19 @@ function isToolExposure(value: unknown): value is ToolExposure {
  *      spec's own procedures resolve at, uniquely (see {@link procedureSplits});
  *    - any other key names a primitive by its surface key.
  *
+ *  "A `.`" means the ASCII full stop and nothing else. A key spelled with a
+ *  lookalike (`a．b` U+FF0E, `a․b` U+2024, `a·b`) is therefore a PRIMITIVE key,
+ *  and refuses as one — loud, and worth knowing before you read the message,
+ *  because "must be exposed as resource, not a tool" is a surprising answer to
+ *  a key that looks dotted.
+ *
  *  Every key is checked against the live spec — a key that names no
  *  primitive/procedure, or more than one, is a boot-time error and not a silent
  *  no-op — as is the KIND of exposure and its VALUE, so a procedure exposed as a
  *  resource, a primitive exposed as a tool, and a malformed `ToolExposure` are
- *  all refusals rather than surprises.
+ *  all refusals rather than surprises. Lookups are OWN-property only (see
+ *  {@link ownMember}): a spec table inherits `Object.prototype`, so `toString`
+ *  and its siblings name nothing and must refuse like any other absent key.
  *
  *  `face` is the optional brand a non-framework face stamps on the refusal —
  *  `@kolu/surface-mcp` passes its adapter name, so a consumer who wrote one bad
@@ -375,10 +409,10 @@ export function classifyExpose<S extends SurfaceSpec>(
     if (exposure !== "resource") {
       refuseMap(`primitive "${key}" must be exposed as "resource", not a tool`);
     }
-    const cellSpec = cells[key];
-    const collectionSpec = collections[key];
-    const streamSpec = streams[key];
-    const eventSpec = events[key];
+    const cellSpec = ownMember(cells, key);
+    const collectionSpec = ownMember(collections, key);
+    const streamSpec = ownMember(streams, key);
+    const eventSpec = ownMember(events, key);
     if (cellSpec !== undefined) {
       entries.push({ kind: "cell", key, exposure, spec: cellSpec });
     } else if (collectionSpec !== undefined) {

@@ -45,6 +45,12 @@ key is checked against the surface spec at boot.
 
 Resources are readable and subscribable; procedures become callable tools.
 
+Only the **separator** becomes `_`. A namespace that itself contains a dot keeps
+it: `procedures: { "a.b": { c } }` mints the tool `a.b_c`, not `a_b_c`. That is
+deliberate — the tool name has to be reversible to one `(ns, verb)` pair, and
+rewriting every dot would make `a.b`·`c` and `a`·`b.c` the same tool — but it is
+odd enough on a host's tool list to be worth knowing before you meet it.
+
 The `ExposeMap` shape itself is **not this package's** — it lives in
 [`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)
 and is imported from THERE (there is no re-export: one concept, one import

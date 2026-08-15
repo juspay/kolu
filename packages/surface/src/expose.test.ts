@@ -931,3 +931,146 @@ describe("two faces of one surface, over real sockets", () => {
     await runtime.close();
   });
 });
+
+describe("a spec table's inherited keys name nothing", () => {
+  // A spec table is a plain object literal a surface author wrote, so it
+  // inherits `Object.prototype`. Read with a bare `cells[key]`, every name on
+  // that prototype answered with a FUNCTION and the classifier said the member
+  // existed — so a key that names nothing became a grant, and the MCP face
+  // ADVERTISED it (`tools/list` carrying `admin_toString`, a resource
+  // `surface://cells/toString`). Default-deny's whole job, missed at the
+  // list-time seam. Raised as BLOCKING in review of #2170.
+  const INHERITED = [
+    "toString",
+    "constructor",
+    "valueOf",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toLocaleString",
+  ] as const;
+
+  it("refuses an inherited name as a PRIMITIVE key, as it refuses any absent key", () => {
+    for (const key of INHERITED) {
+      expect(
+        () => exposeFace(surface, { [key]: "resource" } as ExposeMap),
+        key,
+      ).toThrow(/but the spec has no such cell\/collection\/stream\/event/);
+    }
+  });
+
+  it("refuses an inherited name as a PROCEDURE verb, on a namespace that exists", () => {
+    for (const key of INHERITED) {
+      expect(
+        () => exposeFace(surface, { [`admin.${key}`]: "tool" } as ExposeMap),
+        `admin.${key}`,
+      ).toThrow(/but the spec has no such procedure/);
+    }
+  });
+
+  it("refuses an inherited name as a procedure NAMESPACE too", () => {
+    for (const key of INHERITED) {
+      expect(
+        () => exposeFace(surface, { [`${key}.wipe`]: "tool" } as ExposeMap),
+        `${key}.wipe`,
+      ).toThrow(/but the spec has no such procedure/);
+    }
+  });
+
+  it("diagnoses it as an absent key, NOT as the write-only gap", () => {
+    // The wire face refused before this fix too — but with the wrong message,
+    // blaming the deferred writable-primitive gap for a key that names nothing.
+    // A refusal that misdiagnoses is how a reader stops looking.
+    let thrown: unknown;
+    try {
+      exposeFace(surface, { toString: "resource" } as ExposeMap);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ExposeMapError);
+    expect((thrown as ExposeMapError).message).not.toMatch(/grants nothing/);
+    expect((thrown as ExposeMapError).message).not.toMatch(/kolu#2169/);
+  });
+
+  // The other half of the fix, and the one an over-eager guard would break: a
+  // surface may legitimately NAME a member `toString`. It is an own key, so it
+  // stays exposable — and gateable — on every face.
+  const shadowing = defineSurface({
+    cells: { toString: { schema: Schema.String, default: "own" } },
+    procedures: {
+      constructor: { valueOf: { output: Schema.String } },
+      admin: { toString: { output: Schema.String } },
+    },
+  });
+
+  function shadowingRuntime() {
+    return implementSurface(shadowing, {
+      cells: { toString: { store: inMemoryStore("own") } },
+      procedures: {
+        constructor: { valueOf: () => Effect.succeed("ctor") },
+        admin: { toString: () => Effect.succeed("admin") },
+      },
+    });
+  }
+
+  /** A cast the compiler genuinely requires here, and the reason is worth
+   *  recording rather than hiding: `ExposeMap<S>` maps a member named
+   *  `toString` to `{ toString?: "resource" }`, but EVERY object type already
+   *  carries `Object`'s own `toString: () => string` — as it does `valueOf`,
+   *  `hasOwnProperty`, `isPrototypeOf`, `propertyIsEnumerable` and
+   *  `toLocaleString` — so the two declarations collide and no literal can
+   *  satisfy the mapped half. A surface member named after one of those is
+   *  reachable only through the ERASED map, which is exactly the call shape
+   *  `classifyExpose`'s boot check exists to police. That is the type-level
+   *  limitation; the RUNTIME behaviour below is the part that must be right. */
+  const erased = (map: Record<string, unknown>) =>
+    map as unknown as ExposeMap<typeof shadowing.spec>;
+
+  it("still exposes a member the surface REALLY names toString", async () => {
+    const runtime = shadowingRuntime();
+    const restricted = restrictHandlers(
+      runtime.group,
+      runtime.handlers,
+      exposeFace(
+        shadowing,
+        erased({
+          toString: "resource",
+          "admin.toString": "tool",
+        }),
+      ),
+    );
+    await expect(firstFrame(restricted, "surface/toString/get")).resolves.toBe(
+      "own",
+    );
+    await expect(callUnary(restricted, "surface/admin/toString")).resolves.toBe(
+      "admin",
+    );
+    // …and the one it did NOT name stays denied, at the call seam.
+    await expectRefused(restricted, "surface/constructor/valueOf");
+    await runtime.close();
+  });
+
+  it("refuses a real toString member the map does not name", async () => {
+    const runtime = shadowingRuntime();
+    const restricted = restrictHandlers(
+      runtime.group,
+      runtime.handlers,
+      exposeFace(shadowing, erased({ "constructor.valueOf": "tool" })),
+    );
+    await expect(
+      callUnary(restricted, "surface/constructor/valueOf"),
+    ).resolves.toBe("ctor");
+    await expectRefused(restricted, "surface/toString/get");
+    await expectRefused(restricted, "surface/admin/toString");
+    await runtime.close();
+  });
+
+  it("classifies an own inherited-looking name by its real kind", () => {
+    expect(
+      classifyExpose(shadowing.spec, erased({ toString: "resource" })),
+    ).toMatchObject([{ kind: "cell", key: "toString" }]);
+    expect(
+      classifyExpose(shadowing.spec, erased({ "admin.toString": "tool" })),
+    ).toMatchObject([{ kind: "procedure", ns: "admin", verb: "toString" }]);
+  });
+});

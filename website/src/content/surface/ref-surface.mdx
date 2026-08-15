@@ -749,7 +749,7 @@ serve it.
 
 | Key | Grants |
 | --- | --- |
-| `"<ns>.<verb>"` → a `ToolExposure` (`"tool"` / `{ tool: { mutates } }`) | that one procedure — split at whichever dot the spec's own procedures resolve at, **uniquely**: a member name may itself contain a `.` (only `/` is refused), so a key two procedures both answer to is refused as ambiguous rather than granted to the first. A malformed `ToolExposure` is refused here too, so the erased call path gets the same `ExposeMapError` the typed one gets at compile time. A wire face reads only the membership — `mutates` describes how an MCP host should *present* a call, not whether this face may make it |
+| `"<ns>.<verb>"` → a `ToolExposure` (`"tool"` / `{ tool: { mutates } }`) | that one procedure — split at whichever dot the spec's own procedures resolve at, **uniquely**: a member name may itself contain a `.` (only `/` is refused), so a key two procedures both answer to is refused as ambiguous rather than granted to the first. A malformed `ToolExposure` is refused here too, so the erased call path gets the same `ExposeMapError` the typed one gets at compile time. A wire face reads only the membership — `mutates` describes how an MCP host should *present* a call, not whether this face may make it. "A dot" means the ASCII full stop: a lookalike (`a．b`, `a․b`) reads as a primitive key and refuses as one |
 | `"<member>"` → `"resource"` | the **read** verbs that primitive declares (`get` / `keys` / `deltas` — `@kolu/surface/define`'s `READ_VERBS`, which lives beside the verb vocabulary it partitions), never its writes (`set` / `patch` / `upsert` / `delete` / `test__set`) — the tab reads the cell, the socket writes it. A primitive that must be **writable** on a gated face therefore has no spelling today: `"resource"` is the read word and there is no second one yet (see the note at the end of this section) |
 
 The three reserved `system/*` members are **always** reachable on a gated face
@@ -772,6 +772,11 @@ a primitive's `Rpc` has no error channel and a procedure's defaults to
 `Schema.Never` — and because `surfaceRpcServerLayer` runs with
 `disableFatalDefects`, one member's refusal never touches a sibling
 subscription on the same connection.
+
+Every key resolves against the surface's OWN members. A spec table is a plain
+object literal, so it inherits `Object.prototype`: `toString`, `constructor`,
+`valueOf` and their siblings name nothing and refuse like any other absent key,
+while a member a surface really *names* `toString` stays exposable on every face.
 
 Everything is checked before anything is served, and nothing a map can get wrong
 is a no-op. `exposeFace` throws an `ExposeMapError` on a key that names nothing,
