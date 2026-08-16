@@ -396,9 +396,11 @@ export const TerminalMetadataSchema = Schema.Union([
  *  looking for a typo. Authored once and reused by every face that speaks this
  *  JSON: the wire schema annotates the field with it (so a decode refusal at
  *  padi says it), and `lifecycle_create`'s MCP tool inherits that same field, so
- *  an agent gets the identical sentence. `kolu create` states the same rule in
- *  ITS vocabulary (`--toplevel` / `--parent <id>`) — different spelling, same
- *  rule, and the two are pinned to agree in `createPlacement.test.ts`. */
+ *  an agent gets the identical sentence. The two CLI faces state the same rule in
+ *  THEIR vocabulary (`--toplevel` / `--parent <id>`) — different spelling, same
+ *  rule — and they agree by construction rather than by convention: both run
+ *  `@kolu/padi/render`'s one `parsePlacementFlags`, whose branches and sentences
+ *  are pinned in `cliClient/placementFlags.test.ts`. */
 export const PLACEMENT_REQUIRED =
   'a create must state its `placement` — there is no default. Spell it `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"<terminal id>"}` to open it as a split inside that terminal. The canvas and the Dock read this edge as who-works-for-whom, so a guessed default would silently flatten the hierarchy.';
 

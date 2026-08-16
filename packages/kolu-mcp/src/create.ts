@@ -90,7 +90,9 @@ export const CreateArgsSchema = Schema.Struct({
   // carried are all preserved (`.annotate` merges), so this adds the agent-facing
   // sentence to the tool's JSON Schema without forking the rule — the refusal an
   // agent reads and the description it reads are literally the same string.
-  // Pinned in `create.test.ts` ("the tool schema is the wire's rule, not a copy").
+  // Pinned in `argSchemas.test.ts`, which is where this face's JSON Schema —
+  // `describe`d field blurbs and all — is asserted; `create.test.ts` pins the
+  // REFUSALS that schema produces.
   placement: PadiCreateInputSchema.fields.placement.annotate({
     description: PLACEMENT_REQUIRED,
   }),

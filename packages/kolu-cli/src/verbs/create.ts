@@ -82,9 +82,9 @@
 
 import { type TerminalPlacement, TOPLEVEL_PLACEMENT } from "@kolu/padi/surface";
 import {
-  PLACEMENT_FLAGS_EXCLUSIVE,
-  placementRequiredMessage,
+  parsePlacementFlags,
   shortId,
+  type StatedPlacementFlags,
 } from "@kolu/padi/render";
 import { shellJoin } from "@kolu/shell-quote";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
@@ -264,37 +264,21 @@ function refuseBlankFlags(args: CreateArgs): Effect.Effect<void, CliFailure> {
   return Effect.void;
 }
 
-/** This verb's placement refusal — the shared sentence from `@kolu/padi/render`,
- *  naming THIS command. `padi-tui create` states the same rule from the same
- *  helper, so the two faces cannot drift into two different accounts of one
- *  rule; the exclusive-pair sentence is face-independent and is imported whole
- *  ({@link PLACEMENT_FLAGS_EXCLUSIVE}). */
-const PLACEMENT_REQUIRED_FLAGS = placementRequiredMessage("kolu create");
-
-/** WHERE ON THE CANVAS the new terminal lands, parsed from the flag pair — the
- *  CLI's spelling of the wire's `TerminalPlacement`.
+/** WHERE ON THE CANVAS the new terminal lands, read from the flag pair — this
+ *  verb's thin wrapper over `@kolu/padi/render`'s {@link parsePlacementFlags}.
  *
- *  The `child-of` arm carries the RAW `--parent` query rather than a
- *  `TerminalId`, because a user hands `kolu` any unique prefix and widening it
- *  needs the live roster — which needs the dial. So the ARM is decided here,
- *  purely, before a `--host` can provision a cold box for a command that was
- *  never going to run; only the id inside it is resolved on the far side ({@link
- *  run}). Two states in, two states out, and no third: absent-and-absent is the
- *  refusal, present-and-present is the other one. */
-type PlacementFlags =
-  | { readonly kind: "toplevel" }
-  | { readonly kind: "child-of"; readonly parentQuery: string };
-
+ *  The DECISION is not made here: it is the shared one both padi CLI faces run,
+ *  so `kolu create` and `padi-tui create` cannot drift into two accounts of one
+ *  rule. All this adds is the command name the refusal says and the translation
+ *  of that refusal into THIS face's failure type — the two things that genuinely
+ *  differ per face. */
 function placementOf(
   args: CreateArgs,
-): Effect.Effect<PlacementFlags, CliFailure> {
-  const { toplevel, parent } = args;
-  if (toplevel && parent !== undefined)
-    return Effect.fail(failure(PLACEMENT_FLAGS_EXCLUSIVE));
-  if (toplevel) return Effect.succeed({ kind: "toplevel" });
-  if (parent !== undefined)
-    return Effect.succeed({ kind: "child-of", parentQuery: parent });
-  return Effect.fail(failure(PLACEMENT_REQUIRED_FLAGS));
+): Effect.Effect<StatedPlacementFlags, CliFailure> {
+  const read = parsePlacementFlags("kolu create", args);
+  return read.kind === "refused"
+    ? Effect.fail(failure(read.message))
+    : Effect.succeed(read);
 }
 
 /** Read the three directory flags down into the one shape that means something,

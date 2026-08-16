@@ -40,16 +40,15 @@ export function shortId(id: string): string {
 }
 
 /** "You did not say where the terminal goes" — the CLI-flag spelling of the
- *  wire's `PLACEMENT_REQUIRED`, for the ONE verb both padi CLI faces carry.
+ *  wire's `PLACEMENT_REQUIRED`.
  *
  *  `command` is the only difference between the two faces' sentences, so it is
- *  the only thing they pass: this module's own rule ("a second copy would be a
- *  second truth") applies to a refusal as much as to a table. It names BOTH
- *  flags, because the failure mode is a caller who did not know there was a
- *  choice — "missing required flag" sends a script author hunting for a typo —
- *  and it ends with the migration, in the one word it costs, because a script
- *  that breaks at 2am is not going to find the changelog. */
-export function placementRequiredMessage(command: string): string {
+ *  the only thing {@link parsePlacementFlags} passes. It names BOTH flags,
+ *  because the failure mode is a caller who did not know there was a choice —
+ *  "missing required flag" sends a script author hunting for a typo — and it
+ *  ends with the migration, in the one word it costs, because a script that
+ *  breaks at 2am is not going to find the changelog. */
+function placementRequiredMessage(command: string): string {
   return `${command} must state WHERE the terminal goes — pass exactly one of --toplevel (a tile of its own) or --parent <id> (a split inside that terminal). There is no default: the canvas and the Dock read a terminal's parent as who-works-for-whom, so a guessed placement silently flattens the hierarchy. A script that used to say \`${command}\` means \`${command} --toplevel\`.`;
 }
 
@@ -57,8 +56,53 @@ export function placementRequiredMessage(command: string): string {
  *  two flags are contradictory claims about one terminal, and picking one would
  *  BE the silent decision the pair exists to delete. Face-independent, so unlike
  *  {@link placementRequiredMessage} it needs no command name. */
-export const PLACEMENT_FLAGS_EXCLUSIVE =
+const PLACEMENT_FLAGS_EXCLUSIVE =
   "--toplevel and --parent are mutually exclusive: a terminal is either a tile of its own or a split inside exactly one parent, never both. Pass exactly one.";
+
+/** WHERE ON THE CANVAS a create lands, as the CLI FLAGS spell it — the two arms
+ *  that are a STATEMENT. The `child-of` arm carries the RAW `--parent` query
+ *  rather than a `TerminalId`, because a user hands either CLI any unique prefix
+ *  and widening it needs the live roster, which needs the dial. So the ARM is
+ *  decided purely, before a `--host` can provision a cold box for a command that
+ *  was never going to run; only the id inside it is resolved on the far side. */
+export type StatedPlacementFlags =
+  | { readonly kind: "toplevel" }
+  | { readonly kind: "child-of"; readonly parentQuery: string };
+
+/** …and the third arm, which is what the parse returns when the pair does not
+ *  amount to a statement. A value, not a throw or an `Effect`: the two faces
+ *  fail on different error types (`kolu`'s `CliFailure`, `padi-tui`'s own), and
+ *  keeping the parse plain data is what lets them share the DECISION while each
+ *  keeps its own way of failing. */
+export type PlacementFlagsRead =
+  | StatedPlacementFlags
+  | { readonly kind: "refused"; readonly message: string };
+
+/** Read the `--toplevel` / `--parent` pair down into the one thing it means —
+ *  the ONE authority on the CLI-flag half of the no-default rule.
+ *
+ *  Both padi CLI faces carry this verb and must answer it identically, so the
+ *  branch lives here rather than in each `main`: sharing only the two sentences
+ *  above (as this did at first) leaves the DECISION hand-written twice, free to
+ *  drift on the next edit — a reordered check, a third flag, a differently
+ *  handled `--parent ""` — with nothing structural noticing. That drift is the
+ *  same class of defect the whole no-default rule exists to delete, one layer up:
+ *  two faces quietly disagreeing about what a create meant.
+ *
+ *  Four inputs, three outcomes, no fourth: both flags is the exclusion refusal,
+ *  neither is the required refusal, and each alone is its arm. Pure, so it is
+ *  unit-tested without a socket and both faces' gates run before their dial. */
+export function parsePlacementFlags(
+  command: string,
+  flags: { readonly toplevel: boolean; readonly parent: string | undefined },
+): PlacementFlagsRead {
+  const { toplevel, parent } = flags;
+  if (toplevel && parent !== undefined)
+    return { kind: "refused", message: PLACEMENT_FLAGS_EXCLUSIVE };
+  if (toplevel) return { kind: "toplevel" };
+  if (parent !== undefined) return { kind: "child-of", parentQuery: parent };
+  return { kind: "refused", message: placementRequiredMessage(command) };
+}
 
 /** The live foreground process of a composed record, or `null` — active-only,
  *  same as `activeAgent` (which now lives in the dial kit's watch module,

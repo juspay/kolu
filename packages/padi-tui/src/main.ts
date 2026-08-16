@@ -104,8 +104,7 @@ import {
   formatWatchJson,
   formatWatchRemoval,
   formatWatchRemovalJson,
-  PLACEMENT_FLAGS_EXCLUSIVE,
-  placementRequiredMessage,
+  parsePlacementFlags,
   resolveTerminalId,
   shortId,
 } from "@kolu/padi/render";
@@ -669,12 +668,6 @@ function cmdWait(
   });
 }
 
-/** This face.s placement refusal — the shared sentence from `@kolu/padi/render`,
- *  naming THIS command. `kolu create` states the same rule from the same helper,
- *  so the two faces cannot drift into two accounts of one rule; the
- *  exclusive-pair sentence is face-independent and imported whole. */
-const PLACEMENT_REQUIRED_FLAGS = placementRequiredMessage("padi-tui create");
-
 function cmdCreate(
   endpoint: Endpoint,
   flags: {
@@ -689,26 +682,27 @@ function cmdCreate(
   return Effect.gen(function* () {
     // The placement gate is PURE and runs before the dial, so a bare
     // `padi-tui create` fails instantly rather than after `--host` has
-    // Nix-provisioned a cold box for a command that was never going to run.
-    if (flags.toplevel && flags.parent !== undefined) {
-      return yield* Effect.fail(failure(PLACEMENT_FLAGS_EXCLUSIVE));
+    // Nix-provisioned a cold box for a command that was never going to run. The
+    // DECISION is `@kolu/padi/render`'s, shared with `kolu create` so the two
+    // faces cannot drift; only the command name and the failure type are ours.
+    const stated = parsePlacementFlags("padi-tui create", flags);
+    if (stated.kind === "refused") {
+      return yield* Effect.fail(failure(stated.message));
     }
-    if (!flags.toplevel && flags.parent === undefined) {
-      return yield* Effect.fail(failure(PLACEMENT_REQUIRED_FLAGS));
-    }
-    const parentQuery = flags.parent;
 
     const created = yield* Effect.scoped(
       Effect.gen(function* () {
         const conn = yield* connectTo(endpoint);
         // Resolve --parent prefix against the live terminals (a short id or prefix).
-        // The ARM was decided above; only the id inside it needs the live roster.
+        // The ARM was decided above; only the id inside it needs the live roster,
+        // and it is read off that arm rather than re-derived from the raw flags —
+        // one decision, read once.
         const placement: TerminalPlacement =
-          parentQuery === undefined
+          stated.kind === "toplevel"
             ? TOPLEVEL_PLACEMENT
             : {
                 kind: "child-of",
-                parentId: yield* resolveArg(conn.client, parentQuery),
+                parentId: yield* resolveArg(conn.client, stated.parentQuery),
               };
 
         // WHERE the new terminal opens depends on whether this daemon shares our
