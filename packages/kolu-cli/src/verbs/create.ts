@@ -81,7 +81,11 @@
  */
 
 import { type TerminalPlacement, TOPLEVEL_PLACEMENT } from "@kolu/padi/surface";
-import { shortId } from "@kolu/padi/render";
+import {
+  PLACEMENT_FLAGS_EXCLUSIVE,
+  placementRequiredMessage,
+  shortId,
+} from "@kolu/padi/render";
 import { shellJoin } from "@kolu/shell-quote";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect } from "effect";
@@ -260,22 +264,12 @@ function refuseBlankFlags(args: CreateArgs): Effect.Effect<void, CliFailure> {
   return Effect.void;
 }
 
-/** The refusal for a create that never said where the terminal goes.
- *
- *  It names BOTH flags, and the rule that makes them a pair, because the whole
- *  failure mode is a caller who did not know there was a choice: "missing
- *  required flag" would send a script author looking for a typo instead of
- *  making the decision. The last sentence is the migration, in the one word it
- *  costs — every bare `kolu create` in a script meant `--toplevel`, and saying so
- *  here is cheaper than a changelog nobody reads at 2am. */
-const PLACEMENT_REQUIRED_FLAGS =
-  "kolu create must state WHERE the terminal goes — pass exactly one of --toplevel (a tile of its own) or --parent <id> (a split inside that terminal). There is no default: the canvas and the Dock read a terminal's parent as who-works-for-whom, so a guessed placement silently flattens the hierarchy. A script that used to say `kolu create` means `kolu create --toplevel`.";
-
-/** The refusal for a create that said BOTH. Not a precedence question with a
- *  quiet winner — the two are contradictory claims about one terminal, and
- *  picking one would be exactly the silent decision this pair deletes. */
-const PLACEMENT_BOTH_FLAGS =
-  "--toplevel and --parent are mutually exclusive: a terminal is either a tile of its own or a split inside exactly one parent, never both. Pass exactly one.";
+/** This verb's placement refusal — the shared sentence from `@kolu/padi/render`,
+ *  naming THIS command. `padi-tui create` states the same rule from the same
+ *  helper, so the two faces cannot drift into two different accounts of one
+ *  rule; the exclusive-pair sentence is face-independent and is imported whole
+ *  ({@link PLACEMENT_FLAGS_EXCLUSIVE}). */
+const PLACEMENT_REQUIRED_FLAGS = placementRequiredMessage("kolu create");
 
 /** WHERE ON THE CANVAS the new terminal lands, parsed from the flag pair — the
  *  CLI's spelling of the wire's `TerminalPlacement`.
@@ -296,7 +290,7 @@ function placementOf(
 ): Effect.Effect<PlacementFlags, CliFailure> {
   const { toplevel, parent } = args;
   if (toplevel && parent !== undefined)
-    return Effect.fail(failure(PLACEMENT_BOTH_FLAGS));
+    return Effect.fail(failure(PLACEMENT_FLAGS_EXCLUSIVE));
   if (toplevel) return Effect.succeed({ kind: "toplevel" });
   if (parent !== undefined)
     return Effect.succeed({ kind: "child-of", parentQuery: parent });

@@ -104,6 +104,8 @@ import {
   formatWatchJson,
   formatWatchRemoval,
   formatWatchRemovalJson,
+  PLACEMENT_FLAGS_EXCLUSIVE,
+  placementRequiredMessage,
   resolveTerminalId,
   shortId,
 } from "@kolu/padi/render";
@@ -667,13 +669,11 @@ function cmdWait(
   });
 }
 
-/** The two placement refusals, in padi-tui's own flag vocabulary. Same rule as
- *  `kolu create`'s, same reason: this face's callers are scripts and agent loops,
- *  which never notice a canvas decision they did not make. */
-const PLACEMENT_REQUIRED_FLAGS =
-  "padi-tui create must state WHERE the terminal goes — pass exactly one of --toplevel (a tile of its own) or --parent <id> (a split inside that terminal). There is no default: the canvas and the Dock read a terminal's parent as who-works-for-whom, so a guessed placement silently flattens the hierarchy. A script that used to say `padi-tui create` means `padi-tui create --toplevel`.";
-const PLACEMENT_BOTH_FLAGS =
-  "--toplevel and --parent are mutually exclusive: a terminal is either a tile of its own or a split inside exactly one parent, never both. Pass exactly one.";
+/** This face.s placement refusal — the shared sentence from `@kolu/padi/render`,
+ *  naming THIS command. `kolu create` states the same rule from the same helper,
+ *  so the two faces cannot drift into two accounts of one rule; the
+ *  exclusive-pair sentence is face-independent and imported whole. */
+const PLACEMENT_REQUIRED_FLAGS = placementRequiredMessage("padi-tui create");
 
 function cmdCreate(
   endpoint: Endpoint,
@@ -691,7 +691,7 @@ function cmdCreate(
     // `padi-tui create` fails instantly rather than after `--host` has
     // Nix-provisioned a cold box for a command that was never going to run.
     if (flags.toplevel && flags.parent !== undefined) {
-      return yield* Effect.fail(failure(PLACEMENT_BOTH_FLAGS));
+      return yield* Effect.fail(failure(PLACEMENT_FLAGS_EXCLUSIVE));
     }
     if (!flags.toplevel && flags.parent === undefined) {
       return yield* Effect.fail(failure(PLACEMENT_REQUIRED_FLAGS));
