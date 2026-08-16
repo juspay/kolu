@@ -543,32 +543,16 @@ export const Ghostty: Component<
           schedulePaint();
           return;
         }
-        const before = eng.totalRows();
-        const { lines: heldLines } = viewportWindow(eng.rows);
-        const needle = lineText(heldLines[0] ?? { runs: [] });
+        const beforeLines = visualStyled();
+        const heldAt = Math.max(0, beforeLines.length - eng.rows - viewOffset);
+        const needle = lineText(beforeLines[heldAt] ?? { runs: [] });
         eng.write(data);
         onParsed?.();
-        const after = eng.totalRows();
-        viewOffset = adjustLockedViewOffset(
-          viewOffset,
-          before,
-          after,
-          eng.rows,
-          needle,
-          after < before ? eng.styledLines({ kind: "full" }) : [],
-        );
-        if (needle.length > 0) {
-          const now = lineText(
-            viewportWindow(eng.rows).lines[0] ?? { runs: [] },
-          );
-          if (now !== needle) {
-            const pinned = repinLockedViewOffset(
-              eng.rows,
-              needle,
-              eng.styledLines({ kind: "full" }),
-            );
-            if (pinned !== null) viewOffset = pinned;
-          }
+        const afterLines = visualStyled();
+        const pinned = repinLockedViewOffset(eng.rows, needle, afterLines);
+        if (pinned !== null) viewOffset = pinned;
+        else {
+          viewOffset += Math.max(0, afterLines.length - beforeLines.length);
         }
         lock.buffer(data);
         schedulePaint();
