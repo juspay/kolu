@@ -14,7 +14,7 @@ import {
 } from "solid-js";
 import { createEngine, type Engine } from "../engine.ts";
 import { preloadGhostty } from "../load.browser.ts";
-import { resolveColor } from "../styled.ts";
+import { lineText, resolveColor } from "../styled.ts";
 import { sameGrid, type TerminalGrid } from "./grid.ts";
 import { createOnceMeasured } from "./onceMeasured.ts";
 import { createScrollLock, type ScrollLock } from "./scrollLock.ts";
@@ -185,6 +185,7 @@ export const Ghostty: Component<
   let viewOffset = 0;
   const renderListeners = new Set<() => void>();
   let touchLastY = 0;
+  let touchCarry = 0;
 
   function cellSize(): { w: number; h: number } {
     const probe = document.createElement("canvas").getContext("2d");
@@ -201,9 +202,11 @@ export const Ghostty: Component<
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const { w, h } = cellSize();
-    const g = grid();
-    const cols = g?.cols ?? engine.cols;
-    const rows = g?.rows ?? engine.rows;
+    // Engine grid is what the glyphs occupy. `grid()` is the published
+    // pane size — using it here while the constructor is still 80×24
+    // stretches the canvas and shifts every click (zoomed L/R #1400).
+    const cols = engine.cols;
+    const rows = engine.rows;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.max(1, Math.floor(cols * w * dpr));
     canvas.height = Math.max(1, Math.floor(rows * h * dpr));
@@ -215,11 +218,7 @@ export const Ghostty: Component<
     ctx.textBaseline = "top";
     const baseFont = `${own.fontSize}px ${own.fontFamily}`;
     const defaultBg = own.theme.background ?? "#000";
-    const all = engine.styledLines({ kind: "full" });
-    const maxOff = Math.max(0, all.length - rows);
-    if (viewOffset > maxOff) viewOffset = maxOff;
-    const start = Math.max(0, all.length - rows - viewOffset);
-    const lines = all.slice(start, start + rows);
+    const { lines } = viewportWindow(rows);
     for (let y = 0; y < rows; y++) {
       const line = lines[y];
       if (!line) continue;
@@ -273,8 +272,24 @@ export const Ghostty: Component<
     if (rd) rd._animationFrame = raf;
   }
 
+  function visualStyled() {
+    return engine?.styledLines({ kind: "full" }) ?? [];
+  }
+
+  /** The painted / hit-tested window. Clamps `viewOffset` to the live tail. */
+  function viewportWindow(rows: number) {
+    const all = visualStyled();
+    const maxOff = Math.max(0, all.length - rows);
+    if (viewOffset > maxOff) viewOffset = maxOff;
+    const start = Math.max(0, all.length - rows - viewOffset);
+    return { all, lines: all.slice(start, start + rows), start, maxOff };
+  }
+
   function applyFit(): TerminalGrid | null {
-    if (!mount) return null;
+    // No engine, no grid — a pre-boot ResizeObserver must not publish a
+    // size the constructor (80×24) has not been resized to, or attach
+    // opens at the measured size and writes into the invented one.
+    if (!mount || !engine) return grid();
     // A `hidden` / 0×0 tile must not resize the engine — that reflow
     // evicts the live screen (compact switch, maximized cover).
     if (!own.visible) return grid();
@@ -285,8 +300,10 @@ export const Ghostty: Component<
     if (cols <= 0 || rows <= 0) return null;
     const next = { cols, rows };
     const prev = grid();
+    // Always tell the engine: `resize` no-ops when already there, and
+    // grid() can otherwise claim a size the constructor never took.
+    engine.resize(cols, rows, w, h);
     if (prev && sameGrid(prev, next)) return prev;
-    engine?.resize(cols, rows, w, h);
     setGrid(next);
     schedulePaint();
     return next;
@@ -346,8 +363,7 @@ export const Ghostty: Component<
       const resultListeners = new Set<
         (e: { resultIndex: number; resultCount: number }) => void
       >();
-      const visualLines = () =>
-        eng.formatPlain({ unwrap: false, trim: true }).split("\n");
+      const visualLines = () => visualStyled().map(lineText);
       const shim: XtermShim = {
         get cols() {
           return eng.cols;
@@ -359,6 +375,7 @@ export const Ghostty: Component<
         blur: () => textarea.blur(),
         reset: () => {
           eng.write("\x1bc");
+          viewOffset = 0;
           schedulePaint();
         },
         write: (data, cb) => {
@@ -450,10 +467,17 @@ export const Ghostty: Component<
         // Always parse into the engine. Lock only freezes the painted
         // window (viewOffset) — dropping bytes made buffer reads and
         // Starship-like prompts vanish while the user was scrolled up.
+        const before = visualStyled().length;
         eng.write(data);
         onParsed?.();
+        const grew = Math.max(0, visualStyled().length - before);
         if (own.scrollLockEnabled() && lock.isLocked()) {
+          viewOffset += grew;
           lock.buffer(data);
+        } else {
+          // Unlocked (including #1272 programmatic scroll) pins to the
+          // live bottom so new output is what the user sees.
+          viewOffset = 0;
         }
         schedulePaint();
       };
@@ -545,20 +569,20 @@ export const Ghostty: Component<
       const t = ev.touches[0];
       if (!t) return;
       touchLastY = t.clientY;
+      touchCarry = 0;
       if (own.scrollLockEnabled()) lock.armUserScrollIntent("touch");
     };
     const onMove = (ev: TouchEvent) => {
       const t = ev.touches[0];
       if (!t || !engine) return;
-      const dy = t.clientY - touchLastY;
+      touchCarry += t.clientY - touchLastY;
       touchLastY = t.clientY;
-      const cells = Math.round(dy / cellSize().h);
+      const cellH = cellSize().h;
+      const cells = Math.trunc(touchCarry / cellH);
       if (cells === 0) return;
+      touchCarry -= cells * cellH;
       ev.preventDefault();
-      const maxOff = Math.max(
-        0,
-        engine.styledLines({ kind: "full" }).length - engine.rows,
-      );
+      const maxOff = Math.max(0, visualStyled().length - engine.rows);
       viewOffset = Math.max(0, Math.min(maxOff, viewOffset + cells));
       if (own.scrollLockEnabled()) {
         if (cells > 0) lock.lock(0, 1);
@@ -611,8 +635,8 @@ export const Ghostty: Component<
 
   function cellAt(clientX: number, clientY: number): { x: number; y: number } {
     const rect = canvas.getBoundingClientRect();
-    const cols = grid()?.cols ?? engine?.cols ?? 80;
-    const rows = grid()?.rows ?? engine?.rows ?? 24;
+    const cols = engine?.cols ?? 80;
+    const rows = engine?.rows ?? 24;
     const x = Math.max(
       0,
       Math.min(
@@ -638,18 +662,15 @@ export const Ghostty: Component<
       selText = "";
       return;
     }
-    const raw = engine.formatPlain({ unwrap: false, trim: false });
-    const all = raw.length === 0 ? [] : raw.split(/\r?\n/);
-    const rows = grid()?.rows ?? engine.rows;
-    const start = Math.max(0, all.length - rows - viewOffset);
-    const lines = all.slice(start, start + rows);
+    const rows = engine.rows;
+    const { lines } = viewportWindow(rows);
     const y0 = Math.min(from.y, to.y);
     const y1 = Math.max(from.y, to.y);
     const x0 = Math.min(from.x, to.x);
     const x1 = Math.max(from.x, to.x);
     const parts: string[] = [];
     for (let y = y0; y <= y1; y++) {
-      const line = lines[y] ?? "";
+      const line = lineText(lines[y] ?? { runs: [] });
       parts.push(line.slice(x0, x1 + 1));
     }
     selText = parts.join("\n");
@@ -678,8 +699,7 @@ export const Ghostty: Component<
     ev.stopPropagation();
     ev.preventDefault();
     if (engine) {
-      const all = engine.styledLines({ kind: "full" });
-      const maxOff = Math.max(0, all.length - engine.rows);
+      const maxOff = Math.max(0, visualStyled().length - engine.rows);
       if (ev.deltaY < 0) viewOffset = Math.min(maxOff, viewOffset + 3);
       else viewOffset = Math.max(0, viewOffset - 3);
     }

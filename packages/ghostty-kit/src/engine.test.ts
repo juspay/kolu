@@ -129,4 +129,19 @@ describe("official ghostty-vt.wasm engine", () => {
       eng.free();
     }
   });
+
+  it("keeps styled visual rows aligned with unwrapped trimmed plain", () => {
+    const eng = createEngine({ cols: 20, rows: 8, scrollback: 40 });
+    try {
+      for (let i = 0; i < 12; i++) eng.write(`row-${i}\r\n`);
+      const trimmed = eng.formatPlain({ unwrap: false, trim: true });
+      const plainLines =
+        trimmed.length === 0 ? [] : trimmed.replace(/\n$/, "").split(/\r?\n/);
+      const styled = eng.styledLines({ kind: "full" });
+      expect(styled.length).toBe(plainLines.length);
+      expect(plainLines.some((l) => l.includes("row-11"))).toBe(true);
+    } finally {
+      eng.free();
+    }
+  });
 });

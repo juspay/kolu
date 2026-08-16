@@ -285,7 +285,10 @@ export function createEngine(opts: EngineOptions): Engine {
 
   function allStyled(): StyledLine[] {
     if (cachedStyled !== undefined) return cachedStyled;
-    const vt = format(FORMAT_VT, false, false);
+    // unwrap=false / trim=true is the ONE visual row list: paint, the
+    // xterm shim, and hit-testing all slice this. trim=false keeps
+    // trailing empty rows and shifts every Y by that padding.
+    const vt = format(FORMAT_VT, false, true);
     cachedStyled = parseVtStyled(vt, (cp) =>
       wasm.exports.ghostty_unicode_codepoint_width(cp),
     );
