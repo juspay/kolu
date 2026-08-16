@@ -19,6 +19,7 @@ import { lineContinuesPrevious, lineText, resolveColor } from "../styled.ts";
 import { sameGrid, type TerminalGrid } from "./grid.ts";
 import { measurePane } from "./measurePane.ts";
 import { createOnceMeasured } from "./onceMeasured.ts";
+import { adjustLockedViewOffset } from "./lockOffset.ts";
 import { paintStyledLines } from "./paintExtent.ts";
 import { createScrollLock, type ScrollLock } from "./scrollLock.ts";
 import { shouldActivateTap, type TapGesture } from "./tapGesture.ts";
@@ -543,10 +544,30 @@ export const Ghostty: Component<
           return;
         }
         const before = eng.totalRows();
+        const { lines: locked } = viewportWindow(eng.rows);
+        const needle = lineText(locked[0] ?? { runs: [] });
         eng.write(data);
         onParsed?.();
-        const grew = Math.max(0, eng.totalRows() - before);
-        if (grew > 0) viewOffset += grew;
+        const after = eng.totalRows();
+        if (after < before) {
+          viewOffset = adjustLockedViewOffset(
+            viewOffset,
+            before,
+            after,
+            eng.rows,
+            needle,
+            eng.styledLines({ kind: "full" }),
+          );
+        } else {
+          viewOffset = adjustLockedViewOffset(
+            viewOffset,
+            before,
+            after,
+            eng.rows,
+            needle,
+            [],
+          );
+        }
         lock.buffer(data);
         schedulePaint();
       };

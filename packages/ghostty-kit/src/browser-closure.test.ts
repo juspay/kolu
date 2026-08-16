@@ -27,6 +27,7 @@ const BROWSER_FILES = [
   "solid/index.ts",
   "solid/scrollLock.ts",
   "solid/paintExtent.ts",
+  "solid/lockOffset.ts",
   "solid/tapGesture.ts",
 ];
 
