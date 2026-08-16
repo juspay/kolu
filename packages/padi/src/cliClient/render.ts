@@ -66,6 +66,19 @@ function placementRequiredMessage(command: string): string {
 const PLACEMENT_FLAGS_EXCLUSIVE =
   "--toplevel and --parent are mutually exclusive: a terminal is either a tile of its own or a split inside exactly one parent, never both. Pass exactly one.";
 
+/** …and "you spelled --parent but named nothing". Face-independent for the same
+ *  reason as the sentence above: it names only the flags. It says which of the two
+ *  fixes applies, because an unset variable and a genuine change of mind want
+ *  opposite repairs. */
+const PLACEMENT_PARENT_BLANK =
+  "--parent was passed with an empty value — an unset shell variable, most likely. It names the terminal to split, and an empty string is not an id: pass the parent's id (any unique prefix), or use --toplevel if you meant a tile of its own.";
+
+/** A flag the user SPELLED but left EMPTY — `--parent "$ID"` with `$ID` unset,
+ *  the ordinary shell accident. ONE predicate, so every gate on either CLI face
+ *  agrees on what blank IS: whitespace counts, because `--parent " "` is the same
+ *  accident with a quoted space. `kolu-cli`'s `exit.ts` re-exports it. */
+export const isBlank = (value: string): boolean => value.trim() === "";
+
 /** WHERE ON THE CANVAS a create lands, as the CLI FLAGS spell it — the two arms
  *  that are a STATEMENT. The `child-of` arm carries the RAW `--parent` query
  *  rather than a `TerminalId`, because a user hands either CLI any unique prefix
@@ -96,9 +109,19 @@ export type PlacementFlagsRead =
  *  same class of defect the whole no-default rule exists to delete, one layer up:
  *  two faces quietly disagreeing about what a create meant.
  *
- *  Four inputs, three outcomes, no fourth: both flags is the exclusion refusal,
- *  neither is the required refusal, and each alone is its arm. Pure, so it is
- *  unit-tested without a socket and both faces' gates run before their dial. */
+ *  Both flags is the exclusion refusal, neither is the required refusal, and each
+ *  alone is its arm. Pure, so it is unit-tested without a socket and both faces'
+ *  gates run before their dial.
+ *
+ *  A BLANK `--parent` is refused here rather than treated as a statement. `--parent
+ *  "$ID"` with `$ID` unset is not a caller who chose the `child-of` arm; it is a
+ *  variable that did not expand, and an empty string is not an id. Left as a
+ *  statement it reached the far side and failed only after the dial — so `padi-tui
+ *  create --parent ""` over `--host` would Nix-provision a cold box for a command
+ *  that was never going to run. `kolu create` never showed this, because its own
+ *  `refuseBlankFlags` fires first with a per-flag sentence; that gate still wins
+ *  there and its message is unchanged, which leaves this branch unreachable on that
+ *  face and load-bearing on the other. A shared parse has to be right on its own. */
 export function parsePlacementFlags(
   command: string,
   flags: { readonly toplevel: boolean; readonly parent: string | undefined },
@@ -107,7 +130,11 @@ export function parsePlacementFlags(
   if (toplevel && parent !== undefined)
     return { kind: "refused", message: PLACEMENT_FLAGS_EXCLUSIVE };
   if (toplevel) return { kind: "toplevel" };
-  if (parent !== undefined) return { kind: "child-of", parentQuery: parent };
+  if (parent !== undefined) {
+    return isBlank(parent)
+      ? { kind: "refused", message: PLACEMENT_PARENT_BLANK }
+      : { kind: "child-of", parentQuery: parent };
+  }
   return { kind: "refused", message: placementRequiredMessage(command) };
 }
 

@@ -110,8 +110,15 @@ export const failure = (message: string): CliFailure =>
 /** A flag the user SPELLED but left EMPTY — `--worktree "$NAME"` with `$NAME`
  *  unset, the ordinary shell accident. ONE predicate, so every gate in this
  *  package agrees on what blank IS: whitespace counts, because `--cwd " "` is
- *  the same accident with a quoted space. */
-export const isBlank = (value: string): boolean => value.trim() === "";
+ *  the same accident with a quoted space.
+ *
+ *  It now lives in `@kolu/padi/render` and is re-exported here, unchanged, so
+ *  every reference to "`exit.ts`'s `isBlank`" in this package still resolves.
+ *  The move is because `padi-tui` needs the SAME predicate — `parsePlacementFlags`
+ *  refuses a blank `--parent` — and two spellings of "is this string empty" across
+ *  two faces of one verb is exactly the drift this package's gates exist to
+ *  prevent. */
+export { isBlank } from "@kolu/padi/render";
 
 /** The refusal for a blank flag value, naming the offending flag.
  *

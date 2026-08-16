@@ -81,7 +81,7 @@ import {
   type Connection,
   type PadiTuiClient,
 } from "./connect.ts";
-import { runCreate } from "./create.ts";
+import { placementGate, runCreate } from "./create.ts";
 import {
   CliFailure,
   exitCodeOf,
@@ -104,7 +104,6 @@ import {
   formatWatchJson,
   formatWatchRemoval,
   formatWatchRemovalJson,
-  parsePlacementFlags,
   resolveTerminalId,
   shortId,
 } from "@kolu/padi/render";
@@ -684,11 +683,10 @@ function cmdCreate(
     // `padi-tui create` fails instantly rather than after `--host` has
     // Nix-provisioned a cold box for a command that was never going to run. The
     // DECISION is `@kolu/padi/render`'s, shared with `kolu create` so the two
-    // faces cannot drift; only the command name and the failure type are ours.
-    const stated = parsePlacementFlags("padi-tui create", flags);
-    if (stated.kind === "refused") {
-      return yield* Effect.fail(failure(stated.message));
-    }
+    // faces cannot drift; only the command name and the failure type are ours,
+    // and both live in `create.ts` where a test can reach them — nothing in this
+    // module can be imported without `cli(…)` parsing `process.argv`.
+    const stated = yield* placementGate(flags);
 
     const created = yield* Effect.scoped(
       Effect.gen(function* () {

@@ -16,7 +16,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { parsePlacementFlags } from "./render.ts";
+import { isBlank, parsePlacementFlags } from "./render.ts";
 
 /** The refusal text for a pair that says nothing, or `""` if it was accepted —
  *  so a regression reads as a missing sentence rather than a thrown accessor. */
@@ -69,6 +69,30 @@ describe("parsePlacementFlags refuses a pair that is not a statement", () => {
         parent: undefined,
       }),
     ).not.toContain("padi-tui");
+  });
+
+  it("a BLANK --parent is not a statement — an empty string is not an id", () => {
+    // `--parent "$ID"` with `$ID` unset. Treated as a `child-of` arm this reached
+    // the far side and failed only after the dial, so `padi-tui create --parent ""`
+    // over `--host` provisioned a cold box for a command that could not run.
+    for (const blank of ["", " ", "\t"]) {
+      const text = refusalOf("padi-tui create", {
+        toplevel: false,
+        parent: blank,
+      });
+      expect(text).toContain("--parent was passed with an empty value");
+      // Both repairs, because an unset variable and a changed mind want opposite
+      // ones — and neither is "we picked top level for you".
+      expect(text).toContain("--toplevel");
+      expect(text).not.toContain("There is no default");
+    }
+  });
+
+  it("whitespace counts as blank — the quoted-space accident", () => {
+    // The same rule `kolu create`'s own blank gate applies, and now literally the
+    // same predicate: `isBlank` is authored here and re-exported by `exit.ts`.
+    expect(isBlank(" ")).toBe(true);
+    expect(isBlank("3f9c")).toBe(false);
   });
 
   it("the exclusion refusal is face-INDEPENDENT — one sentence, both faces", () => {

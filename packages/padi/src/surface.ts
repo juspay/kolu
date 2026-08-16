@@ -761,9 +761,16 @@ function sameIds<T>(a: readonly T[], b: readonly T[]): boolean {
  *  `placement` is the one REQUIRED key, and the only one on this input that is not
  *  chrome: it says whether the new terminal is a tile of its own or a split inside
  *  another ({@link TerminalPlacementSchema}). `annotateKey` puts the SAME sentence on
- *  the absent-key issue that the sum itself carries for a malformed one, so all three
- *  ways to get it wrong — omit the key, name a third arm, spell `child-of` with no
- *  `parentId` — answer with the rule and both spellings rather than "Missing key".
+ *  the absent-key issue that the sum itself carries for a malformed one, so the two
+ *  ways of not naming a placement — omit the key, or name a third arm — both answer
+ *  with the rule and both spellings rather than Effect's bare "Missing key".
+ *
+ *  A `child-of` with no `parentId` deliberately does NOT get that sentence: it fails
+ *  as a missing key at `["placement"]["parentId"]`, and that is the more useful
+ *  answer. That caller HAS chosen an arm and knows the vocabulary — re-reciting the
+ *  whole rule at them would bury the one thing they need, which is that the parent id
+ *  is the field that went astray. Pinned as such in `createPlacement.test.ts`.
+ *
  *  The refusal is therefore the SCHEMA's, not a handler guard: a create with no
  *  placement never reaches padi's registry, and no TypeScript caller can compile
  *  one. */

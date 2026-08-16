@@ -8,10 +8,10 @@
 import { TOPLEVEL_PLACEMENT } from "@kolu/padi/surface";
 import { shellSplit } from "@kolu/shell-quote";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { PadiTuiClient } from "./connect.ts";
-import { runCreate } from "./create.ts";
+import { placementGate, runCreate } from "./create.ts";
 
 /** A stub `PadiTuiClient` exposing just the verbs `runCreate` touches. `sendInput`
  *  records the raw PTY `data` so a test can assert exactly what the shell receives,
@@ -154,5 +154,66 @@ describe("runCreate — the create payload states placement and OMITS absent opt
       placement: { kind: "toplevel" },
       cwd: "/wt",
     });
+  });
+});
+
+describe("placementGate — padi-tui's PRE-DIAL wiring of the shared rule", () => {
+  /** The gate's refusal sentence, or `""` if it let the flags through. Driven as
+   *  a value: the gate is pure, so `runSyncExit` settling it at all is the proof
+   *  that no socket was needed to reach the answer. */
+  const refusalOf = (flags: {
+    toplevel: boolean;
+    parent: string | undefined;
+  }): string => {
+    const exit = Effect.runSyncExit(placementGate(flags));
+    return Exit.isFailure(exit)
+      ? ((Cause.squash(exit.cause) as { readonly stderr?: string }).stderr ??
+          "")
+      : "";
+  };
+
+  // WHY this file and not `main.ts`: `main.ts` calls `cli(…)` at module scope, so
+  // importing it parses `process.argv` and nothing in it is reachable from a test.
+  // `kolu create`'s equivalent gate is pinned through its own `run`; this one was
+  // pinned nowhere, which is the asymmetry these cases close. The DECISION itself
+  // is `@kolu/padi/render`'s and is pinned in `placementFlags.test.ts` — what is
+  // under test here is that this face is wired to it, with its own name on it.
+
+  it("refuses a bare `padi-tui create`, naming THIS command", () => {
+    const text = refusalOf({ toplevel: false, parent: undefined });
+    expect(text).toContain("--toplevel");
+    expect(text).toContain("--parent <id>");
+    // The face's own name, not its sibling's — the one thing the shared parse
+    // takes a parameter for. A padi-tui user told to type `kolu create` would be
+    // told to run a different program.
+    expect(text).toContain("`padi-tui create --toplevel`");
+    expect(text).not.toContain("kolu create");
+  });
+
+  it("refuses BOTH flags", () => {
+    expect(refusalOf({ toplevel: true, parent: "3f9c" })).toContain(
+      "mutually exclusive",
+    );
+  });
+
+  it("refuses a BLANK --parent BEFORE the dial — the `--host` case", () => {
+    // The gap this closes: a blank `--parent` used to read as a `child-of` arm,
+    // so padi-tui dialed — and over `--host` that means Nix-provisioning a cold
+    // box — before failing to resolve an empty id. `kolu create` never showed it,
+    // because its own blank-flag gate fires first.
+    expect(refusalOf({ toplevel: false, parent: "" })).toContain(
+      "--parent was passed with an empty value",
+    );
+  });
+
+  it("passes exactly one flag through as its arm, touching no client", () => {
+    // `runSyncExit` cannot complete an effect that awaits I/O, so a SUCCESS here
+    // is itself the proof the gate is pure and pre-dial.
+    expect(
+      Effect.runSync(placementGate({ toplevel: true, parent: undefined })),
+    ).toEqual({ kind: "toplevel" });
+    expect(
+      Effect.runSync(placementGate({ toplevel: false, parent: "3f9c" })),
+    ).toEqual({ kind: "child-of", parentQuery: "3f9c" });
   });
 });

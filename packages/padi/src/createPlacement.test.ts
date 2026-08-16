@@ -70,15 +70,17 @@ describe("lifecycle.create refuses a request that states no placement", () => {
     ).toContain(PLACEMENT_REQUIRED);
   });
 
-  it("answers a `child-of` with no parent the same way — half a statement is not one", () => {
-    expect(refusalOf({ placement: { kind: "child-of" } })).toContain(
-      "Missing key",
-    );
-    // The path names the field that is missing, so the caller knows it is the
-    // parent id and not the placement itself that went astray.
-    expect(refusalOf({ placement: { kind: "child-of" } })).toContain(
-      "parentId",
-    );
+  it("answers a `child-of` with no parent DIFFERENTLY — and that is the point", () => {
+    // Not the placement sentence. This caller has already chosen an arm and
+    // clearly knows the vocabulary; what they need is the field that went
+    // astray, not a recital of the rule they were in the middle of following.
+    // So it stays Effect's missing-key issue, pathed at the parent id.
+    const text = refusalOf({ placement: { kind: "child-of" } });
+    expect(text).toContain("Missing key");
+    expect(text).toContain("parentId");
+    // The counterpart of the assertion above: the two failures are told apart by
+    // WHICH answer comes back, so this must not quietly become the other one.
+    expect(text).not.toContain(PLACEMENT_REQUIRED);
   });
 
   it("refuses `parentId` at the TOP level — the old spelling is gone, not aliased", () => {

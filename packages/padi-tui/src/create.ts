@@ -9,10 +9,38 @@
  * byte-identical to one created from the browser (both land as canvas tiles).
  */
 
+import {
+  parsePlacementFlags,
+  type StatedPlacementFlags,
+} from "@kolu/padi/render";
 import type { TerminalPlacement } from "@kolu/padi/surface";
 import { shellJoin } from "@kolu/shell-quote";
 import { Effect } from "effect";
 import type { PadiTuiClient } from "./connect.ts";
+import { type CliFailure, failure } from "./exit.ts";
+
+/** `padi-tui create`'s PLACEMENT gate — the shared decision, wearing this face's
+ *  name and this face's failure type.
+ *
+ *  It lives HERE rather than inline in `cmdCreate` for one reason: `main.ts` calls
+ *  `cli(…)` at module scope, so importing it parses `process.argv` and nothing in
+ *  it can be reached by a test. The gate was the one load-bearing pure step on that
+ *  side of the line — `kolu create`'s equivalent is pinned through its own `run`,
+ *  and this one was pinned nowhere. A rule enforced on two faces needs its wiring
+ *  proven on both, not just its shared middle.
+ *
+ *  PURE, and it must stay pure: `cmdCreate` runs it BEFORE `connectTo`, so a bare
+ *  `padi-tui create` fails instantly instead of after `--host` has Nix-provisioned
+ *  a cold box for a command that was never going to run. */
+export function placementGate(flags: {
+  readonly toplevel: boolean;
+  readonly parent: string | undefined;
+}): Effect.Effect<StatedPlacementFlags, CliFailure> {
+  const read = parsePlacementFlags("padi-tui create", flags);
+  return read.kind === "refused"
+    ? Effect.fail(failure(read.message))
+    : Effect.succeed(read);
+}
 
 /** What `create` did — the new terminal's id, the worktree it materialized (if
  *  `--worktree`), and the agent command it launched (if `-- <argv>`). */
