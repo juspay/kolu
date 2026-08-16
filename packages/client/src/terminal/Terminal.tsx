@@ -443,6 +443,10 @@ const Terminal: Component<{
       );
     }
 
+    const onWinFocus = () => h.recovery.recover();
+    window.addEventListener("focus", onWinFocus);
+    onCleanup(() => window.removeEventListener("focus", onWinFocus));
+
     // On tab re-show, re-fit, clear the atlas, flush a lock engaged while hidden
     // (#1272), and force a sync repaint of a possibly parked-rAF frame.
     refitOnTabVisible(

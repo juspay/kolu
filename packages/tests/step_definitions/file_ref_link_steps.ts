@@ -127,16 +127,20 @@ async function findRefFontMetricPoint(
       const cell = term._core?._renderService?.dimensions?.css?.cell;
       const { active } = term.buffer;
       const top = active.viewportY;
-      const locate = (): { row: number; col: number } | null => {
-        for (let row = top; row < top + term.rows; row++) {
-          const line = active.getLine(row)?.translateToString(true) ?? "";
-          const col = line.indexOf(target);
-          if (col >= 0) return { row, col };
+      // No nested named function: esbuild's __name helper is not in page.evaluate.
+      let foundRow = -1;
+      let foundCol = -1;
+      for (let row = top; row < top + term.rows; row++) {
+        const line = active.getLine(row)?.translateToString(true) ?? "";
+        const col = line.indexOf(target);
+        if (col >= 0) {
+          foundRow = row;
+          foundCol = col;
+          break;
         }
-        return null;
-      };
-      const found = locate();
-      if (!found) return null;
+      }
+      if (foundRow < 0) return null;
+      const found = { row: foundRow, col: foundCol };
       // Ghostty tiles have no xterm _core metrics. The painted canvas
       // rect / grid is the authority (same as findRefClickPoint).
       if (!cell) {

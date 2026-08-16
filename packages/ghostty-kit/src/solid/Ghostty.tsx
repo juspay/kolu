@@ -14,7 +14,7 @@ import {
 } from "solid-js";
 import { createEngine, type Engine } from "../engine.ts";
 import { preloadGhostty } from "../load.browser.ts";
-import { lineText, resolveColor } from "../styled.ts";
+import { resolveColor } from "../styled.ts";
 import { sameGrid, type TerminalGrid } from "./grid.ts";
 import { createOnceMeasured } from "./onceMeasured.ts";
 import { createScrollLock, type ScrollLock } from "./scrollLock.ts";
@@ -104,6 +104,13 @@ export interface XtermShim {
     dispose: () => void;
   };
   scrollLines: (n: number) => void;
+  onRender: (cb: () => void) => { dispose: () => void };
+  _core: {
+    _renderService: {
+      refreshRows: (s: number, e: number, sync?: boolean) => void;
+      _renderDebouncer: { _animationFrame?: number };
+    };
+  };
   buffer: {
     active: {
       length: number;
@@ -176,6 +183,8 @@ export const Ghostty: Component<
   let selAnchor: { x: number; y: number } | null = null;
   /** Lines the paint is shifted up from the live bottom. 0 = pinned. */
   let viewOffset = 0;
+  const renderListeners = new Set<() => void>();
+  let touchLastY = 0;
 
   function cellSize(): { w: number; h: number } {
     const probe = document.createElement("canvas").getContext("2d");
@@ -248,6 +257,7 @@ export const Ghostty: Component<
       ctx.fillStyle = own.theme.cursor ?? own.theme.foreground ?? "#fff";
       ctx.fillRect(cur.x * w, cur.y * h, Math.max(1, Math.floor(w * 0.15)), h);
     }
+    for (const cb of renderListeners) cb();
   }
 
   function schedulePaint(): void {
@@ -369,6 +379,19 @@ export const Ghostty: Component<
           viewOffset = Math.max(0, Math.min(maxOff, viewOffset - n));
           schedulePaint();
         },
+        onRender: (cb) => {
+          renderListeners.add(cb);
+          return { dispose: () => renderListeners.delete(cb) };
+        },
+        _core: {
+          _renderService: {
+            refreshRows: (_s, _e, sync) => {
+              if (sync) paint();
+              else schedulePaint();
+            },
+            _renderDebouncer: {},
+          },
+        },
         buffer: {
           get active() {
             const ls = visualLines();
@@ -485,7 +508,10 @@ export const Ghostty: Component<
           loseContext: () => {},
         },
         recovery: {
-          recover: () => schedulePaint(),
+          recover: () => {
+            // Go through the live refreshRows so e2e can wrap it.
+            handle?.terminal._core._renderService.refreshRows(0, 0, true);
+          },
           noteData: () => {},
           probes: {
             msSinceLastPaint: () => 0,
@@ -505,6 +531,42 @@ export const Ghostty: Component<
     const ro = new ResizeObserver(() => applyFit());
     ro.observe(mount);
     onCleanup(() => ro.disconnect());
+  });
+
+  onMount(() => {
+    // Swipe tests (and real fingers) land on the tile wrapper, not only the canvas.
+    const el = mount;
+    const onStart = (ev: TouchEvent) => {
+      const t = ev.touches[0];
+      if (!t) return;
+      touchLastY = t.clientY;
+      if (own.scrollLockEnabled()) lock.armUserScrollIntent("touch");
+    };
+    const onMove = (ev: TouchEvent) => {
+      const t = ev.touches[0];
+      if (!t || !engine) return;
+      const dy = t.clientY - touchLastY;
+      touchLastY = t.clientY;
+      const cells = Math.round(dy / cellSize().h);
+      if (cells === 0) return;
+      ev.preventDefault();
+      const maxOff = Math.max(
+        0,
+        engine.styledLines({ kind: "full" }).length - engine.rows,
+      );
+      viewOffset = Math.max(0, Math.min(maxOff, viewOffset + cells));
+      if (own.scrollLockEnabled()) {
+        if (cells > 0) lock.lock(0, 1);
+        else if (viewOffset === 0) lock.unlock();
+      }
+      schedulePaint();
+    };
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    onCleanup(() => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+    });
   });
 
   createEffect(() => {
@@ -571,10 +633,11 @@ export const Ghostty: Component<
       selText = "";
       return;
     }
-    const all = engine.styledLines({ kind: "full" });
+    const raw = engine.formatPlain({ unwrap: false, trim: false });
+    const all = raw.length === 0 ? [] : raw.split(/\r?\n/);
     const rows = grid()?.rows ?? engine.rows;
     const start = Math.max(0, all.length - rows - viewOffset);
-    const lines = all.slice(start, start + rows).map((line) => lineText(line));
+    const lines = all.slice(start, start + rows);
     const y0 = Math.min(from.y, to.y);
     const y1 = Math.max(from.y, to.y);
     const x0 = Math.min(from.x, to.x);
