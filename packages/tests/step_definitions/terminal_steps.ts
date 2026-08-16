@@ -197,11 +197,10 @@ Then(
 // ── Click-to-focus (mobile tap-to-focus) ──
 
 When("I click the terminal canvas", async function (this: KoluWorld) {
-  // Restore PTY focus without going through Ghostty's onTap. A canvas
-  // click follows every parseLineRefs hit — on Darwin CI the Starship
-  // prompt prints `/tmp/kolu-…` and even a "blank" cell on that row
-  // steals the Code tab into browse (live-diff / commit-clears).
-  await this.page.locator("body").click({ position: { x: 0, y: 0 } });
+  // Restore PTY focus without a pointer hit. Ghostty's onTap follows
+  // every parseLineRefs match, and Darwin CI's Starship prompt prints
+  // `/tmp/kolu-…` — a body click at (0,0) and a canvas click both land
+  // on that path and steal the Code tab into browse.
   const input = this.page
     .locator("[data-focused] [data-terminal-input]")
     .first();
