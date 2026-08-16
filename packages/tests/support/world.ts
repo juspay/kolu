@@ -339,8 +339,8 @@ export class KoluWorld extends World {
     await screen.waitFor({ state: "attached", timeout: READY_TIMEOUT });
     // Click, don't textarea.focus(): provenance ignores programmatic focus,
     // so the store (and data-focused) would stay on a split.
+    // No waitForFrame — render-recovery parks rAF, and a frame wait hangs.
     await screen.click({ force: true });
-    await this.waitForFrame();
     return scope;
   }
 
