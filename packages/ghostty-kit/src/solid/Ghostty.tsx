@@ -169,6 +169,8 @@ export const Ghostty: Component<
   let handle: GhosttyHandle | undefined;
   let searchIdx = -1;
   let raf = 0;
+  let selText = "";
+  let selAnchor: { x: number; y: number } | null = null;
 
   function cellSize(): { w: number; h: number } {
     const probe = document.createElement("canvas").getContext("2d");
@@ -301,10 +303,7 @@ export const Ghostty: Component<
           schedulePaint();
           cb?.();
         },
-        getSelection: () => {
-          const sel = document.getSelection()?.toString();
-          return sel && sel.length > 0 ? sel : "";
-        },
+        getSelection: () => selText,
         get textarea() {
           return textarea;
         },
@@ -400,10 +399,8 @@ export const Ghostty: Component<
           searchIdx = i;
           return true;
         },
-        getSelectionText: () => {
-          const sel = document.getSelection()?.toString();
-          return sel && sel.length > 0 ? sel : eng.formatPlain();
-        },
+        getSelectionText: () =>
+          selText.length > 0 ? selText : eng.formatPlain(),
         selectAll: () => {
           /* canvas has no DOM selection; copy uses formatPlain */
         },
@@ -474,7 +471,71 @@ export const Ghostty: Component<
     else if (ev.key === "ArrowLeft") own.onData("\x1b[D");
   }
 
+  function cellAt(clientX: number, clientY: number): { x: number; y: number } {
+    const screen = mount.querySelector("[data-terminal-screen]");
+    const rect = (screen ?? mount).getBoundingClientRect();
+    const cols = grid()?.cols ?? engine?.cols ?? 80;
+    const rows = grid()?.rows ?? engine?.rows ?? 24;
+    const x = Math.max(
+      0,
+      Math.min(
+        cols - 1,
+        Math.floor(((clientX - rect.left) / rect.width) * cols),
+      ),
+    );
+    const y = Math.max(
+      0,
+      Math.min(
+        rows - 1,
+        Math.floor(((clientY - rect.top) / rect.height) * rows),
+      ),
+    );
+    return { x, y };
+  }
+
+  function captureSelection(
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+  ): void {
+    if (!engine) {
+      selText = "";
+      return;
+    }
+    const lines = engine.getScreenText({ kind: "viewport" }).split("\n");
+    const y0 = Math.min(from.y, to.y);
+    const y1 = Math.max(from.y, to.y);
+    const x0 = Math.min(from.x, to.x);
+    const x1 = Math.max(from.x, to.x);
+    const parts: string[] = [];
+    for (let y = y0; y <= y1; y++) {
+      const line = lines[y] ?? "";
+      parts.push(line.slice(x0, x1 + 1));
+    }
+    selText = parts.join("\n");
+  }
+
+  function onSelDown(ev: MouseEvent): void {
+    if (ev.shiftKey || ev.button !== 0) return;
+    selAnchor = cellAt(ev.clientX, ev.clientY);
+    captureSelection(selAnchor, selAnchor);
+  }
+
+  function onSelMove(ev: MouseEvent): void {
+    if (!selAnchor || (ev.buttons & 1) === 0) return;
+    captureSelection(selAnchor, cellAt(ev.clientX, ev.clientY));
+  }
+
+  function onSelUp(ev: MouseEvent): void {
+    if (!selAnchor) return;
+    captureSelection(selAnchor, cellAt(ev.clientX, ev.clientY));
+    selAnchor = null;
+  }
+
   function onWheel(ev: WheelEvent): void {
+    // Shift+wheel is the canvas pan modifier — let it bubble.
+    if (ev.shiftKey) return;
+    ev.stopPropagation();
+    ev.preventDefault();
     if (!own.scrollLockEnabled()) return;
     lock.armUserScrollIntent("wheel");
     if (ev.deltaY < 0) lock.lock(0, 1);
@@ -506,6 +567,9 @@ export const Ghostty: Component<
           `[data-focused] [data-terminal-screen]` as a descendant. */}
       <div
         data-terminal-screen
+        onMouseDown={onSelDown}
+        onMouseMove={onSelMove}
+        onMouseUp={onSelUp}
         style={{ width: "100%", height: "100%", position: "relative" }}
       >
         <canvas ref={canvas} />
