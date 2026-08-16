@@ -99,4 +99,36 @@ describe("terminal focus provenance DOM boundary", () => {
 
     dispose();
   });
+
+  it("a focus deferred past the armed frame does not select the tile", () => {
+    const panel = useSubPanel();
+    const pane = document.querySelector<HTMLElement>("[data-testid=pane]");
+    const textarea = pane?.querySelector("textarea");
+    expect(pane).not.toBeNull();
+    expect(textarea).not.toBeNull();
+    if (!pane || !textarea) return;
+
+    panel.focusSubTab(PARENT, SUB);
+    h.writeFocus.mockClear();
+    let expire: FrameRequestCallback | undefined;
+    const dispose = installTerminalFocusProvenance({
+      pane,
+      textarea,
+      isFocused: () => h.focused === PARENT,
+      onFocus: () => panel.focusMainPane(PARENT),
+      provenance: createFocusProvenance((cb) => {
+        expire = cb;
+        return 1;
+      }),
+    });
+
+    pane.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expire?.(0);
+    textarea.focus();
+
+    expect(h.focused).toBe(SUB);
+    expect(h.writeFocus).not.toHaveBeenCalled();
+
+    dispose();
+  });
 });

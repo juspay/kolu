@@ -26,6 +26,18 @@ Feature: Canvas workspace
     Then there should be 2 canvas tiles
     And there should be no page errors
 
+  Scenario: Clicking the body of a background canvas tile activates it
+    # Title-bar mousedown selects via CanvasTile.onSelect. A click on the
+    # painted screen must take the same tile: the pane skips the chrome
+    # path so Ghostty has to focus its textarea on pointerdown (same
+    # turn as focus provenance). Click-time focus is too late.
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    And canvas tile 2 should be the active tile
+    When I click canvas tile 1
+    Then canvas tile 1 should be the active tile
+    And there should be no page errors
+
   Scenario: Canvas opens scrolled to terminals
     Then the canvas tiles should be visible in the viewport
     And there should be no page errors

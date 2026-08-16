@@ -965,23 +965,27 @@ Then(
 When(
   "I click canvas tile {int}",
   async function (this: KoluWorld, index: number) {
-    // Dispatch mousedown directly: Playwright's .click() stalls on xterm's
-    // event-intercepting machinery, but CanvasTile only needs mousedown to
-    // bubble up to its onSelect handler.
+    // Real pointerdown+click on the painted screen. Chrome clicks go
+    // through CanvasTile.onSelect; a live pane skips that path and
+    // activates only via focus provenance, which Ghostty consumes when
+    // the textarea focuses on pointerdown (xterm did this on mousedown).
     await this.page.evaluate(
       ({ sel, i }: { sel: string; i: number }) => {
         const tile = document
           .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
           .item(i) as HTMLElement | null;
         if (!tile) throw new Error(`canvas tile ${i + 1} not found`);
-        const rect = tile.getBoundingClientRect();
-        tile.dispatchEvent(
-          new MouseEvent("mousedown", {
-            clientX: rect.left + rect.width / 2,
-            clientY: rect.top + rect.height / 2,
-            bubbles: true,
-          }),
-        );
+        const screen =
+          (tile.querySelector(
+            "[data-terminal-screen]",
+          ) as HTMLElement | null) ?? tile;
+        const rect = screen.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
+        const opts = { button: 0, clientX, clientY, bubbles: true };
+        screen.dispatchEvent(new PointerEvent("pointerdown", opts));
+        screen.dispatchEvent(new MouseEvent("mousedown", opts));
+        screen.dispatchEvent(new MouseEvent("click", opts));
       },
       { sel: CANVAS_SELECTOR, i: index - 1 },
     );

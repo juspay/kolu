@@ -821,6 +821,14 @@ export const Ghostty: Component<
         <canvas
           ref={canvas}
           data-terminal-screen
+          onPointerDown={(e) => {
+            // Same turn as the pane's capture-phase pointerdown that
+            // arms focus provenance. xterm focused its textarea on
+            // mousedown; waiting until click lets the token expire on
+            // the next animation frame, so a click on a behind tile
+            // never calls onFocus and the tile stays inactive.
+            if (e.button === 0) textarea.focus();
+          }}
           onMouseDown={onSelDown}
           onMouseMove={onSelMove}
           onMouseUp={onSelUp}

@@ -7598,6 +7598,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "c581718427e3cc5d8a32130d76a702386f486c92"
+    },
+    {
+      "revisionId": "revision-ea82db64932cdb794a27",
+      "scenarioKey": "scenario-c718f43e775b59375bab",
+      "feature": "features/canvas.feature",
+      "scenario": "Clicking the body of a background canvas tile activates it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "7007b8ae7dcf3931fccee25762506e22c19fa993e32b73be35d8112b0bcb7187",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "a869058bc102945282465a58754770243d5f241e"
     }
   ]
 }
