@@ -117,6 +117,7 @@ let
     "@kolu/url-shape" = ../packages/url-shape;
     "@kolu/log" = ../packages/log;
     "@kolu/xterm-kit" = ../packages/xterm-kit;
+    "@kolu/ghostty-kit" = ../packages/ghostty-kit;
   };
   # Only members that are paths in THIS repo can ride a repo-rooted fileset; the
   # pins are grafted into the build tree by `src` below instead. Split off

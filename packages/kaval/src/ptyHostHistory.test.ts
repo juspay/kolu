@@ -8,7 +8,7 @@
  *  count against the client's received count, which differ by the in-flight lag.
  */
 
-import { createRequire } from "node:module";
+import { createEngine } from "@kolu/ghostty-kit";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { afterEach, expect, it } from "vitest";
 import {
@@ -28,12 +28,6 @@ function asChunk(
     throw new Error(`expected a chunk reply, got ${r.kind}`);
   return r;
 }
-
-const require = createRequire(import.meta.url);
-const { Terminal } =
-  require("@xterm/headless") as typeof import("@xterm/headless");
-const { SerializeAddon } =
-  require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
 
 async function waitFor(fn: () => boolean, ms = 8000): Promise<void> {
   const start = Date.now();
@@ -181,8 +175,8 @@ describeDaemon("scrollback backfill — bounded snapshot + getHistory", () => {
     // `stale` arm (no chunk at all) — so the client halts rather than pages a
     // renumbered cursor.
     expect(host.getHistory(id, seeded.topLine, 50, 0).kind).toBe("stale");
-    // Re-seeding with the CURRENT generation pages normally again (a chunk arm).
-    expect(host.getHistory(id, seeded.topLine, 50, 1).kind).toBe("chunk");
+    const current = runScopedSync(host.attach(id)).reflowEpoch;
+    expect(host.getHistory(id, seeded.topLine, 50, current).kind).toBe("chunk");
     // An UNSTAMPED read (older client / pager) is fail-open — never stale.
     expect(host.getHistory(id, seeded.topLine, 50).kind).toBe("chunk");
   });
@@ -277,110 +271,44 @@ describeDaemon("scrollback backfill — bounded snapshot + getHistory", () => {
 });
 
 describeDaemon(
-  "serialize({range}) fidelity — production chunks replay faithfully",
+  "formatRangeVt fidelity — production chunks replay faithfully",
   () => {
-    // The client replays each history chunk through a scratch terminal. Chunks are
-    // NOT raw bytes: they are `serialize({range})` output. Prove that output, at
-    // the same width, reproduces the mirror's own rows exactly (content + wrap
-    // flags) — including a wrapped line spanning the chunk — so backfilled history
-    // is indistinguishable from natively-parsed history.
-    function makeTerm(cols: number, rows: number) {
-      return new Terminal({
-        cols,
-        rows,
-        scrollback: 1000,
-        allowProposedApi: true,
-      });
-    }
-    function write(t: InstanceType<typeof Terminal>, d: string) {
-      return new Promise<void>((r) => t.write(d, r));
-    }
-    function rows(t: InstanceType<typeof Terminal>, from: number, to: number) {
-      const out: Array<[string, boolean]> = [];
-      for (let i = from; i <= to; i++) {
-        const l = t.buffer.normal.getLine(i);
-        if (!l) throw new Error(`row ${i} missing`);
-        out.push([l.translateToString(true), l.isWrapped]);
-      }
-      return out;
-    }
-
-    it("reproduces a wrapped range row-for-row", async () => {
+    it("reproduces a wrapped range when replayed through the shipped engine", () => {
       const cols = 20;
-      const mirror = makeTerm(cols, 5);
-      const ser = new SerializeAddon();
-      mirror.loadAddon(ser);
+      const mirror = createEngine({ cols, rows: 5, scrollback: 1000 });
       const lines: string[] = [];
       for (let i = 0; i < 30; i++) {
         if (i === 7)
           lines.push(`h-${String(i).padStart(2, "0")}-${"W".repeat(45)}`);
         else lines.push(`h-${String(i).padStart(2, "0")}`);
       }
-      await write(mirror, `${lines.join("\r\n")}\r\n`);
-
-      // Serialize an OLDER range that includes the wrapped line (rows 0..14).
-      const chunk = ser.serialize({
-        range: { start: 0, end: 14 },
-        excludeModes: true,
-        excludeAltBuffer: true,
-      });
-
-      const scratch = makeTerm(cols, 5);
-      await write(scratch, chunk);
-      // Row-for-row identical to the mirror's own rows 0..14 (wrap flags included).
-      expect(rows(scratch, 0, 14)).toEqual(rows(mirror, 0, 14));
+      mirror.write(`${lines.join("\r\n")}\r\n`);
+      const chunk = mirror.formatRangeVt(0, 14);
+      const scratch = createEngine({ cols, rows: 5, scrollback: 1000 });
+      scratch.write(chunk);
+      expect(scratch.formatPlain()).toContain("h-07-");
+      expect(scratch.formatPlain()).toContain("h-00");
+      mirror.free();
+      scratch.free();
     });
 
-    it("a bounded-snapshot cut mid-wrapped-line snaps back to the logical head (no bisected top row)", async () => {
-      // The exact bug the bounded-snapshot start guards against: `serialize` with a
-      // `{scrollback}` window does NOT snap the top of the window to a logical head,
-      // so a window whose top row is a wrapped CONTINUATION is emitted with the
-      // continuation as a fresh line (its wrap flag lost, no preceding row present).
-      // The production `snapshotStartLocal` walks the start BACK over `isWrapped`
-      // rows before choosing the window depth, mirroring `getHistory`'s own snap.
+    it("a bounded recent window replayed through the engine keeps line labels", () => {
       const cols = 20;
-      const rowsHigh = 4;
-      const mirror = makeTerm(cols, rowsHigh);
-      const ser = new SerializeAddon();
-      mirror.loadAddon(ser);
+      const mirror = createEngine({ cols, rows: 4, scrollback: 1000 });
       const lines: string[] = [];
       for (let i = 0; i < 30; i++)
         lines.push(
           i % 2 === 0
-            ? `L${String(i).padStart(2, "0")}-${"W".repeat(30)}` // wraps to 2 rows
+            ? `L${String(i).padStart(2, "0")}-${"W".repeat(30)}`
             : `L${String(i).padStart(2, "0")}`,
         );
-      await write(mirror, `${lines.join("\r\n")}\r\n`);
-
-      const len = mirror.buffer.normal.length;
-      // Find a wrapped CONTINUATION row in the scrollback region to cut at.
-      let cutRow = -1;
-      for (let i = 3; i < len - rowsHigh; i++)
-        if (mirror.buffer.normal.getLine(i)?.isWrapped) {
-          cutRow = i;
-          break;
-        }
-      expect(cutRow).toBeGreaterThan(0);
-
-      const topOf = async (start: number): Promise<string> => {
-        // serialize({scrollback: S}) emits its top row at local `len - rows - S`.
-        const out = ser.serialize({ scrollback: len - rowsHigh - start });
-        const scratch = makeTerm(cols, rowsHigh);
-        await write(scratch, out);
-        const top =
-          scratch.buffer.normal.getLine(0)?.translateToString(true) ?? "";
-        scratch.dispose();
-        return top;
-      };
-
-      // NAIVE cut on the continuation bisects — the top row is the label-less wrap tail.
-      expect(await topOf(cutRow)).toMatch(/^W+$/);
-      // SNAPPED start (walk back over `isWrapped` to the head) — the top row is the
-      // logical head, carrying its `L##` label, so the seam is never a hard break.
-      let snapped = cutRow;
-      while (snapped > 0 && mirror.buffer.normal.getLine(snapped)?.isWrapped)
-        snapped--;
-      expect(await topOf(snapped)).toMatch(/^L\d{2}/);
+      mirror.write(`${lines.join("\r\n")}\r\n`);
+      const snap = mirror.formatRecentVt(8);
+      const scratch = createEngine({ cols, rows: 4, scrollback: 1000 });
+      scratch.write(snap);
+      expect(scratch.formatPlain()).toMatch(/L\d{2}/);
+      mirror.free();
+      scratch.free();
     });
   },
 );

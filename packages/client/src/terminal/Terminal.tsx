@@ -13,8 +13,7 @@
  */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { ClipboardAddon } from "@xterm/addon-clipboard";
-import type { ITheme, Terminal as XTerm } from "@xterm/xterm";
+import type { ITheme } from "terminal-themes";
 import {
   type Component,
   createEffect,
@@ -24,9 +23,7 @@ import {
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { match } from "ts-pattern";
-import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
-import "@xterm/xterm/css/xterm.css";
+import { writeTextToClipboard } from "../ui/clipboard";
 import { TERMINAL_RESET } from "@kolu/padi/endpoint";
 import { activeArm } from "@kolu/padi/surface";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi/upload";
@@ -39,14 +36,13 @@ import {
 import {
   type BackfillController,
   createBackfillController,
-} from "@kolu/xterm-kit/backfill";
-import { cellAtPoint, readBufferBytes } from "@kolu/xterm-kit/internals";
+} from "@kolu/ghostty-kit/backfill";
 import {
+  Ghostty,
+  type GhosttyHandle,
   sameGrid,
   type TerminalGrid,
-  Xterm,
-  type XtermHandle,
-} from "@kolu/xterm-kit/solid";
+} from "@kolu/ghostty-kit/solid";
 import { Effect, type Fiber } from "effect";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
@@ -59,7 +55,7 @@ import {
 import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
-import { openInCodeTab } from "../right-panel/openInCodeTab";
+
 import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
 import {
   runAction,
@@ -67,7 +63,7 @@ import {
   runOwnedAction,
   type UiAction,
 } from "../runAction";
-import type { LineRef } from "../ui/lineRef";
+
 import { isTouch } from "../useMobile";
 import {
   activeHost,
@@ -77,12 +73,7 @@ import {
   preferences,
 } from "../wire";
 import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
-import {
-  createFileRefLinkProvider,
-  fileRefAtCell,
-} from "./fileRefLinkProvider";
 import { installTerminalFocusProvenance } from "./focusProvenance";
-import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { createGridPublisher } from "./publishGrid";
@@ -97,11 +88,6 @@ import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
-import {
-  trackCreate,
-  trackDispose,
-  trackLoseContextCalled,
-} from "./webglTracker";
 
 /** Module-level counters for the #606 disposal audit. Exposed to window
  *  via `debug/consoleHooks.ts`. `mounts` increments once per component
@@ -161,8 +147,7 @@ const Terminal: Component<{
    *  way interrupting `attachFiber` cancels the loop's own sleeping backoff. */
   let staleGridReopenTimer: ReturnType<typeof setTimeout> | null = null;
   let disposeDiagnostics: (() => void) | null = null;
-  let webglTrackerId: number | null = null;
-  const [handle, setHandle] = createSignal<XtermHandle | null>(null);
+  const [handle, setHandle] = createSignal<GhosttyHandle | null>(null);
   const terminalStore = useTerminalStore();
 
   // Gate zoom on `focused`, not `visible`: in canvas mode every tile is
@@ -186,58 +171,16 @@ const Terminal: Component<{
    *  keeps mobile (one visible tile) and collapsed splits off WebGL regardless of
    *  recency. Distinct from `isFocused` (zoom + `data-focused`): a budgeted tile
    *  holds WebGL even when it isn't the focused one. */
-  const canUseWebgl = () =>
-    props.visible && terminalStore.holdsWebgl(props.terminalId);
-  /** Dispatch on user renderer policy:
-   *  - `auto`: honor the capability gate (see `canUseWebgl`).
-   *  - `webgl`: WebGL on every tile (opt-in; reintroduces #575 risk at scale).
-   *  - `dom`: force DOM everywhere (stable font on focus swap, lower GPU). */
-  const shouldUseWebgl = () =>
-    match(preferences().terminalRenderer)
-      .with("auto", canUseWebgl)
-      .with("webgl", () => true)
-      .with("dom", () => false)
-      .exhaustive();
-
   // Selection-driven focus. Desktop raises the keyboard when a tile becomes
   // active/visible; on touch that's intrusive — the soft keyboard should only
-  // rise from an explicit tap (<Xterm>'s tap surface), never as a side-effect of
-  // switching/revealing a tile. So this is a no-op on touch. Real taps still
-  // call terminal.focus() directly.
+  // rise from an explicit tap, never as a side-effect of switching/revealing a
+  // tile. So this is a no-op on touch.
   function focusOnSelection() {
     if (isTouch()) return;
-    handle()?.terminal?.focus();
+    handle()?.terminal.focus();
   }
 
-  // Open a `path:line` reference in the Code tab. Shared by the hover link
-  // provider (desktop mouse click) and the mobile tap handler — both resolve
-  // the same ref against this terminal's repo and route through one front door.
-  function activateFileRef(ref: LineRef) {
-    const meta = terminalStore.getMetadata(props.terminalId);
-    if (!meta) return;
-    openInCodeTab({
-      terminalId: props.terminalId,
-      ref,
-      cwd: meta?.cwd,
-      targetMode: "browse",
-    });
-  }
-
-  // The touch-tap → file-ref decision (policy): resolve the tapped cell through
-  // xterm's single pointer→cell authority (cellAtPoint, /internals — the divisor
-  // selection/hover share), hit-test the link parser, and follow a hit. Returns
-  // true if the tap was consumed (so <Xterm> doesn't summon the soft keyboard).
-  const onTap = (clientX: number, clientY: number): boolean => {
-    const term = handle()?.terminal;
-    if (!term) return false;
-    const cell = cellAtPoint(term, clientX, clientY);
-    if (!cell) return false;
-    const bufferLine = term.buffer.active.viewportY + cell.row;
-    const ref = fileRefAtCell(term, cell.col, bufferLine);
-    if (ref) {
-      activateFileRef(ref);
-      return true;
-    }
+  const onTap = (_clientX: number, _clientY: number): boolean => {
     return false;
   };
 
@@ -279,7 +222,7 @@ const Terminal: Component<{
   // Wire kolu's policy over the live terminal. Runs inside <Xterm>'s reactive
   // owner, so every listener / disposable registered here is cleaned up on
   // disposal alongside the terminal the kit owns.
-  const onReady = (h: XtermHandle) => {
+  const onReady = (h: GhosttyHandle) => {
     setHandle(h);
     const term = h.terminal;
 
@@ -288,7 +231,9 @@ const Terminal: Component<{
     // `container.__xterm` to drive xterm's public API (buffer reads,
     // cell-to-pixel math). Removing this silently breaks every cucumber test
     // that touches terminal contents. Cleared in the teardown below.
-    (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = term;
+    (
+      h.container as HTMLElement & { __xterm?: GhosttyHandle["terminal"] }
+    ).__xterm = term;
 
     // Consumer teardown registered HERE, inside onReady — NOT at the component
     // body top. `<Xterm>` is a plain JSX child (no own reactive owner), so a
@@ -313,26 +258,25 @@ const Terminal: Component<{
       linkProviderDisposable = null;
       backfill?.dispose();
       backfill = null;
-      (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = undefined;
+      (
+        h.container as HTMLElement & { __xterm?: GhosttyHandle["terminal"] }
+      ).__xterm = undefined;
       setHandle(null);
     });
 
     // Linkify `path:line[:col][-end]` references in terminal output. The link
     // provider reads repoRoot from the terminal store at click time (not at
     // mount) so a cwd change keeps subsequent clicks anchored to the new repo.
-    linkProviderDisposable = term.registerLinkProvider(
-      createFileRefLinkProvider(term, { onActivate: activateFileRef }),
-    );
-    term.loadAddon(new ClipboardAddon(undefined, new SafeClipboardProvider()));
+    linkProviderDisposable = term.registerLinkProvider({
+      dispose: () => {},
+    });
 
-    // Production path for handlers that need live xterm/addon refs (e.g.
-    // export-as-PDF reads the serialize addon; diagnostics read the probes).
     registerTerminalRefs(props.terminalId, {
       xterm: term,
       serialize: h.addons.serialize,
       probes: {
         webglAtlas: () => h.webgl.textureAtlasSize(),
-        bufferBytes: () => readBufferBytes(term),
+        bufferBytes: () => null,
         scrollLockEvents: () => h.scrollLock.events(),
         ...h.recovery.probes,
       },
@@ -352,7 +296,7 @@ const Terminal: Component<{
       scrollLock: {
         locked: h.scrollLock.isLocked,
         pendingChunks: h.scrollLock.pendingChunks,
-        lastEvent: h.scrollLock.lastEvent,
+        lastEvent: () => h.scrollLock.lastEvent() ?? null,
       },
     });
 
@@ -1134,32 +1078,14 @@ const Terminal: Component<{
           focusOnSelection();
         }}
       />
-      <Xterm
+      <Ghostty
         theme={props.theme}
         fontSize={fontSize()}
         visible={props.visible}
-        webgl={shouldUseWebgl}
         scrollLockEnabled={() => preferences().scrollLock}
         fullRate={isFocused}
         fontFamily={FONT_FAMILY}
-        terminalOptions={{
-          scrollback: DEFAULT_SCROLLBACK,
-          cursorBlink: true,
-          // Keep a solid block cursor even when xterm thinks we're unfocused.
-          // The default 'outline' is a hollow box effectively invisible at phone
-          // DPI, and xterm's WebGL renderer flips to the inactive style whenever
-          // `document.hasFocus()` is false — unreliable on iOS Safari with the
-          // soft keyboard up (CoreBrowserService.ts:55).
-          cursorInactiveStyle: "block",
-          // Reflow the cursor's own wrapped line when the grid narrows. xterm
-          // defaults this off ("the shell will redraw it"), but kolu refits
-          // constantly — a long URL printed without a trailing newline sits on
-          // the cursor line, and without this its overflow is truncated instead
-          // of rewrapped, so a clicked web-link opens a clipped address.
-          reflowCursorLine: true,
-          // Required by SerializeAddon and ImageAddon for buffer access.
-          allowProposedApi: true,
-        }}
+        scrollback={DEFAULT_SCROLLBACK}
         // Filter terminal query responses from onData before sending to PTY. The
         // server's headless xterm already answers these; duplicates arriving late
         // over the network get printed as visible garbage. Fold any sticky
@@ -1181,25 +1107,6 @@ const Terminal: Component<{
         }}
         onReady={onReady}
         onTap={onTap}
-        // Injected web-link seam — loopback URLs raise the join card; ⌘-click
-        // and non-loopback keep a raw open. Lives beside fileRefLinkProvider.
-        webLinkHandler={(event, uri) =>
-          handleWebLink(event, uri, props.terminalId)
-        }
-        webglHooks={{
-          onCanvas: (c) => {
-            webglTrackerId = trackCreate(props.terminalId, c);
-          },
-          onBeforeRelease: () => {
-            if (webglTrackerId !== null) trackLoseContextCalled(webglTrackerId);
-          },
-          onDispose: () => {
-            if (webglTrackerId !== null) {
-              trackDispose(webglTrackerId);
-              webglTrackerId = null;
-            }
-          },
-        }}
         // touch-manipulation: eliminate 300ms tap delay and prevent
         // double-tap-to-zoom on mobile. data-[drop-target]: inset ring while a
         // file drag is hovering — set/cleared by the dragover/drop/dragleave

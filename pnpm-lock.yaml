@@ -103,6 +103,9 @@ importers:
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
+      '@kolu/ghostty-kit':
+        specifier: workspace:*
+        version: link:../ghostty-kit
       '@kolu/html-escape':
         specifier: workspace:*
         version: link:../html-escape
@@ -352,6 +355,21 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
+
+  packages/ghostty-kit:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -650,6 +668,9 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-beta.106
         version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+      '@kolu/ghostty-kit':
+        specifier: workspace:*
+        version: link:../ghostty-kit
       '@kolu/heap-diag':
         specifier: workspace:*
         version: link:../heap-diag
@@ -668,15 +689,6 @@ importers:
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
-      '@kolu/xterm-kit':
-        specifier: workspace:*
-        version: link:../xterm-kit
-      '@xterm/addon-serialize':
-        specifier: ^0.14.0
-        version: 0.14.0
-      '@xterm/headless':
-        specifier: ^6.0.0
-        version: 6.0.0
       effect:
         specifier: 4.0.0-beta.106
         version: 4.0.0-beta.106
@@ -2035,9 +2047,6 @@ importers:
 
   packages/terminal-themes:
     dependencies:
-      '@xterm/xterm':
-        specifier: 6.1.0-beta.300
-        version: 6.1.0-beta.300
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0

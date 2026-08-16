@@ -8,7 +8,7 @@ import { Effect } from "effect";
 import { runAction } from "../runAction";
 import Resizable from "@corvu/resizable";
 import { sleepingArm } from "@kolu/padi/surface";
-import type { ITheme } from "@xterm/xterm";
+import type { ITheme } from "terminal-themes";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, type JSX, Show } from "solid-js";
 import { realSizes } from "../ui/corvuResizable";

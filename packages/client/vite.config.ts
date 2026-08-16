@@ -2,13 +2,12 @@ import { constants as zlibConstants } from "node:zlib";
 import { ASSET_DIR, NOTIFICATION_SW_SOURCE } from "@kolu/surface-app";
 import { surfaceApp } from "@kolu/surface-app/vite";
 import tailwindcss from "@tailwindcss/vite";
-import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
 import { DEFAULT_PORT } from "kolu-common/config";
 import { defineConfig, type PluginOption } from "vite";
 import { compression, defineAlgorithm } from "vite-plugin-compression2";
 import solid from "vite-plugin-solid";
 
-const xtermVersion = xtermPackage.version;
+const ghosttyEngine = "libghostty-vt.wasm";
 
 /** Serve the notification service worker at `/sw.js` in dev, exactly as the
  *  production server does (`installFreshStatic({ serviceWorker: "notify" })`).
@@ -137,7 +136,7 @@ export default defineConfig({
     },
   },
   define: {
-    __XTERM_VERSION__: JSON.stringify(xtermVersion),
+    __XTERM_VERSION__: JSON.stringify(ghosttyEngine),
   },
   // NOTE: Vite 8.1's experimental bundled dev mode (`experimental.bundledDev`)
   // is deliberately NOT enabled. It crashes kolu's client at runtime —

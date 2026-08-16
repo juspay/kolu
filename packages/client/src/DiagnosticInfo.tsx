@@ -23,7 +23,7 @@ import { serverProcessId, wsStatus } from "./rpc/rpc";
 import { bindStatePip } from "./terminal/statePipBind";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { activeHost } from "./wire";
-import { PAINT_STALL_WARN_MS } from "@kolu/xterm-kit/solid";
+import { PAINT_STALL_WARN_MS } from "@kolu/ghostty-kit/solid";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
@@ -296,6 +296,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             </Row>
             <Row label="xterm.js">
               <span class="font-mono text-fg-3">{browser.xtermVersion}</span>
+              {/* label still says xterm in the dialog until the next copy pass */}
             </Row>
             <Row label="UA">
               <span class="font-mono text-fg-3 break-all">

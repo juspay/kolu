@@ -248,6 +248,10 @@ let
         # rides the contract bump, while a browser-only /solid or /backfill
         # change must not fire kaval's PTY-costing currency nudge.
         "@kolu/xterm-kit"
+        # `@kolu/ghostty-kit` — official libghostty-vt wasm. Same split: the
+        # engine's wire-relevant surface rides PTY_HOST_CONTRACT_VERSION; a
+        # /solid canvas-only change must not nudge.
+        "@kolu/ghostty-kit"
         # `@kolu/shell-quote` — the POSIX-quote source of truth. kaval seeds a
         # command-rooted PTY's `lastCommand` with `shellJoin` (#1872), and the
         # seed's DIALECT is carried on the `commandRun` frame's `shellJoin`
@@ -309,6 +313,7 @@ let
         # kaval's src and IS hashed here — a browser-only change must not
         # flip padi's key.
         "@kolu/xterm-kit"
+        "@kolu/ghostty-kit"
         # `@kolu/heap-diag` — opt-in heap instrumentation, no wire/behaviour.
         "@kolu/heap-diag"
       ];

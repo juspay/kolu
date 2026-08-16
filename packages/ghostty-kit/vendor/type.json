@@ -1,0 +1,464 @@
+{
+  "GhosttyStyle": {
+    "size": 72,
+    "align": 8,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "fg_color": { "offset": 8, "size": 16, "type": "struct" },
+      "bg_color": { "offset": 24, "size": 16, "type": "struct" },
+      "underline_color": { "offset": 40, "size": 16, "type": "struct" },
+      "bold": { "offset": 56, "size": 1, "type": "bool" },
+      "italic": { "offset": 57, "size": 1, "type": "bool" },
+      "faint": { "offset": 58, "size": 1, "type": "bool" },
+      "blink": { "offset": 59, "size": 1, "type": "bool" },
+      "inverse": { "offset": 60, "size": 1, "type": "bool" },
+      "invisible": { "offset": 61, "size": 1, "type": "bool" },
+      "strikethrough": { "offset": 62, "size": 1, "type": "bool" },
+      "overline": { "offset": 63, "size": 1, "type": "bool" },
+      "underline": { "offset": 64, "size": 4, "type": "i32" }
+    }
+  },
+  "GhosttyPoint": {
+    "size": 24,
+    "align": 8,
+    "fields": {
+      "tag": { "offset": 0, "size": 4, "type": "enum" },
+      "value": { "offset": 8, "size": 16, "type": "opaque" }
+    }
+  },
+  "GhosttyWriter": {
+    "size": 8,
+    "align": 4,
+    "fields": {
+      "write": { "offset": 0, "size": 4, "type": "opaque" },
+      "userdata": { "offset": 4, "size": 4, "type": "opaque" }
+    }
+  },
+  "GhosttyBuffer": {
+    "size": 12,
+    "align": 4,
+    "fields": {
+      "ptr": { "offset": 0, "size": 4, "type": "opaque" },
+      "cap": { "offset": 4, "size": 4, "type": "u32" },
+      "len": { "offset": 8, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttyString": {
+    "size": 8,
+    "align": 4,
+    "fields": {
+      "ptr": { "offset": 0, "size": 4, "type": "pointer" },
+      "len": { "offset": 4, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttyReader": {
+    "size": 8,
+    "align": 4,
+    "fields": {
+      "read": { "offset": 0, "size": 4, "type": "opaque" },
+      "userdata": { "offset": 4, "size": 4, "type": "opaque" }
+    }
+  },
+  "GhosttyGridRef": {
+    "size": 12,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "node": { "offset": 4, "size": 4, "type": "opaque" },
+      "x": { "offset": 8, "size": 2, "type": "u16" },
+      "y": { "offset": 10, "size": 2, "type": "u16" }
+    }
+  },
+  "GhosttySysImage": {
+    "size": 16,
+    "align": 4,
+    "fields": {
+      "width": { "offset": 0, "size": 4, "type": "u32" },
+      "height": { "offset": 4, "size": 4, "type": "u32" },
+      "data": { "offset": 8, "size": 4, "type": "opaque" },
+      "data_len": { "offset": 12, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttyColorRgb": {
+    "size": 3,
+    "align": 1,
+    "fields": {
+      "r": { "offset": 0, "size": 1, "type": "u8" },
+      "g": { "offset": 1, "size": 1, "type": "u8" },
+      "b": { "offset": 2, "size": 1, "type": "u8" }
+    }
+  },
+  "GhosttySelection": {
+    "size": 32,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "start": { "offset": 4, "size": 12, "type": "struct" },
+      "end": { "offset": 16, "size": 12, "type": "struct" },
+      "rectangle": { "offset": 28, "size": 1, "type": "bool" }
+    }
+  },
+  "GhosttyAllocator": {
+    "size": 8,
+    "align": 4,
+    "fields": {
+      "ctx": { "offset": 0, "size": 4, "type": "pointer" },
+      "vtable": { "offset": 4, "size": 4, "type": "pointer" }
+    }
+  },
+  "GhosttyCodepoints": {
+    "size": 8,
+    "align": 4,
+    "fields": {
+      "ptr": { "offset": 0, "size": 4, "type": "opaque" },
+      "len": { "offset": 4, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttyStyleColor": {
+    "size": 16,
+    "align": 8,
+    "fields": {
+      "tag": { "offset": 0, "size": 4, "type": "enum" },
+      "value": { "offset": 8, "size": 8, "type": "opaque" }
+    }
+  },
+  "GhosttySgrUnknown": {
+    "size": 16,
+    "align": 4,
+    "fields": {
+      "full_ptr": { "offset": 0, "size": 4, "type": "pointer" },
+      "full_len": { "offset": 4, "size": 4, "type": "u32" },
+      "partial_ptr": { "offset": 8, "size": 4, "type": "pointer" },
+      "partial_len": { "offset": 12, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttySgrAttribute": {
+    "size": 72,
+    "align": 8,
+    "fields": {
+      "tag": { "offset": 0, "size": 4, "type": "enum" },
+      "value": { "offset": 8, "size": 64, "type": "opaque" }
+    }
+  },
+  "GhosttyColorX11Entry": {
+    "size": 8,
+    "align": 4,
+    "fields": {
+      "name": { "offset": 0, "size": 4, "type": "opaque" },
+      "color": { "offset": 4, "size": 3, "type": "struct" }
+    }
+  },
+  "GhosttyMousePosition": {
+    "size": 8,
+    "align": 4,
+    "fields": {
+      "x": { "offset": 0, "size": 4, "type": "f32" },
+      "y": { "offset": 4, "size": 4, "type": "f32" }
+    }
+  },
+  "GhosttyClipboardWrite": {
+    "size": 16,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "location": { "offset": 4, "size": 4, "type": "enum" },
+      "contents": { "offset": 8, "size": 4, "type": "opaque" },
+      "contents_len": { "offset": 12, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttySizeReportSize": {
+    "size": 12,
+    "align": 4,
+    "fields": {
+      "rows": { "offset": 0, "size": 2, "type": "u16" },
+      "columns": { "offset": 2, "size": 2, "type": "u16" },
+      "cell_width": { "offset": 4, "size": 4, "type": "u32" },
+      "cell_height": { "offset": 8, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttySurfacePosition": {
+    "size": 16,
+    "align": 8,
+    "fields": {
+      "x": { "offset": 0, "size": 8, "type": "f64" },
+      "y": { "offset": 8, "size": 8, "type": "f64" }
+    }
+  },
+  "GhosttyAllocatorVtable": {
+    "size": 16,
+    "align": 4,
+    "fields": {
+      "alloc": { "offset": 0, "size": 4, "type": "pointer" },
+      "resize": { "offset": 4, "size": 4, "type": "pointer" },
+      "remap": { "offset": 8, "size": 4, "type": "pointer" },
+      "free": { "offset": 12, "size": 4, "type": "pointer" }
+    }
+  },
+  "GhosttyPointCoordinate": {
+    "size": 8,
+    "align": 4,
+    "fields": {
+      "x": { "offset": 0, "size": 2, "type": "u16" },
+      "y": { "offset": 4, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttyClipboardContent": {
+    "size": 16,
+    "align": 4,
+    "fields": {
+      "mime": { "offset": 0, "size": 8, "type": "struct" },
+      "data": { "offset": 8, "size": 8, "type": "struct" }
+    }
+  },
+  "GhosttyMouseEncoderSize": {
+    "size": 36,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "screen_width": { "offset": 4, "size": 4, "type": "u32" },
+      "screen_height": { "offset": 8, "size": 4, "type": "u32" },
+      "cell_width": { "offset": 12, "size": 4, "type": "u32" },
+      "cell_height": { "offset": 16, "size": 4, "type": "u32" },
+      "padding_top": { "offset": 20, "size": 4, "type": "u32" },
+      "padding_bottom": { "offset": 24, "size": 4, "type": "u32" },
+      "padding_right": { "offset": 28, "size": 4, "type": "u32" },
+      "padding_left": { "offset": 32, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttyDeviceAttributes": {
+    "size": 148,
+    "align": 4,
+    "fields": {
+      "primary": { "offset": 0, "size": 136, "type": "struct" },
+      "secondary": { "offset": 136, "size": 6, "type": "struct" },
+      "tertiary": { "offset": 144, "size": 4, "type": "struct" }
+    }
+  },
+  "GhosttyColorPaletteMask": {
+    "size": 32,
+    "align": 8,
+    "fields": { "bits": { "offset": 0, "size": 32, "type": "array" } }
+  },
+  "GhosttyRenderStateColors": {
+    "size": 784,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "background": { "offset": 4, "size": 3, "type": "struct" },
+      "foreground": { "offset": 7, "size": 3, "type": "struct" },
+      "cursor": { "offset": 10, "size": 3, "type": "struct" },
+      "cursor_has_value": { "offset": 13, "size": 1, "type": "bool" },
+      "palette": { "offset": 14, "size": 768, "type": "array" }
+    }
+  },
+  "GhosttyTerminalScrollbar": {
+    "size": 24,
+    "align": 8,
+    "fields": {
+      "total": { "offset": 0, "size": 8, "type": "u64" },
+      "offset": { "offset": 8, "size": 8, "type": "u64" },
+      "len": { "offset": 16, "size": 8, "type": "u64" }
+    }
+  },
+  "GhosttyTerminalModeConfig": {
+    "size": 4,
+    "align": 2,
+    "fields": {
+      "mode": { "offset": 0, "size": 2, "type": "u16" },
+      "value": { "offset": 2, "size": 1, "type": "bool" }
+    }
+  },
+  "GhosttyFormatterScreenExtra": {
+    "size": 12,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "cursor": { "offset": 4, "size": 1, "type": "bool" },
+      "style": { "offset": 5, "size": 1, "type": "bool" },
+      "hyperlink": { "offset": 6, "size": 1, "type": "bool" },
+      "protection": { "offset": 7, "size": 1, "type": "bool" },
+      "kitty_keyboard": { "offset": 8, "size": 1, "type": "bool" },
+      "charsets": { "offset": 9, "size": 1, "type": "bool" }
+    }
+  },
+  "GhosttyFormatterTerminalExtra": {
+    "size": 24,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "palette": { "offset": 4, "size": 1, "type": "bool" },
+      "modes": { "offset": 5, "size": 1, "type": "bool" },
+      "scrolling_region": { "offset": 6, "size": 1, "type": "bool" },
+      "tabstops": { "offset": 7, "size": 1, "type": "bool" },
+      "pwd": { "offset": 8, "size": 1, "type": "bool" },
+      "keyboard": { "offset": 9, "size": 1, "type": "bool" },
+      "screen": { "offset": 12, "size": 12, "type": "struct" }
+    }
+  },
+  "GhosttyTerminalScrollViewport": {
+    "size": 24,
+    "align": 8,
+    "fields": {
+      "tag": { "offset": 0, "size": 4, "type": "enum" },
+      "value": { "offset": 8, "size": 16, "type": "opaque" }
+    }
+  },
+  "GhosttyTerminalProgressReport": {
+    "size": 12,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "state": { "offset": 4, "size": 4, "type": "enum" },
+      "progress": { "offset": 8, "size": 1, "type": "i8" }
+    }
+  },
+  "GhosttyTerminalUnknownSequence": {
+    "size": 136,
+    "align": 8,
+    "fields": {
+      "tag": { "offset": 0, "size": 4, "type": "enum" },
+      "value": { "offset": 8, "size": 128, "type": "opaque" }
+    }
+  },
+  "GhosttyRenderStateRowSelection": {
+    "size": 8,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "start_x": { "offset": 4, "size": 2, "type": "u16" },
+      "end_x": { "offset": 6, "size": 2, "type": "u16" }
+    }
+  },
+  "GhosttyDeviceAttributesPrimary": {
+    "size": 136,
+    "align": 4,
+    "fields": {
+      "conformance_level": { "offset": 0, "size": 2, "type": "u16" },
+      "features": { "offset": 2, "size": 128, "type": "array" },
+      "num_features": { "offset": 132, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttySelectionGestureGeometry": {
+    "size": 16,
+    "align": 4,
+    "fields": {
+      "columns": { "offset": 0, "size": 4, "type": "u32" },
+      "cell_width": { "offset": 4, "size": 4, "type": "u32" },
+      "padding_left": { "offset": 8, "size": 4, "type": "u32" },
+      "screen_height": { "offset": 12, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttyFormatterTerminalOptions": {
+    "size": 40,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "emit": { "offset": 4, "size": 4, "type": "enum" },
+      "unwrap": { "offset": 8, "size": 1, "type": "bool" },
+      "trim": { "offset": 9, "size": 1, "type": "bool" },
+      "extra": { "offset": 12, "size": 24, "type": "struct" },
+      "selection": { "offset": 36, "size": 4, "type": "opaque" }
+    }
+  },
+  "GhosttyDeviceAttributesTertiary": {
+    "size": 4,
+    "align": 4,
+    "fields": { "unit_id": { "offset": 0, "size": 4, "type": "u32" } }
+  },
+  "GhosttyDeviceAttributesSecondary": {
+    "size": 6,
+    "align": 2,
+    "fields": {
+      "device_type": { "offset": 0, "size": 2, "type": "u16" },
+      "firmware_version": { "offset": 2, "size": 2, "type": "u16" },
+      "rom_cartridge": { "offset": 4, "size": 2, "type": "u16" }
+    }
+  },
+  "GhosttyTerminalSelectWordOptions": {
+    "size": 24,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "ref": { "offset": 4, "size": 12, "type": "struct" },
+      "boundary_codepoints": { "offset": 16, "size": 4, "type": "opaque" },
+      "boundary_codepoints_len": { "offset": 20, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttySelectionGestureBehaviors": {
+    "size": 12,
+    "align": 4,
+    "fields": {
+      "single_click": { "offset": 0, "size": 4, "type": "enum" },
+      "double_click": { "offset": 4, "size": 4, "type": "enum" },
+      "triple_click": { "offset": 8, "size": 4, "type": "enum" }
+    }
+  },
+  "GhosttyTerminalSelectLineOptions": {
+    "size": 28,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "ref": { "offset": 4, "size": 12, "type": "struct" },
+      "whitespace": { "offset": 16, "size": 4, "type": "opaque" },
+      "whitespace_len": { "offset": 20, "size": 4, "type": "u32" },
+      "semantic_prompt_boundary": { "offset": 24, "size": 1, "type": "bool" }
+    }
+  },
+  "GhosttyTerminalDesktopNotification": {
+    "size": 20,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "title": { "offset": 4, "size": 8, "type": "struct" },
+      "body": { "offset": 12, "size": 8, "type": "struct" }
+    }
+  },
+  "GhosttyTerminalUnknownStringSequence": {
+    "size": 12,
+    "align": 4,
+    "fields": {
+      "truncated": { "offset": 0, "size": 1, "type": "bool" },
+      "content": { "offset": 4, "size": 8, "type": "struct" }
+    }
+  },
+  "GhosttyTerminalSelectionFormatOptions": {
+    "size": 16,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "emit": { "offset": 4, "size": 4, "type": "enum" },
+      "unwrap": { "offset": 8, "size": 1, "type": "bool" },
+      "trim": { "offset": 9, "size": 1, "type": "bool" },
+      "selection": { "offset": 12, "size": 4, "type": "opaque" }
+    }
+  },
+  "GhosttyTerminalSelectWordBetweenOptions": {
+    "size": 36,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "start": { "offset": 4, "size": 12, "type": "struct" },
+      "end": { "offset": 16, "size": 12, "type": "struct" },
+      "boundary_codepoints": { "offset": 28, "size": 4, "type": "opaque" },
+      "boundary_codepoints_len": { "offset": 32, "size": 4, "type": "u32" }
+    }
+  },
+  "GhosttyKittyGraphicsPlacementRenderInfo": {
+    "size": 48,
+    "align": 4,
+    "fields": {
+      "size": { "offset": 0, "size": 4, "type": "u32" },
+      "pixel_width": { "offset": 4, "size": 4, "type": "u32" },
+      "pixel_height": { "offset": 8, "size": 4, "type": "u32" },
+      "grid_cols": { "offset": 12, "size": 4, "type": "u32" },
+      "grid_rows": { "offset": 16, "size": 4, "type": "u32" },
+      "viewport_col": { "offset": 20, "size": 4, "type": "i32" },
+      "viewport_row": { "offset": 24, "size": 4, "type": "i32" },
+      "viewport_visible": { "offset": 28, "size": 1, "type": "bool" },
+      "source_x": { "offset": 32, "size": 4, "type": "u32" },
+      "source_y": { "offset": 36, "size": 4, "type": "u32" },
+      "source_width": { "offset": 40, "size": 4, "type": "u32" },
+      "source_height": { "offset": 44, "size": 4, "type": "u32" }
+    }
+  }
+}

@@ -1,0 +1,415 @@
+/** The shipped VT engine: official wasm load + write/resize/format/snapshot/OSC. */
+
+import {
+  CONTINUATION_MAX_BYTES,
+  DATA_ACTIVE_SCREEN,
+  DATA_CURSOR_X,
+  DATA_CURSOR_Y,
+  DATA_PWD,
+  DATA_SCROLLBACK_ROWS,
+  DATA_TITLE,
+  DATA_TOTAL_ROWS,
+  FORMAT_HTML,
+  FORMAT_PLAIN,
+  FORMAT_VT,
+  OPT_CONTINUATION_MAX_BYTES,
+  OPT_PWD_CHANGED,
+  OPT_SCROLLBACK_MAX_LINES,
+  OPT_TITLE_CHANGED,
+  OPT_USERDATA,
+  OPT_WRITE_PTY,
+} from "./constants.ts";
+import { check, Ffi } from "./ffi.ts";
+import { installHostCallbacks, loadGhostty } from "./load.ts";
+
+export type ScreenExtent =
+  | { kind: "full" }
+  | { kind: "range"; startLine?: number; endLine?: number }
+  | { kind: "tail"; lines: number }
+  | { kind: "viewport" };
+
+export interface EngineOptions {
+  cols: number;
+  rows: number;
+  /** Soft cap on scrollback lines (Ghostty `SCROLLBACK_MAX_LINES`). */
+  scrollback?: number;
+  onWritePty?: (bytes: Uint8Array) => void;
+  onTitle?: (title: string) => void;
+  onPwd?: (pwd: string) => void;
+  onCommandRun?: (command: string) => void;
+}
+
+export interface Engine {
+  readonly cols: number;
+  readonly rows: number;
+  write(data: string | Uint8Array): void;
+  resize(
+    cols: number,
+    rows: number,
+    cellWidthPx?: number,
+    cellHeightPx?: number,
+  ): void;
+  formatPlain(opts?: { unwrap?: boolean; trim?: boolean }): string;
+  formatVt(opts?: { unwrap?: boolean; trim?: boolean }): string;
+  formatHtml(opts?: { unwrap?: boolean; trim?: boolean }): string;
+  encodeSnapshot(): Uint8Array;
+  restoreSnapshot(bytes: Uint8Array): void;
+  getScreenText(extent?: ScreenExtent): string;
+  /** Recent-window VT for attach: last `scrollback + rows` visual lines. */
+  formatRecentVt(scrollbackLines: number): string;
+  /** Older-history VT slice: visual rows `[start, end]` inclusive, 0 = oldest. */
+  formatRangeVt(start: number, end: number): string;
+  getTitle(): string;
+  getPwd(): string;
+  totalRows(): number;
+  scrollbackRows(): number;
+  cursor(): { x: number; y: number };
+  activeScreen(): number;
+  /** Absolute-line origin (lines discarded by reset). */
+  baseLine(): number;
+  reflowEpoch(): number;
+  bumpReflow(): void;
+  reanchorIfReset(): void;
+  free(): void;
+}
+
+type HostSlot = {
+  onWritePty?: (bytes: Uint8Array) => void;
+  onTitle?: (title: string) => void;
+  onPwd?: (pwd: string) => void;
+  ffi: Ffi;
+  term: number;
+};
+
+const hosts = new Map<number, HostSlot>();
+let nextUserdata = 1;
+let hostInstalled = false;
+
+function ensureHost(ffi: Ffi): void {
+  if (hostInstalled) return;
+  installHostCallbacks({
+    writePty: (_term, userdata, dataPtr, len) => {
+      const slot = hosts.get(userdata);
+      if (!slot?.onWritePty || len <= 0) return;
+      slot.onWritePty(ffi.readBytes(dataPtr, len));
+    },
+    notify2: (_term, userdata) => {
+      const slot = hosts.get(userdata);
+      if (!slot) return;
+      slot.onTitle?.(slot.ffi.getString(slot.term, DATA_TITLE));
+      slot.onPwd?.(slot.ffi.getString(slot.term, DATA_PWD));
+    },
+  });
+  hostInstalled = true;
+}
+
+const OSC_633_E = /\x1b\]633;E;([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+
+function scanCommandRuns(
+  bytes: Uint8Array,
+  onCommandRun: (c: string) => void,
+): void {
+  const text = new TextDecoder().decode(bytes);
+  OSC_633_E.lastIndex = 0;
+  for (const m of text.matchAll(OSC_633_E)) {
+    onCommandRun(m[1] ?? "");
+  }
+}
+
+const FORMAT_OPTS_SIZE = 40;
+const FORMAT_EXTRA_SIZE = 24;
+
+export function createEngine(opts: EngineOptions): Engine {
+  const wasm = loadGhostty();
+  const ffi = new Ffi(wasm);
+  ensureHost(ffi);
+
+  const out = ffi.allocOpaque();
+  check(
+    "terminal_new",
+    wasm.exports.ghostty_terminal_new(0, out, opts.cols, opts.rows),
+  );
+  let term = ffi.u32(out);
+
+  const userdata = nextUserdata++;
+  const slot: HostSlot = {
+    onWritePty: opts.onWritePty,
+    onTitle: opts.onTitle,
+    onPwd: opts.onPwd,
+    ffi,
+    term,
+  };
+  hosts.set(userdata, slot);
+
+  const ud = ffi.allocUsize();
+  ffi.setU32(ud, userdata);
+  check(
+    "set userdata",
+    wasm.exports.ghostty_terminal_set(term, OPT_USERDATA, ud),
+  );
+  check(
+    "set write_pty",
+    wasm.exports.ghostty_terminal_set(term, OPT_WRITE_PTY, wasm.f4Index),
+  );
+  check(
+    "set title_changed",
+    wasm.exports.ghostty_terminal_set(term, OPT_TITLE_CHANGED, wasm.f2Index),
+  );
+  check(
+    "set pwd_changed",
+    wasm.exports.ghostty_terminal_set(term, OPT_PWD_CHANGED, wasm.f2Index),
+  );
+
+  const cont = ffi.allocUsize();
+  ffi.setU32(cont, CONTINUATION_MAX_BYTES);
+  check(
+    "set continuation",
+    wasm.exports.ghostty_terminal_set(term, OPT_CONTINUATION_MAX_BYTES, cont),
+  );
+
+  if (opts.scrollback !== undefined) {
+    const sb = ffi.allocUsize();
+    ffi.setU32(sb, opts.scrollback);
+    check(
+      "set scrollback",
+      wasm.exports.ghostty_terminal_set(term, OPT_SCROLLBACK_MAX_LINES, sb),
+    );
+  }
+
+  let cols = opts.cols;
+  let rows = opts.rows;
+  let origin = 0;
+  let epoch = 0;
+  let lastTotal = rows;
+  let cachedPlain: string | undefined;
+  let cachedVt: string | undefined;
+
+  function invalidate(): void {
+    cachedPlain = undefined;
+    cachedVt = undefined;
+  }
+
+  function bindTerm(next: number): void {
+    term = next;
+    slot.term = next;
+  }
+
+  function format(emit: number, unwrap = true, trim = true): string {
+    const opt = ffi.allocBytes(FORMAT_OPTS_SIZE);
+    try {
+      new Uint8Array(ffi.memory(), opt, FORMAT_OPTS_SIZE).fill(0);
+      ffi.setU32(opt, FORMAT_OPTS_SIZE);
+      ffi.setU32(opt + 4, emit);
+      ffi.setU8(opt + 8, unwrap ? 1 : 0);
+      ffi.setU8(opt + 9, trim ? 1 : 0);
+      ffi.setU32(opt + 12, FORMAT_EXTRA_SIZE);
+      const fmtOut = ffi.allocOpaque();
+      check(
+        "formatter_new",
+        wasm.exports.ghostty_formatter_terminal_new(0, fmtOut, term, opt),
+      );
+      const fmt = ffi.u32(fmtOut);
+      try {
+        const ptrOut = ffi.allocOpaque();
+        const lenOut = ffi.allocUsize();
+        check(
+          "format_alloc",
+          wasm.exports.ghostty_formatter_format_alloc(fmt, 0, ptrOut, lenOut),
+        );
+        const ptr = ffi.u32(ptrOut);
+        const len = ffi.u32(lenOut);
+        const text = len === 0 ? "" : ffi.readUtf8(ptr, len);
+        if (ptr !== 0) wasm.exports.ghostty_free(0, ptr, len);
+        return text;
+      } finally {
+        wasm.exports.ghostty_formatter_free(fmt);
+      }
+    } finally {
+      ffi.freeBytes(opt, FORMAT_OPTS_SIZE);
+    }
+  }
+
+  function linesOf(text: string): string[] {
+    if (text.length === 0) return [];
+    return text.split(/\r?\n/);
+  }
+
+  function sliceLines(all: string[], extent: ScreenExtent): string {
+    switch (extent.kind) {
+      case "full":
+        return all.join("\n");
+      case "range": {
+        const start = Math.max(0, extent.startLine ?? 0);
+        const end = Math.min(all.length, extent.endLine ?? all.length);
+        return all.slice(start, end).join("\n");
+      }
+      case "tail": {
+        const n = Math.max(0, extent.lines);
+        return all.slice(Math.max(0, all.length - n)).join("\n");
+      }
+      case "viewport":
+        return all.slice(Math.max(0, all.length - rows)).join("\n");
+    }
+  }
+
+  return {
+    get cols() {
+      return cols;
+    },
+    get rows() {
+      return rows;
+    },
+    write(data) {
+      const bytes =
+        typeof data === "string" ? new TextEncoder().encode(data) : data;
+      if (opts.onCommandRun) scanCommandRuns(bytes, opts.onCommandRun);
+      const ptr = ffi.writeBytes(bytes);
+      try {
+        wasm.exports.ghostty_terminal_vt_write(term, ptr, bytes.length);
+      } finally {
+        ffi.freeBytes(ptr, bytes.length);
+      }
+      const total = ffi.getU32(term, DATA_TOTAL_ROWS);
+      if (total < lastTotal) {
+        origin += lastTotal;
+        epoch += 1;
+      }
+      lastTotal = total;
+      invalidate();
+    },
+    resize(nextCols, nextRows, cellWidthPx = 8, cellHeightPx = 16) {
+      if (nextCols === cols && nextRows === rows) return;
+      const widthChanged = nextCols !== cols;
+      check(
+        "resize",
+        wasm.exports.ghostty_terminal_resize(
+          term,
+          nextCols,
+          nextRows,
+          cellWidthPx,
+          cellHeightPx,
+        ),
+      );
+      cols = nextCols;
+      rows = nextRows;
+      lastTotal = ffi.getU32(term, DATA_TOTAL_ROWS);
+      if (widthChanged) epoch += 1;
+      invalidate();
+    },
+    formatPlain(o) {
+      if (o === undefined && cachedPlain !== undefined) return cachedPlain;
+      const text = format(FORMAT_PLAIN, o?.unwrap ?? true, o?.trim ?? true);
+      if (o === undefined) cachedPlain = text;
+      return text;
+    },
+    formatVt(o) {
+      if (o === undefined && cachedVt !== undefined) return cachedVt;
+      const text = format(FORMAT_VT, o?.unwrap ?? true, o?.trim ?? true);
+      if (o === undefined) cachedVt = text;
+      return text;
+    },
+    formatHtml(o) {
+      return format(FORMAT_HTML, o?.unwrap ?? true, o?.trim ?? true);
+    },
+    encodeSnapshot() {
+      const ptrOut = ffi.allocOpaque();
+      const lenOut = ffi.allocUsize();
+      check(
+        "snapshot_encode",
+        wasm.exports.ghostty_snapshot_encode_alloc(term, 0, ptrOut, lenOut),
+      );
+      const ptr = ffi.u32(ptrOut);
+      const len = ffi.u32(lenOut);
+      const bytes = ffi.readBytes(ptr, len);
+      if (ptr !== 0) wasm.exports.ghostty_free(0, ptr, len);
+      return bytes;
+    },
+    restoreSnapshot(bytes) {
+      const src = ffi.writeBytes(bytes);
+      const decOut = ffi.allocOpaque();
+      check(
+        "decoder_new",
+        wasm.exports.ghostty_snapshot_decoder_new_buf(
+          0,
+          decOut,
+          src,
+          bytes.length,
+        ),
+      );
+      const decoder = ffi.u32(decOut);
+      const termOut = ffi.allocOpaque();
+      try {
+        check(
+          "decoder_decode",
+          wasm.exports.ghostty_snapshot_decoder_decode(decoder, termOut),
+        );
+        const restored = ffi.u32(termOut);
+        wasm.exports.ghostty_terminal_free(term);
+        bindTerm(restored);
+      } finally {
+        wasm.exports.ghostty_snapshot_decoder_free(decoder);
+        ffi.freeBytes(src, bytes.length);
+      }
+      lastTotal = ffi.getU32(term, DATA_TOTAL_ROWS);
+      invalidate();
+    },
+    getScreenText(extent) {
+      const all = linesOf(this.formatPlain());
+      return sliceLines(all, extent ?? { kind: "full" });
+    },
+    formatRecentVt(scrollbackLines) {
+      const all = linesOf(this.formatVt({ unwrap: false, trim: true }));
+      const keep = Math.max(0, scrollbackLines + rows);
+      return all.slice(Math.max(0, all.length - keep)).join("\r\n");
+    },
+    formatRangeVt(start, end) {
+      const all = linesOf(this.formatVt({ unwrap: false, trim: true }));
+      const s = Math.max(0, start);
+      const e = Math.min(all.length - 1, end);
+      if (e < s) return "";
+      return all.slice(s, e + 1).join("\r\n");
+    },
+    getTitle() {
+      return ffi.getString(term, DATA_TITLE);
+    },
+    getPwd() {
+      return ffi.getString(term, DATA_PWD);
+    },
+    totalRows() {
+      return ffi.getU32(term, DATA_TOTAL_ROWS);
+    },
+    scrollbackRows() {
+      return ffi.getU32(term, DATA_SCROLLBACK_ROWS);
+    },
+    cursor() {
+      return {
+        x: ffi.getU32(term, DATA_CURSOR_X),
+        y: ffi.getU32(term, DATA_CURSOR_Y),
+      };
+    },
+    activeScreen() {
+      return ffi.getU32(term, DATA_ACTIVE_SCREEN);
+    },
+    baseLine() {
+      return origin;
+    },
+    reflowEpoch() {
+      return epoch;
+    },
+    bumpReflow() {
+      epoch += 1;
+    },
+    reanchorIfReset() {
+      const total = ffi.getU32(term, DATA_TOTAL_ROWS);
+      if (total < lastTotal) {
+        origin += lastTotal;
+        epoch += 1;
+        lastTotal = total;
+      }
+    },
+    free() {
+      hosts.delete(userdata);
+      wasm.exports.ghostty_terminal_free(term);
+    },
+  };
+}

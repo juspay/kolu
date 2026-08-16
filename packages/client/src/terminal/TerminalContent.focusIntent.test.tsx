@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { ITheme } from "@xterm/xterm";
+import type { ITheme } from "terminal-themes";
 import type { TerminalId } from "kolu-common/surface";
 import type { Component, JSX } from "solid-js";
 import { render } from "solid-js/web";
