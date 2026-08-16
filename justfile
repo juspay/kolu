@@ -500,10 +500,11 @@ test: install
     # anyway (PAR=12 measured *slower* than PAR=8 on a 24-core host). See
     # docs/ci-e2e-macos-ralph-report.md.
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-    # ghostty-vt.wasm + Chromium is heavier than xterm. Linux 8/4/3/2
-    # still died mid-suite with no Cucumber verdict (OOM, further at 2).
-    # 1 is the remaining linux cap so the suite can emit a verdict.
-    cap=1; [ "$(uname)" = Darwin ] && cap=4
+    # The "no Cucumber verdict" on linux was odu log truncation (pretty
+    # formatter), not a killed suite — 1 worker finished 514 scenarios in
+    # 38m. 4 is back now that daemon no longer overlaps and CI logs are
+    # progress-only.
+    cap=4; [ "$(uname)" = Darwin ] && cap=4
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans

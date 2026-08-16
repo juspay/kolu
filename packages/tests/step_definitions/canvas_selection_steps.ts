@@ -94,7 +94,10 @@ When(
         const c = document.querySelector(sel) as
           | (HTMLElement & { __xterm?: { cols: number } })
           | null;
-        const n = c?.__xterm?.cols ?? 0;
+        const stamped = c?.getAttribute("data-grid-cols");
+        const n = stamped
+          ? Number.parseInt(stamped, 10)
+          : (c?.__xterm?.cols ?? 0);
         return n >= 30 ? n : null;
       },
       ACTIVE_TERMINAL,

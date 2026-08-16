@@ -205,6 +205,11 @@ When(
     const measured = await this.page.waitForFunction(
       (sel) => {
         const node = document.querySelector(sel);
+        const stamped = node?.getAttribute("data-grid-cols");
+        if (stamped) {
+          const n = Number.parseInt(stamped, 10);
+          return n > 0 ? n : null;
+        }
         const cols = (node as unknown as { __xterm?: { cols: number } })
           ?.__xterm?.cols;
         return typeof cols === "number" && cols > 0 ? cols : null;

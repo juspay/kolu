@@ -303,6 +303,11 @@ export const Ghostty: Component<
     // Always tell the engine: `resize` no-ops when already there, and
     // grid() can otherwise claim a size the constructor never took.
     engine.resize(cols, rows, w, h);
+    // Measurement is independent of attach. E2E waits on this attribute
+    // for "the pane has a real grid"; `__xterm` is published only after
+    // the snapshot lands (buffer-ready).
+    mount.setAttribute("data-grid-cols", String(cols));
+    mount.setAttribute("data-grid-rows", String(rows));
     if (prev && sameGrid(prev, next)) return prev;
     setGrid(next);
     schedulePaint();
