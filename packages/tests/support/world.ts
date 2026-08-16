@@ -366,10 +366,46 @@ export class KoluWorld extends World {
     // Click, don't textarea.focus(): provenance ignores programmatic focus,
     // so the store (and data-focused) would stay on a split.
     // No waitForFrame — render-recovery parks rAF, and a frame wait hangs.
-    // Top-left, not the default centre: Ghostty onTap follows every
-    // parseLineRefs hit, and a centre click on a short Darwin tile lands
-    // on the echoed `note.txt` / Starship cwd and steals Code-tab browse.
-    await screen.click({ force: true, position: { x: 4, y: 4 } });
+    // Ghostty onTap follows every parseLineRefs hit, so the default
+    // centre click (and a naive top-left click on a Starship `/tmp/…`
+    // prompt) steal Code-tab browse and eat the typed command. Land on
+    // a cell that cannot be a path or URL.
+    // String evaluator: tsx injects `__name` into page.evaluate
+    // argument functions, and that helper does not exist in the page.
+    const offset = await this.page.evaluate<{ x: number; y: number } | null>(`(() => {
+      const container = document.querySelector(${JSON.stringify(scope)});
+      const term = container && container.__xterm;
+      const screenEl = container && container.querySelector("[data-terminal-screen]");
+      if (!term || !screenEl) return null;
+      const rect = screenEl.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      const cellW = rect.width / term.cols;
+      const cellH = rect.height / term.rows;
+      const top = term.buffer.active.viewportY;
+      const pathish = /[\\w./+\\-@]/;
+      const extish = /\\.\\p{L}/u;
+      for (let row = 0; row < term.rows; row++) {
+        const got = term.buffer.active.getLine(top + row);
+        const line = got ? got.translateToString(true) : "";
+        for (let col = 0; col < term.cols; col++) {
+          if (row === 0 && col === 0) continue;
+          let a = col;
+          let b = col;
+          while (a > 0 && pathish.test(line[a - 1] || "")) a--;
+          while (b < line.length && pathish.test(line[b] || "")) b++;
+          const tok = line.slice(a, b);
+          if (tok.includes("/") || extish.test(tok) || /https?:/.test(tok)) continue;
+          return { x: (col + 0.5) * cellW, y: (row + 0.5) * cellH };
+        }
+      }
+      return null;
+    })()`);
+    if (offset !== null) {
+      await screen.click({ force: true, position: offset });
+    } else {
+      await screen.click({ force: true });
+    }
+    await this.focusForTyping(scope);
     return scope;
   }
 
