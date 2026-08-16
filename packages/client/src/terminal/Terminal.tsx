@@ -76,6 +76,7 @@ import {
 } from "../wire";
 import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
 import { installTerminalFocusProvenance } from "./focusProvenance";
+import { createXtermBridge } from "./xtermBridge";
 import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
@@ -281,14 +282,10 @@ const Terminal: Component<{
     setHandle(h);
     const term = h.terminal;
 
-    // Kolu-owned bridge consumed by e2e step definitions — `support/buffer.ts`,
-    // `step_definitions/file_ref_link_steps.ts`, and friends read
-    // `container.__xterm` to drive xterm's public API (buffer reads,
-    // cell-to-pixel math). Removing this silently breaks every cucumber test
-    // that touches terminal contents. Cleared in the teardown below.
-    (
-      h.container as HTMLElement & { __xterm?: GhosttyHandle["terminal"] }
-    ).__xterm = term;
+    // E2E buffer readers treat `__xterm` as "this pane has cells". Do NOT
+    // publish at onReady — the engine exists but attach has not written
+    // the snapshot yet. Publish from the snapshot write callback below.
+    const xtermBridge = createXtermBridge(h.container, term);
 
     // Consumer teardown registered HERE, inside onReady — NOT at the component
     // body top. `<Xterm>` is a plain JSX child (no own reactive owner), so a
@@ -313,9 +310,7 @@ const Terminal: Component<{
       linkProviderDisposable = null;
       backfill?.dispose();
       backfill = null;
-      (
-        h.container as HTMLElement & { __xterm?: GhosttyHandle["terminal"] }
-      ).__xterm = undefined;
+      xtermBridge.clear();
       setHandle(null);
     });
 
@@ -873,6 +868,9 @@ const Terminal: Component<{
               // buffer (see the note above the write) — undefined, hence a no-op,
               // for a plain delta frame, which carries no `topLine`.
               commitSeed?.commit();
+              // Snapshot bytes are in the engine. Only now is a buffer
+              // read honest — publish the e2e `__xterm` bridge.
+              if (commitSeed) xtermBridge.onSnapshotLanded();
             });
           }
         },

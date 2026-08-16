@@ -58,6 +58,18 @@ test("ci/mod.just wires `daemon` into the default DAG", () => {
   ).toContain("daemon");
 });
 
+test("the `e2e` node waits for `daemon` so the fork-storms do not overlap", () => {
+  const e2eTarget = CI.split("\n").find((line) => line.startsWith("e2e:"));
+  expect(
+    e2eTarget,
+    "ci/mod.just must declare an `e2e:` DAG target",
+  ).toBeDefined();
+  expect(
+    e2eTarget?.split(/\s+/),
+    "`e2e` must not share the box with the daemon vitest fork-storm (linux SIGKILL, no Cucumber verdict)",
+  ).toContain("daemon");
+});
+
 test("the `daemon` node waits for the fork-free `unit` workspace", () => {
   const daemonTarget = CI.split("\n").find((line) =>
     line.startsWith("daemon:"),
