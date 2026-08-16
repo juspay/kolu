@@ -1,7 +1,6 @@
 /**
- * Web-link activation policy for a kolu terminal — lives beside
- * `fileRefLinkProvider` for the same reason: xterm-kit owns the generic seam,
- * kolu owns what a click *means*.
+ * Web-link activation policy for a kolu terminal. Ghostty's onTap seam
+ * reports the URI; this module owns what a click *means*.
  *
  *   - loopback URL → the join card at the cursor
  *   - ⌘/ctrl-click → raw open, no card

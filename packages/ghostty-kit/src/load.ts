@@ -72,44 +72,6 @@ export interface GhosttyExports {
   ) => number;
   ghostty_snapshot_decoder_decode: (decoder: number, out: number) => number;
   ghostty_snapshot_decoder_free: (decoder: number) => void;
-  ghostty_key_encoder_new: (allocator: number, out: number) => number;
-  ghostty_key_encoder_free: (enc: number) => void;
-  ghostty_key_encoder_setopt_from_terminal: (
-    enc: number,
-    term: number,
-  ) => number;
-  ghostty_key_encoder_encode: (
-    enc: number,
-    event: number,
-    buf: number,
-    bufLen: number,
-    written: number,
-  ) => number;
-  ghostty_key_event_new: (allocator: number, out: number) => number;
-  ghostty_key_event_free: (ev: number) => void;
-  ghostty_key_event_set_action: (ev: number, action: number) => void;
-  ghostty_key_event_set_key: (ev: number, key: number) => void;
-  ghostty_key_event_set_mods: (ev: number, mods: number) => void;
-  ghostty_key_event_set_utf8: (ev: number, ptr: number, len: number) => number;
-  ghostty_mouse_encoder_new: (allocator: number, out: number) => number;
-  ghostty_mouse_encoder_free: (enc: number) => void;
-  ghostty_mouse_encoder_setopt_from_terminal: (
-    enc: number,
-    term: number,
-  ) => number;
-  ghostty_mouse_encoder_encode: (
-    enc: number,
-    event: number,
-    buf: number,
-    bufLen: number,
-    written: number,
-  ) => number;
-  ghostty_mouse_event_new: (allocator: number, out: number) => number;
-  ghostty_mouse_event_free: (ev: number) => void;
-  ghostty_mouse_event_set_action: (ev: number, action: number) => void;
-  ghostty_mouse_event_set_button: (ev: number, button: number) => void;
-  ghostty_mouse_event_set_mods: (ev: number, mods: number) => void;
-  ghostty_mouse_event_set_position: (ev: number, x: number, y: number) => void;
   ghostty_unicode_codepoint_width: (cp: number) => number;
   [name: string]: unknown;
 }

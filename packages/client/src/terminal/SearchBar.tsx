@@ -1,4 +1,4 @@
-/** Search bar overlay for find-in-terminal. Wraps @xterm/addon-search. */
+/** Search bar overlay for find-in-terminal. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { SearchAddonShim } from "@kolu/ghostty-kit/solid";

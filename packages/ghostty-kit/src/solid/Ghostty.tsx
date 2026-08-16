@@ -97,10 +97,6 @@ export interface XtermShim {
   getSelection: () => string;
   textarea: HTMLTextAreaElement | undefined;
   options: { theme?: TerminalTheme; fontSize?: number };
-  registerLinkProvider: (p: { dispose?: () => void }) => {
-    dispose: () => void;
-  };
-  loadAddon: (a: { dispose?: () => void }) => void;
   attachCustomKeyEventHandler: (fn: (e: KeyboardEvent) => boolean) => void;
   onResize: (cb: (e: { cols: number; rows: number }) => void) => {
     dispose: () => void;
@@ -444,8 +440,6 @@ export const Ghostty: Component<
           return textarea;
         },
         options: { theme: own.theme, fontSize: own.fontSize },
-        registerLinkProvider: () => ({ dispose: () => {} }),
-        loadAddon: () => {},
         attachCustomKeyEventHandler: (fn) => {
           keyHandlers.push(fn);
         },

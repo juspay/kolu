@@ -8,5 +8,4 @@ export {
 } from "./Ghostty.tsx";
 export { sameGrid, type TerminalGrid } from "./grid.ts";
 export type { ScrollLockEvent } from "./scrollLock.ts";
-export { createScrollLock } from "./scrollLock.ts";
 export const PAINT_STALL_WARN_MS = 250;

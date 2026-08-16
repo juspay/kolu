@@ -154,9 +154,6 @@ importers:
       '@kolu/url-shape':
         specifier: workspace:*
         version: link:../url-shape
-      '@kolu/xterm-kit':
-        specifier: workspace:*
-        version: link:../xterm-kit
       '@pierre/diffs':
         specifier: ^1.2.12
         version: 1.2.12(@shikijs/themes@4.2.0)(react@19.2.8)
@@ -184,15 +181,6 @@ importers:
       '@xterm/addon-clipboard':
         specifier: ^0.2.0
         version: 0.2.0
-      '@xterm/addon-search':
-        specifier: ^0.16.0
-        version: 0.16.0
-      '@xterm/addon-serialize':
-        specifier: ^0.14.0
-        version: 0.14.0
-      '@xterm/xterm':
-        specifier: 6.1.0-beta.300
-        version: 6.1.0-beta.300
       effect:
         specifier: 4.0.0-beta.106
         version: 4.0.0-beta.106
@@ -227,9 +215,6 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
-      '@xterm/headless':
-        specifier: ^6.0.0
-        version: 6.0.0
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent

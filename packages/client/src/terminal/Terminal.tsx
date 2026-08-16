@@ -1,15 +1,14 @@
 /**
- * Terminal component — kolu's POLICY half over `<Xterm>` (@kolu/xterm-kit/solid).
+ * Terminal component — kolu's POLICY half over `<Ghostty>` (@kolu/ghostty-kit/solid).
  *
- * The xterm hazards (owner-correct async construction + disposal, WebGL context
- * lifetime, the scroll lock + its DOM wiring, render recovery, the touch surface)
- * live in `<Xterm>`. This component wires only "which bytes, when, for whom":
- * the attach stream + backfill, keybindings, the PTY, diagnostics, focus policy,
- * paste/drop, and the touch-tap → file-ref decision — all in `onReady`, inside
+ * The kit owns construction, canvas paint, the scroll lock, and the touch
+ * surface. This component wires only "which bytes, when, for whom": the
+ * attach stream + backfill, keybindings, the PTY, diagnostics, focus policy,
+ * paste/drop, and the tap → file-ref decision — all in `onReady`, inside
  * the component's reactive owner so cleanups run.
  *
- * Keyboard zoom is handled by createZoom() (zoom.ts) and consumed here reactively
- * via a fontSize signal, passed to <Xterm> as the fontSize prop.
+ * Keyboard zoom is handled by createZoom() (zoom.ts) and consumed here
+ * reactively via a fontSize signal, passed to <Ghostty> as the fontSize prop.
  */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
@@ -135,7 +134,6 @@ const Terminal: Component<{
   // Policy refs, set in onReady and nulled in onCleanup so this component's
   // closures don't retain the xterm graph after disposal (the #606 leak — the
   // kit disposes the terminal itself; we release only our own references).
-  let linkProviderDisposable: { dispose(): void } | null = null;
   let backfill: BackfillController | null = null;
   /** The LIVE attach attempt's fiber — interrupting it ends that attempt's
    *  consume loop and any backoff it is sleeping through. Component-lifetime,
@@ -307,19 +305,10 @@ const Terminal: Component<{
       unregisterTerminalRefs(props.terminalId);
       disposeDiagnostics?.();
       disposeDiagnostics = null;
-      linkProviderDisposable?.dispose();
-      linkProviderDisposable = null;
       backfill?.dispose();
       backfill = null;
       xtermBridge.clear();
       setHandle(null);
-    });
-
-    // Linkify `path:line[:col][-end]` references in terminal output. The link
-    // provider reads repoRoot from the terminal store at click time (not at
-    // mount) so a cwd change keeps subsequent clicks anchored to the new repo.
-    linkProviderDisposable = term.registerLinkProvider({
-      dispose: () => {},
     });
 
     registerTerminalRefs(props.terminalId, {

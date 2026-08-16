@@ -15,7 +15,6 @@ const BROWSER_FILES = [
   "engine.ts",
   "ffi.ts",
   "constants.ts",
-  "encode.ts",
   "styled.ts",
   "controlChar.ts",
   "backfill.ts",
