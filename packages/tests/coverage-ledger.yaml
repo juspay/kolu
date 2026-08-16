@@ -2113,3 +2113,16 @@ retirements:
       file: packages/tests/features/terminal.feature
       symbol: "Scenario: Initial resize is sent to PTY on connect"
       test: Same echo-$COLUMNS path; the assertion now matches the stamped data-grid-cols so a tile that honestly measures 80 columns is not a false fail.
+  - id: revise-18336f3310dab2114196
+    revisionId: revision-18336f3310dab2114196
+    action: revised
+    status: landed
+    promise: Clicking a slash-containing path with no line opens the file with no selection
+    defectSurface: [code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-2927a457fc798715e058]
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Clicking a slash-containing path with no line opens the file with no selection"
+      test: Same slash-path click and no-line selection; the tree is mounted first so darwin's one-shot fsListAll snapshot cannot consume the request before src/notes.txt is enumerated.
