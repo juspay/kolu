@@ -990,16 +990,16 @@ When(
 );
 
 Then(
-  "exactly {int} canvas tile(s) should use the webgl renderer",
-  async function (this: KoluWorld, expected: number) {
+  "exactly {int} canvas tile(s) should use the {word} renderer",
+  async function (this: KoluWorld, expected: number, renderer: string) {
     await this.page.waitForFunction(
-      ({ sel, want }: { sel: string; want: number }) => {
+      ({ sel, want, r }: { sel: string; want: number; r: string }) => {
         const tiles = document.querySelectorAll(
-          `${sel} [data-terminal-id][data-renderer="webgl"]`,
+          `${sel} [data-terminal-id][data-renderer="${r}"]`,
         );
         return tiles.length === want;
       },
-      { sel: CANVAS_SELECTOR, want: expected },
+      { sel: CANVAS_SELECTOR, want: expected, r: renderer },
       { timeout: POLL_TIMEOUT },
     );
   },

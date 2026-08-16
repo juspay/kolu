@@ -565,24 +565,30 @@ export const Ghostty: Component<
       {/* Child of the data-focused/data-visible wrapper — e2e locates
           `[data-focused] [data-terminal-screen]` as a descendant. */}
       <div style={{ width: "100%", height: "100%", position: "relative" }}>
-        <canvas ref={canvas} data-terminal-screen />
-        <textarea
-          ref={textarea}
-          data-terminal-input
-          aria-label="Terminal"
+        <canvas
+          ref={canvas}
+          data-terminal-screen
           onMouseDown={onSelDown}
           onMouseMove={onSelMove}
           onMouseUp={onSelUp}
-          autocomplete="off"
-          spellcheck={false}
-          onKeyDown={onKeyDown}
           onClick={(e) => {
             textarea.focus();
             own.onTap?.(e.clientX, e.clientY);
           }}
+        />
+        <textarea
+          ref={textarea}
+          data-terminal-input
+          aria-label="Terminal"
+          autocomplete="off"
+          spellcheck={false}
+          onKeyDown={onKeyDown}
           style={{
             position: "absolute",
-            inset: "0",
+            left: "0",
+            top: "0",
+            width: "1px",
+            height: "1px",
             opacity: "0",
             resize: "none",
             border: "none",
