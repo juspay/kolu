@@ -161,6 +161,14 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     const onDown = (e: MouseEvent) => {
       const node = e.target as Node;
       if (panelEl?.contains(node)) return;
+      // Typing in THIS terminal (I-run clicks the screen) must not
+      // dismiss the card — the join upgrades when the listener binds.
+      const tile = (e.target as Element | null)?.closest?.(
+        "[data-terminal-id]",
+      );
+      if (tile?.getAttribute("data-terminal-id") === props.target.terminalId) {
+        return;
+      }
       closePrintedUrlCard();
     };
     const onKey = (e: KeyboardEvent) => {

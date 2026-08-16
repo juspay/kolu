@@ -97,4 +97,21 @@ describe("printed-URL card dismissal", () => {
     expect(boom).not.toThrow();
     expect(document.querySelector("[data-testid=printed-url-card]")).toBe(null);
   });
+
+  it("stays open when the mousedown is inside the same terminal", () => {
+    host = document.createElement("div");
+    host.setAttribute("data-terminal-id", target.terminalId);
+    document.body.appendChild(host);
+    dispose = render(
+      () => <PrintedUrlCardMount terminalId={target.terminalId} />,
+      host,
+    );
+    openPrintedUrlCard(target);
+    host.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
+    expect(document.querySelector("[data-testid=printed-url-card]")).not.toBe(
+      null,
+    );
+  });
 });
