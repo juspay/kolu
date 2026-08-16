@@ -26,12 +26,6 @@ import { parseColor, type RGB } from "terminal-themes/color";
 import type { UiAction } from "./runAction";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 
-/** Standard xterm 256-color palette. First 16 come from the theme; 16-231
- *  form a 6×6×6 RGB cube; 232-255 are grayscale. */
-const CUBE_STEPS: readonly [number, number, number, number, number, number] = [
-  0, 95, 135, 175, 215, 255,
-];
-
 /** Window chrome geometry (logical pixels). */
 const PAD = 16;
 const RADIUS = 12;
@@ -74,105 +68,18 @@ const loadBrandLogo: Effect.Effect<HTMLImageElement, Error> = Effect.suspend(
         ),
 );
 
-/** Indexed read into the 6-step palette. The `as 0|1|2|3|4|5` cast is
- *  the assertion that `% 6` produced a valid tuple index — same blast
- *  radius as a runtime check, visible to TS at the read site. */
-function cubeStep(idx: number): number {
-  return CUBE_STEPS[(idx % 6) as 0 | 1 | 2 | 3 | 4 | 5];
-}
-
-function cubeColor(i: number): string {
-  const n = i - 16;
-  const r = cubeStep(Math.floor(n / 36));
-  const g = cubeStep(Math.floor(n / 6));
-  const b = cubeStep(n);
-  return `rgb(${r},${g},${b})`;
-}
-
-function grayColor(i: number): string {
-  const v = 8 + (i - 232) * 10;
-  return `rgb(${v},${v},${v})`;
-}
-
 interface ResolvedTheme {
   fg: string;
   bg: string;
-  ansi: string[];
 }
 
 function resolveTheme(
   theme: Record<string, string | undefined>,
 ): ResolvedTheme {
-  const fg = theme.foreground ?? "#c1c1c1";
-  const bg = theme.background ?? "#000000";
-  const ansi = [
-    theme.black ?? "#000000",
-    theme.red ?? "#cd0000",
-    theme.green ?? "#00cd00",
-    theme.yellow ?? "#cdcd00",
-    theme.blue ?? "#0000ee",
-    theme.magenta ?? "#cd00cd",
-    theme.cyan ?? "#00cdcd",
-    theme.white ?? "#e5e5e5",
-    theme.brightBlack ?? "#7f7f7f",
-    theme.brightRed ?? "#ff0000",
-    theme.brightGreen ?? "#00ff00",
-    theme.brightYellow ?? "#ffff00",
-    theme.brightBlue ?? "#5c5cff",
-    theme.brightMagenta ?? "#ff00ff",
-    theme.brightCyan ?? "#00ffff",
-    theme.brightWhite ?? "#ffffff",
-  ];
-  return { fg, bg, ansi };
-}
-
-function paletteColor(idx: number, t: ResolvedTheme): string {
-  if (idx < 16) return t.ansi[idx] ?? t.fg;
-  if (idx < 232) return cubeColor(idx);
-  return grayColor(idx);
-}
-
-function rgbColor(packed: number): string {
-  const r = (packed >> 16) & 0xff;
-  const g = (packed >> 8) & 0xff;
-  const b = packed & 0xff;
-  return `rgb(${r},${g},${b})`;
-}
-
-/** xterm.js IBufferCell subset we use. Predicate methods are used instead
- *  of raw `getFg/BgColorMode()` comparisons because the mode enum is not
- *  part of the public API and differs between 16- and 256-color cells. */
-interface BufferCell {
-  getChars: () => string;
-  getWidth: () => number;
-  getFgColor: () => number;
-  getBgColor: () => number;
-  isFgRGB: () => boolean;
-  isBgRGB: () => boolean;
-  isFgPalette: () => boolean;
-  isBgPalette: () => boolean;
-  isBold: () => number;
-  isItalic: () => number;
-  isInverse: () => number;
-}
-
-function cellColors(
-  cell: BufferCell,
-  t: ResolvedTheme,
-): { fg: string; bg: string } {
-  let fg = cell.isFgRGB()
-    ? rgbColor(cell.getFgColor())
-    : cell.isFgPalette()
-      ? paletteColor(cell.getFgColor(), t)
-      : t.fg;
-  let bg = cell.isBgRGB()
-    ? rgbColor(cell.getBgColor())
-    : cell.isBgPalette()
-      ? paletteColor(cell.getBgColor(), t)
-      : t.bg;
-  // ANSI inverse — swap fg and bg for the cell.
-  if (cell.isInverse()) [fg, bg] = [bg, fg];
-  return { fg, bg };
+  return {
+    fg: theme.foreground ?? "#c1c1c1",
+    bg: theme.background ?? "#000000",
+  };
 }
 
 /** Compose terminal name + git branch for the title bar. Falls back to
@@ -235,20 +142,6 @@ export function screenshotTerminal(
         fontSize?: number;
         fontFamily?: string;
         theme?: Record<string, string | undefined>;
-      };
-      buffer: {
-        active: {
-          viewportY: number;
-          getLine: (y: number) =>
-            | {
-                getCell: (
-                  x: number,
-                  dst?: BufferCell,
-                ) => BufferCell | undefined;
-              }
-            | undefined;
-          getNullCell: () => BufferCell;
-        };
       };
     };
 
