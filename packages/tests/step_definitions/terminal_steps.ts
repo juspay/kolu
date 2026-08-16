@@ -231,13 +231,14 @@ async function findFocusClickOffset(
     const cellW = rect.width / term.cols;
     const cellH = rect.height / term.rows;
     const top = term.buffer.active.viewportY;
-    for (let row = 0; row < term.rows; row++) {
+    // Prefer the bottom of the viewport: after a few commands the
+    // live rows sit at the top and the rest is empty. A short Darwin
+    // tile with a Starship prompt can fill every cell — then there
+    // is no safe click, and a center-click fallback follows a path.
+    for (let row = term.rows - 1; row >= 0; row--) {
       const line =
         term.buffer.active.getLine(top + row)?.translateToString(true) ?? "";
-      for (let col = 0; col < term.cols; col++) {
-        // The helper textarea is 1×1 px at the canvas origin — skip
-        // that cell so the click cannot land on the input instead of
-        // the screen (which would skip Ghostty's onClick focus path).
+      for (let col = term.cols - 1; col >= 0; col--) {
         if (row === 0 && col === 0) continue;
         const ch = line[col] ?? " ";
         if (ch !== " " && ch !== "\t") continue;
@@ -260,7 +261,14 @@ When("I click the terminal canvas", async function (this: KoluWorld) {
     await this.canvas.click({ position: offset });
     return;
   }
-  await this.canvas.click();
+  // No blank cell: a packed Darwin tile (Starship + a few commands)
+  // has no safe click. Focusing the helper textarea restores PTY
+  // input without Ghostty's onTap following a file-ref.
+  const input = this.page
+    .locator("[data-focused] [data-terminal-input]")
+    .first();
+  await input.waitFor({ state: "attached" });
+  await input.focus();
 });
 
 When("I click the terminal tile title bar", async function (this: KoluWorld) {

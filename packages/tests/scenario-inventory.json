@@ -7586,6 +7586,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "e8d494e80cc904c88c141f516e49b65e97bc92c1"
+    },
+    {
+      "revisionId": "revision-4b6a0fc73863b5a568c8",
+      "scenarioKey": "scenario-36a54b8fbfe7414555a4",
+      "feature": "features/file-ref-link.feature",
+      "scenario": "Clicking a slash-containing path with no line opens the file with no selection",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "2f59349ed3da461bfc7d44056f149770ddcfcf7294c0a95426df6474f3cc4258",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c581718427e3cc5d8a32130d76a702386f486c92"
     }
   ]
 }

@@ -175,7 +175,9 @@ Feature: File-ref autolinking in terminal
     # slash-path hit-test.
     When I run "rm -rf /tmp/kolu-file-ref-slash-noline && git init /tmp/kolu-file-ref-slash-noline && cd /tmp/kolu-file-ref-slash-noline"
     And I run "git commit --allow-empty -m init"
-    And I run "mkdir -p src && printf 'alpha\nbeta\ngamma\n' > src/notes.txt && printf 'seed\n' > readme.txt"
+    And I run "mkdir -p src"
+    And I run "printf 'alpha\nbeta\ngamma\n' > src/notes.txt"
+    And I run "printf 'seed\n' > readme.txt"
     And I run "echo 'open readme.txt first'"
     And I trigger the terminal file-ref link "readme.txt"
     Then the file browser should show a directory "src"

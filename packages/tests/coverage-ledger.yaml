@@ -1796,7 +1796,7 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-2927a457fc798715e058
+      - revision-4b6a0fc73863b5a568c8
     sameCodePathEvidence:
       file: packages/tests/features/file-ref-link.feature
       symbol: "Scenario: Clicking a slash-containing path with no line opens the file with no selection"
@@ -2121,8 +2121,21 @@ retirements:
     defectSurface: [code-tab, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-2927a457fc798715e058]
+    survivorRevisionIds: [revision-4b6a0fc73863b5a568c8]
     sameCodePathEvidence:
       file: packages/tests/features/file-ref-link.feature
       symbol: "Scenario: Clicking a slash-containing path with no line opens the file with no selection"
       test: Same slash-path click and no-line selection; the tree is mounted first so darwin's one-shot fsListAll snapshot cannot consume the request before src/notes.txt is enumerated.
+  - id: revise-2927a457fc798715e058
+    revisionId: revision-2927a457fc798715e058
+    action: revised
+    status: landed
+    promise: Clicking a slash-containing path with no line opens the file with no selection
+    defectSurface: [code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-4b6a0fc73863b5a568c8]
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Clicking a slash-containing path with no line opens the file with no selection"
+      test: Same no-line slash-path click; setup no longer prints src/notes.txt on one wrap-prone mkdir line, so the trigger hits the just-echoed file ref.

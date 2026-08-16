@@ -55,19 +55,24 @@ async function findRefClickPoint(
       if (!container || !term || !screen) return null;
       const { active } = term.buffer;
       const top = active.viewportY;
+      // Last match wins: the fixture's just-echoed `see src/notes.txt`
+      // is below an earlier `mkdir … > src/notes.txt` that wraps on a
+      // narrow Darwin tile and whose visual fragment can parse as the
+      // folder `src/` instead of the file.
+      let found: { row: number; col: number } | null = null;
       for (let row = top; row < top + term.rows; row++) {
         const line = active.getLine(row)?.translateToString(true) ?? "";
         const col = line.indexOf(target);
-        if (col < 0) continue;
-        const rect = screen.getBoundingClientRect();
-        const cellW = rect.width / term.cols;
-        const cellH = rect.height / term.rows;
-        return {
-          x: rect.left + (col + 0.5) * cellW,
-          y: rect.top + (row - top + 0.5) * cellH,
-        };
+        if (col >= 0) found = { row, col };
       }
-      return null;
+      if (found === null) return null;
+      const rect = screen.getBoundingClientRect();
+      const cellW = rect.width / term.cols;
+      const cellH = rect.height / term.rows;
+      return {
+        x: rect.left + (found.col + 0.5) * cellW,
+        y: rect.top + (found.row - top + 0.5) * cellH,
+      };
     },
     { sel: ACTIVE_TERMINAL, target: refText },
   );
