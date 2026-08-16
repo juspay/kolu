@@ -460,7 +460,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:9eba0ab3e1e1715d3f1db82fec45fc8924851a36cbadcbb7b2097e7f95333cc1
+  content_hash: sha256:f10b7bde4ae8814aa6b6d9a2c1bfc2547b903b27aa0410c4f3b989a7b22f24df
 - kind: project-relative
   target: agents
   value: .agents/skills/dev-server
@@ -1100,7 +1100,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:9eba0ab3e1e1715d3f1db82fec45fc8924851a36cbadcbb7b2097e7f95333cc1
+  content_hash: sha256:f10b7bde4ae8814aa6b6d9a2c1bfc2547b903b27aa0410c4f3b989a7b22f24df
 - kind: project-relative
   target: claude
   value: .claude/skills/code-police
@@ -2782,7 +2782,7 @@ local_deployed_file_hashes:
   .agents/skills/ci/pu/lease.sh: sha256:5e5ca3de9a41d247f5a7be66044cb5811e15c26f9da2127c299f6939db5275ee
   .agents/skills/ci/pu/pool.sh: sha256:5f8b42d5aaf4b87dcbdcc91f785c1b476f3e7c131dedb66e7e7de0080d9e9c80
   .agents/skills/ci/pu/report.sh: sha256:2bcce1c13acfd168ed70e0793e49eef5cd051864e4bea7b17833b889e3129bb3
-  .agents/skills/ci/smoke.sh: sha256:9eba0ab3e1e1715d3f1db82fec45fc8924851a36cbadcbb7b2097e7f95333cc1
+  .agents/skills/ci/smoke.sh: sha256:f10b7bde4ae8814aa6b6d9a2c1bfc2547b903b27aa0410c4f3b989a7b22f24df
   .agents/skills/dev-server/SKILL.md: sha256:741b9c44068dd35500e0d88a8299240ec154b476b1fbb2a0bcdc79e2d03e3e4f
   .agents/skills/evidence/CAPTURE.md: sha256:2fbf0b30b264a91ab156807d1e6d32a4782fcf2c6afd32466ec32a3df3be7ef7
   .agents/skills/evidence/SKILL.md: sha256:8534468a198e753fa9ed6d95477444d418083d92fa7853f1cd6d1c3f93dd1228
@@ -2820,7 +2820,7 @@ local_deployed_file_hashes:
   .claude/skills/ci/SKILL.md: sha256:5e1a73886b4988d96175e6ca309287e68b2a5f541342b7ddeaceea5e8918aa5e
   .claude/skills/ci/pu/diagnose.sh: sha256:7e33aa16ca3a8fb4a52aa35d423bbaf014621564da65b718e68a233efbef89b3
   .claude/skills/ci/pu/pool.sh: sha256:5f8b42d5aaf4b87dcbdcc91f785c1b476f3e7c131dedb66e7e7de0080d9e9c80
-  .claude/skills/ci/smoke.sh: sha256:9eba0ab3e1e1715d3f1db82fec45fc8924851a36cbadcbb7b2097e7f95333cc1
+  .claude/skills/ci/smoke.sh: sha256:f10b7bde4ae8814aa6b6d9a2c1bfc2547b903b27aa0410c4f3b989a7b22f24df
   .claude/skills/dev-server/SKILL.md: sha256:741b9c44068dd35500e0d88a8299240ec154b476b1fbb2a0bcdc79e2d03e3e4f
   .claude/skills/evidence/CAPTURE.md: sha256:2fbf0b30b264a91ab156807d1e6d32a4782fcf2c6afd32466ec32a3df3be7ef7
   .claude/skills/evidence/SKILL.md: sha256:8534468a198e753fa9ed6d95477444d418083d92fa7853f1cd6d1c3f93dd1228
