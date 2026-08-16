@@ -329,6 +329,7 @@ const Terminal: Component<{
     registerTerminalRefs(props.terminalId, {
       xterm: term,
       serialize: h.addons.serialize,
+      canvas: h.canvas,
       probes: {
         webglAtlas: () => h.webgl.textureAtlasSize(),
         bufferBytes: () => null,

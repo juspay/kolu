@@ -523,14 +523,12 @@ export const Ghostty: Component<
       // Chords the app claims (search, zoom) stay with the document.
       return;
     }
-    // Printable input rides the textarea `input` event (Playwright type,
-    // paste, IME). Special keys have no input payload.
-    if (ev.key.length === 1) return;
     ev.preventDefault();
     if (ev.key === "Enter") own.onData("\r");
     else if (ev.key === "Backspace") own.onData("\x7f");
     else if (ev.key === "Tab") own.onData("\t");
     else if (ev.key === "Escape") own.onData("\x1b");
+    else if (ev.key.length === 1) own.onData(ev.key);
     else if (ev.key === "ArrowUp") own.onData("\x1b[A");
     else if (ev.key === "ArrowDown") own.onData("\x1b[B");
     else if (ev.key === "ArrowRight") own.onData("\x1b[C");

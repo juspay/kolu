@@ -275,10 +275,8 @@ export function screenshotTerminal(
         }),
       ),
     );
-    const buffer = xterm.buffer.active;
     const cols = xterm.cols;
     const rows = xterm.rows;
-    const yOffset = buffer.viewportY;
 
     // Measure a cell using a probe canvas. A fresh 2d context inherits the
     // browser's default font; we set it explicitly before measuring.
@@ -293,8 +291,15 @@ export function screenshotTerminal(
     // (g, y) don't get clipped by the next row's background.
     const cellH = Math.ceil(fontSize * 1.2);
 
-    const termW = Math.ceil(cellW * cols);
-    const termH = cellH * rows;
+    const live = refs.canvas;
+    const termW =
+      live.width > 0
+        ? Math.ceil(live.width / (window.devicePixelRatio || 1))
+        : Math.ceil(cellW * cols);
+    const termH =
+      live.height > 0
+        ? Math.ceil(live.height / (window.devicePixelRatio || 1))
+        : cellH * rows;
     const logicalW = termW + PAD * 2;
     const logicalH = termH + TITLE_H + PAD * 2;
 
@@ -388,33 +393,8 @@ export function screenshotTerminal(
     ctx.fillStyle = theme.bg;
     ctx.fillRect(0, 0, termW, termH);
 
-    const tempCell = buffer.getNullCell();
-    for (let y = 0; y < rows; y++) {
-      const line = buffer.getLine(yOffset + y);
-      if (!line) continue;
-      for (let x = 0; x < cols; x++) {
-        const cell = line.getCell(x, tempCell);
-        if (!cell) continue;
-        const chars = cell.getChars();
-        const width = cell.getWidth();
-        // width=0 → continuation of a wide char (already painted); skip.
-        if (width === 0) continue;
-        const { fg, bg } = cellColors(cell, theme);
-        const px = x * cellW;
-        const py = y * cellH;
-        const w = cellW * width;
-        if (bg !== theme.bg) {
-          ctx.fillStyle = bg;
-          ctx.fillRect(px, py, w, cellH);
-        }
-        if (chars) {
-          const bold = cell.isBold() ? "bold " : "";
-          const italic = cell.isItalic() ? "italic " : "";
-          ctx.font = `${italic}${bold}${fontSize}px ${fontFamily}`;
-          ctx.fillStyle = fg;
-          ctx.fillText(chars, px, py + fontSize);
-        }
-      }
+    if (live.width > 0 && live.height > 0) {
+      ctx.drawImage(live, 0, 0, termW, termH);
     }
     ctx.restore();
 

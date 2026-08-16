@@ -46,6 +46,8 @@ export interface TerminalProbes extends RenderRecoveryProbes {
 export interface TerminalRefs {
   xterm: GhosttyHandle["terminal"];
   serialize: GhosttyHandle["addons"]["serialize"];
+  /** Live painted canvas — screenshot copies this instead of xterm cells. */
+  canvas: HTMLCanvasElement;
   probes: TerminalProbes;
 }
 
