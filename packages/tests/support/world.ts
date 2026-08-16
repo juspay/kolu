@@ -327,15 +327,31 @@ export class KoluWorld extends World {
     }
   }
 
+  /** Main pane of the active tile. `data-focused` can sit on a split, so
+   *  I-run must not require the main to already hold keyboard focus. */
+  private async focusMainForRun(): Promise<string> {
+    const tileMain =
+      "[data-canvas-tile][data-active] [data-terminal-id]:not([data-sub-terminal])";
+    const fallback = "[data-visible]:not([data-sub-terminal])";
+    const scope =
+      (await this.page.locator(tileMain).count()) > 0 ? tileMain : fallback;
+    const screen = this.page.locator(`${scope} [data-terminal-screen]`).first();
+    await screen.waitFor({ state: "attached", timeout: READY_TIMEOUT });
+    // Click, don't textarea.focus(): provenance ignores programmatic focus,
+    // so the store (and data-focused) would stay on a split.
+    await screen.click({ force: true });
+    await this.waitForFrame();
+    return scope;
+  }
+
   async terminalRun(command: string) {
-    // Canvas tiles are all `data-visible`; only one is `data-focused`.
-    await this.focusForTyping("[data-focused]:not([data-sub-terminal])");
+    await this.focusMainForRun();
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
   }
 
   async terminalRunAndWait(command: string) {
-    await this.focusForTyping("[data-focused]:not([data-sub-terminal])");
+    const scope = await this.focusMainForRun();
     const sequence = terminalCommandSequence++;
     const token = `KD_${process.pid}_${sequence}`;
     const marker = `${token}:`;
@@ -346,13 +362,11 @@ export class KoluWorld extends World {
     await this.page.keyboard.press("Enter");
 
     const handle = await this.page.waitForFunction(
-      ({ expected }) => {
-        const content =
-          window.__readXtermBuffer?.("[data-focused][data-terminal-id]", 0) ??
-          "";
+      ({ expected, sel }) => {
+        const content = window.__readXtermBuffer?.(sel, 0) ?? "";
         return content.includes(expected) ? content : null;
       },
-      { expected: marker },
+      { expected: marker, sel: scope },
       { timeout: HYDRATION_TIMEOUT, polling: 50 },
     );
     const buffer = (await handle.jsonValue()) ?? "";
