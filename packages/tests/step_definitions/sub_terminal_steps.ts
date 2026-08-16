@@ -205,14 +205,13 @@ When(
     const measured = await this.page.waitForFunction(
       (sel) => {
         const node = document.querySelector(sel);
+        // Only the stamped measure — `__xterm.cols` is the constructor
+        // 80 until applyFit publishes, and that 80 would make this
+        // scenario's "real grid ≠ 80" guard fail while the bug is absent.
         const stamped = node?.getAttribute("data-grid-cols");
-        if (stamped) {
-          const n = Number.parseInt(stamped, 10);
-          return n > 0 ? n : null;
-        }
-        const cols = (node as unknown as { __xterm?: { cols: number } })
-          ?.__xterm?.cols;
-        return typeof cols === "number" && cols > 0 ? cols : null;
+        if (!stamped) return null;
+        const n = Number.parseInt(stamped, 10);
+        return n > 0 ? n : null;
       },
       VISIBLE_SUB,
       { timeout: POLL_TIMEOUT },
