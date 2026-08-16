@@ -64,6 +64,8 @@ import {
   type UiAction,
 } from "../runAction";
 
+import { openInCodeTab } from "../right-panel/openInCodeTab";
+import { parseLineRefs } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
 import {
   activeHost,
@@ -180,8 +182,49 @@ const Terminal: Component<{
     handle()?.terminal.focus();
   }
 
-  const onTap = (_clientX: number, _clientY: number): boolean => {
-    return false;
+  const onTap = (clientX: number, clientY: number): boolean => {
+    const h = handle();
+    if (!h) return false;
+    const screen = h.container.querySelector("[data-terminal-screen]");
+    if (!screen) return false;
+    const rect = screen.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    const cols = h.terminal.cols;
+    const rows = h.terminal.rows;
+    const col = Math.max(
+      0,
+      Math.min(
+        cols - 1,
+        Math.floor(((clientX - rect.left) / rect.width) * cols),
+      ),
+    );
+    const row = Math.max(
+      0,
+      Math.min(
+        rows - 1,
+        Math.floor(((clientY - rect.top) / rect.height) * rows),
+      ),
+    );
+    const line = h.terminal.buffer.active.getLine(
+      h.terminal.buffer.active.viewportY + row,
+    );
+    const text = line?.translateToString(true) ?? "";
+    const hit = parseLineRefs(text).find(
+      (r) => col >= r.index && col < r.index + r.text.length,
+    );
+    if (!hit) return false;
+    const meta = terminalStore.getMetadata(props.terminalId);
+    openInCodeTab({
+      terminalId: props.terminalId,
+      ref: {
+        path: hit.path,
+        startLine: hit.startLine,
+        endLine: hit.endLine,
+      },
+      cwd: meta?.cwd,
+      targetMode: "browse",
+    });
+    return true;
   };
 
   /** The host entry's state KIND for this pane's host — the same fact that
