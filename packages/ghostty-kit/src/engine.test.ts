@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createEngine } from "./engine.ts";
-import { loadGhostty } from "./load.ts";
+import { createEngine, loadGhostty } from "./index.ts";
 
 describe("official ghostty-vt.wasm engine", () => {
   it("loads the pinned Ghostty release asset and exports vt_write", async () => {

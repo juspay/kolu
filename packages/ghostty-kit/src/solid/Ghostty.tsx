@@ -11,6 +11,7 @@ import {
   type JSX,
 } from "solid-js";
 import { createEngine, type Engine } from "../engine.ts";
+import { preloadGhostty } from "../load.browser.ts";
 import { sameGrid, type TerminalGrid } from "./grid.ts";
 import { createScrollLock, type ScrollLock } from "./scrollLock.ts";
 
@@ -232,17 +233,40 @@ export const Ghostty: Component<
 
   onMount(() => {
     let cancelled = false;
-    const eng = createEngine({
-      cols: 80,
-      rows: 24,
-      scrollback: own.scrollback,
+    void preloadGhostty()
+      .then(() => {
+        if (cancelled) return;
+        const eng = createEngine({
+          cols: 80,
+          rows: 24,
+          scrollback: own.scrollback,
+        });
+        if (cancelled) {
+          eng.free();
+          return;
+        }
+        engine = eng;
+        bootEngine(eng);
+      })
+      .catch((err: unknown) => {
+        queueMicrotask(() => {
+          throw err instanceof Error
+            ? err
+            : new Error(
+                `@kolu/ghostty-kit: wasm preload failed: ${String(err)}`,
+              );
+        });
+      });
+    onCleanup(() => {
+      cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
+      engine?.free();
+      engine = undefined;
     });
+  });
+
+  function bootEngine(eng: Engine): void {
     {
-      if (cancelled) {
-        eng.free();
-        return;
-      }
-      engine = eng;
       const keyHandlers: Array<(e: KeyboardEvent) => boolean> = [];
       const resultListeners = new Set<
         (e: { resultIndex: number; resultCount: number }) => void
@@ -412,13 +436,7 @@ export const Ghostty: Component<
       own.onReady(handle);
       schedulePaint();
     }
-    onCleanup(() => {
-      cancelled = true;
-      if (raf) cancelAnimationFrame(raf);
-      engine?.free();
-      engine = undefined;
-    });
-  });
+  }
 
   onMount(() => {
     const ro = new ResizeObserver(() => applyFit());

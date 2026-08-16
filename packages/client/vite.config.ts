@@ -151,6 +151,7 @@ export default defineConfig({
   worker: {
     format: "es",
   },
+  assetsInclude: ["**/*.wasm"],
   // Production build targets esnext — kolu ships modern code and never
   // down-levels (`build.target` covers `vite build`).
   //

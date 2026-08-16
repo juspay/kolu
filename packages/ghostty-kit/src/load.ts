@@ -1,7 +1,18 @@
-/** Load the official `ghostty-vt.wasm` once. Throws if the asset is missing. */
+/** Load the official `ghostty-vt.wasm` once. Throws if the asset is missing.
+ *
+ *  This file is reachable from the browser tile. It must not import `node:fs`
+ *  (Vite externalizes it and the page never mounts — see `just test-dev`).
+ *  Node installs a file-backed vendor reader from `index.ts`; the browser
+ *  preloads via `load.browser.ts`. */
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+export type VendorBytes = { vt: Uint8Array; trampoline: Uint8Array };
+
+let vendorReader: (() => VendorBytes) | undefined;
+
+/** Install how wasm bytes are obtained. Node barrel and browser preload call this. */
+export function setVendorReader(read: () => VendorBytes): void {
+  vendorReader = read;
+}
 
 export interface GhosttyExports {
   memory: WebAssembly.Memory;
@@ -140,21 +151,6 @@ export function installHostCallbacks(next: HostCallbacks): void {
   host.notify2 = next.notify2;
 }
 
-function vendorUrl(name: string): URL {
-  return new URL(`../vendor/${name}`, import.meta.url);
-}
-
-function readVendor(name: string): Uint8Array {
-  const url = vendorUrl(name);
-  try {
-    return new Uint8Array(readFileSync(fileURLToPath(url)));
-  } catch (err) {
-    throw new Error(
-      `@kolu/ghostty-kit: official ${name} is missing at ${url.pathname} — ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
-
 let loaded: LoadedWasm | undefined;
 
 export function loadGhostty(): LoadedWasm {
@@ -162,9 +158,17 @@ export function loadGhostty(): LoadedWasm {
   return loaded;
 }
 
+function readVendorBytes(): VendorBytes {
+  if (!vendorReader) {
+    throw new Error(
+      "@kolu/ghostty-kit: wasm reader is not installed — Node must import the package barrel; the browser must preloadGhostty()",
+    );
+  }
+  return vendorReader();
+}
+
 function instantiate(): LoadedWasm {
-  const wasmBytes = readVendor("ghostty-vt.wasm");
-  const trampBytes = readVendor("trampoline.wasm");
+  const { vt: wasmBytes, trampoline: trampBytes } = readVendorBytes();
   const instance = new WebAssembly.Instance(
     new WebAssembly.Module(wasmBytes.buffer as ArrayBuffer),
   );
