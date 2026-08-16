@@ -26,6 +26,14 @@ setVendorReader(() => ({
 
 export { createEngine } from "./engine.ts";
 export type { Engine, EngineOptions, ScreenExtent } from "./engine.ts";
+export type {
+  CellStyle,
+  ColorRef,
+  StyledLine,
+  StyledRun,
+  ThemePalette,
+} from "./styled.ts";
+export { lineText, resolveColor } from "./styled.ts";
 export { loadGhostty } from "./load.ts";
 export { GhosttyError } from "./ffi.ts";
 export { encodeKey, encodeMouse } from "./encode.ts";

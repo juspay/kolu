@@ -90,4 +90,43 @@ describe("official ghostty-vt.wasm engine", () => {
       eng.free();
     }
   });
+
+  it("keeps Starship-like prompt text and SGR in the shipped engine", () => {
+    const eng = createEngine({ cols: 40, rows: 12 });
+    try {
+      // Representative Starship: palette + truecolor + unicode prompt + wrap.
+      const wrap = "abcdefghijklmnopqrstuvwxyz012345";
+      eng.write(
+        "\x1b[0m\x1b[1m\x1b[38;5;6msrid\x1b[0m on \x1b[1m\x1b[38;5;3mnaiveintent\x1b[0m \x1b[1m\x1b[38;5;5m~\x1b[0m\r\n",
+      );
+      eng.write(`\x1b[38;2;88;88;88m❯\x1b[0m \x1b[38;5;4m${"\uE0B0"}\x1b[0m`);
+      eng.write(`${wrap}\r\n`);
+      const plain = eng.formatPlain();
+      expect(plain).toContain("srid");
+      expect(plain).toContain("naiveintent");
+      expect(plain).toContain("~");
+      expect(plain).toContain("❯");
+      expect(plain).toContain("\uE0B0");
+      expect(plain).toContain("abcdefghijklmnopqrst");
+      const vt = eng.formatVt();
+      expect(vt).toMatch(/\x1b\[/);
+      expect(vt).toContain("srid");
+      expect(vt).toContain("❯");
+      const lines = eng.styledLines({ kind: "viewport" });
+      const runs = lines.flatMap((l) => l.runs);
+      const texts = runs.map((r) => r.text).join("");
+      expect(texts).toContain("srid");
+      expect(texts).toContain("naiveintent");
+      expect(texts).toContain("❯");
+      expect(texts).toContain("\uE0B0");
+      const srid = runs.find((r) => r.text.includes("srid"));
+      expect(srid?.style.fg).toEqual({ kind: "palette", index: 6 });
+      expect(srid?.style.bold).toBe(true);
+      const prompt = runs.find((r) => r.text.includes("❯"));
+      expect(prompt?.style.fg).toEqual({ kind: "rgb", r: 88, g: 88, b: 88 });
+      expect(lines.length).toBe(eng.rows);
+    } finally {
+      eng.free();
+    }
+  });
 });

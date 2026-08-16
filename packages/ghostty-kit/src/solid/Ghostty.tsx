@@ -14,6 +14,7 @@ import {
 } from "solid-js";
 import { createEngine, type Engine } from "../engine.ts";
 import { preloadGhostty } from "../load.browser.ts";
+import { lineText, resolveColor } from "../styled.ts";
 import { sameGrid, type TerminalGrid } from "./grid.ts";
 import { createOnceMeasured } from "./onceMeasured.ts";
 import { createScrollLock, type ScrollLock } from "./scrollLock.ts";
@@ -198,15 +199,42 @@ export const Ghostty: Component<
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = own.theme.background ?? "#000";
     ctx.fillRect(0, 0, cols * w, rows * h);
-    ctx.font = `${own.fontSize}px ${own.fontFamily}`;
     ctx.textBaseline = "top";
-    ctx.fillStyle = own.theme.foreground ?? "#ddd";
-    const text = engine.getScreenText({ kind: "viewport" });
-    const lines = text.length === 0 ? [] : text.split("\n");
+    const baseFont = `${own.fontSize}px ${own.fontFamily}`;
+    const defaultBg = own.theme.background ?? "#000";
+    const lines = engine.styledLines({ kind: "viewport" });
     for (let y = 0; y < rows; y++) {
-      const line = lines[y] ?? "";
-      ctx.fillText(line, 0, y * h);
+      const line = lines[y];
+      if (!line) continue;
+      let col = 0;
+      for (const run of line.runs) {
+        let fg = resolveColor(run.style.fg, own.theme, "fg");
+        let bg = resolveColor(run.style.bg, own.theme, "bg");
+        if (run.style.inverse) {
+          const swap = fg;
+          fg = bg;
+          bg = swap;
+        }
+        const weight = run.style.bold ? "700 " : "";
+        const italic = run.style.italic ? "italic " : "";
+        ctx.font = `${italic}${weight}${baseFont}`;
+        ctx.globalAlpha = run.style.faint ? 0.5 : 1;
+        for (const ch of run.text) {
+          const glyphCols = engine.cellWidth(ch.codePointAt(0) ?? 0);
+          if (glyphCols > 0 && bg !== defaultBg) {
+            ctx.fillStyle = bg;
+            ctx.fillRect(col * w, y * h, glyphCols * w, h);
+          }
+          ctx.fillStyle = fg;
+          ctx.fillText(ch, col * w, y * h);
+          if (run.style.underline && glyphCols > 0) {
+            ctx.fillRect(col * w, y * h + h - 1, glyphCols * w, 1);
+          }
+          if (glyphCols > 0) col += glyphCols;
+        }
+      }
     }
+    ctx.globalAlpha = 1;
     const cur = engine.cursor();
     ctx.fillStyle = own.theme.cursor ?? own.theme.foreground ?? "#fff";
     ctx.fillRect(cur.x * w, cur.y * h, Math.max(1, Math.floor(w * 0.15)), h);
@@ -500,7 +528,9 @@ export const Ghostty: Component<
       selText = "";
       return;
     }
-    const lines = engine.getScreenText({ kind: "viewport" }).split("\n");
+    const lines = engine
+      .styledLines({ kind: "viewport" })
+      .map((line) => lineText(line));
     const y0 = Math.min(from.y, to.y);
     const y1 = Math.max(from.y, to.y);
     const x0 = Math.min(from.x, to.x);

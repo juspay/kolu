@@ -21,6 +21,7 @@ import {
 } from "./constants.ts";
 import { check, Ffi } from "./ffi.ts";
 import { installHostCallbacks, loadGhostty } from "./load.ts";
+import { parseVtStyled, type StyledLine } from "./styled.ts";
 
 export type ScreenExtent =
   | { kind: "full" }
@@ -52,6 +53,8 @@ export interface Engine {
   formatPlain(opts?: { unwrap?: boolean; trim?: boolean }): string;
   formatVt(opts?: { unwrap?: boolean; trim?: boolean }): string;
   formatHtml(opts?: { unwrap?: boolean; trim?: boolean }): string;
+  /** Visual rows of column-aligned SGR runs (official FORMAT_VT). */
+  styledLines(extent?: ScreenExtent): StyledLine[];
   encodeSnapshot(): Uint8Array;
   restoreSnapshot(bytes: Uint8Array): void;
   getScreenText(extent?: ScreenExtent): string;
@@ -64,6 +67,8 @@ export interface Engine {
   totalRows(): number;
   scrollbackRows(): number;
   cursor(): { x: number; y: number };
+  /** Official Ghostty terminal display width of a code point (0, 1, or 2). */
+  cellWidth(cp: number): number;
   activeScreen(): number;
   /** Absolute-line origin (lines discarded by reset). */
   baseLine(): number;
@@ -183,10 +188,12 @@ export function createEngine(opts: EngineOptions): Engine {
   let lastTotal = rows;
   let cachedPlain: string | undefined;
   let cachedVt: string | undefined;
+  let cachedStyled: StyledLine[] | undefined;
 
   function invalidate(): void {
     cachedPlain = undefined;
     cachedVt = undefined;
+    cachedStyled = undefined;
   }
 
   function bindTerm(next: number): void {
@@ -252,6 +259,39 @@ export function createEngine(opts: EngineOptions): Engine {
     }
   }
 
+  function sliceStyled(all: StyledLine[], extent: ScreenExtent): StyledLine[] {
+    switch (extent.kind) {
+      case "full":
+        return all;
+      case "range": {
+        const start = Math.max(0, extent.startLine ?? 0);
+        const end = Math.min(all.length, extent.endLine ?? all.length);
+        return all.slice(start, end);
+      }
+      case "tail": {
+        const n = Math.max(0, extent.lines);
+        return all.slice(Math.max(0, all.length - n));
+      }
+      case "viewport": {
+        if (all.length >= rows) return all.slice(all.length - rows);
+        const pad = rows - all.length;
+        const empty: StyledLine[] = Array.from({ length: pad }, () => ({
+          runs: [],
+        }));
+        return [...all, ...empty];
+      }
+    }
+  }
+
+  function allStyled(): StyledLine[] {
+    if (cachedStyled !== undefined) return cachedStyled;
+    const vt = format(FORMAT_VT, false, false);
+    cachedStyled = parseVtStyled(vt, (cp) =>
+      wasm.exports.ghostty_unicode_codepoint_width(cp),
+    );
+    return cachedStyled;
+  }
+
   return {
     get cols() {
       return cols;
@@ -310,6 +350,9 @@ export function createEngine(opts: EngineOptions): Engine {
     },
     formatHtml(o) {
       return format(FORMAT_HTML, o?.unwrap ?? true, o?.trim ?? true);
+    },
+    styledLines(extent) {
+      return sliceStyled(allStyled(), extent ?? { kind: "full" });
     },
     encodeSnapshot() {
       const ptrOut = ffi.allocOpaque();
@@ -386,6 +429,9 @@ export function createEngine(opts: EngineOptions): Engine {
         x: ffi.getU32(term, DATA_CURSOR_X),
         y: ffi.getU32(term, DATA_CURSOR_Y),
       };
+    },
+    cellWidth(cp) {
+      return wasm.exports.ghostty_unicode_codepoint_width(cp);
     },
     activeScreen() {
       return ffi.getU32(term, DATA_ACTIVE_SCREEN);

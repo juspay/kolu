@@ -110,6 +110,7 @@ export interface GhosttyExports {
   ghostty_mouse_event_set_button: (ev: number, button: number) => void;
   ghostty_mouse_event_set_mods: (ev: number, mods: number) => void;
   ghostty_mouse_event_set_position: (ev: number, x: number, y: number) => void;
+  ghostty_unicode_codepoint_width: (cp: number) => number;
   [name: string]: unknown;
 }
 
