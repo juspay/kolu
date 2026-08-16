@@ -114,7 +114,10 @@ describe("watchWorkingTree rebuild", () => {
       // Drop the last listener — this retires the shared parcel subscription —
       // and rebuild immediately, the way a stream re-subscribe does. The pool
       // is loaded first so the two halves overlap, as they do under CI load.
-      saturateThreadpool();
+      // Darwin: saturating libuv starves parcel's FSEvents delivery, so every
+      // cycle looks dead and the next test is poisoned. The subscribe chain
+      // still serializes; we just don't hold the pool.
+      if (process.platform !== "darwin") saturateThreadpool();
       off1();
 
       let fired = 0;
