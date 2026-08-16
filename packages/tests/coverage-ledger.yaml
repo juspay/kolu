@@ -2100,3 +2100,16 @@ retirements:
       file: packages/tests/features/preferences.feature
       symbol: "Scenario: Terminal renderer preference swaps the active tile and persists"
       test: Same settings-popover + reload path; the default is canvas/dom and there is no webgl swap, so the survivor asserts that renderer persists.
+  - id: revise-18091d1f1044f5d917d7
+    revisionId: revision-18091d1f1044f5d917d7
+    action: revised
+    status: landed
+    promise: The PTY is resized to the measured tile grid on connect
+    defectSurface: [tiles, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-23c07c2d9b7228b3455d]
+    sameCodePathEvidence:
+      file: packages/tests/features/terminal.feature
+      symbol: "Scenario: Initial resize is sent to PTY on connect"
+      test: Same echo-$COLUMNS path; the assertion now matches the stamped data-grid-cols so a tile that honestly measures 80 columns is not a false fail.
