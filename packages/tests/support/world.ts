@@ -316,23 +316,26 @@ export class KoluWorld extends World {
    *  the harness stand-in for that tap. Desktop terminals already hold focus,
    *  so it no-ops there. */
   async focusForTyping(scope: string) {
+    const input = this.page.locator(`${scope} [data-terminal-input]`).first();
+    await input.waitFor({ state: "attached", timeout: READY_TIMEOUT });
     const focused = await this.page.evaluate(
       (sel) => !!document.activeElement?.closest(sel),
       scope,
     );
     if (!focused) {
-      await this.page.locator(`${scope} [data-terminal-input]`).first().focus();
+      await input.focus();
     }
   }
 
   async terminalRun(command: string) {
-    await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
+    // Canvas tiles are all `data-visible`; only one is `data-focused`.
+    await this.focusForTyping("[data-focused]:not([data-sub-terminal])");
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
   }
 
   async terminalRunAndWait(command: string) {
-    await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
+    await this.focusForTyping("[data-focused]:not([data-sub-terminal])");
     const sequence = terminalCommandSequence++;
     const token = `KD_${process.pid}_${sequence}`;
     const marker = `${token}:`;
