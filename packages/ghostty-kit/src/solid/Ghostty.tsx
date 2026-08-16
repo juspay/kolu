@@ -5,14 +5,17 @@ import {
   type Component,
   createEffect,
   createSignal,
+  getOwner,
   onCleanup,
   onMount,
+  runWithOwner,
   splitProps,
   type JSX,
 } from "solid-js";
 import { createEngine, type Engine } from "../engine.ts";
 import { preloadGhostty } from "../load.browser.ts";
 import { sameGrid, type TerminalGrid } from "./grid.ts";
+import { createOnceMeasured } from "./onceMeasured.ts";
 import { createScrollLock, type ScrollLock } from "./scrollLock.ts";
 
 export interface TerminalTheme {
@@ -160,7 +163,7 @@ export const Ghostty: Component<
   let canvas!: HTMLCanvasElement;
   let textarea!: HTMLTextAreaElement;
   const [grid, setGrid] = createSignal<TerminalGrid | null>(null);
-  const onceFns: ((g: TerminalGrid) => void)[] = [];
+  const onceMeasured = createOnceMeasured(grid);
   const lock = createScrollLock();
   let engine: Engine | undefined;
   let handle: GhosttyHandle | undefined;
@@ -226,27 +229,34 @@ export const Ghostty: Component<
     if (prev && sameGrid(prev, next)) return prev;
     engine?.resize(cols, rows, w, h);
     setGrid(next);
-    for (const fn of onceFns.splice(0)) fn(next);
     schedulePaint();
     return next;
   }
 
   onMount(() => {
+    const owner = getOwner();
+    if (!owner) {
+      throw new Error(
+        "@kolu/ghostty-kit: <Ghostty> mounted without a Solid owner",
+      );
+    }
     let cancelled = false;
     void preloadGhostty()
       .then(() => {
-        if (cancelled) return;
-        const eng = createEngine({
-          cols: 80,
-          rows: 24,
-          scrollback: own.scrollback,
+        runWithOwner(owner, () => {
+          if (cancelled) return;
+          const eng = createEngine({
+            cols: 80,
+            rows: 24,
+            scrollback: own.scrollback,
+          });
+          if (cancelled) {
+            eng.free();
+            return;
+          }
+          engine = eng;
+          bootEngine(eng);
         });
-        if (cancelled) {
-          eng.free();
-          return;
-        }
-        engine = eng;
-        bootEngine(eng);
       })
       .catch((err: unknown) => {
         queueMicrotask(() => {
@@ -369,11 +379,7 @@ export const Ghostty: Component<
         clearPendingOutput: () => lock.clearPending(),
         refit: () => applyFit(),
         grid,
-        onceMeasured: (fn) => {
-          const g = grid();
-          if (g) fn(g);
-          else onceFns.push(fn);
-        },
+        onceMeasured,
         search: (query, dir) => {
           const hay = eng.formatPlain();
           if (!query) return false;

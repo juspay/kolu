@@ -480,11 +480,6 @@ const Terminal: Component<{
     // because the grid is also what we ASK for the snapshot AT (below), and a
     // request can't carry a size we haven't measured.
     //
-    // The latch is the kit's (`onceMeasured`), not a local boolean: it owns the
-    // measurement hazard, so "wait for a real grid" is one call here rather than
-    // a re-derivation of the rule beside the rule.
-    h.onceMeasured(() => openAttachStream());
-
     // The ONE publisher of this pane's grid CHANGES → the PTY. (The attach's own
     // `resizeTo` states the grid the pane OPENS at; every change after that
     // travels here.) `grid` is value-compared inside the kit, so this fires
@@ -524,6 +519,10 @@ const Terminal: Component<{
     // state in its closure and asks the gate whether it is still the live one.
     // See `attachAttempts.ts`.
     const attempts = createAttemptGate();
+    // Kit latch, not a local boolean. Must sit after `attempts`: a synchronous
+    // fire would TDZ. The kit's latch is an effect so this is also safe if the
+    // grid is already known at registration.
+    h.onceMeasured(() => openAttachStream());
 
     // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
     // (`padiSurface.streams.terminalAttach`), but its health is the terminal's
