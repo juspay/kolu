@@ -502,7 +502,7 @@ test: install
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
     # Linux at 8 workers × ghostty-vt.wasm + Chromium dies mid-suite with
     # no Cucumber verdict. Cap both platforms so the suite can finish.
-    cap=4; [ "$(uname)" = Darwin ] && cap=4
+    cap=2; [ "$(uname)" = Darwin ] && cap=4
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans

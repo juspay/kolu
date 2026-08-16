@@ -103,10 +103,12 @@ export interface XtermShim {
   onResize: (cb: (e: { cols: number; rows: number }) => void) => {
     dispose: () => void;
   };
+  scrollLines: (n: number) => void;
   buffer: {
     active: {
       length: number;
       viewportY: number;
+      baseY: number;
       getLine: (
         i: number,
       ) =>
@@ -172,6 +174,8 @@ export const Ghostty: Component<
   let raf = 0;
   let selText = "";
   let selAnchor: { x: number; y: number } | null = null;
+  /** Lines the paint is shifted up from the live bottom. 0 = pinned. */
+  let viewOffset = 0;
 
   function cellSize(): { w: number; h: number } {
     const probe = document.createElement("canvas").getContext("2d");
@@ -202,7 +206,11 @@ export const Ghostty: Component<
     ctx.textBaseline = "top";
     const baseFont = `${own.fontSize}px ${own.fontFamily}`;
     const defaultBg = own.theme.background ?? "#000";
-    const lines = engine.styledLines({ kind: "viewport" });
+    const all = engine.styledLines({ kind: "full" });
+    const maxOff = Math.max(0, all.length - rows);
+    if (viewOffset > maxOff) viewOffset = maxOff;
+    const start = Math.max(0, all.length - rows - viewOffset);
+    const lines = all.slice(start, start + rows);
     for (let y = 0; y < rows; y++) {
       const line = lines[y];
       if (!line) continue;
@@ -235,9 +243,11 @@ export const Ghostty: Component<
       }
     }
     ctx.globalAlpha = 1;
-    const cur = engine.cursor();
-    ctx.fillStyle = own.theme.cursor ?? own.theme.foreground ?? "#fff";
-    ctx.fillRect(cur.x * w, cur.y * h, Math.max(1, Math.floor(w * 0.15)), h);
+    if (viewOffset === 0) {
+      const cur = engine.cursor();
+      ctx.fillStyle = own.theme.cursor ?? own.theme.foreground ?? "#fff";
+      ctx.fillRect(cur.x * w, cur.y * h, Math.max(1, Math.floor(w * 0.15)), h);
+    }
   }
 
   function schedulePaint(): void {
@@ -307,6 +317,12 @@ export const Ghostty: Component<
 
   function bootEngine(eng: Engine): void {
     {
+      const rawBottom = lock.scrollToBottom.bind(lock);
+      lock.scrollToBottom = (_term?: unknown) => {
+        viewOffset = 0;
+        schedulePaint();
+        return rawBottom(_term);
+      };
       const keyHandlers: Array<(e: KeyboardEvent) => boolean> = [];
       const resultListeners = new Set<
         (e: { resultIndex: number; resultCount: number }) => void
@@ -342,15 +358,26 @@ export const Ghostty: Component<
           keyHandlers.push(fn);
         },
         onResize: () => ({ dispose: () => {} }),
+        scrollLines: (n) => {
+          const ls = visualLines();
+          const maxOff = Math.max(0, ls.length - eng.rows);
+          // xterm: negative n scrolls the viewport toward older rows.
+          viewOffset = Math.max(0, Math.min(maxOff, viewOffset - n));
+          schedulePaint();
+        },
         buffer: {
           get active() {
             const ls = visualLines();
+            const baseY = Math.max(0, ls.length - eng.rows);
             return {
               get length() {
                 return ls.length;
               },
               get viewportY() {
-                return Math.max(0, ls.length - eng.rows);
+                return Math.max(0, baseY - viewOffset);
+              },
+              get baseY() {
+                return baseY;
               },
               getLine: (i: number) => {
                 const t = ls[i];
@@ -528,9 +555,10 @@ export const Ghostty: Component<
       selText = "";
       return;
     }
-    const lines = engine
-      .styledLines({ kind: "viewport" })
-      .map((line) => lineText(line));
+    const all = engine.styledLines({ kind: "full" });
+    const rows = grid()?.rows ?? engine.rows;
+    const start = Math.max(0, all.length - rows - viewOffset);
+    const lines = all.slice(start, start + rows).map((line) => lineText(line));
     const y0 = Math.min(from.y, to.y);
     const y1 = Math.max(from.y, to.y);
     const x0 = Math.min(from.x, to.x);
@@ -565,16 +593,25 @@ export const Ghostty: Component<
     if (ev.shiftKey) return;
     ev.stopPropagation();
     ev.preventDefault();
-    if (!own.scrollLockEnabled()) return;
+    if (engine) {
+      const all = engine.styledLines({ kind: "full" });
+      const maxOff = Math.max(0, all.length - engine.rows);
+      if (ev.deltaY < 0) viewOffset = Math.min(maxOff, viewOffset + 3);
+      else viewOffset = Math.max(0, viewOffset - 3);
+    }
+    if (!own.scrollLockEnabled()) {
+      schedulePaint();
+      return;
+    }
     lock.armUserScrollIntent("wheel");
     if (ev.deltaY < 0) lock.lock(0, 1);
-    else if (ev.deltaY > 0) {
+    else if (ev.deltaY > 0 && viewOffset === 0) {
       const flushed = lock.unlock();
       if (engine) {
         for (const chunk of flushed) engine.write(chunk);
-        schedulePaint();
       }
     }
+    schedulePaint();
   }
 
   return (
