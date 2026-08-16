@@ -19,7 +19,7 @@ import { lineContinuesPrevious, lineText, resolveColor } from "../styled.ts";
 import { sameGrid, type TerminalGrid } from "./grid.ts";
 import { measurePane } from "./measurePane.ts";
 import { createOnceMeasured } from "./onceMeasured.ts";
-import { adjustLockedViewOffset } from "./lockOffset.ts";
+import { adjustLockedViewOffset, repinLockedViewOffset } from "./lockOffset.ts";
 import { paintStyledLines } from "./paintExtent.ts";
 import { createScrollLock, type ScrollLock } from "./scrollLock.ts";
 import { shouldActivateTap, type TapGesture } from "./tapGesture.ts";
@@ -549,24 +549,26 @@ export const Ghostty: Component<
         eng.write(data);
         onParsed?.();
         const after = eng.totalRows();
-        if (after < before) {
-          viewOffset = adjustLockedViewOffset(
-            viewOffset,
-            before,
-            after,
-            eng.rows,
-            needle,
-            eng.styledLines({ kind: "full" }),
+        viewOffset = adjustLockedViewOffset(
+          viewOffset,
+          before,
+          after,
+          eng.rows,
+          needle,
+          after < before ? eng.styledLines({ kind: "full" }) : [],
+        );
+        if (needle.length > 0) {
+          const now = lineText(
+            viewportWindow(eng.rows).lines[0] ?? { runs: [] },
           );
-        } else {
-          viewOffset = adjustLockedViewOffset(
-            viewOffset,
-            before,
-            after,
-            eng.rows,
-            needle,
-            [],
-          );
+          if (now !== needle) {
+            const pinned = repinLockedViewOffset(
+              eng.rows,
+              needle,
+              eng.styledLines({ kind: "full" }),
+            );
+            if (pinned !== null) viewOffset = pinned;
+          }
         }
         lock.buffer(data);
         schedulePaint();

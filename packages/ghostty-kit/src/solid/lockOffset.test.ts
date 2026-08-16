@@ -1,11 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { createEngine } from "../index.ts";
 import { lineText } from "../styled.ts";
-import { adjustLockedViewOffset } from "./lockOffset.ts";
+import { adjustLockedViewOffset, repinLockedViewOffset } from "./lockOffset.ts";
 
 describe("adjustLockedViewOffset", () => {
   it("advances the window by the totalRows growth, without restyling", () => {
     expect(adjustLockedViewOffset(10, 80, 85, 24, "held", [])).toBe(15);
+  });
+
+  it("repins a drifted window so the held line is the first visible row", () => {
+    const eng = createEngine({ cols: 20, rows: 4, scrollback: 40 });
+    try {
+      for (let i = 0; i < 20; i++)
+        eng.write(`hold-${String(i).padStart(2, "0")}\r\n`);
+      const full = eng.styledLines({ kind: "full" });
+      const held = lineText(full[8] ?? { runs: [] });
+      const pinned = repinLockedViewOffset(4, held, full);
+      expect(pinned).not.toBeNull();
+      const start = full.length - 4 - (pinned ?? 0);
+      expect(lineText(full[start] ?? { runs: [] })).toBe(held);
+    } finally {
+      eng.free();
+    }
   });
 
   it("re-pins the held line after a wasm prune shrinks the buffer", () => {
