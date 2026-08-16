@@ -229,13 +229,23 @@ function retireWorkingTreeSubscription(
   log?: Logger,
 ): void {
   void sequenceParcelCall(repoRoot, () =>
-    sub.unsubscribe().catch((e: Error) => {
-      log?.error(
-        { err: e.message, repoRoot },
-        "git: working-tree unsubscribe failed",
-      );
-    }),
+    sub
+      .unsubscribe()
+      .catch((e: Error) => {
+        log?.error(
+          { err: e.message, repoRoot },
+          "git: working-tree unsubscribe failed",
+        );
+      })
+      .then(() => settleParcelBackend()),
   );
+}
+
+/** FSEvents can resolve unsubscribe before the stream is actually gone.
+ *  A new subscribe on the same (dir, ignore) then installs no watches. */
+function settleParcelBackend(): Promise<void> {
+  if (process.platform !== "darwin") return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, 50));
 }
 
 function installSharedWorkingTreeWatcher(
@@ -400,6 +410,7 @@ function installSharedWorkingTreeWatcher(
             "git: working-tree unsubscribe failed",
           );
         });
+        await settleParcelBackend();
       }
       try {
         const sub = await parcelSubscribe(repoRoot, onParcelEvents, {
