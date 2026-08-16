@@ -227,7 +227,7 @@ const Terminal: Component<{
       });
       return true;
     }
-    const urlRe = /https?:\/\/[^\s]+/g;
+    const urlRe = /https?:\/\/[^\s"'<>]+/g;
     for (const m of text.matchAll(urlRe)) {
       const start = m.index ?? 0;
       const uri = m[0] ?? "";

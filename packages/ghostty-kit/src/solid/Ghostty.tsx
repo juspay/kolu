@@ -261,11 +261,16 @@ export const Ghostty: Component<
   }
 
   function schedulePaint(): void {
+    const rd = handle?.terminal._core._renderService._renderDebouncer;
+    // e2e parks rAF and cancels `_animationFrame`; drop the stale handle.
+    if (rd && rd._animationFrame === undefined) raf = 0;
     if (raf) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
+      if (rd) rd._animationFrame = undefined;
       paint();
     });
+    if (rd) rd._animationFrame = raf;
   }
 
   function applyFit(): TerminalGrid | null {
