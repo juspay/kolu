@@ -48,7 +48,11 @@ import {
   padiKavalSocketPath,
   padiSocketPath,
 } from "./stateRoot.ts";
-import { PADI_SURFACE_VERSION, padiDaemonGroup } from "./surface.ts";
+import {
+  PADI_SURFACE_VERSION,
+  padiDaemonGroup,
+  TOPLEVEL_PLACEMENT,
+} from "./surface.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 // Kept in step with the `padi` bin `package.json` declares — #2000 moved the
@@ -372,6 +376,7 @@ describeDaemon("padi the process — dial acceptance", () => {
 
     const { id } = await Effect.runPromise(
       conn.client.padi.surface.lifecycle.create({
+        placement: TOPLEVEL_PLACEMENT,
         cwd: makeStateRoot(),
       }),
     );
@@ -429,6 +434,7 @@ describeDaemon("padi the process — dial acceptance", () => {
 
     const { id } = await Effect.runPromise(
       connA.client.padi.surface.lifecycle.create({
+        placement: TOPLEVEL_PLACEMENT,
         cwd: makeStateRoot(),
       }),
     );
@@ -666,6 +672,7 @@ describeDaemon(
 
       const { id } = await Effect.runPromise(
         client.padi.surface.lifecycle.create({
+          placement: TOPLEVEL_PLACEMENT,
           cwd: makeStateRoot(),
         }),
       );
@@ -715,6 +722,7 @@ describeDaemon(
       const { client: client1 } = await stdioClient(front1);
       const { id } = await Effect.runPromise(
         client1.padi.surface.lifecycle.create({
+          placement: TOPLEVEL_PLACEMENT,
           cwd: makeStateRoot(),
         }),
       );

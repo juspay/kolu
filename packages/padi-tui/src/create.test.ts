@@ -5,7 +5,9 @@
  * `argv.join(" ")` that would let the shell re-split a spaces/quotes/metachar token.
  */
 
+import { TOPLEVEL_PLACEMENT } from "@kolu/padi/surface";
 import { shellSplit } from "@kolu/shell-quote";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { PadiTuiClient } from "./connect.ts";
@@ -65,7 +67,9 @@ describe("runCreate — the launched command round-trips the argv", () => {
   it("preserves a single argument that carries spaces (a prompt)", async () => {
     const { client, sent } = stubClient();
     const argv = ["claude", "review this PR"];
-    const result = await Effect.runPromise(runCreate(client, { argv }));
+    const result = await Effect.runPromise(
+      runCreate(client, { placement: TOPLEVEL_PLACEMENT, argv }),
+    );
 
     // The shell recovers TWO tokens, not four — the prompt stays one argument.
     expect(relaunchedArgv(sent)).toEqual(argv);
@@ -76,57 +80,79 @@ describe("runCreate — the launched command round-trips the argv", () => {
   it("preserves quotes, `$`, `*`, `;` and other shell metacharacters", async () => {
     const { client, sent } = stubClient();
     const argv = ["sh", "-c", `echo "$HOME"/* ; rm -rf 'a b'`];
-    await Effect.runPromise(runCreate(client, { argv }));
+    await Effect.runPromise(
+      runCreate(client, { placement: TOPLEVEL_PLACEMENT, argv }),
+    );
     expect(relaunchedArgv(sent)).toEqual(argv);
   });
 
   it("preserves an empty argument", async () => {
     const { client, sent } = stubClient();
     const argv = ["cmd", "", "tail"];
-    await Effect.runPromise(runCreate(client, { argv }));
+    await Effect.runPromise(
+      runCreate(client, { placement: TOPLEVEL_PLACEMENT, argv }),
+    );
     expect(relaunchedArgv(sent)).toEqual(argv);
   });
 
   it("sends nothing when no argv was given (a bare terminal)", async () => {
     const { client, sent } = stubClient();
-    const result = await Effect.runPromise(runCreate(client, { argv: [] }));
+    const result = await Effect.runPromise(
+      runCreate(client, { placement: TOPLEVEL_PLACEMENT, argv: [] }),
+    );
     expect(sent).toHaveLength(0);
     expect(result.ran).toBeUndefined();
   });
 });
 
-describe("runCreate — the create payload OMITS absent optional keys", () => {
-  // `PadiCreateInputSchema` spells `cwd`/`parentId` with `Schema.optionalKey`
+describe("runCreate — the create payload states placement and OMITS absent optional keys", () => {
+  // `PadiCreateInputSchema` spells `cwd` with `Schema.optionalKey`
   // (PLAN #17, the law for every wire field zod used to `.optional()`), which —
   // unlike zod — REFUSES an explicit `undefined` rather than round-tripping it
-  // through `null`. So a `{ cwd, parentId }` shorthand here would encode-fail on
+  // through `null`. So a `{ cwd }` shorthand here would encode-fail on
   // the wire for the commonest create of all. `Object.keys`, not
   // `toEqual`/`toHaveBeenCalledWith`: those treat an `undefined`-valued key as
   // absent, which is exactly the distinction under test.
-  it("omits cwd and parentId when neither was chosen", async () => {
-    const { client, created } = stubClient();
-    await Effect.runPromise(runCreate(client, { argv: [] }));
-    expect(created).toHaveLength(1);
-    expect(Object.keys(created[0] ?? {})).toEqual([]);
-  });
-
-  it("carries only the keys that were chosen", async () => {
+  //
+  // `placement` is the counter-case in the same test: it is REQUIRED, so it is
+  // present on EVERY payload — including the bare create that carries nothing
+  // else. That is the whole no-default rule, read off the wire payload.
+  it("omits cwd when it was not chosen, and still states placement", async () => {
     const { client, created } = stubClient();
     await Effect.runPromise(
-      runCreate(client, { argv: [], parentId: "t-parent" }),
+      runCreate(client, { placement: TOPLEVEL_PLACEMENT, argv: [] }),
     );
-    expect(Object.keys(created[0] ?? {})).toEqual(["parentId"]);
+    expect(created).toHaveLength(1);
+    expect(Object.keys(created[0] ?? {})).toEqual(["placement"]);
+    expect(created[0]).toEqual({ placement: { kind: "toplevel" } });
+  });
+
+  it("carries a split's parent inside the placement, not as a loose key", async () => {
+    const { client, created } = stubClient();
+    await Effect.runPromise(
+      runCreate(client, {
+        placement: { kind: "child-of", parentId: "t-parent" as TerminalId },
+        argv: [],
+      }),
+    );
+    expect(created[0]).toEqual({
+      placement: { kind: "child-of", parentId: "t-parent" },
+    });
   });
 
   it("takes cwd from the materialized worktree, not the caller's", async () => {
     const { client, created } = stubClient();
     await Effect.runPromise(
       runCreate(client, {
+        placement: TOPLEVEL_PLACEMENT,
         argv: [],
         cwd: "/local",
         worktree: { repoPath: "/repo", name: "feat" },
       }),
     );
-    expect(created[0]).toEqual({ cwd: "/wt" });
+    expect(created[0]).toEqual({
+      placement: { kind: "toplevel" },
+      cwd: "/wt",
+    });
   });
 });

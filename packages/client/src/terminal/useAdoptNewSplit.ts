@@ -1,7 +1,8 @@
 /** Adopt an externally-created split — the ARRIVAL mirror of useActiveReconcile.
  *
- *  A split created OUTSIDE the browser (`padi-tui create --parent`, another
- *  client, a future API) reaches the daemon via `lifecycle.create({parentId})`
+ *  A split created OUTSIDE the browser (`kolu create --parent`, another
+ *  client, a future API) reaches the daemon via
+ *  `lifecycle.create({placement: {kind: "child-of", parentId}})`
  *  and shows up on the terminals collection — but nothing runs the two
  *  BROWSER-LOCAL steps the manual split path does (`useTerminalCrud.
  *  handleCreateSubTerminal`): expand the parent's sub-panel and select the new

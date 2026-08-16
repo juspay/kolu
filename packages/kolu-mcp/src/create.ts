@@ -1,8 +1,26 @@
 /**
  * `lifecycle_create` — the MCP face's create tool, completing the verb to
- * `kolu create` parity: spawn a terminal, optionally as a split (`parentId`),
- * in a fresh git worktree (`repo` + `worktree`), labelled on the canvas
- * (`intent`), and optionally typing a command at its first prompt (`run`).
+ * `kolu create` parity: spawn a terminal at a STATED `placement` (a tile of its
+ * own, or a split inside another), in a fresh git worktree (`repo` +
+ * `worktree`), labelled on the canvas (`intent`), and optionally typing a
+ * command at its first prompt (`run`).
+ *
+ * ## `placement` is required here for the same reason it is on the CLI
+ *
+ * The agent calling this tool is exactly the script-shaped caller the no-default
+ * rule exists for: it will not notice a placement it never chose, and the canvas
+ * and the Dock read a terminal's parent edge as *who works for whom*. So the
+ * field is REQUIRED, and the refusal names both spellings —
+ * `{"kind":"toplevel"}` and `{"kind":"child-of","parentId":"…"}`.
+ *
+ * That refusal is the SCHEMA's, not a gate in this file, and deliberately so.
+ * `CreateArgsSchema` spreads `PadiCreateInputSchema.fields`, so `placement`
+ * arrives as the wire's own required field carrying the wire's own
+ * `PLACEMENT_REQUIRED` sentence on both the missing-key and the malformed-value
+ * issue. A hand-written check here would be a SECOND copy of a rule the wire
+ * already states — free to drift, and unreachable anyway, since `decodeUnknownSync`
+ * runs before `handler`. The blank/worktree gates below stay hand-written because
+ * they are THIS face's rules, which the wire does not know.
  *
  * Every step is a thin call on `padiSurface` — `git.worktreeCreate`,
  * `lifecycle.create`, `lifecycle.sendInput` — composed exactly the way
@@ -11,7 +29,7 @@
  * one created from the CLI or the browser. The worktree lands where the daemon
  * puts every worktree: `<repo>/.worktrees/<name>`, cut host-side by
  * `git.worktreeCreate` (which stays UNEXPOSED as a raw tool — it is composed
- * in here, behind the same placement gates the CLI enforces).
+ * in here, behind the same directory gates the CLI enforces).
  *
  * The order is worktree → create → sendInput and can't be another: the
  * worktree's `path` is the new terminal's cwd, and the command is INPUT typed
@@ -39,9 +57,10 @@
  *
  * ## Refusals, not silent overrides
  *
- * The placement gates are the CLI's, refused as data BEFORE any call dials
+ * The DIRECTORY gates are the CLI's, refused as data BEFORE any call dials
  * padi: `cwd` XOR `worktree`, `repo` only with `worktree`, and `worktree`
- * REQUIRES an absolute `repo`. That last rule is where this face is
+ * REQUIRES an absolute `repo`. (The CANVAS placement is refused a layer
+ * earlier, by the shared wire schema — see the section above.) That last rule is where this face is
  * deliberately stricter than the CLI, and the reason is NOT that the padi may
  * be remote: it is that this face has no cwd worth defaulting to at all. The
  * CLI's default is the human's shell directory — an intent they expressed by
@@ -54,7 +73,7 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { PadiCreateInputSchema } from "@kolu/padi/surface";
+import { PadiCreateInputSchema, PLACEMENT_REQUIRED } from "@kolu/padi/surface";
 import { type BespokeTool, messageOf, ToolFailure } from "@kolu/surface-mcp";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
@@ -63,9 +82,18 @@ import { isAbsolute } from "node:path";
 
 export const CreateArgsSchema = Schema.Struct({
   // The verb's existing fields, spread from the wire schema itself so this
-  // tool can never drift from what `lifecycle.create` accepts (cwd, parentId,
+  // tool can never drift from what `lifecycle.create` accepts (placement, cwd,
   // intent + the display chrome).
   ...PadiCreateInputSchema.fields,
+  // …and `placement` re-stated ON TOP of that spread for one reason: a blurb.
+  // The value schema, its `message`, and the `messageMissingKey` the spread
+  // carried are all preserved (`.annotate` merges), so this adds the agent-facing
+  // sentence to the tool's JSON Schema without forking the rule — the refusal an
+  // agent reads and the description it reads are literally the same string.
+  // Pinned in `create.test.ts` ("the tool schema is the wire's rule, not a copy").
+  placement: PadiCreateInputSchema.fields.placement.annotate({
+    description: PLACEMENT_REQUIRED,
+  }),
   // Per-field blurbs sit on the encoded-side node INSIDE `optionalKey`, and
   // ANNOTATE-FIRST-CHECK-SECOND where there is a check — otherwise the blurb
   // lands on the check and the converter buries it in `allOf`, where no host
@@ -119,7 +147,7 @@ interface Landed {
  *  differs per kind, and reading it out of prose means parsing English:
  *  `blank-field` ⇒ a variable didn't expand, fix the named field;
  *  `cwd-and-worktree` / `repo-without-worktree` / `worktree-needs-repo` /
- *  `relative-repo` ⇒ fix the placement; `stopped-partway` ⇒ real resources
+ *  `relative-repo` ⇒ fix the directory; `stopped-partway` ⇒ real resources
  *  exist — act on `landed` (kill the terminal, remove the worktree) or adopt
  *  them. */
 export type CreateRefusal =
@@ -164,23 +192,24 @@ export function refuseBlankFields(args: CreateArgs): void {
   }
 }
 
-/** WHERE the new terminal opens, as one value with two arms — the CLI's
- *  `Placement`, minus the local-cwd default that face can offer and this one
- *  cannot (see the module doc). */
-export type CreatePlacement =
+/** WHICH DIRECTORY the new terminal opens in, as one value with two arms — the
+ *  CLI's `Directory`, minus the local-cwd default that face can offer and this
+ *  one cannot (see the module doc). Distinct from the terminal's `placement`,
+ *  which is where it lands on the CANVAS and is the wire's own required field. */
+export type CreateDirectory =
   | { readonly kind: "worktree"; readonly repo: string; readonly name: string }
   | { readonly kind: "open"; readonly cwd: string | undefined };
 
-/** Read the placement fields down into the one shape that means something,
+/** Read the directory fields down into the one shape that means something,
  *  refusing every combination that does not — pure, so the gate matrix is
  *  unit-tested apart from the wire. Throws {@link ToolFailure} so a refusal
  *  reaches the agent as an `isError` result whose `structuredContent` names
  *  the rule it broke. */
-export function resolveCreatePlacement(args: {
+export function resolveCreateDirectory(args: {
   cwd?: string;
   repo?: string;
   worktree?: string;
-}): CreatePlacement {
+}): CreateDirectory {
   if (args.worktree === undefined) {
     if (args.repo !== undefined) {
       throw refuse(
@@ -259,7 +288,7 @@ export interface CreateResult {
 /** The three world-changing steps as one effect. See the module doc for the
  *  ordering and the partial-failure doctrine. */
 const composeCreate = (
-  placement: CreatePlacement,
+  directory: CreateDirectory,
   args: CreateArgs,
   padi: PadiSurfaceClient,
 ): Effect.Effect<CreateResult, unknown> =>
@@ -270,14 +299,14 @@ const composeCreate = (
     // Nothing exists yet if this fails, so its error IS the whole truth and
     // propagates unadorned — no survivors to name.
     const worktree =
-      placement.kind === "worktree"
+      directory.kind === "worktree"
         ? yield* padi.surface.git.worktreeCreate({
-            repoPath: placement.repo,
-            name: placement.name,
+            repoPath: directory.repo,
+            name: directory.name,
           })
         : undefined;
     const cwd =
-      worktree?.path ?? (placement.kind === "open" ? placement.cwd : undefined);
+      worktree?.path ?? (directory.kind === "open" ? directory.cwd : undefined);
 
     // ── Step 2: the terminal ────────────────────────────────────────────────
     // Spread discipline, not `{cwd, …}`: every optional field on the wire is a
@@ -328,12 +357,12 @@ export const createTool: BespokeTool = {
   mutates: true,
   title: "Create a terminal",
   description:
-    "Open a new terminal — optionally as a split of another (parentId), in a FRESH GIT WORKTREE (repo + worktree ⇒ cut at <repo>/.worktrees/<name>, terminal opens in it), labelled on the canvas (intent), and optionally typing a command at its first shell prompt (run, submitted with Enter) — and return its id. One call replaces `kolu create --repo … --worktree … -- <cmd>`. The terminal always gets the rc-hooked shell; `run` is typed input, not a spawn argv. A failure after the worktree or terminal landed names the survivors in structuredContent (stopped-partway) — nothing is rolled back.",
+    'Open a new terminal and return its id. `placement` is REQUIRED and has no default — say `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"<terminal id>"}` to open it as a split INSIDE that terminal; the canvas and the Dock read that edge as who-works-for-whom, so guessing it flattens the hierarchy. Optionally: in a FRESH GIT WORKTREE (repo + worktree ⇒ cut at <repo>/.worktrees/<name>, terminal opens in it), labelled on the canvas (intent), and typing a command at its first shell prompt (run, submitted with Enter). One call replaces `kolu create --toplevel --repo … --worktree … -- <cmd>`. The terminal always gets the rc-hooked shell; `run` is typed input, not a spawn argv. A failure after the worktree or terminal landed names the survivors in structuredContent (stopped-partway) — nothing is rolled back.',
   handler: (args, client) => {
     const a = args as CreateArgs;
     // Refusals are raised synchronously, BEFORE anything dials padi.
     refuseBlankFields(a);
-    const placement = resolveCreatePlacement(a);
-    return composeCreate(placement, a, client as PadiSurfaceClient);
+    const directory = resolveCreateDirectory(a);
+    return composeCreate(directory, a, client as PadiSurfaceClient);
   },
 };
