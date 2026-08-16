@@ -87,12 +87,20 @@ When(
   async function (this: KoluWorld) {
     // Size the marker to the live grid width so it occupies exactly one row on
     // any platform (cols differ between macOS and linux for the same viewport).
-    const cols = await this.page.evaluate((sel) => {
-      const c = document.querySelector(sel) as
-        | (HTMLElement & { __xterm?: { cols: number } })
-        | null;
-      return c?.__xterm?.cols ?? 0;
-    }, ACTIVE_TERMINAL);
+    // `__xterm` is published only after the attach snapshot lands — a
+    // one-shot read at "terminal is ready" still sees cols=0.
+    const colsHandle = await this.page.waitForFunction(
+      (sel) => {
+        const c = document.querySelector(sel) as
+          | (HTMLElement & { __xterm?: { cols: number } })
+          | null;
+        const n = c?.__xterm?.cols ?? 0;
+        return n >= 30 ? n : null;
+      },
+      ACTIVE_TERMINAL,
+      { timeout: POLL_TIMEOUT },
+    );
+    const cols = (await colsHandle.jsonValue()) ?? 0;
     assert.ok(
       cols >= 30,
       `terminal too narrow for the marker test (cols=${cols})`,

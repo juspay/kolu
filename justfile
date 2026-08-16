@@ -500,10 +500,10 @@ test: install
     # anyway (PAR=12 measured *slower* than PAR=8 on a 24-core host). See
     # docs/ci-e2e-macos-ralph-report.md.
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-    # ghostty-vt.wasm + Chromium is heavier than xterm. Linux 8 OOMs; 4 and 3
-    # still died mid-suite with no verdict while overlapping `ci::daemon`.
-    # e2e now waits for daemon (ci/mod.just); 3 is the remaining linux cap.
-    cap=3; [ "$(uname)" = Darwin ] && cap=4
+    # ghostty-vt.wasm + Chromium is heavier than xterm. Linux 8/4/3 still
+    # died mid-suite with no Cucumber verdict (OOM). 2 is the remaining
+    # linux cap; Darwin keeps 4 on the 10-core box.
+    cap=2; [ "$(uname)" = Darwin ] && cap=4
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans

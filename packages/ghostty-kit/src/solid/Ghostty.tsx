@@ -310,16 +310,18 @@ export const Ghostty: Component<
   }
 
   /** display:none → visible and Corvu's first expanded frame often land
-   *  size AFTER the calling effect. Retry across two animation frames
-   *  so a split can publish a grid (and open attach) without a resize. */
+   *  size AFTER the calling effect. Keep retrying across frames until
+   *  the engine has a real grid (or the pane is hidden again). */
   function scheduleFit(): void {
     applyFit();
     if (grid() || !own.visible || !engine) return;
-    requestAnimationFrame(() => {
+    let frames = 0;
+    const tick = () => {
       applyFit();
-      if (grid() || !own.visible || !engine) return;
-      requestAnimationFrame(() => applyFit());
-    });
+      if (grid() || !own.visible || !engine || ++frames >= 16) return;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   }
 
   onMount(() => {

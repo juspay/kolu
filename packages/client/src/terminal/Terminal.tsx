@@ -870,7 +870,7 @@ const Terminal: Component<{
               commitSeed?.commit();
               // Snapshot bytes are in the engine. Only now is a buffer
               // read honest — publish the e2e `__xterm` bridge.
-              if (commitSeed) xtermBridge.onSnapshotLanded();
+              if (frame.kind === "snapshot") xtermBridge.onSnapshotLanded();
             });
           }
         },
