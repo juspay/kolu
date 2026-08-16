@@ -127,16 +127,6 @@ When(
     // through `terminalRun` (which deliberately excludes `[data-sub-terminal]`)
     // is the whole point of the scenario.
     await this.focusForTyping("[data-sub-terminal]");
-    await this.page.waitForFunction(
-      (sel) => {
-        const n = document.querySelector(sel) as
-          | (HTMLElement & { __xterm?: { cols: number } })
-          | null;
-        return typeof n?.__xterm?.cols === "number" && n.__xterm.cols > 0;
-      },
-      "[data-sub-terminal]",
-      { timeout: POLL_TIMEOUT },
-    );
     await this.page.keyboard.type(listenerCommand(port, "0.0.0.0"));
     await this.page.keyboard.press("Enter");
     await waitForListening(this, port, "[data-sub-terminal]");
