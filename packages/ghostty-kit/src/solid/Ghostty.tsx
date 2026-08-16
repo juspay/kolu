@@ -330,7 +330,10 @@ export const Ghostty: Component<
     mount.setAttribute("data-grid-rows", String(next.rows));
     if (prev && sameGrid(prev, next)) return prev;
     setGrid(next);
-    schedulePaint();
+    // Size the canvas now — e2e "fills its container" reads the box
+    // as soon as data-grid-cols appears; a parked rAF would leave the
+    // constructor 300×150 backing store and fail the 90% fill check.
+    paint();
     return next;
   }
 
@@ -671,6 +674,9 @@ export const Ghostty: Component<
     own.theme;
     own.fontSize;
     own.fontFamily;
+    // Cell size changed — the old cols×rows no longer fill the box.
+    lastSeen = null;
+    scheduleFit();
     schedulePaint();
   });
 

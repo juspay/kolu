@@ -322,7 +322,12 @@ export class KoluWorld extends World {
             n.getAttribute("data-grid-cols") ?? "",
             10,
           );
-          if (cols > 0) return true;
+          const term = (n as HTMLElement & { __xterm?: { cols: number } })
+            .__xterm;
+          // Grid stamp is the measure; `__xterm` means the attach
+          // snapshot (and its resizeTo) has landed, so $COLUMNS is
+          // the live PTY size not the host constructor's 80.
+          if (cols > 0 && term && term.cols === cols) return true;
         }
         return false;
       },
