@@ -282,10 +282,11 @@ const Terminal: Component<{
     setHandle(h);
     const term = h.terminal;
 
-    // E2E buffer readers treat `__xterm` as "this pane has cells". Do NOT
-    // publish at onReady — the engine exists but attach has not written
-    // the snapshot yet. Publish from the snapshot write callback below.
+    // Publish the shim as soon as the engine exists so e2e can read
+    // `.cols` on a hidden tile that never attaches (mobile settle).
+    // Buffer content is still empty until the snapshot write below.
     const xtermBridge = createXtermBridge(h.container, term);
+    xtermBridge.onSnapshotLanded();
 
     // Consumer teardown registered HERE, inside onReady — NOT at the component
     // body top. `<Xterm>` is a plain JSX child (no own reactive owner), so a

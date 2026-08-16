@@ -1,14 +1,9 @@
 /** E2E `__xterm` DOM bridge.
 
- *  Buffer readers (`__readXtermBuffer`) treat a published handle as "this
- *  pane has cells". The attach stream's first frame is the snapshot that
- *  *fills* those cells. Publishing at `onReady` (engine constructed, attach
- *  not yet open) makes every split look ready while its buffer is still
- *  the constructor's empty 80×24 — echo goes to the PTY, reads time out.
- *
- *  The one legal publish is the write-callback of a snapshot that has
- *  actually landed. Deltas, stale-grid refusals, and pre-attach onReady
- *  must not publish. */
+ *  `.cols` must exist as soon as the engine does — a hidden mobile tile
+ *  never attaches, and "wait for all terminals to settle" reads cols
+ *  off this handle. Buffer *content* is still empty until the snapshot
+ *  write; waiters must poll for the text, not for the handle. */
 
 export function createXtermBridge<T>(container: HTMLElement, term: T) {
   const el = container as HTMLElement & { __xterm?: T };

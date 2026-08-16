@@ -284,6 +284,38 @@ Then(
   },
 );
 
+Then(
+  "the file {string} should match the visible terminal's column count",
+  async function (this: KoluWorld, filePath: string) {
+    const fs = await import("node:fs/promises");
+    const stamped = await this.page.evaluate(() => {
+      const n = document.querySelector("[data-terminal-engine][data-visible]");
+      return Number.parseInt(n?.getAttribute("data-grid-cols") ?? "", 10);
+    });
+    assert.ok(
+      Number.isFinite(stamped) && stamped > 0,
+      `visible terminal has no data-grid-cols (got ${stamped})`,
+    );
+    const cols = await pollUntil(
+      this.page,
+      async () => {
+        try {
+          return Number((await fs.readFile(filePath, "utf-8")).trim());
+        } catch {
+          return NaN;
+        }
+      },
+      (n) => n === stamped,
+      { attempts: 30 },
+    );
+    assert.strictEqual(
+      cols,
+      stamped,
+      `PTY $COLUMNS (${cols}) must match the measured grid (${stamped})`,
+    );
+  },
+);
+
 // ── Font size assertions ──
 
 Then(

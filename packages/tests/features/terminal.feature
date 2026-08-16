@@ -40,7 +40,7 @@ Feature: Terminal
 
   Scenario: Initial resize is sent to PTY on connect
     When I run "echo $COLUMNS > /tmp/kolu-test-cols"
-    Then the file "/tmp/kolu-test-cols" should contain a number greater than 80
+    Then the file "/tmp/kolu-test-cols" should match the visible terminal's column count
     And there should be no page errors
 
   Scenario: Screen state includes scrollback beyond viewport
