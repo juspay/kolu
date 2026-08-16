@@ -1599,20 +1599,22 @@ When(
     // xterm.js's `onMount` awaits `document.fonts.load` before creating
     // the `.xterm` DOM node, so on a slow host the element may not exist
     // when this step first fires. Poll until it does, then tag it.
+    // Query canvas tiles, not `[data-visible]` terminals: in maximized
+    // mode the covered tile stays mounted but drops `data-visible`.
     await this.page.waitForFunction(
-      ({ sel, i }: { sel: string; i: number }) => {
+      ({ tileSel, i }: { tileSel: string; i: number }) => {
         const tile = document
-          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .querySelectorAll(tileSel)
           .item(i) as HTMLElement | null;
         return tile?.querySelector("[data-terminal-engine]") != null;
       },
-      { sel: CANVAS_SELECTOR, i: index - 1 },
+      { tileSel: CANVAS_TILE_SELECTOR, i: index - 1 },
       { timeout: POLL_TIMEOUT },
     );
     await this.page.evaluate(
-      ({ sel, i }: { sel: string; i: number }) => {
+      ({ tileSel, i }: { tileSel: string; i: number }) => {
         const tile = document
-          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .querySelectorAll(tileSel)
           .item(i) as HTMLElement | null;
         const xterm = tile?.querySelector(
           "[data-terminal-engine]",
@@ -1624,7 +1626,7 @@ When(
           window as unknown as { __xtermStabilityTag?: string }
         ).__xtermStabilityTag = tag;
       },
-      { sel: CANVAS_SELECTOR, i: index - 1 },
+      { tileSel: CANVAS_TILE_SELECTOR, i: index - 1 },
     );
   },
 );

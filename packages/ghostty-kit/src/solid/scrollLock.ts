@@ -1,6 +1,8 @@
 /** Scroll-lock latch — freeze incoming writes while the user is reading history.
  *  Copied in spirit from `@kolu/xterm-kit` but not bound to an xterm instance. */
 
+import { createSignal } from "solid-js";
+
 export type ScrollIntentSource =
   | "wheel"
   | "touch"
@@ -19,12 +21,18 @@ export interface ScrollLockEvent {
 export const SCROLL_INTENT_WINDOW_MS = 500;
 
 export function createScrollLock() {
-  let locked = false;
+  const [locked, setLocked] = createSignal(false);
+  const [pendingCount, setPendingCount] = createSignal(0);
   let pending: string[] = [];
   let intentUntil = 0;
   let intentHeld = false;
   let lastSource: ScrollIntentSource | null = null;
   const events: ScrollLockEvent[] = [];
+
+  function setPending(next: string[]): void {
+    pending = next;
+    setPendingCount(next.length);
+  }
 
   function record(
     kind: ScrollLockEvent["kind"],
@@ -42,7 +50,7 @@ export function createScrollLock() {
   }
 
   return {
-    isLocked: () => locked,
+    isLocked: () => locked(),
     pending: () => pending,
     events: () => events.slice(),
     armUserScrollIntent(source: ScrollIntentSource): void {
@@ -60,48 +68,48 @@ export function createScrollLock() {
         record("suppressed", baseY, viewportY);
         return;
       }
-      if (!locked) {
-        locked = true;
+      if (!locked()) {
+        setLocked(true);
         record("locked", baseY, viewportY);
       }
     },
     unlock(): string[] {
-      if (!locked) return [];
-      locked = false;
+      if (!locked()) return [];
+      setLocked(false);
       const flushed = pending;
-      pending = [];
+      setPending([]);
       record("unlatched", 0, 0);
       return flushed;
     },
     buffer(data: string): void {
-      pending.push(data);
+      setPending([...pending, data]);
     },
     clearPending(): void {
-      pending = [];
+      setPending([]);
     },
     reset(mode: "drop" | "flush" = "drop"): string[] {
-      locked = false;
+      setLocked(false);
       if (mode === "drop") {
-        pending = [];
+        setPending([]);
         return [];
       }
       const flushed = pending;
-      pending = [];
+      setPending([]);
       return flushed;
     },
-    pendingChunks: () => pending.length,
+    pendingChunks: () => pendingCount(),
     lastEvent: () => events[events.length - 1],
-    hasNewOutput: () => pending.length > 0,
+    hasNewOutput: () => pendingCount() > 0,
     handleTabVisible: () => {
-      if (locked) {
-        locked = false;
-        pending = [];
+      if (locked()) {
+        setLocked(false);
+        setPending([]);
       }
     },
     scrollToBottom: (_term?: unknown) => {
-      locked = false;
+      setLocked(false);
       const flushed = pending;
-      pending = [];
+      setPending([]);
       return flushed;
     },
   };

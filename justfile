@@ -500,7 +500,9 @@ test: install
     # anyway (PAR=12 measured *slower* than PAR=8 on a 24-core host). See
     # docs/ci-e2e-macos-ralph-report.md.
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-    cap=8; [ "$(uname)" = Darwin ] && cap=6
+    # Linux at 8 workers × ghostty-vt.wasm + Chromium dies mid-suite with
+    # no Cucumber verdict. Cap both platforms so the suite can finish.
+    cap=4; [ "$(uname)" = Darwin ] && cap=4
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans

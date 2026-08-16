@@ -123,17 +123,35 @@ async function findRefFontMetricPoint(
       const screen = container?.querySelector(
         "[data-terminal-screen]",
       ) as HTMLElement | null;
-      const cell = term?._core?._renderService?.dimensions?.css?.cell;
-      if (!container || !term || !screen || !cell) return null;
+      if (!container || !term || !screen) return null;
+      const cell = term._core?._renderService?.dimensions?.css?.cell;
+      const { active } = term.buffer;
+      const top = active.viewportY;
+      const locate = (): { row: number; col: number } | null => {
+        for (let row = top; row < top + term.rows; row++) {
+          const line = active.getLine(row)?.translateToString(true) ?? "";
+          const col = line.indexOf(target);
+          if (col >= 0) return { row, col };
+        }
+        return null;
+      };
+      const found = locate();
+      if (!found) return null;
+      // Ghostty tiles have no xterm _core metrics. The painted canvas
+      // rect / grid is the authority (same as findRefClickPoint).
+      if (!cell) {
+        const rect = screen.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return null;
+        return {
+          x: rect.left + (found.col + 0.5) * (rect.width / term.cols),
+          y: rect.top + (found.row - top + 0.5) * (rect.height / term.rows),
+        };
+      }
       const cw = cell.width;
       const ch = cell.height;
       if (!(cw > 0) || !(ch > 0)) return null;
-      const { active } = term.buffer;
-      const top = active.viewportY;
-      for (let row = top; row < top + term.rows; row++) {
-        const line = active.getLine(row)?.translateToString(true) ?? "";
-        const col = line.indexOf(target);
-        if (col < 0) continue;
+      {
+        const { row, col } = found;
         const rect = screen.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return null;
         // The tile's CSS scale(zoom) = transformed rect / untransformed layout.
@@ -184,7 +202,6 @@ async function findRefFontMetricPoint(
         }
         return { x, y };
       }
-      return null;
     },
     { sel: ACTIVE_TERMINAL, target: refText },
   );
