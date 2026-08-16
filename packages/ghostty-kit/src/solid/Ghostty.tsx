@@ -491,7 +491,6 @@ export const Ghostty: Component<
     <div
       {...rest}
       ref={mount}
-      data-terminal-screen
       data-terminal-engine="ghostty"
       onWheel={onWheel}
       style={{
@@ -503,30 +502,37 @@ export const Ghostty: Component<
         "background-color": own.theme.background ?? "#000",
       }}
     >
-      <canvas ref={canvas} />
-      <textarea
-        ref={textarea}
-        data-terminal-input
-        aria-label="Terminal"
-        autocomplete="off"
-        spellcheck={false}
-        onKeyDown={onKeyDown}
-        onClick={(e) => {
-          textarea.focus();
-          own.onTap?.(e.clientX, e.clientY);
-        }}
-        style={{
-          position: "absolute",
-          inset: "0",
-          opacity: "0",
-          resize: "none",
-          border: "none",
-          padding: "0",
-          margin: "0",
-          overflow: "hidden",
-          "caret-color": "transparent",
-        }}
-      />
+      {/* Child of the data-focused/data-visible wrapper — e2e locates
+          `[data-focused] [data-terminal-screen]` as a descendant. */}
+      <div
+        data-terminal-screen
+        style={{ width: "100%", height: "100%", position: "relative" }}
+      >
+        <canvas ref={canvas} />
+        <textarea
+          ref={textarea}
+          data-terminal-input
+          aria-label="Terminal"
+          autocomplete="off"
+          spellcheck={false}
+          onKeyDown={onKeyDown}
+          onClick={(e) => {
+            textarea.focus();
+            own.onTap?.(e.clientX, e.clientY);
+          }}
+          style={{
+            position: "absolute",
+            inset: "0",
+            opacity: "0",
+            resize: "none",
+            border: "none",
+            padding: "0",
+            margin: "0",
+            overflow: "hidden",
+            "caret-color": "transparent",
+          }}
+        />
+      </div>
     </div>
   );
 };
