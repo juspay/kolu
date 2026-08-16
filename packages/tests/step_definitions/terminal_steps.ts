@@ -196,74 +196,12 @@ Then(
 
 // ── Click-to-focus (mobile tap-to-focus) ──
 
-/** Offset of a cell that is empty / whitespace so a focus click does not
- *  follow a file-ref or URL. Ghostty's onTap treats every parseLineRefs
- *  hit as an open — unlike xterm's hover-only links — so a Playwright
- *  center-click on a short Darwin tile often lands on the echoed
- *  `note.txt` / cwd path and steals the Code tab into browse.
- *  Offsets are relative to `[data-terminal-screen]` so the click is
- *  dispatched on the canvas, not the 1×1 helper textarea at (0,0). */
-async function findFocusClickOffset(
-  world: KoluWorld,
-): Promise<{ x: number; y: number } | null> {
-  return world.page.evaluate((sel) => {
-    type BufferLine = { translateToString(trim?: boolean): string };
-    type Term = {
-      cols: number;
-      rows: number;
-      buffer: {
-        active: {
-          viewportY: number;
-          getLine(index: number): BufferLine | undefined;
-        };
-      };
-    };
-    const container = document.querySelector(sel) as
-      | (HTMLElement & { __xterm?: Term })
-      | null;
-    const term = container?.__xterm;
-    const screen = container?.querySelector(
-      "[data-terminal-screen]",
-    ) as HTMLElement | null;
-    if (!container || !term || !screen) return null;
-    const rect = screen.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return null;
-    const cellW = rect.width / term.cols;
-    const cellH = rect.height / term.rows;
-    const top = term.buffer.active.viewportY;
-    // Prefer the bottom of the viewport: after a few commands the
-    // live rows sit at the top and the rest is empty. A short Darwin
-    // tile with a Starship prompt can fill every cell — then there
-    // is no safe click, and a center-click fallback follows a path.
-    for (let row = term.rows - 1; row >= 0; row--) {
-      const line =
-        term.buffer.active.getLine(top + row)?.translateToString(true) ?? "";
-      for (let col = term.cols - 1; col >= 0; col--) {
-        if (row === 0 && col === 0) continue;
-        const ch = line[col] ?? " ";
-        if (ch !== " " && ch !== "\t") continue;
-        return {
-          x: (col + 0.5) * cellW,
-          y: (row + 0.5) * cellH,
-        };
-      }
-    }
-    return null;
-  }, ACTIVE_TERMINAL);
-}
-
 When("I click the terminal canvas", async function (this: KoluWorld) {
-  // Click the body first to blur any focused element, then click a
-  // blank cell so we only restore PTY focus.
+  // Restore PTY focus without going through Ghostty's onTap. A canvas
+  // click follows every parseLineRefs hit — on Darwin CI the Starship
+  // prompt prints `/tmp/kolu-…` and even a "blank" cell on that row
+  // steals the Code tab into browse (live-diff / commit-clears).
   await this.page.locator("body").click({ position: { x: 0, y: 0 } });
-  const offset = await findFocusClickOffset(this);
-  if (offset !== null) {
-    await this.canvas.click({ position: offset });
-    return;
-  }
-  // No blank cell: a packed Darwin tile (Starship + a few commands)
-  // has no safe click. Focusing the helper textarea restores PTY
-  // input without Ghostty's onTap following a file-ref.
   const input = this.page
     .locator("[data-focused] [data-terminal-input]")
     .first();
