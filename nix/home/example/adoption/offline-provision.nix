@@ -231,11 +231,12 @@ pkgs.testers.nixosTest {
     # ── 5. CONVERGENCE: a terminal really opens on the remote padi ───────────
     # Not a log line about a connection — the application contract, on the remote
     # host's own map key. Retried, because the dial is still finishing its
-    # handshake when the ship completes.
+    # handshake when the ship completes. `placement` is REQUIRED on the create
+    # input and has no default, so the probe states it: one top-level terminal.
     machine.wait_until_succeeds(
         "${lib.rpc {
           tag = "surface/padi/lifecycle/create";
-          payload = ''{"mapKey":"${mapKey}","input":{}}'';
+          payload = ''{"mapKey":"${mapKey}","input":{"placement":{"kind":"toplevel"}}}'';
           python = true;
         }}",
         timeout=300,

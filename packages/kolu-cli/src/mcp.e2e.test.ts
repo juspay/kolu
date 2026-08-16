@@ -279,7 +279,12 @@ const SENTINEL = "MCP2-PIN-OK";
 async function driveTerminalRoundTrip(mcp: Client): Promise<void> {
   // create — the returned TerminalInfo carries the id the driver captures.
   const created = toolJson(
-    await mcp.callTool({ name: "lifecycle_create", arguments: {} }),
+    await mcp.callTool({
+      name: "lifecycle_create",
+      // `placement` is REQUIRED on the wire and has no default — this pin wants
+      // one terminal of its own, and says so.
+      arguments: { placement: { kind: "toplevel" } },
+    }),
   ) as { id: string; pid: number };
   expect(created.id).toBeTruthy();
   const id = created.id;
@@ -462,7 +467,12 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
 
     // A terminal to survive the restarts.
     const created = toolJson(
-      await mcp.callTool({ name: "lifecycle_create", arguments: {} }),
+      await mcp.callTool({
+        name: "lifecycle_create",
+        // `placement` is REQUIRED on the wire and has no default — this pin wants
+        // one terminal of its own, and says so.
+        arguments: { placement: { kind: "toplevel" } },
+      }),
     ) as { id: string };
     const id = created.id;
 
