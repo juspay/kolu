@@ -6,6 +6,7 @@ import {
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { Effect, type Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { takeCompleteVt } from "@kolu/ghostty-kit";
 import {
   answerDeviceQueries,
   createPtyHost,
@@ -26,6 +27,23 @@ function linesBuffer(lines: string[]) {
     },
   };
 }
+
+describe("answerDeviceQueries", () => {
+  it("replies DSR 6 with the engine cursor, not 1;1", () => {
+    const got: string[] = [];
+    answerDeviceQueries("\x1b[6n", (s) => got.push(s), { x: 7, y: 3 });
+    expect(got).toEqual(["\x1b[4;8R"]);
+  });
+
+  it("answers a query split across leftover + suffix", () => {
+    const first = takeCompleteVt("", "\x1b[6");
+    expect(first.complete).toBe("");
+    const second = takeCompleteVt(first.leftover, "n");
+    const got: string[] = [];
+    answerDeviceQueries(second.complete, (s) => got.push(s), { x: 2, y: 1 });
+    expect(got).toEqual(["\x1b[2;3R"]);
+  });
+});
 
 describe("getScreenText", () => {
   it("returns empty lines for a fresh terminal", () => {

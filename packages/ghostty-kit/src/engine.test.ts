@@ -151,6 +151,83 @@ describe("official ghostty-vt.wasm engine", () => {
     }
   });
 
+  it("fires OSC 52 and a command-run that split across two writes", () => {
+    const commands: string[] = [];
+    const clips: { sel: string; payload: string }[] = [];
+    const eng = createEngine({
+      cols: 40,
+      rows: 8,
+      onCommandRun: (c) => commands.push(c),
+      onOsc52: (sel, payload) => clips.push({ sel, payload }),
+    });
+    try {
+      eng.write("\x1b]633;E;npm te");
+      expect(commands).toEqual([]);
+      eng.write("st\x07");
+      expect(commands).toEqual(["npm test"]);
+      eng.write("\x1b]52;c;Zm9");
+      expect(clips).toEqual([]);
+      eng.write("v\x07");
+      expect(clips).toEqual([{ sel: "c", payload: "Zm9v" }]);
+    } finally {
+      eng.free();
+    }
+  });
+
+  it("tracks DECCKM so arrows can use application-cursor bytes", () => {
+    const eng = createEngine({ cols: 20, rows: 6 });
+    try {
+      expect(eng.applicationCursor()).toBe(false);
+      eng.write("\x1b[?1h");
+      expect(eng.applicationCursor()).toBe(true);
+      eng.write("\x1bc");
+      expect(eng.applicationCursor()).toBe(false);
+    } finally {
+      eng.free();
+    }
+  });
+
+  it("keeps wrap history on the visual-row axis", () => {
+    const eng = createEngine({ cols: 8, rows: 4, scrollback: 20 });
+    try {
+      eng.write("ABCDEFGHIJKLMNOPQRSTUVWXYZ\r\n");
+      const visual = eng.visualLineCount();
+      const vt = eng.formatVt({ unwrap: false, trim: true });
+      const vtRows = vt.length === 0 ? [] : vt.split(/\r?\n/);
+      expect(visual).toBe(vtRows.length);
+      expect(visual).toBeGreaterThan(1);
+      const slice = eng.formatRangeVt(0, visual - 1);
+      const sliceRows = slice.length === 0 ? [] : slice.split(/\r?\n/);
+      expect(sliceRows.length).toBe(visual);
+    } finally {
+      eng.free();
+    }
+  });
+
+  it("treats wasm prune as eviction, not RIS", () => {
+    const eng = createEngine({ cols: 80, rows: 5, scrollback: 40 });
+    try {
+      const startEpoch = eng.reflowEpoch();
+      let sawPrune = false;
+      let prev = eng.totalRows();
+      const fat = "x".repeat(70);
+      for (let i = 0; i < 2000; i++) {
+        eng.write(`${fat}-${i}\r\n`);
+        const total = eng.totalRows();
+        if (total < prev) {
+          sawPrune = true;
+          expect(eng.reflowEpoch()).toBe(startEpoch);
+          expect(eng.baseLine()).toBe(prev - total);
+          break;
+        }
+        prev = total;
+      }
+      expect(sawPrune).toBe(true);
+    } finally {
+      eng.free();
+    }
+  });
+
   it("keeps styled visual rows aligned with unwrapped trimmed plain", () => {
     const eng = createEngine({ cols: 20, rows: 8, scrollback: 40 });
     try {

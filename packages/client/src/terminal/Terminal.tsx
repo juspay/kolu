@@ -64,6 +64,7 @@ import {
 } from "../runAction";
 
 import { openInCodeTab } from "../right-panel/openInCodeTab";
+import { decodeOsc52Payload } from "./osc52";
 import { parseLineRefs } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
 import {
@@ -1154,6 +1155,26 @@ const Terminal: Component<{
         }}
         onReady={onReady}
         onTap={onTap}
+        onOsc52={(_selection, payload) => {
+          const action = decodeOsc52Payload(payload);
+          if (action.kind === "invalid") {
+            toast.error("Clipboard write failed: invalid OSC 52 payload");
+            return;
+          }
+          if (action.kind !== "copy") return;
+          runAction(
+            "osc52 clipboard",
+            writeTextToClipboard(action.text).pipe(
+              Effect.catch((err) =>
+                Effect.sync(() => {
+                  toast.error(
+                    `Clipboard write failed: ${toError(err).message}`,
+                  );
+                }),
+              ),
+            ),
+          );
+        }}
         // touch-manipulation: eliminate 300ms tap delay and prevent
         // double-tap-to-zoom on mobile. data-[drop-target]: inset ring while a
         // file drag is hovering — set/cleared by the dragover/drop/dragleave

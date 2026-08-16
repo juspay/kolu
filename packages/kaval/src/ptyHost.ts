@@ -25,7 +25,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { createEngine, type Engine } from "@kolu/ghostty-kit";
+import { createEngine, type Engine, takeCompleteVt } from "@kolu/ghostty-kit";
 import { shellJoin } from "@kolu/shell-quote";
 import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
 import type { Logger } from "@kolu/surface-daemon";
@@ -115,6 +115,7 @@ const DSR_CURSOR_RE = /\x1b\[6n/g;
 export function answerDeviceQueries(
   data: string,
   write: (s: string) => void,
+  cursor?: { x: number; y: number },
 ): void {
   XTVERSION_RE.lastIndex = 0;
   for (const m of data.matchAll(XTVERSION_RE)) {
@@ -128,7 +129,11 @@ export function answerDeviceQueries(
   DSR_STATUS_RE.lastIndex = 0;
   if (DSR_STATUS_RE.test(data)) write("\x1b[0n");
   DSR_CURSOR_RE.lastIndex = 0;
-  if (DSR_CURSOR_RE.test(data)) write("\x1b[1;1R");
+  if (DSR_CURSOR_RE.test(data)) {
+    const row = (cursor?.y ?? 0) + 1;
+    const col = (cursor?.x ?? 0) + 1;
+    write(`\x1b[${row};${col}R`);
+  }
   if (data.includes("\x1b[?2004$p")) write("\x1b[?2004;1$y");
   if (data.includes("\x1bP$qm\x1b\\")) write("\x1bP1$r0m\x1b\\");
 }
@@ -557,6 +562,8 @@ interface Entry {
    *  instead of the full-mirror `snapshotCache`. Shares the same epoch invariant:
    *  read/invalidated only through `boundedSnapshotOf` / `invalidateSnapshot`. */
   boundedSnapshotCache: { snapshot: string; topLine: number } | undefined;
+  /** Incomplete CSI/OSC suffix waiting for the next PTY chunk. */
+  queryTail: string;
   /** Absolute-line coordinates over this mirror — the eviction origin (the stable
    *  coordinate `getHistory` pages by: an absolute index is `anchor.baseLine() +
    *  localBufferIndex`) and the reflow generation that stales a cursor a WIDTH
@@ -880,6 +887,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       lastActivityEdgeAt: 0,
       snapshotCache: undefined,
       boundedSnapshotCache: undefined,
+      queryTail: "",
       anchor: {
         baseLine: () => engine.baseLine(),
         reflowEpoch: () => engine.reflowEpoch(),
@@ -956,8 +964,13 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           entry.lastForegroundSampleAt = now;
           sampleForeground(entry);
         }
-        answerDeviceQueries(data, (s) => proc.write(s));
+        const spanned = takeCompleteVt(entry.queryTail, data);
+        entry.queryTail = spanned.leftover;
         entry.engine.write(data);
+        answerDeviceQueries(spanned.complete, (s) => proc.write(s), {
+          x: entry.engine.cursor().x,
+          y: entry.engine.cursor().y,
+        });
         const title = entry.engine.getTitle();
         if (title !== "" && title !== entry.title) {
           entry.title = title;
@@ -1021,13 +1034,14 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     return entry.snapshotCache;
   }
   function visualLines(entry: Entry): string[] {
-    const all = entry.engine.formatPlain().split("\n");
+    const text = entry.engine.formatVt({ unwrap: false, trim: true });
+    const all = text.length === 0 ? [] : text.split(/\r?\n/);
     const keep = entry.scrollback + entry.engine.rows;
     return all.length <= keep ? all : all.slice(all.length - keep);
   }
 
   function droppedCount(entry: Entry): number {
-    const all = entry.engine.formatPlain().split("\n").length;
+    const all = entry.engine.visualLineCount();
     const keep = entry.scrollback + entry.engine.rows;
     return Math.max(0, all - keep);
   }

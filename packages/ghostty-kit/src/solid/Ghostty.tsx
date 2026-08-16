@@ -13,13 +13,15 @@ import {
   splitProps,
 } from "solid-js";
 import { createEngine, type Engine } from "../engine.ts";
+import { encodeDomKey } from "../encodeDomKey.ts";
 import { preloadGhostty } from "../load.browser.ts";
-import { controlChar } from "../controlChar.ts";
 import { lineContinuesPrevious, lineText, resolveColor } from "../styled.ts";
 import { sameGrid, type TerminalGrid } from "./grid.ts";
 import { measurePane } from "./measurePane.ts";
 import { createOnceMeasured } from "./onceMeasured.ts";
+import { paintStyledLines } from "./paintExtent.ts";
 import { createScrollLock, type ScrollLock } from "./scrollLock.ts";
+import { shouldActivateTap, type TapGesture } from "./tapGesture.ts";
 
 export interface TerminalTheme {
   foreground?: string;
@@ -148,6 +150,7 @@ interface OwnProps {
   onData: (data: string) => void;
   onReady: (handle: GhosttyHandle) => void;
   onTap?: (clientX: number, clientY: number, ev: MouseEvent) => boolean;
+  onOsc52?: (selection: string, payload: string) => void;
 }
 
 const OWN_KEYS = [
@@ -161,6 +164,7 @@ const OWN_KEYS = [
   "onData",
   "onReady",
   "onTap",
+  "onOsc52",
 ] as const;
 
 export const Ghostty: Component<
@@ -190,6 +194,7 @@ export const Ghostty: Component<
   const renderListeners = new Set<() => void>();
   let touchLastY = 0;
   let touchCarry = 0;
+  let tapGesture: TapGesture | null = null;
 
   function cellSize(): { w: number; h: number } {
     const probe = document.createElement("canvas").getContext("2d");
@@ -280,13 +285,20 @@ export const Ghostty: Component<
     return engine?.styledLines({ kind: "full" }) ?? [];
   }
 
-  /** The painted / hit-tested window. Clamps `viewOffset` to the live tail. */
+  /** The painted / hit-tested window. Unlocked live bottom formats only
+   *  the viewport — not the whole scrollback. */
   function viewportWindow(rows: number) {
-    const all = visualStyled();
-    const maxOff = Math.max(0, all.length - rows);
-    if (viewOffset > maxOff) viewOffset = maxOff;
-    const start = Math.max(0, all.length - rows - viewOffset);
-    return { all, lines: all.slice(start, start + rows), start, maxOff };
+    if (!engine) return { all: [], lines: [], start: 0, maxOff: 0 };
+    const lines = paintStyledLines(engine, viewOffset, rows);
+    if (viewOffset > 0 && lines.length > rows) {
+      return {
+        all: lines,
+        lines: lines.slice(0, rows),
+        start: 0,
+        maxOff: viewOffset,
+      };
+    }
+    return { all: lines, lines, start: 0, maxOff: viewOffset };
   }
 
   function applyFit(): TerminalGrid | null {
@@ -369,6 +381,7 @@ export const Ghostty: Component<
             cols: 80,
             rows: 24,
             scrollback: own.scrollback,
+            onOsc52: (selection, payload) => own.onOsc52?.(selection, payload),
           });
           if (cancelled) {
             eng.free();
@@ -521,30 +534,30 @@ export const Ghostty: Component<
         // Always parse into the engine. Lock only freezes the painted
         // window (viewOffset) — dropping bytes made buffer reads and
         // Starship-like prompts vanish while the user was scrolled up.
-        const before = visualStyled();
+        const locked = own.scrollLockEnabled() && lock.isLocked();
+        if (!locked) {
+          eng.write(data);
+          onParsed?.();
+          viewOffset = 0;
+          schedulePaint();
+          return;
+        }
         const rows = eng.rows;
+        const before = eng.styledLines({ kind: "full" });
         const start = Math.max(0, before.length - rows - viewOffset);
         const needle = lineText(before[start] ?? { runs: [] });
         eng.write(data);
         onParsed?.();
-        const after = visualStyled();
+        const after = eng.styledLines({ kind: "full" });
         const grew = Math.max(0, after.length - before.length);
-        if (own.scrollLockEnabled() && lock.isLocked()) {
-          if (grew > 0) viewOffset += grew;
-          else if (needle.length > 0) {
-            // Scrollback cap: length did not grow, oldest rows fell off.
-            // Re-pin the frozen window to the same first visible line.
-            const found = after.findIndex((l) => lineText(l) === needle);
-            if (found >= 0) {
-              viewOffset = Math.max(0, after.length - rows - found);
-            }
+        if (grew > 0) viewOffset += grew;
+        else if (needle.length > 0) {
+          const found = after.findIndex((l) => lineText(l) === needle);
+          if (found >= 0) {
+            viewOffset = Math.max(0, after.length - rows - found);
           }
-          lock.buffer(data);
-        } else {
-          // Unlocked (including #1272 programmatic scroll) pins to the
-          // live bottom so new output is what the user sees.
-          viewOffset = 0;
         }
+        lock.buffer(data);
         schedulePaint();
       };
       handle = {
@@ -648,7 +661,7 @@ export const Ghostty: Component<
       if (cells === 0) return;
       touchCarry -= cells * cellH;
       ev.preventDefault();
-      const maxOff = Math.max(0, visualStyled().length - engine.rows);
+      const maxOff = Math.max(0, engine.visualLineCount() - engine.rows);
       viewOffset = Math.max(0, Math.min(maxOff, viewOffset + cells));
       if (own.scrollLockEnabled()) {
         if (cells > 0) lock.lock(0, 1);
@@ -682,27 +695,12 @@ export const Ghostty: Component<
     for (const fn of keyHandlers) {
       if (fn(ev) === false) return;
     }
-    if (ev.metaKey || ev.altKey) return;
-    if (ev.ctrlKey) {
-      // Ctrl+A…Z are C0 bytes (Ctrl+C = ETX). App-claimed chords
-      // already returned above (copy is Ctrl+Shift+C).
-      const ch = controlChar(ev.key);
-      if (ch !== null) {
-        ev.preventDefault();
-        own.onData(ch);
-      }
-      return;
-    }
+    const bytes = encodeDomKey(ev, {
+      applicationCursor: engine?.applicationCursor() === true,
+    });
+    if (bytes === null) return;
     ev.preventDefault();
-    if (ev.key === "Enter") own.onData("\r");
-    else if (ev.key === "Backspace") own.onData("\x7f");
-    else if (ev.key === "Tab") own.onData("\t");
-    else if (ev.key === "Escape") own.onData("\x1b");
-    else if (ev.key.length === 1) own.onData(ev.key);
-    else if (ev.key === "ArrowUp") own.onData("\x1b[A");
-    else if (ev.key === "ArrowDown") own.onData("\x1b[B");
-    else if (ev.key === "ArrowRight") own.onData("\x1b[C");
-    else if (ev.key === "ArrowLeft") own.onData("\x1b[D");
+    own.onData(bytes);
   }
 
   function onInput(): void {
@@ -778,7 +776,7 @@ export const Ghostty: Component<
     ev.stopPropagation();
     ev.preventDefault();
     if (engine) {
-      const maxOff = Math.max(0, visualStyled().length - engine.rows);
+      const maxOff = Math.max(0, engine.visualLineCount() - engine.rows);
       if (ev.deltaY < 0) viewOffset = Math.min(maxOff, viewOffset + 3);
       else viewOffset = Math.max(0, viewOffset - 3);
     }
@@ -824,13 +822,29 @@ export const Ghostty: Component<
             // Touch must not focus here: a scroll or canceled gesture
             // would raise the soft keyboard (xterm's tap path owns
             // touch focus; click still focuses a real tap).
-            if (e.button === 0 && e.pointerType !== "touch") textarea.focus();
+            const already = document.activeElement === textarea;
+            tapGesture = {
+              startX: e.clientX,
+              startY: e.clientY,
+              focusedThisGesture: false,
+              pointerType: e.pointerType,
+            };
+            if (e.button === 0 && e.pointerType !== "touch") {
+              textarea.focus();
+              tapGesture.focusedThisGesture = !already;
+            }
           }}
           onMouseDown={onSelDown}
           onMouseMove={onSelMove}
           onMouseUp={onSelUp}
           onClick={(e) => {
-            const handled = own.onTap?.(e.clientX, e.clientY, e) === true;
+            const gesture = tapGesture;
+            tapGesture = null;
+            const activate =
+              gesture !== null &&
+              shouldActivateTap(gesture, e.clientX, e.clientY);
+            const handled =
+              activate && own.onTap?.(e.clientX, e.clientY, e) === true;
             if (!handled) textarea.focus();
           }}
         />

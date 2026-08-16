@@ -22,6 +22,13 @@ import {
 import { check, Ffi } from "./ffi.ts";
 import { installHostCallbacks, loadGhostty } from "./load.ts";
 import { parseVtStyled, type StyledLine } from "./styled.ts";
+import {
+  applyCursorKeyMode,
+  containsRis,
+  scanOsc52,
+  scanOsc633E,
+  takeCompleteVt,
+} from "./vtSpan.ts";
 
 export type ScreenExtent =
   | { kind: "full" }
@@ -38,6 +45,7 @@ export interface EngineOptions {
   onTitle?: (title: string) => void;
   onPwd?: (pwd: string) => void;
   onCommandRun?: (command: string) => void;
+  onOsc52?: (selection: string, payload: string) => void;
 }
 
 export interface Engine {
@@ -69,6 +77,10 @@ export interface Engine {
   cursor(): { x: number; y: number };
   /** Official Ghostty terminal display width of a code point (0, 1, or 2). */
   cellWidth(cp: number): number;
+  /** True while DECSET 1 (DECCKM / application cursor keys) is on. */
+  applicationCursor(): boolean;
+  /** Visual row count (unwrap:false FORMAT_VT), the history-index axis. */
+  visualLineCount(): number;
   activeScreen(): number;
   /** Absolute-line origin (lines discarded by reset). */
   baseLine(): number;
@@ -106,19 +118,6 @@ function ensureHost(ffi: Ffi): void {
     },
   });
   hostInstalled = true;
-}
-
-const OSC_633_E = /\x1b\]633;E;([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
-
-function scanCommandRuns(
-  bytes: Uint8Array,
-  onCommandRun: (c: string) => void,
-): void {
-  const text = new TextDecoder().decode(bytes);
-  OSC_633_E.lastIndex = 0;
-  for (const m of text.matchAll(OSC_633_E)) {
-    onCommandRun(m[1] ?? "");
-  }
 }
 
 const FORMAT_OPTS_SIZE = 40;
@@ -186,6 +185,8 @@ export function createEngine(opts: EngineOptions): Engine {
   let origin = 0;
   let epoch = 0;
   let lastTotal = rows;
+  let oscTail = "";
+  let applicationCursor = false;
   let cachedPlain: string | undefined;
   let cachedVt: string | undefined;
   let cachedStyled: StyledLine[] | undefined;
@@ -305,7 +306,15 @@ export function createEngine(opts: EngineOptions): Engine {
     write(data) {
       const bytes =
         typeof data === "string" ? new TextEncoder().encode(data) : data;
-      if (opts.onCommandRun) scanCommandRuns(bytes, opts.onCommandRun);
+      const text = new TextDecoder().decode(bytes);
+      const spanned = takeCompleteVt(oscTail, text);
+      oscTail = spanned.leftover;
+      if (opts.onCommandRun) scanOsc633E(spanned.complete, opts.onCommandRun);
+      if (opts.onOsc52) scanOsc52(spanned.complete, opts.onOsc52);
+      applicationCursor = applyCursorKeyMode(
+        spanned.complete,
+        applicationCursor,
+      );
       const ptr = ffi.writeBytes(bytes);
       try {
         wasm.exports.ghostty_terminal_vt_write(term, ptr, bytes.length);
@@ -314,8 +323,12 @@ export function createEngine(opts: EngineOptions): Engine {
       }
       const total = ffi.getU32(term, DATA_TOTAL_ROWS);
       if (total < lastTotal) {
-        origin += lastTotal;
-        epoch += 1;
+        if (containsRis(spanned.complete)) {
+          origin += lastTotal;
+          epoch += 1;
+        } else {
+          origin += lastTotal - total;
+        }
       }
       lastTotal = total;
       invalidate();
@@ -436,6 +449,12 @@ export function createEngine(opts: EngineOptions): Engine {
     cellWidth(cp) {
       return wasm.exports.ghostty_unicode_codepoint_width(cp);
     },
+    applicationCursor() {
+      return applicationCursor;
+    },
+    visualLineCount() {
+      return linesOf(this.formatVt({ unwrap: false, trim: true })).length;
+    },
     activeScreen() {
       return ffi.getU32(term, DATA_ACTIVE_SCREEN);
     },
@@ -451,8 +470,7 @@ export function createEngine(opts: EngineOptions): Engine {
     reanchorIfReset() {
       const total = ffi.getU32(term, DATA_TOTAL_ROWS);
       if (total < lastTotal) {
-        origin += lastTotal;
-        epoch += 1;
+        origin += lastTotal - total;
         lastTotal = total;
       }
     },

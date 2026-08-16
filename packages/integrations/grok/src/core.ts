@@ -279,6 +279,12 @@ export function resolveGrokSessions(
   log?: Logger,
 ): GrokSession[] | null {
   if (foregroundPid !== undefined) {
+    sweepDeadBindings();
+    const rows = readActiveSessions(log);
+    if (rows === "unreadable") {
+      const remembered = sessionByPid.get(foregroundPid);
+      return remembered ? [remembered] : null;
+    }
     const session = resolveGrokSession(foregroundPid, cwd, log);
     return session ? [session] : [];
   }

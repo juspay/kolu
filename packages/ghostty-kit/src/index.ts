@@ -27,3 +27,5 @@ setVendorReader(() => ({
 export type { Engine, EngineOptions, ScreenExtent } from "./engine.ts";
 export { createEngine } from "./engine.ts";
 export { loadGhostty } from "./load.ts";
+export { encodeDomKey, type DomKey } from "./encodeDomKey.ts";
+export { takeCompleteVt } from "./vtSpan.ts";

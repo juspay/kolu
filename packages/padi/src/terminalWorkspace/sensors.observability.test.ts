@@ -33,6 +33,7 @@ import {
   freshAgentEngineState,
   startAgentSensor,
 } from "./sensors.ts";
+import { resetSessionOwnership } from "./sessionOwnership.ts";
 
 const log = pino({ level: "silent" });
 
@@ -253,6 +254,72 @@ describe("W12 — the agent sensor's resolved-null SAMPLE-CONTENT discriminant",
       });
     } finally {
       h.stop();
+    }
+  });
+});
+
+describe("createWatcher throw cannot leave a claimed-unwatched session", () => {
+  it("releases the ownership claim so a neighbour can take the session", async () => {
+    resetSessionOwnership();
+    let shouldThrow = true;
+    const makeAdapter = (): AgentAdapter<number, AgentInfoShape> => ({
+      kind: "claude-code",
+      resolveSessions: (state) =>
+        state.foregroundPid !== undefined && state.foregroundPid !== SHELL_PID
+          ? [state.foregroundPid]
+          : [],
+      sessionKey: (session) => String(session),
+      sessionStartedAt: () => null,
+      createWatcher: (_session, onChange) => {
+        if (shouldThrow) throw new Error("watcher boom");
+        onChange(AGENT_INFO);
+        return { destroy() {} };
+      },
+    });
+    const start = (id: string) => {
+      const emits: TerminalEvent[] = [];
+      const signals: SensorSignals = {
+        cwd: inMemoryChannel<string>(),
+        title: inMemoryChannel<string>(),
+        commandRun: inMemoryChannel<CommandRunSample>(),
+        foreground: inMemoryChannel<ForegroundSample>(),
+        ports: inMemoryChannel<TerminalPorts>(),
+      };
+      const stop = startAgentSensor(
+        makeAdapter(),
+        freshAgentEngineState(),
+        SHELL_PID,
+        "/w",
+        id as TerminalId,
+        signals,
+        undefined,
+        (o) => emits.push(o),
+        log,
+        false,
+      );
+      return {
+        emits,
+        poke: async () => {
+          signals.foreground.publish(agentSample);
+          await flush();
+        },
+        stop,
+      };
+    };
+    const first = start("term-throw");
+    const second = start("term-neighbour");
+    try {
+      await first.poke();
+      shouldThrow = false;
+      await second.poke();
+      expect(agentEvents(second.emits).at(-1)).toEqual({
+        kind: "agent",
+        agent: { value: AGENT_INFO },
+      });
+    } finally {
+      first.stop();
+      second.stop();
+      resetSessionOwnership();
     }
   });
 });

@@ -17,6 +17,7 @@ const {
   readContextTokens,
   readSummary,
   resolveGrokSession,
+  resolveGrokSessions,
   signalsPathFor,
 } = await import("./core.ts");
 const { ACTIVE_SESSIONS_PATH, SESSIONS_DIR } = await import("./config.ts");
@@ -410,6 +411,13 @@ describe("readContextTokens / deriveGrokInfo", () => {
     writeActiveSessions([{ session_id: id, pid: 8, cwd }]);
     const info = deriveGrokInfo(resolveGrokSession(8, cwd)!);
     expect(info.contextTokens).toBeNull();
+  });
+});
+
+describe("resolveGrokSessions", () => {
+  it("returns null when the session map is unreadable and no pid is bound", () => {
+    fs.writeFileSync(ACTIVE_SESSIONS_PATH, "{not-json");
+    expect(resolveGrokSessions(4242, "/tmp/nowhere")).toBeNull();
   });
 });
 

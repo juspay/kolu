@@ -38,7 +38,11 @@
 import { DatabaseSync } from "node:sqlite";
 import { classifyByAwaiting } from "anyagent";
 import type { Logger } from "kolu-shared";
-import { readDbList, withDb as sharedWithDb } from "kolu-shared/sqlite";
+import {
+  isMissingSqliteDb,
+  readDbList,
+  withDb as sharedWithDb,
+} from "kolu-shared/sqlite";
 import { CODEX_DB_PATH } from "./config.ts";
 import type { CodexInfo } from "./schemas.ts";
 
@@ -148,7 +152,7 @@ export function openDb(log?: Logger): DatabaseSync | null {
     // ENOENT is the answer "Codex has never run here". Anything else — a lock, a
     // permission error, EMFILE — is a failure to LOOK, and must not read as
     // absence: the ownership arbiter releases a terminal session on absence.
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    if (!isMissingSqliteDb(err)) throw err;
     log?.debug({ err, path: CODEX_DB_PATH }, "codex db unavailable");
     return null;
   }

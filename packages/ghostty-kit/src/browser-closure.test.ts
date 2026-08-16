@@ -17,6 +17,8 @@ const BROWSER_FILES = [
   "constants.ts",
   "styled.ts",
   "controlChar.ts",
+  "encodeDomKey.ts",
+  "vtSpan.ts",
   "backfill.ts",
   "solid/Ghostty.tsx",
   "solid/grid.ts",
@@ -24,6 +26,8 @@ const BROWSER_FILES = [
   "solid/onceMeasured.ts",
   "solid/index.ts",
   "solid/scrollLock.ts",
+  "solid/paintExtent.ts",
+  "solid/tapGesture.ts",
 ];
 
 describe("browser tile import graph", () => {

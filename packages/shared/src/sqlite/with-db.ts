@@ -24,6 +24,15 @@
 
 import type { Logger } from "../log.ts";
 
+/** node:sqlite reports a missing file as ERR_SQLITE_ERROR / errcode 14
+ *  (SQLITE_CANTOPEN), not ENOENT. Both shapes mean "never ran here". */
+export function isMissingSqliteDb(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const rec = err as { code?: unknown; errcode?: unknown };
+  if (rec.code === "ENOENT") return true;
+  return rec.code === "ERR_SQLITE_ERROR" && rec.errcode === 14;
+}
+
 /** Minimal shape a DB handle must satisfy to be managed by `withDb`. */
 export interface Closable {
   close(): void;
