@@ -491,6 +491,9 @@ export const Ghostty: Component<
     <div
       {...rest}
       ref={mount}
+      data-terminal-screen
+      data-terminal-engine="ghostty"
+      onWheel={onWheel}
       style={{
         width: "100%",
         height: "100%",
@@ -500,9 +503,10 @@ export const Ghostty: Component<
         "background-color": own.theme.background ?? "#000",
       }}
     >
-      <canvas ref={canvas} onWheel={onWheel} />
+      <canvas ref={canvas} />
       <textarea
         ref={textarea}
+        data-terminal-input
         aria-label="Terminal"
         autocomplete="off"
         spellcheck={false}

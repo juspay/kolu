@@ -24,7 +24,7 @@ const RIGHT_PANEL_MARKER = '[data-testid="right-panel-tab-inspector"]';
 
 /** Locate a clickable file-ref in the active terminal and compute
  *  pixel coordinates from the **public** xterm API
- *  (`term.cols/rows` + the `.xterm-screen` bounding rect). The
+ *  (`term.cols/rows` + the `[data-terminal-screen]` bounding rect). The
  *  previous step reached into `term._core._linkProviderService` —
  *  fragile to xterm internals (which already broke once on this
  *  branch when the field was renamed). The real-mouse path also
@@ -51,7 +51,7 @@ async function findRefClickPoint(
         | (HTMLElement & { __xterm?: XtermForClick })
         | null;
       const term = container?.__xterm;
-      const screen = container?.querySelector(".xterm-screen");
+      const screen = container?.querySelector("[data-terminal-screen]");
       if (!container || !term || !screen) return null;
       const { active } = term.buffer;
       const top = active.viewportY;
@@ -121,7 +121,7 @@ async function findRefFontMetricPoint(
         | null;
       const term = container?.__xterm;
       const screen = container?.querySelector(
-        ".xterm-screen",
+        "[data-terminal-screen]",
       ) as HTMLElement | null;
       const cell = term?._core?._renderService?.dimensions?.css?.cell;
       if (!container || !term || !screen || !cell) return null;
@@ -292,7 +292,7 @@ When(
  *  emulation welds `(hover:none)` on; without it the primary pointer is fine — a
  *  two-run CI oracle proved both directions). `transform-origin: 0 0` matches the
  *  canvas contract `unscaleEventPoint` inverts about; the scale lands on an
- *  ANCESTOR of `.xterm-screen`, so its `getBoundingClientRect()` grows while
+ *  ANCESTOR of `[data-terminal-screen]`, so its `getBoundingClientRect()` grows while
  *  `offsetWidth` stays put — exactly the divergence the divisor authority
  *  corrects. */
 When(

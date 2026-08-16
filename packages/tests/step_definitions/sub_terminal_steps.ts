@@ -41,7 +41,7 @@ const BOTTOM_MARKER = "SPLIT-BOTTOM-MARK";
  */
 async function paletteCommand(world: KoluWorld, query: string) {
   // Ensure focus is in the app (previous palette close may leave focus nowhere)
-  const terminal = world.page.locator("[data-visible] .xterm-screen");
+  const terminal = world.page.locator("[data-visible] [data-terminal-screen]");
   if ((await terminal.count()) > 0) await terminal.first().click();
   await world.page.keyboard.press(`${MOD_KEY}+k`);
   await world.page.waitForFunction(

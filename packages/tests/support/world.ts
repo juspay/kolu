@@ -46,10 +46,10 @@ export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 /** Locator for the app's settled state: a visible terminal screen, a dormant
  *  (sleeping) tile body, or the empty state tip. A canvas holding only sleeping
  *  tiles is fully settled — its tiles render a PTY-less `dormant-tile-body` (no
- *  `.xterm-screen`), and it is NOT the empty state — so the dormant body is the
+ *  `[data-terminal-screen]`), and it is NOT the empty state — so the dormant body is the
  *  third settled shape a reload/converge can land on. */
 const SETTLED_SELECTOR =
-  '[data-visible] .xterm-screen, [data-testid="dormant-tile-body"], [data-testid="empty-state"]';
+  '[data-visible] [data-terminal-screen], [data-testid="dormant-tile-body"], [data-testid="empty-state"]';
 /** Touch-device media query — mirrors `isTouch` in packages/client/src/useMobile.ts.
  *  The test package can't import from client src, so the literal is named here to
  *  keep the one place it's duplicated legible and self-documenting. Exported so
@@ -191,7 +191,7 @@ export class KoluWorld extends World {
     // visible canvas tiles, `[data-focused]` resolves to the single tile
     // that owns keyboard focus — clicking + asserting on the active
     // terminal lines up with what the user sees.
-    return this.page.locator("[data-focused] .xterm-screen").first();
+    return this.page.locator("[data-focused] [data-terminal-screen]").first();
   }
 
   /** Create a terminal via the keyboard shortcut (`Cmd/Ctrl+Enter`). Works
@@ -246,7 +246,7 @@ export class KoluWorld extends World {
         const visible = document.querySelector("[data-visible]");
         if (!visible) return false;
         return matchMedia(coarsePointer).matches
-          ? !!visible.querySelector(".xterm-helper-textarea")
+          ? !!visible.querySelector("[data-terminal-input]")
           : !!document.activeElement?.closest("[data-visible]");
       },
       COARSE_POINTER_QUERY,
@@ -321,10 +321,7 @@ export class KoluWorld extends World {
       scope,
     );
     if (!focused) {
-      await this.page
-        .locator(`${scope} .xterm-helper-textarea`)
-        .first()
-        .focus();
+      await this.page.locator(`${scope} [data-terminal-input]`).first().focus();
     }
   }
 

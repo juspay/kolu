@@ -16,9 +16,8 @@ type FocusProbeWindow = Window & {
 
 const KEY_BAR = '[data-testid="mobile-key-bar"]';
 const KEY = (testId: string) => `[data-testid="mobile-key-${testId}"]`;
-const XTERM_SCREEN = "[data-visible][data-terminal-id] .xterm-screen";
-const XTERM_TEXTAREA =
-  "[data-visible][data-terminal-id] .xterm-helper-textarea";
+const XTERM_SCREEN = "[data-visible][data-terminal-id] [data-terminal-screen]";
+const XTERM_TEXTAREA = "[data-visible][data-terminal-id] [data-terminal-input]";
 
 /** Read the document-capture focus counter armed by "I arm the soft-keyboard
  *  focus probe", detach its listener, and return the count. Shared by every
@@ -185,14 +184,15 @@ Then(
 );
 
 When("I tap the terminal canvas", async function (this: KoluWorld) {
-  // Install a focus-event observer on .xterm-screen BEFORE the tap so we can
+  // Install a focus-event observer on [data-terminal-screen] BEFORE the tap so we can
   // detect the iOS-style contenteditable auto-focus. The bug surfaces when the
   // browser focuses the contenteditable on pointerdown and our wrapper-click
   // handler then shuffles to the helper textarea — the smoking gun is a focus
-  // event landing on .xterm-screen during the gesture.
+  // event landing on [data-terminal-screen] during the gesture.
   await this.page.evaluate((sel) => {
     const screen = document.querySelector(sel) as HTMLElement | null;
-    if (!screen) throw new Error("No .xterm-screen on active terminal");
+    if (!screen)
+      throw new Error("No [data-terminal-screen] on active terminal");
     const w = window as FocusProbeWindow;
     w.__screenFocusCount = 0;
     w.__screenFocusListener = () => {
@@ -229,7 +229,7 @@ Then(
     assert.strictEqual(
       count,
       0,
-      `Expected .xterm-screen to never receive focus during the tap (focus-shuffle indicator), got ${count} focus events`,
+      `Expected [data-terminal-screen] to never receive focus during the tap (focus-shuffle indicator), got ${count} focus events`,
     );
   },
 );
@@ -243,7 +243,7 @@ Then(
     await this.page.waitForFunction(
       () =>
         document.activeElement?.tagName === "TEXTAREA" &&
-        document.activeElement.classList.contains("xterm-helper-textarea"),
+        document.activeElement.hasAttribute("data-terminal-input"),
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -433,7 +433,7 @@ When("I arm the soft-keyboard focus probe", async function (this: KoluWorld) {
     w.__textareaFocusCount = 0;
     w.__textareaFocusListener = (e: Event) => {
       const t = e.target as HTMLElement | null;
-      if (t?.classList.contains("xterm-helper-textarea")) {
+      if (t?.hasAttribute("data-terminal-input")) {
         w.__textareaFocusCount = (w.__textareaFocusCount ?? 0) + 1;
       }
     };

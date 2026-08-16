@@ -22,7 +22,7 @@ async function waitForCanvas(world: KoluWorld) {
 
 async function waitForXterm(world: KoluWorld) {
   await world.page
-    .locator("[data-visible] .xterm-screen")
+    .locator("[data-visible] [data-terminal-screen]")
     .first()
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
@@ -573,7 +573,7 @@ When(
     await waitForXterm(this);
     await this.page.evaluate(() => {
       const xterm = document.querySelector(
-        "[data-visible] .xterm-screen",
+        "[data-visible] [data-terminal-screen]",
       ) as HTMLElement | null;
       if (!xterm) throw new Error("xterm-screen not found");
       const rect = xterm.getBoundingClientRect();
@@ -628,7 +628,7 @@ When(
     await this.page.evaluate((sel: string) => {
       const container = document.querySelector(sel) as HTMLElement | null;
       const xterm = document.querySelector(
-        "[data-visible] .xterm-screen",
+        "[data-visible] [data-terminal-screen]",
       ) as HTMLElement | null;
       if (!container) throw new Error("canvas-container not found");
       if (!xterm) throw new Error("xterm-screen not found");
@@ -679,7 +679,7 @@ When(
     await waitForXterm(this);
     await this.page.evaluate(() => {
       const xterm = document.querySelector(
-        "[data-visible] .xterm-screen",
+        "[data-visible] [data-terminal-screen]",
       ) as HTMLElement | null;
       if (!xterm) throw new Error("xterm-screen not found");
       const rect = xterm.getBoundingClientRect();
@@ -705,7 +705,7 @@ When(
     await waitForXterm(this);
     await this.page.evaluate(() => {
       const xterm = document.querySelector(
-        "[data-visible] .xterm-screen",
+        "[data-visible] [data-terminal-screen]",
       ) as HTMLElement | null;
       if (!xterm) throw new Error("xterm-screen not found");
       const rect = xterm.getBoundingClientRect();
@@ -1604,7 +1604,7 @@ When(
         const tile = document
           .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
           .item(i) as HTMLElement | null;
-        return tile?.querySelector(".xterm") != null;
+        return tile?.querySelector("[data-terminal-engine]") != null;
       },
       { sel: CANVAS_SELECTOR, i: index - 1 },
       { timeout: POLL_TIMEOUT },
@@ -1614,7 +1614,9 @@ When(
         const tile = document
           .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
           .item(i) as HTMLElement | null;
-        const xterm = tile?.querySelector(".xterm") as HTMLElement | null;
+        const xterm = tile?.querySelector(
+          "[data-terminal-engine]",
+        ) as HTMLElement | null;
         if (!xterm) throw new Error(`xterm element in tile ${i + 1} not found`);
         const tag = `xterm-${Date.now()}-${Math.random()}`;
         xterm.setAttribute("data-stability-tag", tag);
@@ -1650,7 +1652,9 @@ Then(
           .__xtermStabilityTag;
         if (!tag) return false;
         return (
-          document.querySelector(`.xterm[data-stability-tag="${tag}"]`) !== null
+          document.querySelector(
+            `[data-terminal-engine][data-stability-tag="${tag}"]`,
+          ) !== null
         );
       },
       undefined,

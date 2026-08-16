@@ -75,7 +75,7 @@ When("I swipe left on the mobile key bar", async function (this: KoluWorld) {
 
 // The active mobile tile is the one whose body is shown (`data-visible`).
 // Capturing its terminal id before/after a gesture is renderer-independent —
-// unlike reading xterm's canvas-backed `.xterm-screen` text — so it cleanly
+// unlike reading xterm's canvas-backed `[data-terminal-screen]` text — so it cleanly
 // proves whether a swipe cycled the tile.
 const ACTIVE_TILE = "[data-visible][data-terminal-id]";
 
@@ -116,7 +116,7 @@ Then(
     // exists, so it can't contain the text", which is what the assertion
     // expects. Any actual page error would fail elsewhere with a hard error.
     const seen = await this.page
-      .locator("[data-visible] .xterm-screen")
+      .locator("[data-visible] [data-terminal-screen]")
       .innerText()
       .catch(() => "");
     assert.ok(

@@ -27,7 +27,7 @@ let markerBoundary = 0;
 type CellPixel = { x: number; y: number } | null;
 
 /** Visual pixel centre of terminal column `col` on the FIRST marker row,
- *  derived from the post-transform `.xterm-screen` rect via
+ *  derived from the post-transform `[data-terminal-screen]` rect via
  *  `rect.width / term.cols` — the same transform-correct cell mapping kolu's
  *  touch hit-testing uses (`Terminal.tsx` `fileRefAtPoint`) and the file-ref
  *  e2e step. Reflects whatever zoom is live, so it is the "ground truth" a
@@ -50,7 +50,7 @@ async function markerCellPixel(
         | (HTMLElement & { __xterm?: XtermLike })
         | null;
       const term = container?.__xterm;
-      const screen = container?.querySelector(".xterm-screen");
+      const screen = container?.querySelector("[data-terminal-screen]");
       if (!container || !term || !screen) return null;
       const { active } = term.buffer;
       const top = active.viewportY;

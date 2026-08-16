@@ -8,7 +8,7 @@
  *
  *   - sleeping a terminal (click `tile-sleep`) and capturing its stable id;
  *   - asserting a tile is DORMANT (`dormant-tile-body` + `data-sleeping="true"`,
- *     and crucially NO live `.xterm-screen`) vs. LIVE (a live xterm present);
+ *     and crucially NO live `[data-terminal-screen]`) vs. LIVE (a live xterm present);
  *   - waking via the dormant body's `wake-button`;
  *   - proving the agent RESUMED — the woken PTY replays the resume-by-id
  *     invocation (`codex resume <session-id>`, juspay/kolu#1495) in the SAME cwd,
@@ -20,7 +20,7 @@
  *
  * A SLEEPING tile keeps its CanvasTile wrapper (`canvas-tile` + `data-terminal-id`
  * + inline `style.left/top`) but its inner live `Terminal` (the only carrier of
- * `data-visible` / `.xterm-screen`) is unmounted, so DORMANT tiles are addressed
+ * `data-visible` / `[data-terminal-screen]`) is unmounted, so DORMANT tiles are addressed
  * by their wrapper, never by the live-terminal selectors.
  */
 
@@ -84,7 +84,7 @@ async function sleepingTileId(world: KoluWorld): Promise<string> {
 }
 
 /** Poll until the tile with `id` is DORMANT: its wrapper holds a
- *  `dormant-tile-body[data-sleeping="true"]` AND has NO live `.xterm-screen`
+ *  `dormant-tile-body[data-sleeping="true"]` AND has NO live `[data-terminal-screen]`
  *  (the second clause is load-bearing — a tile that still painted a live xterm
  *  alongside the dormant body would not be a real sleep). */
 async function waitForSleeping(world: KoluWorld, id: string): Promise<void> {
@@ -97,7 +97,7 @@ async function waitForSleeping(world: KoluWorld, id: string): Promise<void> {
       const dormant = tile.querySelector(
         '[data-testid="dormant-tile-body"][data-sleeping="true"]',
       );
-      const liveXterm = tile.querySelector(".xterm-screen");
+      const liveXterm = tile.querySelector("[data-terminal-screen]");
       return dormant !== null && liveXterm === null;
     },
     { sel: CANVAS_TILE_SELECTOR, tileId: id },
@@ -105,7 +105,7 @@ async function waitForSleeping(world: KoluWorld, id: string): Promise<void> {
   );
 }
 
-/** Poll until the tile with `id` is LIVE again: a live `.xterm-screen` is
+/** Poll until the tile with `id` is LIVE again: a live `[data-terminal-screen]` is
  *  present AND the dormant body is gone — the inverse of `waitForSleeping`. */
 async function waitForLive(world: KoluWorld, id: string): Promise<void> {
   await world.page.waitForFunction(
@@ -114,7 +114,7 @@ async function waitForLive(world: KoluWorld, id: string): Promise<void> {
         `${sel}[data-terminal-id="${tileId}"]`,
       );
       if (!tile) return false;
-      const liveXterm = tile.querySelector(".xterm-screen");
+      const liveXterm = tile.querySelector("[data-terminal-screen]");
       const dormant = tile.querySelector('[data-testid="dormant-tile-body"]');
       return liveXterm !== null && dormant === null;
     },
