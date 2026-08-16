@@ -5,6 +5,13 @@
  * Shared here (beside the dial kit) because padi-tui and kolu's CLI render the
  * SAME table from the same records; a second copy would be a second truth.
  *
+ * Not only VIEWS: `parsePlacementFlags` is here for the same reason and on the
+ * same terms — pure, no I/O, and shared because both faces must answer one
+ * question identically. The line this module draws is "does it need a socket or
+ * a tty?", not "is it formatting?"; a flag pair read down to the placement it
+ * means is as much a pure fold as the roster table is, and leaving it to each
+ * `main` is exactly the second truth the paragraph above refuses.
+ *
  * These views show what each terminal *is in* — its record state (active ·
  * sleeping · parked) · repo·branch · PR + checks · agent state · foreground —
  * read off padi's composed `terminals` collection (the same record the canvas

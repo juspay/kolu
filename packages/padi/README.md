@@ -249,7 +249,11 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   `ID · STATE · REPO·BRANCH · PR · AGENT · FOREGROUND` columns, the PR/checks
   and agent-status folds, plus `shortId` and `resolveTerminalId` — the
   id-prefix resolution every `<id>` argument accepts, which is a pure fold over
-  an id list and so belongs on this side of the line) with no I/O; `read` is
+  an id list and so belongs on this side of the line) with no I/O. It also owns
+  `parsePlacementFlags`, the `--toplevel` / `--parent` decision BOTH CLI faces
+  run: same reason as the roster table, one rule up from formatting — two faces
+  that must answer a create identically may not each hand-roll the answer. `read`
+  is
   the one-shot reads off the `terminals` collection — `readTerminalKeys` (the
   live id list `resolveTerminalId` folds) and `settledSnapshot` — as Effects,
   so a Ctrl+C tears their subscriptions down.

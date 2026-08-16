@@ -144,7 +144,7 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
   {
     member: "git.worktreeCreate",
     reason:
-      "write-side beyond terminal control — composed INSIDE the bespoke `lifecycle_create` (behind the CLI's placement gates), not exposed as a raw verb; further raw write verbs stay expandable later, on demand, one row at a time",
+      "write-side beyond terminal control — composed INSIDE the bespoke `lifecycle_create` (behind the CLI's directory gates), not exposed as a raw verb; further raw write verbs stay expandable later, on demand, one row at a time",
   },
   {
     member: "git.worktreeRemove",
