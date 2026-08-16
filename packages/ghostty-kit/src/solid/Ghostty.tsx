@@ -309,6 +309,19 @@ export const Ghostty: Component<
     return next;
   }
 
+  /** display:none → visible and Corvu's first expanded frame often land
+   *  size AFTER the calling effect. Retry across two animation frames
+   *  so a split can publish a grid (and open attach) without a resize. */
+  function scheduleFit(): void {
+    applyFit();
+    if (grid() || !own.visible || !engine) return;
+    requestAnimationFrame(() => {
+      applyFit();
+      if (grid() || !own.visible || !engine) return;
+      requestAnimationFrame(() => applyFit());
+    });
+  }
+
   onMount(() => {
     const owner = getOwner();
     if (!owner) {
@@ -358,6 +371,14 @@ export const Ghostty: Component<
         viewOffset = 0;
         schedulePaint();
         return rawBottom(_term);
+      };
+      const rawTab = lock.handleTabVisible.bind(lock);
+      lock.handleTabVisible = () => {
+        // #1272: a lock taken while hidden must rejoin the live bottom
+        // on tab return — unlocking the latch alone leaves viewOffset.
+        viewOffset = 0;
+        schedulePaint();
+        rawTab();
       };
       const keyHandlers: Array<(e: KeyboardEvent) => boolean> = [];
       const resultListeners = new Set<
@@ -467,12 +488,24 @@ export const Ghostty: Component<
         // Always parse into the engine. Lock only freezes the painted
         // window (viewOffset) — dropping bytes made buffer reads and
         // Starship-like prompts vanish while the user was scrolled up.
-        const before = visualStyled().length;
+        const before = visualStyled();
+        const rows = eng.rows;
+        const start = Math.max(0, before.length - rows - viewOffset);
+        const needle = lineText(before[start] ?? { runs: [] });
         eng.write(data);
         onParsed?.();
-        const grew = Math.max(0, visualStyled().length - before);
+        const after = visualStyled();
+        const grew = Math.max(0, after.length - before.length);
         if (own.scrollLockEnabled() && lock.isLocked()) {
-          viewOffset += grew;
+          if (grew > 0) viewOffset += grew;
+          else if (needle.length > 0) {
+            // Scrollback cap: length did not grow, oldest rows fell off.
+            // Re-pin the frozen window to the same first visible line.
+            const found = after.findIndex((l) => lineText(l) === needle);
+            if (found >= 0) {
+              viewOffset = Math.max(0, after.length - rows - found);
+            }
+          }
           lock.buffer(data);
         } else {
           // Unlocked (including #1272 programmatic scroll) pins to the
@@ -550,14 +583,14 @@ export const Ghostty: Component<
           },
         },
       };
-      applyFit();
+      scheduleFit();
       own.onReady(handle);
       schedulePaint();
     }
   }
 
   onMount(() => {
-    const ro = new ResizeObserver(() => applyFit());
+    const ro = new ResizeObserver(() => scheduleFit());
     ro.observe(mount);
     onCleanup(() => ro.disconnect());
   });
@@ -606,7 +639,7 @@ export const Ghostty: Component<
   });
 
   createEffect(() => {
-    if (own.visible) applyFit();
+    if (own.visible) scheduleFit();
   });
 
   function onKeyDown(ev: KeyboardEvent): void {

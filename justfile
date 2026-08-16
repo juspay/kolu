@@ -504,7 +504,9 @@ test: install
     # no Cucumber verdict. Cap both platforms so the suite can finish.
     # Linux at 8 OOMs; at 2 the suite is killed around 18m still in
     # mid-features. 4 finishes a full run on the venue before that cut.
-    cap=4; [ "$(uname)" = Darwin ] && cap=4
+    # Linux at 4 still dies mid-suite with no Cucumber verdict (wasm+Chromium).
+    # 3 lets the suite finish on the venue; Darwin keeps 4 on the 10-core box.
+    cap=3; [ "$(uname)" = Darwin ] && cap=4
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans
