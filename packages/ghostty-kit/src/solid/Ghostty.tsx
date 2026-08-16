@@ -542,21 +542,11 @@ export const Ghostty: Component<
           schedulePaint();
           return;
         }
-        const rows = eng.rows;
-        const before = eng.styledLines({ kind: "full" });
-        const start = Math.max(0, before.length - rows - viewOffset);
-        const needle = lineText(before[start] ?? { runs: [] });
+        const before = eng.totalRows();
         eng.write(data);
         onParsed?.();
-        const after = eng.styledLines({ kind: "full" });
-        const grew = Math.max(0, after.length - before.length);
+        const grew = Math.max(0, eng.totalRows() - before);
         if (grew > 0) viewOffset += grew;
-        else if (needle.length > 0) {
-          const found = after.findIndex((l) => lineText(l) === needle);
-          if (found >= 0) {
-            viewOffset = Math.max(0, after.length - rows - found);
-          }
-        }
         lock.buffer(data);
         schedulePaint();
       };

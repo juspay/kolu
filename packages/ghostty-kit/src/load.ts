@@ -45,6 +45,11 @@ export interface GhosttyExports {
   ghostty_terminal_set: (term: number, option: number, value: number) => number;
   ghostty_terminal_vt_write: (term: number, data: number, len: number) => void;
   ghostty_terminal_get: (term: number, data: number, out: number) => number;
+  ghostty_terminal_grid_ref: (
+    term: number,
+    point: number,
+    outRef: number,
+  ) => number;
   ghostty_formatter_terminal_new: (
     allocator: number,
     out: number,

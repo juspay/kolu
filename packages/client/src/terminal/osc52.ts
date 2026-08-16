@@ -9,7 +9,8 @@ export type Osc52Action =
 export function decodeOsc52Payload(payload: string): Osc52Action {
   if (payload === "?") return { kind: "query" };
   try {
-    return { kind: "copy", text: atob(payload) };
+    const bytes = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
+    return { kind: "copy", text: new TextDecoder().decode(bytes) };
   } catch {
     return { kind: "invalid" };
   }

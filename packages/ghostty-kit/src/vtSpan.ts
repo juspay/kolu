@@ -1,6 +1,10 @@
 /** Split complete VT sequences from a leftover+chunk so CSI/OSC that
  *  straddle two PTY reads still parse. */
 
+/** Cap on an unfinished CSI/OSC tail. A binary `cat` that emits `\x1b]`
+ *  with no ST must not grow `oscTail` / `queryTail` without bound. */
+export const VT_LEFTOVER_MAX = 4096;
+
 export function takeCompleteVt(
   pending: string,
   chunk: string,
@@ -10,6 +14,9 @@ export function takeCompleteVt(
   if (lastEsc < 0) return { complete: s, leftover: "" };
   const tail = s.slice(lastEsc);
   if (sequenceComplete(tail)) return { complete: s, leftover: "" };
+  if (tail.length > VT_LEFTOVER_MAX) {
+    return { complete: s.slice(0, lastEsc), leftover: "" };
+  }
   return { complete: s.slice(0, lastEsc), leftover: tail };
 }
 

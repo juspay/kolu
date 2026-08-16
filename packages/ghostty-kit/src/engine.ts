@@ -12,6 +12,11 @@ import {
   FORMAT_HTML,
   FORMAT_PLAIN,
   FORMAT_VT,
+  GRID_REF_SIZE,
+  POINT_SIZE,
+  POINT_TAG_SCREEN,
+  POINT_TAG_VIEWPORT,
+  SELECTION_SIZE,
   OPT_CONTINUATION_MAX_BYTES,
   OPT_PWD_CHANGED,
   OPT_SCROLLBACK_MAX_LINES,
@@ -81,6 +86,8 @@ export interface Engine {
   applicationCursor(): boolean;
   /** Visual row count (unwrap:false FORMAT_VT), the history-index axis. */
   visualLineCount(): number;
+  /** Bytes the last wasm format_alloc produced. 0 if nothing has formatted. */
+  lastFormatBytes(): number;
   activeScreen(): number;
   /** Absolute-line origin (lines discarded by reset). */
   baseLine(): number;
@@ -187,6 +194,8 @@ export function createEngine(opts: EngineOptions): Engine {
   let lastTotal = rows;
   let oscTail = "";
   let applicationCursor = false;
+  let visualCount: number | undefined;
+  let lastFmtBytes = 0;
   let cachedPlain: string | undefined;
   let cachedVt: string | undefined;
   let cachedStyled: StyledLine[] | undefined;
@@ -202,7 +211,12 @@ export function createEngine(opts: EngineOptions): Engine {
     slot.term = next;
   }
 
-  function format(emit: number, unwrap = true, trim = true): string {
+  function format(
+    emit: number,
+    unwrap = true,
+    trim = true,
+    selectionPtr = 0,
+  ): string {
     const opt = ffi.allocBytes(FORMAT_OPTS_SIZE);
     try {
       new Uint8Array(ffi.memory(), opt, FORMAT_OPTS_SIZE).fill(0);
@@ -211,6 +225,7 @@ export function createEngine(opts: EngineOptions): Engine {
       ffi.setU8(opt + 8, unwrap ? 1 : 0);
       ffi.setU8(opt + 9, trim ? 1 : 0);
       ffi.setU32(opt + 12, FORMAT_EXTRA_SIZE);
+      if (selectionPtr !== 0) ffi.setU32(opt + 36, selectionPtr);
       const fmtOut = ffi.allocOpaque();
       check(
         "formatter_new",
@@ -226,6 +241,7 @@ export function createEngine(opts: EngineOptions): Engine {
         );
         const ptr = ffi.u32(ptrOut);
         const len = ffi.u32(lenOut);
+        lastFmtBytes = len;
         const text = len === 0 ? "" : ffi.readUtf8(ptr, len);
         if (ptr !== 0) wasm.exports.ghostty_free(0, ptr, len);
         return text;
@@ -234,6 +250,90 @@ export function createEngine(opts: EngineOptions): Engine {
       }
     } finally {
       ffi.freeBytes(opt, FORMAT_OPTS_SIZE);
+    }
+  }
+
+  function gridRefAt(tag: number, x: number, y: number): number {
+    const point = ffi.allocBytes(POINT_SIZE);
+    const ref = ffi.allocBytes(GRID_REF_SIZE);
+    try {
+      new Uint8Array(ffi.memory(), point, POINT_SIZE).fill(0);
+      new Uint8Array(ffi.memory(), ref, GRID_REF_SIZE).fill(0);
+      ffi.setU32(point, tag);
+      ffi.view().setUint16(point + 8, x, true);
+      ffi.view().setUint32(point + 12, y, true);
+      check(
+        "grid_ref",
+        wasm.exports.ghostty_terminal_grid_ref(term, point, ref),
+      );
+      return ref;
+    } finally {
+      ffi.freeBytes(point, POINT_SIZE);
+    }
+  }
+
+  function formatSelection(
+    emit: number,
+    unwrap: boolean,
+    trim: boolean,
+    startRef: number,
+    endRef: number,
+  ): string {
+    const sel = ffi.allocBytes(SELECTION_SIZE);
+    try {
+      new Uint8Array(ffi.memory(), sel, SELECTION_SIZE).fill(0);
+      ffi.setU32(sel, SELECTION_SIZE);
+      new Uint8Array(ffi.memory(), sel + 4, GRID_REF_SIZE).set(
+        new Uint8Array(ffi.memory(), startRef, GRID_REF_SIZE),
+      );
+      new Uint8Array(ffi.memory(), sel + 16, GRID_REF_SIZE).set(
+        new Uint8Array(ffi.memory(), endRef, GRID_REF_SIZE),
+      );
+      return format(emit, unwrap, trim, sel);
+    } finally {
+      ffi.freeBytes(sel, SELECTION_SIZE);
+    }
+  }
+
+  function formatExtent(
+    emit: number,
+    unwrap: boolean,
+    trim: boolean,
+    extent: ScreenExtent,
+  ): string {
+    if (extent.kind === "full") return format(emit, unwrap, trim);
+    const lastCol = Math.max(0, cols - 1);
+    if (extent.kind === "viewport") {
+      const start = gridRefAt(POINT_TAG_VIEWPORT, 0, 0);
+      const end = gridRefAt(POINT_TAG_VIEWPORT, lastCol, Math.max(0, rows - 1));
+      try {
+        return formatSelection(emit, unwrap, trim, start, end);
+      } finally {
+        ffi.freeBytes(start, GRID_REF_SIZE);
+        ffi.freeBytes(end, GRID_REF_SIZE);
+      }
+    }
+    const total = ffi.getU32(term, DATA_TOTAL_ROWS);
+    let startY: number;
+    let endY: number;
+    if (extent.kind === "tail") {
+      const n = Math.max(0, extent.lines);
+      if (n === 0 || total === 0) return "";
+      startY = Math.max(0, total - n);
+      endY = Math.max(0, total - 1);
+    } else {
+      startY = Math.max(0, extent.startLine ?? 0);
+      const endEx = Math.min(total, extent.endLine ?? total);
+      if (endEx <= startY) return "";
+      endY = endEx - 1;
+    }
+    const start = gridRefAt(POINT_TAG_SCREEN, 0, startY);
+    const end = gridRefAt(POINT_TAG_SCREEN, lastCol, endY);
+    try {
+      return formatSelection(emit, unwrap, trim, start, end);
+    } finally {
+      ffi.freeBytes(start, GRID_REF_SIZE);
+      ffi.freeBytes(end, GRID_REF_SIZE);
     }
   }
 
@@ -322,13 +422,18 @@ export function createEngine(opts: EngineOptions): Engine {
         ffi.freeBytes(ptr, bytes.length);
       }
       const total = ffi.getU32(term, DATA_TOTAL_ROWS);
+      const ris = containsRis(spanned.complete);
       if (total < lastTotal) {
-        if (containsRis(spanned.complete)) {
+        if (ris) {
           origin += lastTotal;
           epoch += 1;
+          visualCount = undefined;
         } else {
           origin += lastTotal - total;
         }
+      }
+      if (visualCount !== undefined && !ris) {
+        visualCount += total - lastTotal;
       }
       lastTotal = total;
       invalidate();
@@ -349,7 +454,10 @@ export function createEngine(opts: EngineOptions): Engine {
       cols = nextCols;
       rows = nextRows;
       lastTotal = ffi.getU32(term, DATA_TOTAL_ROWS);
-      if (widthChanged) epoch += 1;
+      if (widthChanged) {
+        epoch += 1;
+        visualCount = undefined;
+      }
       invalidate();
     },
     formatPlain(o) {
@@ -368,7 +476,14 @@ export function createEngine(opts: EngineOptions): Engine {
       return format(FORMAT_HTML, o?.unwrap ?? true, o?.trim ?? true);
     },
     styledLines(extent) {
-      return sliceStyled(allStyled(), extent ?? { kind: "full" });
+      const want = extent ?? { kind: "full" };
+      if (want.kind === "full") return allStyled();
+      const vt = formatExtent(FORMAT_VT, false, true, want);
+      const parsed = parseVtStyled(vt, (cp) =>
+        wasm.exports.ghostty_unicode_codepoint_width(cp),
+      );
+      if (want.kind !== "viewport") return parsed;
+      return sliceStyled(parsed, { kind: "viewport" });
     },
     encodeSnapshot() {
       const ptrOut = ffi.allocOpaque();
@@ -410,6 +525,7 @@ export function createEngine(opts: EngineOptions): Engine {
         ffi.freeBytes(src, bytes.length);
       }
       lastTotal = ffi.getU32(term, DATA_TOTAL_ROWS);
+      visualCount = undefined;
       invalidate();
     },
     getScreenText(extent) {
@@ -453,7 +569,13 @@ export function createEngine(opts: EngineOptions): Engine {
       return applicationCursor;
     },
     visualLineCount() {
-      return linesOf(this.formatVt({ unwrap: false, trim: true })).length;
+      if (visualCount === undefined) {
+        visualCount = linesOf(format(FORMAT_VT, false, true)).length;
+      }
+      return visualCount;
+    },
+    lastFormatBytes() {
+      return lastFmtBytes;
     },
     activeScreen() {
       return ffi.getU32(term, DATA_ACTIVE_SCREEN);

@@ -152,7 +152,7 @@ export function openDb(log?: Logger): DatabaseSync | null {
     // ENOENT is the answer "Codex has never run here". Anything else — a lock, a
     // permission error, EMFILE — is a failure to LOOK, and must not read as
     // absence: the ownership arbiter releases a terminal session on absence.
-    if (!isMissingSqliteDb(err)) throw err;
+    if (!isMissingSqliteDb(err, CODEX_DB_PATH)) throw err;
     log?.debug({ err, path: CODEX_DB_PATH }, "codex db unavailable");
     return null;
   }

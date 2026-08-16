@@ -22,15 +22,21 @@
  *     not use this wrapper for that query.
  */
 
+import { existsSync } from "node:fs";
 import type { Logger } from "../log.ts";
 
 /** node:sqlite reports a missing file as ERR_SQLITE_ERROR / errcode 14
- *  (SQLITE_CANTOPEN), not ENOENT. Both shapes mean "never ran here". */
-export function isMissingSqliteDb(err: unknown): boolean {
+ *  (SQLITE_CANTOPEN), not ENOENT. CANTOPEN also fires for a present file
+ *  we cannot open (permissions, fd exhaustion) — that is a failed look,
+ *  so only a path that is not on disk counts as never-ran-here. */
+export function isMissingSqliteDb(err: unknown, path: string): boolean {
   if (typeof err !== "object" || err === null) return false;
   const rec = err as { code?: unknown; errcode?: unknown };
   if (rec.code === "ENOENT") return true;
-  return rec.code === "ERR_SQLITE_ERROR" && rec.errcode === 14;
+  if (rec.code === "ERR_SQLITE_ERROR" && rec.errcode === 14) {
+    return !existsSync(path);
+  }
+  return false;
 }
 
 /** Minimal shape a DB handle must satisfy to be managed by `withDb`. */

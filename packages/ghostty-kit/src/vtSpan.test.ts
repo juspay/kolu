@@ -4,6 +4,7 @@ import {
   scanOsc52,
   scanOsc633E,
   takeCompleteVt,
+  VT_LEFTOVER_MAX,
 } from "./vtSpan.ts";
 
 describe("takeCompleteVt", () => {
@@ -24,6 +25,26 @@ describe("takeCompleteVt", () => {
     const cmds: string[] = [];
     scanOsc633E(second.complete, (c) => cmds.push(c));
     expect(cmds).toEqual(["npm test"]);
+  });
+
+  it("discards an unterminated OSC past the leftover cap", () => {
+    let leftover = takeCompleteVt("", "\x1b]").leftover;
+    for (let i = 0; i < 8; i++) {
+      const next = takeCompleteVt(leftover, "x".repeat(1000));
+      leftover = next.leftover;
+      expect(leftover.length).toBeLessThanOrEqual(VT_LEFTOVER_MAX);
+    }
+    expect(leftover).toBe("");
+    const later = takeCompleteVt(
+      leftover,
+      "\x1b]52;c;Zm9v\x07\x1b]633;E;ls\x07",
+    );
+    const clips: string[] = [];
+    const cmds: string[] = [];
+    scanOsc52(later.complete, (_sel, payload) => clips.push(payload));
+    scanOsc633E(later.complete, (c) => cmds.push(c));
+    expect(clips).toEqual(["Zm9v"]);
+    expect(cmds).toEqual(["ls"]);
   });
 });
 

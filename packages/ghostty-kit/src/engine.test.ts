@@ -228,6 +228,43 @@ describe("official ghostty-vt.wasm engine", () => {
     }
   });
 
+  it("formats only a viewport/tail, not the full scrollback", () => {
+    const eng = createEngine({ cols: 20, rows: 6, scrollback: 400 });
+    try {
+      for (let i = 0; i < 200; i++)
+        eng.write(`row-${String(i).padStart(3, "0")}\r\n`);
+      const view = eng.styledLines({ kind: "viewport" });
+      const viewBytes = eng.lastFormatBytes();
+      const full = eng.styledLines({ kind: "full" });
+      const fullBytes = eng.lastFormatBytes();
+      expect(view.length).toBe(eng.rows);
+      expect(full.length).toBeGreaterThan(view.length);
+      expect(viewBytes).toBeGreaterThan(0);
+      expect(viewBytes).toBeLessThan(fullBytes / 4);
+      const texts = view.flatMap((l) => l.runs.map((r) => r.text)).join("");
+      expect(texts).toContain("row-199");
+      expect(texts).not.toContain("row-000");
+    } finally {
+      eng.free();
+    }
+  });
+
+  it("does not re-format the whole buffer to recount visual lines after a write", () => {
+    const eng = createEngine({ cols: 20, rows: 6, scrollback: 80 });
+    try {
+      for (let i = 0; i < 20; i++) eng.write(`n-${i}\r\n`);
+      const before = eng.visualLineCount();
+      const bytes = eng.lastFormatBytes();
+      expect(bytes).toBeGreaterThan(0);
+      eng.write("one-more\r\n");
+      const after = eng.visualLineCount();
+      expect(eng.lastFormatBytes()).toBe(bytes);
+      expect(after).toBeGreaterThan(before);
+    } finally {
+      eng.free();
+    }
+  });
+
   it("keeps styled visual rows aligned with unwrapped trimmed plain", () => {
     const eng = createEngine({ cols: 20, rows: 8, scrollback: 40 });
     try {

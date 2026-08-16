@@ -80,7 +80,7 @@ export function openDb(log?: Logger): DatabaseSync | null {
   } catch (err) {
     // ENOENT is the answer "OpenCode has never run here". Anything else is a
     // failure to LOOK — see the twin in kolu-codex core.ts.
-    if (!isMissingSqliteDb(err)) throw err;
+    if (!isMissingSqliteDb(err, OPENCODE_DB_PATH)) throw err;
     log?.debug({ err, path: OPENCODE_DB_PATH }, "opencode db unavailable");
     return null;
   }

@@ -24,3 +24,11 @@ export const DATA_SCROLLBACK_ROWS = 15;
 
 /** Default continuation retention so snapshot encode can capture unfinished VT. */
 export const CONTINUATION_MAX_BYTES = 4096;
+
+/** GhosttyPoint.tag — viewport is the live screen; screen is history+active. */
+export const POINT_TAG_VIEWPORT = 1;
+export const POINT_TAG_SCREEN = 2;
+
+export const POINT_SIZE = 24;
+export const GRID_REF_SIZE = 12;
+export const SELECTION_SIZE = 32;
