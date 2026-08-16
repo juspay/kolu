@@ -1796,7 +1796,7 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-18336f3310dab2114196
+      - revision-2927a457fc798715e058
     sameCodePathEvidence:
       file: packages/tests/features/file-ref-link.feature
       symbol: "Scenario: Clicking a slash-containing path with no line opens the file with no selection"
