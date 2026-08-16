@@ -104,41 +104,37 @@ describe("watchWorkingTree rebuild", () => {
     fs.rmSync(repo, { recursive: true, force: true });
   });
 
-  it(
-    "still delivers events after the shared watcher is torn down and rebuilt",
-    async () => {
-      const CYCLES = 4;
-      const file = path.join(repo, "a.txt");
-      const dead: number[] = [];
+  it("still delivers events after the shared watcher is torn down and rebuilt", async () => {
+    const CYCLES = 4;
+    const file = path.join(repo, "a.txt");
+    const dead: number[] = [];
 
-      for (let cycle = 0; cycle < CYCLES; cycle++) {
-        const off1 = await subscribeInstalled(repo, () => {});
-        // Drop the last listener — this retires the shared parcel subscription —
-        // and rebuild immediately, the way a stream re-subscribe does. The pool
-        // is loaded first so the two halves overlap, as they do under CI load.
-        saturateThreadpool();
-        off1();
+    for (let cycle = 0; cycle < CYCLES; cycle++) {
+      const off1 = await subscribeInstalled(repo, () => {});
+      // Drop the last listener — this retires the shared parcel subscription —
+      // and rebuild immediately, the way a stream re-subscribe does. The pool
+      // is loaded first so the two halves overlap, as they do under CI load.
+      saturateThreadpool();
+      off1();
 
-        let fired = 0;
-        const off2 = await subscribeInstalled(repo, () => {
-          fired++;
-        });
+      let fired = 0;
+      const off2 = await subscribeInstalled(repo, () => {
+        fired++;
+      });
 
-        fs.writeFileSync(file, `edit-${cycle}\n`);
-        // Generous budget: the watcher debounce is 150ms; a live handle answers
-        // far inside this. A dead one never answers at all.
-        for (let waited = 0; waited < 3000 && fired === 0; waited += 50) {
-          await sleep(50);
-        }
-        if (fired === 0) dead.push(cycle);
-        off2();
+      fs.writeFileSync(file, `edit-${cycle}\n`);
+      // Generous budget: the watcher debounce is 150ms; a live handle answers
+      // far inside this. A dead one never answers at all.
+      for (let waited = 0; waited < 3000 && fired === 0; waited += 50) {
         await sleep(50);
       }
+      if (fired === 0) dead.push(cycle);
+      off2();
+      await sleep(50);
+    }
 
-      expect(dead).toEqual([]);
-    },
-    { timeout: 60_000, retry: 2 },
-  );
+    expect(dead).toEqual([]);
+  }, 60_000);
 
   /**
    * The other half of #2065, and the one that actually reddened CI: parcel
@@ -162,32 +158,28 @@ describe("watchWorkingTree rebuild", () => {
    * whether that lands before or after the scenario's `mkdir` decides it — and
    * an isolated run reliably lands after.
    */
-  it(
-    "watches a subtree that was created before parcel could watch its parent",
-    async () => {
-      const git = simpleGit(repo);
-      let fired = 0;
-      const off = await subscribeInstalled(repo, () => {
-        fired++;
-      });
+  it("watches a subtree that was created before parcel could watch its parent", async () => {
+    const git = simpleGit(repo);
+    let fired = 0;
+    const off = await subscribeInstalled(repo, () => {
+      fired++;
+    });
 
-      // The scenario's shape: a nested directory tree created in one burst,
-      // right after the watcher went on.
-      fs.mkdirSync(path.join(repo, "src", "feature"), { recursive: true });
-      fs.writeFileSync(path.join(repo, "src", "feature", "a.txt"), "a\n");
-      await git.add(".");
-      await git.commit("tree");
-      // Let the rebuild's debounce fire and its recursive walk land.
-      await sleep(1500);
+    // The scenario's shape: a nested directory tree created in one burst,
+    // right after the watcher went on.
+    fs.mkdirSync(path.join(repo, "src", "feature"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "src", "feature", "a.txt"), "a\n");
+    await git.add(".");
+    await git.commit("tree");
+    // Let the rebuild's debounce fire and its recursive walk land.
+    await sleep(1500);
 
-      fired = 0;
-      fs.writeFileSync(path.join(repo, "src", "feature", "a.txt"), "edited\n");
-      for (let waited = 0; waited < 3000 && fired === 0; waited += 50) {
-        await sleep(50);
-      }
-      off();
-      expect(fired).toBeGreaterThan(0);
-    },
-    { timeout: 60_000, retry: 2 },
-  );
+    fired = 0;
+    fs.writeFileSync(path.join(repo, "src", "feature", "a.txt"), "edited\n");
+    for (let waited = 0; waited < 3000 && fired === 0; waited += 50) {
+      await sleep(50);
+    }
+    off();
+    expect(fired).toBeGreaterThan(0);
+  }, 60_000);
 });
