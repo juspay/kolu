@@ -19,7 +19,7 @@ import { lineContinuesPrevious, lineText, resolveColor } from "../styled.ts";
 import { sameGrid, type TerminalGrid } from "./grid.ts";
 import { measurePane } from "./measurePane.ts";
 import { createOnceMeasured } from "./onceMeasured.ts";
-import { adjustLockedViewOffset, repinLockedViewOffset } from "./lockOffset.ts";
+import { repinLockedViewOffset } from "./lockOffset.ts";
 import { paintStyledLines } from "./paintExtent.ts";
 import { createScrollLock, type ScrollLock } from "./scrollLock.ts";
 import { shouldActivateTap, type TapGesture } from "./tapGesture.ts";
