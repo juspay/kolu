@@ -366,7 +366,10 @@ export class KoluWorld extends World {
     // Click, don't textarea.focus(): provenance ignores programmatic focus,
     // so the store (and data-focused) would stay on a split.
     // No waitForFrame — render-recovery parks rAF, and a frame wait hangs.
-    await screen.click({ force: true });
+    // Top-left, not the default centre: Ghostty onTap follows every
+    // parseLineRefs hit, and a centre click on a short Darwin tile lands
+    // on the echoed `note.txt` / Starship cwd and steals Code-tab browse.
+    await screen.click({ force: true, position: { x: 4, y: 4 } });
     return scope;
   }
 
