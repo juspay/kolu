@@ -472,8 +472,7 @@ export const Ghostty: Component<
   }
 
   function cellAt(clientX: number, clientY: number): { x: number; y: number } {
-    const screen = mount.querySelector("[data-terminal-screen]");
-    const rect = (screen ?? mount).getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
     const cols = grid()?.cols ?? engine?.cols ?? 80;
     const rows = grid()?.rows ?? engine?.rows ?? 24;
     const x = Math.max(
@@ -565,11 +564,8 @@ export const Ghostty: Component<
     >
       {/* Child of the data-focused/data-visible wrapper — e2e locates
           `[data-focused] [data-terminal-screen]` as a descendant. */}
-      <div
-        data-terminal-screen
-        style={{ width: "100%", height: "100%", position: "relative" }}
-      >
-        <canvas ref={canvas} />
+      <div style={{ width: "100%", height: "100%", position: "relative" }}>
+        <canvas ref={canvas} data-terminal-screen />
         <textarea
           ref={textarea}
           data-terminal-input
