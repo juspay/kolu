@@ -240,14 +240,6 @@ let
         # volatility boundary, excluded for the same contract-shaped reason as
         # the spine it underlies.
         "@kolu/surface"
-        # `@kolu/xterm-kit` — the graduated xterm machinery; kaval consumes only
-        # its runtime-neutral core (the mirror anchor + snapToWrapHead). The
-        # anchor's kaval-relevant behavioral surface (the absolute-line
-        # coordinates getHistory pages by) IS part of PTY_HOST_CONTRACT_VERSION,
-        # which lives in kaval and IS hashed — a wire-breaking anchor change
-        # rides the contract bump, while a browser-only /solid or /backfill
-        # change must not fire kaval's PTY-costing currency nudge.
-        "@kolu/xterm-kit"
         # `@kolu/ghostty-kit` — official libghostty-vt wasm. Same split: the
         # engine's wire-relevant surface rides PTY_HOST_CONTRACT_VERSION; a
         # /solid canvas-only change must not nudge.
@@ -307,12 +299,6 @@ let
         "@kolu/surface"
         "@kolu/surface-remote"
         "@kolu/surface-map"
-        # `@kolu/xterm-kit` — reached only through kaval's embedded library
-        # (the runtime-neutral mirror-anchor core). Its daemon-relevant
-        # behavioral surface rides PTY_HOST_CONTRACT_VERSION, which lives in
-        # kaval's src and IS hashed here — a browser-only change must not
-        # flip padi's key.
-        "@kolu/xterm-kit"
         "@kolu/ghostty-kit"
         # `@kolu/heap-diag` — opt-in heap instrumentation, no wire/behaviour.
         "@kolu/heap-diag"
