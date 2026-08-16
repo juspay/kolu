@@ -14,6 +14,7 @@ import {
 } from "solid-js";
 import { createEngine, type Engine } from "../engine.ts";
 import { preloadGhostty } from "../load.browser.ts";
+import { controlChar } from "../controlChar.ts";
 import { lineContinuesPrevious, lineText, resolveColor } from "../styled.ts";
 import { sameGrid, type TerminalGrid } from "./grid.ts";
 import { measurePane } from "./measurePane.ts";
@@ -185,6 +186,7 @@ export const Ghostty: Component<
   /** Last box we observed. Attach waits until the next frame sees the same
    *  grid — a mid-layout sliver (2×1 / 3-col flash) must not open the stream. */
   let lastSeen: TerminalGrid | null = null;
+  const keyHandlers: Array<(e: KeyboardEvent) => boolean> = [];
   let selText = "";
   let selAnchor: { x: number; y: number } | null = null;
   /** Lines the paint is shifted up from the live bottom. 0 = pinned. */
@@ -411,7 +413,6 @@ export const Ghostty: Component<
         schedulePaint();
         rawTab();
       };
-      const keyHandlers: Array<(e: KeyboardEvent) => boolean> = [];
       const resultListeners = new Set<
         (e: { resultIndex: number; resultCount: number }) => void
       >();
@@ -678,8 +679,18 @@ export const Ghostty: Component<
   });
 
   function onKeyDown(ev: KeyboardEvent): void {
-    if (ev.ctrlKey || ev.metaKey || ev.altKey) {
-      // Chords the app claims (search, zoom) stay with the document.
+    for (const fn of keyHandlers) {
+      if (fn(ev) === false) return;
+    }
+    if (ev.metaKey || ev.altKey) return;
+    if (ev.ctrlKey) {
+      // Ctrl+A…Z are C0 bytes (Ctrl+C = ETX). App-claimed chords
+      // already returned above (copy is Ctrl+Shift+C).
+      const ch = controlChar(ev.key);
+      if (ch !== null) {
+        ev.preventDefault();
+        own.onData(ch);
+      }
       return;
     }
     ev.preventDefault();

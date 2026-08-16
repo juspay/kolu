@@ -17,6 +17,7 @@ const BROWSER_FILES = [
   "constants.ts",
   "encode.ts",
   "styled.ts",
+  "controlChar.ts",
   "backfill.ts",
   "solid/Ghostty.tsx",
   "solid/grid.ts",
