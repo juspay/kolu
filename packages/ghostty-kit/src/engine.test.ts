@@ -249,6 +249,24 @@ describe("official ghostty-vt.wasm engine", () => {
     }
   });
 
+  it("tails the visual-row axis, not totalRows padding", () => {
+    const eng = createEngine({ cols: 20, rows: 6, scrollback: 80 });
+    try {
+      for (let i = 0; i < 40; i++)
+        eng.write(`vis-${String(i).padStart(2, "0")}\r\n`);
+      const visual = eng.visualLineCount();
+      const full = eng.styledLines({ kind: "full" });
+      const tail = eng.styledLines({ kind: "tail", lines: 10 });
+      expect(visual).toBe(full.length);
+      expect(tail.length).toBe(10);
+      expect(lineText(tail[0] ?? { runs: [] })).toBe(
+        lineText(full[full.length - 10] ?? { runs: [] }),
+      );
+    } finally {
+      eng.free();
+    }
+  });
+
   it("does not re-format the whole buffer to recount visual lines after a write", () => {
     const eng = createEngine({ cols: 20, rows: 6, scrollback: 80 });
     try {

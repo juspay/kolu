@@ -313,17 +313,17 @@ export function createEngine(opts: EngineOptions): Engine {
         ffi.freeBytes(end, GRID_REF_SIZE);
       }
     }
-    const total = ffi.getU32(term, DATA_TOTAL_ROWS);
+    const axis = visualCount ?? ffi.getU32(term, DATA_TOTAL_ROWS);
     let startY: number;
     let endY: number;
     if (extent.kind === "tail") {
       const n = Math.max(0, extent.lines);
-      if (n === 0 || total === 0) return "";
-      startY = Math.max(0, total - n);
-      endY = Math.max(0, total - 1);
+      if (n === 0 || axis === 0) return "";
+      startY = Math.max(0, axis - n);
+      endY = Math.max(0, axis - 1);
     } else {
       startY = Math.max(0, extent.startLine ?? 0);
-      const endEx = Math.min(total, extent.endLine ?? total);
+      const endEx = Math.min(axis, extent.endLine ?? axis);
       if (endEx <= startY) return "";
       endY = endEx - 1;
     }
