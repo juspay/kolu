@@ -178,15 +178,10 @@ When(
     // rises only on a tap), so this stands in for the tap. Either way, typing
     // lands in the sub-terminal, not the main one.
     await this.focusForTyping("[data-visible][data-sub-terminal]");
-    // Attach (and __xterm) only exist after the split measures. Typing
-    // before that still reaches the PTY, but buffer reads stay empty.
+    // Attach only delivers a snapshot after the split measures. __xterm.cols
+    // is set at onReady, before that snapshot — wait for real cells.
     await this.page.waitForFunction(
-      (sel) => {
-        const n = document.querySelector(sel) as
-          | (HTMLElement & { __xterm?: { cols: number } })
-          | null;
-        return typeof n?.__xterm?.cols === "number" && n.__xterm.cols > 0;
-      },
+      (sel) => (window.__readXtermBuffer?.(sel, 0) ?? "").length > 0,
       "[data-visible][data-sub-terminal]",
       { timeout: POLL_TIMEOUT },
     );
