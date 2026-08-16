@@ -76,6 +76,7 @@ import {
 } from "../wire";
 import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
 import { installTerminalFocusProvenance } from "./focusProvenance";
+import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { createGridPublisher } from "./publishGrid";
@@ -182,7 +183,7 @@ const Terminal: Component<{
     handle()?.terminal.focus();
   }
 
-  const onTap = (clientX: number, clientY: number): boolean => {
+  const onTap = (clientX: number, clientY: number, ev: MouseEvent): boolean => {
     const h = handle();
     if (!h) return false;
     const screen = h.container.querySelector("[data-terminal-screen]");
@@ -212,19 +213,30 @@ const Terminal: Component<{
     const hit = parseLineRefs(text).find(
       (r) => col >= r.index && col < r.index + r.text.length,
     );
-    if (!hit) return false;
-    const meta = terminalStore.getMetadata(props.terminalId);
-    openInCodeTab({
-      terminalId: props.terminalId,
-      ref: {
-        path: hit.path,
-        startLine: hit.startLine,
-        endLine: hit.endLine,
-      },
-      cwd: meta?.cwd,
-      targetMode: "browse",
-    });
-    return true;
+    if (hit) {
+      const meta = terminalStore.getMetadata(props.terminalId);
+      openInCodeTab({
+        terminalId: props.terminalId,
+        ref: {
+          path: hit.path,
+          startLine: hit.startLine,
+          endLine: hit.endLine,
+        },
+        cwd: meta?.cwd,
+        targetMode: "browse",
+      });
+      return true;
+    }
+    const urlRe = /https?:\/\/[^\s]+/g;
+    for (const m of text.matchAll(urlRe)) {
+      const start = m.index ?? 0;
+      const uri = m[0] ?? "";
+      if (col >= start && col < start + uri.length) {
+        handleWebLink(ev, uri, props.terminalId);
+        return true;
+      }
+    }
+    return false;
   };
 
   /** The host entry's state KIND for this pane's host — the same fact that
@@ -1112,10 +1124,7 @@ const Terminal: Component<{
         active={handle()?.scrollLock.hasNewOutput() ?? false}
         onClick={() => {
           const h = handle();
-          if (h) {
-            const flushed = h.scrollLock.scrollToBottom();
-            for (const chunk of flushed) h.write(chunk);
-          }
+          if (h) h.scrollLock.scrollToBottom();
           // focusOnSelection is a no-op on touch: tapping the scroll-to-bottom
           // FAB to catch up on output must not summon the soft keyboard (only an
           // explicit tap on the terminal does). Desktop still refocuses so the

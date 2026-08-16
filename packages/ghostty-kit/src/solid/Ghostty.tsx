@@ -142,7 +142,7 @@ interface OwnProps {
   scrollback?: number;
   onData: (data: string) => void;
   onReady: (handle: GhosttyHandle) => void;
-  onTap?: (clientX: number, clientY: number) => boolean;
+  onTap?: (clientX: number, clientY: number, ev: MouseEvent) => boolean;
 }
 
 const OWN_KEYS = [
@@ -260,7 +260,11 @@ export const Ghostty: Component<
 
   function applyFit(): TerminalGrid | null {
     if (!mount) return null;
+    // A `hidden` / 0×0 tile must not resize the engine — that reflow
+    // evicts the live screen (compact switch, maximized cover).
+    if (!own.visible) return grid();
     const { w, h } = cellSize();
+    if (mount.clientWidth < w * 2 || mount.clientHeight < h) return grid();
     const cols = Math.max(2, Math.floor(mount.clientWidth / w));
     const rows = Math.max(1, Math.floor(mount.clientHeight / h));
     if (cols <= 0 || rows <= 0) return null;
@@ -415,13 +419,14 @@ export const Ghostty: Component<
         },
       };
       const write = (data: string, onParsed?: () => void) => {
-        if (own.scrollLockEnabled() && lock.isLocked()) {
-          lock.buffer(data);
-          onParsed?.();
-          return;
-        }
+        // Always parse into the engine. Lock only freezes the painted
+        // window (viewOffset) — dropping bytes made buffer reads and
+        // Starship-like prompts vanish while the user was scrolled up.
         eng.write(data);
         onParsed?.();
+        if (own.scrollLockEnabled() && lock.isLocked()) {
+          lock.buffer(data);
+        }
         schedulePaint();
       };
       handle = {
@@ -509,21 +514,34 @@ export const Ghostty: Component<
     schedulePaint();
   });
 
+  createEffect(() => {
+    if (own.visible) applyFit();
+  });
+
   function onKeyDown(ev: KeyboardEvent): void {
     if (ev.ctrlKey || ev.metaKey || ev.altKey) {
       // Chords the app claims (search, zoom) stay with the document.
       return;
     }
+    // Printable input rides the textarea `input` event (Playwright type,
+    // paste, IME). Special keys have no input payload.
+    if (ev.key.length === 1) return;
     ev.preventDefault();
     if (ev.key === "Enter") own.onData("\r");
     else if (ev.key === "Backspace") own.onData("\x7f");
     else if (ev.key === "Tab") own.onData("\t");
     else if (ev.key === "Escape") own.onData("\x1b");
-    else if (ev.key.length === 1) own.onData(ev.key);
     else if (ev.key === "ArrowUp") own.onData("\x1b[A");
     else if (ev.key === "ArrowDown") own.onData("\x1b[B");
     else if (ev.key === "ArrowRight") own.onData("\x1b[C");
     else if (ev.key === "ArrowLeft") own.onData("\x1b[D");
+  }
+
+  function onInput(): void {
+    const t = textarea.value;
+    if (t.length === 0) return;
+    own.onData(t);
+    textarea.value = "";
   }
 
   function cellAt(clientX: number, clientY: number): { x: number; y: number } {
@@ -606,10 +624,7 @@ export const Ghostty: Component<
     lock.armUserScrollIntent("wheel");
     if (ev.deltaY < 0) lock.lock(0, 1);
     else if (ev.deltaY > 0 && viewOffset === 0) {
-      const flushed = lock.unlock();
-      if (engine) {
-        for (const chunk of flushed) engine.write(chunk);
-      }
+      lock.unlock();
     }
     schedulePaint();
   }
@@ -639,8 +654,8 @@ export const Ghostty: Component<
           onMouseMove={onSelMove}
           onMouseUp={onSelUp}
           onClick={(e) => {
-            textarea.focus();
-            own.onTap?.(e.clientX, e.clientY);
+            const handled = own.onTap?.(e.clientX, e.clientY, e) === true;
+            if (!handled) textarea.focus();
           }}
         />
         <textarea
@@ -650,6 +665,7 @@ export const Ghostty: Component<
           autocomplete="off"
           spellcheck={false}
           onKeyDown={onKeyDown}
+          onInput={onInput}
           style={{
             position: "absolute",
             left: "0",

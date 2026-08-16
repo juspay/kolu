@@ -203,9 +203,10 @@ When("I tap the terminal canvas", async function (this: KoluWorld) {
 
   // Real CDP touch via Playwright's touchscreen triggers the browser's native
   // contenteditable auto-focus heuristic — synthetic dispatchEvent doesn't.
-  const canvas = this.page.locator(`${XTERM_SCREEN} canvas`).first();
+  // `[data-terminal-screen]` IS the painted canvas (not a wrapper).
+  const canvas = this.page.locator(XTERM_SCREEN).first();
   const box = await canvas.boundingBox();
-  assert.ok(box, "xterm canvas has no bounding box");
+  assert.ok(box, "terminal screen has no bounding box");
   await this.page.touchscreen.tap(
     box.x + box.width / 2,
     box.y + box.height / 2,
