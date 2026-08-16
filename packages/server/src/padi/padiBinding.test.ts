@@ -52,6 +52,7 @@ import {
   PADI_FORWARDING_POLICY,
   PADI_SURFACE_VERSION,
   padiSurface,
+  TOPLEVEL_PLACEMENT,
 } from "@kolu/padi/surface";
 import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
 import {
@@ -279,7 +280,10 @@ async function roundTripTerminal(padi: any, mark: string): Promise<void> {
   for (let i = 0; i < 200 && id === undefined; i++) {
     try {
       ({ id } = (await Effect.runPromise(
-        padi.lifecycle.create({ cwd: makeStateRoot() }),
+        padi.lifecycle.create({
+          placement: TOPLEVEL_PLACEMENT,
+          cwd: makeStateRoot(),
+        }),
       )) as { id: string });
     } catch {
       await sleep(100);
@@ -419,7 +423,10 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     for (let i = 0; i < 200 && id === undefined; i++) {
       try {
         ({ id } = (await Effect.runPromise(
-          first.padi.lifecycle.create({ cwd: makeStateRoot() }),
+          first.padi.lifecycle.create({
+            placement: TOPLEVEL_PLACEMENT,
+            cwd: makeStateRoot(),
+          }),
         )) as { id: string });
       } catch {
         await sleep(100);
@@ -487,7 +494,10 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     for (let i = 0; i < 200 && id === undefined; i++) {
       try {
         ({ id } = (await Effect.runPromise(
-          padi.lifecycle.create({ cwd: makeStateRoot() }),
+          padi.lifecycle.create({
+            placement: TOPLEVEL_PLACEMENT,
+            cwd: makeStateRoot(),
+          }),
         )) as { id: string });
       } catch {
         await sleep(100);
@@ -548,7 +558,10 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
       for (let i = 0; i < 200 && id === undefined; i++) {
         try {
           ({ id } = (await Effect.runPromise(
-            padi.lifecycle.create({ cwd: makeStateRoot() }),
+            padi.lifecycle.create({
+              placement: TOPLEVEL_PLACEMENT,
+              cwd: makeStateRoot(),
+            }),
           )) as { id: string });
         } catch {
           await sleep(100);
@@ -614,7 +627,10 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     for (let i = 0; i < 200 && id === undefined; i++) {
       try {
         ({ id } = (await Effect.runPromise(
-          first.padi.lifecycle.create({ cwd: makeStateRoot() }),
+          first.padi.lifecycle.create({
+            placement: TOPLEVEL_PLACEMENT,
+            cwd: makeStateRoot(),
+          }),
         )) as { id: string });
       } catch {
         await sleep(100);
@@ -1507,6 +1523,7 @@ describeDaemon(
         // fresh empty one.
         const { id } = (await Effect.runPromise(
           residentClient.surface.lifecycle.create({
+            placement: TOPLEVEL_PLACEMENT,
             cwd: makeStateRoot(),
           }),
         )) as { id: string };
