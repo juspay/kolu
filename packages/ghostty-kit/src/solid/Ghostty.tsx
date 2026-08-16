@@ -567,9 +567,6 @@ export const Ghostty: Component<
           `[data-focused] [data-terminal-screen]` as a descendant. */}
       <div
         data-terminal-screen
-        onMouseDown={onSelDown}
-        onMouseMove={onSelMove}
-        onMouseUp={onSelUp}
         style={{ width: "100%", height: "100%", position: "relative" }}
       >
         <canvas ref={canvas} />
@@ -577,6 +574,9 @@ export const Ghostty: Component<
           ref={textarea}
           data-terminal-input
           aria-label="Terminal"
+          onMouseDown={onSelDown}
+          onMouseMove={onSelMove}
+          onMouseUp={onSelUp}
           autocomplete="off"
           spellcheck={false}
           onKeyDown={onKeyDown}
