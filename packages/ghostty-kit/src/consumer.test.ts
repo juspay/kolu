@@ -2,8 +2,8 @@
  *  Loads `@kolu/ghostty-kit`, writes a known sequence, asserts readable text.
  *  Run twice in this file so a one-shot cache lie cannot pass. */
 
-import { createEngine } from "./index.ts";
 import { describe, expect, it } from "vitest";
+import { createEngine } from "./index.ts";
 
 function driveKnownSequence(): string {
   const eng = createEngine({ cols: 40, rows: 6 });

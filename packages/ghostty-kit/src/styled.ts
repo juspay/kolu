@@ -103,6 +103,25 @@ export function lineText(line: StyledLine): string {
   return out;
 }
 
+/** Display columns of a visual row (sum of run widths). */
+export function lineCols(line: StyledLine): number {
+  let n = 0;
+  for (const run of line.runs) n += run.cols;
+  return n;
+}
+
+/** True when `lines[index]` is a hard-wrap continuation of the previous row.
+ *  Matches xterm's `IBufferLine.isWrapped` so e2e buffer reads can rejoin. */
+export function lineContinuesPrevious(
+  lines: readonly StyledLine[],
+  index: number,
+  cols: number,
+): boolean {
+  if (index <= 0) return false;
+  const prev = lines[index - 1];
+  return prev !== undefined && lineCols(prev) >= cols;
+}
+
 export function resolveColor(
   ref: ColorRef,
   theme: ThemePalette,

@@ -308,6 +308,27 @@ export class KoluWorld extends World {
     if (await this.page.locator('[data-testid="empty-state"]').isVisible()) {
       await this.createTerminal(timeout);
     }
+    // Canvas existence is not a grid. Attach (and the PTY resize it
+    // carries) opens only after a stable measure; typing `$COLUMNS`
+    // before that hits the host's 80-column constructor size.
+    const live = this.page.locator("[data-terminal-engine][data-visible]");
+    if ((await live.count()) === 0) return;
+    await this.page.waitForFunction(
+      () => {
+        for (const n of document.querySelectorAll(
+          "[data-terminal-engine][data-visible]",
+        )) {
+          const cols = Number.parseInt(
+            n.getAttribute("data-grid-cols") ?? "",
+            10,
+          );
+          if (cols > 0) return true;
+        }
+        return false;
+      },
+      null,
+      { timeout },
+    );
   }
 
   /** Ensure a terminal matching `scope` holds keyboard focus before typing.

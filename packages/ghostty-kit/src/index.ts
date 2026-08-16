@@ -24,8 +24,12 @@ setVendorReader(() => ({
   trampoline: readVendor("trampoline.wasm"),
 }));
 
-export { createEngine } from "./engine.ts";
+export type { KeyEvent, MouseEvent } from "./encode.ts";
+export { encodeKey, encodeMouse } from "./encode.ts";
 export type { Engine, EngineOptions, ScreenExtent } from "./engine.ts";
+export { createEngine } from "./engine.ts";
+export { GhosttyError } from "./ffi.ts";
+export { loadGhostty } from "./load.ts";
 export type {
   CellStyle,
   ColorRef,
@@ -34,7 +38,3 @@ export type {
   ThemePalette,
 } from "./styled.ts";
 export { lineText, resolveColor } from "./styled.ts";
-export { loadGhostty } from "./load.ts";
-export { GhosttyError } from "./ffi.ts";
-export { encodeKey, encodeMouse } from "./encode.ts";
-export type { KeyEvent, MouseEvent } from "./encode.ts";

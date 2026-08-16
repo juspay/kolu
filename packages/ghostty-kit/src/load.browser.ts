@@ -1,6 +1,6 @@
 /** Browser wasm fetch. Imported only by the Solid tile — never by kaval. */
 
-import { loadGhostty, setVendorReader, type LoadedWasm } from "./load.ts";
+import { type LoadedWasm, loadGhostty, setVendorReader } from "./load.ts";
 
 async function fetchVendor(name: string): Promise<Uint8Array> {
   const url = new URL(`../vendor/${name}`, import.meta.url);

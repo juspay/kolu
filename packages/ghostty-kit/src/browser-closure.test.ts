@@ -20,6 +20,7 @@ const BROWSER_FILES = [
   "backfill.ts",
   "solid/Ghostty.tsx",
   "solid/grid.ts",
+  "solid/measurePane.ts",
   "solid/onceMeasured.ts",
   "solid/index.ts",
   "solid/scrollLock.ts",

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createEngine, loadGhostty } from "./index.ts";
+import { lineContinuesPrevious, lineText } from "./styled.ts";
 
 describe("official ghostty-vt.wasm engine", () => {
   it("loads the pinned Ghostty release asset and exports vt_write", async () => {
@@ -28,6 +29,26 @@ describe("official ghostty-vt.wasm engine", () => {
       const vt = eng.formatVt();
       expect(vt).toContain("Hello, World!");
       expect(vt).toMatch(/\x1b\[/);
+    } finally {
+      eng.free();
+    }
+  });
+
+  it("narrow-grid visual rows rejoin a known phrase via wrap flags", async () => {
+    const eng = createEngine({ cols: 2, rows: 24 });
+    try {
+      eng.write("split-unique-text\r\n");
+      const rows = eng.styledLines({ kind: "full" });
+      const joined: string[] = [];
+      for (let i = 0; i < rows.length; i++) {
+        const text = lineText(rows[i]!);
+        if (lineContinuesPrevious(rows, i, eng.cols) && joined.length > 0) {
+          joined[joined.length - 1] += text;
+        } else {
+          joined.push(text);
+        }
+      }
+      expect(joined.join("\n")).toContain("split-unique-text");
     } finally {
       eng.free();
     }

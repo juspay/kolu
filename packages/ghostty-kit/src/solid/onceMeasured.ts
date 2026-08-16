@@ -4,7 +4,7 @@
  *  (`Terminal.tsx`) registers this from `onReady` and then finishes declaring
  *  bindings the callback closes over. A sync fire is a TDZ crash. */
 
-import { createEffect, createMemo, on, type Accessor } from "solid-js";
+import { type Accessor, createEffect, createMemo, on } from "solid-js";
 import type { TerminalGrid } from "./grid.ts";
 
 export function createOnceMeasured(

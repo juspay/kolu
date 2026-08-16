@@ -6,16 +6,17 @@ import {
   createEffect,
   createSignal,
   getOwner,
+  type JSX,
   onCleanup,
   onMount,
   runWithOwner,
   splitProps,
-  type JSX,
 } from "solid-js";
 import { createEngine, type Engine } from "../engine.ts";
 import { preloadGhostty } from "../load.browser.ts";
-import { lineText, resolveColor } from "../styled.ts";
+import { lineContinuesPrevious, lineText, resolveColor } from "../styled.ts";
 import { sameGrid, type TerminalGrid } from "./grid.ts";
+import { measurePane } from "./measurePane.ts";
 import { createOnceMeasured } from "./onceMeasured.ts";
 import { createScrollLock, type ScrollLock } from "./scrollLock.ts";
 
@@ -179,6 +180,11 @@ export const Ghostty: Component<
   let handle: GhosttyHandle | undefined;
   let searchIdx = -1;
   let raf = 0;
+  let fitRaf = 0;
+  let fitTries = 0;
+  /** Last box we observed. Attach waits until the next frame sees the same
+   *  grid — a mid-layout sliver (2×1 / 3-col flash) must not open the stream. */
+  let lastSeen: TerminalGrid | null = null;
   let selText = "";
   let selAnchor: { x: number; y: number } | null = null;
   /** Lines the paint is shifted up from the live bottom. 0 = pinned. */
@@ -294,20 +300,32 @@ export const Ghostty: Component<
     // evicts the live screen (compact switch, maximized cover).
     if (!own.visible) return grid();
     const { w, h } = cellSize();
-    if (mount.clientWidth < w * 2 || mount.clientHeight < h) return grid();
-    const cols = Math.max(2, Math.floor(mount.clientWidth / w));
-    const rows = Math.max(1, Math.floor(mount.clientHeight / h));
-    if (cols <= 0 || rows <= 0) return null;
-    const next = { cols, rows };
+    const next = measurePane(
+      { width: mount.clientWidth, height: mount.clientHeight },
+      { w, h },
+    );
+    if (!next) {
+      lastSeen = null;
+      return grid();
+    }
+    // Two consecutive frames at the same grid — a Corvu expand flashes
+    // 2×1 / 3-col slivers that would wrap every line into the attach
+    // snapshot. xterm's fit addon refused those floors; we refuse AND
+    // wait one confirming frame so the first real box wins.
+    if (!lastSeen || !sameGrid(lastSeen, next)) {
+      lastSeen = next;
+      scheduleFit();
+      return grid();
+    }
     const prev = grid();
     // Always tell the engine: `resize` no-ops when already there, and
     // grid() can otherwise claim a size the constructor never took.
-    engine.resize(cols, rows, w, h);
+    engine.resize(next.cols, next.rows, w, h);
     // Measurement is independent of attach. E2E waits on this attribute
     // for "the pane has a real grid"; `__xterm` is published only after
     // the snapshot lands (buffer-ready).
-    mount.setAttribute("data-grid-cols", String(cols));
-    mount.setAttribute("data-grid-rows", String(rows));
+    mount.setAttribute("data-grid-cols", String(next.cols));
+    mount.setAttribute("data-grid-rows", String(next.rows));
     if (prev && sameGrid(prev, next)) return prev;
     setGrid(next);
     schedulePaint();
@@ -316,17 +334,22 @@ export const Ghostty: Component<
 
   /** display:none → visible and Corvu's first expanded frame often land
    *  size AFTER the calling effect. Keep retrying across frames until
-   *  the engine has a real grid (or the pane is hidden again). */
+   *  the engine has a real, stable grid (or the pane is hidden again). */
   function scheduleFit(): void {
-    applyFit();
-    if (grid() || !own.visible || !engine) return;
-    let frames = 0;
-    const tick = () => {
+    if (fitRaf) return;
+    fitRaf = requestAnimationFrame(() => {
+      fitRaf = 0;
       applyFit();
-      if (grid() || !own.visible || !engine || ++frames >= 16) return;
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
+      if (grid() || !own.visible || !engine) {
+        fitTries = 0;
+        return;
+      }
+      if (++fitTries >= 60) {
+        fitTries = 0;
+        return;
+      }
+      scheduleFit();
+    });
   }
 
   onMount(() => {
@@ -366,6 +389,7 @@ export const Ghostty: Component<
     onCleanup(() => {
       cancelled = true;
       if (raf) cancelAnimationFrame(raf);
+      if (fitRaf) cancelAnimationFrame(fitRaf);
       engine?.free();
       engine = undefined;
     });
@@ -457,9 +481,13 @@ export const Ghostty: Component<
                 return baseY;
               },
               getLine: (i: number) => {
-                const t = ls[i];
-                if (t === undefined) return undefined;
-                return { translateToString: () => t, isWrapped: false };
+                const styled = visualStyled();
+                const row = styled[i];
+                if (row === undefined) return undefined;
+                return {
+                  translateToString: () => lineText(row),
+                  isWrapped: lineContinuesPrevious(styled, i, eng.cols),
+                };
               },
             };
           },
@@ -528,7 +556,7 @@ export const Ghostty: Component<
         scrollLock: lock,
         write,
         clearPendingOutput: () => lock.clearPending(),
-        refit: () => applyFit(),
+        refit: () => scheduleFit(),
         grid,
         onceMeasured,
         search: (query, dir) => {
@@ -566,7 +594,7 @@ export const Ghostty: Component<
             serializeAsHTML: () => eng.formatHtml(),
           },
           fit: {
-            fit: () => applyFit(),
+            fit: () => scheduleFit(),
             proposeDimensions: () => applyFit() ?? undefined,
           },
         },
