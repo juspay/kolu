@@ -827,7 +827,10 @@ export const Ghostty: Component<
             // mousedown; waiting until click lets the token expire on
             // the next animation frame, so a click on a behind tile
             // never calls onFocus and the tile stays inactive.
-            if (e.button === 0) textarea.focus();
+            // Touch must not focus here: a scroll or canceled gesture
+            // would raise the soft keyboard (xterm's tap path owns
+            // touch focus; click still focuses a real tap).
+            if (e.button === 0 && e.pointerType !== "touch") textarea.focus();
           }}
           onMouseDown={onSelDown}
           onMouseMove={onSelMove}
