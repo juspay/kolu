@@ -544,8 +544,8 @@ export const Ghostty: Component<
           return;
         }
         const before = eng.totalRows();
-        const { lines: locked } = viewportWindow(eng.rows);
-        const needle = lineText(locked[0] ?? { runs: [] });
+        const { lines: heldLines } = viewportWindow(eng.rows);
+        const needle = lineText(heldLines[0] ?? { runs: [] });
         eng.write(data);
         onParsed?.();
         const after = eng.totalRows();
