@@ -188,8 +188,8 @@ const WORKTREE_OVER_HOST_NEEDS_REPO =
 // stdout/stderr are `./shared.ts`'s. The draining sink matters even for one
 // short line: `process.stdout` is ASYNCHRONOUS when it is a pipe, and the run
 // edge exits the moment this effect completes, so a write that had not drained
-// would truncate `id=$(kolu create)` to nothing. A hung-up consumer
-// (`kolu create | head -1`) is a complete run — the terminal exists either way.
+// would truncate `id=$(kolu create --toplevel)` to nothing. A hung-up consumer
+// (`kolu create --toplevel | head -1`) is a complete run — the terminal exists either way.
 
 /** WHICH DIRECTORY the new terminal opens in, as ONE value with two arms.
  *
@@ -406,7 +406,7 @@ function stoppedPartway(
 
 /** stdout for whatever EXISTS — on the failing path as well as the finishing one.
  *
- *  The case to think about is a driving loop's `id=$(kolu create -- claude)`. If
+ *  The case to think about is a driving loop's `id=$(kolu create --toplevel -- claude)`. If
  *  `sendInput` failed, a terminal is live and its id is the only handle to it;
  *  `$(…)` assigns the captured stdout REGARDLESS of the exit code, so printing
  *  it hands the loop's error branch something to `kolu kill`, while staying

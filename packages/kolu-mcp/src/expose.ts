@@ -21,7 +21,7 @@
  * same wire name (`screen_text` adds the tail mode the skills' "read the last N
  * lines" call needs; `lifecycle_sendInput` adds the named-key vocabulary with
  * the text-XOR-key submit discipline; `lifecycle_create` adds the worktree
- * placement and the typed first command, so one call is `kolu create --repo …
+ * directory and the typed first command, so one call is `kolu create --toplevel --repo …
  * --worktree … -- <cmd>`). These are SUPERSESSIONS, not denials: the verb is
  * still reachable under its own wire name, so it does not belong in
  * {@link KOLU_MCP_DENIED} (whose members must all fail as `unknown tool`), and
