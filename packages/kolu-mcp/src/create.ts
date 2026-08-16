@@ -295,7 +295,18 @@ const composeCreate = (
   padi: PadiSurfaceClient,
 ): Effect.Effect<CreateResult, unknown> =>
   Effect.gen(function* () {
-    const { cwd: _cwd, repo: _repo, worktree: _wt, run, ...createRest } = args;
+    // `placement` comes out by NAME rather than riding `...createRest`: it is the
+    // one required field on this call, the whole point of the tool's contract,
+    // and a reader of the create below should see it stated rather than have to
+    // work out that it must be inside the spread. Same shape as `kolu create`'s.
+    const {
+      cwd: _cwd,
+      repo: _repo,
+      worktree: _wt,
+      run,
+      placement,
+      ...createRest
+    } = args;
 
     // ── Step 1: the worktree (host-side; its `path` is the terminal's cwd) ──
     // Nothing exists yet if this fails, so its error IS the whole truth and
@@ -311,10 +322,13 @@ const composeCreate = (
       worktree?.path ?? (directory.kind === "open" ? directory.cwd : undefined);
 
     // ── Step 2: the terminal ────────────────────────────────────────────────
-    // Spread discipline, not `{cwd, …}`: every optional field on the wire is a
-    // `Schema.optionalKey`, so an explicit `undefined` is a decode FAILURE, not
-    // a default. The key is present or it is not.
+    // Spread discipline for the OPTIONAL fields, not `{cwd, …}`: every optional
+    // field on the wire is a `Schema.optionalKey`, so an explicit `undefined` is
+    // a decode FAILURE, not a default. The key is present or it is not.
+    // `placement` is stated flat because it is required — there is no shape of
+    // this call that omits it.
     const creating = padi.surface.lifecycle.create({
+      placement,
       ...(cwd !== undefined ? { cwd } : {}),
       ...createRest,
     });
