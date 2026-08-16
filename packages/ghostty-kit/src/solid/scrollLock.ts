@@ -1,5 +1,4 @@
-/** Scroll-lock latch — freeze incoming writes while the user is reading history.
- *  Copied in spirit from `@kolu/xterm-kit` but not bound to an xterm instance. */
+/** Scroll-lock latch — freeze incoming writes while the user is reading history. */
 
 import { createSignal } from "solid-js";
 

@@ -811,7 +811,7 @@ export const EndpointGridSchema = Schema.Struct({
  *  that another viewer holds the terminal at a different size. It knows its own
  *  grid and the grid it asked at; nothing on this wire carries the pty's CURRENT
  *  grid, and the tempting proxy — a `reflowEpoch` bump — is not one, because the
- *  epoch also bumps on a RIS re-anchor (`xterm-kit/src/mirrorAnchor.ts`), so an
+ *  epoch also bumps on a RIS re-anchor (`Engine.reanchorIfReset`), so an
  *  indicator driven by it would light on every `clear`. Closing that gap is an
  *  ADDITIVE minor on this contract (the pty's current grid on the snapshot frame,
  *  or on the terminal record) plus a pane affordance; until it lands, the

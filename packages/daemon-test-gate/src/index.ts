@@ -8,7 +8,7 @@
  * every package whose tests fork real OS processes. That placement is deliberate
  * and load-bearing: the real-spawner set spans ten packages both above and below
  * the daemon stack (kaval, kaval-tui, padi, server, surface, surface-daemon,
- * surface-daemon-supervisor, surface-remote, kolu-cli, xterm-kit), so no
+ * surface-daemon-supervisor, surface-remote, kolu-cli), so no
  * domain-package home is legal without a workspace cycle — but a devDep arrow
  * creates no production dependency, so every one of them can reach this leaf and
  * no layer-ladder question is even expressible. It is test infrastructure (a

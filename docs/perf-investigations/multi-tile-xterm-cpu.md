@@ -3,7 +3,8 @@
 Investigation of high browser / renderer CPU with a dense Dock of agent
 terminals (Chrome Task Manager style symptom). Measured on a real Kolu
 (`just dev-auto`) under multi-terminal load, with CDP idle-window traces
-(6 s, no user input during the measurement window).
+(6 s, no user input during the measurement window). The `createOutputCoalesce`
+path lived in `@kolu/xterm-kit`, which #2172 deleted.
 
 Sibling notes: [dock-and-eventloop-1308.md](./dock-and-eventloop-1308.md)
 (dock CSS animations, #1354), [canvas-tile-aura-cpu.md](./canvas-tile-aura-cpu.md)

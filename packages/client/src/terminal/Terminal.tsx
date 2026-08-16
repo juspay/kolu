@@ -449,8 +449,8 @@ const Terminal: Component<{
     // terminal's own scrollback. Seeded from the attach snapshot's `topLine`
     // (below); self-manages the near-top trigger and the reset/resize races.
     backfill = createBackfillController(term, {
-      // `@kolu/xterm-kit`'s `fetch` seam is Promise-shaped by contract (the kit
-      // is deliberately outside Effect), so this is a run edge — through the
+      // `@kolu/ghostty-kit`'s `fetch` seam is Promise-shaped by contract (the
+      // kit is deliberately outside Effect), so this is a run edge — through the
       // package's one named bridge, which rejects with the SQUASHED failure so
       // the `_tag` narrowing in `isTerminalGone` below stays honest.
       fetch: (before, max, epoch) =>
