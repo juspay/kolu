@@ -372,7 +372,10 @@ export class KoluWorld extends World {
     // a cell that cannot be a path or URL.
     // String evaluator: tsx injects `__name` into page.evaluate
     // argument functions, and that helper does not exist in the page.
-    const offset = await this.page.evaluate<{ x: number; y: number } | null>(`(() => {
+    const offset = await this.page.evaluate<{
+      x: number;
+      y: number;
+    } | null>(`(() => {
       const container = document.querySelector(${JSON.stringify(scope)});
       const term = container && container.__xterm;
       const screenEl = container && container.querySelector("[data-terminal-screen]");
