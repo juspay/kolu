@@ -22,11 +22,13 @@ import { vi } from "vitest";
 /** How long the fake osfacts may take to actually be RUNNING.
  *
  *  Starting it is a real process launch — `node_modules`-free `/bin/sh`, but a
- *  launch — and this fixture is used by the daemon-gated suites, which fork
- *  real kaval/padi daemons and PTYs alongside it. vitest's `waitFor` default is
- *  1s, which measures the box rather than the sampler: on the darwin CI lane
- *  the file's ten cases take 1.6–2.6s in total when healthy, and one loaded run
- *  missed the 1s launch window and reddened `ci::daemon@aarch64-darwin`
+ *  launch — and vitest's `waitFor` default of 1s measures the box rather than
+ *  the sampler. Nothing in this package runs beside it (`fileParallelism:
+ *  false`, and `test-daemon` passes `--workspace-concurrency=1`), but the CI
+ *  lane runs sibling pipeline recipes on the same host, so a launch competes
+ *  with whatever nix build or e2e run is live there. On the darwin lane the
+ *  file's ten cases take 1.6–2.6s in total when healthy; one loaded run missed
+ *  the 1s launch window and reddened `ci::daemon@aarch64-darwin`
  *  (juspay/kolu#2176). A spawn that has not happened in 30s is a real hang;
  *  anything short of that is the machine being busy. */
 const SPAWN_BUDGET_MS = 30_000;
@@ -51,6 +53,11 @@ export interface OsfactsMemoryFixture {
 export interface OsfactsMemoryFixtureSpec {
   readonly rows: readonly string[];
   readonly version?: number;
+  /** Hold the fake osfacts at a barrier until `release()`, so a case can mutate
+   *  state mid-read. A case that sets this MUST pass
+   *  {@link PAUSED_FIXTURE_TIMEOUT_MS} as its own timeout — it is the only
+   *  shape that waits on a spawn, and vitest's 5s default would otherwise kill
+   *  the case before `awaitStarted()`'s budget is up. */
   readonly paused?: boolean;
 }
 

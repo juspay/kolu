@@ -22,11 +22,6 @@ import {
   _settledSharedCwdGitWatchers,
   _sharedCwdGitWatcherCount,
 } from "./cwd-git-watcher.ts";
-/** The skips in this file gate on `fs.watch` event delivery, which darwin
- *  cannot promise inside a test budget — the shared constant carries the
- *  measurements. The dispatcher logic itself (snapshot + try/catch per
- *  listener, in `kolu-io/refcounted-dir-watcher.ts`) is verified by
- *  linux+inotify CI on every commit. */
 import { SKIP_DARWIN_FSWATCH } from "./fs-watch-delivery.testlib.ts";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 import {
