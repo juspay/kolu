@@ -30,6 +30,13 @@
  * tools are likewise bespoke (client-side scaffolding, not padiSurface
  * procedures).
  *
+ * `lifecycle.submitInput` is neither exposed nor denied, and that is the third
+ * shape: it is COMPOSED inside `lifecycle_sendInput` (as `git.worktreeCreate` is
+ * inside `lifecycle_create`), so an agent reaches it through the tool that also
+ * plans the bytes and names the refusal — never as a raw verb it could hand
+ * unencoded text to. Default-deny does that work by omission; the row would only
+ * be here to widen it.
+ *
  * `lifecycle_create` carries the #1872 protection the raw row used to state:
  * there is NO `command`/`env` spawn parameter, so a terminal created through
  * this face always gets the rc-hooked shell with the daemon's own clean env.
