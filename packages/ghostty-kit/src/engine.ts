@@ -434,10 +434,17 @@ export function createEngine(opts: EngineOptions): Engine {
       }
       // DATA_TOTAL_ROWS includes trailing blank viewport rows. A
       // fill, ED, or alt-screen swap changes the trimmed visual
-      // count without moving total — drop the cache and re-seed.
+      // count without moving total in lockstep. A full buffer
+      // keeps one cursor blank (slack 1); more slack means a
+      // later burst can eat those rows while total barely grows.
       const d = total - lastTotal;
+      const slack =
+        visualCount === undefined
+          ? Number.POSITIVE_INFINITY
+          : lastTotal - visualCount;
       if (
         visualCount !== undefined &&
+        slack <= 1 &&
         !ris &&
         d > 0 &&
         !shiftsVisualWithoutTotal(spanned.complete)

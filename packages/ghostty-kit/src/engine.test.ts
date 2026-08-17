@@ -283,6 +283,31 @@ describe("official ghostty-vt.wasm engine", () => {
     }
   });
 
+  it("reseeds when one write fills trailing blanks and then overflows", () => {
+    const eng = createEngine({ cols: 20, rows: 8, scrollback: 80 });
+    try {
+      eng.write("seed-line\r\n");
+      const seeded = eng.visualLineCount();
+      expect(seeded).toBeLessThan(eng.rows);
+      expect(eng.totalRows()).toBe(eng.rows);
+      const burst = Array.from(
+        { length: 20 },
+        (_, i) => `burst-${String(i).padStart(2, "0")}`,
+      ).join("\r\n");
+      eng.write(`${burst}\r\n`);
+      const vt = eng.formatVt({ unwrap: false, trim: true });
+      const vtRows = vt.length === 0 ? [] : vt.split(/\r?\n/);
+      expect(eng.visualLineCount()).toBe(vtRows.length);
+      expect(eng.visualLineCount()).toBeGreaterThan(eng.rows);
+      const tail = eng.styledLines({ kind: "tail", lines: 4 });
+      expect(lineText(tail[tail.length - 1] ?? { runs: [] })).toContain(
+        "burst-19",
+      );
+    } finally {
+      eng.free();
+    }
+  });
+
   it("reseeds visual count after filling trailing blanks without a resize", () => {
     const eng = createEngine({ cols: 20, rows: 8, scrollback: 40 });
     try {
