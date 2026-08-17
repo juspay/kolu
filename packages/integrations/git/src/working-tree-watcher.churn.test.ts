@@ -37,6 +37,9 @@
  *
  * The invariant this pins: after a full teardown + rebuild of one repo's shared
  * watcher, a write STILL reaches the new listener.
+ *
+ * Both cases gate on an event ARRIVING, so both run on linux/inotify only —
+ * see `SKIP_DARWIN_FSWATCH` for the measurements that put darwin out of reach.
  */
 
 import crypto from "node:crypto";
@@ -45,6 +48,7 @@ import os from "node:os";
 import path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { SKIP_DARWIN_FSWATCH } from "./fs-watch-delivery.testlib.ts";
 import { watchWorkingTree } from "./working-tree-watcher.ts";
 
 const sleep = (ms: number): Promise<void> =>
@@ -86,7 +90,7 @@ async function subscribeInstalled(
   return off;
 }
 
-describe("watchWorkingTree rebuild", () => {
+describe.skipIf(SKIP_DARWIN_FSWATCH)("watchWorkingTree rebuild", () => {
   let repo: string;
 
   beforeEach(async () => {
