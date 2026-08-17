@@ -90,6 +90,13 @@ const ENTER = NAMED_KEY_BYTES.enter;
  *  re-reads facts that have not moved. */
 const READINESS_POLL_MS = 100;
 
+/** The signal a submit runs under when its caller passed none — a request edge
+ *  always does, so this is the unit-test path. Minted ONCE at module scope
+ *  rather than per call: a fresh `AbortController` per submit reads like a
+ *  cancellation mechanism nobody wired up, when what is meant is "nothing can
+ *  abort this". */
+const NEVER_ABORTS: AbortSignal = new AbortController().signal;
+
 // ── The predicate ────────────────────────────────────────────────────────────
 
 /** What one readiness evaluation saw. Separated from the fold so the rule below
@@ -300,7 +307,7 @@ export async function submitInput(opts: {
   readonly signal?: AbortSignal;
 }): Promise<SubmitOutcome> {
   const clock = opts.clock ?? Date.now;
-  const signal = opts.signal ?? new AbortController().signal;
+  const signal = opts.signal ?? NEVER_ABORTS;
 
   // ── 1. the prompt must be idle BEFORE anything is typed ──────────────────
   // The whole mid-turn doctrine is this one wait: refusing here costs a retry,

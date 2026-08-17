@@ -49,9 +49,18 @@ const KOLU_MAIN = resolve(SRC, "main.ts");
 const harness = setupPadiHarness("kolu-submit-e2e");
 
 /** How long a scripted turn runs in the mid-turn leg. Generous on purpose: this
- *  test's job is to prove a REFUSAL, and a turn that ended early would turn a
- *  real regression into a green run. */
-const TURN_MS = 12_000;
+ *  test's job is to prove a REFUSAL, and a turn that ends before the dispatch
+ *  lands turns a real regression into a green run — the submit simply succeeds
+ *  and every assertion below still passes for the wrong reason.
+ *
+ *  MEASURED, not guessed. Recording the PR's evidence drove the same four beats
+ *  through a terminal at typing speed and a 12 s turn ran out underneath them
+ *  TWICE, silently converting the mid-turn beat into an idle one. The e2e's
+ *  beats are tighter than a recording's, but the margin they were relying on was
+ *  the same one that proved too thin, so it is widened to where the failure was
+ *  actually observed rather than left at the edge. The cost is the wait for the
+ *  turn to end (bounded, and it only lengthens one leg). */
+const TURN_MS = 25_000;
 
 // ── Driving the fixture ──────────────────────────────────────────────────────
 

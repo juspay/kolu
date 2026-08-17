@@ -78,8 +78,30 @@ function submit() {
   }, TICK_MS);
 }
 
-function feed(chunk) {
-  let rest = chunk;
+/** How much of a marker could still be arriving — the longest proper prefix of
+ *  either paste marker that `rest` ends with, or 0. A PTY hands stdin over in
+ *  whatever chunks the kernel felt like, so a multi-line paste can split
+ *  `\x1b[200~` down the middle; without this the two halves are matched by
+ *  neither `indexOf` and land in the input box as literal escape garbage, which
+ *  would fail the multiline proof with a message nobody typed. Held back and
+ *  re-fed with the next chunk instead. */
+function danglingMarkerPrefix(rest) {
+  for (const marker of [PASTE_START, PASTE_END]) {
+    for (let n = marker.length - 1; n > 0; n--) {
+      if (rest.endsWith(marker.slice(0, n))) return n;
+    }
+  }
+  return 0;
+}
+
+/** Bytes withheld from the previous chunk because they may be half a marker. */
+let carry = "";
+
+function feed(incoming) {
+  const whole = carry + incoming;
+  const held = danglingMarkerPrefix(whole);
+  carry = held === 0 ? "" : whole.slice(whole.length - held);
+  let rest = held === 0 ? whole : whole.slice(0, whole.length - held);
   while (rest.length > 0) {
     if (pasting) {
       const end = rest.indexOf(PASTE_END);
