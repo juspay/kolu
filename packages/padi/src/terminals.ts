@@ -42,10 +42,12 @@ import {
   composeTerminalMetadata,
   type CreateTerminalInput,
   LOCAL_LOCATION,
+  parentIdOf,
   type RestoreOnlyMetadata,
   type SavedTerminal,
   SavedTerminalSchema,
   type TerminalInfo,
+  type TerminalPlacement,
 } from "./vocab.ts";
 
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
@@ -131,10 +133,16 @@ export function snapshotSession(): SessionSnapshot {
  *  authored facts — a fresh terminal earns `lastActivityAt` / `lastAgentCommand` /
  *  `restoreTarget` from padi's own observation, and the type makes them unspellable
  *  here. The one path with prior truth about them, session restore, uses
- *  {@link restoreSpawn} instead. */
+ *  {@link restoreSpawn} instead.
+ *
+ *  `placement` is FIRST and REQUIRED — the in-process mirror of the wire rule. It
+ *  used to be a trailing `parentId?: string`, which meant every caller that simply
+ *  didn't think about the canvas got `toplevel` for free; now not thinking about it
+ *  is a compile error. {@link parentIdOf} is the single narrowing from the stated
+ *  intent to the parent edge the registry stores. */
 export function createTerminal(
+  placement: TerminalPlacement,
   cwd?: string,
-  parentId?: string,
   initial?: CreateTerminalInput,
 ): TerminalInfo {
   const id = crypto.randomUUID();
@@ -142,7 +150,7 @@ export function createTerminal(
   // inheriting its parent's endpoint; today every terminal is local.
   return localEndpoint.spawnPty(id, {
     cwd,
-    parentId,
+    parentId: parentIdOf(placement),
     initialMetadata: initial,
   });
 }
@@ -152,7 +160,15 @@ export function createTerminal(
  *  is a distinct constructor rather than a mode flag on {@link createTerminal} so the
  *  restore-only shape is structurally unspellable by an ordinary create: the fence is
  *  the type, not a convention. Called ONLY by `sessionRestore.ts`'s `respawnActive`;
- *  `restoreOnly` rides its own named parameter, never merged into `initial`. */
+ *  `restoreOnly` rides its own named parameter, never merged into `initial`.
+ *
+ *  It keeps a bare `parentId` where {@link createTerminal} now takes a
+ *  `TerminalPlacement`, and that difference is the point rather than an oversight: a
+ *  restore AUTHORS nothing. It replays the parent edge already recorded on disk, so
+ *  the field it reads and the field it writes are the same one, and routing that
+ *  through the intent sum would only add a round trip. The no-default rule fences
+ *  the callers who DECIDE a placement — the wire, the CLI, the MCP face, the canvas
+ *  — none of which is this. */
 export function restoreSpawn(
   cwd: string | undefined,
   parentId: string | undefined,

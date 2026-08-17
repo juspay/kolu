@@ -21,7 +21,7 @@
  * same wire name (`screen_text` adds the tail mode the skills' "read the last N
  * lines" call needs; `lifecycle_sendInput` adds the named-key vocabulary with
  * the text-XOR-key submit discipline; `lifecycle_create` adds the worktree
- * placement and the typed first command, so one call is `kolu create --repo …
+ * directory and the typed first command, so one call is `kolu create --toplevel --repo …
  * --worktree … -- <cmd>`). These are SUPERSESSIONS, not denials: the verb is
  * still reachable under its own wire name, so it does not belong in
  * {@link KOLU_MCP_DENIED} (whose members must all fail as `unknown tool`), and
@@ -144,7 +144,7 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
   {
     member: "git.worktreeCreate",
     reason:
-      "write-side beyond terminal control — composed INSIDE the bespoke `lifecycle_create` (behind the CLI's placement gates), not exposed as a raw verb; further raw write verbs stay expandable later, on demand, one row at a time",
+      "write-side beyond terminal control — composed INSIDE the bespoke `lifecycle_create` (behind the CLI's directory gates), not exposed as a raw verb; further raw write verbs stay expandable later, on demand, one row at a time",
   },
   {
     member: "git.worktreeRemove",

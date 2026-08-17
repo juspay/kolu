@@ -127,11 +127,13 @@ import {
   PadiProcessMemorySchema,
   ParkedDiscriminantSchema,
   PersistedSnapshotSchema,
+  PLACEMENT_REQUIRED,
   PtyHostIdentitySchema,
   SavedSessionSchema,
   SleepingTerminalSchema,
   TerminalInfoSchema,
   TerminalOnExitOutputSchema,
+  TerminalPlacementSchema,
 } from "./vocab.ts";
 
 // The terminal VOCABULARY (schemas · records · pure helpers) now lives HERE, in
@@ -746,17 +748,37 @@ function sameIds<T>(a: readonly T[], b: readonly T[]): boolean {
 // authored facts (`lastActivityAt`, `lastAgentCommand`, `restoreTarget`) that padi
 // earns from its own observation, so they are not duplicates to fold away.
 
-/** Create input — the BASE `CreateTerminalInputSchema` (client chrome) plus `cwd` /
- *  `parentId`. It derives from the base DIRECTLY rather than subtracting the three
+/** Create input — the BASE `CreateTerminalInputSchema` (client chrome) plus the
+ *  REQUIRED `placement` and an optional `cwd`. It derives from the base DIRECTLY
+ *  rather than subtracting the three
  *  server-derived authored facts, so the exclusion is structural, not a maintained
  *  omit list: a future field added to `RestoreOnlyMetadataSchema` can never leak to
  *  the wire by someone forgetting to extend an omit. A fresh terminal has no truth
  *  about `lastActivityAt` / `lastAgentCommand` / `restoreTarget` (the fold derives
  *  them from its own observation); `session.restore` threads them from the saved blob
- *  through `restoreSpawn`'s distinct `restoreOnly` arm, never this input. */
+ *  through `restoreSpawn`'s distinct `restoreOnly` arm, never this input.
+ *
+ *  `placement` is the one REQUIRED key, and the only one on this input that is not
+ *  chrome: it says whether the new terminal is a tile of its own or a split inside
+ *  another ({@link TerminalPlacementSchema}). `annotateKey` puts the SAME sentence on
+ *  the absent-key issue that the sum itself carries for a malformed one, so the two
+ *  ways of not naming a placement — omit the key, or name a third arm — both answer
+ *  with the rule and both spellings rather than Effect's bare "Missing key".
+ *
+ *  A `child-of` with no `parentId` deliberately does NOT get that sentence: it fails
+ *  as a missing key at `["placement"]["parentId"]`, and that is the more useful
+ *  answer. That caller HAS chosen an arm and knows the vocabulary — re-reciting the
+ *  whole rule at them would bury the one thing they need, which is that the parent id
+ *  is the field that went astray. Pinned as such in `createPlacement.test.ts`.
+ *
+ *  The refusal is therefore the SCHEMA's, not a handler guard: a create with no
+ *  placement never reaches padi's registry, and no TypeScript caller can compile
+ *  one. */
 export const PadiCreateInputSchema = Schema.Struct({
+  placement: TerminalPlacementSchema.pipe(
+    Schema.annotateKey({ messageMissingKey: PLACEMENT_REQUIRED }),
+  ),
   cwd: Schema.optionalKey(Schema.String),
-  parentId: Schema.optionalKey(TerminalIdSchema),
   ...CreateTerminalInputSchema.fields,
 });
 
@@ -1506,8 +1528,12 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     /** Terminal lifecycle — create · kill · killAll · sleep · wake ·
      *  discardSleeping · resize · sendInput · recycleKaval. */
     lifecycle: {
-      // A SPLIT names its parent, and that parent must be a LIVE terminal — so
-      // `create` carries the same declared not-found as the per-terminal verbs.
+      // Every create STATES its placement (`PadiCreateInputSchema`) — a tile of
+      // its own, or a split of a named parent. The `child-of` arm's parent must
+      // be a LIVE terminal, so `create` carries the same declared not-found as
+      // the per-terminal verbs. A create that states NO placement is refused a
+      // layer earlier, by the input schema itself, and never reaches this error
+      // channel.
       create: {
         input: PadiCreateInputSchema,
         output: TerminalInfoSchema,

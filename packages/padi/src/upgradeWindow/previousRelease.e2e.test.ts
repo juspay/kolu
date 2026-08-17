@@ -128,7 +128,7 @@ import {
   padiSocketPath,
   writeStateRootManifest,
 } from "../stateRoot.ts";
-import { PADI_SURFACE_VERSION } from "../surface.ts";
+import { PADI_SURFACE_VERSION, TOPLEVEL_PLACEMENT } from "../surface.ts";
 import {
   LOCAL_LOCATION,
   type SavedSession,
@@ -614,6 +614,7 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
     // 5) Create a terminal so recycle has a session to capture.
     const { id } = await Effect.runPromise(
       conn.client.padi.surface.lifecycle.create({
+        placement: TOPLEVEL_PLACEMENT,
         cwd: stateRoot,
       }),
     );

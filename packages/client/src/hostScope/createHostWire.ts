@@ -60,7 +60,7 @@ import {
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
-import type { TerminalPlacement } from "../terminal/focusedTerminal";
+import type { LivePlacement } from "../terminal/focusedTerminal";
 import { interpretClientError, padiMap } from "../wire";
 
 /** The map entry lens `createHostWire` opens its cells/collections through. Aliased
@@ -79,7 +79,7 @@ export interface HostWire {
   activityFeed: ReturnType<PadiEntry["cells"]["activityFeed"]["use"]>;
   daemonStatus: ReturnType<PadiEntry["collections"]["daemonStatus"]["use"]>;
   /** Pure placement lookup over this host's retained terminal collection. */
-  placementOf: (id: TerminalId) => TerminalPlacement;
+  placementOf: (id: TerminalId) => LivePlacement;
 }
 
 export function createHostWire(host: HostKey): HostWire {
@@ -136,7 +136,7 @@ export function createHostWire(host: HostKey): HostWire {
   // "Metadata error" policy rides the spec; the use-site keeps only `keys`.
   const keys = createMemo<TerminalId[]>(() => terminalKeys() ?? []);
   const terminals = entry.collections.terminals.use({ keys });
-  const placementOf = (id: TerminalId): TerminalPlacement => {
+  const placementOf = (id: TerminalId): LivePlacement => {
     const terminal = terminals.byKey(id)?.();
     if (!terminal) return { kind: "missing" };
     return terminal.parentId === undefined || terminal.parentId === null

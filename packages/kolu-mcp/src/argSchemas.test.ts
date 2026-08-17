@@ -32,6 +32,7 @@
  * assertion is a byte-level fixture over the exact serialized string.
  */
 
+import { PLACEMENT_REQUIRED } from "@kolu/padi/surface";
 import { toInputSchema } from "@kolu/surface-mcp";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -137,7 +138,7 @@ describe("lifecycle_sendInput args → the JSON Schema a host reads", () => {
 });
 
 describe("lifecycle_create args → the JSON Schema a host reads", () => {
-  it("the placement fields carry their blurb ON the node, checks and all", () => {
+  it("the directory fields carry their blurb ON the node, checks and all", () => {
     const doc = toInputSchema(CreateArgsSchema);
     const described = propertyDescriptions(doc);
     // `worktree` is the one that would lose its blurb to `allOf`: it carries
@@ -148,20 +149,41 @@ describe("lifecycle_create args → the JSON Schema a host reads", () => {
     // …and the check really is there, beside the blurb rather than instead of
     // it — an agent's name is validated before the tool dials padi.
     expect(property(doc, "worktree").allOf).toBeDefined();
-    // Nothing is required: a bare create is still a legal call.
-    expect(doc.required).toBe(undefined);
+  });
+
+  it("advertises `placement` as the ONE required field, both spellings and the rule", () => {
+    const doc = toInputSchema(CreateArgsSchema);
+    // The whole point, read off the JSON Schema an MCP host actually sends to a
+    // model: an agent that never chose a placement cannot produce a valid call,
+    // and the host itself will say so before a byte reaches padi.
+    expect(doc.required).toEqual(["placement"]);
+    // The blurb is the WIRE's own sentence (`PLACEMENT_REQUIRED`), not a second
+    // copy: what the agent reads in the schema and what it reads in the refusal
+    // are the same string.
+    const described = propertyDescriptions(doc);
+    expect(described.placement).toBe(PLACEMENT_REQUIRED);
+    expect(described.placement).toContain('{"kind":"toplevel"}');
+    expect(described.placement).toContain('"kind":"child-of"');
+    // Both arms survive the converter, so a host can offer the model the choice
+    // structurally rather than by reading English.
+    const arms = property(doc, "placement").anyOf as JsonNode[] | undefined;
+    expect(arms, "placement advertises its two arms").toHaveLength(2);
   });
 
   it("advertises the create verb's own fields, so the tool cannot drift from the wire", () => {
     const props = toInputSchema(CreateArgsSchema).properties as JsonNode;
-    // Spread from `PadiCreateInputSchema` — the wire's cwd/parentId/intent…
-    for (const field of ["cwd", "parentId", "intent"]) {
+    // Spread from `PadiCreateInputSchema` — the wire's placement/cwd/intent…
+    for (const field of ["placement", "cwd", "intent"]) {
       expect(Object.hasOwn(props, field), `${field} is advertised`).toBe(true);
     }
     // …plus this face's three additions.
     for (const field of ["repo", "worktree", "run"]) {
       expect(Object.hasOwn(props, field), `${field} is advertised`).toBe(true);
     }
+    // `parentId` is NOT a field of its own any more — it lives inside the
+    // placement sum's `child-of` arm, which is what makes "a parent" and "no
+    // parent" two statements rather than a value and its absence.
+    expect(Object.hasOwn(props, "parentId")).toBe(false);
   });
 });
 

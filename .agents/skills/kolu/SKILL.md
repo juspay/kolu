@@ -23,7 +23,8 @@ every discipline here applies to both.
 ## The loop
 
 ```
-lifecycle_create   { intent: "🔧 parser refactor", cwd: "/abs/repo" }   → { id }
+lifecycle_create   { placement: {kind: "toplevel"},                     → { id }
+                     intent: "🔧 parser refactor", cwd: "/abs/repo" }
 lifecycle_sendInput{ id, text: "refactor the parser to use a lexer" }   # 1. the text (no Enter)
 wait_outputSettled { id, idleMs: 300, timeoutMs: 15000 }                # 2. observe the TUI settle
 lifecycle_sendInput{ id, key: "Enter" }                                 # 3. submit (its own call)
@@ -35,12 +36,16 @@ wait_outputSettled { id, idleMs: 800, screenTail: 40,                   # 4. let
 inside the wait. A follow-up `screen_text` is a second call the terminal can
 move under — that gap is a race, not a formality.
 
-- `lifecycle_create` spawns a padi-tracked canvas tile: `intent` labels it,
-  `cwd` sets the directory, `parentId: <id>` opens it as a **split** beside
-  that tile. `repo` + `worktree` cut a fresh git worktree at
+- `lifecycle_create` spawns a padi-tracked canvas tile. **`placement` is
+  REQUIRED and has no default** — `{kind: "toplevel"}` for a tile of its own, or
+  `{kind: "child-of", parentId: <id>}` to open it as a **split INSIDE** that
+  tile; a call that omits it is refused, naming both spellings. Decide it per
+  spawn: the canvas and the Dock read that edge as who-works-for-whom, so a
+  worker you supervise belongs under you rather than beside you by accident.
+  `intent` labels it, `cwd` sets the directory. `repo` + `worktree` cut a fresh git worktree at
   `<repo>/.worktrees/<name>` and open the terminal IN it, and `run` types a
   command line at the first shell prompt (submitted with Enter) — the whole
-  `kolu create --repo … --worktree … -- <agent>` in ONE call. It spawns a
+  `kolu create --toplevel --repo … --worktree … -- <agent>` in ONE call. It spawns a
   shell — to drive a live TUI prompt afterwards, still use the three-step
   submit.
 - `lifecycle_sendInput` writes **text OR one named key, never both** —
@@ -155,7 +160,7 @@ watch_close { name: "campaign" }                                 // when the cam
 ## Provisioning the inner agent
 
 - **Worktree'd agent:** no MCP path in v1 (`git.worktreeCreate` is a named
-  denial) — `kolu create --repo /abs/repo --worktree my-branch -- claude
+  denial) — `kolu create --toplevel --repo /abs/repo --worktree my-branch -- claude
   --dangerously-skip-permissions`, then drive the returned id over MCP.
 - **Never hardcode the agent CLI** — default to the agent *you* run as, unless
   the human named one.
@@ -179,7 +184,7 @@ The verb map:
 
 | MCP | CLI |
 | --- | --- |
-| `lifecycle_create` | `kolu create [--parent <id>] [--intent …] [--repo … --worktree …] -- <agent>` |
+| `lifecycle_create` (`placement` REQUIRED) | `kolu create (--toplevel \| --parent <id>) [--intent …] [--repo … --worktree …] -- <agent>` |
 | `lifecycle_sendInput { text }` | `kolu send "$id" "text"` (`--file <path>` for tricky payloads) |
 | `lifecycle_sendInput { key: "Enter" }` | `kolu send "$id" --key Enter` |
 | `wait_outputSettled` | `kolu wait "$id" --until idle:<ms> --timeout <ms>` (also `--until match:'<regex>'`) |

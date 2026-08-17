@@ -48,8 +48,10 @@ The reason to add a coordinator at all is **span of attention**. A person can dr
 Driving another agent is a loop of discrete moves, because each move is a separate, observable thing. One command — `kolu` — carries every move. The coordinator creates a worktree'd agent, sends it a brief, waits for it to settle, submits, waits for its turn to end, and reads the screen:
 
 ```sh
-# spawn an implementing agent in its own worktree — it appears live on the canvas
-id=$(kolu create --worktree fix-parser -- claude --dangerously-skip-permissions)
+# spawn an implementing agent in its own worktree — it appears live on the canvas.
+# `--toplevel` says where it lands: its own tile. Use `--parent <id>` instead to
+# open it as a split inside the tile it works for; there is no default.
+id=$(kolu create --toplevel --worktree fix-parser -- claude --dangerously-skip-permissions)
 
 kolu send "$id" "read /tmp/brief-fix-parser.md and take it end-to-end"  # 1. the brief
 kolu wait "$id" --until idle:300                                        # 2. observe it settle

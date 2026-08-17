@@ -44,6 +44,7 @@ import {
   type PadiHostInventory,
   padiSurfaceSibling,
   type PadiTerminal,
+  TOPLEVEL_PLACEMENT,
 } from "@kolu/padi/surface";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import type { AgentClient } from "@kolu/surface-remote";
@@ -301,6 +302,7 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     const padi = scopePadiSurface(combined);
     const { id } = await Effect.runPromise(
       padi.surface.lifecycle.create({
+        placement: TOPLEVEL_PLACEMENT,
         cwd: process.env.HOME,
       }),
     );
@@ -361,6 +363,7 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     const padi = scopePadiSurface(combined);
     const { id } = await Effect.runPromise(
       padi.surface.lifecycle.create({
+        placement: TOPLEVEL_PLACEMENT,
         cwd: process.env.HOME,
       }),
     );
@@ -448,6 +451,7 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         padi = scopePadiSurface(combined);
         const { id } = await Effect.runPromise(
           padi.surface.lifecycle.create({
+            placement: TOPLEVEL_PLACEMENT,
             cwd: process.env.HOME,
           }),
         );
@@ -516,7 +520,10 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
 
       try {
         const { id } = await Effect.runPromise(
-          padi.surface.lifecycle.create({ cwd: home }),
+          padi.surface.lifecycle.create({
+            placement: TOPLEVEL_PLACEMENT,
+            cwd: home,
+          }),
         );
         createdId = id;
 

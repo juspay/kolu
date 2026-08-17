@@ -91,7 +91,9 @@ The measurement is a small, reusable script — not a one-off — so W2.2 re-run
   the browser dials, which owns the dial and the reconnect — over the padi host
   map's own wire group. padi is a keyed map, so every member call is folded into the
   map's `{ mapKey, input }` envelope for the local host key, exactly as the e2e
-  harness does. Then, for each terminal: `lifecycle.create({})` a bare shell,
+  harness does. Then, for each terminal: `lifecycle.create({placement:
+  {kind: "toplevel"}})` a bare shell — placement is required and the probe
+  measures one unparented terminal at a time —
   subscribe to `terminalAttach`, and ping single keystrokes **serially** — send one,
   wait for its echo, record, repeat. Serial by design: only one keystroke is ever
   in flight, so an echo can never be attributed to the wrong key. Attach frames are

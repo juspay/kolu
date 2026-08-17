@@ -115,7 +115,9 @@ probe_terminal_node_tools() {
     # toolset. Collapsing them into one "could not run the packaged Node
     # toolset" message sent an investigation after a PATH bug when the real
     # regression was #1988 pruning node-pty's darwin spawn-helper.
-    "$PADI_TUI" create --socket "$socket" -- /bin/sh -c \
+    # `--toplevel` because placement is REQUIRED and has no default: this probe
+    # wants one terminal of its own, and saying so is the whole rule.
+    "$PADI_TUI" create --toplevel --socket "$socket" -- /bin/sh -c \
         'printf spawned >"$1"; for tool in node npm npx corepack; do command -v "$tool" || exit 1; done; printf ok >"$2"' \
         _ "$spawned" "$output" >/dev/null
 

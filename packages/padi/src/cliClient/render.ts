@@ -5,6 +5,13 @@
  * Shared here (beside the dial kit) because padi-tui and kolu's CLI render the
  * SAME table from the same records; a second copy would be a second truth.
  *
+ * Not only VIEWS: `parsePlacementFlags` is here for the same reason and on the
+ * same terms — pure, no I/O, and shared because both faces must answer one
+ * question identically. The line this module draws is "does it need a socket or
+ * a tty?", not "is it formatting?"; a flag pair read down to the placement it
+ * means is as much a pure fold as the roster table is, and leaving it to each
+ * `main` is exactly the second truth the paragraph above refuses.
+ *
  * These views show what each terminal *is in* — its record state (active ·
  * sleeping · parked) · repo·branch · PR + checks · agent state · foreground —
  * read off padi's composed `terminals` collection (the same record the canvas
@@ -37,6 +44,98 @@ export const SHORT_ID_LEN = 8;
 
 export function shortId(id: string): string {
   return id.slice(0, SHORT_ID_LEN);
+}
+
+/** "You did not say where the terminal goes" — the CLI-flag spelling of the
+ *  wire's `PLACEMENT_REQUIRED`.
+ *
+ *  `command` is the only difference between the two faces' sentences, so it is
+ *  the only thing {@link parsePlacementFlags} passes. It names BOTH flags,
+ *  because the failure mode is a caller who did not know there was a choice —
+ *  "missing required flag" sends a script author hunting for a typo — and it
+ *  ends with the migration, in the one word it costs, because a script that
+ *  breaks at 2am is not going to find the changelog. */
+function placementRequiredMessage(command: string): string {
+  return `${command} must state WHERE the terminal goes — pass exactly one of --toplevel (a tile of its own) or --parent <id> (a split inside that terminal). There is no default: the canvas and the Dock read a terminal's parent as who-works-for-whom, so a guessed placement silently flattens the hierarchy. A script that used to say \`${command}\` means \`${command} --toplevel\`.`;
+}
+
+/** …and "you said both". Not a precedence question with a quiet winner — the
+ *  two flags are contradictory claims about one terminal, and picking one would
+ *  BE the silent decision the pair exists to delete. Face-independent, so unlike
+ *  {@link placementRequiredMessage} it needs no command name. */
+const PLACEMENT_FLAGS_EXCLUSIVE =
+  "--toplevel and --parent are mutually exclusive: a terminal is either a tile of its own or a split inside exactly one parent, never both. Pass exactly one.";
+
+/** …and "you spelled --parent but named nothing". Face-independent for the same
+ *  reason as the sentence above: it names only the flags. It says which of the two
+ *  fixes applies, because an unset variable and a genuine change of mind want
+ *  opposite repairs. */
+const PLACEMENT_PARENT_BLANK =
+  "--parent was passed with an empty value — an unset shell variable, most likely. It names the terminal to split, and an empty string is not an id: pass the parent's id (any unique prefix), or use --toplevel if you meant a tile of its own.";
+
+/** A flag the user SPELLED but left EMPTY — `--parent "$ID"` with `$ID` unset,
+ *  the ordinary shell accident. ONE predicate, so every gate on either CLI face
+ *  agrees on what blank IS: whitespace counts, because `--parent " "` is the same
+ *  accident with a quoted space. `kolu-cli`'s `exit.ts` re-exports it. */
+export const isBlank = (value: string): boolean => value.trim() === "";
+
+/** WHERE ON THE CANVAS a create lands, as the CLI FLAGS spell it — the two arms
+ *  that are a STATEMENT. The `child-of` arm carries the RAW `--parent` query
+ *  rather than a `TerminalId`, because a user hands either CLI any unique prefix
+ *  and widening it needs the live roster, which needs the dial. So the ARM is
+ *  decided purely, before a `--host` can provision a cold box for a command that
+ *  was never going to run; only the id inside it is resolved on the far side. */
+export type StatedPlacementFlags =
+  | { readonly kind: "toplevel" }
+  | { readonly kind: "child-of"; readonly parentQuery: string };
+
+/** …and the third arm, which is what the parse returns when the pair does not
+ *  amount to a statement. A value, not a throw or an `Effect`: the two faces
+ *  fail on different error types (`kolu`'s `CliFailure`, `padi-tui`'s own), and
+ *  keeping the parse plain data is what lets them share the DECISION while each
+ *  keeps its own way of failing. */
+export type PlacementFlagsRead =
+  | StatedPlacementFlags
+  | { readonly kind: "refused"; readonly message: string };
+
+/** Read the `--toplevel` / `--parent` pair down into the one thing it means —
+ *  the ONE authority on the CLI-flag half of the no-default rule.
+ *
+ *  Both padi CLI faces carry this verb and must answer it identically, so the
+ *  branch lives here rather than in each `main`: sharing only the two sentences
+ *  above (as this did at first) leaves the DECISION hand-written twice, free to
+ *  drift on the next edit — a reordered check, a third flag, a differently
+ *  handled `--parent ""` — with nothing structural noticing. That drift is the
+ *  same class of defect the whole no-default rule exists to delete, one layer up:
+ *  two faces quietly disagreeing about what a create meant.
+ *
+ *  Both flags is the exclusion refusal, neither is the required refusal, and each
+ *  alone is its arm. Pure, so it is unit-tested without a socket and both faces'
+ *  gates run before their dial.
+ *
+ *  A BLANK `--parent` is refused here rather than treated as a statement. `--parent
+ *  "$ID"` with `$ID` unset is not a caller who chose the `child-of` arm; it is a
+ *  variable that did not expand, and an empty string is not an id. Left as a
+ *  statement it reached the far side and failed only after the dial — so `padi-tui
+ *  create --parent ""` over `--host` would Nix-provision a cold box for a command
+ *  that was never going to run. `kolu create` never showed this, because its own
+ *  `refuseBlankFlags` fires first with a per-flag sentence; that gate still wins
+ *  there and its message is unchanged, which leaves this branch unreachable on that
+ *  face and load-bearing on the other. A shared parse has to be right on its own. */
+export function parsePlacementFlags(
+  command: string,
+  flags: { readonly toplevel: boolean; readonly parent: string | undefined },
+): PlacementFlagsRead {
+  const { toplevel, parent } = flags;
+  if (toplevel && parent !== undefined)
+    return { kind: "refused", message: PLACEMENT_FLAGS_EXCLUSIVE };
+  if (toplevel) return { kind: "toplevel" };
+  if (parent !== undefined) {
+    return isBlank(parent)
+      ? { kind: "refused", message: PLACEMENT_PARENT_BLANK }
+      : { kind: "child-of", parentQuery: parent };
+  }
+  return { kind: "refused", message: placementRequiredMessage(command) };
 }
 
 /** The live foreground process of a composed record, or `null` — active-only,

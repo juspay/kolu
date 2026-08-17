@@ -34,7 +34,7 @@ immediately, and one you created in the browser is drivable from the shell.
 | verb | what it does |
 | --- | --- |
 | `kolu ls` | the roster — state, repo·branch, PR, agent, and what each is running |
-| `kolu create` | open a terminal; `--parent` splits a tile, `--worktree` cuts a branch first, `-- <cmd>` launches an agent in it |
+| `kolu create` | open a terminal — say where it goes with `--toplevel` (its own tile) or `--parent <id>` (a split inside that tile); `--worktree` cuts a branch first, `-- <cmd>` launches an agent in it |
 | `kolu send` | type into a terminal — text, or a named key with `--key` |
 | `kolu wait` | block until output settles or matches, or until an agent's turn ends |
 | `kolu debrief` | wait until a worker's turn is over **and** its output is quiet, then print its screen |
@@ -47,7 +47,7 @@ A short driving loop — create an agent, give it a prompt, wait for its turn to
 end, read the reply:
 
 ```sh
-id=$(kolu create --worktree fix-parser -- claude)
+id=$(kolu create --toplevel --worktree fix-parser -- claude)
 kolu send "$id" "read /tmp/brief.md and take it end-to-end"
 kolu wait "$id" --until idle:300          # the text landed
 kolu send "$id" --key Enter               # submit — its own step
@@ -69,6 +69,25 @@ on stderr), **ids accept any unique prefix** (`kolu send 3f9c …`), and the
 **exit codes are a contract** — `0` done, `1` a usage or connection error, `2`
 a wait timed out, `3` the terminal exited first, `130` interrupted. Read verbs
 take `--json`.
+
+### `create` makes you say where the terminal goes
+
+`kolu create` takes **exactly one** of `--toplevel` or `--parent <id>`, and
+there is no default — neither flag, or both, is refused with the rule. That
+looks fussy for one command until you remember what the parent edge means: a
+terminal with a parent is drawn *inside* that parent's tile, and the
+[Dock](/dock) reads the same edge as who works for whom. A script that never
+mentions placement isn't asking for top level, it just never thought about it —
+and that's how a fleet of agents that should have been splits ends up as a row
+of unrelated tiles, with nothing failing to tell you. Saying it costs one word:
+
+```sh
+kolu create --toplevel -- claude            # its own tile
+kolu create --parent "$KAVAL_TERMINAL_ID" -- codex   # a split beside you
+```
+
+The same rule applies to the [MCP tool](/mcp) an agent calls (`placement` is a
+required field there) and to `padi-tui create`.
 
 Which machine a verb talks to is one flag — `--socket`, `--state-root`, or
 `--host user@box` for a [remote host](/remote-hosts) over ssh — and it can go on

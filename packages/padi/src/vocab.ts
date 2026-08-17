@@ -26,6 +26,7 @@ import {
   ProcessRssSchema,
   RestoreTargetSchema,
   seedMemory,
+  type TerminalId,
   TerminalIdSchema,
   type TerminalSnapshot,
   TerminalSnapshotSchema,
@@ -387,6 +388,71 @@ export const TerminalMetadataSchema = Schema.Union([
   ActiveTerminalSchema,
   SleepingTerminalSchema,
 ]);
+
+/** The ONE sentence a create that failed to state its placement gets back.
+ *
+ *  It names BOTH spellings, because the whole failure mode is a caller who did
+ *  not know there was a choice to make — "invalid input" would send them
+ *  looking for a typo. Authored once and reused by every face that speaks this
+ *  JSON: the wire schema annotates the field with it (so a decode refusal at
+ *  padi says it), and `lifecycle_create`'s MCP tool inherits that same field, so
+ *  an agent gets the identical sentence. The two CLI faces state the same rule in
+ *  THEIR vocabulary (`--toplevel` / `--parent <id>`) — different spelling, same
+ *  rule — and they agree by construction rather than by convention: both run
+ *  `@kolu/padi/render`'s one `parsePlacementFlags`, whose branches and sentences
+ *  are pinned in `cliClient/placementFlags.test.ts`. */
+export const PLACEMENT_REQUIRED =
+  'a create must state its `placement` — there is no default. Spell it `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"<terminal id>"}` to open it as a split inside that terminal. The canvas and the Dock read this edge as who-works-for-whom, so a guessed default would silently flatten the hierarchy.';
+
+/**
+ * WHERE a new terminal lands — a closed sum, not an optional parent id.
+ *
+ * `{ kind: "toplevel" }` is a tile of its own on the canvas. `{ kind:
+ * "child-of", parentId }` is a split INSIDE that terminal's tile. Every create
+ * names one; there is no third state and no default, for the same reason
+ * {@link HostLocationSchema} has none: the absence of a fact is not a fact.
+ *
+ * Placement is semantically LOAD-BEARING, which is what earns it the sum. The
+ * canvas paints a `child-of` terminal inside its parent's tile and a `toplevel`
+ * one beside it; the Dock reads the same edge as *who works for whom*
+ * (`SubTerminalRow`, `descendantsByRoot`). So a create that omits it is not
+ * asking for a sensible fallback — it is declining to say something only the
+ * caller knows, and the old `parentId?: optionalKey` answered that silence with
+ * `toplevel`. That default is how an orchestrator spawned two days of reviewer
+ * agents as top-level tiles when every one of them was a split: nothing failed,
+ * nothing logged, the hierarchy just went flat. A required sum makes that
+ * silence unspellable — at the wire (decode), in TypeScript (a missing property
+ * is a compile error), and at `kolu create` (a refusal naming the rule).
+ */
+export const TerminalPlacementSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("toplevel") }),
+  Schema.Struct({
+    kind: Schema.Literal("child-of"),
+    parentId: TerminalIdSchema,
+  }),
+]).annotate({ message: PLACEMENT_REQUIRED });
+
+export type TerminalPlacement = typeof TerminalPlacementSchema.Type;
+
+/** The top-level arm as a shared frozen singleton — the mirror of
+ *  {@link LOCAL_LOCATION}. A placement is never mutated after the create reads
+ *  it, so one value serves every top-level create instead of re-spelling the
+ *  literal at each call site; frozen so an accidental in-place write throws
+ *  rather than silently re-pointing every other caller's placement. */
+export const TOPLEVEL_PLACEMENT: TerminalPlacement = Object.freeze({
+  kind: "toplevel",
+} as const);
+
+/** Narrow a placement to the parent edge the registry stores.
+ *
+ *  The EDGE of the system states an intent (the sum above); the terminal RECORD
+ *  stores `parentId: TerminalId | undefined`, because that is what the canvas
+ *  tree walks. This is the ONE place the two meet, so "no parent" can only be
+ *  produced by someone who wrote `toplevel` — never by a dropped field. */
+export const parentIdOf = (
+  placement: TerminalPlacement,
+): TerminalId | undefined =>
+  placement.kind === "child-of" ? placement.parentId : undefined;
 
 /** The BASE create input — the client-owned chrome every ORDINARY create carries,
  *  and the exact shape the wire `lifecycle.create` accepts (`PadiCreateInputSchema`

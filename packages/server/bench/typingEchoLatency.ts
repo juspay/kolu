@@ -53,7 +53,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import type { TerminalAttachFrame } from "@kolu/padi/endpoint";
-import type { TerminalInfo } from "@kolu/padi/surface";
+import { type TerminalInfo, TOPLEVEL_PLACEMENT } from "@kolu/padi/surface";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";
@@ -293,11 +293,15 @@ function measureTerminal(
   out: number[],
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
-    const { id } = (yield* padiCall(
-      dispatch,
-      "lifecycle/create",
-      {},
-    )) as TerminalInfo;
+    // `TOPLEVEL_PLACEMENT`, not `{}`: a create must STATE where the terminal
+    // goes, and the bench means a tile of its own — it measures one bare shell
+    // at a time with no parent to split. `padiCall` takes its verb as a STRING
+    // and its input as `unknown`, so nothing here is typechecked against
+    // `PadiCreateInputSchema`; this call would compile exactly as before and
+    // die at the wire on the first terminal, before a single sample.
+    const { id } = (yield* padiCall(dispatch, "lifecycle/create", {
+      placement: TOPLEVEL_PLACEMENT,
+    })) as TerminalInfo;
     const reader = new EchoReader();
 
     // The attach pump and the keystroke loop race. The loop finishing INTERRUPTS the
