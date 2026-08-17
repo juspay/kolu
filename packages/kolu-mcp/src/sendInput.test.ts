@@ -203,7 +203,10 @@ describe("resolveSendAction — write vs DELIVERY", () => {
     // A caller who tuned the window and saw it silently dropped would conclude
     // the tuning did nothing — true, and the least useful way to learn it.
     const refusal = actionRefusalFrom({ text: "hi", settleMs: 3000 });
-    expect(refusal.detail).toEqual({ kind: "settle-without-submit" });
+    expect(refusal.detail).toEqual({
+      kind: "settle-without-submit",
+      field: "settleMs",
+    });
     expect(refusal.message).toMatch(/add `submit: true`/);
   });
 
@@ -222,5 +225,24 @@ describe("resolveSendAction — write vs DELIVERY", () => {
     expect(() =>
       resolveSendAction({ text: "hi", key: "Enter", submit: true }),
     ).toThrow(/can't be combined/);
+  });
+});
+
+describe("resolveSendAction — timeoutMs obeys the same rule as settleMs", () => {
+  it("rides the submit action, and is refused on a plain write", () => {
+    expect(
+      resolveSendAction({ text: "hi", submit: true, timeoutMs: 5000 }),
+    ).toMatchObject({ kind: "submit", timeoutMs: 5000 });
+    // The refusal NAMES the offending field rather than saying "one of the two",
+    // so a driver fixes the call it actually made.
+    try {
+      resolveSendAction({ text: "hi", timeoutMs: 5000 });
+      throw new Error("expected a refusal, but the args resolved");
+    } catch (e) {
+      expect((e as ToolFailure<SendRefusal>).detail).toEqual({
+        kind: "settle-without-submit",
+        field: "timeoutMs",
+      });
+    }
   });
 });

@@ -732,7 +732,11 @@ export function buildPadiSurfaceDeps(deps: {
         // handler is assembly only — the sequence, its bounds and its two
         // refusal shapes are that module's, so they stay testable without a PTY.
         submitInput: ({ input }) =>
-          handle(async () => {
+          // The one handler here that takes `handle`'s `signal`: a submit can sit
+          // in a minute-long readiness wait, so a caller that walked away must
+          // not leave padi polling a terminal for a message nobody will hear
+          // about. Every other body finishes in milliseconds.
+          handle(async (signal) => {
             const entry = getActiveTerminal(input.id);
             if (!entry) throw terminalNotFound(input.id);
             const settleMs = input.settleMs ?? SUBMIT_SETTLE_MS;
@@ -751,6 +755,7 @@ export function buildPadiSurfaceDeps(deps: {
                 data: input.data,
                 typedBytes: Buffer.byteLength(input.data, "utf8"),
                 timeoutMs: input.timeoutMs ?? SUBMIT_TIMEOUT_MS,
+                signal,
               });
               if (outcome.kind === "refused") {
                 throw new SubmitRefused({

@@ -42,7 +42,7 @@
 
 // The submit's default quiet window, read off padi's own vocabulary so the flag
 // help and the daemon that applies the default cannot state two numbers.
-import { SUBMIT_SETTLE_MS } from "@kolu/padi/surface";
+import { SUBMIT_SETTLE_MS, SUBMIT_TIMEOUT_MS } from "@kolu/padi/surface";
 import { isValidTimerMs, MAX_TIMER_MS } from "@kolu/surface/wait";
 import { Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
@@ -388,6 +388,16 @@ export const sendFlags = {
     timerMsFlag("settle-ms", "reports a false settle").pipe(
       Flag.withDescription(
         `how quiet the terminal must be (ms) before --submit believes the prompt is idle / the paste landed (default ${SUBMIT_SETTLE_MS})`,
+      ),
+    ),
+  ),
+  // NOT `timeoutFlag`: that one is the WAIT verbs' shared bound and says "exit
+  // 2", which is `wait`'s vocabulary. A `--submit` that runs out of its bound is
+  // a refusal from the daemon, so it exits 1 like every other send failure.
+  submitTimeout: opt(
+    timerMsFlag("submit-timeout", "refuses a target that was never busy").pipe(
+      Flag.withDescription(
+        `how long --submit waits for a busy target before REFUSING (ms, per wait; default ${SUBMIT_TIMEOUT_MS})`,
       ),
     ),
   ),

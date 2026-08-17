@@ -196,8 +196,10 @@ export function resolveSendInput(opts: {
   readonly hasKeys: boolean;
   /** `--submit` — the whole-delivery form. Legal only with a text source. */
   readonly submit: boolean;
-  /** `--settle-ms` — `--submit`'s quiet window, and meaningless without it. */
+  /** `--settle-ms` / `--submit-timeout` — the submit's two waits, and both
+   *  meaningless without it. */
   readonly settleMs: number | undefined;
+  readonly submitTimeout: number | undefined;
 }): Effect.Effect<SendInput, CliFailure> {
   // A `--file` the user SPELLED but left empty is the same shell accident
   // `endpointOf` refuses for `--socket` and `create` refuses for its placement
@@ -244,7 +246,7 @@ export function resolveSendInput(opts: {
     );
   }
 
-  // The two `--submit` gates. Both are "a flag you spelled would have been
+  // The `--submit` gates. Every one is "a flag you spelled would have been
   // ignored", which this verb refuses rather than silently honours (the same
   // rule `--repo` without `--worktree` obeys one verb over). They live here, in
   // the ONE combination gate, rather than beside the write: a bad combination
@@ -257,12 +259,20 @@ export function resolveSendInput(opts: {
       ),
     );
   }
-  if (opts.settleMs !== undefined && !opts.submit) {
-    return Effect.fail(
-      failure(
-        "--settle-ms is --submit's quiet window and this send does not submit — add --submit, or drop --settle-ms.",
-      ),
-    );
+  // One table, so the two knobs cannot drift into two spellings of one rule.
+  for (const [flag, value, what] of [
+    ["--settle-ms", opts.settleMs, "quiet window"],
+    ["--submit-timeout", opts.submitTimeout, "give-up bound"],
+  ] as const satisfies ReadonlyArray<
+    readonly [string, number | undefined, string]
+  >) {
+    if (value !== undefined && !opts.submit) {
+      return Effect.fail(
+        failure(
+          `${flag} is --submit's ${what} and this send does not submit — add --submit, or drop ${flag}.`,
+        ),
+      );
+    }
   }
 
   return Effect.succeed(input);
@@ -462,6 +472,7 @@ export function run(
       hasKeys: args.key.length > 0,
       submit: args.submit,
       settleMs: args.settleMs,
+      submitTimeout: args.submitTimeout,
     });
 
     const text = yield* readSendText(input, args.text);
@@ -506,6 +517,9 @@ export function run(
               data: plan.write,
               ...(args.settleMs !== undefined
                 ? { settleMs: args.settleMs }
+                : {}),
+              ...(args.submitTimeout !== undefined
+                ? { timeoutMs: args.submitTimeout }
                 : {}),
             })
           : yield* Effect.as(

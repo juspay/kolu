@@ -230,7 +230,13 @@ export type SubmitOutcome =
  *  waited 12 s for an agent to finish is a fact the driving loop should see, and
  *  it is the number that tells a human whether the bound is set anywhere near
  *  right. A terminal that DIES mid-wait ends the wait at once: waiting out a
- *  60-second bound on a PTY that no longer exists is time spent learning nothing. */
+ *  60-second bound on a PTY that no longer exists is time spent learning nothing.
+ *
+ *  An ABORTED request ends the wait as `busy`, and that reading never reaches a
+ *  caller: abort means the request edge tore the fiber down, so the value is
+ *  discarded on the way out. What matters is what it does NOT do — it stops
+ *  polling, and it stops before the next write, so an abandoned submit leaves the
+ *  terminal exactly where the last completed step left it. */
 async function awaitPromptIdle(
   watch: PromptWatch,
   timeoutMs: number,

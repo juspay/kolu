@@ -84,12 +84,17 @@ async function openMockTui(
   return id;
 }
 
-/** The shell line that launches the fixture with `env` in front of it. */
+/** The shell line that launches the fixture with `env` in front of it.
+ *
+ *  `process.execPath`, never a bare `node` (`.claude/rules/e2e-testing.md`):
+ *  whether the spawned shell's PATH resolves `node` is a different question from
+ *  the one these scenarios ask, and on a host where node lives only in the dev
+ *  shell the difference presents as a phantom product bug. */
 function runLine(env: Record<string, string>): string {
   const assignments = Object.entries(env)
     .map(([k, v]) => `${k}=${v}`)
     .join(" ");
-  return `${assignments}${assignments === "" ? "" : " "}node ${MOCK_TUI}`;
+  return `${assignments}${assignments === "" ? "" : " "}${process.execPath} ${MOCK_TUI}`;
 }
 
 const screenOf = async (mcp: Client, id: string): Promise<string> =>
@@ -198,6 +203,10 @@ describeDaemon("the one-call submit against a real padi", () => {
 
     // ── The documented choice ────────────────────────────────────────────
     // A dispatch into that turn refuses, bounded, having typed NOTHING.
+    // `timeoutMs` well under the turn: this leg is about the REFUSAL, so the
+    // bound has to expire while the target is still demonstrably busy. Left at
+    // the daemon's 60s default it would outlast the turn and the submit would
+    // simply succeed — a green run proving nothing.
     const refusal = toolRefusal(
       await mcp.callTool({
         name: "lifecycle_sendInput",
@@ -206,6 +215,7 @@ describeDaemon("the one-call submit against a real padi", () => {
           text: "SECOND-MESSAGE",
           submit: true,
           settleMs: 800,
+          timeoutMs: 2_000,
         },
       }),
     );

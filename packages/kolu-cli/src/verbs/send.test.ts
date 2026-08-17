@@ -29,6 +29,7 @@ const resolve = (opts: {
   hasKeys?: boolean;
   submit?: boolean;
   settleMs?: number;
+  submitTimeout?: number;
 }) =>
   Effect.runSyncExit(
     resolveSendInput({
@@ -38,6 +39,7 @@ const resolve = (opts: {
       hasKeys: opts.hasKeys ?? false,
       submit: opts.submit ?? false,
       settleMs: opts.settleMs,
+      submitTimeout: opts.submitTimeout,
     }),
   );
 
@@ -182,5 +184,18 @@ describe("resolveSendInput — the --submit gates", () => {
     expect(
       refusalOf(resolve({ hasPositional: true, hasKeys: true, submit: true })),
     ).toMatch(/can't be combined/);
+  });
+});
+
+describe("resolveSendInput — --submit-timeout obeys the same rule as --settle-ms", () => {
+  it("is legal with --submit and refused without it", () => {
+    expect(
+      Exit.isSuccess(
+        resolve({ hasPositional: true, submit: true, submitTimeout: 5000 }),
+      ),
+    ).toBe(true);
+    expect(
+      refusalOf(resolve({ hasPositional: true, submitTimeout: 5000 })),
+    ).toMatch(/--submit-timeout is --submit's give-up bound/);
   });
 });

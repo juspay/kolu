@@ -50,7 +50,12 @@ import {
   sendShapeRefusal,
 } from "@kolu/terminal-protocol";
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { hasTag, SUBMIT_SETTLE_MS, SubmitRefused } from "@kolu/padi/surface";
+import {
+  hasTag,
+  SUBMIT_SETTLE_MS,
+  SUBMIT_TIMEOUT_MS,
+  SubmitRefused,
+} from "@kolu/padi/surface";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp";
 import { Effect, Schema } from "effect";
 
@@ -83,6 +88,11 @@ export const SendInputArgsSchema = Schema.Struct({
     // why a blurb on a checked schema lands where no host reads it.
     Schema.Number.annotate({
       description: `How quiet the terminal must be (ms) before padi believes the prompt is idle / the paste has landed. Only with submit: true. Default ${SUBMIT_SETTLE_MS}, the field-calibrated value — raise it for a chattier TUI.`,
+    }).check(Schema.isInt(), Schema.isGreaterThan(0)),
+  ),
+  timeoutMs: Schema.optionalKey(
+    Schema.Number.annotate({
+      description: `How long to wait for a busy target before REFUSING (ms), per wait. Only with submit: true. Default ${SUBMIT_TIMEOUT_MS}. Keep it under your own harness's per-call cap — most MCP hosts kill a tool call at ~1–2 min, and a killed call costs you the typed refusal that tells you whether anything landed.`,
     }).check(Schema.isInt(), Schema.isGreaterThan(0)),
   ),
 });
@@ -147,7 +157,7 @@ export type SendRefusal =
    *  going to perform. Refused rather than ignored: a caller who tuned it and
    *  saw it silently dropped would conclude the tuning did nothing, which is
    *  true and is the least useful way to learn it. */
-  | { readonly kind: "settle-without-submit" }
+  | { readonly kind: "settle-without-submit"; readonly field: string }
   /** padi refused the delivery — see {@link SubmitDetail}. */
   | ({ readonly kind: "submit-refused" } & SubmitDetail);
 
@@ -255,22 +265,31 @@ export type SendAction =
   | {
       readonly kind: "submit";
       readonly plan: SendPlan;
+      /** The submit's two knobs, carried as the wire spells them so the handler
+       *  forwards rather than re-derives. Both stay `undefined` for "let padi
+       *  apply its default" — the default lives in ONE place, on the daemon that
+       *  performs the wait, and a face that copied the number here would be a
+       *  second one to keep in step. */
       readonly settleMs: number | undefined;
+      readonly timeoutMs: number | undefined;
     };
 
 /** Read the whole argument bag down to the ONE action it names — pure, so the
  *  gate matrix is unit-tested apart from the wire, and evaluated BEFORE anything
  *  dials padi.
  *
- *  The two gates this adds over {@link resolveSendInputData} are both "a field
- *  you spelled would have been ignored", which this repo refuses rather than
- *  silently honours: `submit` needs text to submit, and `settleMs` tunes a wait
- *  only a submit performs. */
+ *  The gates this adds over {@link resolveSendInputData} are all "a field you
+ *  spelled would have been ignored", which this repo refuses rather than silently
+ *  honours: `submit` needs text to submit, and `settleMs` / `timeoutMs` tune
+ *  waits only a submit performs. The two knobs share one refusal because they
+ *  share one reason and one fix — naming the offending field keeps the sentence
+ *  actionable without minting a kind per knob. */
 export function resolveSendAction(args: {
   text?: string;
   key?: string;
   submit?: boolean;
   settleMs?: number;
+  timeoutMs?: number;
 }): SendAction {
   const submit = args.submit === true;
   if (submit && args.text === undefined) {
@@ -279,15 +298,24 @@ export function resolveSendAction(args: {
       { kind: "submit-without-text" },
     );
   }
-  if (args.settleMs !== undefined && !submit) {
-    throw refuse(
-      "`settleMs` is the submit's quiet window and this call does not submit — add `submit: true`, or drop `settleMs`.",
-      { kind: "settle-without-submit" },
-    );
+  if (!submit) {
+    for (const field of ["settleMs", "timeoutMs"] as const) {
+      if (args[field] !== undefined) {
+        throw refuse(
+          `\`${field}\` tunes one of the submit's waits and this call does not submit — add \`submit: true\`, or drop \`${field}\`.`,
+          { kind: "settle-without-submit", field },
+        );
+      }
+    }
   }
   const plan = resolveSendInputData(args);
   return submit
-    ? { kind: "submit", plan, settleMs: args.settleMs }
+    ? {
+        kind: "submit",
+        plan,
+        settleMs: args.settleMs,
+        timeoutMs: args.timeoutMs,
+      }
     : { kind: "write", plan };
 }
 
@@ -349,8 +377,15 @@ export const sendInputTool: BespokeTool = {
           padi.lifecycle.submitInput({
             id,
             data: action.plan.write,
+            // Spread discipline: every optional field on the wire is an
+            // `optionalKey`, so an explicit `undefined` is a decode FAILURE, not
+            // "absent". The key is present or it is not — and when it is not,
+            // padi applies its own default.
             ...(action.settleMs !== undefined
               ? { settleMs: action.settleMs }
+              : {}),
+            ...(action.timeoutMs !== undefined
+              ? { timeoutMs: action.timeoutMs }
               : {}),
           }),
           asToolFailure,
