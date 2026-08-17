@@ -61,6 +61,11 @@ describe("kolu create refuses a blank flag value at the gate", () => {
       ["--intent", { intent: "" }],
       ["--repo", { repo: "" }],
       ["--worktree", { worktree: "" }],
+      // `--message ""` is `--message "$BRIEF"` with `$BRIEF` unset. Without this
+      // row it would reach the shared send policy and be refused as "nothing to
+      // send — --message is empty", which sends the reader looking at the brief
+      // rather than at the variable that did not expand.
+      ["--message", { message: "", argv: ["claude"] }],
     ] as const satisfies ReadonlyArray<
       readonly [string, Partial<CreateArgs>]
     >) {
@@ -128,5 +133,26 @@ describe("kolu create refuses to guess a placement", () => {
       expect(text).not.toContain("--toplevel");
       expect(text).not.toContain("mutually exclusive");
     }
+  });
+});
+
+describe("kolu create refuses a --message with nothing to brief", () => {
+  it("names argv as the missing half, and says why a bare shell is the hazard", () => {
+    // A brief typed at a SHELL prompt and submitted with Enter is not a message,
+    // it is a command line the shell runs — so this is refused rather than made
+    // to "work". The sentence has to say that, because the failure it prevents
+    // (`review: command not found`, or worse for a brief carrying a backtick)
+    // would otherwise look like the agent misbehaving.
+    const text = refusalOf({ message: "carry out the plan", argv: [] });
+    expect(text).toContain("--message has nothing to brief");
+    expect(text).toContain("-- <argv>");
+    expect(text).toContain("EXECUTE");
+  });
+
+  it("is happy the moment there is something to brief", () => {
+    // The gate must not refuse the shape the feature exists for.
+    expect(
+      refusalOf({ message: "carry out the plan", argv: ["claude"] }),
+    ).not.toContain("--message has nothing to brief");
   });
 });

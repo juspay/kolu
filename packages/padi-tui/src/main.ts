@@ -259,6 +259,11 @@ const argv = cli({
           description:
             "with --worktree: the repo to branch from (an absolute path on the padi's machine). Default (local padi): the current directory. Over --host it must be given explicitly — the worktree is cut on the REMOTE host, so it can't default to your local directory.",
         },
+        message: {
+          type: String,
+          description:
+            "a first message to deliver once the command in `-- <argv>` reaches its prompt — spawn and brief a worker in one command. Needs `-- <argv>`: with nothing started the terminal is a bare shell, which would EXECUTE the text rather than read it.",
+        },
         ...jsonFlag,
       },
     }),
@@ -674,6 +679,7 @@ function cmdCreate(
     parent: string | undefined;
     worktree: string | undefined;
     repo: string | undefined;
+    message: string | undefined;
     json: boolean;
   },
   command: readonly string[],
@@ -730,6 +736,7 @@ function cmdCreate(
           // --worktree overrides this with the worktree path inside runCreate.
           cwd: conn.localCwd,
           argv: command,
+          ...(flags.message !== undefined ? { message: flags.message } : {}),
         });
         return { result, placement };
       }),
@@ -755,6 +762,9 @@ function cmdCreate(
       );
     }
     if (result.ran !== undefined) bits.push(`running \`${result.ran}\``);
+    // SUBMITTED, not "sent": this only prints where padi watched the TUI take
+    // the brief and pressed Enter.
+    if (result.briefed !== undefined) bits.push("briefed");
     yield* writeErr(`${bits.join(" · ")}\n`);
   });
 }
@@ -857,6 +867,7 @@ function program(): Effect.Effect<void, unknown> {
           parent: argv.flags.parent,
           worktree: argv.flags.worktree,
           repo: argv.flags.repo,
+          message: argv.flags.message,
           json: argv.flags.json,
         },
         argv._.command,

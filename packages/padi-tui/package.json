@@ -15,6 +15,7 @@
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-remote": "workspace:*",
+    "@kolu/terminal-protocol": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
     "cleye": "^2.3.0",
     "effect": "catalog:",

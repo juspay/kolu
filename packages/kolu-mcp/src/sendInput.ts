@@ -54,6 +54,7 @@ import {
   isSubmitRefused,
   SUBMIT_SETTLE_MS,
   SUBMIT_TIMEOUT_MS,
+  submitLeftTextStaged,
 } from "@kolu/padi/surface";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp";
 import { Effect, Schema } from "effect";
@@ -165,10 +166,16 @@ export type SendRefusal =
  *  agent message-only (`surface-mcp`'s `ToolFailure` doc says so, and names this
  *  as the fix: the MCP process is where a refusal gets tagged).
  *
- *  `typed` is the field a driver must branch on and the reason this is not just
- *  prose: `false` means NOTHING landed and a retry is free; `true` means the text
- *  is sitting in the target's input box UNSUBMITTED, so a blind retry delivers it
- *  twice.
+ *  `staged` is the field a driver must branch on and the reason this is not just
+ *  prose: `true` means the text is sitting in the target's input box UNSUBMITTED,
+ *  so the recovery is an Enter and a blind retry would deliver it twice; `false`
+ *  means there is no residue anywhere and re-dispatching is free.
+ *
+ *  It is NOT "did padi type" — the two part company at exactly the case that
+ *  matters. A terminal that DIED mid-delivery was typed into and has no box left
+ *  to hold the text, so the honest answer for a driver is `false`: nothing to
+ *  finish, nothing to double. `phase` and `reason` still carry the history for a
+ *  human reading the log; `staged` carries the decision.
  *
  *  A type ALIAS, not an interface: `SendRefusal` must satisfy
  *  `Record<string, unknown>` (`ToolFailure`'s detail bound), and an interface
@@ -177,7 +184,7 @@ export type SendRefusal =
 export type SubmitDetail = {
   readonly phase: "ready" | "settle";
   readonly reason: "busy" | "gone";
-  readonly typed: boolean;
+  readonly staged: boolean;
   readonly waitedMs: number;
 };
 
@@ -340,7 +347,7 @@ export function resolveSendAction(args: {
  *  The narrowing is padi's own `isSubmitRefused` — structural on the `_tag`,
  *  because this value was decoded from a wire frame in another realm where
  *  `instanceof` silently answers `false`. */
-function asToolFailure(error: unknown): unknown {
+export function asToolFailure(error: unknown): unknown {
   if (!isSubmitRefused(error)) return error;
   const refusal = error as {
     phase: "ready" | "settle";
@@ -352,7 +359,11 @@ function asToolFailure(error: unknown): unknown {
     kind: "submit-refused",
     phase: refusal.phase,
     reason: refusal.reason,
-    typed: refusal.phase === "settle",
+    // STAGED, not "did we type" — the two part company exactly where it matters.
+    // A terminal that DIED mid-delivery was typed into and has no box left to
+    // hold it, so a driver told `true` there would send an Enter into nothing and
+    // withhold a re-dispatch for fear of doubling a message that is simply gone.
+    staged: submitLeftTextStaged(error),
     waitedMs: refusal.waitedMs,
   });
 }
@@ -364,7 +375,7 @@ export const sendInputTool: BespokeTool = {
   mutates: true,
   title: "Send input to a terminal",
   description:
-    'Send input to a terminal. DEFAULT for prompting an agent: { id, text, submit: true } — ONE call that waits for the target\'s prompt to be idle, types the text, waits for the TUI to take it, and presses Enter, answering {submitted: true, readyAfterMs, settledAfterMs}. It REFUSES (structuredContent: {kind: "submit-refused", phase, typed}) rather than typing into a mid-turn agent, because a TUI that ends its turn clears a typed-but-unsubmitted input box and the message is gone; phase "ready" means nothing was typed (retry freely), phase "settle" means the text IS in the box unsubmitted (send Enter, or Escape and re-send — never blindly re-send). Without `submit` this is the raw write: text (multiline auto-bracketed-pasted) OR one named key / chord (Enter, Escape, Tab, arrows, C-c, M-b, …), never both — that manual trio (text → wait_outputSettled → key: "Enter") is the ESCAPE HATCH for when you must act between the text and the Enter, not the everyday path.',
+    'Send input to a terminal. DEFAULT for prompting an agent: { id, text, submit: true } — ONE call that waits for the target\'s prompt to be idle, types the text, waits for the TUI to take it, and presses Enter, answering {submitted: true, readyAfterMs, settledAfterMs}. It REFUSES (structuredContent: {kind: "submit-refused", phase, reason, staged}) rather than typing into a mid-turn agent, because a TUI that ends its turn clears a typed-but-unsubmitted input box and the message is gone. Branch on `staged`: false means nothing is left anywhere, so re-dispatch freely once the target is free; true means the text IS sitting in the box unsubmitted, so send Enter (or Escape and re-send) and NEVER blindly re-send, which would deliver it twice. Without `submit` this is the raw write: text (multiline auto-bracketed-pasted) OR one named key / chord (Enter, Escape, Tab, arrows, C-c, M-b, …), never both — that manual trio (text → wait_outputSettled → key: "Enter") is the ESCAPE HATCH for when you must act between the text and the Enter, not the everyday path.',
   // No `signal`: a surface procedure ref carries no cancellation handle any
   // more (D10/#18 — Effect RPC has none, and interruption is the fiber's), and
   // the handler's effect is already run under the request's signal by

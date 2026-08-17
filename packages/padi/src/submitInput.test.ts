@@ -12,6 +12,8 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
+import { EFFECTIVE_FINISH_QUIET_MS } from "./activity/finishQuiet.ts";
+import { FIRST_MESSAGE_SETTLE_MS } from "./surface.ts";
 import {
   isPromptIdle,
   type PromptObservation,
@@ -230,5 +232,48 @@ describe("submitInput — the four steps", () => {
 
     expect(outcome).toMatchObject({ kind: "refused", phase: "ready" });
     expect(writes).toEqual([]);
+  });
+});
+
+describe("submitInput — an aborted request must not leave residue", () => {
+  // The claim the module's own doc makes: "it stops polling, and it stops
+  // BEFORE the next write, so an abandoned submit leaves the terminal exactly
+  // where the last completed step left it."
+  //
+  // The earlier abort test only ever exercised a BUSY target, where the abort is
+  // read on the same branch as the timeout. The case that matters is the other
+  // one — and it is the common one, since a caller usually cancels a submit that
+  // is about to succeed.
+  it("types NOTHING when the target is ALREADY IDLE and the request is aborted", async () => {
+    const abort = new AbortController();
+    abort.abort();
+    const writes: string[] = [];
+
+    const outcome = await submitInput({
+      watch: scriptedWatch([IDLE]),
+      write: (d) => writes.push(d),
+      data: "brief",
+      timeoutMs: 60_000,
+      clock: steppingClock(10),
+      signal: abort.signal,
+    });
+
+    // The whole point: an abandoned submit must not stage text in a terminal
+    // nobody is left watching — that is the residue the mid-turn doctrine exists
+    // to prevent, arrived at from the other direction.
+    expect(writes).toEqual([]);
+    expect(outcome).toMatchObject({ kind: "refused", phase: "ready" });
+  });
+});
+
+describe("the first message's quiet window is DERIVED, not invented", () => {
+  it("equals padi's effective-finish quiet window", () => {
+    // Both answer one question — "is this agent's silence real, or a gap?" — so
+    // they take one answer. Pinned here rather than left to a comment because
+    // the two constants live in different modules (one browser-safe, one not) and
+    // cannot import each other: without this, tuning the finish window would
+    // silently leave the first-message window behind, and a brief would start
+    // landing in a booting agent again with nothing to say why.
+    expect(FIRST_MESSAGE_SETTLE_MS).toBe(EFFECTIVE_FINISH_QUIET_MS);
   });
 });

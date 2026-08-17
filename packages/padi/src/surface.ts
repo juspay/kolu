@@ -939,11 +939,33 @@ export const SUBMIT_SETTLE_MS = 1_500;
  *  window narrower than that boot silence reads it as an idle prompt and types
  *  the brief into a process that has not opened its input box yet.
  *
- *  This is the create path's whole answer to the boot race, and it is stated as
- *  ONE number rather than a mode: the machinery is identical to any other submit,
- *  it just has to out-wait a longer silence. It costs a create+message a few
- *  seconds it would otherwise not spend — against a brief that lands in a void,
- *  that is not a close call. */
+ *  ## Why this number, and not a mode
+ *
+ *  It is DERIVED, not invented. 5 s is padi's own `EFFECTIVE_FINISH_QUIET_MS`
+ *  (`activity/finishQuiet.ts`) — the field-calibrated answer to "how long must an
+ *  agent be silent before the silence is real rather than a gap", which the whole
+ *  finished-detection the Dock and the settle events depend on already rides on.
+ *  A first message asks the same question about the same silence, so it takes the
+ *  same answer instead of minting a second one. `submitInput.test.ts` pins the
+ *  equality, so tuning one forces a decision about the other rather than letting
+ *  them drift. (It is a copy rather than an import only because that module is
+ *  node-side and this one is browser-safe.)
+ *
+ *  The alternative — waiting for a RECOGNIZED agent instead of a quiet window —
+ *  was considered and rejected: `run` is not always an agent (`--run python` is a
+ *  legitimate brief target), so that predicate would hang and then refuse a call
+ *  that should simply have worked.
+ *
+ *  ## The residual, stated
+ *
+ *  An agent whose cold start is silent for LONGER than this window is still
+ *  mis-read as idle, and the brief is typed into a process that is not listening.
+ *  That is a real hole and this constant does not close it — it moves it out to
+ *  where no agent kolu drives has been observed to sit. The escape hatch for a
+ *  known-slow agent is not a bigger number here: it is to create WITHOUT a
+ *  message, wait on the agent explicitly (`wait_agentState` / `kolu wait --until
+ *  awaiting,waiting`), and dispatch with an ordinary submit — which is the same
+ *  machinery with the caller supplying the readiness this path has to infer. */
 export const FIRST_MESSAGE_SETTLE_MS = 5_000;
 
 /** How long a submit waits for a busy terminal to reach an idle prompt before

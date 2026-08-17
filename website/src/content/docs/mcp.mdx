@@ -124,22 +124,35 @@ rhythm whether you do it by hand or your agent does it in code:
 <Steps>
 
 1. **Create** a terminal for the work (optionally as a split of another, or in a
-   fresh worktree) and keep the `id` it returns.
-2. **Send** the prompt text into it.
-3. **Wait** for the output to settle, then send **Enter** as its own step — text
-   and the submit key are always two separate calls, so a same-breath Enter can't
-   race the paste.
-4. **Wait** for the agent's turn to end, then **read** the screen to see what it
+   fresh worktree) and keep the `id` it returns. Give it a `run` command and a
+   first `message` and it arrives already briefed — one call, no boot wait.
+2. **Send** the next prompt with `submit: true`. kolu waits for the agent's
+   prompt to be idle, types, waits for the terminal to take it, and presses
+   Enter — all inside that one call.
+3. **Wait** for the agent's turn to end, then **read** the screen to see what it
    said.
-5. Send the next prompt, and repeat — or **kill** the terminal when the work is
+4. Send the next prompt, and repeat — or **kill** the terminal when the work is
    done.
 
 </Steps>
 
-<Aside type="note" title="Text and Enter are separate steps">
-  Every `send-text` is followed by a settle wait and then a separate `Enter`.
-  Combining the two in one call is a deliberate error — observing the terminal
-  settle *before* submitting is what makes driving reliable.
+<Aside type="note" title="A busy agent is refused, not queued">
+  `submit: true` will not type into an agent that is mid-turn. Several terminal
+  interfaces **clear whatever is typed but unsubmitted when their turn ends**, so
+  "type now, press Enter later" does not queue the message — it destroys it,
+  while reporting success. kolu refuses instead, and says which case you are in:
+  nothing was typed (wait for the agent and send again), or the text is sitting
+  in its input box unsubmitted (send `Enter` — never re-send the text, or the
+  agent reads it twice).
+</Aside>
+
+<Aside type="note" title="The manual three steps are still there">
+  Sending text and pressing `Enter` as separate calls — with a settle wait
+  between them — remains supported, and combining the two in *one* call without
+  `submit` is still a deliberate error. Reach for the manual form when something
+  has to happen between the text and the Enter; otherwise `submit: true` does the
+  observing for you, from the one process that can actually see the terminal
+  move.
 </Aside>
 
 ## What your agent can do
@@ -152,7 +165,9 @@ display name a host can show instead ("Send input to a terminal").
 Every **successful** answer comes back as **structured data** as well as text, so
 your agent acts on a field rather than re-reading prose. A refusal carries data
 when the tool has a machine-readable reason to give: `lifecycle_sendInput` labels
-its four refusals `text-and-key`, `key-refused`, `text-refused` or `no-input`,
+its refusals `text-and-key`, `key-refused`, `text-refused`, `no-input`,
+`submit-without-text`, `settle-without-submit` and `submit-refused` (which
+carries `staged` — whether text is left sitting in the agent's input box),
 and `lifecycle_create` labels its directory refusals (`cwd-and-worktree`,
 `worktree-needs-repo`, `repo-without-worktree`, `blank-field`) and the
 partial-failure report `stopped-partway`, beside the sentence explaining each.
@@ -164,8 +179,8 @@ the sentence names both spellings and no terminal was created to clean up.
 
 | Tool | What it does |
 | --- | --- |
-| `lifecycle_create` | Open a new terminal and return its `id`. **`placement` is required** — `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"…"}` to open it as a split inside that terminal; there is no default, and a call that omits it is refused with both spellings. Optionally: in a working directory (`cwd`) or a **fresh git worktree** (`repo` + `worktree`, cut at `<repo>/.worktrees/<name>`), labelled on the canvas (`intent`), typing a first command at its shell prompt (`run`). One call does what `kolu create --toplevel --repo … --worktree … -- <cmd>` does. A create that fails after the worktree or terminal already landed names the survivors as data (`stopped-partway`), so nothing orphaned goes unnameable. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
-| `lifecycle_sendInput` | Type into a terminal: text, **or** one named key or chord (`Enter`, `Escape`, `C-c`, arrows…) — never both in one call. |
+| `lifecycle_create` | Open a new terminal and return its `id`. **`placement` is required** — `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"…"}` to open it as a split inside that terminal; there is no default, and a call that omits it is refused with both spellings. Optionally: in a working directory (`cwd`) or a **fresh git worktree** (`repo` + `worktree`, cut at `<repo>/.worktrees/<name>`), labelled on the canvas (`intent`), typing a first command at its shell prompt (`run`), and **briefing what that command started** (`message` — delivered once the agent reaches its own prompt, so one call spawns *and* dispatches). One call does what `kolu create --toplevel --repo … --worktree … -- <cmd>` does. A create that fails after the worktree or terminal already landed names the survivors as data (`stopped-partway`), so nothing orphaned goes unnameable. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
+| `lifecycle_sendInput` | Deliver a message: `{ text, submit: true }` waits for an idle prompt, types, waits for the terminal to take it, and presses Enter — one call. Without `submit` it is the raw write: text, **or** one named key or chord (`Enter`, `Escape`, `C-c`, arrows…) — never both in one call. |
 | `lifecycle_kill` | Close one terminal by `id`. |
 
 ### Wait for the right moment

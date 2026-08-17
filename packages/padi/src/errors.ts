@@ -241,6 +241,33 @@ export function isSubmitRefused(err: unknown): boolean {
   return hasTag(err, SUBMIT_REFUSED_TAG);
 }
 
+/** Did this refusal leave TEXT STAGED in the target's input box?
+ *
+ *  THE recovery question, and the one every face has to get right: `true` means
+ *  the fix is an Enter (or an Escape) and a re-dispatch would deliver the message
+ *  twice; `false` means there is no residue anywhere and re-dispatching is free.
+ *
+ *  It is NOT the same as "did padi type", and the gap is exactly the case that
+ *  bites. A terminal that DIED mid-delivery was typed into and has no box left to
+ *  hold the text — so the honest answer is `false`, and a face that read
+ *  `phase === "settle"` alone would tell a driver to press Enter into a terminal
+ *  that no longer exists while withholding the re-dispatch that would actually
+ *  deliver the message.
+ *
+ *  Lives HERE, beside the class, because BOTH faces answer it — the MCP tool's
+ *  `staged` field and the create's survivors report — and two copies of a rule
+ *  whose two branches are "press Enter" and "send the text again" is two chances
+ *  to type a brief twice. Reads the DATA structurally, like its siblings: the
+ *  value crossed a wire, so it is not our class. */
+export function submitLeftTextStaged(err: unknown): boolean {
+  if (!isSubmitRefused(err)) return false;
+  const refusal = err as {
+    readonly phase?: unknown;
+    readonly reason?: unknown;
+  };
+  return refusal.phase === "settle" && refusal.reason === "busy";
+}
+
 /** An unranged / open-ended `preview.read` whose body would exceed the inline
  *  cap. Fail-fast, NEVER a silent truncation — and the message NAMES the fix
  *  (request a bounded byte range), which is why the cap rides as data: a client

@@ -287,6 +287,31 @@ function refuseBlankFlags(args: CreateArgs): Effect.Effect<void, CliFailure> {
   return Effect.void;
 }
 
+/** `--message` needs something to brief — refuse it with no `-- <argv>`.
+ *
+ *  Not a tidiness rule. A create with no argv opens a SHELL, and a brief typed
+ *  at a shell prompt and submitted with Enter is not a message, it is a COMMAND
+ *  LINE the shell runs: `--message "review the parser and report back"` becomes
+ *  `review: command not found`, and a brief carrying a `;`, a backtick or a
+ *  `$(…)` is considerably worse than that. The flag means "brief the thing
+ *  `-- <argv>` started", so with nothing started there is nothing it can mean.
+ *
+ *  PURE and pre-dial, like every other gate here, so the refusal costs no
+ *  connection — and refused rather than quietly dropped, because a flag the user
+ *  spelled and we ignored is this verb's stated definition of a defect. */
+function refuseMessageWithoutArgv(
+  args: CreateArgs,
+): Effect.Effect<void, CliFailure> {
+  if (args.message !== undefined && args.argv.length === 0) {
+    return Effect.fail(
+      failure(
+        "--message has nothing to brief — it is delivered to whatever `-- <argv>` starts, and with no argv this terminal is a bare shell, which would EXECUTE the text as a command line rather than read it. Pass `-- <agent>`, or drop --message and dispatch later with `kolu send <id> --submit`.",
+      ),
+    );
+  }
+  return Effect.void;
+}
+
 /** WHERE ON THE CANVAS the new terminal lands, read from the flag pair — this
  *  verb's thin wrapper over `@kolu/padi/render`'s {@link parsePlacementFlags}.
  *
@@ -472,6 +497,7 @@ export function run(
     // exactly the point: `kolu create` alone used to be a legal, silent
     // top-level create.
     yield* refuseBlankFlags(args);
+    yield* refuseMessageWithoutArgv(args);
     const placementFlags = yield* placementOf(args);
     const directory = yield* directoryOf(args, localCwdOf(endpoint));
 

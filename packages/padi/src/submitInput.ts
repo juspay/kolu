@@ -253,12 +253,18 @@ async function awaitPromptIdle(
 ): Promise<IdleWait> {
   const started = clock();
   for (;;) {
+    // ABORT IS READ FIRST, before the world is even looked at. It used to be
+    // read on the same branch as the timeout — AFTER the idle check — which
+    // meant an aborted request whose target happened to be idle sailed straight
+    // through, typed the text, and pressed Enter: a cancelled call delivering
+    // the whole message to a terminal nobody was left watching. Pinned by
+    // `submitInput.test.ts`'s already-idle abort case.
+    if (signal.aborted) return { kind: "busy", waitedMs: clock() - started };
     const observed = watch.observe();
     const waitedMs = clock() - started;
     if (!observed.live) return { kind: "gone", waitedMs };
     if (isPromptIdle(observed)) return { kind: "idle", waitedMs };
-    if (waitedMs >= timeoutMs || signal.aborted)
-      return { kind: "busy", waitedMs };
+    if (waitedMs >= timeoutMs) return { kind: "busy", waitedMs };
     await abortableDelay(READINESS_POLL_MS, signal);
   }
 }

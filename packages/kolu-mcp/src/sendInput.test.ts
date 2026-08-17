@@ -5,7 +5,9 @@
 import { ToolFailure } from "@kolu/surface-mcp";
 import { sendShapeRefusal } from "@kolu/terminal-protocol";
 import { describe, expect, it } from "vitest";
+import { SubmitRefused } from "@kolu/padi/surface";
 import {
+  asToolFailure,
   resolveSendAction,
   resolveSendInputData,
   type SendRefusal,
@@ -244,5 +246,51 @@ describe("resolveSendAction — timeoutMs obeys the same rule as settleMs", () =
         field: "timeoutMs",
       });
     }
+  });
+});
+
+describe("asToolFailure — the recovery a driver reads off a padi refusal", () => {
+  const detailOf = (r: SubmitRefused): SendRefusal => {
+    const failed = asToolFailure(r);
+    if (!(failed instanceof ToolFailure))
+      throw new Error(`expected a ToolFailure, got ${String(failed)}`);
+    return failed.detail as SendRefusal;
+  };
+
+  it("a busy target at the SETTLE phase leaves text staged in the box", () => {
+    expect(
+      detailOf(
+        new SubmitRefused({
+          id: "t",
+          phase: "settle",
+          reason: "busy",
+          waitedMs: 9,
+        }),
+      ),
+    ).toMatchObject({ kind: "submit-refused", staged: true });
+  });
+
+  it("a GONE terminal stages nothing — there is no box left to hold it", () => {
+    // The trap: `staged` used to be `phase === "settle"` alone, so a terminal
+    // that DIED mid-delivery was reported as text-waiting-in-a-box. A driver
+    // branching on it would send an Enter to a terminal that no longer exists,
+    // and would refuse to re-dispatch the message for fear of doubling it — the
+    // message is simply lost, and the field said the opposite.
+    for (const phase of ["ready", "settle"] as const) {
+      expect(
+        detailOf(
+          new SubmitRefused({ id: "t", phase, reason: "gone", waitedMs: 9 }),
+        ),
+      ).toMatchObject({
+        kind: "submit-refused",
+        reason: "gone",
+        staged: false,
+      });
+    }
+  });
+
+  it("passes anything that is not a submit refusal straight through", () => {
+    const other = new Error("something else entirely");
+    expect(asToolFailure(other)).toBe(other);
   });
 });

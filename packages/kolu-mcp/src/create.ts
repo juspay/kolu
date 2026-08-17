@@ -94,6 +94,7 @@ import {
   FIRST_MESSAGE_SETTLE_MS,
   PadiCreateInputSchema,
   PLACEMENT_REQUIRED,
+  submitLeftTextStaged,
 } from "@kolu/padi/surface";
 import { type BespokeTool, messageOf, ToolFailure } from "@kolu/surface-mcp";
 import type { SendPlan } from "@kolu/terminal-protocol";
@@ -187,6 +188,8 @@ interface Landed {
  *  them. */
 export type CreateRefusal =
   | { readonly kind: "blank-field"; readonly field: string }
+  /** `message` with no `run` — see {@link refuseMessageWithoutRun}. */
+  | { readonly kind: "message-without-run" }
   | { readonly kind: "cwd-and-worktree" }
   | { readonly kind: "repo-without-worktree" }
   | { readonly kind: "worktree-needs-repo" }
@@ -230,6 +233,30 @@ export function refuseBlankFields(args: CreateArgs): void {
         { kind: "blank-field", field },
       );
     }
+  }
+}
+
+/** `message` needs something to brief — refuse it with no `run`.
+ *
+ *  Not a tidiness rule: a create with no `run` opens a SHELL, and a brief typed
+ *  at a shell prompt and submitted with Enter is not a message, it is a COMMAND
+ *  LINE the shell executes. "review the parser and report back" becomes
+ *  `review: command not found`, and a brief containing a `;` or a backtick is
+ *  worse than that. The field means "brief the thing `run` started", so with
+ *  nothing started there is nothing it can mean.
+ *
+ *  Refused rather than silently made to work, because the alternative readings
+ *  are all worse: typing it and hoping is the execution hazard above, and
+ *  skipping it is a field the caller spelled and we ignored. */
+export function refuseMessageWithoutRun(args: {
+  run?: string;
+  message?: string;
+}): void {
+  if (args.message !== undefined && args.run === undefined) {
+    throw refuse(
+      '`message` has nothing to brief — it is delivered to whatever `run` starts, and with no `run` this terminal is a bare shell, which would EXECUTE the text as a command line rather than read it. Pass `run` (e.g. "claude"), or drop `message` and dispatch later with lifecycle_sendInput { id, text, submit: true }.',
+      { kind: "message-without-run" },
+    );
   }
 }
 
@@ -290,6 +317,11 @@ function stoppedPartway(
   unfinished: { notTyped?: string; notDelivered?: string } = {},
 ): ToolFailure<CreateRefusal> {
   const { notTyped, notDelivered } = unfinished;
+  // Did the failed delivery leave TEXT in the agent's input box? Read off the
+  // refusal itself (padi's `SubmitRefused`, narrowed structurally because it
+  // crossed a wire), never guessed: it is the difference between "dispatch it"
+  // and "press Enter", and the wrong one of those types the brief twice.
+  const staged = submitLeftTextStaged(error);
   const lines = [
     messageOf(error),
     "the create stopped PARTWAY — these already exist and were NOT rolled back:",
@@ -311,11 +343,15 @@ function stoppedPartway(
     }
     if (notDelivered !== undefined) {
       // The recovery is NOT "call create again": the worker is up and only the
-      // brief is missing, so the fix is one `lifecycle_sendInput` at the id
-      // above. Saying so here is what stops a driver from spawning a second
-      // worker to deliver a message the first one is waiting for.
+      // brief is missing. But it is also not ALWAYS "dispatch it" — that advice
+      // is right for a refusal that typed nothing and WRONG for one that left
+      // the text staged in the box, where re-dispatching types the brief a
+      // second time on top of the first. So the sentence is read off the refusal
+      // rather than assumed, and it says which case this is.
       lines.push(
-        `  the message was NOT delivered — that agent is live and idle; dispatch it with lifecycle_sendInput { id, text, submit: true } rather than creating another`,
+        staged
+          ? `  the message was typed but NOT submitted — it is sitting in that agent's input box. Send lifecycle_sendInput { id, key: "Enter" } to finish it (or key: "Escape" and re-dispatch). Do NOT re-send the text: it is already there, and a second copy is what the agent would read.`
+          : `  the message was NOT delivered and NOTHING was typed — that agent is live and idle; dispatch it with lifecycle_sendInput { id, text, submit: true } rather than creating another`,
       );
     }
   }
@@ -323,7 +359,7 @@ function stoppedPartway(
     kind: "stopped-partway",
     landed,
     ...(notTyped !== undefined ? { notTyped } : {}),
-    ...(notDelivered !== undefined ? { notDelivered } : {}),
+    ...(notDelivered !== undefined ? { notDelivered, staged } : {}),
   });
 }
 
@@ -479,6 +515,7 @@ export const createTool: BespokeTool = {
     // so a payload this create would refuse never costs a worktree and a live
     // terminal it would then have to be reported beside.
     refuseBlankFields(a);
+    refuseMessageWithoutRun(a);
     const directory = resolveCreateDirectory(a);
     const brief =
       a.message === undefined

@@ -13,7 +13,11 @@ import {
   parsePlacementFlags,
   type StatedPlacementFlags,
 } from "@kolu/padi/render";
-import type { TerminalPlacement } from "@kolu/padi/surface";
+import {
+  FIRST_MESSAGE_SETTLE_MS,
+  type TerminalPlacement,
+} from "@kolu/padi/surface";
+import { encodeSend, type SendVocabulary } from "@kolu/terminal-protocol";
 import { shellJoin } from "@kolu/shell-quote";
 import { Effect } from "effect";
 import type { PadiTuiClient } from "./connect.ts";
@@ -42,12 +46,28 @@ export function placementGate(flags: {
     : Effect.succeed(read);
 }
 
+/** This face's spelling of the shared send policy — the flag a refusal names,
+ *  and the ritual it quotes. The RULES are `@kolu/terminal-protocol`'s, shared
+ *  with every other face, so one intent gets one answer whichever binary a
+ *  script reaches for. */
+const PADI_TUI_SEND_VOCABULARY: SendVocabulary = {
+  keyName: "--key",
+  submitRitual:
+    "  padi-tui send <id> --file brief.md   # 1. the text\n" +
+    "  padi-tui wait <id> --until idle:300  # 2. observe the TUI settle\n" +
+    "  padi-tui send <id> --key Enter       # 3. submit",
+};
+
 /** What `create` did — the new terminal's id, the worktree it materialized (if
  *  `--worktree`), and the agent command it launched (if `-- <argv>`). */
 export interface CreateResult {
   id: string;
   worktree?: { path: string; branch: string };
   ran?: string;
+  /** The first message, present only once it was actually SUBMITTED (`--message`).
+   *  A run that reports `briefed` has put the worker to work; one that does not,
+   *  has not — there is no "delivered, probably" reading. */
+  briefed?: string;
 }
 
 /**
@@ -60,7 +80,17 @@ export interface CreateResult {
  *      so this needs no argv);
  *   3. if an agent argv was given (after `--`), `lifecycle.sendInput` writes
  *      `<argv>\r` so the shell runs it at its first prompt — the same
- *      initial-command path the canvas worktree flow uses.
+ *      initial-command path the canvas worktree flow uses;
+ *   4. if a `--message` was given, `lifecycle.submitInput` delivers it once that
+ *      agent reaches its prompt — the one-call dispatch, same as `kolu create
+ *      --message` and `lifecycle_create { message }`.
+ *
+ * Step 4 is here for the reason the placement rule is: a capability exists on
+ * EVERY face or it does not exist. This binary is on its way out, and that is an
+ * argument for not GROWING it, not for letting it answer the same intent
+ * differently while it is still shipped — a script that reaches for `padi-tui`
+ * should get the same delivery discipline `kolu` gives, or a loud refusal, never
+ * a silently-dropped brief.
  */
 export function runCreate(
   client: PadiTuiClient,
@@ -72,9 +102,21 @@ export function runCreate(
     worktree?: { repoPath: string; name: string };
     cwd?: string;
     argv: readonly string[];
+    /** The first message to deliver once `argv` reaches its prompt. Needs
+     *  `argv`: with nothing started the terminal is a bare shell, which would
+     *  EXECUTE the brief as a command line rather than read it — refused below
+     *  for the same reason both other faces refuse it. */
+    message?: string;
   },
 ): Effect.Effect<CreateResult, unknown> {
   return Effect.gen(function* () {
+    if (opts.message !== undefined && opts.argv.length === 0) {
+      return yield* Effect.fail(
+        new Error(
+          "--message has nothing to brief — it is delivered to whatever `-- <argv>` starts, and with no argv this terminal is a bare shell, which would EXECUTE the text as a command line rather than read it. Pass `-- <agent>`, or drop --message.",
+        ),
+      );
+    }
     let cwd = opts.cwd;
     let worktree: CreateResult["worktree"];
     if (opts.worktree !== undefined) {
@@ -110,6 +152,35 @@ export function runCreate(
       });
     }
 
-    return { id, worktree, ran };
+    // ── Step 4: the brief ──────────────────────────────────────────────────
+    // Encoded through the SHARED send policy, never written raw: a brief is
+    // usually multiline and must arrive as ONE bracketed paste, exactly as
+    // `kolu create --message` and the MCP tool deliver the same bytes. The wider
+    // quiet window is `FIRST_MESSAGE_SETTLE_MS` for the reason it exists — a
+    // booting agent is silent between exec and first paint.
+    let briefed: string | undefined;
+    if (opts.message !== undefined) {
+      const encoded = encodeSend(
+        {
+          kind: "text",
+          text: opts.message,
+          sourceLabel: "--message",
+          paste: undefined,
+          fromStream: false,
+        },
+        PADI_TUI_SEND_VOCABULARY,
+      );
+      if (encoded.kind === "refused") {
+        return yield* Effect.fail(new Error(encoded.message));
+      }
+      yield* client.surface.lifecycle.submitInput({
+        id,
+        data: encoded.plan.write,
+        settleMs: FIRST_MESSAGE_SETTLE_MS,
+      });
+      briefed = opts.message;
+    }
+
+    return { id, worktree, ran, briefed };
   });
 }
