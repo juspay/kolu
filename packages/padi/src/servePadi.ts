@@ -737,10 +737,17 @@ export function buildPadiSurfaceDeps(deps: {
           // not leave padi polling a terminal for a message nobody will hear
           // about. Every other body finishes in milliseconds.
           handle(async (signal) => {
-            const entry = getActiveTerminal(input.id);
-            if (!entry) throw terminalNotFound(input.id);
-            const settleMs = input.settleMs ?? SUBMIT_SETTLE_MS;
-            const watch = openPromptWatch(input.id, settleMs, log);
+            // Refused UP FRONT rather than left to the readiness fold's `gone`:
+            // an id that names no live terminal is a caller error, and answering
+            // it after a 60-second wait would be the same answer at the worst
+            // possible time.
+            if (getActiveTerminal(input.id) === undefined)
+              throw terminalNotFound(input.id);
+            const watch = openPromptWatch(
+              input.id,
+              input.settleMs ?? SUBMIT_SETTLE_MS,
+              log,
+            );
             try {
               const outcome = await submitInput({
                 watch,
