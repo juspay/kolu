@@ -71,7 +71,9 @@ kolu send "$id" --submit "fix the failing test in parser.ts"
 
 `--submit` hands the whole delivery to padi: wait for the target's prompt to be
 idle, type the text, wait for the terminal to take it, press Enter.
-`--settle-ms <ms>` tunes the quiet window (default 1500) for a chattier TUI.
+`--settle-ms <ms>` tunes the quiet window (default 1500) for a chattier TUI, and
+`--submit-timeout <ms>` how long it waits for a busy target before refusing
+(default 60000).
 
 It is **not** a baked-in sleep — that is the thing this file used to say would
 never ship, and rightly. An Enter sent in the *same breath* as the text races
@@ -164,7 +166,8 @@ Specifics:
   `M-<char>`. `--key Enter` is how you submit in the three-step form. A send
   carries **text OR keys, never both** — the mix is rejected, and `--submit`
   with `--key` is rejected too (a key press has nothing to submit).
-- **`--settle-ms <ms>`** is `--submit`'s quiet window and is refused without it,
+- **`--settle-ms <ms>` / `--submit-timeout <ms>`** are `--submit`'s two waits — the
+  quiet window and the give-up bound — and each is refused without `--submit`
   rather than silently ignored.
 - **Bounded write.** A `send` whose write can't complete (the target isn't
   draining its input — e.g. a program that stopped reading stdin) **fails loud in

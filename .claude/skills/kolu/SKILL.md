@@ -84,7 +84,10 @@ kaval's output edge for every PTY and folds each terminal's agent state, so
 ```jsonc
 lifecycle_sendInput { id, text: "review this PR", submit: true }
 // → { sent: {textBytes}, submitted: true, readyAfterMs, settledAfterMs }
-// settleMs tunes the quiet window (default 1500) for a chattier TUI.
+// settleMs  — the quiet window (default 1500), raise it for a chattier TUI
+// timeoutMs — how long to wait for a busy target before refusing (default
+//             60000). Keep it under your harness's per-call cap, or the host
+//             kills the call and you lose the refusal that says what landed.
 ```
 
 **A busy target is REFUSED, not queued.** This is the part to internalise,
