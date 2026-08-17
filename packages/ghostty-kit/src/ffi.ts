@@ -45,13 +45,13 @@ export class Ffi {
   }
 
   allocBytes(len: number): number {
-    const ptr = this.e.ghostty_wasm_alloc_u8_array(len);
+    const ptr = this.e.ghostty_wasm_alloc(len);
     if (ptr === 0) throw new Error("@kolu/ghostty-kit: out of wasm memory");
     return ptr;
   }
 
   freeBytes(ptr: number, len: number): void {
-    this.e.ghostty_wasm_free_u8_array(ptr, len);
+    this.e.ghostty_wasm_free(ptr, len);
   }
 
   allocOpaque(): number {
@@ -60,10 +60,13 @@ export class Ffi {
     return ptr;
   }
 
+  takeOpaque(slot: number): number {
+    return this.e.ghostty_wasm_take_opaque(slot);
+  }
+
+  /** wasm32 usize / pointer-width out slot. */
   allocUsize(): number {
-    const ptr = this.e.ghostty_wasm_alloc_usize();
-    if (ptr === 0) throw new Error("@kolu/ghostty-kit: out of wasm memory");
-    return ptr;
+    return this.allocBytes(4);
   }
 
   writeBytes(bytes: Uint8Array): number {
@@ -104,7 +107,7 @@ export class Ffi {
       );
       return this.u32(out);
     } finally {
-      this.e.ghostty_wasm_free_usize(out);
+      this.freeBytes(out, 4);
     }
   }
 

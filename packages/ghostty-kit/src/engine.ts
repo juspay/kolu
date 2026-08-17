@@ -141,7 +141,7 @@ export function createEngine(opts: EngineOptions): Engine {
     "terminal_new",
     wasm.exports.ghostty_terminal_new(0, out, opts.cols, opts.rows),
   );
-  let term = ffi.u32(out);
+  let term = ffi.takeOpaque(out);
 
   const userdata = nextUserdata++;
   const slot: HostSlot = {
@@ -232,7 +232,7 @@ export function createEngine(opts: EngineOptions): Engine {
         "formatter_new",
         wasm.exports.ghostty_formatter_terminal_new(0, fmtOut, term, opt),
       );
-      const fmt = ffi.u32(fmtOut);
+      const fmt = ffi.takeOpaque(fmtOut);
       try {
         const ptrOut = ffi.allocOpaque();
         const lenOut = ffi.allocUsize();
@@ -240,7 +240,7 @@ export function createEngine(opts: EngineOptions): Engine {
           "format_alloc",
           wasm.exports.ghostty_formatter_format_alloc(fmt, 0, ptrOut, lenOut),
         );
-        const ptr = ffi.u32(ptrOut);
+        const ptr = ffi.takeOpaque(ptrOut);
         const len = ffi.u32(lenOut);
         lastFmtBytes = len;
         const text = len === 0 ? "" : ffi.readUtf8(ptr, len);
@@ -520,7 +520,7 @@ export function createEngine(opts: EngineOptions): Engine {
         "snapshot_encode",
         wasm.exports.ghostty_snapshot_encode_alloc(term, 0, ptrOut, lenOut),
       );
-      const ptr = ffi.u32(ptrOut);
+      const ptr = ffi.takeOpaque(ptrOut);
       const len = ffi.u32(lenOut);
       const bytes = ffi.readBytes(ptr, len);
       if (ptr !== 0) wasm.exports.ghostty_free(0, ptr, len);
@@ -538,14 +538,14 @@ export function createEngine(opts: EngineOptions): Engine {
           bytes.length,
         ),
       );
-      const decoder = ffi.u32(decOut);
+      const decoder = ffi.takeOpaque(decOut);
       const termOut = ffi.allocOpaque();
       try {
         check(
           "decoder_decode",
           wasm.exports.ghostty_snapshot_decoder_decode(decoder, termOut),
         );
-        const restored = ffi.u32(termOut);
+        const restored = ffi.takeOpaque(termOut);
         wasm.exports.ghostty_terminal_free(term);
         bindTerm(restored);
       } finally {

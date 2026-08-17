@@ -18,14 +18,11 @@ export interface GhosttyExports {
   memory: WebAssembly.Memory;
   __indirect_function_table: WebAssembly.Table;
   ghostty_type_json: () => number;
+  ghostty_wasm_alloc: (len: number) => number;
+  ghostty_wasm_free: (ptr: number, len: number) => void;
   ghostty_wasm_alloc_opaque: () => number;
   ghostty_wasm_free_opaque: (ptr: number) => void;
-  ghostty_wasm_alloc_u8_array: (len: number) => number;
-  ghostty_wasm_free_u8_array: (ptr: number, len: number) => void;
-  ghostty_wasm_alloc_u8: () => number;
-  ghostty_wasm_free_u8: (ptr: number) => void;
-  ghostty_wasm_alloc_usize: () => number;
-  ghostty_wasm_free_usize: (ptr: number) => void;
+  ghostty_wasm_take_opaque: (slot: number) => number;
   ghostty_free: (allocator: number, ptr: number, len: number) => void;
   ghostty_terminal_new: (
     allocator: number,
