@@ -82,9 +82,35 @@ export function containsRis(text: string): boolean {
 
 /** ED (CSI J) or alt-screen enter/leave. These change the trimmed
  *  visual-row count while DATA_TOTAL_ROWS stays put, so a total-delta
- *  cache would drift. */
-const ED_OR_ALT = /\x1b\[\d*J|\x1b\[\?[\d;]*(?:47|1047|1048|1049)[\d;]*[hl]/;
-
+ *  cache would drift. Linear scan — no overlapping quantifiers. */
 export function shiftsVisualWithoutTotal(text: string): boolean {
-  return ED_OR_ALT.test(text);
+  let from = 0;
+  while (from < text.length) {
+    const esc = text.indexOf("\x1b[", from);
+    if (esc < 0) return false;
+    const intro = text[esc + 2];
+    if (intro === "?") {
+      const rest = text.slice(esc + 3);
+      const term = rest.search(/[A-Za-z]/);
+      if (term >= 0 && (rest[term] === "h" || rest[term] === "l")) {
+        for (const p of rest.slice(0, term).split(";")) {
+          if (p === "47" || p === "1047" || p === "1048" || p === "1049") {
+            return true;
+          }
+        }
+      }
+    } else {
+      let j = esc + 2;
+      while (
+        j < text.length &&
+        text.charCodeAt(j) >= 48 &&
+        text.charCodeAt(j) <= 57
+      ) {
+        j += 1;
+      }
+      if (text[j] === "J") return true;
+    }
+    from = esc + 1;
+  }
+  return false;
 }

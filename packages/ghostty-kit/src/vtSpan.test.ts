@@ -74,5 +74,7 @@ describe("shiftsVisualWithoutTotal", () => {
     expect(shiftsVisualWithoutTotal("\x1b[?1049h")).toBe(true);
     expect(shiftsVisualWithoutTotal("\x1b[?1049l")).toBe(true);
     expect(shiftsVisualWithoutTotal("\x1b[?47h")).toBe(true);
+    expect(shiftsVisualWithoutTotal("\x1b[?1049;1h")).toBe(true);
+    expect(shiftsVisualWithoutTotal("\x1b[?1h")).toBe(false);
   });
 });
