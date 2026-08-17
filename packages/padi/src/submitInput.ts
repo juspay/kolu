@@ -132,9 +132,11 @@ export function isPromptIdle(observed: PromptObservation): boolean {
 export interface PromptWatch {
   /** Re-evaluate now. */
   observe(): PromptObservation;
-  /** Restamp the quiet window — "bytes just moved". Called at open (so a submit
-   *  always observes a FULL window of quiet on its own clock rather than
-   *  inheriting a silence it did not watch) and after each write. */
+  /** Restamp the quiet window — "bytes just moved". The sequence calls it after
+   *  its own write, so the settle wait measures quiet from the moment the
+   *  terminal was handed bytes rather than from the quiet it measured a step
+   *  earlier. (The window's other start — when the activity feed comes up — is
+   *  the watch's own, since only it knows when padi could first see output.) */
   arm(): void;
   close(): void;
 }
@@ -169,6 +171,9 @@ export function openPromptWatch(
       // A feed that just came UP has watched none of the window it is about to be
       // asked about, so restamp: the submit waits a full quiet window from the
       // moment padi could actually see output, never from a gap it slept through.
+      // This is ALSO the initial arm — the watch is born feed-down, so no
+      // observation can read as idle before this fires, and a second `noteOutput`
+      // at construction would be a stamp nothing can see.
       if (live) tracker.noteOutput(id);
       feedLive = live;
     },
@@ -183,9 +188,6 @@ export function openPromptWatch(
       );
     },
   });
-
-  // Arm before the first observation — see `arm`'s doc on the watch interface.
-  tracker.noteOutput(id);
 
   return {
     observe: () => ({
@@ -242,10 +244,7 @@ async function awaitPromptIdle(
   timeoutMs: number,
   clock: () => number,
   signal: AbortSignal,
-): Promise<{
-  readonly kind: "idle" | "busy" | "gone";
-  readonly waitedMs: number;
-}> {
+): Promise<IdleWait> {
   const started = clock();
   for (;;) {
     const observed = watch.observe();
@@ -257,6 +256,30 @@ async function awaitPromptIdle(
     await abortableDelay(READINESS_POLL_MS, signal);
   }
 }
+
+/** How one readiness wait ended. Its non-`idle` arm carries exactly
+ *  {@link SubmitOutcome}'s `reason` vocabulary, so the projection below is a
+ *  NARROW rather than a translation table that could drift from it — add a way
+ *  for a wait to end and the compiler asks what refusal it becomes. */
+type IdleWait =
+  | { readonly kind: "idle"; readonly waitedMs: number }
+  | {
+      readonly kind: Extract<SubmitOutcome, { kind: "refused" }>["reason"];
+      readonly waitedMs: number;
+    };
+
+/** The refusal a non-idle wait becomes, at the phase it happened in — written
+ *  once, because the two call sites differ ONLY in that phase and a second copy
+ *  is how one of them would come to report the other's recovery. */
+const refusedAt = (
+  phase: "ready" | "settle",
+  wait: Exclude<IdleWait, { kind: "idle" }>,
+): SubmitOutcome => ({
+  kind: "refused",
+  phase,
+  reason: wait.kind,
+  waitedMs: wait.waitedMs,
+});
 
 /** Type `data`, observe the TUI take it, then press Enter.
  *
@@ -290,14 +313,7 @@ export async function submitInput(opts: {
     clock,
     signal,
   );
-  if (ready.kind !== "idle") {
-    return {
-      kind: "refused",
-      phase: "ready",
-      reason: ready.kind === "gone" ? "gone" : "busy",
-      waitedMs: ready.waitedMs,
-    };
-  }
+  if (ready.kind !== "idle") return refusedAt("ready", ready);
 
   // ── 2. the text ──────────────────────────────────────────────────────────
   opts.write(opts.data);
@@ -314,14 +330,7 @@ export async function submitInput(opts: {
     clock,
     signal,
   );
-  if (settled.kind !== "idle") {
-    return {
-      kind: "refused",
-      phase: "settle",
-      reason: settled.kind === "gone" ? "gone" : "busy",
-      waitedMs: settled.waitedMs,
-    };
-  }
+  if (settled.kind !== "idle") return refusedAt("settle", settled);
 
   // ── 4. submit ────────────────────────────────────────────────────────────
   opts.write(ENTER);

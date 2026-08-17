@@ -226,31 +226,42 @@ export function resolveSendInputData(args: {
       throw refuse(encoded.message, { kind: "key-refused", key: args.key });
     return encoded.plan;
   }
-  if (args.text !== undefined) {
-    // Auto-paste with no override and no stream: a single-line argument types
-    // literally, multiline is wrapped so the agent's input box takes it as ONE
-    // block. This face has no `--paste` and no file/pipe payload, so both
-    // knobs are stated as absent rather than left to a default. `sourceLabel` is
-    // this face's ONE text source, named as the caller spells it, so an empty
-    // payload is refused as `text is empty` rather than argv's `--file "…"`.
-    const encoded = encodeSend(
-      {
-        kind: "text",
-        text: args.text,
-        sourceLabel: "text",
-        paste: undefined,
-        fromStream: false,
-      },
-      MCP_SEND_VOCABULARY,
-    );
-    if (encoded.kind === "refused")
-      throw refuse(encoded.message, { kind: "text-refused" });
-    return encoded.plan;
-  }
+  if (args.text !== undefined) return planText(args.text, "text");
   throw refuse(
     "nothing to send — pass text (to type) or key (to press, e.g. Enter).",
     { kind: "no-input" },
   );
+}
+
+/** Plan a TEXT write through the shared send policy in THIS face's vocabulary.
+ *
+ *  Auto-paste with no override and no stream: a single-line payload types
+ *  literally, multiline is wrapped so the agent's input box takes it as ONE block
+ *  instead of firing a half-written prompt per newline. This face has no `paste`
+ *  flag and no file/pipe payload, so both knobs are stated as absent rather than
+ *  left to a default.
+ *
+ *  `field` is the ARGUMENT the payload arrived in, quoted by the shared policy's
+ *  empty-payload refusal — so `lifecycle_sendInput { text: "" }` is refused as
+ *  "text is empty" and `lifecycle_create { message: "" }` as "message is empty",
+ *  each naming what the caller actually spelled. It exists as a parameter because
+ *  a second call site appeared (create's brief), and the alternative was that call
+ *  site re-spelling the encode — which is precisely how the two would come to
+ *  disagree about whether a brief pastes. */
+export function planText(text: string, field: string): SendPlan {
+  const encoded = encodeSend(
+    {
+      kind: "text",
+      text,
+      sourceLabel: field,
+      paste: undefined,
+      fromStream: false,
+    },
+    MCP_SEND_VOCABULARY,
+  );
+  if (encoded.kind === "refused")
+    throw refuse(encoded.message, { kind: "text-refused" });
+  return encoded.plan;
 }
 
 /** What this call is: a raw WRITE, or a whole DELIVERY.

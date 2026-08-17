@@ -96,15 +96,16 @@ import {
   PLACEMENT_REQUIRED,
 } from "@kolu/padi/surface";
 import { type BespokeTool, messageOf, ToolFailure } from "@kolu/surface-mcp";
-import { encodeSend } from "@kolu/terminal-protocol";
+import type { SendPlan } from "@kolu/terminal-protocol";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import { isValidWorktreeName, WORKTREE_NAME_MESSAGE } from "kolu-git/schemas";
 import { isAbsolute } from "node:path";
-// The face's ONE send vocabulary, shared with `lifecycle_sendInput` rather than
-// re-spelled: a refusal a create's brief raises must name the same fields, in
-// the same words, as the identical refusal from a plain send.
-import { MCP_SEND_VOCABULARY } from "./sendInput.ts";
+// The face's ONE text planner, shared with `lifecycle_sendInput` rather than
+// re-spelled: a brief and a plain send must put IDENTICAL bytes on the wire (the
+// same paste fold), and a refusal either raises must name the field the caller
+// actually spelled, in the same words.
+import { planText } from "./sendInput.ts";
 
 export const CreateArgsSchema = Schema.Struct({
   // The verb's existing fields, spread from the wire schema itself so this
@@ -345,6 +346,7 @@ export interface CreateResult {
 const composeCreate = (
   directory: CreateDirectory,
   args: CreateArgs,
+  brief: SendPlan | undefined,
   padi: PadiSurfaceClient,
 ): Effect.Effect<CreateResult, unknown> =>
   Effect.gen(function* () {
@@ -425,31 +427,11 @@ const composeCreate = (
     // usually multiline, and it must arrive as one bracketed paste here exactly
     // as it would through `kolu send --file`, or the agent's input box fires a
     // half-written prompt at every newline.
-    if (message !== undefined) {
-      const encoded = encodeSend(
-        {
-          kind: "text",
-          text: message,
-          sourceLabel: "message",
-          paste: undefined,
-          fromStream: false,
-        },
-        MCP_SEND_VOCABULARY,
-      );
-      if (encoded.kind === "refused") {
-        // Unreachable today — `refuseBlankFields` already rejected an empty
-        // `message` — and raised rather than assumed away, because the shared
-        // policy is free to grow a refusal this face has not heard of.
-        return yield* Effect.fail(
-          stoppedPartway({ id: created.id, worktree }, encoded.message, {
-            notDelivered: message,
-          }),
-        );
-      }
+    if (brief !== undefined) {
       yield* Effect.mapError(
         padi.surface.lifecycle.submitInput({
           id: created.id,
-          data: encoded.plan.write,
+          data: brief.write,
           settleMs: FIRST_MESSAGE_SETTLE_MS,
         }),
         (error) =>
@@ -479,9 +461,14 @@ export const createTool: BespokeTool = {
     'Open a new terminal and return its id. `placement` is REQUIRED and has no default — say `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"<terminal id>"}` to open it as a split INSIDE that terminal; the canvas and the Dock read that edge as who-works-for-whom, so guessing it flattens the hierarchy. Optionally: in a FRESH GIT WORKTREE (repo + worktree ⇒ cut at <repo>/.worktrees/<name>, terminal opens in it), labelled on the canvas (intent), typing a command at its first shell prompt (run, submitted with Enter), and — the way to BRIEF a worker — `message`, a first prompt padi delivers once that command reaches its prompt. run + message is the whole spawn-and-dispatch in ONE call: no boot wait, no separate send, no verify. The terminal always gets the rc-hooked shell; `run` is typed input, not a spawn argv. A failure after the worktree or terminal landed names the survivors in structuredContent (stopped-partway) — nothing is rolled back, and an undelivered `message` means a live idle agent to dispatch, not a create to repeat.',
   handler: (args, client) => {
     const a = args as CreateArgs;
-    // Refusals are raised synchronously, BEFORE anything dials padi.
+    // Refusals are raised synchronously, BEFORE anything dials padi — and the
+    // brief's BYTES are planned here for the same reason: the paste fold is pure,
+    // so a payload this create would refuse never costs a worktree and a live
+    // terminal it would then have to be reported beside.
     refuseBlankFields(a);
     const directory = resolveCreateDirectory(a);
-    return composeCreate(directory, a, client as PadiSurfaceClient);
+    const brief =
+      a.message === undefined ? undefined : planText(a.message, "message");
+    return composeCreate(directory, a, brief, client as PadiSurfaceClient);
   },
 };
