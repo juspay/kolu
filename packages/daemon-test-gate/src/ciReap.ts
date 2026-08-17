@@ -15,7 +15,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, rmSync } from "node:fs";
+import { type Dirent, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 
@@ -56,7 +56,7 @@ export function removeThisRunRuntimeRoots(
   root: string = thisRunRuntimeRoot(),
 ): string[] {
   const removed: string[] = [];
-  let ents: ReturnType<typeof readdirSync>;
+  let ents: Dirent[];
   try {
     ents = readdirSync(root, { withFileTypes: true });
   } catch {
@@ -88,7 +88,10 @@ export function listProcesses(): ListedProc[] {
   for (const line of out.split("\n")) {
     const m = line.trim().match(/^(\S+)\s+(\d+)\s+(.*)$/);
     if (!m) continue;
-    rows.push({ user: m[1], pid: Number(m[2]), command: m[3] });
+    const [, user, pidRaw, command] = m;
+    if (user === undefined || pidRaw === undefined || command === undefined)
+      continue;
+    rows.push({ user, pid: Number(pidRaw), command });
   }
   return rows;
 }
@@ -184,7 +187,7 @@ export interface SweepDeps {
   list?: () => ListedProc[];
   readBindPid?: (pid: number) => number | undefined;
   live?: (pid: number) => boolean;
-  reap?: (pid: number) => void | Promise<void>;
+  reap?: (pid: number) => unknown;
   /** Only consider this user's processes. Default: the running user. */
   onlyUser?: string;
 }
