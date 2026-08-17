@@ -9,7 +9,8 @@ whichever face the user asked for; the faces themselves live elsewhere.
 `padi-tui` and `kaval-tui` served, so a user — human or agent — drives kolu
 terminals with a single command. Every verb is a **pure padi client**:
 `padiSurface` already carries the union of both TUIs' needs
-(`lifecycle.create`/`sendInput`/`kill`/`resize`, `screen.text`/`history`, the
+(`lifecycle.create`/`sendInput`/`submitInput`/`kill`/`resize`,
+`screen.text`/`history`, the
 `terminalAttach` stream, the `terminalExit` event), so verb parity costs **no
 kaval dependency** here and padi stays the only daemon a face speaks to.
 
@@ -18,8 +19,10 @@ kolu                          print the subcommand list and exit non-zero
 kolu ls [--json]              the roster — ID · STATE · REPO·BRANCH · PR · AGENT · FOREGROUND
 kolu create (--toplevel | --parent <id>) [flags] [-- argv]
                               spawn a terminal at a STATED placement (no default);
-                              prints the new id on stdout
-kolu send <id> …              type text, or a named key with --key
+                              prints the new id on stdout. --message "<brief>"
+                              also delivers a first prompt once argv is ready
+kolu send <id> …              type text, or a named key with --key;
+                              --submit delivers AND submits it in one command
 kolu wait <id> --until <cond> block until output settles/matches, or the agent's state lands
                               [--settled <ms>] also require output quiet; [--snapshot N] stamp the screen
 kolu debrief <id>             the composed protocol: wait until the turn is over AND quiet, print the screen

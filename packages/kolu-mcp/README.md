@@ -24,19 +24,27 @@ default-deny with named, tested denials:
   is exactly the caller that never notices a placement it did not choose;
   `repo` + `worktree` cut a fresh git worktree at
   `<repo>/.worktrees/<name>` and open the terminal in it, `run` types a first
-  command at the shell prompt; still NO `command`/`env` spawn parameter, ever —
-  the #1872 protection) · `lifecycle_kill` · `lifecycle_sendInput` (text XOR
-  one named key — `Enter`, `Escape`, `C-c` chords — because submit is its OWN
-  Enter after an observed settle, never text+newline fused) ·
+  command at the shell prompt, and `message` delivers a first PROMPT to whatever
+  `run` started once it reaches its own prompt — so one call spawns *and* briefs
+  a worker; still NO `command`/`env` spawn parameter, ever — the #1872
+  protection) · `lifecycle_kill` · `lifecycle_sendInput` (`{ text, submit: true }`
+  is the default dispatch — padi waits for an idle prompt, types, waits for the
+  TUI to take it, presses Enter; without `submit` it is the raw write, text XOR
+  one named key — `Enter`, `Escape`, `C-c` chords — never text+newline fused) ·
   `watch_open`/`watch_close`.
 
 **A refusal is data, not a sentence to parse.** `lifecycle_sendInput` refuses
-four things on purpose, and a driver recovers from each differently — so each
+several things on purpose, and a driver recovers from each differently — so each
 one names itself in the result's `structuredContent`: `text-and-key` (re-send as
 two calls), `key-refused` (carrying the spelling that was rejected),
 `text-refused` (the shared encoder refused this face's text — today, because it
-was empty, precisely what a 0-byte "sent" used to hide) and `no-input` (neither
-field was passed). The kinds name the BRANCH rather than
+was empty, precisely what a 0-byte "sent" used to hide), `no-input` (neither
+field was passed), `submit-without-text` / `settle-without-submit` (a field that
+would otherwise have been silently ignored), and `submit-refused` — padi could
+not deliver, carrying the one field a driver must branch on: `typed: false`
+means nothing landed and a retry is free, `typed: true` means the text is in the
+target's input box UNSUBMITTED and a blind retry would deliver it twice. The
+other kinds name the BRANCH rather than
 `@kolu/terminal-protocol`'s internal reason, which the unchanged sentence beside
 them still carries — so a kind is *not* 1:1 with a reason, and the sentence is
 where a driver reads which rule fired. `lifecycle_create` does the same for its
