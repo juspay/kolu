@@ -73,6 +73,7 @@
 import { fstatSync, readFileSync } from "node:fs";
 import { text as readStdinText } from "node:stream/consumers";
 import { shortId } from "@kolu/padi/render";
+import { hasTag, SubmitRefused } from "@kolu/padi/surface";
 import {
   type SendContent,
   encodeSend,
@@ -450,6 +451,44 @@ export function executeSendPlan<E>(
   });
 }
 
+/** Retype padi's {@link SubmitRefused} as this face's own failure.
+ *
+ *  Without it a refusal reaches the run edge as a raw wire error, and the edge's
+ *  contract is explicit about what that costs (`main.ts`, `exit.ts`): the
+ *  one-line diagnostic is written from `reportOf`, and then — because the value
+ *  carries no `Runtime.errorReported` marker — Effect's default teardown prints
+ *  the whole pretty cause on top of it, stack frames from inside `effect`'s
+ *  schema parser and all. The user is told twice, the second time in a form that
+ *  reads like a crash in a message whose entire job is to be actionable. (Caught
+ *  on a real box before this shipped; `kolu kill`'s not-found never showed it
+ *  because that one is refused client-side and is already a `CliFailure`.)
+ *
+ *  The SENTENCE is padi's own — it already names the recovery, and rewriting it
+ *  here is how the CLI and the MCP face would come to say different things about
+ *  one refusal. This adds only what the edge needs: the exit code and the
+ *  already-reported marker. Everything else propagates untouched, the same
+ *  narrowness the MCP face's `asToolFailure` keeps. */
+const asCliFailure = <A, E, R>(
+  step: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E | CliFailure, R> =>
+  Effect.mapError(step, (error) =>
+    hasTag(error, SUBMIT_REFUSED_TAG)
+      ? failure((error as { message: string }).message)
+      : error,
+  );
+
+/** {@link SubmitRefused}'s tag, read OFF the class rather than re-spelled — a
+ *  rename moves this with it instead of silently un-matching. Matched
+ *  STRUCTURALLY (padi's own `hasTag`), never with `instanceof`: the value was
+ *  decoded from a wire frame in another realm, where class identity is not ours
+ *  and `instanceof` quietly answers `false`. */
+const SUBMIT_REFUSED_TAG: string = new SubmitRefused({
+  id: "",
+  phase: "ready",
+  reason: "busy",
+  waitedMs: 0,
+})._tag;
+
 // ── The verb ─────────────────────────────────────────────────────────────────
 
 /** `kolu send <id> [text…]` — the glue: validate the combination BEFORE dialing,
@@ -512,16 +551,18 @@ export function run(
         // timeout on the daemon side and would be cut off mid-delivery by a
         // second, shorter bound layered over it here.
         const submitted = args.submit
-          ? yield* conn.client.surface.lifecycle.submitInput({
-              id,
-              data: plan.write,
-              ...(args.settleMs !== undefined
-                ? { settleMs: args.settleMs }
-                : {}),
-              ...(args.submitTimeout !== undefined
-                ? { timeoutMs: args.submitTimeout }
-                : {}),
-            })
+          ? yield* asCliFailure(
+              conn.client.surface.lifecycle.submitInput({
+                id,
+                data: plan.write,
+                ...(args.settleMs !== undefined
+                  ? { settleMs: args.settleMs }
+                  : {}),
+                ...(args.submitTimeout !== undefined
+                  ? { timeoutMs: args.submitTimeout }
+                  : {}),
+              }),
+            )
           : yield* Effect.as(
               executeSendPlan(
                 plan,
