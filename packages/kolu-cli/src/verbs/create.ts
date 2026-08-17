@@ -490,17 +490,23 @@ export function run(
     // so a payload this run would refuse never costs a dial — let alone a
     // Nix-provisioned `--host` and a live terminal it would then be reported
     // beside.
-    const { message } = args;
+    // ONE value carrying both halves: the encoded bytes the wire takes and the
+    // raw text the trailer and the survivors report name. They are defined
+    // together or not at all, and as two optionals "planned but nameless" was a
+    // state the compiler allowed and every reader below had to rule out by hand.
     const brief =
-      message === undefined
+      args.message === undefined
         ? undefined
-        : yield* planSend({
-            kind: "text",
-            text: message,
-            sourceLabel: "--message",
-            paste: undefined,
-            fromStream: false,
-          });
+        : {
+            text: args.message,
+            plan: yield* planSend({
+              kind: "text",
+              text: args.message,
+              sourceLabel: "--message",
+              paste: undefined,
+              fromStream: false,
+            }),
+          };
 
     const outcome: Outcome = yield* Effect.catchIf(
       withPadi(endpoint, (conn) =>
@@ -601,7 +607,7 @@ export function run(
             yield* orStopped(
               conn.client.surface.lifecycle.submitInput({
                 id,
-                data: brief.write,
+                data: brief.plan.write,
                 settleMs: FIRST_MESSAGE_SETTLE_MS,
               }),
               "message",
@@ -611,7 +617,7 @@ export function run(
 
           return {
             kind: "created",
-            result: { id, worktree, ran: intended, briefed: message },
+            result: { id, worktree, ran: intended, briefed: brief?.text },
             placement,
           } satisfies Outcome;
         }),
@@ -639,7 +645,7 @@ export function run(
           // message step with exactly the landed shape a failed run step leaves,
           // so inferring it would report a bare shell prompt for a live agent.
           outcome.at === "run" ? intended : undefined,
-          outcome.at === "message" ? message : undefined,
+          outcome.at === "message" ? brief?.text : undefined,
           wrote._tag === "Failure" ? wrote.failure : undefined,
         ),
       );

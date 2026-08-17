@@ -341,12 +341,23 @@ export interface CreateResult {
   readonly briefed?: string;
 }
 
-/** The three world-changing steps as one effect. See the module doc for the
+/** The first message, planned — ONE value carrying both halves the create needs.
+ *
+ *  The encoded BYTES the wire takes and the raw TEXT a survivors report names are
+ *  defined together or not at all, and carrying them as two optionals (a
+ *  `SendPlan | undefined` beside `args.message`) made "planned but nameless" a
+ *  state the compiler allowed and every reader had to rule out by hand. */
+interface Brief {
+  readonly text: string;
+  readonly plan: SendPlan;
+}
+
+/** The four world-changing steps as one effect. See the module doc for the
  *  ordering and the partial-failure doctrine. */
 const composeCreate = (
   directory: CreateDirectory,
   args: CreateArgs,
-  brief: SendPlan | undefined,
+  brief: Brief | undefined,
   padi: PadiSurfaceClient,
 ): Effect.Effect<CreateResult, unknown> =>
   Effect.gen(function* () {
@@ -354,12 +365,14 @@ const composeCreate = (
     // one required field on this call, the whole point of the tool's contract,
     // and a reader of the create below should see it stated rather than have to
     // work out that it must be inside the spread. Same shape as `kolu create`'s.
+    // `message` is pulled out only to EXCLUDE it from the spread — the create
+    // verb does not take one; the planned {@link Brief} is what step 4 delivers.
     const {
       cwd: _cwd,
       repo: _repo,
       worktree: _wt,
+      message: _message,
       run,
-      message,
       placement,
       ...createRest
     } = args;
@@ -431,12 +444,12 @@ const composeCreate = (
       yield* Effect.mapError(
         padi.surface.lifecycle.submitInput({
           id: created.id,
-          data: brief.write,
+          data: brief.plan.write,
           settleMs: FIRST_MESSAGE_SETTLE_MS,
         }),
         (error) =>
           stoppedPartway({ id: created.id, worktree }, error, {
-            notDelivered: message,
+            notDelivered: brief.text,
           }),
       );
     }
@@ -446,7 +459,7 @@ const composeCreate = (
       pid: created.pid,
       ...(worktree !== undefined ? { worktree } : {}),
       ...(run !== undefined ? { ran: run } : {}),
-      ...(message !== undefined ? { briefed: message } : {}),
+      ...(brief !== undefined ? { briefed: brief.text } : {}),
     };
   });
 
@@ -468,7 +481,9 @@ export const createTool: BespokeTool = {
     refuseBlankFields(a);
     const directory = resolveCreateDirectory(a);
     const brief =
-      a.message === undefined ? undefined : planText(a.message, "message");
+      a.message === undefined
+        ? undefined
+        : { text: a.message, plan: planText(a.message, "message") };
     return composeCreate(directory, a, brief, client as PadiSurfaceClient);
   },
 };
