@@ -29,10 +29,9 @@ export const CI_RUNTIME_DIR_PREFIXES = [
   SCROLL_FIFO_DIR_PREFIX,
 ] as const;
 
-/** Command-line markers that name a CI runtime root, not a production daemon.
- *  `/odu/kolu/` in cwd is not enough — a workstation helper whose cwd happens
- *  to sit under an odu checkout must not be a kill warrant. */
-const CI_ROOT_RE = /padi-dial-rt-|padi-dial-sr-|kolu-scroll-fifo-/;
+function commandNamesRuntimeRoot(command: string): boolean {
+  return CI_RUNTIME_DIR_PREFIXES.some((p) => command.includes(p));
+}
 
 /** The daemon binaries CI actually leaks — source `bin.ts` or the nix wrapper. */
 const DAEMON_BIN_RE =
@@ -47,11 +46,11 @@ export interface ListedProc {
 }
 
 export function isCiOwnedDaemonCommand(command: string): boolean {
-  return CI_ROOT_RE.test(command) && DAEMON_BIN_RE.test(command);
+  return commandNamesRuntimeRoot(command) && DAEMON_BIN_RE.test(command);
 }
 
 export function isCiLeftoverHelperCommand(command: string): boolean {
-  return SPAWN_HELPER_RE.test(command) && CI_ROOT_RE.test(command);
+  return SPAWN_HELPER_RE.test(command) && commandNamesRuntimeRoot(command);
 }
 
 export function thisRunRuntimeRoot(): string {
@@ -60,6 +59,11 @@ export function thisRunRuntimeRoot(): string {
 
 export function removeThisRunRuntimeRoots(
   root: string = thisRunRuntimeRoot(),
+  opts: {
+    list?: () => ListedProc[];
+    /** Pids the sweep will reap — leftover daemons/helpers, not live peers. */
+    doomed?: ReadonlySet<number>;
+  } = {},
 ): string[] {
   const removed: string[] = [];
   let ents: Dirent[];
@@ -68,12 +72,24 @@ export function removeThisRunRuntimeRoots(
   } catch {
     return removed;
   }
+  const procs = (opts.list ?? listProcesses)();
+  const doomed = opts.doomed ?? new Set<number>();
   for (const ent of ents) {
     if (!ent.isDirectory()) continue;
     if (!CI_RUNTIME_DIR_PREFIXES.some((p) => ent.name.startsWith(p))) continue;
     const full = join(root, ent.name);
+    const namedByPeer = procs.some(
+      (p) =>
+        p.command.includes(full) &&
+        !doomed.has(p.pid) &&
+        !(
+          ent.name.startsWith(SCROLL_FIFO_DIR_PREFIX) &&
+          /\bcat\b/.test(p.command)
+        ),
+    );
+    if (namedByPeer) continue;
     if (ent.name.startsWith(SCROLL_FIFO_DIR_PREFIX)) {
-      killCatsOnFifo(join(full, "trigger"));
+      killScrollFifoReaders(join(full, "trigger"));
     }
     rmSync(full, { recursive: true, force: true });
     removed.push(full);
@@ -82,29 +98,20 @@ export function removeThisRunRuntimeRoots(
 }
 
 /** SIGKILL every `cat` whose command line names this FIFO path. */
-function killCatsOnFifo(fifoPath: string): void {
-  let out: string;
-  try {
-    out = execFileSync(
-      "ps",
-      process.platform === "darwin"
-        ? ["-Ao", "pid=,command="]
-        : ["-eo", "pid=,args="],
-      { encoding: "utf8" },
-    );
-  } catch {
-    return;
-  }
-  for (const line of out.split("\n")) {
-    if (!line.includes(fifoPath) || !/\bcat\b/.test(line)) continue;
-    const pid = Number.parseInt(line.trim(), 10);
-    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
+export function killScrollFifoReaders(fifoPath: string): number[] {
+  const killed: number[] = [];
+  for (const proc of listProcesses()) {
+    if (!proc.command.includes(fifoPath) || !/\bcat\b/.test(proc.command))
+      continue;
+    if (proc.pid === process.pid) continue;
     try {
-      process.kill(pid, "SIGKILL");
+      process.kill(proc.pid, "SIGKILL");
+      killed.push(proc.pid);
     } catch {
       // Already gone.
     }
   }
+  return killed;
 }
 
 /** `ps` columns that carry the full command line: Darwin wants BSD `-A`/`command`,
@@ -258,7 +265,7 @@ export function selectBindPidGoneDaemons(
     // Unreadable: cannot tell a peer run from a leftover. Do not reap.
     if (bind.kind === "unreadable") continue;
     // Absent bind on a CI-owned command is a leftover, not production
-    // (production never matches CI_ROOT_RE). Bound + live is a peer run.
+    // (production never matches a runtime-root prefix). Bound + live is a peer run.
     if (bind.kind === "bound" && opts.live(bind.pid)) continue;
     selected.push(proc.pid);
   }
@@ -285,7 +292,8 @@ export async function sweepBindPidGoneDaemons(
     // after exit (pidGate.ts). A reuse during the TERM/KILL window must
     // not inherit the earlier verdict.
     if (!select().includes(pid)) continue;
-    await reap(pid);
+    const ended = await reap(pid);
+    if (ended === "survived") continue;
     reaped.push(pid);
   }
   return { reaped };
@@ -294,7 +302,9 @@ export async function sweepBindPidGoneDaemons(
 export async function reapCiRun(
   opts: { runtimeRoot?: string; sweep?: SweepDeps } = {},
 ): Promise<{ removedDirs: string[]; reaped: number[] }> {
-  const removedDirs = removeThisRunRuntimeRoots(opts.runtimeRoot);
   const { reaped } = await sweepBindPidGoneDaemons(opts.sweep);
+  const removedDirs = removeThisRunRuntimeRoots(opts.runtimeRoot, {
+    list: opts.sweep?.list,
+  });
   return { removedDirs, reaped };
 }

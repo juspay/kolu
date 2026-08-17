@@ -598,6 +598,12 @@ test: install
 test-quick *args: install
     #!/usr/bin/env bash
     set -euo pipefail
+    cleanup() {
+        local st=$?
+        just _reap-ci-run || true
+        exit "$st"
+    }
+    trap cleanup EXIT
     {{ nix_shell_e2e }} pnpm --filter kolu-client build
     # hooks.ts spawn()s KOLU_SERVER as an executable with ["--port", N].
     # Without nix build there's no `kolu` binary, so the checked-in source

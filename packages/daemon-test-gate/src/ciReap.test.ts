@@ -288,6 +288,27 @@ it("sweepBindPidGoneDaemons reaps a real SIGTERM-deaf child whose bind pid is al
   expect(isReachablePid(pid)).toBe(false);
 });
 
+it("removeThisRunRuntimeRoots skips a dir a live peer still names", () => {
+  const root = scratch();
+  const peerDir = join(root, "padi-dial-rt-live-peer");
+  mkdirSync(peerDir);
+  const leftover = join(root, "padi-dial-rt-orphan");
+  mkdirSync(leftover);
+  const me = userInfo().username;
+  const removed = removeThisRunRuntimeRoots(root, {
+    list: () => [
+      {
+        pid: 4242,
+        user: me,
+        command: `node packages/kaval/src/bin.ts --socket ${peerDir}/pty-host.sock`,
+      },
+    ],
+  });
+  expect(removed).toEqual([leftover]);
+  expect(existsSync(peerDir)).toBe(true);
+  expect(existsSync(leftover)).toBe(false);
+});
+
 it("removeThisRunRuntimeRoots kills leftover fifo cats before rm", async () => {
   const root = scratch();
   const dir = join(root, "kolu-scroll-fifo-orphan");

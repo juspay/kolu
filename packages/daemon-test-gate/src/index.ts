@@ -33,6 +33,7 @@ import { describe } from "vitest";
 export {
   PADI_DIAL_RT_PREFIX,
   PADI_DIAL_SR_PREFIX,
+  SCROLL_FIFO_DIR_PREFIX,
 } from "./ciReap.ts";
 
 /** True only when the operator has opted into forking real daemons — the CI/pu

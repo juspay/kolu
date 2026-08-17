@@ -103,6 +103,16 @@ test("test-daemon and e2e `test` reap this-run leftovers on EXIT (#2178)", () =>
       `\`${recipe}\` must invoke the shipped janitor, not a parallel rm`,
     ).toContain("just _reap-ci-run");
   }
+  const quickAt = ROOT.search(/^test-quick \*args:/m);
+  expect(quickAt, "must declare a `test-quick` recipe").toBeGreaterThanOrEqual(
+    0,
+  );
+  const quick = ROOT.slice(quickAt, quickAt + 800);
+  expect(
+    quick,
+    "`test-quick` mints the same leftover FIFOs and must reap them on EXIT",
+  ).toContain("trap cleanup EXIT");
+  expect(quick).toContain("just _reap-ci-run");
 });
 
 test("e2e `test` keeps the janitor on EXIT after the suite-lock acquire (#2178)", () => {
@@ -172,6 +182,14 @@ test("create sites import the janitor's leftover prefixes (#2178)", () => {
     steps,
     "scroll-fifo dirs must come from SCROLL_FIFO_DIR_PREFIX",
   ).toMatch(/SCROLL_FIFO_DIR_PREFIX/);
+  const fifo = readFileSync(
+    join(REPO_ROOT, "packages", "tests", "support", "scrollFifo.ts"),
+    "utf8",
+  );
+  expect(
+    fifo,
+    "the FIFO leftover prefix must be the janitor's, not a local copy",
+  ).toMatch(/from "@kolu\/daemon-test-gate\/ciReap"/);
 });
 
 test("the shipped janitor recipe drives ciReap.cli.ts", () => {
