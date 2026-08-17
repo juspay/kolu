@@ -30,6 +30,12 @@
  *                   painting its first frame.
  *   MOCK_TURN_MS  — how long a turn lasts after a submit. 0 = answer instantly.
  *   MOCK_TICK_MS  — the working tick's cadence.
+ *   MOCK_PASTE_CHATTER_MS
+ *                 — keep repainting this long AFTER a paste lands, without
+ *                   submitting it. This is the state the settle window exists to
+ *                   wait out (a TUI reflowing a big paste), and a TUI that
+ *                   outlasts the caller's bound is what a settle-phase refusal
+ *                   IS: the text is in the box and the Enter was withheld.
  */
 
 const ms = (name, fallback) => {
@@ -42,6 +48,7 @@ const ms = (name, fallback) => {
 const BOOT_MS = ms("MOCK_BOOT_MS", 0);
 const TURN_MS = ms("MOCK_TURN_MS", 0);
 const TICK_MS = ms("MOCK_TICK_MS", 100);
+const PASTE_CHATTER_MS = ms("MOCK_PASTE_CHATTER_MS", 0);
 
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
@@ -75,6 +82,25 @@ function submit() {
       box = "";
     }
     prompt();
+  }, TICK_MS);
+}
+
+/** Keep painting for a while after a paste, WITHOUT submitting it.
+ *
+ *  A real TUI does not go quiet the instant a paste arrives — it reflows,
+ *  re-renders, sometimes counts tokens — and the settle window exists to wait
+ *  exactly that out. A fixture that always goes silent immediately can only ever
+ *  prove the happy path; this is how the OTHER outcome is reachable: the text is
+ *  in the box, the caller's bound expires, and the Enter is never sent. */
+function chatterAfterPaste() {
+  if (PASTE_CHATTER_MS <= 0) return;
+  const until = Date.now() + PASTE_CHATTER_MS;
+  const tick = setInterval(() => {
+    if (Date.now() >= until) {
+      clearInterval(tick);
+      return;
+    }
+    out("~");
   }, TICK_MS);
 }
 
@@ -117,6 +143,7 @@ function feed(incoming) {
       box += body;
       out(body.replace(/\r?\n/g, "\r\n"));
       pasting = false;
+      chatterAfterPaste();
       rest = rest.slice(end + PASTE_END.length);
       continue;
     }

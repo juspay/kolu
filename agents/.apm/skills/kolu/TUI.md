@@ -296,9 +296,7 @@ didn't merge the distinction:
 > pickup first, then the turn-end:
 >
 > ```sh
-> kolu send "$id" "fix the parser"                            # the text
-> kolu wait "$id" --until idle:300 --timeout 15000            # observe the settle
-> kolu send "$id" --key Enter                                 # submit
+> kolu send "$id" --submit "fix the parser"                   # dispatched
 > kolu wait "$id" --until working --timeout 15000             # 1. it picked up the prompt
 > kolu debrief "$id" --timeout 600000                         # 2. its turn ended, quiet, screen
 > ```
@@ -427,7 +425,7 @@ missing `briefed` means the brief did not land, never "probably did".
 - **Restarting the agent CLI in place:** text typed at a *running* agent becomes
   a prompt (your relaunch command line gets answered, not executed), and `C-c`
   doesn't reliably quit the TUI — send the agent's quit command (`/exit` in
-  Claude Code) as its own three-step submit, wait for the shell prompt to show
+  Claude Code) with its own `send --submit`, wait for the shell prompt to show
   in the snapshot, then launch again.
 
 **Interactive attach is the browser**, not this CLI: `kolu` has no `attach` verb
@@ -499,11 +497,13 @@ streams changes and live output activity until you interrupt it.
 
 Before calling a driven turn done:
 
-- You **submitted with a separate `send --key Enter`**, sent *after* you observed
-  the TUI settle (`wait --until idle`) — never `send "text" --key Enter` in one
-  call (it's a hard error), whose Enter races the paste debounce. A prompt left
-  staged on the `❯` line is the #1 failure here; the observe-then-submit split is
-  what removes the race.
+- You **dispatched with `send --submit`** (or briefed at birth with
+  `create --message`), so padi did the observe-then-submit split from inside the
+  daemon. A prompt left staged on the `❯` line is the #1 failure here, and
+  `send "text" --key Enter` in one call — the same-breath Enter that races the
+  paste debounce — is a hard error precisely so it cannot be written. If you used
+  the three-step escape hatch instead, the Enter went *after* you observed the
+  settle (`wait --until idle`), never in the same call.
 - The inner agent's **reply is actually in the `snapshot`** — not an empty box or
   a half-rendered stream. `wait --until idle` means "output stopped", not "the
   answer is right"; verify the content.

@@ -97,10 +97,15 @@ later" does not buffer, it *destroys the message* while the send reports
 success. So a submit into a running turn comes back as an error, and the
 `structuredContent` says which:
 
-| `phase` | what landed | what you do |
+Branch on **`staged`** — the one field that answers "is any of my text still out
+there?". (`phase` and `reason` are the history; `staged` is the decision, and
+they part company when a terminal *dies* mid-delivery: typed into, but with no
+input box left to hold anything.)
+
+| `staged` | what landed | what you do |
 | --- | --- | --- |
-| `ready` | **nothing** | the target is mid-turn — wait for it (`wait_agentState`) and dispatch again. Retrying is free. |
-| `settle` | the text, **unsubmitted** | send `key: "Enter"` once it is calm, or `Escape` and re-send. **Never blindly re-send** — that delivers the message twice. |
+| `false` | **nothing** | the target is mid-turn, or gone — wait for it (`wait_agentState`) and dispatch again. Retrying is free. |
+| `true` | the text, **unsubmitted** | send `key: "Enter"` once it is calm, or `Escape` and re-send. **Never blindly re-send** — that delivers the message twice. |
 
 The manual trio is still there, and is now the **escape hatch**: reach for it
 only when something must happen *between* the text and the Enter.
@@ -208,8 +213,8 @@ watch_close { name: "campaign" }                                 // when the cam
 - Launch unattended agents with bypass permissions
   (`claude --dangerously-skip-permissions`) and confirm from the footer via
   `screen_text` before dispatching.
-- Restarting the CLI in place: send its quit command (`/exit`) as a three-step
-  submit, confirm the shell prompt, relaunch.
+- Restarting the CLI in place: send its quit command (`/exit`) with `submit: true`,
+  confirm the shell prompt, relaunch.
 - **Terminal ids are not stable across a kaval restart** — a cached id can go
   stale mid-run. Re-find the terminal via the `terminals` resource by its
   stable `intent` label (set it at create for exactly this).
@@ -217,7 +222,7 @@ watch_close { name: "campaign" }                                 // when the cam
 ## Fallback — the `kolu` CLI
 
 `kolu` is the ONE terminal CLI: the same verbs, spelled for a shell. Full
-treatment (three-step submit in CLI form, `--file`, exit codes, endpoint flags,
+treatment (the one-call `--submit` and its escape hatch in CLI form, `--file`, exit codes, endpoint flags,
 worktree provisioning, the interim agent-spawn doctrine): **[TUI.md](TUI.md)**.
 The verb map:
 

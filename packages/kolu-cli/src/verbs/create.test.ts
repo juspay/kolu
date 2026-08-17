@@ -12,11 +12,18 @@
  * `endpointOf`'s blank-endpoint refusal; this pins the flags `create` runs it
  * over, each of which used to reach the wire as a nonsense name (`--worktree ""`
  * → a worktree called `""`) or an explicit empty cwd.
+ *
+ * The last describe is the one exception to "drive `run`", and deliberately: the
+ * survivors report is written on the FAILURE path of a step that needs a live
+ * padi, so it is reached here through `stoppedPartway` itself — the same function
+ * the run calls, handed the same refusal padi raises.
  */
 
+import { SubmitRefused } from "@kolu/padi/surface";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
-import { type CreateArgs, run } from "./create.ts";
+import { type CreateArgs, run, stoppedPartway } from "./create.ts";
 
 /** A create with nothing set — the fixture each case varies ONE flag of.
  *
@@ -154,5 +161,55 @@ describe("kolu create refuses a --message with nothing to brief", () => {
     expect(
       refusalOf({ message: "carry out the plan", argv: ["claude"] }),
     ).not.toContain("--message has nothing to brief");
+  });
+});
+
+describe("kolu create reads a failed brief's recovery OFF the refusal", () => {
+  // The line this pins used to be a constant: every `--message` that did not
+  // land was reported as "that agent is live and idle; `kolu send --submit`
+  // dispatches it". That sentence is right for a refusal that typed NOTHING and
+  // actively harmful for one that typed the brief and could not submit it —
+  // following it types the brief a SECOND time, and the agent reads it twice.
+  //
+  // The rule is padi's one `submitLeftTextStaged`, shared with the MCP face; what
+  // is pinned here is that this face asks it rather than guessing from "the run
+  // stopped at the message step".
+  const ID = "00000000-0000-4000-8000-000000000000" as TerminalId;
+
+  const reportOn = (
+    phase: "ready" | "settle",
+    reason: "busy" | "gone",
+  ): string =>
+    stoppedPartway(
+      { id: ID },
+      new SubmitRefused({ id: ID, phase, reason, waitedMs: 1_200 }),
+      undefined,
+      "read /tmp/brief.md and take it end-to-end",
+      undefined,
+    ).stderr;
+
+  it("says STAGED, and forbids the re-send, when the text is in the box", () => {
+    const text = reportOn("settle", "busy");
+    expect(text).toContain("typed but NOT submitted");
+    expect(text).toContain("--key Enter");
+    expect(text).toContain("Do NOT re-send");
+    // The dangerous instruction must be ABSENT, not merely outweighed — a
+    // report carrying both sentences is a report a driving loop can obey wrongly.
+    expect(text).not.toContain("--submit --file");
+  });
+
+  it("says nothing was typed, and names the dispatch, when the box is empty", () => {
+    const text = reportOn("ready", "busy");
+    expect(text).toContain("NOTHING was typed");
+    expect(text).toContain("--submit --file");
+    expect(text).not.toContain("Do NOT re-send");
+  });
+
+  it("does not call a DEAD terminal's brief staged — there is no box to finish", () => {
+    // The cross-face echo of the finding that reproduced on the MCP side: a
+    // `settle` refusal whose reason is `gone` was typed into and has nothing left
+    // to hold the text. "Press Enter" would go into a terminal that no longer
+    // exists.
+    expect(reportOn("settle", "gone")).not.toContain("--key Enter");
   });
 });

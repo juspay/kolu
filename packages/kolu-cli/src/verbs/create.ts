@@ -82,6 +82,7 @@
 
 import {
   FIRST_MESSAGE_SETTLE_MS,
+  submitLeftTextStaged,
   type TerminalPlacement,
   TOPLEVEL_PLACEMENT,
 } from "@kolu/padi/surface";
@@ -128,7 +129,7 @@ export type CreateArgs = Command.Command.Config.Infer<typeof createFlags>;
  *  CreateResult} is the same shape once the terminal is proven to exist. One
  *  shape for both means `--json` prints the truth on either path without a
  *  second record to keep in sync. */
-interface Landed {
+export interface Landed {
   readonly id?: TerminalId;
   readonly worktree?: { readonly path: string; readonly branch: string };
   readonly ran?: string;
@@ -397,7 +398,7 @@ const messageOf = (error: unknown): string =>
  *  report, because a write error that ate the names of the orphans would be the
  *  exact defect this function exists to prevent — and it must not be swallowed
  *  either. */
-function stoppedPartway(
+export function stoppedPartway(
   landed: Landed,
   error: unknown,
   intended: string | undefined,
@@ -429,8 +430,17 @@ function stoppedPartway(
       // brief is missing. Naming the one command that finishes the job is what
       // stops a driving loop from spawning a second worker for a message the
       // first one is waiting for.
+      //
+      // WHICH command it is, though, is the refusal's to say — read off the one
+      // shared rule (`submitLeftTextStaged`), never guessed from `at: "message"`.
+      // A refusal that already TYPED the brief leaves it staged in the input
+      // box, and telling that user to `kolu send --submit` again is telling them
+      // to type it a second time: the agent then reads the brief twice, which is
+      // worse than the failure being reported.
       lines.push(
-        `    --message was NOT delivered — that agent is live and idle; \`kolu send ${short} --submit --file <brief>\` dispatches it (do not re-run create)`,
+        submitLeftTextStaged(error)
+          ? `    --message was typed but NOT submitted — it is sitting in that agent's input box; \`kolu send ${short} --key Enter\` finishes it (or \`--key Escape\` and re-dispatch). Do NOT re-send the text: a second copy is what the agent would read`
+          : `    --message was NOT delivered and NOTHING was typed — that agent is live and idle; \`kolu send ${short} --submit --file <brief>\` dispatches it (do not re-run create)`,
       );
     }
   }

@@ -14,11 +14,14 @@
  * destructive one (a turn ending CLEARS the input box), so the loss this design
  * exists to prevent is DEMONSTRATED here rather than asserted in prose.
  *
- * Three proofs, one per shape the change ships:
+ * Four proofs, one per shape the change ships:
  *   a. a message submitted to an IDLE terminal lands as exactly ONE message;
  *   b. a mid-turn dispatch REFUSES with nothing typed — beside a control leg
  *      showing that the manual "type now, Enter later" path loses the text;
- *   c. `lifecycle_create { run, message }` briefs a fresh agent with zero
+ *   c. the OTHER refusal: when the TUI outlasts the caller's bound after the
+ *      text is typed, `staged: true` is a true statement about that screen and
+ *      the documented recovery (one Enter, no re-send) delivers it once;
+ *   d. `lifecycle_create { run, message }` briefs a fresh agent with zero
  *      further calls, across a boot silence.
  *
  * …plus the CLI parity leg, because `kolu send --submit` is a face of the same
@@ -228,9 +231,17 @@ describeDaemon("the one-call submit against a real padi", () => {
       kind: "submit-refused",
       phase: "ready",
       reason: "busy",
-      // The field a driver branches on: nothing landed, so a retry is free.
-      typed: false,
+      // The field a driver branches on: nothing is left in any input box, so a
+      // retry is free (and the retry at the bottom of this test is that claim
+      // being cashed).
+      staged: false,
     });
+    // The NAME, not just the value. This assertion read `typed: false` for one
+    // commit after the field became `staged` — and `typed` is precisely the
+    // question the rename exists to stop drivers asking, because a terminal that
+    // died mid-delivery was typed into and has nothing left to finish. A face
+    // that grows the old key back is a face that answers the wrong question.
+    expect(refusal.detail).not.toHaveProperty("typed");
     expect(refusal.message).toMatch(/NOTHING was typed/);
 
     // …and the screen agrees. This is the assertion that makes the refusal
@@ -261,6 +272,59 @@ describeDaemon("the one-call submit against a real padi", () => {
     );
     const after = await awaitScreen(mcp, id, '<<SUBMITTED:"SECOND-MESSAGE">>');
     expect(submittedCount(after, "SECOND-MESSAGE")).toBe(1);
+  }, 180_000);
+
+  it("a settle-phase refusal really does leave the text STAGED — one Enter finishes it", async () => {
+    // The OTHER refusal, and the one whose report a driver can obey wrongly.
+    // `staged: true` is a claim about the far side of a pty — the message is
+    // sitting in that input box — and until now nothing checked it was true;
+    // only that the projection computed it. Here the fixture keeps repainting
+    // for longer than the caller's bound allows, which is what a TUI still
+    // taking a big paste looks like, so the text is typed and the Enter is
+    // withheld.
+    const padi = await harness.startPadi();
+    const mcp = await harness.serveMcpOverPadi(
+      padi.socketPath,
+      "submit-staged",
+    );
+    const id = await openMockTui(mcp, { MOCK_PASTE_CHATTER_MS: "20000" });
+
+    const refusal = toolRefusal(
+      await mcp.callTool({
+        name: "lifecycle_sendInput",
+        arguments: {
+          id,
+          text: "STAGED-MESSAGE",
+          submit: true,
+          settleMs: 800,
+          timeoutMs: 4_000,
+        },
+      }),
+    );
+    expect(refusal.detail).toMatchObject({
+      kind: "submit-refused",
+      phase: "settle",
+      reason: "busy",
+      staged: true,
+    });
+
+    // The claim, cashed: the text IS on that screen and it was NOT submitted.
+    const stagedScreen = await screenOf(mcp, id);
+    expect(stagedScreen).toContain("STAGED-MESSAGE");
+    expect(submittedCount(stagedScreen, "STAGED-MESSAGE")).toBe(0);
+
+    // …and the documented recovery is the whole recovery: an Enter, with no
+    // re-send, delivers the message exactly once. A driver that re-dispatched
+    // instead would have put the brief in twice, which is the failure the
+    // `staged` field exists to prevent.
+    toolJson(
+      await mcp.callTool({
+        name: "lifecycle_sendInput",
+        arguments: { id, key: "Enter" },
+      }),
+    );
+    const after = await awaitScreen(mcp, id, '<<SUBMITTED:"STAGED-MESSAGE">>');
+    expect(submittedCount(after, "STAGED-MESSAGE")).toBe(1);
   }, 180_000);
 
   it("create + message briefs a fresh agent in ONE call, across a boot silence", async () => {

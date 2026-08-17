@@ -12,7 +12,11 @@
  *      (`stopped-partway` + `landed`) instead of erasing them.
  */
 
-import { padiSurface } from "@kolu/padi/surface";
+import {
+  FIRST_MESSAGE_SETTLE_MS,
+  padiSurface,
+  SubmitRefused,
+} from "@kolu/padi/surface";
 import {
   serveSurfaceAsMcp,
   type SurfaceClientCallable,
@@ -123,6 +127,7 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
   function fakePadi(behavior?: {
     createFails?: Error;
     sendInputFails?: Error;
+    submitInputFails?: unknown;
   }) {
     const calls: { verb: string; input: unknown }[] = [];
     const client = {
@@ -151,6 +156,13 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
               return behavior?.sendInputFails !== undefined
                 ? Effect.fail(behavior.sendInputFails)
                 : Effect.void;
+            }),
+          submitInput: (input: unknown) =>
+            Effect.suspend(() => {
+              calls.push({ verb: "lifecycle.submitInput", input });
+              return behavior?.submitInputFails !== undefined
+                ? Effect.fail(behavior.submitInputFails)
+                : Effect.succeed({ readyAfterMs: 12, settledAfterMs: 34 });
             }),
         },
       },
@@ -392,5 +404,105 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
     });
     const text = String((res.content as { text: string }[])[0]?.text);
     expect(text).toContain("bare shell prompt");
+  });
+
+  it("run + message is create → sendInput → submitInput, the brief as ONE paste", async () => {
+    // The whole point of the addition: spawn and dispatch in one call. The
+    // ORDER is the contract — the brief goes through `submitInput` (which waits
+    // for the prompt) after the run line, never as a second raw write.
+    const { calls, client } = fakePadi();
+    const mcp = await servedFace(client);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        placement: { kind: "toplevel" },
+        run: "claude",
+        message: "read /tmp/brief.md\nand take it end-to-end",
+      },
+    });
+
+    expect(res.isError ?? false).toBe(false);
+    expect(res.structuredContent).toMatchObject({
+      id: ID,
+      ran: "claude",
+      briefed: "read /tmp/brief.md\nand take it end-to-end",
+    });
+    expect(calls.map((c) => c.verb)).toEqual([
+      "lifecycle.create",
+      "lifecycle.sendInput",
+      "lifecycle.submitInput",
+    ]);
+    const brief = calls[2]!.input as { data: string; settleMs: number };
+    // Bracketed-paste, because a multiline brief typed raw is N submits — and
+    // the WIDER window, because a booting agent is silent before its first paint.
+    expect(brief.data).toBe(
+      "\x1b[200~read /tmp/brief.md\nand take it end-to-end\x1b[201~",
+    );
+    expect(brief.settleMs).toBe(FIRST_MESSAGE_SETTLE_MS);
+  });
+
+  // ── A brief that did not land: WHICH recovery the report names ──────────
+  // The dangerous half of `stopped-partway`. "That agent is live and idle,
+  // dispatch it" is right for a refusal that typed nothing and harmful for one
+  // that left the brief staged in the input box: obeying it types the brief a
+  // second time and the agent reads it twice. The sentence is therefore read off
+  // padi's own `submitLeftTextStaged`, and these cases are what stops it drifting
+  // back into a constant.
+  const briefFailing = async (
+    phase: "ready" | "settle",
+    reason: "busy" | "gone",
+  ) => {
+    const { client } = fakePadi({
+      submitInputFails: new SubmitRefused({
+        id: ID,
+        phase,
+        reason,
+        waitedMs: 9,
+      }),
+    });
+    const mcp = await servedFace(client);
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        placement: { kind: "toplevel" },
+        run: "claude",
+        message: "read /tmp/brief.md and take it end-to-end",
+      },
+    });
+    expect(res.isError).toBe(true);
+    return {
+      text: String((res.content as { text: string }[])[0]?.text),
+      detail: res.structuredContent as Record<string, unknown>,
+    };
+  };
+
+  it("a settle-phase refusal reports the brief as STAGED — Enter, never a re-send", async () => {
+    const { text, detail } = await briefFailing("settle", "busy");
+    expect(detail).toMatchObject({
+      kind: "stopped-partway",
+      notDelivered: "read /tmp/brief.md and take it end-to-end",
+      staged: true,
+    });
+    expect(text).toContain("typed but NOT submitted");
+    expect(text).toContain('key: "Enter"');
+    // The harmful instruction must be ABSENT, not merely outweighed by a
+    // caveat — a report carrying both can be obeyed wrongly.
+    expect(text).not.toContain("submit: true");
+  });
+
+  it("a ready-phase refusal reports an empty box — dispatch it, nothing was typed", async () => {
+    const { text, detail } = await briefFailing("ready", "busy");
+    expect(detail).toMatchObject({ staged: false });
+    expect(text).toContain("NOTHING was typed");
+    expect(text).toContain("submit: true");
+  });
+
+  it("a terminal that DIED mid-delivery is not staged — there is no box left", async () => {
+    // The finding that reproduced: `phase === "settle"` alone would answer
+    // `true` here, sending a driver to press Enter into a terminal that is gone
+    // while withholding the re-dispatch that would actually deliver the message.
+    const { detail } = await briefFailing("settle", "gone");
+    expect(detail).toMatchObject({ staged: false });
   });
 });

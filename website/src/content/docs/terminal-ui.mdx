@@ -34,8 +34,8 @@ immediately, and one you created in the browser is drivable from the shell.
 | verb | what it does |
 | --- | --- |
 | `kolu ls` | the roster — state, repo·branch, PR, agent, and what each is running |
-| `kolu create` | open a terminal — say where it goes with `--toplevel` (its own tile) or `--parent <id>` (a split inside that tile); `--worktree` cuts a branch first, `-- <cmd>` launches an agent in it |
-| `kolu send` | type into a terminal — text, or a named key with `--key` |
+| `kolu create` | open a terminal — say where it goes with `--toplevel` (its own tile) or `--parent <id>` (a split inside that tile); `--worktree` cuts a branch first, `-- <cmd>` launches an agent in it, `--message` briefs that agent as soon as it is ready |
+| `kolu send` | prompt an agent — `--submit "…"` types it and presses Enter once the TUI has taken it; without `--submit` it is a raw write of text or a `--key` |
 | `kolu wait` | block until output settles or matches, or until an agent's turn ends |
 | `kolu debrief` | wait until a worker's turn is over **and** its output is quiet, then print its screen |
 | `kolu snapshot` | read a terminal's screen as plain text (`--tail N` for what's on screen now) |
@@ -47,12 +47,18 @@ A short driving loop — create an agent, give it a prompt, wait for its turn to
 end, read the reply:
 
 ```sh
-id=$(kolu create --toplevel --worktree fix-parser -- claude)
-kolu send "$id" "read /tmp/brief.md and take it end-to-end"
-kolu wait "$id" --until idle:300          # the text landed
-kolu send "$id" --key Enter               # submit — its own step
+id=$(kolu create --toplevel --worktree fix-parser \
+       --message "read /tmp/brief.md and take it end-to-end" -- claude)  # spawned AND briefed
 kolu debrief "$id"                        # its turn ended, it went quiet, here's the screen
 ```
+
+`--message` is the whole dispatch in the `create` that spawned the agent: kolu
+waits for the new agent's prompt, types the brief, waits for the TUI to take it,
+and presses Enter. To prompt an agent that already exists, that same move is
+`kolu send "$id" --submit "…"`. Both **refuse** rather than type into an agent
+that is mid-turn — several TUIs clear a typed-but-unsubmitted input box when
+their turn ends, so a message typed at the wrong moment is silently eaten — and
+the refusal tells you whether anything was left behind.
 
 The last step used to be two more commands — wait for the turn, then read the
 screen. `kolu debrief` is both, plus the part that is easy to forget: it also

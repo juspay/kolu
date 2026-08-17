@@ -44,13 +44,19 @@ const submitted = (out: string): string[] =>
     JSON.parse(m[1] ?? '""'),
   );
 
-/** Feed `chunks` to a single fixture process and collect what it submitted. */
-async function drive(chunks: readonly string[]): Promise<string[]> {
+/** Feed `chunks` to a single fixture process and collect everything it wrote —
+ *  the raw stream, so a caller can ask what was submitted AND what merely
+ *  painted. */
+async function driveRaw(
+  chunks: readonly string[],
+  opts: { env?: Record<string, string>; settleMs?: number } = {},
+): Promise<string> {
   assertDaemonSpawnAllowed(
     "the mock agent TUI fixture (a short-lived node child)",
   );
   const child = spawn(process.execPath, [MOCK_TUI], {
     stdio: ["pipe", "pipe", "inherit"],
+    env: { ...process.env, ...opts.env },
   });
   let out = "";
   child.stdout.on("data", (d: Buffer) => (out += d.toString()));
@@ -61,12 +67,16 @@ async function drive(chunks: readonly string[]): Promise<string[]> {
       // them as SEPARATE stdin events, which is what a split actually is.
       await new Promise((r) => setTimeout(r, 1));
     }
-    await new Promise((r) => setTimeout(r, 250));
-    return submitted(out);
+    await new Promise((r) => setTimeout(r, opts.settleMs ?? 250));
+    return out;
   } finally {
     child.kill();
   }
 }
+
+/** Feed `chunks` to a single fixture process and collect what it submitted. */
+const drive = async (chunks: readonly string[]): Promise<string[]> =>
+  submitted(await driveRaw(chunks));
 
 describeDaemon("mockAgentTui — the fold survives any chunk boundary", () => {
   it("delivers every payload intact when split at EVERY index", async () => {
@@ -92,5 +102,30 @@ describeDaemon("mockAgentTui — the fold survives any chunk boundary", () => {
   it("delivers a payload fed ONE BYTE at a time", async () => {
     const { bytes, body } = payload(99);
     expect(await drive([...bytes])).toEqual([body]);
+  }, 60_000);
+
+  it("keeps painting after a paste when asked, holding the text UNSUBMITTED", async () => {
+    // The state a settle-phase refusal is made of, reproduced at the fixture
+    // level so the e2e that depends on it is not the first thing to find out
+    // whether it works: a TUI still busy taking the paste, with the message
+    // sitting in the box. Both halves are asserted — the noise (without which
+    // the settle wait would simply succeed) and the silence about submitting
+    // (without which there would be nothing left to recover).
+    const { body } = payload(7);
+    const out = await driveRaw([`${PASTE_START}${body}${PASTE_END}`], {
+      env: { MOCK_PASTE_CHATTER_MS: "1200", MOCK_TICK_MS: "50" },
+      settleMs: 600,
+    });
+    expect(out).toContain("~");
+    expect(submitted(out)).toEqual([]);
+    expect(out).toContain("brief 7");
+  }, 60_000);
+
+  it("chatters only when asked — the default fixture goes quiet at once", async () => {
+    // Every other proof in this file and in `submit.e2e.test.ts` reads a quiet
+    // terminal as "the TUI took it". A fixture that chattered by default would
+    // turn all of them into timing races.
+    const { bytes } = payload(8);
+    expect(await driveRaw([bytes])).not.toContain("~");
   }, 60_000);
 });

@@ -43,23 +43,31 @@ The pattern has three roles, and the point of it is the top one.
 
 The reason to add a coordinator at all is **span of attention**. A person can drive one agent well and three agents badly; past a handful, you spend all your time context-switching and none of it thinking. A coordinator doesn't get tired of switching. It holds the state of every agent it spawned, notices the moment one needs input, and only surfaces to you when a PR is ready or a decision is genuinely yours. You trade keystrokes for review.
 
-## The loop: create, prompt, wait, read
+## The loop: brief, wait, read
 
-Driving another agent is a loop of discrete moves, because each move is a separate, observable thing. One command — `kolu` — carries every move. The coordinator creates a worktree'd agent, sends it a brief, waits for it to settle, submits, waits for its turn to end, and reads the screen:
+Driving another agent is a loop of discrete moves, because each move is a separate, observable thing. One command — `kolu` — carries every move. The coordinator spawns a worktree'd agent **already briefed**, then waits for its turn to end and reads the screen:
 
 ```sh
-# spawn an implementing agent in its own worktree — it appears live on the canvas.
+# spawn an implementing agent in its own worktree, and give it its first task in
+# the same breath — it appears live on the canvas, already working.
 # `--toplevel` says where it lands: its own tile. Use `--parent <id>` instead to
 # open it as a split inside the tile it works for; there is no default.
-id=$(kolu create --toplevel --worktree fix-parser -- claude --dangerously-skip-permissions)
+id=$(kolu create --toplevel --worktree fix-parser \
+       --message "read /tmp/brief-fix-parser.md and take it end-to-end" \
+       -- claude --dangerously-skip-permissions)          # 1. spawned AND dispatched
 
-kolu send "$id" "read /tmp/brief-fix-parser.md and take it end-to-end"  # 1. the brief
-kolu wait "$id" --until idle:300                                        # 2. observe it settle
-kolu send "$id" --key Enter                                             # 3. submit — its own step
-kolu debrief "$id"                                                      # 4. its turn ended, it went quiet, here's the screen
+kolu debrief "$id"                                        # 2. its turn ended, it went quiet, here's the screen
 ```
 
-The one move that surprises people is that **submitting is separate from typing**. An Enter sent in the same breath as the text races the terminal UI's paste-debounce and gets silently dropped, leaving the prompt sitting unsent — so you type the text, watch the UI go quiet, _then_ send Enter as its own command. That's [why a send carries text or a key but never both](/kaval#why-kaval-tui-send-not-a-message-bus). Every verb takes the same endpoint flags (`--socket`, `--state-root`, `--host`) on either side of the verb name, and inside a kolu terminal you pass none at all — the daemon that owns you is already in the environment. Ids accept any unique prefix.
+To prompt an agent that already exists, the same move is `kolu send "$id" --submit "…"`. Both forms do the delicate part for you: wait until that agent's prompt is idle, type the text, wait for the TUI to take it, then press Enter.
+
+That waiting is not a nicety. **Submitting is separate from typing** — an Enter sent in the same breath as the text races the terminal UI's paste-debounce and gets silently dropped ([why a send carries text or a key but never both](/kaval#why-kaval-tui-send-not-a-message-bus)) — and typing into an agent that is _mid-turn_ is worse than useless: several TUIs clear a typed-but-unsubmitted input box when their turn ends, so the message vanishes and the write that delivered it reported success. So `--submit` **refuses** a busy target rather than typing into it, and says whether anything was left behind: nothing typed means retry freely once it is free; text staged in the box means send `--key Enter` to finish it and never re-send, which would deliver the brief twice.
+
+Every verb takes the same endpoint flags (`--socket`, `--state-root`, `--host`) on either side of the verb name, and inside a kolu terminal you pass none at all — the daemon that owns you is already in the environment. Ids accept any unique prefix.
+
+<Aside type="tip" title="The three-step form is still there — as the escape hatch">
+  `kolu send "$id" "text"` → `kolu wait "$id" --until idle:300` → `kolu send "$id" --key Enter` is exactly what `--submit` does for you, spelled out. Reach for it only when you must act _between_ the text and the Enter — answering a prompt the text opens, say — not as the everyday path.
+</Aside>
 
 Long briefs don't paste cleanly (kolu folds a big paste into a placeholder that Enter won't submit — [issue #1702](https://github.com/juspay/kolu/issues/1702)). So the coordinator writes the brief to a file and sends a _short_ prompt that points the agent at it, the way the loop above does. The agent reads its own brief.
 
@@ -105,7 +113,7 @@ Nothing about this is local. Because [padi](/padi) binds a per-host daemon over 
 
 This pattern is real but not seamless, and it's worth knowing the sharp edges before you lean on it:
 
-- **Submit is a separate step.** The single most common failure is a brief that "was sent" but sits unsubmitted because the Enter got dropped. Watch the settle, then submit.
+- **A busy agent gets a refusal, not a message.** The old failure here — a brief that "was sent" but sat unsubmitted because the Enter got dropped, or one typed into a working agent and wiped when its turn ended — is what `--submit` refuses to produce. The cost is that a dispatch at the wrong moment fails instead of appearing to work: the loop has to be willing to wait for the agent (`kolu debrief`, `kolu wait`) and try again.
 - **Terminal ids re-key on a daemon restart.** An id you cached can go stale after a redeploy or a crash-restore; track a long-lived terminal by its **title**, which survives, and re-find its current id.
 - **Big pastes fold.** Anything past a couple of lines goes through a file the agent reads, not the prompt box.
 - **The human is still in the loop.** In practice a coordinator still surfaces to you more than the ideal — a decision it won't make, a PR that needs your eyes. That's a feature, not a bug.

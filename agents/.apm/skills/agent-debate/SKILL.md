@@ -86,13 +86,15 @@ later rounds receive lean follow-ups and rely on the session's context.
 
 **Make the reverse ping executable.** Put this exact protocol in every ask: after
 writing and validating its output file, the peer calls kolu
-`lifecycle_sendInput` on the author terminal with text
-`AGENT-DEBATE <run-label> VERDICT-WRITTEN <round>`, waits for that terminal with
-`wait_outputSettled { idleMs: 250, timeoutMs: 10000 }`, then calls
-`lifecycle_sendInput` again with `key: "Enter"`. If the author id is stale, list
-terminals, require exactly one match for the recorded author recovery key, and
-use its new id. This full text→settle→Enter sequence avoids the dropped-submit
-race; the per-run payload cannot be confused for an ordinary prompt.
+`lifecycle_sendInput` on the author terminal with
+`{ id, text: "AGENT-DEBATE <run-label> VERDICT-WRITTEN <round>", submit: true }`
+— ONE call, which waits for that terminal's prompt to be idle, types, waits for
+the TUI to take it, and presses Enter. If the author id is stale, list terminals,
+require exactly one match for the recorded author recovery key, and use its new
+id. If the call REFUSES (the author was mid-turn), read `staged`: `false` means
+nothing landed, so wait for the author and ping again; `true` means the text is
+in its input box, so send `{ id, key: "Enter" }` and never re-send the text. The
+per-run payload cannot be confused for an ordinary prompt.
 
 **Exchange files, not rendered screen text.** Write each round's instructions to
 `$REPO/.agent-debate/ask-NNN.md` and send only a short pointer to that file.
