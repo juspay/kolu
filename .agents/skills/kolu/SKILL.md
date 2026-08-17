@@ -50,7 +50,12 @@ is a race, not a formality.
   command line at the first shell prompt (submitted with Enter), and
   **`message` delivers a first prompt once that command reaches its own
   prompt** — so `run` + `message` spawns and briefs a worker in ONE call, with
-  no boot wait and no follow-up send.
+  no boot wait and no follow-up send. It waits for a RECOGNIZED agent, not just
+  for output to go quiet: before an agent paints, the terminal is silent for
+  reasons that have nothing to do with being ready, and a brief typed into that
+  gap is wiped when the TUI initializes. A `run` that never presents an agent
+  kolu detects is REFUSED with nothing typed — for a non-agent command, create
+  WITHOUT `message` and dispatch after `wait_agentState`.
 - `lifecycle_sendInput` — **pass `submit: true` with your `text`.** padi waits
   for the target's prompt to be idle, types, waits for the TUI to take it, and
   presses Enter, answering `{submitted: true, readyAfterMs, settledAfterMs}`.
