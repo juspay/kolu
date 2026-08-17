@@ -101,6 +101,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the product binary's process edge; `NodeRuntime.runMain` rather than a Promise because kolu-cli's exit-code map is LOCAL — every failure carries its own `Runtime.errorExitCode`, so the default teardown IS the map",
   },
   {
+    path: "packages/kolu-cli/src/padiHarness.testlib.ts",
+    sites: 3,
+    why: "the real-padi e2e harness, whose three crossings are all boundaries the harness cannot compose past: the poll-for-`hello` liveness probe (a `while` loop against a socket that does not exist yet — there is no Effect caller, the caller is a vitest hook), and the two edges of the MCP composition `serveMcpOverPadi` reproduces verbatim from `runKoluMcp` (`requireReachablePadi`'s open gate, and the `connect: () => Promise<Connection>` callback the MCP SDK asks for and OWNS, re-invoking it on its own redial path). It is a `.testlib.ts` and not a `.test.ts` for exactly the reason this scan exists to catch: TWO suites need it — `mcp.e2e.test.ts` (the graduation pin) and `submit.e2e.test.ts` (the one-call submit) — and the alternative is not fewer runs but the same three copied into two files the scan excludes, where the env scrub that keeps a leg off the developer's production padi and the pid-exact reap could drift apart unseen. One row is the honest form of that",
+  },
+  {
     path: "packages/kolu-cli/src/mcp.ts",
     sites: 1,
     why: "the MCP-SDK's connect callback — `serveSurfaceAsMcp` asks for `() => Promise<Connection>` and OWNS the connection it gets, re-invoking it on its own redial path, so the crossing cannot be composed away without changing kolu-mcp's face",

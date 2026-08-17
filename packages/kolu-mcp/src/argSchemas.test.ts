@@ -145,7 +145,7 @@ describe("lifecycle_sendInput args → the JSON Schema a host reads", () => {
     expect(propertyDescriptions(doc).settleMs).toMatch(
       new RegExp(`Default ${SUBMIT_SETTLE_MS}`),
     );
-    expect(doc.properties?.settleMs).toMatchObject({ type: "integer" });
+    expect(property(doc, "settleMs")).toMatchObject({ type: "integer" });
   });
 });
 

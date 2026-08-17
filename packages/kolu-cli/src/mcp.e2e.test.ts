@@ -57,7 +57,6 @@ import { fileURLToPath } from "node:url";
 // get one of those quietly wrong.
 import {
   PADI_BIN,
-  type Padi,
   readJson,
   setupPadiHarness,
   sleep,
@@ -351,7 +350,7 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
 
     // Respawn the SAME state-root: the warm path — kaval kept the PTYs, the
     // restarted padi re-binds them, the id stays valid.
-    const p2 = await startPadi(stateRoot);
+    const _p2 = await startPadi(stateRoot);
 
     // The id survives the warm rebind, reachable through the SAME MCP face.
     {
@@ -433,7 +432,7 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
     // Restart padi with NO MCP traffic in the gap — the routine upgrade.
     p.child.kill("SIGTERM");
     await p.exited;
-    const p2 = await startPadi(stateRoot);
+    const _p2 = await startPadi(stateRoot);
 
     // THE ASSERTION. Not "eventually succeeds", not "succeeds on retry" — the
     // FIRST request after the restart, with no retry and no warm-up, must land.

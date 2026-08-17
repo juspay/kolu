@@ -29,7 +29,10 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { describeDaemon } from "@kolu/daemon-test-gate";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { expect, it } from "vitest";
 import {
@@ -311,6 +314,11 @@ function runKolu(
   argv: readonly string[],
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((res, rej) => {
+    // The runtime leash, at the call site that forks — `describeDaemon` around
+    // the test is not enough on its own, and the gate's own hygiene test proves
+    // it: helper indirection is exactly how a fork gets smuggled past a
+    // block-level gate (juspay/kolu#1334/#1375).
+    assertDaemonSpawnAllowed("the `kolu` CLI over tsx (drives a real padi)");
     const env = { ...process.env };
     delete env.PADI_SOCKET;
     const child = spawn(
