@@ -179,6 +179,18 @@ const tui = Command.make(
 const opt = <A>(flag: Flag.Flag<A>): Flag.Flag<A | undefined> =>
   flag.pipe(Flag.optional, Flag.map(Option.getOrUndefined));
 
+/** A SWITCH: writing `--json` means true, leaving it off means false.
+ *
+ *  Spelled out because `Flag.boolean` alone no longer means this. Up to and
+ *  including rc.109 an absent boolean parsed as `false`; rc.110 made it behave
+ *  like every other flag type and FAIL as a missing required flag
+ *  (Effect-TS/effect#7296), so a bare `kolu ls` refused itself with "Missing
+ *  required flag: --json". The `false` is therefore the switch's OWN meaning —
+ *  the off position — not a fallback softening some absent value, which is why
+ *  it is declared here once rather than defended at seven call sites. */
+const sw = (flag: Flag.Flag<boolean>): Flag.Flag<boolean> =>
+  flag.pipe(Flag.withDefault(false));
+
 /** The same projection for an optional POSITIONAL (`kolu watch [<id>]`). */
 const optArg = <A>(
   arg: Argument.Argument<A>,
@@ -233,8 +245,10 @@ const timeoutFlag = opt(
 );
 
 export const lsFlags = {
-  json: Flag.boolean("json").pipe(
-    Flag.withDescription("emit the full terminal records as JSON"),
+  json: sw(
+    Flag.boolean("json").pipe(
+      Flag.withDescription("emit the full terminal records as JSON"),
+    ),
   ),
 } as const;
 
@@ -270,9 +284,11 @@ export const createFlags = {
   // `--parent` because "I didn't pass a flag" and "I decided this is top level"
   // must be different states: reading the first as the second is the silent
   // default this pair exists to delete.
-  toplevel: Flag.boolean("toplevel").pipe(
-    Flag.withDescription(
-      "open as a tile of its own on the canvas (mutually exclusive with --parent)",
+  toplevel: sw(
+    Flag.boolean("toplevel").pipe(
+      Flag.withDescription(
+        "open as a tile of its own on the canvas (mutually exclusive with --parent)",
+      ),
     ),
   ),
   parent: opt(
@@ -299,9 +315,11 @@ export const createFlags = {
       ),
     ),
   ),
-  json: Flag.boolean("json").pipe(
-    Flag.withDescription(
-      "emit the new terminal's record as JSON ({id, worktree?, ran?}) instead of the bare id",
+  json: sw(
+    Flag.boolean("json").pipe(
+      Flag.withDescription(
+        "emit the new terminal's record as JSON ({id, worktree?, ran?}) instead of the bare id",
+      ),
     ),
   ),
 } as const;
@@ -367,9 +385,11 @@ export const sendFlags = {
       ),
     ),
   ),
-  json: Flag.boolean("json").pipe(
-    Flag.withDescription(
-      "emit what was written as JSON ({id, bytes, paste, keys}) on stdout, instead of the stderr trailer",
+  json: sw(
+    Flag.boolean("json").pipe(
+      Flag.withDescription(
+        "emit what was written as JSON ({id, bytes, paste, keys}) on stdout, instead of the stderr trailer",
+      ),
     ),
   ),
 } as const;
@@ -426,9 +446,11 @@ export const waitFlags = {
       ),
     ),
   ),
-  json: Flag.boolean("json").pipe(
-    Flag.withDescription(
-      "emit one outcome frame ({id, result, …}) for EVERY arm — met, timeout, gone, interrupted — so a driver branches on `result`, not on the exit code",
+  json: sw(
+    Flag.boolean("json").pipe(
+      Flag.withDescription(
+        "emit one outcome frame ({id, result, …}) for EVERY arm — met, timeout, gone, interrupted — so a driver branches on `result`, not on the exit code",
+      ),
     ),
   ),
 } as const;
@@ -478,8 +500,10 @@ export const debriefFlags = {
     Flag.withDefault(DEBRIEF_TAIL_LINES),
   ),
   timeout: timeoutFlag,
-  json: Flag.boolean("json").pipe(
-    Flag.withDescription("`wait`'s outcome frame, with `screen` on the met"),
+  json: sw(
+    Flag.boolean("json").pipe(
+      Flag.withDescription("`wait`'s outcome frame, with `screen` on the met"),
+    ),
   ),
 } as const;
 
@@ -590,7 +614,7 @@ export const watchFlags = {
       Argument.withDescription("narrow to one terminal"),
     ),
   ),
-  json: Flag.boolean("json").pipe(Flag.withDescription("emit NDJSON")),
+  json: sw(Flag.boolean("json").pipe(Flag.withDescription("emit NDJSON"))),
 } as const;
 
 const watch = Command.make(
