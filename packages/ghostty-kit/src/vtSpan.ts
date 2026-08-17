@@ -79,3 +79,12 @@ const RIS = /\x1bc/;
 export function containsRis(text: string): boolean {
   return RIS.test(text);
 }
+
+/** ED (CSI J) or alt-screen enter/leave. These change the trimmed
+ *  visual-row count while DATA_TOTAL_ROWS stays put, so a total-delta
+ *  cache would drift. */
+const ED_OR_ALT = /\x1b\[\d*J|\x1b\[\?[\d;]*(?:47|1047|1048|1049)[\d;]*[hl]/;
+
+export function shiftsVisualWithoutTotal(text: string): boolean {
+  return ED_OR_ALT.test(text);
+}

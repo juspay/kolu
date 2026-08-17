@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createEngine } from "../index.ts";
 import { lineText } from "../styled.ts";
-import { adjustLockedViewOffset, repinLockedViewOffset } from "./lockOffset.ts";
+import { repinLockedViewOffset } from "./lockOffset.ts";
 
-describe("adjustLockedViewOffset", () => {
-  it("advances the window by the totalRows growth, without restyling", () => {
-    expect(adjustLockedViewOffset(10, 80, 85, 24, "held", [])).toBe(15);
-  });
-
+describe("repinLockedViewOffset", () => {
   it("repins a drifted window so the held line is the first visible row", () => {
     const eng = createEngine({ cols: 20, rows: 4, scrollback: 40 });
     try {
@@ -41,15 +37,9 @@ describe("adjustLockedViewOffset", () => {
         if (beforeSnap && held.length > 0 && afterTotal < beforeTotal) {
           sawPrune = true;
           const after = eng.styledLines({ kind: "full" });
-          const next = adjustLockedViewOffset(
-            7,
-            beforeTotal,
-            afterTotal,
-            5,
-            held,
-            after,
-          );
-          const start = Math.max(0, after.length - 5 - next);
+          const next = repinLockedViewOffset(5, held, after);
+          expect(next).not.toBeNull();
+          const start = Math.max(0, after.length - 5 - (next ?? 0));
           const window = after.slice(start, start + 5).map((l) => lineText(l));
           expect(window).toContain(held);
           break;

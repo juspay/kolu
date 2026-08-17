@@ -3,6 +3,7 @@ import {
   applyCursorKeyMode,
   scanOsc52,
   scanOsc633E,
+  shiftsVisualWithoutTotal,
   takeCompleteVt,
   VT_LEFTOVER_MAX,
 } from "./vtSpan.ts";
@@ -62,5 +63,16 @@ describe("applyCursorKeyMode", () => {
   it("turns on for DECSET 1 and off for RIS", () => {
     expect(applyCursorKeyMode("\x1b[?1h", false)).toBe(true);
     expect(applyCursorKeyMode("\x1bc", true)).toBe(false);
+  });
+});
+
+describe("shiftsVisualWithoutTotal", () => {
+  it("detects ED and alt-screen, not a plain newline", () => {
+    expect(shiftsVisualWithoutTotal("hello\r\n")).toBe(false);
+    expect(shiftsVisualWithoutTotal("\x1b[2J")).toBe(true);
+    expect(shiftsVisualWithoutTotal("\x1b[J")).toBe(true);
+    expect(shiftsVisualWithoutTotal("\x1b[?1049h")).toBe(true);
+    expect(shiftsVisualWithoutTotal("\x1b[?1049l")).toBe(true);
+    expect(shiftsVisualWithoutTotal("\x1b[?47h")).toBe(true);
   });
 });

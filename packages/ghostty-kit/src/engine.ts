@@ -32,6 +32,7 @@ import {
   containsRis,
   scanOsc52,
   scanOsc633E,
+  shiftsVisualWithoutTotal,
   takeCompleteVt,
 } from "./vtSpan.ts";
 
@@ -427,13 +428,23 @@ export function createEngine(opts: EngineOptions): Engine {
         if (ris) {
           origin += lastTotal;
           epoch += 1;
-          visualCount = undefined;
         } else {
           origin += lastTotal - total;
         }
       }
-      if (visualCount !== undefined && !ris) {
-        visualCount += total - lastTotal;
+      // DATA_TOTAL_ROWS includes trailing blank viewport rows. A
+      // fill, ED, or alt-screen swap changes the trimmed visual
+      // count without moving total — drop the cache and re-seed.
+      const d = total - lastTotal;
+      if (
+        visualCount !== undefined &&
+        !ris &&
+        d > 0 &&
+        !shiftsVisualWithoutTotal(spanned.complete)
+      ) {
+        visualCount += d;
+      } else {
+        visualCount = undefined;
       }
       lastTotal = total;
       invalidate();
