@@ -32,7 +32,7 @@
  * assertion is a byte-level fixture over the exact serialized string.
  */
 
-import { PLACEMENT_REQUIRED } from "@kolu/padi/surface";
+import { PLACEMENT_REQUIRED, SUBMIT_SETTLE_MS } from "@kolu/padi/surface";
 import { toInputSchema } from "@kolu/surface-mcp";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -126,14 +126,26 @@ describe("screen_text args → the JSON Schema a host reads", () => {
 });
 
 describe("lifecycle_sendInput args → the JSON Schema a host reads", () => {
-  it("both optional fields carry their blurb (the annotation is INSIDE optionalKey)", () => {
+  it("every optional field carries its blurb (the annotation is INSIDE optionalKey)", () => {
     const doc = toInputSchema(SendInputArgsSchema);
     const described = propertyDescriptions(doc);
-    expect(described.text).toMatch(/NEVER carries the submit/);
+    expect(described.text).toMatch(/submit: true/);
     expect(described.key).toMatch(/Mutually exclusive with text/);
-    // The XOR is enforced in `resolveSendInputData`, not in the schema — so
-    // BOTH stay optional and neither is required.
+    expect(described.submit).toMatch(/wait for the target's prompt to be IDLE/);
+    // Every combination gate lives in `resolveSendAction`, not in the schema —
+    // so every field but `id` stays optional and none is required.
     expect(doc.required).toEqual(["id"]);
+  });
+
+  it("settleMs is annotate-first, so its blurb survives the checks", () => {
+    // The `allOf` trap `MillisecondsSchema` documents: a blurb attached AFTER a
+    // check lands inside an `allOf` branch, where no host renders it. This field
+    // carries two checks, so it is the one on this tool that would lose it.
+    const doc = toInputSchema(SendInputArgsSchema);
+    expect(propertyDescriptions(doc).settleMs).toMatch(
+      new RegExp(`Default ${SUBMIT_SETTLE_MS}`),
+    );
+    expect(doc.properties?.settleMs).toMatchObject({ type: "integer" });
   });
 });
 
@@ -146,6 +158,7 @@ describe("lifecycle_create args → the JSON Schema a host reads", () => {
     expect(described.worktree).toMatch(/<repo>\/\.worktrees\/<name>/);
     expect(described.repo).toMatch(/Absolute path/);
     expect(described.run).toMatch(/not a spawn argv/);
+    expect(described.message).toMatch(/reaches its prompt/);
     // …and the check really is there, beside the blurb rather than instead of
     // it — an agent's name is validated before the tool dials padi.
     expect(property(doc, "worktree").allOf).toBeDefined();

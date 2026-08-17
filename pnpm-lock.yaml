@@ -910,6 +910,9 @@ importers:
       '@kolu/surface-remote':
         specifier: workspace:*
         version: link:../surface-remote
+      '@kolu/terminal-protocol':
+        specifier: workspace:*
+        version: link:../terminal-protocol
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab

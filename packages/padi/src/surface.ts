@@ -100,6 +100,7 @@ import {
   KavalContractSkew,
   PreviewTooLarge,
   ScratchWriteRejected,
+  SubmitRefused,
   TerminalNotFound,
   TerminalParentCycle,
   WatchSubscriptionNotFound,
@@ -385,8 +386,33 @@ export * from "./vocab.ts";
  *  suffices for the usual reason — a newer binder against a 5.1 padi fails
  *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming
  *  its surface, so a 5.2 client never calls `backups.*` on a padi that lacks
- *  the ring. */
-export const PADI_SURFACE_VERSION = "5.2";
+ *  the ring.
+ *
+ *  5.3 (additive · minor): a NEW `lifecycle.submitInput` procedure — type a
+ *  message into a driven TUI, WAIT for the terminal to take it, then press Enter,
+ *  all inside one call ({@link PadiSubmitInputSchema}). It is a new procedure
+ *  rather than a `submit` flag on `lifecycle.sendInput`, and that is the
+ *  load-bearing choice here, for two independent reasons:
+ *
+ *    - `sendInput` is the KEYSTROKE path. Every character the browser types is
+ *      one of these calls (`Terminal.tsx` → `lifecycle.sendInput`, the member
+ *      `bench/typingEchoLatency.ts` exists to measure), and it answers `void`.
+ *      Growing it an output so a submit could report what happened would put a
+ *      payload on every keystroke's reply forever, to serve a call shape that is
+ *      not a keystroke.
+ *    - They have opposite failure contracts. `sendInput` CANNOT refuse — a write
+ *      landing just after a kill is an expected race, quiet-dropped (#1628), and
+ *      its absent error channel is a statement. A submit MUST refuse: waiting for
+ *      an idle prompt is bounded, and running out of that bound with the text
+ *      unsent is exactly the fact a driver has to hear ({@link SubmitRefused}).
+ *      One member cannot hold both readings of the same silence.
+ *
+ *  Purely additive, so the plainest minor there is, and the minor suffices for
+ *  the usual reason — a newer binder against a 5.2 padi fails
+ *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming its
+ *  surface, so a 5.3 client never calls `lifecycle.submitInput` on a padi that
+ *  lacks it. */
+export const PADI_SURFACE_VERSION = "5.3";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -887,6 +913,77 @@ export const PadiResizeInputSchema = Schema.Struct({
 export const PadiSendInputSchema = Schema.Struct({
   id: TerminalIdSchema,
   data: Schema.String,
+});
+
+// ── The one-call submit (`lifecycle.submitInput`) ─────────────────────────
+//
+// `sendInput` writes bytes; this DELIVERS a message. The difference is the two
+// observations padi makes on the caller's behalf — the prompt is idle before the
+// text is typed, and the TUI has taken the text before Enter is pressed — which
+// is why it is a member of its own rather than a flag (see the 5.3 note on
+// `PADI_SURFACE_VERSION`). The doctrine, the mid-turn hazard it exists for, and
+// the two refusal shapes live in `./submitInput.ts`.
+
+/** How long a terminal's output must be QUIET before padi believes the prompt is
+ *  idle / the TUI has taken the paste. The field-calibrated value: long enough to
+ *  ride the gaps in a TUI's own redraw, short enough that a submit to an idle
+ *  agent is not a noticeable pause. Exported because every FACE quotes it in the
+ *  blurb that says what the default is. */
+export const SUBMIT_SETTLE_MS = 1_500;
+
+/** The quiet window for a FIRST message — the one a create delivers to an agent
+ *  it just launched. Deliberately far wider than {@link SUBMIT_SETTLE_MS}, and
+ *  the reason is a silence rather than a noise: between the shell echoing the
+ *  launch line and the agent painting its first frame, a booting CLI produces NO
+ *  output at all for a second or three (process exec, module load), and a quiet
+ *  window narrower than that boot silence reads it as an idle prompt and types
+ *  the brief into a process that has not opened its input box yet.
+ *
+ *  This is the create path's whole answer to the boot race, and it is stated as
+ *  ONE number rather than a mode: the machinery is identical to any other submit,
+ *  it just has to out-wait a longer silence. It costs a create+message a few
+ *  seconds it would otherwise not spend — against a brief that lands in a void,
+ *  that is not a close call. */
+export const FIRST_MESSAGE_SETTLE_MS = 5_000;
+
+/** How long a submit waits for a busy terminal to reach an idle prompt before
+ *  REFUSING (per wait — the readiness wait and the post-type settle each get
+ *  their own bound). Sized for "an agent is mid-turn and I would rather queue
+ *  behind it than lose the message", and kept under the ~1–2 min per-call cap
+ *  most MCP hosts impose so a refusal reaches the caller as a refusal rather than
+ *  as a killed request. A create's first message overrides it upward: an agent
+ *  still booting has not reached a prompt to be idle at. */
+export const SUBMIT_TIMEOUT_MS = 60_000;
+
+/** A submit request. `data` is the ALREADY-ENCODED text write — the caller's own
+ *  send policy decided bracketed paste, exactly as for `sendInput` — so a
+ *  submitted message is byte-identical to the same message sent the manual way.
+ *  padi adds exactly one byte sequence of its own: the Enter. */
+export const PadiSubmitInputSchema = Schema.Struct({
+  id: TerminalIdSchema,
+  data: Schema.String,
+  /** The quiet window, default {@link SUBMIT_SETTLE_MS}. */
+  settleMs: Schema.optionalKey(PositiveInt),
+  /** The per-wait bound, default {@link SUBMIT_TIMEOUT_MS}. */
+  timeoutMs: Schema.optionalKey(PositiveInt),
+});
+
+/** What a submit that LANDED reports. There is no `submitted` field: a submit
+ *  either pressed Enter — in which case this record exists — or refused, in which
+ *  case {@link SubmitRefused} does. A boolean would let the two be confused by a
+ *  reader that forgot to check the error channel, which is the reading this whole
+ *  member exists to make impossible.
+ *
+ *  The two waits are reported SEPARATELY rather than summed, because they answer
+ *  different questions: `readyAfterMs` is how long the target was busy (a
+ *  dispatch queued behind someone else's turn), `settledAfterMs` is how long the
+ *  TUI took to swallow the paste (a property of the TUI, not of the workload). */
+export const PadiSubmitOutputSchema = Schema.Struct({
+  /** UTF-8 bytes of the text write, paste markers included — NOT counting the
+   *  Enter, which padi added rather than the caller. */
+  typedBytes: NonNegativeInt,
+  readyAfterMs: NonNegativeInt,
+  settledAfterMs: NonNegativeInt,
 });
 
 // ── Standing settle-event subscriptions (`watch.*`) ───────────────────────
@@ -1559,6 +1656,19 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       discardSleeping: { input: PadiTerminalIdInputSchema },
       resize: { input: PadiResizeInputSchema },
       sendInput: { input: PadiSendInputSchema },
+      /** Deliver a message and submit it — type the text, WAIT for the terminal
+       *  to take it, then press Enter. The one-call dispatch, and the one member
+       *  here that REFUSES rather than quiet-dropping: a bounded wait that runs
+       *  out with the text unsent is exactly the fact a driving loop must hear
+       *  (see {@link SubmitRefused}, and `./submitInput.ts` for the mid-turn
+       *  doctrine). `TerminalNotFound` rides the same channel because a submit
+       *  aimed at an id that never existed is a caller error, not the
+       *  expected-race a keystroke's quiet-drop covers. */
+      submitInput: {
+        input: PadiSubmitInputSchema,
+        output: PadiSubmitOutputSchema,
+        error: Schema.Union([TerminalNotFound, SubmitRefused]),
+      },
       /** Force-recycle THIS host's kaval daemon, preserving the session — the
        *  "Restart kaval" button (B3.2). padi's INTERNAL supervisory op: capture
        *  the session → drain the terminals → recycle kaval (kill + spawn fresh) →

@@ -30,7 +30,6 @@
 
 import { source } from "@kolu/surface/reactor";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
-import { Effect, Stream } from "effect";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import type { PadiTerminal, PadiUrgency } from "../surface.ts";
@@ -73,21 +72,11 @@ export function waitingIdsOf(
   return ids;
 }
 
-/** Latch `onStart` when the stream actually begins running and `onEnd` when it
- *  drains, fails, or is interrupted. A kaval stream member is LAZY, so "the feed
- *  is up" is the moment the stream STARTS — not the moment the value was built
- *  (which registers nothing). `ensuring` runs after the stream's own finalizers,
- *  which is what latches feed-down before the resubscribe delay. */
-function withFeedHooks<T>(
-  source: Stream.Stream<T, unknown>,
-  onStart: () => void,
-  onEnd: () => void,
-): Stream.Stream<T, unknown> {
-  return Stream.ensuring(
-    Stream.onStart(source, Effect.sync(onStart)),
-    Effect.sync(onEnd),
-  );
-}
+// The feed-liveness latch this fold needs — "is the activity subscription
+// actually running?" — is `resubscribeStream`'s `onFeedLive`, not a wrapper here:
+// the laziness it works around is the SUBSCRIBE loop's, and a second consumer
+// (the submit gate) needs the identical fact for the identical reason. See that
+// option's doc.
 
 /**
  * Build the finish-quiet fact. When `standingSub` is true (production default),
@@ -224,12 +213,8 @@ export function createFinishQuiet(opts: {
     void resubscribeStream({
       signal: sig,
       delayMs: ACTIVITY_RESUBSCRIBE_DELAY_MS,
-      getStream: () =>
-        withFeedHooks(
-          ptyHostClient.surface.activity.get({}),
-          markFeedUp,
-          markFeedDown,
-        ),
+      getStream: () => ptyHostClient.surface.activity.get({}),
+      onFeedLive: (live) => (live ? markFeedUp() : markFeedDown()),
       onEvent: (edge) => noteEdge(edge.id as TerminalId),
       onDrop: (err) => {
         markFeedDown();

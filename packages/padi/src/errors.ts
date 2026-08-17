@@ -172,6 +172,48 @@ export class ScratchWriteRejected extends Schema.TaggedError<ScratchWriteRejecte
   }
 }
 
+/** A `lifecycle.submitInput` that ran out of its bound without reaching an idle
+ *  prompt — or whose terminal died under it.
+ *
+ *  DECLARED, and the only reason this member has an error channel at all
+ *  (`sendInput`, whose absent channel says a write landing after a kill is an
+ *  expected race, quiet-drops instead). A submit that cannot observe the TUI take
+ *  its text has NOT delivered the message, and a caller told "ok" would find out
+ *  minutes later, from the absence of a reply, that a brief evaporated.
+ *
+ *  `phase` is the RECOVERY, not a diagnostic, which is why it rides as data:
+ *
+ *    - `"ready"` — the target never reached an idle prompt. NOTHING was written.
+ *      Retry, or wait for the worker and dispatch again; there is no residue.
+ *    - `"settle"` — the text IS in the input box and was NOT submitted. Press
+ *      Enter (`sendInput` with the Enter bytes) once the terminal is calm, or
+ *      Escape and re-send. Do NOT simply re-send: that lands the message twice.
+ *
+ *  `reason` separates the two ways a wait ends: `"busy"` is the bound expiring
+ *  against a working terminal, `"gone"` is the terminal ceasing to exist mid-wait
+ *  — one is worth retrying and the other never is. */
+export class SubmitRefused extends Schema.TaggedError<SubmitRefused>(
+  "padi/SubmitRefused",
+)("SubmitRefused", {
+  id: Schema.String,
+  phase: Schema.Literals(["ready", "settle"]),
+  reason: Schema.Literals(["busy", "gone"]),
+  /** How long this wait actually ran before giving up — the number that says
+   *  whether the bound is set anywhere near right. */
+  waitedMs: Schema.Int,
+}) {
+  override get message(): string {
+    if (this.reason === "gone") {
+      return this.phase === "ready"
+        ? `Terminal ${this.id} is gone — nothing was typed`
+        : `Terminal ${this.id} is gone; the text was typed but NEVER submitted`;
+    }
+    return this.phase === "ready"
+      ? `Terminal ${this.id} never reached an idle prompt within ${this.waitedMs}ms — NOTHING was typed, so nothing was lost. It is mid-turn: wait for it to finish (wait_agentState / kolu wait) and dispatch again.`
+      : `Terminal ${this.id} kept producing output for ${this.waitedMs}ms after the text was typed, so the Enter was NOT sent. The text is sitting in the input box UNSUBMITTED — send Enter once it settles, or Escape and re-send. Do not simply re-send: that would deliver the message twice.`;
+  }
+}
+
 /** An unranged / open-ended `preview.read` whose body would exceed the inline
  *  cap. Fail-fast, NEVER a silent truncation — and the message NAMES the fix
  *  (request a bounded byte range), which is why the cap rides as data: a client
@@ -332,6 +374,7 @@ const PADI_ERROR_CLASSES = [
   TerminalParentCycle,
   WatchSubscriptionNotFound,
   ScratchWriteRejected,
+  SubmitRefused,
   PreviewTooLarge,
   TranscriptNoAgent,
   TranscriptNotFound,

@@ -480,13 +480,46 @@ export async function resubscribeStream<T>(opts: {
   delayMs: number;
   getStream: () => Stream.Stream<T, unknown>;
   onEvent: (value: T) => void;
+  /** Latched when the subscription actually starts RUNNING (`true`) and again
+   *  when it drains, fails, or is interrupted (`false`) — the "am I still
+   *  watching?" fact a consumer needs to tell genuine quiet from blindness.
+   *
+   *  It lives HERE rather than in each consumer because a kaval stream member is
+   *  LAZY: building the stream registers nothing, so "the feed is up" is the
+   *  moment `bridgeStream` RUNS it, which only this loop knows. Both consumers
+   *  that care (the effective-finish fold, whose quiet promotion must not fire
+   *  across a lost edge; the submit gate, whose silence-is-idle reading would
+   *  type into a working agent) got it wrong in the same way when they each had
+   *  to reconstruct it. `ensuring` runs after the stream's own finalizers, which
+   *  is what latches feed-down BEFORE the re-subscribe delay below. */
+  onFeedLive?: (live: boolean) => void;
   onStreamError?: (err: unknown) => void;
   onDrop: (err: unknown) => void;
 }): Promise<void> {
-  const { signal, delayMs, getStream, onEvent, onStreamError, onDrop } = opts;
+  const {
+    signal,
+    delayMs,
+    getStream,
+    onEvent,
+    onFeedLive,
+    onStreamError,
+    onDrop,
+  } = opts;
+  const watched = (): Stream.Stream<T, unknown> => {
+    const stream = getStream();
+    return onFeedLive === undefined
+      ? stream
+      : Stream.ensuring(
+          Stream.onStart(
+            stream,
+            Effect.sync(() => onFeedLive(true)),
+          ),
+          Effect.sync(() => onFeedLive(false)),
+        );
+  };
   while (!signal.aborted) {
     try {
-      await bridgeStream(getStream(), signal, onEvent, onStreamError);
+      await bridgeStream(watched(), signal, onEvent, onStreamError);
     } catch (err) {
       if (signal.aborted) return;
       onDrop(err);

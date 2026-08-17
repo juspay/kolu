@@ -40,6 +40,9 @@
  * loads either, and a reserved face fails fast having loaded nothing.
  */
 
+// The submit's default quiet window, read off padi's own vocabulary so the flag
+// help and the daemon that applies the default cannot state two numbers.
+import { SUBMIT_SETTLE_MS } from "@kolu/padi/surface";
 import { isValidTimerMs, MAX_TIMER_MS } from "@kolu/surface/wait";
 import { Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
@@ -299,9 +302,16 @@ export const createFlags = {
       ),
     ),
   ),
+  message: opt(
+    Flag.string("message").pipe(
+      Flag.withDescription(
+        "a first message to deliver once the command in -- <argv> reaches its prompt — spawn and brief a worker in one command",
+      ),
+    ),
+  ),
   json: Flag.boolean("json").pipe(
     Flag.withDescription(
-      "emit the new terminal's record as JSON ({id, worktree?, ran?}) instead of the bare id",
+      "emit the new terminal's record as JSON ({id, worktree?, ran?, briefed?}) instead of the bare id",
     ),
   ),
 } as const;
@@ -367,9 +377,23 @@ export const sendFlags = {
       ),
     ),
   ),
+  // The one-call dispatch. A plain boolean, not a tristate: there is no
+  // "explicitly do not submit" to express — that is simply a send.
+  submit: Flag.boolean("submit").pipe(
+    Flag.withDescription(
+      "deliver the text as a whole message: wait for the prompt to be idle, type, wait for the TUI to take it, then Enter (refuses rather than typing into a mid-turn agent)",
+    ),
+  ),
+  settleMs: opt(
+    timerMsFlag("settle-ms", "reports a false settle").pipe(
+      Flag.withDescription(
+        `how quiet the terminal must be (ms) before --submit believes the prompt is idle / the paste landed (default ${SUBMIT_SETTLE_MS})`,
+      ),
+    ),
+  ),
   json: Flag.boolean("json").pipe(
     Flag.withDescription(
-      "emit what was written as JSON ({id, bytes, paste, keys}) on stdout, instead of the stderr trailer",
+      "emit what was written as JSON ({id, bytes, paste, keys, submitted}) on stdout, instead of the stderr trailer",
     ),
   ),
 } as const;
@@ -382,12 +406,17 @@ const send = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Type into a terminal — text, or a named key with --key. Text and keys are mutually exclusive.",
+    "Type into a terminal — text, or a named key with --key. Text and keys are mutually exclusive; --submit delivers the text AND submits it in one command.",
   ),
   Command.withExamples([
     {
+      command: 'kolu send 3f9c --submit "review this PR"',
+      description:
+        "Deliver a prompt and submit it — the whole dispatch in one command",
+    },
+    {
       command: 'kolu send 3f9c "review this PR"',
-      description: "Type a prompt (it is NOT submitted — see --key Enter)",
+      description: "Type a prompt without submitting (see --key Enter)",
     },
     {
       command: "kolu send 3f9c --key Enter",

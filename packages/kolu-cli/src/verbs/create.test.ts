@@ -33,6 +33,7 @@ const NOTHING: CreateArgs = {
   intent: undefined,
   repo: undefined,
   worktree: undefined,
+  message: undefined,
   json: false,
 };
 

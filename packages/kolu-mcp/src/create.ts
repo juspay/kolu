@@ -2,8 +2,25 @@
  * `lifecycle_create` — the MCP face's create tool, completing the verb to
  * `kolu create` parity: spawn a terminal at a STATED `placement` (a tile of its
  * own, or a split inside another), in a fresh git worktree (`repo` +
- * `worktree`), labelled on the canvas (`intent`), and optionally typing a
- * command at its first prompt (`run`).
+ * `worktree`), labelled on the canvas (`intent`), optionally typing a
+ * command at its first prompt (`run`), and — the step that makes the whole call
+ * worth making — briefing what that command started (`message`).
+ *
+ * ## `run` + `message` is the whole spawn-and-dispatch
+ *
+ * Briefing a fresh worker used to cost about six calls: create, wait for the
+ * agent to boot, type the brief, wait for the terminal to settle, send Enter,
+ * read the screen to check it took. Five of those are the orchestrator doing, by
+ * hand and across a wire, an observation padi can make in-process. `message` is
+ * that observation moved: padi waits for the launched agent to reach a prompt,
+ * types the brief, waits for the TUI to take it, and presses Enter — inside this
+ * one tool call, on the same machinery `lifecycle_sendInput { submit: true }`
+ * uses, with one wider quiet window because a booting agent is SILENT before it
+ * paints (`FIRST_MESSAGE_SETTLE_MS`).
+ *
+ * It refuses rather than guessing. A terminal that never settles gets no text
+ * typed into it, and the failure names the live terminal so the caller dispatches
+ * it rather than creating a second one.
  *
  * ## `placement` is required here for the same reason it is on the CLI
  *
@@ -73,12 +90,21 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { PadiCreateInputSchema, PLACEMENT_REQUIRED } from "@kolu/padi/surface";
+import {
+  FIRST_MESSAGE_SETTLE_MS,
+  PadiCreateInputSchema,
+  PLACEMENT_REQUIRED,
+} from "@kolu/padi/surface";
 import { type BespokeTool, messageOf, ToolFailure } from "@kolu/surface-mcp";
+import { encodeSend } from "@kolu/terminal-protocol";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import { isValidWorktreeName, WORKTREE_NAME_MESSAGE } from "kolu-git/schemas";
 import { isAbsolute } from "node:path";
+// The face's ONE send vocabulary, shared with `lifecycle_sendInput` rather than
+// re-spelled: a refusal a create's brief raises must name the same fields, in
+// the same words, as the identical refusal from a plain send.
+import { MCP_SEND_VOCABULARY } from "./sendInput.ts";
 
 export const CreateArgsSchema = Schema.Struct({
   // The verb's existing fields, spread from the wire schema itself so this
@@ -126,6 +152,12 @@ export const CreateArgsSchema = Schema.Struct({
         'A command line to TYPE at the new terminal\'s first shell prompt, submitted with Enter (e.g. "claude"). Typed input to the rc-hooked shell — not a spawn argv — exactly `kolu create -- <argv>`. A newline in it submits a line, so a multi-line value runs as several commands.',
     }),
   ),
+  message: Schema.optionalKey(
+    Schema.String.annotate({
+      description:
+        "A first message to deliver once the thing `run` launched reaches its prompt — the brief. padi waits for the new terminal to go quiet (a wider window than a normal submit, because a booting agent is silent before it paints), types this, waits again, then presses Enter. With it, ONE call spawns a worker and puts it to work; without it you would create, wait for boot, type, settle, submit, and verify. Refuses rather than typing into a terminal that never settles — the terminal survives and is named.",
+    }),
+  ),
 });
 export type CreateArgs = typeof CreateArgsSchema.Type;
 
@@ -164,6 +196,11 @@ export type CreateRefusal =
       /** The `run` line that was never typed — present only when a terminal
        *  exists and is sitting at a bare prompt because of it. */
       readonly notTyped?: string;
+      /** The `message` that was never delivered — present only when the terminal
+       *  (and whatever `run` started in it) is live and simply never got the
+       *  brief. Distinct from `notTyped`: there the terminal is a bare shell, here
+       *  it is a running agent sitting idle with nothing to do. */
+      readonly notDelivered?: string;
     };
 
 const refuse = (
@@ -184,6 +221,7 @@ export function refuseBlankFields(args: CreateArgs): void {
     ["repo", args.repo],
     ["worktree", args.worktree],
     ["run", args.run],
+    ["message", args.message],
   ] as const) {
     if (value !== undefined && value.trim() === "") {
       throw refuse(
@@ -248,8 +286,9 @@ export function resolveCreateDirectory(args: {
 function stoppedPartway(
   landed: Landed,
   error: unknown,
-  notTyped?: string,
+  unfinished: { notTyped?: string; notDelivered?: string } = {},
 ): ToolFailure<CreateRefusal> {
+  const { notTyped, notDelivered } = unfinished;
   const lines = [
     messageOf(error),
     "the create stopped PARTWAY — these already exist and were NOT rolled back:",
@@ -269,11 +308,21 @@ function stoppedPartway(
         `  \`${notTyped}\` was NOT typed — that terminal is sitting at a bare shell prompt`,
       );
     }
+    if (notDelivered !== undefined) {
+      // The recovery is NOT "call create again": the worker is up and only the
+      // brief is missing, so the fix is one `lifecycle_sendInput` at the id
+      // above. Saying so here is what stops a driver from spawning a second
+      // worker to deliver a message the first one is waiting for.
+      lines.push(
+        `  the message was NOT delivered — that agent is live and idle; dispatch it with lifecycle_sendInput { id, text, submit: true } rather than creating another`,
+      );
+    }
   }
   return refuse(lines.join("\n"), {
     kind: "stopped-partway",
     landed,
     ...(notTyped !== undefined ? { notTyped } : {}),
+    ...(notDelivered !== undefined ? { notDelivered } : {}),
   });
 }
 
@@ -285,6 +334,10 @@ export interface CreateResult {
   readonly pid: number;
   readonly worktree?: LandedWorktree;
   readonly ran?: string;
+  /** The first message, present only when one was actually SUBMITTED. A create
+   *  that reports `briefed` has put the worker to work; one that does not, has
+   *  not — there is no "delivered, probably" reading available. */
+  readonly briefed?: string;
 }
 
 /** The three world-changing steps as one effect. See the module doc for the
@@ -304,6 +357,7 @@ const composeCreate = (
       repo: _repo,
       worktree: _wt,
       run,
+      message,
       placement,
       ...createRest
     } = args;
@@ -353,7 +407,55 @@ const composeCreate = (
           id: created.id,
           data: `${run}\r`,
         }),
-        (error) => stoppedPartway({ id: created.id, worktree }, error, run),
+        (error) =>
+          stoppedPartway({ id: created.id, worktree }, error, {
+            notTyped: run,
+          }),
+      );
+    }
+
+    // ── Step 4: the brief ───────────────────────────────────────────────────
+    // The SAME submit machinery `lifecycle_sendInput { submit: true }` uses,
+    // with the one parameter a first message needs: a wider quiet window, so a
+    // booting agent's silence between exec and first paint is not mistaken for
+    // an idle prompt (`FIRST_MESSAGE_SETTLE_MS`). Everything else — the
+    // mid-turn refusal, the paste encoding, the Enter — is padi's, unchanged.
+    //
+    // Encoded through the SHARED send policy rather than written raw: a brief is
+    // usually multiline, and it must arrive as one bracketed paste here exactly
+    // as it would through `kolu send --file`, or the agent's input box fires a
+    // half-written prompt at every newline.
+    if (message !== undefined) {
+      const encoded = encodeSend(
+        {
+          kind: "text",
+          text: message,
+          sourceLabel: "message",
+          paste: undefined,
+          fromStream: false,
+        },
+        MCP_SEND_VOCABULARY,
+      );
+      if (encoded.kind === "refused") {
+        // Unreachable today — `refuseBlankFields` already rejected an empty
+        // `message` — and raised rather than assumed away, because the shared
+        // policy is free to grow a refusal this face has not heard of.
+        return yield* Effect.fail(
+          stoppedPartway({ id: created.id, worktree }, encoded.message, {
+            notDelivered: message,
+          }),
+        );
+      }
+      yield* Effect.mapError(
+        padi.surface.lifecycle.submitInput({
+          id: created.id,
+          data: encoded.plan.write,
+          settleMs: FIRST_MESSAGE_SETTLE_MS,
+        }),
+        (error) =>
+          stoppedPartway({ id: created.id, worktree }, error, {
+            notDelivered: message,
+          }),
       );
     }
 
@@ -362,6 +464,7 @@ const composeCreate = (
       pid: created.pid,
       ...(worktree !== undefined ? { worktree } : {}),
       ...(run !== undefined ? { ran: run } : {}),
+      ...(message !== undefined ? { briefed: message } : {}),
     };
   });
 
@@ -373,7 +476,7 @@ export const createTool: BespokeTool = {
   mutates: true,
   title: "Create a terminal",
   description:
-    'Open a new terminal and return its id. `placement` is REQUIRED and has no default — say `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"<terminal id>"}` to open it as a split INSIDE that terminal; the canvas and the Dock read that edge as who-works-for-whom, so guessing it flattens the hierarchy. Optionally: in a FRESH GIT WORKTREE (repo + worktree ⇒ cut at <repo>/.worktrees/<name>, terminal opens in it), labelled on the canvas (intent), and typing a command at its first shell prompt (run, submitted with Enter). One call replaces `kolu create --toplevel --repo … --worktree … -- <cmd>`. The terminal always gets the rc-hooked shell; `run` is typed input, not a spawn argv. A failure after the worktree or terminal landed names the survivors in structuredContent (stopped-partway) — nothing is rolled back.',
+    'Open a new terminal and return its id. `placement` is REQUIRED and has no default — say `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"<terminal id>"}` to open it as a split INSIDE that terminal; the canvas and the Dock read that edge as who-works-for-whom, so guessing it flattens the hierarchy. Optionally: in a FRESH GIT WORKTREE (repo + worktree ⇒ cut at <repo>/.worktrees/<name>, terminal opens in it), labelled on the canvas (intent), typing a command at its first shell prompt (run, submitted with Enter), and — the way to BRIEF a worker — `message`, a first prompt padi delivers once that command reaches its prompt. run + message is the whole spawn-and-dispatch in ONE call: no boot wait, no separate send, no verify. The terminal always gets the rc-hooked shell; `run` is typed input, not a spawn argv. A failure after the worktree or terminal landed names the survivors in structuredContent (stopped-partway) — nothing is rolled back, and an undelivered `message` means a live idle agent to dispatch, not a create to repeat.',
   handler: (args, client) => {
     const a = args as CreateArgs;
     // Refusals are raised synchronously, BEFORE anything dials padi.

@@ -5,7 +5,11 @@
 import { ToolFailure } from "@kolu/surface-mcp";
 import { sendShapeRefusal } from "@kolu/terminal-protocol";
 import { describe, expect, it } from "vitest";
-import { resolveSendInputData, type SendRefusal } from "./sendInput.ts";
+import {
+  resolveSendAction,
+  resolveSendInputData,
+  type SendRefusal,
+} from "./sendInput.ts";
 
 /** The shape gate reads a vocabulary only to WORD its refusal, never to decide
  *  which shapes it refuses — so any vocabulary probes the rule this face's
@@ -147,5 +151,76 @@ describe("resolveSendInputData — the byte count the tool acknowledges", () => 
     // 3 bytes of text PLUS the two 6-byte bracketed-paste markers: what the
     // wire carried, not what the caller passed.
     expect(multiline.bytes).toBe(15);
+  });
+});
+
+describe("resolveSendAction — write vs DELIVERY", () => {
+  // The gates that decide which of padi's two members this call reaches. Both
+  // refuse a field that would otherwise have been silently ignored, which is the
+  // rule this repo applies everywhere a flag can be spelled and not honoured.
+  const actionRefusalFrom = (args: {
+    text?: string;
+    key?: string;
+    submit?: boolean;
+    settleMs?: number;
+  }): ToolFailure<SendRefusal> => {
+    try {
+      resolveSendAction(args);
+    } catch (e) {
+      if (e instanceof ToolFailure) return e as ToolFailure<SendRefusal>;
+      throw new Error(`expected a ToolFailure, got ${String(e)}`);
+    }
+    throw new Error("expected a refusal, but the args resolved");
+  };
+
+  it("plain text is a WRITE — the raw member, unchanged", () => {
+    expect(resolveSendAction({ text: "hi" })).toMatchObject({
+      kind: "write",
+      plan: { write: "hi" },
+    });
+  });
+
+  it("text + submit is a DELIVERY, carrying the same planned bytes", () => {
+    // The bytes must be identical to the write arm's: a submitted message and a
+    // manually-sent one differ only in WHO presses Enter, never in what landed.
+    expect(resolveSendAction({ text: "a\nb", submit: true })).toMatchObject({
+      kind: "submit",
+      plan: { write: "\x1b[200~a\nb\x1b[201~", paste: true },
+      settleMs: undefined,
+    });
+  });
+
+  it("submit without text is refused — a key press has nothing to submit", () => {
+    expect(actionRefusalFrom({ key: "Enter", submit: true }).detail).toEqual({
+      kind: "submit-without-text",
+    });
+    expect(actionRefusalFrom({ submit: true }).detail).toEqual({
+      kind: "submit-without-text",
+    });
+  });
+
+  it("settleMs without submit is refused, never ignored", () => {
+    // A caller who tuned the window and saw it silently dropped would conclude
+    // the tuning did nothing — true, and the least useful way to learn it.
+    const refusal = actionRefusalFrom({ text: "hi", settleMs: 3000 });
+    expect(refusal.detail).toEqual({ kind: "settle-without-submit" });
+    expect(refusal.message).toMatch(/add `submit: true`/);
+  });
+
+  it("submit: false is simply a write — there is no third state", () => {
+    expect(resolveSendAction({ text: "hi", submit: false })).toMatchObject({
+      kind: "write",
+    });
+  });
+
+  it("the shared text/key rules still fire under submit", () => {
+    // `resolveSendAction` adds gates; it must not become a second door that
+    // bypasses the empty-payload and XOR rules the shared policy owns.
+    expect(() => resolveSendAction({ text: "", submit: true })).toThrow(
+      /nothing to send/,
+    );
+    expect(() =>
+      resolveSendAction({ text: "hi", key: "Enter", submit: true }),
+    ).toThrow(/can't be combined/);
   });
 });

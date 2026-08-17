@@ -27,6 +27,8 @@ const resolve = (opts: {
   file?: string | undefined;
   stdinIsPayload?: boolean;
   hasKeys?: boolean;
+  submit?: boolean;
+  settleMs?: number;
 }) =>
   Effect.runSyncExit(
     resolveSendInput({
@@ -34,6 +36,8 @@ const resolve = (opts: {
       file: opts.file,
       stdinIsPayload: opts.stdinIsPayload ?? false,
       hasKeys: opts.hasKeys ?? false,
+      submit: opts.submit ?? false,
+      settleMs: opts.settleMs,
     }),
   );
 
@@ -138,5 +142,45 @@ describe("planSend — this face's wiring into the shared policy", () => {
     expect(refusalOf(exit)).toBe(
       'kolu: nothing to send — --file "/tmp/b.md" is empty. A 0-byte send is a no-op that would hide whatever produced the empty payload; pass non-empty text, or use --key to send a key.\n',
     );
+  });
+});
+
+describe("resolveSendInput — the --submit gates", () => {
+  // Both refuse a flag the user SPELLED that would otherwise have been ignored
+  // — the same rule `--repo` without `--worktree` obeys one verb over — and both
+  // fire BEFORE the dial, so a typo never provisions a cold `--host`.
+  it("--submit with a text source resolves", () => {
+    expect(Exit.isSuccess(resolve({ hasPositional: true, submit: true }))).toBe(
+      true,
+    );
+    expect(
+      Exit.isSuccess(
+        resolve({ file: "/tmp/brief.md", submit: true, settleMs: 3000 }),
+      ),
+    ).toBe(true);
+  });
+
+  it("--submit with no text is refused — a key press has nothing to submit", () => {
+    expect(refusalOf(resolve({ hasKeys: true, submit: true }))).toMatch(
+      /--submit has nothing to submit/,
+    );
+    // …and a `--submit` with NOTHING at all keeps the older, more useful
+    // sentence: the missing piece is a text source, not the submit flag, and
+    // that gate names all four ways to supply one.
+    expect(refusalOf(resolve({ submit: true }))).toMatch(/nothing to send/);
+  });
+
+  it("--settle-ms without --submit is refused, never ignored", () => {
+    expect(refusalOf(resolve({ hasPositional: true, settleMs: 3000 }))).toMatch(
+      /--settle-ms is --submit's quiet window/,
+    );
+  });
+
+  it("the older combination rules still decide first", () => {
+    // `--submit` must not become a second door around the text-XOR-key trap or
+    // the two-sources conflict: those are refused before the submit gates run.
+    expect(
+      refusalOf(resolve({ hasPositional: true, hasKeys: true, submit: true })),
+    ).toMatch(/can't be combined/);
   });
 });

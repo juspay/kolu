@@ -37,6 +37,7 @@
     "@kolu/surface-daemon": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
     "@kolu/surface-remote": "workspace:*",
+    "@kolu/terminal-protocol": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",

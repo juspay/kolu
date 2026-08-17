@@ -7,28 +7,44 @@
  * old face wrote through kaval's `terminal.write`, this one writes through
  * padi's `lifecycle.sendInput`, which is the only daemon a kolu face speaks to.
  *
- * ## It writes EXACTLY what you asked for, and never a submit
+ * ## `--submit` delivers; a bare send writes
  *
- * `send` issues the literal text OR the explicit `--key`s, and nothing more. It
- * NEVER appends a submit Enter on its own, and it bakes in no timing grace: a
+ * Without `--submit`, `send` issues the literal text OR the explicit `--key`s
+ * and nothing more: no Enter is appended, no timing grace is baked in, and a
  * prompt is submitted only when the caller says so, as its own separate
  * `kolu send <id> --key Enter`.
  *
- * Why submit is its own command and not a flag (and why `--submit` will not be
- * coming back): against a bracketed-paste TUI — Claude Code, Codex — the input
- * box debounces a paste before it will accept an Enter. An Enter written in the
- * SAME breath as the text races that debounce, and `kolu` cannot observe when
- * the TUI settled, so any fixed delay is a knob you tune until the race stops
- * biting on your machine and starts again on a slower one. The honest design is
- * tmux's `send-keys` model — strictly compositional — where the CALLER observes
- * the settle (the command lines are single-sourced in {@link SUBMIT_FLOW_HELP}):
+ * `--submit` is the whole dispatch instead — and it is emphatically NOT the
+ * `--submit` this file once said would never come back. That one was a fixed
+ * delay: against a bracketed-paste TUI (Claude Code, Codex) the input box
+ * debounces a paste before it will accept an Enter, and a caller cannot see when
+ * the TUI settled, so any baked-in sleep is a knob you tune until the race stops
+ * biting on your machine and starts again on a slower one. What changed is not
+ * the sleep — it is WHO WATCHES. `--submit` hands the whole delivery to padi
+ * (`lifecycle.submitInput`), which sees kaval's output edge for every PTY and
+ * folds every terminal's agent state, so it can wait for the prompt to be idle,
+ * type, wait for the TUI to take it, and press Enter — all on SIGNALS, none on a
+ * clock:
+ *
+ *     kolu send <id> --submit --file brief.md   # the whole dispatch, one command
+ *
+ * The compositional form is still here, still correct, and is what you reach for
+ * when something must happen BETWEEN the text and the Enter (the command lines
+ * are single-sourced in {@link SUBMIT_FLOW_HELP}):
  *
  *     kolu send <id> --file brief.md      # 1. the text
  *     kolu wait <id> --until idle:300     # 2. OBSERVE the TUI settle (a signal, not a sleep)
  *     kolu send <id> --key Enter          # 3. submit
  *
- * So text + `--key` in ONE send is a HARD ERROR ({@link resolveSendInput}): the
- * dropped-Enter trap is made unspellable, not merely warned about.
+ * So text + `--key` in ONE send is still a HARD ERROR ({@link resolveSendInput}):
+ * the dropped-Enter trap is made unspellable, and `--submit` is the safe way to
+ * fuse them precisely because padi does the observing the caller cannot.
+ *
+ * **What `--submit` does when the target is busy.** It REFUSES, having typed
+ * nothing, rather than queueing — several TUIs clear a typed-but-unsubmitted
+ * input box when their turn ends, so "type now, Enter later" loses the message
+ * outright. Exit non-zero, and the diagnostic says whether anything landed. The
+ * doctrine lives in `@kolu/padi`'s `submitInput.ts`.
  *
  * ## The one transformation: bracketed paste
  *
@@ -178,6 +194,10 @@ export function resolveSendInput(opts: {
   readonly file: string | undefined;
   readonly stdinIsPayload: boolean;
   readonly hasKeys: boolean;
+  /** `--submit` — the whole-delivery form. Legal only with a text source. */
+  readonly submit: boolean;
+  /** `--settle-ms` — `--submit`'s quiet window, and meaningless without it. */
+  readonly settleMs: number | undefined;
 }): Effect.Effect<SendInput, CliFailure> {
   // A `--file` the user SPELLED but left empty is the same shell accident
   // `endpointOf` refuses for `--socket` and `create` refuses for its placement
@@ -220,6 +240,27 @@ export function resolveSendInput(opts: {
     return Effect.fail(
       failure(
         'nothing to send — pass text, use --file <path>, pipe it on stdin, or use --key (e.g. `kolu send <id> "hello"` or `kolu send <id> --key Escape`).',
+      ),
+    );
+  }
+
+  // The two `--submit` gates. Both are "a flag you spelled would have been
+  // ignored", which this verb refuses rather than silently honours (the same
+  // rule `--repo` without `--worktree` obeys one verb over). They live here, in
+  // the ONE combination gate, rather than beside the write: a bad combination
+  // must fail without touching a padi, and `--settle-ms` on a `--key` send would
+  // otherwise be discovered only by its absence of effect.
+  if (opts.submit && input.kind === "none") {
+    return Effect.fail(
+      failure(
+        "--submit has nothing to submit — it delivers TEXT (type it, watch the TUI take it, press Enter). To press a key on its own, drop --submit; to submit what is already typed, use --key Enter.",
+      ),
+    );
+  }
+  if (opts.settleMs !== undefined && !opts.submit) {
+    return Effect.fail(
+      failure(
+        "--settle-ms is --submit's quiet window and this send does not submit — add --submit, or drop --settle-ms.",
       ),
     );
   }
@@ -335,12 +376,25 @@ export function formatSend(result: {
   readonly bytes: number;
   readonly paste: boolean;
   readonly keys: readonly string[];
+  /** Present only on a `--submit` send, and then always `true`: a submit that
+   *  did not land failed instead of reporting. The two wait times ride with it
+   *  because they answer different questions — how long the target was BUSY
+   *  before it could be typed into, and how long the TUI took to swallow the
+   *  paste. */
+  readonly submitted?: {
+    readonly readyAfterMs: number;
+    readonly settledAfterMs: number;
+  };
 }): string {
   const base = `sent ${result.bytes} byte${result.bytes === 1 ? "" : "s"} to ${shortId(result.id)}`;
   const pasteMark = result.paste ? " · pasted" : "";
   const keysMark =
     result.keys.length > 0 ? ` · keys: ${result.keys.join(", ")}` : "";
-  return `${base}${pasteMark}${keysMark}`;
+  const submitMark =
+    result.submitted === undefined
+      ? ""
+      : ` · submitted (waited ${result.submitted.readyAfterMs}ms for the prompt, ${result.submitted.settledAfterMs}ms for the settle)`;
+  return `${base}${pasteMark}${keysMark}${submitMark}`;
 }
 
 // ── The write ────────────────────────────────────────────────────────────────
@@ -406,6 +460,8 @@ export function run(
       file: args.file,
       stdinIsPayload: stdinIsPayload(),
       hasKeys: args.key.length > 0,
+      submit: args.submit,
+      settleMs: args.settleMs,
     });
 
     const text = yield* readSendText(input, args.text);
@@ -436,17 +492,44 @@ export function run(
     yield* withPadi(endpoint, (conn) =>
       Effect.gen(function* () {
         const id = yield* resolveTerminal(conn, args.id);
-        yield* executeSendPlan(
-          plan,
-          (data) => conn.client.surface.lifecycle.sendInput({ id, data }),
-          shortId(id),
-        );
+
+        // `--submit` is ONE call on the far side, not this verb composing three:
+        // the waits it performs are padi's, because padi is the process that can
+        // see the terminal move. That also means no client-side write deadline
+        // applies to it — `SEND_WRITE_DEADLINE_MS` bounds a write that may block
+        // on a full PTY buffer, while a submit is bounded by its OWN readiness
+        // timeout on the daemon side and would be cut off mid-delivery by a
+        // second, shorter bound layered over it here.
+        const submitted = args.submit
+          ? yield* conn.client.surface.lifecycle.submitInput({
+              id,
+              data: plan.write,
+              ...(args.settleMs !== undefined
+                ? { settleMs: args.settleMs }
+                : {}),
+            })
+          : yield* Effect.as(
+              executeSendPlan(
+                plan,
+                (data) => conn.client.surface.lifecycle.sendInput({ id, data }),
+                shortId(id),
+              ),
+              undefined,
+            );
 
         const result = {
           id,
           bytes: plan.bytes,
           paste: plan.paste,
           keys: args.key,
+          ...(submitted !== undefined
+            ? {
+                submitted: {
+                  readyAfterMs: submitted.readyAfterMs,
+                  settledAfterMs: submitted.settledAfterMs,
+                },
+              }
+            : {}),
         };
         // The full id, so a script can key off it. The FRAME — pretty-printed,
         // newline-terminated, drained — is `./shared.ts`'s `writeJson`, shared

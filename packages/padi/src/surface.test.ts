@@ -58,7 +58,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.tagPrefix).toBe("surface/");
   });
 
-  it("is version 5.1 — a minor over the D6 protocol epoch — and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 5.3 — minors over the D6 protocol epoch — and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -90,7 +90,11 @@ describe("padiSurface contract", () => {
     // reading a restore's active tile off the `session` cell's next snapshot. That
     // was a race the client cannot win: the snapshot publishes behind a
     // synchronous disk write while the restored terminals publish as they spawn.
-    expect(PADI_SURFACE_VERSION).toBe("5.2");
+    // 5.2 added the `backups` namespace; 5.3 adds `lifecycle.submitInput` — the
+    // one-call dispatch (type · watch the TUI take it · Enter), a member of its
+    // OWN rather than a flag on `sendInput`, which is the keystroke path and
+    // cannot refuse. Both purely additive.
+    expect(PADI_SURFACE_VERSION).toBe("5.3");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -167,6 +171,7 @@ describe("padiSurface contract", () => {
       "discardSleeping",
       "resize",
       "sendInput",
+      "submitInput",
       "recycleKaval",
     ]);
     expect(Object.keys(procs.chrome ?? {})).toEqual([
@@ -513,6 +518,7 @@ describe("the declared error vocabulary (PLAN D4)", () => {
         "lifecycle.create",
         "lifecycle.kill",
         "lifecycle.recycleKaval",
+        "lifecycle.submitInput",
         "lifecycle.wake",
         "preview.read",
         "screen.history",

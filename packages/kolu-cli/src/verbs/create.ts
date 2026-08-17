@@ -80,7 +80,11 @@
  * needs the transport and is checked just after it.
  */
 
-import { type TerminalPlacement, TOPLEVEL_PLACEMENT } from "@kolu/padi/surface";
+import {
+  FIRST_MESSAGE_SETTLE_MS,
+  type TerminalPlacement,
+  TOPLEVEL_PLACEMENT,
+} from "@kolu/padi/surface";
 import {
   parsePlacementFlags,
   shortId,
@@ -101,6 +105,11 @@ import {
   isBlank,
   reportOf,
 } from "../exit.ts";
+// The brief rides `kolu send`'s OWN plan — its paste fold, its refusals, its
+// vocabulary — rather than a second encoder here: `kolu create --message "…"`
+// and `kolu send <id> --submit "…"` must put identical bytes on the wire, and
+// two encoders is exactly how they would stop doing so.
+import { planSend } from "./send.ts";
 import { resolveTerminal, writeErr, writeJson, writeOut } from "./shared.ts";
 
 /** What the command tree parses for `kolu create` — DERIVED from `createFlags`
@@ -123,6 +132,10 @@ interface Landed {
   readonly id?: TerminalId;
   readonly worktree?: { readonly path: string; readonly branch: string };
   readonly ran?: string;
+  /** The `--message` brief, present only once it was actually SUBMITTED. A run
+   *  that reports `briefed` has put the worker to work; one that does not, has
+   *  not. There is no "delivered, probably". */
+  readonly briefed?: string;
 }
 
 /** What `create` did — the new terminal's full id, the worktree it materialized
@@ -149,9 +162,17 @@ type Outcome =
     }
   | Stopped;
 
-/** The run stopped after earlier steps had already changed the world. */
+/** The run stopped after earlier steps had already changed the world.
+ *
+ *  `at` names the step that failed, and it is not a diagnostic — it is what the
+ *  report reads to say WHICH piece of unfinished business is left. "The command
+ *  was never typed" and "the brief was never delivered" are different sentences
+ *  with different recoveries, and neither is inferable from `landed`: a run with
+ *  no `-- <argv>` at all reaches the message step with exactly the same landed
+ *  shape a failed run step leaves behind. */
 type Stopped = {
   readonly kind: "stopped";
+  readonly at: "create" | "run" | "message";
   readonly landed: Landed;
   readonly error: unknown;
 };
@@ -170,9 +191,10 @@ type Stopped = {
  *  spelling of it: one shape, raised in one place, read in one place. */
 const orStopped = <A, E, R>(
   step: Effect.Effect<A, E, R>,
+  at: Stopped["at"],
   landed: Landed,
 ): Effect.Effect<A, Stopped, R> =>
-  Effect.mapError(step, (error) => ({ kind: "stopped", landed, error }));
+  Effect.mapError(step, (error) => ({ kind: "stopped", at, landed, error }));
 
 /** Is this the carried outcome rather than a genuine failure? Nothing else on
  *  that error channel is a `{kind: "stopped"}` — the CLI's own failures are
@@ -251,6 +273,7 @@ function refuseBlankFlags(args: CreateArgs): Effect.Effect<void, CliFailure> {
       args.intent,
       'the label the canvas shows for this terminal (e.g. "fix #2117")',
     ],
+    ["--message", args.message, "the first message to deliver to the agent"],
     ["--repo", args.repo, "the repository to branch the worktree FROM"],
     ["--worktree", args.worktree, "the branch to cut the new worktree on"],
   ] as const satisfies ReadonlyArray<
@@ -353,6 +376,7 @@ function stoppedPartway(
   landed: Landed,
   error: unknown,
   intended: string | undefined,
+  brief: string | undefined,
   stdoutLost: CliFailure | undefined,
 ): CliFailure {
   const lines = [
@@ -373,6 +397,15 @@ function stoppedPartway(
     if (intended !== undefined) {
       lines.push(
         `    \`${intended}\` was NOT typed — that terminal is sitting at a bare shell prompt`,
+      );
+    }
+    if (brief !== undefined) {
+      // The recovery is NOT "run create again": the agent is up and only the
+      // brief is missing. Naming the one command that finishes the job is what
+      // stops a driving loop from spawning a second worker for a message the
+      // first one is waiting for.
+      lines.push(
+        `    --message was NOT delivered — that agent is live and idle; \`kolu send ${short} --submit --file <brief>\` dispatches it (do not re-run create)`,
       );
     }
   }
@@ -451,6 +484,24 @@ export function run(
     // it is pure — and because a failure report needs it too.
     const intended = args.argv.length > 0 ? shellJoin(args.argv) : undefined;
 
+    // The brief's BYTES are planned here too, for the same reason and by the
+    // same rule: it is pure (the shared send policy's paste fold, `kolu send`'s
+    // own vocabulary so a refusal names `--message` the way this face spells it),
+    // so a payload this run would refuse never costs a dial — let alone a
+    // Nix-provisioned `--host` and a live terminal it would then be reported
+    // beside.
+    const { message } = args;
+    const brief =
+      message === undefined
+        ? undefined
+        : yield* planSend({
+            kind: "text",
+            text: message,
+            sourceLabel: "--message",
+            paste: undefined,
+            fromStream: false,
+          });
+
     const outcome: Outcome = yield* Effect.catchIf(
       withPadi(endpoint, (conn) =>
         Effect.gen(function* () {
@@ -515,6 +566,7 @@ export function run(
               ...(cwd !== undefined ? { cwd } : {}),
               ...(intent !== undefined ? { intent } : {}),
             }),
+            "create",
             { worktree },
           );
 
@@ -529,13 +581,37 @@ export function run(
                 id,
                 data: `${intended}\r`,
               }),
+              "run",
               { id, worktree },
+            );
+          }
+
+          // ── Step 4: the brief ──────────────────────────────────────────
+          // The SAME delivery `kolu send --submit` performs, with the one
+          // parameter a FIRST message needs: a wider quiet window, because a
+          // booting agent is silent between exec and first paint and a narrow
+          // window would read that silence as an idle prompt
+          // (`FIRST_MESSAGE_SETTLE_MS`). padi does the waiting; this verb only
+          // says what to deliver.
+          //
+          // Encoded through the shared send policy rather than written raw: a
+          // brief is usually multiline and must arrive as ONE bracketed paste,
+          // exactly as `kolu send --file` delivers the same bytes.
+          if (brief !== undefined) {
+            yield* orStopped(
+              conn.client.surface.lifecycle.submitInput({
+                id,
+                data: brief.write,
+                settleMs: FIRST_MESSAGE_SETTLE_MS,
+              }),
+              "message",
+              { id, worktree, ran: intended },
             );
           }
 
           return {
             kind: "created",
-            result: { id, worktree, ran: intended },
+            result: { id, worktree, ran: intended, briefed: message },
             placement,
           } satisfies Outcome;
         }),
@@ -558,7 +634,12 @@ export function run(
         stoppedPartway(
           outcome.landed,
           outcome.error,
-          intended,
+          // WHICH piece of unfinished business to name comes off the step that
+          // failed, never off what landed: a run with no `-- <argv>` reaches the
+          // message step with exactly the landed shape a failed run step leaves,
+          // so inferring it would report a bare shell prompt for a live agent.
+          outcome.at === "run" ? intended : undefined,
+          outcome.at === "message" ? message : undefined,
           wrote._tag === "Failure" ? wrote.failure : undefined,
         ),
       );
@@ -586,6 +667,9 @@ export function run(
       );
     }
     if (result.ran !== undefined) bits.push(`running \`${result.ran}\``);
+    // The brief is reported as SUBMITTED, not as "sent": this line only prints
+    // on the path where padi watched the TUI take it and pressed Enter.
+    if (result.briefed !== undefined) bits.push("briefed");
     yield* writeErr(`${bits.join(" · ")}\n`);
   });
 }

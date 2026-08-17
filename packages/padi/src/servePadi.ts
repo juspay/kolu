@@ -49,6 +49,7 @@ import {
   isPadiDeclaredError,
   KavalContractSkew,
   ScratchWriteRejected,
+  SubmitRefused,
 } from "./errors.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
 import {
@@ -86,6 +87,7 @@ import {
   listPadiStateBackups,
   restorePadiStateBackup,
 } from "./session/stateBackups.ts";
+import { openPromptWatch, submitInput } from "./submitInput.ts";
 import {
   DEFAULT_PADI_VERSION,
   PADI_SURFACE_VERSION,
@@ -93,6 +95,8 @@ import {
   type PadiStatus,
   type PadiTerminal,
   type padiSurface,
+  SUBMIT_SETTLE_MS,
+  SUBMIT_TIMEOUT_MS,
 } from "./surface.ts";
 import {
   getActiveTerminal,
@@ -720,6 +724,50 @@ export function buildPadiSurfaceDeps(deps: {
         sendInput: ({ input }) =>
           handle(() => {
             getActiveTerminal(input.id)?.handle.write(input.data);
+          }),
+        // The one-call dispatch. NOT a quiet-drop sibling of `sendInput`: it
+        // refuses a target that never reached an idle prompt, and it refuses an
+        // id that names no live terminal, because "delivered" is a claim and a
+        // submit that cannot make it must say so (`./submitInput.ts`). The
+        // handler is assembly only — the sequence, its bounds and its two
+        // refusal shapes are that module's, so they stay testable without a PTY.
+        submitInput: ({ input }) =>
+          handle(async () => {
+            const entry = getActiveTerminal(input.id);
+            if (!entry) throw terminalNotFound(input.id);
+            const settleMs = input.settleMs ?? SUBMIT_SETTLE_MS;
+            const watch = openPromptWatch(input.id, settleMs, log);
+            try {
+              const outcome = await submitInput({
+                watch,
+                write: (data) => {
+                  // Re-read the live entry per write rather than closing over the
+                  // one found above: a submit spans seconds of waiting, and the
+                  // terminal can be killed inside it. The readiness fold already
+                  // reports `gone`, so this is the belt to that braces — a write
+                  // to a dead handle is the one thing the fold cannot un-do.
+                  getActiveTerminal(input.id)?.handle.write(data);
+                },
+                data: input.data,
+                typedBytes: Buffer.byteLength(input.data, "utf8"),
+                timeoutMs: input.timeoutMs ?? SUBMIT_TIMEOUT_MS,
+              });
+              if (outcome.kind === "refused") {
+                throw new SubmitRefused({
+                  id: input.id,
+                  phase: outcome.phase,
+                  reason: outcome.reason,
+                  waitedMs: outcome.waitedMs,
+                });
+              }
+              return {
+                typedBytes: outcome.typedBytes,
+                readyAfterMs: outcome.readyAfterMs,
+                settledAfterMs: outcome.settledAfterMs,
+              };
+            } finally {
+              watch.close();
+            }
           }),
         // The "Restart kaval" button — force-recycle THIS host's kaval daemon,
         // preserving the session (B3.2). padi's INTERNAL supervisory op: capture →
