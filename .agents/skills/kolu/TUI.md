@@ -4,8 +4,8 @@
 **This is the FALLBACK path** — reach for it only when the kolu MCP tools
 (SKILL.md's primary path) are unavailable: no `kolu mcp` configured on this
 host, an older kolu without the MCP face, or a non-MCP agent runtime. The
-discipline is identical to the MCP path (three-step submit, observe-then-act,
-timeouts on every wait) — only the spelling changes.
+discipline is identical to the MCP path (`--submit` for a whole dispatch,
+observe-then-act, timeouts on every wait) — only the spelling changes.
 
 **`kolu` is the ONE terminal CLI.** One command carries the whole toolkit —
 **ls** (the roster) · **create** (spawn) · **send** (write text, OR a `--key`) ·
@@ -22,22 +22,24 @@ against `kolu`.)
 ## The loop
 
 ```sh
-id=$(kolu create --toplevel --intent "parser refactor" -- claude)   # spawn the inner agent (prints the id)
-kolu send  "$id" "refactor the parser to use a lexer"     # 1. the text (no Enter)
-kolu wait  "$id" --until idle:300 --timeout 15000         # 2. observe the TUI settle
-kolu send  "$id" --key Enter                              # 3. submit (its own command)
-kolu debrief "$id" --timeout 600000                       # 4. turn over AND quiet → its screen
+id=$(kolu create --toplevel --intent "parser refactor" \
+       --message "refactor the parser to use a lexer" -- claude)   # spawn AND brief
+kolu debrief "$id" --timeout 600000                       # turn over AND quiet → its screen
+kolu send "$id" --submit "now add tests"                  # every dispatch after that
 ```
 
-Step 4 is **one** call on purpose. It used to be three — wait for the turn, wait
-for quiet, read the screen — and each gap between them is a race the CLI cannot
-close from out here. `kolu debrief` is exactly
+Both of those used to be several commands. `--message` waits for the agent to
+reach its first prompt and delivers the brief there, so there is no boot wait and
+no follow-up send; `--submit` does the same for every prompt after it. And
+`debrief` is **one** call on purpose — it used to be three (wait for the turn,
+wait for quiet, read the screen) and each gap between them is a race the CLI
+cannot close from out here. `kolu debrief` is exactly
 `kolu wait "$id" --until awaiting,waiting --settled 15000 --snapshot 40`; the
 done-signal section below is when to reach for something else.
 
-Submitting a prompt is its **own** `send --key Enter`, sent *after* you observe
-the TUI settle — never folded into the text send. Why: a same-breath Enter races
-the TUI's paste debounce and is silently dropped. See the next section.
+A same-breath Enter still races the TUI's paste debounce and is silently
+dropped — `--submit` is safe because padi, not the caller, watches the gap. See
+the next section.
 
 **stdout is data, stderr is prose.** `create` prints the new id on stdout and
 its human trailer on stderr, so `id=$(kolu create … )` captures exactly the id
@@ -60,29 +62,52 @@ rather than picking one.
 > viewport extent. Older output than the screen is `kolu history "$id"
 > [--lines N]`.
 
-## `kolu send` — the canonical three-step submit
+## `kolu send --submit` — the whole dispatch in one command
 
-Submitting a **normal-size** prompt to a TUI agent is **three commands**, because
-`send` bakes in no timing magic — it writes exactly what you pass and nothing more:
+```sh
+kolu send "$id" --submit "fix the failing test in parser.ts"
+# — sent 34 bytes to a1b2c3d4 · submitted (waited 12ms for the prompt, 1504ms for the settle)
+```
+
+`--submit` hands the whole delivery to padi: wait for the target's prompt to be
+idle, type the text, wait for the terminal to take it, press Enter.
+`--settle-ms <ms>` tunes the quiet window (default 1500) for a chattier TUI.
+
+It is **not** a baked-in sleep — that is the thing this file used to say would
+never ship, and rightly. An Enter sent in the *same breath* as the text races
+Claude Code's bracketed-paste / debounced input handling and is **silently
+dropped**, leaving the prompt staged on the `❯` line while `send` reports
+success. No fixed grace fixes that: you tune it until it stops biting on your
+machine and starts again on a slower one. What changed is **who watches**. padi
+holds kaval's meaningful-output edge for every PTY and folds each terminal's
+detected agent state, so it can wait on a *signal* rather than a clock — from
+inside, where a caller cannot look. `send "$id" "text" --key Enter` in one call
+is still a **hard error**: the same-breath trap stays unspellable, and `--submit`
+is the safe way to fuse the two.
+
+**A busy target is REFUSED, and that is the point.** `--submit` into a mid-turn
+agent exits non-zero having typed **nothing**. It does not queue the text,
+because queueing it is how you lose it: several TUIs — grok among them — clear a
+typed-but-unsubmitted input box when the turn ends, so the text is destroyed and
+the send reported success. The diagnostic says which of the two refusals you got:
+
+- *"never reached an idle prompt … NOTHING was typed"* — the target is mid-turn.
+  Wait for it (`kolu wait "$id" --until awaiting,waiting`) and dispatch again.
+  Retrying is free.
+- *"the text is sitting in the input box UNSUBMITTED"* — finish it with
+  `kolu send "$id" --key Enter`, or `--key Escape` and re-send. **Do not simply
+  re-send**: that delivers the message twice.
+
+### The three-step form — the escape hatch
+
+Still correct, still supported, and what you reach for when something must happen
+*between* the text and the Enter:
 
 ```sh
 kolu send "$id" "fix the failing test in parser.ts"   # 1. the text (no Enter)
-kolu wait "$id" --until idle:300 --timeout 15000      # 2. OBSERVE the TUI settle — a signal, not a sleep (bounded: exit 2 = target busy, send Enter anyway)
+kolu wait "$id" --until idle:300 --timeout 15000      # 2. OBSERVE the TUI settle — a signal, not a sleep
 kolu send "$id" --key Enter                           # 3. submit
 ```
-
-Why not one command? An Enter sent in the *same breath* as the text races Claude
-Code's bracketed-paste / debounced input handling and is **silently dropped**,
-leaving the prompt staged on the `❯` line while `send` reports success (if a turn
-never seems to start, this is the #1 cause — `snapshot` and look for the prompt
-sitting unsent). No daemon **can observe** when the TUI settled, so any fixed
-grace baked into `send` is a race you tune until it stops biting on your machine
-and starts again on a slower one. The honest fix is step 2: **you**, the caller,
-observe the settle with `wait --until idle:<ms>` (no output for `<ms>` — see the
-done-signal section), then submit as its own command. `send "$id" "text" --key
-Enter` in one call is a **hard error** for exactly this reason — the trap is
-unspellable, not merely discouraged. There is no `--submit` flag, and there will
-not be one.
 
 > **⚠️ MULTI-LINE pastes don't submit — a known-open limitation ([#1702](https://github.com/juspay/kolu/issues/1702)).**
 > The three-step flow above is verified for a **short** prompt (a line or two). The fold
@@ -105,20 +130,19 @@ not be one.
 
 > **Step 2 fires cleanly only when the agent is AT THE PROMPT** (awaiting input —
 > the normal case for dispatching a new prompt: `idle:300` fires in a fraction of
-> a second). If you're messaging an agent that is **mid-turn and busy** (streaming
-> output continuously), `wait --until idle` **never fires** — there's no idle gap —
-> so **bound it** with `--timeout` and treat a timeout as *"target busy"*: send the
-> Enter anyway (it lands in the agent's input buffer and submits when the turn
-> ends), then `snapshot` to confirm.
+> a second). Against an agent that is **mid-turn and busy** (streaming output
+> continuously) `wait --until idle` never fires, because there is no idle gap.
+>
+> **Do not "send the Enter anyway".** This file used to advise exactly that, on
+> the theory that the text buffers and submits when the turn ends. It does not
+> always: a TUI that clears its input box at turn end throws the text away, and
+> the send that delivered it reported success. Wait for the agent to finish and
+> dispatch then — which is what `--submit` does for you, refusing rather than
+> gambling:
 >
 > ```sh
-> kolu send "$id" "the follow-up"
-> # A timeout (exit 2) is the "target busy" signal — proceed. Any OTHER failure is
-> # real (terminal gone = 3, link/usage = 1): surface it, don't send into the void.
-> if kolu wait "$id" --until idle:300 --timeout 3000; then :   # settled — proceed
-> else rc=$?; [ "$rc" -eq 2 ] || exit "$rc"                    # exit 2 = busy; else real, surface it
-> fi
-> kolu send "$id" --key Enter                                  # submit anyway
+> kolu wait "$id" --until awaiting,waiting --settled 15000 --timeout 600000
+> kolu send "$id" --submit "the follow-up"
 > ```
 
 > **`--file <path>` — read the text from a file, without shell mangling.** A prompt
@@ -137,12 +161,17 @@ Specifics:
   Automatic (`--paste` / `--no-paste` force it).
 - **`--key <name>`** (repeatable) is the control channel: `Escape`, `C-c`,
   `Enter`, `Up`/`Down`/`Left`/`Right`, `Tab`, `Home`, `End`, `Backspace`,
-  `M-<char>`. `--key Enter` is how you submit (step 3). A send carries **text OR
-  keys, never both** — the mix is rejected.
+  `M-<char>`. `--key Enter` is how you submit in the three-step form. A send
+  carries **text OR keys, never both** — the mix is rejected, and `--submit`
+  with `--key` is rejected too (a key press has nothing to submit).
+- **`--settle-ms <ms>`** is `--submit`'s quiet window and is refused without it,
+  rather than silently ignored.
 - **Bounded write.** A `send` whose write can't complete (the target isn't
   draining its input — e.g. a program that stopped reading stdin) **fails loud in
-  seconds**, naming the stalled terminal, instead of hanging forever.
-- **`--json`** → `{ id, bytes, paste, keys }` to confirm what was written.
+  seconds**, naming the stalled terminal, instead of hanging forever. A
+  `--submit` is bounded by its own readiness timeout on the daemon side instead.
+- **`--json`** → `{ id, bytes, paste, keys }`, plus
+  `submitted: { readyAfterMs, settledAfterMs }` on a `--submit`.
 
 **`send` is blind** — it writes whether or not the agent is ready for input.
 Always pair it with `snapshot` so you don't fire a prompt into a not-yet-ready
@@ -322,9 +351,18 @@ directly:
 
 ```sh
 git -C /abs/path/to/repo pull --ff-only     # the worktree is cut from the repo's CURRENT checkout
-id=$(kolu create --toplevel --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-flags>)
+id=$(kolu create --toplevel --repo /abs/path/to/repo --worktree my-branch \
+       --message "$(cat brief.md)" -- <agent> <mode-flags>)
 # e.g. `-- claude --dangerously-skip-permissions`
 ```
+
+**`--message <text>` brief the agent in the same command.** It is delivered
+through the same machinery as `send --submit`, once the thing `-- <argv>` started
+reaches its own prompt — with a wider quiet window, because a booting agent is
+*silent* between exec and first paint and a narrow one would read that silence as
+an idle prompt. If the terminal never settles, `create` exits non-zero and names
+the live terminal: the agent is up and only the brief is missing, so the recovery
+is `kolu send <id> --submit …`, **not** another `create`.
 
 **`create` makes you say WHERE the terminal goes — exactly one of `--toplevel`
 or `--parent <id>`, no default.** Neither, or both, is a refusal naming the
@@ -343,9 +381,11 @@ bare id).
 
 `--json` is **not** the terminal's full record — for that, `kolu ls --json`.
 It is exactly what this create did: `{"id": "<full id>"}`, plus
-`"worktree": {"path", "branch"}` when `--worktree` cut one and `"ran": "<the
-command line typed>"` when you passed `-- <argv>`. Absent keys are omitted, so
-the leanest `kolu create --toplevel --json` is a one-field object.
+`"worktree": {"path", "branch"}` when `--worktree` cut one, `"ran": "<the
+command line typed>"` when you passed `-- <argv>`, and `"briefed": "<the
+message>"` when `--message` was actually SUBMITTED. Absent keys are omitted, so
+the leanest `kolu create --toplevel --json` is a one-field object — and a
+missing `briefed` means the brief did not land, never "probably did".
 
 > **A split tile BESIDE you — `--parent "$KAVAL_TERMINAL_ID"`.** When you want the
 > new terminal to open as a **split beside your own** (a sibling tile on the same

@@ -23,18 +23,21 @@ every discipline here applies to both.
 ## The loop
 
 ```
-lifecycle_create   { placement: {kind: "toplevel"},                     → { id }
-                     intent: "🔧 parser refactor", cwd: "/abs/repo" }
-lifecycle_sendInput{ id, text: "refactor the parser to use a lexer" }   # 1. the text (no Enter)
-wait_outputSettled { id, idleMs: 300, timeoutMs: 15000 }                # 2. observe the TUI settle
-lifecycle_sendInput{ id, key: "Enter" }                                 # 3. submit (its own call)
-wait_outputSettled { id, idleMs: 800, screenTail: 40,                   # 4. let its turn finish
-                     timeoutMs: 600000 }                                #    AND read the screen
+lifecycle_create   { placement: {kind: "toplevel"},                     → { id, briefed }
+                     intent: "🔧 parser refactor", cwd: "/abs/repo",
+                     run: "claude", message: "refactor the parser" }    # spawn AND brief
+wait_agentState    { id, until: ["awaiting","waiting"],                 # let its turn finish
+                     settledMs: 15000, screenTail: 40,                  #   AND read the screen
+                     timeoutMs: 600000 }
+lifecycle_sendInput{ id, text: "now add tests", submit: true }          # every next dispatch
 ```
 
-`screenTail` is why step 5 is gone: the screen comes back **on the met**, read
-inside the wait. A follow-up `screen_text` is a second call the terminal can
-move under — that gap is a race, not a formality.
+Two calls to put a worker to work, one per dispatch after that. Both halves used
+to be several: `run` + `message` replaces create-then-wait-for-boot-then-type,
+and `submit: true` replaces text → settle → Enter. `screenTail` is why there is
+no separate read: the screen comes back **on the met**, inside the wait. A
+follow-up `screen_text` is a second call the terminal can move under — that gap
+is a race, not a formality.
 
 - `lifecycle_create` spawns a padi-tracked canvas tile. **`placement` is
   REQUIRED and has no default** — `{kind: "toplevel"}` for a tile of its own, or
@@ -43,16 +46,19 @@ move under — that gap is a race, not a formality.
   spawn: the canvas and the Dock read that edge as who-works-for-whom, so a
   worker you supervise belongs under you rather than beside you by accident.
   `intent` labels it, `cwd` sets the directory. `repo` + `worktree` cut a fresh git worktree at
-  `<repo>/.worktrees/<name>` and open the terminal IN it, and `run` types a
-  command line at the first shell prompt (submitted with Enter) — the whole
-  `kolu create --toplevel --repo … --worktree … -- <agent>` in ONE call. It spawns a
-  shell — to drive a live TUI prompt afterwards, still use the three-step
-  submit.
-- `lifecycle_sendInput` writes **text OR one named key, never both** —
-  `{ text, key }` together is a typed hard error. Keys: `Enter`, `Escape`,
-  `Tab`, arrows, `Home`/`End`, `Backspace`, `Space`, `Shift-Tab`,
-  `C-<char>`/`M-<char>`. Unknown key names error loudly. Multiline text goes
-  as one bracketed paste.
+  `<repo>/.worktrees/<name>` and open the terminal IN it, `run` types a
+  command line at the first shell prompt (submitted with Enter), and
+  **`message` delivers a first prompt once that command reaches its own
+  prompt** — so `run` + `message` spawns and briefs a worker in ONE call, with
+  no boot wait and no follow-up send.
+- `lifecycle_sendInput` — **pass `submit: true` with your `text`.** padi waits
+  for the target's prompt to be idle, types, waits for the TUI to take it, and
+  presses Enter, answering `{submitted: true, readyAfterMs, settledAfterMs}`.
+  This is the default way to prompt an agent. Without `submit` it is the raw
+  write: **text OR one named key, never both** — `{ text, key }` together is a
+  typed hard error. Keys: `Enter`, `Escape`, `Tab`, arrows, `Home`/`End`,
+  `Backspace`, `Space`, `Shift-Tab`, `C-<char>`/`M-<char>`. Unknown key names
+  error loudly. Multiline text goes as one bracketed paste either way.
 - `wait_outputSettled` / `wait_agentState` return a uniform frame —
   `{ result: "met", met: {…} }` or `{ result: "timeout" | "gone" | "closed" }`.
   Read `result`; never guess from silence.
@@ -65,25 +71,49 @@ move under — that gap is a race, not a formality.
 - Interrupt a runaway before redirecting: `{ key: "Escape" }` (stop Claude Code
   mid-stream), `{ key: "C-c" }` (SIGINT).
 
-## The three-step submit — text · settle · Enter
+## Submitting — `submit: true`, and the trio it replaced
 
 An Enter sent in the same breath as the text races the TUI's bracketed-paste
 handling and is **silently dropped** — the prompt sits staged on the `❯` line
-while the send reports success (the #1 cause of "the turn never started";
-`screen_text` will show it). The daemon can't observe the TUI settle, so *you*
-do: send text, wait for settle, send Enter as its own call.
+while the send reports success. That is still true, and it is why `{ text, key }`
+in one call is a hard error. What changed is **who watches the gap**: padi sees
+kaval's output edge for every PTY and folds each terminal's agent state, so
+`submit: true` hands it the whole delivery — idle prompt → type → settle → Enter
+— and answers with what happened.
+
+```jsonc
+lifecycle_sendInput { id, text: "review this PR", submit: true }
+// → { sent: {textBytes}, submitted: true, readyAfterMs, settledAfterMs }
+// settleMs tunes the quiet window (default 1500) for a chattier TUI.
+```
+
+**A busy target is REFUSED, not queued.** This is the part to internalise,
+because it inverts the old advice. Several TUIs — grok among them — **clear a
+typed-but-unsubmitted input box when their turn ends**, so "type now, Enter
+later" does not buffer, it *destroys the message* while the send reports
+success. So a submit into a running turn comes back as an error, and the
+`structuredContent` says which:
+
+| `phase` | what landed | what you do |
+| --- | --- | --- |
+| `ready` | **nothing** | the target is mid-turn — wait for it (`wait_agentState`) and dispatch again. Retrying is free. |
+| `settle` | the text, **unsubmitted** | send `key: "Enter"` once it is calm, or `Escape` and re-send. **Never blindly re-send** — that delivers the message twice. |
+
+The manual trio is still there, and is now the **escape hatch**: reach for it
+only when something must happen *between* the text and the Enter.
+
+```
+lifecycle_sendInput{ id, text: "…" }                     # 1. the text (no Enter)
+wait_outputSettled { id, idleMs: 300, timeoutMs: 15000 } # 2. observe the TUI settle
+lifecycle_sendInput{ id, key: "Enter" }                  # 3. submit (its own call)
+```
 
 > **Multi-line pastes don't submit** ([#1702](https://github.com/juspay/kolu/issues/1702)):
 > past a handful of lines, Claude Code folds the paste into a `[Pasted text]`
 > placeholder that Enter does not reliably submit. For any message beyond a
 > couple of lines, write it to a file and send a short pointer prompt instead
-> (`read /tmp/brief.md and carry it out`).
-
-> Step 2's idle fires only when the agent is **at the prompt**. Against a busy,
-> mid-turn agent the wait times out — treat that `timeout` as "target busy":
-> send the Enter anyway (it buffers and submits when the turn ends), then
-> `screen_text` to confirm. `result: "gone"` is real — the terminal died;
-> surface it.
+> (`read /tmp/brief.md and carry it out`) — as the `text` of a `submit: true`
+> call like any other.
 
 ## Done-signals
 
@@ -159,13 +189,19 @@ watch_close { name: "campaign" }                                 // when the cam
 
 ## Provisioning the inner agent
 
-- **Worktree'd agent:** no MCP path in v1 (`git.worktreeCreate` is a named
-  denial) — `kolu create --toplevel --repo /abs/repo --worktree my-branch -- claude
-  --dangerously-skip-permissions`, then drive the returned id over MCP.
+- **Worktree'd agent, spawned and briefed in one call:**
+  `lifecycle_create { placement, repo, worktree, run: "claude
+  --dangerously-skip-permissions", message: "<the brief>" }`. padi cuts the
+  worktree, opens the terminal in it, types the launch line, waits for the agent
+  to reach its prompt — a booting agent is *silent* for a second or three, and
+  the first message's quiet window is widened to out-wait that — then delivers
+  the brief and submits it.
 - **Never hardcode the agent CLI** — default to the agent *you* run as, unless
   the human named one.
 - **`create` returning ≠ ready:** a first-run agent may sit on a one-time
-  dialog needing its own Enter. Drive every boot step by reading the screen.
+  dialog needing its own Enter. `message` cannot get past that (it waits for a
+  prompt that never comes and refuses, naming the live terminal). For a *first*
+  run of an agent CLI, drive the boot by reading the screen.
 - Launch unattended agents with bypass permissions
   (`claude --dangerously-skip-permissions`) and confirm from the footer via
   `screen_text` before dispatching.
@@ -184,7 +220,8 @@ The verb map:
 
 | MCP | CLI |
 | --- | --- |
-| `lifecycle_create` (`placement` REQUIRED) | `kolu create (--toplevel \| --parent <id>) [--intent …] [--repo … --worktree …] -- <agent>` |
+| `lifecycle_create` (`placement` REQUIRED) | `kolu create (--toplevel \| --parent <id>) [--intent …] [--repo … --worktree …] [--message "<brief>"] -- <agent>` |
+| `lifecycle_sendInput { text, submit: true }` | `kolu send "$id" --submit "text"` (`--settle-ms <ms>` tunes the quiet window) |
 | `lifecycle_sendInput { text }` | `kolu send "$id" "text"` (`--file <path>` for tricky payloads) |
 | `lifecycle_sendInput { key: "Enter" }` | `kolu send "$id" --key Enter` |
 | `wait_outputSettled` | `kolu wait "$id" --until idle:<ms> --timeout <ms>` (also `--until match:'<regex>'`) |
@@ -204,7 +241,11 @@ none. Ids accept **any unique prefix**.
 
 ## Acceptance
 
-- Submitted with a **separate Enter**, sent after an observed settle.
+- Dispatched with `submit: true` (or, when you needed the gap, a **separate
+  Enter** after an observed settle) — never a same-breath text+Enter.
+- A `submit-refused` was **acted on, not retried blindly**: `phase: "ready"`
+  means wait and dispatch again; `phase: "settle"` means the text is already in
+  the box, so finish it with an Enter.
 - The reply is **actually in the screen read** — idle means output stopped, not
   that the answer is right.
 - Every wait had a timeout under your harness's per-call cap.
