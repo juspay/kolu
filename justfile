@@ -308,6 +308,12 @@ test-unit: install
 test-e2e-governance: install
     cd packages/tests && {{ nix_shell }} pnpm test:governance
 
+# End-of-run janitor (juspay/kolu#2178): this-run padi-dial-rt/sr +
+# kolu-scroll-fifo runtime roots, plus leftover ci-owned kaval/padi whose
+# bind pid is already gone. Production `forever` daemons are not touched.
+_reap-ci-run:
+    {{ nix_shell }} env KOLU_CI_REAP_ROOT="${KOLU_CI_REAP_ROOT:-${TMPDIR:-/tmp}}" node --experimental-strip-types {{ justfile_directory() }}/packages/daemon-test-gate/src/ciReap.cli.ts
+
 # CI/pu-ONLY: the daemon-forking unit suites (KOLU_DAEMON_TESTS=1). These fork real
 # kaval/padi daemons + PTYs; a bare run on a workstation OOM-reaped the production
 # kaval (juspay/kolu#1375). NEVER run this on a machine hosting a live kolu — it
@@ -315,8 +321,18 @@ test-e2e-governance: install
 # rlimit): KOLU_DAEMON_BIND_PID binds every spawned daemon's lifetime to THIS run so
 # none can leak past it (the 182-leaked-dirs state becomes unrepresentable), and
 # `--workspace-concurrency=1` runs one package's suite at a time so a fork storm
-# can't pile up across packages. `test-unit` stays the fork-free default.
+# can't pile up across packages. `test-unit` stays the fork-free default. EXIT
+# trap reaps leftovers the in-process poll cannot (a wedged kaval, #2178).
 test-daemon: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cleanup() {
+        local st=$?
+        # Best-effort: a janitor failure must not replace the suite's exit code.
+        just _reap-ci-run || true
+        exit "$st"
+    }
+    trap cleanup EXIT
     KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
 
 # W3.1 ssh-leg e2e — bind padiSurface over a REAL ssh hop, round-trip a terminal,
@@ -482,6 +498,13 @@ e2e-ssh-upgrade host: install
 test: install
     #!/usr/bin/env bash
     set -euo pipefail
+    cleanup() {
+        local st=$?
+        # Best-effort: a janitor failure must not replace the suite's exit code.
+        just _reap-ci-run || true
+        exit "$st"
+    }
+    trap cleanup EXIT
     # Raise the fd soft limit before spawning workers/servers. macOS defaults
     # to 256, which a kolu server under parallel load can exhaust on accept()
     # (silent EMFILE — no crash, just refused connections). Hard limit is

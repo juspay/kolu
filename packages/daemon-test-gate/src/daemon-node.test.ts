@@ -91,6 +91,32 @@ test("the canonical daemon-test recipe turns the gate and spawn leash ON", () =>
   ).toContain("KOLU_DAEMON_BIND_PID=$$");
 });
 
+test("test-daemon and e2e `test` reap this-run leftovers on EXIT (#2178)", () => {
+  for (const recipe of ["test-daemon", "test"] as const) {
+    const body = recipeBody(ROOT, recipe);
+    expect(
+      body,
+      `\`${recipe}\` must run the CI janitor even when the suite is signal-killed`,
+    ).toContain("trap cleanup EXIT");
+    expect(
+      body,
+      `\`${recipe}\` must invoke the shipped janitor, not a parallel rm`,
+    ).toContain("just _reap-ci-run");
+  }
+});
+
+test("the shipped janitor recipe drives ciReap.cli.ts", () => {
+  const body = recipeBody(ROOT, "_reap-ci-run");
+  expect(
+    body,
+    "`_reap-ci-run` must execute the shipped TypeScript janitor",
+  ).toContain("ciReap.cli.ts");
+  expect(
+    body,
+    "`_reap-ci-run` must pin the runtime root so nix develop cannot retarget TMPDIR",
+  ).toContain("KOLU_CI_REAP_ROOT");
+});
+
 test("the dev smoke binds its detached daemon tree to the smoke process", () => {
   expect(
     DEV_SMOKE,
