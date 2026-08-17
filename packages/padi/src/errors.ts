@@ -218,6 +218,29 @@ export class SubmitRefused extends Schema.TaggedError<SubmitRefused>(
   }
 }
 
+/** {@link SubmitRefused}'s tag, read off the class — see
+ *  {@link WATCH_SUBSCRIPTION_NOT_FOUND_TAG} for why it is never re-spelled. */
+const SUBMIT_REFUSED_TAG: string = new SubmitRefused({
+  id: "",
+  phase: "ready",
+  reason: "busy",
+  waitedMs: 0,
+})._tag;
+
+/** Is `err` a {@link SubmitRefused} that CROSSED A WIRE?
+ *
+ *  Structural on `_tag`, for the same reason its two siblings above are: every
+ *  reader is a CLIENT — `kolu send --submit`'s retype into a `CliFailure`, the
+ *  MCP face's retype into a structured `ToolFailure` — where the value was
+ *  decoded from a wire frame in another realm and `instanceof` silently answers
+ *  `false`. It lives HERE, beside the class, because both faces need the identical
+ *  narrowing and each had grown its own copy: the same dummy instance built to
+ *  read a tag off, twice, in two packages, either free to drift from the class
+ *  the day its shape changes. */
+export function isSubmitRefused(err: unknown): boolean {
+  return hasTag(err, SUBMIT_REFUSED_TAG);
+}
+
 /** An unranged / open-ended `preview.read` whose body would exceed the inline
  *  cap. Fail-fast, NEVER a silent truncation — and the message NAMES the fix
  *  (request a bounded byte range), which is why the cap rides as data: a client

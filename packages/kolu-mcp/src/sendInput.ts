@@ -51,10 +51,9 @@ import {
 } from "@kolu/terminal-protocol";
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import {
-  hasTag,
+  isSubmitRefused,
   SUBMIT_SETTLE_MS,
   SUBMIT_TIMEOUT_MS,
-  SubmitRefused,
 } from "@kolu/padi/surface";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp";
 import { Effect, Schema } from "effect";
@@ -336,9 +335,13 @@ export function resolveSendAction(args: {
  *  driver branches on, exactly as `servePadi`'s `recycleKaval` translates the one
  *  failure IT knows, and leaves the rest to the fail-fast channel. The prose is
  *  padi's own `message` — it already names the recovery, and re-writing it here
- *  is how the two would come to say different things about the same refusal. */
+ *  is how the two would come to say different things about the same refusal.
+ *
+ *  The narrowing is padi's own `isSubmitRefused` — structural on the `_tag`,
+ *  because this value was decoded from a wire frame in another realm where
+ *  `instanceof` silently answers `false`. */
 function asToolFailure(error: unknown): unknown {
-  if (!hasTag(error, SUBMIT_REFUSED_TAG)) return error;
+  if (!isSubmitRefused(error)) return error;
   const refusal = error as {
     phase: "ready" | "settle";
     reason: "busy" | "gone";
@@ -353,18 +356,6 @@ function asToolFailure(error: unknown): unknown {
     waitedMs: refusal.waitedMs,
   });
 }
-
-/** {@link SubmitRefused}'s tag, read OFF the class rather than re-spelled — a
- *  rename moves this with it instead of silently un-matching. Matched
- *  STRUCTURALLY (padi's own `hasTag`), never with `instanceof`: the value was
- *  decoded from a wire frame in another realm, where class identity is not ours
- *  and `instanceof` quietly answers `false`. */
-const SUBMIT_REFUSED_TAG: string = new SubmitRefused({
-  id: "",
-  phase: "ready",
-  reason: "busy",
-  waitedMs: 0,
-})._tag;
 
 /** The bespoke tool. The client is the injected padiSurface client (typed by
  *  the consumer; the adapter holds it opaquely). */

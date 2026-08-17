@@ -73,7 +73,7 @@
 import { fstatSync, readFileSync } from "node:fs";
 import { text as readStdinText } from "node:stream/consumers";
 import { shortId } from "@kolu/padi/render";
-import { hasTag, SubmitRefused } from "@kolu/padi/surface";
+import { isSubmitRefused } from "@kolu/padi/surface";
 import {
   type SendContent,
   encodeSend,
@@ -467,27 +467,19 @@ export function executeSendPlan<E>(
  *  here is how the CLI and the MCP face would come to say different things about
  *  one refusal. This adds only what the edge needs: the exit code and the
  *  already-reported marker. Everything else propagates untouched, the same
- *  narrowness the MCP face's `asToolFailure` keeps. */
+ *  narrowness the MCP face's `asToolFailure` keeps.
+ *
+ *  The narrowing is padi's own `isSubmitRefused` — structural on the `_tag`,
+ *  because this value was decoded from a wire frame in another realm where
+ *  `instanceof` silently answers `false`. */
 const asCliFailure = <A, E, R>(
   step: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E | CliFailure, R> =>
   Effect.mapError(step, (error) =>
-    hasTag(error, SUBMIT_REFUSED_TAG)
+    isSubmitRefused(error)
       ? failure((error as { message: string }).message)
       : error,
   );
-
-/** {@link SubmitRefused}'s tag, read OFF the class rather than re-spelled — a
- *  rename moves this with it instead of silently un-matching. Matched
- *  STRUCTURALLY (padi's own `hasTag`), never with `instanceof`: the value was
- *  decoded from a wire frame in another realm, where class identity is not ours
- *  and `instanceof` quietly answers `false`. */
-const SUBMIT_REFUSED_TAG: string = new SubmitRefused({
-  id: "",
-  phase: "ready",
-  reason: "busy",
-  waitedMs: 0,
-})._tag;
 
 // ── The verb ─────────────────────────────────────────────────────────────────
 

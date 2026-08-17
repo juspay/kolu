@@ -26,9 +26,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
@@ -36,19 +35,16 @@ import {
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { expect, it } from "vitest";
 import {
-  type Padi,
   setupPadiHarness,
   sleep,
   toolJson,
   toolRefusal,
+  TSX_LOADER,
 } from "./padiHarness.testlib.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const MOCK_TUI = resolve(SRC, "../test-fixtures/mockAgentTui.mjs");
 const KOLU_MAIN = resolve(SRC, "main.ts");
-const TSX_LOADER = pathToFileURL(
-  createRequire(import.meta.url).resolve("tsx"),
-).href;
 
 const harness = setupPadiHarness("kolu-submit-e2e");
 
@@ -134,7 +130,7 @@ function submittedCount(screen: string, message: string): number {
 
 describeDaemon("the one-call submit against a real padi", () => {
   it("delivers a message to an IDLE terminal as exactly one submitted message", async () => {
-    const padi: Padi = await harness.startPadi();
+    const padi = await harness.startPadi();
     const mcp = await harness.serveMcpOverPadi(padi.socketPath, "submit-idle");
     const id = await openMockTui(mcp);
 

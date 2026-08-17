@@ -213,11 +213,10 @@ export function setupPadiHarness(prefix: string): PadiHarness {
  *  built over its single tag-keyed dispatch by `padiClientOver`. */
 type PadiLink = Awaited<ReturnType<typeof unixSocketLink>>;
 
-/** Poll-connect until padi answers a control-core `hello`, or fail loudly. */
-export async function waitForPadi(
-  socketPath: string,
-  ms = 20000,
-): Promise<void> {
+/** Poll-connect until padi answers a control-core `hello`, or fail loudly.
+ *  Internal: `startPadi` is the door, so a suite cannot wait on a padi this
+ *  harness will not also reap. */
+async function waitForPadi(socketPath: string, ms = 20000): Promise<void> {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
     let link: PadiLink | undefined;
@@ -247,8 +246,10 @@ function gatePid(gatePath: string): number | undefined {
 }
 
 /** Reap a padi AND the detached kaval it spawned — EXACT pids only (the padi
- *  child handle; the pid kaval's own gate file records), never a pattern. */
-export async function reap(p: Padi): Promise<void> {
+ *  child handle; the pid kaval's own gate file records), never a pattern.
+ *  Internal: teardown is the hooks' job, and a suite that reaped by hand would
+ *  be the one that could forget to. */
+async function reap(p: Padi): Promise<void> {
   p.child.kill("SIGTERM");
   await p.exited;
   const kavalSocket = padiKavalSocketPath(resolvePadiStateRoot(p.stateRoot));
