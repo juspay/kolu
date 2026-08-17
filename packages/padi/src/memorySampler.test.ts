@@ -1,6 +1,9 @@
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { withOsfactsMemoryFixture } from "./memorySampler.testlib.ts";
+import {
+  PAUSED_FIXTURE_TIMEOUT_MS,
+  withOsfactsMemoryFixture,
+} from "./memorySampler.testlib.ts";
 
 const endpoint = vi.hoisted(() => ({
   target: undefined as { pid: number; startedAt: number } | undefined,
@@ -129,42 +132,50 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
     );
   });
 
-  it("does not publish a prior kaval generation after an in-flight recycle", async () => {
-    connectedKaval();
-    await withOsfactsMemoryFixture(
-      {
-        rows: [`M\t${process.pid}\t10485760`, "M\t4242\t20971520"],
-        paused: true,
-      },
-      async (fixture) => {
-        const sample = Effect.runPromise(samplePadiMemory);
-        await fixture.awaitStarted();
-        endpoint.target = { pid: 4242, startedAt: 2_000 };
-        fixture.release();
+  it(
+    "does not publish a prior kaval generation after an in-flight recycle",
+    async () => {
+      connectedKaval();
+      await withOsfactsMemoryFixture(
+        {
+          rows: [`M\t${process.pid}\t10485760`, "M\t4242\t20971520"],
+          paused: true,
+        },
+        async (fixture) => {
+          const sample = Effect.runPromise(samplePadiMemory);
+          await fixture.awaitStarted();
+          endpoint.target = { pid: 4242, startedAt: 2_000 };
+          fixture.release();
 
-        await expect(sample).resolves.toEqual({
-          padi: { status: "ok", rssBytes: 10_485_760 },
-          kaval: { status: "absent" },
-        });
-      },
-    );
-  });
+          await expect(sample).resolves.toEqual({
+            padi: { status: "ok", rssBytes: 10_485_760 },
+            kaval: { status: "absent" },
+          });
+        },
+      );
+    },
+    PAUSED_FIXTURE_TIMEOUT_MS,
+  );
 
-  it("does not misreport a failed prior-generation read as a current kaval error", async () => {
-    connectedKaval();
-    await withOsfactsMemoryFixture(
-      { rows: [], version: 999, paused: true },
-      async (fixture) => {
-        const sample = Effect.runPromise(samplePadiMemory);
-        await fixture.awaitStarted();
-        endpoint.target = { pid: 4242, startedAt: 2_000 };
-        fixture.release();
+  it(
+    "does not misreport a failed prior-generation read as a current kaval error",
+    async () => {
+      connectedKaval();
+      await withOsfactsMemoryFixture(
+        { rows: [], version: 999, paused: true },
+        async (fixture) => {
+          const sample = Effect.runPromise(samplePadiMemory);
+          await fixture.awaitStarted();
+          endpoint.target = { pid: 4242, startedAt: 2_000 };
+          fixture.release();
 
-        await expect(sample).resolves.toEqual({
-          padi: { status: "error" },
-          kaval: { status: "absent" },
-        });
-      },
-    );
-  });
+          await expect(sample).resolves.toEqual({
+            padi: { status: "error" },
+            kaval: { status: "absent" },
+          });
+        },
+      );
+    },
+    PAUSED_FIXTURE_TIMEOUT_MS,
+  );
 });

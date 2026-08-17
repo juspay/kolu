@@ -31,6 +31,16 @@ import { vi } from "vitest";
  *  anything short of that is the machine being busy. */
 const SPAWN_BUDGET_MS = 30_000;
 
+/** What a case using a PAUSED fixture must pass as its own timeout.
+ *
+ *  `awaitStarted()`'s budget is only real if the enclosing case outlives it,
+ *  and this package sets no `testTimeout`, so vitest's 5s default would kill
+ *  the case first — capping the wait at 5s and reporting a hang exactly where
+ *  the budget above exists to say "the box is busy". Deriving the case timeout
+ *  from the budget keeps the two from drifting apart again; the headroom is
+ *  because equal-length timers race. */
+export const PAUSED_FIXTURE_TIMEOUT_MS = SPAWN_BUDGET_MS + 5_000;
+
 export interface OsfactsMemoryFixture {
   /** Resolve once the fake osfacts has started and is holding at the pause. */
   readonly awaitStarted: () => Promise<void>;
