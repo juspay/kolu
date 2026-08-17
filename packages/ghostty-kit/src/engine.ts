@@ -296,6 +296,21 @@ export function createEngine(opts: EngineOptions): Engine {
     }
   }
 
+  function linesOf(text: string): string[] {
+    if (text.length === 0) return [];
+    return text.split(/\r?\n/);
+  }
+
+  /** Trimmed visual-row axis. Never fall back to DATA_TOTAL_ROWS —
+   *  that count includes empty viewport padding and is wrong after
+   *  ED / alt-screen / fill-blanks drop the cache. */
+  function visualAxis(): number {
+    if (visualCount === undefined) {
+      visualCount = linesOf(format(FORMAT_VT, false, true)).length;
+    }
+    return visualCount;
+  }
+
   function formatExtent(
     emit: number,
     unwrap: boolean,
@@ -314,7 +329,7 @@ export function createEngine(opts: EngineOptions): Engine {
         ffi.freeBytes(end, GRID_REF_SIZE);
       }
     }
-    const axis = visualCount ?? ffi.getU32(term, DATA_TOTAL_ROWS);
+    const axis = visualAxis();
     let startY: number;
     let endY: number;
     if (extent.kind === "tail") {
@@ -336,11 +351,6 @@ export function createEngine(opts: EngineOptions): Engine {
       ffi.freeBytes(start, GRID_REF_SIZE);
       ffi.freeBytes(end, GRID_REF_SIZE);
     }
-  }
-
-  function linesOf(text: string): string[] {
-    if (text.length === 0) return [];
-    return text.split(/\r?\n/);
   }
 
   function sliceLines(all: string[], extent: ScreenExtent): string {
@@ -587,10 +597,7 @@ export function createEngine(opts: EngineOptions): Engine {
       return applicationCursor;
     },
     visualLineCount() {
-      if (visualCount === undefined) {
-        visualCount = linesOf(format(FORMAT_VT, false, true)).length;
-      }
-      return visualCount;
+      return visualAxis();
     },
     lastFormatBytes() {
       return lastFmtBytes;

@@ -287,22 +287,21 @@ describe("official ghostty-vt.wasm engine", () => {
     const eng = createEngine({ cols: 20, rows: 8, scrollback: 80 });
     try {
       eng.write("seed-line\r\n");
-      const seeded = eng.visualLineCount();
-      expect(seeded).toBeLessThan(eng.rows);
+      expect(eng.visualLineCount()).toBeLessThan(eng.rows);
       expect(eng.totalRows()).toBe(eng.rows);
       const burst = Array.from(
         { length: 20 },
         (_, i) => `burst-${String(i).padStart(2, "0")}`,
       ).join("\r\n");
       eng.write(`${burst}\r\n`);
-      const vt = eng.formatVt({ unwrap: false, trim: true });
-      const vtRows = vt.length === 0 ? [] : vt.split(/\r?\n/);
-      expect(eng.visualLineCount()).toBe(vtRows.length);
-      expect(eng.visualLineCount()).toBeGreaterThan(eng.rows);
       const tail = eng.styledLines({ kind: "tail", lines: 4 });
       expect(lineText(tail[tail.length - 1] ?? { runs: [] })).toContain(
         "burst-19",
       );
+      const vt = eng.formatVt({ unwrap: false, trim: true });
+      const vtRows = vt.length === 0 ? [] : vt.split(/\r?\n/);
+      expect(eng.visualLineCount()).toBe(vtRows.length);
+      expect(eng.visualLineCount()).toBeGreaterThan(eng.rows);
     } finally {
       eng.free();
     }
@@ -316,14 +315,14 @@ describe("official ghostty-vt.wasm engine", () => {
       expect(seeded).toBeLessThan(eng.rows);
       expect(eng.totalRows()).toBe(eng.rows);
       for (let i = 0; i < 6; i++) eng.write(`fill-${i}\r\n`);
-      const vt = eng.formatVt({ unwrap: false, trim: true });
-      const vtRows = vt.length === 0 ? [] : vt.split(/\r?\n/);
-      expect(eng.visualLineCount()).toBe(vtRows.length);
-      expect(eng.visualLineCount()).toBeGreaterThan(seeded);
       const tail = eng.styledLines({ kind: "tail", lines: 3 });
       expect(lineText(tail[tail.length - 1] ?? { runs: [] })).toContain(
         "fill-5",
       );
+      const vt = eng.formatVt({ unwrap: false, trim: true });
+      const vtRows = vt.length === 0 ? [] : vt.split(/\r?\n/);
+      expect(eng.visualLineCount()).toBe(vtRows.length);
+      expect(eng.visualLineCount()).toBeGreaterThan(seeded);
     } finally {
       eng.free();
     }
@@ -333,19 +332,15 @@ describe("official ghostty-vt.wasm engine", () => {
     const eng = createEngine({ cols: 20, rows: 8, scrollback: 40 });
     try {
       for (let i = 0; i < 5; i++) eng.write(`keep-${i}\r\n`);
-      const before = eng.visualLineCount();
-      expect(before).toBeGreaterThan(1);
+      expect(eng.visualLineCount()).toBeGreaterThan(1);
       eng.write("\x1b[2J\x1b[H");
-      const vt = eng.formatVt({ unwrap: false, trim: true });
-      const vtRows = vt.length === 0 ? [] : vt.split(/\r?\n/);
-      expect(eng.visualLineCount()).toBe(vtRows.length);
       eng.write("after-clear\r\n");
+      // Paint path: tail before any visualLineCount reseed.
+      const tail = eng.styledLines({ kind: "tail", lines: 4 });
+      expect(tail.map((l) => lineText(l)).join("\n")).toContain("after-clear");
       const afterVt = eng.formatVt({ unwrap: false, trim: true });
       const afterRows = afterVt.length === 0 ? [] : afterVt.split(/\r?\n/);
       expect(eng.visualLineCount()).toBe(afterRows.length);
-      const tail = eng.styledLines({ kind: "tail", lines: 4 });
-      const texts = tail.map((l) => lineText(l)).join("\n");
-      expect(texts).toContain("after-clear");
     } finally {
       eng.free();
     }
@@ -357,23 +352,16 @@ describe("official ghostty-vt.wasm engine", () => {
       eng.write("main-before\r\n");
       const main = eng.visualLineCount();
       eng.write("\x1b[?1049h");
-      const altVt = eng.formatVt({ unwrap: false, trim: true });
-      const altRows = altVt.length === 0 ? [] : altVt.split(/\r?\n/);
-      expect(eng.visualLineCount()).toBe(altRows.length);
       eng.write("alt-page\r\n");
-      const altFilled = eng.formatVt({ unwrap: false, trim: true });
-      const altFilledRows =
-        altFilled.length === 0 ? [] : altFilled.split(/\r?\n/);
-      expect(eng.visualLineCount()).toBe(altFilledRows.length);
       const altTail = eng.styledLines({ kind: "tail", lines: 4 });
       expect(altTail.map((l) => lineText(l)).join("\n")).toContain("alt-page");
       eng.write("\x1b[?1049l");
+      const tail = eng.styledLines({ kind: "tail", lines: 4 });
+      expect(tail.map((l) => lineText(l)).join("\n")).toContain("main-before");
       const backVt = eng.formatVt({ unwrap: false, trim: true });
       const backRows = backVt.length === 0 ? [] : backVt.split(/\r?\n/);
       expect(eng.visualLineCount()).toBe(backRows.length);
       expect(eng.visualLineCount()).toBe(main);
-      const tail = eng.styledLines({ kind: "tail", lines: 4 });
-      expect(tail.map((l) => lineText(l)).join("\n")).toContain("main-before");
     } finally {
       eng.free();
     }
