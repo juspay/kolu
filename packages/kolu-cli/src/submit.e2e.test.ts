@@ -335,39 +335,70 @@ describeDaemon("the one-call submit against a real padi", () => {
     expect(submittedCount(after, brief)).toBe(1);
   }, 180_000);
 
-  it("create + message briefs a fresh agent in ONE call, across a boot silence", async () => {
+  it("create + message REFUSES a terminal with no recognized agent — it does NOT type into the boot", async () => {
+    // ── The 2026-08-18 field loss, as a regression test ───────────────────
+    //
+    // Reported against real Claude Code: `lifecycle_create { run: "claude …",
+    // message }` answered `briefed: <text>` and the brief NEVER reached the
+    // agent. A probe 3s later became the session's FIRST message, and the agent
+    // replied "I don't have a task to act on here". Nothing had painted yet —
+    // the shell had not finished exec'ing claude — so the terminal was quiet for
+    // the whole window for reasons that had nothing to do with a prompt, and
+    // padi typed into that gap.
+    //
+    // This fixture is that terminal: it stays SILENT past the window and is
+    // never recognized as an agent, which is precisely what a booting agent
+    // looks like to padi. Under the old rule (quiet decides, an unrecognized
+    // agent is no obstacle) the brief was typed and reported delivered. Under
+    // `readiness: "agent"` it is refused with nothing typed.
     const padi = await harness.startPadi();
     const mcp = await harness.serveMcpOverPadi(
       padi.socketPath,
       "create-message",
     );
 
-    // A 2.5s boot silence — the gap between a shell exec'ing an agent and that
-    // agent painting. A narrow quiet window would read it as an idle prompt and
-    // type the brief into a process with no input box yet; the first message's
-    // wider window is what out-waits it.
-    const created = toolJson(
+    const refusal = toolRefusal(
       await mcp.callTool({
         name: "lifecycle_create",
         arguments: {
           placement: { kind: "toplevel" },
           intent: "briefed worker",
-          run: runLine({ MOCK_BOOT_MS: "2500" }),
+          // No boot delay needed: this fixture is never RECOGNIZED as an agent,
+          // painted or not, which is the whole point. The refusal therefore
+          // takes padi's full default bound (SUBMIT_TIMEOUT_MS, 60s) — the cost
+          // of proving that a brief with nowhere to land waits and then refuses
+          // rather than guessing.
+          run: runLine({}),
           message: "carry out the plan",
         },
       }),
-    ) as { id: string; ran: string; briefed: string };
-
-    expect(created.briefed).toBe("carry out the plan");
-
-    // ZERO further calls were needed to put the worker to work — the read
-    // below is the TEST checking, not the driver dispatching.
-    const screen = await awaitScreen(
-      mcp,
-      created.id,
-      '<<SUBMITTED:"carry out the plan">>',
     );
-    expect(submittedCount(screen, "carry out the plan")).toBe(1);
+
+    // The create stopped PARTWAY: the terminal exists and is named, the brief
+    // did not land, and nothing is staged anywhere — so the recovery is a
+    // dispatch, not an Enter, and certainly not a second create.
+    const detail = refusal.detail as {
+      kind: string;
+      landed?: { id?: string };
+      notDelivered?: string;
+      staged?: boolean;
+    };
+    expect(detail.kind).toBe("stopped-partway");
+    expect(detail.notDelivered).toBe("carry out the plan");
+    expect(detail.staged).toBe(false);
+
+    const id = detail.landed?.id;
+    expect(id, "the survivors report must name the live terminal").toBeTypeOf(
+      "string",
+    );
+
+    // THE assertion. Not "the call failed" — that a failed brief left NOTHING on
+    // that terminal. The reported bug was silent precisely because the text went
+    // in and vanished, so a refusal that still typed would be the same defect
+    // wearing an error message.
+    expect(await screenOf(mcp, id as string)).not.toContain(
+      "carry out the plan",
+    );
   }, 180_000);
 
   it("CLI parity: `kolu send --submit` delivers the same way", async () => {

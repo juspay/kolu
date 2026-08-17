@@ -14,7 +14,9 @@ import {
   type StatedPlacementFlags,
 } from "@kolu/padi/render";
 import {
+  FIRST_MESSAGE_READINESS,
   FIRST_MESSAGE_SETTLE_MS,
+  FIRST_MESSAGE_TIMEOUT_MS,
   type TerminalPlacement,
 } from "@kolu/padi/surface";
 import { encodeSend, type SendVocabulary } from "@kolu/terminal-protocol";
@@ -177,6 +179,8 @@ export function runCreate(
         id,
         data: encoded.plan.write,
         settleMs: FIRST_MESSAGE_SETTLE_MS,
+        readiness: FIRST_MESSAGE_READINESS,
+        timeoutMs: FIRST_MESSAGE_TIMEOUT_MS,
       });
       briefed = opts.message;
     }

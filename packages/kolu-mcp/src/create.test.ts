@@ -13,7 +13,9 @@
  */
 
 import {
+  FIRST_MESSAGE_READINESS,
   FIRST_MESSAGE_SETTLE_MS,
+  FIRST_MESSAGE_TIMEOUT_MS,
   padiSurface,
   SubmitRefused,
 } from "@kolu/padi/surface";
@@ -433,7 +435,24 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
       "lifecycle.sendInput",
       "lifecycle.submitInput",
     ]);
-    const brief = calls[2]!.input as { data: string; settleMs: number };
+    const brief = calls[2]!.input as {
+      data: string;
+      settleMs: number;
+      readiness: string;
+      timeoutMs: number;
+    };
+    // The rule that keeps the 2026-08-18 loss fixed, asserted ON THE WIRE rather
+    // than by reading the constant back: a first message waits for a RECOGNIZED
+    // agent, because silence before an agent's first paint is not a prompt. A
+    // face that stopped sending this would compile, pass every other test here,
+    // and start losing briefs again.
+    expect(brief.readiness).toBe(FIRST_MESSAGE_READINESS);
+    // …and its OWN bound, not padi's 60s default: this whole create is one
+    // MCP tool call, and a wait that outlives the host's per-call cap gets the
+    // call KILLED mid-refusal — the driver then cannot tell whether anything
+    // landed, which is worse than either answer. Measured: the e2e's own MCP
+    // client timed out at exactly 60s against this path.
+    expect(brief.timeoutMs).toBe(FIRST_MESSAGE_TIMEOUT_MS);
     // Bracketed-paste, because a multiline brief typed raw is N submits — and
     // the WIDER window, because a booting agent is silent before its first paint.
     expect(brief.data).toBe(

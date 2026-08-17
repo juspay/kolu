@@ -277,3 +277,134 @@ describe("the first message's quiet window is DERIVED, not invented", () => {
     expect(FIRST_MESSAGE_SETTLE_MS).toBe(EFFECTIVE_FINISH_QUIET_MS);
   });
 });
+
+describe('readiness: "agent" — the boot gap that lost a brief', () => {
+  // The field failure, 2026-08-18: `lifecycle_create { run: "claude …", message }`
+  // answered `briefed` and the brief never reached the agent. The terminal was
+  // quiet for the whole window because nothing had painted yet — the shell had
+  // not finished exec'ing claude — and `"quiet"` reads that as an idle prompt.
+  //
+  // These cases are the two readings of ONE observation, side by side: the same
+  // silent, unrecognized terminal is idle under `"quiet"` and not idle under
+  // `"agent"`. That difference is the whole fix.
+
+  it("an unrecognized agent is idle under quiet and NOT under agent", () => {
+    expect(isPromptIdle(IDLE, "quiet")).toBe(true);
+    expect(isPromptIdle(IDLE, "agent")).toBe(false);
+    // `null` is the same unknown wearing the other spelling — a fold that
+    // answered them differently would be a coin toss on which one padi stored.
+    expect(isPromptIdle({ ...IDLE, agent: null }, "agent")).toBe(false);
+  });
+
+  it("quiet remains the DEFAULT — an ordinary submit is untouched", () => {
+    // The field report confirms the ordinary dispatch path works against real
+    // claude, including into a bare shell that has no agent at all. Requiring an
+    // agent there would break every non-agent terminal.
+    expect(isPromptIdle(IDLE)).toBe(true);
+  });
+
+  it("a recognized agent at rest is idle under BOTH", () => {
+    for (const state of ["waiting", "awaiting_user"] as const) {
+      expect(isPromptIdle({ ...IDLE, agent: agent(state) }, "agent")).toBe(
+        true,
+      );
+      expect(isPromptIdle({ ...IDLE, agent: agent(state) }, "quiet")).toBe(
+        true,
+      );
+    }
+  });
+
+  it("a recognized agent that is WORKING is not idle under either", () => {
+    for (const state of [
+      "thinking",
+      "tool_use",
+      "running_background",
+    ] as const) {
+      expect(isPromptIdle({ ...IDLE, agent: agent(state) }, "agent")).toBe(
+        false,
+      );
+      expect(isPromptIdle({ ...IDLE, agent: agent(state) }, "quiet")).toBe(
+        false,
+      );
+    }
+  });
+
+  it("a recognized agent still has to be QUIET — recognition is not a bypass", () => {
+    // Both conjuncts, not either: an agent that reports `waiting` while its
+    // screen is still repainting is mid-paint, and typing into that is the same
+    // loss by a different route.
+    expect(
+      isPromptIdle({ ...IDLE, agent: agent("waiting"), noisy: true }, "agent"),
+    ).toBe(false);
+  });
+});
+
+describe("submitInput under readiness: agent — the boot brief", () => {
+  it("REFUSES a terminal that never presents an agent, having typed NOTHING", async () => {
+    // The reported loss, at the sequence level. The observation is exactly what
+    // padi saw in the field: live, quiet, feed up — and no agent, because the
+    // shell had not finished exec'ing claude. Under the old rule this typed the
+    // brief into that gap and pressed Enter into a TUI that then initialized and
+    // discarded it, while the call reported success.
+    const writes: string[] = [];
+    const watch = scriptedWatch([IDLE]);
+    const outcome = await submitInput({
+      watch,
+      write: (d) => writes.push(d),
+      data: "read /tmp/brief.md and take it end-to-end",
+      timeoutMs: 500,
+      clock: steppingClock(100),
+      readiness: "agent",
+    });
+
+    // The refusal names WHY, because "busy" would send the caller to wait for a
+    // turn that is not running and retry into the same bound.
+    expect(outcome).toMatchObject({
+      kind: "refused",
+      phase: "ready",
+      reason: "unrecognized",
+    });
+    // The assertion the bug is about: nothing reached the terminal. A brief that
+    // is refused costs a retry; a brief that is typed into a booting TUI is gone
+    // and the caller is told it landed.
+    expect(writes).toEqual([]);
+  });
+
+  it("delivers as soon as the agent IS recognized — the wait is not a refusal", async () => {
+    // The other half, and the one that would make this fix useless if it failed:
+    // an agent that shows up a few polls into boot is briefed normally.
+    const writes: string[] = [];
+    const watch = scriptedWatch([
+      IDLE, // booting: quiet, nobody home
+      IDLE,
+      { ...IDLE, agent: agent("waiting") }, // claude registered, at its prompt
+    ]);
+    const outcome = await submitInput({
+      watch,
+      write: (d) => writes.push(d),
+      data: "carry out the plan",
+      timeoutMs: 5_000,
+      clock: steppingClock(10),
+      readiness: "agent",
+    });
+
+    expect(outcome).toMatchObject({ kind: "submitted" });
+    expect(writes).toEqual(["carry out the plan", "\r"]);
+  });
+
+  it("a busy agent is still `busy`, not `unrecognized`", async () => {
+    // The two refusals must stay distinguishable: this one really does mean
+    // "wait for the turn to end and dispatch again".
+    const watch = scriptedWatch([{ ...IDLE, agent: agent("thinking") }]);
+    const outcome = await submitInput({
+      watch,
+      write: () => {},
+      data: "brief",
+      timeoutMs: 300,
+      clock: steppingClock(100),
+      readiness: "agent",
+    });
+
+    expect(outcome).toMatchObject({ phase: "ready", reason: "busy" });
+  });
+});

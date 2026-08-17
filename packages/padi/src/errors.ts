@@ -197,7 +197,7 @@ export class SubmitRefused extends Schema.TaggedError<SubmitRefused>(
 )("SubmitRefused", {
   id: Schema.String,
   phase: Schema.Literals(["ready", "settle"]),
-  reason: Schema.Literals(["busy", "gone"]),
+  reason: Schema.Literals(["busy", "gone", "unrecognized"]),
   /** How long this wait actually ran before giving up — the number that says
    *  whether the bound is set anywhere near right. */
   waitedMs: Schema.Int,
@@ -211,6 +211,15 @@ export class SubmitRefused extends Schema.TaggedError<SubmitRefused>(
       return this.phase === "ready"
         ? `Terminal ${this.id} is gone — nothing was typed, and there is nothing left to dispatch to.`
         : `Terminal ${this.id} died mid-delivery — the message was NOT submitted, and whatever had been typed went with it. Nothing is left to recover; dispatch to a live terminal.`;
+    }
+    if (this.reason === "unrecognized") {
+      // A first message that never found an agent. Retrying the identical call
+      // just waits out the identical bound, so this arm names the two things
+      // that actually differ: what `message` requires, and the escape hatch for
+      // a command that is not an agent.
+      return this.phase === "ready"
+        ? `Terminal ${this.id} never presented a RECOGNIZED agent at a prompt within ${this.waitedMs}ms — NOTHING was typed, so nothing was lost. A first message waits for the agent itself, not merely for output to go quiet, because silence before an agent's first paint looks exactly like silence at a ready prompt. If the command is not an agent kolu detects, create WITHOUT a message and dispatch once you can see it is ready (wait_agentState / kolu wait, then submit).`
+        : `Terminal ${this.id}'s agent stopped being recognized after the text was typed, so the Enter was NOT sent. The text is sitting in the input box UNSUBMITTED — send Enter once it settles, or Escape and re-send. Do not simply re-send: that would deliver the message twice.`;
     }
     return this.phase === "ready"
       ? `Terminal ${this.id} never reached an idle prompt within ${this.waitedMs}ms — NOTHING was typed, so nothing was lost. It is mid-turn: wait for it to finish (wait_agentState / kolu wait) and dispatch again.`
@@ -265,7 +274,12 @@ export function submitLeftTextStaged(err: unknown): boolean {
     readonly phase?: unknown;
     readonly reason?: unknown;
   };
-  return refusal.phase === "settle" && refusal.reason === "busy";
+  // Written as "settle, unless the terminal is GONE" rather than "settle and
+  // busy": the phase is what says the text was typed, and only a dead terminal
+  // takes the box down with it. Spelled the other way round, a new `reason`
+  // silently answers `false` — which is the answer that loses a message, since
+  // the caller is then told to re-dispatch text that is already sitting there.
+  return refusal.phase === "settle" && refusal.reason !== "gone";
 }
 
 /** An unranged / open-ended `preview.read` whose body would exceed the inline

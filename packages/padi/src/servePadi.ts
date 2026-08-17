@@ -761,6 +761,7 @@ export function buildPadiSurfaceDeps(deps: {
                 },
                 data: input.data,
                 timeoutMs: input.timeoutMs ?? SUBMIT_TIMEOUT_MS,
+                readiness: input.readiness ?? "quiet",
                 signal,
               });
               if (outcome.kind === "refused") {

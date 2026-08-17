@@ -951,22 +951,59 @@ export const SUBMIT_SETTLE_MS = 1_500;
  *  them drift. (It is a copy rather than an import only because that module is
  *  node-side and this one is browser-safe.)
  *
- *  The alternative — waiting for a RECOGNIZED agent instead of a quiet window —
- *  was considered and rejected: `run` is not always an agent (`--run python` is a
- *  legitimate brief target), so that predicate would hang and then refuse a call
- *  that should simply have worked.
+ *  ## This window is NOT what makes the first message safe
  *
- *  ## The residual, stated
+ *  It used to be. Waiting for a RECOGNIZED agent was considered here and
+ *  rejected, on the grounds that `run` is not always an agent (`--run python` is
+ *  a legitimate brief target) and the predicate would hang. The residual that
+ *  reasoning accepted — "an agent whose cold start is silent for LONGER than this
+ *  window is mis-read as idle" — then happened, on 2026-08-18, on the first live
+ *  call: a `lifecycle_create { run: "claude …", message }` answered `briefed` and
+ *  the brief never reached the agent.
  *
- *  An agent whose cold start is silent for LONGER than this window is still
- *  mis-read as idle, and the brief is typed into a process that is not listening.
- *  That is a real hole and this constant does not close it — it moves it out to
- *  where no agent kolu drives has been observed to sit. The escape hatch for a
- *  known-slow agent is not a bigger number here: it is to create WITHOUT a
- *  message, wait on the agent explicitly (`wait_agentState` / `kolu wait --until
- *  awaiting,waiting`), and dispatch with an ordinary submit — which is the same
- *  machinery with the caller supplying the readiness this path has to infer. */
+ *  The reasoning was wrong in a way worth naming, because it is a tempting shape.
+ *  Every fixed window is a guess about boot duration, and a guess that is wrong
+ *  intermittently is worse than one that is wrong always: it ships, it passes its
+ *  tests, and it loses one brief in two under a real agent. Widening the number
+ *  buys probability, never a proof.
+ *
+ *  So the first message now takes its readiness from {@link
+ *  FIRST_MESSAGE_READINESS} — a recognized agent, not working — and this window
+ *  is only the QUIET conjunct riding alongside it. A `run` that never presents a
+ *  recognized agent is refused rather than guessed at; the escape hatch for a
+ *  non-agent command is unchanged and is now the documented answer rather than a
+ *  footnote: create WITHOUT a message, wait explicitly (`wait_agentState` /
+ *  `kolu wait --until awaiting,waiting`), and dispatch with an ordinary submit —
+ *  the same machinery, with the caller supplying the readiness. */
 export const FIRST_MESSAGE_SETTLE_MS = 5_000;
+
+/** What proves a FIRST message's prompt is ready: a recognized agent that is not
+ *  working — never output-quiet alone.
+ *
+ *  The one-line statement of the fix above, spelled as a constant so all three
+ *  faces (`lifecycle_create`, `kolu create --message`, `padi-tui create
+ *  --message`) pass the SAME rule rather than three literals that can drift.
+ *  A face that briefs an agent and does not pass this is a face that can lose the
+ *  brief, which is why it is not a per-face default. */
+export const FIRST_MESSAGE_READINESS = "agent" as const;
+
+/** How long a FIRST message waits for that agent before refusing — deliberately
+ *  well under {@link SUBMIT_TIMEOUT_MS}, and the reason is the CALLER's clock,
+ *  not padi's.
+ *
+ *  A create that briefs a worker is one MCP tool call, and most MCP hosts kill a
+ *  tool call at ~1–2 minutes. Left at the 60 s default this wait ran the host's
+ *  cap out and the call was killed mid-refusal: the driver got a transport
+ *  timeout instead of "nothing was typed, here is the terminal, here is what to
+ *  do" — the worst of the three outcomes, since a killed call cannot say whether
+ *  anything landed. (Measured, not theorised: the e2e's own MCP client timed out
+ *  at exactly 60 s against this path.)
+ *
+ *  30 s is ~10× a cold agent's observed boot and still leaves half a minute of
+ *  headroom under a one-minute cap for the refusal to travel. An agent slower
+ *  than this is not left unbriefable — it is told, loudly, to use the explicit
+ *  route (create without `message`, `wait_agentState`, then submit). */
+export const FIRST_MESSAGE_TIMEOUT_MS = 30_000;
 
 /** How long a submit waits for a busy terminal to reach an idle prompt before
  *  REFUSING (per wait — the readiness wait and the post-type settle each get
@@ -988,6 +1025,19 @@ export const PadiSubmitInputSchema = Schema.Struct({
   settleMs: Schema.optionalKey(PositiveInt),
   /** The per-wait bound, default {@link SUBMIT_TIMEOUT_MS}. */
   timeoutMs: Schema.optionalKey(PositiveInt),
+  /** What proves the prompt is ready — default `"quiet"`.
+   *
+   *  `"quiet"` is right when the caller has already SEEN this terminal: it has a
+   *  prompt, and the only question is whether it is mid-turn.
+   *
+   *  `"agent"` REQUIRES a recognized agent that is not working, and is what a
+   *  FIRST message after a `run` line must pass. Before an agent's first paint a
+   *  terminal is silent for reasons that have nothing to do with a prompt, so
+   *  quiet there is not evidence — it is a coin toss that lost a brief in the
+   *  field on 2026-08-18. Under `"agent"` a terminal that never presents one is
+   *  REFUSED (`reason: "unrecognized"`) with nothing typed, rather than typed
+   *  into on the chance that it was ready. */
+  readiness: Schema.optionalKey(Schema.Literals(["quiet", "agent"])),
 });
 
 /** What a submit that LANDED reports — the two facts only padi has.

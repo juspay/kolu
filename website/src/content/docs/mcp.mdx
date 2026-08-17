@@ -125,7 +125,7 @@ rhythm whether you do it by hand or your agent does it in code:
 
 1. **Create** a terminal for the work (optionally as a split of another, or in a
    fresh worktree) and keep the `id` it returns. Give it a `run` command and a
-   first `message` and it arrives already briefed — one call, no boot wait.
+   first `message` and it arrives already briefed — one call, no boot wait. The brief waits for the **agent itself**, not just for the terminal to go quiet: before an agent paints its first frame the terminal is silent for reasons that have nothing to do with being ready, and a brief typed into that gap is wiped when the interface initializes on top of it.
 2. **Send** the next prompt with `submit: true`. kolu waits for the agent's
    prompt to be idle, types, waits for the terminal to take it, and presses
    Enter — all inside that one call.
@@ -179,7 +179,7 @@ the sentence names both spellings and no terminal was created to clean up.
 
 | Tool | What it does |
 | --- | --- |
-| `lifecycle_create` | Open a new terminal and return its `id`. **`placement` is required** — `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"…"}` to open it as a split inside that terminal; there is no default, and a call that omits it is refused with both spellings. Optionally: in a working directory (`cwd`) or a **fresh git worktree** (`repo` + `worktree`, cut at `<repo>/.worktrees/<name>`), labelled on the canvas (`intent`), typing a first command at its shell prompt (`run`), and **briefing what that command started** (`message` — delivered once the agent reaches its own prompt, so one call spawns *and* dispatches). One call does what `kolu create --toplevel --repo … --worktree … -- <cmd>` does. A create that fails after the worktree or terminal already landed names the survivors as data (`stopped-partway`), so nothing orphaned goes unnameable. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
+| `lifecycle_create` | Open a new terminal and return its `id`. **`placement` is required** — `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"…"}` to open it as a split inside that terminal; there is no default, and a call that omits it is refused with both spellings. Optionally: in a working directory (`cwd`) or a **fresh git worktree** (`repo` + `worktree`, cut at `<repo>/.worktrees/<name>`), labelled on the canvas (`intent`), typing a first command at its shell prompt (`run`), and **briefing what that command started** (`message` — delivered once kolu can see a recognized agent at its prompt, so one call spawns *and* dispatches; a `run` that never presents one is refused with nothing typed rather than typed into mid-boot). One call does what `kolu create --toplevel --repo … --worktree … -- <cmd>` does. A create that fails after the worktree or terminal already landed names the survivors as data (`stopped-partway`), so nothing orphaned goes unnameable. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
 | `lifecycle_sendInput` | Deliver a message: `{ text, submit: true }` waits for an idle prompt, types, waits for the terminal to take it, and presses Enter — one call. Without `submit` it is the raw write: text, **or** one named key or chord (`Enter`, `Escape`, `C-c`, arrows…) — never both in one call. |
 | `lifecycle_kill` | Close one terminal by `id`. |
 

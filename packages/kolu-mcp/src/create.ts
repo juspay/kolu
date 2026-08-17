@@ -91,7 +91,9 @@
 
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import {
+  FIRST_MESSAGE_READINESS,
   FIRST_MESSAGE_SETTLE_MS,
+  FIRST_MESSAGE_TIMEOUT_MS,
   PadiCreateInputSchema,
   PLACEMENT_REQUIRED,
   submitLeftTextStaged,
@@ -482,6 +484,8 @@ const composeCreate = (
           id: created.id,
           data: brief.plan.write,
           settleMs: FIRST_MESSAGE_SETTLE_MS,
+          readiness: FIRST_MESSAGE_READINESS,
+          timeoutMs: FIRST_MESSAGE_TIMEOUT_MS,
         }),
         (error) =>
           stoppedPartway({ id: created.id, worktree }, error, {
@@ -507,7 +511,7 @@ export const createTool: BespokeTool = {
   mutates: true,
   title: "Create a terminal",
   description:
-    'Open a new terminal and return its id. `placement` is REQUIRED and has no default — say `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"<terminal id>"}` to open it as a split INSIDE that terminal; the canvas and the Dock read that edge as who-works-for-whom, so guessing it flattens the hierarchy. Optionally: in a FRESH GIT WORKTREE (repo + worktree ⇒ cut at <repo>/.worktrees/<name>, terminal opens in it), labelled on the canvas (intent), typing a command at its first shell prompt (run, submitted with Enter), and — the way to BRIEF a worker — `message`, a first prompt padi delivers once that command reaches its prompt. run + message is the whole spawn-and-dispatch in ONE call: no boot wait, no separate send, no verify. The terminal always gets the rc-hooked shell; `run` is typed input, not a spawn argv. A failure after the worktree or terminal landed names the survivors in structuredContent (stopped-partway) — nothing is rolled back, and an undelivered `message` means a live idle agent to dispatch, not a create to repeat.',
+    'Open a new terminal and return its id. `placement` is REQUIRED and has no default — say `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"<terminal id>"}` to open it as a split INSIDE that terminal; the canvas and the Dock read that edge as who-works-for-whom, so guessing it flattens the hierarchy. Optionally: in a FRESH GIT WORKTREE (repo + worktree ⇒ cut at <repo>/.worktrees/<name>, terminal opens in it), labelled on the canvas (intent), typing a command at its first shell prompt (run, submitted with Enter), and — the way to BRIEF a worker — `message`, a first prompt padi delivers once that command reaches its prompt. run + message is the whole spawn-and-dispatch in ONE call: no boot wait, no separate send, no verify. `message` waits for a RECOGNIZED agent at a prompt, not merely for output to go quiet — before an agent paints, a terminal is silent for reasons that have nothing to do with being ready, and a brief typed into that gap is destroyed by the TUI initializing on top of it. So a `run` that never presents an agent kolu detects is REFUSED with nothing typed (reason: "unrecognized"); for a non-agent command, create WITHOUT `message` and dispatch with lifecycle_sendInput once wait_agentState says it is ready. The terminal always gets the rc-hooked shell; `run` is typed input, not a spawn argv. A failure after the worktree or terminal landed names the survivors in structuredContent (stopped-partway) — nothing is rolled back, and an undelivered `message` means a live idle agent to dispatch, not a create to repeat.',
   handler: (args, client) => {
     const a = args as CreateArgs;
     // Refusals are raised synchronously, BEFORE anything dials padi — and the

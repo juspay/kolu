@@ -81,7 +81,9 @@
  */
 
 import {
+  FIRST_MESSAGE_READINESS,
   FIRST_MESSAGE_SETTLE_MS,
+  FIRST_MESSAGE_TIMEOUT_MS,
   submitLeftTextStaged,
   type TerminalPlacement,
   TOPLEVEL_PLACEMENT,
@@ -645,6 +647,8 @@ export function run(
                 id,
                 data: brief.plan.write,
                 settleMs: FIRST_MESSAGE_SETTLE_MS,
+                readiness: FIRST_MESSAGE_READINESS,
+                timeoutMs: FIRST_MESSAGE_TIMEOUT_MS,
               }),
               "message",
               { id, worktree, ran: intended },

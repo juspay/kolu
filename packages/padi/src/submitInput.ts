@@ -116,18 +116,53 @@ export interface PromptObservation {
   readonly feedLive: boolean;
 }
 
+/** What counts as proof that a prompt is ready to be typed into.
+ *
+ *  `"quiet"` — output quiescence decides, and an unrecognized agent is no
+ *  obstacle. Right for a terminal the caller has already SEEN: it is live, it
+ *  has a prompt, and the only question is whether it is mid-turn.
+ *
+ *  `"agent"` — a recognized agent, not working, is REQUIRED. Right for the first
+ *  message after a `run` line, where the caller has seen nothing and quiet does
+ *  not mean what it means later. See {@link isPromptIdle}. */
+export type ReadinessProof = "quiet" | "agent";
+
 /** Is the terminal at an idle prompt — safe to type a message into?
  *
  *  Total over the observation, and deliberately NEGATIVE-biased: every unknown
- *  answers "not idle". A dropped activity feed is not quiet, an unrecognized
- *  agent is not proof of anything (so the quiet window decides alone), and a
- *  working agent is never idle however long it has been silent. */
-export function isPromptIdle(observed: PromptObservation): boolean {
+ *  answers "not idle". A dropped activity feed is not quiet, and a working agent
+ *  is never idle however long it has been silent.
+ *
+ *  ## Why `readiness` exists — the boot gap, measured in the field
+ *
+ *  Under `"quiet"` an UNRECOGNIZED agent is not an obstacle: the quiet window
+ *  decides alone, which is the honest answer for a bare shell or a REPL that has
+ *  no turn to speak of. That reading is safe only when something is known to be
+ *  at a prompt already.
+ *
+ *  It is NOT safe for the first message after a `run` line, and this is not
+ *  theoretical: on 2026-08-18 a `lifecycle_create { run: "claude …", message }`
+ *  reported `briefed` and the brief never reached the agent. Nothing had painted
+ *  yet — the shell had not finished exec'ing claude — so the terminal was quiet
+ *  for the whole window for reasons that had nothing to do with a prompt. padi
+ *  typed into that gap and claude's TUI initialization discarded it. The probe
+ *  that followed 3 s later became the session's FIRST message.
+ *
+ *  Silence before the first paint is indistinguishable from silence at a ready
+ *  prompt, so no width of window fixes it — every fixed window is a guess about
+ *  boot duration. `"agent"` replaces the guess with evidence: a recognized agent
+ *  that is not working. It is the same negative bias applied to the one unknown
+ *  that used to answer "idle" — an agent nobody has identified yet. */
+export function isPromptIdle(
+  observed: PromptObservation,
+  readiness: ReadinessProof = "quiet",
+): boolean {
   if (!observed.live) return false;
   if (!observed.feedLive) return false;
   if (observed.noisy) return false;
   const state = observed.agent?.state;
-  return state === undefined || agentBucket(state) !== "working";
+  if (state === undefined) return readiness === "quiet";
+  return agentBucket(state) !== "working";
 }
 
 // ── The live view ────────────────────────────────────────────────────────────
@@ -228,7 +263,7 @@ export type SubmitOutcome =
   | {
       readonly kind: "refused";
       readonly phase: "ready" | "settle";
-      readonly reason: "busy" | "gone";
+      readonly reason: "busy" | "gone" | "unrecognized";
       readonly waitedMs: number;
     };
 
@@ -250,6 +285,7 @@ async function awaitPromptIdle(
   timeoutMs: number,
   clock: () => number,
   signal: AbortSignal,
+  readiness: ReadinessProof,
 ): Promise<IdleWait> {
   const started = clock();
   for (;;) {
@@ -263,8 +299,19 @@ async function awaitPromptIdle(
     const observed = watch.observe();
     const waitedMs = clock() - started;
     if (!observed.live) return { kind: "gone", waitedMs };
-    if (isPromptIdle(observed)) return { kind: "idle", waitedMs };
-    if (waitedMs >= timeoutMs) return { kind: "busy", waitedMs };
+    if (isPromptIdle(observed, readiness)) return { kind: "idle", waitedMs };
+    if (waitedMs >= timeoutMs) {
+      // WHY the bound expired, read off the world as it stands rather than
+      // assumed — the two answers send the caller to different places. "busy" is
+      // an agent mid-turn: wait and retry, it will finish. "unrecognized" is a
+      // terminal padi never identified an agent in at all, where retrying the
+      // same call waits out the same bound again; what that caller needs to hear
+      // is that `message` briefs a RECOGNIZED agent, and that a non-agent
+      // command wants a create without `message` instead.
+      const unrecognized =
+        readiness === "agent" && observed.agent?.state === undefined;
+      return { kind: unrecognized ? "unrecognized" : "busy", waitedMs };
+    }
     await abortableDelay(READINESS_POLL_MS, signal);
   }
 }
@@ -311,9 +358,15 @@ export async function submitInput(opts: {
   readonly timeoutMs: number;
   readonly clock?: () => number;
   readonly signal?: AbortSignal;
+  /** What proves the prompt is ready. Defaults to `"quiet"` — the rule for a
+   *  terminal the caller has already seen. The first message after a `run` line
+   *  passes `"agent"`; see {@link isPromptIdle} for the field failure that
+   *  distinction exists to stop. */
+  readonly readiness?: ReadinessProof;
 }): Promise<SubmitOutcome> {
   const clock = opts.clock ?? Date.now;
   const signal = opts.signal ?? NEVER_ABORTS;
+  const readiness = opts.readiness ?? "quiet";
 
   // ── 1. the prompt must be idle BEFORE anything is typed ──────────────────
   // The whole mid-turn doctrine is this one wait: refusing here costs a retry,
@@ -323,6 +376,7 @@ export async function submitInput(opts: {
     opts.timeoutMs,
     clock,
     signal,
+    readiness,
   );
   if (ready.kind !== "idle") return refusedAt("ready", ready);
 
@@ -335,11 +389,15 @@ export async function submitInput(opts: {
   opts.watch.arm();
 
   // ── 3. the TUI has taken it ──────────────────────────────────────────────
+  // The SAME readiness rule as step 1, deliberately: having required a
+  // recognized agent before typing, accepting mere quiet now would let the
+  // Enter go to a terminal whose agent had vanished underneath the paste.
   const settled = await awaitPromptIdle(
     opts.watch,
     opts.timeoutMs,
     clock,
     signal,
+    readiness,
   );
   if (settled.kind !== "idle") return refusedAt("settle", settled);
 
