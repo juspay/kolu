@@ -15,23 +15,20 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { PID_WATCH_POLL_MS } from "./daemonMain.ts";
 import { isHolderLive } from "./pidGate.ts";
 
-/** How often the sibling asks whether the bind pid is still there. Matches
- *  `waitForShutdown`'s default `boundToPid` cadence — frequent enough that a
- *  dead run is noticed in a couple of seconds, lazy enough not to busy-poll. */
-export const BIND_WATCH_POLL_MS = 2_000;
+/** How often the sibling asks whether the bind pid is still there. Same
+ *  cadence as `waitForShutdown`'s default `boundToPid` poll. */
+export const BIND_WATCH_POLL_MS = PID_WATCH_POLL_MS;
 
-/** Graceful window after SIGTERM. Short on purpose: the run this daemon was
- *  bound to is already gone, so there is no 25 G scrollback to persist. A
- *  healthy daemon's own poll has usually already exited; this is the backstop
- *  for the one that cannot. */
+/** Grace the sibling gives the in-process `pid-gone` path before SIGKILL. */
 export const BIND_WATCH_TERM_MS = 2_000;
 
 /** Kernel window after SIGKILL. */
 export const BIND_WATCH_KILL_MS = 5_000;
 
-const WATCH_FLAG = "--bind-pid-watch";
+export const BIND_WATCH_FLAG = "--bind-pid-watch";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -48,32 +45,6 @@ async function waitGone(
     await sleep(Math.min(intervalMs, deadline - Date.now()));
   }
   return !isHolderLive(pid);
-}
-
-/** SIGTERM, wait, SIGKILL, wait. The #2178 field ladder: TERM alone left all
- *  five orphans up; KILL reaped them. A lone SIGTERM is not success if the
- *  process remains. */
-export async function reapUncooperative(
-  pid: number,
-  opts: { termMs?: number; killMs?: number; intervalMs?: number } = {},
-): Promise<"already-gone" | "SIGTERM" | "SIGKILL" | "survived"> {
-  const termMs = opts.termMs ?? BIND_WATCH_TERM_MS;
-  const killMs = opts.killMs ?? BIND_WATCH_KILL_MS;
-  const intervalMs = opts.intervalMs ?? 50;
-  if (!isHolderLive(pid)) return "already-gone";
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    return "already-gone";
-  }
-  if (await waitGone(pid, termMs, intervalMs)) return "SIGTERM";
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    return "already-gone";
-  }
-  if (await waitGone(pid, killMs, intervalMs)) return "SIGKILL";
-  return "survived";
 }
 
 /**
@@ -143,13 +114,15 @@ export function armBindPidWatchdog(opts: {
   targetPid?: number;
 }): { disarm: () => void } {
   const targetPid = opts.targetPid ?? process.pid;
-  const self = fileURLToPath(import.meta.url);
+  const self = fileURLToPath(
+    new URL("./bindPidWatchdog.cli.ts", import.meta.url),
+  );
   const execArgv = process.execArgv.filter((a) => !a.startsWith("--inspect"));
   const loader =
     execArgv.length > 0 ? execArgv : ["--experimental-strip-types"];
   const child: ChildProcess = spawn(
     process.execPath,
-    [...loader, self, WATCH_FLAG, String(opts.bindPid), String(targetPid)],
+    [...loader, self, BIND_WATCH_FLAG, String(opts.bindPid), String(targetPid)],
     { detached: true, stdio: "ignore", env: process.env },
   );
   child.unref();
@@ -167,21 +140,4 @@ export function armBindPidWatchdog(opts: {
       }
     },
   };
-}
-
-if (process.argv.includes(WATCH_FLAG)) {
-  const i = process.argv.indexOf(WATCH_FLAG);
-  const bindPid = Number(process.argv[i + 1]);
-  const targetPid = Number(process.argv[i + 2]);
-  if (!Number.isInteger(bindPid) || bindPid <= 0) {
-    process.stderr.write("bindPidWatchdog: bind pid is not a single process\n");
-    process.exit(2);
-  }
-  if (!Number.isInteger(targetPid) || targetPid <= 0) {
-    process.stderr.write(
-      "bindPidWatchdog: target pid is not a single process\n",
-    );
-    process.exit(2);
-  }
-  runBindPidWatch({ bindPid, targetPid });
 }
