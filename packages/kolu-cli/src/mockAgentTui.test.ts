@@ -44,12 +44,27 @@ const submitted = (out: string): string[] =>
     JSON.parse(m[1] ?? '""'),
   );
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((r) => setTimeout(r, ms));
+
 /** Feed `chunks` to a single fixture process and collect everything it wrote —
  *  the raw stream, so a caller can ask what was submitted AND what merely
- *  painted. */
+ *  painted.
+ *
+ *  `until` is POLLED, never slept for. A fixed window is a race against node's
+ *  own startup: on a loaded darwin CI box this collected the empty string,
+ *  because the child had not printed its first byte yet — a green fixture
+ *  reported as a red one. `thenMs` is the extra window a test wants AFTER its
+ *  condition is met, which is a different thing entirely: an observation
+ *  interval, measured from a known state rather than from a guess. */
 async function driveRaw(
   chunks: readonly string[],
-  opts: { env?: Record<string, string>; settleMs?: number } = {},
+  opts: {
+    env?: Record<string, string>;
+    until: (out: string) => boolean;
+    thenMs?: number;
+    timeoutMs?: number;
+  },
 ): Promise<string> {
   assertDaemonSpawnAllowed(
     "the mock agent TUI fixture (a short-lived node child)",
@@ -65,18 +80,31 @@ async function driveRaw(
       child.stdin.write(chunk);
       // One turn of the event loop per chunk: the point is that the fixture sees
       // them as SEPARATE stdin events, which is what a split actually is.
-      await new Promise((r) => setTimeout(r, 1));
+      await sleep(1);
     }
-    await new Promise((r) => setTimeout(r, opts.settleMs ?? 250));
+    const deadline = Date.now() + (opts.timeoutMs ?? 30_000);
+    while (Date.now() < deadline && !opts.until(out)) await sleep(25);
+    if (opts.thenMs !== undefined) await sleep(opts.thenMs);
     return out;
   } finally {
     child.kill();
   }
 }
 
-/** Feed `chunks` to a single fixture process and collect what it submitted. */
-const drive = async (chunks: readonly string[]): Promise<string[]> =>
-  submitted(await driveRaw(chunks));
+/** Feed `chunks` to a single fixture process and collect what it submitted,
+ *  waiting for exactly the `expected` count to arrive rather than for a clock. */
+const drive = async (
+  chunks: readonly string[],
+  expected: number,
+): Promise<string[]> =>
+  submitted(
+    await driveRaw(chunks, {
+      until: (out) => submitted(out).length >= expected,
+      // A short settle AFTER the count is met, so an EXTRA submission — the
+      // failure a bare count would miss — still lands inside the window.
+      thenMs: 150,
+    }),
+  );
 
 describeDaemon("mockAgentTui — the fold survives any chunk boundary", () => {
   it("delivers every payload intact when split at EVERY index", async () => {
@@ -96,12 +124,12 @@ describeDaemon("mockAgentTui — the fold survives any chunk boundary", () => {
       expected.push(body);
     });
 
-    expect(await drive(chunks)).toEqual(expected);
+    expect(await drive(chunks, expected.length)).toEqual(expected);
   }, 120_000);
 
   it("delivers a payload fed ONE BYTE at a time", async () => {
     const { bytes, body } = payload(99);
-    expect(await drive([...bytes])).toEqual([body]);
+    expect(await drive([...bytes], 1)).toEqual([body]);
   }, 60_000);
 
   it("keeps painting after a paste when asked, holding the text UNSUBMITTED", async () => {
@@ -113,12 +141,15 @@ describeDaemon("mockAgentTui — the fold survives any chunk boundary", () => {
     // (without which there would be nothing left to recover).
     const { body } = payload(7);
     const out = await driveRaw([`${PASTE_START}${body}${PASTE_END}`], {
-      env: { MOCK_PASTE_CHATTER_MS: "1200", MOCK_TICK_MS: "50" },
-      settleMs: 600,
+      env: { MOCK_PASTE_CHATTER_MS: "4000", MOCK_TICK_MS: "50" },
+      // The ECHO is the known state: the child is up and has taken the paste.
+      // Only then is a window meaningful — before it, an empty stream says
+      // nothing about the chatter and everything about node's startup.
+      until: (seen) => seen.includes("brief 7"),
+      thenMs: 400,
     });
     expect(out).toContain("~");
     expect(submitted(out)).toEqual([]);
-    expect(out).toContain("brief 7");
   }, 60_000);
 
   it("chatters only when asked — the default fixture goes quiet at once", async () => {
@@ -126,6 +157,10 @@ describeDaemon("mockAgentTui — the fold survives any chunk boundary", () => {
     // terminal as "the TUI took it". A fixture that chattered by default would
     // turn all of them into timing races.
     const { bytes } = payload(8);
-    expect(await driveRaw([bytes])).not.toContain("~");
+    const out = await driveRaw([bytes], {
+      until: (seen) => submitted(seen).length >= 1,
+      thenMs: 400,
+    });
+    expect(out).not.toContain("~");
   }, 60_000);
 });
