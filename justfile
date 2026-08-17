@@ -498,8 +498,13 @@ e2e-ssh-upgrade host: install
 test: install
     #!/usr/bin/env bash
     set -euo pipefail
+    lock=""
     cleanup() {
         local st=$?
+        # Own the suite lock only if we created it — do not rm a peer's lock.
+        if [ -n "$lock" ]; then
+            rm -rf "$lock" || true
+        fi
         # Best-effort: a janitor failure must not replace the suite's exit code.
         just _reap-ci-run || true
         exit "$st"
@@ -536,8 +541,8 @@ test: install
     # so the lock is stolen rather than waited on. After max-wait we proceed
     # unlocked — degraded mode is exactly today's behavior, never a deadlock.
     # KOLU_E2E_LOCK=0 opts out (e.g. deliberate side-by-side local runs).
-    lock=/tmp/kolu-e2e-suite.lock
     if [ "${KOLU_E2E_LOCK:-1}" != 0 ]; then
+        lock=/tmp/kolu-e2e-suite.lock
         deadline=$(( $(date +%s) + 3600 ))
         until mkdir "$lock" 2>/dev/null; do
             owner="$(cat "$lock/pid" 2>/dev/null || true)"
@@ -556,7 +561,6 @@ test: install
         done
         if [ -n "$lock" ]; then
             echo "$$" > "$lock/pid"
-            trap 'rm -rf "$lock"' EXIT
         fi
     fi
     # The odu venue pool leases each CI host exclusively, so external load is

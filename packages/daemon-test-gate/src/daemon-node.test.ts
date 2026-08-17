@@ -105,6 +105,26 @@ test("test-daemon and e2e `test` reap this-run leftovers on EXIT (#2178)", () =>
   }
 });
 
+test("e2e `test` keeps the janitor on EXIT after the suite-lock acquire (#2178)", () => {
+  const body = recipeBody(ROOT, "test");
+  const traps = [...body.matchAll(/^\s*trap\s+\S.*$/gm)].map((m) =>
+    m[0].trim(),
+  );
+  expect(traps.length, "`test` must arm an EXIT trap").toBeGreaterThan(0);
+  expect(
+    traps.at(-1),
+    "the LAST trap in `test` must still be `cleanup` — a later `trap 'rm -rf \"$lock\"' EXIT` would clobber the janitor on the locked path that creates kolu-scroll-fifo-*",
+  ).toBe("trap cleanup EXIT");
+  expect(
+    body,
+    "lock release must live inside cleanup(), not a second EXIT trap",
+  ).toMatch(/rm -rf "\$lock"/);
+  expect(
+    body,
+    "a dedicated lock-only EXIT trap replaces cleanup and is the #2178 leak",
+  ).not.toMatch(/trap ['"]rm -rf "\$lock"['"] EXIT/);
+});
+
 test("the shipped janitor recipe drives ciReap.cli.ts", () => {
   const body = recipeBody(ROOT, "_reap-ci-run");
   expect(
