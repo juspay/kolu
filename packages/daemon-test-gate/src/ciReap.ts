@@ -3,15 +3,15 @@
  *
  * Two jobs, both fail-safe toward production:
  *
- *  1. Remove **this run's** `padi-dial-rt-*` / `padi-dial-sr-*` /
- *     `kolu-scroll-fifo-*` runtime roots under `$TMPDIR`.
- *  2. Reap leftover **ci-owned** kaval/padi whose `KOLU_DAEMON_BIND_PID` is
- *     gone — TERM, then KILL. A process with no bind pid (production
- *     `forever`) or a live bind pid is left untouched. A command line that
- *     does not name a CI runtime root / odu checkout is left untouched.
- *
- * Odu checkout trees under `T/odu/kolu/` are another system's files; this
- * janitor does not delete them.
+ *  1. Remove leftover `padi-dial-rt-*` / `padi-dial-sr-*` /
+ *     `kolu-scroll-fifo-*` runtime roots under the reap root. FIFO dirs
+ *     kill their `cat` readers first — `rm` alone leaves `cat` on the
+ *     unlinked inode (#2178).
+ *  2. Reap leftover **ci-owned** kaval/padi / node-pty helpers whose
+ *     command names a runtime-root prefix. A live bind pid is left
+ *     untouched (a peer run). Production `forever` daemons never match
+ *     those prefixes. Odu checkout trees under `T/odu/kolu/` are another
+ *     system's files; this janitor does not delete them.
  */
 
 import { execFileSync } from "node:child_process";
@@ -19,14 +19,20 @@ import { type Dirent, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 
+export const PADI_DIAL_RT_PREFIX = "padi-dial-rt-";
+export const PADI_DIAL_SR_PREFIX = "padi-dial-sr-";
+export const SCROLL_FIFO_DIR_PREFIX = "kolu-scroll-fifo-";
+
 export const CI_RUNTIME_DIR_PREFIXES = [
-  "padi-dial-rt-",
-  "padi-dial-sr-",
-  "kolu-scroll-fifo-",
+  PADI_DIAL_RT_PREFIX,
+  PADI_DIAL_SR_PREFIX,
+  SCROLL_FIFO_DIR_PREFIX,
 ] as const;
 
-/** Command-line markers that name a CI / odu runtime, not a production daemon. */
-const CI_ROOT_RE = /padi-dial-rt-|padi-dial-sr-|\/odu\/kolu\//;
+/** Command-line markers that name a CI runtime root, not a production daemon.
+ *  `/odu/kolu/` in cwd is not enough — a workstation helper whose cwd happens
+ *  to sit under an odu checkout must not be a kill warrant. */
+const CI_ROOT_RE = /padi-dial-rt-|padi-dial-sr-|kolu-scroll-fifo-/;
 
 /** The daemon binaries CI actually leaks — source `bin.ts` or the nix wrapper. */
 const DAEMON_BIN_RE =
@@ -66,10 +72,39 @@ export function removeThisRunRuntimeRoots(
     if (!ent.isDirectory()) continue;
     if (!CI_RUNTIME_DIR_PREFIXES.some((p) => ent.name.startsWith(p))) continue;
     const full = join(root, ent.name);
+    if (ent.name.startsWith(SCROLL_FIFO_DIR_PREFIX)) {
+      killCatsOnFifo(join(full, "trigger"));
+    }
     rmSync(full, { recursive: true, force: true });
     removed.push(full);
   }
   return removed;
+}
+
+/** SIGKILL every `cat` whose command line names this FIFO path. */
+function killCatsOnFifo(fifoPath: string): void {
+  let out: string;
+  try {
+    out = execFileSync(
+      "ps",
+      process.platform === "darwin"
+        ? ["-Ao", "pid=,command="]
+        : ["-eo", "pid=,args="],
+      { encoding: "utf8" },
+    );
+  } catch {
+    return;
+  }
+  for (const line of out.split("\n")) {
+    if (!line.includes(fifoPath) || !/\bcat\b/.test(line)) continue;
+    const pid = Number.parseInt(line.trim(), 10);
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }
 }
 
 /** `ps` columns that carry the full command line: Darwin wants BSD `-A`/`command`,
@@ -96,21 +131,29 @@ export function listProcesses(): ListedProc[] {
   return rows;
 }
 
-export function readBindPidFromEnviron(pid: number): number | undefined {
+export type BindPidRead =
+  | { kind: "bound"; pid: number }
+  | { kind: "absent" }
+  | { kind: "unreadable" };
+
+export function readBindPidFromEnviron(pid: number): BindPidRead {
   try {
     const env = readFileSync(`/proc/${pid}/environ`);
     const found = parseBindPidFromEnvironBytes(env);
-    if (found !== undefined) return found;
+    if (found !== undefined) return { kind: "bound", pid: found };
+    return { kind: "absent" };
   } catch {
-    // No /proc (darwin) or the pid is already gone.
+    // No /proc (darwin) or the pid is already gone — fall through to ps.
   }
   try {
     const out = execFileSync("ps", ["eww", "-p", String(pid)], {
       encoding: "utf8",
     });
-    return parseBindPidFromPsEww(out);
+    const found = parseBindPidFromPsEww(out);
+    if (found !== undefined) return { kind: "bound", pid: found };
+    return { kind: "absent" };
   } catch {
-    return undefined;
+    return { kind: "unreadable" };
   }
 }
 
@@ -134,7 +177,9 @@ function bindPidValue(entry: string): number | undefined {
   return Number(raw);
 }
 
-export function isPidLive(pid: number): boolean {
+/** `kill(0)` plus EPERM-is-alive — the same rule as `isHolderLive`.
+ *  Named apart from hooks.ts `isPidLive`, which treats every throw as dead. */
+export function isReachablePid(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -150,7 +195,7 @@ export async function reapUncooperative(
   const termMs = opts.termMs ?? 2_000;
   const killMs = opts.killMs ?? 5_000;
   const intervalMs = opts.intervalMs ?? 50;
-  if (!isPidLive(pid)) return "already-gone";
+  if (!isReachablePid(pid)) return "already-gone";
   try {
     process.kill(pid, "SIGTERM");
   } catch {
@@ -177,15 +222,15 @@ async function waitGone(
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (!isPidLive(pid)) return true;
+    if (!isReachablePid(pid)) return true;
     await sleep(Math.min(intervalMs, deadline - Date.now()));
   }
-  return !isPidLive(pid);
+  return !isReachablePid(pid);
 }
 
 export interface SweepDeps {
   list?: () => ListedProc[];
-  readBindPid?: (pid: number) => number | undefined;
+  readBindPid?: (pid: number) => BindPidRead;
   live?: (pid: number) => boolean;
   reap?: (pid: number) => unknown;
   /** Only consider this user's processes. Default: the running user. */
@@ -196,7 +241,7 @@ export function selectBindPidGoneDaemons(
   procs: readonly ListedProc[],
   opts: {
     live: (pid: number) => boolean;
-    readBindPid: (pid: number) => number | undefined;
+    readBindPid: (pid: number) => BindPidRead;
     onlyUser: string;
   },
 ): number[] {
@@ -210,9 +255,11 @@ export function selectBindPidGoneDaemons(
     }
     if (!isCiOwnedDaemonCommand(proc.command)) continue;
     const bind = opts.readBindPid(proc.pid);
-    // No bind pid ⇒ production `forever`. Do not touch.
-    if (bind === undefined) continue;
-    if (opts.live(bind)) continue;
+    // Unreadable: cannot tell a peer run from a leftover. Do not reap.
+    if (bind.kind === "unreadable") continue;
+    // Absent bind on a CI-owned command is a leftover, not production
+    // (production never matches CI_ROOT_RE). Bound + live is a peer run.
+    if (bind.kind === "bound" && opts.live(bind.pid)) continue;
     selected.push(proc.pid);
   }
   return selected;
@@ -224,18 +271,20 @@ export async function sweepBindPidGoneDaemons(
   const onlyUser = deps.onlyUser ?? userInfo().username;
   const list = deps.list ?? listProcesses;
   const readBindPid = deps.readBindPid ?? readBindPidFromEnviron;
-  const live = deps.live ?? isPidLive;
+  const live = deps.live ?? isReachablePid;
   const reap =
     deps.reap ??
     ((pid: number) =>
       reapUncooperative(pid, { termMs: 2_000, killMs: 5_000, intervalMs: 50 }));
-  const targets = selectBindPidGoneDaemons(list(), {
-    live,
-    readBindPid,
-    onlyUser,
-  });
+  const select = (): number[] =>
+    selectBindPidGoneDaemons(list(), { live, readBindPid, onlyUser });
+  const targets = select();
   const reaped: number[] = [];
   for (const pid of targets) {
+    // Re-identify immediately before the signal — a pid is not an identity
+    // after exit (pidGate.ts). A reuse during the TERM/KILL window must
+    // not inherit the earlier verdict.
+    if (!select().includes(pid)) continue;
     await reap(pid);
     reaped.push(pid);
   }

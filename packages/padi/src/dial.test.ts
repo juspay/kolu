@@ -27,6 +27,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
+  PADI_DIAL_RT_PREFIX,
+  PADI_DIAL_SR_PREFIX,
 } from "@kolu/daemon-test-gate";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { awaitStdioReadiness } from "@kolu/surface/links/readiness";
@@ -67,7 +69,7 @@ const TSX_LOADER = pathToFileURL(
 // Isolate every padi in this file under ONE temp runtime root, so a distinct
 // state-root (→ distinct digest) is the ONLY thing separating two padis — the
 // exact #1313 property under test. Saved + restored so the change is file-local.
-const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), "padi-dial-rt-"));
+const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), PADI_DIAL_RT_PREFIX));
 const priorXdg = process.env.XDG_RUNTIME_DIR;
 beforeAll(() => {
   process.env.XDG_RUNTIME_DIR = RUNTIME_ROOT;
@@ -226,7 +228,7 @@ afterEach(async () => {
 });
 
 const makeStateRoot = (): string =>
-  mkdtempSync(join(tmpdir(), "padi-dial-sr-"));
+  mkdtempSync(join(tmpdir(), PADI_DIAL_SR_PREFIX));
 
 /** A `padi --stdio` FRONT child: its piped stdio IS the wire (the ssh transport,
  *  minus ssh), fronting a durable padi daemon it spawned at `stateRoot`. Distinct

@@ -41,7 +41,7 @@ describeDaemon("real kaval boot", () => {
 assertDaemonSpawnAllowed("a kaval daemon");
 ```
 
-## Three primitives
+## Three spawn-gate primitives
 
 - **`describeDaemon(name, fn)`** — a `describe` that runs only under `KOLU_DAEMON_TESTS=1`.
 - **`assertDaemonSpawnAllowed(what?)`** — the runtime spawn leash (throws when gated OFF in a test context).
@@ -49,3 +49,14 @@ assertDaemonSpawnAllowed("a kaval daemon");
 
 Run the gated suites with `just test-daemon` (CI/pu-only); a bare `pnpm test:unit`
 stays fork-free by default.
+
+## CI reap (`just _reap-ci-run`)
+
+The same package ships the end-of-run janitor `test-daemon` and `just test`
+trap on EXIT. It deletes leftover `padi-dial-rt-*` / `padi-dial-sr-*` /
+`kolu-scroll-fifo-*` roots (killing FIFO `cat` readers first) and
+SIGTERM→SIGKILLs leftover kaval/padi/node-pty helpers whose command names
+one of those prefixes. A live `KOLU_DAEMON_BIND_PID` is left untouched
+(a peer run). Production `forever` daemons never match those prefixes
+and are not touched. Create sites import `PADI_DIAL_RT_PREFIX` /
+`PADI_DIAL_SR_PREFIX` so the leftover class stays one string.

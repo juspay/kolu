@@ -76,14 +76,40 @@ export async function reapUncooperative(
   return "survived";
 }
 
+/**
+ * Wait for the in-process `pid-gone` path to finish, then SIGKILL if the
+ * target is still up. The sibling must not SIGTERM: `finish("pid-gone")`
+ * has already removed the daemon's SIGTERM handler, so a TERM in that
+ * window is the kernel default (exit 143) and aborts `listener.close` /
+ * `gate.release` (daemonMain.ts announcement/teardown comment). Field
+ * #2178: TERM left every orphan up; KILL reaped them — TERM does not
+ * help the wedged case and is the step that damages the healthy one.
+ */
+export async function killAfterGrace(
+  pid: number,
+  opts: { graceMs?: number; killMs?: number; intervalMs?: number } = {},
+): Promise<"already-gone" | "SIGKILL" | "survived"> {
+  const graceMs = opts.graceMs ?? BIND_WATCH_TERM_MS;
+  const killMs = opts.killMs ?? BIND_WATCH_KILL_MS;
+  const intervalMs = opts.intervalMs ?? 50;
+  if (await waitGone(pid, graceMs, intervalMs)) return "already-gone";
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    return "already-gone";
+  }
+  if (await waitGone(pid, killMs, intervalMs)) return "SIGKILL";
+  return "survived";
+}
+
 /** The sibling's main loop. First tick is delayed by `pollMs` so an
  *  already-dead bind pid at boot lets `daemonMain` take the clean `pid-gone`
- *  path instead of racing a SIGTERM against a just-disarmed handler. */
+ *  path instead of racing a SIGKILL against a just-started tenure. */
 export function runBindPidWatch(opts: {
   bindPid: number;
   targetPid: number;
   pollMs?: number;
-  termMs?: number;
+  graceMs?: number;
   killMs?: number;
 }): void {
   const pollMs = opts.pollMs ?? BIND_WATCH_POLL_MS;
@@ -97,8 +123,8 @@ export function runBindPidWatch(opts: {
           process.exit(0);
         }
         if (isHolderLive(opts.bindPid)) return;
-        const ended = await reapUncooperative(opts.targetPid, {
-          termMs: opts.termMs,
+        const ended = await killAfterGrace(opts.targetPid, {
+          graceMs: opts.graceMs,
           killMs: opts.killMs,
         });
         process.exit(ended === "survived" ? 1 : 0);

@@ -3,7 +3,7 @@
  * driven against real fixtures, not a copy of the unit under test.
  */
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -17,7 +17,7 @@ import { afterEach, expect, it } from "vitest";
 import {
   isCiLeftoverHelperCommand,
   isCiOwnedDaemonCommand,
-  isPidLive,
+  isReachablePid,
   listProcesses,
   parseBindPidFromEnvironBytes,
   parseBindPidFromPsEww,
@@ -56,7 +56,7 @@ async function deadPid(): Promise<number> {
   if (pid === undefined) throw new Error("sentinel did not start");
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    if (!isPidLive(pid)) return pid;
+    if (!isReachablePid(pid)) return pid;
     await new Promise((r) => setTimeout(r, 20));
   }
   throw new Error("sentinel did not die");
@@ -115,9 +115,15 @@ it("isCiOwnedDaemonCommand requires a CI root AND a daemon bin", () => {
   ).toBe(true);
   expect(
     isCiOwnedDaemonCommand(
-      "node /odu/kolu/2149dc9/packages/kaval/src/bin.ts --socket /tmp/kaval/pty-host.sock",
+      "node /odu/kolu/2149dc9/packages/kaval/src/bin.ts --socket /tmp/padi-dial-rt-x/kaval/pty-host.sock",
     ),
   ).toBe(true);
+  // An odu checkout in cwd is not a kill warrant by itself.
+  expect(
+    isCiOwnedDaemonCommand(
+      "node /odu/kolu/2149dc9/packages/kaval/src/bin.ts --socket /tmp/kaval/pty-host.sock",
+    ),
+  ).toBe(false);
   expect(
     isCiOwnedDaemonCommand(
       "node packages/padi/src/daemonBoot/bin.ts --state-root /tmp/padi-dial-sr-nMu",
@@ -141,6 +147,11 @@ it("isCiLeftoverHelperCommand matches node-pty helpers on a CI root", () => {
   ).toBe(true);
   expect(
     isCiLeftoverHelperCommand("node-pty spawn-helper /home/srid /bin/zsh"),
+  ).toBe(false);
+  expect(
+    isCiLeftoverHelperCommand(
+      "node-pty spawn-helper /home/ci/T/odu/kolu/abc /bin/zsh",
+    ),
   ).toBe(false);
 });
 
@@ -172,18 +183,46 @@ it("selectBindPidGoneDaemons skips production (no bind pid) and live-bind daemon
         "node /nix/store/abc/bin/kaval --socket /run/kaval/pty-host.sock",
     },
   ];
-  const bindOf: Record<number, number | undefined> = {
-    10: 99, // dead bind
-    11: 100, // live bind
-    12: 99,
-    13: 99,
+  const bindOf: Record<
+    number,
+    { kind: "bound"; pid: number } | { kind: "absent" } | { kind: "unreadable" }
+  > = {
+    10: { kind: "bound", pid: 99 }, // dead bind
+    11: { kind: "bound", pid: 100 }, // live bind
+    12: { kind: "bound", pid: 99 },
+    13: { kind: "bound", pid: 99 },
   };
   const selected = selectBindPidGoneDaemons(procs, {
     live: (pid) => pid === 100,
-    readBindPid: (pid) => bindOf[pid],
+    readBindPid: (pid) => bindOf[pid] ?? { kind: "absent" },
     onlyUser: me,
   });
   expect(selected).toEqual([10]);
+});
+
+it("selectBindPidGoneDaemons reaps CI-owned with absent bind, skips unreadable", () => {
+  const me = userInfo().username;
+  const procs = [
+    {
+      pid: 20,
+      user: me,
+      command:
+        "node packages/kaval/src/bin.ts --socket /tmp/padi-dial-rt-x/kaval.sock",
+    },
+    {
+      pid: 21,
+      user: me,
+      command:
+        "node packages/kaval/src/bin.ts --socket /tmp/padi-dial-rt-y/kaval.sock",
+    },
+  ];
+  const selected = selectBindPidGoneDaemons(procs, {
+    live: () => false,
+    readBindPid: (pid) =>
+      pid === 20 ? { kind: "absent" } : { kind: "unreadable" },
+    onlyUser: me,
+  });
+  expect(selected).toEqual([20]);
 });
 
 it("parseBindPid reads the canonical env spelling from /proc bytes and ps eww", () => {
@@ -204,14 +243,14 @@ it("parseBindPid reads the canonical env spelling from /proc bytes and ps eww", 
 
 it("reapUncooperative escalates to SIGKILL when the child ignores SIGTERM", async () => {
   const pid = await trapTermSleeper();
-  expect(isPidLive(pid)).toBe(true);
+  expect(isReachablePid(pid)).toBe(true);
   const ended = await reapUncooperative(pid, {
     termMs: 300,
     killMs: 2_000,
     intervalMs: 20,
   });
   expect(ended).toBe("SIGKILL");
-  expect(isPidLive(pid)).toBe(false);
+  expect(isReachablePid(pid)).toBe(false);
 });
 
 it("sweepBindPidGoneDaemons reaps a real SIGTERM-deaf child whose bind pid is already dead", async () => {
@@ -238,7 +277,7 @@ it("sweepBindPidGoneDaemons reaps a real SIGTERM-deaf child whose bind pid is al
     child.stdout.once("data", () => resolve());
     child.once("error", reject);
   });
-  expect(isPidLive(pid)).toBe(true);
+  expect(isReachablePid(pid)).toBe(true);
 
   const { reaped } = await sweepBindPidGoneDaemons({
     list: () => listProcesses().filter((p) => p.pid === pid),
@@ -246,7 +285,32 @@ it("sweepBindPidGoneDaemons reaps a real SIGTERM-deaf child whose bind pid is al
       reapUncooperative(p, { termMs: 300, killMs: 2_000, intervalMs: 20 }),
   });
   expect(reaped).toContain(pid);
-  expect(isPidLive(pid)).toBe(false);
+  expect(isReachablePid(pid)).toBe(false);
+});
+
+it("removeThisRunRuntimeRoots kills leftover fifo cats before rm", async () => {
+  const root = scratch();
+  const dir = join(root, "kolu-scroll-fifo-orphan");
+  mkdirSync(dir);
+  const fifo = join(dir, "trigger");
+  execFileSync("mkfifo", [fifo]);
+  const cat = spawn("cat", [fifo], { stdio: "ignore" });
+  const pid = cat.pid;
+  if (pid === undefined) throw new Error("cat did not start");
+  children.push(pid);
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline && !isReachablePid(pid)) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  expect(isReachablePid(pid)).toBe(true);
+  const removed = removeThisRunRuntimeRoots(root);
+  expect(removed).toEqual([dir]);
+  expect(existsSync(dir)).toBe(false);
+  const goneBy = Date.now() + 2_000;
+  while (Date.now() < goneBy && isReachablePid(pid)) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  expect(isReachablePid(pid)).toBe(false);
 });
 
 it("reapCiRun drives dir removal and the sweep together on a fixture", async () => {

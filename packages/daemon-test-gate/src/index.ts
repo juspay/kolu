@@ -14,7 +14,7 @@
  * no layer-ladder question is even expressible. It is test infrastructure (a
  * bounded gate), never a volatility receptacle (electricity.mdx's leaf tier).
  *
- * Three primitives:
+ * Three spawn-gate primitives plus the CI janitor:
  *   - {@link describeDaemon} — a `describe` block that only runs under
  *     `KOLU_DAEMON_TESTS=1` (default OFF), applied at every real-spawn test site.
  *   - {@link assertDaemonSpawnAllowed} — the RUNTIME leash the test helpers call
@@ -23,9 +23,17 @@
  *     never sees cannot smuggle a fork past the gate (the enumerative pattern
  *     scan alone was proven defeatable via `*.testlib.ts` indirection).
  *   - the `./setup` module — the per-worker env scrub (see `setup.ts`).
+ *   - {@link PADI_DIAL_RT_PREFIX} / {@link PADI_DIAL_SR_PREFIX} — the runtime
+ *     root names the CI janitor (`ciReap`) reaps; create sites import these
+ *     so leftovers stay matchable.
  */
 
 import { describe } from "vitest";
+
+export {
+  PADI_DIAL_RT_PREFIX,
+  PADI_DIAL_SR_PREFIX,
+} from "./ciReap.ts";
 
 /** True only when the operator has opted into forking real daemons — the CI/pu
  *  recipe (`just test-daemon`) sets it; a bare `vitest` / `pnpm test:unit` does

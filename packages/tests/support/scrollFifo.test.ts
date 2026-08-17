@@ -10,7 +10,7 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { retireScrollFifo } from "./scrollFifo.ts";
+import { retireScrollFifo, SCROLL_FIFO_DIR_PREFIX } from "./scrollFifo.ts";
 
 function catStillListed(fifoPath: string): boolean {
   const out = execFileSync(
@@ -26,7 +26,7 @@ function catStillListed(fifoPath: string): boolean {
 }
 
 test("retireScrollFifo kills the cat and removes the dir when the fire step never ran", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "kolu-scroll-fifo-"));
+  const dir = mkdtempSync(join(tmpdir(), SCROLL_FIFO_DIR_PREFIX));
   const fifo = join(dir, "trigger");
   execFileSync("mkfifo", [fifo]);
   const cat = spawn("cat", [fifo], { stdio: "ignore" });

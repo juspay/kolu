@@ -159,18 +159,19 @@ also arms a **sibling** that does not share this event loop. The in-process
 `boundToPid` poll and the SIGTERM handler both live on the daemon's loop; a
 wedged daemon (fd exhaustion, `SIGSTOP`) can neither poll nor honour the signal —
 the field that made this a requirement (juspay/kolu#2178): TERM left every orphan
-up, KILL reaped them. The sibling polls the bind pid on the same cadence and
-escalates SIGTERM → SIGKILL so a comatose bound daemon still dies with its run.
-It is armed only here, never from in-process `daemonMain` tests (those share
-vitest's pid; a SIGKILL would take the runner down), and is disarmed on the
-clean-exit and crash arms.
+up, KILL reaped them. The sibling polls the bind pid on the same cadence, waits
+a grace so the clean `pid-gone` path can finish release, then SIGKILLs if the
+process is still up. It does not SIGTERM: that handler is already gone on the
+clean path, and TERM does not help a wedged loop. It is armed only here, never
+from in-process `daemonMain` tests (those share vitest's pid; a SIGKILL would
+take the runner down), and is disarmed on the clean-exit and crash arms.
 
 <Snippet src="packages/surface/example/snippets/daemon.ts" region="lifecycle" />
 
 | Export | Role |
 | --- | --- |
 | `daemonMain({ home, processIdentity, readProcessIdentity, … })` | the gate → serve → teardown skeleton; gate/socket/default-anchor from `home`; identity is injected (never defaulted); resolves a `DaemonExit` |
-| `daemonProcessMain({ name, run })` | the bin half: run the daemon to completion, then own the process exit (code + crash arm). A `boundToPid` process also gets a sibling that SIGTERM→SIGKILLs it if the bind pid dies while this loop cannot |
+| `daemonProcessMain({ name, run })` | the bin half: run the daemon to completion, then own the process exit (code + crash arm). A `boundToPid` process also gets a sibling that waits a grace then SIGKILLs it if the bind pid dies while this loop cannot |
 | `claimPidGate(gatePath, socketPath, self, readProcessIdentity)` | the named full claim: `acquirePidGate` then `confirmHeldGate` when held — composition roots use this, not the two steps by convention |
 | `acquirePidGate(gatePath, self, readProcessIdentity)` | atomic single-instance claim via `link(2)`; writes `${pid}\t${startUnixUs}\n`; returns `{ kind: "acquired", release }`, `{ kind: "held", pid }`, or `{ kind: "dir-not-private", dir }` |
 | `ProcessIdentity` · `ReadProcessIdentity` | canonical start-qualified identity (`{ pid, startUnixUs }`) and the **sync** injected OS fact reader for the daemon claim path — the spine never imports osfacts. The supervisor's awaitable inject is `ReadProcessIdentityAsync` on `@kolu/surface-daemon-supervisor` (beside `EndpointSpec`), an Effect — the sync one stays here because a synchronous gate claim must not reorder against the boot side effects it guards |
@@ -192,7 +193,7 @@ not `forever` plus flags:
 | --- | --- | --- |
 | `{ kind: "forever" }` | a signal or external abort | [kaval](/kaval) / padi in production |
 | `{ kind: "idleTimeout", ms, isIdle }` | `ms` of continuous idleness | `odu serve` |
-| `{ kind: "boundToPid", pid, pollMs? }` | the watched `pid` is gone (in-process poll `kill(pid, 0)`, plus the `daemonProcessMain` sibling that can still SIGKILL a wedged loop); an already-dead pid exits at once | a test/smoke-spawned kaval/padi — dies with its run |
+| `{ kind: "boundToPid", pid, pollMs? }` | the watched `pid` is gone (in-process poll `kill(pid, 0)`). `daemonProcessMain` additionally arms a sibling that SIGKILLs a wedged loop after a grace; constructing this lifetime object is not what arms the sibling — the env/`daemonProcessMain` path is | a test/smoke-spawned kaval/padi — dies with its run |
 
 Every lifetime is additionally subject to the
 [anchor self-reap](#the-anchor-self-reap) — the table lists only each

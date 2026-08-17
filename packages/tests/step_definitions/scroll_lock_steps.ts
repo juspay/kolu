@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { Then, When } from "@cucumber/cucumber";
 import { shellQuoteArg } from "@kolu/shell-quote";
 import { waitForBufferContains } from "../support/buffer.ts";
-import { retireScrollFifo } from "../support/scrollFifo.ts";
+import {
+  retireScrollFifo,
+  SCROLL_FIFO_DIR_PREFIX,
+} from "../support/scrollFifo.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 /** The FIFO path created during this scenario's prepare step. */
@@ -72,7 +75,7 @@ When("I prepare a output trigger", async function (this: KoluWorld) {
   // Put it in an atomically-created private directory: parallel workers cannot
   // collide with or pre-create one another's FIFO. A background cat blocks on
   // the FIFO until the test process writes to it.
-  const fifoDir = await mkdtemp(join(tmpdir(), "kolu-scroll-fifo-"));
+  const fifoDir = await mkdtemp(join(tmpdir(), SCROLL_FIFO_DIR_PREFIX));
   const fifo = join(fifoDir, "trigger");
   this._scrollFifo = fifo;
   const quotedFifo = shellQuoteArg(fifo);

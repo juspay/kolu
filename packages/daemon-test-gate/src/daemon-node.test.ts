@@ -148,6 +148,32 @@ test("e2e `test` assigns lock= only after mkdir owns the suite lock", () => {
   ).toBeGreaterThan(mkdirAt);
 });
 
+test("create sites import the janitor's leftover prefixes (#2178)", () => {
+  const dial = readFileSync(
+    join(REPO_ROOT, "packages", "padi", "src", "dial.test.ts"),
+    "utf8",
+  );
+  expect(
+    dial,
+    "padi-dial runtime roots must come from the janitor's prefix constants",
+  ).toMatch(/PADI_DIAL_RT_PREFIX/);
+  expect(dial).toMatch(/PADI_DIAL_SR_PREFIX/);
+  const steps = readFileSync(
+    join(
+      REPO_ROOT,
+      "packages",
+      "tests",
+      "step_definitions",
+      "scroll_lock_steps.ts",
+    ),
+    "utf8",
+  );
+  expect(
+    steps,
+    "scroll-fifo dirs must come from SCROLL_FIFO_DIR_PREFIX",
+  ).toMatch(/SCROLL_FIFO_DIR_PREFIX/);
+});
+
 test("the shipped janitor recipe drives ciReap.cli.ts", () => {
   const body = recipeBody(ROOT, "_reap-ci-run");
   expect(

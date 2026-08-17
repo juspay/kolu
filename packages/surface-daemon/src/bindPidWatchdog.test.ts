@@ -7,7 +7,7 @@
 
 import { spawn } from "node:child_process";
 import { afterEach, expect, it } from "vitest";
-import { reapUncooperative } from "./bindPidWatchdog.ts";
+import { killAfterGrace, reapUncooperative } from "./bindPidWatchdog.ts";
 import { isHolderLive } from "./pidGate.ts";
 
 const children: number[] = [];
@@ -45,6 +45,37 @@ it("escalates to SIGKILL when the child ignores SIGTERM — and the process is g
   });
   expect(ended).toBe("SIGKILL");
   expect(isHolderLive(pid)).toBe(false);
+});
+
+it("killAfterGrace leaves a child that exits during the grace, SIGKILLs one that does not", async () => {
+  const well = spawn("bash", ["-c", "echo up; exec sleep 600"], {
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  const wellPid = well.pid;
+  if (wellPid === undefined)
+    throw new Error("well-behaved sleeper did not start");
+  children.push(wellPid);
+  await new Promise<void>((resolve, reject) => {
+    well.stdout.once("data", () => resolve());
+    well.once("error", reject);
+  });
+  well.kill("SIGTERM");
+  const wellEnded = await killAfterGrace(wellPid, {
+    graceMs: 2_000,
+    killMs: 2_000,
+    intervalMs: 20,
+  });
+  expect(wellEnded).toBe("already-gone");
+  expect(isHolderLive(wellPid)).toBe(false);
+
+  const stuck = await trapTermSleeper();
+  const stuckEnded = await killAfterGrace(stuck, {
+    graceMs: 200,
+    killMs: 2_000,
+    intervalMs: 20,
+  });
+  expect(stuckEnded).toBe("SIGKILL");
+  expect(isHolderLive(stuck)).toBe(false);
 });
 
 it("a well-behaved child ends at SIGTERM", async () => {
