@@ -138,7 +138,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
       },
       async (fixture) => {
         const sample = Effect.runPromise(samplePadiMemory);
-        await vi.waitFor(() => expect(fixture.hasStarted()).toBe(true));
+        await fixture.awaitStarted();
         endpoint.target = { pid: 4242, startedAt: 2_000 };
         fixture.release();
 
@@ -156,7 +156,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
       { rows: [], version: 999, paused: true },
       async (fixture) => {
         const sample = Effect.runPromise(samplePadiMemory);
-        await vi.waitFor(() => expect(fixture.hasStarted()).toBe(true));
+        await fixture.awaitStarted();
         endpoint.target = { pid: 4242, startedAt: 2_000 };
         fixture.release();
 

@@ -19,8 +19,21 @@ import { join } from "node:path";
 import { shellQuoteArg } from "@kolu/shell-quote";
 import { vi } from "vitest";
 
+/** How long the fake osfacts may take to actually be RUNNING.
+ *
+ *  Starting it is a real process launch — `node_modules`-free `/bin/sh`, but a
+ *  launch — and this fixture is used by the daemon-gated suites, which fork
+ *  real kaval/padi daemons and PTYs alongside it. vitest's `waitFor` default is
+ *  1s, which measures the box rather than the sampler: on the darwin CI lane
+ *  the file's ten cases take 1.6–2.6s in total when healthy, and one loaded run
+ *  missed the 1s launch window and reddened `ci::daemon@aarch64-darwin`
+ *  (juspay/kolu#2176). A spawn that has not happened in 30s is a real hang;
+ *  anything short of that is the machine being busy. */
+const SPAWN_BUDGET_MS = 30_000;
+
 export interface OsfactsMemoryFixture {
-  readonly hasStarted: () => boolean;
+  /** Resolve once the fake osfacts has started and is holding at the pause. */
+  readonly awaitStarted: () => Promise<void>;
   readonly readArgs: () => string;
   readonly release: () => void;
 }
@@ -60,17 +73,27 @@ function installOsfactsMemoryFixture(
   process.env.KOLU_OSFACTS_BIN = bin;
   const release = () => writeFileSync(releaseFile, "");
   return {
-    hasStarted: () => existsSync(startedFile),
+    awaitStarted: () =>
+      vi.waitFor(
+        () => {
+          if (!existsSync(startedFile))
+            throw new Error("osfacts fixture has not started");
+        },
+        { timeout: SPAWN_BUDGET_MS, interval: 25 },
+      ),
     readArgs: () => readFileSync(argsFile, "utf8").trim(),
     release,
     restore: async () => {
       try {
         if (existsSync(startedFile) && !existsSync(finishedFile)) {
           release();
-          await vi.waitFor(() => {
-            if (!existsSync(finishedFile))
-              throw new Error("osfacts still running");
-          });
+          await vi.waitFor(
+            () => {
+              if (!existsSync(finishedFile))
+                throw new Error("osfacts still running");
+            },
+            { timeout: SPAWN_BUDGET_MS, interval: 25 },
+          );
         }
       } finally {
         if (previous === undefined) delete process.env.KOLU_OSFACTS_BIN;
