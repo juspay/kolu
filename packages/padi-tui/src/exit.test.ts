@@ -9,6 +9,7 @@
  * `exit.ts` now, and this is the test that says so.
  */
 
+import { SubmitRefused } from "@kolu/padi/surface";
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -73,6 +74,30 @@ describe("what the run edge prints", () => {
     expect(reportOf("raw string rejection")).toBe(
       "padi-tui: raw string rejection\n",
     );
+  });
+
+  it("a padi submit refusal reaches the user as ITS OWN recovery, per phase", () => {
+    // The face-parity question a review raised about `--message`: the other two
+    // faces RE-WRITE the recovery sentence (and one of them wrote the wrong one
+    // for a while). This face does not re-write it — `reportOf` surfaces padi's
+    // own `SubmitRefused.message`, which is where the rule lives. That is a
+    // property worth pinning rather than assuming, because the two refusals ask
+    // for OPPOSITE actions and the whole hazard is obeying the wrong one.
+    const refusal = (phase: "ready" | "settle") =>
+      reportOf(
+        new SubmitRefused({
+          id: "abc",
+          phase,
+          reason: "busy",
+          waitedMs: 1_200,
+        }),
+      );
+
+    expect(refusal("ready")).toContain("NOTHING was typed");
+    expect(refusal("ready")).not.toContain("Do not simply re-send");
+
+    expect(refusal("settle")).toContain("UNSUBMITTED");
+    expect(refusal("settle")).toContain("Do not simply re-send");
   });
 });
 
