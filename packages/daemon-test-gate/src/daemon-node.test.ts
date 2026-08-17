@@ -125,6 +125,29 @@ test("e2e `test` keeps the janitor on EXIT after the suite-lock acquire (#2178)"
   ).not.toMatch(/trap ['"]rm -rf "\$lock"['"] EXIT/);
 });
 
+test("e2e `test` assigns lock= only after mkdir owns the suite lock", () => {
+  // cleanup() rms `$lock` whenever it is non-empty. Assigning the suite
+  // path before mkdir succeeds means a waiter killed on `sleep 15` deletes
+  // a live peer's lock. The wait loop must use a different name; `lock=`
+  // of the path is allowed only after mkdir.
+  const body = recipeBody(ROOT, "test");
+  expect(
+    body,
+    "must not assign the suite-lock path to `lock` before acquire",
+  ).not.toMatch(/^\s*lock=\/tmp\/kolu-e2e-suite\.lock/m);
+  const mkdirAt = body.search(/mkdir "\$candidate"/);
+  const assignAt = body.search(/lock=\$candidate/);
+  expect(mkdirAt, 'acquire is `mkdir "$candidate"`').toBeGreaterThanOrEqual(0);
+  expect(
+    assignAt,
+    "`lock=$candidate` is what cleanup() rms — must exist",
+  ).toBeGreaterThanOrEqual(0);
+  expect(
+    assignAt,
+    "`lock=$candidate` must come after mkdir succeeds, not before the wait loop",
+  ).toBeGreaterThan(mkdirAt);
+});
+
 test("the shipped janitor recipe drives ciReap.cli.ts", () => {
   const body = recipeBody(ROOT, "_reap-ci-run");
   expect(

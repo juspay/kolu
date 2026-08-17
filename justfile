@@ -542,26 +542,30 @@ test: install
     # unlocked — degraded mode is exactly today's behavior, never a deadlock.
     # KOLU_E2E_LOCK=0 opts out (e.g. deliberate side-by-side local runs).
     if [ "${KOLU_E2E_LOCK:-1}" != 0 ]; then
-        lock=/tmp/kolu-e2e-suite.lock
+        # `lock` is what cleanup() rms — assign it ONLY after mkdir succeeds.
+        # A waiter that set lock=path then died on `sleep 15` used to delete
+        # a live peer's suite lock (cleanup saw a non-empty path).
+        candidate=/tmp/kolu-e2e-suite.lock
         deadline=$(( $(date +%s) + 3600 ))
-        until mkdir "$lock" 2>/dev/null; do
-            owner="$(cat "$lock/pid" 2>/dev/null || true)"
+        while true; do
+            if mkdir "$candidate" 2>/dev/null; then
+                lock=$candidate
+                echo "$$" > "$lock/pid"
+                break
+            fi
+            owner="$(cat "$candidate/pid" 2>/dev/null || true)"
             if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
                 echo "e2e-lock: stealing lock from dead pid $owner"
-                rm -rf "$lock"
+                rm -rf "$candidate"
                 continue
             fi
             if [ "$(date +%s)" -ge "$deadline" ]; then
                 echo "e2e-lock: waited 60m on pid ${owner:-?}; proceeding unlocked"
-                lock=""
                 break
             fi
-            echo "e2e-lock: another suite holds $lock (pid ${owner:-?}); waiting..."
+            echo "e2e-lock: another suite holds $candidate (pid ${owner:-?}); waiting..."
             sleep 15
         done
-        if [ -n "$lock" ]; then
-            echo "$$" > "$lock/pid"
-        fi
     fi
     # The odu venue pool leases each CI host exclusively, so external load is
     # not an input to capacity. Size deterministically from hardware: roughly
