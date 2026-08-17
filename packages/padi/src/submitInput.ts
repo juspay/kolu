@@ -215,7 +215,6 @@ export function openPromptWatch(
 export type SubmitOutcome =
   | {
       readonly kind: "submitted";
-      readonly typedBytes: number;
       readonly readyAfterMs: number;
       readonly settledAfterMs: number;
     }
@@ -296,7 +295,6 @@ export async function submitInput(opts: {
   readonly watch: PromptWatch;
   readonly write: (data: string) => void;
   readonly data: string;
-  readonly typedBytes: number;
   readonly timeoutMs: number;
   readonly clock?: () => number;
   readonly signal?: AbortSignal;
@@ -336,7 +334,6 @@ export async function submitInput(opts: {
   opts.write(ENTER);
   return {
     kind: "submitted",
-    typedBytes: opts.typedBytes,
     readyAfterMs: ready.waitedMs,
     settledAfterMs: settled.waitedMs,
   };

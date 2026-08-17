@@ -753,7 +753,6 @@ export function buildPadiSurfaceDeps(deps: {
                   getActiveTerminal(input.id)?.handle.write(data);
                 },
                 data: input.data,
-                typedBytes: Buffer.byteLength(input.data, "utf8"),
                 timeoutMs: input.timeoutMs ?? SUBMIT_TIMEOUT_MS,
                 signal,
               });
@@ -766,7 +765,6 @@ export function buildPadiSurfaceDeps(deps: {
                 });
               }
               return {
-                typedBytes: outcome.typedBytes,
                 readyAfterMs: outcome.readyAfterMs,
                 settledAfterMs: outcome.settledAfterMs,
               };

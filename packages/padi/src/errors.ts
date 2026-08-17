@@ -204,9 +204,13 @@ export class SubmitRefused extends Schema.TaggedError<SubmitRefused>(
 }) {
   override get message(): string {
     if (this.reason === "gone") {
+      // A `gone` at either phase means the same thing for the MESSAGE — it was
+      // not delivered — so neither arm claims text is waiting in an input box
+      // that no longer exists. The phases still differ in what to do about the
+      // TERMINAL, which is why they read differently at all.
       return this.phase === "ready"
-        ? `Terminal ${this.id} is gone — nothing was typed`
-        : `Terminal ${this.id} is gone; the text was typed but NEVER submitted`;
+        ? `Terminal ${this.id} is gone — nothing was typed, and there is nothing left to dispatch to.`
+        : `Terminal ${this.id} died mid-delivery — the message was NOT submitted, and whatever had been typed went with it. Nothing is left to recover; dispatch to a live terminal.`;
     }
     return this.phase === "ready"
       ? `Terminal ${this.id} never reached an idle prompt within ${this.waitedMs}ms — NOTHING was typed, so nothing was lost. It is mid-turn: wait for it to finish (wait_agentState / kolu wait) and dispatch again.`

@@ -113,12 +113,11 @@ describe("submitInput — the four steps", () => {
       watch,
       write: (d) => writes.push(d),
       data: "review this PR",
-      typedBytes: 14,
       timeoutMs: 5_000,
       clock: steppingClock(10),
     });
 
-    expect(outcome).toMatchObject({ kind: "submitted", typedBytes: 14 });
+    expect(outcome).toMatchObject({ kind: "submitted" });
     // The text goes first and the Enter is its OWN write — the same two writes a
     // caller doing it by hand would issue, in the same order, with padi's
     // observation in the gap instead of the caller's.
@@ -134,7 +133,6 @@ describe("submitInput — the four steps", () => {
       watch,
       write: () => {},
       data: "hi",
-      typedBytes: 2,
       timeoutMs: 5_000,
       clock: steppingClock(10),
     });
@@ -150,7 +148,6 @@ describe("submitInput — the four steps", () => {
       watch: scriptedWatch([BUSY]),
       write: (d) => writes.push(d),
       data: "review this PR",
-      typedBytes: 14,
       timeoutMs: 50,
       clock: steppingClock(10),
     });
@@ -171,7 +168,6 @@ describe("submitInput — the four steps", () => {
       watch: scriptedWatch([IDLE, BUSY]),
       write: (d) => writes.push(d),
       data: "brief",
-      typedBytes: 5,
       timeoutMs: 50,
       clock: steppingClock(10),
     });
@@ -192,7 +188,6 @@ describe("submitInput — the four steps", () => {
       watch: scriptedWatch([BUSY, { ...IDLE, live: false }]),
       write: () => {},
       data: "brief",
-      typedBytes: 5,
       timeoutMs: 60_000,
       clock,
     });
@@ -212,7 +207,6 @@ describe("submitInput — the four steps", () => {
       watch: scriptedWatch([BUSY, BUSY, BUSY, IDLE]),
       write: (d) => writes.push(d),
       data: "brief",
-      typedBytes: 5,
       timeoutMs: 5_000,
       clock: steppingClock(10),
     });
@@ -229,7 +223,6 @@ describe("submitInput — the four steps", () => {
       watch: scriptedWatch([BUSY]),
       write: (d) => writes.push(d),
       data: "brief",
-      typedBytes: 5,
       timeoutMs: 60_000,
       clock: steppingClock(10),
       signal: abort.signal,

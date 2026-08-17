@@ -407,7 +407,7 @@ export const sendInputTool: BespokeTool = {
         // is an `isError` result carrying the recovery — so the field is
         // constant on this arm by construction, not by hope.
         (landed) => ({
-          sent: { textBytes: landed.typedBytes },
+          sent: { textBytes: action.plan.bytes },
           submitted: true,
           readyAfterMs: landed.readyAfterMs,
           settledAfterMs: landed.settledAfterMs,

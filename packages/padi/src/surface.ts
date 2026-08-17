@@ -968,20 +968,25 @@ export const PadiSubmitInputSchema = Schema.Struct({
   timeoutMs: Schema.optionalKey(PositiveInt),
 });
 
-/** What a submit that LANDED reports. There is no `submitted` field: a submit
- *  either pressed Enter — in which case this record exists — or refused, in which
- *  case {@link SubmitRefused} does. A boolean would let the two be confused by a
- *  reader that forgot to check the error channel, which is the reading this whole
- *  member exists to make impossible.
+/** What a submit that LANDED reports — the two facts only padi has.
+ *
+ *  There is no `submitted` field: a submit either pressed Enter, in which case
+ *  this record exists, or refused, in which case {@link SubmitRefused} does. A
+ *  boolean would let the two be confused by a reader that forgot to check the
+ *  error channel, which is the reading this whole member exists to make
+ *  impossible.
+ *
+ *  And no byte count. padi writes `data` verbatim, so its size is a fact the
+ *  CALLER already computed — the send policy's encoder counted it while planning
+ *  the write, and that is the number every face already reports for the same
+ *  bytes sent the manual way. Recounting it here is exactly how the two would
+ *  come to disagree the next time a paste marker moves.
  *
  *  The two waits are reported SEPARATELY rather than summed, because they answer
  *  different questions: `readyAfterMs` is how long the target was busy (a
  *  dispatch queued behind someone else's turn), `settledAfterMs` is how long the
  *  TUI took to swallow the paste (a property of the TUI, not of the workload). */
 export const PadiSubmitOutputSchema = Schema.Struct({
-  /** UTF-8 bytes of the text write, paste markers included — NOT counting the
-   *  Enter, which padi added rather than the caller. */
-  typedBytes: NonNegativeInt,
   readyAfterMs: NonNegativeInt,
   settledAfterMs: NonNegativeInt,
 });
