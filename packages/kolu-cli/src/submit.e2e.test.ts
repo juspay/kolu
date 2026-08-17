@@ -289,12 +289,20 @@ describeDaemon("the one-call submit against a real padi", () => {
     );
     const id = await openMockTui(mcp, { MOCK_PASTE_CHATTER_MS: "20000" });
 
+    // MULTILINE, and that is load-bearing rather than decorative: the shared send
+    // policy brackets a paste only when the text needs one, so a single-line
+    // message reaches the fixture as plain keystrokes with no END marker — the
+    // chatter never starts, the terminal is quiet, and the submit simply
+    // succeeds. (It did, on the first CI run of this test.) A brief is multi-line
+    // anyway, which is the shape this refusal exists for.
+    const brief = "STAGED-MESSAGE\nsecond line of the brief";
+
     const refusal = toolRefusal(
       await mcp.callTool({
         name: "lifecycle_sendInput",
         arguments: {
           id,
-          text: "STAGED-MESSAGE",
+          text: brief,
           submit: true,
           settleMs: 800,
           timeoutMs: 4_000,
@@ -311,7 +319,7 @@ describeDaemon("the one-call submit against a real padi", () => {
     // The claim, cashed: the text IS on that screen and it was NOT submitted.
     const stagedScreen = await screenOf(mcp, id);
     expect(stagedScreen).toContain("STAGED-MESSAGE");
-    expect(submittedCount(stagedScreen, "STAGED-MESSAGE")).toBe(0);
+    expect(submittedCount(stagedScreen, brief)).toBe(0);
 
     // …and the documented recovery is the whole recovery: an Enter, with no
     // re-send, delivers the message exactly once. A driver that re-dispatched
@@ -323,8 +331,8 @@ describeDaemon("the one-call submit against a real padi", () => {
         arguments: { id, key: "Enter" },
       }),
     );
-    const after = await awaitScreen(mcp, id, '<<SUBMITTED:"STAGED-MESSAGE">>');
-    expect(submittedCount(after, "STAGED-MESSAGE")).toBe(1);
+    const after = await awaitScreen(mcp, id, "<<SUBMITTED:");
+    expect(submittedCount(after, brief)).toBe(1);
   }, 180_000);
 
   it("create + message briefs a fresh agent in ONE call, across a boot silence", async () => {
