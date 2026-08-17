@@ -609,24 +609,6 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
   expect(freshProbe?.identity.contractVersion).toBe(PTY_HOST_CONTRACT_VERSION);
   freshProbe?.dispose();
 
-  // POLLED, not a bare connect — this was the one dial in the file that assumed
-  // its first attempt would land, and it sits at the worst possible moment for
-  // that assumption: padi has just recycled a daemon out from under itself, and
-  // on a box running the rest of the lane beside it that work can outlast a
-  // single connect's own timeout. The failure it produced was a raw
-  // `SocketOpenError: timeout waiting for "open"` — indistinguishable, to a
-  // reader, from padi having died. The file's stated rule is "deterministic
-  // waits (poll readiness, never sleep-and-hope)"; this is that rule applied to
-  // the dial that was missing it, and a padi that is genuinely gone still fails
-  // LOUD, naming the last error `waitForSocket` saw.
-  await waitForSocket(
-    padiSock,
-    async (path) => {
-      const probe = await Effect.runPromise(connectPadi(path));
-      probe.dispose();
-    },
-    60_000,
-  );
   const conn = await Effect.runPromise(connectPadi(padiSock));
   try {
     // 5) Create a terminal so recycle has a session to capture.
