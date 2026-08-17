@@ -637,15 +637,18 @@ export function buildPadiSurfaceDeps(deps: {
       lifecycle: {
         create: ({ input }) =>
           handle(() => {
-            // A sub-terminal must hang off a LIVE parent (F3) — the same
+            // The caller STATED where this terminal goes (`placement`) — the
+            // schema refused the request otherwise, so there is nothing to
+            // default here and no `undefined` arm to read. A sub-terminal must
+            // hang off a LIVE parent (F3) — the same
             // live-PTY narrow every per-terminal handler uses. `PadiCreateInput`
             // omits `lastActivityAt`: a fresh terminal seeds `lastActivityAt: 0`
             // (via `createAuthoredActive` → `seedMemory`), and the fold stamps recency
             // later — the client can't supply it. (Only `session.restore` threads a
             // saved `lastActivityAt` through, via `respawnActive`, not this path.)
-            if (input.parentId !== undefined)
-              requireActiveTerminal(input.parentId);
-            const info = createTerminal(input.cwd, input.parentId, {
+            if (input.placement.kind === "child-of")
+              requireActiveTerminal(input.placement.parentId);
+            const info = createTerminal(input.placement, input.cwd, {
               // An explicit theme always wins; absent one, the pushed policy
               // decides — HERE, so the MCP and CLI faces obey the user's
               // new-terminal theme setting exactly as the browser does (#2045).
@@ -655,7 +658,7 @@ export function buildPadiSurfaceDeps(deps: {
               // colour nobody can see.
               themeName:
                 input.themeName ??
-                (input.parentId === undefined
+                (input.placement.kind === "toplevel"
                   ? resolveNewTerminalTheme()
                   : undefined),
               canvasLayout: input.canvasLayout,

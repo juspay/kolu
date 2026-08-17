@@ -264,9 +264,22 @@ export const createFlags = {
       Flag.withDescription("working directory for the new terminal"),
     ),
   ),
+  // WHERE the terminal lands on the canvas. Exactly one of these two is
+  // required — `verbs/create.ts`'s `placementOf` is the gate, and its refusal
+  // names the rule. `--toplevel` is a plain boolean rather than the absence of
+  // `--parent` because "I didn't pass a flag" and "I decided this is top level"
+  // must be different states: reading the first as the second is the silent
+  // default this pair exists to delete.
+  toplevel: Flag.boolean("toplevel").pipe(
+    Flag.withDescription(
+      "open as a tile of its own on the canvas (mutually exclusive with --parent)",
+    ),
+  ),
   parent: opt(
     Flag.string("parent").pipe(
-      Flag.withDescription("create as a split of this terminal"),
+      Flag.withDescription(
+        "open as a split INSIDE this terminal (mutually exclusive with --toplevel)",
+      ),
     ),
   ),
   intent: opt(
@@ -301,20 +314,26 @@ const create = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Create a terminal — optionally a split, a fresh worktree, and an agent to run in it. Prints the new id.",
+    "Create a terminal — state its placement (--toplevel or --parent <id>), optionally in a fresh worktree, with an agent to run in it. Prints the new id.",
   ),
   Command.withExamples([
     {
-      command: 'kolu create --intent "fix #2117" -- claude',
-      description: "Open a terminal and start Claude Code in it",
+      command: 'kolu create --toplevel --intent "fix #2117" -- claude',
+      description: "Open a tile of its own and start Claude Code in it",
     },
     {
-      command: "kolu create --repo ~/code/kolu --worktree fix-2117 -- claude",
-      description: "Cut a worktree and start an agent there",
+      command:
+        "kolu create --toplevel --repo ~/code/kolu --worktree fix-2117 -- claude",
+      description: "Cut a worktree and start an agent there, as its own tile",
     },
     {
       command: 'kolu create --parent "$KAVAL_TERMINAL_ID" -- codex',
       description: "Split your own tile and start another agent beside you",
+    },
+    {
+      command: "kolu create",
+      description:
+        "Refused: placement is not optional — say --toplevel or --parent <id>",
     },
   ]),
 );

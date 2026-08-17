@@ -22,7 +22,7 @@ against `kolu`.)
 ## The loop
 
 ```sh
-id=$(kolu create --intent "parser refactor" -- claude)    # spawn the inner agent (prints the id)
+id=$(kolu create --toplevel --intent "parser refactor" -- claude)   # spawn the inner agent (prints the id)
 kolu send  "$id" "refactor the parser to use a lexer"     # 1. the text (no Enter)
 kolu wait  "$id" --until idle:300 --timeout 15000         # 2. observe the TUI settle
 kolu send  "$id" --key Enter                              # 3. submit (its own command)
@@ -295,13 +295,13 @@ agent I was driving died" is not.
 > **Interim doctrine — agent-spawn-first-class (#1872).** *This note is deleted
 > the day its tagged PR lands — do not carry it past it.*
 >
-> A command-rooted agent (`kolu create -- <agent>`, the agent as argv[0] with no
+> A command-rooted agent (`kolu create --toplevel -- <agent>`, the agent as argv[0] with no
 > shell) is **Dock-visible and state-tracked**: kaval seeds `lastCommand`/title
 > from the argv, and the sensors read its root-in-foreground as busy — so
 > `--until <buckets>` works against it, and a shim CLI (comm ≠ its name) is
 > recognized by the command it was launched with. It still lacks a shell's
 > richer affordances (rc hooks, in-place `cd`), so spawn a shell (`kolu create`
-> with no `--`) when you need them.
+> with a placement but no `--`) when you need them.
 >
 > - **A fresh `kolu create` terminal is clean — but your OWN shell is not.**
 >   Every terminal padi spawns gets a clean canonical base env, so typing
@@ -322,20 +322,30 @@ directly:
 
 ```sh
 git -C /abs/path/to/repo pull --ff-only     # the worktree is cut from the repo's CURRENT checkout
-id=$(kolu create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-flags>)
+id=$(kolu create --toplevel --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-flags>)
 # e.g. `-- claude --dangerously-skip-permissions`
 ```
 
+**`create` makes you say WHERE the terminal goes — exactly one of `--toplevel`
+or `--parent <id>`, no default.** Neither, or both, is a refusal naming the
+rule. This is not ceremony: a `--parent` terminal is drawn *inside* that
+parent's tile and the Dock reads the edge as who-works-for-whom, so a create
+that never mentions placement is not asking for top level — it just never
+thought about it, which is exactly how a fleet of agents that should have been
+splits ends up as a row of unrelated tiles with nothing failing to tell you.
+Decide it per spawn: a worker you are supervising is a `--parent` split beside
+you; an independent agent on its own branch is `--toplevel`.
+
 Its other flags: **`--cwd <dir>`** (where the terminal opens), **`--intent
 <text>`** (the freeform label shown on the canvas — set it, see the id-restart
-note below), **`--parent <id>`** (open as a split), **`--json`** (a record of
-what `create` just did, instead of the bare id).
+note below), **`--json`** (a record of what `create` just did, instead of the
+bare id).
 
 `--json` is **not** the terminal's full record — for that, `kolu ls --json`.
 It is exactly what this create did: `{"id": "<full id>"}`, plus
 `"worktree": {"path", "branch"}` when `--worktree` cut one and `"ran": "<the
 command line typed>"` when you passed `-- <argv>`. Absent keys are omitted, so
-a bare `kolu create --json` is a one-field object.
+the leanest `kolu create --toplevel --json` is a one-field object.
 
 > **A split tile BESIDE you — `--parent "$KAVAL_TERMINAL_ID"`.** When you want the
 > new terminal to open as a **split beside your own** (a sibling tile on the same
@@ -344,9 +354,10 @@ a bare `kolu create --json` is a one-field object.
 > `$KAVAL_TERMINAL_ID` (see *Reach*): `kolu create --parent "$KAVAL_TERMINAL_ID"
 > -- <selected-agent> <unrestricted-flags> …`. Add `--worktree`/`--repo` too if the
 > split should also get its own worktree; omit them (or pass `--cwd`) and the split
-> opens where you point it. Omit `--parent` and the terminal is a **standalone**
-> tile, not a sibling beside you — so whenever the intent is "a split next to me",
-> pass `--parent`.
+> opens where you point it. Say `--toplevel` instead and the terminal is a
+> **standalone** tile, not a sibling beside you — so whenever the intent is "a
+> split next to me", pass `--parent`. You must say one of the two; there is no
+> flag-less spelling that quietly picks standalone for you.
 
 - **Never hardcode the agent CLI.** `<agent>` defaults to the same agent *you*
   are running as (a Claude Code orchestrator spawns `claude`, a codex one

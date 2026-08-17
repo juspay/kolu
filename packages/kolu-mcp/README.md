@@ -19,7 +19,10 @@ default-deny with named, tested denials:
   done-signals `wait_outputSettled` / `wait_agentState` (the /orchestrator·/kolu
   dispatch loop's load-bearing verbs), and `watch_next` (below);
 - **mutating tools**: `lifecycle_create` (bespoke: `kolu create` parity in one
-  call — `repo` + `worktree` cut a fresh git worktree at
+  call — `placement` is REQUIRED and has no default, either
+  `{"kind":"toplevel"}` or `{"kind":"child-of","parentId":"…"}`, because an agent
+  is exactly the caller that never notices a placement it did not choose;
+  `repo` + `worktree` cut a fresh git worktree at
   `<repo>/.worktrees/<name>` and open the terminal in it, `run` types a first
   command at the shell prompt; still NO `command`/`env` spawn parameter, ever —
   the #1872 protection) · `lifecycle_kill` · `lifecycle_sendInput` (text XOR
@@ -37,8 +40,10 @@ field was passed). The kinds name the BRANCH rather than
 `@kolu/terminal-protocol`'s internal reason, which the unchanged sentence beside
 them still carries — so a kind is *not* 1:1 with a reason, and the sentence is
 where a driver reads which rule fired. `lifecycle_create` does the same for its
-placement gates (`cwd-and-worktree`, `worktree-needs-repo`,
-`repo-without-worktree`, `blank-field`) and for a composition that stopped
+DIRECTORY gates (`cwd-and-worktree`, `worktree-needs-repo`,
+`repo-without-worktree`, `blank-field`) — its CANVAS placement is refused a
+layer earlier, by the shared wire schema, so it never reaches this channel —
+and for a composition that stopped
 partway (`stopped-partway`, whose `landed` names the worktree and/or terminal
 that already exist — nothing is rolled back). They ride
 [`@kolu/surface-mcp`](../surface-mcp/README.md)'s `ToolFailure`, the one failure

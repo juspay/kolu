@@ -131,8 +131,9 @@ When(
 
 /** Create a split of a split via the daemon RPC — the product UI only ever
  *  parents under a top-level tile, so nested depth arrives from MCP /
- *  `padi-tui create --parent` (the #2059 bug class). Uses the remembered
- *  sub-terminal id as the parent. */
+ *  `kolu create --parent` (the #2059 bug class). Uses the remembered
+ *  sub-terminal id as the parent, STATED as the wire's required `placement`
+ *  (there is no `parentId` field and no default — see `createPlacement.test.ts`). */
 When(
   "I create a terminal parented to the remembered sub-terminal",
   async function (this: KoluWorld) {
@@ -144,7 +145,9 @@ When(
     const tabsBefore = await this.page
       .locator('[data-testid="sub-panel-tab-bar"] button:not([title])')
       .count();
-    await padiCall("lifecycle/create", { parentId });
+    await padiCall("lifecycle/create", {
+      placement: { kind: "child-of", parentId },
+    });
     // Nested create must appear as another flat tab on the root tile's strip.
     await this.page.waitForFunction(
       (before) =>

@@ -16,7 +16,9 @@ kaval dependency** here and padi stays the only daemon a face speaks to.
 ```
 kolu                          print the subcommand list and exit non-zero
 kolu ls [--json]              the roster — ID · STATE · REPO·BRANCH · PR · AGENT · FOREGROUND
-kolu create [flags] [-- argv] spawn a terminal; prints the new id on stdout
+kolu create (--toplevel | --parent <id>) [flags] [-- argv]
+                              spawn a terminal at a STATED placement (no default);
+                              prints the new id on stdout
 kolu send <id> …              type text, or a named key with --key
 kolu wait <id> --until <cond> block until output settles/matches, or the agent's state lands
                               [--settled <ms>] also require output quiet; [--snapshot N] stamp the screen
@@ -79,8 +81,8 @@ honest upgrade line — skipping it for a reachable dev daemon would silently dr
 another workspace's terminals.
 
 **Ids accept any unique prefix**, everywhere an `<id>` appears. **stdout is
-data, stderr is prose** — `id=$(kolu create … )` captures the bare id while the
-human trailer goes to stderr.
+data, stderr is prose** — `id=$(kolu create --toplevel)` captures the bare id
+while the human trailer goes to stderr.
 
 ## The exit-code contract
 
@@ -110,7 +112,7 @@ own default disposition: the process dies on the signal and the shell reports
 `128 + signum` (129 for a SIGHUP), never 130. Listing a signal here that nothing
 intercepts would send a driving loop watching for a code kolu never writes.
 
-## Two breaking changes
+## Three breaking changes
 
 1. **Bare `kolu` no longer starts the web server.** It prints the subcommand
    list and exits non-zero, so a user picks a face explicitly. With twelve
@@ -121,6 +123,38 @@ intercepts would send a driving loop watching for a code kolu never writes.
    CLI refuses a parent/child flag collision outright, so one name had to give;
    renaming the web-only one leaves `--host` a single idea.
    `--port`/`--tls`/`--tls-cert`/`--tls-key`/`--verbose` are unchanged.
+3. **`kolu create` requires a placement — exactly one of `--toplevel` or
+   `--parent <id>`.** Neither, or both, is refused with the rule; there is no
+   default. See below.
+
+## `create` — placement is stated, never guessed
+
+```
+kolu create --toplevel                       a tile of its own
+kolu create --parent "$KAVAL_TERMINAL_ID"    a split INSIDE that terminal
+kolu create                                  refused, naming both flags
+```
+
+A terminal's parent edge is not decoration. The canvas draws a `--parent`
+terminal *inside* its parent's tile, and the Dock reads the same edge as **who
+works for whom**. While `--parent` was optional, "I didn't say" and "top level,
+please" were the same request — and the caller who never says is exactly this
+CLI's audience. A script does not notice a canvas decision it never made: an
+orchestrator spawned two days of reviewer agents as top-level tiles when every
+one of them was a split. Nothing failed, nothing logged; the hierarchy just went
+flat.
+
+So the one thing only the caller knows is the one thing they must say. The gate
+is PURE and runs before the dial, so a bare `kolu create --host box` fails
+instantly rather than after Nix has provisioned a cold machine. The stderr
+trailer now always names the placement (`— created 4bba · top-level`), because
+top level is a decision, not a silence.
+
+**Migration: add `--toplevel`.** Every existing bare `kolu create` meant
+top level; one word makes it say so. The same rule holds at the two other faces
+of this verb — `padi-tui create` takes the same flag pair, and the MCP tool
+`lifecycle_create` takes a required `placement` field
+(`{"kind":"toplevel"}` / `{"kind":"child-of","parentId":"…"}`).
 
 ## `wait` — one verb, three condition forms
 

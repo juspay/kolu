@@ -150,7 +150,7 @@ for the edge.</span></span></span></p>
 <tr>
 <td>tool, <code>mutates</code></td>
 <td><code>lifecycle.create</code></td>
-<td>spawn a terminal — bespoke since the worktree completion: <code>cwd</code> OR <code>repo</code>+<code>worktree</code> (cut at <code>&lt;repo&gt;/.worktrees/&lt;name&gt;</code>, terminal opens in it), <code>parentId</code>, <code>intent</code>, and <code>run</code> (a first command TYPED at the shell prompt — never a spawn argv) — the whole <code>kolu create</code> composition in one call, returning id/pid (+<code>worktree</code>, <code>ran</code>)</td>
+<td>spawn a terminal — bespoke since the worktree completion: a REQUIRED <code>placement</code> (<code>{&quot;kind&quot;:&quot;toplevel&quot;}</code> or <code>{&quot;kind&quot;:&quot;child-of&quot;,&quot;parentId&quot;:…}</code> — no default), <code>cwd</code> OR <code>repo</code>+<code>worktree</code> (cut at <code>&lt;repo&gt;/.worktrees/&lt;name&gt;</code>, terminal opens in it), <code>intent</code>, and <code>run</code> (a first command TYPED at the shell prompt — never a spawn argv) — the whole <code>kolu create</code> composition in one call, returning id/pid (+<code>worktree</code>, <code>ran</code>)</td>
 </tr>
 <tr>
 <td>tool, <code>mutates</code></td>
@@ -181,7 +181,7 @@ consumers — <code>screen.text</code> is the read face); <code>lifecycle.killAl
 <code>lifecycle.sleep</code>/<code>wake</code>/<code>resize</code> (layout/lifecycle policy the canvas owns);
 <code>chrome.*</code> (browser canvas arrangement — meaningless for an agent and
 hazardous to script); <code>git.worktreeCreate</code> as a RAW verb (it is composed
-<em>inside</em> the bespoke <code>lifecycle_create</code>, behind the CLI’s placement gates);
+<em>inside</em> the bespoke <code>lifecycle_create</code>, behind the CLI’s directory gates);
 <code>git.worktreeRemove</code> and <code>scratch.write</code> (write-side beyond terminal control —
 expandable later, on demand, one row at a time); <code>session.restore</code> + every
 <code>test__set</code> verb (admin/test). Widening the map is a one-row diff with a
@@ -216,9 +216,9 @@ what those skills do today. The audit of their actual verb usage:</p>
 <td>must carry id, title, cwd, and idle-time — the coordinator re-finds terminals BY TITLE after daemon re-keys</td>
 </tr>
 <tr>
-<td><code>kaval-tui</code>/<code>padi-tui create [--parent --repo]</code> (10×)</td>
+<td><code>kaval-tui</code>/<code>padi-tui create [--toplevel / --parent, --repo]</code> (10×)</td>
 <td><code>lifecycle.create</code></td>
-<td>parameter parity REACHED with the bespoke create: cwd/repo+worktree, parent, intent, and the typed first command (<code>run</code>) — and the returned record carries the id the skills capture</td>
+<td>parameter parity REACHED with the bespoke create: cwd/repo+worktree, the REQUIRED placement, intent, and the typed first command (<code>run</code>) — and the returned record carries the id the skills capture</td>
 </tr>
 <tr>
 <td><code>kaval-tui snapshot [--viewport]</code> (10×)</td>

@@ -10,6 +10,7 @@
  *  Server signals propagate list/metadata changes via the live subscriptions —
  *  no optimistic cache needed. */
 
+import { TOPLEVEL_PLACEMENT } from "@kolu/padi/surface";
 import type { TranscriptHtmlMode } from "@kolu/padi/transcript";
 import { toError } from "@kolu/surface/run-stream";
 import { Data, Effect } from "effect";
@@ -236,7 +237,15 @@ export const useTerminalCrud = createSharedRoot(() => {
         // SPREAD, never `{ cwd }` (#17): `cwd` is `Schema.optionalKey` on the wire,
         // so an ABSENT key is accepted and a present-but-`undefined` one is
         // REJECTED — and "no cwd" is the ordinary case (a bare Cmd+T).
-        .create({ ...(cwd !== undefined && { cwd }) })
+        //
+        // `placement` is REQUIRED and stated, never spread: this handler IS the
+        // top-level path — Cmd+T, the palette's "New terminal", the Dock `+`, the
+        // EmptyState. The split path is `handleCreateSubTerminal` below, and it is a
+        // different function precisely because the two make different canvas claims.
+        .create({
+          placement: TOPLEVEL_PLACEMENT,
+          ...(cwd !== undefined && { cwd }),
+        })
         .pipe(
           // `tapError`, deliberately NOT a finalizer: a finalizer runs on the
           // success path too, where it would race the deferred Solid effect that
@@ -273,9 +282,13 @@ export const useTerminalCrud = createSharedRoot(() => {
       // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
       if (refuseIfWarming()) return;
       const info = yield* activePadiRpc.lifecycle
-        // `parentId` is always present here; `cwd` is spread for the #17 reason
-        // above (a split with no inherited cwd is the ordinary case).
-        .create({ parentId, ...(cwd !== undefined && { cwd }) })
+        // The placement is `child-of` by construction here — this function exists
+        // only to open a split, and it is handed the parent. `cwd` is spread for the
+        // #17 reason above (a split with no inherited cwd is the ordinary case).
+        .create({
+          placement: { kind: "child-of", parentId },
+          ...(cwd !== undefined && { cwd }),
+        })
         .pipe(
           Effect.tapError((err) =>
             Effect.sync(() => {

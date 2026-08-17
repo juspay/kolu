@@ -9,8 +9,18 @@ export interface TerminalFocus {
   tileHint: TerminalId;
 }
 
-/** A terminal's live placement in the retained metadata collection. */
-export type TerminalPlacement =
+/** A terminal's live placement in the retained metadata collection.
+ *
+ *  `Live`, not `Terminal`, because `@kolu/padi/surface` now exports a
+ *  `TerminalPlacement` too and the two answer DIFFERENT questions in the same
+ *  domain — one directory over, in `useTerminalCrud.ts`, both are in scope. That
+ *  one is the create-time INTENT a caller states and the wire requires: two arms,
+ *  `toplevel` / `child-of`, with no way to say "I don't know". This one is the
+ *  answer to a LOOKUP against retained metadata, which is why it has a third arm
+ *  the intent sum must never grow — `missing`, for an id the collection has not
+ *  got — and why its arms are named for what the canvas renders (`top-level` /
+ *  `split`) rather than for what a caller asked for. */
+export type LivePlacement =
   | { kind: "missing" }
   | { kind: "top-level" }
   | { kind: "split"; parentId: TerminalId };
@@ -18,7 +28,7 @@ export type TerminalPlacement =
 /** Parent-edge adapter over a placement lookup — the walk used by
  *  `activeTileOf` so nested splits resolve to the root canvas tile. */
 function parentEdgeFromPlacement(
-  placementOf: (id: TerminalId) => TerminalPlacement,
+  placementOf: (id: TerminalId) => LivePlacement,
 ): ParentEdge {
   return (id) => {
     const p = placementOf(id);
@@ -34,7 +44,7 @@ function parentEdgeFromPlacement(
  *  activeId / MRU / setActive never key chrome on a middle split. */
 export function activeTileOf(
   focus: TerminalFocus | null,
-  placementOf: (id: TerminalId) => TerminalPlacement,
+  placementOf: (id: TerminalId) => LivePlacement,
 ): TerminalId | null {
   if (focus === null) return null;
   return match(placementOf(focus.id))

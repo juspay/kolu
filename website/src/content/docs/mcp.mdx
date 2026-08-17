@@ -153,16 +153,18 @@ Every **successful** answer comes back as **structured data** as well as text, s
 your agent acts on a field rather than re-reading prose. A refusal carries data
 when the tool has a machine-readable reason to give: `lifecycle_sendInput` labels
 its four refusals `text-and-key`, `key-refused`, `text-refused` or `no-input`,
-and `lifecycle_create` labels its placement refusals (`cwd-and-worktree`,
+and `lifecycle_create` labels its directory refusals (`cwd-and-worktree`,
 `worktree-needs-repo`, `repo-without-worktree`, `blank-field`) and the
 partial-failure report `stopped-partway`, beside the sentence explaining each.
-Other failures arrive as their message alone.
+Other failures arrive as their message alone — including a missing or malformed
+`placement`, which is refused by the tool's own schema before anything runs, so
+the sentence names both spellings and no terminal was created to clean up.
 
 ### Create and drive terminals
 
 | Tool | What it does |
 | --- | --- |
-| `lifecycle_create` | Open a new terminal — in a working directory (`cwd`) or a **fresh git worktree** (`repo` + `worktree`, cut at `<repo>/.worktrees/<name>`), as a split of another terminal (`parentId`), labelled on the canvas (`intent`), optionally typing a first command at its shell prompt (`run`) — and return its `id`. One call does what `kolu create --repo … --worktree … -- <cmd>` does. A create that fails after the worktree or terminal already landed names the survivors as data (`stopped-partway`), so nothing orphaned goes unnameable. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
+| `lifecycle_create` | Open a new terminal and return its `id`. **`placement` is required** — `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"…"}` to open it as a split inside that terminal; there is no default, and a call that omits it is refused with both spellings. Optionally: in a working directory (`cwd`) or a **fresh git worktree** (`repo` + `worktree`, cut at `<repo>/.worktrees/<name>`), labelled on the canvas (`intent`), typing a first command at its shell prompt (`run`). One call does what `kolu create --toplevel --repo … --worktree … -- <cmd>` does. A create that fails after the worktree or terminal already landed names the survivors as data (`stopped-partway`), so nothing orphaned goes unnameable. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
 | `lifecycle_sendInput` | Type into a terminal: text, **or** one named key or chord (`Enter`, `Escape`, `C-c`, arrows…) — never both in one call. |
 | `lifecycle_kill` | Close one terminal by `id`. |
 

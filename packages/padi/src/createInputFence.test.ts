@@ -9,7 +9,7 @@
 
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { PadiCreateInputSchema } from "./surface.ts";
+import { PadiCreateInputSchema, TOPLEVEL_PLACEMENT } from "./surface.ts";
 import { createTerminal, restoreSpawn } from "./terminals.ts";
 
 describe("create-input fence — restore-only facts never ride an ordinary create", () => {
@@ -19,6 +19,7 @@ describe("create-input fence — restore-only facts never ride an ordinary creat
     // having to subtract them. A client that spells them gets them dropped at the
     // wire boundary.
     const parsed = Schema.decodeUnknownSync(PadiCreateInputSchema)({
+      placement: { kind: "toplevel" },
       cwd: "/x",
       themeName: "dracula",
       lastActivityAt: 5,
@@ -40,8 +41,10 @@ describe("create-input fence — restore-only facts never ride an ordinary creat
     // restore-only field, the excess-property error would vanish and tsc would fail on
     // an UNUSED `@ts-expect-error` — the fence can't silently rot.
     const _fence = (): void => {
-      // @ts-expect-error — CreateTerminalInput has no `restoreTarget`; an ordinary create can't forge a resume target.
-      createTerminal(undefined, undefined, { restoreTarget: { kind: "none" } });
+      createTerminal(TOPLEVEL_PLACEMENT, undefined, {
+        // @ts-expect-error — CreateTerminalInput has no `restoreTarget`; an ordinary create can't forge a resume target.
+        restoreTarget: { kind: "none" },
+      });
       // restoreSpawn takes the restore-only facts through its distinct `restoreOnly` arm — no error.
       restoreSpawn(
         undefined,

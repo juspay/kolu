@@ -2,7 +2,7 @@
  * `lifecycle_create` — the worktree-capable bespoke create, pinned at both
  * altitudes:
  *
- *   1. the PURE placement gate (`resolveCreatePlacement`) — the CLI's
+ *   1. the PURE directory gate (`resolveCreateDirectory`) — the CLI's
  *      combination matrix, refused as data;
  *   2. the WIRE — a served face with a recording fake padi proves the
  *      worktree → create → sendInput composition (order, arguments, the
@@ -22,29 +22,30 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { refuseBlankFields, resolveCreatePlacement } from "./create.ts";
+import { refuseBlankFields, resolveCreateDirectory } from "./create.ts";
 import { KOLU_MCP_EXPOSE } from "./expose.ts";
 import { KOLU_MCP_TOOLS } from "./serve.ts";
 
 const ID = "00000000-0000-4000-8000-000000000000";
+const PARENT_ID = "11111111-1111-4111-8111-111111111111";
 
-describe("resolveCreatePlacement — the placement gate matrix", () => {
-  it("no placement fields → open, nowhere in particular", () => {
-    expect(resolveCreatePlacement({})).toEqual({
+describe("resolveCreateDirectory — the directory gate matrix", () => {
+  it("no directory fields → open, nowhere in particular", () => {
+    expect(resolveCreateDirectory({})).toEqual({
       kind: "open",
       cwd: undefined,
     });
   });
 
   it("cwd alone → open there", () => {
-    expect(resolveCreatePlacement({ cwd: "/somewhere" })).toEqual({
+    expect(resolveCreateDirectory({ cwd: "/somewhere" })).toEqual({
       kind: "open",
       cwd: "/somewhere",
     });
   });
 
   it("repo + worktree → the worktree arm", () => {
-    expect(resolveCreatePlacement({ repo: "/r", worktree: "fix-1" })).toEqual({
+    expect(resolveCreateDirectory({ repo: "/r", worktree: "fix-1" })).toEqual({
       kind: "worktree",
       repo: "/r",
       name: "fix-1",
@@ -88,13 +89,13 @@ describe("resolveCreatePlacement — the placement gate matrix", () => {
       { kind: "relative-repo", repo: "some/repo" },
     ],
   ])("refuses %s as data", (_name, args, detail) => {
-    expect(refusalOf(() => resolveCreatePlacement(args))).toEqual(detail);
+    expect(refusalOf(() => resolveCreateDirectory(args))).toEqual(detail);
   });
 
-  // Blankness is its own gate, ahead of the placement read: an empty value is
+  // Blankness is its own gate, ahead of the directory read: an empty value is
   // not an argument to interpret, it is a variable that did not expand. The
   // wire refuses `intent: ""` but accepts `"  "`, which is why `intent` — not a
-  // placement field at all — is covered here too.
+  // directory field at all — is covered here too.
   it.each([
     ["worktree", { repo: "/r", worktree: "  " }],
     ["cwd", { cwd: "" }],
@@ -183,6 +184,7 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
     const res = await mcp.callTool({
       name: "lifecycle_create",
       arguments: {
+        placement: { kind: "toplevel" },
         repo: "/r",
         worktree: "fix-1",
         run: "claude",
@@ -205,6 +207,7 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
     expect(calls[0]!.input).toEqual({ repoPath: "/r", name: "fix-1" });
     // The worktree IS the cwd; the tool-only fields never reach the wire.
     expect(calls[1]!.input).toEqual({
+      placement: { kind: "toplevel" },
       cwd: "/r/.worktrees/fix-1",
       intent: "fix #1",
     });
@@ -212,28 +215,98 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
     expect(calls[2]!.input).toEqual({ id: ID, data: "claude\r" });
   });
 
-  it("a bare create still works exactly as the old pass-through did", async () => {
+  it("a create carrying ONLY its placement works — nothing else is needed", async () => {
     const { calls, client } = fakePadi();
     const mcp = await servedFace(client);
 
     const res = await mcp.callTool({
       name: "lifecycle_create",
-      arguments: {},
+      arguments: { placement: { kind: "toplevel" } },
     });
 
     expect(res.isError ?? false).toBe(false);
     expect(res.structuredContent).toEqual({ id: ID, pid: 4242 });
     expect(calls.map((c) => c.verb)).toEqual(["lifecycle.create"]);
-    expect(calls[0]!.input).toEqual({});
+    // The placement rides through to the wire verbatim — this face forwards the
+    // agent's stated intent, it does not re-decide it.
+    expect(calls[0]!.input).toEqual({ placement: { kind: "toplevel" } });
   });
 
-  it("a placement refusal reaches the agent as DATA, before anything dials padi", async () => {
+  it("a split names its parent inside the placement, and that is all it needs", async () => {
     const { calls, client } = fakePadi();
     const mcp = await servedFace(client);
 
     const res = await mcp.callTool({
       name: "lifecycle_create",
-      arguments: { worktree: "fix-1" },
+      arguments: { placement: { kind: "child-of", parentId: PARENT_ID } },
+    });
+
+    expect(res.isError ?? false).toBe(false);
+    expect(calls[0]!.input).toEqual({
+      placement: { kind: "child-of", parentId: PARENT_ID },
+    });
+  });
+
+  it("REFUSES a create with no placement, naming both spellings — nothing dials padi", async () => {
+    // The rule this PR exists for, at the face an agent actually calls. The
+    // refusal is the shared wire schema's, so the sentence an agent gets here is
+    // byte-identical to the one padi would have sent — and it arrives before any
+    // verb runs, so a driver's retry has nothing to clean up.
+    const { calls, client } = fakePadi();
+    const mcp = await servedFace(client);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: { intent: "review the PR" },
+    });
+
+    expect(res.isError).toBe(true);
+    const text = String((res.content as { text: string }[])[0]?.text);
+    expect(text).toContain('{"kind":"toplevel"}');
+    expect(text).toContain('{"kind":"child-of","parentId":"<terminal id>"}');
+    expect(text).toContain("there is no default");
+    expect(calls).toEqual([]);
+  });
+
+  it("REFUSES a placement that names a third arm, with the same sentence", async () => {
+    // A model that invents `{"kind":"split"}` is the same failure as omitting
+    // the field — it did not learn the vocabulary — so it gets the same answer
+    // rather than a schema-shaped one it would have to decode.
+    const { calls, client } = fakePadi();
+    const mcp = await servedFace(client);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: { placement: { kind: "split", parentId: PARENT_ID } },
+    });
+
+    expect(res.isError).toBe(true);
+    expect(String((res.content as { text: string }[])[0]?.text)).toContain(
+      '{"kind":"child-of","parentId":"<terminal id>"}',
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it("REFUSES a `child-of` with no parentId — half a statement is not one", async () => {
+    const { calls, client } = fakePadi();
+    const mcp = await servedFace(client);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: { placement: { kind: "child-of" } },
+    });
+
+    expect(res.isError).toBe(true);
+    expect(calls).toEqual([]);
+  });
+
+  it("a directory refusal reaches the agent as DATA, before anything dials padi", async () => {
+    const { calls, client } = fakePadi();
+    const mcp = await servedFace(client);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: { placement: { kind: "toplevel" }, worktree: "fix-1" },
     });
 
     expect(res.isError).toBe(true);
@@ -249,7 +322,12 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
 
     const res = await mcp.callTool({
       name: "lifecycle_create",
-      arguments: { repo: "/r", worktree: "fix-1", run: "claude" },
+      arguments: {
+        placement: { kind: "toplevel" },
+        repo: "/r",
+        worktree: "fix-1",
+        run: "claude",
+      },
     });
 
     expect(res.isError).toBe(true);
@@ -275,7 +353,10 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
     });
     const mcp = await servedFace(client);
 
-    const res = await mcp.callTool({ name: "lifecycle_create", arguments: {} });
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: { placement: { kind: "toplevel" } },
+    });
 
     expect(res.isError).toBe(true);
     expect(res.structuredContent).toBe(undefined);
@@ -292,7 +373,12 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
 
     const res = await mcp.callTool({
       name: "lifecycle_create",
-      arguments: { repo: "/r", worktree: "fix-1", run: "claude" },
+      arguments: {
+        placement: { kind: "toplevel" },
+        repo: "/r",
+        worktree: "fix-1",
+        run: "claude",
+      },
     });
 
     expect(res.isError).toBe(true);

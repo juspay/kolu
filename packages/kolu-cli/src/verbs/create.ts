@@ -1,7 +1,20 @@
 /**
- * `kolu create` — spawn a terminal on the padi we dialed, optionally as a split
- * tile (`--parent`), in a fresh git worktree (`--worktree`), labelled on the
- * canvas (`--intent`), and optionally running an agent in it (`-- <argv>`).
+ * `kolu create` — spawn a terminal on the padi we dialed: a tile of its own
+ * (`--toplevel`) or a split of another (`--parent <id>`), in a fresh git
+ * worktree (`--worktree`), labelled on the canvas (`--intent`), and optionally
+ * running an agent in it (`-- <argv>`).
+ *
+ * ## Placement is required, and that is the interesting part
+ *
+ * Exactly one of `--toplevel` / `--parent <id>` — neither and both are refusals
+ * ({@link placementOf}), and there is no default. A terminal's parent edge is
+ * not decoration: the canvas nests a split inside its parent's tile and the
+ * Dock reads the same edge as *who works for whom*. This CLI's audience is
+ * scripts and agent loops, which is precisely the caller that does not notice a
+ * default it never chose — an orchestrator once spawned two days of reviewer
+ * agents as top-level tiles when every one of them was a split, and nothing
+ * failed, the hierarchy just went flat. So the one thing only the caller knows
+ * is the one thing they must say.
  *
  * Every step is a thin call on `padiSurface` — `git.worktreeCreate`,
  * `lifecycle.create`, `lifecycle.sendInput` — composed exactly the way the
@@ -47,7 +60,7 @@
  * ## Output discipline
  *
  * stdout is the DATA: exactly the new full id and nothing else, so
- * `id=$(kolu create)` is the whole scripting story. The human trailer — what was
+ * `id=$(kolu create --toplevel)` is the whole scripting story. The human trailer — what was
  * created, what it split, which worktree, which command — goes to stderr, where
  * a pipe never sees it. `--json` replaces the stdout line with the full record
  * (`{id, worktree?, ran?}`) and drops the trailer, since a JSON consumer reads
@@ -59,14 +72,20 @@
  * The gates fail loud rather than degrading, in this repo's house style
  * (`endpoint.ts`'s `refuseEndpointFlags` is the same idea one layer up): a flag
  * the user spelled and we would have ignored is a defect, not a convenience.
- * The three that decide WHERE the terminal opens are folded into one parse
- * ({@link placementOf}) whose result makes the illegal combinations
- * unspellable; the rest are PURE checks before the dial, so a typo never
- * provisions a cold ssh host, except the one co-location fact that needs the
- * transport and is checked just after it.
+ * The three that decide WHICH DIRECTORY the terminal opens in are folded into
+ * one parse ({@link directoryOf}) whose result makes the illegal combinations
+ * unspellable, and the two that decide WHERE ON THE CANVAS it lands into
+ * another ({@link placementOf}); the rest are PURE checks before the dial, so a
+ * typo never provisions a cold ssh host, except the one co-location fact that
+ * needs the transport and is checked just after it.
  */
 
-import { shortId } from "@kolu/padi/render";
+import { type TerminalPlacement, TOPLEVEL_PLACEMENT } from "@kolu/padi/surface";
+import {
+  parsePlacementFlags,
+  shortId,
+  type StatedPlacementFlags,
+} from "@kolu/padi/render";
 import { shellJoin } from "@kolu/shell-quote";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect } from "effect";
@@ -122,7 +141,11 @@ type Outcome =
   | {
       readonly kind: "created";
       readonly result: CreateResult;
-      readonly parentId: TerminalId | undefined;
+      /** The placement the run STATED, kept whole rather than reduced to a
+       *  `parentId | undefined`: the trailer says "split of X" off the same
+       *  value the wire was handed, so the sentence can't disagree with the
+       *  request. */
+      readonly placement: TerminalPlacement;
     }
   | Stopped;
 
@@ -169,10 +192,14 @@ const WORKTREE_OVER_HOST_NEEDS_REPO =
 // stdout/stderr are `./shared.ts`'s. The draining sink matters even for one
 // short line: `process.stdout` is ASYNCHRONOUS when it is a pipe, and the run
 // edge exits the moment this effect completes, so a write that had not drained
-// would truncate `id=$(kolu create)` to nothing. A hung-up consumer
-// (`kolu create | head -1`) is a complete run — the terminal exists either way.
+// would truncate `id=$(kolu create --toplevel)` to nothing. A hung-up consumer
+// (`kolu create --toplevel | head -1`) is a complete run — the terminal exists either way.
 
-/** WHERE the new terminal opens, as ONE value with two arms.
+/** WHICH DIRECTORY the new terminal opens in, as ONE value with two arms.
+ *
+ *  Distinct from its PLACEMENT ({@link placementOf}), which is where it lands on
+ *  the canvas — one word for one thing, since this file now parses both. A
+ *  worktree'd split and a top-level terminal in `~` are independent choices.
  *
  *  `--cwd`, `--repo` and `--worktree` reach us as three independent `Option`s —
  *  a flat product of eight combinations, five of which are nonsense — so they
@@ -182,7 +209,7 @@ const WORKTREE_OVER_HOST_NEEDS_REPO =
  *  guards further down are now unspellable in the type, and the guards are gone
  *  rather than merely relocated. The refusal sentences are unchanged — the same
  *  three a user could hit before. */
-type Placement =
+type Directory =
   | {
       readonly kind: "worktree";
       readonly name: string;
@@ -237,18 +264,35 @@ function refuseBlankFlags(args: CreateArgs): Effect.Effect<void, CliFailure> {
   return Effect.void;
 }
 
-/** Read the three placement flags down into the one shape that means something,
+/** WHERE ON THE CANVAS the new terminal lands, read from the flag pair — this
+ *  verb's thin wrapper over `@kolu/padi/render`'s {@link parsePlacementFlags}.
+ *
+ *  The DECISION is not made here: it is the shared one both padi CLI faces run,
+ *  so `kolu create` and `padi-tui create` cannot drift into two accounts of one
+ *  rule. All this adds is the command name the refusal says and the translation
+ *  of that refusal into THIS face's failure type — the two things that genuinely
+ *  differ per face. */
+function placementOf(
+  args: CreateArgs,
+): Effect.Effect<StatedPlacementFlags, CliFailure> {
+  const read = parsePlacementFlags("kolu create", args);
+  return read.kind === "refused"
+    ? Effect.fail(failure(read.message))
+    : Effect.succeed(read);
+}
+
+/** Read the three directory flags down into the one shape that means something,
  *  refusing every combination that does not.
  *
  *  `localCwd` is the padi's own cwd IF that padi shares our filesystem
  *  (`endpoint.ts`'s `localCwdOf` — decidable from the endpoint, before the dial)
  *  and `undefined` when it does not. It arrives as an argument rather than being
  *  re-derived here so this stays a pure parse, and so the `--worktree` arm can
- *  resolve its repo path HERE, once — see {@link Placement}. */
-function placementOf(
+ *  resolve its repo path HERE, once — see {@link Directory}. */
+function directoryOf(
   args: CreateArgs,
   localCwd: string | undefined,
-): Effect.Effect<Placement, CliFailure> {
+): Effect.Effect<Directory, CliFailure> {
   const { cwd, repo, worktree: name } = args;
 
   if (name === undefined) {
@@ -340,7 +384,7 @@ function stoppedPartway(
 
 /** stdout for whatever EXISTS — on the failing path as well as the finishing one.
  *
- *  The case to think about is a driving loop's `id=$(kolu create -- claude)`. If
+ *  The case to think about is a driving loop's `id=$(kolu create --toplevel -- claude)`. If
  *  `sendInput` failed, a terminal is live and its id is the only handle to it;
  *  `$(…)` assigns the captured stdout REGARDLESS of the exit code, so printing
  *  it hands the loop's error branch something to `kolu kill`, while staying
@@ -379,18 +423,24 @@ export function run(
   args: CreateArgs,
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
-    const { parent, intent } = args;
+    const { intent } = args;
 
     // ── The pure gates, BEFORE the dial ──────────────────────────────────
     // Each one names a flag that would otherwise be silently ignored — or, for
     // the first, silently believed — and each is decidable from argv (plus the
     // endpoint) alone, so a typo fails instantly instead of after
     // Nix-provisioning a cold `--host`. Blankness is checked FIRST: an empty
-    // value is not a placement to read for meaning, it is a variable that did
+    // value is not a flag to read for meaning, it is a variable that did
     // not expand. The `--worktree over --host needs --repo` refusal is inside
-    // the placement parse, where resolving the repo path is what raises it.
+    // the directory parse, where resolving the repo path is what raises it.
+    //
+    // The PLACEMENT gate runs here too, and its "you said neither" refusal is
+    // the one gate that fires on a command with no flags at all — which is
+    // exactly the point: `kolu create` alone used to be a legal, silent
+    // top-level create.
     yield* refuseBlankFlags(args);
-    const placement = yield* placementOf(args, localCwdOf(endpoint));
+    const placementFlags = yield* placementOf(args);
+    const directory = yield* directoryOf(args, localCwdOf(endpoint));
 
     // The shell RE-PARSES this line, so rebuild it with `shellJoin` (the repo's
     // POSIX-quote source of truth), not a bare `argv.join(" ")`: a `join` would
@@ -404,24 +454,35 @@ export function run(
     const outcome: Outcome = yield* Effect.catchIf(
       withPadi(endpoint, (conn) =>
         Effect.gen(function* () {
-          const parentId =
-            parent === undefined
-              ? undefined
-              : yield* resolveTerminal(conn, parent, { flag: "--parent" });
+          // The ARM was decided before the dial; only the id inside `child-of`
+          // needs the live roster to widen a user-typed prefix. `TOPLEVEL_PLACEMENT`
+          // is padi's own frozen singleton, so the CLI states the wire's value
+          // rather than a second spelling of it.
+          const placement: TerminalPlacement =
+            placementFlags.kind === "toplevel"
+              ? TOPLEVEL_PLACEMENT
+              : {
+                  kind: "child-of",
+                  parentId: yield* resolveTerminal(
+                    conn,
+                    placementFlags.parentQuery,
+                    { flag: "--parent" },
+                  ),
+                };
 
           // ── Step 1: the worktree ───────────────────────────────────────
           // Nothing exists yet if this fails, so its error IS the whole truth
           // and goes up unadorned — no survivors to name.
           let cwd: string | undefined;
           let worktree: Landed["worktree"];
-          if (placement.kind === "worktree") {
+          if (directory.kind === "worktree") {
             const wt = yield* conn.client.surface.git.worktreeCreate({
-              repoPath: placement.repo,
-              name: placement.name,
+              repoPath: directory.repo,
+              name: directory.name,
             });
             worktree = { path: wt.path, branch: wt.branch };
             // The worktree IS the cwd — that is what "open the terminal there"
-            // means, and why the two flags refuse each other in `placementOf`.
+            // means, and why the two flags refuse each other in `directoryOf`.
             cwd = wt.path;
           } else {
             // WHERE the new terminal opens depends on whether this padi shares
@@ -434,7 +495,7 @@ export function run(
             // remote user's home. An explicit `--cwd` outranks both — it is a
             // path on the PADI's machine, which is the only machine any of
             // these paths are ever about.
-            cwd = placement.cwd ?? conn.localCwd;
+            cwd = directory.cwd ?? conn.localCwd;
           }
 
           // ── Step 2: the terminal ───────────────────────────────────────
@@ -443,14 +504,15 @@ export function run(
           // can pair with what landed ({@link orStopped}), rather than as an
           // exception that erases it.
           //
-          // Spread discipline, not `{cwd, parentId, intent}`: every optional
-          // field here is a `Schema.optionalKey`, so an explicit `undefined`
-          // decodes as a FAILURE rather than as "absent". The key is present or
-          // it is not.
+          // Spread discipline, not `{cwd, intent}`: every OPTIONAL field here is
+          // a `Schema.optionalKey`, so an explicit `undefined` decodes as a
+          // FAILURE rather than as "absent". The key is present or it is not.
+          // `placement` is the one REQUIRED field and is therefore stated flat —
+          // there is no shape of this call that omits it.
           const { id } = yield* orStopped(
             conn.client.surface.lifecycle.create({
+              placement,
               ...(cwd !== undefined ? { cwd } : {}),
-              ...(parentId !== undefined ? { parentId } : {}),
               ...(intent !== undefined ? { intent } : {}),
             }),
             { worktree },
@@ -474,7 +536,7 @@ export function run(
           return {
             kind: "created",
             result: { id, worktree, ran: intended },
-            parentId,
+            placement,
           } satisfies Outcome;
         }),
       ),
@@ -502,17 +564,22 @@ export function run(
       );
     }
 
-    const { result, parentId } = outcome;
-    // stdout is JUST the id — `id=$(kolu create)` — or the whole record under
-    // `--json`.
+    const { result, placement } = outcome;
+    // stdout is JUST the id — `id=$(kolu create --toplevel)` — or the whole
+    // record under `--json`.
     yield* emitHandles(args.json, result);
     if (args.json) return;
 
     // …and the story goes to stderr, one clause per thing that actually
-    // happened, so a bare create says one short thing and a worktree'd agent
-    // says all of it.
+    // happened. Placement is ALWAYS one of those things now — a top-level
+    // create is a decision the user made, not the absence of one, so the
+    // trailer says so instead of falling silent.
     const bits = [`— created ${shortId(result.id)}`];
-    if (parentId !== undefined) bits.push(`split of ${shortId(parentId)}`);
+    bits.push(
+      placement.kind === "child-of"
+        ? `split of ${shortId(placement.parentId)}`
+        : "top-level",
+    );
     if (result.worktree !== undefined) {
       bits.push(
         `worktree ${result.worktree.branch} at ${result.worktree.path}`,

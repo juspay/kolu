@@ -125,7 +125,7 @@ and observed:
 | Model concept | Implementing component | Status |
 | --- | --- | --- |
 | actor, address, mailbox | a kaval terminal: UUID + serialized input ("last one wins") | **shipped** |
-| create-an-actor (+ parent edge) | padi `lifecycle.create` with `parentId` | **shipped** |
+| create-an-actor (+ parent edge) | padi `lifecycle.create` with a stated `placement` (`toplevel` or `child-of`) | **shipped** |
 | creator attribution (who spawned whom via the act door) | record the calling session on MCP-created terminals — one server-side field | *small addition* |
 | observe: working / asking / idle, which agent | padi's agent sensors | **shipped** |
 | observe: branch → PR → CI per lane | the server's existing cwd-derivation for terminal chrome | **shipped — reused, not duplicated** |

@@ -148,7 +148,7 @@ state behind the [multi-agent dock](/power-features).
 padi-tui status
 padi-tui watch
 padi-tui wait a3f10000 --until awaiting,waiting
-padi-tui create -- claude
+padi-tui create --toplevel -- claude
 ```
 
 ```text
@@ -192,7 +192,7 @@ notes live in the [padi atlas note](https://kolu.dev/atlas/padi.html).
 | `padi-tui status` · `--json` | Print a one-shot workspace snapshot: terminals, repos, agent state, foreground process, and recency. |
 | `padi-tui watch` · `--json` | Follow the workspace live, including state changes and activity indicators. |
 | `padi-tui wait <id> --until awaiting,waiting` · `--timeout <ms>` · `--json` | Block until an agent turn ends using padi's real agent-state fold, not a guess from terminal silence. |
-| `padi-tui create -- claude` · `--parent <id>` · `--worktree <branch>` · `--repo <path>` · `--json` | Create a kolu terminal from the shell: a new tile, a split under any existing terminal (`--parent` — including a split of a split; the canvas flattens descendants into the root tile's tab strip, the Dock keeps the true tree), or a worktree'd agent — all appearing live on the canvas. |
+| `padi-tui create (--toplevel \| --parent <id>) -- claude` · `--worktree <branch>` · `--repo <path>` · `--json` | Create a kolu terminal from the shell, appearing live on the canvas. Placement is **required** and has no default: `--toplevel` for a tile of its own, or `--parent <id>` for a split under any existing terminal (including a split of a split; the canvas flattens descendants into the root tile's tab strip, the Dock keeps the true tree). Add `--worktree` for a worktree'd agent. |
 
 ## Why it is not inside kolu-server
 
