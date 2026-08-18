@@ -1,22 +1,20 @@
 import assert from "node:assert";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { Then, When } from "@cucumber/cucumber";
 import { shellQuoteArg } from "@kolu/shell-quote";
 import { waitForBufferContains } from "../support/buffer.ts";
+import {
+  retireWorldScrollFifo,
+  SCROLL_FIFO_DIR_PREFIX,
+} from "../support/scrollFifo.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 /** The FIFO path created during this scenario's prepare step. */
 function scrollFifo(world: KoluWorld): string {
   if (!world._scrollFifo) throw new Error("output trigger was not prepared");
   return world._scrollFifo;
-}
-
-async function retireScrollFifo(world: KoluWorld): Promise<void> {
-  const fifo = scrollFifo(world);
-  world._scrollFifo = undefined;
-  await rm(dirname(fifo), { recursive: true });
 }
 
 When(
@@ -71,8 +69,9 @@ When("I prepare a output trigger", async function (this: KoluWorld) {
   // Put it in an atomically-created private directory: parallel workers cannot
   // collide with or pre-create one another's FIFO. A background cat blocks on
   // the FIFO until the test process writes to it.
-  const fifoDir = await mkdtemp(join(tmpdir(), "kolu-scroll-fifo-"));
+  const fifoDir = await mkdtemp(join(tmpdir(), SCROLL_FIFO_DIR_PREFIX));
   const fifo = join(fifoDir, "trigger");
+  await writeFile(join(fifoDir, "owner"), String(process.pid));
   this._scrollFifo = fifo;
   const quotedFifo = shellQuoteArg(fifo);
   await this.terminalRun(`mkfifo ${quotedFifo}`);
@@ -86,7 +85,7 @@ When("I fire the output trigger", async function (this: KoluWorld) {
   // entirely, so scrollOnUserInput doesn't interfere with scroll lock state.
   const lines = Array.from({ length: 10 }, (_, i) => `triggered-${i + 1}`);
   await writeFile(scrollFifo(this), `${lines.join("\n")}\n`);
-  await retireScrollFifo(this);
+  await retireWorldScrollFifo(this);
   // When scroll-locked, data is buffered — wait for the activity indicator
   await this.page
     .locator('[data-testid="scroll-to-bottom"][data-active]')
@@ -98,7 +97,7 @@ When(
   async function (this: KoluWorld, count: number) {
     const lines = Array.from({ length: count }, (_, i) => `triggered-${i + 1}`);
     await writeFile(scrollFifo(this), `${lines.join("\n")}\n`);
-    await retireScrollFifo(this);
+    await retireWorldScrollFifo(this);
     // When scroll-locked, data is buffered — wait for the activity indicator
     await this.page
       .locator('[data-testid="scroll-to-bottom"][data-active]')
@@ -131,7 +130,7 @@ When(
     // un-buffered path: the lines must land in the client xterm buffer.
     const lines = Array.from({ length: 10 }, (_, i) => `triggered-${i + 1}`);
     await writeFile(scrollFifo(this), `${lines.join("\n")}\n`);
-    await retireScrollFifo(this);
+    await retireWorldScrollFifo(this);
     await waitForBufferContains(this.page, "triggered-10");
   },
 );

@@ -444,7 +444,7 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
 /** The default `boundToPid` liveness-poll interval — frequent enough that a
  *  daemon dies within ~a couple seconds of its run, lazy enough not to busy-poll.
  *  Fixed, not a knob (tests inject a small value via the `boundToPid` arm's `pollMs`). */
-const PID_WATCH_POLL_MS = 2_000;
+export const PID_WATCH_POLL_MS = 2_000;
 
 /** Arm the daemon's shutdown triggers and resolve `shutdown` when it should
  *  stop: an OS signal (SIGTERM/SIGINT), the external abort, under
