@@ -190,6 +190,9 @@ export function createStateWatchHub(opts: {
   const levels = new Map<TerminalId, Level>();
   const subs = new Set<Sub>();
   let cancelTimer: (() => void) | undefined;
+  /** The absolute instant {@link cancelTimer} is armed for, so an unchanged
+   *  deadline can be left alone rather than re-scheduled to the same moment. */
+  let armedAt: number | undefined;
   let flushQueued = false;
   // Has the hub LOOKED yet? One job only: a subscription that opens before the
   // first observation is owed a deferred snapshot rather than an immediate
@@ -298,12 +301,18 @@ export function createStateWatchHub(opts: {
     return { batch, arriving };
   };
 
+  /** Is any subscription still waiting for its first batch? Cheap — there are a
+   *  handful of subscriptions at most — and asked only on a frame that moved
+   *  nothing. */
+  const owesSnapshot = (): boolean => {
+    for (const sub of subs) if (!sub.snapshotDelivered) return true;
+    return false;
+  };
+
   /** Re-arm the ONE timer at the earliest deadline across every subscription.
    *  Reads each subscription's LAST sweep answer rather than re-deriving it: a
    *  sweep is what makes a deadline move, and every sweep records its own. */
   const armTimer = (): void => {
-    cancelTimer?.();
-    cancelTimer = undefined;
     let earliest: number | undefined;
     for (const sub of subs) {
       const at = sub.nextAt;
@@ -311,9 +320,19 @@ export function createStateWatchHub(opts: {
         earliest = at;
       }
     }
+    // The armed wake is an ABSOLUTE instant, so an unchanged earliest needs no
+    // work at all — cancelling and re-scheduling would buy the identical moment
+    // for a `clearTimeout`, a `setTimeout` and a fresh `Timeout` in the heap.
+    // The steady supervision shape (one subscription, a 5-minute nag, nothing
+    // moving) holds one deadline across every wake between two fires.
+    if (earliest === armedAt) return;
+    cancelTimer?.();
+    cancelTimer = undefined;
+    armedAt = earliest;
     if (earliest === undefined) return;
     cancelTimer = schedule(Math.max(0, earliest - now()), () => {
       cancelTimer = undefined;
+      armedAt = undefined;
       flush();
     });
   };
@@ -352,24 +371,40 @@ export function createStateWatchHub(opts: {
     observe(terminals) {
       hasObserved = true;
       const at = now();
+      // Did this frame MOVE anything? The producer is the ~150 ms terminals
+      // cadence — byte activity, recency, snapshot churn — while a bucket
+      // changes perhaps once a minute per terminal, so the overwhelming
+      // majority of frames leave this map byte-identical. Only a frame that
+      // moved it can make an event due; a hold or a nag arriving through time
+      // alone is the timer's job, and it is already armed for it.
+      let moved = false;
       for (const [id, record] of terminals) {
         const agent = activeAgent(record);
         if (agent === null) {
           // No live agent — a bare shell, or a sleeping/parked record whose PTY
           // is released. It holds no bucket, so it leaves the level map entirely
           // rather than lingering as a stale state nothing can clear.
-          levels.delete(id);
+          if (levels.delete(id)) moved = true;
           continue;
         }
         const state = agentBucket(agent.state);
         const known = levels.get(id);
         if (known === undefined || known.state !== state) {
           levels.set(id, { state, since: at });
+          moved = true;
         }
       }
       for (const id of levels.keys()) {
-        if (!terminals.has(id)) levels.delete(id);
+        if (!terminals.has(id)) {
+          levels.delete(id);
+          moved = true;
+        }
       }
+      // A subscription opened before the first observation is owed its snapshot
+      // even by a frame that moved nothing — including a first frame with no
+      // agent in it at all, which is a real answer ("nothing is neglected") and
+      // moves no level.
+      if (!moved && !owesSnapshot()) return;
       // LEAVE THE DERIVATION before any subscriber runs. Coalesced, so two folds
       // in one tick cost one flush.
       if (flushQueued) return;
@@ -410,6 +445,7 @@ export function createStateWatchHub(opts: {
     dispose() {
       cancelTimer?.();
       cancelTimer = undefined;
+      armedAt = undefined;
       subs.clear();
       levels.clear();
       hasObserved = false;

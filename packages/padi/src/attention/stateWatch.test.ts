@@ -259,6 +259,39 @@ describe("createStateWatchHub", () => {
     expect(h.armedAt()).toBeUndefined();
   });
 
+  it("a frame that MOVED nothing costs no flush — the producer is the byte cadence, not the agent's", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const { batches } = collect(h.hub, { nagMs: 60_000 });
+    batches.length = 0;
+
+    // The `urgency` cell fires on every terminals poke — byte activity, recency,
+    // snapshot churn — while a bucket moves perhaps once a minute. An identical
+    // frame can make nothing due (a hold or a nag arriving through time alone is
+    // the armed timer's job), so it must not walk every level for every
+    // subscription to prove it.
+    const armed = h.armedAt();
+    for (let i = 0; i < 5; i += 1) {
+      h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    }
+    await settled();
+    expect(batches).toEqual([]);
+    // …and the wake it was already holding is untouched, not cancelled and
+    // re-scheduled to the same instant five times.
+    expect(h.armedAt()).toBe(armed);
+  });
+
+  it("still answers a subscription opened before the first LOOK, even when that frame moves nothing", async () => {
+    const h = harness();
+    const { batches } = collect(h.hub);
+    // A first frame with no agent in it moves no level — and is still the
+    // answer that subscription has been waiting for.
+    h.observe(terminals());
+    await settled();
+    expect(batches).toEqual([[]]);
+  });
+
   it("wakes at the EARLIEST deadline across subscriptions, once", async () => {
     const h = harness();
     h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
