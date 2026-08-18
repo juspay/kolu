@@ -17,6 +17,7 @@
 import type { WaitState } from "../terminalVocab.ts";
 import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
 import type { PadiWatchStatesInput } from "../surface.ts";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { StateWatchFilter, StateWatchSpec } from "./stateWatch.ts";
 
 /** The three knobs as either face's schema decodes them. Structural, so both
@@ -58,12 +59,24 @@ export function watchFilterOf(knobs: WatchKnobs): StateWatchFilter | undefined {
   return namesWatchKnobs(knobs) ? filterFrom(knobs) : undefined;
 }
 
+/** A filter plus the scope it is applied at — the ONE place a filter becomes a
+ *  spec, so a standing subscription and the live stream cannot disagree about
+ *  what an unscoped watch means. Omit-or-spread, never an explicit `undefined`:
+ *  `ids` rides an optional key, and "the whole fleet" is spelled by the key
+ *  being missing everywhere it travels. */
+export function specOf(
+  filter: StateWatchFilter,
+  ids?: ReadonlySet<TerminalId>,
+): StateWatchSpec {
+  return { ...filter, ...(ids === undefined ? {} : { ids }) };
+}
+
 /** The full spec behind one `watchStates` subscription. Unlike a standing
  *  subscription there is nothing to choose here: opening the stream at all IS
  *  the ask, so the defaults always apply. */
 export function watchSpecOf(input: PadiWatchStatesInput): StateWatchSpec {
-  return {
-    ...filterFrom(input),
-    ...(input.id === undefined ? {} : { ids: new Set([input.id]) }),
-  };
+  return specOf(
+    filterFrom(input),
+    input.id === undefined ? undefined : new Set([input.id]),
+  );
 }

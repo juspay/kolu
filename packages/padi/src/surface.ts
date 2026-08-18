@@ -113,7 +113,15 @@ import {
   NewTerminalPolicySchema,
   newTerminalPolicyEqual,
 } from "./newTerminalPolicy.ts";
-import { WAIT_STATES, type WaitState } from "./terminalVocab.ts";
+// The bucket VOCABULARY, straight from the leaf that owns the fold it is
+// defined from — not through `terminalVocab.ts`, which type-imports this module
+// back. A value import along that edge would make the pair a runtime cycle, and
+// the layering `terminalVocab.ts`'s header states would be one an import graph
+// refutes.
+import {
+  WAIT_STATES,
+  WATCH_DEFAULT_STATES,
+} from "@kolu/terminal-vocab/agentProjection";
 import {
   ExportTranscriptHtmlInputSchema,
   ExportTranscriptHtmlOutputSchema,
@@ -986,18 +994,10 @@ export type PadiSettleEvent = typeof PadiSettleEventSchema.Type;
  *  than two that agree by luck. */
 const WatchStateSchema = Schema.Literals(WAIT_STATES);
 
-/** What a subscription that names NO states means: the two buckets that need a
- *  person. `awaiting` is an agent blocked on you and `waiting` is one whose turn
- *  ended; `working` is the third bucket and is deliberately not in the default —
- *  a supervision feed that announced every terminal the moment it started
- *  thinking is the flood this feature exists to replace.
- *
- *  A DEFAULT, not a fallback: both faces read this one constant, so the CLI and
- *  an MCP orchestrator that named no states are watching the same thing. */
-export const WATCH_DEFAULT_STATES = [
-  "awaiting",
-  "waiting",
-] as const satisfies readonly WaitState[];
+/** What a subscription that names NO states means — re-exported from the
+ *  vocabulary leaf, where it sits beside the buckets it is drawn from and where
+ *  a face's `--help` can read it without importing the wire. */
+export { WATCH_DEFAULT_STATES };
 
 /** The three knobs, declared ONCE and spread into both faces' inputs, so a CLI
  *  flag and an MCP param cannot mean different things.

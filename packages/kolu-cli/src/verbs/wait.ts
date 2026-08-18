@@ -152,6 +152,7 @@ import {
   waitTimedOut,
 } from "../exit.ts";
 import {
+  type Parsed,
   resolveTerminal,
   writeErr,
   writeJson,
@@ -206,11 +207,7 @@ export type WaitPlan = {
  *  with no socket and no tty in the way, so the matrix — including the
  *  empty-match refusal, which is a FALSE-DONE guard and not a typo guard — is
  *  pinned against the parse the product runs. */
-export function planUntil(
-  raw: string,
-):
-  | { readonly kind: "ok"; readonly plan: WaitPlan }
-  | { readonly kind: "error"; readonly message: string } {
+export function planUntil(raw: string): Parsed<WaitPlan> {
   if (raw.startsWith("idle:")) {
     const spelled = raw.slice("idle:".length);
     // Digits only: a count of milliseconds is a whole number, so reject "",
@@ -233,7 +230,7 @@ export function planUntil(
     }
     return {
       kind: "ok",
-      plan: {
+      value: {
         condition: { kind: "idle", idleMs },
         describe: `output idle for ${idleMs}ms`,
       },
@@ -276,7 +273,7 @@ export function planUntil(
     }
     return {
       kind: "ok",
-      plan: {
+      value: {
         condition: { kind: "match", pattern: regex },
         describe: `output matching ${JSON.stringify(pattern)}`,
       },
@@ -303,7 +300,7 @@ export function planUntil(
   const targets = new Set<string>(tokens);
   return {
     kind: "ok",
-    plan: {
+    value: {
       condition: { kind: "agent", targets },
       describe: [...targets].join("/"),
     },
@@ -557,7 +554,7 @@ export function run(
     const parsed = planUntil(args.until);
     if (parsed.kind === "error")
       return yield* Effect.fail(failure(parsed.message));
-    const plan = parsed.plan;
+    const plan = parsed.value;
 
     // `--timeout`/`--settled`/`--snapshot` are range-checked by the PARSE
     // (`waitFlags` in `cli.ts`), which is why the engine's RangeError on an

@@ -60,6 +60,7 @@ import {
   type StateWatchFilter,
   type StateWatchSpec,
 } from "./stateWatch.ts";
+import { specOf } from "./watchSpec.ts";
 
 /** What a queue holds — either source's events, one `kind` vocabulary. */
 export type WatchEvent = PadiWatchEvent;
@@ -186,11 +187,12 @@ export interface WatchRegistry {
    *  same reason: a boolean `false` reads to an agent as "there was nothing to
    *  report", which is precisely the confusion the error class exists to end. */
   close(name: string): void;
-  /** The sink registered on the settle-event source — one observed FRAME at a
-   *  time, which is also one doorbell ring at a time. Reaches only the
-   *  subscriptions that named NO filter; a filtered one is fed by its own state
-   *  watch attachment instead. */
-  accept(events: readonly SettleEvent[]): void;
+  /** The sink registered on the SETTLE-event source — one observed FRAME at a
+   *  time, which is also one doorbell ring at a time. Named for the source it
+   *  serves, because it is not the only door: a subscription fed by the state
+   *  watch is filled by its own attachment, and the one-source-per-subscription
+   *  rule is what the two names are for. */
+  acceptSettle(events: readonly SettleEvent[]): void;
   dispose(): void;
 }
 
@@ -199,27 +201,35 @@ export function createWatchRegistry(opts: {
   limit?: number;
   /** How many subscriptions may be open at once. */
   subLimit?: number;
-  /** The daemon's CURRENT settle sequence. Two jobs, both needing the same
+  /** The daemon's CURRENT watch sequence. Two jobs, both needing the same
    *  fact: it is where a FRESH subscription starts acknowledged (so it reports
    *  what happens NEXT rather than replaying edges the supervisor already acted
    *  on), and it is the CEILING an acknowledgement is checked against. Injected
    *  rather than read from a module global, so the registry owns the whole of
-   *  `open`'s answer and no caller has to reach past it. */
-  daemonSeq?: () => number;
+   *  `open`'s answer and no caller has to reach past it.
+   *
+   *  REQUIRED. A registry built without it would read a ceiling of 0, warn that
+   *  every honest acknowledgement is "a cursor from a previous padi generation",
+   *  and discard it — silently, for the life of that registry. A construction
+   *  defect is refused at construction rather than deferred to use. */
+  daemonSeq: () => number;
   /** Attach a filtered subscription to the agent-state watch. Injected rather
    *  than reached for, so this module stays a QUEUE — it owns buffering,
    *  acknowledgement and overflow, and knows nothing about how a state is
-   *  detected or debounced. Omitted only in tests that exercise the queue
-   *  alone; a filtered `open` then fails loudly rather than opening a
-   *  subscription that could never be fed. */
-  subscribeStates?: (
+   *  detected or debounced.
+   *
+   *  REQUIRED, for the reason above: a registry that can be built without a
+   *  state watch is a registry whose first filtered `open` fails an hour into a
+   *  daemon's life. A queue-only test passes a stub that throws — loudly, and at
+   *  the moment the test asks for something it did not build. */
+  subscribeStates: (
     spec: StateWatchSpec,
     emit: (batch: StateWatchBatch) => void,
   ) => () => void;
 }): WatchRegistry {
   const { log } = opts;
   const limit = opts.limit ?? WATCH_BUFFER_LIMIT;
-  const daemonSeq = opts.daemonSeq ?? (() => 0);
+  const daemonSeq = opts.daemonSeq;
   const subLimit = opts.subLimit ?? WATCH_SUBSCRIPTION_LIMIT;
   const subs = new Map<string, WatchSubscription>();
   // Doorbell listeners, keyed by NAME rather than held on the subscription, so a
@@ -304,21 +314,11 @@ export function createWatchRegistry(opts: {
    *  was just handed. What it does NOT do is hand a half-made record out — the
    *  feed is complete the moment it exists, `detach` included. */
   const stateFeed = (
-    name: string,
     filter: StateWatchFilter,
     scope: ReadonlySet<TerminalId> | undefined,
     buffer: PadiStateEvent[],
     owner: () => WatchSubscription,
   ): { feed: WatchFeed; start: () => void } => {
-    if (opts.subscribeStates === undefined) {
-      // FAIL FAST. A subscription with a filter and nothing to feed it would
-      // report an eternally quiet workspace, which is the one answer this module
-      // never gives.
-      throw new Error(
-        `standing subscription "${name}" named an agent-state filter, but this registry was built with no state watch to feed it.`,
-      );
-    }
-    const subscribeStates = opts.subscribeStates;
     let stop: (() => void) | undefined;
     const feed = {
       source: "state" as const,
@@ -329,9 +329,8 @@ export function createWatchRegistry(opts: {
     return {
       feed,
       start: () => {
-        stop = subscribeStates(
-          { ...filter, ...(scope === undefined ? {} : { ids: scope }) },
-          (batch) => enqueue(owner(), feed, batch),
+        stop = opts.subscribeStates(specOf(filter, scope), (batch) =>
+          enqueue(owner(), feed, batch),
         );
       },
     };
@@ -404,7 +403,6 @@ export function createWatchRegistry(opts: {
           };
         } else {
           const opened = stateFeed(
-            name,
             filter,
             scope,
             existing.feed.source === "state" ? carry(existing.feed.buffer) : [],
@@ -445,7 +443,7 @@ export function createWatchRegistry(opts: {
       if (filter === undefined) {
         feed = { source: "settle", buffer: [] };
       } else {
-        const opened = stateFeed(name, filter, scope, [], () => sub);
+        const opened = stateFeed(filter, scope, [], () => sub);
         feed = opened.feed;
         start = opened.start;
       }
@@ -469,7 +467,7 @@ export function createWatchRegistry(opts: {
       return { sub, reattached: false };
     },
 
-    accept(events) {
+    acceptSettle(events) {
       for (const sub of subs.values()) {
         // A subscription fed by the STATE watch asked a different question and is
         // answered by its own attachment. Letting the settle detector into its

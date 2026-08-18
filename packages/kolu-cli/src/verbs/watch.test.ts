@@ -33,6 +33,10 @@ describe("planSupervision", () => {
     expect(held("60s").value.heldForMs).toBe(60_000);
     expect(held("5m").value.heldForMs).toBe(300_000);
     expect(held("2h").value.heldForMs).toBe(7_200_000);
+    // `d`, because the feed's own hold column is rendered with `relativeTime`,
+    // which prints `2d`. A grammar you can read out of the output and not type
+    // back in is half a grammar.
+    expect(held("1d").value.heldForMs).toBe(86_400_000);
   });
 
   it("REFUSES a bare number — 60 is a minute to a person and 60ms to a timer", () => {

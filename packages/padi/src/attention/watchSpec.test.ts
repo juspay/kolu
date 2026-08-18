@@ -6,7 +6,20 @@
 
 import { describe, expect, it } from "vitest";
 import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
-import { namesWatchKnobs, watchFilterOf, watchSpecOf } from "./watchSpec.ts";
+import {
+  namesWatchKnobs,
+  specOf,
+  watchFilterOf,
+  watchSpecOf,
+} from "./watchSpec.ts";
+
+describe("specOf — the one place a filter becomes a spec", () => {
+  it("OMITS `ids` for a fleet-wide watch rather than sending an explicit undefined", () => {
+    const filter = { states: new Set(["waiting"] as const), heldForMs: 0 };
+    expect(Object.hasOwn(specOf(filter), "ids")).toBe(false);
+    expect([...(specOf(filter, new Set(["abc"])).ids ?? [])]).toEqual(["abc"]);
+  });
+});
 
 describe("namesWatchKnobs", () => {
   it("is derived from the WIRE declaration — every knob counts, and nothing else does", () => {

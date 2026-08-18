@@ -331,7 +331,7 @@ export function buildPadiSurfaceDeps(deps: {
     subscribeStates: (spec, emit) => stateWatch.subscribe(spec, emit),
   });
   const unsubscribeSettle = settleEvents.onFrame((events) =>
-    watchRegistry.accept(events),
+    watchRegistry.acceptSettle(events),
   );
   disposeStanding = () => {
     unsubscribeSettle();

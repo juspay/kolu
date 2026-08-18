@@ -24,7 +24,6 @@
  * itself is pure. Same leaf, one directory up, so both sides reach it downhill.
  */
 
-import type { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import type { PadiTerminal } from "./surface.ts";
 
@@ -35,30 +34,17 @@ export function activeAgent(v: PadiTerminal): AgentInfo | null {
   return v.state === "active" ? v.agent : null;
 }
 
-/** The coarse agent buckets a wait accepts as targets — the `agentBucket`
- *  fold's vocabulary minus `other` (an `other` bucket never matches a real
- *  agent, so accepting it would only ever time out). A wait compares against
- *  the *bucket*, never the raw `AgentInfo['state']` literals, so the one fold
- *  in `@kolu/terminal-vocab/agentProjection` stays the single source of truth
- *  (see `.claude/rules/dock-fleet-mirror.md`). */
-export const WAIT_STATES = [
-  "working",
-  "awaiting",
-  "waiting",
-] as const satisfies readonly Exclude<
-  ReturnType<typeof agentBucket>,
-  "other"
->[];
-
-export type WaitState = (typeof WAIT_STATES)[number];
-
-/** Is `token` one of padi's wait buckets? THE whole padi-side contract for a
- *  `--until` token, and deliberately nothing more: how a CLI splits a comma
- *  list and phrases its rejection is argv grammar, which `watch.ts`'s header
- *  says belongs to the face, not here. */
-export function isWaitState(token: string): token is WaitState {
-  return (WAIT_STATES as readonly string[]).includes(token);
-}
+/** The bucket vocabulary lives BESIDE the fold it is defined from
+ *  (`@kolu/terminal-vocab/agentProjection`), not here: `WAIT_STATES` is
+ *  literally `Exclude<ReturnType<typeof agentBucket>, "other">`, so its home is
+ *  the module with the exhaustiveness fence — and a leaf the wire schema and the
+ *  CLI's `--help` can both read without importing padi. Re-exported so every
+ *  existing consumer's import path is unchanged. */
+export {
+  isWaitState,
+  WAIT_STATES,
+  type WaitState,
+} from "@kolu/terminal-vocab/agentProjection";
 
 /** The line a client reports when padi's link dropped mid-operation and nothing
  *  upstream said anything more specific — phrased as the question the user can

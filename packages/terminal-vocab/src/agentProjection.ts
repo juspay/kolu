@@ -99,6 +99,47 @@ export function agentBucket(
   }
 }
 
+/** The coarse agent buckets a wait or a watch accepts as TARGETS — the
+ *  {@link agentBucket} fold's vocabulary minus `other` (an `other` bucket never
+ *  matches a real agent, so accepting it would only ever time out).
+ *
+ *  Beside the fold it is defined FROM, so the exhaustiveness fence above is also
+ *  the fence on this list, and so a face that prints the vocabulary (`kolu
+ *  watch --help`, `kolu wait --help`) can read it out of a leaf rather than
+ *  hand-copying it into a sentence that then quietly stops being true. */
+export const WAIT_STATES = [
+  "working",
+  "awaiting",
+  "waiting",
+] as const satisfies readonly Exclude<
+  ReturnType<typeof agentBucket>,
+  "other"
+>[];
+
+export type WaitState = (typeof WAIT_STATES)[number];
+
+/** Is `token` one of the wait buckets? THE whole vocabulary-side contract for a
+ *  `--until` or `--states` token, and deliberately nothing more: how a CLI
+ *  splits a comma list and phrases its rejection is argv grammar, which belongs
+ *  to the face. */
+export function isWaitState(token: string): token is WaitState {
+  return (WAIT_STATES as readonly string[]).includes(token);
+}
+
+/** What a supervision watch that names NO states means: the two buckets that
+ *  need a person. `awaiting` is an agent blocked on you and `waiting` is one
+ *  whose turn ended; `working` is the third bucket and is deliberately not in
+ *  the default — a feed that announced every terminal the moment it started
+ *  thinking is the flood the feature exists to replace.
+ *
+ *  A DEFAULT, not a fallback: every face reads this one constant — padi's wire
+ *  schema, the engine's decode, and the CLI's own `--help` line — so a change
+ *  here cannot leave one of them advertising a default nothing applies. */
+export const WATCH_DEFAULT_STATES = [
+  "awaiting",
+  "waiting",
+] as const satisfies readonly WaitState[];
+
 /** The dashboard label for an agent's state, derived from its bucket. An
  *  unrecognized (`other`) state falls through verbatim so a new agent state is
  *  visible rather than silently collapsed. */

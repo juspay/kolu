@@ -386,26 +386,33 @@ export function formatWatchActivity(
 }
 
 export function formatWatchActivityJson(id: TerminalId, live: boolean): string {
-  return JSON.stringify({ id, activity: live });
+  return JSON.stringify({ kind: "activity", id, activity: live });
 }
 
 /** `watch --json` — one JSON object per line (NDJSON, so `jq -c` streams it): the
  *  full raw record plus the live flag and the full terminal id. The `id` key
- *  matches `status --json`. A removal emits `{ id, removed: true }`. */
+ *  matches `status --json`.
+ *
+ *  EVERY line carries a `kind`, whichever feed produced it. `kolu watch --json`
+ *  emits one of two vocabularies — the change tail's
+ *  `terminal`/`removed`/`activity` and the supervision feed's
+ *  `snapshot`/`transition`/`nag` — and a consumer must be able to tell them
+ *  apart by reading a line, not by inspecting the argv that produced it or
+ *  probing for which key happens to be present. */
 export function formatWatchJson(
   id: TerminalId,
   v: PadiTerminal,
   opts: { live: boolean },
 ): string {
-  return JSON.stringify({ id, live: opts.live, ...v });
+  return JSON.stringify({ kind: "terminal", id, live: opts.live, ...v });
 }
 
 export function formatWatchRemovalJson(id: TerminalId): string {
-  return JSON.stringify({ id, removed: true });
+  return JSON.stringify({ kind: "removed", id });
 }
 
 /** One agent-STATE event as a human line:
- *  `HH:MM:SS  a1b2c3d4  nag         waiting  7m  fix the parser` — the clock,
+ *  `HH:MM:SS  a1b2c3d4  nag         waiting   7m  fix the parser` — the clock,
  *  the short id, WHY you are being told (snapshot · transition · nag), the bucket
  *  it is holding, HOW LONG it has held it, and its intent when it has one.
  *
@@ -425,8 +432,11 @@ export function formatStateEvent(event: PadiStateEvent): string {
   const cells = [
     clockTime(event.at),
     shortId(event.id),
-    event.kind,
-    event.state,
+    // Both vocabularies are CLOSED literal unions, so their widths are
+    // compile-time facts and the columns line up without measuring anything —
+    // which is what a reader scanning a running feed at 3am is actually using.
+    event.kind.padEnd("transition".length),
+    event.state.padEnd("awaiting".length),
     relativeTime(event.since, event.at),
   ];
   if (event.intent !== undefined) cells.push(event.intent);

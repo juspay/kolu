@@ -45,6 +45,12 @@ const registry = (
   createWatchRegistry({
     log: silentLogger,
     daemonSeq: () => seq,
+    // Queue-only tests have no state watch. A filtered `open` in one is a test
+    // bug, so the stub SAYS so rather than opening a subscription nothing feeds
+    // — the registry itself no longer admits being built without one.
+    subscribeStates: () => {
+      throw new Error("this registry was built without a state watch");
+    },
     ...opts,
   });
 
@@ -102,7 +108,7 @@ function fakeStateWatch() {
 /** Accept one frame carrying a single event — the shape most of these pins want.
  *  `accept` takes a FRAME because that is what the source emits. */
 const acceptOne = (r: WatchRegistry, ...ids: string[]): void => {
-  for (const id of ids) r.accept([event(id)]);
+  for (const id of ids) r.acceptSettle([event(id)]);
 };
 
 describe("watch registry", () => {
@@ -169,9 +175,9 @@ describe("watch registry", () => {
     const stale = event("a");
     const r = registry({ daemonSeq: () => stale.seq });
     r.open("late");
-    r.accept([stale]); // exactly AT the watermark — already declined history
+    r.acceptSettle([stale]); // exactly AT the watermark — already declined history
     expect(r.drain("late").events).toEqual([]);
-    r.accept([event("b")]); // the first genuinely new one
+    r.acceptSettle([event("b")]); // the first genuinely new one
     expect(r.drain("late").events.map((e) => e.id)).toEqual(["b"]);
   });
 
@@ -254,7 +260,7 @@ describe("watch registry", () => {
     // The daemon's own sequence advances normally afterwards.
     const fresh = event("a");
     clock = fresh.seq;
-    r.accept([fresh]);
+    r.acceptSettle([fresh]);
     expect(r.drain("campaign").events.map((e) => e.id)).toEqual(["a"]);
   });
 
@@ -316,7 +322,7 @@ describe("watch registry", () => {
     r.open("campaign");
     // One fold retired three lanes: one fact, one ring. The drain behind it is
     // the authority on what happened.
-    r.accept([event("a"), event("b"), event("c")]);
+    r.acceptSettle([event("a"), event("b"), event("c")]);
     expect(rings).toBe(1);
     expect(r.drain("campaign").events).toHaveLength(3);
   });
@@ -494,10 +500,15 @@ describe("watch registry — a subscription that named the agent-state knobs", (
     expect(r.drain("plain").events.map((e) => e.kind)).toEqual(["finished"]);
   });
 
-  it("REFUSES a filter it has nothing to feed with, rather than reporting silence", () => {
+  it("never invents a feed — a filtered open reaches the state watch it was BUILT with", () => {
+    // `subscribeStates` is a required dependency now, so "a subscription with a
+    // filter and nothing to feed it" is unbuildable rather than a runtime
+    // surprise an hour into a daemon's life. What is left to pin is that the
+    // registry does not quietly skip the attachment: a queue-only harness hears
+    // from its own stub.
     const r = registry();
     expect(() => r.open("supervise", { filter })).toThrow(
-      /no state watch to feed it/,
+      /built without a state watch/,
     );
   });
 });

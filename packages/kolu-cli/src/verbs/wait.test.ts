@@ -34,7 +34,7 @@ const refusal = (raw: string): string => {
   const parsed = planUntil(raw);
   if (parsed.kind !== "error")
     throw new Error(
-      `expected --until ${JSON.stringify(raw)} to be refused; it parsed as ${parsed.plan.condition.kind}`,
+      `expected --until ${JSON.stringify(raw)} to be refused; it parsed as ${parsed.value.condition.kind}`,
     );
   return parsed.message;
 };
@@ -46,7 +46,7 @@ const planOf = (raw: string) => {
     throw new Error(
       `expected --until ${JSON.stringify(raw)} to parse; it was refused: ${parsed.message}`,
     );
-  return parsed.plan;
+  return parsed.value;
 };
 
 describe("--until, the three forms", () => {

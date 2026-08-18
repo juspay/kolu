@@ -142,18 +142,21 @@ interface Announced {
   /** The episode it was told about — a re-entry into the same state mints a new
    *  `since`, which is what makes it a fresh transition rather than a nag. */
   since: number;
-  /** When the next nag is due, or `undefined` when this subscription nags not. */
-  nextNagAt?: number;
+  /** WHEN it was last told. The terminal owns when it was reported; whether (and
+   *  how often) this subscription nags is the spec's `nagMs`, asked of the spec
+   *  at both readers — rather than a per-terminal optional that has to stay in
+   *  step with it. */
+  toldAt: number;
 }
 
 interface Sub {
   readonly spec: StateWatchSpec;
   readonly emit: (batch: StateWatchBatch) => void;
   readonly announced: Map<TerminalId, Announced>;
-  /** This subscription is still owed its SNAPSHOT — it arrived before the hub
-   *  had looked at a single terminal, so its first batch waits for the first
-   *  real observation. */
-  owedSnapshot: boolean;
+  /** Has this subscription had its FIRST batch — the snapshot — yet? Read and
+   *  set by {@link due} itself, so "is this the arriving frame" is one fact in
+   *  one place rather than a field on one path and an argument on the other. */
+  snapshotDelivered: boolean;
 }
 
 /** A scheduled one-shot, injectable so tests drive the clock instead of waiting
@@ -210,12 +213,14 @@ export function createStateWatchHub(opts: {
 
   /** Everything due for one subscription at `at`, and the announcement
    *  bookkeeping that goes with it. The ONE decision procedure: the snapshot at
-   *  subscribe time is this function with `arriving` set, and every later frame
-   *  is this function without it — so a snapshot and a transition can never
-   *  disagree about what "matching" means. */
-  const due = (sub: Sub, at: number, arriving: boolean): PadiStateEvent[] => {
+   *  subscribe time is this function on a subscription that has had no batch
+   *  yet, and every later frame is this function on one that has — so a snapshot
+   *  and a transition can never disagree about what "matching" means. */
+  const due = (sub: Sub, at: number): PadiStateEvent[] => {
     const batch: PadiStateEvent[] = [];
     const { heldForMs, nagMs } = sub.spec;
+    const arriving = !sub.snapshotDelivered;
+    sub.snapshotDelivered = true;
     for (const [id, level] of levels) {
       const state = matched(sub, id, level);
       if (state === undefined) {
@@ -227,7 +232,7 @@ export function createStateWatchHub(opts: {
       if (at - level.since < heldForMs) continue;
       const known = sub.announced.get(id);
       const fresh = known === undefined || known.since !== level.since;
-      if (!fresh && (nagMs === undefined || at < (known.nextNagAt ?? 0))) {
+      if (!fresh && (nagMs === undefined || at < known.toldAt + nagMs)) {
         continue;
       }
       batch.push({
@@ -243,10 +248,7 @@ export function createStateWatchHub(opts: {
         at,
         ...edges.edgeOf(id),
       });
-      sub.announced.set(id, {
-        since: level.since,
-        ...(nagMs === undefined ? {} : { nextNagAt: at + nagMs }),
-      });
+      sub.announced.set(id, { since: level.since, toldAt: at });
     }
     // Announcements for terminals that no longer exist at all.
     for (const id of sub.announced.keys()) {
@@ -266,8 +268,8 @@ export function createStateWatchHub(opts: {
       const known = sub.announced.get(id);
       if (known === undefined || known.since !== level.since) {
         consider(level.since + sub.spec.heldForMs);
-      } else if (known.nextNagAt !== undefined) {
-        consider(known.nextNagAt);
+      } else if (sub.spec.nagMs !== undefined) {
+        consider(known.toldAt + sub.spec.nagMs);
       }
     }
     return earliest;
@@ -310,14 +312,13 @@ export function createStateWatchHub(opts: {
     // the same instant — the same rule `settleEvents` applies per fold.
     const at = now();
     for (const sub of subs) {
-      // A subscription that opened before the hub had looked is owed its
-      // SNAPSHOT, not a transition — it was never there for an edge, and the
-      // batch is delivered even when empty because it is that subscription's
-      // first frame.
-      const arriving = sub.owedSnapshot;
-      const batch = due(sub, at, arriving);
-      if (arriving) sub.owedSnapshot = false;
-      if (batch.length === 0 && !arriving) continue;
+      // A subscription that opened before the hub had looked has had no batch
+      // yet, so this one is its SNAPSHOT, not a transition — it was never there
+      // for an edge, and the batch is delivered even when empty because it is
+      // that subscription's first frame.
+      const wasFirst = !sub.snapshotDelivered;
+      const batch = due(sub, at);
+      if (batch.length === 0 && !wasFirst) continue;
       deliver(sub, batch);
     }
     armTimer();
@@ -360,7 +361,7 @@ export function createStateWatchHub(opts: {
         spec,
         emit,
         announced: new Map(),
-        owedSnapshot: !hasObserved,
+        snapshotDelivered: false,
       };
       subs.add(sub);
       // The SNAPSHOT — emitted synchronously so it is the caller's first frame,
@@ -374,7 +375,7 @@ export function createStateWatchHub(opts: {
       // a hub that has seen no fleet, which is the one answer this whole feature
       // exists to stop giving. It waits for the first real observation instead,
       // and gets a snapshot of what is actually there.
-      if (!sub.owedSnapshot) deliver(sub, due(sub, now(), true));
+      if (hasObserved) deliver(sub, due(sub, now()));
       armTimer();
       return () => {
         if (!subs.delete(sub)) return;

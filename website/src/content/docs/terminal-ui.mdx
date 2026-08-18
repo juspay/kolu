@@ -89,7 +89,7 @@ it work or kills it.
 | flag | what it does |
 | --- | --- |
 | `--states` | which agent states to report — any of `working`, `awaiting`, `waiting`, comma-separated. `awaiting` is an agent blocked on you; `waiting` is one whose turn ended |
-| `--held-for` | report a state only once it has *held* that long — `60s`, `5m`, `2h`, `500ms`. An agent handed more work inside the window is never reported at all |
+| `--held-for` | report a state only once it has *held* that long — `500ms`, `60s`, `5m`, `2h`, `1d`. An agent handed more work inside the window is never reported at all |
 | `--nag` | re-report every interval it keeps holding, so a line you ignored comes back instead of vanishing |
 
 Each line says why you are being told: **snapshot** (already in that state when
@@ -112,7 +112,9 @@ still works, as a debugging tail.)
 
 `--json` gives the same feed as NDJSON, filtered the same way before it leaves
 kolu, so a script consumes it with `jq` and nothing has to re-implement the
-timing. The same three knobs are [MCP tool parameters](/mcp) for a coding agent
+timing. Every line carries a `kind` — `snapshot`/`transition`/`nag` here, and
+`terminal`/`removed`/`activity` on the plain change tail — so one `jq` switch
+reads either feed. The same three knobs are [MCP tool parameters](/mcp) for a coding agent
 supervising a fleet.
 
 ### `create` makes you say where the terminal goes

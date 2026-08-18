@@ -21,6 +21,18 @@ import { Data, Effect, type Sink, Stream } from "effect";
 import * as NodeSink from "@effect/platform-node/NodeSink";
 import { type CliFailure, errorMessage, failure } from "../exit.ts";
 
+/** A PURE argv parse: the value it decoded, or the sentence that says why it
+ *  was refused.
+ *
+ *  One declaration for every verb that decides something BEFORE it dials —
+ *  `kolu wait`'s `--until`, `kolu watch`'s `--states`/`--held-for`/`--nag`. The
+ *  shape is the whole point (a rejection is a VALUE here, not a throw, so the
+ *  refusal happens before a `--host` has ssh-provisioned a cold box), and one
+ *  concept spelled twice in sibling verbs is the copy that drifts. */
+export type Parsed<T> =
+  | { readonly kind: "ok"; readonly value: T }
+  | { readonly kind: "error"; readonly message: string };
+
 /** Widen a user-typed id-or-prefix to the one full id it names, or fail with the
  *  sentence that says which kind of "no" this was.
  *

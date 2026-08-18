@@ -120,6 +120,7 @@ import { type Endpoint, withPadi } from "../endpoint.ts";
 import { type CliFailure, errorMessage, failure } from "../exit.ts";
 import {
   isConsumerHangup,
+  type Parsed,
   resolveTerminal,
   type StdoutWriteFailed,
   stdoutLost,
@@ -174,24 +175,25 @@ const pumpToStdout = (
  *  `--held-for 60` is sixty milliseconds to a machine and a minute to whoever
  *  typed it, and silently choosing either would make the whole feature quietly
  *  wrong for half its users. */
-const DURATION = /^(\d+)(ms|s|m|h)$/;
+const DURATION = /^(\d+)(ms|s|m|h|d)$/;
 const UNIT_MS: Record<string, number> = {
   ms: 1,
   s: 1000,
   m: 60_000,
   h: 3_600_000,
+  // `d`, because `relativeTime` — the fold this feed's hold column is RENDERED
+  // with — emits `2d`. A grammar you can read out of the output and not type
+  // back in is half a grammar, and the ceiling is ~24.8 days, so `1d`–`24d` are
+  // all values the feed can print.
+  d: 86_400_000,
 };
-
-type Parsed<T> =
-  | { readonly kind: "ok"; readonly value: T }
-  | { readonly kind: "error"; readonly message: string };
 
 function parseDuration(flag: string, raw: string): Parsed<number> {
   const m = DURATION.exec(raw.trim());
   if (m === null) {
     return {
       kind: "error",
-      message: `--${flag} ${JSON.stringify(raw)} is not a duration. Write the unit: 500ms, 60s, 5m, 2h. A bare number is refused on purpose — 60 reads as a minute to you and as 60ms to the timer.`,
+      message: `--${flag} ${JSON.stringify(raw)} is not a duration. Write the unit: 500ms, 60s, 5m, 2h, 1d. A bare number is refused on purpose — 60 reads as a minute to you and as 60ms to the timer.`,
     };
   }
   const ms = Number(m[1]) * (UNIT_MS[m[2] as string] as number);

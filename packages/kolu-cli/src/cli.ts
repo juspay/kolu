@@ -40,6 +40,15 @@
  * loads either, and a reserved face fails fast having loaded nothing.
  */
 
+// The bucket vocabulary and the supervision default, read from the LEAF that
+// owns them — the same reason `DEBRIEF_*` below is imported rather than
+// re-typed: a `--help` line that hand-copies a constant is a sentence nothing
+// stops from going quietly false. (`@kolu/terminal-vocab/agentProjection` is a
+// pure fold module, so this costs the dynamic-import fence nothing.)
+import {
+  WAIT_STATES,
+  WATCH_DEFAULT_STATES,
+} from "@kolu/terminal-vocab/agentProjection";
 import { isValidTimerMs, MAX_TIMER_MS } from "@kolu/surface/wait";
 import { Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
@@ -422,7 +431,7 @@ export const waitFlags = {
   ),
   until: Flag.string("until").pipe(
     Flag.withDescription(
-      "idle:<ms> · match:<regex> · agent buckets (working, awaiting, waiting — comma-separated means any-of)",
+      `idle:<ms> · match:<regex> · agent buckets (${WAIT_STATES.join(", ")} — comma-separated means any-of)`,
     ),
   ),
   // The shared timer-range rule, on the flag: `runWait` THROWS a RangeError on
@@ -625,14 +634,14 @@ export const watchFlags = {
   states: opt(
     Flag.string("states").pipe(
       Flag.withDescription(
-        "supervise instead of tailing: report agent-state transitions for these buckets (comma-separated any-of: working, awaiting, waiting). Defaults to awaiting,waiting when only --held-for/--nag is given",
+        `supervise instead of tailing: report agent-state transitions for these buckets (comma-separated any-of: ${WAIT_STATES.join(", ")}). Defaults to ${WATCH_DEFAULT_STATES.join(",")} when only --held-for/--nag is given`,
       ),
     ),
   ),
   heldFor: opt(
     Flag.string("held-for").pipe(
       Flag.withDescription(
-        "report a state only once it has HELD this long — 60s, 5m, 2h, 500ms (the unit is required)",
+        "report a state only once it has HELD this long — 500ms, 60s, 5m, 2h, 1d (the unit is required)",
       ),
     ),
   ),
