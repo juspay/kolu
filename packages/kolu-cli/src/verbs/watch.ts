@@ -200,7 +200,9 @@ function parseDuration(flag: string, raw: string): Parsed<number> {
   if (ms !== 0 && !isValidTimerMs(ms)) {
     return {
       kind: "error",
-      message: `--${flag} ${JSON.stringify(raw)} is ${ms}ms, past the ${MAX_TIMER_MS}ms (~24.8 day) timer ceiling — a larger value overflows the timer and fires immediately, forever.`,
+      // The same fact `timerMsFlag` states for the integer flags, in the same
+      // words — one ceiling, one sentence, however it was spelled on the way in.
+      message: `--${flag} ${JSON.stringify(raw)} is ${ms}ms; it must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger value overflows the timer and fires immediately, forever.`,
     };
   }
   return { kind: "ok", value: ms };

@@ -49,7 +49,7 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { attentionFrameOf } from "../activity/urgency.ts";
 import type { PadiSettleEvent, PadiTerminal, PadiUrgency } from "../surface.ts";
-import { createEventSeq, type EventSeq } from "./eventSeq.ts";
+import type { EventSeq } from "./eventSeq.ts";
 import {
   edgeMatches,
   edgeOf,
@@ -104,18 +104,19 @@ export interface SettleEventFeed extends SettleEventSource {
 /** Build the settle-event source. `now` is injectable so tests stamp
  *  deterministically; production passes `Date.now`.
  *
- *  `seq` is the DAEMON's counter, not this source's: the agent-state watch mints
- *  events into the same standing-subscription queues, and a subscription's
- *  acknowledgement watermark has to mean one thing whichever source filled it.
- *  It defaults to a private counter so a test can build this source alone. */
+ *  `seq` is the DAEMON's counter, not this source's, and it is REQUIRED for the
+ *  reason `eventSeq.ts` exists: the agent-state watch mints events into the same
+ *  standing-subscription queues, and a subscription's acknowledgement watermark
+ *  has to mean one thing whichever source filled it. A private-counter default
+ *  would put the hazard back one `??` at a time — silently, and permanently, on
+ *  the one caller that forgot. */
 export function createSettleEvents(opts: {
   log: Logger;
   now?: () => number;
-  seq?: EventSeq;
+  seq: EventSeq;
 }): SettleEventFeed {
-  const { log } = opts;
+  const { log, seq } = opts;
   const now = opts.now ?? Date.now;
-  const seq = opts.seq ?? createEventSeq();
   const listeners = new Set<SettleFrameListener>();
   // The attention TRANSITION plus the previous frame it diffs against — the
   // shared vocabulary's stateful form, so the "copy the arrays or nothing ever

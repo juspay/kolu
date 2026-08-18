@@ -245,6 +245,17 @@ the **state**, not the screen. The same three knobs are
 [`kolu watch`'s flags](/terminal-ui) from a shell — one implementation, two
 faces.
 
+Two things to know before adopting them. A subscription answers **one** of the
+two questions, never both: one opened with these parameters reports states, so it
+does **not** report `gone` when a terminal disappears. That is not an oversight —
+this feed is a level, so a terminal that goes away simply stops being reported,
+and nothing is left waiting on it. An agent that specifically needs to hear about
+a terminal *dying* keeps a second subscription without the parameters, or reads
+the `terminals` live view. And reopening a name with **different** parameters
+starts its queue over: the events it held are answers to the question you just
+stopped asking, and the fresh snapshot is what replaces them. Reopening with the
+*same* parameters — the ordinary restart — keeps the queue, as it always has.
+
 A batch is handed over until your agent confirms it received it, so a reply lost
 to a timeout costs a repeat rather than a missed report. A queue holds the most
 recent 512 events; if your agent stays away long enough to overflow one, the next

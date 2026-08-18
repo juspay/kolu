@@ -334,18 +334,30 @@ async function idleAgentWorld(): Promise<{ socketPath: string }> {
   return { socketPath: p.socketPath };
 }
 
+/** Poll until `read` answers. A read that THROWS is a retry — a padi that is
+ *  still adopting answers a lot of these — but the last such error rides the
+ *  timeout, because "${failure} after 30s" with the real cause swallowed is the
+ *  collapse-to-empty this repo treats as a defect: the sentence that would have
+ *  named the problem is exactly the one thrown away. */
 async function poll<T>(
   read: () => Promise<T | undefined>,
   failure: string,
   ms = 30000,
 ): Promise<T> {
   const deadline = Date.now() + ms;
+  let last: unknown;
   while (Date.now() < deadline) {
-    const value = await read().catch(() => undefined);
-    if (value !== undefined) return value;
+    try {
+      const value = await read();
+      if (value !== undefined) return value;
+    } catch (err) {
+      last = err;
+    }
     await sleep(250);
   }
-  throw new Error(`${failure} (after ${ms}ms)`);
+  throw new Error(
+    `${failure} (after ${ms}ms)${last === undefined ? "" : `; last read failed: ${String(last)}`}`,
+  );
 }
 
 interface WatchEvent {

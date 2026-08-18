@@ -15,6 +15,7 @@ import type {
 import { describe, expect, it } from "vitest";
 import type { PadiTerminal, PadiUrgency } from "../surface.ts";
 import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
+import { createEventSeq } from "./eventSeq.ts";
 import { createSettleEvents, type SettleEvent } from "./settleEvents.ts";
 
 const silentLogger = pino({ level: "silent" });
@@ -102,6 +103,7 @@ function collector() {
   const source = createSettleEvents({
     log: silentLogger,
     now: () => (clock += 1),
+    seq: createEventSeq(),
   });
   source.onFrame((batch) => {
     frames.push(batch);
@@ -357,7 +359,11 @@ describe("createSettleEvents", () => {
   });
 
   it("a listener that throws does not starve the other listeners of the same frame", async () => {
-    const source = createSettleEvents({ log: silentLogger, now: () => 1 });
+    const source = createSettleEvents({
+      log: silentLogger,
+      now: () => 1,
+      seq: createEventSeq(),
+    });
     const seen: string[] = [];
     source.onFrame(() => {
       throw new Error("first sink is broken");

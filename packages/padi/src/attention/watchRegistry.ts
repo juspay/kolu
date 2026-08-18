@@ -59,6 +59,21 @@ import type {
 /** What a queue holds — either source's events, one `kind` vocabulary. */
 export type WatchEvent = PadiWatchEvent;
 
+/** Do two filters ask the SAME question? The identity a retained queue depends
+ *  on: a buffer holds ANSWERS, and an answer to a question nobody is asking any
+ *  more is not something to preserve. Absent-vs-absent is the same question —
+ *  both mean the settle detector. */
+function sameFilter(
+  a: StateWatchFilter | undefined,
+  b: StateWatchFilter | undefined,
+): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.heldForMs !== b.heldForMs || a.nagMs !== b.nagMs) return false;
+  if (a.states.size !== b.states.size) return false;
+  for (const s of a.states) if (!b.states.has(s)) return false;
+  return true;
+}
+
 /** How many events one subscription retains before dropping its oldest. Sized
  *  for a supervisor that went away for a long time, not for a firehose: settle
  *  events are one-per-episode-per-terminal, so a workspace of 20 agents would have
@@ -313,13 +328,31 @@ export function createWatchRegistry(opts: {
         // The FILTER is rebuilt from the incoming claim on the same terms, and
         // the old state-watch attachment is dropped before the new one is made —
         // a subscription fed by two engines would double-count every nag.
+        //
+        // A CHANGED filter EMPTIES the queue — the scope rule above, applied to
+        // the other half of the question. A buffer holds ANSWERS: events the old
+        // filter selected, in the old filter's vocabulary. Carrying them across
+        // would hand a caller that has just declared itself an agent-state watch
+        // a queue of `asking`/`finished`/`gone` — two vocabularies in one queue,
+        // which this module promises never to do — or nags for a state it no
+        // longer asks about. Nothing goes quiet: the new attachment's first act
+        // is a SNAPSHOT of everything currently matching, which is the standing
+        // truth those discarded answers were an aging approximation of.
         existing.detach?.();
+        const requestioned = !sameFilter(existing.filter, filter);
+        if (requestioned) {
+          log.info(
+            { name, hadFilter: existing.filter !== undefined },
+            "watch subscription re-opened with a different question — its queue is replaced by the new filter's snapshot",
+          );
+        }
         const next: WatchSubscription = {
           name: existing.name,
           ...(scope === undefined ? {} : { ids: scope }),
           ...(filter === undefined ? {} : { filter }),
-          buffer:
-            scope === undefined
+          buffer: requestioned
+            ? []
+            : scope === undefined
               ? existing.buffer
               : existing.buffer.filter((e) => scope.has(e.id)),
           acknowledged: existing.acknowledged,

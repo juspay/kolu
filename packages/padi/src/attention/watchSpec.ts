@@ -20,8 +20,9 @@ import type { PadiWatchStatesInput } from "../surface.ts";
 import type { StateWatchFilter, StateWatchSpec } from "./stateWatch.ts";
 
 /** The three knobs as either face's schema decodes them. Structural, so both
- *  wire inputs satisfy it without an adapter object per call. */
-export interface WatchKnobs {
+ *  wire inputs satisfy it without an adapter object per call — and unexported,
+ *  because that structural fit is exactly why no caller ever needs to name it. */
+interface WatchKnobs {
   readonly states?: readonly WaitState[];
   readonly heldForMs?: number;
   readonly nagMs?: number;

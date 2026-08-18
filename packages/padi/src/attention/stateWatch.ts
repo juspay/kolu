@@ -125,6 +125,10 @@ interface Sub {
   readonly spec: StateWatchSpec;
   readonly emit: (batch: StateWatchBatch) => void;
   readonly announced: Map<TerminalId, Announced>;
+  /** This subscription is still owed its SNAPSHOT — it arrived before the hub
+   *  had looked at a single terminal, so its first batch waits for the first
+   *  real observation. */
+  owedSnapshot: boolean;
 }
 
 /** A scheduled one-shot, injectable so tests drive the clock instead of waiting
@@ -279,8 +283,14 @@ export function createStateWatchHub(opts: {
     // the same instant — the same rule `settleEvents` applies per fold.
     const at = now();
     for (const sub of subs) {
-      const batch = due(sub, at, false);
-      if (batch.length === 0) continue;
+      // A subscription that opened before the hub had looked is owed its
+      // SNAPSHOT, not a transition — it was never there for an edge, and the
+      // batch is delivered even when empty because it is that subscription's
+      // first frame.
+      const arriving = sub.owedSnapshot;
+      const batch = due(sub, at, arriving);
+      if (arriving) sub.owedSnapshot = false;
+      if (batch.length === 0 && !arriving) continue;
       deliver(sub, batch);
     }
     armTimer();
@@ -325,13 +335,25 @@ export function createStateWatchHub(opts: {
     },
 
     subscribe(spec, emit) {
-      const sub: Sub = { spec, emit, announced: new Map() };
+      const sub: Sub = {
+        spec,
+        emit,
+        announced: new Map(),
+        owedSnapshot: !observed,
+      };
       subs.add(sub);
       // The SNAPSHOT — emitted synchronously so it is the caller's first frame,
-      // and emitted even when empty: "nothing is neglected" is an answer, and a
-      // stream whose first frame is a later transition would have no snapshot
-      // boundary at all.
-      deliver(sub, due(sub, now(), true));
+      // and emitted even when EMPTY: "nothing is neglected right now" is an
+      // answer, and a stream whose first frame were a later transition would
+      // have no snapshot boundary at all.
+      //
+      // Unless the hub has never LOOKED. A subscription opened in padi's boot
+      // window — after `servePadi` builds the graph, before the endpoint has
+      // adopted kaval's terminals — would otherwise be told the fleet is calm by
+      // a hub that has seen no fleet, which is the one answer this whole feature
+      // exists to stop giving. It waits for the first real observation instead,
+      // and gets a snapshot of what is actually there.
+      if (!sub.owedSnapshot) deliver(sub, due(sub, now(), true));
       armTimer();
       return () => {
         if (!subs.delete(sub)) return;

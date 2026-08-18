@@ -164,6 +164,8 @@ describe("createStateWatchHub", () => {
 
   it("does not deliver on the DERIVATION's stack — observe returns before any subscriber runs", async () => {
     const h = harness();
+    h.hub.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    await settled();
     const { batches } = collect(h.hub);
     batches.length = 0;
     h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
@@ -369,6 +371,32 @@ describe("createStateWatchHub", () => {
     h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     expect(h.armedAt()).toBe(h.now() + 30_000);
+  });
+
+  it("WAITS for the first observation before answering 'nothing is neglected'", async () => {
+    const h = harness();
+    // Opened in padi's boot window: the graph is built, the endpoint has not
+    // adopted kaval's terminals yet. An empty snapshot here would be a hub that
+    // has seen no fleet telling its owner the fleet is calm.
+    const { batches } = collect(h.hub);
+    expect(batches).toEqual([]);
+
+    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    // …and when it has looked, the first frame is still a SNAPSHOT — that
+    // subscription was never there for the edge.
+    expect(batches.flat().map((e) => [e.kind, e.id])).toEqual([
+      ["snapshot", "a"],
+    ]);
+  });
+
+  it("answers a boot-window subscription with an EMPTY snapshot once it has looked", async () => {
+    const h = harness();
+    const { batches } = collect(h.hub);
+    h.hub.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    await settled();
+    // Still the snapshot boundary a stream consumer needs — just an honest one.
+    expect(batches).toEqual([[]]);
   });
 
   it("the serve-time EMPTY frame is not an observation", async () => {

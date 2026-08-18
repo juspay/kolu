@@ -2,91 +2,48 @@
  * The agent-state watch as a `Stream` — the `watchStates` member's backing.
  *
  * The hub is push-shaped (it calls a subscriber when something comes due) and a
- * surface stream is pull-shaped, so this is the one adapter between them. Same
- * bridge every other padi producer uses (`streamFromAbortableSource`), for the
- * same reason: interrupting the consuming fiber must unsubscribe, and fiber
- * interruption is the only cancellation there is (D10/#18).
+ * surface stream is pull-shaped, so this is the one adapter between them. It is
+ * `Stream.callback` and nothing else: effect's own bridge already IS a queue
+ * that buffers what a slow consumer has not pulled yet (an unbounded one, so a
+ * nag is never dropped on the floor), and a scoped `acquireRelease` whose
+ * finalizer runs when the consuming fiber is interrupted — which is the whole of
+ * "fiber interruption is the unsubscribe" (D10/#18), with no signal to thread
+ * and no generator to resume.
+ *
+ * The sibling bridge, `streamFromAbortableSource`, is for an ABORTSIGNAL-shaped
+ * producer (a PTY tap, an fs watcher). This producer hands back an
+ * `unsubscribe`, so it is already scope-shaped and reaching for the signal
+ * bridge only bought a hand-rolled queue-and-wake in front of the same idea.
  *
  * Snapshot-then-deltas comes free and is not incidental — `hub.subscribe` emits
  * the currently-matching set synchronously, so it is this stream's FIRST frame,
  * which is exactly what the framework's retry fence needs: a transparently
  * re-subscribed stream re-leads with a fresh snapshot instead of resuming
  * mid-history.
- *
- * **The unsubscribe hangs off the SIGNAL, not off the generator's `finally`.**
- * A `finally` only runs if the generator is resumed, and the framework's
- * producer bridge never calls `return()` on it — so a consumer that stops
- * pulling while a frame is yielded (a `kolu watch | head -1`, a killed pipe)
- * would leave this subscription registered and its nag timer armed for the life
- * of the daemon. Releasing on the abort makes teardown a fact of the scope
- * closing rather than of the consumer being polite.
  */
 
-import { streamFromAbortableSource } from "@kolu/surface/server";
-import type { Stream } from "effect";
+import { Effect, Queue, Stream } from "effect";
 import type { Logger } from "pino";
 import type { PadiStateEvent } from "../surface.ts";
-import type {
-  StateWatchBatch,
-  StateWatchHub,
-  StateWatchSpec,
-} from "./stateWatch.ts";
+import type { StateWatchHub, StateWatchSpec } from "./stateWatch.ts";
 
 export function stateWatchSource(
   hub: StateWatchHub,
   spec: StateWatchSpec,
   log: Logger,
 ): Stream.Stream<readonly PadiStateEvent[]> {
-  return streamFromAbortableSource<readonly PadiStateEvent[]>((signal) =>
-    (async function* frames(): AsyncGenerator<readonly PadiStateEvent[]> {
-      // Batches the hub has handed over but the consumer has not pulled yet. The
-      // hub emits on a timer and on the terminals cadence; a consumer reading a
-      // slow pipe must not lose a nag because it was mid-write, so the frames
-      // queue rather than being dropped.
-      const pending: StateWatchBatch[] = [];
-      let wake: (() => void) | undefined;
-      const nudge = (): void => {
-        const w = wake;
-        wake = undefined;
-        w?.();
-      };
-      const unsubscribe = hub.subscribe(spec, (batch) => {
-        pending.push(batch);
-        nudge();
-      });
-      let released = false;
-      const release = (): void => {
-        if (released) return;
-        released = true;
-        unsubscribe();
-        nudge();
-        log.debug("padi: watchStates subscription ended");
-      };
-      if (signal.aborted) release();
-      else signal.addEventListener("abort", release, { once: true });
-      try {
-        while (!released) {
-          while (pending.length > 0) {
-            const batch = pending.shift();
-            // `pending.length > 0` guarantees this, but the compiler does not
-            // know it; an early return here would silently end a live feed.
-            if (batch === undefined) break;
-            yield batch;
-          }
-          if (released) return;
-          await new Promise<void>((resolve) => {
-            wake = resolve;
-            // The release may have landed between the drain above and this
-            // registration, in which case nothing will nudge us again.
-            if (released) nudge();
-          });
-        }
-      } finally {
-        // Belt as well as braces: a generator that IS resumed to completion
-        // releases here too, and `release` is idempotent.
-        signal.removeEventListener("abort", release);
-        release();
-      }
-    })(),
+  return Stream.callback<readonly PadiStateEvent[]>((queue) =>
+    Effect.acquireRelease(
+      Effect.sync(() =>
+        hub.subscribe(spec, (batch) => {
+          Queue.offerUnsafe(queue, batch);
+        }),
+      ),
+      (unsubscribe) =>
+        Effect.sync(() => {
+          unsubscribe();
+          log.debug("padi: watchStates subscription ended");
+        }),
+    ),
   );
 }

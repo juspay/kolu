@@ -426,6 +426,45 @@ describe("watch registry — a subscription that named the agent-state knobs", (
     ).toHaveLength(1);
   });
 
+  it("a re-open that CHANGES the question replaces the queue rather than mixing two vocabularies", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    // It was a settle subscription, and it has settle events queued.
+    r.open("campaign");
+    acceptOne(r, "a");
+    // Now the supervisor adopts the state knobs. Handing it back its old
+    // `finished` events would put two vocabularies in one queue for a caller
+    // that has just named only one of them.
+    r.open("campaign", { filter });
+    expect(r.drain("campaign").events.map((e) => e.kind)).toEqual(["snapshot"]);
+  });
+
+  it("a re-open that RESTATES the same question keeps the queue", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    r.open("campaign", { filter });
+    watch.push("a", "nag");
+    // The ordinary restart path: same name, same knobs. The whole reason this is
+    // keyed by a caller-chosen name is that the queue survives it.
+    r.open("campaign", { filter: { ...filter, states: new Set(["waiting"]) } });
+    expect(r.drain("campaign").events.map((e) => e.kind)).toEqual([
+      "snapshot",
+      "nag",
+      "snapshot",
+    ]);
+  });
+
+  it("a re-open that NARROWS the states drops the answers to the wider question", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    r.open("campaign", {
+      filter: { ...filter, states: new Set(["waiting", "awaiting"]) },
+    });
+    watch.push("a", "nag");
+    r.open("campaign", { filter });
+    expect(r.drain("campaign").events.map((e) => e.kind)).toEqual(["snapshot"]);
+  });
+
   it("CLOSING detaches it — a closed subscription cannot still be nagging", () => {
     const watch = fakeStateWatch();
     const r = registry({ subscribeStates: watch.subscribeStates });

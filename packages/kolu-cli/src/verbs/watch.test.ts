@@ -44,7 +44,7 @@ describe("planSupervision", () => {
   it("refuses a duration past the timer ceiling instead of overflowing into an instant repeat", () => {
     const plan = planSupervision(args({ nag: "99999h" }));
     expect(plan.kind).toBe("error");
-    expect(plan.kind === "error" && plan.message).toMatch(/timer ceiling/);
+    expect(plan.kind === "error" && plan.message).toMatch(/~24\.8 days/);
   });
 
   it("refuses `--nag 0` — an interval of zero is a spin, not a fast nag", () => {
