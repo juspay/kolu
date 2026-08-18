@@ -12,7 +12,7 @@
  * `resolveSessions` returns nothing until claude writes its session file,
  * which is exactly what the SESSIONS_DIR watcher fires on — so we need
  * a cheaper "might be running here" signal to authorize the watcher
- * install. `matchesAgent(state, AGENT_COMMAND)` covers the OSC 633;E preexec
+ * install. `matchesAgent(state, "claude")` covers the OSC 633;E preexec
  * hint and the kernel foreground basename; the directory check covers
  * the PID-match path where a session file can appear with no preexec
  * signal because claude is invoked via a shim (npx, wrapper) or via
@@ -37,14 +37,8 @@ import {
 } from "./screen.ts";
 import { createSessionWatcher } from "./session-watcher.ts";
 
-/** The executable name this agent runs as — see `AgentAdapter.commandName`.
- *  Declared once here and used for BOTH the adapter's advertised identity and
- *  its own `matchesAgent` checks, so the two cannot drift. */
-const AGENT_COMMAND = "claude";
-
 export const claudeCodeAdapter: AgentAdapter<SessionFile, ClaudeCodeInfo> = {
   kind: "claude-code",
-  commandName: AGENT_COMMAND,
 
   // Pid-anchored, so the match is exclusive BY CONSTRUCTION: two terminals
   // cannot share a foreground pid. At most one candidate, and the
@@ -79,7 +73,7 @@ export const claudeCodeAdapter: AgentAdapter<SessionFile, ClaudeCodeInfo> = {
 
   externalChanges: {
     isPresent(state) {
-      return matchesAgent(state, AGENT_COMMAND) || fs.existsSync(SESSIONS_DIR);
+      return matchesAgent(state, "claude") || fs.existsSync(SESSIONS_DIR);
     },
     install(onChange, onError, log) {
       subscribeSessionsDir(onChange, onError, log);

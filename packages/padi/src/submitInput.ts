@@ -64,12 +64,12 @@
  * window alone — the honest answer for a program with no turn to speak of.
  */
 
+import { parseAgentCommand } from "anyagent";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { NAMED_KEY_BYTES } from "@kolu/terminal-protocol";
 import type { Logger } from "pino";
 import { abortableDelay } from "./abortableDelay.ts";
-import { isKnownAgentCommand } from "./agentAdapters.ts";
 import {
   createActivityTracker,
   type ActivityTracker,
@@ -138,6 +138,31 @@ export interface PromptObservation {
  *  {@link isPromptIdle} for why the session half alone is unsatisfiable. */
 export type ReadinessProof = "quiet" | "agent";
 
+/** Is this pty's foreground process a known agent BINARY?
+ *
+ *  Delegates to `anyagent`'s `parseAgentCommand` — the repo's source of truth for
+ *  "does this command line name an agent", whose own doc says its table's keys
+ *  "double as the set of known agent basenames — no separate KNOWN_AGENTS set to
+ *  keep in sync". An earlier cut of this fix built exactly that second set out of
+ *  the adapters; this is the same question asked of the one place that already
+ *  answers it, and it comes with the detection-only agents (aider, goose, gemini,
+ *  cursor-agent) for free.
+ *
+ *  It takes the raw foreground string rather than a basename because
+ *  `parseAgentCommand` strips the first token's directory itself — and it must,
+ *  since kaval reports whatever node-pty saw: a bare `claude` when the shell
+ *  resolved it off PATH, and a full `/usr/local/bin/claude` when it did not.
+ *
+ *  KNOWN RESIDUAL (darwin): node-pty's process name there is the exec'd PATH
+ *  truncated to 16 characters (measured on the CI box: `/tmp/koluprobe/claude`
+ *  reads back as `/tmp/koluprobe/c`). A deep enough install path therefore
+ *  arrives with the agent's name cut off and is not recognized — the brief is
+ *  REFUSED rather than mis-delivered, which is the safe direction, and the escape
+ *  hatch is the documented one (create without `message`, then submit). */
+function isAgentProcess(foreground: string | undefined): boolean {
+  return foreground !== undefined && parseAgentCommand(foreground) !== null;
+}
+
 /** Is the terminal at an idle prompt — safe to type a message into?
  *
  *  Total over the observation, and deliberately NEGATIVE-biased: every unknown
@@ -198,7 +223,7 @@ export function isPromptIdle(
   // Nothing recognized. `"quiet"` accepts that (a bare shell, a REPL — programs
   // with no turn to speak of); `"agent"` falls back to the identity that exists
   // before a session does, and refuses everything else.
-  return readiness === "quiet" || isKnownAgentCommand(observed.foreground);
+  return readiness === "quiet" || isAgentProcess(observed.foreground);
 }
 
 // ── The live view ────────────────────────────────────────────────────────────

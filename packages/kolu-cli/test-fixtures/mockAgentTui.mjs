@@ -39,6 +39,9 @@
  *                   available before a transcript exists. Unset (the default) the
  *                   fixture is plain `node`, which is not a known agent command,
  *                   so a first message is refused. NOT milliseconds.
+ *                   LINUX ONLY: darwin reports the exec'd path truncated to 16
+ *                   chars instead of the title, so a caller there cannot present
+ *                   an agent name this way (the leg that needs it is skipped).
  *   MOCK_PASTE_CHATTER_MS
  *                 — keep repainting this long AFTER a paste lands, without
  *                   submitting it. This is the state the settle window exists to

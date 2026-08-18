@@ -93,22 +93,6 @@ export interface AgentAdapter<Session, Info extends AgentInfoShape> {
   /** Discriminator matching `Info["kind"]` (e.g. "claude-code", "opencode"). */
   readonly kind: Info["kind"];
 
-  /** The EXECUTABLE name this agent runs as (`"claude"`, `"codex"`, …) — the
-   *  identity that exists BEFORE any session does.
-   *
-   *  Every adapter already knew this string; it lived as a literal inside
-   *  `matchesAgent(state, "claude")` and nothing could read it from outside.
-   *  Declaring it matters because the two identities become available at very
-   *  different times: a session (and therefore `kind`, and therefore an agent
-   *  state) appears only once the agent has written its transcript — for Claude
-   *  Code and grok, only after the FIRST message is submitted. The process name
-   *  is there the moment the shell execs it.
-   *
-   *  Anything deciding "is an agent running here yet" before a conversation
-   *  exists has to key on this, not on `kind` (padi's first-message readiness is
-   *  the caller that found out the hard way — see `submitInput.ts`). */
-  readonly commandName: string;
-
   /** Given a snapshot of terminal state, return every session this terminal
    *  could be running, BEST FIRST — the adapter's own preference order (for a
    *  directory-keyed agent, most recently updated first). Empty when no session

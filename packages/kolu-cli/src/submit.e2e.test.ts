@@ -343,51 +343,66 @@ describeDaemon("the one-call submit against a real padi", () => {
     expect(submittedCount(after, brief)).toBe(1);
   }, 180_000);
 
-  it("create + message briefs a fresh AGENT in ONE call — the whole point of the feature", async () => {
-    // ── The leg whose absence let a broken build ship ─────────────────────
-    //
-    // This existed once, passed for the wrong reason (the fixture is never
-    // RECOGNIZED, and the readiness rule of the day accepted quiet), and was
-    // then rewritten into the refusal proof below when that hole was closed.
-    // Between those two states there was no end-to-end proof that
-    // spawn-and-brief works AT ALL — and the next build shipped a rule that
-    // refused every real agent for 30 s. Field report #2 found it; this leg is
-    // what should have.
-    //
-    // `MOCK_PROCESS_NAME` is what makes it possible: node-pty reports
-    // `process.title` as the pty's foreground process, so the fixture presents
-    // the SAME pre-session identity a real claude does from the moment the shell
-    // execs it — before any transcript exists, which is exactly the window this
-    // feature runs in.
-    const padi = await harness.startPadi();
-    const mcp = await harness.serveMcpOverPadi(padi.socketPath, "create-brief");
+  // LINUX-ONLY, and the reason is the fixture's, not the product's. kaval reports
+  // whatever node-pty saw as the foreground process: on linux that is the process
+  // title, which a node child can set to `claude`; on darwin it is the exec'd PATH
+  // truncated to 16 characters (measured on the CI box — `/tmp/koluprobe/claude`
+  // reads back as `/tmp/koluprobe/c`), so no fixture path can present a stable
+  // agent name there. A real agent is unaffected: it is a binary actually named
+  // `claude`. The refusal leg below runs on BOTH platforms, so the pair still
+  // cannot both pass for a rule that accepts everything.
+  it.skipIf(process.platform === "darwin")(
+    "create + message briefs a fresh AGENT in ONE call — the whole point of the feature",
+    async () => {
+      // ── The leg whose absence let a broken build ship ─────────────────────
+      //
+      // This existed once, passed for the wrong reason (the fixture is never
+      // RECOGNIZED, and the readiness rule of the day accepted quiet), and was
+      // then rewritten into the refusal proof below when that hole was closed.
+      // Between those two states there was no end-to-end proof that
+      // spawn-and-brief works AT ALL — and the next build shipped a rule that
+      // refused every real agent for 30 s. Field report #2 found it; this leg is
+      // what should have.
+      //
+      // `MOCK_PROCESS_NAME` is what makes it possible: node-pty reports
+      // `process.title` as the pty's foreground process, so the fixture presents
+      // the SAME pre-session identity a real claude does from the moment the shell
+      // execs it — before any transcript exists, which is exactly the window this
+      // feature runs in.
+      const padi = await harness.startPadi();
+      const mcp = await harness.serveMcpOverPadi(
+        padi.socketPath,
+        "create-brief",
+      );
 
-    const created = toolJson(
-      await mcp.callTool({
-        name: "lifecycle_create",
-        arguments: {
-          placement: { kind: "toplevel" },
-          intent: "briefed worker",
-          // A boot silence too, so this is not merely the easy case: the brief
-          // waits out a gap that would have been mis-read as an idle prompt
-          // before any of this, then lands when the agent is actually there.
-          run: runLine({ MOCK_PROCESS_NAME: "claude", MOCK_BOOT_MS: "2500" }),
-          message: "carry out the plan",
-        },
-      }),
-    ) as { id: string; ran: string; briefed: string };
+      const created = toolJson(
+        await mcp.callTool({
+          name: "lifecycle_create",
+          arguments: {
+            placement: { kind: "toplevel" },
+            intent: "briefed worker",
+            // A boot silence too, so this is not merely the easy case: the brief
+            // waits out a gap that would have been mis-read as an idle prompt
+            // before any of this, then lands when the agent is actually there.
+            run: runLine({ MOCK_PROCESS_NAME: "claude", MOCK_BOOT_MS: "2500" }),
+            message: "carry out the plan",
+          },
+        }),
+      ) as { id: string; ran: string; briefed: string };
 
-    expect(created.briefed).toBe("carry out the plan");
+      expect(created.briefed).toBe("carry out the plan");
 
-    // ZERO further calls put the worker to work — the read below is the TEST
-    // checking, not the driver dispatching.
-    const screen = await awaitScreen(
-      mcp,
-      created.id,
-      '<<SUBMITTED:"carry out the plan">>',
-    );
-    expect(submittedCount(screen, "carry out the plan")).toBe(1);
-  }, 180_000);
+      // ZERO further calls put the worker to work — the read below is the TEST
+      // checking, not the driver dispatching.
+      const screen = await awaitScreen(
+        mcp,
+        created.id,
+        '<<SUBMITTED:"carry out the plan">>',
+      );
+      expect(submittedCount(screen, "carry out the plan")).toBe(1);
+    },
+    180_000,
+  );
 
   it("create + message REFUSES a terminal with no recognized agent — it does NOT type into the boot", async () => {
     // ── The 2026-08-18 field loss, as a regression test ───────────────────

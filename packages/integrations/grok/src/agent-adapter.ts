@@ -18,14 +18,8 @@ import {
 import type { GrokInfo } from "./schemas.ts";
 import { createGrokWatcher } from "./session-watcher.ts";
 
-/** The executable name this agent runs as — see `AgentAdapter.commandName`.
- *  Declared once here and used for BOTH the adapter's advertised identity and
- *  its own `matchesAgent` checks, so the two cannot drift. */
-const AGENT_COMMAND = "grok";
-
 export const grokAdapter: AgentAdapter<GrokSession, GrokInfo> = {
   kind: "grok",
-  commandName: AGENT_COMMAND,
 
   // Pid-anchored whenever `active_sessions.json` names the foreground pid, so
   // the usual match is exclusive by construction and yields one candidate. The
@@ -34,7 +28,7 @@ export const grokAdapter: AgentAdapter<GrokSession, GrokInfo> = {
   // arbiter keeps it from landing on a terminal that already has a session
   // (juspay/kolu#2057).
   resolveSessions(state, log) {
-    if (!matchesAgent(state, AGENT_COMMAND)) return [];
+    if (!matchesAgent(state, "grok")) return [];
     return resolveGrokSessions(state.foregroundPid, state.cwd, log);
   },
 
@@ -52,7 +46,7 @@ export const grokAdapter: AgentAdapter<GrokSession, GrokInfo> = {
 
   externalChanges: {
     isPresent(state) {
-      return matchesAgent(state, AGENT_COMMAND) || grokHomePresent();
+      return matchesAgent(state, "grok") || grokHomePresent();
     },
     install(onChange, onError, log) {
       subscribeActiveSessions(onChange, onError, log);

@@ -23,17 +23,11 @@ import type { CodexInfo } from "./schemas.ts";
 import { createCodexWatcher } from "./session-watcher.ts";
 import { subscribeCodexDb } from "./wal-watcher.ts";
 
-/** The executable name this agent runs as — see `AgentAdapter.commandName`.
- *  Declared once here and used for BOTH the adapter's advertised identity and
- *  its own `matchesAgent` checks, so the two cannot drift. */
-const AGENT_COMMAND = "codex";
-
 export const codexAdapter: AgentAdapter<CodexSession, CodexInfo> = {
   kind: "codex",
-  commandName: AGENT_COMMAND,
 
   resolveSessions(state, log) {
-    if (!matchesAgent(state, AGENT_COMMAND)) return [];
+    if (!matchesAgent(state, "codex")) return [];
     return findSessionsByDirectory(state.cwd, log);
   },
 
@@ -51,7 +45,7 @@ export const codexAdapter: AgentAdapter<CodexSession, CodexInfo> = {
 
   externalChanges: {
     isPresent(state) {
-      return matchesAgent(state, AGENT_COMMAND) || fs.existsSync(CODEX_DIR);
+      return matchesAgent(state, "codex") || fs.existsSync(CODEX_DIR);
     },
     install(onChange, onError, log) {
       subscribeCodexDb(onChange, onError, log);
