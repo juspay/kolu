@@ -96,6 +96,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "`runScopedSync` — the kaval suite's one scoped-acquire read, synchronous ON PURPOSE: attach's publish-epoch coalescing is observable only when a burst of attaches shares a tick, so a Promise hop between two of them would erase the thing under test",
   },
   {
+    path: "packages/kolu-cli/src/e2eDaemon.testlib.ts",
+    sites: 1,
+    why: "the e2e daemon harness's readiness probe — poll-dial a REAL padi until its control-core `hello` answers. The loop is Promise+timeout shaped because what it waits on is a process coming up, not a value arriving, and every caller is a vitest `it`/`beforeAll` body: the harness's own Promise boundary, with no Effect caller to compose into. A `.testlib.ts` and not a `.test.ts` for the reason this scan cares about: the alternative is not fewer runs but the SAME probe copied into every e2e file that spawns a daemon — and the copy is the one that drifts, in a module whose whole job is reaping the user's real daemon by exact pid",
+  },
+  {
     path: "packages/kolu-cli/src/main.ts",
     sites: 1,
     why: "the product binary's process edge; `NodeRuntime.runMain` rather than a Promise because kolu-cli's exit-code map is LOCAL — every failure carries its own `Runtime.errorExitCode`, so the default teardown IS the map",
