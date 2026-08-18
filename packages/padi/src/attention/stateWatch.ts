@@ -153,10 +153,14 @@ interface Sub {
   readonly spec: StateWatchSpec;
   readonly emit: (batch: StateWatchBatch) => void;
   readonly announced: Map<TerminalId, Announced>;
-  /** Has this subscription had its FIRST batch — the snapshot — yet? Read and
-   *  set by {@link due} itself, so "is this the arriving frame" is one fact in
-   *  one place rather than a field on one path and an argument on the other. */
+  /** Has this subscription had its FIRST batch — the snapshot — yet? Consumed
+   *  and set by {@link sweep}, which HANDS BACK what it consumed, so no caller
+   *  reads this field to decide the same thing one line before calling. */
   snapshotDelivered: boolean;
+  /** When this subscription next needs waking, as of its last sweep — the only
+   *  thing {@link armTimer} reads. A sweep is what makes a deadline move, so
+   *  recording it there is what keeps the timer from re-deriving the schedule. */
+  nextAt?: number;
 }
 
 /** A scheduled one-shot, injectable so tests drive the clock instead of waiting
@@ -211,16 +215,45 @@ export function createStateWatchHub(opts: {
     return state;
   };
 
-  /** Everything due for one subscription at `at`, and the announcement
-   *  bookkeeping that goes with it. The ONE decision procedure: the snapshot at
-   *  subscribe time is this function on a subscription that has had no batch
-   *  yet, and every later frame is this function on one that has — so a snapshot
-   *  and a transition can never disagree about what "matching" means. */
-  const due = (sub: Sub, at: number): PadiStateEvent[] => {
+  /** WHEN this terminal is next reportable to this subscription, or `undefined`
+   *  when there is nothing more to say about it.
+   *
+   *  THE schedule, as one expression. Everything the hub does with time is this
+   *  one instant compared against the clock: `sweep` fires the terminals whose
+   *  moment has arrived and takes the earliest of the rest as its wake-up, so
+   *  "is it due now" and "when is it next due" cannot answer differently. They
+   *  used to be two walks over the same map restating the same rule in two
+   *  shapes — and a disagreement between them is not a type error, it is a hub
+   *  that spins or sleeps through a nag. */
+  const reportableAt = (
+    sub: Sub,
+    level: Level,
+    known: Announced | undefined,
+  ): number | undefined => {
+    // A fresh episode is reportable once it has HELD. `known.since` identifies
+    // the episode, so a re-entry into the same state is fresh again.
+    if (known === undefined || known.since !== level.since) {
+      return level.since + sub.spec.heldForMs;
+    }
+    // Already reported, and still holding: the nag, or silence.
+    return sub.spec.nagMs === undefined
+      ? undefined
+      : known.toldAt + sub.spec.nagMs;
+  };
+
+  /** One pass over the levels for one subscription: what is due at `at`, and
+   *  when to come back. The ONE decision procedure — the snapshot at subscribe
+   *  time is this function on a subscription that has had no batch yet, and
+   *  every later frame is this function on one that has, so a snapshot and a
+   *  transition can never disagree about what "matching" means. */
+  const sweep = (
+    sub: Sub,
+    at: number,
+  ): { batch: PadiStateEvent[]; arriving: boolean } => {
     const batch: PadiStateEvent[] = [];
-    const { heldForMs, nagMs } = sub.spec;
     const arriving = !sub.snapshotDelivered;
     sub.snapshotDelivered = true;
+    let nextAt: number | undefined;
     for (const [id, level] of levels) {
       const state = matched(sub, id, level);
       if (state === undefined) {
@@ -229,12 +262,14 @@ export function createStateWatchHub(opts: {
         sub.announced.delete(id);
         continue;
       }
-      if (at - level.since < heldForMs) continue;
       const known = sub.announced.get(id);
-      const fresh = known === undefined || known.since !== level.since;
-      if (!fresh && (nagMs === undefined || at < known.toldAt + nagMs)) {
+      const at_ = reportableAt(sub, level, known);
+      if (at_ === undefined) continue;
+      if (at < at_) {
+        if (nextAt === undefined || at_ < nextAt) nextAt = at_;
         continue;
       }
+      const fresh = known === undefined || known.since !== level.since;
       batch.push({
         seq: seq.next(),
         id,
@@ -249,39 +284,29 @@ export function createStateWatchHub(opts: {
         ...edges.edgeOf(id),
       });
       sub.announced.set(id, { since: level.since, toldAt: at });
+      // Just told: the next thing owed about it is a nag, if it nags at all.
+      if (sub.spec.nagMs !== undefined) {
+        const nag = at + sub.spec.nagMs;
+        if (nextAt === undefined || nag < nextAt) nextAt = nag;
+      }
     }
     // Announcements for terminals that no longer exist at all.
     for (const id of sub.announced.keys()) {
       if (!levels.has(id)) sub.announced.delete(id);
     }
-    return batch;
+    sub.nextAt = nextAt;
+    return { batch, arriving };
   };
 
-  /** When this subscription next needs waking, or `undefined` if never. */
-  const nextDeadline = (sub: Sub): number | undefined => {
-    let earliest: number | undefined;
-    const consider = (at: number): void => {
-      if (earliest === undefined || at < earliest) earliest = at;
-    };
-    for (const [id, level] of levels) {
-      if (matched(sub, id, level) === undefined) continue;
-      const known = sub.announced.get(id);
-      if (known === undefined || known.since !== level.since) {
-        consider(level.since + sub.spec.heldForMs);
-      } else if (sub.spec.nagMs !== undefined) {
-        consider(known.toldAt + sub.spec.nagMs);
-      }
-    }
-    return earliest;
-  };
-
-  /** Re-arm the ONE timer at the earliest deadline across every subscription. */
+  /** Re-arm the ONE timer at the earliest deadline across every subscription.
+   *  Reads each subscription's LAST sweep answer rather than re-deriving it: a
+   *  sweep is what makes a deadline move, and every sweep records its own. */
   const armTimer = (): void => {
     cancelTimer?.();
     cancelTimer = undefined;
     let earliest: number | undefined;
     for (const sub of subs) {
-      const at = nextDeadline(sub);
+      const at = sub.nextAt;
       if (at !== undefined && (earliest === undefined || at < earliest)) {
         earliest = at;
       }
@@ -312,13 +337,12 @@ export function createStateWatchHub(opts: {
     // the same instant — the same rule `settleEvents` applies per fold.
     const at = now();
     for (const sub of subs) {
-      // A subscription that opened before the hub had looked has had no batch
-      // yet, so this one is its SNAPSHOT, not a transition — it was never there
-      // for an edge, and the batch is delivered even when empty because it is
-      // that subscription's first frame.
-      const wasFirst = !sub.snapshotDelivered;
-      const batch = due(sub, at);
-      if (batch.length === 0 && !wasFirst) continue;
+      // `arriving` comes back FROM the sweep that consumed it — a subscription
+      // that opened before the hub had looked has had no batch yet, so this one
+      // is its SNAPSHOT, delivered even when empty because it is that
+      // subscription's first frame and therefore its snapshot boundary.
+      const { batch, arriving } = sweep(sub, at);
+      if (batch.length === 0 && !arriving) continue;
       deliver(sub, batch);
     }
     armTimer();
@@ -375,7 +399,7 @@ export function createStateWatchHub(opts: {
       // a hub that has seen no fleet, which is the one answer this whole feature
       // exists to stop giving. It waits for the first real observation instead,
       // and gets a snapshot of what is actually there.
-      if (hasObserved) deliver(sub, due(sub, now()));
+      if (hasObserved) deliver(sub, sweep(sub, now()).batch);
       armTimer();
       return () => {
         if (!subs.delete(sub)) return;

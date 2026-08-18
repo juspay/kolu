@@ -101,6 +101,7 @@ import {
 } from "@kolu/padi/dial";
 import {
   formatStateEvent,
+  formatStateEventJson,
   formatWatchActivity,
   formatWatchActivityJson,
   formatWatchEvent,
@@ -109,7 +110,7 @@ import {
   formatWatchRemovalJson,
 } from "@kolu/padi/render";
 import type { PadiWatchStatesInput } from "@kolu/padi/surface";
-import { isValidTimerMs, MAX_TIMER_MS } from "@kolu/surface/wait";
+import { isValidTimerMs, timerRangeMessage } from "@kolu/surface/wait";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { type Cause, Effect, Fiber, Queue, Stream } from "effect";
 import type { Command } from "effect/unstable/cli";
@@ -125,6 +126,7 @@ import {
   type StdoutWriteFailed,
   stdoutLost,
   stdoutSink,
+  waitStateTokens,
   writeErrSync,
 } from "./shared.ts";
 
@@ -194,7 +196,18 @@ const UNIT_MS: Record<string, number> = {
   d: 86_400_000,
 };
 
-function parseDuration(flag: string, raw: string): Parsed<number> {
+/** Read a duration for `flag`, refusing anything below `min`.
+ *
+ *  `min` is a PARAMETER because it is the flag's own fact and the flag's own
+ *  sentence: a hold of 0 means "report it the instant it enters", an interval of
+ *  0 is a spin. It used to be an `ms !== 0` escape inside this parser plus a
+ *  compensating check at one caller — one rule at two depths, and invisible to
+ *  the third duration flag that would inherit the escape by accident. */
+function parseDuration(
+  flag: string,
+  raw: string,
+  min: { readonly ms: number; readonly why: string },
+): Parsed<number> {
   const m = DURATION.exec(raw.trim());
   if (m === null) {
     return {
@@ -205,32 +218,19 @@ function parseDuration(flag: string, raw: string): Parsed<number> {
   // An omitted unit is `ms` — see the grammar note above.
   const ms =
     Number(m[1]) * (m[2] === undefined ? 1 : (UNIT_MS[m[2]] as number));
-  // 0 is a legal HOLD ("report it the instant it enters") and the schema behind
-  // `--nag` refuses it separately, so the only bound this shared parse owns is
-  // the timer ceiling.
-  if (ms !== 0 && !isValidTimerMs(ms)) {
+  if (ms < min.ms) {
+    return { kind: "error", message: `--${flag} ${raw}: ${min.why}` };
+  }
+  if (ms > 0 && !isValidTimerMs(ms)) {
+    // The one ceiling sentence, from the module that owns the ceiling — so a
+    // user who overshoots `--timeout` and one who overshoots `--nag` are taught
+    // the same limit in the same words.
     return {
       kind: "error",
-      // The same fact `timerMsFlag` states for the integer flags, in the same
-      // words — one ceiling, one sentence, however it was spelled on the way in.
-      message: `--${flag} ${JSON.stringify(raw)} is ${ms}ms; it must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger value overflows the timer and fires immediately, forever.`,
+      message: timerRangeMessage(flag, "fires immediately, forever", raw),
     };
   }
   return { kind: "ok", value: ms };
-}
-
-function parseStates(raw: string): Parsed<readonly WaitState[]> {
-  const tokens = raw
-    .split(",")
-    .map((t) => t.trim().toLowerCase())
-    .filter((t) => t.length > 0);
-  if (tokens.length === 0 || !tokens.every(isWaitState)) {
-    return {
-      kind: "error",
-      message: `--states ${JSON.stringify(raw)} is not a list of agent buckets. Pick from ${WAIT_STATES.join(", ")}, comma-separated (any-of).`,
-    };
-  }
-  return { kind: "ok", value: tokens };
 }
 
 /** What the three knobs add up to — the wire input, or `undefined` when the user
@@ -248,25 +248,30 @@ export function planSupervision(
     nagMs?: number;
   } = {};
   if (args.states !== undefined) {
-    const parsed = parseStates(args.states);
-    if (parsed.kind === "error") return parsed;
-    input.states = parsed.value;
+    const tokens = waitStateTokens(args.states);
+    if (tokens === undefined) {
+      return {
+        kind: "error",
+        message: `--states ${JSON.stringify(args.states)} is not a list of agent buckets. Pick from ${WAIT_STATES.join(", ")}, comma-separated (any-of).`,
+      };
+    }
+    input.states = tokens;
   }
   if (args.heldFor !== undefined) {
-    const parsed = parseDuration("held-for", args.heldFor);
+    const parsed = parseDuration("held-for", args.heldFor, {
+      ms: 0,
+      // Zero IS the hold's identity element — report it the instant it enters.
+      why: "a hold cannot be negative.",
+    });
     if (parsed.kind === "error") return parsed;
     input.heldForMs = parsed.value;
   }
   if (args.nag !== undefined) {
-    const parsed = parseDuration("nag", args.nag);
+    const parsed = parseDuration("nag", args.nag, {
+      ms: 1,
+      why: "an interval of zero is a spin, not a fast nag — it would re-report every terminal as fast as the daemon can loop. Pass a real interval (5m), or leave --nag off to be told once.",
+    });
     if (parsed.kind === "error") return parsed;
-    if (parsed.value === 0) {
-      return {
-        kind: "error",
-        message:
-          "--nag 0 is a spin, not an interval — it would re-report every terminal as fast as the daemon can loop. Pass a real interval (5m), or leave --nag off to be told once.",
-      };
-    }
     input.nagMs = parsed.value;
   }
   // The PRESENCE of a knob IS the choice of feed — asked of padi's ONE
@@ -391,13 +396,11 @@ export function run(
                   },
                   (batch) => {
                     for (const event of batch) {
-                      // The wire event IS the NDJSON line — it already carries
-                      // `kind`, `id`, `state`, `since` and `at`, so re-shaping it
-                      // here would only invent a second spelling of padi's own
-                      // answer for a consumer's jq to learn.
+                      // Both spellings are `render.ts`'s, like every other line
+                      // this verb prints — the `--json` contract has one owner.
                       offer(
                         args.json
-                          ? JSON.stringify(event)
+                          ? formatStateEventJson(event)
                           : formatStateEvent(event),
                       );
                     }

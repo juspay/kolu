@@ -10,6 +10,10 @@
  * was wrong, which name `kolu ls` as the way to see the live ones.
  */
 
+import {
+  isWaitState,
+  type WaitState,
+} from "@kolu/terminal-vocab/agentProjection";
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import { readTerminalKeys } from "@kolu/padi/read";
 import { resolveTerminalId, shortId } from "@kolu/padi/render";
@@ -20,6 +24,30 @@ import { Data, Effect, type Sink, Stream } from "effect";
 // one the HTTP server and cluster transports on the way to a writable stream.
 import * as NodeSink from "@effect/platform-node/NodeSink";
 import { type CliFailure, errorMessage, failure } from "../exit.ts";
+
+/** How a bucket list is SPELLED on a command line: comma-separated, any-of,
+ *  case- and space-insensitive, empty tokens dropped. `undefined` when it names
+ *  nothing or names something that is not a bucket.
+ *
+ *  The tokenizer, not the sentence. What a bucket IS belongs to the shared
+ *  vocabulary (`isWaitState`); what a REJECTION reads like belongs to the flag,
+ *  because `--until`'s three condition forms and `--states`' bucket list are
+ *  different things to be told — which is why this hands back `undefined`
+ *  rather than a message. What was left over is this five-line policy, and it
+ *  had two copies in one package the moment `--states` landed: `--until` and
+ *  `--states` could then silently come to accept different spellings of the
+ *  same list.
+ *
+ *  Returns the tokens (not a Set) so a caller can put them on the wire in the
+ *  order the user wrote them. */
+export function waitStateTokens(raw: string): readonly WaitState[] | undefined {
+  const tokens = raw
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0);
+  if (tokens.length === 0 || !tokens.every(isWaitState)) return undefined;
+  return tokens;
+}
 
 /** A PURE argv parse: the value it decoded, or the sentence that says why it
  *  was refused.

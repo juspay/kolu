@@ -177,18 +177,14 @@ export async function watchTerminals(
             try {
               handlers.onUpsert(id, value, live.has(id));
             } catch (err) {
-              log?.(
-                `terminals upsert handler failed: ${(err as Error).message}`,
-              );
+              log?.(`terminals upsert handler failed: ${errMessage(err)}`);
             }
           },
           remove: (id) => {
             try {
               handlers.onRemove(id);
             } catch (err) {
-              log?.(
-                `terminals remove handler failed: ${(err as Error).message}`,
-              );
+              log?.(`terminals remove handler failed: ${errMessage(err)}`);
             }
           },
           // A key here that the first snapshot doesn't re-assert departed before
@@ -211,7 +207,7 @@ export async function watchTerminals(
                   try {
                     handlers.onActivity?.(id, isLive);
                   } catch (err) {
-                    log?.(`activity handler failed: ${(err as Error).message}`);
+                    log?.(`activity handler failed: ${errMessage(err)}`);
                   }
                 };
                 for (const id of next) if (!live.has(id)) fire(id, true);
@@ -264,7 +260,7 @@ export async function watchAgentStates(
             try {
               onBatch(batch);
             } catch (err) {
-              log?.(`watchStates handler failed: ${(err as Error).message}`);
+              log?.(`watchStates handler failed: ${errMessage(err)}`);
             }
           },
         },

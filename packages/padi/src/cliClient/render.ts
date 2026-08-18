@@ -26,7 +26,17 @@
 // and `kolu-pty` in this formatter's module graph, refuting the "no I/O, no
 // transport, no tty" promise on line 1. A stated invariant the import graph
 // contradicts will be relied on and will break.
-import type { PadiStateEvent, PadiTerminal } from "../surface.ts";
+// A VALUE import from `../surface.ts`, and the line the header draws still
+// holds: the promise is "no I/O, no transport, no tty", and the graph that broke
+// it was the DIAL kit's (`socketDuplexLink`, the supervisor, `kolu-pty`).
+// `surface.ts` is schemas and a spec — browser-safe by contract, since the
+// client imports it — and the wire's own literal set is the only honest place to
+// read a wire column's width from.
+import {
+  type PadiStateEvent,
+  type PadiTerminal,
+  WATCH_STATE_EVENT_KINDS,
+} from "../surface.ts";
 import { activeAgent } from "../terminalVocab.ts";
 import {
   agentBucket,
@@ -34,6 +44,7 @@ import {
   agentStatusLabel,
   DASH,
   relativeTime,
+  WAIT_STATES,
 } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import columnify from "columnify";
@@ -411,6 +422,22 @@ export function formatWatchRemovalJson(id: TerminalId): string {
   return JSON.stringify({ kind: "removed", id });
 }
 
+/** One agent-STATE event as an NDJSON line — the wire event, verbatim.
+ *
+ *  It looks like a wrapper around `JSON.stringify` and it is one on purpose: the
+ *  `--json` contract ("every line carries a `kind`") is stated here, and three
+ *  of its six kinds are enforced by the functions above ADDING that key. If the
+ *  other three were stringified at the call site, the contract would hold only
+ *  because the wire event happens to carry a field of that name — no owner, and
+ *  nothing to fail if `kind` were ever renamed or nested. Naming the projection
+ *  puts all six lines in one module, where the pins can see them.
+ *
+ *  Verbatim because the event already IS the line: re-shaping it would invent a
+ *  second spelling of padi's own answer for a consumer's `jq` to learn. */
+export function formatStateEventJson(event: PadiStateEvent): string {
+  return JSON.stringify(event satisfies { kind: string });
+}
+
 /** One agent-STATE event as a human line:
  *  `HH:MM:SS  a1b2c3d4  nag         waiting   7m  fix the parser` — the clock,
  *  the short id, WHY you are being told (snapshot · transition · nag), the bucket
@@ -428,15 +455,22 @@ export function formatWatchRemovalJson(id: TerminalId): string {
  *  identify, and the intent is what its owner wrote down about it. Nothing else
  *  from the record is joined in — the event stays thin, and a reader who wants
  *  the repo, the branch or the screen has `kolu ls` and `kolu snapshot`. */
+const widestOf = (words: readonly string[]): number =>
+  words.reduce((w, s) => Math.max(w, s.length), 0);
+const KIND_WIDTH = widestOf(WATCH_STATE_EVENT_KINDS);
+const STATE_WIDTH = widestOf(WAIT_STATES);
+
 export function formatStateEvent(event: PadiStateEvent): string {
   const cells = [
     clockTime(event.at),
     shortId(event.id),
-    // Both vocabularies are CLOSED literal unions, so their widths are
-    // compile-time facts and the columns line up without measuring anything —
-    // which is what a reader scanning a running feed at 3am is actually using.
-    event.kind.padEnd("transition".length),
-    event.state.padEnd("awaiting".length),
+    // Both vocabularies are closed sets, so the columns line up without
+    // measuring the feed — which is what a reader scanning it at 3am is actually
+    // using. The widths are DERIVED from those sets rather than from a
+    // hand-picked exemplar string: a fourth kind or a fourth bucket then widens
+    // the column instead of silently misaligning a running feed.
+    event.kind.padEnd(KIND_WIDTH),
+    event.state.padEnd(STATE_WIDTH),
     relativeTime(event.since, event.at),
   ];
   if (event.intent !== undefined) cells.push(event.intent);

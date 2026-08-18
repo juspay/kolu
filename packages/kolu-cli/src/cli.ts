@@ -49,7 +49,7 @@ import {
   WAIT_STATES,
   WATCH_DEFAULT_STATES,
 } from "@kolu/terminal-vocab/agentProjection";
-import { isValidTimerMs, MAX_TIMER_MS } from "@kolu/surface/wait";
+import { isValidTimerMs, timerRangeMessage } from "@kolu/surface/wait";
 import { Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 // The `kolu debrief` contract — a zero-import leaf, read HERE for the flags'
@@ -235,10 +235,8 @@ const positiveLines = (name: string): Flag.Flag<number> =>
  *  differs — the overflow is one fact. */
 const timerMsFlag = (name: string, effect: string): Flag.Flag<number> =>
   Flag.integer(name).pipe(
-    Flag.filter(
-      isValidTimerMs,
-      (n) =>
-        `--${name} must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger value overflows the timer and ${effect} almost immediately, got ${n}.`,
+    Flag.filter(isValidTimerMs, (n) =>
+      timerRangeMessage(name, effect, String(n)),
     ),
   );
 

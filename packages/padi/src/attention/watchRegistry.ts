@@ -58,9 +58,7 @@ import {
   sameStateWatchFilter,
   type StateWatchBatch,
   type StateWatchFilter,
-  type StateWatchSpec,
 } from "./stateWatch.ts";
-import { specOf } from "./watchSpec.ts";
 
 /** What a queue holds — either source's events, one `kind` vocabulary. */
 export type WatchEvent = PadiWatchEvent;
@@ -223,7 +221,8 @@ export function createWatchRegistry(opts: {
    *  daemon's life. A queue-only test passes a stub that throws — loudly, and at
    *  the moment the test asks for something it did not build. */
   subscribeStates: (
-    spec: StateWatchSpec,
+    filter: StateWatchFilter,
+    ids: ReadonlySet<TerminalId> | undefined,
     emit: (batch: StateWatchBatch) => void,
   ) => () => void;
 }): WatchRegistry {
@@ -313,23 +312,43 @@ export function createWatchRegistry(opts: {
    *  supervisor that (re)opens would not find the standing truth in the queue it
    *  was just handed. What it does NOT do is hand a half-made record out — the
    *  feed is complete the moment it exists, `detach` included. */
-  const stateFeed = (
-    filter: StateWatchFilter,
-    scope: ReadonlySet<TerminalId> | undefined,
-    buffer: PadiStateEvent[],
-    owner: () => WatchSubscription,
-  ): { feed: WatchFeed; start: () => void } => {
+  const makeFeed = (opened: {
+    readonly filter: StateWatchFilter | undefined;
+    readonly scope: ReadonlySet<TerminalId> | undefined;
+    /** The feed this one replaces, on a re-open. */
+    readonly previous?: WatchFeed;
+    /** What survives from `previous` — the caller's re-question and re-scope
+     *  rule, applied to whichever arm's buffer this feed can actually inherit.
+     *  A SOURCE change is by definition a re-question, so the arm tests below
+     *  are what keep a settle buffer out of a state feed. */
+    readonly carry?: <E extends WatchEvent>(buffer: E[]) => E[];
+    readonly owner: () => WatchSubscription;
+  }): { feed: WatchFeed; start: () => void } => {
+    const { filter, scope, previous, carry, owner } = opened;
+    if (filter === undefined) {
+      const buffer =
+        previous?.source === "settle" && carry !== undefined
+          ? carry(previous.buffer)
+          : [];
+      return { feed: { source: "settle", buffer }, start: () => {} };
+    }
     let stop: (() => void) | undefined;
     const feed = {
       source: "state" as const,
       filter,
-      buffer,
+      buffer:
+        previous?.source === "state" && carry !== undefined
+          ? carry(previous.buffer)
+          : [],
       detach: () => stop?.(),
     };
     return {
       feed,
       start: () => {
-        stop = opts.subscribeStates(specOf(filter, scope), (batch) =>
+        // The scope goes to the state watch as the SUBSCRIPTION's, joined into a
+        // spec by the composition root that owns both halves — not by this
+        // module, which is a queue and has no business knowing what a spec is.
+        stop = opts.subscribeStates(filter, scope, (batch) =>
           enqueue(owner(), feed, batch),
         );
       },
@@ -389,28 +408,13 @@ export function createWatchRegistry(opts: {
             : scope === undefined
               ? buffer
               : buffer.filter((e) => scope.has(e.id));
-        // A source change is by definition a re-question, so the arm checks
-        // below only ever carry a buffer forward from the SAME arm.
-        let start = (): void => {};
-        let feed: WatchFeed;
-        if (filter === undefined) {
-          feed = {
-            source: "settle",
-            buffer:
-              existing.feed.source === "settle"
-                ? carry(existing.feed.buffer)
-                : [],
-          };
-        } else {
-          const opened = stateFeed(
-            filter,
-            scope,
-            existing.feed.source === "state" ? carry(existing.feed.buffer) : [],
-            () => next,
-          );
-          feed = opened.feed;
-          start = opened.start;
-        }
+        const { feed, start } = makeFeed({
+          filter,
+          scope,
+          previous: existing.feed,
+          carry,
+          owner: () => next,
+        });
         const next: WatchSubscription = {
           name: existing.name,
           ...(scope === undefined ? {} : { ids: scope }),
@@ -438,15 +442,7 @@ export function createWatchRegistry(opts: {
           `cannot open standing subscription "${name}": ${subs.size} are already open (limit ${subLimit}). Subscriptions are meant to be REUSED by name across restarts, not minted per call — close the ones you are done with (open: ${[...subs.keys()].join(", ")}).`,
         );
       }
-      let start = (): void => {};
-      let feed: WatchFeed;
-      if (filter === undefined) {
-        feed = { source: "settle", buffer: [] };
-      } else {
-        const opened = stateFeed(filter, scope, [], () => sub);
-        feed = opened.feed;
-        start = opened.start;
-      }
+      const { feed, start } = makeFeed({ filter, scope, owner: () => sub });
       const sub: WatchSubscription = {
         name,
         ...(scope === undefined ? {} : { ids: scope }),

@@ -37,7 +37,7 @@ import {
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { createFinishQuiet } from "./activity/finishQuiet.ts";
-import { recomputeUrgency } from "./activity/urgency.ts";
+import { EMPTY_URGENCY } from "./activity/urgency.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
 import { createEdgeMemory } from "./attention/edgeMemory.ts";
 import { createFleetGate } from "./attention/fleetGate.ts";
@@ -46,7 +46,7 @@ import { createSettleEvents } from "./attention/settleEvents.ts";
 import { createStateWatchHub } from "./attention/stateWatch.ts";
 import { createWatchRegistry } from "./attention/watchRegistry.ts";
 import { stateWatchSource } from "./attention/stateWatchStream.ts";
-import { watchFilterOf, watchSpecOf } from "./attention/watchSpec.ts";
+import { specOf, watchFilterOf, watchSpecOf } from "./attention/watchSpec.ts";
 import type {
   EndpointGrid,
   TerminalAttachFrame,
@@ -329,7 +329,12 @@ export function buildPadiSurfaceDeps(deps: {
     // (a cursor from a previous padi generation would otherwise set a watermark
     // no future event could climb past).
     daemonSeq: () => watchSeq.last(),
-    subscribeStates: (spec, emit) => stateWatch.subscribe(spec, emit),
+    // The composition root joins the two halves the registry keeps apart: the
+    // three knobs the caller named, and the scope the SUBSCRIPTION owns. The
+    // queue never mints a spec, so the state watch's scoping is the only
+    // scoping there is for a state feed.
+    subscribeStates: (filter, ids, emit) =>
+      stateWatch.subscribe(specOf(filter, ids), emit),
   });
   const unsubscribeSettle = settleEvents.onFrame((events) =>
     watchRegistry.acceptSettle(events),
@@ -451,7 +456,7 @@ export function buildPadiSurfaceDeps(deps: {
         // is `fleetGate.ts`, where it is pinned. The frame stops HERE, and
         // everything downstream may trust what it is fed.
         if (!fleetGate.admit(terminals)) {
-          return recomputeUrgency(terminals, () => false);
+          return EMPTY_URGENCY;
         }
         const next = finish.project(terminals);
         // The settle EDGE, taken where the LEVEL is computed — one fold, one

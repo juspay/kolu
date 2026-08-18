@@ -154,6 +154,7 @@ import {
 import {
   type Parsed,
   resolveTerminal,
+  waitStateTokens,
   writeErr,
   writeJson,
   writeOutBlock,
@@ -287,11 +288,8 @@ export function planUntil(raw: string): Parsed<WaitPlan> {
   // that message away and re-spelled it with `UNTIL_FORMS`, because a token that
   // is not a bucket may simply be a mistyped PREFIX. padi owns `isWaitState`,
   // which is the whole padi-side contract for a token.
-  const tokens = raw
-    .split(",")
-    .map((t) => t.trim().toLowerCase())
-    .filter((t) => t.length > 0);
-  if (tokens.length === 0 || !tokens.every(isWaitState)) {
+  const tokens = waitStateTokens(raw);
+  if (tokens === undefined) {
     return {
       kind: "error",
       message: `--until ${JSON.stringify(raw)} is none of the three condition forms:\n${UNTIL_FORMS}`,

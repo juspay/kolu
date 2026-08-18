@@ -140,17 +140,12 @@ export function createSettleEvents(opts: {
         kind: SettleKind,
         edge: SupervisionEdge,
       ) => {
-        // Spread-or-omit, never an explicit `undefined`: these ride optionalKey
-        // fields on the wire schema, which accept an ABSENT key and REJECT a
-        // present-but-undefined one (#17).
-        batch.push({
-          seq: seq.next(),
-          id,
-          kind,
-          at,
-          ...(edge.parentId === undefined ? {} : { parentId: edge.parentId }),
-          ...(edge.intent === undefined ? {} : { intent: edge.intent }),
-        });
+        // `edgeOf` already spread-or-omitted these — the rule that they ride
+        // optionalKey wire fields, which accept an ABSENT key and REJECT a
+        // present-but-undefined one (#17), belongs to the projection and is
+        // stated there. Re-spelling it here field by field is a second place a
+        // third attribution field would have to be remembered.
+        batch.push({ seq: seq.next(), id, kind, at, ...edge });
       };
 
       // The frame the transition diffs — read straight off the wire value

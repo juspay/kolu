@@ -1042,6 +1042,19 @@ export const PadiWatchFilterFields = {
   ),
 } as const;
 
+/** Why a subscriber is being told about a terminal — the three kinds, as an
+ *  ARRAY beside the schema that spells them.
+ *
+ *  A literal union is unenumerable at runtime, so a face that lays the feed out
+ *  in columns had to measure a hand-picked exemplar string and hope it stayed
+ *  the longest. Enumerated here, the widest kind is derived, and a fourth kind
+ *  added to this line reaches every reader that asks. */
+export const WATCH_STATE_EVENT_KINDS = [
+  "snapshot",
+  "transition",
+  "nag",
+] as const;
+
 /** One agent-state event on the wire.
  *
  *  Thin for the same reason {@link PadiSettleEventSchema} is: the recipient reads
@@ -1063,7 +1076,7 @@ export const PadiStateEventSchema = Schema.Struct({
    *  time you were told. A consumer that treats all three alike is correct; the
    *  discriminator is there so one that wants to ring a bell only on `transition`
    *  can. */
-  kind: Schema.Literals(["snapshot", "transition", "nag"]),
+  kind: Schema.Literals(WATCH_STATE_EVENT_KINDS),
   /** The bucket it is holding. */
   state: WatchStateSchema,
   /** ms epoch — when THIS daemon first observed it enter `state`. Subtract from

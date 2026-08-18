@@ -11,7 +11,11 @@ import { describe, expect, it } from "vitest";
 import { WatchSubscriptionNotFound } from "../errors.ts";
 import type { PadiStateEvent } from "../surface.ts";
 import type { SettleEvent } from "./settleEvents.ts";
-import type { StateWatchBatch, StateWatchSpec } from "./stateWatch.ts";
+import type {
+  StateWatchBatch,
+  StateWatchFilter,
+  StateWatchSpec,
+} from "./stateWatch.ts";
 import { createWatchRegistry, type WatchRegistry } from "./watchRegistry.ts";
 
 const silentLogger = pino({ level: "silent" });
@@ -37,7 +41,8 @@ const registry = (
     subLimit?: number;
     daemonSeq?: () => number;
     subscribeStates?: (
-      spec: StateWatchSpec,
+      filter: StateWatchFilter,
+      ids: ReadonlySet<TerminalId> | undefined,
       emit: (batch: StateWatchBatch) => void,
     ) => () => void;
   } = {},
@@ -86,10 +91,15 @@ function fakeStateWatch() {
      *  running would double every nag. */
     liveCount: () => live.size,
     subscribeStates: (
-      spec: StateWatchSpec,
+      filter: StateWatchFilter,
+      ids: ReadonlySet<TerminalId> | undefined,
       emit: (batch: StateWatchBatch) => void,
     ) => {
       const key = ++handle;
+      const spec: StateWatchSpec = {
+        ...filter,
+        ...(ids === undefined ? {} : { ids }),
+      };
       specs.push(spec);
       live.set(key, { spec, emit });
       // The real engine answers a subscribe with the currently-matching set.

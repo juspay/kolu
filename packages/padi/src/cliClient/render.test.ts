@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { isWaitState, WAIT_STATES } from "../dial.ts";
 import {
   formatStateEvent,
+  formatStateEventJson,
   formatStatus,
   formatWatchActivityJson,
   formatWatchJson,
@@ -155,5 +156,31 @@ describe("the `kolu watch` line formats", () => {
     expect(upsert.kind).toBe("terminal");
     expect(upsert.live).toBe(true);
     expect(upsert.state).toBe("active");
+  });
+});
+
+describe("formatStateEventJson — the other half of the --json contract", () => {
+  const event = {
+    seq: 7,
+    id: "a1b2c3d4-0000-4000-8000-000000000000" as TerminalId,
+    kind: "nag" as const,
+    state: "waiting" as const,
+    since: 1_700_000_000_000,
+    at: 1_700_000_420_000,
+  };
+
+  it("emits the wire event VERBATIM — one line, parseable, nothing re-shaped", () => {
+    expect(JSON.parse(formatStateEventJson(event))).toEqual(event);
+    expect(formatStateEventJson(event)).not.toContain("\n");
+  });
+
+  it("carries `kind`, like every other line this verb prints", () => {
+    // The whole --json contract in one assertion: a consumer branches on one
+    // field whichever feed produced the line.
+    for (const kind of ["snapshot", "transition", "nag"] as const) {
+      expect(JSON.parse(formatStateEventJson({ ...event, kind })).kind).toBe(
+        kind,
+      );
+    }
   });
 });

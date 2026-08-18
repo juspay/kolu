@@ -29,6 +29,20 @@ import type { AttentionFrame } from "@kolu/terminal-vocab/attentionTransitions";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PadiTerminal, PadiUrgency } from "../surface.ts";
 
+/** The urgency of a fleet nobody has seen yet — every list empty.
+ *
+ *  Named rather than folded, because the ONE caller is the branch that has just
+ *  established there is nothing to fold (`servePadi`'s pre-adopt gate). Running
+ *  the fold over a map the gate proved empty, through an `isEpisodeFinished`
+ *  predicate nothing can call, reads at the call site as if the branch might
+ *  compute something. */
+export const EMPTY_URGENCY: PadiUrgency = {
+  awaitingIds: [],
+  finishedIds: [],
+  workingIds: [],
+  lingerIds: [],
+};
+
 /** Fold the composed `terminals` collection into the urgency projection — one
  *  id-list per `attentionClass` (asking · working · linger · finished), the
  *  classes being a partition, so the lists are disjoint and a consumer adds
