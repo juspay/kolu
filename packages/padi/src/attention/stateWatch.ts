@@ -82,6 +82,32 @@ export interface StateWatchSpec {
  *  subscription states once as its own `ids` and must not restate here. */
 export type StateWatchFilter = Omit<StateWatchSpec, "ids">;
 
+/** Do two filters ask the SAME question? Lives beside the filter it compares —
+ *  "same question" is spec knowledge, not queue knowledge — and is load-bearing
+ *  for the one consumer that asks: a retained buffer holds ANSWERS, and an
+ *  answer to a question nobody is asking any more is not something to preserve.
+ *  Absent-vs-absent is the same question; both mean the settle detector.
+ *
+ *  The witness below is the point of the placement: a knob added to
+ *  {@link StateWatchFilter} without a comparison here stops this compiling,
+ *  instead of silently letting a re-opened subscription keep the answers to a
+ *  question it just stopped asking. */
+export function sameStateWatchFilter(
+  a: StateWatchFilter | undefined,
+  b: StateWatchFilter | undefined,
+): boolean {
+  const _compared = {
+    states: true,
+    heldForMs: true,
+    nagMs: true,
+  } satisfies Record<keyof StateWatchFilter, true>;
+  if (a === undefined || b === undefined) return a === b;
+  if (a.heldForMs !== b.heldForMs || a.nagMs !== b.nagMs) return false;
+  if (a.states.size !== b.states.size) return false;
+  for (const s of a.states) if (!b.states.has(s)) return false;
+  return true;
+}
+
 /** One event batch — a fold's own unit, so every event in it shares an `at`. */
 export type StateWatchBatch = readonly PadiStateEvent[];
 

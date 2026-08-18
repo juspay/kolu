@@ -158,7 +158,7 @@ describe("watch registry", () => {
     // The MCP process died and came back; the agent re-opens the same name.
     const { sub, reattached } = r.open("campaign");
     expect(reattached).toBe(true);
-    expect(sub.buffer).toHaveLength(1);
+    expect(sub.feed.buffer).toHaveLength(1);
     expect(r.drain("campaign").events.map((e) => e.id)).toEqual(["a"]);
   });
 
