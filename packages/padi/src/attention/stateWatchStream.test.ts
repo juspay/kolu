@@ -21,6 +21,7 @@ import { pino } from "pino";
 import { describe, expect, it } from "vitest";
 import type { PadiStateEvent, PadiTerminal } from "../surface.ts";
 import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
+import { createEdgeMemory } from "./edgeMemory.ts";
 import { createEventSeq } from "./eventSeq.ts";
 import { createStateWatchHub, type ScheduleTimer } from "./stateWatch.ts";
 import { stateWatchSource } from "./stateWatchStream.ts";
@@ -63,13 +64,19 @@ function harness() {
       if (armed?.fire === fire) armed = undefined;
     };
   };
+  const edges = createEdgeMemory();
   const hub = createStateWatchHub({
     log: silentLogger,
     seq: createEventSeq(),
+    edges,
     now: () => clock,
     schedule,
   });
-  hub.observe(new Map([["a" as TerminalId, waiting()]]));
+  // One frame, fed the way the producer feeds it: edge memory first, then the
+  // hub that reads it at the emit.
+  const frame = new Map([["a" as TerminalId, waiting()]]);
+  edges.observe(frame);
+  hub.observe(frame);
   return {
     hub,
     armedAt: () => armed?.at,

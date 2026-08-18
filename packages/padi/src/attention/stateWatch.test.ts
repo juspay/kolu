@@ -18,6 +18,7 @@ import { pino } from "pino";
 import { describe, expect, it } from "vitest";
 import type { PadiStateEvent, PadiTerminal } from "../surface.ts";
 import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
+import { createEdgeMemory } from "./edgeMemory.ts";
 import { createEventSeq } from "./eventSeq.ts";
 import {
   createStateWatchHub,
@@ -97,14 +98,23 @@ function harness() {
       if (armed?.fire === fire) armed = undefined;
     };
   };
+  // The producer's ONE edge memory, observed with the same frame the hub gets —
+  // as `servePadi`'s urgency cell does, and in that order.
+  const edges = createEdgeMemory();
   const hub = createStateWatchHub({
     log: silentLogger,
     seq: createEventSeq(),
+    edges,
     now: () => clock,
     schedule,
   });
   return {
     hub,
+    /** Feed one frame, exactly as the producer does. */
+    observe(terminals: ReadonlyMap<TerminalId, PadiTerminal>) {
+      edges.observe(terminals);
+      hub.observe(terminals);
+    },
     now: () => clock,
     /** The deadline the hub is currently waiting on, if any. */
     armedAt: () => armed?.at,
@@ -143,7 +153,7 @@ function collect(
 describe("createStateWatchHub", () => {
   it("emits a SNAPSHOT of the currently-matching set on subscribe — before any change", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
 
     const { batches } = collect(h.hub);
@@ -155,7 +165,7 @@ describe("createStateWatchHub", () => {
 
   it("emits an EMPTY first batch when nothing matches — silence is not an answer", () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     const { batches } = collect(h.hub);
     // A stream consumer needs a snapshot boundary whether or not anything is
     // standing; "nothing is neglected" is a fact, not the absence of one.
@@ -164,11 +174,11 @@ describe("createStateWatchHub", () => {
 
   it("does not deliver on the DERIVATION's stack — observe returns before any subscriber runs", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
     const { batches } = collect(h.hub);
     batches.length = 0;
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     expect(batches).toEqual([]);
     await settled();
     expect(batches.flat().map((e) => e.kind)).toEqual(["transition"]);
@@ -176,12 +186,12 @@ describe("createStateWatchHub", () => {
 
   it("HOLDS a transition until the state has lasted --held-for", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
     const { batches } = collect(h.hub, { heldForMs: 60_000 });
     batches.length = 0;
 
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     // Entered the state — but not for long enough to be worth anyone's
     // attention yet.
@@ -199,17 +209,17 @@ describe("createStateWatchHub", () => {
 
   it("never reports a state that did not survive the hold — the debounce is the point", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
     const { batches } = collect(h.hub, { heldForMs: 60_000 });
     batches.length = 0;
 
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     h.advance(30_000);
     // Handed more work inside the window: the agent's turn resumed, so nobody
     // was ever told it had ended.
-    h.hub.observe(terminals({ a: { agent: makeAgent("tool_use") } }));
+    h.observe(terminals({ a: { agent: makeAgent("tool_use") } }));
     await settled();
     h.advance(60_000);
     expect(batches.flat()).toEqual([]);
@@ -217,7 +227,7 @@ describe("createStateWatchHub", () => {
 
   it("NAGS on the interval for as long as the state keeps holding", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     const { batches } = collect(h.hub, { nagMs: 300_000 });
     // The snapshot is the first report; the nag clock starts from it.
@@ -240,7 +250,7 @@ describe("createStateWatchHub", () => {
 
   it("reports ONCE when no nag is asked for", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     const { batches } = collect(h.hub);
     h.advance(3_600_000);
@@ -251,21 +261,21 @@ describe("createStateWatchHub", () => {
 
   it("stops nagging the moment the terminal is dealt with, and a RE-entry is a fresh transition", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     const { batches } = collect(h.hub, { nagMs: 60_000 });
     h.advance(60_000);
     expect(batches.flat().map((e) => e.kind)).toEqual(["snapshot", "nag"]);
 
     // Someone gave it work.
-    h.hub.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
     h.advance(600_000);
     expect(batches.flat()).toHaveLength(2);
 
     // It finished again — a NEW episode, so a transition rather than a nag
     // against the old one.
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     expect(batches.flat().map((e) => e.kind)).toEqual([
       "snapshot",
@@ -277,7 +287,7 @@ describe("createStateWatchHub", () => {
 
   it("reports only the states asked for", async () => {
     const h = harness();
-    h.hub.observe(
+    h.observe(
       terminals({
         a: { agent: makeAgent("waiting") },
         b: { agent: makeAgent("awaiting_user") },
@@ -291,7 +301,7 @@ describe("createStateWatchHub", () => {
 
   it("scopes to an id when asked, and to the whole fleet when not", async () => {
     const h = harness();
-    h.hub.observe(
+    h.observe(
       terminals({
         a: { agent: makeAgent("waiting") },
         b: { agent: makeAgent("waiting") },
@@ -312,7 +322,7 @@ describe("createStateWatchHub", () => {
 
   it("carries the lane attribution a subscriber cannot cheaply re-derive", async () => {
     const h = harness();
-    h.hub.observe(
+    h.observe(
       terminals({
         a: {
           agent: makeAgent("waiting"),
@@ -329,7 +339,7 @@ describe("createStateWatchHub", () => {
 
   it("omits attribution rather than sending an explicit undefined (#17)", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     const [event] = collect(h.hub).flat();
     expect(Object.hasOwn(event ?? {}, "parentId")).toBe(false);
@@ -338,7 +348,7 @@ describe("createStateWatchHub", () => {
 
   it("a terminal with NO live agent holds no state and is never reported", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: null } }));
+    h.observe(terminals({ a: { agent: null } }));
     await settled();
     expect(
       collect(h.hub, {
@@ -349,12 +359,12 @@ describe("createStateWatchHub", () => {
 
   it("a terminal that LEAVES stops nagging and leaves no announcement behind", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     const { batches } = collect(h.hub, { nagMs: 60_000 });
     expect(batches.flat()).toHaveLength(1);
 
-    h.hub.observe(terminals());
+    h.observe(terminals());
     await settled();
     h.advance(600_000);
     // Nothing to nag about, and nothing to wake for.
@@ -364,11 +374,11 @@ describe("createStateWatchHub", () => {
 
   it("wakes at the EARLIEST deadline across subscriptions, once", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
     collect(h.hub, { heldForMs: 300_000 });
     collect(h.hub, { heldForMs: 30_000 });
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     expect(h.armedAt()).toBe(h.now() + 30_000);
   });
@@ -381,7 +391,7 @@ describe("createStateWatchHub", () => {
     const { batches } = collect(h.hub);
     expect(batches).toEqual([]);
 
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     // …and when it has looked, the first frame is still a SNAPSHOT — that
     // subscription was never there for the edge.
@@ -393,27 +403,27 @@ describe("createStateWatchHub", () => {
   it("answers a boot-window subscription with an EMPTY snapshot once it has looked", async () => {
     const h = harness();
     const { batches } = collect(h.hub);
-    h.hub.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
     // Still the snapshot boundary a stream consumer needs — just an honest one.
     expect(batches).toEqual([[]]);
   });
 
-  it("the serve-time EMPTY frame is not an observation", async () => {
+  it("dates a hold from the frame that first saw the state, not from boot", async () => {
     const h = harness();
-    // padi's `urgency` derivation runs once before the endpoint has adopted
-    // kaval's terminals. Taking that frame would date every real terminal's
-    // hold from a moment nothing was known.
-    h.hub.observe(new Map());
+    // The serve-time pre-adopt frame — padi's `urgency` derivation running
+    // before the endpoint has adopted kaval's terminals — never reaches the hub
+    // at all; its producer gates it (`servePadi`'s urgency cell). What reaches
+    // the hub is a real frame, and `since` is that frame's stamp.
     h.set(50_000);
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     expect(collect(h.hub).flat()[0]?.since).toBe(50_000);
   });
 
   it("an UNSUBSCRIBED consumer stops being fed, and stops holding the clock", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     const { batches, stop } = collect(h.hub, { nagMs: 60_000 });
     stop();
@@ -424,7 +434,7 @@ describe("createStateWatchHub", () => {
 
   it("stamps ONE `at` per batch and a strictly increasing seq", async () => {
     const h = harness();
-    h.hub.observe(
+    h.observe(
       terminals({
         a: { agent: makeAgent("waiting") },
         b: { agent: makeAgent("awaiting_user") },
@@ -438,7 +448,7 @@ describe("createStateWatchHub", () => {
 
   it("contains a throwing subscriber to its own batch", async () => {
     const h = harness();
-    h.hub.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
     h.hub.subscribe(
       { states: new Set(["waiting"] as const), heldForMs: 0 },
@@ -448,7 +458,7 @@ describe("createStateWatchHub", () => {
     );
     const { batches } = collect(h.hub);
     batches.length = 0;
-    h.hub.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     expect(batches.flat().map((e) => e.kind)).toEqual(["transition"]);
   });

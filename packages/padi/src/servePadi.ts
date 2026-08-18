@@ -37,7 +37,9 @@ import {
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { createFinishQuiet } from "./activity/finishQuiet.ts";
+import { recomputeUrgency } from "./activity/urgency.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import { createEdgeMemory } from "./attention/edgeMemory.ts";
 import { createEventSeq } from "./attention/eventSeq.ts";
 import { createSettleEvents } from "./attention/settleEvents.ts";
 import { createStateWatchHub } from "./attention/stateWatch.ts";
@@ -295,12 +297,30 @@ export function buildPadiSurfaceDeps(deps: {
   // stamped from the same sequence or a fresh subscription seeded from one
   // source's watermark would replay (or permanently discard) the other's.
   const watchSeq = createEventSeq();
-  const settleEvents = createSettleEvents({ log, seq: watchSeq });
+  // ONE lane-attribution memory behind both sources too. Both fold the same
+  // terminals map for the same two fields, and a departed terminal's parent is
+  // knowable only from the frame that still had it — so it is remembered once,
+  // by the producer below, and read by both.
+  const watchEdges = createEdgeMemory();
+  // Has a REAL fleet been seen yet? The serve-time empty seed is gated on this,
+  // once, in the `urgency` cell below — see the note there. Per-serve rather
+  // than module-scoped, so a servePadi rebuild in tests starts unseeded exactly
+  // as a fresh daemon does.
+  let fleetSeen = false;
+  const settleEvents = createSettleEvents({
+    log,
+    seq: watchSeq,
+    edges: watchEdges,
+  });
   // The agent-STATE watch — `--states`/`--held-for`/`--nag`, implemented once
   // and served to both faces: the `watchStates` stream below is `kolu watch`'s
   // subscription, and a `watch.open` that names any of the three knobs is an MCP
   // orchestrator's. It reads the adapter's own agent state, never output bytes.
-  const stateWatch = createStateWatchHub({ log, seq: watchSeq });
+  const stateWatch = createStateWatchHub({
+    log,
+    seq: watchSeq,
+    edges: watchEdges,
+  });
   const watchRegistry = createWatchRegistry({
     log,
     // The daemon's CURRENT watch sequence — where a fresh subscription starts
@@ -318,6 +338,7 @@ export function buildPadiSurfaceDeps(deps: {
     watchRegistry.dispose();
     stateWatch.dispose();
     settleEvents.dispose();
+    watchEdges.dispose();
     finish.dispose();
   };
 
@@ -420,6 +441,19 @@ export function buildPadiSurfaceDeps(deps: {
       // dedup point. No `store`/`equals` here — the graph is the one writer.
       urgency: derived.cell(($) => {
         const terminals = $.terminals();
+        // THE SERVE-TIME EMPTY SEED, gated ONCE at the only thing that produces
+        // it. This cell runs at serve time, BEFORE the endpoint has booted and
+        // adopted kaval's terminals, so its first frame is an information-free
+        // empty registry. Taken as real it would spend `finishQuiet`'s
+        // bootstrap on nothing (re-announcing every already-settled worker on
+        // every padi restart) and date every terminal's hold from the daemon's
+        // boot. Three consumers each carrying their own copy of that guard is
+        // one fact remembered by discipline; the fourth would forget. So the
+        // frame stops HERE, and everything downstream may trust what it is fed.
+        if (!fleetSeen && terminals.size === 0) {
+          return recomputeUrgency(terminals, () => false);
+        }
+        fleetSeen = true;
         const next = finish.project(terminals);
         // The settle EDGE, taken where the LEVEL is computed — one fold, one
         // arrival time, so a supervisor's nudge and the Dock's paint can never
@@ -429,6 +463,10 @@ export function buildPadiSurfaceDeps(deps: {
         // here), and it is safe for a second reason of its own: the transition is
         // computed against the PREVIOUS frame, so a redundant recompute yields no
         // candidates and emits nothing.
+        // The lane attribution of this frame, remembered ONCE, before either
+        // source reads it — including the terminals that just left, whose
+        // records are already gone.
+        watchEdges.observe(terminals);
         settleEvents.observe(next, terminals);
         // The agent-state LEVEL, taken from the same fold for the same reason:
         // one observation, one arrival time. It reads the terminals collection

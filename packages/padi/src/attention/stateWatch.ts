@@ -52,12 +52,8 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import type { PadiStateEvent, PadiTerminal } from "../surface.ts";
 import { activeAgent, type WaitState } from "../terminalVocab.ts";
+import type { EdgeMemory } from "./edgeMemory.ts";
 import type { EventSeq } from "./eventSeq.ts";
-import {
-  edgeMatches,
-  edgeOf,
-  type SupervisionEdge,
-} from "./supervisionEdge.ts";
 
 /** The bucket a terminal is holding — the shared `agentBucket` fold's own
  *  answer, including the `other` arm no subscription can target (so an
@@ -104,12 +100,15 @@ export interface StateWatchHub {
   dispose(): void;
 }
 
-/** A terminal's level, as of the last observation. */
+/** A terminal's level, as of the last observation. A VALUE, never a live
+ *  handle: a level is REPLACED when it changes and nothing mutates one in
+ *  place, so a reader holding one holds a frame's answer. The lane attribution
+ *  is not here at all — it is the producer's one `edgeMemory`, read at the emit,
+ *  so this source and the settle detector cannot disagree about a parent. */
 interface Level {
-  state: Bucket;
+  readonly state: Bucket;
   /** ms epoch of the observation that first saw this state. */
-  since: number;
-  edge: SupervisionEdge;
+  readonly since: number;
 }
 
 /** What a subscription has already told its owner about one terminal. */
@@ -145,10 +144,13 @@ const defaultSchedule: ScheduleTimer = (delayMs, fire) => {
 export function createStateWatchHub(opts: {
   log: Logger;
   seq: EventSeq;
+  /** The daemon's ONE lane-attribution memory, observed by the PRODUCER before
+   *  this hub is fed the same frame. Read at the emit, never maintained here. */
+  edges: EdgeMemory;
   now?: () => number;
   schedule?: ScheduleTimer;
 }): StateWatchHub {
-  const { log, seq } = opts;
+  const { log, seq, edges } = opts;
   const now = opts.now ?? Date.now;
   const schedule = opts.schedule ?? defaultSchedule;
 
@@ -156,14 +158,13 @@ export function createStateWatchHub(opts: {
   const subs = new Set<Sub>();
   let cancelTimer: (() => void) | undefined;
   let flushQueued = false;
-  // The serve-time empty seed, exactly as `settleEvents` guards it: padi's
-  // `urgency` derivation runs once BEFORE the endpoint has adopted kaval's
-  // terminals, so its first frame is an empty registry. Letting that
-  // information-free frame count as an observation would date every real
-  // terminal's hold from the daemon's boot rather than from when it was first
-  // seen — which is the same number here, but the guard also keeps a subscription
-  // opened in that window from reporting an empty fleet as fact.
-  let observed = false;
+  // Has the hub LOOKED yet? One job only: a subscription that opens before the
+  // first observation is owed a deferred snapshot rather than an immediate
+  // "nothing is neglected" from a hub that has seen no fleet. The serve-time
+  // empty seed — padi's `urgency` derivation running once before the endpoint
+  // adopted kaval's terminals — is gated ONCE at its producer (`servePadi`'s
+  // urgency cell), so a frame that reaches here is a frame worth taking.
+  let hasObserved = false;
 
   /** The state this subscription would report this terminal under, or
    *  `undefined` when it does not care. Returns the STATE rather than a boolean
@@ -214,7 +215,7 @@ export function createStateWatchHub(opts: {
         state,
         since: level.since,
         at,
-        ...level.edge,
+        ...edges.edgeOf(id),
       });
       sub.announced.set(id, {
         since: level.since,
@@ -298,8 +299,7 @@ export function createStateWatchHub(opts: {
 
   return {
     observe(terminals) {
-      if (!observed && terminals.size === 0) return;
-      observed = true;
+      hasObserved = true;
       const at = now();
       for (const [id, record] of terminals) {
         const agent = activeAgent(record);
@@ -313,13 +313,8 @@ export function createStateWatchHub(opts: {
         const state = agentBucket(agent.state);
         const known = levels.get(id);
         if (known === undefined || known.state !== state) {
-          levels.set(id, { state, since: at, edge: edgeOf(record) });
-          continue;
+          levels.set(id, { state, since: at });
         }
-        // Same state, still held. Maintain the edge in place rather than
-        // rebuilding it: this runs per terminal on the ~150 ms cadence, and
-        // `parentId`/`intent` almost never move after a terminal is born.
-        if (!edgeMatches(known.edge, record)) known.edge = edgeOf(record);
       }
       for (const id of levels.keys()) {
         if (!terminals.has(id)) levels.delete(id);
@@ -339,7 +334,7 @@ export function createStateWatchHub(opts: {
         spec,
         emit,
         announced: new Map(),
-        owedSnapshot: !observed,
+        owedSnapshot: !hasObserved,
       };
       subs.add(sub);
       // The SNAPSHOT — emitted synchronously so it is the caller's first frame,
@@ -366,7 +361,7 @@ export function createStateWatchHub(opts: {
       cancelTimer = undefined;
       subs.clear();
       levels.clear();
-      observed = false;
+      hasObserved = false;
     },
   };
 }

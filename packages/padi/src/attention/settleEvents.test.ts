@@ -15,6 +15,7 @@ import type {
 import { describe, expect, it } from "vitest";
 import type { PadiTerminal, PadiUrgency } from "../surface.ts";
 import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
+import { createEdgeMemory } from "./edgeMemory.ts";
 import { createEventSeq } from "./eventSeq.ts";
 import { createSettleEvents, type SettleEvent } from "./settleEvents.ts";
 
@@ -70,12 +71,11 @@ const urgency = (u: Partial<PadiUrgency>): PadiUrgency => ({ ...EMPTY, ...u });
 
 /** A terminals map for the given ids.
  *
- *  Every map carries a constant `anchor` terminal that is never asked about, for
- *  two reasons: a genuinely EMPTY map is the serve-time pre-adopt frame, which
- *  `observe` deliberately refuses to take as its baseline; and an id that
- *  vanishes between two frames is a DEPARTURE, so a helper that dropped its own
- *  scaffolding between calls would manufacture `gone` events. Use
- *  {@link emptyTerminals} to exercise the pre-adopt frame on purpose. */
+ *  Every map carries a constant `anchor` terminal that is never asked about: an
+ *  id that vanishes between two frames is a DEPARTURE, so a helper that dropped
+ *  its own scaffolding between calls would manufacture `gone` events. (The
+ *  serve-time pre-adopt frame is not exercised here at all — `servePadi`'s
+ *  urgency cell gates it once, for this source and the state watch alike.) */
 function terminals(
   overrides: Record<string, Parameters<typeof activeTerminal>[0]> = {},
 ): ReadonlyMap<TerminalId, PadiTerminal> {
@@ -87,9 +87,6 @@ function terminals(
   return map;
 }
 
-/** The serve-time frame: padi's registry before the endpoint adopted kaval. */
-const emptyTerminals = (): ReadonlyMap<TerminalId, PadiTerminal> => new Map();
-
 /** Let the queued frame flushes run. Sinks are deliberately NOT called on the
  *  `urgency` derivation's stack, so nothing has been delivered before this. */
 const settled = (): Promise<void> => Promise.resolve();
@@ -100,16 +97,33 @@ function collector() {
   const events: SettleEvent[] = [];
   const frames: Array<readonly SettleEvent[]> = [];
   let clock = 1_000;
+  const edges = createEdgeMemory();
   const source = createSettleEvents({
     log: silentLogger,
     now: () => (clock += 1),
     seq: createEventSeq(),
+    edges,
   });
   source.onFrame((batch) => {
     frames.push(batch);
     events.push(...batch);
   });
-  return { events, frames, source };
+  return {
+    events,
+    frames,
+    // The source, driven the way its PRODUCER drives it: the one edge memory
+    // takes the frame first, then the detector reads the attribution off it.
+    source: {
+      ...source,
+      observe: (
+        urgency: PadiUrgency,
+        terminals: ReadonlyMap<TerminalId, PadiTerminal>,
+      ) => {
+        edges.observe(terminals);
+        source.observe(urgency, terminals);
+      },
+    },
+  };
 }
 
 describe("createSettleEvents", () => {
@@ -126,27 +140,6 @@ describe("createSettleEvents", () => {
     expect(events).toEqual([]);
     await settled();
     expect(events).toHaveLength(1);
-  });
-
-  it("the SERVE-TIME empty frame does not spend the baseline — the first REAL inventory is still a discovery", async () => {
-    const { events, source } = collector();
-    // padi's `urgency` derivation runs once before the endpoint has adopted
-    // kaval's terminals, so its first frame is an empty registry. If that
-    // information-free frame were taken as the baseline, every already-settled
-    // worker would be re-announced to its supervisor on every padi restart.
-    source.observe(urgency({}), emptyTerminals());
-    source.observe(
-      urgency({
-        awaitingIds: ["a"] as TerminalId[],
-        finishedIds: ["b"] as TerminalId[],
-      }),
-      terminals({
-        a: { agent: makeAgent("awaiting_user"), parentId: "boss" },
-        b: { agent: makeAgent("waiting"), parentId: "boss" },
-      }),
-    );
-    await settled();
-    expect(events).toEqual([]);
   });
 
   it("the FIRST frame is a discovery, not a transition — a workspace already full of finished agents emits nothing", async () => {
@@ -359,11 +352,7 @@ describe("createSettleEvents", () => {
   });
 
   it("a listener that throws does not starve the other listeners of the same frame", async () => {
-    const source = createSettleEvents({
-      log: silentLogger,
-      now: () => 1,
-      seq: createEventSeq(),
-    });
+    const { source } = collector();
     const seen: string[] = [];
     source.onFrame(() => {
       throw new Error("first sink is broken");

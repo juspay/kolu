@@ -49,12 +49,9 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { attentionFrameOf } from "../activity/urgency.ts";
 import type { PadiSettleEvent, PadiTerminal, PadiUrgency } from "../surface.ts";
+import type { EdgeMemory } from "./edgeMemory.ts";
 import type { EventSeq } from "./eventSeq.ts";
-import {
-  edgeMatches,
-  edgeOf,
-  type SupervisionEdge,
-} from "./supervisionEdge.ts";
+import type { SupervisionEdge } from "./supervisionEdge.ts";
 
 /** One settle edge — the WIRE shape, aliased for reading rather than declared a
  *  second time. `PadiSettleEventSchema` (`surface.ts`) is the one place the shape
@@ -109,13 +106,19 @@ export interface SettleEventFeed extends SettleEventSource {
  *  standing-subscription queues, and a subscription's acknowledgement watermark
  *  has to mean one thing whichever source filled it. A private-counter default
  *  would put the hazard back one `??` at a time — silently, and permanently, on
- *  the one caller that forgot. */
+ *  the one caller that forgot.
+ *
+ *  `edges` is the daemon's ONE lane-attribution memory (`edgeMemory.ts`),
+ *  observed by the PRODUCER before this source is fed. It is read here, never
+ *  maintained: the state watch reads the same memory for the same frame, so a
+ *  `gone` and a nag can never disagree about whose lane a terminal was. */
 export function createSettleEvents(opts: {
   log: Logger;
   now?: () => number;
   seq: EventSeq;
+  edges: EdgeMemory;
 }): SettleEventFeed {
-  const { log, seq } = opts;
+  const { log, seq, edges } = opts;
   const now = opts.now ?? Date.now;
   const listeners = new Set<SettleFrameListener>();
   // The attention TRANSITION plus the previous frame it diffs against — the
@@ -123,34 +126,9 @@ export function createSettleEvents(opts: {
   // fires" rule lives at the diff rather than as a comment here and a second
   // copy in the client's attention core.
   const transitions: AttentionTransitions = createAttentionTransitions();
-  // The lane attribution of every terminal as of the last observation — how a
-  // DEPARTURE is both seen and ATTRIBUTED. It has to be the edge, not just the
-  // key set: by the time a terminal is gone its record is gone with it, so the
-  // parent is unknowable at emit time. Remembering it here is what lets a
-  // `gone` event still say which lane it was.
-  //
-  // MAINTAINED IN PLACE, never rebuilt: this is the ~150 ms terminals cadence,
-  // and rebuilding a Map of N freshly-spread objects each tick would allocate
-  // for every terminal that merely still exists. Arrivals insert, departures
-  // delete, and a survivor whose edge is unchanged costs two string compares.
-  //
-  // `empty` until the first real observation, so a fresh daemon's initial
-  // inventory is a discovery rather than a storm of arrivals and departures.
-  const lastEdges = new Map<TerminalId, SupervisionEdge>();
-  let observed = false;
 
   return {
     observe(urgency, terminals) {
-      // THE SERVE-TIME EMPTY SEED. The `urgency` derivation runs once at serve
-      // time, BEFORE the endpoint has booted and adopted kaval's terminals — so
-      // its first frame is an empty registry. Letting that information-free
-      // frame consume the baseline would make the FIRST REAL inventory look like
-      // every terminal had just arrived, and every already-settled worker would
-      // be re-announced to its supervisor on every padi restart. Wait for a real
-      // observation instead. This is exactly the guard `finishQuiet.syncWaiting`
-      // already applies to its own bootstrap, for the same reason.
-      if (!observed && terminals.size === 0) return;
-
       // ONE stamp for the whole fold. `servePadi` observes where the LEVEL is
       // computed so a supervisor's nudge and the Dock's paint describe the same
       // world; events from one fold stamping different `at` values would undo
@@ -181,30 +159,18 @@ export function createSettleEvents(opts: {
       // consumer sees.
       const { candidates } = transitions.observe(attentionFrameOf(urgency));
       for (const { id, asking } of candidates) {
-        emit(id, asking ? "asking" : "finished", edgeOf(terminals.get(id)));
+        emit(id, asking ? "asking" : "finished", edges.edgeOf(id));
       }
 
       // DEPARTURES. A supervisor blocked on a worker that no longer exists is
       // the same failure as one blocked on a worker nobody reported — so a
       // terminal leaving the collection is an event, not silence.
-      for (const [id, edge] of lastEdges) {
-        if (terminals.has(id)) continue;
-        // The record is gone, so the edge comes from the LAST frame that still
-        // had it. That remembered parent is the whole point: it is what lets the
-        // departure be delivered to the supervisor rather than only buffered for
-        // whoever happens to be subscribed. Emitting BEFORE the delete keeps the
-        // read and the eviction on one pass.
-        if (observed) emit(id, "gone", edge);
-        lastEdges.delete(id);
-      }
-      // ARRIVALS and edge CHANGES — the only two things that need an allocation.
-      for (const [id, record] of terminals) {
-        const known = lastEdges.get(id);
-        if (known === undefined || !edgeMatches(known, record)) {
-          lastEdges.set(id, edgeOf(record));
-        }
-      }
-      observed = true;
+      //
+      // The record is gone by now, so the edge comes from the LAST frame that
+      // still had it — which is why the memory is a MEMORY and why it is the
+      // producer's, not this source's: a departure has to be attributable to the
+      // lane it left, and the state watch reading the same frame has to agree.
+      for (const [id, edge] of edges.departed()) emit(id, "gone", edge);
 
       if (batch.length === 0) return;
       // LEAVE THE DERIVATION before any sink runs. The fold stays a level
@@ -233,8 +199,6 @@ export function createSettleEvents(opts: {
     dispose() {
       listeners.clear();
       transitions.reset();
-      lastEdges.clear();
-      observed = false;
     },
   };
 }

@@ -25,13 +25,18 @@ export type SupervisionEdge = Pick<PadiWatchEvent, "parentId" | "intent">;
 
 /** Project a record's attribution. Spread-safe. Module scope: it closes over
  *  nothing, so it is minted once rather than per fold on the ~150 ms terminals
- *  cadence. */
-export function edgeOf(record: PadiTerminal | undefined): SupervisionEdge {
+ *  cadence.
+ *
+ *  Takes a RECORD, never `undefined`. "A root with no intent" and "I could not
+ *  find this terminal" are different facts and an empty edge is the honest
+ *  answer to only the first, so the one caller that can miss — the memory that
+ *  outlives a record (`edgeMemory.ts`) — raises rather than collapsing them. */
+export function edgeOf(record: PadiTerminal): SupervisionEdge {
   return {
-    ...(record?.parentId === undefined
+    ...(record.parentId === undefined
       ? {}
       : { parentId: record.parentId as TerminalId }),
-    ...(record?.intent === undefined ? {} : { intent: record.intent }),
+    ...(record.intent === undefined ? {} : { intent: record.intent }),
   };
 }
 
@@ -41,7 +46,7 @@ export function edgeOf(record: PadiTerminal | undefined): SupervisionEdge {
  *  after a terminal is born, so the steady state should allocate nothing. */
 export function edgeMatches(
   edge: SupervisionEdge,
-  record: PadiTerminal | undefined,
+  record: PadiTerminal,
 ): boolean {
-  return edge.parentId === record?.parentId && edge.intent === record?.intent;
+  return edge.parentId === record.parentId && edge.intent === record.intent;
 }
