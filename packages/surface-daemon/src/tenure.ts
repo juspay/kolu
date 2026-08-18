@@ -25,7 +25,12 @@
  * there, and the daemon vocabulary (`DaemonExit`) must not migrate into the
  * link-transport package.
  */
-import { type DaemonExit, daemonExitCode } from "./daemonMain.ts";
+import { armBindPidWatchdog } from "./bindPidWatchdog.ts";
+import {
+  type DaemonExit,
+  daemonExitCode,
+  daemonLifetimeFromEnv,
+} from "./daemonMain.ts";
 
 /** The crash arm every bin used to hand-roll, made swallow-proof: the message
  *  is derived totally (a non-`Error` rejection has no `.message` to assume),
@@ -64,23 +69,47 @@ function crash(name: string, err: unknown): void {
  *
  *  `setImmediate` scheduling is shared doctrine with `serveOverStdio`'s exit
  *  fork: any continuation still attached to the wrapper's promise chain
- *  completes before the process dies. */
+ *  completes before the process dies.
+ *
+ *  When `KOLU_DAEMON_BIND_PID` selects `boundToPid`, this also arms a sibling
+ *  process that does not share this event loop. The sibling waits a grace
+ *  after the bind pid dies, then SIGKILLs this process if it is still up —
+ *  the backstop for a wedged loop that can neither poll nor honour SIGTERM. */
 export function daemonProcessMain(opts: {
   /** Crash-arm narration prefix ("kaval", "padi"). */
   name: string;
   /** Run the daemon to completion — `daemonMain` or a wrapper around it. */
   run: () => Promise<DaemonExit>;
 }): void {
+  // A sibling that does not share this event loop: when the bind pid dies
+  // it waits a grace then SIGKILLs us if we are still up (juspay/kolu#2178).
+  // It does not SIGTERM — that handler is already gone on the clean
+  // `pid-gone` path, and TERM is a no-op on a wedged loop. Armed only
+  // here — the real-process entry — never from in-process `daemonMain` tests.
+  // A malformed bind var is the same crash the bins already take inside `run`.
+  let watchdog: { disarm: () => void } | undefined;
+  try {
+    const lifetime = daemonLifetimeFromEnv({ kind: "forever" });
+    if (lifetime.kind === "boundToPid") {
+      watchdog = armBindPidWatchdog({ bindPid: lifetime.pid });
+    }
+  } catch (err) {
+    crash(opts.name, err);
+    return;
+  }
+
   // The async wrapper normalizes a SYNCHRONOUS `run` throw into the same
   // rejection arm (one crash funnel, not two): `run()` itself still starts
   // synchronously, right here.
   void (async () => opts.run())().then(
     (exit) => {
+      watchdog?.disarm();
       setImmediate(() => {
         process.exit(daemonExitCode(exit));
       });
     },
     (err: unknown) => {
+      watchdog?.disarm();
       crash(opts.name, err);
     },
   );

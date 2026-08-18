@@ -202,8 +202,26 @@ debounce path swallows event paths silently.
    Rule: **serialize a directory's parcel calls** (kolu does this in
    `sequenceParcelCall`). Pinned by
    `working-tree-watcher.churn.test.ts`, which loads the threadpool to force
-   the lossy ordering.
-5. **`dontFixup = true` in `default.nix`** skips patchELF on the native `.node`
+   the lossy ordering — on linux/inotify only, for the reason below.
+5. **macOS: delivery can run ~15s behind, and parcel's stream is the reason.**
+   Parcel's `startStream` (`src/macos/FSEventsBackend.cc`) creates the stream
+   *without* `kFSEventStreamCreateFlagNoDefer`, so the first event's delivery
+   is deferred rather than immediate. On a volume under constant churn the
+   defer window collapses to the daemon's maximum coalescing window. Measured
+   on kolu's darwin CI box (`ci@petit`, macOS 26.5.2, juspay/kolu#2175): first
+   event **14.2s** after the write, then batches every **15.0s**, 53/53 events
+   delivered — nothing lost, everything late. `fs.watch` in the same process,
+   on the same directory, answered in **1.3s**; libuv passes `NoDefer`. That
+   box's `fseventsd` was also 21 days up, 6.5 GB resident, ~190% CPU — worth
+   checking before concluding anything about a *healthy* mac.
+
+   Two consequences. A test may not gate on a parcel event arriving on darwin
+   (`fs-watch-delivery.testlib.ts` is the one flag that says so; #2175 also
+   records a rarer case where a post-churn subscription delivered nothing at
+   all for 60s+, reproduced with no kolu code in the loop). And on a macOS host
+   whose filesystem is this busy, kolu's own Code tab is that far behind —
+   worth remembering before chasing a "stale git status" report as a kolu bug.
+6. **`dontFixup = true` in `default.nix`** skips patchELF on the native `.node`
    binary. Today the `@parcel/watcher` binary loads its own libstdc++ via
    fallback paths and works, but if a future parcel-watcher version pulls in
    a harder dynamic-link requirement, expect to revisit this.

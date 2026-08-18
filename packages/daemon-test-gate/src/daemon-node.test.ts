@@ -103,6 +103,128 @@ test("the canonical daemon-test recipe turns the gate and spawn leash ON", () =>
   ).toContain("KOLU_DAEMON_BIND_PID=$$");
 });
 
+test("test-daemon and e2e `test` reap this-run leftovers on EXIT (#2178)", () => {
+  for (const recipe of ["test-daemon", "test"] as const) {
+    const body = recipeBody(ROOT, recipe);
+    expect(
+      body,
+      `\`${recipe}\` must run the CI janitor even when the suite is signal-killed`,
+    ).toContain("trap cleanup EXIT");
+    expect(
+      body,
+      `\`${recipe}\` must invoke the shipped janitor, not a parallel rm`,
+    ).toContain("just _reap-ci-run");
+    expect(
+      body,
+      `\`${recipe}\` must tell the janitor this-run bind pid so EXIT can reap while $$ is still alive`,
+    ).toContain("KOLU_CI_REAP_BIND_PID=$$");
+  }
+  const testBody = recipeBody(ROOT, "test");
+  expect(
+    testBody.indexOf("just _reap-ci-run"),
+    "janitor must run before the suite lock is released",
+  ).toBeLessThan(testBody.indexOf('rm -rf "$lock"'));
+  const quickAt = ROOT.search(/^test-quick \*args:/m);
+  expect(quickAt, "must declare a `test-quick` recipe").toBeGreaterThanOrEqual(
+    0,
+  );
+  const quick = ROOT.slice(quickAt, quickAt + 800);
+  expect(
+    quick,
+    "`test-quick` mints the same leftover FIFOs and must reap them on EXIT",
+  ).toContain("trap cleanup EXIT");
+  expect(quick).toContain("just _reap-ci-run");
+});
+
+test("e2e `test` keeps the janitor on EXIT after the suite-lock acquire (#2178)", () => {
+  const body = recipeBody(ROOT, "test");
+  const traps = [...body.matchAll(/^\s*trap\s+\S.*$/gm)].map((m) =>
+    m[0].trim(),
+  );
+  expect(traps.length, "`test` must arm an EXIT trap").toBeGreaterThan(0);
+  expect(
+    traps.at(-1),
+    "the LAST trap in `test` must still be `cleanup` — a later `trap 'rm -rf \"$lock\"' EXIT` would clobber the janitor on the locked path that creates kolu-scroll-fifo-*",
+  ).toBe("trap cleanup EXIT");
+  expect(
+    body,
+    "lock release must live inside cleanup(), not a second EXIT trap",
+  ).toMatch(/rm -rf "\$lock"/);
+  expect(
+    body,
+    "a dedicated lock-only EXIT trap replaces cleanup and is the #2178 leak",
+  ).not.toMatch(/trap ['"]rm -rf "\$lock"['"] EXIT/);
+});
+
+test("e2e `test` assigns lock= only after mkdir owns the suite lock", () => {
+  // cleanup() rms `$lock` whenever it is non-empty. Assigning the suite
+  // path before mkdir succeeds means a waiter killed on `sleep 15` deletes
+  // a live peer's lock. The wait loop must use a different name; `lock=`
+  // of the path is allowed only after mkdir.
+  const body = recipeBody(ROOT, "test");
+  expect(
+    body,
+    "must not assign the suite-lock path to `lock` before acquire",
+  ).not.toMatch(/^\s*lock=\/tmp\/kolu-e2e-suite\.lock/m);
+  const mkdirAt = body.search(/mkdir "\$candidate"/);
+  const assignAt = body.search(/lock=\$candidate/);
+  expect(mkdirAt, 'acquire is `mkdir "$candidate"`').toBeGreaterThanOrEqual(0);
+  expect(
+    assignAt,
+    "`lock=$candidate` is what cleanup() rms — must exist",
+  ).toBeGreaterThanOrEqual(0);
+  expect(
+    assignAt,
+    "`lock=$candidate` must come after mkdir succeeds, not before the wait loop",
+  ).toBeGreaterThan(mkdirAt);
+});
+
+test("create sites import the janitor's leftover prefixes (#2178)", () => {
+  const dial = readFileSync(
+    join(REPO_ROOT, "packages", "padi", "src", "dial.test.ts"),
+    "utf8",
+  );
+  expect(
+    dial,
+    "padi-dial runtime roots must come from the janitor's prefix constants",
+  ).toMatch(/PADI_DIAL_RT_PREFIX/);
+  expect(dial).toMatch(/PADI_DIAL_SR_PREFIX/);
+  const steps = readFileSync(
+    join(
+      REPO_ROOT,
+      "packages",
+      "tests",
+      "step_definitions",
+      "scroll_lock_steps.ts",
+    ),
+    "utf8",
+  );
+  expect(
+    steps,
+    "scroll-fifo dirs must come from SCROLL_FIFO_DIR_PREFIX",
+  ).toMatch(/SCROLL_FIFO_DIR_PREFIX/);
+  const fifo = readFileSync(
+    join(REPO_ROOT, "packages", "tests", "support", "scrollFifo.ts"),
+    "utf8",
+  );
+  expect(
+    fifo,
+    "the FIFO leftover prefix must be the janitor's, not a local copy",
+  ).toMatch(/from "@kolu\/daemon-test-gate\/ciReap"/);
+});
+
+test("the shipped janitor recipe drives ciReap.cli.ts", () => {
+  const body = recipeBody(ROOT, "_reap-ci-run");
+  expect(
+    body,
+    "`_reap-ci-run` must execute the shipped TypeScript janitor",
+  ).toContain("ciReap.cli.ts");
+  expect(
+    body,
+    "`_reap-ci-run` must pin the runtime root so nix develop cannot retarget TMPDIR",
+  ).toContain("KOLU_CI_REAP_ROOT");
+});
+
 test("the dev smoke binds its detached daemon tree to the smoke process", () => {
   expect(
     DEV_SMOKE,

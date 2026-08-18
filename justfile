@@ -308,6 +308,12 @@ test-unit: install
 test-e2e-governance: install
     cd packages/tests && {{ nix_shell }} pnpm test:governance
 
+# End-of-run janitor (juspay/kolu#2178): this-run padi-dial-rt/sr +
+# kolu-scroll-fifo runtime roots, plus leftover ci-owned kaval/padi whose
+# bind pid is already gone. Production `forever` daemons are not touched.
+_reap-ci-run:
+    {{ nix_shell }} env KOLU_CI_REAP_ROOT="${KOLU_CI_REAP_ROOT:-${TMPDIR:-/tmp}}" node --experimental-strip-types {{ justfile_directory() }}/packages/daemon-test-gate/src/ciReap.cli.ts
+
 # CI/pu-ONLY: the daemon-forking unit suites (KOLU_DAEMON_TESTS=1). These fork real
 # kaval/padi daemons + PTYs; a bare run on a workstation OOM-reaped the production
 # kaval (juspay/kolu#1375). NEVER run this on a machine hosting a live kolu — it
@@ -315,8 +321,21 @@ test-e2e-governance: install
 # rlimit): KOLU_DAEMON_BIND_PID binds every spawned daemon's lifetime to THIS run so
 # none can leak past it (the 182-leaked-dirs state becomes unrepresentable), and
 # `--workspace-concurrency=1` runs one package's suite at a time so a fork storm
-# can't pile up across packages. `test-unit` stays the fork-free default.
+# can't pile up across packages. `test-unit` stays the fork-free default. EXIT
+# trap reaps leftovers the in-process poll cannot (a wedged kaval, #2178).
 test-daemon: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export KOLU_CI_REAP_BIND_PID=$$
+    cleanup() {
+        local st=$?
+        # Best-effort: a janitor failure must not replace the suite's exit code.
+        if ! just _reap-ci-run; then
+            if [ "$st" -eq 0 ]; then st=1; fi
+        fi
+        exit "$st"
+    }
+    trap cleanup EXIT
     KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
 
 # W3.1 ssh-leg e2e — bind padiSurface over a REAL ssh hop, round-trip a terminal,
@@ -482,6 +501,21 @@ e2e-ssh-upgrade host: install
 test: install
     #!/usr/bin/env bash
     set -euo pipefail
+    lock=""
+    export KOLU_CI_REAP_BIND_PID=$$
+    cleanup() {
+        local st=$?
+        # Janitor first — then drop the suite lock so a waiter cannot mint
+        # roots under a still-running sweep.
+        if ! just _reap-ci-run; then
+            if [ "$st" -eq 0 ]; then st=1; fi
+        fi
+        if [ -n "$lock" ]; then
+            rm -rf "$lock" || true
+        fi
+        exit "$st"
+    }
+    trap cleanup EXIT
     # Raise the fd soft limit before spawning workers/servers. macOS defaults
     # to 256, which a kolu server under parallel load can exhaust on accept()
     # (silent EMFILE — no crash, just refused connections). Hard limit is
@@ -517,28 +551,31 @@ test: install
     # so the lock is stolen rather than waited on. After max-wait we proceed
     # unlocked — degraded mode is exactly today's behavior, never a deadlock.
     # KOLU_E2E_LOCK=0 opts out (e.g. deliberate side-by-side local runs).
-    lock=/tmp/kolu-e2e-suite.lock
     if [ "${KOLU_E2E_LOCK:-1}" != 0 ]; then
+        # `lock` is what cleanup() rms — assign it ONLY after mkdir succeeds.
+        # A waiter that set lock=path then died on `sleep 15` used to delete
+        # a live peer's suite lock (cleanup saw a non-empty path).
+        candidate=/tmp/kolu-e2e-suite.lock
         deadline=$(( $(date +%s) + 3600 ))
-        until mkdir "$lock" 2>/dev/null; do
-            owner="$(cat "$lock/pid" 2>/dev/null || true)"
+        while true; do
+            if mkdir "$candidate" 2>/dev/null; then
+                lock=$candidate
+                echo "$$" > "$lock/pid"
+                break
+            fi
+            owner="$(cat "$candidate/pid" 2>/dev/null || true)"
             if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
                 echo "e2e-lock: stealing lock from dead pid $owner"
-                rm -rf "$lock"
+                rm -rf "$candidate"
                 continue
             fi
             if [ "$(date +%s)" -ge "$deadline" ]; then
                 echo "e2e-lock: waited 60m on pid ${owner:-?}; proceeding unlocked"
-                lock=""
                 break
             fi
-            echo "e2e-lock: another suite holds $lock (pid ${owner:-?}); waiting..."
+            echo "e2e-lock: another suite holds $candidate (pid ${owner:-?}); waiting..."
             sleep 15
         done
-        if [ -n "$lock" ]; then
-            echo "$$" > "$lock/pid"
-            trap 'rm -rf "$lock"' EXIT
-        fi
     fi
     # The odu venue pool leases each CI host exclusively, so external load is
     # not an input to capacity. Size deterministically from hardware: roughly
@@ -586,6 +623,14 @@ test: install
 test-quick *args: install
     #!/usr/bin/env bash
     set -euo pipefail
+    cleanup() {
+        local st=$?
+        if ! just _reap-ci-run; then
+            if [ "$st" -eq 0 ]; then st=1; fi
+        fi
+        exit "$st"
+    }
+    trap cleanup EXIT
     {{ nix_shell_e2e }} pnpm --filter kolu-client build
     # hooks.ts spawn()s KOLU_SERVER as an executable with ["--port", N].
     # Without nix build there's no `kolu` binary, so the checked-in source
