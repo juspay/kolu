@@ -101,8 +101,9 @@ export function createWebglPainter(canvas: HTMLCanvasElement): WebglPainter {
   const atlas = document.createElement("canvas");
   atlas.width = atlasSize;
   atlas.height = atlasSize;
-  const atlas2d = atlas.getContext("2d");
-  if (!atlas2d) throw new Error("@kolu/ghostty-kit: atlas 2d failed");
+  const atlasCtx = atlas.getContext("2d");
+  if (!atlasCtx) throw new Error("@kolu/ghostty-kit: atlas 2d failed");
+  const atlas2d = atlasCtx;
   const tex = gl.createTexture();
   if (!tex) throw new Error("@kolu/ghostty-kit: createTexture failed");
   gl.bindTexture(gl.TEXTURE_2D, tex);
