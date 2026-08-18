@@ -19,13 +19,28 @@
  * verb never blocks (deliberately — no handler is held open server-side), so an
  * agent given only that verb would poll. This lifts padi's `awaitWatchEvents`,
  * which parks on the pulse stream and drains when it rings.
+ *
+ * ## The two vocabularies one queue can carry
+ *
+ * What a batch CONTAINS is chosen at `watch_open`, by whether it named the
+ * agent-state knobs (`states` / `heldForMs` / `nagMs`):
+ *
+ *   - **without them** — settle edges, as before: `asking` (blocked on a person),
+ *     `finished` (turn ended AND output went quiet), `gone` (the terminal left).
+ *     Each fires ONCE, on the edge.
+ *   - **with them** — agent-state reports: `snapshot` (already matching when you
+ *     opened — the standing truth, delivered before any change), `transition`
+ *     (entered a state and held it for `heldForMs`), `nag` (STILL holding,
+ *     `nagMs` later). The last one is why a supervisor stops losing terminals: a
+ *     report it ignored comes back instead of vanishing.
+ *
+ * A subscription is fed by exactly one of the two, and the six `kind` literals
+ * are disjoint, so a consumer branches on `kind` and never has to remember which
+ * it opened.
  */
 
 import { awaitWatchEvents, type PadiSurfaceClient } from "@kolu/padi/dial";
-import {
-  type PadiSettleEvent,
-  WATCH_NAME_MAX_LENGTH,
-} from "@kolu/padi/surface";
+import { type PadiWatchEvent, WATCH_NAME_MAX_LENGTH } from "@kolu/padi/surface";
 import { waitOutcomeJson } from "@kolu/surface/wait";
 import { MillisecondsSchema } from "./wait.ts";
 import type { BespokeTool } from "@kolu/surface-mcp";
@@ -65,7 +80,7 @@ export const watchNextTool: BespokeTool = {
   mutates: false,
   title: "Wait for the next terminal event",
   description:
-    'Block until any watched terminal needs you, then return every settle event that accumulated — the standing-subscription drain. Each event says which terminal and why: "asking" (its agent is blocked on input), "finished" (its turn ended AND its output went quiet), or "gone" (the terminal no longer exists — stop waiting on it). Events that land while you are NOT calling this are buffered, so nothing is missed between calls, and the queue survives a restart of this MCP server or of kaval. Prefer this over looping wait_agentState per terminal. Pass each result\'s `ackAfter` back as the next call\'s `after` to acknowledge it; unacknowledged events are handed over again, so a reply you never received is never lost. Returns {result: "met", met: {events, dropped, ackAfter, elapsedMs}} or {result: "timeout"|"closed", elapsedMs?, error?}. Neither non-met result means anything died: "timeout" means nothing happened in your window and "closed" means the notification channel dropped — in BOTH cases your queued events are intact, so just call again. If the subscription does not exist the call FAILS naming it (open it again with watch_open) — that is never reported as "closed". A nonzero `dropped` means the queue overflowed while you were away — re-read the terminals resource to reconcile.',
+    'Block until any watched terminal needs you, then return every event that accumulated — the standing-subscription drain. Each event says which terminal and why. A subscription opened WITHOUT the agent-state knobs reports edges: "asking" (its agent is blocked on input), "finished" (its turn ended AND its output went quiet), or "gone" (the terminal no longer exists — stop waiting on it). A subscription opened WITH them (watch_open\'s states/heldForMs/nagMs) reports levels instead: "snapshot" (already in that state when you opened — the standing truth, handed over before any change), "transition" (entered it and held it for heldForMs), and "nag" (STILL in it, nagMs later). Prefer the second form for supervision — pass states:["awaiting","waiting"], heldForMs:60000, nagMs:300000 and a terminal you ignore comes BACK every five minutes instead of being reported once and lost. A subscription answers ONE of the two questions, never both, so the second form reports no "gone": it is a LEVEL, so a terminal that disappears simply stops being reported and nothing is left waiting on it — if you specifically need to hear about a terminal dying, keep a second subscription without the three params, or read the terminals resource. Re-opening a name with DIFFERENT params starts its queue over (the buffered events answer the question you just stopped asking, and the fresh snapshot replaces them); re-opening with the SAME params — the ordinary restart — keeps it. Events that land while you are NOT calling this are buffered, so nothing is missed between calls, and the queue survives a restart of this MCP server or of kaval. Prefer this over looping wait_agentState per terminal. Pass each result\'s `ackAfter` back as the next call\'s `after` to acknowledge it; unacknowledged events are handed over again, so a reply you never received is never lost. Returns {result: "met", met: {events, dropped, ackAfter, elapsedMs}} or {result: "timeout"|"closed", elapsedMs?, error?}. Neither non-met result means anything died: "timeout" means nothing happened in your window and "closed" means the notification channel dropped — in BOTH cases your queued events are intact, so just call again. If the subscription does not exist the call FAILS naming it (open it again with watch_open) — that is never reported as "closed". A nonzero `dropped` means the queue overflowed while you were away — re-read the terminals resource to reconcile.',
   // Lifted, not composed — `awaitWatchEvents` is a Promise-shaped waiter taking
   // an AbortSignal, the same reason the `wait_*` tools lift rather than compose.
   handler: (args, client, signal) =>
@@ -81,7 +96,7 @@ export const watchNextTool: BespokeTool = {
       // "what was this wait about", which for a standing subscription is the name
       // rather than a terminal id.
       return waitOutcomeJson<{
-        events: readonly PadiSettleEvent[];
+        events: readonly PadiWatchEvent[];
         dropped: number;
         ackAfter: number;
         elapsedMs: number;

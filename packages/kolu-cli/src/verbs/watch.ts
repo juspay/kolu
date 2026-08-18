@@ -59,6 +59,23 @@
  * accepted are dropped: waiting uninterruptibly on a pipe that may never drain
  * is a worse failure mode than losing the tail of a feed the user just stopped.)
  *
+ * ## Two feeds, one verb
+ *
+ * Naming any of `--states` / `--held-for` / `--nag` switches this verb from the
+ * CHANGE tail described above to the SUPERVISION feed: agent-state transitions,
+ * debounced by a hold and repeated on a nag, led by the currently-matching set.
+ * They are different questions — "what just changed in the workspace" and "what
+ * has been sitting unattended" — and the second one is the reason the first was
+ * never usable as an alert: it relays byte-level churn (an idle grok repaints
+ * about once a second), it only shows CHANGES (join late and standing neglect is
+ * invisible), and it never repeats itself (ignore a line and it is gone).
+ *
+ * The switch is the PRESENCE of a knob, not a mode flag, so there is nothing to
+ * set inconsistently with the knobs. And the knobs themselves are padi's: this
+ * file parses argv into them and prints what comes back, and does not filter,
+ * debounce, or remember anything — the same three knobs reach the same engine
+ * from the MCP face, so there is no second implementation to drift.
+ *
  * ## Narrowing, and output discipline
  *
  * `<id>` is a short id or any unique prefix, resolved once against the live key
@@ -73,8 +90,17 @@
  * ending; see `rejection` below.
  */
 
-import { PADI_LINK_CLOSED, watchTerminals } from "@kolu/padi/dial";
 import {
+  namesWatchKnobs,
+  PADI_LINK_CLOSED,
+  WAIT_STATES,
+  type WaitState,
+  watchAgentStates,
+  watchTerminals,
+} from "@kolu/padi/dial";
+import {
+  formatStateEvent,
+  formatStateEventJson,
   formatWatchActivity,
   formatWatchActivityJson,
   formatWatchEvent,
@@ -82,6 +108,8 @@ import {
   formatWatchRemoval,
   formatWatchRemovalJson,
 } from "@kolu/padi/render";
+import type { PadiWatchStatesInput } from "@kolu/padi/surface";
+import { isValidTimerMs, timerRangeMessage } from "@kolu/surface/wait";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { type Cause, Effect, Fiber, Queue, Stream } from "effect";
 import type { Command } from "effect/unstable/cli";
@@ -92,10 +120,12 @@ import { type Endpoint, withPadi } from "../endpoint.ts";
 import { type CliFailure, errorMessage, failure } from "../exit.ts";
 import {
   isConsumerHangup,
+  type Parsed,
   resolveTerminal,
   type StdoutWriteFailed,
   stdoutLost,
   stdoutSink,
+  waitStateTokens,
   writeErrSync,
 } from "./shared.ts";
 
@@ -134,10 +164,132 @@ const pumpToStdout = (
   );
 };
 
+// ── The supervision grammar (argv only — the semantics are padi's) ──────────
+//
+// The same division `kolu wait` draws for `--until`: padi owns what a bucket IS
+// (`isWaitState`) and what a knob MEANS; how a comma list and a duration are
+// SPELLED, and what a rejection reads like, is argv grammar and lives here. And
+// it is decided BEFORE the dial, so `--held-for banana` is refused instantly
+// rather than after a `--host` has ssh-provisioned a cold box.
+
+/** How long, spelled the way a person writes it — and the unit is OPTIONAL,
+ *  because a bare number in this binary already means milliseconds.
+ *
+ *  `--timeout 10000`, `--settled 15000` and `--until idle:2000` are all bare
+ *  millisecond integers, so refusing `--held-for 60000` would make one binary
+ *  hold two mutually-refusing duration grammars — a user who has learned the
+ *  other four flags gets an error for spelling this one the same way. One
+ *  grammar, then: milliseconds, with a suffix for the two flags whose natural
+ *  values are minutes and hours (nobody wants to read `--nag 300000`). The
+ *  suffix is a convenience ON the existing spelling, not a second one. */
+const DURATION = /^(\d+)(ms|s|m|h|d)?$/;
+const UNIT_MS: Record<string, number> = {
+  ms: 1,
+  s: 1000,
+  m: 60_000,
+  h: 3_600_000,
+  // `d`, because `relativeTime` — the fold this feed's hold column is RENDERED
+  // with — emits `2d`. A grammar you can read out of the output and not type
+  // back in is half a grammar, and the ceiling is ~24.8 days, so `1d`–`24d` are
+  // all values the feed can print.
+  d: 86_400_000,
+};
+
+/** Read a duration for `flag`, refusing anything below `min`.
+ *
+ *  `min` is a PARAMETER because it is the flag's own fact and the flag's own
+ *  sentence: a hold of 0 means "report it the instant it enters", an interval of
+ *  0 is a spin. It used to be an `ms !== 0` escape inside this parser plus a
+ *  compensating check at one caller — one rule at two depths, and invisible to
+ *  the third duration flag that would inherit the escape by accident. */
+function parseDuration(
+  flag: string,
+  raw: string,
+  min: { readonly ms: number; readonly why: string },
+): Parsed<number> {
+  const m = DURATION.exec(raw.trim());
+  if (m === null) {
+    return {
+      kind: "error",
+      message: `--${flag} ${JSON.stringify(raw)} is not a duration. Write a whole number of milliseconds (60000), or add a unit: 500ms, 60s, 5m, 2h, 1d.`,
+    };
+  }
+  // An omitted unit is `ms` — see the grammar note above.
+  const ms =
+    Number(m[1]) * (m[2] === undefined ? 1 : (UNIT_MS[m[2]] as number));
+  if (ms < min.ms) {
+    return { kind: "error", message: `--${flag} ${raw}: ${min.why}` };
+  }
+  if (ms > 0 && !isValidTimerMs(ms)) {
+    // The one ceiling sentence, from the module that owns the ceiling — so a
+    // user who overshoots `--timeout` and one who overshoots `--nag` are taught
+    // the same limit in the same words.
+    return {
+      kind: "error",
+      message: timerRangeMessage(flag, "fires immediately, forever", raw),
+    };
+  }
+  return { kind: "ok", value: ms };
+}
+
+/** What the three knobs add up to — the wire input, or `undefined` when the user
+ *  named none of them and wants the change tail instead.
+ *
+ *  Only the knobs the user actually SPELLED ride the wire; the defaults live in
+ *  padi, once, so the CLI and an MCP orchestrator that named no states are
+ *  watching the same thing rather than two constants that agree today. */
+export function planSupervision(
+  args: WatchArgs,
+): Parsed<PadiWatchStatesInput | undefined> {
+  const input: {
+    states?: readonly WaitState[];
+    heldForMs?: number;
+    nagMs?: number;
+  } = {};
+  if (args.states !== undefined) {
+    const tokens = waitStateTokens(args.states);
+    if (tokens === undefined) {
+      return {
+        kind: "error",
+        message: `--states ${JSON.stringify(args.states)} is not a list of agent buckets. Pick from ${WAIT_STATES.join(", ")}, comma-separated (any-of).`,
+      };
+    }
+    input.states = tokens;
+  }
+  if (args.heldFor !== undefined) {
+    const parsed = parseDuration("held-for", args.heldFor, {
+      ms: 0,
+      // Zero IS the hold's identity element — report it the instant it enters.
+      why: "a hold cannot be negative.",
+    });
+    if (parsed.kind === "error") return parsed;
+    input.heldForMs = parsed.value;
+  }
+  if (args.nag !== undefined) {
+    const parsed = parseDuration("nag", args.nag, {
+      ms: 1,
+      why: "an interval of zero is a spin, not a fast nag — it would re-report every terminal as fast as the daemon can loop. Pass a real interval (5m), or leave --nag off to be told once.",
+    });
+    if (parsed.kind === "error") return parsed;
+    input.nagMs = parsed.value;
+  }
+  // The PRESENCE of a knob IS the choice of feed — asked of padi's ONE
+  // definition rather than re-listed here. A fourth knob then reaches this face
+  // by being declared, instead of leaving the CLI quietly on the change tail for
+  // a user who named it.
+  return { kind: "ok", value: namesWatchKnobs(input) ? input : undefined };
+}
+
 export function run(
   endpoint: Endpoint,
   args: WatchArgs,
 ): Effect.Effect<void, unknown> {
+  // BEFORE the dial: a mistyped duration is argv, and argv is answerable without
+  // a daemon.
+  const plan = planSupervision(args);
+  if (plan.kind === "error") return Effect.fail(failure(plan.message));
+  const supervise = plan.value;
+
   return withPadi(
     endpoint,
     Effect.fn(function* (conn) {
@@ -156,13 +308,16 @@ export function run(
        *  user asked to be narrowed away — a filter that is only correct because
        *  three copies of it agree. The two renderings are THUNKS so the shape
        *  that was not asked for is never formatted. */
+      const offer = (line: string): void => {
+        Queue.offerUnsafe(lines, `${line}\n`);
+      };
       const emitFor = (
         id: TerminalId,
         json: () => string,
         human: () => string,
       ): void => {
         if (only !== undefined && id !== only) return;
-        Queue.offerUnsafe(lines, `${args.json ? json() : human()}\n`);
+        offer(args.json ? json() : human());
       };
       /** Why the mirror REJECTED, if it did — the only thing upstream ever says
        *  that genuinely names a failure. The `log` lines below are chatter by
@@ -188,35 +343,71 @@ export function run(
           // without a single `process.on` in this file. Combined with the
           // stdout-death signal because both mean "stop", and the mirror takes
           // one.
-          try: (interrupted) =>
-            watchTerminals(
-              conn.client,
-              {
-                onUpsert: (id, value, live) =>
-                  emitFor(
-                    id,
-                    () => formatWatchJson(id, value, { live }),
-                    () =>
-                      formatWatchEvent(id, value, { now: Date.now(), live }),
-                  ),
-                onRemove: (id) =>
-                  emitFor(
-                    id,
-                    () => formatWatchRemovalJson(id),
-                    () => formatWatchRemoval(id, { now: Date.now() }),
-                  ),
-                onActivity: (id, live) =>
-                  emitFor(
-                    id,
-                    () => formatWatchActivityJson(id, live),
-                    () => formatWatchActivity(id, live, { now: Date.now() }),
-                  ),
-              },
-              AbortSignal.any([interrupted, stopped.signal]),
-              (line) => {
-                writeErrSync(`kolu: ${line}\n`);
-              },
-            ),
+          try: (interrupted) => {
+            const signal = AbortSignal.any([interrupted, stopped.signal]);
+            const narrate = (line: string): void => {
+              writeErrSync(`kolu: ${line}\n`);
+            };
+            // The two feeds share every ending, every diagnostic and the one
+            // pump; they differ only in which member they subscribe. So this is
+            // the ONLY fork between them — not two verbs, and not two copies of
+            // the lifecycle above and below.
+            return supervise === undefined
+              ? watchTerminals(
+                  conn.client,
+                  {
+                    onUpsert: (id, value, live) =>
+                      emitFor(
+                        id,
+                        () => formatWatchJson(id, value, { live }),
+                        () =>
+                          formatWatchEvent(id, value, {
+                            now: Date.now(),
+                            live,
+                          }),
+                      ),
+                    onRemove: (id) =>
+                      emitFor(
+                        id,
+                        () => formatWatchRemovalJson(id),
+                        () => formatWatchRemoval(id, { now: Date.now() }),
+                      ),
+                    onActivity: (id, live) =>
+                      emitFor(
+                        id,
+                        () => formatWatchActivityJson(id, live),
+                        () =>
+                          formatWatchActivity(id, live, { now: Date.now() }),
+                      ),
+                  },
+                  signal,
+                  narrate,
+                )
+              : watchAgentStates(
+                  conn.client,
+                  // The resolved id rides the WIRE, not a local filter: padi
+                  // narrows the snapshot as well as the stream, so a debugging
+                  // tail costs one terminal's worth of traffic instead of the
+                  // fleet's.
+                  {
+                    ...supervise,
+                    ...(only === undefined ? {} : { id: only }),
+                  },
+                  (batch) => {
+                    for (const event of batch) {
+                      // Both spellings are `render.ts`'s, like every other line
+                      // this verb prints — the `--json` contract has one owner.
+                      offer(
+                        args.json
+                          ? formatStateEventJson(event)
+                          : formatStateEvent(event),
+                      );
+                    }
+                  },
+                  signal,
+                  narrate,
+                );
+          },
           catch: (err) => err,
         }),
         // A rejection and a self-settle are the same fact — the watch is over —

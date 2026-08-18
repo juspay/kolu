@@ -436,6 +436,23 @@ kolu-spawned PTY, or in one that predates this var and hasn't been respawned yet
 PR · AGENT · FOREGROUND`), `--json` for the full records. `kolu watch [id]`
 streams changes and live output activity until you interrupt it.
 
+**`kolu watch` is also the supervision loop.** `--states waiting,awaiting`
+reports the AGENT's own state (never the screen — an idle agent that repaints
+its prompt every second is still idle), `--held-for 60s` reports it only once it
+has held that long, and `--nag 5m` re-reports it every five minutes it keeps
+holding. Every run leads with the currently-matching set, so starting one late
+still shows what is already standing. Background this and no finished terminal
+sits unnoticed:
+
+```sh
+kolu watch --states waiting,awaiting --held-for 60s --nag 5m
+```
+
+Omit the id: supervision must never be scoped by enumeration — a watch narrowed
+to the lanes you remembered goes blind to the one you didn't. Lines read
+`HH:MM:SS  <id>  <snapshot|transition|nag>  <state>  <held>  [intent]`;
+`--json` emits the same, filtered inside kolu, as NDJSON.
+
 > **A terminal id is not stable across a daemon restart.** kaval re-keys every
 > terminal when it restarts (crash-restore, a "Restart kaval", a redeploy), so an
 > id you were *handed* — a coordinator's terminal from your brief, an id you cached

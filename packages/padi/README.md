@@ -315,6 +315,47 @@ worker that no longer exists must be told, not left waiting. A kaval recycle
 retires every active terminal id, so this is the signal that a lane's id is stale
 rather than merely quiet.
 
+## The agent-state watch — the other source
+
+`src/attention/` holds **two** event sources, and a subscriber picks one. The
+settle detector above answers a question padi decides for you: *who just started
+needing someone*, with the effective-finish quiet conjunct baked in. The agent-
+state watch (`stateWatch.ts`) answers the question the SUBSCRIBER asks: *which
+agent buckets do I care about* (`states`), *how long must one hold before I hear
+about it* (`heldForMs`), and *how often should I be told again while it keeps
+holding* (`nagMs`). Those three knobs are the whole of `kolu watch --states /
+--held-for / --nag` and of the same-named `watch.open` params — one engine, two
+faces, no client-side filtering anywhere.
+
+It reads the ADAPTER, never the bytes: the level is `agentBucket(agent.state)`,
+what the agent's own adapter published, so a quiet screen is not taken for an
+idle agent (an idle grok repaints about once a second, which starved a byte-quiet
+gate forever). `heldForMs` debounces the STATE.
+
+Its events are `snapshot` (already matching when you subscribed — the standing
+set, handed over before anything that changed since), `transition` (entered a
+state and held it), and `nag` (still holding, one interval later). The nag is the
+level trigger, and the difference between a doorbell you can miss and one that
+keeps ringing.
+
+**A subscription is fed by exactly one source**, chosen by whether it named any
+of the three knobs — never merged, because the two answer different questions in
+different vocabularies. It follows that the state feed carries no `gone`: a
+level-triggered subscriber is not blocked on anything, so a terminal that leaves
+simply stops being reported. It follows too that re-opening a name with a
+DIFFERENT filter empties its queue — those buffered answers belong to a question
+the caller has stopped asking, and the new attachment's snapshot is the standing
+truth that replaces them.
+
+Both sources stamp from ONE daemon sequence (`eventSeq.ts`), because a
+subscription's acknowledgement watermark is a single number and has to mean the
+same thing whichever source filled its buffer.
+
+The live face is the `watchStates` stream member — the same engine with no queue
+in front of it, for a consumer (`kolu watch`) that holds a socket rather than
+coming back for a drain. Its first frame is the snapshot, which is what makes the
+framework's transparent re-subscribe re-lead with fresh truth.
+
 ## What padi knows nothing about
 
 Location is structure, so the boundary is defined as much by what padi refuses to

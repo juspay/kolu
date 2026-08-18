@@ -132,7 +132,10 @@ looping waits and reporting back); it drops reports at four seams and it is what
 `watch_*` exists to retire.
 
 ```jsonc
-watch_open { name: "campaign" }                                  // once — omit `ids` to watch every terminal
+// once — omit `ids` to watch every terminal. The three state knobs are what
+// make an ignored terminal come BACK instead of being reported once and lost.
+watch_open { name: "campaign", states: ["awaiting", "waiting"],
+             heldForMs: 60000, nagMs: 300000 }
 watch_next { name: "campaign", timeoutMs: 60000 }                // first call
 watch_next { name: "campaign", after: <ackAfter>, timeoutMs: … } // then ACK the last batch each time
 watch_close { name: "campaign" }                                 // when the campaign ends
@@ -147,9 +150,33 @@ watch_close { name: "campaign" }                                 // when the cam
   name after either to reattach; a new name starts empty. A **padi** restart
   (upgrade) clears subscriptions — `watch_next` then FAILS naming the
   subscription rather than reporting quiet, so re-`watch_open` and continue.
-- Each event is `{ id, kind, at, parentId?, intent? }` with `kind` one of
-  `asking` (blocked on input) · `finished` (turn ended AND output settled) ·
-  `gone` (the terminal no longer exists — stop waiting on it).
+- **Open it with the state knobs.** Without them a settle fires ONCE per
+  episode: a worker that finishes while you are mid-turn is reported into the
+  queue and never mentioned again, and you find it an hour later. With them the
+  subscription reports a LEVEL — `states` picks the buckets (default
+  `awaiting`+`waiting`), `heldForMs` waits for the state to hold (so an agent
+  handed more work inside the window is never reported), and `nagMs` re-reports
+  it every interval it keeps holding. It also hands over the currently-matching
+  set on every (re)open, so reattaching after a restart shows you what is
+  STANDING, not just what changed since.
+- Each event is `{ id, kind, at, parentId?, intent? }`. `kind` depends on how you
+  opened it — one subscription is fed by one of the two, never both:
+  - **no state knobs** → `asking` (blocked on input) · `finished` (turn ended AND
+    output settled) · `gone` (the terminal no longer exists — stop waiting on it).
+  - **with them** → `snapshot` (already in that state when you opened) ·
+    `transition` (entered it and held for `heldForMs`) · `nag` (still in it,
+    `nagMs` later). These also carry `state` and `since`, so `at - since` is how
+    long it has been sitting there.
+- kolu asks the AGENT for its state; it never infers idleness from the screen.
+  An idle agent that repaints its prompt every second is still idle, so
+  `heldForMs` times the state and not the output.
+- **One subscription answers ONE of the two questions.** A state-knob
+  subscription reports no `gone` — it is a level, so a terminal that disappears
+  just stops being reported and nothing is left waiting on it. If you need to
+  hear about a terminal DYING, keep a second `watch_open` without the knobs, or
+  re-read the `terminals` resource. And re-opening a name with DIFFERENT knobs
+  starts its queue over (those events answer the question you stopped asking);
+  re-opening with the SAME knobs — the ordinary restart — keeps it.
 - `timeout` and `closed` both lose nothing — the queue is still there next call.
   Neither means a terminal died. A nonzero `dropped` means you were away long
   enough to overflow the 512-event queue; re-read the `terminals` resource to

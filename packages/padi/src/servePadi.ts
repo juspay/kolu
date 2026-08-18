@@ -37,9 +37,16 @@ import {
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { createFinishQuiet } from "./activity/finishQuiet.ts";
+import { EMPTY_URGENCY } from "./activity/urgency.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import { createEdgeMemory } from "./attention/edgeMemory.ts";
+import { createFleetGate } from "./attention/fleetGate.ts";
+import { createEventSeq } from "./attention/eventSeq.ts";
 import { createSettleEvents } from "./attention/settleEvents.ts";
+import { createStateWatchHub } from "./attention/stateWatch.ts";
 import { createWatchRegistry } from "./attention/watchRegistry.ts";
+import { stateWatchSource } from "./attention/stateWatchStream.ts";
+import { specOf, watchFilterOf, watchSpecOf } from "./attention/watchSpec.ts";
 import type {
   EndpointGrid,
   TerminalAttachFrame,
@@ -92,6 +99,7 @@ import {
   type PadiIdentity,
   type PadiStatus,
   type PadiTerminal,
+  type PadiWatchStatesInput,
   type padiSurface,
 } from "./surface.ts";
 import {
@@ -284,22 +292,59 @@ export function buildPadiSurfaceDeps(deps: {
   // MCP-only supervisor drains. Disposed alongside the finish tracker (one
   // `disposeStanding`) so a servePadi rebuild in tests cannot stack two sets of
   // listeners on one daemon.
-  const settleEvents = createSettleEvents({ log });
+  //
+  // ONE counter behind both sources. A standing subscription's acknowledgement
+  // watermark is a single number, so a settle edge and a state nag have to be
+  // stamped from the same sequence or a fresh subscription seeded from one
+  // source's watermark would replay (or permanently discard) the other's.
+  const watchSeq = createEventSeq();
+  // ONE lane-attribution memory behind both sources too. Both fold the same
+  // terminals map for the same two fields, and a departed terminal's parent is
+  // knowable only from the frame that still had it — so it is remembered once,
+  // by the producer below, and read by both.
+  const watchEdges = createEdgeMemory();
+  // Has a REAL fleet been seen yet? The serve-time empty seed is gated on this,
+  // once, in the `urgency` cell below — see `fleetGate.ts` for what the frame
+  // would otherwise cost each consumer. Per-serve rather than module-scoped, so
+  // a servePadi rebuild in tests starts unseeded exactly as a fresh daemon does.
+  const fleetGate = createFleetGate();
+  const settleEvents = createSettleEvents({
+    log,
+    seq: watchSeq,
+    edges: watchEdges,
+  });
+  // The agent-STATE watch — `--states`/`--held-for`/`--nag`, implemented once
+  // and served to both faces: the `watchStates` stream below is `kolu watch`'s
+  // subscription, and a `watch.open` that names any of the three knobs is an MCP
+  // orchestrator's. It reads the adapter's own agent state, never output bytes.
+  const stateWatch = createStateWatchHub({
+    log,
+    seq: watchSeq,
+    edges: watchEdges,
+  });
   const watchRegistry = createWatchRegistry({
     log,
-    // The daemon's CURRENT settle sequence — where a fresh subscription starts
+    // The daemon's CURRENT watch sequence — where a fresh subscription starts
     // acknowledged, and the ceiling an acknowledgement is sanity-checked against
     // (a cursor from a previous padi generation would otherwise set a watermark
     // no future event could climb past).
-    daemonSeq: () => settleEvents.lastSeq(),
+    daemonSeq: () => watchSeq.last(),
+    // The composition root joins the two halves the registry keeps apart: the
+    // three knobs the caller named, and the scope the SUBSCRIPTION owns. The
+    // queue never mints a spec, so the state watch's scoping is the only
+    // scoping there is for a state feed.
+    subscribeStates: (filter, ids, emit) =>
+      stateWatch.subscribe(specOf(filter, ids), emit),
   });
   const unsubscribeSettle = settleEvents.onFrame((events) =>
-    watchRegistry.accept(events),
+    watchRegistry.acceptSettle(events),
   );
   disposeStanding = () => {
     unsubscribeSettle();
     watchRegistry.dispose();
+    stateWatch.dispose();
     settleEvents.dispose();
+    watchEdges.dispose();
     finish.dispose();
   };
 
@@ -402,6 +447,17 @@ export function buildPadiSurfaceDeps(deps: {
       // dedup point. No `store`/`equals` here — the graph is the one writer.
       urgency: derived.cell(($) => {
         const terminals = $.terminals();
+        // THE SERVE-TIME EMPTY SEED, gated ONCE at the only thing that produces
+        // it. This cell runs at serve time, BEFORE the endpoint has booted and
+        // adopted kaval's terminals, so its first frame is an information-free
+        // empty registry, and every consumer downstream treats a frame as
+        // evidence. The gate (and the half that is easy to lose — it OPENS once
+        // and stays open, so a later empty fleet is a real "everything exited")
+        // is `fleetGate.ts`, where it is pinned. The frame stops HERE, and
+        // everything downstream may trust what it is fed.
+        if (!fleetGate.admit(terminals)) {
+          return EMPTY_URGENCY;
+        }
         const next = finish.project(terminals);
         // The settle EDGE, taken where the LEVEL is computed — one fold, one
         // arrival time, so a supervisor's nudge and the Dock's paint can never
@@ -411,7 +467,18 @@ export function buildPadiSurfaceDeps(deps: {
         // here), and it is safe for a second reason of its own: the transition is
         // computed against the PREVIOUS frame, so a redundant recompute yields no
         // candidates and emits nothing.
+        // The lane attribution of this frame, remembered ONCE, before either
+        // source reads it — including the terminals that just left, whose
+        // records are already gone.
+        watchEdges.observe(terminals);
         settleEvents.observe(next, terminals);
+        // The agent-state LEVEL, taken from the same fold for the same reason:
+        // one observation, one arrival time. It reads the terminals collection
+        // rather than the urgency projection because it reports the agent's own
+        // bucket (`waiting` the moment the adapter says so), not the EF2
+        // byte-quiet verdict layered on top — that conjunction is what
+        // `--held-for` replaces with an honest clock.
+        stateWatch.observe(terminals);
         return next;
       }),
       // The saved session — backed by padi's OWN state-root Conf, set by padi's
@@ -551,6 +618,13 @@ export function buildPadiSurfaceDeps(deps: {
             `watchPulse[${input.name}]`,
           ),
       },
+      // The live agent-state feed — the same engine a filtered `watch.open`
+      // rides, minus the queue. A socket-holding face needs no buffer: the
+      // subscription IS the delivery, and its first frame is the snapshot.
+      watchStates: {
+        source: (input: PadiWatchStatesInput) =>
+          stateWatchSource(stateWatch, watchSpecOf(input), log),
+      },
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on
@@ -606,15 +680,26 @@ export function buildPadiSurfaceDeps(deps: {
             // `open` answers `reattached` itself — the registry is the only thing
             // that can know it without a race, and it seeds a fresh
             // subscription's watermark from the `daemonSeq` it was built with.
-            const { sub, reattached } = watchRegistry.open(
-              input.name,
-              input.ids,
-            );
+            // `watchFilterOf` returns a filter only when the caller named one of
+            // the three knobs — the presence of a knob IS the choice of source,
+            // so there is no mode flag here to contradict them.
+            const filter = watchFilterOf(input);
+            const { sub, reattached } = watchRegistry.open(input.name, {
+              ...(input.ids === undefined ? {} : { ids: input.ids }),
+              ...(filter === undefined ? {} : { filter }),
+            });
             log.info(
               {
                 name: input.name,
                 reattached,
                 scope: input.ids === undefined ? "all" : input.ids.length,
+                // The filter IS the knobs, so it is spread rather than
+                // re-listed — a fourth knob is logged by existing. `states` is
+                // a Set, which a log serializer renders as `{}`, so that one
+                // field is spelled as the array it is on the wire.
+                ...(filter === undefined
+                  ? {}
+                  : { ...filter, states: [...filter.states] }),
               },
               reattached
                 ? "watch subscription re-attached"

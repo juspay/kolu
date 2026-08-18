@@ -40,7 +40,16 @@
  * loads either, and a reserved face fails fast having loaded nothing.
  */
 
-import { isValidTimerMs, MAX_TIMER_MS } from "@kolu/surface/wait";
+// The bucket vocabulary and the supervision default, read from the LEAF that
+// owns them — the same reason `DEBRIEF_*` below is imported rather than
+// re-typed: a `--help` line that hand-copies a constant is a sentence nothing
+// stops from going quietly false. (`@kolu/terminal-vocab/agentProjection` is a
+// pure fold module, so this costs the dynamic-import fence nothing.)
+import {
+  WAIT_STATES,
+  WATCH_DEFAULT_STATES,
+} from "@kolu/terminal-vocab/agentProjection";
+import { isValidTimerMs, timerRangeMessage } from "@kolu/surface/wait";
 import { Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 // The `kolu debrief` contract — a zero-import leaf, read HERE for the flags'
@@ -226,10 +235,8 @@ const positiveLines = (name: string): Flag.Flag<number> =>
  *  differs — the overflow is one fact. */
 const timerMsFlag = (name: string, effect: string): Flag.Flag<number> =>
   Flag.integer(name).pipe(
-    Flag.filter(
-      isValidTimerMs,
-      (n) =>
-        `--${name} must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger value overflows the timer and ${effect} almost immediately, got ${n}.`,
+    Flag.filter(isValidTimerMs, (n) =>
+      timerRangeMessage(name, effect, String(n)),
     ),
   );
 
@@ -422,7 +429,7 @@ export const waitFlags = {
   ),
   until: Flag.string("until").pipe(
     Flag.withDescription(
-      "idle:<ms> · match:<regex> · agent buckets (working, awaiting, waiting — comma-separated means any-of)",
+      `idle:<ms> · match:<regex> · agent buckets (${WAIT_STATES.join(", ")} — comma-separated means any-of)`,
     ),
   ),
   // The shared timer-range rule, on the flag: `runWait` THROWS a RangeError on
@@ -615,6 +622,34 @@ export const watchFlags = {
     ),
   ),
   json: sw(Flag.boolean("json").pipe(Flag.withDescription("emit NDJSON"))),
+  // The three SUPERVISION knobs. Naming any one of them turns `watch` from a
+  // change tail into the supervision feed — agent-state transitions, held and
+  // repeated — which is why they are plain strings here and parsed in the verb:
+  // `--held-for 60s` is a compound grammar like `--until idle:2000`, and
+  // `verbs/watch.ts` refuses a bad one BEFORE it dials, exactly as `wait` does.
+  // They filter in padi, never here: the CLI and the MCP face pass the same three
+  // knobs to the same engine, so there is nothing to keep in sync.
+  states: opt(
+    Flag.string("states").pipe(
+      Flag.withDescription(
+        `supervise instead of tailing: report agent-state transitions for these buckets (comma-separated any-of: ${WAIT_STATES.join(", ")}). Defaults to ${WATCH_DEFAULT_STATES.join(",")} when only --held-for/--nag is given`,
+      ),
+    ),
+  ),
+  heldFor: opt(
+    Flag.string("held-for").pipe(
+      Flag.withDescription(
+        "report a state only once it has HELD this long — milliseconds like every other window here (60000), or with a unit: 500ms, 60s, 5m, 2h, 1d",
+      ),
+    ),
+  ),
+  nag: opt(
+    Flag.string("nag").pipe(
+      Flag.withDescription(
+        "RE-report every interval the state keeps holding, so an ignored terminal comes back instead of vanishing after one line — 300000, or 5m",
+      ),
+    ),
+  ),
 } as const;
 
 const watch = Command.make(
@@ -625,8 +660,24 @@ const watch = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Stream terminal changes and live output activity until interrupted.",
+    "Stream terminal changes and live output activity — or, with --states/--held-for/--nag, supervise: report agents that have been sitting in a state, and keep reporting them.",
   ),
+  Command.withExamples([
+    {
+      command: "kolu watch",
+      description: "Tail every terminal's changes and output activity",
+    },
+    {
+      command: "kolu watch --states waiting,awaiting --held-for 60s --nag 5m",
+      description:
+        "The supervision loop — every terminal idle a minute announces itself, every 5 minutes, until someone deals with it",
+    },
+    {
+      command: "kolu watch --nag 5m --json",
+      description:
+        "The same over NDJSON, filtered in padi, for a script to consume with jq",
+    },
+  ]),
 );
 
 /** The whole binary. Verbs first — they are what a user reaches for — then the

@@ -98,6 +98,11 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
       "padi's activity stream has NO current-value snapshot — createLiveActivitySource builds a fresh empty tracker per subscription and counts bytes only from subscribe-time, so a fresh subscriber (every MCP resources/read opens one) always starts empty. An MCP resource read of activity is therefore always [] and its subscribe delivers a bare change-nudge with no readable value — a resource that can't honor the read contract. `urgency` (a snapshot-bearing cell) answers who-needs-attention; the `terminals` records carry per-terminal agent state. A readable activity would need a snapshot-bearing source or an adapter that retains the streamed frame — a follow-up, not a v1 row.",
   },
   {
+    member: "watchStates",
+    reason:
+      "the agent-state watch reaches this face through the states/heldForMs/nagMs params on watch.open, which is the SAME engine with a queue in front of it. Exposing the raw stream as well would give an agent a second, UNBUFFERED spelling of one feature — and unbuffered is exactly wrong here: an MCP client is not holding a socket between calls, so every nag that fired while it was thinking would be lost, which is the failure mode the standing subscription exists to remove. A socket-holding face (kolu watch) is what the stream is for.",
+  },
+  {
     member: "lifecycle.killAll",
     reason: "daemon-admin blast radius — a human verb",
   },
