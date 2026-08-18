@@ -61,8 +61,6 @@ export function removeThisRunRuntimeRoots(
   root: string = thisRunRuntimeRoot(),
   opts: {
     list?: () => ListedProc[];
-    /** Pids the sweep will reap — leftover daemons/helpers, not live peers. */
-    doomed?: ReadonlySet<number>;
   } = {},
 ): string[] {
   const removed: string[] = [];
@@ -75,7 +73,6 @@ export function removeThisRunRuntimeRoots(
   }
   const list = opts.list ?? listProcesses;
   const procs = list();
-  const doomed = opts.doomed ?? new Set<number>();
   for (const ent of ents) {
     if (!ent.isDirectory()) continue;
     if (!CI_RUNTIME_DIR_PREFIXES.some((p) => ent.name.startsWith(p))) continue;
@@ -83,7 +80,6 @@ export function removeThisRunRuntimeRoots(
     const namedByPeer = procs.some(
       (p) =>
         p.command.includes(full) &&
-        !doomed.has(p.pid) &&
         !(
           ent.name.startsWith(SCROLL_FIFO_DIR_PREFIX) &&
           commandArgv0IsCat(p.command)
