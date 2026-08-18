@@ -102,7 +102,16 @@ test("test-daemon and e2e `test` reap this-run leftovers on EXIT (#2178)", () =>
       body,
       `\`${recipe}\` must invoke the shipped janitor, not a parallel rm`,
     ).toContain("just _reap-ci-run");
+    expect(
+      body,
+      `\`${recipe}\` must tell the janitor this-run bind pid so EXIT can reap while $$ is still alive`,
+    ).toContain("KOLU_CI_REAP_BIND_PID=$$");
   }
+  const testBody = recipeBody(ROOT, "test");
+  expect(
+    testBody.indexOf("just _reap-ci-run"),
+    "janitor must run before the suite lock is released",
+  ).toBeLessThan(testBody.indexOf('rm -rf "$lock"'));
   const quickAt = ROOT.search(/^test-quick \*args:/m);
   expect(quickAt, "must declare a `test-quick` recipe").toBeGreaterThanOrEqual(
     0,

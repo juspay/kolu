@@ -11,7 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir, userInfo } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
@@ -21,6 +21,8 @@ import {
   listProcesses,
   parseBindPidFromEnvironBytes,
   parseBindPidFromPsEww,
+  processListArgs,
+  thisUid,
   reapCiRun,
   reapUncooperative,
   removeThisRunRuntimeRoots,
@@ -107,6 +109,15 @@ it("removeThisRunRuntimeRoots deletes only this-run prefixes, leaves the rest", 
   expect(existsSync(keep)).toBe(true);
 });
 
+it("processListArgs selects by uid and widens darwin command", () => {
+  const args = processListArgs();
+  expect(args.join(" ")).toMatch(/uid=/);
+  expect(args.join(" ")).not.toMatch(/user=/);
+  if (process.platform === "darwin") {
+    expect(args.some((a) => /w{2}/.test(a) || a.includes("ww"))).toBe(true);
+  }
+});
+
 it("isCiOwnedDaemonCommand requires a CI root AND a daemon bin", () => {
   expect(
     isCiOwnedDaemonCommand(
@@ -156,29 +167,29 @@ it("isCiLeftoverHelperCommand matches node-pty helpers on a CI root", () => {
 });
 
 it("selectBindPidGoneDaemons skips production (no bind pid) and live-bind daemons", () => {
-  const me = userInfo().username;
+  const me = thisUid();
   const procs = [
     {
       pid: 10,
-      user: me,
+      uid: me,
       command:
         "node packages/kaval/src/bin.ts --socket /tmp/padi-dial-rt-x/kaval.sock",
     },
     {
       pid: 11,
-      user: me,
+      uid: me,
       command:
         "node packages/kaval/src/bin.ts --socket /tmp/padi-dial-rt-y/kaval.sock",
     },
     {
       pid: 12,
-      user: "someone-else",
+      uid: me + 1,
       command:
         "node packages/kaval/src/bin.ts --socket /tmp/padi-dial-rt-z/kaval.sock",
     },
     {
       pid: 13,
-      user: me,
+      uid: me,
       command:
         "node /nix/store/abc/bin/kaval --socket /run/kaval/pty-host.sock",
     },
@@ -195,23 +206,23 @@ it("selectBindPidGoneDaemons skips production (no bind pid) and live-bind daemon
   const selected = selectBindPidGoneDaemons(procs, {
     live: (pid) => pid === 100,
     readBindPid: (pid) => bindOf[pid] ?? { kind: "absent" },
-    onlyUser: me,
+    onlyUid: me,
   });
   expect(selected).toEqual([10]);
 });
 
 it("selectBindPidGoneDaemons reaps CI-owned with absent bind, skips unreadable", () => {
-  const me = userInfo().username;
+  const me = thisUid();
   const procs = [
     {
       pid: 20,
-      user: me,
+      uid: me,
       command:
         "node packages/kaval/src/bin.ts --socket /tmp/padi-dial-rt-x/kaval.sock",
     },
     {
       pid: 21,
-      user: me,
+      uid: me,
       command:
         "node packages/kaval/src/bin.ts --socket /tmp/padi-dial-rt-y/kaval.sock",
     },
@@ -220,9 +231,41 @@ it("selectBindPidGoneDaemons reaps CI-owned with absent bind, skips unreadable",
     live: () => false,
     readBindPid: (pid) =>
       pid === 20 ? { kind: "absent" } : { kind: "unreadable" },
-    onlyUser: me,
+    onlyUid: me,
   });
   expect(selected).toEqual([20]);
+});
+
+it("selectBindPidGoneDaemons treats this-run bind as gone and skips helpers with no bind", () => {
+  const me = thisUid();
+  const procs = [
+    {
+      pid: 30,
+      uid: me,
+      command:
+        "node packages/kaval/src/bin.ts --socket /tmp/padi-dial-rt-x/kaval.sock",
+    },
+    {
+      pid: 31,
+      uid: me,
+      command: "node-pty spawn-helper /tmp/padi-dial-sr-live /bin/zsh",
+    },
+    {
+      pid: 32,
+      uid: me,
+      command: "node-pty spawn-helper /tmp/padi-dial-sr-dead /bin/zsh",
+    },
+  ];
+  const selected = selectBindPidGoneDaemons(procs, {
+    live: (pid) => pid !== 88,
+    readBindPid: (pid) =>
+      pid === 31
+        ? { kind: "absent" }
+        : { kind: "bound", pid: pid === 30 ? 99 : 88 },
+    onlyUid: me,
+    thisRunBind: 99,
+  });
+  expect(selected).toEqual([30, 32]);
 });
 
 it("parseBindPid reads the canonical env spelling from /proc bytes and ps eww", () => {
@@ -294,12 +337,12 @@ it("removeThisRunRuntimeRoots skips a dir a live peer still names", () => {
   mkdirSync(peerDir);
   const leftover = join(root, "padi-dial-rt-orphan");
   mkdirSync(leftover);
-  const me = userInfo().username;
+  const me = thisUid();
   const removed = removeThisRunRuntimeRoots(root, {
     list: () => [
       {
         pid: 4242,
-        user: me,
+        uid: me,
         command: `node packages/kaval/src/bin.ts --socket ${peerDir}/pty-host.sock`,
       },
     ],

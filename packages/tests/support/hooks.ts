@@ -41,7 +41,7 @@ import {
   retryPadiScenarioReset,
   retryTransient,
 } from "./scenarioSetupRetry.ts";
-import { retireScrollFifo } from "./scrollFifo.ts";
+import { retireWorldScrollFifo } from "./scrollFifo.ts";
 import type { KoluWorld } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
@@ -1331,11 +1331,7 @@ After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
   // Always retire a prepared scroll-lock FIFO, including when the fire step
   // never ran — `rm` of the dir alone leaves `cat` blocked on the unlinked
   // inode (juspay/kolu#2178).
-  if (this._scrollFifo !== undefined) {
-    const fifo = this._scrollFifo;
-    this._scrollFifo = undefined;
-    await retireScrollFifo(fifo);
-  }
+  await retireWorldScrollFifo(this);
   // Screenshot on failure
   if (scenario.result?.status === Status.FAILED && this.page) {
     const dir = path.resolve(

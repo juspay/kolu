@@ -6,7 +6,7 @@ import { Then, When } from "@cucumber/cucumber";
 import { shellQuoteArg } from "@kolu/shell-quote";
 import { waitForBufferContains } from "../support/buffer.ts";
 import {
-  retireScrollFifo,
+  retireWorldScrollFifo,
   SCROLL_FIFO_DIR_PREFIX,
 } from "../support/scrollFifo.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
@@ -15,12 +15,6 @@ import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 function scrollFifo(world: KoluWorld): string {
   if (!world._scrollFifo) throw new Error("output trigger was not prepared");
   return world._scrollFifo;
-}
-
-async function retireWorldScrollFifo(world: KoluWorld): Promise<void> {
-  const fifo = world._scrollFifo;
-  world._scrollFifo = undefined;
-  await retireScrollFifo(fifo);
 }
 
 When(

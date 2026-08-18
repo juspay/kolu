@@ -7,7 +7,8 @@
 
 import { spawn } from "node:child_process";
 import { afterEach, expect, it } from "vitest";
-import { killAfterGrace } from "./bindPidWatchdog.ts";
+import { BIND_WATCH_POLL_MS, killAfterGrace } from "./bindPidWatchdog.ts";
+import { PID_WATCH_POLL_MS } from "./daemonMain.ts";
 import { isHolderLive } from "./pidGate.ts";
 
 const children: number[] = [];
@@ -34,6 +35,10 @@ async function trapTermSleeper(): Promise<number> {
   });
   return pid;
 }
+
+it("sibling poll cadence matches waitForShutdown's default", () => {
+  expect(BIND_WATCH_POLL_MS).toBe(PID_WATCH_POLL_MS);
+});
 
 it("killAfterGrace leaves a child that exits during the grace, SIGKILLs one that does not", async () => {
   const well = spawn("bash", ["-c", "echo up; exec sleep 600"], {

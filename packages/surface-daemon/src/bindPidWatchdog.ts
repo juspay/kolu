@@ -14,15 +14,19 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { PID_WATCH_POLL_MS } from "./daemonMain.ts";
+import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { isHolderLive } from "./pidGate.ts";
 
-/** How often the sibling asks whether the bind pid is still there. Same
- *  cadence as `waitForShutdown`'s default `boundToPid` poll. */
-export const BIND_WATCH_POLL_MS = PID_WATCH_POLL_MS;
+/** How often the sibling asks whether the bind pid is still there. Keep
+ *  equal to `PID_WATCH_POLL_MS` in daemonMain.ts — asserted in the unit
+ *  test so this module does not import the daemon graph. */
+export const BIND_WATCH_POLL_MS = 2_000;
 
-/** Grace the sibling gives the in-process `pid-gone` path before SIGKILL. */
+/** Grace the sibling gives the in-process `pid-gone` path before SIGKILL.
+ *  Bound-to-pid is a test/smoke lifetime — there is no 25 G persist. A CI
+ *  daemon's release is expected inside this window; a wedged loop never
+ *  starts release and is the SIGKILL case. */
 export const BIND_WATCH_TERM_MS = 2_000;
 
 /** Kernel window after SIGKILL. */
@@ -66,8 +70,10 @@ export async function killAfterGrace(
   if (await waitGone(pid, graceMs, intervalMs)) return "already-gone";
   try {
     process.kill(pid, "SIGKILL");
-  } catch {
-    return "already-gone";
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ESRCH"
+      ? "already-gone"
+      : "survived";
   }
   if (await waitGone(pid, killMs, intervalMs)) return "SIGKILL";
   return "survived";
@@ -117,20 +123,40 @@ export function armBindPidWatchdog(opts: {
   const self = fileURLToPath(
     new URL("./bindPidWatchdog.cli.ts", import.meta.url),
   );
+  // Drop --inspect / --inspect-brk: the sibling would collide on the parent's
+  // inspector port, and --inspect-brk would hang it forever.
   const execArgv = process.execArgv.filter((a) => !a.startsWith("--inspect"));
-  const loader =
-    execArgv.length > 0 ? execArgv : ["--experimental-strip-types"];
+  const loader = execArgv.some(
+    (a) => a.includes("tsx") || a.includes("strip-types"),
+  )
+    ? execArgv
+    : tsxLoader();
   const child: ChildProcess = spawn(
     process.execPath,
     [...loader, self, BIND_WATCH_FLAG, String(opts.bindPid), String(targetPid)],
     { detached: true, stdio: "ignore", env: process.env },
   );
+  child.on("error", (err) => {
+    try {
+      process.stderr.write(
+        `bindPidWatchdog: sibling spawn failed (${err.message}); backstop is not armed\n`,
+      );
+    } catch {
+      // Narration is best-effort; the daemon must stay up.
+    }
+  });
   child.unref();
   let armed = true;
+  let exited = false;
+  child.on("exit", () => {
+    exited = true;
+  });
   return {
     disarm: () => {
       if (!armed) return;
       armed = false;
+      if (exited || child.exitCode !== null || child.signalCode !== null)
+        return;
       if (child.pid === undefined) return;
       try {
         process.kill(child.pid, "SIGKILL");
@@ -140,4 +166,15 @@ export function armBindPidWatchdog(opts: {
       }
     },
   };
+}
+
+function tsxLoader(): string[] {
+  try {
+    const href = pathToFileURL(
+      createRequire(import.meta.url).resolve("tsx"),
+    ).href;
+    return ["--import", href];
+  } catch {
+    return ["--experimental-strip-types"];
+  }
 }

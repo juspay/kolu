@@ -12,15 +12,24 @@ import {
   SCROLL_FIFO_DIR_PREFIX,
 } from "@kolu/daemon-test-gate/ciReap";
 
-export { killScrollFifoReaders, SCROLL_FIFO_DIR_PREFIX };
+export { SCROLL_FIFO_DIR_PREFIX };
 
 /** Kill leftover `cat` readers and remove the FIFO's private directory. */
 export async function retireScrollFifo(
-  fifoPath: string | undefined,
-): Promise<{ killed: number[]; removedDir: string | undefined }> {
-  if (fifoPath === undefined) return { killed: [], removedDir: undefined };
+  fifoPath: string,
+): Promise<{ killed: number[]; removedDir: string }> {
   const killed = killScrollFifoReaders(fifoPath);
   const dir = dirname(fifoPath);
   await rm(dir, { recursive: true, force: true });
   return { killed, removedDir: dir };
+}
+
+/** Extract, clear, and retire a world's FIFO. Both the fire/After paths use this. */
+export async function retireWorldScrollFifo(world: {
+  _scrollFifo?: string;
+}): Promise<void> {
+  const fifo = world._scrollFifo;
+  world._scrollFifo = undefined;
+  if (fifo === undefined) return;
+  await retireScrollFifo(fifo);
 }

@@ -326,6 +326,7 @@ _reap-ci-run:
 test-daemon: install
     #!/usr/bin/env bash
     set -euo pipefail
+    export KOLU_CI_REAP_BIND_PID=$$
     cleanup() {
         local st=$?
         # Best-effort: a janitor failure must not replace the suite's exit code.
@@ -499,14 +500,15 @@ test: install
     #!/usr/bin/env bash
     set -euo pipefail
     lock=""
+    export KOLU_CI_REAP_BIND_PID=$$
     cleanup() {
         local st=$?
-        # Own the suite lock only if we created it — do not rm a peer's lock.
+        # Janitor first — then drop the suite lock so a waiter cannot mint
+        # roots under a still-running sweep.
+        just _reap-ci-run || true
         if [ -n "$lock" ]; then
             rm -rf "$lock" || true
         fi
-        # Best-effort: a janitor failure must not replace the suite's exit code.
-        just _reap-ci-run || true
         exit "$st"
     }
     trap cleanup EXIT
