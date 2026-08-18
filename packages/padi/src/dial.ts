@@ -89,6 +89,12 @@ export {
 // `kolu wait`'s three `--until` forms) already imports this entry to dial.
 // The `match:` form has NO named wrapper — `kolu wait` is its one consumer and
 // calls the engine directly; see the note at the foot of `cliClient/watch.ts`.
+// The knob-presence predicate rides the dial for the same reason the bucket
+// vocabulary does: `kolu watch` has to ask "did this invocation name a
+// supervision knob" and must ask padi's ONE definition, not a second list of
+// three fields that agrees today.
+export { namesWatchKnobs } from "./attention/watchSpec.ts";
+
 export {
   activeAgent,
   type AgentStateOutcome,

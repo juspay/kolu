@@ -15,7 +15,7 @@
  */
 
 import type { WaitState } from "../terminalVocab.ts";
-import { WATCH_DEFAULT_STATES } from "../surface.ts";
+import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
 import type { PadiWatchStatesInput } from "../surface.ts";
 import type { StateWatchFilter, StateWatchSpec } from "./stateWatch.ts";
 
@@ -42,18 +42,20 @@ function filterFrom(knobs: WatchKnobs): StateWatchFilter {
   };
 }
 
+/** Did the caller name any supervision knob? The ONE definition of "this is an
+ *  agent-state watch", asked by both faces and by the daemon rather than each
+ *  re-listing the knobs — and asked over {@link WATCH_FILTER_KEYS}, which is the
+ *  wire declaration itself, so a fourth knob is admitted here the moment it is
+ *  declared instead of quietly failing to count. */
+export function namesWatchKnobs(knobs: WatchKnobs): boolean {
+  return WATCH_FILTER_KEYS.some((key) => knobs[key] !== undefined);
+}
+
 /** The filter a standing subscription was opened with, or `undefined` when the
  *  caller named none of the three — which is what keeps a plain `watch.open` on
  *  the settle detector it has always used. */
 export function watchFilterOf(knobs: WatchKnobs): StateWatchFilter | undefined {
-  if (
-    knobs.states === undefined &&
-    knobs.heldForMs === undefined &&
-    knobs.nagMs === undefined
-  ) {
-    return undefined;
-  }
-  return filterFrom(knobs);
+  return namesWatchKnobs(knobs) ? filterFrom(knobs) : undefined;
 }
 
 /** The full spec behind one `watchStates` subscription. Unlike a standing

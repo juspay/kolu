@@ -5,8 +5,27 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { WATCH_DEFAULT_STATES } from "../surface.ts";
-import { watchFilterOf, watchSpecOf } from "./watchSpec.ts";
+import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
+import { namesWatchKnobs, watchFilterOf, watchSpecOf } from "./watchSpec.ts";
+
+describe("namesWatchKnobs", () => {
+  it("is derived from the WIRE declaration — every knob counts, and nothing else does", () => {
+    expect(namesWatchKnobs({})).toBe(false);
+    // Not a hand-kept list: whatever `PadiWatchFilterFields` declares is what
+    // makes an invocation a supervision watch, at both faces at once.
+    expect([...WATCH_FILTER_KEYS].sort()).toEqual([
+      "heldForMs",
+      "nagMs",
+      "states",
+    ]);
+    for (const key of WATCH_FILTER_KEYS) {
+      expect(namesWatchKnobs({ [key]: undefined })).toBe(false);
+      expect(
+        namesWatchKnobs({ [key]: key === "states" ? ["working"] : 1 }),
+      ).toBe(true);
+    }
+  });
+});
 
 describe("watchFilterOf", () => {
   it("answers `undefined` when no knob was named — a plain watch.open is untouched", () => {

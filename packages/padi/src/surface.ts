@@ -1107,6 +1107,15 @@ const WatchNameSchema = Schema.String.check(
   Schema.isMaxLength(WATCH_NAME_MAX_LENGTH),
 );
 
+/** The knob set itself, as data — DERIVED from the one declaration above so a
+ *  fourth knob is spelled once. Every "did the caller name a knob" question in
+ *  the daemon and at both faces is asked of this (`namesWatchKnobs`), rather
+ *  than by re-listing the three fields at each site and hoping every site is
+ *  found again. */
+export const WATCH_FILTER_KEYS = Object.keys(
+  PadiWatchFilterFields,
+) as readonly (keyof typeof PadiWatchFilterFields)[];
+
 export const PadiWatchOpenInputSchema = Schema.Struct({
   name: WatchNameSchema,
   /** Terminals to watch. OMIT to watch every terminal on the host — the

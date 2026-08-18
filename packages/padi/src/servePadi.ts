@@ -689,13 +689,13 @@ export function buildPadiSurfaceDeps(deps: {
                 name: input.name,
                 reattached,
                 scope: input.ids === undefined ? "all" : input.ids.length,
+                // The filter IS the knobs, so it is spread rather than
+                // re-listed — a fourth knob is logged by existing. `states` is
+                // a Set, which a log serializer renders as `{}`, so that one
+                // field is spelled as the array it is on the wire.
                 ...(filter === undefined
                   ? {}
-                  : {
-                      states: [...filter.states],
-                      heldForMs: filter.heldForMs,
-                      nagMs: filter.nagMs,
-                    }),
+                  : { ...filter, states: [...filter.states] }),
               },
               reattached
                 ? "watch subscription re-attached"

@@ -92,6 +92,7 @@
 
 import {
   isWaitState,
+  namesWatchKnobs,
   PADI_LINK_CLOSED,
   WAIT_STATES,
   type WaitState,
@@ -231,13 +232,6 @@ function parseStates(raw: string): Parsed<readonly WaitState[]> {
 export function planSupervision(
   args: WatchArgs,
 ): Parsed<PadiWatchStatesInput | undefined> {
-  if (
-    args.states === undefined &&
-    args.heldFor === undefined &&
-    args.nag === undefined
-  ) {
-    return { kind: "ok", value: undefined };
-  }
   const input: {
     states?: readonly WaitState[];
     heldForMs?: number;
@@ -265,7 +259,11 @@ export function planSupervision(
     }
     input.nagMs = parsed.value;
   }
-  return { kind: "ok", value: input };
+  // The PRESENCE of a knob IS the choice of feed — asked of padi's ONE
+  // definition rather than re-listed here. A fourth knob then reaches this face
+  // by being declared, instead of leaving the CLI quietly on the change tail for
+  // a user who named it.
+  return { kind: "ok", value: namesWatchKnobs(input) ? input : undefined };
 }
 
 export function run(
