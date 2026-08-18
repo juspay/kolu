@@ -11,84 +11,24 @@
  * timer for it).
  */
 
-import type {
-  AgentInfo,
-  TerminalId,
-  TerminalSnapshot,
-} from "@kolu/terminal-vocab/schema";
 import { Stream } from "effect";
-import { pino } from "pino";
 import { describe, expect, it } from "vitest";
-import type { PadiStateEvent, PadiTerminal } from "../surface.ts";
-import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
-import { createEdgeMemory } from "./edgeMemory.ts";
-import { createEventSeq } from "./eventSeq.ts";
-import { createStateWatchHub, type ScheduleTimer } from "./stateWatch.ts";
+import type { PadiStateEvent } from "../surface.ts";
+import {
+  frame,
+  makeAgent,
+  silentLogger,
+  stateWatchHarness,
+} from "./attentionFixture.testlib.ts";
 import { stateWatchSource } from "./stateWatchStream.ts";
 
-const silentLogger = pino({ level: "silent" });
-
-function waiting(): PadiTerminal {
-  const agent: AgentInfo = {
-    kind: "claude-code",
-    state: "waiting",
-    sessionId: "s1",
-    model: null,
-    summary: null,
-    taskProgress: null,
-    workflow: null,
-    contextTokens: null,
-    startedAt: null,
-  };
-  const snapshot: TerminalSnapshot = {
-    cwd: "/tmp",
-    git: null,
-    pr: { kind: "pending" },
-    agent,
-    foreground: null,
-    ports: { status: "unknown" },
-  };
-  return composeTerminalMetadata(
-    { state: "active", location: LOCAL_LOCATION, lastActivityAt: 0 },
-    snapshot,
-  );
-}
-
+/** The shared harness, already looking at ONE idle terminal — every pin here is
+ *  about what the STREAM does with what the hub hands it, so the fleet is a
+ *  constant. */
 function harness() {
-  let clock = 10_000;
-  let armed: { at: number; fire: () => void } | undefined;
-  const schedule: ScheduleTimer = (delayMs, fire) => {
-    const at = clock + delayMs;
-    armed = { at, fire };
-    return () => {
-      if (armed?.fire === fire) armed = undefined;
-    };
-  };
-  const edges = createEdgeMemory();
-  const hub = createStateWatchHub({
-    log: silentLogger,
-    seq: createEventSeq(),
-    edges,
-    now: () => clock,
-    schedule,
-  });
-  // One frame, fed the way the producer feeds it: edge memory first, then the
-  // hub that reads it at the emit.
-  const frame = new Map([["a" as TerminalId, waiting()]]);
-  edges.observe(frame);
-  hub.observe(frame);
-  return {
-    hub,
-    armedAt: () => armed?.at,
-    advance(ms: number) {
-      clock += ms;
-      while (armed !== undefined && armed.at <= clock) {
-        const { fire } = armed;
-        armed = undefined;
-        fire();
-      }
-    },
-  };
+  const h = stateWatchHarness();
+  h.observe(frame({ a: { agent: makeAgent("waiting") } }));
+  return h;
 }
 
 const NAG = {

@@ -5,50 +5,10 @@
  * has never seen RAISES rather than answering with an empty edge.
  */
 
-import type {
-  AgentInfo,
-  TerminalId,
-  TerminalSnapshot,
-} from "@kolu/terminal-vocab/schema";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import type { PadiTerminal } from "../surface.ts";
-import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
+import { frame } from "./attentionFixture.testlib.ts";
 import { createEdgeMemory } from "./edgeMemory.ts";
-
-function activeTerminal(opts: {
-  agent?: AgentInfo | null;
-  parentId?: string;
-  intent?: string;
-}): PadiTerminal {
-  const snapshot: TerminalSnapshot = {
-    cwd: "/tmp",
-    git: null,
-    pr: { kind: "pending" },
-    agent: opts.agent ?? null,
-    foreground: null,
-    ports: { status: "unknown" },
-  };
-  return composeTerminalMetadata(
-    {
-      state: "active",
-      location: LOCAL_LOCATION,
-      lastActivityAt: 0,
-      ...(opts.parentId === undefined ? {} : { parentId: opts.parentId }),
-      ...(opts.intent === undefined ? {} : { intent: opts.intent }),
-    },
-    snapshot,
-  );
-}
-
-const frame = (
-  entries: Record<string, Parameters<typeof activeTerminal>[0]>,
-): ReadonlyMap<TerminalId, PadiTerminal> =>
-  new Map(
-    Object.entries(entries).map(([id, opts]) => [
-      id as TerminalId,
-      activeTerminal(opts),
-    ]),
-  );
 
 describe("createEdgeMemory", () => {
   it("projects a live terminal's attribution, omitting what it has none of", () => {

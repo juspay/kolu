@@ -9,129 +9,16 @@
  * invisible to a test that fires every pending timer regardless.
  */
 
-import type {
-  AgentInfo,
-  TerminalId,
-  TerminalSnapshot,
-} from "@kolu/terminal-vocab/schema";
-import { pino } from "pino";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import type { PadiStateEvent, PadiTerminal } from "../surface.ts";
-import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
-import { createEdgeMemory } from "./edgeMemory.ts";
-import { createEventSeq } from "./eventSeq.ts";
+import type { PadiStateEvent } from "../surface.ts";
 import {
-  createStateWatchHub,
-  type ScheduleTimer,
-  type StateWatchSpec,
-} from "./stateWatch.ts";
-
-const silentLogger = pino({ level: "silent" });
-
-function makeAgent(state: AgentInfo["state"]): AgentInfo {
-  return {
-    kind: "claude-code",
-    state,
-    sessionId: "s1",
-    model: null,
-    summary: null,
-    taskProgress: null,
-    workflow: null,
-    contextTokens: null,
-    startedAt: null,
-  };
-}
-
-function activeTerminal(opts: {
-  agent: AgentInfo | null;
-  parentId?: string;
-  intent?: string;
-}): PadiTerminal {
-  const snapshot: TerminalSnapshot = {
-    cwd: "/tmp",
-    git: null,
-    pr: { kind: "pending" },
-    agent: opts.agent,
-    foreground: null,
-    ports: { status: "unknown" },
-  };
-  return composeTerminalMetadata(
-    {
-      state: "active",
-      location: LOCAL_LOCATION,
-      lastActivityAt: 0,
-      ...(opts.parentId === undefined ? {} : { parentId: opts.parentId }),
-      ...(opts.intent === undefined ? {} : { intent: opts.intent }),
-    },
-    snapshot,
-  );
-}
-
-/** A terminals map. Carries a constant agent-less `anchor` so a map is never
- *  EMPTY — an empty map is the serve-time pre-adopt frame the hub deliberately
- *  refuses to take as its baseline. */
-function terminals(
-  overrides: Record<string, Parameters<typeof activeTerminal>[0]> = {},
-): ReadonlyMap<TerminalId, PadiTerminal> {
-  const map = new Map<TerminalId, PadiTerminal>();
-  map.set("anchor" as TerminalId, activeTerminal({ agent: null }));
-  for (const [id, opts] of Object.entries(overrides)) {
-    map.set(id as TerminalId, activeTerminal(opts));
-  }
-  return map;
-}
-
-/** Let the queued observe-flush run. The hub deliberately does NOT deliver on
- *  the derivation's stack, so nothing has arrived before this. */
-const settled = (): Promise<void> => Promise.resolve();
-
-/** A hand-driven clock and timer. `advance(ms)` moves the clock and fires the
- *  armed one-shot if its deadline has arrived — which is what proves the hub
- *  ARMED it at the right moment rather than polling. */
-function harness() {
-  let clock = 10_000;
-  let armed: { at: number; fire: () => void } | undefined;
-  const schedule: ScheduleTimer = (delayMs, fire) => {
-    const at = clock + delayMs;
-    armed = { at, fire };
-    return () => {
-      if (armed?.fire === fire) armed = undefined;
-    };
-  };
-  // The producer's ONE edge memory, observed with the same frame the hub gets —
-  // as `servePadi`'s urgency cell does, and in that order.
-  const edges = createEdgeMemory();
-  const hub = createStateWatchHub({
-    log: silentLogger,
-    seq: createEventSeq(),
-    edges,
-    now: () => clock,
-    schedule,
-  });
-  return {
-    hub,
-    /** Feed one frame, exactly as the producer does. */
-    observe(terminals: ReadonlyMap<TerminalId, PadiTerminal>) {
-      edges.observe(terminals);
-      hub.observe(terminals);
-    },
-    now: () => clock,
-    /** The deadline the hub is currently waiting on, if any. */
-    armedAt: () => armed?.at,
-    /** Move the clock; fire the armed one-shot if it has come due. */
-    advance(ms: number) {
-      clock += ms;
-      while (armed !== undefined && armed.at <= clock) {
-        const { fire } = armed;
-        armed = undefined;
-        fire();
-      }
-    },
-    set(at: number) {
-      clock = at;
-    },
-  };
-}
+  anchored as terminals,
+  makeAgent,
+  settled,
+  stateWatchHarness as harness,
+} from "./attentionFixture.testlib.ts";
+import type { StateWatchSpec } from "./stateWatch.ts";
 
 /** Subscribe and collect every batch. */
 function collect(

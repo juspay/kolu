@@ -6,59 +6,18 @@
  * stack (every assertion below waits a microtask first, which IS the pin).
  */
 
-import { pino } from "pino";
-import type {
-  AgentInfo,
-  TerminalId,
-  TerminalSnapshot,
-} from "@kolu/terminal-vocab/schema";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import type { PadiTerminal, PadiUrgency } from "../surface.ts";
-import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
+import {
+  anchored as terminals,
+  makeAgent,
+  settled,
+  silentLogger,
+} from "./attentionFixture.testlib.ts";
 import { createEdgeMemory } from "./edgeMemory.ts";
 import { createEventSeq } from "./eventSeq.ts";
 import { createSettleEvents, type SettleEvent } from "./settleEvents.ts";
-
-const silentLogger = pino({ level: "silent" });
-
-function makeAgent(state: AgentInfo["state"]): AgentInfo {
-  return {
-    kind: "claude-code",
-    state,
-    sessionId: "s1",
-    model: null,
-    summary: null,
-    taskProgress: null,
-    workflow: null,
-    contextTokens: null,
-    startedAt: null,
-  };
-}
-
-function activeTerminal(opts: {
-  agent: AgentInfo | null;
-  parentId?: string;
-  intent?: string;
-}): PadiTerminal {
-  const snapshot: TerminalSnapshot = {
-    cwd: "/tmp",
-    git: null,
-    pr: { kind: "pending" },
-    agent: opts.agent,
-    foreground: null,
-    ports: { status: "unknown" },
-  };
-  return composeTerminalMetadata(
-    {
-      state: "active",
-      location: LOCAL_LOCATION,
-      lastActivityAt: 0,
-      ...(opts.parentId === undefined ? {} : { parentId: opts.parentId }),
-      ...(opts.intent === undefined ? {} : { intent: opts.intent }),
-    },
-    snapshot,
-  );
-}
 
 const EMPTY: PadiUrgency = {
   awaitingIds: [],
@@ -68,28 +27,6 @@ const EMPTY: PadiUrgency = {
 };
 
 const urgency = (u: Partial<PadiUrgency>): PadiUrgency => ({ ...EMPTY, ...u });
-
-/** A terminals map for the given ids.
- *
- *  Every map carries a constant `anchor` terminal that is never asked about: an
- *  id that vanishes between two frames is a DEPARTURE, so a helper that dropped
- *  its own scaffolding between calls would manufacture `gone` events. (The
- *  serve-time pre-adopt frame is not exercised here at all — `servePadi`'s
- *  urgency cell gates it once, for this source and the state watch alike.) */
-function terminals(
-  overrides: Record<string, Parameters<typeof activeTerminal>[0]> = {},
-): ReadonlyMap<TerminalId, PadiTerminal> {
-  const map = new Map<TerminalId, PadiTerminal>();
-  map.set("anchor" as TerminalId, activeTerminal({ agent: null }));
-  for (const [id, opts] of Object.entries(overrides)) {
-    map.set(id as TerminalId, activeTerminal(opts));
-  }
-  return map;
-}
-
-/** Let the queued frame flushes run. Sinks are deliberately NOT called on the
- *  `urgency` derivation's stack, so nothing has been delivered before this. */
-const settled = (): Promise<void> => Promise.resolve();
 
 /** Drive a source and collect what it emitted, both as flat events and as the
  *  FRAMES it grouped them into. */

@@ -31,17 +31,9 @@ import {
   mkdtempSync,
   writeFileSync,
 } from "node:fs";
-import { createRequire } from "node:module";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-  padiSocketPath,
-  padiClientOver,
-  resolvePadiStateRoot,
-  scopePadiSurface,
-} from "@kolu/padi/dial";
-import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
+import { padiClientOver, scopePadiSurface } from "@kolu/padi/dial";
 import { padiDaemonGroup } from "@kolu/padi/surface";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
@@ -51,25 +43,26 @@ import {
 } from "@kolu/daemon-test-gate";
 import { Effect } from "effect";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
+import {
+  daemonEnv as daemonEnvIn,
+  e2eRuntimeRoot,
+  KOLU_MAIN,
+  type Padi,
+  reapPadi,
+  sleep,
+  spawnPadi,
+  TSX_LOADER,
+  waitForPadi,
+} from "./e2eDaemon.testlib.ts";
 
-const SRC = dirname(fileURLToPath(import.meta.url));
-const PADI_BIN = resolve(SRC, "../../padi/src/daemonBoot/bin.ts");
-const KOLU_MAIN = resolve(SRC, "main.ts");
-const TSX_LOADER = pathToFileURL(
-  createRequire(import.meta.url).resolve("tsx"),
-).href;
+// One runtime root for this file's legs — the state-root digest is what
+// separates daemons, so a leg here can never reach another file's.
+const RUNTIME = e2eRuntimeRoot("watch-e2e");
+beforeAll(() => RUNTIME.enter());
+afterAll(() => RUNTIME.leave());
 
-const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), "kolu-watch-e2e-rt-"));
-const priorXdg = process.env.XDG_RUNTIME_DIR;
-beforeAll(() => {
-  process.env.XDG_RUNTIME_DIR = RUNTIME_ROOT;
-});
-afterAll(() => {
-  process.env.XDG_RUNTIME_DIR = priorXdg;
-});
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((r) => setTimeout(r, ms));
+const daemonEnv = (extra: Record<string, string> = {}): NodeJS.ProcessEnv =>
+  daemonEnvIn(RUNTIME.root, extra);
 
 const tmp = (tag: string): string =>
   mkdtempSync(join(tmpdir(), `kolu-watch-e2e-${tag}-`));
@@ -153,124 +146,32 @@ function writeIdleGrokSession(opts: {
   );
 }
 
-// ── The daemon ────────────────────────────────────────────────────────────
-
-interface Padi {
-  child: ChildProcess;
-  exited: Promise<number | null>;
-  stateRoot: string;
-  socketPath: string;
-}
+// ── The daemons and processes this file spawns ────────────────────────────
 
 const spawned: Padi[] = [];
 const children: ChildProcess[] = [];
-
-/** EXPLICIT env — this test process runs inside a kolu terminal whose
- *  `$PADI_SOCKET` names the user's REAL daemon, and an inherited value would
- *  point a leg at it. */
-function daemonEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    XDG_RUNTIME_DIR: RUNTIME_ROOT,
-    KOLU_KAVAL_SPAWN: "detached",
-    KOLU_DAEMON_BIND_PID: String(process.pid),
-    ...extra,
-  };
-  delete env.INVOCATION_ID;
-  delete env.KOLU_KAVAL_BIN;
-  delete env.KOLU_KAVAL_SOCKET;
-  delete env.KOLU_STATE_DIR;
-  if (extra.PADI_SOCKET === undefined) delete env.PADI_SOCKET;
-  return env;
-}
-
-function spawnPadi(stateRoot: string, grokDir: string): Padi {
-  assertDaemonSpawnAllowed("a real padi daemon (node --import loader bin.ts)");
-  const child = spawn(
-    process.execPath,
-    [
-      "--import",
-      TSX_LOADER,
-      PADI_BIN,
-      "--state-root",
-      stateRoot,
-      "--allow-nix-shell-with-env-whitelist",
-      "default",
-    ],
-    {
-      stdio: ["ignore", "ignore", "ignore"],
-      env: daemonEnv({ KOLU_GROK_DIR: grokDir }),
-    },
-  );
-  const exited = new Promise<number | null>((res) =>
-    child.on("exit", (code) => res(code)),
-  );
-  const padi: Padi = {
-    child,
-    exited,
-    stateRoot,
-    socketPath: padiSocketPath(resolvePadiStateRoot(stateRoot)),
-  };
-  spawned.push(padi);
-  return padi;
-}
-
-type PadiLink = Awaited<ReturnType<typeof unixSocketLink>>;
-
-async function waitForPadi(socketPath: string, ms = 20000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    let link: PadiLink | undefined;
-    try {
-      link = await unixSocketLink({ group: padiDaemonGroup, socketPath });
-      await Effect.runPromise(
-        padiClientOver(link.dispatch).control.surface.core.hello(),
-      );
-      return;
-    } catch {
-      await sleep(150);
-    } finally {
-      await link?.dispose();
-    }
-  }
-  throw new Error(`padi socket never came up: ${socketPath}`);
-}
-
-function gatePid(gatePath: string): number | undefined {
-  try {
-    const pid = Number.parseInt(
-      execSync(`cat ${JSON.stringify(gatePath)}`, { encoding: "utf8" }).trim(),
-      10,
-    );
-    return Number.isFinite(pid) ? pid : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Reap a padi AND the detached kaval it spawned — EXACT pids only. */
-async function reap(p: Padi): Promise<void> {
-  p.child.kill("SIGTERM");
-  await p.exited;
-  const kavalSocket = padiKavalSocketPath(resolvePadiStateRoot(p.stateRoot));
-  const kavalPid = gatePid(join(dirname(kavalSocket), "kaval.pid"));
-  if (kavalPid !== undefined) {
-    try {
-      process.kill(kavalPid, "SIGKILL");
-    } catch {
-      // Already gone.
-    }
-  }
-}
 
 afterEach(async () => {
   for (const c of children.splice(0)) {
     if (c.exitCode === null) c.kill("SIGKILL");
   }
   for (const p of spawned.splice(0)) {
-    if (p.child.exitCode === null) await reap(p);
+    if (p.child.exitCode === null) await reapPadi(p);
   }
 }, 30000);
+
+/** A real padi, up and answering — the harness's spawn plus this file's
+ *  bookkeeping, so `afterEach` reaps by exact pid. */
+async function startPadi(grokDir: string): Promise<Padi> {
+  const p = spawnPadi({
+    runtimeRoot: RUNTIME.root,
+    stateRoot: tmp("sr"),
+    env: { KOLU_GROK_DIR: grokDir },
+  });
+  spawned.push(p);
+  await waitForPadi(p.socketPath);
+  return p;
+}
 
 // ── The world under test ──────────────────────────────────────────────────
 
@@ -280,8 +181,7 @@ async function idleAgentWorld(): Promise<{ socketPath: string }> {
   const grokDir = tmp("grok");
   const cwd = tmp("cwd");
   const bin = fakeGrokBin();
-  const p = spawnPadi(tmp("sr"), grokDir);
-  await waitForPadi(p.socketPath);
+  const p = await startPadi(grokDir);
 
   const link = await unixSocketLink({
     group: padiDaemonGroup,
@@ -370,6 +270,10 @@ interface WatchEvent {
 
 /** Run the SHIPPED `kolu watch` launcher and collect its NDJSON lines. */
 function runWatch(socketPath: string, flags: string[]) {
+  // A watch runs until it is killed, so it is a long-lived fork like the daemon
+  // itself — leashed at the call site, where no helper indirection can smuggle
+  // it past a bare `vitest`.
+  assertDaemonSpawnAllowed("a real `kolu watch` process");
   const child = spawn(
     process.execPath,
     [
@@ -432,10 +336,16 @@ describeDaemon("kolu watch — supervision, end to end", () => {
       "--json",
     ]);
 
-    // The transition, once the state has held — and then the property no
+    // The first report, once the state has held — and then the property no
     // other alert in kolu has: it comes back, and keeps coming back.
+    //
+    // The FIRST kind is deliberately either one: whether the terminal had
+    // already held its second by the time this process connected is a race with
+    // padi's adoption, and both answers are correct (`snapshot` = it was
+    // already standing, `transition` = it crossed while we watched). What is
+    // NOT a race is everything after it.
     const events = await watch.atLeast(3);
-    expect(events[0]?.kind).toBe("snapshot");
+    expect(["snapshot", "transition"]).toContain(events[0]?.kind);
     expect(events.slice(1).map((e) => e.kind)).toEqual(["nag", "nag"]);
     expect(new Set(events.map((e) => e.state))).toEqual(new Set(["waiting"]));
     // Every repeat describes the SAME episode, and says how long it has been
@@ -447,22 +357,25 @@ describeDaemon("kolu watch — supervision, end to end", () => {
     watch.stop();
   });
 
-  it("a watch that joins LATE leads with a snapshot of what is already standing", {
+  it("a watch that RECONNECTS leads with a snapshot of what is already standing", {
     timeout: 180000,
   }, async () => {
     const { socketPath } = await idleAgentWorld();
-    // The terminal went idle before this watch existed — the failure mode a
-    // change-only feed has, and the reason a reconnecting supervisor used to
-    // be told nothing at all.
-    const watch = runWatch(socketPath, [
-      "--states",
-      "waiting",
-      "--nag",
-      "2s",
-      "--json",
-    ]);
-    const [first] = await watch.atLeast(1);
-    expect(first?.kind).toBe("snapshot");
-    watch.stop();
+    const first = runWatch(socketPath, ["--states", "waiting", "--json"]);
+    await first.atLeast(1);
+    first.stop();
+
+    // A SECOND process against the same padi — the terminal has been idle since
+    // before this one existed, which is the failure mode a change-only feed
+    // has and the reason a reconnecting supervisor used to be told nothing at
+    // all. It reuses the world above rather than spawning a second daemon: what
+    // is under test is the watch reconnecting, not padi starting.
+    const rejoined = runWatch(socketPath, ["--states", "waiting", "--json"]);
+    const [led] = await rejoined.atLeast(1);
+    expect(led?.kind).toBe("snapshot");
+    // …and it says how long the terminal has been standing there, across a
+    // window this process was not alive for.
+    expect((led?.at ?? 0) - (led?.since ?? 0)).toBeGreaterThan(0);
+    rejoined.stop();
   });
 });

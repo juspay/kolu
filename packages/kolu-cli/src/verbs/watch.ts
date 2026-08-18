@@ -91,7 +91,6 @@
  */
 
 import {
-  isWaitState,
   namesWatchKnobs,
   PADI_LINK_CLOSED,
   WAIT_STATES,

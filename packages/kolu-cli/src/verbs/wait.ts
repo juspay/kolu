@@ -123,7 +123,6 @@
 import {
   awaitTerminalCondition,
   type ConditionMet,
-  isWaitState,
   PADI_LINK_CLOSED,
   type PadiSurfaceClient,
   type TerminalCondition,
