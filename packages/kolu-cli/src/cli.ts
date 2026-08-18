@@ -641,14 +641,14 @@ export const watchFlags = {
   heldFor: opt(
     Flag.string("held-for").pipe(
       Flag.withDescription(
-        "report a state only once it has HELD this long — 500ms, 60s, 5m, 2h, 1d (the unit is required)",
+        "report a state only once it has HELD this long — milliseconds like every other window here (60000), or with a unit: 500ms, 60s, 5m, 2h, 1d",
       ),
     ),
   ),
   nag: opt(
     Flag.string("nag").pipe(
       Flag.withDescription(
-        "RE-report every interval the state keeps holding, so an ignored terminal comes back instead of vanishing after one line — 5m, 30s",
+        "RE-report every interval the state keeps holding, so an ignored terminal comes back instead of vanishing after one line — 300000, or 5m",
       ),
     ),
   ),

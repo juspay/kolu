@@ -171,11 +171,17 @@ const pumpToStdout = (
 // it is decided BEFORE the dial, so `--held-for banana` is refused instantly
 // rather than after a `--host` has ssh-provisioned a cold box.
 
-/** How long, spelled the way a person writes it. The UNIT IS REQUIRED: a bare
- *  `--held-for 60` is sixty milliseconds to a machine and a minute to whoever
- *  typed it, and silently choosing either would make the whole feature quietly
- *  wrong for half its users. */
-const DURATION = /^(\d+)(ms|s|m|h|d)$/;
+/** How long, spelled the way a person writes it — and the unit is OPTIONAL,
+ *  because a bare number in this binary already means milliseconds.
+ *
+ *  `--timeout 10000`, `--settled 15000` and `--until idle:2000` are all bare
+ *  millisecond integers, so refusing `--held-for 60000` would make one binary
+ *  hold two mutually-refusing duration grammars — a user who has learned the
+ *  other four flags gets an error for spelling this one the same way. One
+ *  grammar, then: milliseconds, with a suffix for the two flags whose natural
+ *  values are minutes and hours (nobody wants to read `--nag 300000`). The
+ *  suffix is a convenience ON the existing spelling, not a second one. */
+const DURATION = /^(\d+)(ms|s|m|h|d)?$/;
 const UNIT_MS: Record<string, number> = {
   ms: 1,
   s: 1000,
@@ -193,10 +199,12 @@ function parseDuration(flag: string, raw: string): Parsed<number> {
   if (m === null) {
     return {
       kind: "error",
-      message: `--${flag} ${JSON.stringify(raw)} is not a duration. Write the unit: 500ms, 60s, 5m, 2h, 1d. A bare number is refused on purpose — 60 reads as a minute to you and as 60ms to the timer.`,
+      message: `--${flag} ${JSON.stringify(raw)} is not a duration. Write a whole number of milliseconds (60000), or add a unit: 500ms, 60s, 5m, 2h, 1d.`,
     };
   }
-  const ms = Number(m[1]) * (UNIT_MS[m[2] as string] as number);
+  // An omitted unit is `ms` — see the grammar note above.
+  const ms =
+    Number(m[1]) * (m[2] === undefined ? 1 : (UNIT_MS[m[2]] as number));
   // 0 is a legal HOLD ("report it the instant it enters") and the schema behind
   // `--nag` refuses it separately, so the only bound this shared parse owns is
   // the timer ceiling.

@@ -40,6 +40,7 @@ import { createFinishQuiet } from "./activity/finishQuiet.ts";
 import { recomputeUrgency } from "./activity/urgency.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
 import { createEdgeMemory } from "./attention/edgeMemory.ts";
+import { createFleetGate } from "./attention/fleetGate.ts";
 import { createEventSeq } from "./attention/eventSeq.ts";
 import { createSettleEvents } from "./attention/settleEvents.ts";
 import { createStateWatchHub } from "./attention/stateWatch.ts";
@@ -303,10 +304,10 @@ export function buildPadiSurfaceDeps(deps: {
   // by the producer below, and read by both.
   const watchEdges = createEdgeMemory();
   // Has a REAL fleet been seen yet? The serve-time empty seed is gated on this,
-  // once, in the `urgency` cell below — see the note there. Per-serve rather
-  // than module-scoped, so a servePadi rebuild in tests starts unseeded exactly
-  // as a fresh daemon does.
-  let fleetSeen = false;
+  // once, in the `urgency` cell below — see `fleetGate.ts` for what the frame
+  // would otherwise cost each consumer. Per-serve rather than module-scoped, so
+  // a servePadi rebuild in tests starts unseeded exactly as a fresh daemon does.
+  const fleetGate = createFleetGate();
   const settleEvents = createSettleEvents({
     log,
     seq: watchSeq,
@@ -444,16 +445,14 @@ export function buildPadiSurfaceDeps(deps: {
         // THE SERVE-TIME EMPTY SEED, gated ONCE at the only thing that produces
         // it. This cell runs at serve time, BEFORE the endpoint has booted and
         // adopted kaval's terminals, so its first frame is an information-free
-        // empty registry. Taken as real it would spend `finishQuiet`'s
-        // bootstrap on nothing (re-announcing every already-settled worker on
-        // every padi restart) and date every terminal's hold from the daemon's
-        // boot. Three consumers each carrying their own copy of that guard is
-        // one fact remembered by discipline; the fourth would forget. So the
-        // frame stops HERE, and everything downstream may trust what it is fed.
-        if (!fleetSeen && terminals.size === 0) {
+        // empty registry, and every consumer downstream treats a frame as
+        // evidence. The gate (and the half that is easy to lose — it OPENS once
+        // and stays open, so a later empty fleet is a real "everything exited")
+        // is `fleetGate.ts`, where it is pinned. The frame stops HERE, and
+        // everything downstream may trust what it is fed.
+        if (!fleetGate.admit(terminals)) {
           return recomputeUrgency(terminals, () => false);
         }
-        fleetSeen = true;
         const next = finish.project(terminals);
         // The settle EDGE, taken where the LEVEL is computed — one fold, one
         // arrival time, so a supervisor's nudge and the Dock's paint can never

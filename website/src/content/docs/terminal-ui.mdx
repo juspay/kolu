@@ -89,7 +89,7 @@ it work or kills it.
 | flag | what it does |
 | --- | --- |
 | `--states` | which agent states to report — any of `working`, `awaiting`, `waiting`, comma-separated. `awaiting` is an agent blocked on you; `waiting` is one whose turn ended |
-| `--held-for` | report a state only once it has *held* that long — `500ms`, `60s`, `5m`, `2h`, `1d`. An agent handed more work inside the window is never reported at all |
+| `--held-for` | report a state only once it has *held* that long — milliseconds, like kolu's other windows (`60000`), or with a unit: `500ms`, `60s`, `5m`, `2h`, `1d`. An agent handed more work inside the window is never reported at all |
 | `--nag` | re-report every interval it keeps holding, so a line you ignored comes back instead of vanishing |
 
 Each line says why you are being told: **snapshot** (already in that state when

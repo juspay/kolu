@@ -39,10 +39,24 @@ describe("planSupervision", () => {
     expect(held("1d").value.heldForMs).toBe(86_400_000);
   });
 
-  it("REFUSES a bare number — 60 is a minute to a person and 60ms to a timer", () => {
-    const plan = planSupervision(args({ heldFor: "60" }));
-    expect(plan.kind).toBe("error");
-    expect(plan.kind === "error" && plan.message).toMatch(/Write the unit/);
+  it("reads a bare number as MILLISECONDS — the spelling the rest of the binary uses", () => {
+    // `--timeout 10000`, `--settled 15000` and `--until idle:2000` are all bare
+    // millisecond integers. One binary must not hold two duration grammars that
+    // refuse each other's spelling.
+    expect(planSupervision(args({ heldFor: "60000" }))).toEqual({
+      kind: "ok",
+      value: { heldForMs: 60_000 },
+    });
+  });
+
+  it("refuses something that is neither — a unit it does not know, or a word", () => {
+    for (const raw of ["banana", "5min", "1.5m", "-3s"]) {
+      const plan = planSupervision(args({ heldFor: raw }));
+      expect(plan.kind, raw).toBe("error");
+      expect(plan.kind === "error" && plan.message).toMatch(
+        /is not a duration/,
+      );
+    }
   });
 
   it("refuses a duration past the timer ceiling instead of overflowing into an instant repeat", () => {
