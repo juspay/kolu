@@ -26,13 +26,14 @@
 // and `kolu-pty` in this formatter's module graph, refuting the "no I/O, no
 // transport, no tty" promise on line 1. A stated invariant the import graph
 // contradicts will be relied on and will break.
-import type { PadiTerminal } from "../surface.ts";
+import type { PadiStateEvent, PadiTerminal } from "../surface.ts";
 import { activeAgent } from "../terminalVocab.ts";
 import {
   agentBucket,
   agentShortName,
   agentStatusLabel,
   DASH,
+  relativeTime,
 } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import columnify from "columnify";
@@ -401,4 +402,33 @@ export function formatWatchJson(
 
 export function formatWatchRemovalJson(id: TerminalId): string {
   return JSON.stringify({ id, removed: true });
+}
+
+/** One agent-STATE event as a human line:
+ *  `HH:MM:SS  a1b2c3d4  nag         waiting  7m  fix the parser` — the clock,
+ *  the short id, WHY you are being told (snapshot · transition · nag), the bucket
+ *  it is holding, HOW LONG it has held it, and its intent when it has one.
+ *
+ *  The hold is the column that matters and the reason it is rendered rather than
+ *  left to the reader: a supervision line's whole job is to distinguish "just
+ *  finished" from "has been sitting there for forty minutes", and two epochs a
+ *  reader has to subtract do not do that at 3am. It is the SHARED
+ *  `relativeTime` fold, the same `3s`/`5m`/`2h` spelling every other kolu
+ *  surface ages a timestamp with.
+ *
+ *  `intent` is the only wire field beyond the event's own vocabulary that lands
+ *  here, and it earns the width: a short id names a terminal a human cannot
+ *  identify, and the intent is what its owner wrote down about it. Nothing else
+ *  from the record is joined in — the event stays thin, and a reader who wants
+ *  the repo, the branch or the screen has `kolu ls` and `kolu snapshot`. */
+export function formatStateEvent(event: PadiStateEvent): string {
+  const cells = [
+    clockTime(event.at),
+    shortId(event.id),
+    event.kind,
+    event.state,
+    relativeTime(event.since, event.at),
+  ];
+  if (event.intent !== undefined) cells.push(event.intent);
+  return cells.join("  ");
 }

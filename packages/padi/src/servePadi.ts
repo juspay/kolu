@@ -38,8 +38,12 @@ import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { createFinishQuiet } from "./activity/finishQuiet.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import { createEventSeq } from "./attention/eventSeq.ts";
 import { createSettleEvents } from "./attention/settleEvents.ts";
+import { createStateWatchHub } from "./attention/stateWatch.ts";
 import { createWatchRegistry } from "./attention/watchRegistry.ts";
+import { stateWatchSource } from "./attention/stateWatchStream.ts";
+import { watchFilterOf, watchSpecOf } from "./attention/watchSpec.ts";
 import type {
   EndpointGrid,
   TerminalAttachFrame,
@@ -92,6 +96,7 @@ import {
   type PadiIdentity,
   type PadiStatus,
   type PadiTerminal,
+  type PadiWatchStatesInput,
   type padiSurface,
 } from "./surface.ts";
 import {
@@ -284,14 +289,26 @@ export function buildPadiSurfaceDeps(deps: {
   // MCP-only supervisor drains. Disposed alongside the finish tracker (one
   // `disposeStanding`) so a servePadi rebuild in tests cannot stack two sets of
   // listeners on one daemon.
-  const settleEvents = createSettleEvents({ log });
+  //
+  // ONE counter behind both sources. A standing subscription's acknowledgement
+  // watermark is a single number, so a settle edge and a state nag have to be
+  // stamped from the same sequence or a fresh subscription seeded from one
+  // source's watermark would replay (or permanently discard) the other's.
+  const watchSeq = createEventSeq();
+  const settleEvents = createSettleEvents({ log, seq: watchSeq });
+  // The agent-STATE watch — `--states`/`--held-for`/`--nag`, implemented once
+  // and served to both faces: the `watchStates` stream below is `kolu watch`'s
+  // subscription, and a `watch.open` that names any of the three knobs is an MCP
+  // orchestrator's. It reads the adapter's own agent state, never output bytes.
+  const stateWatch = createStateWatchHub({ log, seq: watchSeq });
   const watchRegistry = createWatchRegistry({
     log,
-    // The daemon's CURRENT settle sequence — where a fresh subscription starts
+    // The daemon's CURRENT watch sequence — where a fresh subscription starts
     // acknowledged, and the ceiling an acknowledgement is sanity-checked against
     // (a cursor from a previous padi generation would otherwise set a watermark
     // no future event could climb past).
-    daemonSeq: () => settleEvents.lastSeq(),
+    daemonSeq: () => watchSeq.last(),
+    subscribeStates: (spec, emit) => stateWatch.subscribe(spec, emit),
   });
   const unsubscribeSettle = settleEvents.onFrame((events) =>
     watchRegistry.accept(events),
@@ -299,6 +316,7 @@ export function buildPadiSurfaceDeps(deps: {
   disposeStanding = () => {
     unsubscribeSettle();
     watchRegistry.dispose();
+    stateWatch.dispose();
     settleEvents.dispose();
     finish.dispose();
   };
@@ -412,6 +430,13 @@ export function buildPadiSurfaceDeps(deps: {
         // computed against the PREVIOUS frame, so a redundant recompute yields no
         // candidates and emits nothing.
         settleEvents.observe(next, terminals);
+        // The agent-state LEVEL, taken from the same fold for the same reason:
+        // one observation, one arrival time. It reads the terminals collection
+        // rather than the urgency projection because it reports the agent's own
+        // bucket (`waiting` the moment the adapter says so), not the EF2
+        // byte-quiet verdict layered on top — that conjunction is what
+        // `--held-for` replaces with an honest clock.
+        stateWatch.observe(terminals);
         return next;
       }),
       // The saved session — backed by padi's OWN state-root Conf, set by padi's
@@ -551,6 +576,13 @@ export function buildPadiSurfaceDeps(deps: {
             `watchPulse[${input.name}]`,
           ),
       },
+      // The live agent-state feed — the same engine a filtered `watch.open`
+      // rides, minus the queue. A socket-holding face needs no buffer: the
+      // subscription IS the delivery, and its first frame is the snapshot.
+      watchStates: {
+        source: (input: PadiWatchStatesInput) =>
+          stateWatchSource(stateWatch, watchSpecOf(input), log),
+      },
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on
@@ -606,15 +638,26 @@ export function buildPadiSurfaceDeps(deps: {
             // `open` answers `reattached` itself — the registry is the only thing
             // that can know it without a race, and it seeds a fresh
             // subscription's watermark from the `daemonSeq` it was built with.
-            const { sub, reattached } = watchRegistry.open(
-              input.name,
-              input.ids,
-            );
+            // `watchFilterOf` returns a filter only when the caller named one of
+            // the three knobs — the presence of a knob IS the choice of source,
+            // so there is no mode flag here to contradict them.
+            const filter = watchFilterOf(input);
+            const { sub, reattached } = watchRegistry.open(input.name, {
+              ...(input.ids === undefined ? {} : { ids: input.ids }),
+              ...(filter === undefined ? {} : { filter }),
+            });
             log.info(
               {
                 name: input.name,
                 reattached,
                 scope: input.ids === undefined ? "all" : input.ids.length,
+                ...(filter === undefined
+                  ? {}
+                  : {
+                      states: [...filter.states],
+                      heldForMs: filter.heldForMs,
+                      nagMs: filter.nagMs,
+                    }),
               },
               reattached
                 ? "watch subscription re-attached"

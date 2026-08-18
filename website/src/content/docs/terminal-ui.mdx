@@ -41,7 +41,7 @@ immediately, and one you created in the browser is drivable from the shell.
 | `kolu snapshot` | read a terminal's screen as plain text (`--tail N` for what's on screen now) |
 | `kolu history` | the scrollback above the current screen |
 | `kolu kill` | end a terminal |
-| `kolu watch` | a live feed of terminal changes and output activity |
+| `kolu watch` | a live feed of terminal changes and output activity — or, with `--states`/`--held-for`/`--nag`, the supervision loop below |
 
 A short driving loop — create an agent, give it a prompt, wait for its turn to
 end, read the reply:
@@ -69,6 +69,51 @@ on stderr), **ids accept any unique prefix** (`kolu send 3f9c …`), and the
 **exit codes are a contract** — `0` done, `1` a usage or connection error, `2`
 a wait timed out, `3` the terminal exited first, `130` interrupted. Read verbs
 take `--json`.
+
+### `kolu watch` as a doorbell that keeps ringing
+
+An agent terminal finishes and sits at an empty prompt. Nobody notices for
+hours. Every alert kolu has taps you **once**, when the terminal goes idle —
+miss that tap and the terminal is silent forever.
+
+Three flags on `kolu watch` turn it into the alert that doesn't let go:
+
+```sh
+kolu watch --states waiting,awaiting --held-for 60s --nag 5m
+```
+
+Background that, and every terminal that has been idle for a minute announces
+itself, **and keeps announcing itself every five minutes**, until somebody gives
+it work or kills it.
+
+| flag | what it does |
+| --- | --- |
+| `--states` | which agent states to report — any of `working`, `awaiting`, `waiting`, comma-separated. `awaiting` is an agent blocked on you; `waiting` is one whose turn ended |
+| `--held-for` | report a state only once it has *held* that long — `60s`, `5m`, `2h`, `500ms`. An agent handed more work inside the window is never reported at all |
+| `--nag` | re-report every interval it keeps holding, so a line you ignored comes back instead of vanishing |
+
+Each line says why you are being told: **snapshot** (already in that state when
+you started watching), **transition** (it just got there and held), or **nag**
+(still there). The snapshot is what makes it safe to start watching late — you
+see what is already standing, not only what changes next.
+
+```
+14:02:11  a1b2c3d4  snapshot    waiting   42m  fix the parser
+14:07:11  a1b2c3d4  nag         waiting   47m  fix the parser
+14:09:40  9f01ee22  transition  awaiting  1m
+```
+
+Two things it deliberately does **not** do. It never reads the screen — an idle
+agent that repaints its prompt once a second is still idle, and kolu asks the
+agent's own state rather than guessing from output. And it is never scoped by a
+list of ids: no argument means the whole fleet, because a watcher narrowed to
+the terminals you remembered goes blind to the one you didn't. (A single id
+still works, as a debugging tail.)
+
+`--json` gives the same feed as NDJSON, filtered the same way before it leaves
+kolu, so a script consumes it with `jq` and nothing has to re-implement the
+timing. The same three knobs are [MCP tool parameters](/mcp) for a coding agent
+supervising a fleet.
 
 ### `create` makes you say where the terminal goes
 

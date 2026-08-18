@@ -9,7 +9,9 @@ import { pino } from "pino";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { WatchSubscriptionNotFound } from "../errors.ts";
+import type { PadiStateEvent } from "../surface.ts";
 import type { SettleEvent } from "./settleEvents.ts";
+import type { StateWatchBatch, StateWatchSpec } from "./stateWatch.ts";
 import { createWatchRegistry, type WatchRegistry } from "./watchRegistry.ts";
 
 const silentLogger = pino({ level: "silent" });
@@ -30,13 +32,72 @@ const event = (
  *  checks an acknowledgement against. A test that wants to model a cursor from a
  *  PREVIOUS daemon generation overrides it. */
 const registry = (
-  opts: { limit?: number; subLimit?: number; daemonSeq?: () => number } = {},
+  opts: {
+    limit?: number;
+    subLimit?: number;
+    daemonSeq?: () => number;
+    subscribeStates?: (
+      spec: StateWatchSpec,
+      emit: (batch: StateWatchBatch) => void,
+    ) => () => void;
+  } = {},
 ): WatchRegistry =>
   createWatchRegistry({
     log: silentLogger,
     daemonSeq: () => seq,
     ...opts,
   });
+
+/** A stand-in agent-state watch: it records every spec it was subscribed with,
+ *  answers each subscribe with a SNAPSHOT batch (as the real engine does), and
+ *  hands the test a `push` to fire a later transition or nag into that same
+ *  subscription. The engine's own decisions are pinned in `stateWatch.test.ts`;
+ *  what these pins are about is what the QUEUE does with what it is handed. */
+function fakeStateWatch() {
+  const specs: StateWatchSpec[] = [];
+  const live = new Map<
+    number,
+    { spec: StateWatchSpec; emit: (batch: StateWatchBatch) => void }
+  >();
+  let handle = 0;
+  // The SAME module counter `event()` mints from — in the daemon both sources
+  // share one sequence, and a subscription's acknowledgement watermark is only
+  // meaningful because they do.
+  const stateEvent = (
+    id: string,
+    kind: PadiStateEvent["kind"],
+  ): PadiStateEvent => ({
+    seq: ++seq,
+    id: id as TerminalId,
+    kind,
+    state: "waiting",
+    since: 1_700_000_000_000,
+    at: 1_700_000_060_000,
+  });
+  return {
+    specs,
+    /** How many attachments are live right now — a re-open that left the old one
+     *  running would double every nag. */
+    liveCount: () => live.size,
+    subscribeStates: (
+      spec: StateWatchSpec,
+      emit: (batch: StateWatchBatch) => void,
+    ) => {
+      const key = ++handle;
+      specs.push(spec);
+      live.set(key, { spec, emit });
+      // The real engine answers a subscribe with the currently-matching set.
+      emit([stateEvent("standing", "snapshot")]);
+      return () => {
+        live.delete(key);
+      };
+    },
+    /** Fire one event into every live attachment. */
+    push(id: string, kind: PadiStateEvent["kind"]) {
+      for (const { emit } of live.values()) emit([stateEvent(id, kind)]);
+    },
+  };
+}
 
 /** Accept one frame carrying a single event — the shape most of these pins want.
  *  `accept` takes a FRAME because that is what the source emits. */
@@ -126,7 +187,7 @@ describe("watch registry", () => {
 
   it("scopes to an id list, and widens back to all when re-opened without one", () => {
     const r = registry();
-    r.open("narrow", ["a" as TerminalId]);
+    r.open("narrow", { ids: ["a" as TerminalId] });
     acceptOne(r, "a", "b");
     const first = r.drain("narrow");
     expect(first.events.map((e) => e.id)).toEqual(["a"]);
@@ -140,12 +201,12 @@ describe("watch registry", () => {
 
   it("NARROWING the scope drops what the queue just stopped caring about", () => {
     const r = registry();
-    r.open("both", ["a" as TerminalId, "b" as TerminalId]);
+    r.open("both", { ids: ["a" as TerminalId, "b" as TerminalId] });
     acceptOne(r, "a", "b");
     // Re-scoping is a statement about the QUEUE, not only about future events —
     // otherwise `ids` and `buffer` describe two different subscriptions and the
     // next drain hands over an event the caller has said it does not want.
-    r.open("both", ["a" as TerminalId]);
+    r.open("both", { ids: ["a" as TerminalId] });
     expect(r.drain("both").events.map((e) => e.id)).toEqual(["a"]);
   });
 
@@ -227,7 +288,7 @@ describe("watch registry", () => {
 
   it("refuses an EMPTY id list rather than silently watching everything", () => {
     const r = registry();
-    expect(() => r.open("bad", [])).toThrow(/could never match/);
+    expect(() => r.open("bad", { ids: [] })).toThrow(/could never match/);
   });
 
   it("rings the doorbell only for subscriptions the event is in scope for", () => {
@@ -240,7 +301,7 @@ describe("watch registry", () => {
       rings.a += 1;
     });
     r.open("all");
-    r.open("just-a", ["a" as TerminalId]);
+    r.open("just-a", { ids: ["a" as TerminalId] });
     acceptOne(r, "b");
     expect(rings.all).toBe(1);
     expect(rings.a).toBe(0);
@@ -298,5 +359,106 @@ describe("watch registry", () => {
     // A boolean `false` reads to an agent as "there was nothing to report",
     // which is exactly the confusion `WatchSubscriptionNotFound` exists to end.
     expect(() => r.close("campaign")).toThrow(WatchSubscriptionNotFound);
+  });
+});
+
+describe("watch registry — a subscription that named the agent-state knobs", () => {
+  const filter = {
+    states: new Set(["waiting"] as const),
+    heldForMs: 60_000,
+    nagMs: 300_000,
+  };
+
+  it("is fed by the state watch, and its SNAPSHOT is already queued when open returns", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    r.open("supervise", { filter });
+    // The whole point of the snapshot: a supervisor that just (re)attached is
+    // told what is standing before it is told about anything that changes.
+    expect(r.drain("supervise").events.map((e) => e.kind)).toEqual([
+      "snapshot",
+    ]);
+  });
+
+  it("re-enters the queue on the NAG — an ignored terminal comes back", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    r.open("supervise", { filter });
+    watch.push("a", "transition");
+    watch.push("a", "nag");
+    watch.push("a", "nag");
+    // This is the property the settle feed could not have: one terminal, one
+    // episode, reported again and again for as long as it keeps holding.
+    expect(r.drain("supervise").events.map((e) => e.kind)).toEqual([
+      "snapshot",
+      "transition",
+      "nag",
+      "nag",
+    ]);
+  });
+
+  it("threads the subscription's OWN scope into the state watch — one id list, not two", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    r.open("supervise", { ids: ["a" as TerminalId], filter });
+    expect([...(watch.specs[0]?.ids ?? [])]).toEqual(["a"]);
+    r.open("fleet", { filter });
+    // Omitting ids is the ABSENCE of a claim, so the fleet is watched — the
+    // enumeration-blindness the optional list exists to end.
+    expect(watch.specs[1]?.ids).toBeUndefined();
+  });
+
+  it("RE-opening replaces the attachment rather than stacking one — a nag is never doubled", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    r.open("supervise", { filter });
+    r.open("supervise", { filter });
+    expect(watch.liveCount()).toBe(1);
+    // …and the re-open answered with a fresh snapshot of its own, on top of the
+    // queue it preserved.
+    expect(r.drain("supervise").events.map((e) => e.kind)).toEqual([
+      "snapshot",
+      "snapshot",
+    ]);
+    watch.push("a", "nag");
+    expect(
+      r.drain("supervise").events.filter((e) => e.kind === "nag"),
+    ).toHaveLength(1);
+  });
+
+  it("CLOSING detaches it — a closed subscription cannot still be nagging", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    r.open("supervise", { filter });
+    r.close("supervise");
+    expect(watch.liveCount()).toBe(0);
+  });
+
+  it("DISPOSING detaches every attachment", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    r.open("one", { filter });
+    r.open("two", { filter });
+    r.dispose();
+    expect(watch.liveCount()).toBe(0);
+  });
+
+  it("is NOT also fed the settle detector — one subscription, one vocabulary", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    r.open("supervise", { filter });
+    r.open("plain");
+    acceptOne(r, "a");
+    expect(r.drain("supervise").events.map((e) => e.kind)).toEqual([
+      "snapshot",
+    ]);
+    expect(r.drain("plain").events.map((e) => e.kind)).toEqual(["finished"]);
+  });
+
+  it("REFUSES a filter it has nothing to feed with, rather than reporting silence", () => {
+    const r = registry();
+    expect(() => r.open("supervise", { filter })).toThrow(
+      /no state watch to feed it/,
+    );
   });
 });

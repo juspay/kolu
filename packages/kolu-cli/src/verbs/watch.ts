@@ -59,6 +59,23 @@
  * accepted are dropped: waiting uninterruptibly on a pipe that may never drain
  * is a worse failure mode than losing the tail of a feed the user just stopped.)
  *
+ * ## Two feeds, one verb
+ *
+ * Naming any of `--states` / `--held-for` / `--nag` switches this verb from the
+ * CHANGE tail described above to the SUPERVISION feed: agent-state transitions,
+ * debounced by a hold and repeated on a nag, led by the currently-matching set.
+ * They are different questions — "what just changed in the workspace" and "what
+ * has been sitting unattended" — and the second one is the reason the first was
+ * never usable as an alert: it relays byte-level churn (an idle grok repaints
+ * about once a second), it only shows CHANGES (join late and standing neglect is
+ * invisible), and it never repeats itself (ignore a line and it is gone).
+ *
+ * The switch is the PRESENCE of a knob, not a mode flag, so there is nothing to
+ * set inconsistently with the knobs. And the knobs themselves are padi's: this
+ * file parses argv into them and prints what comes back, and does not filter,
+ * debounce, or remember anything — the same three knobs reach the same engine
+ * from the MCP face, so there is no second implementation to drift.
+ *
  * ## Narrowing, and output discipline
  *
  * `<id>` is a short id or any unique prefix, resolved once against the live key
@@ -73,8 +90,16 @@
  * ending; see `rejection` below.
  */
 
-import { PADI_LINK_CLOSED, watchTerminals } from "@kolu/padi/dial";
 import {
+  isWaitState,
+  PADI_LINK_CLOSED,
+  WAIT_STATES,
+  type WaitState,
+  watchAgentStates,
+  watchTerminals,
+} from "@kolu/padi/dial";
+import {
+  formatStateEvent,
   formatWatchActivity,
   formatWatchActivityJson,
   formatWatchEvent,
@@ -82,6 +107,8 @@ import {
   formatWatchRemoval,
   formatWatchRemovalJson,
 } from "@kolu/padi/render";
+import type { PadiWatchStatesInput } from "@kolu/padi/surface";
+import { isValidTimerMs, MAX_TIMER_MS } from "@kolu/surface/wait";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { type Cause, Effect, Fiber, Queue, Stream } from "effect";
 import type { Command } from "effect/unstable/cli";
@@ -134,10 +161,121 @@ const pumpToStdout = (
   );
 };
 
+// ── The supervision grammar (argv only — the semantics are padi's) ──────────
+//
+// The same division `kolu wait` draws for `--until`: padi owns what a bucket IS
+// (`isWaitState`) and what a knob MEANS; how a comma list and a duration are
+// SPELLED, and what a rejection reads like, is argv grammar and lives here. And
+// it is decided BEFORE the dial, so `--held-for banana` is refused instantly
+// rather than after a `--host` has ssh-provisioned a cold box.
+
+/** How long, spelled the way a person writes it. The UNIT IS REQUIRED: a bare
+ *  `--held-for 60` is sixty milliseconds to a machine and a minute to whoever
+ *  typed it, and silently choosing either would make the whole feature quietly
+ *  wrong for half its users. */
+const DURATION = /^(\d+)(ms|s|m|h)$/;
+const UNIT_MS: Record<string, number> = {
+  ms: 1,
+  s: 1000,
+  m: 60_000,
+  h: 3_600_000,
+};
+
+type Parsed<T> =
+  | { readonly kind: "ok"; readonly value: T }
+  | { readonly kind: "error"; readonly message: string };
+
+function parseDuration(flag: string, raw: string): Parsed<number> {
+  const m = DURATION.exec(raw.trim());
+  if (m === null) {
+    return {
+      kind: "error",
+      message: `--${flag} ${JSON.stringify(raw)} is not a duration. Write the unit: 500ms, 60s, 5m, 2h. A bare number is refused on purpose — 60 reads as a minute to you and as 60ms to the timer.`,
+    };
+  }
+  const ms = Number(m[1]) * (UNIT_MS[m[2] as string] as number);
+  // 0 is a legal HOLD ("report it the instant it enters") and the schema behind
+  // `--nag` refuses it separately, so the only bound this shared parse owns is
+  // the timer ceiling.
+  if (ms !== 0 && !isValidTimerMs(ms)) {
+    return {
+      kind: "error",
+      message: `--${flag} ${JSON.stringify(raw)} is ${ms}ms, past the ${MAX_TIMER_MS}ms (~24.8 day) timer ceiling — a larger value overflows the timer and fires immediately, forever.`,
+    };
+  }
+  return { kind: "ok", value: ms };
+}
+
+function parseStates(raw: string): Parsed<readonly WaitState[]> {
+  const tokens = raw
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0);
+  if (tokens.length === 0 || !tokens.every(isWaitState)) {
+    return {
+      kind: "error",
+      message: `--states ${JSON.stringify(raw)} is not a list of agent buckets. Pick from ${WAIT_STATES.join(", ")}, comma-separated (any-of).`,
+    };
+  }
+  return { kind: "ok", value: tokens };
+}
+
+/** What the three knobs add up to — the wire input, or `undefined` when the user
+ *  named none of them and wants the change tail instead.
+ *
+ *  Only the knobs the user actually SPELLED ride the wire; the defaults live in
+ *  padi, once, so the CLI and an MCP orchestrator that named no states are
+ *  watching the same thing rather than two constants that agree today. */
+export function planSupervision(
+  args: WatchArgs,
+): Parsed<PadiWatchStatesInput | undefined> {
+  if (
+    args.states === undefined &&
+    args.heldFor === undefined &&
+    args.nag === undefined
+  ) {
+    return { kind: "ok", value: undefined };
+  }
+  const input: {
+    states?: readonly WaitState[];
+    heldForMs?: number;
+    nagMs?: number;
+  } = {};
+  if (args.states !== undefined) {
+    const parsed = parseStates(args.states);
+    if (parsed.kind === "error") return parsed;
+    input.states = parsed.value;
+  }
+  if (args.heldFor !== undefined) {
+    const parsed = parseDuration("held-for", args.heldFor);
+    if (parsed.kind === "error") return parsed;
+    input.heldForMs = parsed.value;
+  }
+  if (args.nag !== undefined) {
+    const parsed = parseDuration("nag", args.nag);
+    if (parsed.kind === "error") return parsed;
+    if (parsed.value === 0) {
+      return {
+        kind: "error",
+        message:
+          "--nag 0 is a spin, not an interval — it would re-report every terminal as fast as the daemon can loop. Pass a real interval (5m), or leave --nag off to be told once.",
+      };
+    }
+    input.nagMs = parsed.value;
+  }
+  return { kind: "ok", value: input };
+}
+
 export function run(
   endpoint: Endpoint,
   args: WatchArgs,
 ): Effect.Effect<void, unknown> {
+  // BEFORE the dial: a mistyped duration is argv, and argv is answerable without
+  // a daemon.
+  const plan = planSupervision(args);
+  if (plan.kind === "error") return Effect.fail(failure(plan.message));
+  const supervise = plan.value;
+
   return withPadi(
     endpoint,
     Effect.fn(function* (conn) {
@@ -156,13 +294,16 @@ export function run(
        *  user asked to be narrowed away — a filter that is only correct because
        *  three copies of it agree. The two renderings are THUNKS so the shape
        *  that was not asked for is never formatted. */
+      const offer = (line: string): void => {
+        Queue.offerUnsafe(lines, `${line}\n`);
+      };
       const emitFor = (
         id: TerminalId,
         json: () => string,
         human: () => string,
       ): void => {
         if (only !== undefined && id !== only) return;
-        Queue.offerUnsafe(lines, `${args.json ? json() : human()}\n`);
+        offer(args.json ? json() : human());
       };
       /** Why the mirror REJECTED, if it did — the only thing upstream ever says
        *  that genuinely names a failure. The `log` lines below are chatter by
@@ -188,35 +329,73 @@ export function run(
           // without a single `process.on` in this file. Combined with the
           // stdout-death signal because both mean "stop", and the mirror takes
           // one.
-          try: (interrupted) =>
-            watchTerminals(
-              conn.client,
-              {
-                onUpsert: (id, value, live) =>
-                  emitFor(
-                    id,
-                    () => formatWatchJson(id, value, { live }),
-                    () =>
-                      formatWatchEvent(id, value, { now: Date.now(), live }),
-                  ),
-                onRemove: (id) =>
-                  emitFor(
-                    id,
-                    () => formatWatchRemovalJson(id),
-                    () => formatWatchRemoval(id, { now: Date.now() }),
-                  ),
-                onActivity: (id, live) =>
-                  emitFor(
-                    id,
-                    () => formatWatchActivityJson(id, live),
-                    () => formatWatchActivity(id, live, { now: Date.now() }),
-                  ),
-              },
-              AbortSignal.any([interrupted, stopped.signal]),
-              (line) => {
-                writeErrSync(`kolu: ${line}\n`);
-              },
-            ),
+          try: (interrupted) => {
+            const signal = AbortSignal.any([interrupted, stopped.signal]);
+            const narrate = (line: string): void => {
+              writeErrSync(`kolu: ${line}\n`);
+            };
+            // The two feeds share every ending, every diagnostic and the one
+            // pump; they differ only in which member they subscribe. So this is
+            // the ONLY fork between them — not two verbs, and not two copies of
+            // the lifecycle above and below.
+            return supervise === undefined
+              ? watchTerminals(
+                  conn.client,
+                  {
+                    onUpsert: (id, value, live) =>
+                      emitFor(
+                        id,
+                        () => formatWatchJson(id, value, { live }),
+                        () =>
+                          formatWatchEvent(id, value, {
+                            now: Date.now(),
+                            live,
+                          }),
+                      ),
+                    onRemove: (id) =>
+                      emitFor(
+                        id,
+                        () => formatWatchRemovalJson(id),
+                        () => formatWatchRemoval(id, { now: Date.now() }),
+                      ),
+                    onActivity: (id, live) =>
+                      emitFor(
+                        id,
+                        () => formatWatchActivityJson(id, live),
+                        () =>
+                          formatWatchActivity(id, live, { now: Date.now() }),
+                      ),
+                  },
+                  signal,
+                  narrate,
+                )
+              : watchAgentStates(
+                  conn.client,
+                  // The resolved id rides the WIRE, not a local filter: padi
+                  // narrows the snapshot as well as the stream, so a debugging
+                  // tail costs one terminal's worth of traffic instead of the
+                  // fleet's.
+                  {
+                    ...supervise,
+                    ...(only === undefined ? {} : { id: only }),
+                  },
+                  (batch) => {
+                    for (const event of batch) {
+                      // The wire event IS the NDJSON line — it already carries
+                      // `kind`, `id`, `state`, `since` and `at`, so re-shaping it
+                      // here would only invent a second spelling of padi's own
+                      // answer for a consumer's jq to learn.
+                      offer(
+                        args.json
+                          ? JSON.stringify(event)
+                          : formatStateEvent(event),
+                      );
+                    }
+                  },
+                  signal,
+                  narrate,
+                );
+          },
           catch: (err) => err,
         }),
         // A rejection and a self-settle are the same fact — the watch is over —

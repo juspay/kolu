@@ -36,8 +36,10 @@ import type { PadiSurfaceClient } from "../dial.ts";
 import { errMessage } from "../errText.ts";
 import {
   padiSurface,
-  type PadiSettleEvent,
+  type PadiStateEvent,
   type PadiTerminal,
+  type PadiWatchEvent,
+  type PadiWatchStatesInput,
 } from "../surface.ts";
 import { activeAgent } from "../terminalVocab.ts";
 
@@ -220,6 +222,53 @@ export async function watchTerminals(
             },
           }
         : {},
+    },
+    { signal, log },
+  ).done;
+}
+
+/** Follow the AGENT-STATE feed live — the supervision half of `kolu watch`.
+ *
+ *  Everything the four knobs mean (`states` · `heldForMs` · `nagMs`, and the
+ *  snapshot that leads a subscription) is decided in padi and arrives already
+ *  filtered: this side does not narrow, debounce, or remember. That is the whole
+ *  point of the member — a consumer that filtered locally would be a second
+ *  implementation of the same knobs, and the CLI and an MCP orchestrator would
+ *  drift the day one of them was fixed.
+ *
+ *  One frame is one BATCH, and its FIRST frame is the currently-matching set.
+ *  `onBatch` therefore sees the standing truth before it sees any change, which
+ *  is what lets a late joiner report neglect it did not watch accumulate.
+ *
+ *  Ends the same three ways `watchTerminals` does: `signal` aborts (the
+ *  caller's Ctrl+C, or its output dying), or the link settles under us — the
+ *  caller tells those apart by whether it asked. */
+export async function watchAgentStates(
+  client: PadiSurfaceClient,
+  input: PadiWatchStatesInput,
+  onBatch: (batch: readonly PadiStateEvent[]) => void,
+  signal?: AbortSignal,
+  log?: (line: string) => void,
+): Promise<void> {
+  await mirrorRemoteSurface(
+    padiSurface,
+    client,
+    {
+      streams: {
+        watchStates: {
+          input,
+          // Guard the consumer callback at this funnel, exactly as the terminals
+          // mirror does: a throwing handler must not escape into the mirror's
+          // loop and wedge the whole watch.
+          onFrame: (batch) => {
+            try {
+              onBatch(batch);
+            } catch (err) {
+              log?.(`watchStates handler failed: ${(err as Error).message}`);
+            }
+          },
+        },
+      },
     },
     { signal, log },
   ).done;
@@ -494,7 +543,7 @@ async function watchAttachFeed(
 /** The outcome of a standing-subscription wait — the shared {@link WaitOutcome}
  *  with the drained batch as its met payload. */
 export type WatchEventsOutcome = WaitOutcome<{
-  events: readonly PadiSettleEvent[];
+  events: readonly PadiWatchEvent[];
   dropped: number;
   ackAfter: number;
   elapsedMs: number;
@@ -533,7 +582,7 @@ export async function awaitWatchEvents(
   },
 ): Promise<WatchEventsOutcome> {
   return runWait<{
-    events: readonly PadiSettleEvent[];
+    events: readonly PadiWatchEvent[];
     dropped: number;
     ackAfter: number;
     elapsedMs: number;

@@ -106,6 +106,7 @@ export {
   WAIT_STATES,
   type WaitState,
   type WatchHandlers,
+  watchAgentStates,
   watchTerminals,
 } from "./cliClient/watch.ts";
 

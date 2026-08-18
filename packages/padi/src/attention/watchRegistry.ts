@@ -25,6 +25,15 @@
  * that silently truncated would read to its caller exactly like a quiet workspace,
  * which is the failure mode this whole feature exists to remove.
  *
+ * **TWO SOURCES, ONE QUEUE — chosen by the caller, never merged.** A
+ * subscription that names an agent-state filter (`states`/`heldForMs`/`nagMs`)
+ * is fed by the state watch: the currently-matching set on (re)open, a
+ * transition when a state has held long enough, and a nag every interval it
+ * keeps holding. One that names none is fed by the settle detector exactly as
+ * before. The registry itself is a QUEUE and stays one — it buffers, it
+ * acknowledges, it counts overflow, and it knows nothing about how either source
+ * decides an event is due.
+ *
  * **A drain is ACKNOWLEDGED, not destructive.** `drain` retains what it hands
  * over until a LATER drain says it was received (`after` = the highest seq the
  * caller has actually processed). A destructive read looks fine until the reply
@@ -39,7 +48,16 @@
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { WatchSubscriptionNotFound } from "../errors.ts";
+import type { PadiWatchEvent } from "../surface.ts";
 import type { SettleEvent } from "./settleEvents.ts";
+import type {
+  StateWatchBatch,
+  StateWatchFilter,
+  StateWatchSpec,
+} from "./stateWatch.ts";
+
+/** What a queue holds — either source's events, one `kind` vocabulary. */
+export type WatchEvent = PadiWatchEvent;
 
 /** How many events one subscription retains before dropping its oldest. Sized
  *  for a supervisor that went away for a long time, not for a firehose: settle
@@ -60,13 +78,19 @@ export const WATCH_SUBSCRIPTION_LIMIT = 64;
 
 export interface WatchSubscription {
   readonly name: string;
+  /** The agent-state filter this subscription was opened with, when it named
+   *  one. Its PRESENCE is what chooses the source: with a filter the queue is
+   *  fed by the state watch (snapshot · transition · nag), without one by the
+   *  settle detector (asking · finished · gone). One subscription, one source —
+   *  never a merge, so a `kind` always answers "which question was this". */
+  readonly filter?: StateWatchFilter;
   /** The terminals this subscription cares about — `undefined` means every
    *  terminal on the host. An explicit list is refused when empty (a subscription
    *  that can never match is a caller bug, not a quiet no-op). */
   readonly ids?: ReadonlySet<TerminalId>;
   /** Events retained and not yet ACKNOWLEDGED — a drain hands these over but
    *  keeps them until a later drain's `after` covers them. */
-  buffer: SettleEvent[];
+  buffer: WatchEvent[];
   /** The highest `seq` the caller has acknowledged receiving. */
   acknowledged: number;
   /** Events discarded to overflow, and not yet reported on a drain. */
@@ -77,10 +101,14 @@ export interface WatchSubscription {
    *  that same `after` would erase drops that accrued AFTER the reported batch,
    *  unreported. Those survive the ack and ride the next report. */
   reportedDropped: number;
+  /** Detach this subscription from the state watch — set only for a filtered
+   *  one, and called on close AND on a re-open, so a re-scoped subscription can
+   *  never be fed by two engines at once. */
+  detach?: () => void;
 }
 
 export interface WatchDrain {
-  readonly events: readonly SettleEvent[];
+  readonly events: readonly WatchEvent[];
   /** Events lost to overflow before this drain — nonzero means the supervisor
    *  was away long enough to miss some, and should reconcile by reading the
    *  terminals collection rather than trusting the delta. */
@@ -103,8 +131,16 @@ export interface WatchRegistry {
   /** Open (or re-attach to) a named subscription. IDEMPOTENT by name: re-opening
    *  after an MCP restart returns the EXISTING queue with its buffer intact,
    *  which is what makes a supervisor's restart survivable. Re-opening with a
-   *  different scope re-scopes it — the QUEUE included. */
-  open(name: string, ids?: readonly TerminalId[]): WatchOpened;
+   *  different scope re-scopes it — the QUEUE included.
+   *
+   *  A `filter` opens (or RE-opens) this subscription on the agent-state watch,
+   *  which answers the (re)open with the currently-matching set — so the buffer a
+   *  reattaching supervisor drains leads with the standing truth rather than only
+   *  with whatever changed while it was away. */
+  open(
+    name: string,
+    opts?: { ids?: readonly TerminalId[]; filter?: StateWatchFilter },
+  ): WatchOpened;
   /** Hand over everything buffered, ACKNOWLEDGING everything at or below `after`
    *  first. Never blocks — a caller that wants to wait parks on the doorbell
    *  (`onPulse`) and drains when it rings. */
@@ -128,7 +164,9 @@ export interface WatchRegistry {
    *  report", which is precisely the confusion the error class exists to end. */
   close(name: string): void;
   /** The sink registered on the settle-event source — one observed FRAME at a
-   *  time, which is also one doorbell ring at a time. */
+   *  time, which is also one doorbell ring at a time. Reaches only the
+   *  subscriptions that named NO filter; a filtered one is fed by its own state
+   *  watch attachment instead. */
   accept(events: readonly SettleEvent[]): void;
   dispose(): void;
 }
@@ -145,6 +183,16 @@ export function createWatchRegistry(opts: {
    *  rather than read from a module global, so the registry owns the whole of
    *  `open`'s answer and no caller has to reach past it. */
   daemonSeq?: () => number;
+  /** Attach a filtered subscription to the agent-state watch. Injected rather
+   *  than reached for, so this module stays a QUEUE — it owns buffering,
+   *  acknowledgement and overflow, and knows nothing about how a state is
+   *  detected or debounced. Omitted only in tests that exercise the queue
+   *  alone; a filtered `open` then fails loudly rather than opening a
+   *  subscription that could never be fed. */
+  subscribeStates?: (
+    spec: StateWatchSpec,
+    emit: (batch: StateWatchBatch) => void,
+  ) => () => void;
 }): WatchRegistry {
   const { log } = opts;
   const limit = opts.limit ?? WATCH_BUFFER_LIMIT;
@@ -185,8 +233,63 @@ export function createWatchRegistry(opts: {
     }
   };
 
+  /** Buffer one frame into ONE subscription, and ring its doorbell. The whole of
+   *  what a queue does with an event, spelled once: both sources reach it, so
+   *  overflow accounting and the acknowledged-watermark gate cannot differ by
+   *  which engine produced the batch. */
+  const acceptInto = (
+    sub: WatchSubscription,
+    events: readonly WatchEvent[],
+  ): void => {
+    const mine = events.filter(
+      (e) =>
+        // Scope, and then the ACKNOWLEDGED WATERMARK. A fresh subscription
+        // starts acknowledged at the daemon's current sequence and promises
+        // to report "what happens NEXT" — so an event whose seq is at or
+        // below that watermark is history it already declined, and letting
+        // one into the buffer would make the promise false on its very first
+        // drain. The window is real: `open` reads the watermark while a
+        // settle frame may already be mid-flight to the sinks.
+        e.seq > sub.acknowledged &&
+        (sub.ids === undefined || sub.ids.has(e.id)),
+    );
+    if (mine.length === 0) return;
+    sub.buffer.push(...mine);
+    if (sub.buffer.length > limit) {
+      // Drop the OLDEST — a supervisor that fell behind wants the most recent
+      // truth, and the count below is how it learns the tail is incomplete.
+      const overflow = sub.buffer.length - limit;
+      sub.buffer.splice(0, overflow);
+      sub.dropped += overflow;
+    }
+    // ONE ring per frame, not one per event: the doorbell says "there is
+    // something new", and the drain behind it is the authority on what.
+    ring(sub.name);
+  };
+
+  /** Point a filtered subscription at the agent-state watch, and remember how to
+   *  detach it. The attachment's first act is the SNAPSHOT — the state watch
+   *  answers a subscribe with everything currently matching — so a supervisor
+   *  that (re)opens finds the standing truth already in its queue. */
+  const attach = (sub: WatchSubscription, scope?: ReadonlySet<TerminalId>) => {
+    const filter = sub.filter;
+    if (filter === undefined) return;
+    if (opts.subscribeStates === undefined) {
+      // FAIL FAST. A subscription with a filter and nothing to feed it would
+      // report an eternally quiet workspace, which is the one answer this module
+      // never gives.
+      throw new Error(
+        `standing subscription "${sub.name}" named an agent-state filter, but this registry was built with no state watch to feed it.`,
+      );
+    }
+    sub.detach = opts.subscribeStates(
+      { ...filter, ...(scope === undefined ? {} : { ids: scope }) },
+      (batch) => acceptInto(sub, batch),
+    );
+  };
+
   return {
-    open(name, ids) {
+    open(name, { ids, filter } = {}) {
       if (ids !== undefined && ids.length === 0) {
         throw new Error(
           `standing subscription "${name}" was opened with an empty id list — it could never match anything. Omit the list to watch every terminal.`,
@@ -206,9 +309,15 @@ export function createWatchRegistry(opts: {
         // narrowing filters what it just stopped caring about, or `ids` and
         // `buffer` describe two different subscriptions and the next drain hands
         // over events this caller has said it does not want.
+        //
+        // The FILTER is rebuilt from the incoming claim on the same terms, and
+        // the old state-watch attachment is dropped before the new one is made —
+        // a subscription fed by two engines would double-count every nag.
+        existing.detach?.();
         const next: WatchSubscription = {
           name: existing.name,
           ...(scope === undefined ? {} : { ids: scope }),
+          ...(filter === undefined ? {} : { filter }),
           buffer:
             scope === undefined
               ? existing.buffer
@@ -218,6 +327,10 @@ export function createWatchRegistry(opts: {
           reportedDropped: existing.reportedDropped,
         };
         subs.set(name, next);
+        // AFTER the record is installed: the attachment's snapshot lands in
+        // `next.buffer` through `acceptInto`, so the queue a reattaching
+        // supervisor drains leads with what is standing right now.
+        attach(next, scope);
         return { sub: next, reattached: true };
       }
       // A NEW name, so this is where the collection itself can grow. Refuse
@@ -235,6 +348,7 @@ export function createWatchRegistry(opts: {
       const sub: WatchSubscription = {
         name,
         ...(scope === undefined ? {} : { ids: scope }),
+        ...(filter === undefined ? {} : { filter }),
         buffer: [],
         // A FRESH subscription is acknowledged up to NOW, so it reports what
         // happens next rather than replaying edges the supervisor already acted
@@ -245,35 +359,21 @@ export function createWatchRegistry(opts: {
         reportedDropped: 0,
       };
       subs.set(name, sub);
+      // Strictly after the watermark above is seeded: the snapshot this mints
+      // carries sequences ABOVE it, so a fresh subscription's very first drain
+      // is the standing set rather than nothing.
+      attach(sub, scope);
       return { sub, reattached: false };
     },
 
     accept(events) {
       for (const sub of subs.values()) {
-        const mine = events.filter(
-          (e) =>
-            // Scope, and then the ACKNOWLEDGED WATERMARK. A fresh subscription
-            // starts acknowledged at the daemon's current sequence and promises
-            // to report "what happens NEXT" — so an event whose seq is at or
-            // below that watermark is history it already declined, and letting
-            // one into the buffer would make the promise false on its very first
-            // drain. The window is real: `open` reads the watermark while a
-            // settle frame may already be mid-flight to the sinks.
-            e.seq > sub.acknowledged &&
-            (sub.ids === undefined || sub.ids.has(e.id)),
-        );
-        if (mine.length === 0) continue;
-        sub.buffer.push(...mine);
-        if (sub.buffer.length > limit) {
-          // Drop the OLDEST — a supervisor that fell behind wants the most recent
-          // truth, and the count below is how it learns the tail is incomplete.
-          const overflow = sub.buffer.length - limit;
-          sub.buffer.splice(0, overflow);
-          sub.dropped += overflow;
-        }
-        // ONE ring per frame, not one per event: the doorbell says "there is
-        // something new", and the drain behind it is the authority on what.
-        ring(sub.name);
+        // A FILTERED subscription asked a different question and is answered by
+        // its own state-watch attachment. Letting the settle detector into its
+        // queue as well would put two vocabularies in one buffer for a caller
+        // that named only one of them.
+        if (sub.filter !== undefined) continue;
+        acceptInto(sub, events);
       }
     },
 
@@ -348,7 +448,7 @@ export function createWatchRegistry(opts: {
     },
 
     close(name) {
-      require_(name);
+      require_(name).detach?.();
       subs.delete(name);
       // Ring AFTER the delete: a consumer parked on this name's doorbell
       // re-drains, gets the declared "no such subscription", and learns it was
@@ -358,6 +458,7 @@ export function createWatchRegistry(opts: {
     },
 
     dispose() {
+      for (const sub of subs.values()) sub.detach?.();
       subs.clear();
       pulseListeners.clear();
     },

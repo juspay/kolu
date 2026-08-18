@@ -615,6 +615,34 @@ export const watchFlags = {
     ),
   ),
   json: sw(Flag.boolean("json").pipe(Flag.withDescription("emit NDJSON"))),
+  // The three SUPERVISION knobs. Naming any one of them turns `watch` from a
+  // change tail into the supervision feed — agent-state transitions, held and
+  // repeated — which is why they are plain strings here and parsed in the verb:
+  // `--held-for 60s` is a compound grammar like `--until idle:2000`, and
+  // `verbs/watch.ts` refuses a bad one BEFORE it dials, exactly as `wait` does.
+  // They filter in padi, never here: the CLI and the MCP face pass the same three
+  // knobs to the same engine, so there is nothing to keep in sync.
+  states: opt(
+    Flag.string("states").pipe(
+      Flag.withDescription(
+        "supervise instead of tailing: report agent-state transitions for these buckets (comma-separated any-of: working, awaiting, waiting). Defaults to awaiting,waiting when only --held-for/--nag is given",
+      ),
+    ),
+  ),
+  heldFor: opt(
+    Flag.string("held-for").pipe(
+      Flag.withDescription(
+        "report a state only once it has HELD this long — 60s, 5m, 2h, 500ms (the unit is required)",
+      ),
+    ),
+  ),
+  nag: opt(
+    Flag.string("nag").pipe(
+      Flag.withDescription(
+        "RE-report every interval the state keeps holding, so an ignored terminal comes back instead of vanishing after one line — 5m, 30s",
+      ),
+    ),
+  ),
 } as const;
 
 const watch = Command.make(
@@ -625,8 +653,24 @@ const watch = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Stream terminal changes and live output activity until interrupted.",
+    "Stream terminal changes and live output activity — or, with --states/--held-for/--nag, supervise: report agents that have been sitting in a state, and keep reporting them.",
   ),
+  Command.withExamples([
+    {
+      command: "kolu watch",
+      description: "Tail every terminal's changes and output activity",
+    },
+    {
+      command: "kolu watch --states waiting,awaiting --held-for 60s --nag 5m",
+      description:
+        "The supervision loop — every terminal idle a minute announces itself, every 5 minutes, until someone deals with it",
+    },
+    {
+      command: "kolu watch --nag 5m --json",
+      description:
+        "The same over NDJSON, filtered in padi, for a script to consume with jq",
+    },
+  ]),
 );
 
 /** The whole binary. Verbs first — they are what a user reaches for — then the

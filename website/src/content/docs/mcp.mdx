@@ -202,7 +202,7 @@ These replace that with one subscription:
 
 | Tool | What it does |
 | --- | --- |
-| `watch_open` | Start watching — every terminal, or a named few. You choose the subscription's name. |
+| `watch_open` | Start watching — the whole fleet by default, or a named few. You choose the subscription's name. |
 | `watch_next` | Block until any watched terminal needs you, then hand over everything that has happened since you last asked. |
 | `watch_close` | Stop watching and discard the queue. |
 
@@ -211,6 +211,39 @@ time between two calls is not a blind spot — and the queue lives in kolu's
 background service, so it survives your agent restarting. Reopen with the same
 name and you pick up where you left off. Each event says which terminal and why:
 it's **asking** for input, it **finished** its turn, or it's **gone**.
+
+`ids` is optional, and leaving it off is the better default: a subscription
+scoped to the lanes you remembered goes blind to the one you didn't.
+
+#### Terminals that keep asking until you deal with them
+
+A settle event fires **once**. An agent that finishes and then sits there for an
+hour is reported at the start of that hour and never again — so an orchestrator
+that was busy when the report landed loses the terminal entirely. Three optional
+parameters on `watch_open` replace that with a level you cannot miss:
+
+| Parameter | What it does |
+| --- | --- |
+| `states` | which agent states to report — any of `working`, `awaiting`, `waiting`. Defaults to `awaiting` + `waiting`, the two that need somebody |
+| `heldForMs` | report a terminal only once it has *held* that state this long. An agent handed more work inside the window is never reported |
+| `nagMs` | re-report it every this many milliseconds for as long as it keeps holding |
+
+```json
+{ "name": "campaign", "states": ["awaiting", "waiting"],
+  "heldForMs": 60000, "nagMs": 300000 }
+```
+
+A subscription opened this way reports **snapshot** (already in that state when
+you opened — handed over before anything that changed since), **transition** (it
+entered the state and held it), and **nag** (still holding, one interval later).
+Reopening after a restart leads with a fresh snapshot, so an agent that comes
+back finds what is standing rather than only what happens next.
+
+kolu asks each agent for its own state rather than watching its output: an idle
+agent that repaints its prompt every second is still idle, and `heldForMs` times
+the **state**, not the screen. The same three knobs are
+[`kolu watch`'s flags](/terminal-ui) from a shell — one implementation, two
+faces.
 
 A batch is handed over until your agent confirms it received it, so a reply lost
 to a timeout costs a repeat rather than a missed report. A queue holds the most

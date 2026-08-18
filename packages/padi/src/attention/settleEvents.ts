@@ -49,6 +49,12 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { attentionFrameOf } from "../activity/urgency.ts";
 import type { PadiSettleEvent, PadiTerminal, PadiUrgency } from "../surface.ts";
+import { createEventSeq, type EventSeq } from "./eventSeq.ts";
+import {
+  edgeMatches,
+  edgeOf,
+  type SupervisionEdge,
+} from "./supervisionEdge.ts";
 
 /** One settle edge — the WIRE shape, aliased for reading rather than declared a
  *  second time. `PadiSettleEventSchema` (`surface.ts`) is the one place the shape
@@ -59,17 +65,6 @@ export type SettleEvent = PadiSettleEvent;
 /** Which kind of attention a terminal just entered — or its departure. Derived
  *  from the wire literal union for the same reason as {@link SettleEvent}. */
 export type SettleKind = PadiSettleEvent["kind"];
-
-/** WHO SHOULD HEAR about a terminal, and the one scrap of context they cannot
- *  cheaply re-derive.
- *
- *  Both fields are optional and both are OMITTED rather than set to `undefined` —
- *  they ride `optionalKey` wire fields, which reject a present-but-undefined key
- *  (#17). Its PROVENANCE differs by event kind and that is the fact worth
- *  attaching to a name: for a live terminal it is read off the record; for a
- *  DEPARTURE it is the edge REMEMBERED from the last frame that still had one,
- *  because by then there is no record to read. */
-export type SupervisionEdge = Pick<PadiSettleEvent, "parentId" | "intent">;
 
 /** One observed frame's worth of edges, plus the terminals map they were computed
  *  from. The frame rides along so an IN-PROCESS sink never has to re-read a fact
@@ -88,9 +83,6 @@ export interface SettleEventSource {
    *  fold's own unit — never a per-event drip, and never on the reactor's
    *  recompute stack. Returns an unsubscribe. */
   onFrame(listener: SettleFrameListener): () => void;
-  /** The last sequence number emitted — a fresh subscription starts here, so it
-   *  receives what happens NEXT rather than replaying the daemon's history. */
-  lastSeq(): number;
   dispose(): void;
 }
 
@@ -109,39 +101,21 @@ export interface SettleEventFeed extends SettleEventSource {
   ): void;
 }
 
-/** Who spawned a terminal, and what it is for — the lane attribution an event
- *  carries so a subscriber can say WHICH worker moved without a second read.
- *  Spread-safe. Module scope: it closes
- *  over nothing, so it is minted once rather than per fold on the ~150 ms
- *  terminals cadence. */
-function edgeOf(record: PadiTerminal | undefined): SupervisionEdge {
-  return {
-    ...(record?.parentId === undefined
-      ? {}
-      : { parentId: record.parentId as TerminalId }),
-    ...(record?.intent === undefined ? {} : { intent: record.intent }),
-  };
-}
-
-/** Does a remembered edge still describe this record? Two string compares,
- *  which is what lets the edge memory be MAINTAINED rather than rebuilt: this
- *  runs per terminal per ~150 ms tick, and `parentId`/`intent` almost never move
- *  after a terminal is born, so the steady state should allocate nothing. */
-function edgeMatches(
-  edge: SupervisionEdge,
-  record: PadiTerminal | undefined,
-): boolean {
-  return edge.parentId === record?.parentId && edge.intent === record?.intent;
-}
-
 /** Build the settle-event source. `now` is injectable so tests stamp
- *  deterministically; production passes `Date.now`. */
+ *  deterministically; production passes `Date.now`.
+ *
+ *  `seq` is the DAEMON's counter, not this source's: the agent-state watch mints
+ *  events into the same standing-subscription queues, and a subscription's
+ *  acknowledgement watermark has to mean one thing whichever source filled it.
+ *  It defaults to a private counter so a test can build this source alone. */
 export function createSettleEvents(opts: {
   log: Logger;
   now?: () => number;
+  seq?: EventSeq;
 }): SettleEventFeed {
   const { log } = opts;
   const now = opts.now ?? Date.now;
+  const seq = opts.seq ?? createEventSeq();
   const listeners = new Set<SettleFrameListener>();
   // The attention TRANSITION plus the previous frame it diffs against — the
   // shared vocabulary's stateful form, so the "copy the arrays or nothing ever
@@ -163,7 +137,6 @@ export function createSettleEvents(opts: {
   // inventory is a discovery rather than a storm of arrivals and departures.
   const lastEdges = new Map<TerminalId, SupervisionEdge>();
   let observed = false;
-  let seq = 0;
 
   return {
     observe(urgency, terminals) {
@@ -188,12 +161,11 @@ export function createSettleEvents(opts: {
         kind: SettleKind,
         edge: SupervisionEdge,
       ) => {
-        seq += 1;
         // Spread-or-omit, never an explicit `undefined`: these ride optionalKey
         // fields on the wire schema, which accept an ABSENT key and REJECT a
         // present-but-undefined one (#17).
         batch.push({
-          seq,
+          seq: seq.next(),
           id,
           kind,
           at,
@@ -256,9 +228,6 @@ export function createSettleEvents(opts: {
       return () => {
         listeners.delete(listener);
       };
-    },
-    lastSeq() {
-      return seq;
     },
     dispose() {
       listeners.clear();
