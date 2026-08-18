@@ -12,6 +12,14 @@
  * which is exactly what the framework's retry fence needs: a transparently
  * re-subscribed stream re-leads with a fresh snapshot instead of resuming
  * mid-history.
+ *
+ * **The unsubscribe hangs off the SIGNAL, not off the generator's `finally`.**
+ * A `finally` only runs if the generator is resumed, and the framework's
+ * producer bridge never calls `return()` on it — so a consumer that stops
+ * pulling while a frame is yielded (a `kolu watch | head -1`, a killed pipe)
+ * would leave this subscription registered and its nag timer armed for the life
+ * of the daemon. Releasing on the abort makes teardown a fact of the scope
+ * closing rather than of the consumer being polite.
  */
 
 import { streamFromAbortableSource } from "@kolu/surface/server";
@@ -46,9 +54,18 @@ export function stateWatchSource(
         pending.push(batch);
         nudge();
       });
-      signal.addEventListener("abort", nudge, { once: true });
+      let released = false;
+      const release = (): void => {
+        if (released) return;
+        released = true;
+        unsubscribe();
+        nudge();
+        log.debug("padi: watchStates subscription ended");
+      };
+      if (signal.aborted) release();
+      else signal.addEventListener("abort", release, { once: true });
       try {
-        while (true) {
+        while (!released) {
           while (pending.length > 0) {
             const batch = pending.shift();
             // `pending.length > 0` guarantees this, but the compiler does not
@@ -56,18 +73,19 @@ export function stateWatchSource(
             if (batch === undefined) break;
             yield batch;
           }
-          if (signal.aborted) return;
+          if (released) return;
           await new Promise<void>((resolve) => {
             wake = resolve;
-            // The abort may have landed between the drain above and this
+            // The release may have landed between the drain above and this
             // registration, in which case nothing will nudge us again.
-            if (signal.aborted) nudge();
+            if (released) nudge();
           });
         }
       } finally {
-        signal.removeEventListener("abort", nudge);
-        unsubscribe();
-        log.debug("padi: watchStates subscription ended");
+        // Belt as well as braces: a generator that IS resumed to completion
+        // releases here too, and `release` is idempotent.
+        signal.removeEventListener("abort", release);
+        release();
       }
     })(),
   );
