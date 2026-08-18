@@ -273,10 +273,15 @@ it("parseBindPid reads the canonical env spelling from /proc bytes and ps eww", 
     parseBindPidFromEnvironBytes(
       Buffer.from("PATH=/bin\0KOLU_DAEMON_BIND_PID=4321\0HOME=/tmp\0"),
     ),
-  ).toBe(4321);
+  ).toEqual({ kind: "bound", pid: 4321 });
   expect(
     parseBindPidFromEnvironBytes(Buffer.from("PATH=/bin\0HOME=/tmp\0")),
-  ).toBeUndefined();
+  ).toEqual({ kind: "absent" });
+  expect(
+    parseBindPidFromEnvironBytes(
+      Buffer.from("KOLU_DAEMON_BIND_PID=\0HOME=/tmp\0"),
+    ),
+  ).toEqual({ kind: "unreadable" });
   expect(
     parseBindPidFromPsEww(
       "PID TTY STAT TIME COMMAND\n123 ?? S 0:00 node bin.ts KOLU_DAEMON_BIND_PID=77 FOO=1",

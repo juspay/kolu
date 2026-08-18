@@ -71,6 +71,7 @@ When("I prepare a output trigger", async function (this: KoluWorld) {
   // the FIFO until the test process writes to it.
   const fifoDir = await mkdtemp(join(tmpdir(), SCROLL_FIFO_DIR_PREFIX));
   const fifo = join(fifoDir, "trigger");
+  await writeFile(join(fifoDir, "owner"), String(process.pid));
   this._scrollFifo = fifo;
   const quotedFifo = shellQuoteArg(fifo);
   await this.terminalRun(`mkfifo ${quotedFifo}`);

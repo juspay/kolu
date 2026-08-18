@@ -330,7 +330,9 @@ test-daemon: install
     cleanup() {
         local st=$?
         # Best-effort: a janitor failure must not replace the suite's exit code.
-        just _reap-ci-run || true
+        if ! just _reap-ci-run; then
+            if [ "$st" -eq 0 ]; then st=1; fi
+        fi
         exit "$st"
     }
     trap cleanup EXIT
@@ -505,7 +507,9 @@ test: install
         local st=$?
         # Janitor first — then drop the suite lock so a waiter cannot mint
         # roots under a still-running sweep.
-        just _reap-ci-run || true
+        if ! just _reap-ci-run; then
+            if [ "$st" -eq 0 ]; then st=1; fi
+        fi
         if [ -n "$lock" ]; then
             rm -rf "$lock" || true
         fi
@@ -602,7 +606,9 @@ test-quick *args: install
     set -euo pipefail
     cleanup() {
         local st=$?
-        just _reap-ci-run || true
+        if ! just _reap-ci-run; then
+            if [ "$st" -eq 0 ]; then st=1; fi
+        fi
         exit "$st"
     }
     trap cleanup EXIT

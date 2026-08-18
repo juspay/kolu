@@ -7,7 +7,7 @@ import { reapCiRun } from "./ciReap.ts";
 
 const result = await reapCiRun();
 process.stdout.write(
-  `ci-reap: removed ${String(result.removedDirs.length)} runtime roots, reaped ${String(result.reaped.length)} orphans\n`,
+  `ci-reap: removed ${String(result.removedDirs.length)} runtime roots, reaped ${String(result.reaped.length)} orphans, ${String(result.survived.length)} survived\n`,
 );
 for (const dir of result.removedDirs) {
   process.stdout.write(`  dir ${dir}\n`);
@@ -15,3 +15,7 @@ for (const dir of result.removedDirs) {
 for (const pid of result.reaped) {
   process.stdout.write(`  pid ${String(pid)}\n`);
 }
+for (const pid of result.survived) {
+  process.stdout.write(`  survived ${String(pid)}\n`);
+}
+if (result.survived.length > 0) process.exit(1);

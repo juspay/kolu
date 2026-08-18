@@ -77,22 +77,27 @@ export function removeThisRunRuntimeRoots(
     if (!ent.isDirectory()) continue;
     if (!CI_RUNTIME_DIR_PREFIXES.some((p) => ent.name.startsWith(p))) continue;
     const full = join(root, ent.name);
-    const namedByPeer = procs.some(
-      (p) =>
-        p.command.includes(full) &&
-        !(
-          ent.name.startsWith(SCROLL_FIFO_DIR_PREFIX) &&
-          commandArgv0IsCat(p.command)
-        ),
-    );
-    if (namedByPeer) continue;
     if (ent.name.startsWith(SCROLL_FIFO_DIR_PREFIX)) {
+      const owner = readOwnerPid(join(full, "owner"));
+      if (owner !== undefined && isReachablePid(owner)) continue;
       killScrollFifoReaders(join(full, "trigger"), list);
+    } else if (procs.some((p) => p.command.includes(full))) {
+      continue;
     }
     rmSync(full, { recursive: true, force: true });
     removed.push(full);
   }
   return removed;
+}
+
+function readOwnerPid(path: string): number | undefined {
+  try {
+    const raw = readFileSync(path, "utf8").trim();
+    if (!/^[1-9][0-9]*$/.test(raw)) return undefined;
+    return Number(raw);
+  } catch {
+    return undefined;
+  }
 }
 
 function commandArgv0IsCat(command: string): boolean {
@@ -157,9 +162,7 @@ export type BindPidRead =
 export function readBindPidFromEnviron(pid: number): BindPidRead {
   try {
     const env = readFileSync(`/proc/${pid}/environ`);
-    const found = parseBindPidFromEnvironBytes(env);
-    if (found !== undefined) return { kind: "bound", pid: found };
-    return { kind: "absent" };
+    return parseBindPidFromEnvironBytes(env);
   } catch {
     // No /proc (darwin) or the pid is already gone — fall through to ps.
   }
@@ -175,24 +178,19 @@ export function readBindPidFromEnviron(pid: number): BindPidRead {
   }
 }
 
-export function parseBindPidFromEnvironBytes(buf: Buffer): number | undefined {
+export function parseBindPidFromEnvironBytes(buf: Buffer): BindPidRead {
   for (const entry of buf.toString("utf8").split("\0")) {
-    const parsed = bindPidValue(entry);
-    if (parsed !== undefined) return parsed;
+    if (!entry.startsWith("KOLU_DAEMON_BIND_PID=")) continue;
+    const raw = entry.slice("KOLU_DAEMON_BIND_PID=".length);
+    if (!/^[1-9][0-9]*$/.test(raw)) return { kind: "unreadable" };
+    return { kind: "bound", pid: Number(raw) };
   }
-  return undefined;
+  return { kind: "absent" };
 }
 
 export function parseBindPidFromPsEww(text: string): number | undefined {
   const m = text.match(/\bKOLU_DAEMON_BIND_PID=([1-9][0-9]*)/);
   return m ? Number(m[1]) : undefined;
-}
-
-function bindPidValue(entry: string): number | undefined {
-  if (!entry.startsWith("KOLU_DAEMON_BIND_PID=")) return undefined;
-  const raw = entry.slice("KOLU_DAEMON_BIND_PID=".length);
-  if (!/^[1-9][0-9]*$/.test(raw)) return undefined;
-  return Number(raw);
 }
 
 /** `kill(0)` plus EPERM-is-alive — the same rule as `isHolderLive`.
@@ -246,7 +244,11 @@ export function thisUid(): number {
 export function thisRunBindPid(): number | undefined {
   const raw = process.env.KOLU_CI_REAP_BIND_PID;
   if (raw === undefined) return undefined;
-  if (!/^[1-9][0-9]*$/.test(raw)) return undefined;
+  if (!/^[1-9][0-9]*$/.test(raw)) {
+    throw new Error(
+      `KOLU_CI_REAP_BIND_PID=${JSON.stringify(raw)} is not a single process`,
+    );
+  }
   return Number(raw);
 }
 
@@ -294,14 +296,20 @@ export function selectBindPidGoneDaemons(
     const helper = isCiLeftoverHelperCommand(proc.command);
     if (!helper && !isCiOwnedDaemonCommand(proc.command)) continue;
     const bind = opts.readBindPid(proc.pid);
-    // Unreadable: cannot tell a peer run from a leftover. Do not reap.
-    if (bind.kind === "unreadable") continue;
-    if (bind.kind === "bound") {
-      const bindGone = bind.pid === opts.thisRunBind || !opts.live(bind.pid);
-      if (!bindGone) continue;
-    } else if (helper) {
-      // A helper with no bind pid may belong to a live peer. Leave it.
-      continue;
+    switch (bind.kind) {
+      case "unreadable":
+        continue;
+      case "bound": {
+        const bindGone = bind.pid === opts.thisRunBind || !opts.live(bind.pid);
+        if (!bindGone) continue;
+        break;
+      }
+      case "absent":
+        // A helper with no bind pid may belong to a live peer. Leave it.
+        if (helper) continue;
+        break;
+      default:
+        bind satisfies never;
     }
     selected.push(proc.pid);
   }
@@ -310,7 +318,7 @@ export function selectBindPidGoneDaemons(
 
 export async function sweepBindPidGoneDaemons(
   deps: SweepDeps = {},
-): Promise<{ reaped: number[] }> {
+): Promise<{ reaped: number[]; survived: number[] }> {
   const onlyUid = deps.onlyUid ?? thisUid();
   const list = deps.list ?? listProcesses;
   const readBindPid = deps.readBindPid ?? readBindPidFromEnviron;
@@ -329,24 +337,30 @@ export async function sweepBindPidGoneDaemons(
     });
   const targets = select();
   const reaped: number[] = [];
+  const survived: number[] = [];
   for (const pid of targets) {
     // Re-identify immediately before the signal — a pid is not an identity
     // after exit (pidGate.ts). A reuse during the TERM/KILL window must
     // not inherit the earlier verdict.
     if (!select().includes(pid)) continue;
     const ended = await reap(pid);
-    if (ended === "survived") continue;
+    if (ended === "survived") {
+      survived.push(pid);
+      continue;
+    }
     reaped.push(pid);
   }
-  return { reaped };
+  return { reaped, survived };
 }
 
 export async function reapCiRun(
   opts: { runtimeRoot?: string; sweep?: SweepDeps } = {},
-): Promise<{ removedDirs: string[]; reaped: number[] }> {
-  const { reaped } = await sweepBindPidGoneDaemons(opts.sweep);
+): Promise<{ removedDirs: string[]; reaped: number[]; survived: number[] }> {
+  // Sweep first so leftover daemons die before their dirs are judged.
+  // A dir still named by a live process after the sweep is a peer.
+  const { reaped, survived } = await sweepBindPidGoneDaemons(opts.sweep);
   const removedDirs = removeThisRunRuntimeRoots(opts.runtimeRoot, {
     list: opts.sweep?.list,
   });
-  return { removedDirs, reaped };
+  return { removedDirs, reaped, survived };
 }

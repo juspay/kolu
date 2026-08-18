@@ -134,7 +134,11 @@ export function armBindPidWatchdog(opts: {
   const child: ChildProcess = spawn(
     process.execPath,
     [...loader, self, BIND_WATCH_FLAG, String(opts.bindPid), String(targetPid)],
-    { detached: true, stdio: "ignore", env: process.env },
+    {
+      detached: true,
+      stdio: "ignore",
+      env: siblingEnv(process.env),
+    },
   );
   child.on("error", (err) => {
     try {
@@ -168,6 +172,17 @@ export function armBindPidWatchdog(opts: {
   };
 }
 
+function siblingEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const next = { ...env };
+  const opts = next.NODE_OPTIONS;
+  if (opts === undefined) return next;
+  next.NODE_OPTIONS = opts
+    .split(/\s+/)
+    .filter((a) => !a.startsWith("--inspect"))
+    .join(" ");
+  return next;
+}
+
 function tsxLoader(): string[] {
   try {
     const href = pathToFileURL(
@@ -175,6 +190,7 @@ function tsxLoader(): string[] {
     ).href;
     return ["--import", href];
   } catch {
+    // Compiled bins have no tsx; strip-types is a no-op on .js.
     return ["--experimental-strip-types"];
   }
 }
