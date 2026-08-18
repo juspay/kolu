@@ -2112,6 +2112,9 @@ importers:
       '@cucumber/messages':
         specifier: 32.2.0
         version: 32.2.0
+      '@kolu/daemon-test-gate':
+        specifier: workspace:*
+        version: link:../daemon-test-gate
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi

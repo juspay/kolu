@@ -12,6 +12,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./setup": "./src/setup.ts",
+    "./ciReap": "./src/ciReap.ts",
     "./runtimeDepEdges": "./src/runtimeDepEdges.testlib.ts"
   },
   "scripts": {
