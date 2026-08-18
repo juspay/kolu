@@ -29,6 +29,7 @@ const BROWSER_FILES = [
   "solid/paintExtent.ts",
   "solid/lockOffset.ts",
   "solid/tapGesture.ts",
+  "solid/webglPaint.ts",
 ];
 
 describe("browser tile import graph", () => {

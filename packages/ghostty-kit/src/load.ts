@@ -75,6 +75,38 @@ export interface GhosttyExports {
   ghostty_snapshot_decoder_decode: (decoder: number, out: number) => number;
   ghostty_snapshot_decoder_free: (decoder: number) => void;
   ghostty_unicode_codepoint_width: (cp: number) => number;
+  ghostty_render_state_new: (allocator: number, out: number) => number;
+  ghostty_render_state_free: (state: number) => void;
+  ghostty_render_state_update: (state: number, term: number) => number;
+  ghostty_render_state_clean: (state: number) => number;
+  ghostty_render_state_get: (
+    state: number,
+    data: number,
+    out: number,
+  ) => number;
+  ghostty_render_state_row_iterator_new: (
+    allocator: number,
+    out: number,
+  ) => number;
+  ghostty_render_state_row_iterator_free: (it: number) => void;
+  ghostty_render_state_row_iterator_next: (it: number) => boolean;
+  ghostty_render_state_row_get: (
+    it: number,
+    data: number,
+    out: number,
+  ) => number;
+  ghostty_render_state_row_cells_new: (
+    allocator: number,
+    out: number,
+  ) => number;
+  ghostty_render_state_row_cells_free: (cells: number) => void;
+  ghostty_render_state_row_cells_next: (cells: number) => boolean;
+  ghostty_render_state_row_cells_get: (
+    cells: number,
+    data: number,
+    out: number,
+  ) => number;
+  ghostty_terminal_scroll_viewport: (term: number, viewport: number) => void;
   [name: string]: unknown;
 }
 

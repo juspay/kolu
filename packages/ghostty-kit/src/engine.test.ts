@@ -12,7 +12,7 @@ describe("official ghostty-vt.wasm engine", () => {
     const pin = readFileSync(
       fileURLToPath(new URL("../vendor/ghostty-vt.wasm", import.meta.url)),
     );
-    expect(pin.byteLength).toBe(900284);
+    expect(pin.byteLength).toBe(902443);
   });
 
   it("writes plain text, SGR, and wrap into cells the formatter can read", async () => {

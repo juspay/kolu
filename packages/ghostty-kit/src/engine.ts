@@ -28,6 +28,12 @@ import { check, Ffi } from "./ffi.ts";
 import { installHostCallbacks, loadGhostty } from "./load.ts";
 import { parseVtStyled, type StyledLine } from "./styled.ts";
 import {
+  createRenderState,
+  type RenderDirty,
+  type RenderFrame,
+  type RenderState,
+} from "./renderState.ts";
+import {
   applyCursorKeyMode,
   containsRis,
   scanOsc52,
@@ -95,6 +101,14 @@ export interface Engine {
   reflowEpoch(): number;
   bumpReflow(): void;
   reanchorIfReset(): void;
+  /** Update official render state from this terminal. */
+  updateRenderState(): RenderDirty;
+  /** Mark the last render-state frame clean. */
+  cleanRenderState(): void;
+  /** Read cells / colors / cursor from the last update. */
+  readRenderFrame(): RenderFrame;
+  /** Pin Ghostty's viewport to the live bottom or an absolute history row. */
+  pinViewport(where: "bottom" | { row: number }): void;
   free(): void;
 }
 
@@ -142,6 +156,7 @@ export function createEngine(opts: EngineOptions): Engine {
     wasm.exports.ghostty_terminal_new(0, out, opts.cols, opts.rows),
   );
   let term = ffi.takeOpaque(out);
+  const render: RenderState = createRenderState(ffi, wasm, () => term);
 
   const userdata = nextUserdata++;
   const slot: HostSlot = {
@@ -621,8 +636,22 @@ export function createEngine(opts: EngineOptions): Engine {
         lastTotal = total;
       }
     },
+    updateRenderState() {
+      return render.update();
+    },
+    cleanRenderState() {
+      render.clean();
+    },
+    readRenderFrame() {
+      return render.readFrame();
+    },
+    pinViewport(where) {
+      if (where === "bottom") render.pinBottom();
+      else render.pinRow(where.row);
+    },
     free() {
       hosts.delete(userdata);
+      render.free();
       wasm.exports.ghostty_terminal_free(term);
     },
   };

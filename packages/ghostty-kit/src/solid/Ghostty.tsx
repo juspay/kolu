@@ -15,7 +15,7 @@ import {
 import { createEngine, type Engine } from "../engine.ts";
 import { encodeDomKey } from "../encodeDomKey.ts";
 import { preloadGhostty } from "../load.browser.ts";
-import { lineContinuesPrevious, lineText, resolveColor } from "../styled.ts";
+import { lineContinuesPrevious, lineText } from "../styled.ts";
 import { sameGrid, type TerminalGrid } from "./grid.ts";
 import { measurePane } from "./measurePane.ts";
 import { createOnceMeasured } from "./onceMeasured.ts";
@@ -23,6 +23,11 @@ import { repinLockedViewOffset } from "./lockOffset.ts";
 import { paintStyledLines } from "./paintExtent.ts";
 import { createScrollLock, type ScrollLock } from "./scrollLock.ts";
 import { shouldActivateTap, type TapGesture } from "./tapGesture.ts";
+import {
+  createWebglPainter,
+  parseCssRgb,
+  type WebglPainter,
+} from "./webglPaint.ts";
 
 export interface TerminalTheme {
   foreground?: string;
@@ -196,6 +201,7 @@ export const Ghostty: Component<
   let touchLastY = 0;
   let touchCarry = 0;
   let tapGesture: TapGesture | null = null;
+  let painter: WebglPainter | undefined;
 
   function cellSize(): { w: number; h: number } {
     const probe = document.createElement("canvas").getContext("2d");
@@ -209,8 +215,7 @@ export const Ghostty: Component<
 
   function paint(): void {
     if (!engine) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    painter ??= createWebglPainter(canvas);
     const { w, h } = cellSize();
     // Engine grid is what the glyphs occupy. `grid()` is the published
     // pane size — using it here while the constructor is still 80×24
@@ -218,54 +223,23 @@ export const Ghostty: Component<
     const cols = engine.cols;
     const rows = engine.rows;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(1, Math.floor(cols * w * dpr));
-    canvas.height = Math.max(1, Math.floor(rows * h * dpr));
-    canvas.style.width = `${cols * w}px`;
-    canvas.style.height = `${rows * h}px`;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = own.theme.background ?? "#000";
-    ctx.fillRect(0, 0, cols * w, rows * h);
-    ctx.textBaseline = "top";
-    const baseFont = `${own.fontSize}px ${own.fontFamily}`;
-    const defaultBg = own.theme.background ?? "#000";
-    const { lines } = viewportWindow(rows);
-    for (let y = 0; y < rows; y++) {
-      const line = lines[y];
-      if (!line) continue;
-      let col = 0;
-      for (const run of line.runs) {
-        let fg = resolveColor(run.style.fg, own.theme, "fg");
-        let bg = resolveColor(run.style.bg, own.theme, "bg");
-        if (run.style.inverse) {
-          const swap = fg;
-          fg = bg;
-          bg = swap;
-        }
-        const weight = run.style.bold ? "700 " : "";
-        const italic = run.style.italic ? "italic " : "";
-        ctx.font = `${italic}${weight}${baseFont}`;
-        ctx.globalAlpha = run.style.faint ? 0.5 : 1;
-        for (const ch of run.text) {
-          const glyphCols = engine.cellWidth(ch.codePointAt(0) ?? 0);
-          if (glyphCols > 0 && bg !== defaultBg) {
-            ctx.fillStyle = bg;
-            ctx.fillRect(col * w, y * h, glyphCols * w, h);
-          }
-          ctx.fillStyle = fg;
-          ctx.fillText(ch, col * w, y * h);
-          if (run.style.underline && glyphCols > 0) {
-            ctx.fillRect(col * w, y * h + h - 1, glyphCols * w, 1);
-          }
-          if (glyphCols > 0) col += glyphCols;
-        }
-      }
+    painter.resize(cols * w, rows * h, dpr);
+    if (viewOffset <= 0) engine.pinViewport("bottom");
+    else {
+      engine.pinViewport({
+        row: Math.max(0, engine.visualLineCount() - rows - viewOffset),
+      });
     }
-    ctx.globalAlpha = 1;
-    if (viewOffset === 0) {
-      const cur = engine.cursor();
-      ctx.fillStyle = own.theme.cursor ?? own.theme.foreground ?? "#fff";
-      ctx.fillRect(cur.x * w, cur.y * h, Math.max(1, Math.floor(w * 0.15)), h);
-    }
+    engine.updateRenderState();
+    const frame = engine.readRenderFrame();
+    painter.paint(
+      frame,
+      { w, h },
+      { size: own.fontSize, family: own.fontFamily },
+      parseCssRgb(own.theme.foreground, { r: 255, g: 255, b: 255 }),
+      parseCssRgb(own.theme.background, { r: 0, g: 0, b: 0 }),
+    );
+    engine.cleanRenderState();
     for (const cb of renderListeners) cb();
   }
 

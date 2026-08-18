@@ -5,10 +5,10 @@ Asset: `ghostty-vt.wasm` from the Ghostty GitHub `tip` release
 module cited in https://x.com/mitchellh/status/2088378990998524206.
 
 - URL: https://github.com/ghostty-org/ghostty/releases/download/tip/ghostty-vt.wasm
-- Fetched: 2026-08-17
-- Tip commit: `b97b17f06b1ffd694f80edd3df5dd2134a0bcb9e`
-- SHA-256: `7547dd9d72dca927d01073308f7f373f90a6284ab129eff4202b889fa9ebf984`
-- Size: 900284 bytes
+- Fetched: 2026-08-18
+- Tip commit: `12967b68f7d46bdbfb2cfffb6768332fb9db68c0`
+- SHA-256: `65c89f79965cdddfffe9a246fee5019cbec5ea109e18809372f9266e9a6be0b6`
+- Size: 902443 bytes
 
 `trampoline.wasm` is a 87-byte helper we assemble (zero Ghostty code) so JS
 can put function pointers into the official module's funcref table. The

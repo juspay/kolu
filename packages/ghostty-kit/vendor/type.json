@@ -82,16 +82,8 @@
           "const": false,
           "nullable": true
         },
-        "cap": {
-          "offset": 4,
-          "size": 4,
-          "type": "u32"
-        },
-        "len": {
-          "offset": 8,
-          "size": 4,
-          "type": "u32"
-        }
+        "cap": { "offset": 4, "size": 4, "type": "u32" },
+        "len": { "offset": 8, "size": 4, "type": "u32" }
       }
     },
     "GhosttyCellsView": {
@@ -107,11 +99,7 @@
           "const": true,
           "nullable": true
         },
-        "len": {
-          "offset": 4,
-          "size": 4,
-          "type": "u32"
-        }
+        "len": { "offset": 4, "size": 4, "type": "u32" }
       }
     },
     "GhosttyClipboardContent": {
@@ -119,16 +107,8 @@
       "size": 16,
       "align": 4,
       "fields": {
-        "mime": {
-          "offset": 0,
-          "size": 8,
-          "type": "GhosttyString"
-        },
-        "data": {
-          "offset": 8,
-          "size": 8,
-          "type": "GhosttyString"
-        }
+        "mime": { "offset": 0, "size": 8, "type": "GhosttyString" },
+        "data": { "offset": 8, "size": 8, "type": "GhosttyString" }
       }
     },
     "GhosttyClipboardWrite": {
@@ -136,11 +116,7 @@
       "size": 16,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
+        "size": { "offset": 0, "size": 4, "type": "u32" },
         "location": {
           "offset": 4,
           "size": 4,
@@ -154,11 +130,7 @@
           "const": true,
           "nullable": true
         },
-        "contents_len": {
-          "offset": 12,
-          "size": 4,
-          "type": "u32"
-        }
+        "contents_len": { "offset": 12, "size": 4, "type": "u32" }
       }
     },
     "GhosttyCodepoints": {
@@ -174,11 +146,7 @@
           "const": true,
           "nullable": true
         },
-        "len": {
-          "offset": 4,
-          "size": 4,
-          "type": "u32"
-        }
+        "len": { "offset": 4, "size": 4, "type": "u32" }
       }
     },
     "GhosttyColorPaletteMask": {
@@ -200,21 +168,9 @@
       "size": 3,
       "align": 1,
       "fields": {
-        "r": {
-          "offset": 0,
-          "size": 1,
-          "type": "u8"
-        },
-        "g": {
-          "offset": 1,
-          "size": 1,
-          "type": "u8"
-        },
-        "b": {
-          "offset": 2,
-          "size": 1,
-          "type": "u8"
-        }
+        "r": { "offset": 0, "size": 1, "type": "u8" },
+        "g": { "offset": 1, "size": 1, "type": "u8" },
+        "b": { "offset": 2, "size": 1, "type": "u8" }
       }
     },
     "GhosttyColorX11Entry": {
@@ -230,11 +186,7 @@
           "const": true,
           "nullable": true
         },
-        "color": {
-          "offset": 4,
-          "size": 3,
-          "type": "GhosttyColorRgb"
-        }
+        "color": { "offset": 4, "size": 3, "type": "GhosttyColorRgb" }
       }
     },
     "GhosttyDeviceAttributes": {
@@ -264,11 +216,7 @@
       "size": 136,
       "align": 4,
       "fields": {
-        "conformance_level": {
-          "offset": 0,
-          "size": 2,
-          "type": "u16"
-        },
+        "conformance_level": { "offset": 0, "size": 2, "type": "u16" },
         "features": {
           "offset": 2,
           "size": 128,
@@ -276,11 +224,7 @@
           "elem": "u16",
           "count": 64
         },
-        "num_features": {
-          "offset": 132,
-          "size": 4,
-          "type": "u32"
-        }
+        "num_features": { "offset": 132, "size": 4, "type": "u32" }
       }
     },
     "GhosttyDeviceAttributesSecondary": {
@@ -288,75 +232,29 @@
       "size": 6,
       "align": 2,
       "fields": {
-        "device_type": {
-          "offset": 0,
-          "size": 2,
-          "type": "u16"
-        },
-        "firmware_version": {
-          "offset": 2,
-          "size": 2,
-          "type": "u16"
-        },
-        "rom_cartridge": {
-          "offset": 4,
-          "size": 2,
-          "type": "u16"
-        }
+        "device_type": { "offset": 0, "size": 2, "type": "u16" },
+        "firmware_version": { "offset": 2, "size": 2, "type": "u16" },
+        "rom_cartridge": { "offset": 4, "size": 2, "type": "u16" }
       }
     },
     "GhosttyDeviceAttributesTertiary": {
       "kind": "struct",
       "size": 4,
       "align": 4,
-      "fields": {
-        "unit_id": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        }
-      }
+      "fields": { "unit_id": { "offset": 0, "size": 4, "type": "u32" } }
     },
     "GhosttyFormatterScreenExtra": {
       "kind": "struct",
       "size": 12,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "cursor": {
-          "offset": 4,
-          "size": 1,
-          "type": "bool"
-        },
-        "style": {
-          "offset": 5,
-          "size": 1,
-          "type": "bool"
-        },
-        "hyperlink": {
-          "offset": 6,
-          "size": 1,
-          "type": "bool"
-        },
-        "protection": {
-          "offset": 7,
-          "size": 1,
-          "type": "bool"
-        },
-        "kitty_keyboard": {
-          "offset": 8,
-          "size": 1,
-          "type": "bool"
-        },
-        "charsets": {
-          "offset": 9,
-          "size": 1,
-          "type": "bool"
-        }
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "cursor": { "offset": 4, "size": 1, "type": "bool" },
+        "style": { "offset": 5, "size": 1, "type": "bool" },
+        "hyperlink": { "offset": 6, "size": 1, "type": "bool" },
+        "protection": { "offset": 7, "size": 1, "type": "bool" },
+        "kitty_keyboard": { "offset": 8, "size": 1, "type": "bool" },
+        "charsets": { "offset": 9, "size": 1, "type": "bool" }
       }
     },
     "GhosttyFormatterTerminalExtra": {
@@ -364,41 +262,13 @@
       "size": 24,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "palette": {
-          "offset": 4,
-          "size": 1,
-          "type": "bool"
-        },
-        "modes": {
-          "offset": 5,
-          "size": 1,
-          "type": "bool"
-        },
-        "scrolling_region": {
-          "offset": 6,
-          "size": 1,
-          "type": "bool"
-        },
-        "tabstops": {
-          "offset": 7,
-          "size": 1,
-          "type": "bool"
-        },
-        "pwd": {
-          "offset": 8,
-          "size": 1,
-          "type": "bool"
-        },
-        "keyboard": {
-          "offset": 9,
-          "size": 1,
-          "type": "bool"
-        },
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "palette": { "offset": 4, "size": 1, "type": "bool" },
+        "modes": { "offset": 5, "size": 1, "type": "bool" },
+        "scrolling_region": { "offset": 6, "size": 1, "type": "bool" },
+        "tabstops": { "offset": 7, "size": 1, "type": "bool" },
+        "pwd": { "offset": 8, "size": 1, "type": "bool" },
+        "keyboard": { "offset": 9, "size": 1, "type": "bool" },
         "screen": {
           "offset": 12,
           "size": 12,
@@ -411,26 +281,10 @@
       "size": 40,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "emit": {
-          "offset": 4,
-          "size": 4,
-          "type": "GhosttyFormatterFormat"
-        },
-        "unwrap": {
-          "offset": 8,
-          "size": 1,
-          "type": "bool"
-        },
-        "trim": {
-          "offset": 9,
-          "size": 1,
-          "type": "bool"
-        },
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "emit": { "offset": 4, "size": 4, "type": "GhosttyFormatterFormat" },
+        "unwrap": { "offset": 8, "size": 1, "type": "bool" },
+        "trim": { "offset": 9, "size": 1, "type": "bool" },
         "extra": {
           "offset": 12,
           "size": 24,
@@ -451,11 +305,7 @@
       "size": 12,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
+        "size": { "offset": 0, "size": 4, "type": "u32" },
         "node": {
           "offset": 4,
           "size": 4,
@@ -464,16 +314,8 @@
           "const": false,
           "nullable": true
         },
-        "x": {
-          "offset": 8,
-          "size": 2,
-          "type": "u16"
-        },
-        "y": {
-          "offset": 10,
-          "size": 2,
-          "type": "u16"
-        }
+        "x": { "offset": 8, "size": 2, "type": "u16" },
+        "y": { "offset": 10, "size": 2, "type": "u16" }
       }
     },
     "GhosttyKittyGraphicsPlacementRenderInfo": {
@@ -481,66 +323,18 @@
       "size": 48,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "pixel_width": {
-          "offset": 4,
-          "size": 4,
-          "type": "u32"
-        },
-        "pixel_height": {
-          "offset": 8,
-          "size": 4,
-          "type": "u32"
-        },
-        "grid_cols": {
-          "offset": 12,
-          "size": 4,
-          "type": "u32"
-        },
-        "grid_rows": {
-          "offset": 16,
-          "size": 4,
-          "type": "u32"
-        },
-        "viewport_col": {
-          "offset": 20,
-          "size": 4,
-          "type": "i32"
-        },
-        "viewport_row": {
-          "offset": 24,
-          "size": 4,
-          "type": "i32"
-        },
-        "viewport_visible": {
-          "offset": 28,
-          "size": 1,
-          "type": "bool"
-        },
-        "source_x": {
-          "offset": 32,
-          "size": 4,
-          "type": "u32"
-        },
-        "source_y": {
-          "offset": 36,
-          "size": 4,
-          "type": "u32"
-        },
-        "source_width": {
-          "offset": 40,
-          "size": 4,
-          "type": "u32"
-        },
-        "source_height": {
-          "offset": 44,
-          "size": 4,
-          "type": "u32"
-        }
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "pixel_width": { "offset": 4, "size": 4, "type": "u32" },
+        "pixel_height": { "offset": 8, "size": 4, "type": "u32" },
+        "grid_cols": { "offset": 12, "size": 4, "type": "u32" },
+        "grid_rows": { "offset": 16, "size": 4, "type": "u32" },
+        "viewport_col": { "offset": 20, "size": 4, "type": "i32" },
+        "viewport_row": { "offset": 24, "size": 4, "type": "i32" },
+        "viewport_visible": { "offset": 28, "size": 1, "type": "bool" },
+        "source_x": { "offset": 32, "size": 4, "type": "u32" },
+        "source_y": { "offset": 36, "size": 4, "type": "u32" },
+        "source_width": { "offset": 40, "size": 4, "type": "u32" },
+        "source_height": { "offset": 44, "size": 4, "type": "u32" }
       }
     },
     "GhosttyMouseEncoderSize": {
@@ -548,51 +342,15 @@
       "size": 36,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "screen_width": {
-          "offset": 4,
-          "size": 4,
-          "type": "u32"
-        },
-        "screen_height": {
-          "offset": 8,
-          "size": 4,
-          "type": "u32"
-        },
-        "cell_width": {
-          "offset": 12,
-          "size": 4,
-          "type": "u32"
-        },
-        "cell_height": {
-          "offset": 16,
-          "size": 4,
-          "type": "u32"
-        },
-        "padding_top": {
-          "offset": 20,
-          "size": 4,
-          "type": "u32"
-        },
-        "padding_bottom": {
-          "offset": 24,
-          "size": 4,
-          "type": "u32"
-        },
-        "padding_right": {
-          "offset": 28,
-          "size": 4,
-          "type": "u32"
-        },
-        "padding_left": {
-          "offset": 32,
-          "size": 4,
-          "type": "u32"
-        }
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "screen_width": { "offset": 4, "size": 4, "type": "u32" },
+        "screen_height": { "offset": 8, "size": 4, "type": "u32" },
+        "cell_width": { "offset": 12, "size": 4, "type": "u32" },
+        "cell_height": { "offset": 16, "size": 4, "type": "u32" },
+        "padding_top": { "offset": 20, "size": 4, "type": "u32" },
+        "padding_bottom": { "offset": 24, "size": 4, "type": "u32" },
+        "padding_right": { "offset": 28, "size": 4, "type": "u32" },
+        "padding_left": { "offset": 32, "size": 4, "type": "u32" }
       }
     },
     "GhosttyMousePosition": {
@@ -600,16 +358,8 @@
       "size": 8,
       "align": 4,
       "fields": {
-        "x": {
-          "offset": 0,
-          "size": 4,
-          "type": "f32"
-        },
-        "y": {
-          "offset": 4,
-          "size": 4,
-          "type": "f32"
-        }
+        "x": { "offset": 0, "size": 4, "type": "f32" },
+        "y": { "offset": 4, "size": 4, "type": "f32" }
       }
     },
     "GhosttyPoint": {
@@ -617,11 +367,7 @@
       "size": 24,
       "align": 8,
       "fields": {
-        "tag": {
-          "offset": 0,
-          "size": 4,
-          "type": "GhosttyPointTag"
-        },
+        "tag": { "offset": 0, "size": 4, "type": "GhosttyPointTag" },
         "value": {
           "offset": 8,
           "size": 16,
@@ -641,16 +387,8 @@
       "size": 8,
       "align": 4,
       "fields": {
-        "x": {
-          "offset": 0,
-          "size": 2,
-          "type": "u16"
-        },
-        "y": {
-          "offset": 4,
-          "size": 4,
-          "type": "u32"
-        }
+        "x": { "offset": 0, "size": 2, "type": "u16" },
+        "y": { "offset": 4, "size": 4, "type": "u32" }
       }
     },
     "GhosttyPointValue": {
@@ -700,31 +438,11 @@
       "size": 784,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "background": {
-          "offset": 4,
-          "size": 3,
-          "type": "GhosttyColorRgb"
-        },
-        "foreground": {
-          "offset": 7,
-          "size": 3,
-          "type": "GhosttyColorRgb"
-        },
-        "cursor": {
-          "offset": 10,
-          "size": 3,
-          "type": "GhosttyColorRgb"
-        },
-        "cursor_has_value": {
-          "offset": 13,
-          "size": 1,
-          "type": "bool"
-        },
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "background": { "offset": 4, "size": 3, "type": "GhosttyColorRgb" },
+        "foreground": { "offset": 7, "size": 3, "type": "GhosttyColorRgb" },
+        "cursor": { "offset": 10, "size": 3, "type": "GhosttyColorRgb" },
+        "cursor_has_value": { "offset": 13, "size": 1, "type": "bool" },
         "palette": {
           "offset": 14,
           "size": 768,
@@ -739,46 +457,14 @@
       "size": 20,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "viewport_has_value": {
-          "offset": 4,
-          "size": 1,
-          "type": "bool"
-        },
-        "viewport_x": {
-          "offset": 6,
-          "size": 2,
-          "type": "u16"
-        },
-        "viewport_y": {
-          "offset": 8,
-          "size": 2,
-          "type": "u16"
-        },
-        "wide_tail": {
-          "offset": 10,
-          "size": 1,
-          "type": "bool"
-        },
-        "visible": {
-          "offset": 11,
-          "size": 1,
-          "type": "bool"
-        },
-        "blinking": {
-          "offset": 12,
-          "size": 1,
-          "type": "bool"
-        },
-        "password_input": {
-          "offset": 13,
-          "size": 1,
-          "type": "bool"
-        },
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "viewport_has_value": { "offset": 4, "size": 1, "type": "bool" },
+        "viewport_x": { "offset": 6, "size": 2, "type": "u16" },
+        "viewport_y": { "offset": 8, "size": 2, "type": "u16" },
+        "wide_tail": { "offset": 10, "size": 1, "type": "bool" },
+        "visible": { "offset": 11, "size": 1, "type": "bool" },
+        "blinking": { "offset": 12, "size": 1, "type": "bool" },
+        "password_input": { "offset": 13, "size": 1, "type": "bool" },
         "visual_style": {
           "offset": 16,
           "size": 4,
@@ -791,21 +477,9 @@
       "size": 8,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "start_x": {
-          "offset": 4,
-          "size": 2,
-          "type": "u16"
-        },
-        "end_x": {
-          "offset": 6,
-          "size": 2,
-          "type": "u16"
-        }
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "start_x": { "offset": 4, "size": 2, "type": "u16" },
+        "end_x": { "offset": 6, "size": 2, "type": "u16" }
       }
     },
     "GhosttySelection": {
@@ -813,26 +487,10 @@
       "size": 32,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "start": {
-          "offset": 4,
-          "size": 12,
-          "type": "GhosttyGridRef"
-        },
-        "end": {
-          "offset": 16,
-          "size": 12,
-          "type": "GhosttyGridRef"
-        },
-        "rectangle": {
-          "offset": 28,
-          "size": 1,
-          "type": "bool"
-        }
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "start": { "offset": 4, "size": 12, "type": "GhosttyGridRef" },
+        "end": { "offset": 16, "size": 12, "type": "GhosttyGridRef" },
+        "rectangle": { "offset": 28, "size": 1, "type": "bool" }
       }
     },
     "GhosttySelectionGestureBehaviors": {
@@ -862,26 +520,10 @@
       "size": 16,
       "align": 4,
       "fields": {
-        "columns": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "cell_width": {
-          "offset": 4,
-          "size": 4,
-          "type": "u32"
-        },
-        "padding_left": {
-          "offset": 8,
-          "size": 4,
-          "type": "u32"
-        },
-        "screen_height": {
-          "offset": 12,
-          "size": 4,
-          "type": "u32"
-        }
+        "columns": { "offset": 0, "size": 4, "type": "u32" },
+        "cell_width": { "offset": 4, "size": 4, "type": "u32" },
+        "padding_left": { "offset": 8, "size": 4, "type": "u32" },
+        "screen_height": { "offset": 12, "size": 4, "type": "u32" }
       }
     },
     "GhosttySgrAttribute": {
@@ -889,11 +531,7 @@
       "size": 72,
       "align": 8,
       "fields": {
-        "tag": {
-          "offset": 0,
-          "size": 4,
-          "type": "GhosttySgrAttributeTag"
-        },
+        "tag": { "offset": 0, "size": 4, "type": "GhosttySgrAttributeTag" },
         "value": {
           "offset": 8,
           "size": 64,
@@ -947,11 +585,7 @@
           "elem": "u16",
           "const": true
         },
-        "full_len": {
-          "offset": 4,
-          "size": 4,
-          "type": "u32"
-        },
+        "full_len": { "offset": 4, "size": 4, "type": "u32" },
         "partial_ptr": {
           "offset": 8,
           "size": 4,
@@ -959,11 +593,7 @@
           "elem": "u16",
           "const": true
         },
-        "partial_len": {
-          "offset": 12,
-          "size": 4,
-          "type": "u32"
-        }
+        "partial_len": { "offset": 12, "size": 4, "type": "u32" }
       }
     },
     "GhosttySgrAttributeValue": {
@@ -971,16 +601,8 @@
       "size": 64,
       "align": 8,
       "fields": {
-        "unknown": {
-          "offset": 0,
-          "size": 16,
-          "type": "GhosttySgrUnknown"
-        },
-        "underline": {
-          "offset": 0,
-          "size": 4,
-          "type": "GhosttySgrUnderline"
-        },
+        "unknown": { "offset": 0, "size": 16, "type": "GhosttySgrUnknown" },
+        "underline": { "offset": 0, "size": 4, "type": "GhosttySgrUnderline" },
         "underline_color": {
           "offset": 0,
           "size": 3,
@@ -1001,16 +623,8 @@
           "size": 3,
           "type": "GhosttyColorRgb"
         },
-        "bg_8": {
-          "offset": 0,
-          "size": 1,
-          "type": "GhosttyColorPaletteIndex"
-        },
-        "fg_8": {
-          "offset": 0,
-          "size": 1,
-          "type": "GhosttyColorPaletteIndex"
-        },
+        "bg_8": { "offset": 0, "size": 1, "type": "GhosttyColorPaletteIndex" },
+        "fg_8": { "offset": 0, "size": 1, "type": "GhosttyColorPaletteIndex" },
         "bright_bg_8": {
           "offset": 0,
           "size": 1,
@@ -1045,26 +659,10 @@
       "size": 12,
       "align": 4,
       "fields": {
-        "rows": {
-          "offset": 0,
-          "size": 2,
-          "type": "u16"
-        },
-        "columns": {
-          "offset": 2,
-          "size": 2,
-          "type": "u16"
-        },
-        "cell_width": {
-          "offset": 4,
-          "size": 4,
-          "type": "u32"
-        },
-        "cell_height": {
-          "offset": 8,
-          "size": 4,
-          "type": "u32"
-        }
+        "rows": { "offset": 0, "size": 2, "type": "u16" },
+        "columns": { "offset": 2, "size": 2, "type": "u16" },
+        "cell_width": { "offset": 4, "size": 4, "type": "u32" },
+        "cell_height": { "offset": 8, "size": 4, "type": "u32" }
       }
     },
     "GhosttyString": {
@@ -1079,11 +677,7 @@
           "elem": "u8",
           "const": true
         },
-        "len": {
-          "offset": 4,
-          "size": 4,
-          "type": "u32"
-        }
+        "len": { "offset": 4, "size": 4, "type": "u32" }
       }
     },
     "GhosttySurfacePosition": {
@@ -1091,16 +685,8 @@
       "size": 16,
       "align": 8,
       "fields": {
-        "x": {
-          "offset": 0,
-          "size": 8,
-          "type": "f64"
-        },
-        "y": {
-          "offset": 8,
-          "size": 8,
-          "type": "f64"
-        }
+        "x": { "offset": 0, "size": 8, "type": "f64" },
+        "y": { "offset": 8, "size": 8, "type": "f64" }
       }
     },
     "GhosttyStyle": {
@@ -1108,71 +694,23 @@
       "size": 72,
       "align": 8,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "fg_color": {
-          "offset": 8,
-          "size": 16,
-          "type": "GhosttyStyleColor"
-        },
-        "bg_color": {
-          "offset": 24,
-          "size": 16,
-          "type": "GhosttyStyleColor"
-        },
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "fg_color": { "offset": 8, "size": 16, "type": "GhosttyStyleColor" },
+        "bg_color": { "offset": 24, "size": 16, "type": "GhosttyStyleColor" },
         "underline_color": {
           "offset": 40,
           "size": 16,
           "type": "GhosttyStyleColor"
         },
-        "bold": {
-          "offset": 56,
-          "size": 1,
-          "type": "bool"
-        },
-        "italic": {
-          "offset": 57,
-          "size": 1,
-          "type": "bool"
-        },
-        "faint": {
-          "offset": 58,
-          "size": 1,
-          "type": "bool"
-        },
-        "blink": {
-          "offset": 59,
-          "size": 1,
-          "type": "bool"
-        },
-        "inverse": {
-          "offset": 60,
-          "size": 1,
-          "type": "bool"
-        },
-        "invisible": {
-          "offset": 61,
-          "size": 1,
-          "type": "bool"
-        },
-        "strikethrough": {
-          "offset": 62,
-          "size": 1,
-          "type": "bool"
-        },
-        "overline": {
-          "offset": 63,
-          "size": 1,
-          "type": "bool"
-        },
-        "underline": {
-          "offset": 64,
-          "size": 4,
-          "type": "i32"
-        }
+        "bold": { "offset": 56, "size": 1, "type": "bool" },
+        "italic": { "offset": 57, "size": 1, "type": "bool" },
+        "faint": { "offset": 58, "size": 1, "type": "bool" },
+        "blink": { "offset": 59, "size": 1, "type": "bool" },
+        "inverse": { "offset": 60, "size": 1, "type": "bool" },
+        "invisible": { "offset": 61, "size": 1, "type": "bool" },
+        "strikethrough": { "offset": 62, "size": 1, "type": "bool" },
+        "overline": { "offset": 63, "size": 1, "type": "bool" },
+        "underline": { "offset": 64, "size": 4, "type": "i32" }
       }
     },
     "GhosttyStyleColor": {
@@ -1180,21 +718,13 @@
       "size": 16,
       "align": 8,
       "fields": {
-        "tag": {
-          "offset": 0,
-          "size": 4,
-          "type": "GhosttyStyleColorTag"
-        },
+        "tag": { "offset": 0, "size": 4, "type": "GhosttyStyleColorTag" },
         "value": {
           "offset": 8,
           "size": 8,
           "type": "GhosttyStyleColorValue",
           "tag": "tag",
-          "arms": {
-            "NONE": null,
-            "PALETTE": "palette",
-            "RGB": "rgb"
-          }
+          "arms": { "NONE": null, "PALETTE": "palette", "RGB": "rgb" }
         }
       }
     },
@@ -1208,16 +738,8 @@
           "size": 1,
           "type": "GhosttyColorPaletteIndex"
         },
-        "rgb": {
-          "offset": 0,
-          "size": 3,
-          "type": "GhosttyColorRgb"
-        },
-        "_padding": {
-          "offset": 0,
-          "size": 8,
-          "type": "u64"
-        }
+        "rgb": { "offset": 0, "size": 3, "type": "GhosttyColorRgb" },
+        "_padding": { "offset": 0, "size": 8, "type": "u64" }
       }
     },
     "GhosttySysImage": {
@@ -1225,16 +747,8 @@
       "size": 16,
       "align": 4,
       "fields": {
-        "width": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "height": {
-          "offset": 4,
-          "size": 4,
-          "type": "u32"
-        },
+        "width": { "offset": 0, "size": 4, "type": "u32" },
+        "height": { "offset": 4, "size": 4, "type": "u32" },
         "data": {
           "offset": 8,
           "size": 4,
@@ -1243,11 +757,7 @@
           "const": false,
           "nullable": true
         },
-        "data_len": {
-          "offset": 12,
-          "size": 4,
-          "type": "u32"
-        }
+        "data_len": { "offset": 12, "size": 4, "type": "u32" }
       }
     },
     "GhosttyTerminalDesktopNotification": {
@@ -1255,21 +765,9 @@
       "size": 20,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "title": {
-          "offset": 4,
-          "size": 8,
-          "type": "GhosttyString"
-        },
-        "body": {
-          "offset": 12,
-          "size": 8,
-          "type": "GhosttyString"
-        }
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "title": { "offset": 4, "size": 8, "type": "GhosttyString" },
+        "body": { "offset": 12, "size": 8, "type": "GhosttyString" }
       }
     },
     "GhosttyTerminalModeConfig": {
@@ -1277,16 +775,8 @@
       "size": 4,
       "align": 2,
       "fields": {
-        "mode": {
-          "offset": 0,
-          "size": 2,
-          "type": "GhosttyMode"
-        },
-        "value": {
-          "offset": 2,
-          "size": 1,
-          "type": "bool"
-        }
+        "mode": { "offset": 0, "size": 2, "type": "GhosttyMode" },
+        "value": { "offset": 2, "size": 1, "type": "bool" }
       }
     },
     "GhosttyTerminalProgressReport": {
@@ -1294,21 +784,13 @@
       "size": 12,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
+        "size": { "offset": 0, "size": 4, "type": "u32" },
         "state": {
           "offset": 4,
           "size": 4,
           "type": "GhosttyTerminalProgressState"
         },
-        "progress": {
-          "offset": 8,
-          "size": 1,
-          "type": "i8"
-        }
+        "progress": { "offset": 8, "size": 1, "type": "i8" }
       }
     },
     "GhosttyTerminalScrollbar": {
@@ -1316,21 +798,9 @@
       "size": 24,
       "align": 8,
       "fields": {
-        "total": {
-          "offset": 0,
-          "size": 8,
-          "type": "u64"
-        },
-        "offset": {
-          "offset": 8,
-          "size": 8,
-          "type": "u64"
-        },
-        "len": {
-          "offset": 16,
-          "size": 8,
-          "type": "u64"
-        }
+        "total": { "offset": 0, "size": 8, "type": "u64" },
+        "offset": { "offset": 8, "size": 8, "type": "u64" },
+        "len": { "offset": 16, "size": 8, "type": "u64" }
       }
     },
     "GhosttyTerminalScrollViewport": {
@@ -1362,16 +832,8 @@
       "size": 16,
       "align": 8,
       "fields": {
-        "delta": {
-          "offset": 0,
-          "size": 4,
-          "type": "i32"
-        },
-        "row": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
+        "delta": { "offset": 0, "size": 4, "type": "i32" },
+        "row": { "offset": 0, "size": 4, "type": "u32" },
         "_padding": {
           "offset": 0,
           "size": 16,
@@ -1386,16 +848,8 @@
       "size": 28,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "ref": {
-          "offset": 4,
-          "size": 12,
-          "type": "GhosttyGridRef"
-        },
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "ref": { "offset": 4, "size": 12, "type": "GhosttyGridRef" },
         "whitespace": {
           "offset": 16,
           "size": 4,
@@ -1404,16 +858,8 @@
           "const": true,
           "nullable": true
         },
-        "whitespace_len": {
-          "offset": 20,
-          "size": 4,
-          "type": "u32"
-        },
-        "semantic_prompt_boundary": {
-          "offset": 24,
-          "size": 1,
-          "type": "bool"
-        }
+        "whitespace_len": { "offset": 20, "size": 4, "type": "u32" },
+        "semantic_prompt_boundary": { "offset": 24, "size": 1, "type": "bool" }
       }
     },
     "GhosttyTerminalSelectWordBetweenOptions": {
@@ -1421,21 +867,9 @@
       "size": 36,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "start": {
-          "offset": 4,
-          "size": 12,
-          "type": "GhosttyGridRef"
-        },
-        "end": {
-          "offset": 16,
-          "size": 12,
-          "type": "GhosttyGridRef"
-        },
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "start": { "offset": 4, "size": 12, "type": "GhosttyGridRef" },
+        "end": { "offset": 16, "size": 12, "type": "GhosttyGridRef" },
         "boundary_codepoints": {
           "offset": 28,
           "size": 4,
@@ -1444,11 +878,7 @@
           "const": true,
           "nullable": true
         },
-        "boundary_codepoints_len": {
-          "offset": 32,
-          "size": 4,
-          "type": "u32"
-        }
+        "boundary_codepoints_len": { "offset": 32, "size": 4, "type": "u32" }
       }
     },
     "GhosttyTerminalSelectWordOptions": {
@@ -1456,16 +886,8 @@
       "size": 24,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "ref": {
-          "offset": 4,
-          "size": 12,
-          "type": "GhosttyGridRef"
-        },
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "ref": { "offset": 4, "size": 12, "type": "GhosttyGridRef" },
         "boundary_codepoints": {
           "offset": 16,
           "size": 4,
@@ -1474,11 +896,7 @@
           "const": true,
           "nullable": true
         },
-        "boundary_codepoints_len": {
-          "offset": 20,
-          "size": 4,
-          "type": "u32"
-        }
+        "boundary_codepoints_len": { "offset": 20, "size": 4, "type": "u32" }
       }
     },
     "GhosttyTerminalSelectionFormatOptions": {
@@ -1486,26 +904,10 @@
       "size": 16,
       "align": 4,
       "fields": {
-        "size": {
-          "offset": 0,
-          "size": 4,
-          "type": "u32"
-        },
-        "emit": {
-          "offset": 4,
-          "size": 4,
-          "type": "GhosttyFormatterFormat"
-        },
-        "unwrap": {
-          "offset": 8,
-          "size": 1,
-          "type": "bool"
-        },
-        "trim": {
-          "offset": 9,
-          "size": 1,
-          "type": "bool"
-        },
+        "size": { "offset": 0, "size": 4, "type": "u32" },
+        "emit": { "offset": 4, "size": 4, "type": "GhosttyFormatterFormat" },
+        "unwrap": { "offset": 8, "size": 1, "type": "bool" },
+        "trim": { "offset": 9, "size": 1, "type": "bool" },
         "selection": {
           "offset": 12,
           "size": 4,
@@ -1531,9 +933,7 @@
           "size": 128,
           "type": "GhosttyTerminalUnknownSequenceValue",
           "tag": "tag",
-          "arms": {
-            "APC": "apc"
-          }
+          "arms": { "APC": "apc" }
         }
       }
     },
@@ -1542,16 +942,8 @@
       "size": 12,
       "align": 4,
       "fields": {
-        "truncated": {
-          "offset": 0,
-          "size": 1,
-          "type": "bool"
-        },
-        "content": {
-          "offset": 4,
-          "size": 8,
-          "type": "GhosttyString"
-        }
+        "truncated": { "offset": 0, "size": 1, "type": "bool" },
+        "content": { "offset": 4, "size": 8, "type": "GhosttyString" }
       }
     },
     "GhosttyTerminalUnknownSequenceValue": {
@@ -1746,11 +1138,7 @@
       "align": 4,
       "underlying": "i32",
       "prefix": "GHOSTTY_COLOR_SCHEME_",
-      "values": {
-        "LIGHT": 0,
-        "DARK": 1,
-        "MAX_VALUE": 2147483647
-      }
+      "values": { "LIGHT": 0, "DARK": 1, "MAX_VALUE": 2147483647 }
     },
     "GhosttyFocusEvent": {
       "kind": "enum",
@@ -1758,11 +1146,7 @@
       "align": 4,
       "underlying": "i32",
       "prefix": "GHOSTTY_FOCUS_",
-      "values": {
-        "GAINED": 0,
-        "LOST": 1,
-        "MAX_VALUE": 2147483647
-      }
+      "values": { "GAINED": 0, "LOST": 1, "MAX_VALUE": 2147483647 }
     },
     "GhosttyFormatterFormat": {
       "kind": "enum",
@@ -1770,12 +1154,7 @@
       "align": 4,
       "underlying": "i32",
       "prefix": "GHOSTTY_FORMATTER_FORMAT_",
-      "values": {
-        "PLAIN": 0,
-        "VT": 1,
-        "HTML": 2,
-        "MAX_VALUE": 2147483647
-      }
+      "values": { "PLAIN": 0, "VT": 1, "HTML": 2, "MAX_VALUE": 2147483647 }
     },
     "GhosttyKey": {
       "kind": "enum",
@@ -2056,10 +1435,7 @@
       "align": 4,
       "underlying": "i32",
       "prefix": "GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPTION_",
-      "values": {
-        "LAYER": 0,
-        "MAX_VALUE": 2147483647
-      }
+      "values": { "LAYER": 0, "MAX_VALUE": 2147483647 }
     },
     "GhosttyKittyImageCompression": {
       "kind": "enum",
@@ -2067,11 +1443,7 @@
       "align": 4,
       "underlying": "i32",
       "prefix": "GHOSTTY_KITTY_IMAGE_COMPRESSION_",
-      "values": {
-        "NONE": 0,
-        "ZLIB_DEFLATE": 1,
-        "MAX_VALUE": 2147483647
-      }
+      "values": { "NONE": 0, "ZLIB_DEFLATE": 1, "MAX_VALUE": 2147483647 }
     },
     "GhosttyKittyImageFormat": {
       "kind": "enum",
@@ -2323,12 +1695,7 @@
       "align": 4,
       "underlying": "i32",
       "prefix": "GHOSTTY_RENDER_STATE_DIRTY_",
-      "values": {
-        "FALSE": 0,
-        "PARTIAL": 1,
-        "FULL": 2,
-        "MAX_VALUE": 2147483647
-      }
+      "values": { "FALSE": 0, "PARTIAL": 1, "FULL": 2, "MAX_VALUE": 2147483647 }
     },
     "GhosttyRenderStateOption": {
       "kind": "enum",
@@ -2336,10 +1703,7 @@
       "align": 4,
       "underlying": "i32",
       "prefix": "GHOSTTY_RENDER_STATE_OPTION_",
-      "values": {
-        "DIRTY": 0,
-        "MAX_VALUE": 2147483647
-      }
+      "values": { "DIRTY": 0, "MAX_VALUE": 2147483647 }
     },
     "GhosttyRenderStateRowCellsData": {
       "kind": "enum",
@@ -2383,10 +1747,7 @@
       "align": 4,
       "underlying": "i32",
       "prefix": "GHOSTTY_RENDER_STATE_ROW_OPTION_",
-      "values": {
-        "DIRTY": 0,
-        "MAX_VALUE": 2147483647
-      }
+      "values": { "DIRTY": 0, "MAX_VALUE": 2147483647 }
     },
     "GhosttyRowData": {
       "kind": "enum",
@@ -2446,12 +1807,7 @@
       "align": 4,
       "underlying": "i32",
       "prefix": "GHOSTTY_SELECTION_GESTURE_AUTOSCROLL_",
-      "values": {
-        "NONE": 0,
-        "UP": 1,
-        "DOWN": 2,
-        "MAX_VALUE": 2147483647
-      }
+      "values": { "NONE": 0, "UP": 1, "DOWN": 2, "MAX_VALUE": 2147483647 }
     },
     "GhosttySelectionGestureBehavior": {
       "kind": "enum",
@@ -2617,6 +1973,7 @@
         "PROGRESS_SCREEN": 5,
         "PROGRESS_ROWS": 6,
         "PROGRESS_REMAINING": 7,
+        "RETAIN_CONTINUATION": 8,
         "MAX_VALUE": 2147483647
       }
     },
@@ -2628,6 +1985,7 @@
       "prefix": "GHOSTTY_SNAPSHOT_DECODER_OPT_",
       "values": {
         "MAX_CONTINUATION_BYTES": 0,
+        "RETAIN_CONTINUATION": 1,
         "MAX_VALUE": 2147483647
       }
     },
@@ -2677,11 +2035,7 @@
       "align": 4,
       "underlying": "i32",
       "prefix": "GHOSTTY_TERMINAL_COMPRESSION_MODE_",
-      "values": {
-        "INCREMENTAL": 0,
-        "FULL": 1,
-        "MAX_VALUE": 2147483647
-      }
+      "values": { "INCREMENTAL": 0, "FULL": 1, "MAX_VALUE": 2147483647 }
     },
     "GhosttyTerminalCompressionResult": {
       "kind": "enum",
@@ -2829,11 +2183,7 @@
       "align": 4,
       "underlying": "i32",
       "prefix": "GHOSTTY_TERMINAL_SCREEN_",
-      "values": {
-        "PRIMARY": 0,
-        "ALTERNATE": 1,
-        "MAX_VALUE": 2147483647
-      }
+      "values": { "PRIMARY": 0, "ALTERNATE": 1, "MAX_VALUE": 2147483647 }
     },
     "GhosttyTerminalScrollViewportTag": {
       "kind": "enum",
@@ -2855,10 +2205,7 @@
       "align": 4,
       "underlying": "i32",
       "prefix": "GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_",
-      "values": {
-        "APC": 0,
-        "MAX_VALUE": 2147483647
-      }
+      "values": { "APC": 0, "MAX_VALUE": 2147483647 }
     },
     "GhosttyCell": {
       "kind": "packed",
@@ -2880,24 +2227,12 @@
             "CODEPOINT": {
               "kind": "packed",
               "width": 24,
-              "bits": {
-                "codepoint": {
-                  "lsb": 0,
-                  "width": 21,
-                  "type": "u21"
-                }
-              }
+              "bits": { "codepoint": { "lsb": 0, "width": 21, "type": "u21" } }
             },
             "CODEPOINT_GRAPHEME": {
               "kind": "packed",
               "width": 24,
-              "bits": {
-                "codepoint": {
-                  "lsb": 0,
-                  "width": 21,
-                  "type": "u21"
-                }
-              }
+              "bits": { "codepoint": { "lsb": 0, "width": 21, "type": "u21" } }
             },
             "BG_COLOR_PALETTE": {
               "kind": "packed",
@@ -2914,45 +2249,17 @@
               "kind": "packed",
               "width": 24,
               "bits": {
-                "r": {
-                  "lsb": 0,
-                  "width": 8,
-                  "type": "u8"
-                },
-                "g": {
-                  "lsb": 8,
-                  "width": 8,
-                  "type": "u8"
-                },
-                "b": {
-                  "lsb": 16,
-                  "width": 8,
-                  "type": "u8"
-                }
+                "r": { "lsb": 0, "width": 8, "type": "u8" },
+                "g": { "lsb": 8, "width": 8, "type": "u8" },
+                "b": { "lsb": 16, "width": 8, "type": "u8" }
               }
             }
           }
         },
-        "style_id": {
-          "lsb": 26,
-          "width": 16,
-          "type": "GhosttyStyleId"
-        },
-        "wide": {
-          "lsb": 42,
-          "width": 2,
-          "type": "GhosttyCellWide"
-        },
-        "protected": {
-          "lsb": 44,
-          "width": 1,
-          "type": "bool"
-        },
-        "hyperlink": {
-          "lsb": 45,
-          "width": 1,
-          "type": "bool"
-        },
+        "style_id": { "lsb": 26, "width": 16, "type": "GhosttyStyleId" },
+        "wide": { "lsb": 42, "width": 2, "type": "GhosttyCellWide" },
+        "protected": { "lsb": 44, "width": 1, "type": "bool" },
+        "hyperlink": { "lsb": 45, "width": 1, "type": "bool" },
         "semantic_content": {
           "lsb": 46,
           "width": 2,
@@ -2972,124 +2279,36 @@
       "align": 1,
       "type": "u8"
     },
-    "GhosttyMode": {
-      "kind": "alias",
-      "size": 2,
-      "align": 2,
-      "type": "u16"
-    },
-    "GhosttyMods": {
-      "kind": "alias",
-      "size": 2,
-      "align": 2,
-      "type": "u16"
-    },
-    "GhosttyRow": {
-      "kind": "alias",
-      "size": 8,
-      "align": 8,
-      "type": "u64"
-    },
-    "GhosttyStyleId": {
-      "kind": "alias",
-      "size": 2,
-      "align": 2,
-      "type": "u16"
-    },
-    "GhosttyFormatter": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttyKeyEncoder": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttyKeyEvent": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttyKittyGraphics": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttyKittyGraphicsImage": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
+    "GhosttyMode": { "kind": "alias", "size": 2, "align": 2, "type": "u16" },
+    "GhosttyMods": { "kind": "alias", "size": 2, "align": 2, "type": "u16" },
+    "GhosttyRow": { "kind": "alias", "size": 8, "align": 8, "type": "u64" },
+    "GhosttyStyleId": { "kind": "alias", "size": 2, "align": 2, "type": "u16" },
+    "GhosttyFormatter": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttyKeyEncoder": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttyKeyEvent": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttyKittyGraphics": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttyKittyGraphicsImage": { "kind": "opaque", "size": 4, "align": 4 },
     "GhosttyKittyGraphicsPlacementIterator": {
       "kind": "opaque",
       "size": 4,
       "align": 4
     },
-    "GhosttyMouseEncoder": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttyMouseEvent": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttyOscCommand": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttyOscParser": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttyRenderState": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttyRenderStateRowCells": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
+    "GhosttyMouseEncoder": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttyMouseEvent": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttyOscCommand": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttyOscParser": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttyRenderState": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttyRenderStateRowCells": { "kind": "opaque", "size": 4, "align": 4 },
     "GhosttyRenderStateRowIterator": {
       "kind": "opaque",
       "size": 4,
       "align": 4
     },
-    "GhosttySelectionGesture": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttySelectionGestureEvent": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttySgrParser": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttySnapshotDecoder": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttyTerminal": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    },
-    "GhosttyTrackedGridRef": {
-      "kind": "opaque",
-      "size": 4,
-      "align": 4
-    }
+    "GhosttySelectionGesture": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttySelectionGestureEvent": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttySgrParser": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttySnapshotDecoder": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttyTerminal": { "kind": "opaque", "size": 4, "align": 4 },
+    "GhosttyTrackedGridRef": { "kind": "opaque", "size": 4, "align": 4 }
   }
 }
