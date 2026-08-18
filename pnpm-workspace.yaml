@@ -10,7 +10,7 @@ packages:
   # under `pnpm -r test:unit`; the engine is gone (the lens stage is prose + plain
   # subagents now), so the package is pure markdown with nothing to test or build.
 
-# Effect 4 (beta). Every @effect/* package must resolve to the SAME version as
+# Effect 4 (release candidate). Every @effect/* package must resolve to the SAME version as
 # `effect` itself, so these are exact pins (no `^`) for kolu-private members.
 #
 # `catalog:` is WORKSPACE-LOCAL, so it cannot appear in the seven @kolu/surface*
@@ -24,10 +24,10 @@ packages:
 #   1. this catalog, 2. `pnpm.overrides` in package.json,
 #   3. the literal specs in packages/surface{,-map,-app,-remote,-daemon,-daemon-supervisor,-mcp}/package.json
 catalog:
-  effect: 4.0.0-beta.106
-  "@effect/platform-node": 4.0.0-beta.106
-  "@effect/platform-browser": 4.0.0-beta.106
-  "@effect/vitest": 4.0.0-beta.106
+  effect: 4.0.0-rc.110
+  "@effect/platform-node": 4.0.0-rc.110
+  "@effect/platform-browser": 4.0.0-rc.110
+  "@effect/vitest": 4.0.0-rc.110
 
 # @pierre/trees and @pierre/diffs declare react/react-dom as peer deps but only
 # need them for their /react entry points. Kolu consumes the vanilla classes

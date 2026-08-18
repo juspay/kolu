@@ -56,10 +56,15 @@ export const webFlags = {
     Flag.withDescription("Port to listen on"),
     Flag.withDefault(DEFAULT_PORT),
   ),
+  // `withDefault(false)` is the switch's OFF position, not a fallback: since
+  // `effect@4.0.0-rc.110` a bare `Flag.boolean` FAILS when absent rather than
+  // parsing as `false` (Effect-TS/effect#7296), so without it `kolu web` would
+  // refuse to boot unless the operator wrote `--tls` and `--verbose` every time.
   tls: Flag.boolean("tls").pipe(
     Flag.withDescription(
       "Enable HTTPS with auto-generated self-signed certificate",
     ),
+    Flag.withDefault(false),
   ),
   tlsCert: Flag.string("tls-cert").pipe(
     Flag.withDescription("Path to TLS certificate file (PEM)"),
@@ -71,6 +76,7 @@ export const webFlags = {
   ),
   verbose: Flag.boolean("verbose").pipe(
     Flag.withDescription("Enable debug-level logging"),
+    Flag.withDefault(false),
   ),
   allowNixShellWithEnvWhitelist: Flag.string(
     "allow-nix-shell-with-env-whitelist",

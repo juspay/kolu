@@ -5,10 +5,10 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  effect: 4.0.0-beta.106
-  '@effect/platform-node': 4.0.0-beta.106
-  '@effect/platform-browser': 4.0.0-beta.106
-  '@effect/vitest': 4.0.0-beta.106
+  effect: 4.0.0-rc.110
+  '@effect/platform-node': 4.0.0-rc.110
+  '@effect/platform-browser': 4.0.0-rc.110
+  '@effect/vitest': 4.0.0-rc.110
   '@babel/core': ^7.29.6
   esbuild: ^0.28.1
   serialize-javascript: ^7.0.3
@@ -36,8 +36,8 @@ importers:
   .:
     devDependencies:
       '@effect/vitest':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(vitest@4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3)))
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(vitest@4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3)))
       vitest:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
@@ -45,8 +45,8 @@ importers:
   osfacts-client:
     dependencies:
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -64,8 +64,8 @@ importers:
         specifier: workspace:*
         version: link:../solid-browser
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
@@ -98,8 +98,8 @@ importers:
         specifier: ^0.2.2
         version: 0.2.2(solid-js@1.9.11)
       '@effect/platform-browser':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
@@ -191,8 +191,8 @@ importers:
         specifier: 6.1.0-beta.300
         version: 6.1.0-beta.300
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       fix-webm-duration:
         specifier: ^1.0.6
         version: 1.0.6
@@ -294,8 +294,8 @@ importers:
         specifier: workspace:*
         version: link:../integrations/anyforge
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -390,8 +390,8 @@ importers:
         specifier: workspace:*
         version: link:../../shell-quote
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       nonempty:
         specifier: workspace:*
         version: link:../../nonempty
@@ -415,8 +415,8 @@ importers:
         specifier: workspace:*
         version: link:../../log
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -440,8 +440,8 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -474,8 +474,8 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -502,8 +502,8 @@ importers:
         specifier: ^2.5.1
         version: 2.5.6
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -539,8 +539,8 @@ importers:
         specifier: workspace:*
         version: link:../anyforge
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -564,8 +564,8 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -608,8 +608,8 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -648,8 +648,8 @@ importers:
   packages/kaval:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/heap-diag':
         specifier: workspace:*
         version: link:../heap-diag
@@ -678,8 +678,8 @@ importers:
         specifier: ^6.0.0
         version: 6.0.0
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       node-pty:
         specifier: github:juspay/node-pty#feat/foreground-pid-dist
         version: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d
@@ -712,8 +712,8 @@ importers:
   packages/kaval-tui:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../shell-quote
@@ -733,8 +733,8 @@ importers:
         specifier: ^1.6.0
         version: 1.6.0
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kaval:
         specifier: workspace:*
         version: link:../kaval
@@ -764,8 +764,8 @@ importers:
   packages/kolu-cli:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
@@ -788,8 +788,8 @@ importers:
         specifier: workspace:*
         version: link:../terminal-vocab
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kolu-common:
         specifier: workspace:*
         version: link:../common
@@ -828,8 +828,8 @@ importers:
   packages/kolu-mcp:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
@@ -849,8 +849,8 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
@@ -893,8 +893,8 @@ importers:
   packages/padi:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/serve-dir':
         specifier: workspace:*
         version: link:../serve-dir
@@ -929,8 +929,8 @@ importers:
         specifier: ^15.1.0
         version: 15.1.0
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kaval:
         specifier: workspace:*
         version: link:../kaval
@@ -1014,8 +1014,8 @@ importers:
   packages/padi-tui:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
@@ -1038,8 +1038,8 @@ importers:
         specifier: ^2.3.0
         version: 2.3.0
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kolu-pty:
         specifier: workspace:*
         version: link:../integrations/pty
@@ -1078,8 +1078,8 @@ importers:
   packages/serve-dir:
     dependencies:
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       mrmime:
         specifier: ^2.0.1
         version: 2.0.1
@@ -1097,8 +1097,8 @@ importers:
   packages/server:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
@@ -1151,8 +1151,8 @@ importers:
         specifier: ^15.1.0
         version: 15.1.0
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kaval:
         specifier: workspace:*
         version: link:../kaval
@@ -1424,11 +1424,11 @@ importers:
   packages/surface:
     dependencies:
       '@effect/platform-browser':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
@@ -1439,8 +1439,8 @@ importers:
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1470,8 +1470,8 @@ importers:
   packages/surface-app:
     dependencies:
       '@effect/platform-browser':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -1479,15 +1479,15 @@ importers:
         specifier: workspace:*
         version: link:../url-shape
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
     devDependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -1510,8 +1510,8 @@ importers:
   packages/surface-app/example:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../surface
@@ -1519,8 +1519,8 @@ importers:
         specifier: workspace:*
         version: link:..
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1553,8 +1553,8 @@ importers:
   packages/surface-daemon:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
@@ -1562,8 +1562,8 @@ importers:
         specifier: workspace:*
         version: link:../surface
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -1587,8 +1587,8 @@ importers:
   packages/surface-daemon-supervisor:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -1596,8 +1596,8 @@ importers:
         specifier: workspace:*
         version: link:../surface-daemon
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       osfacts-client:
         specifier: workspace:*
         version: link:../../osfacts-client
@@ -1636,8 +1636,8 @@ importers:
         specifier: ^2.0.3
         version: 2.0.3
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1667,8 +1667,8 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -1686,8 +1686,8 @@ importers:
   packages/surface-remote:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
@@ -1701,8 +1701,8 @@ importers:
         specifier: workspace:*
         version: link:../surface-map
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -1738,8 +1738,8 @@ importers:
   packages/surface/example:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:..
@@ -1747,8 +1747,8 @@ importers:
         specifier: workspace:*
         version: link:../../surface-app
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1787,8 +1787,8 @@ importers:
   packages/surface/example/fleet-top/part-1:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../..
@@ -1796,8 +1796,8 @@ importers:
         specifier: workspace:*
         version: link:../../../../surface-app
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1839,8 +1839,8 @@ importers:
         specifier: workspace:*
         version: link:../../../../surface-daemon-supervisor
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       osfacts-client:
         specifier: workspace:*
         version: link:../../../../../osfacts-client
@@ -1858,8 +1858,8 @@ importers:
   packages/surface/example/fleet-top/part-3:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../..
@@ -1873,8 +1873,8 @@ importers:
         specifier: workspace:*
         version: link:../../../../surface-remote
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1916,8 +1916,8 @@ importers:
         specifier: workspace:*
         version: link:../../../surface-remote
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1935,8 +1935,8 @@ importers:
   packages/surface/example/remote-process-monitor:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../..
@@ -1947,8 +1947,8 @@ importers:
         specifier: workspace:*
         version: link:../../../surface-remote
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2008,8 +2008,8 @@ importers:
         specifier: workspace:*
         version: link:../../../surface-remote
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2067,8 +2067,8 @@ importers:
         specifier: workspace:*
         version: link:../integrations/anyforge
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -2128,8 +2128,8 @@ importers:
         specifier: workspace:*
         version: link:../surface-map
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
       get-port:
         specifier: ^7.2.0
         version: 7.2.0
@@ -2157,8 +2157,8 @@ importers:
         specifier: workspace:*
         version: link:../log
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2234,8 +2234,8 @@ importers:
         specifier: 6.1.0-beta.300
         version: 6.1.0-beta.300
       effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
+        specifier: 4.0.0-rc.110
+        version: 4.0.0-rc.110
     devDependencies:
       '@babel/parser':
         specifier: ^7.29.2
@@ -2542,28 +2542,28 @@ packages:
   '@cucumber/tag-expressions@9.1.0':
     resolution: {integrity: sha512-bvHjcRFZ+J1TqIa9eFNO1wGHqwx4V9ZKV3hYgkuK/VahHx73uiP4rKV3JVrvWSMrwrFvJG6C8aEwnCWSvbyFdQ==}
 
-  '@effect/platform-browser@4.0.0-beta.106':
-    resolution: {integrity: sha512-3lPVbPDF9GppnnXHBmjFG8VlrLQSLxMsq0kPNt4y543tVQVsBuOPP6D+lDhYsuO3CY4XbDz6O4sDTebF7xvQoA==}
+  '@effect/platform-browser@4.0.0-rc.110':
+    resolution: {integrity: sha512-fwWN+6JH7GzW32MSFArPYymdXqLFHmUzV0lxcf6gHWktlA8gIg1YokDubC4gIVM2EOVOTxkVTZ7kmKl0/RwEqQ==}
     peerDependencies:
-      effect: 4.0.0-beta.106
+      effect: 4.0.0-rc.110
 
-  '@effect/platform-node-shared@4.0.0-beta.106':
-    resolution: {integrity: sha512-TRTzLmhCwVM8G7dXz16lI3wE2vZFSs1jNs/+3WhnuOZgOUeJz9vzBK/KKlGRbbi0QbtEqmW4rAy1y9Fj4MZfsw==}
+  '@effect/platform-node-shared@4.0.0-rc.110':
+    resolution: {integrity: sha512-P8EZloxS7RtCOSL3VSBPyqSenUm93xLbXf9jkWoy67cibZ2wgZ9nAou9iN8f1i4vzgxUsWtDuy6BEmg67np6Zw==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      effect: 4.0.0-beta.106
+      effect: 4.0.0-rc.110
 
-  '@effect/platform-node@4.0.0-beta.106':
-    resolution: {integrity: sha512-Me7uorWWroWp4OuWHbFg7EqyIex45QzZ3EPwh2p8y/t3VCWVy4KSFtL9AKOKpd7QK1krUWxRK/26J/hTsqvwZg==}
+  '@effect/platform-node@4.0.0-rc.110':
+    resolution: {integrity: sha512-poj6VxTc2kRDowUHgjGXAZL2nWHTyGi/18607jK+pV9A9CH/wqZ4NeYj38rij95j5SiZ3U7Y1iOsk2Vfnr4GEw==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      effect: 4.0.0-beta.106
-      ioredis: '>=5.7.0 <6.0.0'
+      effect: 4.0.0-rc.110
+      redis: '>=5.0.0 <7.0.0'
 
-  '@effect/vitest@4.0.0-beta.106':
-    resolution: {integrity: sha512-0w799orFqjFNlKh9GrnzMIJLn2/uPaVu8qmT3hJKkYxS46tUS9ZbfjeYNsd1BddvY+3sdS/vXVpnTE64z6+QaQ==}
+  '@effect/vitest@4.0.0-rc.110':
+    resolution: {integrity: sha512-ZvceBAWOPDnLgQgoObxPZOBuRTaRhBUR0K8sT4vfwwnf6Sv92GvCFp+WmfFV31j58Inf2p+wU1C3o9TNC1MZrQ==}
     peerDependencies:
-      effect: 4.0.0-beta.106
+      effect: 4.0.0-rc.110
       vitest: '>=4.1.0 <5.0.0'
 
   '@emnapi/core@1.11.1':
@@ -2854,9 +2854,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@ioredis/commands@1.10.0':
-    resolution: {integrity: sha512-UmeW7z4LfctwoQ5wkhVzgq8tXkreED2xZGpX+Bg+zA+WJFZCT6c062AfCK/Dfk81xZnnwdhJCUMkitihRaoC2Q==}
-
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -3125,6 +3122,42 @@ packages:
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
+
+  '@redis/bloom@6.2.1':
+    resolution: {integrity: sha512-huQgNLaCIZfQ9SeLn4q9124uOUd8HbZDYHwwUzNcRgHqCHiHKl2dDxMqJCeWh8cMqZAoWuHR8XnWbDMIf+o7ag==}
+    engines: {node: '>= 20.0.0'}
+    peerDependencies:
+      '@redis/client': ^6.2.1
+
+  '@redis/client@6.2.1':
+    resolution: {integrity: sha512-LzxBY7SIBvvJiyCgcaJZZakE3fJrZZ++i24+EDW9fKpCl68D35uJcKFpZZwCfOoG9WZTbyZlMzMeM0gtOAMU9Q==}
+    engines: {node: '>= 20.0.0'}
+    peerDependencies:
+      '@node-rs/xxhash': ^1.1.0
+      '@opentelemetry/api': '>=1 <2'
+    peerDependenciesMeta:
+      '@node-rs/xxhash':
+        optional: true
+      '@opentelemetry/api':
+        optional: true
+
+  '@redis/json@6.2.1':
+    resolution: {integrity: sha512-AFIUJ8Gj0DaaSBHYuSt8+O0oYWM+50OK1c0OmodB7XERIA8+BbyV3O4v76f9iccWasd1/7qjfZTpuzexUaZtrQ==}
+    engines: {node: '>= 20.0.0'}
+    peerDependencies:
+      '@redis/client': ^6.2.1
+
+  '@redis/search@6.2.1':
+    resolution: {integrity: sha512-2vfOAOyYFE7UUw3sBBlkqqruBtOUS4HRY5MtW4hp83llrwvtrTE4r22CEqXddlV+54zkLxBE4nmsIJ/dpezQrQ==}
+    engines: {node: '>= 20.0.0'}
+    peerDependencies:
+      '@redis/client': ^6.2.1
+
+  '@redis/time-series@6.2.1':
+    resolution: {integrity: sha512-kiYniph04dJOole+L359B6C9E+jYS2uDP7hca6Onj0xF38ZIpyxARO0Iq0W4ZRn1e8Q6vqW00QFZVSMRA/2Ijw==}
+    engines: {node: '>= 20.0.0'}
+    peerDependencies:
+      '@redis/client': ^6.2.1
 
   '@rolldown/binding-android-arm64@1.1.2':
     resolution: {integrity: sha512-2cZ+7xRS+DBcuJBJKnfzsbleumJhBqSlJVpuzHC0nTqfd3QQ7Vx2/x5YR/D7cBamKSeWplwo82Fn9lqYUDEMfA==}
@@ -3849,8 +3882,8 @@ packages:
     resolution: {integrity: sha512-JQHZ2QMW6l3aH/j6xCqQThY/9OH4D/9ls34cgkUBiEeocRTU04tHfKPBsUK1PqZCUQM7GiA0IIXJSuXHI64Kbg==}
     engines: {node: '>=0.8'}
 
-  cluster-key-slot@1.1.1:
-    resolution: {integrity: sha512-rwHwUfXL40Chm1r08yrhU3qpUvdVlgkKNeyeGPOxnW8/SyVDvgRaed/Uz54AqWNaTCAThlj6QAs3TZcKI0xDEw==}
+  cluster-key-slot@1.1.2:
+    resolution: {integrity: sha512-RMr0FhtfXemyinomL4hrWcYJxmX6deFdCxpJzhDttxgO1+bcCnkk+9drydLVDmAMG7NE6aN/fl4F7ucU/90gAA==}
     engines: {node: '>=0.10.0'}
 
   color-convert@2.0.1:
@@ -3961,10 +3994,6 @@ packages:
   defaults@1.0.4:
     resolution: {integrity: sha512-eFuaLoy/Rxalv2kr+lqMlUnrDWV+3j4pljOIJgLIhI058IQfWJ7vXhyEIHu+HtC738klGALYxOKDO0bQP3tg8A==}
 
-  denque@2.1.0:
-    resolution: {integrity: sha512-HVQE3AAb/pxF8fQAoiqpvg9i3evqug3hoiwakOyZAwJm+6vZehbkYXZ0l4JxS+I3QxM97v5aaRNhj8v5oBhekw==}
-    engines: {node: '>=0.10'}
-
   depd@2.0.0:
     resolution: {integrity: sha512-g7nH6P6dyDioJogAAGprGpCtVImJhpPk/roCzdb3fIh61/s/nPsfR6onyMwkCAR/OlC3yBC0lESvUoQEAssIrw==}
     engines: {node: '>= 0.8'}
@@ -4002,8 +4031,8 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
 
-  effect@4.0.0-beta.106:
-    resolution: {integrity: sha512-Sb1eNPYP8UdkE6xDOEEnrrOh/Vu2ocdRTPSeZTjZXukUrEYT2NtuQpbS90sEWaa7b6qLt8dfEYPpa6IVe5giHw==}
+  effect@4.0.0-rc.110:
+    resolution: {integrity: sha512-ega6FTJ8CS2of7tHZiADvgyJyV999Q6tZ9juE56V81O0jw6flRwydaPNtyfvP2a5LL9PZrse8A1jnNUD5sWVHg==}
 
   electron-to-chromium@1.5.334:
     resolution: {integrity: sha512-mgjZAz7Jyx1SRCwEpy9wefDS7GvNPazLthHg8eQMJ76wBdGQQDW33TCrUTvQ4wzpmOrv2zrFoD3oNufMdyMpog==}
@@ -4276,10 +4305,6 @@ packages:
     resolution: {integrity: sha512-7PnF4oN3CvZF23ADhA5wRaYEQpJ8qygSkbtTXWBeXWXmEVRXK+1ITciHWwHhsjv1TmW0MgacIv6hEi5pX5NQdA==}
     engines: {node: '>=10'}
 
-  ioredis@5.11.1:
-    resolution: {integrity: sha512-ehuGcf94bQXhfagULNXrJdfnWO38v070jxSx/qE87Kjzmu2fU7ro5EFAb+OPituLqgfyuQaym5DlrNydW2sJ9A==}
-    engines: {node: '>=12.22.0'}
-
   ip-address@10.1.1:
     resolution: {integrity: sha512-1FMu8/N15Ck1BL551Jf42NYIoin2unWjLQ2Fze/DXryJRl5twqtwNHlO39qERGbIOcKYWHdgRryhOC+NG4eaLw==}
     engines: {node: '>= 12'}
@@ -4373,9 +4398,6 @@ packages:
 
   knuth-shuffle-seeded@1.0.6:
     resolution: {integrity: sha512-9pFH0SplrfyKyojCLxZfMcvkhf5hH0d+UwR9nTVJ/DDQJGuzcXjTwB7TP7sDfehSudlGGaOLblmEWqv04ERVWg==}
-
-  kubernetes-types@1.30.0:
-    resolution: {integrity: sha512-Dew1okvhM/SQcIa2rcgujNndZwU8VnSapDgdxlYoB84ZlpAD43U6KLAFqYo17ykSFGHNPrg0qry0bP+GJd9v7Q==}
 
   lightningcss-android-arm64@1.32.0:
     resolution: {integrity: sha512-YK7/ClTt4kAK0vo6w3X+Pnm0D2cf2vPHbhOXdoNti1Ga0al1P4TBZhwjATvjNwLEBCnKvjJc2jQgHXH0NEwlAg==}
@@ -4817,13 +4839,9 @@ packages:
     resolution: {integrity: sha512-57frrGM/OCTLqLOAh0mhVA9VBMHd+9U7Zb2THMGdBUoZVOtGbJzjxsYGDJ3A9AYYCP4hn6y1TVbaOfzWtm5GFg==}
     engines: {node: '>= 12.13.0'}
 
-  redis-errors@1.2.0:
-    resolution: {integrity: sha512-1qny3OExCf0UvUV/5wpYKf2YwPcOqXzkwKKSmKHiE6ZMQs5heeE/c8eXK+PNllPvmjgAbfnsbpkGZWy8cBpn9w==}
-    engines: {node: '>=4'}
-
-  redis-parser@3.0.0:
-    resolution: {integrity: sha512-DJnGAeenTdpMEH6uAJRK/uiyEIH9WVsUmoLwzudwGJUwZPp80PDBWPHXSAGNPwNvIXAbe7MSUB1zQFugFml66A==}
-    engines: {node: '>=4'}
+  redis@6.2.1:
+    resolution: {integrity: sha512-Z9VHtgYs48PiQC77X9O2Er8Hj4T+5BtFjT91/vi5Is1D04N72cA946ZslM1ImJw8ZctFBZWAVjM7S5wJNeHMpg==}
+    engines: {node: '>= 20.0.0'}
 
   reflect-metadata@0.2.2:
     resolution: {integrity: sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q==}
@@ -5036,9 +5054,6 @@ packages:
 
   stackframe@1.3.4:
     resolution: {integrity: sha512-oeVtt7eWQS+Na6F//S4kJ2K2VbRlS9D43mAlMyVpVWovy9o+jfgH8O9agzANzaiLjclA0oYzUXEM4PurhSUChw==}
-
-  standard-as-callback@2.1.0:
-    resolution: {integrity: sha512-qoRRSyROncaz1z0mvYqIE4lCd9p2R90i6GxW3uZv5ucSu8tU7B5HXUP1gG8pVZsYNVaXjk8ClXHPttLyxAL48A==}
 
   statuses@2.0.2:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==}
@@ -5275,10 +5290,6 @@ packages:
 
   util-arity@1.1.0:
     resolution: {integrity: sha512-kkyIsXKwemfSy8ZEoaIz06ApApnWsk5hQO0vLjZS6UkBiGiW++Jsyb8vSBoc0WKlffGoGs5yYy/j5pp8zckrFA==}
-
-  uuid@14.0.1:
-    resolution: {integrity: sha512-6ZxzVpzDXDa3bJWaHilVayA+BH/1zmxCJoVgvmqJnid/gPoKHxUrS/aC/T6LGQtNHT+XHG9fXPJB4d+IrU30Ew==}
-    hasBin: true
 
   validate-npm-package-license@3.0.4:
     resolution: {integrity: sha512-DpKm2Ui/xN7/HQKCtpZxoRWBhZ9Z0kqtygG8XCgNQ8ZlDnxuQmWhj566j8fN4Cu3/JmbhsDo7fcAJq4s9h27Ew==}
@@ -5887,33 +5898,33 @@ snapshots:
 
   '@cucumber/tag-expressions@9.1.0': {}
 
-  '@effect/platform-browser@4.0.0-beta.106(effect@4.0.0-beta.106)':
+  '@effect/platform-browser@4.0.0-rc.110(effect@4.0.0-rc.110)':
     dependencies:
-      effect: 4.0.0-beta.106
+      effect: 4.0.0-rc.110
 
-  '@effect/platform-node-shared@4.0.0-beta.106(effect@4.0.0-beta.106)':
+  '@effect/platform-node-shared@4.0.0-rc.110(effect@4.0.0-rc.110)':
     dependencies:
       '@types/ws': 8.18.1
-      effect: 4.0.0-beta.106
+      effect: 4.0.0-rc.110
       ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/platform-node@4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)':
+  '@effect/platform-node@4.0.0-rc.110(effect@4.0.0-rc.110)(redis@6.2.1)':
     dependencies:
-      '@effect/platform-node-shared': 4.0.0-beta.106(effect@4.0.0-beta.106)
-      effect: 4.0.0-beta.106
-      ioredis: 5.11.1
+      '@effect/platform-node-shared': 4.0.0-rc.110(effect@4.0.0-rc.110)
+      effect: 4.0.0-rc.110
       mime: 4.1.0
+      redis: 6.2.1
       undici: 8.9.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/vitest@4.0.0-beta.106(effect@4.0.0-beta.106)(vitest@4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3)))':
+  '@effect/vitest@4.0.0-rc.110(effect@4.0.0-rc.110)(vitest@4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3)))':
     dependencies:
-      effect: 4.0.0-beta.106
+      effect: 4.0.0-rc.110
       vitest: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
 
   '@emnapi/core@1.11.1':
@@ -6088,8 +6099,6 @@ snapshots:
 
   '@img/sharp-win32-x64@0.34.5':
     optional: true
-
-  '@ioredis/commands@1.10.0': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -6368,6 +6377,26 @@ snapshots:
       - shiki
 
   '@pinojs/redact@0.4.0': {}
+
+  '@redis/bloom@6.2.1(@redis/client@6.2.1)':
+    dependencies:
+      '@redis/client': 6.2.1
+
+  '@redis/client@6.2.1':
+    dependencies:
+      cluster-key-slot: 1.1.2
+
+  '@redis/json@6.2.1(@redis/client@6.2.1)':
+    dependencies:
+      '@redis/client': 6.2.1
+
+  '@redis/search@6.2.1(@redis/client@6.2.1)':
+    dependencies:
+      '@redis/client': 6.2.1
+
+  '@redis/time-series@6.2.1(@redis/client@6.2.1)':
+    dependencies:
+      '@redis/client': 6.2.1
 
   '@rolldown/binding-android-arm64@1.1.2':
     optional: true
@@ -6994,7 +7023,7 @@ snapshots:
 
   clone@1.0.4: {}
 
-  cluster-key-slot@1.1.1: {}
+  cluster-key-slot@1.1.2: {}
 
   color-convert@2.0.1:
     dependencies:
@@ -7098,8 +7127,6 @@ snapshots:
     dependencies:
       clone: 1.0.4
 
-  denque@2.1.0: {}
-
   depd@2.0.0: {}
 
   dequal@2.0.3: {}
@@ -7130,13 +7157,11 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  effect@4.0.0-beta.106:
+  effect@4.0.0-rc.110:
     dependencies:
       '@standard-schema/spec': 1.1.0
       fast-check: 4.9.0
-      kubernetes-types: 1.30.0
       msgpackr: 2.0.5
-      uuid: 14.0.1
 
   electron-to-chromium@1.5.334: {}
 
@@ -7435,18 +7460,6 @@ snapshots:
 
   ini@2.0.0: {}
 
-  ioredis@5.11.1:
-    dependencies:
-      '@ioredis/commands': 1.10.0
-      cluster-key-slot: 1.1.1
-      debug: 4.4.3(supports-color@8.1.1)
-      denque: 2.1.0
-      redis-errors: 1.2.0
-      redis-parser: 3.0.0
-      standard-as-callback: 2.1.0
-    transitivePeerDependencies:
-      - supports-color
-
   ip-address@10.1.1: {}
 
   ipaddr.js@1.9.1: {}
@@ -7528,8 +7541,6 @@ snapshots:
   knuth-shuffle-seeded@1.0.6:
     dependencies:
       seed-random: 2.2.0
-
-  kubernetes-types@1.30.0: {}
 
   lightningcss-android-arm64@1.32.0:
     optional: true
@@ -7941,11 +7952,16 @@ snapshots:
 
   real-require@0.2.0: {}
 
-  redis-errors@1.2.0: {}
-
-  redis-parser@3.0.0:
+  redis@6.2.1:
     dependencies:
-      redis-errors: 1.2.0
+      '@redis/bloom': 6.2.1(@redis/client@6.2.1)
+      '@redis/client': 6.2.1
+      '@redis/json': 6.2.1(@redis/client@6.2.1)
+      '@redis/search': 6.2.1(@redis/client@6.2.1)
+      '@redis/time-series': 6.2.1(@redis/client@6.2.1)
+    transitivePeerDependencies:
+      - '@node-rs/xxhash'
+      - '@opentelemetry/api'
 
   reflect-metadata@0.2.2: {}
 
@@ -8200,8 +8216,6 @@ snapshots:
 
   stackframe@1.3.4: {}
 
-  standard-as-callback@2.1.0: {}
-
   statuses@2.0.2: {}
 
   std-env@4.1.0: {}
@@ -8426,8 +8440,6 @@ snapshots:
       tslib: 2.8.1
 
   util-arity@1.1.0: {}
-
-  uuid@14.0.1: {}
 
   validate-npm-package-license@3.0.4:
     dependencies:
