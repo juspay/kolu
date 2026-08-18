@@ -55,6 +55,7 @@ function startHarness(commandRooted: boolean) {
   const emits: TerminalEvent[] = [];
   const adapter: AgentAdapter<number, AgentInfoShape> = {
     kind: "opencode",
+    commandName: "opencode",
     // Resolve via matchesAgent (command hint OR kernel basename), like the real
     // codex/opencode adapters. Here basename is "node", so it hinges on the hint.
     resolveSessions: (state) =>

@@ -25,6 +25,9 @@ const IDLE: PromptObservation = {
   live: true,
   noisy: false,
   agent: undefined,
+  // A pty sitting at a SHELL — the honest default for "nothing recognized".
+  // Every "agent" case below opts into a foreground on purpose.
+  foreground: "zsh",
   feedLive: true,
 };
 
@@ -288,12 +291,68 @@ describe('readiness: "agent" — the boot gap that lost a brief', () => {
   // silent, unrecognized terminal is idle under `"quiet"` and not idle under
   // `"agent"`. That difference is the whole fix.
 
-  it("an unrecognized agent is idle under quiet and NOT under agent", () => {
+  it("a SHELL is idle under quiet and NOT under agent", () => {
+    // IDLE's foreground is "zsh": nothing recognized, nothing agent-shaped.
     expect(isPromptIdle(IDLE, "quiet")).toBe(true);
     expect(isPromptIdle(IDLE, "agent")).toBe(false);
     // `null` is the same unknown wearing the other spelling — a fold that
     // answered them differently would be a coin toss on which one padi stored.
     expect(isPromptIdle({ ...IDLE, agent: null }, "agent")).toBe(false);
+  });
+
+  it("an agent PROCESS at a quiet prompt is idle under agent, with no session yet", () => {
+    // THE case field report #2 was about, and the one the first shape of this
+    // predicate could not express. An adapter recognizes a SESSION, and Claude
+    // Code and grok write the transcript it reads only once the first message
+    // has been submitted — so waiting for `agent` here waits for something only
+    // this very call can cause. Three parallel spawn-and-briefs refused at 30s
+    // with claude and grok both visibly at their prompts.
+    //
+    // The foreground process is the identity that exists in that window.
+    for (const command of ["claude", "grok", "codex", "opencode"]) {
+      expect(
+        isPromptIdle(
+          { ...IDLE, agent: undefined, foreground: command },
+          "agent",
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("an agent process that is NOISY is not idle — the process is half the proof", () => {
+    // Booting counts as running, and this is what stops the original boot race
+    // reopening: `claude` exec'd but still painting is not a prompt.
+    expect(
+      isPromptIdle(
+        { ...IDLE, agent: undefined, foreground: "claude", noisy: true },
+        "agent",
+      ),
+    ).toBe(false);
+  });
+
+  it("a NON-agent foreground stays refused — bash is not briefable", () => {
+    // The property the session-only rule was protecting, kept intact: a brief
+    // typed at a shell prompt is a command line the shell EXECUTES. The field
+    // report's third create (bash) refusing was the designed outcome.
+    for (const command of ["bash", "zsh", "python", "node", "vim", undefined]) {
+      expect(
+        isPromptIdle(
+          { ...IDLE, agent: undefined, foreground: command },
+          "agent",
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("a recognized session still wins over the process name", () => {
+    // Once there IS a session, it answers — a working claude is not idle even
+    // though its process name would have said "an agent is running here".
+    expect(
+      isPromptIdle(
+        { ...IDLE, agent: agent("thinking"), foreground: "claude" },
+        "agent",
+      ),
+    ).toBe(false);
   });
 
   it("quiet remains the DEFAULT — an ordinary submit is untouched", () => {

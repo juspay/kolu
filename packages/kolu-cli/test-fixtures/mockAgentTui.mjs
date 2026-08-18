@@ -30,6 +30,15 @@
  *                   painting its first frame.
  *   MOCK_TURN_MS  — how long a turn lasts after a submit. 0 = answer instantly.
  *   MOCK_TICK_MS  — the working tick's cadence.
+ *   MOCK_PROCESS_NAME
+ *                 — present the process under this name (`process.title`), which
+ *                   is what node-pty reports as the pty's FOREGROUND process and
+ *                   what `kolu ls` prints. Set it to `claude` and padi sees an
+ *                   agent RUNNING here — the pre-session identity a real agent
+ *                   has from the moment the shell execs it, and the only signal
+ *                   available before a transcript exists. Unset (the default) the
+ *                   fixture is plain `node`, which is not a known agent command,
+ *                   so a first message is refused. NOT milliseconds.
  *   MOCK_PASTE_CHATTER_MS
  *                 — keep repainting this long AFTER a paste lands, without
  *                   submitting it. This is the state the settle window exists to
@@ -49,6 +58,15 @@ const BOOT_MS = ms("MOCK_BOOT_MS", 0);
 const TURN_MS = ms("MOCK_TURN_MS", 0);
 const TICK_MS = ms("MOCK_TICK_MS", 100);
 const PASTE_CHATTER_MS = ms("MOCK_PASTE_CHATTER_MS", 0);
+
+// Set BEFORE any output, because the readiness fold can sample the foreground
+// the instant the pty has a process. node-pty reports `process.title` verbatim,
+// so this is how a fixture presents the same pre-session identity a real agent
+// does — the thing that distinguishes "an agent is running here" from "a shell
+// is sitting at a prompt" before either has said anything.
+if (process.env.MOCK_PROCESS_NAME !== undefined) {
+  process.title = process.env.MOCK_PROCESS_NAME;
+}
 
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";

@@ -79,6 +79,7 @@ function startHarness(): Harness {
   let sessionLive = true;
   const fakeAdapter: AgentAdapter<number, AgentInfoShape> = {
     kind: "claude-code",
+    commandName: "claude",
     resolveSessions: (state) =>
       sessionLive &&
       state.foregroundPid !== undefined &&

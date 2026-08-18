@@ -16,11 +16,17 @@ import { findSessionsByDirectory, type OpenCodeSession } from "./core.ts";
 import type { OpenCodeInfo } from "./schemas.ts";
 import { createOpenCodeWatcher } from "./session-watcher.ts";
 
+/** The executable name this agent runs as — see `AgentAdapter.commandName`.
+ *  Declared once here and used for BOTH the adapter's advertised identity and
+ *  its own `matchesAgent` checks, so the two cannot drift. */
+const AGENT_COMMAND = "opencode";
+
 export const opencodeAdapter: AgentAdapter<OpenCodeSession, OpenCodeInfo> = {
   kind: "opencode",
+  commandName: AGENT_COMMAND,
 
   resolveSessions(state, log) {
-    if (!matchesAgent(state, "opencode")) return [];
+    if (!matchesAgent(state, AGENT_COMMAND)) return [];
     return findSessionsByDirectory(state.cwd, log);
   },
 

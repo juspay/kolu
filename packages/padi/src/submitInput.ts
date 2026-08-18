@@ -69,6 +69,7 @@ import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { NAMED_KEY_BYTES } from "@kolu/terminal-protocol";
 import type { Logger } from "pino";
 import { abortableDelay } from "./abortableDelay.ts";
+import { isKnownAgentCommand } from "./agentAdapters.ts";
 import {
   createActivityTracker,
   type ActivityTracker,
@@ -114,6 +115,14 @@ export interface PromptObservation {
    *  is silence rather than quiet, and reading it as an idle prompt is precisely
    *  how a message would be typed into a working agent. */
   readonly feedLive: boolean;
+  /** The pty's FOREGROUND process name (`"claude"`, `"zsh"`, …) — kaval's
+   *  `foregroundProcess`, the same string `kolu ls` prints.
+   *
+   *  Present long before {@link PromptObservation.agent} is: a session, and so an
+   *  agent state, exists only once a transcript does, which for Claude Code and
+   *  grok means only after the first message is submitted. This is what says an
+   *  agent is RUNNING here in the window where nothing can say what it is doing. */
+  readonly foreground: string | undefined;
 }
 
 /** What counts as proof that a prompt is ready to be typed into.
@@ -122,9 +131,11 @@ export interface PromptObservation {
  *  obstacle. Right for a terminal the caller has already SEEN: it is live, it
  *  has a prompt, and the only question is whether it is mid-turn.
  *
- *  `"agent"` — a recognized agent, not working, is REQUIRED. Right for the first
- *  message after a `run` line, where the caller has seen nothing and quiet does
- *  not mean what it means later. See {@link isPromptIdle}. */
+ *  `"agent"` — an AGENT must be running here: a recognized session that is not
+ *  working, or, before any session exists, a foreground process that is a known
+ *  agent command. Right for the first message after a `run` line, where the
+ *  caller has seen nothing and quiet does not mean what it means later. See
+ *  {@link isPromptIdle} for why the session half alone is unsatisfiable. */
 export type ReadinessProof = "quiet" | "agent";
 
 /** Is the terminal at an idle prompt — safe to type a message into?
@@ -132,6 +143,26 @@ export type ReadinessProof = "quiet" | "agent";
  *  Total over the observation, and deliberately NEGATIVE-biased: every unknown
  *  answers "not idle". A dropped activity feed is not quiet, and a working agent
  *  is never idle however long it has been silent.
+ *
+ *  ## What `"agent"` asks, and why it is not "is a session recognized"
+ *
+ *  It asks whether an AGENT IS RUNNING HERE, and takes either answer padi has:
+ *  a recognized session that is not working, or — before any session exists —
+ *  the pty's foreground process being a known agent command.
+ *
+ *  The second arm is not a convenience. Keyed on session recognition alone, this
+ *  predicate is UNSATISFIABLE for the case it was written for: an adapter
+ *  recognizes a conversation, and Claude Code and grok write the transcript it
+ *  reads only once the FIRST message has been submitted. So the proof for the
+ *  first message waited on something that only the first message could produce.
+ *  Shipped that way, every real spawn-and-brief refused after 30 s while the
+ *  agent sat plainly visible at its prompt (field report, 2026-08-19 — three
+ *  parallel creates, claude and grok both up on screen, `wait_agentState`
+ *  reporting no bucket for either).
+ *
+ *  A bare shell is still refused, which is the property the first arm was
+ *  protecting: `bash` is not a known agent command, so a brief still cannot be
+ *  typed at a shell prompt where it would be EXECUTED.
  *
  *  ## Why `readiness` exists — the boot gap, measured in the field
  *
@@ -161,8 +192,13 @@ export function isPromptIdle(
   if (!observed.feedLive) return false;
   if (observed.noisy) return false;
   const state = observed.agent?.state;
-  if (state === undefined) return readiness === "quiet";
-  return agentBucket(state) !== "working";
+  // A recognized agent answers for itself, under either proof: working is never
+  // idle however long it has been silent.
+  if (state !== undefined) return agentBucket(state) !== "working";
+  // Nothing recognized. `"quiet"` accepts that (a bare shell, a REPL — programs
+  // with no turn to speak of); `"agent"` falls back to the identity that exists
+  // before a session does, and refuses everything else.
+  return readiness === "quiet" || isKnownAgentCommand(observed.foreground);
 }
 
 // ── The live view ────────────────────────────────────────────────────────────
@@ -236,6 +272,7 @@ export function openPromptWatch(
       live: getActiveTerminal(id) !== undefined,
       noisy: tracker.isLive(id),
       agent: snapshotFor(id)?.agent,
+      foreground: snapshotFor(id)?.foreground?.name,
       feedLive,
     }),
     arm: () => tracker.noteOutput(id),

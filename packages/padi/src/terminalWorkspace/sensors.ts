@@ -51,13 +51,9 @@ import {
 } from "anyagent";
 import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
-import { claudeCodeAdapter } from "kolu-claude-code";
-import { codexAdapter } from "kolu-codex";
-import { grokAdapter } from "kolu-grok";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { githubForgeAdapter } from "kolu-github";
-import { opencodeAdapter } from "kolu-opencode";
 import type { ForegroundSample } from "kaval";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type { Logger } from "pino";
@@ -69,6 +65,12 @@ import type {
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
 import { portsEqual } from "@kolu/terminal-vocab/schema";
+import {
+  claudeCodeAdapter,
+  codexAdapter,
+  grokAdapter,
+  opencodeAdapter,
+} from "../agentAdapters.ts";
 import { claimSession, releaseTerminal } from "./sessionOwnership.ts";
 
 /** The engine's transient agent working state — the last-emitted agent value (the
@@ -1155,6 +1157,10 @@ export function startSensors(
       log,
       commandRooted,
     );
+  // The four come from `agentAdapters.ts`, beside the list the first-message
+  // readiness asks its command-name question over — so an integration is joined
+  // in one place even though `startAgent` is generic per adapter and cannot be
+  // mapped across the heterogeneous tuple.
   const stopClaude = startAgent(claudeCodeAdapter);
   const stopCodex = startAgent(codexAdapter);
   const stopOpenCode = startAgent(opencodeAdapter);

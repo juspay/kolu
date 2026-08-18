@@ -14,15 +14,23 @@
  * destructive one (a turn ending CLEARS the input box), so the loss this design
  * exists to prevent is DEMONSTRATED here rather than asserted in prose.
  *
- * Four proofs, one per shape the change ships:
+ * Five proofs, one per shape the change ships:
  *   a. a message submitted to an IDLE terminal lands as exactly ONE message;
  *   b. a mid-turn dispatch REFUSES with nothing typed — beside a control leg
  *      showing that the manual "type now, Enter later" path loses the text;
  *   c. the OTHER refusal: when the TUI outlasts the caller's bound after the
  *      text is typed, `staged: true` is a true statement about that screen and
  *      the documented recovery (one Enter, no re-send) delivers it once;
- *   d. `lifecycle_create { run, message }` briefs a fresh agent with zero
- *      further calls, across a boot silence.
+ *   d. `lifecycle_create { run, message }` briefs a fresh AGENT with zero
+ *      further calls, across a boot silence — the feature working;
+ *   e. …and the same call against a terminal that is NOT an agent refuses with
+ *      nothing typed, which is the boot race that ate a brief.
+ *
+ * (d) and (e) are a pair on purpose. Each alone passes for a broken build: with
+ * only (e), a rule that refuses EVERYTHING is green — which is what shipped, and
+ * what field report #2 caught after every real spawn-and-brief refused for 30 s.
+ * The fixture tells them apart with `MOCK_PROCESS_NAME`, presenting the same
+ * pre-session process identity a real agent has before its transcript exists.
  *
  * …plus the CLI parity leg, because `kolu send --submit` is a face of the same
  * capability and a face that is never exercised is a face that has drifted.
@@ -335,6 +343,52 @@ describeDaemon("the one-call submit against a real padi", () => {
     expect(submittedCount(after, brief)).toBe(1);
   }, 180_000);
 
+  it("create + message briefs a fresh AGENT in ONE call — the whole point of the feature", async () => {
+    // ── The leg whose absence let a broken build ship ─────────────────────
+    //
+    // This existed once, passed for the wrong reason (the fixture is never
+    // RECOGNIZED, and the readiness rule of the day accepted quiet), and was
+    // then rewritten into the refusal proof below when that hole was closed.
+    // Between those two states there was no end-to-end proof that
+    // spawn-and-brief works AT ALL — and the next build shipped a rule that
+    // refused every real agent for 30 s. Field report #2 found it; this leg is
+    // what should have.
+    //
+    // `MOCK_PROCESS_NAME` is what makes it possible: node-pty reports
+    // `process.title` as the pty's foreground process, so the fixture presents
+    // the SAME pre-session identity a real claude does from the moment the shell
+    // execs it — before any transcript exists, which is exactly the window this
+    // feature runs in.
+    const padi = await harness.startPadi();
+    const mcp = await harness.serveMcpOverPadi(padi.socketPath, "create-brief");
+
+    const created = toolJson(
+      await mcp.callTool({
+        name: "lifecycle_create",
+        arguments: {
+          placement: { kind: "toplevel" },
+          intent: "briefed worker",
+          // A boot silence too, so this is not merely the easy case: the brief
+          // waits out a gap that would have been mis-read as an idle prompt
+          // before any of this, then lands when the agent is actually there.
+          run: runLine({ MOCK_PROCESS_NAME: "claude", MOCK_BOOT_MS: "2500" }),
+          message: "carry out the plan",
+        },
+      }),
+    ) as { id: string; ran: string; briefed: string };
+
+    expect(created.briefed).toBe("carry out the plan");
+
+    // ZERO further calls put the worker to work — the read below is the TEST
+    // checking, not the driver dispatching.
+    const screen = await awaitScreen(
+      mcp,
+      created.id,
+      '<<SUBMITTED:"carry out the plan">>',
+    );
+    expect(submittedCount(screen, "carry out the plan")).toBe(1);
+  }, 180_000);
+
   it("create + message REFUSES a terminal with no recognized agent — it does NOT type into the boot", async () => {
     // ── The 2026-08-18 field loss, as a regression test ───────────────────
     //
@@ -363,8 +417,9 @@ describeDaemon("the one-call submit against a real padi", () => {
         arguments: {
           placement: { kind: "toplevel" },
           intent: "briefed worker",
-          // No boot delay needed: this fixture is never RECOGNIZED as an agent,
-          // painted or not, which is the whole point. The refusal therefore
+          // No MOCK_PROCESS_NAME, so this fixture is plain `node` — not a known
+          // agent command, and never recognized as a session either. That is a
+          // `bash` create in every way that matters here. The refusal therefore
           // takes padi's full default bound (SUBMIT_TIMEOUT_MS, 60s) — the cost
           // of proving that a brief with nowhere to land waits and then refuses
           // rather than guessing.
