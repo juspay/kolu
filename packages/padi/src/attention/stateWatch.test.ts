@@ -71,6 +71,93 @@ describe("createStateWatchHub", () => {
     expect(batches.flat().map((e) => e.kind)).toEqual(["transition"]);
   });
 
+  it("an idle agent REPAINTING once a second neither cancels nor restarts a pending hold — the #2177 killer", async () => {
+    // THE case this whole feature exists for. An idle grok redraws its prompt
+    // about once a second; padi's fold stamps that as recency on the composed
+    // record, so the `urgency` cell hands this hub a CHANGED frame every second
+    // while the agent's own adapter state has not moved at all. A byte-quiet
+    // gate starved forever on exactly this. The hold must be blind to it.
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("tool_use") } }));
+    await settled();
+    const { batches } = collect(h.hub, { heldForMs: 60_000 });
+    batches.length = 0;
+
+    const enteredAt = h.now();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    expect(batches).toEqual([]);
+    expect(h.armedAt()).toBe(enteredAt + 60_000);
+
+    // 59 repaints, one a second, each advancing the recency stamp.
+    for (let i = 1; i < 60; i += 1) {
+      h.advance(1_000);
+      h.observe(
+        terminals({
+          a: { agent: makeAgent("waiting"), lastActivityAt: h.now() },
+        }),
+      );
+      await settled();
+    }
+    // Not one of them reported anything, and not one of them moved the deadline
+    // — neither forward (a restarted hold, so the report never comes) nor
+    // backward (a cancelled hold).
+    expect(batches).toEqual([]);
+    expect(h.armedAt()).toBe(enteredAt + 60_000);
+
+    // …and the hold fires ON SCHEDULE despite all of it.
+    h.advance(1_000);
+    const [event] = batches.flat();
+    expect(event?.kind).toBe("transition");
+    // Dated from the moment the ADAPTER said waiting, not from the last repaint.
+    expect(event?.since).toBe(enteredAt);
+    expect((event?.at ?? 0) - (event?.since ?? 0)).toBe(60_000);
+  });
+
+  it("byte churn under a WORKING agent never STARTS a hold", async () => {
+    // The other direction of the same lesson: output is not evidence of
+    // idleness. A busy agent that is producing a lot of it stays out of the
+    // matching set entirely, so nothing is ever armed for it.
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("tool_use") } }));
+    await settled();
+    const { batches } = collect(h.hub, { heldForMs: 1_000 });
+    batches.length = 0;
+
+    for (let i = 1; i < 10; i += 1) {
+      h.advance(1_000);
+      h.observe(
+        terminals({
+          a: { agent: makeAgent("tool_use"), lastActivityAt: h.now() },
+        }),
+      );
+      await settled();
+    }
+    expect(batches).toEqual([]);
+    expect(h.armedAt()).toBeUndefined();
+  });
+
+  it("a repaint does not reset the NAG clock either — an ignored terminal still comes back on time", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const { batches } = collect(h.hub, { nagMs: 60_000 });
+    expect(batches.flat()).toHaveLength(1);
+
+    for (let i = 1; i < 60; i += 1) {
+      h.advance(1_000);
+      h.observe(
+        terminals({
+          a: { agent: makeAgent("waiting"), lastActivityAt: h.now() },
+        }),
+      );
+      await settled();
+    }
+    expect(batches.flat()).toHaveLength(1);
+    h.advance(1_000);
+    expect(batches.flat().map((e) => e.kind)).toEqual(["snapshot", "nag"]);
+  });
+
   it("HOLDS a transition until the state has lasted --held-for", async () => {
     const h = harness();
     h.observe(terminals({ a: { agent: makeAgent("thinking") } }));

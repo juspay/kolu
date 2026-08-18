@@ -20,7 +20,7 @@ import { pino } from "pino";
 import type { PadiTerminal } from "../surface.ts";
 import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
 import { createEdgeMemory } from "./edgeMemory.ts";
-import { createEventSeq } from "./eventSeq.ts";
+import { createEventSeq, type EventSeq } from "./eventSeq.ts";
 import {
   createStateWatchHub,
   type ScheduleTimer,
@@ -50,6 +50,13 @@ export interface TerminalFixture {
   agent?: AgentInfo | null;
   parentId?: string;
   intent?: string;
+  /** The RECENCY stamp — the record field that actually churns under a
+   *  repainting agent. padi's fold stamps it from a live agent observation and
+   *  again, throttled, from a same-identity DETAIL tick (an agent producing
+   *  OUTPUT), so a grok redrawing its prompt about once a second advances it
+   *  while its adapter state never moves. Varying it is how a test says
+   *  "the terminal is repainting" in the currency the `urgency` cell carries. */
+  lastActivityAt?: number;
 }
 
 /** One composed ACTIVE record. `agent` defaults to none — a bare shell, which
@@ -67,7 +74,7 @@ export function activeTerminal(opts: TerminalFixture): PadiTerminal {
     {
       state: "active",
       location: LOCAL_LOCATION,
-      lastActivityAt: 0,
+      lastActivityAt: opts.lastActivityAt ?? 0,
       ...(opts.parentId === undefined ? {} : { parentId: opts.parentId }),
       ...(opts.intent === undefined ? {} : { intent: opts.intent }),
     },
@@ -113,6 +120,11 @@ export function anchored(
  */
 export function stateWatchHarness(): {
   hub: StateWatchHub;
+  /** The daemon's ONE watch sequence — exposed because a test that wires this
+   *  hub to a real `watchRegistry` must share it, exactly as `servePadi` does.
+   *  Two counters would leave the queue's acknowledged watermark reading one
+   *  source's numbers while its buffer carried the other's. */
+  seq: EventSeq;
   observe(terminals: ReadonlyMap<TerminalId, PadiTerminal>): void;
   now(): number;
   armedAt(): number | undefined;
@@ -129,15 +141,17 @@ export function stateWatchHarness(): {
     };
   };
   const edges = createEdgeMemory();
+  const seq = createEventSeq();
   const hub = createStateWatchHub({
     log: silentLogger,
-    seq: createEventSeq(),
+    seq,
     edges,
     now: () => clock,
     schedule,
   });
   return {
     hub,
+    seq,
     observe(terminals) {
       edges.observe(terminals);
       hub.observe(terminals);

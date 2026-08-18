@@ -5,11 +5,17 @@
  * is the seam a coordinator's dropped merge-ready report fell through.
  */
 
-import { pino } from "pino";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { WatchSubscriptionNotFound } from "../errors.ts";
 import type { PadiStateEvent } from "../surface.ts";
+import {
+  frame,
+  makeAgent,
+  settled,
+  silentLogger,
+  stateWatchHarness,
+} from "./attentionFixture.testlib.ts";
 import type { SettleEvent } from "./settleEvents.ts";
 import type {
   StateWatchBatch,
@@ -17,8 +23,7 @@ import type {
   StateWatchSpec,
 } from "./stateWatch.ts";
 import { createWatchRegistry, type WatchRegistry } from "./watchRegistry.ts";
-
-const silentLogger = pino({ level: "silent" });
+import { specOf } from "./watchSpec.ts";
 
 let seq = 0;
 const event = (
@@ -520,5 +525,62 @@ describe("watch registry — a subscription that named the agent-state knobs", (
     expect(() => r.open("supervise", { filter })).toThrow(
       /built without a state watch/,
     );
+  });
+});
+
+describe("watch registry — the MCP face under a repainting idle terminal", () => {
+  /** The REAL engine behind a real queue, joined the way `servePadi` joins them
+   *  — this is the seam the MCP face actually has, and the doorbell is the part
+   *  of it the engine's own tests cannot see. */
+  function wired() {
+    const h = stateWatchHarness();
+    const r = createWatchRegistry({
+      log: silentLogger,
+      // The hub's OWN counter — one sequence behind one queue, as `servePadi`
+      // wires it. Two would leave the watermark reading numbers the buffer
+      // never carries, and every event would be silently discarded.
+      daemonSeq: () => h.seq.last(),
+      subscribeStates: (filter, ids, emit) =>
+        h.hub.subscribe(specOf(filter, ids), emit),
+    });
+    return { h, r };
+  }
+
+  it("does not ring the doorbell for a repaint — a supervisor is not woken once a second", async () => {
+    // `watch_next` parks on the pulse and drains when it rings. A ring per
+    // repaint would wake a supervising agent about once a second to be handed
+    // an empty batch — the flood, arriving at the MCP face instead of the CLI's.
+    const { h, r } = wired();
+    h.observe(frame({ a: { agent: makeAgent("tool_use") } }));
+    await settled();
+
+    let rings = 0;
+    r.onPulse("campaign", () => {
+      rings += 1;
+    });
+    r.open("campaign", {
+      filter: { states: new Set(["waiting"]), heldForMs: 60_000 },
+    });
+    rings = 0;
+
+    h.observe(frame({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    for (let i = 1; i < 60; i += 1) {
+      h.advance(1_000);
+      h.observe(
+        frame({ a: { agent: makeAgent("waiting"), lastActivityAt: h.now() } }),
+      );
+      await settled();
+    }
+    // Sixty seconds of repainting, nothing owed, nothing rung, nothing queued.
+    expect(rings).toBe(0);
+    expect(r.drain("campaign").events).toEqual([]);
+
+    // …and the hold that WAS owed rings exactly once, on schedule.
+    h.advance(1_000);
+    expect(rings).toBe(1);
+    expect(r.drain("campaign").events.map((e) => e.kind)).toEqual([
+      "transition",
+    ]);
   });
 });

@@ -84,6 +84,41 @@ describe("stateWatchSource", () => {
     await it.return?.();
   });
 
+  it("a REPAINTING idle terminal produces no frames — the flood `kolu watch` used to be", async () => {
+    // The CLI seam of the #2177 lesson. The old change tail relayed byte-level
+    // churn, so an idle grok redrawing its prompt about once a second WAS the
+    // feed. Here the same churn — a recency stamp advancing on every frame, the
+    // adapter state never moving — must reach the socket as nothing at all.
+    const h = harness();
+    const it = pull(h.hub);
+    await it.next(); // the snapshot
+
+    let pulled = 0;
+    void (async () => {
+      for (;;) {
+        const next = await it.next();
+        if (next.done === true) return;
+        pulled += 1;
+      }
+    })();
+
+    for (let i = 1; i < 10; i += 1) {
+      h.advance(100);
+      h.observe(
+        frame({ a: { agent: makeAgent("waiting"), lastActivityAt: h.now() } }),
+      );
+      await Promise.resolve();
+    }
+    // Under a second of wall time at a 1 s nag: nine repaints, zero lines.
+    expect(pulled).toBe(0);
+
+    // …and the nag that IS owed still arrives, on its own schedule.
+    h.advance(200);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pulled).toBe(1);
+    await it.return?.();
+  });
+
   it("UNSUBSCRIBES when the consumer ends — a hung-up watch stops holding the clock", async () => {
     const h = harness();
     const it = pull(h.hub);

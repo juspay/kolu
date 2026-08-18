@@ -323,8 +323,14 @@ export function createStateWatchHub(opts: {
     // The armed wake is an ABSOLUTE instant, so an unchanged earliest needs no
     // work at all — cancelling and re-scheduling would buy the identical moment
     // for a `clearTimeout`, a `setTimeout` and a fresh `Timeout` in the heap.
-    // The steady supervision shape (one subscription, a 5-minute nag, nothing
-    // moving) holds one deadline across every wake between two fires.
+    //
+    // What this does NOT do is spare the byte cadence: `armTimer` is reached
+    // only from `flush` (which `observe` gates on a moved level), from
+    // `subscribe`, and from an unsubscribe — a repaint frame never reaches it at
+    // all. What it spares is the REAL flush: a terminal arriving, leaving or
+    // changing bucket while some other subscription's deadline stands unchanged.
+    // The walk above is O(subscriptions) and stays so; this skips the
+    // SCHEDULING, not the derivation.
     if (earliest === armedAt) return;
     cancelTimer?.();
     cancelTimer = undefined;

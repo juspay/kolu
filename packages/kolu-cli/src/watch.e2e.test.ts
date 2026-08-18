@@ -41,7 +41,7 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
-import { Effect } from "effect";
+import { Effect, Stream } from "effect";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import {
   daemonEnv as daemonEnvIn,
@@ -175,8 +175,52 @@ async function startPadi(grokDir: string): Promise<Padi> {
 
 // ── The world under test ──────────────────────────────────────────────────
 
-/** A padi with one terminal whose agent is IDLE — the situation an operator
- *  needs to be told about, built for real end to end. */
+/** Wait until padi's own byte-motion edge SEES this terminal producing output.
+ *
+ *  The contrast the whole feature rests on, made observable: this is the
+ *  `activity` stream — kaval's meaningful-output edge, the currency the old
+ *  byte-quiet gate was built on — and it must say YES for a terminal the state
+ *  feed reports as idle. Without this assertion the repaint could quietly stop
+ *  and every pin below would still pass. */
+async function awaitByteMotion(
+  client: {
+    surface: {
+      activity: {
+        get: (
+          i: Record<string, never>,
+        ) => Stream.Stream<readonly string[], unknown>;
+      };
+    };
+  },
+  id: string,
+  ms = 30000,
+): Promise<void> {
+  const frames = Stream.toAsyncIterable(client.surface.activity.get({}))[
+    Symbol.asyncIterator
+  ]();
+  const deadline = Date.now() + ms;
+  try {
+    while (Date.now() < deadline) {
+      const settled = await Promise.race([
+        frames.next(),
+        sleep(Math.max(0, deadline - Date.now())).then(
+          () => "timeout" as const,
+        ),
+      ]);
+      if (settled === "timeout") break;
+      if (settled.done === true) break;
+      if (settled.value.includes(id)) return;
+    }
+  } finally {
+    await frames.return?.();
+  }
+  throw new Error(
+    `padi never saw bytes moving on ${id} in ${ms}ms — the fake grok has stopped repainting, so this suite is no longer testing the case it claims to`,
+  );
+}
+
+/** A padi with one terminal whose agent is IDLE **and repainting** — the exact
+ *  situation an operator needs to be told about, built for real end to end. */
 async function idleAgentWorld(): Promise<{ socketPath: string }> {
   const grokDir = tmp("grok");
   const cwd = tmp("cwd");
@@ -200,10 +244,21 @@ async function idleAgentWorld(): Promise<{ socketPath: string }> {
     // Run the fake grok so the PTY's foreground basename is `grok`, and have it
     // print its own pid — the adapter matches a session to a terminal BY pid, so
     // this is the load-bearing seam a fixture cannot fake.
+    //
+    // And then it REPAINTS its prompt about once a second, forever, because
+    // that is the terminal this feature exists for: an idle grok redrawing `> `
+    // in place is what starved a 1.5 s byte-quiet gate for good (#2177). A
+    // fixture that sat in `sleep 99999` was the opposite case and would have
+    // passed a regression that let the hold consult bytes again.
+    //
+    // `read -t 1` and not `sleep 1`: bash times out on its own stdin without
+    // forking, so the PTY's foreground stays this shell — whose basename is
+    // `grok`, which is what the adapter matches on. A per-second `sleep` child
+    // would flap the foreground and break detection.
     await Effect.runPromise(
       client.surface.lifecycle.sendInput({
         id,
-        data: `${bin} -c 'echo GROK_PID=$$; sleep 99999'\r`,
+        data: `${bin} -c 'echo GROK_PID=$$; while :; do printf "\\r> "; read -t 1 _; done'\r`,
       }),
     );
     const pid = await poll(async () => {
@@ -228,6 +283,12 @@ async function idleAgentWorld(): Promise<{ socketPath: string }> {
       const agent = record?.state === "active" ? record.agent : null;
       return agent?.state === "waiting" ? true : undefined;
     }, "padi never saw the agent go idle");
+
+    // The CONTRAST, asserted rather than assumed: padi's byte-motion edge —
+    // the currency the old quiet gate ran on — sees this terminal producing
+    // output, at the same moment its adapter reports it idle. Every pin below
+    // is about the state feed being blind to exactly this.
+    await awaitByteMotion(client, id);
   } finally {
     await link.dispose();
   }
