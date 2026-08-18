@@ -73,7 +73,7 @@ export type Disposer = () => void | Promise<void>;
 // preact-shaped engine are load-bearing and are neutralised here, once, so no
 // call site can get them wrong:
 //
-// BETA-ASSUMPTION(beta.106): Atom does not batch implicitly, and one batch of N
+// BETA-ASSUMPTION(rc.110): Atom does not batch implicitly, and one batch of N
 //      writes across a family recomputes each derivation exactly once on coherent
 //      inputs — measured by reactorEngineLaws.test.ts > "STAMPEDE: 24 writes
 //      across a family in one batch" and the two glitch-freedom laws beside it.
@@ -84,7 +84,7 @@ export type Disposer = () => void | Promise<void>;
 //      through {@link signal}'s setter, which wraps itself in `Atom.batch`.
 //      `batch` is depth-counted, so nesting inside the public `batch()` (or
 //      inside a source `emit`) costs nothing.
-// BETA-ASSUMPTION(beta.106): Atom rebuilds a stale subscribed node on the WRITER's
+// BETA-ASSUMPTION(rc.110): Atom rebuilds a stale subscribed node on the WRITER's
 //      stack, so a throwing callback escapes the batch and costs that frame its
 //      remaining notifications (it does NOT permanently sever the graph) —
 //      measured by reactorEngineLaws.test.ts > "SEVERED EDGE, MEASURED".
@@ -228,7 +228,7 @@ function signal<T>(initial: T): MutableLevel<T> {
       Atom.batch(() => {
         GRAPH.set(atom, next);
       });
-      // BETA-ASSUMPTION(beta.106): a derivation that WRITES an atom it READ keeps
+      // BETA-ASSUMPTION(rc.110): a derivation that WRITES an atom it READ keeps
       // its dependency on that atom, so the NEXT bump still recomputes and
       // notifies it — the repair below is what makes that true, and beta.103
       // rewrote exactly this path (invalidatedDuringBuild + disposeLifetime +

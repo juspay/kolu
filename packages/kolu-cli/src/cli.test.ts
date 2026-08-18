@@ -117,6 +117,23 @@ describe("kolu command tree", () => {
     });
   });
 
+  describe("an omitted switch is its OFF position, not a missing flag", () => {
+    it("`ls` without `--json` still reaches the endpoint check", async () => {
+      // A version pin with teeth. `Flag.boolean` used to parse an absent flag
+      // as `false`; `effect@4.0.0-rc.110` made it FAIL as a missing required
+      // flag instead (Effect-TS/effect#7296), which turned every plain
+      // `kolu ls` / `kolu create` / `kolu web` into a usage error until each
+      // switch spelled its `false` out loud. The refusal below is reachable
+      // ONLY after the flags resolved, so seeing it means `--json` was absent
+      // and the parse carried on. Lose the default and this reads `Help
+      // requested` instead — the library renders "Missing required flag:
+      // --json" to the console, never onto the error value, so the endpoint
+      // refusal ARRIVING is the whole assertable signal.
+      const err = await failureOf(["ls", "--host", "a", "--socket", "b"]);
+      expect(textOf(err)).toContain("mutually exclusive");
+    });
+  });
+
   describe("bare `kolu` lists its subcommands instead of booting a server", () => {
     it("fails (so a stale `ExecStart=kolu` is loud, not silently serving)", async () => {
       const exit = await run([]);
