@@ -170,6 +170,13 @@ watch_close { name: "campaign" }                                 // when the cam
 - kolu asks the AGENT for its state; it never infers idleness from the screen.
   An idle agent that repaints its prompt every second is still idle, so
   `heldForMs` times the state and not the output.
+- **One subscription answers ONE of the two questions.** A state-knob
+  subscription reports no `gone` — it is a level, so a terminal that disappears
+  just stops being reported and nothing is left waiting on it. If you need to
+  hear about a terminal DYING, keep a second `watch_open` without the knobs, or
+  re-read the `terminals` resource. And re-opening a name with DIFFERENT knobs
+  starts its queue over (those events answer the question you stopped asking);
+  re-opening with the SAME knobs — the ordinary restart — keeps it.
 - `timeout` and `closed` both lose nothing — the queue is still there next call.
   Neither means a terminal died. A nonzero `dropped` means you were away long
   enough to overflow the 512-event queue; re-read the `terminals` resource to
