@@ -64,6 +64,11 @@ import {
   getPadiServeSocketPath,
   setLocalSocketPath,
 } from "./daemonStatus.ts";
+import {
+  type ConvergeVerdict,
+  startLinkLossHealer,
+  withRestartClaim,
+} from "./linkLoss.ts";
 import { localKavalDriver } from "./localDriver.ts";
 
 type Identity = PtyHostIdentity;
@@ -295,6 +300,58 @@ export function __setEndpointForTest(ep: KavalEndpoint): () => void {
   };
 }
 
+/** The post-converge hooks, run by the BOOT converge and by the mid-session
+ *  re-converge (juspay/kolu#2182) alike — ONE implementation, because the two
+ *  cannot be allowed to drift: a heal that adopts the resident kaval owes the
+ *  saved session exactly the reconciliation a boot adoption does, including the
+ *  fail-CLOSED arm (F3) that recycles a daemon whose survivors could not be
+ *  reconciled rather than leaving invisible live terminals behind the restore
+ *  card.
+ *
+ *  Exported for `linkLoss.test.ts`, which drives these hooks over a REAL endpoint
+ *  — the boot's own wiring is what the heal must reproduce, so the suite must be
+ *  able to hold the same function the boot holds. */
+export function reconcileConverged(
+  ep: KavalEndpoint,
+  adopted: boolean,
+  opts: {
+    onAdopted?: Effect.Effect<void, unknown>;
+    onNotAdopted?: () => void;
+  },
+): Effect.Effect<ConvergeVerdict, unknown> {
+  return Effect.gen(function* () {
+    if (!adopted) {
+      // Fresh / recycled — no survivors. Park the saved session so the restore
+      // card can re-spawn it (W1.R6).
+      opts.onNotAdopted?.();
+      return "no-survivors" as const;
+    }
+    const reconcile = opts.onAdopted;
+    if (reconcile === undefined) return "adopted" as const;
+    return yield* Effect.catchCause(
+      Effect.as(reconcile, "adopted" as const),
+      (cause) =>
+        Effect.gen(function* () {
+          // Reconciliation failed AFTER we adopted the survivor's connection — the
+          // daemon is connected but holds PTYs kolu may not have registered (F3).
+          // Fail CLOSED: recycle the daemon (kill + spawn fresh) so those hidden
+          // PTYs are destroyed and the user's saved session falls back to the
+          // restore card, rather than leaving invisible live terminals behind it.
+          log.error(
+            { err: Cause.squash(cause) },
+            "surviving-session reconciliation failed — recycling the adopted daemon",
+          );
+          yield* recycle(ep, destructiveRecycleSteps());
+          // The recycle spawned a FRESH daemon — nothing live survives now, so
+          // this is the no-survivor path: park the saved session for the restore
+          // card.
+          opts.onNotAdopted?.();
+          return "recycled" as const;
+        }),
+    );
+  });
+}
+
 /** Boot the local pty-host endpoint under the always-recycle policy and connect.
  *  SUCCEEDS whether or not the daemon came up — a boot failure reports `dead`
  *  via `onStatus` and leaves `ptyHostClient` throwing, so the server can still
@@ -344,6 +401,15 @@ export function ensureLocalEndpoint(opts: {
    *  across daemon recycles until it aborts (and absorbs a dead-on-boot daemon
    *  the same way — it simply waits, then picks up once the daemon connects). */
   onBootSettled?: (signal: AbortSignal) => void;
+  /** Stamp the PROVEN recovery after the self-healing re-converge restored a
+   *  link that died mid-session (#2182) — the same one-shot signal
+   *  `startKavalSupervision`'s `onRecovered` stamps, and injected for the same
+   *  reason as the hooks above: the status store is the caller's to write, so
+   *  this composition root never imports it. */
+  onRecovered?: () => void;
+  /** First re-converge backoff, in ms — a TEST seam (like
+   *  `startKavalSupervision`'s `pollMs`); production omits it. */
+  reconvergeBackoffMs?: number;
 }): Effect.Effect<void> {
   return Effect.gen(function* () {
     const { home, legacyHome } = opts;
@@ -355,6 +421,20 @@ export function ensureLocalEndpoint(opts: {
     // Refresh baked identity at boot (staleKey is process-constant, but keep the
     // policy object the single source — bake is already fixed on the const above).
     const osfactsBin = bakedOsFactsBin("KOLU_OSFACTS_BIN");
+    // The self-healing arm (#2182), constructed BEFORE the endpoint because it is
+    // wired into that endpoint's own status emit. `Effect.suspend` is what lets it
+    // name `ep` here: the re-converge is a DESCRIPTION, and nothing runs it until
+    // a link dies — long after this line has bound the reference.
+    const healer = startLinkLossHealer({
+      reconverge: Effect.suspend(() =>
+        Effect.gen(function* () {
+          const outcome = yield* converge(ep);
+          return yield* reconcileConverged(ep, outcomeAdopted(outcome), opts);
+        }),
+      ),
+      onRecovered: opts.onRecovered,
+      backoffMs: opts.reconvergeBackoffMs,
+    });
     const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>(
       {
         hostId: encodeHostLocation(LOCAL_LOCATION),
@@ -372,7 +452,14 @@ export function ensureLocalEndpoint(opts: {
         // the framework hands you the path
         connect: (path) => connectKaval(path),
         log,
-        onStatus: opts.onStatus,
+        // Intercepted, never intercepted-away: the healer OBSERVES every status
+        // (it only re-reads a cell and arms a timer — the emit is synchronous, so
+        // nothing may run converge on this stack) and the caller's subscriber
+        // then gets the status unchanged.
+        onStatus: (hostId, status) => {
+          healer.observe(status.state);
+          opts.onStatus(hostId, status);
+        },
         // The W2.2 upgrade bridge (only when the binder hinted a legacy home):
         // if the digest gate is empty but a COMPATIBLE pre-W2.2 kaval is alive at the
         // port socket, ADOPT it and RECORD it as this kaval's live location (so spawned
@@ -401,31 +488,10 @@ export function ensureLocalEndpoint(opts: {
         // The only boot verb: policy is fixed on the endpoint; no fence, no budget,
         // no boot-method choice at the call site.
         const outcome = yield* converge(ep);
-        const adopted = outcomeAdopted(outcome);
-        if (adopted && opts.onAdopted) {
-          yield* Effect.catchCause(opts.onAdopted, (cause) =>
-            Effect.gen(function* () {
-              // Reconciliation failed AFTER we adopted the survivor's connection — the
-              // daemon is connected but holds PTYs kolu may not have registered (F3).
-              // Fail CLOSED: recycle the daemon (kill + spawn fresh) so those hidden
-              // PTYs are destroyed and the user's saved session falls back to the
-              // restore card, rather than leaving invisible live terminals behind it.
-              log.error(
-                { err: Cause.squash(cause) },
-                "surviving-session reconciliation failed — recycling the adopted daemon",
-              );
-              yield* recycle(ep, destructiveRecycleSteps());
-              // The recycle spawned a FRESH daemon — nothing live survives now, so
-              // this is the no-survivor path: park the saved session for the restore
-              // card.
-              opts.onNotAdopted?.();
-            }),
-          );
-        } else if (!adopted) {
-          // Fresh / recycled boot — no survivors. Park the saved session so the
-          // restore card can re-spawn it (W1.R6, replacing the old no-op).
-          opts.onNotAdopted?.();
-        }
+        // The adopt / no-survivor / fail-closed-recycle branches are
+        // `reconcileConverged` — shared with the mid-session re-converge (#2182)
+        // so a heal reconciles exactly as a boot does.
+        yield* reconcileConverged(ep, outcomeAdopted(outcome), opts);
       }),
       (cause) =>
         Effect.sync(() => {
@@ -453,11 +519,20 @@ export function ensureLocalEndpoint(opts: {
  *  (B3.2). The caller (`restartLocal.ts`, the soul) supplies the restart steps —
  *  capture the session, drain the terminals, recycle, reattach — and this
  *  forwards them through the endpoint's coalescing + emit-guard trigger. Dies
- *  if the endpoint hasn't been booted yet (`ensureLocalEndpoint` not run). */
+ *  if the endpoint hasn't been booted yet (`ensureLocalEndpoint` not run).
+ *
+ *  The one entry every restart takes — the "Restart kaval" button's RPC and the
+ *  steady-state supervision auto-recycle both arrive here — which is why the
+ *  link-loss healer's exclusion is claimed HERE (#2182): the claim is taken
+ *  synchronously, before the trigger, so no heal can start behind it, and an
+ *  attempt already mid-converge is waited out before the recycle begins. The wait
+ *  is bounded by the endpoint's own dial/handshake deadlines, and it preserves
+ *  the trigger's coalescing (riders still join one restart) because it happens
+ *  BEFORE the trigger, not around it. */
 export function restartLocalEndpoint<Ctx>(
   steps: RestartSteps<PtyHostClient, Identity, Ctx, KavalConnectionMetadata>,
 ): Effect.Effect<void, unknown> {
-  return endpointState.restart(steps);
+  return withRestartClaim(endpointState.restart(steps));
 }
 
 // ── Spawn policy (kolu's soul) — unchanged from the in-process inversion,

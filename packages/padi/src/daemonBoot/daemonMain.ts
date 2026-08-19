@@ -483,6 +483,12 @@ function bootLocalEndpoint(params: {
       onStatus: publishDaemonStatus,
       onAdopted: adoptSurvivingSession,
       onNotAdopted: parkSavedSession,
+      // #2182. The endpoint's self-healing re-converge stamps the SAME recovery
+      // signal the supervision arm below stamps, and for the same reason: the
+      // fact that this daemon is here because padi repaired a link the user never
+      // touched is kolu's soul, not something `onStatus` can know. One signal, one
+      // client toast, two arms that can prove it.
+      onRecovered: () => setAutoRecovered(encodeHostLocation(LOCAL_LOCATION)),
       onBootSettled: (signal) => {
         startInventoryReconciler(signal);
         // #2101 N1. Convergence was an event — a boot-time adopt-or-spawn — and
