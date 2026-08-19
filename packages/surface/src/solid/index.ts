@@ -35,6 +35,9 @@ export {
   type Dispose,
   type Subscription,
   type SubscriptionOptions,
+  // The three lifecycle signals a stream-backed view carries, apart from its value
+  // — what `useCollectionDeltas`'s `.stream` hands the un-enrolled reach.
+  type SubscriptionState,
   wireSubscriptionError,
 } from "./createSubscription";
 // The grace-windowed boolean view — delays a predicate's rising edge, instant on
@@ -111,6 +114,9 @@ export {
   type BoundCell,
   type BoundCellOptions,
   type BoundCollection,
+  type BoundCollectionResult,
+  type BoundDeltasCollection,
+  type BoundDeltasCollectionResult,
   type BoundEvent,
   type BoundStream,
   buildSurfaceClient,
@@ -123,6 +129,8 @@ export {
   type OnClientError,
   type ReadOnlyBoundCollection,
   type ReadOnlyBoundCollectionResult,
+  type ReadOnlyBoundDeltasCollection,
+  type ReadOnlyBoundDeltasCollectionResult,
   resolveTransport,
   type SurfaceClient,
   type SurfaceClients,
@@ -137,10 +145,23 @@ export {
   type UseCellResult,
   useCell,
 } from "./useCell";
+// `useCollectionDeltas` is public alongside `useCollection` because the
+// deliberately UN-ENROLLED reach needs it. `.use()` is the default and enrols the
+// batched stream into `client.health()`; the #1591 carve-out — a whole-collection
+// view whose re-subscribe must not flicker the health gate — takes
+// `.unenrolledDeltas` instead, and then has to fold the raw frames itself. Without
+// this export that consumer had no way to reach the framework's own store and
+// hand-rolled a copying one beside it, which is the shape this hook exists to
+// retire. The hook takes a caller-provided `source`, so exporting it serves the
+// carve-out without touching the health story.
 export {
+  type CollectionFold,
+  type CollectionFoldOptions,
   type UseCollectionOptions,
+  type UseCollectionDeltasResult,
   type UseCollectionResult,
   useCollection,
+  useCollectionDeltas,
 } from "./useCollection";
 export { type UseEventOptions, useEvent } from "./useEvent";
 export { useStream } from "./useStream";

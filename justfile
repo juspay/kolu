@@ -661,6 +661,12 @@ record name="": install
 smoke:
     {{ nix_shell }} bash .apm/skills/ci/smoke.sh
 
+# What a `deltas` frame costs the client, before vs after the store rewrite
+# (juspay/kolu surface deltas frame). Prints the two arms per collection shape and
+# their relative speed — READ THE RATIO, not the absolute number.
+bench-collection-deltas: install
+    cd packages/surface && {{ nix_shell }} pnpm exec vitest bench --run src/solid/collectionDeltas.bench.ts
+
 # Typing-echo latency baseline (padi W1 / #1652). Boots a private nix-built
 # kolu, measures keystroke→echo p50/p95/p99 over kolu-server's /rpc/ws, tears
 # down. W2.2 re-runs this to prove < 5ms added p99. See the Atlas note

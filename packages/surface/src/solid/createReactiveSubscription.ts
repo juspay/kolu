@@ -17,13 +17,18 @@
 import type { Stream } from "effect";
 import {
   type Accessor,
+  batch,
   createEffect,
   createSignal,
   on,
   onCleanup,
 } from "solid-js";
 import { createStore } from "solid-js/store";
-import { createUpdatedTracker, type Subscription } from "./createSubscription";
+import {
+  createUpdatedTracker,
+  type Subscription,
+  wireSubscriptionError,
+} from "./createSubscription";
 import { runStreamScoped } from "../runStream";
 import { writeWrappedValue } from "./writeValue";
 
@@ -65,15 +70,19 @@ export function createReactiveSubscription<I, T>(
       // frame can never land in the fresh state reset above.
       onCleanup(
         runStreamScoped<T>(factory(input), {
-          onFrame: (item) => {
-            tracker.noteFrame(item);
-            writeWrappedValue(setStore, item);
-            if (pending()) setPending(false);
-            // No clear-on-frame branch: a failure is the fiber's EXIT, so no frame
-            // can follow one on the same subscription (see `createSubscription`).
-            // Here the error clears when the INPUT changes — the state reset above
-            // — which is this primitive's own recovery point.
-          },
+          // One tick per frame, matching `createStreamLifecycle`: the store write and
+          // the `pending` clear settle together, so no consumer observes a frame
+          // applied while the view still reads pending.
+          onFrame: (item) =>
+            batch(() => {
+              tracker.noteFrame(item);
+              writeWrappedValue(setStore, item);
+              setPending(false);
+              // No clear-on-frame branch for the ERROR: a failure is the fiber's EXIT,
+              // so no frame can follow one on the same subscription (see
+              // `createSubscription`). Here the error clears when the INPUT changes —
+              // the state reset above — which is this primitive's own recovery point.
+            }),
           // Mirrors `createSubscription`'s typed-end handling: an interruption
           // (a superseding input, an unmount) reports nothing.
           onEnd: () => {
@@ -96,25 +105,14 @@ export function createReactiveSubscription<I, T>(
     updated: tracker.updated,
   }) as Subscription<T>;
 
-  // Route `onError` through the SAME EDGE effect `createSubscription` uses
-  // (`createSubscription.ts`: the `on(() => sub.error(), …)` block), NOT inline at
-  // the failure site. Driving the callback off the `error()` LEVEL is what keeps
-  // the two error channels from disagreeing — the property `client.health()` relies
-  // on: whatever clears `error()` (here, an input change resetting the state)
-  // clears the callback's view with it, so a consumer wiring
+  // Route `onError` through the SAME EDGE effect every other subscription uses, by
+  // CALLING it rather than by restating it: driving the callback off the `error()`
+  // LEVEL is what keeps the two error channels from disagreeing — the property
+  // `client.health()` relies on. Whatever clears `error()` (here, an input change
+  // resetting the state) clears the callback's view with it, so a consumer wiring
   // `onError → signal → render` cannot latch on a failure the signal has already
   // dropped (the #1564 latch, the reactive path's copy of it).
-  if (options?.onError) {
-    const handler = options.onError;
-    createEffect(
-      on(
-        () => sub.error(),
-        (err) => {
-          if (err) handler(err);
-        },
-      ),
-    );
-  }
+  if (options?.onError) wireSubscriptionError(sub, options.onError);
 
   return sub;
 }
