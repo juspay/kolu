@@ -905,16 +905,14 @@ export function collectionHandlers<Name extends string, K, T>(
           return v === undefined ? [] : [v];
         });
       const holders = deps.holders;
-      return holders === undefined
-        ? live()
-        : // `suspend` so the CALL to `holders` is inside the effect too, not just
-          // the effect it returns: a subscription nobody runs then does nothing at
-          // all on the consumer's behalf, and a hold that throws synchronously dies
-          // on this subscription's own fiber rather than escaping to whoever asked
-          // for the stream.
-          Stream.unwrap(
-            Effect.suspend(() => Effect.map(holders(input.key), live)),
-          );
+      if (holders === undefined) return live();
+      // `suspend` so the CALL to `holders` is inside the effect too, not just the
+      // effect it returns: a subscription nobody runs then does nothing at all on the
+      // consumer's behalf, and a hold that throws synchronously dies on this
+      // subscription's own fiber rather than escaping to whoever asked for the stream.
+      return Stream.unwrap(
+        Effect.suspend(() => Effect.map(holders(input.key), live)),
+      );
     },
     upsert: (input) =>
       Effect.sync(() => {
