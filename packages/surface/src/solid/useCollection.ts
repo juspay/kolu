@@ -250,10 +250,22 @@ export type CollectionFold<K, T> = <A>(
 ) => Accessor<A | undefined>;
 
 /** `useCollectionDeltas`'s result: the per-key view every collection has, plus the
- *  frame socket only a `deltas` collection can offer. */
+ *  two things only the batched path can offer — the frame socket, and the ONE
+ *  stream's own health.
+ *
+ *  `stream` is here for the DELIBERATELY UN-ENROLLED reach, which is why the hook is
+ *  public at all: a consumer that takes `.unenrolledDeltas` has no `client.health()`
+ *  fact to join its feed to, so a dead feed has to surface through this accessor or
+ *  not at all. The enrolled `.use()` does NOT re-expose it — there it is the health
+ *  fact's job, and a parallel accessor a consumer must remember to read is exactly
+ *  what {@link UseCollectionResult.byKey}'s delivery-path note warns against. */
 export interface UseCollectionDeltasResult<K, T>
   extends UseCollectionResult<K, T> {
   fold: CollectionFold<K, T>;
+  /** The single batched stream's `error` / `pending` / `complete` — collection-wide
+   *  and shared across keys, NOT per-key. The same three every `byKey` accessor
+   *  carries, reachable without first having a present key to ask through. */
+  stream: CollectionStreamState;
 }
 
 /** One registered fold, reduced to what the frame loop needs: two guarded callbacks.
@@ -522,5 +534,5 @@ export function useCollectionDeltas<Name extends string, K, T>(
     return Object.assign(read, state);
   }
 
-  return { keys: order, byKey, fold };
+  return { keys: order, byKey, fold, stream: state };
 }

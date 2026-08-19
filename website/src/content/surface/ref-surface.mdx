@@ -562,7 +562,12 @@ even on a `deltas` collection. In both, `fold` is a type error rather than an
 exported from `@kolu/surface/solid` for the deliberately un-enrolled reach: a
 consumer that takes `.unenrolledDeltas` (the [#1591](https://github.com/juspay/kolu/issues/1591)
 health carve-out) hands the raw stream to it as `source` and gets the same store
-and the same `fold`, instead of hand-rolling a second one.
+and the same `fold`, instead of hand-rolling a second one. Its result carries one
+member the bound `.use()` does not: `.stream`, the single batched stream's own
+`error()` / `pending()` / `complete()`. That reach has no `client.health()` fact to
+join its feed to, so a dead feed surfaces there or nowhere; under the enrolled
+`.use()` the health fact owns that, and a parallel accessor would be one more thing
+to remember to read.
 
 ## The dispatch seam — `@kolu/surface/link`
 

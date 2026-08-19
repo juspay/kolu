@@ -76,7 +76,6 @@ import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import { type UseCellResult, useCell } from "./useCell";
 import {
   type CollectionFold,
-  type UseCollectionDeltasResult,
   type UseCollectionResult,
   useCollection,
   useCollectionDeltas,
@@ -349,7 +348,7 @@ export interface ReadOnlyBoundCollection<K, T> {
 /** The read-only twin of {@link BoundDeltasCollection} — no mutations, and `fold` on
  *  the whole-collection `.use()` under the same two-overload gate. */
 export type ReadOnlyBoundDeltasCollectionResult<K, T> =
-  UseCollectionDeltasResult<K, T>;
+  ReadOnlyBoundCollectionResult<K, T> & { fold: CollectionFold<K, T> };
 export interface ReadOnlyBoundDeltasCollection<K, T> {
   use(opts: {
     keys: Accessor<K[]>;

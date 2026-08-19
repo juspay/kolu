@@ -419,3 +419,28 @@ describe("fold — a dead stream freezes the accumulator", () => {
     });
   });
 });
+
+describe("the batched stream's own health — the un-enrolled reach's only channel", () => {
+  it("`stream` carries the SAME error/pending/complete every byKey accessor does", async () => {
+    await drive(async ({ view, push, fail }) => {
+      // Reachable BEFORE any key exists, which is the point: a consumer with no
+      // `client.health()` fact to join has to be able to ask "is this feed alive"
+      // without first having a present key to ask through.
+      expect(view.stream.pending()).toBe(true);
+      expect(view.stream.error()).toBeUndefined();
+      expect(view.stream.complete()).toBe(false);
+
+      push({ kind: "snapshot", entries: [["a", { n: 1 }]] });
+      await settle();
+      expect(view.stream.pending()).toBe(false);
+      const perKey = view.byKey("a");
+      expect(perKey?.error).toBe(view.stream.error);
+      expect(perKey?.pending).toBe(view.stream.pending);
+      expect(perKey?.complete).toBe(view.stream.complete);
+
+      fail(new Error("feed gone"));
+      await settle();
+      expect(view.stream.error()?.message).toMatch(/feed gone/);
+    });
+  });
+});
