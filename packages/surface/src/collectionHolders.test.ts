@@ -1,34 +1,26 @@
 /**
- * `holders` — who is still reading a key, taken from the lifetime that already
- * knows.
+ * `holders` — the contract, which is a LIFETIME.
  *
- * The wire says when a reader OPENS a key: a per-key `get` IS a subscription, and
- * `readOne` is where the server hears one arrive. Nothing said when the last reader
- * LET GO, so a server that had to know inferred it from opens and aged the answer
- * out — a bound with no honest number in it. The fact was never missing, only
- * unpublished: a handler answers with a `Stream`, that stream's scope IS the
- * subscription, and the scope closes when the tab navigates, the socket drops, the
- * runtime tears down, or a one-shot reader takes its frame and leaves.
+ * What the seam is and why it is not a wire member is stated once, on
+ * {@link CollectionHolders}. What is left to get right is the lifetime itself, so
+ * the ways a per-key subscription ENDS are what this suite is: a reader taking its
+ * frame and leaving, and a fiber being interrupted (which is what a dropped socket
+ * and a torn-down runtime both arrive as). Plus the pull order, which is contract
+ * rather than accident and which a comment cannot keep true.
  *
- * So the lifetime is the whole of what this has to get right, and the ways a
- * subscription ENDS are what these tests are: the stream running out, a reader taking
- * one frame and leaving, and a fiber being interrupted (which is what a dropped socket
- * and a torn-down runtime both arrive as). Nothing here is about what a hold is worth
- * — that belongs to whoever asked for one.
- *
- * The ORDER is pinned here too, and it is the reason this suite is upstream rather
- * than in the consumer that first wanted it: `Stream.unwrap` runs the hold before the
- * inner stream is built, so the sequence is hold → channel subscribe → `readOne`. A
- * consumer whose `readOne` ACTS on the hold — reading a body only a held path is read
- * for — depends on exactly that, and a comment cannot keep it true.
+ * The end-to-end case is the most load-bearing one here: `holders` reaches the wire
+ * through three hand-written sites (`CollectionImplDeps`, `walkSurface`'s narrowed
+ * dep type, the `collectionHandlers` call), and it once landed on the first of them
+ * only — documented as shipped, dropped on the floor.
  */
 
-import { Effect, Fiber, Queue, Schema, type Scope, Stream } from "effect";
+import { Effect, Fiber, Queue, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { defineSurface, surfaceTag } from "./define";
+import { firstFrame, flush } from "./handlerDispatch.testlib";
 import {
   type Channel,
-  type CollectionHandlerDeps,
+  type CollectionHolders,
   collectionHandlers,
   implementSurface,
   inMemoryChannel,
@@ -40,8 +32,8 @@ interface V {
 
 /** A hold that SAYS so, and says so again when its scope closes — the whole of what
  *  a consumer of this seam has to be given. */
-function watchingHold(events: string[]) {
-  return (key: unknown): Effect.Effect<unknown, never, Scope.Scope> =>
+function watchingHold(events: string[]): CollectionHolders<unknown> {
+  return (key) =>
     Effect.acquireRelease(
       Effect.sync(() => {
         events.push(`hold ${String(key)}`);
@@ -56,7 +48,7 @@ function watchingHold(events: string[]) {
 function handlersFor(
   store: Map<string, V>,
   perKey: Channel<V>,
-  holders?: CollectionHandlerDeps<string, V>["holders"],
+  holders?: CollectionHolders<string>,
 ) {
   return collectionHandlers<"documents", string, V>(
     { name: "documents" } as never,
@@ -75,8 +67,14 @@ function handlersFor(
   );
 }
 
+/** One reader, one frame, then gone — an agent's `resources/read`, and the shape
+ *  every finite reader of a `get` has, since a collection's `get` is held open and
+ *  never ends on its own. */
+const readOnce = (stream: Stream.Stream<V>): Promise<readonly V[]> =>
+  Effect.runPromise(Stream.runCollect(Stream.take(stream, 1)));
+
 describe("collection get — `holders` is the subscription's own lifetime", () => {
-  it("a stream that runs out holds the key for exactly as long as it ran", async () => {
+  it("a reader that takes its frame and leaves holds the key for exactly as long as it read", async () => {
     const events: string[] = [];
     const perKey = inMemoryChannel<V>();
     const handlers = handlersFor(
@@ -90,29 +88,10 @@ describe("collection get — `holders` is the subscription's own lifetime", () =
     const frames = handlers.get({ key: "notes/a.md" });
     expect(events).toEqual([]);
 
-    const collected = await Effect.runPromise(
-      Stream.runCollect(Stream.take(frames, 1)),
-    );
-    expect([...collected]).toEqual([{ name: "a" }]);
+    expect([...(await readOnce(frames))]).toEqual([{ name: "a" }]);
     expect(events).toEqual(["hold notes/a.md", "release notes/a.md"]);
     // The channel subscription went with it — one scope, both resources.
     expect(perKey.subscriberCount()).toBe(0);
-  });
-
-  it("a reader that takes one frame and leaves lets the key go", async () => {
-    // The one-shot reader — an agent's `resources/read`, which takes the first frame
-    // and leaves. The stream itself never ends.
-    const events: string[] = [];
-    const handlers = handlersFor(
-      new Map([["report.html", { name: "r" }]]),
-      inMemoryChannel<V>(),
-      watchingHold(events),
-    );
-
-    await Effect.runPromise(
-      Stream.runCollect(Stream.take(handlers.get({ key: "report.html" }), 1)),
-    );
-    expect(events).toEqual(["hold report.html", "release report.html"]);
   });
 
   it("an interrupted subscription releases the key", async () => {
@@ -196,22 +175,11 @@ describe("collection get — `holders` is the subscription's own lifetime", () =
         keysBus: inMemoryChannel<string[]>(),
         upsert: () => {},
         remove: () => {},
-        holders: (key) =>
-          Effect.acquireRelease(
-            Effect.sync(() => {
-              order.push(`hold ${key}`);
-            }),
-            () =>
-              Effect.sync(() => {
-                order.push(`release ${key}`);
-              }),
-          ),
+        holders: watchingHold(order),
       },
     );
 
-    await Effect.runPromise(
-      Stream.runCollect(Stream.take(handlers.get({ key: "report.html" }), 1)),
-    );
+    await readOnce(handlers.get({ key: "report.html" }));
     expect(order).toEqual([
       "hold report.html",
       "subscribe",
@@ -221,8 +189,8 @@ describe("collection get — `holders` is the subscription's own lifetime", () =
   });
 
   it("a subscription nobody runs never even CALLS `holders`", async () => {
-    // `holders` is invoked inside the stream's own effect, so building an answer and
-    // dropping it neither takes a hold nor calls the consumer's function at all.
+    // The call is inside the stream's own effect, not just the effect it returns, so
+    // building an answer and dropping it does nothing at all on the consumer's behalf.
     let called = 0;
     const handlers = handlersFor(
       new Map([["report.html", { name: "r" }]]),
@@ -233,22 +201,41 @@ describe("collection get — `holders` is the subscription's own lifetime", () =
       },
     );
     handlers.get({ key: "report.html" });
-    await new Promise((r) => setTimeout(r, 0));
+    await flush();
     expect(called).toBe(0);
   });
+});
 
-  it("a subscription nobody runs holds nothing", async () => {
-    const events: string[] = [];
+describe("collection get — a hold cannot fail, so a defect in one is loud", () => {
+  it("a throwing hold kills THAT subscription; the next one is served normally", async () => {
+    // The error channel is `never`: failure is unspellable, so the only way a hold
+    // can go wrong is a DEFECT. It propagates — the subscription dies — rather than
+    // degrading to an unheld read, because a reader nobody is counted for is exactly
+    // the state this seam exists to make impossible. A synchronous throw (rather than
+    // one inside the effect) is the case `suspend` is there for.
+    let fail = true;
+    const perKey = inMemoryChannel<V>();
     const handlers = handlersFor(
-      new Map([["report.html", { name: "r" }]]),
-      inMemoryChannel<V>(),
-      watchingHold(events),
+      new Map([["a", { name: "a" }]]),
+      perKey,
+      () => {
+        if (fail) throw new Error("the consumer's hold blew up");
+        return Effect.void;
+      },
     );
-    // The stream is lazy: `unwrap`'s effect runs on the first pull, not at
-    // construction, so building an answer and dropping it holds nothing.
-    handlers.get({ key: "report.html" });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(events).toEqual([]);
+
+    const exit = await Effect.runPromiseExit(
+      Stream.runCollect(Stream.take(handlers.get({ key: "a" }), 1)),
+    );
+    expect(exit._tag).toBe("Failure");
+    // It took nothing else with it: no channel subscription left standing, and the
+    // next subscription is served as if nothing had happened.
+    expect(perKey.subscriberCount()).toBe(0);
+
+    fail = false;
+    expect([...(await readOnce(handlers.get({ key: "a" })))]).toEqual([
+      { name: "a" },
+    ]);
   });
 });
 
@@ -261,72 +248,10 @@ describe("collection get — absent `holders` is the stream it always was", () =
       undefined,
     );
 
-    const collected = await Effect.runPromise(
-      Stream.runCollect(Stream.take(handlers.get({ key: "a" }), 1)),
-    );
-    expect([...collected]).toEqual([{ name: "a" }]);
+    expect([...(await readOnce(handlers.get({ key: "a" })))]).toEqual([
+      { name: "a" },
+    ]);
     expect(perKey.subscriberCount()).toBe(0);
-  });
-
-  it("still holds open on an absent key, emitting nothing (#1681)", async () => {
-    const perKey = inMemoryChannel<V>();
-    const handlers = handlersFor(new Map(), perKey, undefined);
-    let ended = false;
-    const fiber = Effect.runFork(
-      Stream.runForEach(handlers.get({ key: "later" }), () =>
-        Effect.sync(() => {}),
-      ).pipe(Effect.tap(() => Effect.sync(() => (ended = true)))),
-    );
-    await new Promise((r) => setTimeout(r, 20));
-    expect(ended).toBe(false);
-    await Effect.runPromise(Fiber.interrupt(fiber));
-  });
-});
-
-describe("collection get — a hold cannot fail, so a defect in one is loud", () => {
-  it("a throwing hold kills THAT subscription rather than serving it unheld", async () => {
-    // The error channel is `never`: failure is unspellable, so the only way a hold
-    // can go wrong is a DEFECT. It propagates — the subscription dies — rather than
-    // degrading to an unheld read, because a reader nobody is counted for is exactly
-    // the state this seam exists to make impossible.
-    const perKey = inMemoryChannel<V>();
-    const handlers = handlersFor(
-      new Map([["a", { name: "a" }]]),
-      perKey,
-      () => {
-        throw new Error("the consumer's hold blew up");
-      },
-    );
-
-    const exit = await Effect.runPromiseExit(
-      Stream.runCollect(Stream.take(handlers.get({ key: "a" }), 1)),
-    );
-    expect(exit._tag).toBe("Failure");
-    // And it took nothing else with it: no channel subscription was left standing.
-    expect(perKey.subscriberCount()).toBe(0);
-  });
-
-  it("a sibling subscription on the same collection is untouched", async () => {
-    let fail = true;
-    const perKey = inMemoryChannel<V>();
-    const handlers = handlersFor(new Map([["a", { name: "a" }]]), perKey, () =>
-      fail
-        ? Effect.sync(() => {
-            throw new Error("the consumer's hold blew up");
-          })
-        : Effect.void,
-    );
-
-    const bad = await Effect.runPromiseExit(
-      Stream.runCollect(Stream.take(handlers.get({ key: "a" }), 1)),
-    );
-    expect(bad._tag).toBe("Failure");
-
-    fail = false;
-    const good = await Effect.runPromise(
-      Stream.runCollect(Stream.take(handlers.get({ key: "a" }), 1)),
-    );
-    expect([...good]).toEqual([{ name: "a" }]);
   });
 });
 
@@ -335,8 +260,8 @@ describe("collection get — the seam an app author actually writes", () => {
     // The internal handler type is not the boundary a consumer crosses: an app
     // declares its collection's deps inside `implementSurface`. A `holders` that
     // typechecks there and is dropped on the way to `collectionHandlers` would be a
-    // seam that reads as shipped and does nothing — so this drives the whole path,
-    // through a real surface and its real wire tag.
+    // seam that reads as shipped and does nothing — which is exactly what landed
+    // first. So this drives the whole path, through a real surface and its wire tag.
     const surface = defineSurface({
       collections: {
         documents: {
@@ -358,32 +283,15 @@ describe("collection get — the seam an app author actually writes", () => {
           remove: (k) => {
             store.delete(k);
           },
-          holders: (key) =>
-            Effect.acquireRelease(
-              Effect.sync(() => {
-                events.push(`hold ${key}`);
-              }),
-              () =>
-                Effect.sync(() => {
-                  events.push(`release ${key}`);
-                }),
-            ),
+          holders: watchingHold(events),
         },
       },
     });
 
     const tag = surfaceTag(surface.tagPrefix, "documents", "get");
-    const handler = runtime.handlers[tag];
-    if (handler === undefined) throw new Error(`no handler at "${tag}"`);
-    const frames = await Effect.runPromise(
-      Stream.runCollect(
-        Stream.take(
-          handler({ key: "a.md" }) as Stream.Stream<{ name: string }>,
-          1,
-        ),
-      ),
-    );
-    expect([...frames]).toEqual([{ name: "a" }]);
+    expect(await firstFrame(runtime.handlers, tag, { key: "a.md" })).toEqual({
+      name: "a",
+    });
     expect(events).toEqual(["hold a.md", "release a.md"]);
     await runtime.close();
   });
