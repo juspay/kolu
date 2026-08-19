@@ -275,8 +275,9 @@ export interface UnenrolledKeys<K> {
  *  for `.unenrolledDeltas` ONLY when the whole set must be watched OUTSIDE the health
  *  fact — a per-host view whose re-subscribe must not flicker the gate, whose dead
  *  feed surfaces via the subscription's OWN reactive `error()`. The raw
- *  `CollectionDeltasMsg<K, T>` frames are then folded by the consumer (same protocol
- *  the framework's `foldCollectionDeltas` uses). Typed from the declaration — no cast.
+ *  `CollectionDeltasMsg<K, T>` frames are then handled by the consumer — or handed
+ *  straight to `useCollectionDeltas`, which takes a caller-provided `source` for
+ *  exactly this reach. Typed from the declaration — no cast.
  *
  *  STRUCTURALLY PRESENT only when the collection actually declares the `deltas` verb
  *  (see {@link BoundCollectionsFor}): a collection whose `verbs` omit `deltas` has NO

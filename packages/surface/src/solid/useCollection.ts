@@ -18,14 +18,26 @@
  */
 
 import type { Stream } from "effect";
-import { type Accessor, createMemo, mapArray } from "solid-js";
+import {
+  type Accessor,
+  batch,
+  createMemo,
+  createSignal,
+  mapArray,
+  onCleanup,
+  untrack,
+} from "solid-js";
+import { createStore, produce, unwrap } from "solid-js/store";
 import { type StreamingProcedure, unenrolledStreamCall } from "../client";
-import type { CollectionDeltasMsg } from "../define";
+import type { CollectionDelta, CollectionDeltasMsg } from "../define";
 import type { Collection } from "../index";
+import { runStreamScoped } from "../runStream";
 import {
   createSubscription,
+  framesEqual,
   type Subscription,
   type SubscriptionOptions,
+  wireSubscriptionError,
 } from "./createSubscription";
 
 export interface UseCollectionOptions<K, T, I> {
@@ -111,10 +123,11 @@ export function useCollection<Name extends string, K, T, I>(
 // narrowed subset ("watch these few keys"), but for a whole collection that
 // ticks every key every frame it costs N wire frames + N async-iterators per
 // tick. `useCollectionDeltas` consumes the collection's SINGLE coalesced
-// `deltas` stream instead: one frame per tick, folded into a reconcile-backed
-// store so per-key reads stay fine-grained (only the keys that changed
-// re-notify). It exposes the SAME `{ keys, byKey }` surface as `useCollection`,
-// so the bound `.use()` can pick either delivery with no call-site change.
+// `deltas` stream instead: one frame per tick, applied to a store it owns by
+// NAMED-KEY writes, so per-key reads stay fine-grained (only the keys the frame
+// named re-notify). It exposes the SAME `{ keys, byKey }` surface as
+// `useCollection`, so the bound `.use()` can pick either delivery with no
+// call-site change.
 //
 // CONSTRAINT: `deltas` requires HOMOGENEOUS PRIMITIVE keys — a `keySchema` that
 // is a single number or string type (true of every Collection key in practice:
@@ -138,23 +151,14 @@ export function useCollection<Name extends string, K, T, I>(
 
 /** A fresh NULL-PROTOTYPE value store. `Object.create(null)` (not `{}`) so a key
  *  like `"toString"` is absent from `in`-membership instead of inherited from
- *  `Object.prototype`. Solid's `reconcile` treats a null-prototype object as
- *  wrappable (`isWrappable`), so per-key reactivity is intact. */
+ *  `Object.prototype`. Solid treats a null-prototype object as wrappable
+ *  (`isWrappable`), so per-key reactivity is intact. */
 function emptyDict<T>(): Record<string, T> {
   return Object.create(null) as Record<string, T>;
 }
 
-/** The folded collection: values keyed by `String(key)` (a reconcile-backed
- *  null-prototype object, for fine-grained per-key reactivity) plus the
- *  real-typed key list in arrival order (so `keys()` returns `K[]`, not
- *  stringified keys). */
-interface DeltasFold<K, T> {
-  byKey: Record<string, T>;
-  order: K[];
-}
-
 /** Crash loudly on a key that violates the homogeneous-primitive-key CONSTRAINT
- *  above, at the point the bad key enters the fold (every snapshot entry, every
+ *  above, at the point the bad key enters the store (every snapshot entry, every
  *  delta upsert/remove) — so corruption can't be expressed, not merely detected
  *  after. Rejects (1) a non-primitive key: `byKey` is keyed by `String(key)`, so
  *  an object/symbol/null/boolean key is a silent collapse the length compare in
@@ -176,7 +180,7 @@ function assertFoldableKey(key: unknown): void {
   }
 }
 
-/** Guard the delta fold's homogeneous-primitive-key precondition (the CONSTRAINT
+/** Guard the deltas store's homogeneous-primitive-key precondition (the CONSTRAINT
  *  above): `byKey` is keyed by `String(key)` while `order` holds the real keys,
  *  so two DISTINCT real keys that collapse to one string (a union admitting both
  *  `1` and `"1"`) leave `byKey` STRICTLY SHORTER than `order`. Fires exactly on
@@ -195,59 +199,25 @@ function assertKeysInjective<K, T>(
   }
 }
 
-/** Fold one `deltas` frame into the accumulated collection. A `snapshot`
- *  replaces the whole set; a `delta` applies upserts then removes onto a copy.
- *  Returns a new object each call — `createSubscription`'s `reconcile` makes the
- *  store update granular, so a new accumulator does not mean a coarse re-render. */
-export function foldCollectionDeltas<K, T>(
-  acc: DeltasFold<K, T>,
-  msg: CollectionDeltasMsg<K, T>,
-): DeltasFold<K, T> {
-  if (msg.kind === "snapshot") {
-    const byKey = emptyDict<T>();
-    const order: K[] = [];
-    for (const [k, v] of msg.entries) {
-      assertFoldableKey(k);
-      byKey[String(k)] = v;
-      order.push(k);
-    }
-    assertKeysInjective(byKey, order);
-    return { byKey, order };
-  }
-  // Copy onto a fresh NULL-PROTOTYPE dict (`{ ...acc.byKey }` would reintroduce
-  // `Object.prototype`); `Object.assign` keeps the null prototype.
-  const byKey = Object.assign(emptyDict<T>(), acc.byKey);
-  // Collect the keys NEW to this frame as we upsert. Newness is the O(1)
-  // `String(k) in acc.byKey` over the dict we already hold (its pre-upsert key
-  // set) — no per-frame `Set(acc.order)` allocation sized to the whole
-  // collection. A remove of an absent key is a harmless no-op, so its key needs
-  // no `assertFoldableKey` (a bad key never entered `byKey` — adds assert).
-  const added: K[] = [];
-  for (const [k, v] of msg.upserts) {
-    assertFoldableKey(k);
-    if (!(String(k) in acc.byKey)) added.push(k);
-    byKey[String(k)] = v;
-  }
-  for (const k of msg.removes) delete byKey[String(k)];
-  // Key set UNCHANGED (a pure value-update tick: every upsert key already
-  // present, nothing removed) → keep `order` BY REFERENCE so the `keys()` memo
-  // doesn't re-notify on a values-only tick, and skip the O(n) injectivity guard
-  // — a String() collision can only appear when a NEW key enters.
-  if (added.length === 0 && msg.removes.length === 0) {
-    return { byKey, order: acc.order };
-  }
-  // Rebuild `order` only when membership moved. `Set(msg.removes)` is sized to
-  // the (small) removal set, never to the whole collection.
-  let order: K[];
-  if (msg.removes.length > 0) {
-    const removed = new Set(msg.removes);
-    order = acc.order.filter((k) => !removed.has(k));
-  } else {
-    order = acc.order.slice(); // copy before appending so `acc` is untouched
-  }
-  for (const k of added) order.push(k);
-  if (added.length > 0) assertKeysInjective(byKey, order);
-  return { byKey, order };
+/** The collection-wide subscription signals of a batched `deltas` view — the ONE
+ *  stream's own `error` / `pending` / `complete`, shared by every key's accessor
+ *  (there is no per-key stream to carry its own). Structurally a health
+ *  `HealthSource`, so `enroll` hands it straight to the client health registry;
+ *  `byKey` hands the same three onto every accessor it mints, which is what makes
+ *  the result `Subscription`-shaped without a second subscription existing. */
+export interface CollectionStreamState {
+  readonly error: Accessor<Error | undefined>;
+  readonly pending: Accessor<boolean>;
+  readonly complete: Accessor<boolean>;
+}
+
+/** Membership equality for the arrival-order key list. `keys()` must NOT re-notify
+ *  on a values-only tick (nor on a reconnect snapshot that names the same set), so
+ *  the order signal compares by MEMBERSHIP-AND-POSITION and keeps the previous array
+ *  when they match — the "order by reference" rule, held by the signal rather than
+ *  re-derived at each write site. */
+function sameOrder<K>(a: readonly K[], b: readonly K[]): boolean {
+  return a.length === b.length && a.every((k, i) => k === b[i]);
 }
 
 export function useCollectionDeltas<Name extends string, K, T>(
@@ -262,44 +232,145 @@ export function useCollectionDeltas<Name extends string, K, T>(
      *  threads the keyed cache's slot eviction here so a re-served collection rebuilds. */
     onComplete?: () => void;
     /** Enrol the single batched subscription into the client health registry. */
-    enroll?: (sub: Subscription<DeltasFold<K, T>>) => void;
+    enroll?: (state: CollectionStreamState) => void;
   },
 ): UseCollectionResult<K, T> {
-  const sub = createSubscription<CollectionDeltasMsg<K, T>, DeltasFold<K, T>>(
-    options.source,
-    {
-      initial: { byKey: emptyDict<T>(), order: [] },
-      reduce: foldCollectionDeltas,
-      onError: options.onError,
-      onComplete: options.onComplete,
-    },
-  );
-  options.enroll?.(sub);
+  // THE store, owned here rather than reached through `createSubscription`'s generic
+  // reduce: a frame NAMES the keys it touches, and the whole point of this path is to
+  // write exactly those. Routing through the reduce path meant a fresh accumulator per
+  // frame (a whole-dict copy) which `reconcile` then walked in full to rediscover the
+  // keys the frame had already named — two O(N) passes per O(|frame|) update.
+  const [byKey_, setByKey] = createStore<Record<string, T>>(emptyDict<T>());
+  // The UNTRACKED view of the same dictionary (`createStore` wraps this exact object).
+  // Every read inside the frame loop goes through it: the loop is deciding what to
+  // write, not rendering, so tracking there would be noise at best.
+  const held = unwrap(byKey_);
+  const [order, setOrder] = createSignal<K[]>([], { equals: sameOrder });
+  const [error, setError] = createSignal<Error | undefined>();
+  const [pending, setPending] = createSignal(true);
+  const [complete, setComplete] = createSignal(false);
+  const state: CollectionStreamState = { error, pending, complete };
 
-  const keys = createMemo<K[]>(() => sub()?.order ?? []);
+  const currentOrder = (): K[] => untrack(order);
 
-  function byKey(key: K): Subscription<T> | undefined {
-    // Match the per-key path's contract: a key absent from the live set reads
-    // `undefined`, NOT a live accessor — so `if (byKey(k))` and
-    // `byKey(k)?.pending()` mean the same across both delivery paths. The `in`
-    // check is tracked by the reconcile store's `has` trap, so this re-evaluates
-    // when the key is added/removed (`Object.hasOwn` would read an untracked
-    // descriptor and miss those updates). `byKey` is null-prototype, so a stray
-    // inherited name like `toString` reads absent rather than shadowing.
-    const sk = String(key);
-    const fold = sub() as DeltasFold<K, T> | undefined;
-    if (fold === undefined || !(sk in fold.byKey)) return undefined;
-    // A per-key accessor over the shared store — reading `byKey[sk]` in a
-    // tracking scope tracks only that leaf (reconcile keeps it granular).
-    // `error`/`pending` are the single stream's, shared across keys.
-    const read = (() =>
-      (sub() as DeltasFold<K, T> | undefined)?.byKey[sk]) as Subscription<T>;
-    return Object.assign(read, {
-      error: sub.error,
-      pending: sub.pending,
-      complete: sub.complete,
+  /** Apply a FULL-SET frame. O(N), which is inherent — the frame carries N entries.
+   *
+   *  VALUE-diffed, not reference-diffed, and that is load-bearing: the retry fence
+   *  turns a transport drop into a fresh snapshot rather than an error, so a
+   *  reconnect re-serializes the same content into fresh objects. An entry whose
+   *  value is unchanged must therefore NOT re-notify its readers — a link flap is
+   *  deliberately a visual no-op. An entry that DID change is REPLACED whole (never
+   *  merged into the object standing there) — the same replaced-rather-than-recycled
+   *  law `writeValue.ts` states for array elements, one level down. */
+  function applySnapshot(entries: ReadonlyArray<readonly [K, T]>): void {
+    const next = emptyDict<T>();
+    const nextOrder: K[] = [];
+    for (const [k, v] of entries) {
+      assertFoldableKey(k);
+      next[String(k)] = v;
+      nextOrder.push(k);
+    }
+    assertKeysInjective(next, nextOrder);
+    setByKey(
+      produce((dict) => {
+        for (const sk of Object.keys(held)) if (!(sk in next)) delete dict[sk];
+        for (const sk of Object.keys(next)) {
+          if (!(sk in held) || !framesEqual(held[sk], next[sk])) {
+            dict[sk] = next[sk] as T;
+          }
+        }
+      }),
+    );
+    setOrder(nextOrder);
+  }
+
+  /** Apply ONE coalesced delta frame: one named-key store write per upsert, one
+   *  delete per remove. O(|frame|) — no dict copy, no walk over the keys the frame
+   *  did not name, and only the named keys' readers re-notify. */
+  function applyDelta(delta: CollectionDelta<K, T>): void {
+    // Keys NEW to this frame, and removes that name a key actually held. Newness is
+    // the O(1) `String(k) in held` over the dictionary's pre-write key set — no
+    // per-frame `Set(order)` sized to the whole collection. A remove of an absent key
+    // is a harmless no-op, so it needs no `assertFoldableKey` (a bad key never
+    // entered the dictionary — the upsert arm asserts).
+    const added: K[] = [];
+    for (const [k] of delta.upserts) {
+      assertFoldableKey(k);
+      if (!(String(k) in held)) added.push(k);
+    }
+    const removed = delta.removes.filter((k) => String(k) in held);
+    setByKey(
+      produce((dict) => {
+        // A LEAF REPLACEMENT per named key, not a merge into the object already
+        // there: the store must never mutate a frame object it previously adopted.
+        for (const [k, v] of delta.upserts) dict[String(k)] = v;
+        for (const k of removed) delete dict[String(k)];
+      }),
+    );
+    // Key set UNCHANGED (a pure value-update tick) → nothing to write; the order
+    // signal keeps its array BY REFERENCE and `keys()` stays quiet.
+    if (added.length === 0 && removed.length === 0) return;
+    // Rebuild only when membership moved. `Set(removed)` is sized to the (small)
+    // removal set, never to the whole collection.
+    let nextOrder: K[];
+    if (removed.length > 0) {
+      const gone = new Set<K>(removed);
+      nextOrder = currentOrder().filter((k) => !gone.has(k));
+    } else {
+      nextOrder = currentOrder().slice();
+    }
+    for (const k of added) nextOrder.push(k);
+    // A String() collision can only appear when a NEW key enters.
+    if (added.length > 0) assertKeysInjective(held, nextOrder);
+    setOrder(nextOrder);
+  }
+
+  function onFrame(msg: CollectionDeltasMsg<K, T>): void {
+    // One tick for the whole frame: no reader observes a half-applied frame.
+    batch(() => {
+      // Assert keys → apply to the store → clear `pending`.
+      if (msg.kind === "snapshot") applySnapshot(msg.entries);
+      else applyDelta(msg);
+      if (pending()) setPending(false);
     });
   }
 
-  return { keys, byKey };
+  const stop = runStreamScoped<CollectionDeltasMsg<K, T>>(options.source, {
+    onFrame,
+    onEnd: () => {
+      if (pending()) setPending(false);
+      setComplete(true);
+      options.onComplete?.();
+    },
+    // The batched stream's error is collection-wide and TERMINAL (retry-fence
+    // exhaustion, or a declared failure). The store keeps its last value, frozen —
+    // there is no further frame to change it.
+    onFailure: (err) => {
+      setError(err);
+      if (pending()) setPending(false);
+    },
+  });
+  onCleanup(stop);
+
+  if (options.onError) wireSubscriptionError(state, options.onError);
+  options.enroll?.(state);
+
+  function byKey(key: K): Subscription<T> | undefined {
+    // Match the per-key path's contract: a key absent from the live set reads
+    // `undefined`, NOT a live accessor — so `if (byKey(k))` and `byKey(k)?.pending()`
+    // mean the same across both delivery paths. The `in` check is tracked by the
+    // store's `has` trap, so this re-evaluates when the key is added/removed
+    // (`Object.hasOwn` would read an untracked descriptor and miss those updates).
+    // The dictionary is null-prototype, so a stray inherited name like `toString`
+    // reads absent rather than shadowing.
+    const sk = String(key);
+    if (!(sk in byKey_)) return undefined;
+    // A per-key accessor over the shared store — reading `byKey_[sk]` in a tracking
+    // scope tracks only that leaf. `error`/`pending`/`complete` are the single
+    // stream's, shared across keys.
+    const read = (() => byKey_[sk]) as Subscription<T>;
+    return Object.assign(read, state);
+  }
+
+  return { keys: order, byKey };
 }

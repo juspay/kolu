@@ -141,7 +141,7 @@ export interface SubscriptionOptions<T, R = T> {
  *  SUPPRESS a real `updated`, this handles the common cases exactly — primitives,
  *  arrays, plain objects, `Date` (by time), `Map`/`Set` — and returns `false` for
  *  anything it cannot prove equal (class instances, `RegExp`, typed arrays,
- *  symbol-keyed own props). A false-negative only fires a spurious `updated` with
+ *  ENUMERABLE symbol-keyed own props). A false-negative only fires a spurious `updated` with
  *  `prev ≈ next` (harmless); a false-positive would drop a change (the bug).
  *
  *  Own-property comparison uses `Object.getOwnPropertyNames` (not `Object.keys`), so
@@ -152,8 +152,11 @@ export interface SubscriptionOptions<T, R = T> {
  *  closes to the SAME counterpart on the OTHER side — so a self-cycle (`a.self === a`)
  *  and a child-cycle (`b.self` points elsewhere) DIVERGE here instead of reading
  *  equal, never suppressing a real change a consumer could observe via `x.self === x`.
- *  Not exported: it is the private frame comparator for {@link Subscription.updated}
- *  and its reactive twin.
+ *  Package-private (never on the `./solid` barrel): it is THE frame comparator for
+ *  {@link Subscription.updated}, its reactive twin, and `useCollectionDeltas`'s
+ *  snapshot arm — the three places this package asks "is this frame the same content
+ *  as the last one?". Exported so that question has ONE answer instead of a second
+ *  hand-rolled one per store-writing seam.
  *
  *  Why hand-rolled and not `dequal` / `fast-deep-equal` (both already in the
  *  lockfile): a deep-equal here MUST be cycle-safe (a `directDispatch` frame can be
@@ -163,7 +166,7 @@ export interface SubscriptionOptions<T, R = T> {
  *  comparator's path-scoped `Pairing` is built for. The narrow, verifiable "prove
  *  equal or return false" contract is the point; a general library that can't
  *  make that guarantee is the wrong tool, not a missing dependency. */
-function framesEqual(a: unknown, b: unknown): boolean {
+export function framesEqual(a: unknown, b: unknown): boolean {
   return framesEqualOnPath(a, b, { aToB: new Map(), bToA: new Map() });
 }
 
@@ -176,6 +179,24 @@ function framesEqual(a: unknown, b: unknown): boolean {
 interface Pairing {
   aToB: Map<unknown, unknown>;
   bToA: Map<unknown, unknown>;
+}
+
+/** Does this object carry an own symbol-keyed value that is FRAME CONTENT?
+ *
+ *  Own symbols force {@link framesEqual} to `false` — `getOwnPropertyNames` cannot
+ *  see them, so two objects differing only in a symbol-keyed value would otherwise
+ *  read equal. But only ENUMERABLE ones count, because the reactive store PLANTS
+ *  non-enumerable symbol tags (`$PROXY` and its store-node sibling) on every object
+ *  a consumer has read through a store proxy. Counting those as content makes an
+ *  object the consumer looked at compare UNEQUAL to identical fresh content —
+ *  precisely inverting the law this comparator serves, since a reconnect snapshot
+ *  would then re-notify exactly the entries someone is watching. A decoded wire
+ *  frame carries no symbol keys at all; an app value that genuinely does carries
+ *  them by assignment, which is enumerable. */
+function hasOwnDataSymbol(o: object): boolean {
+  return Object.getOwnPropertySymbols(o).some(
+    (sym) => Object.getOwnPropertyDescriptor(o, sym)?.enumerable === true,
+  );
 }
 
 function framesEqualOnPath(a: unknown, b: unknown, pairing: Pairing): boolean {
@@ -234,21 +255,15 @@ function framesEqualOnPath(a: unknown, b: unknown, pairing: Pairing): boolean {
     }
     // Plain objects and arrays. A non-plain, non-array prototype (class instance,
     // RegExp, typed array, …) is treated as CHANGED — never claim an equality we
-    // can't prove, so a real change is never suppressed. Any own SYMBOL key likewise
-    // forces `false`: `getOwnPropertyNames` can't see symbol keys, so two objects
-    // differing only in a symbol-keyed value would otherwise read equal.
+    // can't prove, so a real change is never suppressed. An own symbol-keyed VALUE
+    // likewise forces `false` (see {@link hasOwnDataSymbol}).
     if (!aArr) {
       const protoA = Object.getPrototypeOf(a);
       if (protoA !== Object.prototype && protoA !== null) return false;
       const protoB = Object.getPrototypeOf(b);
       if (protoB !== Object.prototype && protoB !== null) return false;
     }
-    if (
-      Object.getOwnPropertySymbols(a).length > 0 ||
-      Object.getOwnPropertySymbols(b).length > 0
-    ) {
-      return false;
-    }
+    if (hasOwnDataSymbol(a) || hasOwnDataSymbol(b)) return false;
     // Full own-string-key set (enumerable AND non-enumerable). For arrays this
     // includes `length`, every present index (holes are absent ⇒ sparse ≠ dense),
     // and any augmenting prop — so nothing is silently ignored.
