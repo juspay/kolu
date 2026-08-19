@@ -37,6 +37,7 @@ import {
 import { implementSurface, type SurfaceHandlers } from "./server";
 import {
   getRuntimeSocketPath,
+  isPrivateOwnedDir,
   serveOverUnixSocket,
   type UnixSocketListener,
 } from "./unix-socket";
@@ -139,6 +140,57 @@ describe("getRuntimeSocketPath", () => {
         else process.env.TMPDIR = saved;
       }
     });
+  });
+});
+
+describe("isPrivateOwnedDir", () => {
+  // The public predicate is the same three checks `serveOverUnixSocket` uses
+  // on the parent dir. Pin them at the export so a consumer (olai's vault
+  // lock) cannot drift from the serve-time verdict without this file failing.
+  const skipWithoutUid = process.getuid?.() === undefined;
+
+  it("accepts an owner-only directory the current uid owns", () => {
+    if (skipWithoutUid) return;
+    const dir = mkdtempSync(join(tmpdir(), "surface-priv-ok-"));
+    chmodSync(dir, 0o700);
+    expect(isPrivateOwnedDir(dir)).toBe(true);
+  });
+
+  it("rejects a directory with group or other access", () => {
+    if (skipWithoutUid) return;
+    const dir = mkdtempSync(join(tmpdir(), "surface-priv-loose-"));
+    chmodSync(dir, 0o770);
+    expect(isPrivateOwnedDir(dir)).toBe(false);
+  });
+
+  it("rejects a symlink, even when the target is owner-private", () => {
+    if (skipWithoutUid) return;
+    const base = mkdtempSync(join(tmpdir(), "surface-priv-symlink-"));
+    const realDir = join(base, "real");
+    mkdirSync(realDir, { mode: 0o700 });
+    chmodSync(realDir, 0o700);
+    const linkDir = join(base, "link");
+    symlinkSync(realDir, linkDir);
+    expect(isPrivateOwnedDir(linkDir)).toBe(false);
+  });
+
+  it("rejects a regular file", () => {
+    if (skipWithoutUid) return;
+    const dir = mkdtempSync(join(tmpdir(), "surface-priv-file-"));
+    const file = join(dir, "not-a-dir");
+    writeFileSync(file, "x", { mode: 0o600 });
+    expect(isPrivateOwnedDir(file)).toBe(false);
+  });
+
+  it("lets lstatSync throw when the path cannot be stated", () => {
+    if (skipWithoutUid) return;
+    const missing = join(
+      mkdtempSync(join(tmpdir(), "surface-priv-gone-")),
+      "no-such-dir",
+    );
+    expect(() => isPrivateOwnedDir(missing)).toThrow(
+      expect.objectContaining({ code: "ENOENT" }),
+    );
   });
 });
 

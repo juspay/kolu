@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import { Effect, Stream } from "effect";
 import { createEffect, createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
+import { controllableStream } from "./controllableStream.testlib";
 import {
   createSubscription,
   createUpdatedTracker,
@@ -48,40 +49,6 @@ async function* fromArray<T>(items: T[], delayMs = 0): AsyncGenerator<T> {
   }
 }
 
-/** Create a controllable stream: push items manually, close when done. */
-function controllableStream<T>() {
-  const queue: T[] = [];
-  let resolve: (() => void) | null = null;
-  let done = false;
-
-  function push(item: T) {
-    queue.push(item);
-    resolve?.();
-  }
-
-  function close() {
-    done = true;
-    resolve?.();
-  }
-
-  async function* iterate(): AsyncGenerator<T> {
-    while (true) {
-      const head = queue.shift();
-      if (head !== undefined) {
-        yield head;
-        continue;
-      }
-      if (done) return;
-      await new Promise<void>((r) => {
-        resolve = r;
-      });
-      resolve = null;
-    }
-  }
-
-  return { push, close, iterate };
-}
-
 /** Drain macrotasks so stream frames are processed. Frames now arrive on an
  *  Effect FIBER (`runStreamScoped`), so a bare `await Promise.resolve()` micro-flush
  *  is not enough — two full macrotask turns cover the fiber's own scheduling plus
@@ -98,7 +65,7 @@ describe("createSubscription", () => {
     it("starts with undefined and pending=true", () => {
       createRoot((dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
 
         expect(sub()).toBe(undefined);
         expect(sub.pending()).toBe(true);
@@ -114,7 +81,7 @@ describe("createSubscription", () => {
         (resolve) => {
           createRoot(async (dispose) => {
             const stream = controllableStream<number>();
-            const sub = createSubscription(streamOf(stream.iterate()));
+            const sub = createSubscription(stream.source);
 
             stream.push(42);
             await flush();
@@ -134,7 +101,7 @@ describe("createSubscription", () => {
       const result = await new Promise<number[]>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<number>();
-          const sub = createSubscription(streamOf(stream.iterate()));
+          const sub = createSubscription(stream.source);
 
           const values: number[] = [];
           stream.push(1);
@@ -207,7 +174,7 @@ describe("createSubscription", () => {
       const result = await new Promise<{ a: number; b: number }>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<{ a: number; b: number }>();
-          const sub = createSubscription(streamOf(stream.iterate()));
+          const sub = createSubscription(stream.source);
 
           stream.push({ a: 1, b: 2 });
           await flush();
@@ -224,7 +191,7 @@ describe("createSubscription", () => {
       const result = await new Promise<{ tracked: boolean }>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<{ a: number; b: number }>();
-          const sub = createSubscription(streamOf(stream.iterate()));
+          const sub = createSubscription(stream.source);
 
           stream.push({ a: 1, b: 2 });
           await flush();
@@ -269,7 +236,7 @@ describe("createSubscription", () => {
       const result = await new Promise<number[]>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<number>();
-          const sub = createSubscription(streamOf(stream.iterate()), {
+          const sub = createSubscription(stream.source, {
             reduce: (acc: number[], item: number) => [...acc, item],
             initial: [] as number[],
           });
@@ -308,7 +275,7 @@ describe("createSubscription", () => {
     it("uses initial value before first item", () => {
       createRoot((dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()), {
+        const sub = createSubscription(stream.source, {
           reduce: (acc: number[], item: number) => [...acc, item],
           initial: [0],
         });
@@ -447,7 +414,7 @@ describe("createSubscription", () => {
         createRoot(async (dispose) => {
           const controller = new AbortController();
           const stream = controllableStream<number>();
-          const sub = createSubscription(streamOf(stream.iterate()), {
+          const sub = createSubscription(stream.source, {
             signal: controller.signal,
           });
 
@@ -477,7 +444,7 @@ describe("createSubscription", () => {
         const stream = controllableStream<number>();
 
         createRoot(async (dispose) => {
-          sub = createSubscription(streamOf(stream.iterate()));
+          sub = createSubscription(stream.source);
 
           stream.push(1);
           await flush();
@@ -508,7 +475,7 @@ describe("createSubscription", () => {
       }>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<number>();
-          const sub = createSubscription(streamOf(stream.iterate()), {
+          const sub = createSubscription(stream.source, {
             onComplete: () => completions.push(1),
           });
 
@@ -542,7 +509,7 @@ describe("createSubscription", () => {
         createRoot(async (dispose) => {
           const controller = new AbortController();
           const stream = controllableStream<number>();
-          const sub = createSubscription(streamOf(stream.iterate()), {
+          const sub = createSubscription(stream.source, {
             signal: controller.signal,
             onComplete: () => completions.push(1),
           });
@@ -569,7 +536,7 @@ describe("createSubscription", () => {
         (resolve) => {
           createRoot(async (dispose) => {
             const stream = controllableStream<number>();
-            const sub = createSubscription(streamOf(stream.iterate()));
+            const sub = createSubscription(stream.source);
 
             const before = sub.pending();
 
@@ -640,7 +607,7 @@ describe("createSubscription", () => {
     it("a first frame is a value, not a change — it never fires", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
         const changes: Array<{ prev: number; next: number }> = [];
         sub.updated?.((c) => changes.push(c));
 
@@ -655,7 +622,7 @@ describe("createSubscription", () => {
     it("a differing frame fires once with prev = the last-seen value", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
         const changes: Array<{ prev: number; next: number }> = [];
         sub.updated?.((c) => changes.push(c));
 
@@ -676,7 +643,7 @@ describe("createSubscription", () => {
     it("an equal reconnect snapshot (fresh object, same content) never fires", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<{ ids: number[] }>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
         const changes: Array<unknown> = [];
         sub.updated?.((c) => changes.push(c));
 
@@ -706,7 +673,7 @@ describe("createSubscription", () => {
       // must compare Dates by instant and, in general, never yield a false-positive.
       await createRoot(async (dispose) => {
         const stream = controllableStream<{ at: Date }>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
         const seen: Array<{ prev: { at: Date }; next: { at: Date } }> = [];
         sub.updated?.((c) => seen.push(c));
 
@@ -844,7 +811,7 @@ describe("createSubscription", () => {
     it("a handler added mid-stream sees only changes from that point on", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
 
         stream.push(1);
         await flush();
@@ -864,7 +831,7 @@ describe("createSubscription", () => {
     it("dispose stops a handler firing", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
         const changes: number[] = [];
         const off = sub.updated?.((c) => changes.push(c.next));
 
@@ -885,7 +852,7 @@ describe("createSubscription", () => {
       try {
         await createRoot(async (dispose) => {
           const stream = controllableStream<number>();
-          const sub = createSubscription(streamOf(stream.iterate()));
+          const sub = createSubscription(stream.source);
           const good: number[] = [];
           // A misbehaving consumer subscribes first, then a well-behaved one.
           sub.updated?.(() => {
@@ -912,7 +879,7 @@ describe("createSubscription", () => {
     it("with no handler registered, the baseline still advances (a late subscriber sees only changes from then on)", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
         // No handler yet — the hot path advances lastSeen in O(1) without compares.
         stream.push(1);
         await flush();

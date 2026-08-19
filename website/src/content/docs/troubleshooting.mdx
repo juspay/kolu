@@ -111,7 +111,10 @@ same palette opens the first terminal flow in
 kolu keeps a short history of its own state: at every boot — and once a day
 while running — the server's config store and each host's padi session file are
 copied into a rotated `backups/` ring beside the file (ten deep, unchanged
-files skipped). If a bad write ever eats your saved session or settings, open
+files skipped). **Start fresh** on the restore card copies the session file too,
+before it discards anything, so a session thrown away on purpose comes back the
+same way one lost to a bug does. If a bad write ever eats your saved session or
+settings, or you discarded one you wanted, open
 the palette with <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> → **Debug → Restore state
 from backup**, pick the store — the server's own, or any host's padi — and pick
 a snapshot. Each row says what it holds ("14 terminals", "preferences · 3
@@ -120,6 +123,11 @@ the corruption. Restoring a padi snapshot re-spawns its terminals beside your
 current ones (agents resumed, nothing killed); restoring the server store
 applies live with no restart. Every restore snapshots the current state first,
 so a restore is itself undoable.
+
+If a snapshot cannot be taken — a full disk, a state directory gone read-only —
+**Start fresh** refuses rather than discarding a session it could not copy
+first. Fix what is wrong with the disk and try again; the session is still
+there.
 
 ## Something looks stuck, and I want to report it
 

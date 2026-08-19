@@ -24,6 +24,8 @@
 import type { Stream } from "effect";
 import {
   type Accessor,
+  $PROXY,
+  batch,
   createEffect,
   createSignal,
   on,
@@ -152,8 +154,11 @@ export interface SubscriptionOptions<T, R = T> {
  *  closes to the SAME counterpart on the OTHER side — so a self-cycle (`a.self === a`)
  *  and a child-cycle (`b.self` points elsewhere) DIVERGE here instead of reading
  *  equal, never suppressing a real change a consumer could observe via `x.self === x`.
- *  Not exported: it is the private frame comparator for {@link Subscription.updated}
- *  and its reactive twin.
+ *  Package-private (never on the `./solid` barrel): it is THE frame comparator for
+ *  {@link Subscription.updated}, its reactive twin, and `useCollectionDeltas`'s
+ *  snapshot arm — the three places this package asks "is this frame the same content
+ *  as the last one?". Exported so that question has ONE answer instead of a second
+ *  hand-rolled one per store-writing seam.
  *
  *  Why hand-rolled and not `dequal` / `fast-deep-equal` (both already in the
  *  lockfile): a deep-equal here MUST be cycle-safe (a `directDispatch` frame can be
@@ -163,7 +168,7 @@ export interface SubscriptionOptions<T, R = T> {
  *  comparator's path-scoped `Pairing` is built for. The narrow, verifiable "prove
  *  equal or return false" contract is the point; a general library that can't
  *  make that guarantee is the wrong tool, not a missing dependency. */
-function framesEqual(a: unknown, b: unknown): boolean {
+export function framesEqual(a: unknown, b: unknown): boolean {
   return framesEqualOnPath(a, b, { aToB: new Map(), bToA: new Map() });
 }
 
@@ -176,6 +181,31 @@ function framesEqual(a: unknown, b: unknown): boolean {
 interface Pairing {
   aToB: Map<unknown, unknown>;
   bToA: Map<unknown, unknown>;
+}
+
+/** Does this object carry an own symbol-keyed value that is FRAME CONTENT?
+ *
+ *  Own symbols force {@link framesEqual} to `false` — `getOwnPropertyNames` cannot
+ *  see them, so two objects differing only in a symbol-keyed value would otherwise
+ *  read equal. The one exception is by PROVENANCE, not by shape: the reactive store
+ *  plants bookkeeping symbols (`$PROXY` and its non-enumerable siblings) on every
+ *  object a consumer has read through a store proxy. Counting those as content makes
+ *  an object someone looked at compare UNEQUAL to identical fresh content —
+ *  precisely inverting the law this comparator serves, since a reconnect snapshot
+ *  would then re-notify exactly the entries being watched.
+ *
+ *  `$PROXY` — the one Solid exports — IS the provenance marker: an object carrying
+ *  it is one the store has wrapped, and only there are its non-enumerable symbols
+ *  presumed to be the store's. On any other object every own symbol is content, so
+ *  the "never claim an equality we can't prove" contract is unchanged for values
+ *  the store has never touched. */
+function hasOwnDataSymbol(o: object): boolean {
+  const symbols = Object.getOwnPropertySymbols(o);
+  if (symbols.length === 0) return false;
+  if (!Object.hasOwn(o, $PROXY)) return true;
+  return symbols.some(
+    (sym) => Object.getOwnPropertyDescriptor(o, sym)?.enumerable === true,
+  );
 }
 
 function framesEqualOnPath(a: unknown, b: unknown, pairing: Pairing): boolean {
@@ -234,21 +264,15 @@ function framesEqualOnPath(a: unknown, b: unknown, pairing: Pairing): boolean {
     }
     // Plain objects and arrays. A non-plain, non-array prototype (class instance,
     // RegExp, typed array, …) is treated as CHANGED — never claim an equality we
-    // can't prove, so a real change is never suppressed. Any own SYMBOL key likewise
-    // forces `false`: `getOwnPropertyNames` can't see symbol keys, so two objects
-    // differing only in a symbol-keyed value would otherwise read equal.
+    // can't prove, so a real change is never suppressed. An own symbol-keyed VALUE
+    // likewise forces `false` (see {@link hasOwnDataSymbol}).
     if (!aArr) {
       const protoA = Object.getPrototypeOf(a);
       if (protoA !== Object.prototype && protoA !== null) return false;
       const protoB = Object.getPrototypeOf(b);
       if (protoB !== Object.prototype && protoB !== null) return false;
     }
-    if (
-      Object.getOwnPropertySymbols(a).length > 0 ||
-      Object.getOwnPropertySymbols(b).length > 0
-    ) {
-      return false;
-    }
+    if (hasOwnDataSymbol(a) || hasOwnDataSymbol(b)) return false;
     // Full own-string-key set (enumerable AND non-enumerable). For arrays this
     // includes `length`, every present index (holes are absent ⇒ sparse ≠ dense),
     // and any augmenting prop — so nothing is silently ignored.
@@ -342,6 +366,107 @@ export function createUpdatedTracker<V>(): {
   };
 }
 
+/** The three signals a stream-backed view carries, independent of what it does with
+ *  the frames. `error` is terminal (a failure is the fiber's exit), `pending` is true
+ *  until the first frame or a terminal outcome, `complete` latches on a TYPED end and
+ *  means the value is frozen forever.
+ *
+ *  Named separately from {@link Subscription} because they are separable: a batched
+ *  collection view has ONE stream behind N per-key accessors, so its lifecycle is one
+ *  fact while its value is many. That is the whole reason
+ *  {@link createStreamLifecycle} exists apart from {@link createSubscription}. */
+export interface SubscriptionState {
+  readonly error: Accessor<Error | undefined>;
+  readonly pending: Accessor<boolean>;
+  readonly complete: Accessor<boolean>;
+}
+
+/** Drive `source` on its own scoped fiber and report its lifecycle as the three
+ *  signals of a {@link SubscriptionState}, handing each frame to `onFrame`.
+ *
+ *  THE stream-lifecycle seam for a static-input source, and the reason it is one:
+ *  what varies between the framework's static-input views is only what they do with
+ *  a frame — `createSubscription` reduces it into a wrapped store, the batched
+ *  collection view writes the keys the frame names — while the fiber, the three
+ *  signals, the teardown path and the `onError` edge are identical. Two hand-rolled
+ *  copies of that skeleton drift; they had already drifted the first day they
+ *  existed.
+ *
+ *  A frame is applied and `pending` cleared inside ONE `batch`, so no consumer ever
+ *  observes a frame applied while the view still reads pending, and a view that
+ *  writes several signals per frame (a keyed store plus its key list plus its folds)
+ *  settles them in one tick.
+ *
+ *  `createReactiveSubscription` deliberately does NOT build on this: its lifecycle
+ *  RE-ARMS on every input change (fresh fiber, signals reset, tracker reset), which
+ *  is a different lifetime rather than a different frame handler — folding it in
+ *  would put two lifetimes behind one door. */
+export function createStreamLifecycle<T>(
+  source: Stream.Stream<T, unknown>,
+  options: {
+    /** One stream frame. Runs inside the frame's batch, before `pending` clears. */
+    onFrame: (item: T) => void;
+    /** The stream ENDED NORMALLY (a typed end), never on abort. */
+    onComplete?: () => void;
+    /** Per-consumer failure callback, wired through the same edge effect
+     *  {@link wireSubscriptionError} owns, so it can never disagree with `error()`. */
+    onError?: (err: Error) => void;
+    /** External abort signal, INSTEAD of `onCleanup` — never both, so there is no
+     *  dual lifecycle to braid. The signal arm is what lets a view be created
+     *  outside a reactive owner (a dynamic per-entity map). */
+    signal?: AbortSignal;
+  },
+): SubscriptionState {
+  const [error, setError] = createSignal<Error | undefined>();
+  const [pending, setPending] = createSignal(true);
+  const [complete, setComplete] = createSignal(false);
+  const state: SubscriptionState = { error, pending, complete };
+
+  // `runStreamScoped` owns the "a disposed subscription reports nothing" rule, so
+  // nothing below re-checks an aborted flag.
+  const stop = runStreamScoped<T>(source, {
+    onFrame: (item) =>
+      batch(() => {
+        options.onFrame(item);
+        // Unconditional: writing `false` over `false` is a no-op under the signal's
+        // default equality, so a read-then-write guard would only re-state that.
+        setPending(false);
+        // NOT "clear a stale error here". A failure is the FIBER'S EXIT, so no frame
+        // can follow one on the same subscription — an `error()` is terminal for this
+        // stream, and a clear-on-next-frame branch would be dead code implying a
+        // recovery that cannot happen. What actually keeps `error()` from LATCHING is
+        // one layer up: the retry fence re-subscribes transparently, so a transport
+        // drop never lands here at all. What DOES land is a declared (D4) failure,
+        // and terminal is the honest reading of it — the stream is over.
+      }),
+    // A TYPED end (the server/map completed the stream), never an interruption.
+    // Clear any lingering `pending` and latch `complete` so the dedup cache can
+    // evict this slot and a re-added member never reuses an ended stream.
+    onEnd: () =>
+      batch(() => {
+        setPending(false);
+        setComplete(true);
+        options.onComplete?.();
+      }),
+    onFailure: (err) =>
+      batch(() => {
+        setError(err);
+        setPending(false);
+      }),
+  });
+
+  if (options.signal) {
+    if (options.signal.aborted) stop();
+    else options.signal.addEventListener("abort", stop, { once: true });
+  } else {
+    onCleanup(stop);
+  }
+
+  if (options.onError) wireSubscriptionError(state, options.onError);
+
+  return state;
+}
+
 /** Convert an Effect `Stream` into a SolidJS signal.
  *
  *  `source` is LAZY and is run on a scoped fiber owned by this subscription (see
@@ -386,71 +511,28 @@ export function createSubscription<T, R = T>(
   const [store, setStore] = createStore<{ v: T | R | undefined }>({
     v: initial,
   });
-  const [error, setError] = createSignal<Error | undefined>();
-  const [pending, setPending] = createSignal(true);
-  const [complete, setComplete] = createSignal(false);
-
-  function updateValue(next: T | R): void {
-    writeWrappedValue(setStore, next as T | R | undefined);
-  }
-
   // The change-iff-fired half of the Dynamic — the ONE law shared with
   // `createReactiveSubscription` via `createUpdatedTracker`.
   const tracker = createUpdatedTracker<T | R>();
 
-  // Run the stream on this subscription's own scoped fiber. `runStreamScoped`
-  // owns the "a disposed subscription reports nothing" rule, so nothing below
-  // re-checks an aborted flag.
-  const stop = runStreamScoped<T>(source, {
+  // The fiber, the three signals, the teardown path and the `onError` edge are the
+  // shared seam; the ONE thing this primitive contributes is what a frame does —
+  // reduce it, tell the tracker, write it into the wrapped store.
+  const state = createStreamLifecycle<T>(source, {
     onFrame: (item) => {
       const next = reduce ? reduce(store.v as T | R, item) : (item as T | R);
       tracker.noteFrame(next); // fire `updated` on a genuine change, before the write
-      updateValue(next);
-      if (pending()) setPending(false);
-      // NOT "clear a stale error here". A failure is the FIBER'S EXIT, so no frame
-      // can follow one on the same subscription — an `error()` is terminal for this
-      // stream, and a clear-on-next-frame branch would be dead code implying a
-      // recovery that cannot happen. What actually keeps `error()` from LATCHING is
-      // one layer up: the retry fence re-subscribes transparently, so a transport
-      // drop never lands here at all. What DOES land is a declared (D4) failure,
-      // and terminal is the honest reading of it — the stream is over.
+      writeWrappedValue(setStore, next as T | R | undefined);
     },
-    // A TYPED end (the server/map completed the stream), never an interruption.
-    // Clear any lingering `pending` and latch `complete` so the dedup cache can
-    // evict this slot and a re-added member never reuses an ended stream.
-    onEnd: () => {
-      if (pending()) setPending(false);
-      setComplete(true);
-      options?.onComplete?.();
-    },
-    onFailure: (err) => {
-      setError(err);
-      if (pending()) setPending(false);
-    },
+    onComplete: options?.onComplete,
+    onError: options?.onError,
+    signal: options?.signal,
   });
 
-  // Single cleanup path: external signal OR `onCleanup`. Never both — avoids dual
-  // lifecycle braiding. The external-signal arm is what lets a subscription be
-  // created outside a reactive owner (a dynamic per-entity map).
-  if (options?.signal) {
-    if (options.signal.aborted) stop();
-    else options.signal.addEventListener("abort", stop, { once: true });
-  } else {
-    onCleanup(stop);
-  }
-
-  const sub = Object.assign(() => store.v as (T | R) | undefined, {
-    error,
-    pending,
-    complete,
+  return Object.assign(() => store.v as (T | R) | undefined, {
+    ...state,
     updated: tracker.updated,
   }) as Subscription<T | R>;
-
-  if (options?.onError) {
-    wireSubscriptionError(sub, options.onError);
-  }
-
-  return sub;
 }
 
 /** Wire a per-consumer error handler onto a subscription's `error()` signal, via an

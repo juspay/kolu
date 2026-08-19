@@ -6,9 +6,9 @@
  *
  *   1. SERVER coalescing — N synchronous `upsert`/`remove` calls in a tick
  *      flush as exactly one `deltas` frame, last-op-wins per key.
- *   2. CLIENT fold — `foldCollectionDeltas` rebuilds the keyed set from
- *      snapshot-then-delta, preserving real key TYPES (number keys stay numbers
- *      for `keys()`, even though the value store is keyed by `String(key)`).
+ *   2. CLIENT store — `useCollectionDeltas` applies snapshot-then-delta to the
+ *      store it owns, preserving real key TYPES (number keys stay numbers for
+ *      `keys()`, even though the value store is keyed by `String(key)`).
  *
  * The per-key `keys`/`get` path is untouched and stays the default; `deltas` is
  * exercised only by a collection that lists the verb.
@@ -31,7 +31,8 @@ import {
   implementSurfaceOnPublisher,
   inMemoryChannel,
 } from "./server";
-import { foldCollectionDeltas } from "./solid/useCollection";
+import { collection } from "./index";
+import { driveDeltas as drive, settle } from "./solid/deltasHarness.testlib";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -451,114 +452,205 @@ describe("collection get — held-open on an absent key (#1681)", () => {
   });
 });
 
-describe("foldCollectionDeltas — client fold", () => {
-  type V = { name: string };
-  const empty = { byKey: {} as Record<string, V>, order: [] as number[] };
+// ── The CLIENT half: the store the frame is applied to ─────────────────────
+//
+// `useCollectionDeltas` owns its store and applies each frame by NAMED-KEY writes,
+// so these cases are driven end-to-end through the hook (there is no standalone
+// pure fold left to call — that was the copying accumulator this replaced). What
+// they pin is the observable contract: what `keys()` and `byKey()` read after each
+// frame, and that a key the CONSTRAINT forbids never enters the set.
 
-  it("a snapshot replaces the whole set and keeps key types", () => {
-    const out = foldCollectionDeltas<number, V>(empty, {
-      kind: "snapshot",
-      entries: [
-        [1, { name: "a" }],
-        [2, { name: "b" }],
-      ],
+/** Descriptors for the hook's first argument. Only `name` is read at runtime; the
+ *  schemas are what type `K` and `T` at the call site. */
+const numericKeyed = collection({
+  name: "numericKeyed",
+  keySchema: Schema.Number,
+  schema: Schema.Struct({ name: Schema.String }),
+});
+const stringKeyed = collection({
+  name: "stringKeyed",
+  keySchema: Schema.String,
+  schema: Schema.Struct({ name: Schema.String }),
+});
+
+describe("collection deltas — the client store", () => {
+  it("a snapshot establishes the whole set and keeps key TYPES", async () => {
+    await drive(numericKeyed, async ({ view, push }) => {
+      push({
+        kind: "snapshot",
+        entries: [
+          [1, { name: "a" }],
+          [2, { name: "b" }],
+        ],
+      });
+      await settle();
+      expect(view.keys()).toEqual([1, 2]); // numbers, not "1"/"2"
+      expect(view.byKey(1)?.()).toEqual({ name: "a" });
+      expect(view.byKey(2)?.()).toEqual({ name: "b" });
     });
-    expect(out.order).toEqual([1, 2]); // numbers, not "1"/"2"
-    expect(out.byKey["1"]).toEqual({ name: "a" });
-    expect(out.byKey["2"]).toEqual({ name: "b" });
   });
 
-  it("a delta applies upserts and removes onto the prior set", () => {
-    const base = foldCollectionDeltas<number, V>(empty, {
-      kind: "snapshot",
-      entries: [
-        [1, { name: "a" }],
-        [2, { name: "b" }],
-      ],
+  it("a delta applies upserts and removes onto the standing set", async () => {
+    await drive(numericKeyed, async ({ view, push }) => {
+      push({
+        kind: "snapshot",
+        entries: [
+          [1, { name: "a" }],
+          [2, { name: "b" }],
+        ],
+      });
+      await settle();
+      push({
+        kind: "delta",
+        upserts: [
+          [2, { name: "B" }],
+          [3, { name: "c" }],
+        ],
+        removes: [1],
+      });
+      await settle();
+      expect(view.keys()).toEqual([2, 3]); // 1 dropped, 3 appended, still numbers
+      expect(view.byKey(1)).toBeUndefined();
+      expect(view.byKey(2)?.()).toEqual({ name: "B" });
+      expect(view.byKey(3)?.()).toEqual({ name: "c" });
     });
-    const out = foldCollectionDeltas<number, V>(base, {
-      kind: "delta",
-      upserts: [
-        [2, { name: "B" }],
-        [3, { name: "c" }],
-      ],
-      removes: [1],
-    });
-    expect(out.order).toEqual([2, 3]); // 1 dropped, 3 appended, still numbers
-    expect(out.byKey["1"]).toBeUndefined();
-    expect(out.byKey["2"]).toEqual({ name: "B" });
-    expect(out.byKey["3"]).toEqual({ name: "c" });
   });
 
-  it("the snapshot→delta fold survives a resubscribe replay", () => {
-    // A re-subscribe yields a fresh snapshot; folding it from any prior state
-    // must converge to exactly the snapshot (no stale keys linger).
-    const stale = foldCollectionDeltas<number, V>(empty, {
-      kind: "snapshot",
-      entries: [[9, { name: "gone" }]],
+  it("a remove of a key the store never saw is a no-op, not a crash", async () => {
+    // The tick coalescer resolves upsert-then-remove within one producer tick to a
+    // BARE remove, so this frame is produced for real.
+    await drive(numericKeyed, async ({ view, push, errors }) => {
+      push({ kind: "snapshot", entries: [[1, { name: "a" }]] });
+      await settle();
+      push({ kind: "delta", upserts: [], removes: [99] });
+      await settle();
+      expect(errors).toEqual([]);
+      expect(view.keys()).toEqual([1]);
     });
-    const out = foldCollectionDeltas<number, V>(stale, {
-      kind: "snapshot",
-      entries: [[1, { name: "a" }]],
-    });
-    expect(out.order).toEqual([1]);
-    expect(out.byKey["9"]).toBeUndefined();
   });
 
-  it("crashes on a non-primitive key — fail fast, no silent collapse", () => {
-    // A SINGLE object key collapses nothing, so the length-injectivity compare
-    // alone would pass and serve `"[object Object]"`; the per-key guard rejects it.
-    expect(() =>
-      foldCollectionDeltas<object, V>(
-        { byKey: {}, order: [] },
-        {
-          kind: "snapshot",
-          entries: [[{ id: 1 }, { name: "a" }]],
-        },
-      ),
-    ).toThrow(/primitive number or string/);
+  it("a resubscribe snapshot converges to exactly that snapshot — no stale keys", async () => {
+    await drive(numericKeyed, async ({ view, push }) => {
+      push({ kind: "snapshot", entries: [[9, { name: "gone" }]] });
+      await settle();
+      push({ kind: "snapshot", entries: [[1, { name: "a" }]] });
+      await settle();
+      expect(view.keys()).toEqual([1]);
+      expect(view.byKey(9)).toBeUndefined();
+      expect(view.byKey(1)?.()).toEqual({ name: "a" });
+    });
   });
 
-  it('crashes on a number/string key collision (1 vs "1")', () => {
-    expect(() =>
-      foldCollectionDeltas<number | string, V>(
-        { byKey: {}, order: [] },
-        {
+  it("a non-primitive key is refused — fail fast, no silent collapse", async () => {
+    // A SINGLE object key collapses nothing, so a length-injectivity compare alone
+    // would pass and serve `"[object Object]"`; the per-key guard rejects it. The
+    // frame loop runs on the subscription's own fiber, so the refusal surfaces as
+    // that ONE subscription's error rather than an unhandled throw.
+    await drive(
+      collection({
+        name: "objectKeyed",
+        keySchema: Schema.Struct({ id: Schema.Number }),
+        schema: Schema.Struct({ name: Schema.String }),
+      }),
+      async ({ view, push, errors }) => {
+        push({ kind: "snapshot", entries: [[{ id: 1 }, { name: "a" }]] });
+        await settle();
+        expect(errors[0]?.message).toMatch(/primitive number or string/);
+        expect(view.keys()).toEqual([]);
+      },
+    );
+  });
+
+  it('a number/string key collision (1 vs "1") is refused', async () => {
+    await drive(
+      collection({
+        name: "mixedKeyed",
+        keySchema: Schema.Union([Schema.Number, Schema.String]),
+        schema: Schema.Struct({ name: Schema.String }),
+      }),
+      async ({ push, errors }) => {
+        push({
           kind: "snapshot",
           entries: [
             [1, { name: "a" }],
             ["1", { name: "b" }],
           ],
-        },
-      ),
-    ).toThrow(/String\(\)-injective/);
-  });
-
-  it('crashes on a "__proto__" key — the reactive store reserves that name', () => {
-    expect(() =>
-      foldCollectionDeltas<string, V>(
-        { byKey: {}, order: [] },
-        {
-          kind: "snapshot",
-          entries: [["__proto__", { name: "x" }]],
-        },
-      ),
-    ).toThrow(/__proto__/);
-  });
-
-  it('a legit string key "toString" is a normal member, not an inherited shadow', () => {
-    const out = foldCollectionDeltas<string, V>(
-      { byKey: {}, order: [] },
-      {
-        kind: "snapshot",
-        entries: [["toString", { name: "ts" }]],
+        });
+        await settle();
+        expect(errors[0]?.message).toMatch(/String\(\)-injective/);
       },
     );
-    // null-prototype dict: "toString" is an OWN member; absent inherited names
-    // ("valueOf", "hasOwnProperty") do NOT read as present.
-    expect("toString" in out.byKey).toBe(true);
-    expect("valueOf" in out.byKey).toBe(false);
-    expect(out.byKey.toString).toEqual({ name: "ts" });
+  });
+
+  it("a number/string collision arriving in ONE DELTA frame is refused too", async () => {
+    // The server coalescer keys its pending map by the REAL key, so a union
+    // `keySchema` admitting both `1` and `"1"` emits them in one frame's upserts —
+    // the delta arm has to catch what the snapshot arm catches. It only can if the
+    // guard compares the dictionary's MEASURED size against the key list: both keys
+    // are new to the collection so both enter the key list, while the dictionary
+    // gains one slot. A size predicted from the frame would move both sides by two
+    // and pass.
+    await drive(
+      collection({
+        name: "mixedDelta",
+        keySchema: Schema.Union([Schema.Number, Schema.String]),
+        schema: Schema.Struct({ name: Schema.String }),
+      }),
+      async ({ push, errors }) => {
+        push({ kind: "snapshot", entries: [] });
+        await settle();
+        push({
+          kind: "delta",
+          upserts: [
+            [1, { name: "a" }],
+            ["1", { name: "b" }],
+          ],
+          removes: [],
+        });
+        await settle();
+        expect(errors[0]?.message).toMatch(/String\(\)-injective/);
+      },
+    );
+  });
+
+  it("a repeated remove in one frame is a no-op, not a spurious collision", async () => {
+    // Removing the same key twice in one frame must not be counted twice: the
+    // dictionary falls by one and so does the key list, so nothing has diverged.
+    await drive(numericKeyed, async ({ view, push, errors }) => {
+      push({
+        kind: "snapshot",
+        entries: [
+          [1, { name: "a" }],
+          [2, { name: "b" }],
+        ],
+      });
+      await settle();
+      push({ kind: "delta", upserts: [], removes: [1, 1] });
+      await settle();
+      expect(errors).toEqual([]);
+      expect(view.keys()).toEqual([2]);
+      expect(view.byKey(1)).toBeUndefined();
+    });
+  });
+
+  it('a "__proto__" key is refused — the reactive store reserves that name', async () => {
+    await drive(stringKeyed, async ({ push, errors }) => {
+      push({ kind: "snapshot", entries: [["__proto__", { name: "x" }]] });
+      await settle();
+      expect(errors[0]?.message).toMatch(/__proto__/);
+    });
+  });
+
+  it('a legit "toString" key is a normal member, not an inherited shadow', async () => {
+    await drive(stringKeyed, async ({ view, push }) => {
+      push({ kind: "snapshot", entries: [["toString", { name: "ts" }]] });
+      await settle();
+      // null-prototype dict: "toString" is an OWN member; absent inherited names
+      // ("valueOf", "hasOwnProperty") do NOT read as present.
+      expect(view.byKey("toString")?.()).toEqual({ name: "ts" });
+      expect(view.byKey("valueOf")).toBeUndefined();
+      expect(view.byKey("hasOwnProperty")).toBeUndefined();
+    });
   });
 });
 

@@ -113,8 +113,14 @@ export function getRuntimeSocketPath(opts: {
  *  a socket of their choosing. We require a real directory the current uid
  *  owns with no group/other bits; a symlink (or any non-dir inode) fails
  *  `isDirectory()`. Returns true on platforms without uid semantics (Windows:
- *  `process.getuid` is undefined) — the ACL model there is out of scope. */
-function isPrivateOwnedDir(dir: string): boolean {
+ *  `process.getuid` is undefined) — the ACL model there is out of scope.
+ *
+ *  Exported for a consumer that must make the same privacy judgement about a
+ *  directory it did not create — olai's vault lock is the first. The three
+ *  checks are the whole predicate; there is no wrapper. `lstatSync` is allowed
+ *  to throw (ENOENT, EACCES): the caller that did not create the dir owns that
+ *  failure, just as `serveOverUnixSocket` folds a throw into `bind-failed`. */
+export function isPrivateOwnedDir(dir: string): boolean {
   const getuid = process.getuid?.bind(process);
   if (getuid === undefined) return true;
   const st = lstatSync(dir);
