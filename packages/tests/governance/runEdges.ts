@@ -141,6 +141,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the port sampler's reactor-poll edge: the reactor's `read` dep is `() => Promise<T>` by design (a poll source owns its own cadence and is deliberately non-Effect — H1), and `scanSubtreePorts` is Effect-native now that osfacts-client returns Effects, so the two meet in the ONE default `scan` seam instead of at each use inside the read; it is a separate row from `servePadi.ts`'s because this sampler is driven OUTSIDE `derived.cell` (its samples re-enter each terminal's own producer through the sensor channel), so there is no padi surface cell to route it through",
   },
   {
+    path: "packages/padi/src/ptyHost/linkLoss.ts",
+    sites: 1,
+    why: "the link-loss healer's raw-timer edge (juspay/kolu#2182): the re-converge attempt rides a chained unref'd `setTimeout` for the same written reasons as `kavalSupervision.ts`'s row (Effect's default Clock cannot express an unref'd sleep, and the endpoint's `onStatus` emit is synchronous, so nothing above the timer is an Effect caller to compose into) — one run, at the tick boundary, absorbing its own failure so the loop owns the retry",
+  },
+  {
     path: "packages/padi/src/servePadi.ts",
     sites: 1,
     why: "padi's ONE reactor-poll edge, named once for both poll cells: the reactor's `read` dep is `() => Promise<T>` by design (a poll source owns its own cadence and is deliberately non-Effect), and the host-inventory and memory samplers behind it are Effect-native, so this is where they meet — kolu-server carries the twin row for the same reason",
