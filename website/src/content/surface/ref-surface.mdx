@@ -424,7 +424,7 @@ below).
 | --- | --- | --- |
 | cell (mutable) | `.cells.X.use({ authority, initial, applyPatch, onError, coalesceMs })` | a `UseCellResult` `{ value, pending, error, set, patch, sub }` — `value` is the accessor, `sub` is the `Subscription` (its `.updated(...)` is the change channel); mutate with `.set(v)` / `.patch(p)` |
 | cell (read-only, `verbs: ["get"]`) | `.cells.X.use({ onError? })` | a `ReadOnlyUseCellResult` `{ value, pending, error, sub }` — NO `set` / `patch`, and the options accept ONLY `onError` (no `authority: "local"` branch — a get-only cell carries no wire mutation verb) |
-| collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)` |
+| collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)`. A `deltas`-declaring collection's WHOLE-collection `.use()` also carries `.fold({ init, step })` — see [the frame socket](#the-frame-socket--fold-on-a-deltas-collection) |
 | stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` DIRECTLY — an accessor plus `.pending()`, `.error()`, `.complete()`, and `.updated(...)` |
 | event | `.events.X.use(inputFn, handler, { onError?, signal? })` | nothing (no current value) |
 | procedure | `.procedures.<ns>.<verb>(input)` | a `ProcedureEffect<O, E>` — `Effect<O, E \| SurfaceCallFailure>`, the declared union in a channel the compiler tracks |
@@ -471,10 +471,12 @@ another. A reader that goes by position never notices; a `<For>` keyed by
 reference, a per-row memo, or a component holding a row across frames sees a row
 whose identity and whose fields disagree. A framework merging arbitrary app
 payloads has no basis for inferring identity from a field name, so it does not:
-an element is replaced rather than recycled. Per-key granularity within a
-collection's dictionary is unaffected — a collection's `keySchema` is the
-dictionary key, and it says nothing about the identity of array elements inside a
-value. A keyed merge, if one is ever wanted, would be DECLARED on the member. `surfaceClients(transport, map)`
+an element is replaced rather than recycled. A `deltas` collection's keyed
+dictionary is not merged here at all — its hook owns a store and writes the keys a
+frame NAMES, replacing each leaf whole for the same reason, so an entry a `fold`
+consumer is holding never mutates under it. A keyed merge for array elements INSIDE
+a value, if one is ever wanted, would be DECLARED on the member: a collection's
+`keySchema` is the dictionary key and says nothing about them. `surfaceClients(transport, map)`
 splits one combined transport into a sibling client per surface — each built over
 a **tag-scoped** dispatch, so the face mints standalone tags and the wrapper
 splices the sibling key in, landing on exactly the tags `implementSurfaces` bound.
@@ -510,6 +512,57 @@ package's factories mint provides it.
   link factory brands what it returns, so a new wire link inherits the guard by
   construction.
 </Aside>
+
+### The frame socket — `fold` on a `deltas` collection
+
+A collection that declares the `deltas` verb is served by ONE coalesced
+snapshot-then-delta stream, and the client applies each frame to a keyed store by
+writing exactly the keys the frame names. That store is the right answer for a
+consumer whose accumulator IS a keyed map. For a consumer whose accumulator is
+something else — an index, a patched document set, a running total — the frame
+itself is the answer, so the whole-collection `.use()` of a `deltas` collection
+carries one more member:
+
+```ts
+const view = client.collections.entries.use();
+
+const index = view.fold({
+  // A full-set frame: the wire's first frame, every reconnect snapshot, and the
+  // synthetic snapshot a fold registered mid-stream is seeded with. Entries are in
+  // arrival order.
+  init: (entries) => buildIndex(entries),
+  // One coalesced delta frame — the wire's own `{ upserts, removes }`, unchanged.
+  step: (held, { upserts, removes }) => patch(held, { upserts, removes }),
+});
+
+index(); // Accessor<A | undefined>
+```
+
+`init` and `step` are the consumer's, and `A` is inferred from them — the framework
+never sees inside the accumulator.
+
+| Fact | Behaviour |
+| --- | --- |
+| Snapshot | RE-INITIALIZES every registered fold (`acc = init(entries)`), after the store applies it. First-connect and reconnect are the same event to a fold; it never classifies a frame. |
+| Registering mid-stream | Seeded SYNCHRONOUSLY from the held store, so arriving late is indistinguishable from a reconnect. Registered while `pending()`, the accessor reads `undefined` until the real snapshot lands. |
+| Removes of unknown keys | Delivered VERBATIM. The server's tick coalescer resolves an upsert-then-remove within one producer tick to a bare remove, so `step` MUST be total over a remove of a key it never saw. The framework does not filter it — that would be swallowing part of the frame. |
+| Ordering | assert keys → apply to the store → notify the folds → clear `pending`, all in one tick. A `step` that reads `byKey` sees state consistent with the frame it holds. |
+| Aliasing | `step` receives the wire's decoded frame objects, which the store adopts by REPLACEMENT — neither side ever mutates them, so a fold may retain them without cloning. |
+| Errors | The batched stream's error is collection-wide and terminal. Fold accessors keep their last value, frozen — exactly `byKey`'s behaviour — and the failure surfaces through the shared `error()` / `onError` / health enrolment. A throwing `init` / `step` is contained to its own fold and reported loudly; it never kills the stream, the store, or another fold. |
+| Teardown | `fold()` must be called under a reactive owner; the registration is dropped by that owner's `onCleanup`. Called ownerless it THROWS, rather than minting an accumulator nothing can drop. |
+
+**Where `fold` is spellable is the gate.** It is typed only on the
+whole-collection `.use()` of a collection whose `verbs` declare `deltas` — the same
+verb gate `unenrolledDeltas` rides. A collection without the verb has no frames; so
+does a NARROWED `.use({ keys })`, which is served by the per-key `keys`+`get` path
+even on a `deltas` collection. In both, `fold` is a type error rather than an
+`undefined` at runtime.
+
+`useCollectionDeltas` — the hook `.use()` drives for a `deltas` collection — is
+exported from `@kolu/surface/solid` for the deliberately un-enrolled reach: a
+consumer that takes `.unenrolledDeltas` (the [#1591](https://github.com/juspay/kolu/issues/1591)
+health carve-out) hands the raw stream to it as `source` and gets the same store
+and the same `fold`, instead of hand-rolling a second one.
 
 ## The dispatch seam — `@kolu/surface/link`
 
