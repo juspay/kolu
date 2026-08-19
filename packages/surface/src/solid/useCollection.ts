@@ -183,18 +183,19 @@ function assertFoldableKey(key: unknown): void {
 }
 
 /** Guard the deltas store's homogeneous-primitive-key precondition (the CONSTRAINT
- *  above): `byKey` is keyed by `String(key)` while `order` holds the real keys,
- *  so two DISTINCT real keys that collapse to one string (a union admitting both
- *  `1` and `"1"`) leave `byKey` STRICTLY SHORTER than `order`. Fires exactly on
- *  that collision (a single length compare). Crash loudly at the point of
- *  corruption rather than silently serving a collapsed set — the fail-fast the
- *  prose constraint can only ask for. (`assertFoldableKey` already rejects the
- *  non-primitive single-key case this length compare alone would miss.) */
-function assertKeysInjective<K, T>(
-  byKey: Record<string, T>,
-  order: readonly K[],
-): void {
-  if (Object.keys(byKey).length !== order.length) {
+ *  above): the dictionary is keyed by `String(key)` while `order` holds the REAL
+ *  keys, so two distinct real keys that collapse to one string (a union admitting
+ *  both `1` and `"1"`) leave the dictionary STRICTLY SMALLER than the key list.
+ *  Fires exactly on that divergence. Crash loudly at the point of corruption rather
+ *  than silently serving a collapsed set — the fail-fast the prose constraint can
+ *  only ask for. (`assertFoldableKey` already rejects the non-primitive single-key
+ *  case a size compare alone would miss.)
+ *
+ *  Both operands are TRACKED as frames are applied, never counted: a frame naming
+ *  three keys of two thousand pays O(1) to be checked, so the guard can run after
+ *  EVERY membership move instead of only when a key was added. */
+function assertKeysInjective(dictSize: number, orderLength: number): void {
+  if (dictSize !== orderLength) {
     throw new Error(
       "deltas key collision: keys are not String()-injective — deltas requires homogeneous primitive keys",
     );
@@ -296,11 +297,11 @@ export function useCollectionDeltas<Name extends string, K, T>(
   // write exactly those. Routing through the reduce path meant a fresh accumulator per
   // frame (a whole-dict copy) which `reconcile` then walked in full to rediscover the
   // keys the frame had already named — two O(N) passes per O(|frame|) update.
-  const [byKey_, setByKey] = createStore<Record<string, T>>(emptyDict<T>());
+  const [dict, setDict] = createStore<Record<string, T>>(emptyDict<T>());
   // The UNTRACKED view of the same dictionary (`createStore` wraps this exact object).
   // Every read inside the frame loop goes through it: the loop is deciding what to
   // write, not rendering, so tracking there would be noise at best.
-  const held = unwrap(byKey_);
+  const held = unwrap(dict);
   const [order, setOrder] = createSignal<K[]>([], { equals: sameOrder });
   const [error, setError] = createSignal<Error | undefined>();
   const [pending, setPending] = createSignal(true);
@@ -311,6 +312,9 @@ export function useCollectionDeltas<Name extends string, K, T>(
   /** Whether a full-set frame has been applied — i.e. whether the held store is a
    *  state a fold can be seeded from, and whether a delta has a base to land on. */
   let seeded = false;
+  /** How many entries the dictionary holds. Tracked as frames are applied so
+   *  {@link assertKeysInjective} costs O(1) rather than a walk over every key. */
+  let size = 0;
 
   const currentOrder = (): K[] => untrack(order);
 
@@ -325,24 +329,24 @@ export function useCollectionDeltas<Name extends string, K, T>(
    *  fold may be holding: from the store's point of view a frame handed onward is
    *  frozen. */
   function applySnapshot(entries: ReadonlyArray<readonly [K, T]>): void {
-    const next = emptyDict<T>();
+    const present = new Set<string>();
     const nextOrder: K[] = [];
-    for (const [k, v] of entries) {
+    for (const [k] of entries) {
       assertFoldableKey(k);
-      next[String(k)] = v;
+      present.add(String(k));
       nextOrder.push(k);
     }
-    assertKeysInjective(next, nextOrder);
-    setByKey(
-      produce((dict) => {
-        for (const sk of Object.keys(held)) if (!(sk in next)) delete dict[sk];
-        for (const sk of Object.keys(next)) {
-          if (!(sk in held) || !framesEqual(held[sk], next[sk])) {
-            dict[sk] = next[sk] as T;
-          }
+    assertKeysInjective(present.size, nextOrder.length);
+    setDict(
+      produce((d) => {
+        for (const sk of Object.keys(held)) if (!present.has(sk)) delete d[sk];
+        for (const [k, v] of entries) {
+          const sk = String(k);
+          if (!(sk in held) || !framesEqual(held[sk], v)) d[sk] = v;
         }
       }),
     );
+    size = present.size;
     setOrder(nextOrder);
   }
 
@@ -361,15 +365,16 @@ export function useCollectionDeltas<Name extends string, K, T>(
       if (!(String(k) in held)) added.push(k);
     }
     const removed = delta.removes.filter((k) => String(k) in held);
-    setByKey(
-      produce((dict) => {
+    setDict(
+      produce((d) => {
         // A LEAF REPLACEMENT per named key, not a merge into the object already
         // there: the store must never mutate a frame object it previously adopted,
         // since a fold may be holding that same object (§ the aliasing contract).
-        for (const [k, v] of delta.upserts) dict[String(k)] = v;
-        for (const k of removed) delete dict[String(k)];
+        for (const [k, v] of delta.upserts) d[String(k)] = v;
+        for (const k of removed) delete d[String(k)];
       }),
     );
+    size += added.length - removed.length;
     // Key set UNCHANGED (a pure value-update tick) → nothing to write; the order
     // signal keeps its array BY REFERENCE and `keys()` stays quiet.
     if (added.length === 0 && removed.length === 0) return;
@@ -383,8 +388,7 @@ export function useCollectionDeltas<Name extends string, K, T>(
       nextOrder = currentOrder().slice();
     }
     for (const k of added) nextOrder.push(k);
-    // A String() collision can only appear when a NEW key enters.
-    if (added.length > 0) assertKeysInjective(held, nextOrder);
+    assertKeysInjective(size, nextOrder.length);
     setOrder(nextOrder);
   }
 
@@ -393,7 +397,19 @@ export function useCollectionDeltas<Name extends string, K, T>(
    *  cannot be handed the wire's own snapshot back — it is handed the state that
    *  snapshot produced, which is the same answer. */
   function syntheticSnapshot(): [K, T][] {
-    return currentOrder().map((k) => [k, held[String(k)] as T]);
+    return currentOrder().map((k) => {
+      const value = held[String(k)];
+      if (value === undefined) {
+        // The key list and the dictionary are written together on every frame and
+        // their sizes are guarded equal, so a key in one and not the other is a
+        // corrupted store, not a late arrival. Say so, rather than seeding a
+        // consumer's fold with a hole it has no way to recognise.
+        throw new Error(
+          `deltas store is inconsistent: key ${String(k)} is in the key set but has no value`,
+        );
+      }
+      return [k, value];
+    });
   }
 
   function onFrame(msg: CollectionDeltasMsg<K, T>): void {
@@ -498,11 +514,11 @@ export function useCollectionDeltas<Name extends string, K, T>(
     // The dictionary is null-prototype, so a stray inherited name like `toString`
     // reads absent rather than shadowing.
     const sk = String(key);
-    if (!(sk in byKey_)) return undefined;
-    // A per-key accessor over the shared store — reading `byKey_[sk]` in a tracking
+    if (!(sk in dict)) return undefined;
+    // A per-key accessor over the shared store — reading `dict[sk]` in a tracking
     // scope tracks only that leaf. `error`/`pending`/`complete` are the single
     // stream's, shared across keys.
-    const read = (() => byKey_[sk]) as Subscription<T>;
+    const read = (() => dict[sk]) as Subscription<T>;
     return Object.assign(read, state);
   }
 
