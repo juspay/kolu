@@ -26,9 +26,10 @@
  * in-place rewrites — the two edits that move nothing — stayed green.
  *
  * So every merge here passes `{ key: null }`: an element is replaced rather than
- * recycled, and no object is ever carried across records. Per-key granularity
- * within a dictionary (`useCollectionDeltas`' `byKey`) is untouched — that is
- * object-property reconciliation, not array-element identity.
+ * recycled, and no object is ever carried across records. A collection's keyed
+ * dictionary is not merged here at all — `useCollectionDeltas` owns its store and
+ * writes the keys a frame NAMES, replacing each leaf whole for the same
+ * replaced-rather-than-recycled reason this file exists to state.
  *
  * **Stated precisely, because the alternative invites overclaiming:** on Solid
  * 1.9 both spellings produce the same VALUES (checked across 4,000 randomised
@@ -39,7 +40,7 @@
  * defect lives.
  *
  * **A keyed merge would have to be DECLARED.** A collection declares its
- * `keySchema`, and that key is the dictionary key `useCollectionDeltas` folds by —
+ * `keySchema`, and that key is the dictionary key `useCollectionDeltas` writes by —
  * it says nothing about the identity of array elements INSIDE a value. Cells and
  * streams declare nothing at all. So no member definition today could authorize a
  * keyed merge, and until one exists the framework must not infer identity from a
