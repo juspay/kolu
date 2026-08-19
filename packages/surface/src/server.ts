@@ -1693,6 +1693,12 @@ export type CollectionImplDeps<
   readOne?: (key: Decoded<S["keySchema"]>) => Decoded<S["schema"]> | undefined;
   upsert: (key: Decoded<S["keySchema"]>, value: Decoded<S["schema"]>) => void;
   remove: (key: Decoded<S["keySchema"]>) => void;
+  /** The LAST-READER seam — see {@link CollectionHandlerDeps.holders}, which this
+   *  threads through verbatim. A reader holds `key` for the lifetime of its per-key
+   *  `get` subscription, and the scope closing IS the release. */
+  holders?: (
+    key: Decoded<S["keySchema"]>,
+  ) => Effect.Effect<unknown, never, Scope.Scope>;
   /** OPT-IN incremental `$`-sibling read (a PURE optimization behind
    *  `readAll()` semantics). By default a compute reading `$.<coll>()`
    *  re-runs `readAll()` on every access — correct for a registry
@@ -2661,6 +2667,7 @@ function walkSurface<const S extends SurfaceSpec>(
       | {
           readAll: () => Map<unknown, unknown>;
           readOne?: (k: unknown) => unknown;
+          holders?: (k: unknown) => Effect.Effect<unknown, never, Scope.Scope>;
           // Authored collections carry write seams; a graph-owned
           // `derived.collection` does not (the walk narrows the ctx to throw and
           // drives the publishers from the reconciler's `connect`), so both are
@@ -2889,6 +2896,7 @@ function walkSurface<const S extends SurfaceSpec>(
       {
         readAll: collDeps.readAll,
         readOne: collDeps.readOne,
+        holders: collDeps.holders,
         upsert: wrappedUpsert,
         remove: wrappedRemove,
         perKeyBus: perKeyBus as (k: unknown) => Channel<unknown>,

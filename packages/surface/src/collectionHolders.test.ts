@@ -23,12 +23,14 @@
  * for — depends on exactly that, and a comment cannot keep it true.
  */
 
-import { Effect, Fiber, Queue, type Scope, Stream } from "effect";
+import { Effect, Fiber, Queue, Schema, type Scope, Stream } from "effect";
 import { describe, expect, it } from "vitest";
+import { defineSurface, surfaceTag } from "./define";
 import {
   type Channel,
   type CollectionHandlerDeps,
   collectionHandlers,
+  implementSurface,
   inMemoryChannel,
 } from "./server";
 
@@ -325,5 +327,64 @@ describe("collection get — a hold cannot fail, so a defect in one is loud", ()
       Stream.runCollect(Stream.take(handlers.get({ key: "a" }), 1)),
     );
     expect([...good]).toEqual([{ name: "a" }]);
+  });
+});
+
+describe("collection get — the seam an app author actually writes", () => {
+  it("`implementSurface` threads `holders` from the collection's deps to its `get`", async () => {
+    // The internal handler type is not the boundary a consumer crosses: an app
+    // declares its collection's deps inside `implementSurface`. A `holders` that
+    // typechecks there and is dropped on the way to `collectionHandlers` would be a
+    // seam that reads as shipped and does nothing — so this drives the whole path,
+    // through a real surface and its real wire tag.
+    const surface = defineSurface({
+      collections: {
+        documents: {
+          keySchema: Schema.String,
+          schema: Schema.Struct({ name: Schema.String }),
+          verbs: ["keys", "get"],
+        },
+      },
+    });
+    const events: string[] = [];
+    const store = new Map<string, { name: string }>([["a.md", { name: "a" }]]);
+    const runtime = implementSurface(surface, {
+      collections: {
+        documents: {
+          readAll: () => store,
+          upsert: (k, v) => {
+            store.set(k, v);
+          },
+          remove: (k) => {
+            store.delete(k);
+          },
+          holders: (key) =>
+            Effect.acquireRelease(
+              Effect.sync(() => {
+                events.push(`hold ${key}`);
+              }),
+              () =>
+                Effect.sync(() => {
+                  events.push(`release ${key}`);
+                }),
+            ),
+        },
+      },
+    });
+
+    const tag = surfaceTag(surface.tagPrefix, "documents", "get");
+    const handler = runtime.handlers[tag];
+    if (handler === undefined) throw new Error(`no handler at "${tag}"`);
+    const frames = await Effect.runPromise(
+      Stream.runCollect(
+        Stream.take(
+          handler({ key: "a.md" }) as Stream.Stream<{ name: string }>,
+          1,
+        ),
+      ),
+    );
+    expect([...frames]).toEqual([{ name: "a" }]);
+    expect(events).toEqual(["hold a.md", "release a.md"]);
+    await runtime.close();
   });
 });
