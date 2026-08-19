@@ -75,6 +75,8 @@ import {
 import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import { type UseCellResult, useCell } from "./useCell";
 import {
+  type CollectionFold,
+  type UseCollectionDeltasResult,
   type UseCollectionResult,
   useCollection,
   useCollectionDeltas,
@@ -222,7 +224,19 @@ export interface BoundCollectionResult<K, T> extends UseCollectionResult<K, T> {
   delete: (key: K) => Effect.Effect<void, unknown>;
 }
 
-export interface BoundCollection<K, T> {
+/** The imperative wire mutations every writable bound collection carries — the half
+ *  {@link BoundCollection} and {@link BoundDeltasCollection} share, stated once so the
+ *  two differ ONLY in what `.use()` returns. */
+export interface BoundCollectionMutations<K, T> {
+  /** Imperative wire mutations, as `Effect`s. Available outside any component
+   *  lifecycle — compose them into a command handler's program, a route loader,
+   *  anywhere. A Solid event handler runs one at its own UI edge (kolu spells that
+   *  `runAction`), which is where the Effect→DOM boundary belongs. */
+  upsert(key: K, value: T): Effect.Effect<void, unknown>;
+  delete(key: K): Effect.Effect<void, unknown>;
+}
+
+export interface BoundCollection<K, T> extends BoundCollectionMutations<K, T> {
   /** Reactive view. `keys` defaults to a subscription on the server's
    *  `keys` stream — pass it explicitly only to filter or derive (e.g.
    *  Kolu's `useTerminalMetadata` derives keys from the terminal list).
@@ -234,12 +248,39 @@ export interface BoundCollection<K, T> {
     keys?: Accessor<K[]>;
     onError?: SubscriptionOptions<unknown>["onError"];
   }): BoundCollectionResult<K, T>;
-  /** Imperative wire mutations, as `Effect`s. Available outside any component
-   *  lifecycle — compose them into a command handler's program, a route loader,
-   *  anywhere. A Solid event handler runs one at its own UI edge (kolu spells that
-   *  `runAction`), which is where the Effect→DOM boundary belongs. */
-  upsert(key: K, value: T): Effect.Effect<void, unknown>;
-  delete(key: K): Effect.Effect<void, unknown>;
+}
+
+/** A `deltas`-declaring collection's WHOLE-COLLECTION `.use()` result — the keyed
+ *  view plus {@link CollectionFold}, the socket onto the frames themselves.
+ *
+ *  Only the batched path can offer it, and that is the whole reason `fold` is typed
+ *  here rather than on {@link BoundCollectionResult}: a collection served by the
+ *  per-key `keys`+`get` pair has no frames to hand over, so `fold` there would be a
+ *  callable resolving to `undefined` at runtime — the same lie
+ *  {@link UnenrolledDeltas} is verb-gated to avoid. */
+export interface BoundDeltasCollectionResult<K, T>
+  extends BoundCollectionResult<K, T> {
+  fold: CollectionFold<K, T>;
+}
+
+/** The `deltas` twin of {@link BoundCollection}: same mutations, but a whole-collection
+ *  `.use()` that also carries `fold`.
+ *
+ *  The two `use` overloads are the gate. A NARROWED `.use({ keys })` is served by the
+ *  per-key path even on a `deltas` collection (an explicit reactive key set is
+ *  honestly its own subscription, not a slice of the batched stream), so it returns
+ *  the plain {@link BoundCollectionResult} — `fold` is unspellable there too, and the
+ *  narrowed overload is FIRST so a call that passes `keys` can never land on the
+ *  batched signature. */
+export interface BoundDeltasCollection<K, T>
+  extends BoundCollectionMutations<K, T> {
+  use(opts: {
+    keys: Accessor<K[]>;
+    onError?: SubscriptionOptions<unknown>["onError"];
+  }): BoundCollectionResult<K, T>;
+  use(opts?: {
+    onError?: SubscriptionOptions<unknown>["onError"];
+  }): BoundDeltasCollectionResult<K, T>;
 }
 
 /** The raw keys-stream ref for a DELIBERATELY UN-ENROLLED reach —
@@ -303,6 +344,20 @@ export interface ReadOnlyBoundCollection<K, T> {
     keys?: Accessor<K[]>;
     onError?: SubscriptionOptions<unknown>["onError"];
   }): ReadOnlyBoundCollectionResult<K, T>;
+}
+
+/** The read-only twin of {@link BoundDeltasCollection} — no mutations, and `fold` on
+ *  the whole-collection `.use()` under the same two-overload gate. */
+export type ReadOnlyBoundDeltasCollectionResult<K, T> =
+  UseCollectionDeltasResult<K, T>;
+export interface ReadOnlyBoundDeltasCollection<K, T> {
+  use(opts: {
+    keys: Accessor<K[]>;
+    onError?: SubscriptionOptions<unknown>["onError"];
+  }): ReadOnlyBoundCollectionResult<K, T>;
+  use(opts?: {
+    onError?: SubscriptionOptions<unknown>["onError"];
+  }): ReadOnlyBoundDeltasCollectionResult<K, T>;
 }
 
 export interface BoundStream<I, T> {
@@ -453,18 +508,20 @@ type BoundCollectionsFor<S extends SurfaceSpec> = {
   [K in keyof S["collections"] & string]: NonNullable<
     S["collections"]
   >[K] extends CollectionSpec<infer K2, infer T, unknown>
-    ? // `unenrolledKeys` / `unenrolledDeltas` are each added ONLY when their verb is
+    ? // The `deltas` verb SELECTS the bound shape (a `deltas` collection's
+      // whole-collection `.use()` carries `fold`, which the per-key path has no frames
+      // to serve) — a selection, not an intersection, because intersecting two `use`
+      // signatures would just leave the fold-less one winning overload resolution.
+      // `unenrolledKeys` / `unenrolledDeltas` are each added ONLY when their verb is
       // declared — the raw ref has nothing to point at otherwise (the contract router
       // binds no such stream), so a collection missing the verb must not type an
-      // `undefined`-resolving callable. The two gate independently and compose (a
-      // collection may declare both, one, or neither).
-      BoundCollection<K2, T> &
+      // `undefined`-resolving callable. The gates compose (a collection may declare
+      // both, one, or neither).
+      ("deltas" extends CollectionVerbsOf<NonNullable<S["collections"]>[K]>
+        ? BoundDeltasCollection<K2, T> & UnenrolledDeltas<K2, T>
+        : BoundCollection<K2, T>) &
         ("keys" extends CollectionVerbsOf<NonNullable<S["collections"]>[K]>
           ? UnenrolledKeys<K2>
-          : // biome-ignore lint/complexity/noBannedTypes: the empty intersection for an absent gate.
-            {}) &
-        ("deltas" extends CollectionVerbsOf<NonNullable<S["collections"]>[K]>
-          ? UnenrolledDeltas<K2, T>
           : // biome-ignore lint/complexity/noBannedTypes: the empty intersection for an absent gate.
             {})
     : never;
@@ -1088,6 +1145,9 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
       UnenrolledKeys<unknown> &
       UnenrolledDeltas<unknown, unknown>
   > = {};
+  // The runtime record types the FOLD-LESS `BoundCollection` for every collection —
+  // `fold` rides through on the spread of the shared view below, and the public
+  // `BoundCollectionsFor` mapped type is what decides who may spell it.
   for (const [key, rawColl] of Object.entries(spec.collections ?? {})) {
     const ns = memberOf(face, key);
     // Whether this collection opted into batched `deltas` delivery — read from

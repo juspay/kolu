@@ -36,7 +36,7 @@ import type { Collection } from "./index";
 import { collection } from "./index";
 import { controllableStream } from "./solid/controllableStream.testlib";
 import {
-  type UseCollectionResult,
+  type UseCollectionDeltasResult,
   useCollectionDeltas,
 } from "./solid/useCollection";
 
@@ -491,7 +491,7 @@ const settle = async (): Promise<void> => {
 async function drive<K, T>(
   descriptor: Collection<string, K, T>,
   body: (ctx: {
-    view: UseCollectionResult<K, T>;
+    view: UseCollectionDeltasResult<K, T>;
     push: (frame: CollectionDeltasMsg<K, T>) => void;
     errors: Error[];
   }) => Promise<void>,

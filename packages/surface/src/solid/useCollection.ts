@@ -23,6 +23,7 @@ import {
   batch,
   createMemo,
   createSignal,
+  getOwner,
   mapArray,
   onCleanup,
   untrack,
@@ -126,8 +127,9 @@ export function useCollection<Name extends string, K, T, I>(
 // `deltas` stream instead: one frame per tick, applied to a store it owns by
 // NAMED-KEY writes, so per-key reads stay fine-grained (only the keys the frame
 // named re-notify). It exposes the SAME `{ keys, byKey }` surface as
-// `useCollection`, so the bound `.use()` can pick either delivery with no
-// call-site change.
+// `useCollection` — so the bound `.use()` can pick either delivery with no
+// call-site change — plus `fold`, the frame socket a per-key path has nothing to
+// put behind.
 //
 // CONSTRAINT: `deltas` requires HOMOGENEOUS PRIMITIVE keys — a `keySchema` that
 // is a single number or string type (true of every Collection key in practice:
@@ -211,6 +213,60 @@ export interface CollectionStreamState {
   readonly complete: Accessor<boolean>;
 }
 
+/** Fold a `deltas` collection's frames into a CONSUMER-OWNED accumulator.
+ *
+ *  The frame is the unit of update: `step` receives the wire's own
+ *  `{upserts, removes}`, unchanged and unfiltered. This is the socket for a
+ *  consumer whose accumulator is NOT a keyed dictionary — an index, a patched
+ *  document set, a running total — which would otherwise have to reconstruct
+ *  "what changed" from the keyed store the framework already applied the frame to. */
+export interface CollectionFoldOptions<K, T, A> {
+  /** Answer for a FULL-SET frame: the wire's first frame, every reconnect
+   *  snapshot, and the synthetic snapshot a fold registered mid-stream is seeded
+   *  with. Entries are in arrival order. */
+  init: (entries: ReadonlyArray<readonly [K, T]>) => A;
+  /** Answer for ONE coalesced delta frame. MUST be TOTAL over removes of keys it
+   *  has never seen: the server's tick coalescer resolves an upsert-then-remove
+   *  within one producer tick to a BARE remove, so a key born and dead inside one
+   *  tick reaches the wire as a remove never preceded by an upsert. The frame is
+   *  delivered verbatim — filtering it here would be the framework swallowing part
+   *  of the frame again, which is the whole shape this socket exists to undo. */
+  step: (acc: A, delta: CollectionDelta<K, T>) => A;
+}
+
+/** Register a fold over this collection's frames; returns its accumulator as a
+ *  reactive accessor.
+ *
+ *  Reads `undefined` until a snapshot has been applied — which is synchronous if
+ *  one has already landed (a mid-stream registration is seeded from the held store,
+ *  so arriving late is indistinguishable from a reconnect) and otherwise arrives
+ *  with the wire's first frame. MUST be called under a reactive owner: the
+ *  registration is dropped by that owner's `onCleanup`, and an ownerless fold would
+ *  accumulate for the life of the shared collection slot, so an ownerless call
+ *  THROWS rather than minting an instantly-dead accumulator. */
+export type CollectionFold<K, T> = <A>(
+  options: CollectionFoldOptions<K, T, A>,
+) => Accessor<A | undefined>;
+
+/** `useCollectionDeltas`'s result: the per-key view every collection has, plus the
+ *  frame socket only a `deltas` collection can offer. */
+export interface UseCollectionDeltasResult<K, T>
+  extends UseCollectionResult<K, T> {
+  fold: CollectionFold<K, T>;
+}
+
+/** One registered fold, reduced to what the frame loop needs: two guarded callbacks.
+ *  The accumulator's type lives inside their closure, so the registry is
+ *  homogeneous without a cast and a throwing consumer callback is contained where
+ *  its own state is. */
+interface FoldSlot<K, T> {
+  /** Re-initialize from a full-set frame (wire snapshot, or the synthetic one a
+   *  mid-stream registration is seeded with). */
+  readonly seed: (entries: ReadonlyArray<readonly [K, T]>) => void;
+  /** Apply one delta frame. A no-op while this fold has no valid accumulator. */
+  readonly step: (delta: CollectionDelta<K, T>) => void;
+}
+
 /** Membership equality for the arrival-order key list. `keys()` must NOT re-notify
  *  on a values-only tick (nor on a reconnect snapshot that names the same set), so
  *  the order signal compares by MEMBERSHIP-AND-POSITION and keeps the previous array
@@ -234,7 +290,7 @@ export function useCollectionDeltas<Name extends string, K, T>(
     /** Enrol the single batched subscription into the client health registry. */
     enroll?: (state: CollectionStreamState) => void;
   },
-): UseCollectionResult<K, T> {
+): UseCollectionDeltasResult<K, T> {
   // THE store, owned here rather than reached through `createSubscription`'s generic
   // reduce: a frame NAMES the keys it touches, and the whole point of this path is to
   // write exactly those. Routing through the reduce path meant a fresh accumulator per
@@ -251,6 +307,11 @@ export function useCollectionDeltas<Name extends string, K, T>(
   const [complete, setComplete] = createSignal(false);
   const state: CollectionStreamState = { error, pending, complete };
 
+  const folds = new Set<FoldSlot<K, T>>();
+  /** Whether a full-set frame has been applied — i.e. whether the held store is a
+   *  state a fold can be seeded from, and whether a delta has a base to land on. */
+  let seeded = false;
+
   const currentOrder = (): K[] => untrack(order);
 
   /** Apply a FULL-SET frame. O(N), which is inherent — the frame carries N entries.
@@ -260,8 +321,9 @@ export function useCollectionDeltas<Name extends string, K, T>(
    *  reconnect re-serializes the same content into fresh objects. An entry whose
    *  value is unchanged must therefore NOT re-notify its readers — a link flap is
    *  deliberately a visual no-op. An entry that DID change is REPLACED whole (never
-   *  merged into the object standing there) — the same replaced-rather-than-recycled
-   *  law `writeValue.ts` states for array elements, one level down. */
+   *  merged into the object standing there), because that object is the same one a
+   *  fold may be holding: from the store's point of view a frame handed onward is
+   *  frozen. */
   function applySnapshot(entries: ReadonlyArray<readonly [K, T]>): void {
     const next = emptyDict<T>();
     const nextOrder: K[] = [];
@@ -302,7 +364,8 @@ export function useCollectionDeltas<Name extends string, K, T>(
     setByKey(
       produce((dict) => {
         // A LEAF REPLACEMENT per named key, not a merge into the object already
-        // there: the store must never mutate a frame object it previously adopted.
+        // there: the store must never mutate a frame object it previously adopted,
+        // since a fold may be holding that same object (§ the aliasing contract).
         for (const [k, v] of delta.upserts) dict[String(k)] = v;
         for (const k of removed) delete dict[String(k)];
       }),
@@ -325,12 +388,31 @@ export function useCollectionDeltas<Name extends string, K, T>(
     setOrder(nextOrder);
   }
 
+  /** The full-set frame a fold registered MID-STREAM is seeded with, rebuilt from the
+   *  held store. The keyed cache shares ONE slot per collection, so a late fold
+   *  cannot be handed the wire's own snapshot back — it is handed the state that
+   *  snapshot produced, which is the same answer. */
+  function syntheticSnapshot(): [K, T][] {
+    return currentOrder().map((k) => [k, held[String(k)] as T]);
+  }
+
   function onFrame(msg: CollectionDeltasMsg<K, T>): void {
-    // One tick for the whole frame: no reader observes a half-applied frame.
+    // One tick for the whole frame: store readers and fold readers must observe the
+    // same state, never a half-applied frame.
     batch(() => {
-      // Assert keys → apply to the store → clear `pending`.
-      if (msg.kind === "snapshot") applySnapshot(msg.entries);
-      else applyDelta(msg);
+      // Assert keys → apply to the store → notify the folds → clear `pending`. Folds
+      // run AFTER the store write, so a `step` that reads `byKey` (discouraged, but
+      // expressible) sees state consistent with the frame it holds.
+      if (msg.kind === "snapshot") {
+        applySnapshot(msg.entries);
+        seeded = true;
+        // A snapshot RE-INITIALIZES every registered fold. The consumer never
+        // distinguishes first-connect from reconnect; both are "here is the whole set".
+        for (const slot of [...folds]) slot.seed(msg.entries);
+      } else {
+        applyDelta(msg);
+        for (const slot of [...folds]) slot.step(msg);
+      }
       if (pending()) setPending(false);
     });
   }
@@ -343,8 +425,8 @@ export function useCollectionDeltas<Name extends string, K, T>(
       options.onComplete?.();
     },
     // The batched stream's error is collection-wide and TERMINAL (retry-fence
-    // exhaustion, or a declared failure). The store keeps its last value, frozen —
-    // there is no further frame to change it.
+    // exhaustion, or a declared failure). The store and every fold accessor keep
+    // their last value, frozen — there is no further frame to change them.
     onFailure: (err) => {
       setError(err);
       if (pending()) setPending(false);
@@ -354,6 +436,58 @@ export function useCollectionDeltas<Name extends string, K, T>(
 
   if (options.onError) wireSubscriptionError(state, options.onError);
   options.enroll?.(state);
+
+  const fold = <A>(
+    foldOptions: CollectionFoldOptions<K, T, A>,
+  ): Accessor<A | undefined> => {
+    if (getOwner() === null) {
+      throw new Error(
+        "useCollectionDeltas: fold() must be called under a reactive owner — its registration is dropped by that owner's onCleanup, and an ownerless fold would accumulate for the life of the shared collection slot",
+      );
+    }
+    // `equals: false`: the framework cannot know whether `A` is a value or an
+    // accumulator the consumer mutates and returns, so it must never decide that a
+    // frame changed nothing. A spurious wake is harmless; a swallowed update is the bug.
+    const [value, setValue] = createSignal<A | undefined>(undefined, {
+      equals: false,
+    });
+    let acc: { kind: "unseeded" } | { kind: "seeded"; value: A } = {
+      kind: "unseeded",
+    };
+    const commit = (next: A): void => {
+      acc = { kind: "seeded", value: next };
+      setValue(() => next);
+    };
+    // A throwing `init`/`step` is contained PER FOLD and reported loudly — it must
+    // never kill the stream, the store, or another fold (the same containment
+    // `createUpdatedTracker` applies to `updated` handlers, for the same shared-slot
+    // reason). The accumulator is INVALIDATED rather than kept: applying later deltas
+    // onto a base that failed to build is how a fold goes silently wrong. The
+    // accessor keeps its last good value — the frozen-on-error rule, not a collapse
+    // to `undefined` — and the next snapshot re-seeds it.
+    const guard = (what: string, run: () => A): void => {
+      try {
+        commit(run());
+      } catch (err) {
+        acc = { kind: "unseeded" };
+        console.error(`collection fold \`${what}\` threw`, err);
+      }
+    };
+    const slot: FoldSlot<K, T> = {
+      seed: (entries) => guard("init", () => foldOptions.init(entries)),
+      step: (delta) => {
+        if (acc.kind !== "seeded") return;
+        const base = acc.value;
+        guard("step", () => foldOptions.step(base, delta));
+      },
+    };
+    folds.add(slot);
+    onCleanup(() => {
+      folds.delete(slot);
+    });
+    if (seeded) slot.seed(syntheticSnapshot());
+    return value;
+  };
 
   function byKey(key: K): Subscription<T> | undefined {
     // Match the per-key path's contract: a key absent from the live set reads
@@ -372,5 +506,5 @@ export function useCollectionDeltas<Name extends string, K, T>(
     return Object.assign(read, state);
   }
 
-  return { keys: order, byKey };
+  return { keys: order, byKey, fold };
 }
