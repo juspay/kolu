@@ -620,6 +620,57 @@ describe("collection deltas — the client store", () => {
     );
   });
 
+  it("a number/string collision arriving in ONE DELTA frame is refused too", async () => {
+    // The server coalescer keys its pending map by the REAL key, so a union
+    // `keySchema` admitting both `1` and `"1"` emits them in one frame's upserts —
+    // the delta arm has to catch what the snapshot arm catches. It only can if the
+    // guard compares the dictionary's MEASURED size against the key list: both keys
+    // are new to the collection so both enter the key list, while the dictionary
+    // gains one slot. A size predicted from the frame would move both sides by two
+    // and pass.
+    await drive(
+      collection({
+        name: "mixedDelta",
+        keySchema: Schema.Union([Schema.Number, Schema.String]),
+        schema: Schema.Struct({ name: Schema.String }),
+      }),
+      async ({ push, errors }) => {
+        push({ kind: "snapshot", entries: [] });
+        await settle();
+        push({
+          kind: "delta",
+          upserts: [
+            [1, { name: "a" }],
+            ["1", { name: "b" }],
+          ],
+          removes: [],
+        });
+        await settle();
+        expect(errors[0]?.message).toMatch(/String\(\)-injective/);
+      },
+    );
+  });
+
+  it("a repeated remove in one frame is a no-op, not a spurious collision", async () => {
+    // Removing the same key twice in one frame must not be counted twice: the
+    // dictionary falls by one and so does the key list, so nothing has diverged.
+    await drive(numericKeyed, async ({ view, push, errors }) => {
+      push({
+        kind: "snapshot",
+        entries: [
+          [1, { name: "a" }],
+          [2, { name: "b" }],
+        ],
+      });
+      await settle();
+      push({ kind: "delta", upserts: [], removes: [1, 1] });
+      await settle();
+      expect(errors).toEqual([]);
+      expect(view.keys()).toEqual([2]);
+      expect(view.byKey(1)).toBeUndefined();
+    });
+  });
+
   it('a "__proto__" key is refused — the reactive store reserves that name', async () => {
     await drive(stringKeyed, async ({ push, errors }) => {
       push({ kind: "snapshot", entries: [["__proto__", { name: "x" }]] });

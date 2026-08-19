@@ -27,6 +27,7 @@ import { describe, expect, it } from "vitest";
 import type { CollectionDeltasMsg } from "../define";
 import { collection } from "../index";
 import { controllableStream } from "./controllableStream.testlib";
+import { framesEqual } from "./createSubscription";
 import { useCollectionDeltas } from "./useCollection";
 
 interface V {
@@ -220,5 +221,34 @@ describe("the deltas store — an adopted frame object is frozen, not recycled",
       expect(view.byKey("a")?.()).toEqual({ n: 3 });
       expect(second).toEqual({ n: 2 });
     });
+  });
+});
+
+describe("the frame comparator — store tags are not content, other symbols are", () => {
+  it("an object the store has wrapped still compares equal to identical fresh content", async () => {
+    // Solid plants `$PROXY` and its non-enumerable siblings on every object a
+    // consumer reads through a store proxy. Counting those as content inverts the
+    // law the value-diff serves: a reconnect snapshot would re-notify exactly the
+    // entries someone is watching, and nothing else. The "reconnect is a no-op"
+    // cases above are that pin end-to-end; this one names the mechanism.
+    await drive(async ({ view, push }) => {
+      const first = { n: 1 };
+      push({ kind: "snapshot", entries: [["a", first]] });
+      await settle();
+      // Force the store to wrap the value — the read a rendered row performs.
+      expect(view.byKey("a")?.()).toEqual({ n: 1 });
+      expect(Object.getOwnPropertySymbols(first).length).toBeGreaterThan(0);
+      expect(framesEqual(first, { n: 1 })).toBe(true);
+    });
+  });
+
+  it("a symbol the store did NOT plant still forces inequality", async () => {
+    // The exclusion is by provenance, not by shape: on an object the store has
+    // never wrapped, every own symbol is content and the comparator refuses to
+    // claim an equality it cannot prove.
+    const tagged: Record<string, number> = { n: 1 };
+    Object.defineProperty(tagged, Symbol("app-tag"), { value: 7 });
+    expect(framesEqual(tagged, { n: 1 })).toBe(false);
+    expect(framesEqual({ n: 1, [Symbol.for("app")]: 7 }, { n: 1 })).toBe(false);
   });
 });

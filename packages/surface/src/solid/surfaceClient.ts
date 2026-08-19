@@ -209,23 +209,9 @@ export interface ReadOnlyBoundCell<T> {
   use(opts?: ReadOnlyBoundCellOptions): ReadOnlyUseCellResult<T>;
 }
 
-/** Bound collection result — `useCollection`'s reactive view augmented
- *  with imperative mutations (`upsert`, `delete`) so consumers don't
- *  reach for `app.rpc.surface.<key>.{upsert,delete}` from event handlers.
- *
- *  The default keys-stream's own error is NOT re-exposed here: it is enrolled
- *  into `client.health()` as `"<key>.keys"` (Leak B), so a keys-stream 500 —
- *  which collapses `keys()` to a silent empty set — surfaces through the one
- *  health FACT alongside every per-key sub's error, instead of a parallel
- *  per-collection accessor a consumer has to remember to read. */
-export interface BoundCollectionResult<K, T> extends UseCollectionResult<K, T> {
-  upsert: (key: K, value: T) => Effect.Effect<void, unknown>;
-  delete: (key: K) => Effect.Effect<void, unknown>;
-}
-
-/** The imperative wire mutations every writable bound collection carries — the half
- *  {@link BoundCollection} and {@link BoundDeltasCollection} share, stated once so the
- *  two differ ONLY in what `.use()` returns. */
+/** The imperative wire mutations every writable bound collection carries — one of
+ *  the two halves a bound collection is assembled from, stated once so the writable
+ *  and read-only shapes differ ONLY in whether they carry it. */
 export interface BoundCollectionMutations<K, T> {
   /** Imperative wire mutations, as `Effect`s. Available outside any component
    *  lifecycle — compose them into a command handler's program, a route loader,
@@ -235,19 +221,49 @@ export interface BoundCollectionMutations<K, T> {
   delete(key: K): Effect.Effect<void, unknown>;
 }
 
-export interface BoundCollection<K, T> extends BoundCollectionMutations<K, T> {
-  /** Reactive view. `keys` defaults to a subscription on the server's
-   *  `keys` stream — pass it explicitly only to filter or derive (e.g.
-   *  Kolu's `useTerminalMetadata` derives keys from the terminal list).
-   *
-   *  Result re-exposes `upsert` / `delete` for ergonomic in-component
-   *  handler closures; the same fns live on this `BoundCollection`
-   *  itself for lifecycle-free call sites. */
+/** The `.use()` half of a bound collection, generic in what it returns.
+ *
+ *  Reactive view. `keys` defaults to a subscription on the server's `keys` stream —
+ *  pass it explicitly only to filter or derive (e.g. Kolu's `useTerminalMetadata`
+ *  derives keys from the terminal list). */
+export interface CollectionUse<K, R> {
   use(opts?: {
     keys?: Accessor<K[]>;
     onError?: SubscriptionOptions<unknown>["onError"];
-  }): BoundCollectionResult<K, T>;
+  }): R;
 }
+
+/** The `.use()` half of a `deltas`-declaring collection — the SAME two shapes every
+ *  batched collection offers, so the gate between them is written once rather than
+ *  once per readonly/writable combination.
+ *
+ *  The two overloads ARE the gate. A NARROWED `.use({ keys })` is served by the
+ *  per-key `keys`+`get` path even on a `deltas` collection (an explicit reactive key
+ *  set is honestly its own subscription, not a slice of the batched stream), so it
+ *  returns the per-key result `R` and the frame socket is unspellable there. The
+ *  narrowed overload is FIRST because overload resolution takes the first match: a
+ *  call that passes `keys` must never land on the batched signature, including when
+ *  its options come from a variable rather than a fresh object literal. */
+export interface DeltasCollectionUse<K, R, RDeltas> {
+  use(opts: {
+    keys: Accessor<K[]>;
+    onError?: SubscriptionOptions<unknown>["onError"];
+  }): R;
+  use(opts?: { onError?: SubscriptionOptions<unknown>["onError"] }): RDeltas;
+}
+
+/** Bound collection result — `useCollection`'s reactive view augmented
+ *  with imperative mutations (`upsert`, `delete`) so consumers don't
+ *  reach for `app.rpc.surface.<key>.{upsert,delete}` from event handlers.
+ *
+ *  The default keys-stream's own error is NOT re-exposed here: it is enrolled
+ *  into `client.health()` as `"<key>.keys"` (Leak B), so a keys-stream 500 —
+ *  which collapses `keys()` to a silent empty set — surfaces through the one
+ *  health FACT alongside every per-key sub's error, instead of a parallel
+ *  per-collection accessor a consumer has to remember to read. */
+export interface BoundCollectionResult<K, T>
+  extends UseCollectionResult<K, T>,
+    BoundCollectionMutations<K, T> {}
 
 /** A `deltas`-declaring collection's WHOLE-COLLECTION `.use()` result — the keyed
  *  view plus {@link CollectionFold}, the socket onto the frames themselves.
@@ -256,31 +272,31 @@ export interface BoundCollection<K, T> extends BoundCollectionMutations<K, T> {
  *  here rather than on {@link BoundCollectionResult}: a collection served by the
  *  per-key `keys`+`get` pair has no frames to hand over, so `fold` there would be a
  *  callable resolving to `undefined` at runtime — the same lie
- *  {@link UnenrolledDeltas} is verb-gated to avoid. */
+ *  {@link UnenrolledDeltas} is verb-gated to avoid.
+ *
+ *  `.stream` — the batched stream's own health, which {@link UseCollectionDeltasResult}
+ *  carries for the un-enrolled reach — is deliberately NOT here: under `.use()` the
+ *  `client.health()` fact owns that channel, per {@link BoundCollectionResult}. */
 export interface BoundDeltasCollectionResult<K, T>
-  extends BoundCollectionResult<K, T> {
+  extends UseCollectionResult<K, T>,
+    BoundCollectionMutations<K, T> {
   fold: CollectionFold<K, T>;
 }
 
-/** The `deltas` twin of {@link BoundCollection}: same mutations, but a whole-collection
- *  `.use()` that also carries `fold`.
- *
- *  The two `use` overloads are the gate. A NARROWED `.use({ keys })` is served by the
- *  per-key path even on a `deltas` collection (an explicit reactive key set is
- *  honestly its own subscription, not a slice of the batched stream), so it returns
- *  the plain {@link BoundCollectionResult} — `fold` is unspellable there too, and the
- *  narrowed overload is FIRST so a call that passes `keys` can never land on the
- *  batched signature. */
+/** A bound collection: the `.use()` half plus the mutation half. */
+export interface BoundCollection<K, T>
+  extends CollectionUse<K, BoundCollectionResult<K, T>>,
+    BoundCollectionMutations<K, T> {}
+
+/** The `deltas` twin of {@link BoundCollection}: same mutations, but a
+ *  whole-collection `.use()` that also carries `fold`. */
 export interface BoundDeltasCollection<K, T>
-  extends BoundCollectionMutations<K, T> {
-  use(opts: {
-    keys: Accessor<K[]>;
-    onError?: SubscriptionOptions<unknown>["onError"];
-  }): BoundCollectionResult<K, T>;
-  use(opts?: {
-    onError?: SubscriptionOptions<unknown>["onError"];
-  }): BoundDeltasCollectionResult<K, T>;
-}
+  extends DeltasCollectionUse<
+      K,
+      BoundCollectionResult<K, T>,
+      BoundDeltasCollectionResult<K, T>
+    >,
+    BoundCollectionMutations<K, T> {}
 
 /** The raw keys-stream ref for a DELIBERATELY UN-ENROLLED reach —
  *  `unenrolledStreamCall(client.collections.<key>.unenrolledKeys, undefined,
@@ -338,26 +354,23 @@ export interface UnenrolledDeltas<K, T> {
  *  `entries.upsert(...)` is a type error, not a runtime rejection. The collection
  *  analogue of `ReadOnlyBoundCell`. */
 export type ReadOnlyBoundCollectionResult<K, T> = UseCollectionResult<K, T>;
-export interface ReadOnlyBoundCollection<K, T> {
-  use(opts?: {
-    keys?: Accessor<K[]>;
-    onError?: SubscriptionOptions<unknown>["onError"];
-  }): ReadOnlyBoundCollectionResult<K, T>;
-}
+export interface ReadOnlyBoundCollection<K, T>
+  extends CollectionUse<K, ReadOnlyBoundCollectionResult<K, T>> {}
 
 /** The read-only twin of {@link BoundDeltasCollection} — no mutations, and `fold` on
- *  the whole-collection `.use()` under the same two-overload gate. */
-export type ReadOnlyBoundDeltasCollectionResult<K, T> =
-  ReadOnlyBoundCollectionResult<K, T> & { fold: CollectionFold<K, T> };
-export interface ReadOnlyBoundDeltasCollection<K, T> {
-  use(opts: {
-    keys: Accessor<K[]>;
-    onError?: SubscriptionOptions<unknown>["onError"];
-  }): ReadOnlyBoundCollectionResult<K, T>;
-  use(opts?: {
-    onError?: SubscriptionOptions<unknown>["onError"];
-  }): ReadOnlyBoundDeltasCollectionResult<K, T>;
+ *  the whole-collection `.use()` under the same {@link DeltasCollectionUse} gate, so
+ *  the load-bearing overload ORDER is stated once rather than transcribed per
+ *  readonly/writable combination. */
+export interface ReadOnlyBoundDeltasCollectionResult<K, T>
+  extends UseCollectionResult<K, T> {
+  fold: CollectionFold<K, T>;
 }
+export interface ReadOnlyBoundDeltasCollection<K, T>
+  extends DeltasCollectionUse<
+    K,
+    ReadOnlyBoundCollectionResult<K, T>,
+    ReadOnlyBoundDeltasCollectionResult<K, T>
+  > {}
 
 export interface BoundStream<I, T> {
   use(

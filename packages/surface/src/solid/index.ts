@@ -35,6 +35,9 @@ export {
   type Dispose,
   type Subscription,
   type SubscriptionOptions,
+  // The three lifecycle signals a stream-backed view carries, apart from its value
+  // — what `useCollectionDeltas`'s `.stream` hands the un-enrolled reach.
+  type SubscriptionState,
   wireSubscriptionError,
 } from "./createSubscription";
 // The grace-windowed boolean view — delays a predicate's rising edge, instant on
@@ -113,6 +116,8 @@ export {
   type BoundCollection,
   type BoundCollectionMutations,
   type BoundCollectionResult,
+  type CollectionUse,
+  type DeltasCollectionUse,
   type BoundDeltasCollection,
   type BoundDeltasCollectionResult,
   type BoundEvent,
@@ -155,7 +160,6 @@ export {
 export {
   type CollectionFold,
   type CollectionFoldOptions,
-  type CollectionStreamState,
   type UseCollectionOptions,
   type UseCollectionDeltasResult,
   type UseCollectionResult,

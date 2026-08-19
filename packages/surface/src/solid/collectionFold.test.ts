@@ -345,12 +345,13 @@ describe("fold — a throwing consumer callback is contained", () => {
 
         push({ kind: "delta", upserts: [["b", { n: 2 }]], removes: [] });
         await settle();
-        // The healthy fold and the store are untouched; the poisoned accumulator
-        // FREEZES at its last good value rather than collapsing to `undefined`, and
-        // the throw was reported loudly.
+        // The healthy fold and the store are untouched. The poisoned fold's
+        // accumulator is INVALIDATED and its accessor says so — `undefined`, the one
+        // state meaning "no valid accumulator" — rather than keeping a value that
+        // reads live but can never advance. The throw was reported loudly.
         expect(healthy()).toBe(2);
         expect(view.byKey("b")?.()).toEqual({ n: 2 });
-        expect(poisoned()).toBe(0);
+        expect(poisoned()).toBeUndefined();
         expect(errors).toHaveBeenCalledOnce();
 
         // Its accumulator was INVALIDATED, so later deltas do not land on a base
@@ -358,6 +359,7 @@ describe("fold — a throwing consumer callback is contained", () => {
         push({ kind: "delta", upserts: [["c", { n: 3 }]], removes: [] });
         await settle();
         expect(errors).toHaveBeenCalledOnce(); // step was not called again
+        expect(poisoned()).toBeUndefined();
         push({ kind: "snapshot", entries: [["z", { n: 9 }]] });
         await settle();
         expect(poisoned()).toBe(0); // re-seeded by init, which does not throw
@@ -368,7 +370,7 @@ describe("fold — a throwing consumer callback is contained", () => {
     }
   });
 
-  it("a throwing init leaves the accessor at its last good value", async () => {
+  it("a throwing init returns the accessor to undefined; the store applies the frame anyway", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       await drive(async ({ view, push }) => {
@@ -393,9 +395,15 @@ describe("fold — a throwing consumer callback is contained", () => {
           ],
         });
         await settle();
-        expect(acc()).toBe(1); // frozen, not collapsed
+        expect(acc()).toBeUndefined(); // no valid accumulator, and it says so
         expect(errors).toHaveBeenCalledOnce();
         expect(view.keys()).toEqual(["a", "b"]); // the store applied it regardless
+
+        // And it recovers: the next snapshot whose `init` succeeds re-seeds it.
+        allowed = true;
+        push({ kind: "snapshot", entries: [["c", { n: 3 }]] });
+        await settle();
+        expect(acc()).toBe(1);
       });
     } finally {
       errors.mockRestore();
