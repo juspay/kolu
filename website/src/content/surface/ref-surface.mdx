@@ -262,7 +262,20 @@ Dependency shapes, per member:
 - `cells: { <k>: { store, patch?, connect? } }` — `store` is a `CellStore<T>`. `connect` is a **`CellConnector<T>`**: `(cell) => Effect<void, unknown, Scope>`. It is an owned source of the runtime — a failure reaches `done`, and `close()` **interrupts** it, which releases whatever it acquired (`Effect.acquireRelease` / `addFinalizer` / `forkScoped`). There is no abort signal to thread and no disposer to return: cancellation is interruption, so an interrupted connector is end-of-life by construction and can never masquerade as a fault.
 
   Two rules for writing one. **Install synchronously** — the runtime forks the connector and Effect runs a `sync` step on the forking stack, so an `acquireRelease` whose acquire subscribes is live the instant `implementSurface` returns. And **do not fork the publish**: routing a frame through a fiber or a queue moves it behind an event published in the same tick, which is the delivery order `kill.feature` pins. Fork what must be concurrent, never the publish.
-- `collections: { <k>: { readAll, upsert, remove } }` — persistence only; the surface wraps publish.
+- `collections: { <k>: { readAll, upsert, remove, readOne?, holders? } }` — persistence only; the surface wraps publish.
+
+  `holders?: CollectionHolders<K>` — that is `(key: K) => Effect<unknown, never, Scope>` — is the **last-reader** seam. The wire already says when a reader OPENS a key — a per-key `get` IS a subscription, and `readOne` is where the server hears one arrive — but nothing said when the last reader LET GO, so a server that had to know inferred it from opens and aged the answer out. This publishes the fact it was inferring: a reader HOLDS `key` for the lifetime of the scope `holders` runs in, which is the `get` stream's own scope. Fiber interruption is the release — the scope closes when the tab navigates, the socket drops, the runtime tears down, or a one-shot reader takes its frame and leaves.
+
+  | Fact | Behaviour |
+  | --- | --- |
+  | Pull order | **hold → channel subscribe → `readOne` snapshot**, and that is contract, not accident: a `readOne` that ACTS on the hold (reading a body only a held path is read for) must find the hold already in place. Pinned by test. |
+  | Release | Acquired in the returned stream's scope — the same scope the channel subscription rides — so an interruption ANYWHERE, including between the hold and the subscribe or mid-snapshot, releases exactly once. A subscription nobody runs holds nothing: the stream is lazy. |
+  | Multiplicity | Every `get` is its own stream, own scope, own hold. Two readers, two holds; the first to leave takes only its own. The framework REPORTS lifetimes and does not count — the refcount is the consumer's. |
+  | Failure | The error channel is `never`, so failure is unspellable. A defect propagates as a defect and kills that ONE subscription loudly — fail-fast, no degrade-to-unheld path. |
+  | Scope | `get` only. `keys` and `deltas` are collection-wide streams; "who holds this key" has no meaning there, and folding a collection-wide hold in would be a second axis on the same knob. |
+  | Absent | The exact expression served today — not a wrapped equivalent. Zero overhead, zero behaviour delta, for every collection that never asked. |
+
+  Nothing crosses the wire: there is no verb, no member, no schema. A release verb a reader had to CALL would be a promise a closed tab cannot keep — the readers this is about are exactly the ones that vanish — so the transport is what is asked, because the transport is what notices.
 - `streams: { <k>: { source } }` — `source(input)` returns an Effect `Stream`; cancellation is fiber **interruption**, so there is no `AbortSignal` to thread and none to forget. Or a declarative poll form `{ read, install, isEqual }`. Supplying both is a type error.
 - `procedures: { <ns>: { <verb>: ({ input, ctx }) => Effect } }` — mutate through `ctx.cells.X.set(…)`, `ctx.collections.X.upsert(k, v)`, `ctx.events.X.publish(input, payload)` so the apply-and-publish chain stays single. A procedure that declares an `error` schema **fails** the Effect with an instance of a declared tagged class (`Effect.fail(new KavalBusy({ … }))`); an undeclared throw stays a defect, so reach for `Effect.promise` over `Effect.tryPromise` where no error is declared.
 

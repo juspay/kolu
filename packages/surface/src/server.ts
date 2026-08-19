@@ -615,6 +615,42 @@ export function cellHandlers<Name extends string, T, P = T>(
 
 // ── Collection handlers ────────────────────────────────────────────────
 
+/** A reader HOLDS `key` for the lifetime of the scope this runs in — the per-key
+ *  `get` stream's own scope.
+ *
+ *  The wire already says when a reader OPENS a key: a per-key `get` IS a
+ *  subscription, and {@link CollectionHandlerDeps.readOne} is where the server hears
+ *  one arrive. What no member says is when the last reader LETS GO — and that fact
+ *  is the framework's, not the app's: a handler answers with a `Stream`, the
+ *  stream's scope IS the subscription, and the scope closes when the tab navigates,
+ *  the socket drops, the runtime tears down, or a one-shot reader takes its frame
+ *  and leaves. Fiber interruption is the unsubscribe. Without this seam a server
+ *  that has to know whether anybody is still showing a key infers it from opens and
+ *  ages the answer out — a bound with no honest number in it.
+ *
+ *  NOT A MEMBER OF THE SPEC, and that is the decision worth stating. A release verb
+ *  a reader had to CALL would be a promise a closed tab cannot keep: the readers
+ *  this is about are exactly the ones that vanish. The transport is what notices, so
+ *  the transport is what is asked, and nothing new crosses the wire.
+ *
+ *  Runs BEFORE the channel subscribe and BEFORE `readOne`, and that pull order is
+ *  load-bearing rather than incidental — a `readOne` that ACTS on the hold (reading
+ *  a body only a held path is read for) must find the hold already in place. Pinned
+ *  by test, not by this paragraph.
+ *
+ *  Two readers of one key are two calls, two holds, two releases; an interrupted
+ *  reader releases only its own. The framework REPORTS lifetimes and does not count:
+ *  what a hold is worth, and what happens when the count reaches zero, belongs to
+ *  whoever asked for one.
+ *
+ *  `get` only. `keys` and `deltas` are collection-wide streams — "who holds this
+ *  key" has no meaning there. Typed `never` in the error channel: a hold cannot
+ *  fail, and a defect in one crashes that subscription loudly rather than serving it
+ *  unheld. Absent, the `get` stream is the exact expression served today. */
+export type CollectionHolders<K> = (
+  key: K,
+) => Effect.Effect<unknown, never, Scope.Scope>;
+
 export interface CollectionHandlerDeps<K, T> {
   /** Read all current entries. Snapshot is yielded as the first frame of
    *  `keys` and `get(key)`. */
@@ -635,6 +671,8 @@ export interface CollectionHandlerDeps<K, T> {
    *  producer tick. Present only when the collection exposes the `deltas` verb
    *  (opt-in); `walkSurface` wires it and the per-tick coalescing together. */
   deltasBus?: Channel<CollectionDelta<K, T>>;
+  /** The LAST-READER seam — see {@link CollectionHolders}. */
+  holders?: CollectionHolders<K>;
 }
 
 /** Run `run` at most once per producer tick — the shared latch under BOTH
@@ -798,9 +836,21 @@ export interface CollectionHandlers<K, T> {
 function subscribeBeforeSnapshot<S, F>(
   bus: Channel<F>,
   snapshot: () => S[],
+  /** A scoped resource to acquire BEFORE either — the per-key `get`'s
+   *  {@link CollectionHandlerDeps.holders} is the one caller. Sequenced INSIDE this
+   *  function's own `unwrap` rather than wrapped around it, so the order every
+   *  consumer of it depends on — acquire → subscribe → snapshot — is the literal
+   *  order of one expression instead of an emergent property of how two `unwrap`s
+   *  nest, and a held stream pays one channel layer rather than two. `suspend` keeps
+   *  the CALL lazy too: a subscription nobody runs never asks for the resource. */
+  acquireFirst?: () => Effect.Effect<unknown, never, Scope.Scope>,
 ): Stream.Stream<S | F> {
+  const subscribed =
+    acquireFirst === undefined
+      ? channelSubscription(bus)
+      : Effect.andThen(Effect.suspend(acquireFirst), channelSubscription(bus));
   return Stream.unwrap(
-    Effect.map(channelSubscription(bus), (frames) =>
+    Effect.map(subscribed, (frames) =>
       Stream.concat(Stream.fromIterable(snapshot()), frames),
     ),
   );
@@ -854,11 +904,22 @@ export function collectionHandlers<Name extends string, K, T>(
     // subscription to an empty collection holds open — so the consumer shows its
     // honest empty/absent state, not a corpse. Callers that need a bounded first
     // read interrupt their own fiber (a timeout, a race).
-    get: (input) =>
-      subscribeBeforeSnapshot(deps.perKeyBus(input.key), () => {
-        const v = readOne(input.key);
-        return v === undefined ? [] : [v];
-      }),
+    //
+    // A collection that declared {@link CollectionHolders} is told this
+    // subscription's LIFETIME: the hold is sequenced ahead of the subscribe inside
+    // `subscribeBeforeSnapshot`'s own scope, so hold → subscribe → `readOne` is one
+    // expression's order and one scope's release.
+    get: (input) => {
+      const holders = deps.holders;
+      return subscribeBeforeSnapshot(
+        deps.perKeyBus(input.key),
+        () => {
+          const v = readOne(input.key);
+          return v === undefined ? [] : [v];
+        },
+        holders === undefined ? undefined : () => holders(input.key),
+      );
+    },
     upsert: (input) =>
       Effect.sync(() => {
         deps.upsert(input.key, input.value);
@@ -1636,6 +1697,8 @@ export type CollectionImplDeps<
   readOne?: (key: Decoded<S["keySchema"]>) => Decoded<S["schema"]> | undefined;
   upsert: (key: Decoded<S["keySchema"]>, value: Decoded<S["schema"]>) => void;
   remove: (key: Decoded<S["keySchema"]>) => void;
+  /** The LAST-READER seam, threaded through verbatim — see {@link CollectionHolders}. */
+  holders?: CollectionHolders<Decoded<S["keySchema"]>>;
   /** OPT-IN incremental `$`-sibling read (a PURE optimization behind
    *  `readAll()` semantics). By default a compute reading `$.<coll>()`
    *  re-runs `readAll()` on every access — correct for a registry
@@ -2604,6 +2667,7 @@ function walkSurface<const S extends SurfaceSpec>(
       | {
           readAll: () => Map<unknown, unknown>;
           readOne?: (k: unknown) => unknown;
+          holders?: CollectionHolders<unknown>;
           // Authored collections carry write seams; a graph-owned
           // `derived.collection` does not (the walk narrows the ctx to throw and
           // drives the publishers from the reconciler's `connect`), so both are
@@ -2832,6 +2896,7 @@ function walkSurface<const S extends SurfaceSpec>(
       {
         readAll: collDeps.readAll,
         readOne: collDeps.readOne,
+        holders: collDeps.holders,
         upsert: wrappedUpsert,
         remove: wrappedRemove,
         perKeyBus: perKeyBus as (k: unknown) => Channel<unknown>,
