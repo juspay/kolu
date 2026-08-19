@@ -21,49 +21,20 @@
  *      that object is the same one a `fold` consumer may be holding.
  */
 
-import { Schema } from "effect";
-import { createEffect, createRoot } from "solid-js";
+import { createEffect } from "solid-js";
 import { describe, expect, it } from "vitest";
-import type { CollectionDeltasMsg } from "../define";
-import { collection } from "../index";
-import { controllableStream } from "./controllableStream.testlib";
 import { framesEqual } from "./createSubscription";
-import { useCollectionDeltas } from "./useCollection";
+import {
+  type DeltasHarness,
+  driveDeltas,
+  type NumberRow as V,
+  numberRows,
+  settle,
+} from "./deltasHarness.testlib";
 
-interface V {
-  readonly n: number;
-}
-
-const rows = collection({
-  name: "rows",
-  keySchema: Schema.String,
-  schema: Schema.Struct({ n: Schema.Number }),
-});
-
-/** Two microtask turns — enough for one pushed frame to cross the stream fiber and
- *  land in the store, plus the effect flush that follows it. */
-const settle = async (): Promise<void> => {
-  await new Promise((r) => setTimeout(r, 0));
-  await new Promise((r) => setTimeout(r, 0));
-};
-
-async function drive(
-  body: (ctx: {
-    view: ReturnType<typeof useCollectionDeltas<"rows", string, V>>;
-    push: (frame: CollectionDeltasMsg<string, V>) => void;
-  }) => Promise<void>,
-): Promise<void> {
-  await createRoot(async (dispose) => {
-    const { source, push } =
-      controllableStream<CollectionDeltasMsg<string, V>>();
-    const view = useCollectionDeltas(rows, { source });
-    try {
-      await body({ view, push });
-    } finally {
-      dispose();
-    }
-  });
-}
+const drive = (
+  body: (ctx: DeltasHarness<string, V>) => Promise<void>,
+): Promise<void> => driveDeltas(numberRows, body);
 
 describe("the deltas store — a frame re-notifies only what it named", () => {
   it("a delta wakes the keys it upserts and nothing else; keys() stays quiet on a values-only tick", async () => {

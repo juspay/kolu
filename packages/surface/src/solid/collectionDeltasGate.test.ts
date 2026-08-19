@@ -19,13 +19,9 @@ import { describe, expect, it } from "vitest";
 import { type CollectionDeltasMsg, defineSurface } from "../define";
 import type { SurfaceDispatch } from "../link";
 import { controllableStream } from "./controllableStream.testlib";
+import { settle } from "./deltasHarness.testlib";
 import { surfaceClient } from "./surfaceClient";
 import { useCollectionDeltas } from "./useCollection";
-
-const settle = async (): Promise<void> => {
-  await new Promise((r) => setTimeout(r, 0));
-  await new Promise((r) => setTimeout(r, 0));
-};
 
 const surface = defineSurface({
   collections: {

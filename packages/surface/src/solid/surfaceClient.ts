@@ -266,22 +266,12 @@ export interface BoundCollectionResult<K, T>
     BoundCollectionMutations<K, T> {}
 
 /** A `deltas`-declaring collection's WHOLE-COLLECTION `.use()` result — the keyed
- *  view plus {@link CollectionFold}, the socket onto the frames themselves.
- *
- *  Only the batched path can offer it, and that is the whole reason `fold` is typed
- *  here rather than on {@link BoundCollectionResult}: a collection served by the
- *  per-key `keys`+`get` pair has no frames to hand over, so `fold` there would be a
- *  callable resolving to `undefined` at runtime — the same lie
- *  {@link UnenrolledDeltas} is verb-gated to avoid.
- *
- *  `.stream` — the batched stream's own health, which {@link UseCollectionDeltasResult}
- *  carries for the un-enrolled reach — is deliberately NOT here: under `.use()` the
- *  `client.health()` fact owns that channel, per {@link BoundCollectionResult}. */
+ *  view plus {@link CollectionFold}, the socket onto the frames themselves. Its
+ *  read-only twin declares `fold`; this one is that plus the mutation half, exactly
+ *  as {@link BoundCollectionResult} relates to {@link ReadOnlyBoundCollectionResult}. */
 export interface BoundDeltasCollectionResult<K, T>
-  extends UseCollectionResult<K, T>,
-    BoundCollectionMutations<K, T> {
-  fold: CollectionFold<K, T>;
-}
+  extends ReadOnlyBoundDeltasCollectionResult<K, T>,
+    BoundCollectionMutations<K, T> {}
 
 /** A bound collection: the `.use()` half plus the mutation half. */
 export interface BoundCollection<K, T>
@@ -357,14 +347,28 @@ export type ReadOnlyBoundCollectionResult<K, T> = UseCollectionResult<K, T>;
 export interface ReadOnlyBoundCollection<K, T>
   extends CollectionUse<K, ReadOnlyBoundCollectionResult<K, T>> {}
 
-/** The read-only twin of {@link BoundDeltasCollection} — no mutations, and `fold` on
- *  the whole-collection `.use()` under the same {@link DeltasCollectionUse} gate, so
- *  the load-bearing overload ORDER is stated once rather than transcribed per
- *  readonly/writable combination. */
+/** A `deltas` collection's WHOLE-COLLECTION `.use()` result, read-only half — the
+ *  keyed view plus {@link CollectionFold}, the socket onto the frames themselves, and
+ *  the ONE place `fold` is declared.
+ *
+ *  Only the batched path can offer it, and that is the whole reason `fold` is typed
+ *  here rather than on {@link ReadOnlyBoundCollectionResult}: a collection served by
+ *  the per-key `keys`+`get` pair has no frames to hand over, so `fold` there would be
+ *  a callable resolving to `undefined` at runtime — the same lie
+ *  {@link UnenrolledDeltas} is verb-gated to avoid.
+ *
+ *  `.stream` — the batched stream's own health, which {@link UseCollectionDeltasResult}
+ *  carries for the un-enrolled reach — is deliberately NOT here: under `.use()` the
+ *  `client.health()` fact owns that channel, per {@link BoundCollectionResult}. */
 export interface ReadOnlyBoundDeltasCollectionResult<K, T>
   extends UseCollectionResult<K, T> {
   fold: CollectionFold<K, T>;
 }
+
+/** The read-only twin of {@link BoundDeltasCollection} — no mutations, and `fold` on
+ *  the whole-collection `.use()` under the same {@link DeltasCollectionUse} gate, so
+ *  the load-bearing overload ORDER is stated once rather than transcribed per
+ *  readonly/writable combination. */
 export interface ReadOnlyBoundDeltasCollection<K, T>
   extends DeltasCollectionUse<
     K,

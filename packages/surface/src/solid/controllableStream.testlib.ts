@@ -2,14 +2,16 @@
  * A hand-driven `Stream` for suite use — the one controllable source the deltas
  * tests share.
  *
- * `push` delivers a frame to a pending `next()` (or queues it for the next call);
- * `fail` rejects the next `next()` (or the currently-pending one). It mirrors a real
- * wire stream in the one way the tests lean on: an errored iterator never restarts —
- * the consumption loop exits for good once `next()` rejects once.
+ * It offers all THREE terminations a real stream has, which is what lets every suite
+ * in this package use it instead of a local copy: `push` delivers a frame to a
+ * pending `next()` (or queues it), `close` ends the stream normally (a TYPED end),
+ * and `fail` rejects it. It mirrors a real wire stream in the one way the tests lean
+ * on: an errored iterator never restarts — the consumption loop exits for good once
+ * `next()` rejects once.
  *
- * Shared rather than re-hand-rolled per file: two suites drove the SAME batched
- * `deltas` stream through two near-identical local copies, which is exactly how the
- * two drift apart on the next timing fix.
+ * Shared rather than re-hand-rolled per file: four suites drove a stream through
+ * near-identical local copies, two of them under this very name in this very
+ * directory, which is exactly how they drift apart on the next timing fix.
  */
 
 import { Stream } from "effect";
@@ -19,6 +21,8 @@ export interface ControllableStream<T> {
   readonly source: Stream.Stream<T, unknown>;
   /** Deliver one frame. */
   push(value: T): void;
+  /** End the stream NORMALLY — a typed end, after any frames already queued. */
+  close(): void;
   /** Fail the stream once, terminally. */
   fail(error: unknown): void;
 }
@@ -30,6 +34,7 @@ export function controllableStream<T>(): ControllableStream<T> {
     reject: (e: unknown) => void;
   } | null = null;
   let pendingFailure: { e: unknown } | undefined;
+  let closed = false;
 
   const iterable: AsyncIterable<T> = {
     [Symbol.asyncIterator]() {
@@ -42,6 +47,11 @@ export function controllableStream<T>(): ControllableStream<T> {
           }
           if (queue.length > 0) {
             return Promise.resolve({ value: queue.shift() as T, done: false });
+          }
+          // Queued frames drain BEFORE the end is reported — closing does not
+          // discard what was already pushed.
+          if (closed) {
+            return Promise.resolve({ value: undefined, done: true });
           }
           return new Promise<IteratorResult<T>>((resolve, reject) => {
             waiter = { resolve, reject };
@@ -60,6 +70,14 @@ export function controllableStream<T>(): ControllableStream<T> {
         w.resolve({ value, done: false });
       } else {
         queue.push(value);
+      }
+    },
+    close() {
+      closed = true;
+      if (waiter) {
+        const w = waiter;
+        waiter = null;
+        w.resolve({ value: undefined, done: true });
       }
     },
     fail(error) {

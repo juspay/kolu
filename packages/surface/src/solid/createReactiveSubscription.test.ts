@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import { Effect, Stream } from "effect";
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
+import { controllableStream } from "./controllableStream.testlib";
 import { createReactiveSubscription } from "./createReactiveSubscription";
 import type { Subscription } from "./createSubscription";
 
@@ -27,39 +28,6 @@ function streamOf<T>(it: AsyncIterable<T>): Stream.Stream<T, unknown> {
 
 async function* fromArray<T>(items: T[]): AsyncGenerator<T> {
   for (const item of items) yield item;
-}
-
-function controllableStream<T>() {
-  const queue: T[] = [];
-  let resolve: (() => void) | null = null;
-  let done = false;
-
-  function push(item: T) {
-    queue.push(item);
-    resolve?.();
-  }
-
-  function close() {
-    done = true;
-    resolve?.();
-  }
-
-  async function* iterate(): AsyncGenerator<T> {
-    while (true) {
-      const head = queue.shift();
-      if (head !== undefined) {
-        yield head;
-        continue;
-      }
-      if (done) return;
-      await new Promise<void>((r) => {
-        resolve = r;
-      });
-      resolve = null;
-    }
-  }
-
-  return { push, close, iterate };
 }
 
 /** Drain several macrotasks. `createReactiveSubscription` wraps the iife in
@@ -104,7 +72,7 @@ describe("createReactiveSubscription", () => {
           const stream = controllableStream<number>();
           const sub = createReactiveSubscription<string, number>(
             () => "A",
-            () => streamOf(stream.iterate()),
+            () => stream.source,
           );
           stream.push(42);
           await flush();
@@ -175,7 +143,7 @@ describe("createReactiveSubscription", () => {
           const sub = createReactiveSubscription<string, number>(input, (i) => {
             const s = controllableStream<number>();
             streams.set(i, s);
-            return streamOf(s.iterate());
+            return s.source;
           });
 
           await flush();
@@ -216,7 +184,7 @@ describe("createReactiveSubscription", () => {
               (i) => {
                 const s = controllableStream<number>();
                 streams.set(i, s);
-                return streamOf(s.iterate());
+                return s.source;
               },
             );
 
@@ -255,7 +223,7 @@ describe("createReactiveSubscription", () => {
           const sub = createReactiveSubscription<string, number>(input, (i) => {
             const s = controllableStream<number>();
             streams.set(i, s);
-            return streamOf(s.iterate());
+            return s.source;
           });
 
           await flush();
@@ -323,7 +291,7 @@ describe("createReactiveSubscription", () => {
           const stream = controllableStream<number>();
           const sub = createReactiveSubscription<string, number>(input, () => {
             calls += 1;
-            return streamOf(stream.iterate());
+            return stream.source;
           });
           stream.push(1);
           await flush();
@@ -456,7 +424,7 @@ describe("createReactiveSubscription", () => {
             () => "A",
             () =>
               Stream.ensuring(
-                streamOf(stream.iterate()),
+                stream.source,
                 Effect.sync(() => {
                   finalized = true;
                 }),

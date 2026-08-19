@@ -30,6 +30,7 @@ import {
 import { createStore, produce, unwrap } from "solid-js/store";
 import { type StreamingProcedure, unenrolledStreamCall } from "../client";
 import type { CollectionDelta, CollectionDeltasMsg } from "../define";
+import { containThrow } from "../containThrow";
 import type { Collection } from "../index";
 import {
   createStreamLifecycle,
@@ -74,13 +75,19 @@ export interface UseCollectionResult<K, T> {
    *
    *  DELIVERY-PATH CONTRACT — this receptacle backs BOTH delivery paths
    *  (`useCollection`'s per-key streams and `useCollectionDeltas`'s single
-   *  batched stream), and the encapsulated axis leaks on two points a consumer
+   *  batched stream), and the encapsulated axis leaks on three points a consumer
    *  must know: (1) the value read is identical across paths, but `error()` /
    *  `pending()` are NOT — under per-key delivery they are THAT key's own
    *  stream's, while under batched delivery (a collection opted into the `deltas`
    *  verb) they are the SINGLE batched stream's: collection-wide, shared across
    *  keys, not per-key; (2) `keys()` is arrival-order under batched delivery and
-   *  not stable across the two paths — treat it as a set, not an ordered list. */
+   *  not stable across the two paths — treat it as a set, not an ordered list;
+   *  (3) `updated()` — the change-iff-fired channel — is present only under per-key
+   *  delivery, where a real `createSubscription` mints it. Under batched delivery
+   *  the per-key handle is assembled from the one stream's signals and omits it
+   *  (which {@link Subscription} permits), so a consumer that needs "what changed"
+   *  there asks {@link CollectionFold} instead — that IS the batched path's change
+   *  channel, and a richer one, since it hands over the wire's whole frame. */
   byKey: (key: K) => Subscription<T> | undefined;
 }
 
@@ -278,11 +285,11 @@ interface FoldSlot<K, T> {
   readonly step: (delta: CollectionDelta<K, T>) => void;
 }
 
-/** Membership equality for the arrival-order key list. `keys()` must NOT re-notify
- *  on a values-only tick (nor on a reconnect snapshot that names the same set), so
- *  the order signal compares by MEMBERSHIP-AND-POSITION and keeps the previous array
- *  when they match — the "order by reference" rule, held by the signal rather than
- *  re-derived at each write site. */
+/** Membership-and-position equality for the arrival-order key list, asked at the ONE
+ *  writer that can produce an unchanged one: a reconnect snapshot naming the same
+ *  set. The delta arm never asks, because it only writes `order` once it has already
+ *  established that membership moved — an `equals` on the signal itself would put
+ *  this walk on that path too, to answer a question it just answered. */
 function sameOrder<K>(a: readonly K[], b: readonly K[]): boolean {
   return a.length === b.length && a.every((k, i) => k === b[i]);
 }
@@ -312,7 +319,7 @@ export function useCollectionDeltas<Name extends string, K, T>(
   // Every read inside the frame loop goes through it: the loop is deciding what to
   // write, not rendering, so tracking there would be noise at best.
   const held = unwrap(dict);
-  const [order, setOrder] = createSignal<K[]>([], { equals: sameOrder });
+  const [order, setOrder] = createSignal<K[]>([]);
 
   const folds = new Set<FoldSlot<K, T>>();
   /** Whether a full-set frame has been applied — i.e. whether the held store is a
@@ -345,15 +352,20 @@ export function useCollectionDeltas<Name extends string, K, T>(
     assertKeysInjective(present.size, nextOrder.length);
     setDict(
       produce((d) => {
-        for (const sk of Object.keys(held)) if (!present.has(sk)) delete d[sk];
+        for (const sk of Object.keys(d)) if (!present.has(sk)) delete d[sk];
         for (const [k, v] of entries) {
           const sk = String(k);
-          if (!(sk in held) || !framesEqual(held[sk], v)) d[sk] = v;
+          // Membership through the draft; the VALUE through the raw dictionary — a
+          // read through the draft would mint a mutation proxy for every object it
+          // walks, and the comparison walks the whole value.
+          if (!(sk in d) || !framesEqual(held[sk], v)) d[sk] = v;
         }
       }),
     );
     size = present.size;
-    setOrder(nextOrder);
+    // A reconnect that names the same set keeps the previous array BY REFERENCE, so
+    // `keys()` stays quiet through a link flap — the "order by reference" rule.
+    if (!sameOrder(currentOrder(), nextOrder)) setOrder(nextOrder);
   }
 
   /** Apply ONE coalesced delta frame: one named-key store write per upsert, one
@@ -466,7 +478,9 @@ export function useCollectionDeltas<Name extends string, K, T>(
           seeded = true;
           // A snapshot RE-INITIALIZES every registered fold. The consumer never
           // distinguishes first-connect from reconnect; both are "here is the whole
-          // set".
+          // set". Iterated over a COPY: a `seed`/`step` that registers another fold
+          // has already had it seeded by `fold()` itself, and a live `Set` walk would
+          // visit the newcomer and seed it twice.
           for (const slot of [...folds]) slot.seed(msg.entries);
         } else {
           applyDelta(msg);
@@ -487,42 +501,38 @@ export function useCollectionDeltas<Name extends string, K, T>(
         "useCollectionDeltas: fold() must be called under a reactive owner — its registration is dropped by that owner's onCleanup, and an ownerless fold would accumulate for the life of the shared collection slot",
       );
     }
+    // ONE holder for the accumulator, and the accessor IS it. `undefined` reads as
+    // "there is no valid accumulator" and means nothing else, so a second internal
+    // seeded/unseeded flag beside this signal would be a duplicate that could
+    // disagree with what the consumer sees.
+    //
     // `equals: false`: the framework cannot know whether `A` is a value or an
     // accumulator the consumer mutates and returns, so it must never decide that a
     // frame changed nothing. A spurious wake is harmless; a swallowed update is the bug.
     const [value, setValue] = createSignal<A | undefined>(undefined, {
       equals: false,
     });
-    let acc: { kind: "unseeded" } | { kind: "seeded"; value: A } = {
-      kind: "unseeded",
-    };
-    const commit = (next: A): void => {
-      acc = { kind: "seeded", value: next };
-      setValue(() => next);
-    };
     // A throwing `init`/`step` is contained PER FOLD and reported loudly — it must
-    // never kill the stream, the store, or another fold (the same containment
-    // `createUpdatedTracker` applies to `updated` handlers, for the same shared-slot
-    // reason). The accumulator is INVALIDATED: applying later deltas onto a base
-    // that failed to build is how a fold goes silently wrong. The accessor goes with
-    // it, back to `undefined` — the ONE state "there is no valid accumulator", which
-    // is where it started and where the next snapshot re-seeds it from. Keeping the
-    // last good value instead would leave the accessor reading live while it can
-    // never advance again, which a consumer cannot tell from healthy.
+    // never kill the stream, the store, or another fold. The accumulator is
+    // INVALIDATED: applying later deltas onto a base that failed to build is how a
+    // fold goes silently wrong, so the accessor goes back to `undefined` — where it
+    // started, and where the next snapshot re-seeds it from.
     const guard = (what: string, run: () => A): void => {
-      try {
-        commit(run());
-      } catch (err) {
-        acc = { kind: "unseeded" };
-        setValue(() => undefined);
-        console.error(`collection fold \`${what}\` threw`, err);
-      }
+      let next: { value: A } | undefined;
+      containThrow(
+        `a collection fold's \`${what}\``,
+        () => {
+          next = { value: run() };
+        },
+        "the stream, the store and every other fold keep flowing; this fold's accumulator is invalidated until the next snapshot re-seeds it",
+      );
+      setValue(() => next?.value);
     };
     const slot: FoldSlot<K, T> = {
       seed: (entries) => guard("init", () => foldOptions.init(entries)),
       step: (delta) => {
-        if (acc.kind !== "seeded") return;
-        const base = acc.value;
+        const base = untrack(value);
+        if (base === undefined) return;
         guard("step", () => foldOptions.step(base, delta));
       },
     };

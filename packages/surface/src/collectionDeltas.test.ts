@@ -15,7 +15,6 @@
  */
 
 import { Effect, Fiber, Schema, Stream } from "effect";
-import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import {
   collectionDeltasChannel,
@@ -32,13 +31,8 @@ import {
   implementSurfaceOnPublisher,
   inMemoryChannel,
 } from "./server";
-import type { Collection } from "./index";
 import { collection } from "./index";
-import { controllableStream } from "./solid/controllableStream.testlib";
-import {
-  type UseCollectionDeltasResult,
-  useCollectionDeltas,
-} from "./solid/useCollection";
+import { driveDeltas as drive, settle } from "./solid/deltasHarness.testlib";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -478,38 +472,6 @@ const stringKeyed = collection({
   keySchema: Schema.String,
   schema: Schema.Struct({ name: Schema.String }),
 });
-
-/** Two microtask turns — enough for one pushed frame to cross the stream fiber and
- *  land in the store. */
-const settle = async (): Promise<void> => {
-  await tick();
-  await tick();
-};
-
-/** Drive `useCollectionDeltas` over a hand-pushed source inside a reactive root,
- *  handing the body the view, a pusher, and the errors the hook reported. */
-async function drive<K, T>(
-  descriptor: Collection<string, K, T>,
-  body: (ctx: {
-    view: UseCollectionDeltasResult<K, T>;
-    push: (frame: CollectionDeltasMsg<K, T>) => void;
-    errors: Error[];
-  }) => Promise<void>,
-): Promise<void> {
-  await createRoot(async (dispose) => {
-    const { source, push } = controllableStream<CollectionDeltasMsg<K, T>>();
-    const errors: Error[] = [];
-    const view = useCollectionDeltas(descriptor, {
-      source,
-      onError: (err) => errors.push(err),
-    });
-    try {
-      await body({ view, push, errors });
-    } finally {
-      dispose();
-    }
-  });
-}
 
 describe("collection deltas — the client store", () => {
   it("a snapshot establishes the whole set and keeps key TYPES", async () => {

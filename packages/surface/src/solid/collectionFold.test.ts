@@ -23,51 +23,27 @@
  *   - a throwing consumer callback is contained to its own fold.
  */
 
-import { Schema } from "effect";
 import { createEffect, createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionDelta, CollectionDeltasMsg } from "../define";
-import { collection } from "../index";
-import { controllableStream } from "./controllableStream.testlib";
+import {
+  type DeltasHarness,
+  driveDeltas,
+  type NumberRow as V,
+  numberRows,
+  settle,
+} from "./deltasHarness.testlib";
 import {
   type UseCollectionDeltasResult,
   useCollectionDeltas,
 } from "./useCollection";
-
-interface V {
-  readonly n: number;
-}
-
-const rows = collection({
-  name: "rows",
-  keySchema: Schema.String,
-  schema: Schema.Struct({ n: Schema.Number }),
-});
-
-const settle = async (): Promise<void> => {
-  await new Promise((r) => setTimeout(r, 0));
-  await new Promise((r) => setTimeout(r, 0));
-};
+import { controllableStream } from "./controllableStream.testlib";
 
 type Frame = CollectionDeltasMsg<string, V>;
 
-async function drive(
-  body: (ctx: {
-    view: UseCollectionDeltasResult<string, V>;
-    push: (frame: Frame) => void;
-    fail: (err: unknown) => void;
-  }) => Promise<void>,
-): Promise<void> {
-  await createRoot(async (dispose) => {
-    const { source, push, fail } = controllableStream<Frame>();
-    const view = useCollectionDeltas(rows, { source });
-    try {
-      await body({ view, push, fail });
-    } finally {
-      dispose();
-    }
-  });
-}
+const drive = (
+  body: (ctx: DeltasHarness<string, V>) => Promise<void>,
+): Promise<void> => driveDeltas(numberRows, body);
 
 /** The frames a fold was handed, as the consumer saw them. */
 function recordingFold(view: UseCollectionDeltasResult<string, V>) {
@@ -283,7 +259,7 @@ describe("fold — a fold is owned", () => {
     const { source } = controllableStream<Frame>();
     let view!: UseCollectionDeltasResult<string, V>;
     const dispose = createRoot((d) => {
-      view = useCollectionDeltas(rows, { source });
+      view = useCollectionDeltas(numberRows, { source });
       return d;
     });
     // Called with no reactive scope: the `onCleanup` that drops the registration

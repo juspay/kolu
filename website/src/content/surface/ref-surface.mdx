@@ -493,7 +493,11 @@ the `Subscription`, so the change channel is `cells.X.use(...).sub.updated(...)`
 `ReadOnlyUseCellResult` — `{ value, pending, error, sub }` with NO `set` / `patch` — and
 its `.use()` accepts only `onError` (no `authority: "local"` option, since a get-only cell
 has no wire mutation verb to reconcile against).
-Collection subscriptions depend on the selected delivery path. `.updated()` is the
+Collection subscriptions depend on the selected delivery path — and one thing
+differs beyond `error()`/`pending()`/`keys()`: under BATCHED delivery the per-key
+handle `byKey(id)` returns is assembled from the one stream's signals, so it carries
+no `.updated()`. A consumer that wants "what changed" there asks `fold` instead,
+which hands over the wire's whole frame rather than one key's before/after. `.updated()` is the
 change half of an FRP `Dynamic`:
 subscribe to `{ prev, next }` change pairs (`CellChange<T>`) under the
 **change-iff-fired** law — a first frame is a value, not a change and never
@@ -545,10 +549,11 @@ never sees inside the accumulator.
 | --- | --- |
 | Snapshot | RE-INITIALIZES every registered fold (`acc = init(entries)`), after the store applies it. First-connect and reconnect are the same event to a fold; it never classifies a frame. |
 | Registering mid-stream | Seeded SYNCHRONOUSLY from the held store, so arriving late is indistinguishable from a reconnect. Registered while `pending()`, the accessor reads `undefined` until the real snapshot lands. |
+| `undefined` | Means exactly one thing: there is no valid accumulator. That is the state before the first snapshot, and the state a throwing `init` / `step` returns the fold to until the next snapshot re-seeds it. |
 | Removes of unknown keys | Delivered VERBATIM. The server's tick coalescer resolves an upsert-then-remove within one producer tick to a bare remove, so `step` MUST be total over a remove of a key it never saw. The framework does not filter it — that would be swallowing part of the frame. |
 | Ordering | assert keys → apply to the store → notify the folds → clear `pending`, all in one tick. A `step` that reads `byKey` sees state consistent with the frame it holds. |
 | Aliasing | `step` receives the wire's decoded frame objects, which the store adopts by REPLACEMENT — neither side ever mutates them, so a fold may retain them without cloning. |
-| Errors | The batched stream's error is collection-wide and terminal. Fold accessors keep their last value, frozen — exactly `byKey`'s behaviour — and the failure surfaces through the shared `error()` / `onError` / health enrolment. A throwing `init` / `step` is contained to its own fold and reported loudly; it never kills the stream, the store, or another fold. |
+| Errors | The batched stream's error is collection-wide and terminal. Fold accessors keep their last value, frozen — exactly `byKey`'s behaviour — and the failure surfaces through the shared `error()` / `onError` / health enrolment. A throwing `init` / `step` is a different matter: it is contained to its own fold and reported loudly (never killing the stream, the store, or another fold), and it INVALIDATES that fold's accumulator — later deltas have no valid base to land on, so the accessor returns to `undefined` rather than reading live while frozen forever. |
 | Teardown | `fold()` must be called under a reactive owner; the registration is dropped by that owner's `onCleanup`. Called ownerless it THROWS, rather than minting an accumulator nothing can drop. |
 
 **Where `fold` is spellable is the gate.** It is typed only on the

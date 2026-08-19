@@ -110,11 +110,11 @@ function foldCollectionDeltas(acc: DeltasFold, msg: Frame): DeltasFold {
 
 interface Arm {
   push: (frame: Frame) => void;
-  /** Let every queued frame drain. `setImmediate` runs after the microtask queue,
-   *  so one await covers a whole iteration's worth of pushes. */
-  drain: () => Promise<void>;
 }
 
+/** Let every queued frame drain. `setImmediate` runs after the microtask queue, so
+ *  ONE await covers a whole iteration's worth of pushes — which is why an iteration
+ *  pushes many frames: the fixed cost is amortised rather than measured. */
 const drainOnce = (): Promise<void> =>
   new Promise<void>((resolve) => {
     setImmediate(resolve);
@@ -141,7 +141,7 @@ function beforeArm(): Arm {
       });
     }
   });
-  return { push, drain: drainOnce };
+  return { push };
 }
 
 /** AFTER: the hook's own store — one named-key write per upsert. */
@@ -154,7 +154,7 @@ function afterArm(): Arm {
       createEffect(() => view.byKey(k)?.());
     }
   });
-  return { push, drain: drainOnce };
+  return { push };
 }
 
 const snapshot = (): Frame => ({
@@ -173,7 +173,7 @@ async function shape(
   let tick = 0;
   const run = (arm: Arm) => async (): Promise<void> => {
     for (let i = 0; i < FRAMES_PER_ITERATION; i++) arm.push(frameAt(++tick));
-    await arm.drain();
+    await drainOnce();
   };
   return { before: run(arms.before), after: run(arms.after) };
 }
@@ -205,6 +205,37 @@ const ALL = await shape((tick) => upserts(KEYS, tick));
 describe(`delta naming every one of ${KEYS} keys`, () => {
   bench("before — copy the dictionary, reconcile the copy", () => ALL.before());
   bench("after — named-key writes", () => ALL.after());
+});
+
+// The CHURN shape: keys leaving and arriving, which is the one delta arm that does
+// more than write leaves — it rebuilds the arrival-order key list, fires the store's
+// key-presence notification, and pays the injectivity check. Every shape above is a
+// pure value update (the early exit keeps `order` untouched), so without this one the
+// ratios would be the best case only. A process table or a terminal set lives here.
+const CHURN = await shape((tick) => {
+  const born = 5;
+  const base = KEYS + tick * born;
+  return {
+    kind: "delta",
+    upserts: Array.from(
+      { length: born },
+      (_, i) => [key(base + i), row(base + i, tick)] as [string, Row],
+    ),
+    // Remove the keys the PREVIOUS frame added, so the collection stays at N and the
+    // measurement does not drift into a different size as iterations pile up.
+    removes:
+      tick === 1
+        ? []
+        : Array.from({ length: born }, (_, i) => key(base - born + i)),
+  };
+});
+describe(`delta with ${5} keys born and ${5} dying, of ${KEYS}`, () => {
+  bench("before — copy the dictionary, reconcile the copy", () =>
+    CHURN.before(),
+  );
+  bench("after — named-key writes, then one order rebuild", () =>
+    CHURN.after(),
+  );
 });
 
 // The reconnect shape: the retry fence turns a transport drop into a fresh snapshot

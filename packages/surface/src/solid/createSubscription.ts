@@ -428,7 +428,9 @@ export function createStreamLifecycle<T>(
     onFrame: (item) =>
       batch(() => {
         options.onFrame(item);
-        if (pending()) setPending(false);
+        // Unconditional: writing `false` over `false` is a no-op under the signal's
+        // default equality, so a read-then-write guard would only re-state that.
+        setPending(false);
         // NOT "clear a stale error here". A failure is the FIBER'S EXIT, so no frame
         // can follow one on the same subscription — an `error()` is terminal for this
         // stream, and a clear-on-next-frame branch would be dead code implying a
@@ -442,14 +444,14 @@ export function createStreamLifecycle<T>(
     // evict this slot and a re-added member never reuses an ended stream.
     onEnd: () =>
       batch(() => {
-        if (pending()) setPending(false);
+        setPending(false);
         setComplete(true);
         options.onComplete?.();
       }),
     onFailure: (err) =>
       batch(() => {
         setError(err);
-        if (pending()) setPending(false);
+        setPending(false);
       }),
   });
 
