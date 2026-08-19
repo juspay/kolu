@@ -15,13 +15,12 @@
  * terminals" writer.
  */
 
-import { openStateBackupRing } from "kolu-shared/state-backup";
 import type { StateBackupEntry } from "kolu-shared/state-backup";
 import { log } from "../log.ts";
 import type { PadiStateBackup } from "../surface.ts";
 import type { SavedSession } from "../vocab.ts";
 import { importSession } from "./sessionRestore.ts";
-import { padiConfigPath } from "./stateStore.ts";
+import { padiStateBackupRing } from "./stateStore.ts";
 
 /** The ring's own entry shape and the wire's agree field-for-field — the
  *  `...entry` spread below type-checks BECAUSE of this line, not by coincidence
@@ -33,12 +32,6 @@ type _RingEntryMatchesWire =
     : ["wire shape drifted from kolu-shared's StateBackupEntry"];
 const _ringEntryMatchesWire: _RingEntryMatchesWire = true;
 void _ringEntryMatchesWire;
-
-/** This state-root's ring. The state file's path is `stateStore.ts`'s fact (it
- *  constructs the `Conf`), read from there rather than re-derived here. */
-function ringFor(stateRoot: string) {
-  return openStateBackupRing(padiConfigPath(stateRoot), log);
-}
 
 /** Summarize one PARSED snapshot: count the session's terminals. A snapshot that
  *  fails to parse never reaches here — the ring lists it as `unreadable` rather
@@ -64,10 +57,9 @@ export function listPadiStateBackups(stateRoot: string): {
   backups: PadiStateBackup[];
 } {
   return {
-    backups: ringFor(stateRoot).listWith<PadiStateBackup["summary"]>(
-      summarize,
-      { kind: "unreadable" },
-    ),
+    backups: padiStateBackupRing(stateRoot).listWith<
+      PadiStateBackup["summary"]
+    >(summarize, { kind: "unreadable" }),
   };
 }
 
@@ -84,7 +76,7 @@ export async function restorePadiStateBackup(
     optOutIds?: readonly string[];
   },
 ): Promise<void> {
-  await ringFor(stateRoot).restore(input.file, async (raw) => {
+  await padiStateBackupRing(stateRoot).restore(input.file, async (raw) => {
     const session = (raw as { session?: unknown }).session;
     if (
       session === null ||
