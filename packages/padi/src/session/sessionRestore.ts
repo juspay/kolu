@@ -28,6 +28,7 @@ import {
   saveSession,
   setSavedSession,
 } from "./session.ts";
+import { padiStateBackupRing } from "./stateStore.ts";
 import { getActiveTerminal, getTerminal } from "../terminal-registry.ts";
 import {
   discardAllLocalParked,
@@ -509,8 +510,28 @@ export function persistSettledRestoreSnapshot(
  *  `lifecycle.create` (which no longer forfeits — creating a terminal leaves the
  *  restore offered) and from `restoreSession` (which CONSUMES the parked entries via
  *  the parked→active flip and re-persists the live session). A no-op-safe idempotent
- *  call: with no parked entries and no saved session it clears nothing. */
-export function forfeitSession(): void {
+ *  call: with no parked entries and no saved session it clears nothing.
+ *
+ *  SNAPSHOTS FIRST, and refuses to proceed if that snapshot fails. Forfeit is the
+ *  only verb in padi whose whole job is to destroy user data, so it is exactly the
+ *  class the state-backup ring (#1658) exists for — `backups.restore` already
+ *  pushes the current state file into the ring "so the restore is itself undoable",
+ *  and the same must hold for the one act that discards N terminals on a single
+ *  click. The ring's `snapshot()` is fail-SOFT by design (a typed outcome, never a
+ *  throw) because on the BOOT path a backup is a safety net and not a gate; HERE the
+ *  safety net IS the gate, so a `failed` outcome throws rather than degrading to an
+ *  unrecoverable discard, and the session survives to be forfeited again once
+ *  whatever broke the ring (a full disk, a read-only state root) is fixed.
+ *  `no-state-file` is not a failure — there is no saved blob to lose, so the forfeit
+ *  destroys nothing on disk — and `unchanged` means the ring already holds a
+ *  byte-identical copy, which is precisely the recoverability this gate asks for. */
+export function forfeitSession(stateRoot: string): void {
+  const snapshot = padiStateBackupRing(stateRoot).snapshot();
+  if (snapshot.kind === "failed") {
+    throw new Error(
+      "refusing to forfeit the session: the state backup snapshot failed, so this discard would not be recoverable",
+    );
+  }
   discardAllLocalParked();
   clearSavedSession();
 }

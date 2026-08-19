@@ -21,6 +21,9 @@
  * before that tail runs, then a macrotask lets the rejections settle.
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
@@ -30,10 +33,12 @@ import {
 } from "../padiSurfaceCtx.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
 import {
+  forfeitSession,
   persistSettledRestoreSnapshot,
   restoreSession,
   settleRestoreRespawns,
 } from "./sessionRestore.ts";
+import { padiConfigPath, padiStateBackupRing } from "./stateStore.ts";
 import {
   type ActiveTerminalProcess,
   getTerminal,
@@ -874,5 +879,83 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
     );
     // ...AND A's re-parked record was retained (CONF-6, not shrunk).
     expect(saved.some((t) => t.cwd === "/f5-mixed-parked")).toBe(true);
+  });
+});
+
+// ── forfeit snapshots into the state-backup ring BEFORE it destroys ──
+//
+// The incident this pins: a stray click on "Start fresh" discarded a live user's
+// 16-terminal session — parked entries and the saved blob together — with no
+// confirmation, no undo, and no copy taken first. The ring (#1658) is exactly the
+// safety net for that class, and `backups.restore` already snapshots the current
+// state "so the restore is itself undoable"; forfeit, the one deliberately
+// destructive verb, used to skip the ring entirely.
+//
+// The pair below is the whole contract: a snapshot LANDS before anything clears,
+// and a snapshot that FAILS refuses the forfeit rather than degrading to an
+// unrecoverable discard (the fail-fast rule — a caught error must never collapse
+// into a silent default).
+describe("forfeitSession — the discard is recoverable or it does not happen", () => {
+  let stateRoot: string;
+
+  beforeEach(() => {
+    stateRoot = mkdtempSync(join(tmpdir(), "padi-forfeit-"));
+  });
+  afterEach(() => {
+    rmSync(stateRoot, { recursive: true, force: true });
+  });
+
+  /** The state file forfeit is about to destroy, as it sits on disk. */
+  function seedStateFile(): void {
+    writeFileSync(
+      padiConfigPath(stateRoot),
+      JSON.stringify({ session: savedSession() }),
+    );
+  }
+
+  it("pushes the CURRENT state file into the ring, then clears parked + saved", () => {
+    seedStateFile();
+    setSavedSession(savedSession());
+    expect(seedParkedTerminal(parentRecord)).toBe(true);
+
+    forfeitSession(stateRoot);
+
+    // The ring holds a copy of what was destroyed — the four saved terminals,
+    // reachable from "Restore state from backup".
+    const ring = padiStateBackupRing(stateRoot);
+    const [newest] = ring.list();
+    if (!newest) throw new Error("forfeit took no state backup");
+    const restored = ring.read(newest.file) as { session: SavedSession };
+    expect(restored.session.terminals.map((t) => t.id)).toEqual(
+      savedSession().terminals.map((t) => t.id),
+    );
+    // …and only THEN did the destructive half run.
+    expect(getSavedSession()).toBeNull();
+    expect(parkedTerminalIds()).toEqual([]);
+  });
+
+  it("REFUSES when the snapshot fails — the session survives a broken ring", () => {
+    seedStateFile();
+    // `backups/` occupied by a FILE: the ring's `mkdirSync` throws, which is the
+    // `failed` outcome (a full disk / read-only state root reaches it the same way).
+    writeFileSync(join(stateRoot, "backups"), "not a directory");
+    setSavedSession(savedSession());
+    expect(seedParkedTerminal(parentRecord)).toBe(true);
+
+    expect(() => forfeitSession(stateRoot)).toThrow(/refusing to forfeit/);
+
+    // Nothing was destroyed — the user can try again once the ring is fixed.
+    expect(getSavedSession()?.terminals.length).toBe(4);
+    expect(parkedTerminalIds()).toEqual([PARENT_ID]);
+  });
+
+  it("proceeds with NO state file on disk — a forfeit of nothing loses nothing", () => {
+    setSavedSession(savedSession());
+    expect(seedParkedTerminal(parentRecord)).toBe(true);
+
+    forfeitSession(stateRoot);
+
+    expect(getSavedSession()).toBeNull();
+    expect(parkedTerminalIds()).toEqual([]);
   });
 });

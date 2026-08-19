@@ -156,6 +156,19 @@ export function padiConfigPath(stateRoot: string): string {
   return join(stateRoot, "config.json");
 }
 
+/** THIS state-root's backup ring, for a consumer that has a `stateRoot` but not
+ *  the boot-opened binding on {@link PadiStateStores} — the `backups.*` face and
+ *  the session FORFEIT, each of which is handed a bare state-root by
+ *  `servePadi`. It lives HERE, beside `padiConfigPath`, for the same reason that
+ *  path does: a second `openStateBackupRing(padiConfigPath(root), log)` spelling
+ *  elsewhere would silently ring a different directory than the boot snapshot
+ *  writes, and nothing would fail loudly. Opening a ring is cheap (a path plus a
+ *  logger — no file handle, no `Conf`), so an ad-hoc consumer opens one per act
+ *  rather than reaching for the boot stores. */
+export function padiStateBackupRing(stateRoot: string): StateBackupRing {
+  return openStateBackupRing(padiConfigPath(stateRoot), log);
+}
+
 /** Open padi's state-root `Conf` (`<stateRoot>/config.json`) and return the three
  *  cell stores it backs. The stores are `confStore` adapters over the one `Conf`,
  *  exactly as kolu-server built them — so the cells behave byte-identically, only

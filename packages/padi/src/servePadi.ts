@@ -1085,7 +1085,11 @@ export function buildPadiSurfaceDeps(deps: {
       session: {
         restore: ({ input }) => handle(() => restoreSession(input)),
         import: ({ input }) => handle(() => importSession(input)),
-        forfeit: () => handle(() => forfeitSession()),
+        // Takes the state-root because it SNAPSHOTS before it destroys — the
+        // same ring `backups.*` below rings, so a stray "Start fresh" is
+        // recoverable from the snapshot list. A failed snapshot throws out of
+        // here (undeclared, so it lands as an error toast) and the session stands.
+        forfeit: () => handle(() => forfeitSession(stateRoot)),
       },
 
       // The state-backup ring (#1658) — this padi's own ring, under ITS
