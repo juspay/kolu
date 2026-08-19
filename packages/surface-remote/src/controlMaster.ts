@@ -73,14 +73,14 @@ function controlSocketPath(): string {
 /** Is `dir` a private, owner-only directory we own? The control socket
  *  exposes the live connection to anyone who can open channels on it, so
  *  the directory is the security boundary (cf. the same check on the
- *  pty-host socket). The canonical copy is `isPrivateOwnedDir` in
- *  `@kolu/surface/unix-socket`; re-implemented here (as `kaval`'s
- *  `socketPath.ts` does) so this stays a purely-internal speedup with no
- *  surface API delta — widening that export would compel a drishti PR for
- *  a 6-line helper. `lstatSync` (not `statSync`) so a symlink is judged as
- *  itself, never followed to a target an attacker still controls the path
- *  component of. True on platforms without uid semantics (Windows) — the
- *  ACL model there is out of scope. */
+ *  pty-host socket). The public original is `isPrivateOwnedDir` in
+ *  `@kolu/surface/unix-socket`; this copy stays local because a failed
+ *  `lstat` is refuse-not-throw here (the outer `controlOptPairs` catch is
+ *  the additive-speedup degrade), matching `surface-daemon`'s copy rather
+ *  than the transport layer's throw. `lstatSync` (not `statSync`) so a
+ *  symlink is judged as itself, never followed to a target an attacker
+ *  still controls the path component of. True on platforms without uid
+ *  semantics (Windows) — the ACL model there is out of scope. */
 function isPrivateOwnedDir(dir: string): boolean {
   const getuid = process.getuid?.bind(process);
   if (getuid === undefined) return true;

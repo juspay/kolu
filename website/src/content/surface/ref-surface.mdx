@@ -709,6 +709,14 @@ for the rest of its life. BIND-TIME verdicts are *not* logged here — they are
 `UnixSocketListener.outcome` values, and the app-flavored advice for each
 ("pass `--pty-host-socket`") belongs to the caller.
 
+The same module exports `isPrivateOwnedDir(dir): boolean` — the three-check
+privacy predicate `serveOverUnixSocket` uses on the socket's parent (`lstat`,
+never `stat`; a directory; current-uid owned with no group/other bits). It is
+public so a consumer that did not create the directory can make the **same**
+judgement; olai's vault lock is the first. A failed `lstat` throws (ENOENT,
+EACCES) rather than collapsing to "not private". Returns `true` on platforms
+without uid semantics.
+
 ### Per-face `expose` (`@kolu/surface/expose`)
 
 One surface is usually served by several faces at once, and they do not carry
