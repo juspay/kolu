@@ -534,7 +534,11 @@ test: install
     # anyway (PAR=12 measured *slower* than PAR=8 on a 24-core host). See
     # docs/ci-e2e-macos-ralph-report.md.
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-    cap=8; [ "$(uname)" = Darwin ] && cap=6
+    # The "no Cucumber verdict" on linux was odu log truncation (pretty
+    # formatter), not a killed suite — 1 worker finished 514 scenarios in
+    # 38m. 4 is back now that daemon no longer overlaps and CI logs are
+    # progress-only.
+    cap=4; [ "$(uname)" = Darwin ] && cap=4
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans
@@ -593,7 +597,22 @@ test: install
     # very "two recipes shelling out to pnpm install race and corrupt each
     # other's node_modules" hazard ci/mod.just documents. CI invokes this recipe
     # with `just --no-deps test` so even the `install` dep can't race the unit lane.
+    set +e
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL="$par" {{ nix_shell_e2e }} pnpm test
+    status=$?
+    set -e
+    # odu's linux log capture can drop the node process's last write.
+    # Re-print the compact verdict from the on-disk timing file AFTER
+    # pnpm returns, so the fail list is in the captured recipe output.
+    if [ -f reports/e2e-timing.json ]; then
+        {{ nix_shell_e2e }} node --import tsx -e '
+          import { readFileSync } from "node:fs";
+          import { formatE2eVerdict } from "./governance/timing.ts";
+          const report = JSON.parse(readFileSync("reports/e2e-timing.json", "utf8"));
+          process.stdout.write(`${formatE2eVerdict(report)}\n`);
+        '
+    fi
+    exit "$status"
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
 # Builds client via pnpm, spawns server from source on random ports.

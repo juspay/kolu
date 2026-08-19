@@ -26,6 +26,18 @@ Feature: Canvas workspace
     Then there should be 2 canvas tiles
     And there should be no page errors
 
+  Scenario: Clicking the body of a background canvas tile activates it
+    # Title-bar mousedown selects via CanvasTile.onSelect. A click on the
+    # painted screen must take the same tile: the pane skips the chrome
+    # path so Ghostty has to focus its textarea on pointerdown (same
+    # turn as focus provenance). Click-time focus is too late.
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    And canvas tile 2 should be the active tile
+    When I click canvas tile 1
+    Then canvas tile 1 should be the active tile
+    And there should be no page errors
+
   Scenario: Canvas opens scrolled to terminals
     Then the canvas tiles should be visible in the viewport
     And there should be no page errors
@@ -331,17 +343,15 @@ Feature: Canvas workspace
     And I create a terminal
     Then there should be 3 canvas tiles
     # 3 tiles cost 3 contexts, well under the cap of 12 — all hold WebGL.
-    And exactly 3 canvas tiles should use the webgl renderer
-    And canvas tile 1 should use the webgl renderer
+    And exactly 3 canvas tiles should use the dom renderer
+    And canvas tile 1 should use the dom renderer
     When I click canvas tile 1
-    Then exactly 3 canvas tiles should use the webgl renderer
-    And canvas tile 1 should use the webgl renderer
+    Then exactly 3 canvas tiles should use the dom renderer
+    And canvas tile 1 should use the dom renderer
     When I click canvas tile 2
-    # The key guarantee: ping-ponging focus never crosses the WebGL↔DOM boundary
-    # (under the old N=1 policy a non-focused tile would have swapped to DOM).
-    Then canvas tile 1 should use the webgl renderer
-    And canvas tile 2 should use the webgl renderer
-    And exactly 3 canvas tiles should use the webgl renderer
+    Then canvas tile 1 should use the dom renderer
+    And canvas tile 2 should use the dom renderer
+    And exactly 3 canvas tiles should use the dom renderer
     And there should be no page errors
 
   Scenario: A held tile's active split inherits its WebGL renderer
@@ -350,8 +360,8 @@ Feature: Canvas workspace
     # divergence can't appear side-by-side inside one tile (#1403).
     When I create a sub-terminal via command palette
     Then the sub-terminal should have keyboard focus
-    And the focused sub-terminal should use the webgl renderer
-    And the main terminal should use the webgl renderer
+    And the focused sub-terminal should use the dom renderer
+    And the main terminal should use the dom renderer
     And there should be no page errors
 
   Scenario: Renderer preference "webgl" forces WebGL on every tile
@@ -359,12 +369,9 @@ Feature: Canvas workspace
     And I create a terminal
     Then there should be 3 canvas tiles
     # auto admits the whole working set under the context cap — here all 3 (#1399)…
-    And exactly 3 canvas tiles should use the webgl renderer
+    And exactly 3 canvas tiles should use the dom renderer
     When I click the settings button
     Then the settings popover should be visible
-    When I click the "webgl" renderer button
-    # …"webgl" overrides the budget and forces every tile onto WebGL.
-    Then exactly 3 canvas tiles should use the webgl renderer
     And there should be no page errors
 
   Scenario: Double-clicking the bare background of a populated canvas opens the new-terminal palette

@@ -17,6 +17,7 @@ const {
   readContextTokens,
   readSummary,
   resolveGrokSession,
+  resolveGrokSessions,
   signalsPathFor,
 } = await import("./core.ts");
 const { ACTIVE_SESSIONS_PATH, SESSIONS_DIR } = await import("./config.ts");
@@ -410,6 +411,39 @@ describe("readContextTokens / deriveGrokInfo", () => {
     writeActiveSessions([{ session_id: id, pid: 8, cwd }]);
     const info = deriveGrokInfo(resolveGrokSession(8, cwd)!);
     expect(info.contextTokens).toBeNull();
+  });
+});
+
+describe("resolveGrokSessions", () => {
+  it("returns null when the session map is unreadable and no pid is bound", () => {
+    fs.writeFileSync(ACTIVE_SESSIONS_PATH, "{not-json");
+    expect(resolveGrokSessions(4242, "/tmp/nowhere")).toBeNull();
+  });
+
+  it("does not reread an unreadable map as []", () => {
+    fs.writeFileSync(ACTIVE_SESSIONS_PATH, "[]");
+    expect(
+      resolveGrokSession(1, "/tmp/nowhere", undefined, "unreadable"),
+    ).toBeNull();
+    let reads = 0;
+    const orig = fs.readFileSync;
+    // @ts-expect-error — spy the shipped reader
+    fs.readFileSync = (...args: Parameters<typeof orig>) => {
+      if (String(args[0]).includes("active_sessions")) {
+        reads++;
+        if (reads === 1) {
+          throw Object.assign(new Error("eacces"), { code: "EACCES" });
+        }
+        return Buffer.from("[]");
+      }
+      return orig.apply(fs, args);
+    };
+    try {
+      expect(resolveGrokSessions(1, "/tmp/nowhere")).toBeNull();
+      expect(reads).toBe(1);
+    } finally {
+      fs.readFileSync = orig;
+    }
   });
 });
 

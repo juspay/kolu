@@ -21,10 +21,8 @@
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
+    "@kolu/ghostty-kit": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
-    "@kolu/xterm-kit": "workspace:*",
-    "@xterm/addon-serialize": "^0.14.0",
-    "@xterm/headless": "^6.0.0",
     "effect": "catalog:",
     "node-pty": "github:juspay/node-pty#feat/foreground-pid-dist",
     "osfacts-client": "workspace:*"

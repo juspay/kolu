@@ -212,6 +212,27 @@ export function reduceMessages(
   };
 }
 
+/** Compact suite verdict for CI logs — pretty-formatter dumps overflow the
+ *  linux odu keep-head cap, so this one-line-per-fail list is the summary
+ *  a truncated log can still end with. */
+export function formatE2eVerdict(report: TimingReport): string {
+  const last = new Map<string, AttemptTiming>();
+  for (const a of report.attempts) {
+    last.set(`${a.feature}\t${a.scenario}`, a);
+  }
+  const failed = [...last.values()].filter(
+    (a) => a.status !== "PASSED" && a.status !== "SKIPPED",
+  );
+  const passed = [...last.values()].filter((a) => a.status === "PASSED").length;
+  const lines = [
+    `e2e verdict: ${passed} passed, ${failed.length} failed (${last.size} scenarios)`,
+    ...failed.map(
+      (a) => `  FAIL ${a.feature}  ${a.scenario}  attempt=${a.attempt}`,
+    ),
+  ];
+  return lines.join("\n");
+}
+
 export function reduceMessageFile(input: string, output: string): TimingReport {
   const envelopes = readFileSync(input, "utf8")
     .split("\n")

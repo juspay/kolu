@@ -27,7 +27,7 @@ let markerBoundary = 0;
 type CellPixel = { x: number; y: number } | null;
 
 /** Visual pixel centre of terminal column `col` on the FIRST marker row,
- *  derived from the post-transform `.xterm-screen` rect via
+ *  derived from the post-transform `[data-terminal-screen]` rect via
  *  `rect.width / term.cols` — the same transform-correct cell mapping kolu's
  *  touch hit-testing uses (`Terminal.tsx` `fileRefAtPoint`) and the file-ref
  *  e2e step. Reflects whatever zoom is live, so it is the "ground truth" a
@@ -50,7 +50,7 @@ async function markerCellPixel(
         | (HTMLElement & { __xterm?: XtermLike })
         | null;
       const term = container?.__xterm;
-      const screen = container?.querySelector(".xterm-screen");
+      const screen = container?.querySelector("[data-terminal-screen]");
       if (!container || !term || !screen) return null;
       const { active } = term.buffer;
       const top = active.viewportY;
@@ -87,12 +87,23 @@ When(
   async function (this: KoluWorld) {
     // Size the marker to the live grid width so it occupies exactly one row on
     // any platform (cols differ between macOS and linux for the same viewport).
-    const cols = await this.page.evaluate((sel) => {
-      const c = document.querySelector(sel) as
-        | (HTMLElement & { __xterm?: { cols: number } })
-        | null;
-      return c?.__xterm?.cols ?? 0;
-    }, ACTIVE_TERMINAL);
+    // `__xterm` is published only after the attach snapshot lands — a
+    // one-shot read at "terminal is ready" still sees cols=0.
+    const colsHandle = await this.page.waitForFunction(
+      (sel) => {
+        const c = document.querySelector(sel) as
+          | (HTMLElement & { __xterm?: { cols: number } })
+          | null;
+        const stamped = c?.getAttribute("data-grid-cols");
+        const n = stamped
+          ? Number.parseInt(stamped, 10)
+          : (c?.__xterm?.cols ?? 0);
+        return n >= 30 ? n : null;
+      },
+      ACTIVE_TERMINAL,
+      { timeout: POLL_TIMEOUT },
+    );
+    const cols = (await colsHandle.jsonValue()) ?? 0;
     assert.ok(
       cols >= 30,
       `terminal too narrow for the marker test (cols=${cols})`,

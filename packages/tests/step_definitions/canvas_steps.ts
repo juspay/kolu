@@ -22,7 +22,7 @@ async function waitForCanvas(world: KoluWorld) {
 
 async function waitForXterm(world: KoluWorld) {
   await world.page
-    .locator("[data-visible] .xterm-screen")
+    .locator("[data-visible] [data-terminal-screen]")
     .first()
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
@@ -573,7 +573,7 @@ When(
     await waitForXterm(this);
     await this.page.evaluate(() => {
       const xterm = document.querySelector(
-        "[data-visible] .xterm-screen",
+        "[data-visible] [data-terminal-screen]",
       ) as HTMLElement | null;
       if (!xterm) throw new Error("xterm-screen not found");
       const rect = xterm.getBoundingClientRect();
@@ -628,7 +628,7 @@ When(
     await this.page.evaluate((sel: string) => {
       const container = document.querySelector(sel) as HTMLElement | null;
       const xterm = document.querySelector(
-        "[data-visible] .xterm-screen",
+        "[data-visible] [data-terminal-screen]",
       ) as HTMLElement | null;
       if (!container) throw new Error("canvas-container not found");
       if (!xterm) throw new Error("xterm-screen not found");
@@ -679,7 +679,7 @@ When(
     await waitForXterm(this);
     await this.page.evaluate(() => {
       const xterm = document.querySelector(
-        "[data-visible] .xterm-screen",
+        "[data-visible] [data-terminal-screen]",
       ) as HTMLElement | null;
       if (!xterm) throw new Error("xterm-screen not found");
       const rect = xterm.getBoundingClientRect();
@@ -705,7 +705,7 @@ When(
     await waitForXterm(this);
     await this.page.evaluate(() => {
       const xterm = document.querySelector(
-        "[data-visible] .xterm-screen",
+        "[data-visible] [data-terminal-screen]",
       ) as HTMLElement | null;
       if (!xterm) throw new Error("xterm-screen not found");
       const rect = xterm.getBoundingClientRect();
@@ -965,23 +965,27 @@ Then(
 When(
   "I click canvas tile {int}",
   async function (this: KoluWorld, index: number) {
-    // Dispatch mousedown directly: Playwright's .click() stalls on xterm's
-    // event-intercepting machinery, but CanvasTile only needs mousedown to
-    // bubble up to its onSelect handler.
+    // Real pointerdown+click on the painted screen. Chrome clicks go
+    // through CanvasTile.onSelect; a live pane skips that path and
+    // activates only via focus provenance, which Ghostty consumes when
+    // the textarea focuses on pointerdown (xterm did this on mousedown).
     await this.page.evaluate(
       ({ sel, i }: { sel: string; i: number }) => {
         const tile = document
           .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
           .item(i) as HTMLElement | null;
         if (!tile) throw new Error(`canvas tile ${i + 1} not found`);
-        const rect = tile.getBoundingClientRect();
-        tile.dispatchEvent(
-          new MouseEvent("mousedown", {
-            clientX: rect.left + rect.width / 2,
-            clientY: rect.top + rect.height / 2,
-            bubbles: true,
-          }),
-        );
+        const screen =
+          (tile.querySelector(
+            "[data-terminal-screen]",
+          ) as HTMLElement | null) ?? tile;
+        const rect = screen.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
+        const opts = { button: 0, clientX, clientY, bubbles: true };
+        screen.dispatchEvent(new PointerEvent("pointerdown", opts));
+        screen.dispatchEvent(new MouseEvent("mousedown", opts));
+        screen.dispatchEvent(new MouseEvent("click", opts));
       },
       { sel: CANVAS_SELECTOR, i: index - 1 },
     );
@@ -990,16 +994,16 @@ When(
 );
 
 Then(
-  "exactly {int} canvas tile(s) should use the webgl renderer",
-  async function (this: KoluWorld, expected: number) {
+  "exactly {int} canvas tile(s) should use the {word} renderer",
+  async function (this: KoluWorld, expected: number, renderer: string) {
     await this.page.waitForFunction(
-      ({ sel, want }: { sel: string; want: number }) => {
+      ({ sel, want, r }: { sel: string; want: number; r: string }) => {
         const tiles = document.querySelectorAll(
-          `${sel} [data-terminal-id][data-renderer="webgl"]`,
+          `${sel} [data-terminal-id][data-renderer="${r}"]`,
         );
         return tiles.length === want;
       },
-      { sel: CANVAS_SELECTOR, want: expected },
+      { sel: CANVAS_SELECTOR, want: expected, r: renderer },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -1599,22 +1603,26 @@ When(
     // xterm.js's `onMount` awaits `document.fonts.load` before creating
     // the `.xterm` DOM node, so on a slow host the element may not exist
     // when this step first fires. Poll until it does, then tag it.
+    // Query canvas tiles, not `[data-visible]` terminals: in maximized
+    // mode the covered tile stays mounted but drops `data-visible`.
     await this.page.waitForFunction(
-      ({ sel, i }: { sel: string; i: number }) => {
+      ({ tileSel, i }: { tileSel: string; i: number }) => {
         const tile = document
-          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .querySelectorAll(tileSel)
           .item(i) as HTMLElement | null;
-        return tile?.querySelector(".xterm") != null;
+        return tile?.querySelector("[data-terminal-engine]") != null;
       },
-      { sel: CANVAS_SELECTOR, i: index - 1 },
+      { tileSel: CANVAS_TILE_SELECTOR, i: index - 1 },
       { timeout: POLL_TIMEOUT },
     );
     await this.page.evaluate(
-      ({ sel, i }: { sel: string; i: number }) => {
+      ({ tileSel, i }: { tileSel: string; i: number }) => {
         const tile = document
-          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .querySelectorAll(tileSel)
           .item(i) as HTMLElement | null;
-        const xterm = tile?.querySelector(".xterm") as HTMLElement | null;
+        const xterm = tile?.querySelector(
+          "[data-terminal-engine]",
+        ) as HTMLElement | null;
         if (!xterm) throw new Error(`xterm element in tile ${i + 1} not found`);
         const tag = `xterm-${Date.now()}-${Math.random()}`;
         xterm.setAttribute("data-stability-tag", tag);
@@ -1622,7 +1630,7 @@ When(
           window as unknown as { __xtermStabilityTag?: string }
         ).__xtermStabilityTag = tag;
       },
-      { sel: CANVAS_SELECTOR, i: index - 1 },
+      { tileSel: CANVAS_TILE_SELECTOR, i: index - 1 },
     );
   },
 );
@@ -1650,7 +1658,9 @@ Then(
           .__xtermStabilityTag;
         if (!tag) return false;
         return (
-          document.querySelector(`.xterm[data-stability-tag="${tag}"]`) !== null
+          document.querySelector(
+            `[data-terminal-engine][data-stability-tag="${tag}"]`,
+          ) !== null
         );
       },
       undefined,

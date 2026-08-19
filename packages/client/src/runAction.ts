@@ -125,7 +125,7 @@ export function runOwnedAction<A>(
 
 /** Run a program and hand back its VALUE as a `Promise` — the edge for the three
  *  seams whose contract is a Promise and is not this package's to change:
- *  Solid's own `createResource` fetcher, `@kolu/xterm-kit`'s backfill `fetch`
+ *  Solid's own `createResource` fetcher, `@kolu/ghostty-kit`'s backfill `fetch`
  *  (the kit is deliberately outside Effect), and `@kolu/surface`'s
  *  `pollOnChange`, whose `(signal) => Promise<T>` read seam is DELIBERATELY
  *  Promise-shaped (locked decision 1; the surface wave's `connectPollNode`

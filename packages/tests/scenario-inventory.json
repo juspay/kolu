@@ -7514,6 +7514,102 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "1be13ca552dbddf44e112ff6f368fea611dfbd0c"
+    },
+    {
+      "revisionId": "revision-d31fa51c9eb080d6fbfe",
+      "scenarioKey": "scenario-c9aeefba481a86ade42b",
+      "feature": "features/canvas.feature",
+      "scenario": "A held tile's active split inherits its WebGL renderer",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "21760ad6a62e252def10a17cb2ff4894ab34f9e1a4e224680fedd58cd7d37482",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f44324cc06099aa1e4304d2841e4dc389d99957e"
+    },
+    {
+      "revisionId": "revision-4bee36be63e6ae3c9dad",
+      "scenarioKey": "scenario-231abe14536bf83d1428",
+      "feature": "features/canvas.feature",
+      "scenario": "Renderer preference \"webgl\" forces WebGL on every tile",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "8621321e77db46cb01f7c3ae506d2d9539a6b498359f9d5d5e9a86aa7d57a084",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f44324cc06099aa1e4304d2841e4dc389d99957e"
+    },
+    {
+      "revisionId": "revision-5aaf5412c13ab93a96b2",
+      "scenarioKey": "scenario-4960f8b04411fc06e76e",
+      "feature": "features/canvas.feature",
+      "scenario": "WebGL is admitted to the whole working set under the context cap",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d82a3981036be6b108efdac4bb242e1d7099d30cb09068583ce8261dce520496",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f44324cc06099aa1e4304d2841e4dc389d99957e"
+    },
+    {
+      "revisionId": "revision-1b53e342b44931f2bf86",
+      "scenarioKey": "scenario-445f035a9ebfd715ce65",
+      "feature": "features/preferences.feature",
+      "scenario": "Terminal renderer preference swaps the active tile and persists",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "924b7b1e2c704d53c3759b1e77ac299bec251c782e5c605a886b306c67878b29",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f44324cc06099aa1e4304d2841e4dc389d99957e"
+    },
+    {
+      "revisionId": "revision-23c07c2d9b7228b3455d",
+      "scenarioKey": "scenario-3245b2b1aee733c083e9",
+      "feature": "features/terminal.feature",
+      "scenario": "Initial resize is sent to PTY on connect",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "608022168a7d1b0139aad1deb10203091a38cbc3198a178f7e4c6fa1fe01b027",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "e4531982a4ce8b15b645d2865bf91cd1141d3e98"
+    },
+    {
+      "revisionId": "revision-2927a457fc798715e058",
+      "scenarioKey": "scenario-36a54b8fbfe7414555a4",
+      "feature": "features/file-ref-link.feature",
+      "scenario": "Clicking a slash-containing path with no line opens the file with no selection",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "054973717450250fa7088400e5171f518a11b1765695d6ce6205d58a8ed58d95",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "e8d494e80cc904c88c141f516e49b65e97bc92c1"
+    },
+    {
+      "revisionId": "revision-4b6a0fc73863b5a568c8",
+      "scenarioKey": "scenario-36a54b8fbfe7414555a4",
+      "feature": "features/file-ref-link.feature",
+      "scenario": "Clicking a slash-containing path with no line opens the file with no selection",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "2f59349ed3da461bfc7d44056f149770ddcfcf7294c0a95426df6474f3cc4258",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c581718427e3cc5d8a32130d76a702386f486c92"
+    },
+    {
+      "revisionId": "revision-ea82db64932cdb794a27",
+      "scenarioKey": "scenario-c718f43e775b59375bab",
+      "feature": "features/canvas.feature",
+      "scenario": "Clicking the body of a background canvas tile activates it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "7007b8ae7dcf3931fccee25762506e22c19fa993e32b73be35d8112b0bcb7187",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "a869058bc102945282465a58754770243d5f241e"
     }
   ]
 }

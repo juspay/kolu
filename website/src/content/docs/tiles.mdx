@@ -1,6 +1,6 @@
 ---
 title: Inside a Tile
-description: "Each canvas tile is a full terminal: splits and tabs, per-terminal font zoom, WebGL rendering with inline images, clickable URLs, and self-healing output."
+description: "Each canvas tile is a full terminal: splits and tabs, per-terminal font zoom, libghostty wasm painting, and self-healing output."
 order: 43
 section: Use Kolu
 koluHero:
@@ -11,7 +11,7 @@ koluHero:
 import LinkCard from "../../components/docs/LinkCard.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 
-A tile is a full terminal, not a preview — a real xterm.js instance with
+A tile is a full terminal, not a preview — a real libghostty wasm instance with
 everything you'd expect from a native one. The title bar carries the same
 **repo monogram** and a short colour spine as the dock, so identity agrees
 everywhere you look.
@@ -43,11 +43,10 @@ the same size.
 
 ## Rendering
 
-- **WebGL rendering** with a canvas fallback, kept on your whole working set of
-  terminals at once so switching between them never churns GPU contexts.
-- **Clickable URLs** — a long URL that wraps across lines survives resizes and
-  always opens whole.
-- **Unicode 11** and **inline images** (sixel, iTerm2, kitty).
+- **libghostty wasm** parses every PTY byte; the tile paints that engine's
+  official render-state cells with WebGL. There is no second parser.
+- **Themes** still apply per tile — colours come from the same theme pack as
+  before.
 
 ## Output keeps flowing
 

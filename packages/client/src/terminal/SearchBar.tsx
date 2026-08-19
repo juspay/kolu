@@ -1,11 +1,7 @@
-/** Search bar overlay for find-in-terminal. Wraps @xterm/addon-search. */
+/** Search bar overlay for find-in-terminal. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import type {
-  ISearchOptions,
-  ISearchResultChangeEvent,
-  SearchAddon,
-} from "@xterm/addon-search";
+import type { SearchAddonShim } from "@kolu/ghostty-kit/solid";
 import {
   type Component,
   createEffect,
@@ -19,7 +15,7 @@ import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import Tip from "../ui/Tip";
 
-const SEARCH_OPTIONS: ISearchOptions = {
+const SEARCH_OPTIONS = {
   incremental: true,
   decorations: {
     matchBackground: "#FFD33D44",
@@ -52,7 +48,7 @@ function IconButton(props: {
 
 /** Find-in-terminal search bar — overlays the active terminal with incremental search, match navigation, and result count. */
 const SearchBar: Component<{
-  searchAddon: SearchAddon;
+  searchAddon: SearchAddonShim;
   open: boolean;
   onClose: () => void;
   /** Fired right before a find call moves the viewport to a match — lets
@@ -65,7 +61,7 @@ const SearchBar: Component<{
   const [resultCount, setResultCount] = createSignal(0);
 
   const disposable = props.searchAddon.onDidChangeResults(
-    (e: ISearchResultChangeEvent) => {
+    (e: { resultIndex: number; resultCount: number }) => {
       setResultIndex(e.resultIndex);
       setResultCount(e.resultCount);
     },

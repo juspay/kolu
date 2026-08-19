@@ -43,20 +43,22 @@ const tags =
 // only; the two coexist.
 const retry = parseInt(process.env.CUCUMBER_RETRY || "0", 10);
 
+/** pretty on stderr dumps every scenario and overflows the linux odu
+ *  keep-head log cap, so CI (non-TTY) is progress-only. */
+export function cucumberFormat(stderrIsTty = process.stderr.isTTY) {
+  return [
+    "progress-bar",
+    ...(stderrIsTty ? ["pretty:/dev/stderr"] : []),
+    "html:reports/report.html",
+    "message:reports/messages.ndjson",
+  ];
+}
+
 export const ui = {
   ...(!cliHasFeatureArgs && { paths: ["features/**/*.feature"] }),
   import: ["step_definitions/**/*.ts", "support/**/*.ts"],
   tags,
-  // progress-bar (stdout): % completion; pretty (stderr): inline failures as they happen
-  format: [
-    "progress-bar",
-    "pretty:/dev/stderr",
-    "html:reports/report.html",
-    // The official Cucumber message stream is the single source for Wave 0
-    // attempt timing. governance/runE2e.ts reduces it after every run, even
-    // when Cucumber fails, so retries cannot disappear behind a final result.
-    "message:reports/messages.ndjson",
-  ],
+  format: cucumberFormat(),
   formatOptions: { snippetInterface: "async-await" },
   ...(parallel > 1 && { parallel }),
   ...(retry > 0 && { retry }),

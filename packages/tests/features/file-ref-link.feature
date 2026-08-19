@@ -164,10 +164,24 @@ Feature: File-ref autolinking in terminal
     And no line should be selected in the file content
 
   Scenario: Clicking a slash-containing path with no line opens the file with no selection
+    # Mount the tree BEFORE the slash-path click. A nested file-ref on a
+    # fresh open resolves once against the first `fsListAll` snapshot; on
+    # darwin that snapshot can land before the walk has `src/notes.txt`,
+    # the request is consumed as not-found, and the Code tab stays on the
+    # empty browse hint. Same one-shot race the folder-ref scenarios
+    # already work around — the no-line *file* contract is what this
+    # scenario owns, and it still holds against an already-mounted tree.
+    # `readme.txt` is a sibling, not under `src/`, so it cannot mask the
+    # slash-path hit-test.
     When I run "rm -rf /tmp/kolu-file-ref-slash-noline && git init /tmp/kolu-file-ref-slash-noline && cd /tmp/kolu-file-ref-slash-noline"
     And I run "git commit --allow-empty -m init"
-    And I run "mkdir -p src && printf 'alpha\nbeta\ngamma\n' > src/notes.txt"
-    And I run "echo 'see src/notes.txt for context'"
+    And I run "mkdir -p src"
+    And I run "printf 'alpha\nbeta\ngamma\n' > src/notes.txt"
+    And I run "printf 'seed\n' > readme.txt"
+    And I run "echo 'open readme.txt first'"
+    And I trigger the terminal file-ref link "readme.txt"
+    Then the file browser should show a directory "src"
+    When I run "echo 'see src/notes.txt for context'"
     And I trigger the terminal file-ref link "src/notes.txt"
     Then the right panel should be visible
     And the Code tab should be active

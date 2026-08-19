@@ -94,7 +94,7 @@ interface AgentEngineState {
 }
 
 /** The terminal's current agent run, as the ownership arbiter needs to see it. */
-interface AgentEpisode {
+export interface AgentEpisode {
   /** Epoch-ms the run began, or null when kolu cannot honestly say. */
   since: number | null;
   /** The foreground pid the run began with — the transition this was stamped on. */
@@ -108,6 +108,18 @@ interface AgentEpisode {
    *  for a stranger's newer session. That is #2057's own second symptom, so the
    *  honest answer there is null. */
   watchedShellIdle: boolean;
+}
+
+/** Date an episode on the watched idle→busy edge only. A later busy→busy
+ *  fg-pid change (pager, editor, rebase) must not restamp `since`. */
+export function stampEpisode(
+  episode: AgentEpisode,
+  foregroundPid: number,
+): void {
+  episode.pid = foregroundPid;
+  if (!episode.watchedShellIdle) return;
+  episode.since = Date.now();
+  episode.watchedShellIdle = false;
 }
 
 /** A fresh, empty engine state — the producer is memoryless, so this is what
@@ -721,8 +733,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // threading that through would need a `startedAt` on `SensorInputs` that an
     // ADOPTED entry cannot honestly fill, so it stays a follow-up rather than a
     // field that lies half the time.
-    episode.pid = fg.foregroundPid;
-    episode.since = episode.watchedShellIdle ? Date.now() : null;
+    stampEpisode(episode, fg.foregroundPid);
   }
 
   function reconcile() {
@@ -856,9 +867,9 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // shell-idle-ness — is a fresh transition that must emit rather than dedup.
     lastAbsenceShellIdle = null;
     plog.debug({ session: nextKey }, "agent session matched");
-    current = {
-      key: nextKey,
-      watcher: adapter.createWatcher(
+    let watcher: ReturnType<typeof adapter.createWatcher>;
+    try {
+      watcher = adapter.createWatcher(
         next,
         (info) => {
           // The watcher's data-source-derived info is the source of truth; the
@@ -899,7 +910,15 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
           emitAgentValue(agentState, emit, info as unknown as AgentInfo);
         },
         plog,
-      ),
+      );
+    } catch (err) {
+      plog.error({ err }, "createWatcher failed — releasing the claim");
+      releaseTerminal(adapter.kind, terminalId);
+      return;
+    }
+    current = {
+      key: nextKey,
+      watcher,
       stopPoll: startScreenScrapePoll(),
     };
   }

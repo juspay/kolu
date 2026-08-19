@@ -116,7 +116,7 @@ let
     "@kolu/shell-quote" = ../packages/shell-quote;
     "@kolu/url-shape" = ../packages/url-shape;
     "@kolu/log" = ../packages/log;
-    "@kolu/xterm-kit" = ../packages/xterm-kit;
+    "@kolu/ghostty-kit" = ../packages/ghostty-kit;
   };
   # Only members that are paths in THIS repo can ride a repo-rooted fileset; the
   # pins are grafted into the build tree by `src` below instead. Split off
@@ -175,7 +175,7 @@ let
     pnpm = pkgs.pnpm-build;
     # Platform-independent. `just ci::pnpm-hash-fresh` forces this fetcher to
     # re-execute so a changed lockfile cannot ride a stale binary-cache result.
-    hash = "sha256-zlz2wNIblnUKkboqgoX1z/6EUDfa+HX6h3DqISSuzYs=";
+    hash = "sha256-rzmnqqr8XedYIJSerT3hfBfUacIp9AmQD3MrjWwmQkw=";
     fetcherVersion = 3;
   };
 in

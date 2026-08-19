@@ -38,9 +38,7 @@
       "dompurify": "^3.4.12",
       "hono": "^4.12.27",
       "@modelcontextprotocol/sdk>@hono/node-server": "^2.0.10",
-      "@anthropic-ai/sdk": "^0.91.1",
-      "@xterm/xterm": "6.1.0-beta.300",
-      "@xterm/addon-webgl": "0.20.0-beta.297"
+      "@anthropic-ai/sdk": "^0.91.1"
     }
   }
 }

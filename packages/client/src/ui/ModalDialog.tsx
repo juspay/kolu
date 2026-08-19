@@ -35,7 +35,15 @@ export function refocusTerminal() {
   // CanvasTile's data-active convention and won't pick up sub-panel
   // headers / chrome tabs / mode chips that also set data-active in
   // their own format (#845).
-  (getActiveTerminalNode() ?? getFirstTerminalNode())?.click();
+  const node = getActiveTerminalNode() ?? getFirstTerminalNode();
+  // Ghostty's click handler lives on the inner canvas; a click() on the
+  // wrapper never focuses the helper textarea. Focus the input directly.
+  const input = node?.querySelector<HTMLElement>("[data-terminal-input]");
+  if (input) {
+    input.focus();
+    return;
+  }
+  node?.click();
 }
 
 /** Refocus the terminal after a dialog closes — but only if no OTHER dialog

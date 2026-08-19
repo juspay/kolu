@@ -721,17 +721,24 @@ async function waitForViewText(
     // the already-final file while polling so the assertion still verifies the
     // live watcher → pulse → requery path, without making correctness depend on
     // one kernel edge. The 500ms cadence clears both 150ms trailing debounces.
-    await pollFor({
-      observe: () => world.page.evaluate<boolean>(containsExpected),
-      isDone: (found) => found,
-      onTick: () => nudgeFiles([nudgePath]),
-      onTimeout: (_last, elapsedMs) =>
-        new Error(
-          `${testid} never rendered ${JSON.stringify(expected)} within ${elapsedMs}ms while nudging ${nudgePath}`,
-        ),
-      intervalMs: 500,
-      timeoutMs: HYDRATION_TIMEOUT,
-    });
+    try {
+      await pollFor({
+        observe: () => world.page.evaluate<boolean>(containsExpected),
+        isDone: (found) => found,
+        onTick: () => nudgeFiles([nudgePath]),
+        onTimeout: (_last, elapsedMs) =>
+          new Error(
+            `${testid} never rendered ${JSON.stringify(expected)} within ${elapsedMs}ms while nudging ${nudgePath}`,
+          ),
+        intervalMs: 500,
+        timeoutMs: HYDRATION_TIMEOUT,
+      });
+    } catch (err) {
+      throw new Error(
+        `${err instanceof Error ? err.message : String(err)}; Code-tab facts: ${await codeTabTimeoutDiagnostic(world)}`,
+        { cause: err },
+      );
+    }
     return;
   }
   await world.page.waitForFunction(containsExpected, undefined, {

@@ -62,11 +62,14 @@ import { useCanvasViewport } from "./viewport/useCanvasViewport";
 const MIN_W = 300;
 const MIN_H = 200;
 
-/** Wheel gestures that start inside an xterm tile should scroll the terminal,
- *  not pan the canvas. The viewport's ownership tracker holds this decision
- *  for ~150ms so mid-gesture cursor drift doesn't hand off. */
+/** Wheel gestures that start inside a terminal tile should scroll the
+ *  terminal, not pan the canvas. The viewport's ownership tracker holds
+ *  this decision for ~150ms so mid-gesture cursor drift doesn't hand off. */
 function isWheelTargetTerminal(e: WheelEvent): boolean {
-  return e.target instanceof Element && e.target.closest(".xterm") !== null;
+  return (
+    e.target instanceof Element &&
+    e.target.closest("[data-terminal-engine]") !== null
+  );
 }
 
 const TerminalCanvas: Component<{

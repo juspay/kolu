@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { reduceMessageFile } from "./timing";
+import { formatE2eVerdict, reduceMessageFile } from "./timing";
 
 const packageRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const reports = path.join(packageRoot, "reports");
@@ -25,17 +25,24 @@ const result = spawnSync(
 let reductionFailed = false;
 try {
   const report = reduceMessageFile(messages, timing);
-  console.log(
-    `e2e timing: ${report.totals.executions} executions, ${report.totals.attempts} attempts, ${report.totals.retries} retries, ${Math.round(report.suiteDurationMs)} ms -> reports/e2e-timing.json`,
+  // writeSync: CI stdout is not a TTY so console.log is block-buffered
+  // and process.exit() discards the verdict (odu then looks like a
+  // mid-suite death).
+  writeSync(
+    1,
+    `e2e timing: ${report.totals.executions} executions, ${report.totals.attempts} attempts, ${report.totals.retries} retries, ${Math.round(report.suiteDurationMs)} ms -> reports/e2e-timing.json\n${formatE2eVerdict(report)}\n`,
   );
 } catch (error) {
   reductionFailed = true;
-  console.error("e2e timing reduction failed", error);
+  writeSync(
+    2,
+    `e2e timing reduction failed ${error instanceof Error ? error.stack : String(error)}\n`,
+  );
 }
 
 if (result.error) throw result.error;
 if (result.signal) {
-  console.error(`cucumber terminated by ${result.signal}`);
+  writeSync(2, `cucumber terminated by ${result.signal}\n`);
   process.exit(1);
 }
 process.exit(result.status === 0 && !reductionFailed ? 0 : result.status || 1);

@@ -198,9 +198,11 @@ agent-bake: nix
     {{ nix_shell }} just --no-deps test-agent-bake
 
 # `just test` builds `.#koluBin` itself (justfile `test` recipe). Depend on
-# `nix` as well as the shared pnpm install so that build is an already-realized
-# lookup, not a concurrent Nix build.
-e2e: install nix
+# `nix` so that build is an already-realized lookup, and on `daemon` so the
+# kaval/padi vitest fork-storm is not sharing the box with N Chromium +
+# ghostty-vt.wasm worlds (that overlap SIGKILLed linux e2e mid-suite with
+# no Cucumber verdict).
+e2e: install nix daemon
     # CUCUMBER_RETRY is the residual safety net for darwin-runner-load flakes
     # that survive the structural fixes in #955. Darwin runs at 2, linux at 1:
     # the darwin residual is an fs-event-drop class (e.g. the live-reload

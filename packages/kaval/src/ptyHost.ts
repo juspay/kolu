@@ -1,8 +1,8 @@
 /**
  * `PtyHost` — the multi-client PTY-owner primitive.
  *
- * Owns, per PTY: a `node-pty` child, an `@xterm/headless` screen mirror
- * (for cheap late-join snapshots — ~4KB of serialized VT vs replaying raw
+ * Owns, per PTY: a `node-pty` child, a libghostty-vt wasm screen mirror
+ * (for cheap late-join snapshots — formatted VT vs replaying raw
  * scrollback), and the VT-derived event taps the rest of kolu reads off a
  * terminal:
  *
@@ -19,21 +19,16 @@
  * It also knows nothing about shell-env preparation: callers hand it a
  * ready `shell` / `args` / `env` (kolu builds those via `kolu-pty`).
  *
- * Transport-agnostic and dependency-light (node-pty + @xterm + a logger),
+ * Transport-agnostic and dependency-light (node-pty + libghostty-vt + a logger),
  * so the same primitive drops into an in-process backend today and a
  * standalone agent later.
  */
 
 import { randomUUID } from "node:crypto";
-import { createRequire } from "node:module";
+import { createEngine, type Engine, takeCompleteVt } from "@kolu/ghostty-kit";
 import { shellJoin } from "@kolu/shell-quote";
 import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
 import type { Logger } from "@kolu/surface-daemon";
-import {
-  createMirrorAnchor,
-  type MirrorAnchor,
-  snapToWrapHead,
-} from "@kolu/xterm-kit";
 import { Effect, type Scope, Stream } from "effect";
 import * as pty from "node-pty";
 import { FanOut, type SubscriberOverflow } from "./fanOut.ts";
@@ -74,40 +69,22 @@ export const SNAPSHOT_SCROLLBACK = 1_000;
  *  one. Bounded so the map can't grow without limit. */
 const MAX_EXIT_TOMBSTONES = 1024;
 
-// @xterm packages ship CJS only — use createRequire for clean ESM interop.
-const require = createRequire(import.meta.url);
-const { Terminal } =
-  require("@xterm/headless") as typeof import("@xterm/headless");
-const { SerializeAddon } =
-  require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
-
-/** The mirror's absolute-line bookkeeping — the eviction origin, the RIS
- *  re-anchor, the reflow generation, and the wrap-head snap — lives in
- *  `@kolu/xterm-kit`'s {@link createMirrorAnchor} / {@link snapToWrapHead} (the
- *  fail-loud reach into `_core.buffers.normal.lines`, pinned by the kit's
- *  `xtermMirrorContract.test.ts`). kaval is a consumer: each {@link Entry} owns
- *  an anchor, driven from the write callback ({@link MirrorAnchor.reanchorIfReset})
- *  and the resize path ({@link MirrorAnchor.bumpReflow}). */
-
 /** The terminal-identity string the headless PTY reports in its XTVERSION
  *  (CSI > q) reply. The DCS reply is built from this — see the XTVERSION
  *  handler in {@link createPtyHost} — so the byte layout lives in one place.
  *  Exported so tests assert against the same source rather than a copy. */
-export const HEADLESS_TERM_ID = "xterm-headless(kolu)";
+export const HEADLESS_TERM_ID = "libghostty-vt(kolu)";
 
 /** Opaque PTY identifier. */
 export type PtyId = string;
 
-/** Extract plain text from an xterm buffer within a line range.
+/** Extract plain text from a line-addressable buffer within a line range.
  *
  *  `tailLines` is a convenience for "the last N rendered lines": it pins
  *  `startLine` to `buffer.length - tailLines` (clamped at 0), the only place
- *  the live buffer length is known. Screen-scrape detectors that inspect only
- *  the screen bottom pass it so a long scrollback (the configured 50k lines)
- *  isn't allocated, joined, and shipped every poll just to be discarded. This
- *  positional leaf is the single translation target for {@link ScreenExtent};
- *  callers above pick exactly one bound, so `startLine` and `tailLines` never
- *  arrive together. */
+ *  the live buffer length is known. This positional leaf is the single
+ *  translation target for {@link ScreenExtent}; callers above pick exactly one
+ *  bound, so `startLine` and `tailLines` never arrive together. */
 export function getScreenText(
   buffer: {
     length: number;
@@ -128,6 +105,37 @@ export function getScreenText(
     lines.push(buffer.getLine(i)?.translateToString(true) ?? "");
   }
   return lines.join("\n");
+}
+
+const XTVERSION_RE = /\x1b\[>(\d*)q/g;
+const DA1_RE = /\x1b\[\??0?c/g;
+const DSR_STATUS_RE = /\x1b\[5n/g;
+const DSR_CURSOR_RE = /\x1b\[6n/g;
+
+export function answerDeviceQueries(
+  data: string,
+  write: (s: string) => void,
+  cursor?: { x: number; y: number },
+): void {
+  XTVERSION_RE.lastIndex = 0;
+  for (const m of data.matchAll(XTVERSION_RE)) {
+    const ps = m[1] === "" ? 0 : Number(m[1]);
+    if (Number.isFinite(ps) && ps > 0) continue;
+    write(`\x1bP>|${HEADLESS_TERM_ID}\x1b\\`);
+  }
+  DA1_RE.lastIndex = 0;
+  if (DA1_RE.test(data)) write("\x1b[?1;2c");
+  if (data.includes("\x1b[>c")) write("\x1b[>0;276;0c");
+  DSR_STATUS_RE.lastIndex = 0;
+  if (DSR_STATUS_RE.test(data)) write("\x1b[0n");
+  DSR_CURSOR_RE.lastIndex = 0;
+  if (DSR_CURSOR_RE.test(data)) {
+    const row = (cursor?.y ?? 0) + 1;
+    const col = (cursor?.x ?? 0) + 1;
+    write(`\x1b[${row};${col}R`);
+  }
+  if (data.includes("\x1b[?2004$p")) write("\x1b[?2004;1$y");
+  if (data.includes("\x1bP$qm\x1b\\")) write("\x1bP1$r0m\x1b\\");
 }
 
 /** Which slice of the rendered buffer a screen-text read returns — the single
@@ -541,8 +549,8 @@ export interface PtyHost {
 interface Entry {
   id: PtyId;
   proc: pty.IPty;
-  headless: InstanceType<typeof Terminal>;
-  serialize: InstanceType<typeof SerializeAddon>;
+  engine: Engine;
+  scrollback: number;
   /** Memoized attach snapshot for the current publish-epoch — so a burst of
    *  attaches to one PTY between two mirror mutations (a reconnect storm against
    *  an idle terminal) shares a single serialize instead of one per attach.
@@ -554,15 +562,22 @@ interface Entry {
    *  instead of the full-mirror `snapshotCache`. Shares the same epoch invariant:
    *  read/invalidated only through `boundedSnapshotOf` / `invalidateSnapshot`. */
   boundedSnapshotCache: { snapshot: string; topLine: number } | undefined;
+  /** Incomplete CSI/OSC suffix waiting for the next PTY chunk. */
+  queryTail: string;
   /** Absolute-line coordinates over this mirror — the eviction origin (the stable
    *  coordinate `getHistory` pages by: an absolute index is `anchor.baseLine() +
    *  localBufferIndex`) and the reflow generation that stales a cursor a WIDTH
    *  resize or RIS reset renumbered (so a client whose mirror a foreign reflow
    *  moved HALTS backfill rather than splicing a duplicated/skipped band, F3).
-   *  Driven from the write callback ({@link MirrorAnchor.reanchorIfReset} detects
-   *  the RIS buffer swap) and the resize path ({@link MirrorAnchor.bumpReflow} on
-   *  a cols change); disposed on teardown. See {@link createMirrorAnchor}. */
-  anchor: MirrorAnchor;
+   *  Driven from the write path (engine.reanchorIfReset detects a RIS drop)
+   *  and the resize path (bumpReflow on a cols change). */
+  anchor: {
+    baseLine(): number;
+    reflowEpoch(): number;
+    bumpReflow(): void;
+    reanchorIfReset(): void;
+    dispose(): void;
+  };
   cwd: string;
   title: string;
   lastActivity: number;
@@ -766,7 +781,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.titleFanOut.closeUnsafe();
     entry.commandRunFanOut.closeUnsafe();
     entry.foregroundFanOut.closeUnsafe();
-    entry.headless.dispose();
+    entry.engine.free();
     if (entry.onDispose) {
       try {
         entry.onDispose();
@@ -822,38 +837,64 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       );
     }
 
-    // Headless terminal parses PTY output into screen state for
-    // serialization. allowProposedApi is required for SerializeAddon to
-    // access the buffer.
-    const headless = new Terminal({
+    const engine = createEngine({
       cols,
       rows,
       scrollback,
-      // Match the client (Terminal.tsx): rewrap the cursor's wrapped line on a
-      // narrowing resize instead of truncating it. The serialized snapshot this
-      // terminal produces is the scrollback a client restores on attach/
-      // reconnect, so a URL left on the cursor line when the PTY resizes must
-      // survive here too — otherwise the restored buffer hands back a clipped
-      // link even though the live client got it right.
-      reflowCursorLine: true,
-      allowProposedApi: true,
+      onWritePty: (bytes) => {
+        const response = new TextDecoder().decode(bytes);
+        if (!shouldForwardHeadlessReply(response)) return;
+        proc.write(response);
+      },
+      onTitle: (title) => {
+        const e = entries.get(id);
+        if (!e) return;
+        e.title = title;
+        log.debug({ id, title }, "title changed (OSC 0/2)");
+        e.titleFanOut.publishUnsafe(title);
+        sampleForeground(e);
+      },
+      onPwd: (pwd) => {
+        const e = entries.get(id);
+        if (!e) return;
+        try {
+          const url = new URL(pwd);
+          if (url.protocol !== "file:") return;
+          e.cwd = decodeURIComponent(url.pathname);
+          log.debug({ id, cwd: e.cwd }, "cwd changed (OSC 7)");
+          e.cwdFanOut.publishUnsafe(e.cwd);
+        } catch {
+          // Ignore malformed OSC 7 data.
+        }
+      },
+      onCommandRun: (command) => {
+        const e = entries.get(id);
+        if (!e) return;
+        log.debug({ id, command }, "command run (OSC 633;E)");
+        e.lastCommand = command;
+        e.lastCommandShellJoin = false;
+        e.commandRunFanOut.publishUnsafe(command);
+        scheduleForegroundBurst(e);
+      },
     });
-    const serialize = new SerializeAddon();
-    headless.loadAddon(serialize);
 
     const entry: Entry = {
       id,
       proc,
-      headless,
-      serialize,
+      engine,
+      scrollback,
       resizeMuteUntil: 0,
       lastActivityEdgeAt: 0,
       snapshotCache: undefined,
       boundedSnapshotCache: undefined,
-      // Absolute-line origin + reflow generation over the headless mirror. The
-      // anchor subscribes the eviction pin immediately (see createMirrorAnchor);
-      // the write callback and resize path drive it below.
-      anchor: createMirrorAnchor(headless),
+      queryTail: "",
+      anchor: {
+        baseLine: () => engine.baseLine(),
+        reflowEpoch: () => engine.reflowEpoch(),
+        bumpReflow: () => engine.bumpReflow(),
+        reanchorIfReset: () => engine.reanchorIfReset(),
+        dispose: () => {},
+      },
       cwd: spawnOpts.cwd,
       title: "",
       lastActivity: Date.now(),
@@ -896,114 +937,16 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       entry.commandRunFanOut.publishUnsafe(command);
     }
 
-    // Dispose the anchor's live `onTrim` subscription on teardown. The anchor
-    // keeps a single indirection internally (a RIS swap replaces its handle in
-    // place), so this stays one stable disposable, never one-per-reset (F5).
     entry.disposables.push({ dispose: () => entry.anchor.dispose() });
 
-    // OSC 7 (CWD reporting) — the rc wrapper kolu injects makes the shell
-    // emit these on every prompt.
-    entry.disposables.push(
-      headless.parser.registerOscHandler(7, (data: string) => {
-        try {
-          const url = new URL(data);
-          if (url.protocol === "file:") {
-            entry.cwd = decodeURIComponent(url.pathname);
-            log.debug({ id, cwd: entry.cwd }, "cwd changed (OSC 7)");
-            entry.cwdFanOut.publishUnsafe(entry.cwd);
-          }
-        } catch {
-          // Ignore malformed OSC 7 data.
-        }
-        return true;
-      }),
-    );
-
-    // OSC 0/2 title changes — kolu's preexec hook emits OSC 2 before each
-    // command, signalling the foreground process may have changed.
-    entry.disposables.push(
-      headless.onTitleChange((title: string) => {
-        entry.title = title;
-        log.debug({ id, title }, "title changed (OSC 0/2)");
-        entry.titleFanOut.publishUnsafe(title);
-        // OSC 2 signals the foreground process may have changed — sample now.
-        sampleForeground(entry);
-      }),
-    );
-
-    // OSC 633 ; E ; <command> — VS Code's "exact command line" mark. The
-    // payload arrives as "E;<command>"; accept only the E sub-code so
-    // future VS Code sequences (A/B/C/D) pass through untouched.
-    entry.disposables.push(
-      headless.parser.registerOscHandler(633, (data: string) => {
-        if (!data.startsWith("E;")) return false;
-        const command = data.slice(2);
-        // DEBUG only: the raw command line is whatever the user typed,
-        // including any secrets; consumers normalize before logging at
-        // higher levels.
-        log.debug({ id, command }, "command run (OSC 633;E)");
-        // Retain the command BEFORE publishing so the synchronous
-        // `getLastCommand` is already current for anyone the publish wakes. A 633
-        // line is raw shell (string-argv), so it clears the shellJoin-seed dialect
-        // even if it overwrites a command-rooted PTY's seed (precedence).
-        entry.lastCommand = command;
-        entry.lastCommandShellJoin = false;
-        entry.commandRunFanOut.publishUnsafe(command);
-        // The agent process forks AFTER this mark — re-sample foreground
-        // across the settle window so detection sees the real foreground.
-        scheduleForegroundBurst(entry);
-        return true;
-      }),
-    );
-
-    // XTVERSION (CSI > 0 q): identify the terminal. TUIs like Yazi query this
-    // synchronously at startup and block until they receive a DCS reply. The
-    // headless xterm has no built-in handler, so without this it never answers
-    // — and the browser xterm's reply is filtered out as a late duplicate
-    // (see @kolu/terminal-protocol responseFilter). Answer here so the PTY is
-    // never blocked.
-    entry.disposables.push(
-      headless.parser.registerCsiHandler(
-        { prefix: ">", final: "q" },
-        (params) => {
-          // XTVERSION is "CSI > Ps q" with Ps absent or 0. Mirror xterm's own
-          // sendXtVersion: answer only for Ps <= 0, but always consume the
-          // sequence so it never leaks downstream as a no-op CSI.
-          const ps = params[0];
-          if (typeof ps === "number" && ps > 0) return true;
-          proc.write(`\x1bP>|${HEADLESS_TERM_ID}\x1b\\`);
-          return true;
-        },
-      ),
-    );
-
-    // Forward device-query responses (DA1/DSR) from the headless terminal
-    // back to the PTY. TUIs like Yazi probe terminal capabilities at
-    // startup — the headless terminal answers immediately, avoiding a
-    // round trip to a (possibly absent) client. The forward/drop policy
-    // (CSI/DCS forward; OSC drop — nothing consumes a headless OSC answer,
-    // and a cooked tty echoes it as visible garbage) is shared protocol,
-    // owned by @kolu/terminal-protocol beside the client-side suppression
-    // it reciprocates.
-    entry.disposables.push(
-      headless.onData((response: string) => {
-        if (!shouldForwardHeadlessReply(response)) return;
-        proc.write(response);
-      }),
-    );
-
-    // PTY data → headless mirror → fan-out. Publish in the headless write
-    // *callback* (post-parse), not on arrival: `@xterm/headless`'s write is
-    // async — the buffer only reflects the data once the callback fires —
-    // so "published" means "parsed into the mirror". That makes attach()'s
-    // synchronous subscribe()+serialize() pair partition the byte stream at
-    // a single point with no gap and no overlap.
+    // PTY data → libghostty-vt mirror → fan-out. Write is synchronous, so
+    // "published" means "parsed into the mirror" — attach()'s
+    // subscribe()+serialize() pair still partitions the byte stream at a
+    // single point with no gap and no overlap.
     entry.disposables.push(
       proc.onData((data: string) => {
         const now = Date.now();
         entry.lastActivity = now;
-        // Meaningful-output edge — the resize-aware activity signal every consumer
-        // reads. Resize repaint excluded + throttled (see `shouldEmitActivityEdge`).
         if (
           shouldEmitActivityEdge(
             now,
@@ -1014,11 +957,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           entry.lastActivityEdgeAt = now;
           activityFanOut.publishUnsafe({ id });
         }
-        // Output-driven foreground sample (throttled) — the fallback for a
-        // hook-less terminal that emits no OSC title/633 to trigger the samplers
-        // above. A working agent streams output, so this captures its
-        // `foregroundPid` so agent detection can key on it; dedup makes a steady
-        // foreground free, and the throttle bounds `tcgetpgrp` under a flood.
         if (
           now - entry.lastForegroundSampleAt >=
           FOREGROUND_SAMPLE_THROTTLE_MS
@@ -1026,22 +964,39 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           entry.lastForegroundSampleAt = now;
           sampleForeground(entry);
         }
-        headless.write(data, () => {
-          // New bytes have parsed into the mirror, so the memoized snapshot is
-          // stale: clear it BEFORE publishing, so a cached value always implies
-          // "no parse since it was taken" — the invariant `attach()` leans on.
-          invalidateSnapshot(entry);
-          // A full reset (RIS / `ESC c`, terminfo `rs1` for xterm-256color — a
-          // plain `reset` emits it) replaces the normal buffer's line list,
-          // silently orphaning the eviction pin and renumbering absolutes with NO
-          // resize — so a pre-reset cursor would pass the epoch gate and
-          // getHistory would serve the live screen as "older history". The anchor
-          // detects the swap by identity and re-anchors (advance the origin past
-          // the discarded rows, re-subscribe the trim pin, bump the generation so
-          // every outstanding cursor re-seeds — F3 halt-not-corrupt).
-          entry.anchor.reanchorIfReset();
-          entry.data.publishUnsafe(data);
+        const spanned = takeCompleteVt(entry.queryTail, data);
+        entry.queryTail = spanned.leftover;
+        entry.engine.write(data);
+        answerDeviceQueries(spanned.complete, (s) => proc.write(s), {
+          x: entry.engine.cursor().x,
+          y: entry.engine.cursor().y,
         });
+        const title = entry.engine.getTitle();
+        if (title !== "" && title !== entry.title) {
+          entry.title = title;
+          log.debug({ id, title }, "title changed (OSC 0/2)");
+          entry.titleFanOut.publishUnsafe(title);
+          sampleForeground(entry);
+        }
+        const pwd = entry.engine.getPwd();
+        if (pwd !== "") {
+          try {
+            const url = new URL(pwd);
+            if (url.protocol === "file:") {
+              const next = decodeURIComponent(url.pathname);
+              if (next !== entry.cwd) {
+                entry.cwd = next;
+                log.debug({ id, cwd: entry.cwd }, "cwd changed (OSC 7)");
+                entry.cwdFanOut.publishUnsafe(entry.cwd);
+              }
+            }
+          } catch {
+            // Ignore malformed OSC 7 data.
+          }
+        }
+        invalidateSnapshot(entry);
+        entry.anchor.reanchorIfReset();
+        entry.data.publishUnsafe(data);
       }),
     );
 
@@ -1075,48 +1030,35 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   // `invalidateSnapshot` is the only place the memo is dropped, called from
   // EVERY mutator of the serialized state (the data-publish path and resize()).
   function snapshotOf(entry: Entry): string {
-    entry.snapshotCache ??= entry.serialize.serialize();
+    entry.snapshotCache ??= entry.engine.formatVt();
     return entry.snapshotCache;
   }
-  /** Local (buffer-relative) row the bounded attach snapshot starts at: the
-   *  recent-screenful window `max(0, len - SNAPSHOT_SCROLLBACK - rows)`, snapped
-   *  BACK over any wrapped-line continuation to the logical line's HEAD. A cut
-   *  that lands mid-wrapped-line would make `serialize` replay the continuation
-   *  as a fresh line (the wrap flag is lost with no preceding row present), so
-   *  the snapshot↔history seam would show a soft-wrapped line as a hard break —
-   *  the same corruption `getHistory` already snaps its own top edge away from.
-   *  A head is `isWrapped === false` (a blank line qualifies). */
-  function snapshotStartLocal(entry: Entry): number {
-    const normal = entry.headless.buffer.normal;
-    return snapToWrapHead(
-      normal,
-      Math.max(0, normal.length - SNAPSHOT_SCROLLBACK - entry.headless.rows),
-    );
+  function visualLines(entry: Entry): string[] {
+    const text = entry.engine.formatVt({ unwrap: false, trim: true });
+    const all = text.length === 0 ? [] : text.split(/\r?\n/);
+    const keep = entry.scrollback + entry.engine.rows;
+    return all.length <= keep ? all : all.slice(all.length - keep);
   }
-  /** Bounded attach snapshot (recent screenful) + its seed cursor, memoized per
-   *  publish-epoch just like {@link snapshotOf}. The `{scrollback}` form keeps
-   *  the addon's faithful restore (cursor position, modes, alt buffer) while
-   *  capping the scrollback depth. Read this — not `snapshotOf` — for attach: it
-   *  is what stops shipping the whole 10k-line mirror on every (re)attach. */
+
+  function droppedCount(entry: Entry): number {
+    const all = entry.engine.visualLineCount();
+    const keep = entry.scrollback + entry.engine.rows;
+    return Math.max(0, all - keep);
+  }
+
+  function snapshotStartLocal(entry: Entry): number {
+    const len = Math.max(1, visualLines(entry).length);
+    return Math.max(0, len - SNAPSHOT_SCROLLBACK - entry.engine.rows);
+  }
   function boundedSnapshotOf(entry: Entry): {
     snapshot: string;
     topLine: number;
   } {
     entry.boundedSnapshotCache ??= (() => {
       const start = snapshotStartLocal(entry);
-      const normal = entry.headless.buffer.normal;
-      // `serialize({scrollback: S})` emits the S scrollback rows above the screen
-      // plus the screen; pick S so the top emitted row is EXACTLY `start` (the
-      // wrap-safe head), so `topLine` names the true first row of the bytes and
-      // the seam is never bisected. Computed and serialized in one synchronous
-      // breath (no await between), so the seed can't drift from the bytes.
-      const scrollback = Math.max(
-        0,
-        normal.length - entry.headless.rows - start,
-      );
       return {
-        topLine: entry.anchor.baseLine() + start,
-        snapshot: entry.serialize.serialize({ scrollback }),
+        topLine: entry.anchor.baseLine() + droppedCount(entry) + start,
+        snapshot: entry.engine.formatRecentVt(SNAPSHOT_SCROLLBACK),
       };
     })();
     return entry.boundedSnapshotCache;
@@ -1229,24 +1171,12 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   function getScreenTextFor(id: PtyId, extent?: ScreenExtent): string {
     const entry = entries.get(id);
     if (!entry) return "";
-    const buffer = entry.headless.buffer.active;
-    // One bound axis, one switch — no silent precedence to pick between bounds.
     const bound: ScreenExtent = extent ?? { kind: "full" };
-    switch (bound.kind) {
-      case "full":
-        return getScreenText(buffer);
-      case "range":
-        return getScreenText(buffer, bound.startLine, bound.endLine);
-      case "tail":
-        return getScreenText(buffer, undefined, undefined, bound.lines);
-      case "viewport":
-        // The visible screen = a tail of the live grid's height, the only place
-        // the real `rows` is known. The last `rows` lines of `buffer.active` are
-        // exactly the viewport in both buffers: the normal buffer's bottom
-        // screenful, and the whole alt buffer (whose length IS rows) a
-        // full-screen TUI draws into.
-        return getScreenText(buffer, undefined, undefined, entry.headless.rows);
+    if (bound.kind === "full") {
+      const cap = entry.scrollback + entry.engine.rows;
+      return entry.engine.getScreenText({ kind: "tail", lines: cap });
     }
+    return entry.engine.getScreenText(bound);
   }
 
   function getHistory(
@@ -1279,41 +1209,22 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // fail-open: it pages as before, accepting the historical single-width scope.
     if (epoch !== undefined && epoch !== entry.anchor.reflowEpoch())
       return { kind: "stale" };
-    const buffer = entry.headless.buffer.normal;
-    // `before` is the caller's absolute cursor; the row just above it is
-    // `before - anchor.baseLine() - 1` in the current local buffer. Omitted means
-    // "start from the top of the VISIBLE screen" (local `length - rows`) — the
-    // self-seeding entry point a plain pager (`kaval-tui history`) uses instead
-    // of first reading an attach snapshot's `topLine`. It must NOT be the
-    // bounded-snapshot top (`snapshotStartLocal`), which sits ~SNAPSHOT_SCROLLBACK
-    // rows ABOVE the screen: self-seeding there would skip the newest older lines
-    // (the ones between the snapshot top and the screen) the CLI is asked to dump.
-    const cursor =
-      before ??
-      entry.anchor.baseLine() +
-        Math.max(0, buffer.length - entry.headless.rows);
-    const localEnd = Math.min(
-      cursor - entry.anchor.baseLine() - 1,
-      buffer.length - 1,
-    );
+    const dropped = droppedCount(entry);
+    const length = Math.max(1, visualLines(entry).length);
+    const origin = entry.anchor.baseLine() + dropped;
+    const cursor = before ?? origin + Math.max(0, length - entry.engine.rows);
+    const localEnd = Math.min(cursor - origin - 1, length - 1);
     if (localEnd < 0)
       return { kind: "chunk", chunk: "", topLine: cursor, exhausted: true };
-    // Snap the top edge back to the logical-line head (see `snapToWrapHead`), so
-    // a chunk boundary never bisects a wrapped line; the caller advances its
-    // cursor by the returned `topLine`, so the extra rows are accounted for.
-    const start = snapToWrapHead(buffer, Math.max(0, localEnd - max + 1));
-    // Range serialize on the NORMAL buffer (its scrollback survives an alt-buffer
-    // switch); no modes, no alt-buffer tail — this is raw older content the
-    // client replays through a scratch terminal, not a screen restore.
-    const chunk = entry.serialize.serialize({
-      range: { start, end: localEnd },
-      excludeModes: true,
-      excludeAltBuffer: true,
-    });
+    const start = Math.max(0, localEnd - max + 1);
+    const chunk = entry.engine.formatRangeVt(
+      dropped + start,
+      dropped + localEnd,
+    );
     return {
       kind: "chunk",
       chunk,
-      topLine: entry.anchor.baseLine() + start,
+      topLine: origin + start,
       exhausted: start === 0,
     };
   }
@@ -1327,8 +1238,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // The ONE false: no such PTY. Reported rather than swallowed so the caller
     // can tell "the grid landed" from "there was nothing to land it on".
     if (!entry) return false;
-    const prevCols = entry.headless.cols;
-    const prevRows = entry.headless.rows;
+    const prevCols = entry.engine.cols;
+    const prevRows = entry.engine.rows;
     // An EXACT same-dims resize renumbers and reflows nothing — a second viewer
     // attaching at the same size, or the mount-time re-publish of the current
     // dims, would otherwise spuriously stale every attached client's cursor
@@ -1341,7 +1252,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // (the reveal/resize "un-finish" regression, killed at the source).
     entry.resizeMuteUntil = Date.now() + RESIZE_ACTIVITY_MUTE_MS;
     entry.proc.resize(cols, rows);
-    entry.headless.resize(cols, rows);
+    entry.engine.resize(cols, rows);
     // resize() reflows the mirror (reflowCursorLine rewraps lines on a width
     // change), so the serialized layout changes with NO data publish to clear
     // the memo — invalidate here too, or a same-epoch attach after a resize

@@ -19,7 +19,7 @@
  * host entry `connected`?), never on the refusal's prose.
  */
 
-import type { TerminalGrid } from "@kolu/xterm-kit/solid";
+import type { TerminalGrid } from "@kolu/ghostty-kit/solid";
 import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runAction } from "../runAction";

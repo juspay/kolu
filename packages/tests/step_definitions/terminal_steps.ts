@@ -197,9 +197,15 @@ Then(
 // ── Click-to-focus (mobile tap-to-focus) ──
 
 When("I click the terminal canvas", async function (this: KoluWorld) {
-  // Click the body first to blur any focused element, then click the terminal
-  await this.page.locator("body").click({ position: { x: 0, y: 0 } });
-  await this.canvas.click();
+  // Restore PTY focus without a pointer hit. Ghostty's onTap follows
+  // every parseLineRefs match, and Darwin CI's Starship prompt prints
+  // `/tmp/kolu-…` — a body click at (0,0) and a canvas click both land
+  // on that path and steal the Code tab into browse.
+  const input = this.page
+    .locator("[data-focused] [data-terminal-input]")
+    .first();
+  await input.waitFor({ state: "attached" });
+  await input.focus();
 });
 
 When("I click the terminal tile title bar", async function (this: KoluWorld) {
@@ -280,6 +286,38 @@ Then(
     assert.ok(
       !Number.isNaN(cols) && cols > min,
       `Expected ${filePath} to contain a number > ${min}, got: "${cols}"`,
+    );
+  },
+);
+
+Then(
+  "the file {string} should match the visible terminal's column count",
+  async function (this: KoluWorld, filePath: string) {
+    const fs = await import("node:fs/promises");
+    const stamped = await this.page.evaluate(() => {
+      const n = document.querySelector("[data-terminal-engine][data-visible]");
+      return Number.parseInt(n?.getAttribute("data-grid-cols") ?? "", 10);
+    });
+    assert.ok(
+      Number.isFinite(stamped) && stamped > 0,
+      `visible terminal has no data-grid-cols (got ${stamped})`,
+    );
+    const cols = await pollUntil(
+      this.page,
+      async () => {
+        try {
+          return Number((await fs.readFile(filePath, "utf-8")).trim());
+        } catch {
+          return NaN;
+        }
+      },
+      (n) => n === stamped,
+      { attempts: 30 },
+    );
+    assert.strictEqual(
+      cols,
+      stamped,
+      `PTY $COLUMNS (${cols}) must match the measured grid (${stamped})`,
     );
   },
 );

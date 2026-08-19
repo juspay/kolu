@@ -13,11 +13,11 @@
  *  store for UI subscription. Same lifecycle, different volatility axes
  *  — both registrations happen in Terminal.tsx onMount/onCleanup. */
 
-import type { Terminal as XTerm } from "@xterm/xterm";
+import type { GhosttyHandle } from "@kolu/ghostty-kit/solid";
+import type { ScrollLockEvent } from "@kolu/ghostty-kit/solid";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, createRoot } from "solid-js";
 import { createStore, produce } from "solid-js/store";
-import type { ScrollLockEvent } from "@kolu/xterm-kit/solid";
 
 export type Renderer = "webgl" | "dom";
 
@@ -76,7 +76,7 @@ export function registerDiagnostics(
     measured,
     scrollLock,
   }: {
-    xterm: XTerm;
+    xterm: GhosttyHandle["terminal"];
     renderer: Accessor<Renderer>;
     measured: Accessor<boolean>;
     scrollLock: {

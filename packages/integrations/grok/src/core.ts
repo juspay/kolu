@@ -217,10 +217,11 @@ export function resolveGrokSession(
   foregroundPid: number | undefined,
   cwd: string,
   log?: Logger,
+  map?: ActiveSessionEntry[] | "unreadable",
 ): GrokSession | null {
   if (foregroundPid !== undefined) {
     sweepDeadBindings();
-    const rows = readActiveSessions(log);
+    const rows = map ?? readActiveSessions(log);
     // Unreadable is not an empty map: fall through to the remembered binding
     // rather than reporting this pid has no session.
     if (rows === "unreadable") return sessionByPid.get(foregroundPid) ?? null;
@@ -279,7 +280,10 @@ export function resolveGrokSessions(
   log?: Logger,
 ): GrokSession[] | null {
   if (foregroundPid !== undefined) {
-    const session = resolveGrokSession(foregroundPid, cwd, log);
+    sweepDeadBindings();
+    const rows = readActiveSessions(log);
+    const session = resolveGrokSession(foregroundPid, cwd, log, rows);
+    if (rows === "unreadable") return session ? [session] : null;
     return session ? [session] : [];
   }
   const scan = scanSessionsByCwd(cwd, log);

@@ -49,7 +49,7 @@ When(
 );
 
 When("I scroll the terminal up", async function (this: KoluWorld) {
-  const viewport = this.page.locator("[data-visible] .xterm-viewport");
+  const viewport = this.page.locator("[data-visible] [data-terminal-screen]");
   const box = await viewport.boundingBox();
   if (!box) throw new Error("Viewport not visible");
   // Move mouse to viewport center and scroll up
@@ -60,7 +60,7 @@ When("I scroll the terminal up", async function (this: KoluWorld) {
 
 When("I note the scroll position", async function (this: KoluWorld) {
   this.savedScrollTop = await this.page
-    .locator("[data-visible] .xterm-viewport")
+    .locator("[data-visible] [data-terminal-screen]")
     .evaluate((el) => el.scrollTop);
 });
 
@@ -291,7 +291,7 @@ Then(
       "No saved scroll position — was 'I note the scroll position' called first?",
     );
     const current = await this.page
-      .locator("[data-visible] .xterm-viewport")
+      .locator("[data-visible] [data-terminal-screen]")
       .evaluate((el) => el.scrollTop);
     // Allow small tolerance (1px) for rounding
     assert.ok(

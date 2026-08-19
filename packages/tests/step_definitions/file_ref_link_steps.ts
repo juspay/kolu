@@ -24,7 +24,7 @@ const RIGHT_PANEL_MARKER = '[data-testid="right-panel-tab-inspector"]';
 
 /** Locate a clickable file-ref in the active terminal and compute
  *  pixel coordinates from the **public** xterm API
- *  (`term.cols/rows` + the `.xterm-screen` bounding rect). The
+ *  (`term.cols/rows` + the `[data-terminal-screen]` bounding rect). The
  *  previous step reached into `term._core._linkProviderService` —
  *  fragile to xterm internals (which already broke once on this
  *  branch when the field was renamed). The real-mouse path also
@@ -51,23 +51,28 @@ async function findRefClickPoint(
         | (HTMLElement & { __xterm?: XtermForClick })
         | null;
       const term = container?.__xterm;
-      const screen = container?.querySelector(".xterm-screen");
+      const screen = container?.querySelector("[data-terminal-screen]");
       if (!container || !term || !screen) return null;
       const { active } = term.buffer;
       const top = active.viewportY;
+      // Last match wins: the fixture's just-echoed `see src/notes.txt`
+      // is below an earlier `mkdir … > src/notes.txt` that wraps on a
+      // narrow Darwin tile and whose visual fragment can parse as the
+      // folder `src/` instead of the file.
+      let found: { row: number; col: number } | null = null;
       for (let row = top; row < top + term.rows; row++) {
         const line = active.getLine(row)?.translateToString(true) ?? "";
         const col = line.indexOf(target);
-        if (col < 0) continue;
-        const rect = screen.getBoundingClientRect();
-        const cellW = rect.width / term.cols;
-        const cellH = rect.height / term.rows;
-        return {
-          x: rect.left + (col + 0.5) * cellW,
-          y: rect.top + (row - top + 0.5) * cellH,
-        };
+        if (col >= 0) found = { row, col };
       }
-      return null;
+      if (found === null) return null;
+      const rect = screen.getBoundingClientRect();
+      const cellW = rect.width / term.cols;
+      const cellH = rect.height / term.rows;
+      return {
+        x: rect.left + (found.col + 0.5) * cellW,
+        y: rect.top + (found.row - top + 0.5) * cellH,
+      };
     },
     { sel: ACTIVE_TERMINAL, target: refText },
   );
@@ -121,19 +126,41 @@ async function findRefFontMetricPoint(
         | null;
       const term = container?.__xterm;
       const screen = container?.querySelector(
-        ".xterm-screen",
+        "[data-terminal-screen]",
       ) as HTMLElement | null;
-      const cell = term?._core?._renderService?.dimensions?.css?.cell;
-      if (!container || !term || !screen || !cell) return null;
-      const cw = cell.width;
-      const ch = cell.height;
-      if (!(cw > 0) || !(ch > 0)) return null;
+      if (!container || !term || !screen) return null;
+      const cell = term._core?._renderService?.dimensions?.css?.cell;
       const { active } = term.buffer;
       const top = active.viewportY;
+      // No nested named function: esbuild's __name helper is not in page.evaluate.
+      let foundRow = -1;
+      let foundCol = -1;
       for (let row = top; row < top + term.rows; row++) {
         const line = active.getLine(row)?.translateToString(true) ?? "";
         const col = line.indexOf(target);
-        if (col < 0) continue;
+        if (col >= 0) {
+          foundRow = row;
+          foundCol = col;
+          break;
+        }
+      }
+      if (foundRow < 0) return null;
+      const found = { row: foundRow, col: foundCol };
+      // Ghostty tiles have no xterm _core metrics. The painted canvas
+      // rect / grid is the authority (same as findRefClickPoint).
+      if (!cell) {
+        const rect = screen.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return null;
+        return {
+          x: rect.left + (found.col + 0.5) * (rect.width / term.cols),
+          y: rect.top + (found.row - top + 0.5) * (rect.height / term.rows),
+        };
+      }
+      const cw = cell.width;
+      const ch = cell.height;
+      if (!(cw > 0) || !(ch > 0)) return null;
+      {
+        const { row, col } = found;
         const rect = screen.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return null;
         // The tile's CSS scale(zoom) = transformed rect / untransformed layout.
@@ -184,7 +211,6 @@ async function findRefFontMetricPoint(
         }
         return { x, y };
       }
-      return null;
     },
     { sel: ACTIVE_TERMINAL, target: refText },
   );
@@ -292,7 +318,7 @@ When(
  *  emulation welds `(hover:none)` on; without it the primary pointer is fine — a
  *  two-run CI oracle proved both directions). `transform-origin: 0 0` matches the
  *  canvas contract `unscaleEventPoint` inverts about; the scale lands on an
- *  ANCESTOR of `.xterm-screen`, so its `getBoundingClientRect()` grows while
+ *  ANCESTOR of `[data-terminal-screen]`, so its `getBoundingClientRect()` grows while
  *  `offsetWidth` stays put — exactly the divergence the divisor authority
  *  corrects. */
 When(

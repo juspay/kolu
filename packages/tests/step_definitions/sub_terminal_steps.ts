@@ -41,7 +41,7 @@ const BOTTOM_MARKER = "SPLIT-BOTTOM-MARK";
  */
 async function paletteCommand(world: KoluWorld, query: string) {
   // Ensure focus is in the app (previous palette close may leave focus nowhere)
-  const terminal = world.page.locator("[data-visible] .xterm-screen");
+  const terminal = world.page.locator("[data-visible] [data-terminal-screen]");
   if ((await terminal.count()) > 0) await terminal.first().click();
   await world.page.keyboard.press(`${MOD_KEY}+k`);
   await world.page.waitForFunction(
@@ -181,6 +181,9 @@ When(
     // rises only on a tap), so this stands in for the tap. Either way, typing
     // lands in the sub-terminal, not the main one.
     await this.focusForTyping("[data-visible][data-sub-terminal]");
+    // Type immediately — `__xterm` is published only after the attach
+    // snapshot. Waiting for it here would delay echo until after that
+    // snapshot and leave the buffer empty of the command's output.
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
     await this.waitForFrame();
@@ -205,9 +208,13 @@ When(
     const measured = await this.page.waitForFunction(
       (sel) => {
         const node = document.querySelector(sel);
-        const cols = (node as unknown as { __xterm?: { cols: number } })
-          ?.__xterm?.cols;
-        return typeof cols === "number" && cols > 0 ? cols : null;
+        // Only the stamped measure — `__xterm.cols` is the constructor
+        // 80 until applyFit publishes, and that 80 would make this
+        // scenario's "real grid ≠ 80" guard fail while the bug is absent.
+        const stamped = node?.getAttribute("data-grid-cols");
+        if (!stamped) return null;
+        const n = Number.parseInt(stamped, 10);
+        return n > 0 ? n : null;
       },
       VISIBLE_SUB,
       { timeout: POLL_TIMEOUT },

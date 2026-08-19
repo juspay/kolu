@@ -360,7 +360,7 @@ light up the dock.
 
     <rect x="12" y="34" width="150" height="56" rx="10" class="ax-d-box"></rect>
     <text x="87" y="58" text-anchor="middle" class="ax-d-label2">client</text>
-    <text x="87" y="77" text-anchor="middle" class="ax-d-sub">xterm.js</text>
+    <text x="87" y="77" text-anchor="middle" class="ax-d-sub">libghostty</text>
 
     <rect x="196" y="34" width="150" height="56" rx="10" class="ax-d-box"></rect>
     <text x="271" y="58" text-anchor="middle" class="ax-d-label2">kolu-server</text>
@@ -409,7 +409,7 @@ hides — decide where code lives, so a capability that hides transport, or GPU
 context, or persistence is its own package with the dependency arrow pointing
 _out_. The map, grouped:
 
-- **Faces** — `client` (SolidJS + xterm.js + Tailwind), `server` (the Effect
+- **Faces** — `client` (SolidJS + libghostty wasm + Tailwind), `server` (the Effect
   HTTP shell that serves the SPA, the preview route, and the websocket, and binds
   padi),
   `kolu-cli` (the `kolu` binary itself — the composition root that owns
@@ -432,10 +432,10 @@ _out_. The map, grouped:
   `surface-daemon` (the durable-daemon spine, frozen identity/drain fragment,
   and mixed-version test kit), and its supervisor half (including the one
   control-core probe assembler used by socket and already-dialed transports).
-- **Terminal machinery** — `xterm-kit` hides xterm.js's hazards (the pinned
-  `_core` internals, in-place scrollback surgery, scroll-lock write buffering,
-  mirror anchoring) behind a runtime-neutral core plus a `/solid` adapter, with
-  the client and kaval as two consumers from day one.
+- **Terminal machinery** — `ghostty-kit` wraps official `ghostty-vt.wasm`
+  (write, resize/reflow, format/snapshot, OSC taps, key/mouse encode) behind a
+  runtime-neutral core plus a `/solid` canvas adapter, with the client and
+  kaval as two consumers.
 - **Agent & forge integrations** — one leaf each for `claude-code`, `codex`,
   `grok`, `opencode`, plus the agent-agnostic `anyagent` contract; `github` behind
   the forge-agnostic `anyforge` kernel; and `git` for pure git operations.

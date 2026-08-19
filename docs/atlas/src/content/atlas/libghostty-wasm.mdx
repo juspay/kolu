@@ -1,0 +1,32 @@
+---
+title: Official libghostty Wasm Engine
+description: Kolu parses PTY bytes with Ghostty's official ghostty-vt.wasm — tiles and the daemon screen-mirror share one engine.
+parents: [feature]
+status: proposed
+maturity: seedling
+updated: 2026-08-16
+---
+
+import Callout from "../../components/Callout.astro";
+
+The live VT engine is official `ghostty-vt.wasm` from Ghostty GitHub releases
+(the pre-built asset cited in Mitchell Hashimoto's 2026-08-14 note). `@xterm/xterm`
+and `@xterm/headless` are not that engine.
+
+## Why this package
+
+Wasm load, C ABI, linear memory, and function-table callbacks are a hard
+volatility. `@kolu/ghostty-kit` hides them. Tests call `createEngine` with
+bytes in and plain text / VT / snapshot out — no DOM, no PTY.
+
+## Two consumers
+
+- **kaval** — per-PTY screen-mirror, attach snapshot + `getHistory`, OSC
+  cwd / title / command-run.
+- **client tiles** — the same engine plus a canvas renderer in
+  `@kolu/ghostty-kit/solid`.
+
+## Pin
+
+`packages/ghostty-kit/vendor/PIN.md` names the release URL and SHA-256.
+Missing wasm is a crash, not a fallback.

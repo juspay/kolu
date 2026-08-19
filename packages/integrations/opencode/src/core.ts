@@ -27,7 +27,11 @@
 import { DatabaseSync } from "node:sqlite";
 import { classifyByAwaiting } from "anyagent";
 import type { Logger } from "kolu-shared";
-import { readDbList, withDb as sharedWithDb } from "kolu-shared/sqlite";
+import {
+  isMissingSqliteDb,
+  readDbList,
+  withDb as sharedWithDb,
+} from "kolu-shared/sqlite";
 import { match } from "ts-pattern";
 import { OPENCODE_DB_PATH } from "./config.ts";
 import type { OpenCodeInfo, TaskProgress } from "./schemas.ts";
@@ -76,7 +80,7 @@ export function openDb(log?: Logger): DatabaseSync | null {
   } catch (err) {
     // ENOENT is the answer "OpenCode has never run here". Anything else is a
     // failure to LOOK — see the twin in kolu-codex core.ts.
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    if (!isMissingSqliteDb(err, OPENCODE_DB_PATH)) throw err;
     log?.debug({ err, path: OPENCODE_DB_PATH }, "opencode db unavailable");
     return null;
   }

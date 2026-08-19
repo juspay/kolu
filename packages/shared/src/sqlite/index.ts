@@ -16,6 +16,7 @@ export {
 export {
   type Closable,
   type DbRead,
+  isMissingSqliteDb,
   readDb,
   readDbList,
   withDb,

@@ -67,7 +67,7 @@ async function findWebLinkPoint(
         | (HTMLElement & { __xterm?: XtermForClick })
         | null;
       const term = container?.__xterm;
-      const screen = container?.querySelector(".xterm-screen");
+      const screen = container?.querySelector("[data-terminal-screen]");
       if (!container || !term || !screen) return null;
       const { active } = term.buffer;
       const top = active.viewportY;

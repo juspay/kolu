@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { reduceMessages } from "./timing";
+import { formatE2eVerdict, reduceMessages } from "./timing";
 
 test("timing reports every attempt and keeps retry cost", () => {
   const envelopes = [
@@ -85,4 +85,66 @@ test("timing reports every attempt and keeps retry cost", () => {
       { attempt: 2, status: "PASSED", willBeRetried: false, durationMs: 4_000 },
     ],
   );
+});
+
+test("formatE2eVerdict names only the last attempt of each failed scenario", () => {
+  const report = {
+    schemaVersion: 1 as const,
+    platform: "linux" as const,
+    suiteDurationMs: 1000,
+    attempts: [
+      {
+        feature: "features/split.feature",
+        scenario: "echo lands",
+        pickleId: "a",
+        attempt: 1,
+        status: "FAILED",
+        willBeRetried: true,
+        durationMs: 100,
+        stepDurationMs: 100,
+      },
+      {
+        feature: "features/split.feature",
+        scenario: "echo lands",
+        pickleId: "a",
+        attempt: 2,
+        status: "PASSED",
+        willBeRetried: false,
+        durationMs: 80,
+        stepDurationMs: 80,
+      },
+      {
+        feature: "features/ports.feature",
+        scenario: "split listener",
+        pickleId: "b",
+        attempt: 2,
+        status: "FAILED",
+        willBeRetried: false,
+        durationMs: 200,
+        stepDurationMs: 200,
+      },
+    ],
+    totals: {
+      executions: 2,
+      attempts: 3,
+      retries: 1,
+      finalAttemptDurationMs: 280,
+      allAttemptDurationMs: 380,
+    },
+    features: [],
+  };
+  const text = formatE2eVerdict(report);
+  assert.match(text, /1 passed, 1 failed \(2 scenarios\)/);
+  assert.match(text, /FAIL features\/ports\.feature {2}split listener/);
+  assert.doesNotMatch(text, /echo lands/);
+});
+
+test("CI cucumber format omits pretty so the odu log keeps the verdict", async () => {
+  const { cucumberFormat } = await import("../cucumber.js");
+  assert.deepEqual(cucumberFormat(false), [
+    "progress-bar",
+    "html:reports/report.html",
+    "message:reports/messages.ndjson",
+  ]);
+  assert.ok(cucumberFormat(true).includes("pretty:/dev/stderr"));
 });

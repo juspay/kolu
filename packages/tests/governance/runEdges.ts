@@ -68,7 +68,7 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   {
     path: "packages/client/src/runAction.ts",
     sites: 2,
-    why: "THE SolidJS client's Effect→UI edge, named once so the ~100 DOM handlers above it read as `runAction(label, program)` instead of ~100 forks biome's Promise rules cannot see: a `runFork` for an event handler / owner-scoped launch, and a `runPromise` for the three seams whose Promise contract is not this package's (Solid's `createResource` fetcher, xterm-kit's backfill `fetch`, and `pollOnChange`'s signal-carrying read — the last driving interruption from the caller's AbortSignal)",
+    why: "THE SolidJS client's Effect→UI edge, named once so the ~100 DOM handlers above it read as `runAction(label, program)` instead of ~100 forks biome's Promise rules cannot see: a `runFork` for an event handler / owner-scoped launch, and a `runPromise` for the three seams whose Promise contract is not this package's (Solid's `createResource` fetcher, ghostty-kit's backfill `fetch`, and `pollOnChange`'s signal-carrying read — the last driving interruption from the caller's AbortSignal)",
   },
   {
     path: "packages/kaval-tui/src/main.ts",

@@ -8,19 +8,22 @@
  *  container stays as an e2e-only affordance; production code looks up refs
  *  by id through this module. */
 
-import type { SerializeAddon } from "@xterm/addon-serialize";
-import type { Terminal as XTerm } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
-import type {
-  RenderRecoveryProbes,
-  ScrollLockEvent,
-} from "@kolu/xterm-kit/solid";
+import type { GhosttyHandle } from "@kolu/ghostty-kit/solid";
+import type { ScrollLockEvent } from "@kolu/ghostty-kit/solid";
 
 /** Volatile per-terminal probes. Unlike the stable `xterm`/`serialize`
  *  handles above, these accessors may return null even during the terminal's
  *  lifetime (e.g. `webglAtlas` when the tile is unfocused and no WebGL addon
  *  is live). Namespaced under `probes` so the volatility contrast stays
  *  visible in the type. */
+export interface RenderRecoveryProbes {
+  msSinceLastPaint: () => number | null;
+  renderDebouncerPending: () => boolean;
+  isPaused: () => boolean;
+  synchronizedOutput: () => boolean;
+}
+
 export interface TerminalProbes extends RenderRecoveryProbes {
   /** Dimensions of the live WebGL texture atlas canvas, or null if the
    *  terminal currently has no WebGL addon. */
@@ -41,8 +44,10 @@ export interface TerminalProbes extends RenderRecoveryProbes {
 }
 
 export interface TerminalRefs {
-  xterm: XTerm;
-  serialize: SerializeAddon;
+  xterm: GhosttyHandle["terminal"];
+  serialize: GhosttyHandle["addons"]["serialize"];
+  /** Live painted canvas — screenshot copies this instead of xterm cells. */
+  canvas: HTMLCanvasElement;
   probes: TerminalProbes;
 }
 

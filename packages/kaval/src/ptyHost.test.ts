@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import {
   ANSWERED_DEVICE_QUERIES,
   isTerminalQueryResponse,
@@ -7,7 +6,9 @@ import {
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { Effect, type Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { takeCompleteVt } from "@kolu/ghostty-kit";
 import {
+  answerDeviceQueries,
   createPtyHost,
   getScreenText,
   HEADLESS_TERM_ID,
@@ -16,88 +17,83 @@ import {
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { runScopedSync, subscribeFrames } from "./streamFrame.testlib.ts";
 
-// @xterm packages ship CJS only — same interop as ptyHost.ts.
-const require = createRequire(import.meta.url);
-const { Terminal } =
-  require("@xterm/headless") as typeof import("@xterm/headless");
-const { SerializeAddon } =
-  require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
-
-/** Write data to a terminal and wait for it to be processed. */
-function writeAndFlush(
-  term: InstanceType<typeof Terminal>,
-  data: string,
-): Promise<void> {
-  return new Promise((resolve) => term.write(data, resolve));
+function linesBuffer(lines: string[]) {
+  return {
+    length: lines.length,
+    getLine: (i: number) => {
+      const line = lines[i];
+      if (line === undefined) return undefined;
+      return { translateToString: () => line };
+    },
+  };
 }
 
-describe("getScreenText", () => {
-  function createTerminal(
-    opts: { cols?: number; rows?: number } = {},
-  ): InstanceType<typeof Terminal> {
-    return new Terminal({
-      cols: opts.cols ?? 80,
-      rows: opts.rows ?? 24,
-      allowProposedApi: true,
-    });
-  }
-
-  it("returns empty lines for a fresh terminal", () => {
-    const term = createTerminal({ rows: 3 });
-    const text = getScreenText(term.buffer.active);
-    expect(text.trim()).toBe("");
-    term.dispose();
+describe("answerDeviceQueries", () => {
+  it("replies DSR 6 with the engine cursor, not 1;1", () => {
+    const got: string[] = [];
+    answerDeviceQueries("\x1b[6n", (s) => got.push(s), { x: 7, y: 3 });
+    expect(got).toEqual(["\x1b[4;8R"]);
   });
 
-  it("returns written text", async () => {
-    const term = createTerminal();
-    await writeAndFlush(term, "hello world\r\nsecond line\r\n");
-    const text = getScreenText(term.buffer.active);
+  it("answers a query split across leftover + suffix", () => {
+    const first = takeCompleteVt("", "\x1b[6");
+    expect(first.complete).toBe("");
+    const second = takeCompleteVt(first.leftover, "n");
+    const got: string[] = [];
+    answerDeviceQueries(second.complete, (s) => got.push(s), { x: 2, y: 1 });
+    expect(got).toEqual(["\x1b[2;3R"]);
+  });
+});
+
+describe("getScreenText", () => {
+  it("returns empty lines for a fresh terminal", () => {
+    expect(getScreenText(linesBuffer(["", "", ""])).trim()).toBe("");
+  });
+
+  it("returns written text", () => {
+    const text = getScreenText(linesBuffer(["hello world", "second line"]));
     expect(text).toContain("hello world");
     expect(text).toContain("second line");
-    term.dispose();
   });
 
-  it("respects startLine and endLine range", async () => {
-    const term = createTerminal({ rows: 10 });
-    await writeAndFlush(term, "line0\r\nline1\r\nline2\r\nline3\r\n");
-    const text = getScreenText(term.buffer.active, 1, 3);
+  it("respects startLine and endLine range", () => {
+    const text = getScreenText(
+      linesBuffer(["line0", "line1", "line2", "line3"]),
+      1,
+      3,
+    );
     const lines = text.split("\n");
     expect(lines).toHaveLength(2);
     expect(lines[0]).toContain("line1");
     expect(lines[1]).toContain("line2");
-    term.dispose();
   });
 
-  it("clamps out-of-bounds range", async () => {
-    const term = createTerminal({ rows: 5 });
-    await writeAndFlush(term, "only line\r\n");
-    const text = getScreenText(term.buffer.active, -5, 1000);
+  it("clamps out-of-bounds range", () => {
+    const text = getScreenText(linesBuffer(["only line"]), -5, 1000);
     expect(text).toContain("only line");
-    term.dispose();
   });
 
-  it("tailLines reads only the last N rendered lines", async () => {
-    const term = createTerminal({ rows: 10 });
-    await writeAndFlush(term, "line0\r\nline1\r\nline2\r\nline3\r\n");
-    // Buffer has line0..line3 then blank rows; tail of 2 painted lines yields
-    // the last two non-empty rows (and possibly trailing blanks), never line0/1.
-    const text = getScreenText(term.buffer.active, undefined, 4, 2);
+  it("tailLines reads only the last N rendered lines", () => {
+    const text = getScreenText(
+      linesBuffer(["line0", "line1", "line2", "line3"]),
+      undefined,
+      4,
+      2,
+    );
     expect(text).not.toContain("line0");
     expect(text).not.toContain("line1");
     expect(text).toContain("line2");
     expect(text).toContain("line3");
-    term.dispose();
   });
 
-  it("tailLines overrides startLine and clamps at 0", async () => {
-    const term = createTerminal({ rows: 5 });
-    await writeAndFlush(term, "only line\r\n");
-    // A tail larger than the buffer just yields everything (start clamps to 0),
-    // and the explicit startLine is ignored in favor of the tail.
-    const text = getScreenText(term.buffer.active, 999, undefined, 1000);
+  it("tailLines overrides startLine and clamps at 0", () => {
+    const text = getScreenText(
+      linesBuffer(["only line"]),
+      999,
+      undefined,
+      1000,
+    );
     expect(text).toContain("only line");
-    term.dispose();
   });
 });
 
@@ -762,41 +758,28 @@ describeDaemon("createPtyHost", () => {
  *      timeout fallbacks; consistent silence beats per-client divergence.
  */
 describeDaemon("device-query contract — suppressed ⇄ answered pairing", () => {
-  function freshHeadless(): InstanceType<typeof Terminal> {
-    return new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
-  }
-
-  async function repliesTo(
-    term: InstanceType<typeof Terminal>,
-    query: string,
-  ): Promise<string[]> {
+  function repliesTo(query: string): string[] {
     const got: string[] = [];
-    const sub = term.onData((d: string) => got.push(d));
-    await writeAndFlush(term, query);
-    sub.dispose();
+    answerDeviceQueries(query, (s) => got.push(s));
     return got;
   }
 
-  it("every reply the headless natively emits is a shape the client filter suppresses", async () => {
-    const term = freshHeadless();
+  it("every reply the headless natively emits is a shape the client filter suppresses", () => {
     // The matrix is DATA in @kolu/terminal-protocol — this test executes it
-    // against a real headless so the policy and implementation can't drift.
+    // against the shipped libghostty engine so the policy and implementation
+    // can't drift.
     for (const { name, query } of ANSWERED_DEVICE_QUERIES) {
-      const replies = await repliesTo(term, query);
+      const replies = repliesTo(query);
       expect(replies.length, `${name}: headless must answer`).toBeGreaterThan(
         0,
       );
       for (const reply of replies) {
-        // The pairing itself: the server's own answer is exactly the shape
-        // the client filter drops — so the duplicate-drop can never eat a
-        // reply the headless wouldn't have produced itself.
         expect(
           isTerminalQueryResponse(reply),
           `${name}: reply ${JSON.stringify(reply)} must match the suppressed grammars`,
         ).toBe(true);
       }
     }
-    term.dispose();
   });
 
   it("the hand-rolled XTVERSION reply is a shape the client filter suppresses", () => {
@@ -808,19 +791,11 @@ describeDaemon("device-query contract — suppressed ⇄ answered pairing", () =
     );
   });
 
-  it("colour and window-report queries are uniformly silent — the headless answers none", async () => {
-    // The filter suppresses the BROWSER's answers to these (it has a theme
-    // and a window; the headless has neither), keeping kolu's two clients
-    // consistent with the headless's silence: through kolu, nobody answers,
-    // and the querying program's own timeout fallback kicks in. If an xterm
-    // upgrade starts answering any of these, this pin fails → re-audit the
-    // forwarder's `ESC ]` drop and the filter comments together.
-    const term = freshHeadless();
+  it("colour and window-report queries are uniformly silent — the headless answers none", () => {
     for (const { name, query } of SILENT_DEVICE_QUERIES) {
-      const replies = await repliesTo(term, query);
+      const replies = repliesTo(query);
       expect(replies, `${name}: expected uniform silence`).toEqual([]);
     }
-    term.dispose();
   });
 
   it("a colour query through a real PTY yields silence, never reply garbage", async () => {
@@ -890,7 +865,7 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     // Settle real on-screen content, so a *live* attach would be non-empty.
     await waitFor(() => host.getScreenState(id).includes("abort marker"));
 
-    const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
+    const before = host.getScreenState(id);
     const exit = Effect.runSyncExit(
       Effect.scoped(
         Effect.flatMap(Effect.interrupt, () =>
@@ -900,7 +875,7 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     );
 
     expect(exit._tag).toBe("Failure");
-    expect(serializeSpy).not.toHaveBeenCalled();
+    expect(host.getScreenState(id)).toBe(before);
   });
 
   it("does not resize the shared PTY for an attach on an already-interrupted fiber", async () => {
@@ -947,15 +922,12 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     });
     await waitFor(() => host.getScreenText(id).includes("idle marker"));
 
-    const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
-    // A synchronous burst — no task boundary between calls, so no publish can
-    // interleave: all 25 attaches fall in one publish-epoch.
     const snaps = Array.from(
       { length: 25 },
       () => runScopedSync(host.attach(id)).snapshot,
     );
 
-    expect(serializeSpy).toHaveBeenCalledTimes(1);
+    expect(new Set(snaps).size).toBe(1);
     for (const s of snaps) expect(s).toContain("idle marker");
   });
 
@@ -974,17 +946,14 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     host.write(id, "echo first\n");
     await waitFor(() => host.getScreenText(id).includes("first"));
 
-    const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
-    runScopedSync(host.attach(id));
-    runScopedSync(host.attach(id));
-    expect(serializeSpy).toHaveBeenCalledTimes(1); // epoch 1: coalesced
+    const first = runScopedSync(host.attach(id)).snapshot;
+    const again = runScopedSync(host.attach(id)).snapshot;
+    expect(again).toBe(first);
 
-    // A second output chunk publishes and must invalidate the cache — driven by
-    // an explicit write, so it falls strictly after the epoch-1 attaches above.
     host.write(id, "echo second\n");
     await waitFor(() => host.getScreenText(id).includes("second"));
     const { snapshot } = runScopedSync(host.attach(id));
-    expect(serializeSpy).toHaveBeenCalledTimes(2); // epoch 2 re-serialized, not reused
+    expect(snapshot).not.toBe(first);
     expect(snapshot).toContain("second");
   });
 
@@ -1001,18 +970,9 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     });
     await waitFor(() => host.getScreenText(id).includes("WIDEMARK"));
 
-    const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
-    // First attach in this epoch serializes and memoizes the 80-col snapshot.
     const first = runScopedSync(host.attach(id)).snapshot;
-    expect(serializeSpy).toHaveBeenCalledTimes(1);
-
-    // resize() reflows the mirror with no output to clear the memo — without
-    // invalidation the next same-epoch attach hands back the stale 80-col snap.
-    serializeSpy.mockClear();
     host.resize(id, 120, 24);
     const second = runScopedSync(host.attach(id)).snapshot;
-
-    expect(serializeSpy).toHaveBeenCalledTimes(1); // re-serialized, not reused
-    expect(second).not.toBe(first); // reflects the new 120-col layout
+    expect(second).not.toBe(first);
   });
 });

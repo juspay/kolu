@@ -7,7 +7,7 @@
  *    just regenerate  (from this package directory)
  */
 
-export type { ITheme } from "@xterm/xterm";
+export type { ITheme } from "./theme.ts";
 // Theme picker
 export {
   hexToOkLab,

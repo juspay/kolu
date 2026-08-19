@@ -1796,7 +1796,7 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-18336f3310dab2114196
+      - revision-4b6a0fc73863b5a568c8
     sameCodePathEvidence:
       file: packages/tests/features/file-ref-link.feature
       symbol: "Scenario: Clicking a slash-containing path with no line opens the file with no selection"
@@ -2048,3 +2048,94 @@ retirements:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Tree/content split survives switching to another terminal and back"
       test: Same split-fraction round-trip and the same non-git-fallback unmount it guards; only the fallback-mounted wait changed spelling back, because the fallback is the "not a git repository" message again rather than the collapsed browse-root node. The survivor is the pre-#2138 revision restored verbatim (same revisionId).
+  - id: revise-88c9baa688ddd7311fce
+    revisionId: revision-88c9baa688ddd7311fce
+    action: revised
+    status: landed
+    promise: Every live tile paints with the same renderer under a working set
+    defectSurface: [tiles, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-5aaf5412c13ab93a96b2]
+    sameCodePathEvidence:
+      file: packages/tests/features/canvas.feature
+      symbol: "Scenario: WebGL is admitted to the whole working set under the context cap"
+      test: Same three-tile working set and focus ping-pong; assertions now expect the canvas/dom renderer because official libghostty wasm paints on a 2d canvas, not WebGL.
+  - id: revise-fcdbb99005bc3b9e4c52
+    revisionId: revision-fcdbb99005bc3b9e4c52
+    action: revised
+    status: landed
+    promise: A split pane uses the same renderer as its parent tile
+    defectSurface: [tiles, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d31fa51c9eb080d6fbfe]
+    sameCodePathEvidence:
+      file: packages/tests/features/canvas.feature
+      symbol: "Scenario: A held tile's active split inherits its WebGL renderer"
+      test: Same split-create journey; both panes now assert the canvas/dom renderer the libghostty tile actually uses.
+  - id: revise-49e4bb1a468b6e89079e
+    revisionId: revision-49e4bb1a468b6e89079e
+    action: revised
+    status: landed
+    promise: Tiles stay on one renderer across a working set
+    defectSurface: [tiles, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-4bee36be63e6ae3c9dad]
+    sameCodePathEvidence:
+      file: packages/tests/features/canvas.feature
+      symbol: "Scenario: Renderer preference \"webgl\" forces WebGL on every tile"
+      test: Same three-tile arrangement; the WebGL-override click is gone because there is no second renderer to force. The survivor still checks every tile paints.
+  - id: revise-602d602ae2a072b29211
+    revisionId: revision-602d602ae2a072b29211
+    action: revised
+    status: landed
+    promise: The tile renderer is stable across reload
+    defectSurface: [tiles, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-1b53e342b44931f2bf86]
+    sameCodePathEvidence:
+      file: packages/tests/features/preferences.feature
+      symbol: "Scenario: Terminal renderer preference swaps the active tile and persists"
+      test: Same settings-popover + reload path; the default is canvas/dom and there is no webgl swap, so the survivor asserts that renderer persists.
+  - id: revise-18091d1f1044f5d917d7
+    revisionId: revision-18091d1f1044f5d917d7
+    action: revised
+    status: landed
+    promise: The PTY is resized to the measured tile grid on connect
+    defectSurface: [tiles, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-23c07c2d9b7228b3455d]
+    sameCodePathEvidence:
+      file: packages/tests/features/terminal.feature
+      symbol: "Scenario: Initial resize is sent to PTY on connect"
+      test: Same echo-$COLUMNS path; the assertion now matches the stamped data-grid-cols so a tile that honestly measures 80 columns is not a false fail.
+  - id: revise-18336f3310dab2114196
+    revisionId: revision-18336f3310dab2114196
+    action: revised
+    status: landed
+    promise: Clicking a slash-containing path with no line opens the file with no selection
+    defectSurface: [code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-4b6a0fc73863b5a568c8]
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Clicking a slash-containing path with no line opens the file with no selection"
+      test: Same slash-path click and no-line selection; the tree is mounted first so darwin's one-shot fsListAll snapshot cannot consume the request before src/notes.txt is enumerated.
+  - id: revise-2927a457fc798715e058
+    revisionId: revision-2927a457fc798715e058
+    action: revised
+    status: landed
+    promise: Clicking a slash-containing path with no line opens the file with no selection
+    defectSurface: [code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-4b6a0fc73863b5a568c8]
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Clicking a slash-containing path with no line opens the file with no selection"
+      test: Same no-line slash-path click; setup no longer prints src/notes.txt on one wrap-prone mkdir line, so the trigger hits the just-echoed file ref.

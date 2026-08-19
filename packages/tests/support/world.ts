@@ -46,10 +46,10 @@ export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 /** Locator for the app's settled state: a visible terminal screen, a dormant
  *  (sleeping) tile body, or the empty state tip. A canvas holding only sleeping
  *  tiles is fully settled — its tiles render a PTY-less `dormant-tile-body` (no
- *  `.xterm-screen`), and it is NOT the empty state — so the dormant body is the
+ *  `[data-terminal-screen]`), and it is NOT the empty state — so the dormant body is the
  *  third settled shape a reload/converge can land on. */
 const SETTLED_SELECTOR =
-  '[data-visible] .xterm-screen, [data-testid="dormant-tile-body"], [data-testid="empty-state"]';
+  '[data-visible] [data-terminal-screen], [data-testid="dormant-tile-body"], [data-testid="empty-state"]';
 /** Touch-device media query — mirrors `isTouch` in packages/client/src/useMobile.ts.
  *  The test package can't import from client src, so the literal is named here to
  *  keep the one place it's duplicated legible and self-documenting. Exported so
@@ -191,7 +191,7 @@ export class KoluWorld extends World {
     // visible canvas tiles, `[data-focused]` resolves to the single tile
     // that owns keyboard focus — clicking + asserting on the active
     // terminal lines up with what the user sees.
-    return this.page.locator("[data-focused] .xterm-screen").first();
+    return this.page.locator("[data-focused] [data-terminal-screen]").first();
   }
 
   /** Create a terminal via the keyboard shortcut (`Cmd/Ctrl+Enter`). Works
@@ -246,7 +246,7 @@ export class KoluWorld extends World {
         const visible = document.querySelector("[data-visible]");
         if (!visible) return false;
         return matchMedia(coarsePointer).matches
-          ? !!visible.querySelector(".xterm-helper-textarea")
+          ? !!visible.querySelector("[data-terminal-input]")
           : !!document.activeElement?.closest("[data-visible]");
       },
       COARSE_POINTER_QUERY,
@@ -308,6 +308,32 @@ export class KoluWorld extends World {
     if (await this.page.locator('[data-testid="empty-state"]').isVisible()) {
       await this.createTerminal(timeout);
     }
+    // Canvas existence is not a grid. Attach (and the PTY resize it
+    // carries) opens only after a stable measure; typing `$COLUMNS`
+    // before that hits the host's 80-column constructor size.
+    const live = this.page.locator("[data-terminal-engine][data-visible]");
+    if ((await live.count()) === 0) return;
+    await this.page.waitForFunction(
+      () => {
+        for (const n of document.querySelectorAll(
+          "[data-terminal-engine][data-visible]",
+        )) {
+          const cols = Number.parseInt(
+            n.getAttribute("data-grid-cols") ?? "",
+            10,
+          );
+          const term = (n as HTMLElement & { __xterm?: { cols: number } })
+            .__xterm;
+          // Grid stamp is the measure; `__xterm` means the attach
+          // snapshot (and its resizeTo) has landed, so $COLUMNS is
+          // the live PTY size not the host constructor's 80.
+          if (cols > 0 && term && term.cols === cols) return true;
+        }
+        return false;
+      },
+      null,
+      { timeout },
+    );
   }
 
   /** Ensure a terminal matching `scope` holds keyboard focus before typing.
@@ -316,26 +342,84 @@ export class KoluWorld extends World {
    *  the harness stand-in for that tap. Desktop terminals already hold focus,
    *  so it no-ops there. */
   async focusForTyping(scope: string) {
+    const input = this.page.locator(`${scope} [data-terminal-input]`).first();
+    await input.waitFor({ state: "attached", timeout: READY_TIMEOUT });
     const focused = await this.page.evaluate(
       (sel) => !!document.activeElement?.closest(sel),
       scope,
     );
     if (!focused) {
-      await this.page
-        .locator(`${scope} .xterm-helper-textarea`)
-        .first()
-        .focus();
+      await input.focus();
     }
   }
 
+  /** Main pane of the active tile. `data-focused` can sit on a split, so
+   *  I-run must not require the main to already hold keyboard focus. */
+  private async focusMainForRun(): Promise<string> {
+    const tileMain =
+      "[data-canvas-tile][data-active] [data-terminal-id]:not([data-sub-terminal])";
+    const fallback = "[data-visible]:not([data-sub-terminal])";
+    const scope =
+      (await this.page.locator(tileMain).count()) > 0 ? tileMain : fallback;
+    const screen = this.page.locator(`${scope} [data-terminal-screen]`).first();
+    await screen.waitFor({ state: "attached", timeout: READY_TIMEOUT });
+    // Click, don't textarea.focus(): provenance ignores programmatic focus,
+    // so the store (and data-focused) would stay on a split.
+    // No waitForFrame — render-recovery parks rAF, and a frame wait hangs.
+    // Ghostty onTap follows every parseLineRefs hit, so the default
+    // centre click (and a naive top-left click on a Starship `/tmp/…`
+    // prompt) steal Code-tab browse and eat the typed command. Land on
+    // a cell that cannot be a path or URL.
+    // String evaluator: tsx injects `__name` into page.evaluate
+    // argument functions, and that helper does not exist in the page.
+    const offset = await this.page.evaluate<{
+      x: number;
+      y: number;
+    } | null>(`(() => {
+      const container = document.querySelector(${JSON.stringify(scope)});
+      const term = container && container.__xterm;
+      const screenEl = container && container.querySelector("[data-terminal-screen]");
+      if (!term || !screenEl) return null;
+      const rect = screenEl.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      const cellW = rect.width / term.cols;
+      const cellH = rect.height / term.rows;
+      const top = term.buffer.active.viewportY;
+      const pathish = /[\\w./+\\-@]/;
+      const extish = /\\.\\p{L}/u;
+      for (let row = 0; row < term.rows; row++) {
+        const got = term.buffer.active.getLine(top + row);
+        const line = got ? got.translateToString(true) : "";
+        for (let col = 0; col < term.cols; col++) {
+          if (row === 0 && col === 0) continue;
+          let a = col;
+          let b = col;
+          while (a > 0 && pathish.test(line[a - 1] || "")) a--;
+          while (b < line.length && pathish.test(line[b] || "")) b++;
+          const tok = line.slice(a, b);
+          if (tok.includes("/") || extish.test(tok) || /https?:/.test(tok)) continue;
+          return { x: (col + 0.5) * cellW, y: (row + 0.5) * cellH };
+        }
+      }
+      return null;
+    })()`);
+    if (offset !== null) {
+      await screen.click({ force: true, position: offset });
+    } else {
+      await screen.click({ force: true });
+    }
+    await this.focusForTyping(scope);
+    return scope;
+  }
+
   async terminalRun(command: string) {
-    await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
+    await this.focusMainForRun();
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
   }
 
   async terminalRunAndWait(command: string) {
-    await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
+    const scope = await this.focusMainForRun();
     const sequence = terminalCommandSequence++;
     const token = `KD_${process.pid}_${sequence}`;
     const marker = `${token}:`;
@@ -346,13 +430,11 @@ export class KoluWorld extends World {
     await this.page.keyboard.press("Enter");
 
     const handle = await this.page.waitForFunction(
-      ({ expected }) => {
-        const content =
-          window.__readXtermBuffer?.("[data-focused][data-terminal-id]", 0) ??
-          "";
+      ({ expected, sel }) => {
+        const content = window.__readXtermBuffer?.(sel, 0) ?? "";
         return content.includes(expected) ? content : null;
       },
-      { expected: marker },
+      { expected: marker, sel: scope },
       { timeout: HYDRATION_TIMEOUT, polling: 50 },
     );
     const buffer = (await handle.jsonValue()) ?? "";

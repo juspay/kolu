@@ -7,7 +7,7 @@
  * owns what to do with them.
  */
 
-import type { TerminalGrid } from "@kolu/xterm-kit/solid";
+import type { TerminalGrid } from "@kolu/ghostty-kit/solid";
 import { Effect } from "effect";
 import { toast } from "solid-sonner";
 import type { UiAction } from "../runAction";
