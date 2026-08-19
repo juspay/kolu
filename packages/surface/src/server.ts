@@ -635,6 +635,39 @@ export interface CollectionHandlerDeps<K, T> {
    *  producer tick. Present only when the collection exposes the `deltas` verb
    *  (opt-in); `walkSurface` wires it and the per-tick coalescing together. */
   deltasBus?: Channel<CollectionDelta<K, T>>;
+  /** A reader HOLDS `key` for the lifetime of the scope this runs in — the per-key
+   *  `get` stream's own scope.
+   *
+   *  The wire already says when a reader OPENS a key: a per-key `get` IS a
+   *  subscription, and {@link readOne} is where the server hears one arrive. What no
+   *  member says is when the last reader LETS GO — and that fact is the framework's,
+   *  not the app's: a handler answers with a `Stream`, the stream's scope IS the
+   *  subscription, and the scope closes when the tab navigates, the socket drops, the
+   *  runtime tears down, or a one-shot reader takes its frame and leaves. Fiber
+   *  interruption is the unsubscribe. Without this seam a server that has to know
+   *  whether anybody is still showing a key infers it from opens and ages the answer
+   *  out — a bound with no honest number in it.
+   *
+   *  NOT A MEMBER OF THE SPEC, and that is the decision worth stating. A release verb
+   *  a reader had to CALL would be a promise a closed tab cannot keep: the readers
+   *  this is about are exactly the ones that vanish. The transport is what notices,
+   *  so the transport is what is asked, and nothing new crosses the wire.
+   *
+   *  Runs BEFORE the channel subscribe and BEFORE {@link readOne}, and that pull
+   *  order is load-bearing rather than incidental — a `readOne` that ACTS on the hold
+   *  (reading a body only a held path is read for) must find the hold already in
+   *  place. Pinned by test, not by this paragraph.
+   *
+   *  Two readers of one key are two calls, two holds, two releases; an interrupted
+   *  reader releases only its own. The framework REPORTS lifetimes and does not
+   *  count: what a hold is worth, and what happens when the count reaches zero,
+   *  belongs to whoever asked for one.
+   *
+   *  `get` only. `keys` and `deltas` are collection-wide streams — "who holds this
+   *  key" has no meaning there. Typed `never` in the error channel: a hold cannot
+   *  fail, and a defect in one crashes that subscription loudly rather than serving
+   *  it unheld. Absent, the `get` stream is the exact expression served today. */
+  holders?: (key: K) => Effect.Effect<unknown, never, Scope.Scope>;
 }
 
 /** Run `run` at most once per producer tick — the shared latch under BOTH
@@ -854,11 +887,35 @@ export function collectionHandlers<Name extends string, K, T>(
     // subscription to an empty collection holds open — so the consumer shows its
     // honest empty/absent state, not a corpse. Callers that need a bounded first
     // read interrupt their own fiber (a timeout, a race).
-    get: (input) =>
-      subscribeBeforeSnapshot(deps.perKeyBus(input.key), () => {
-        const v = readOne(input.key);
-        return v === undefined ? [] : [v];
-      }),
+    //
+    // Whoever declared `holders` is told the SUBSCRIPTION'S LIFETIME, and
+    // `Stream.unwrap` is what makes it one: it runs the hold effect FIRST and builds
+    // the inner stream from its result, so the sequence per subscription is
+    // hold → channel subscribe → `readOne` snapshot. The hold is acquired in the
+    // returned stream's scope — the same scope `channelSubscription`'s
+    // `acquireRelease` rides — so an interruption ANYWHERE, including between the
+    // hold and the subscribe or mid-snapshot inside `readOne`, releases exactly once,
+    // and a subscription nobody ever runs holds nothing (the stream is lazy). Absent,
+    // this is the exact expression it was: not a wrapped equivalent, no overhead,
+    // no behaviour delta for any collection that never asked.
+    get: (input) => {
+      const live = (): Stream.Stream<T> =>
+        subscribeBeforeSnapshot(deps.perKeyBus(input.key), () => {
+          const v = readOne(input.key);
+          return v === undefined ? [] : [v];
+        });
+      const holders = deps.holders;
+      return holders === undefined
+        ? live()
+        : // `suspend` so the CALL to `holders` is inside the effect too, not just
+          // the effect it returns: a subscription nobody runs then does nothing at
+          // all on the consumer's behalf, and a hold that throws synchronously dies
+          // on this subscription's own fiber rather than escaping to whoever asked
+          // for the stream.
+          Stream.unwrap(
+            Effect.suspend(() => Effect.map(holders(input.key), live)),
+          );
+    },
     upsert: (input) =>
       Effect.sync(() => {
         deps.upsert(input.key, input.value);
