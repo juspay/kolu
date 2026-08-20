@@ -342,7 +342,13 @@ export function reconcileConverged(
             { err: Cause.squash(cause) },
             "surviving-session reconciliation failed — recycling the adopted daemon",
           );
-          yield* recycle(ep, destructiveRecycleSteps());
+          // Under the restart claim, like every other path that replaces this
+          // endpoint's daemon: this recycle kills and respawns, and the healer
+          // (armed by the `degraded` the kill itself emits) must not converge
+          // into the gap. `restartLocalEndpoint` claims for the button and the
+          // supervision arm; this arm reaches `recycle` directly, so it claims
+          // here rather than inheriting one.
+          yield* withRestartClaim(recycle(ep, destructiveRecycleSteps()));
           // The recycle spawned a FRESH daemon — nothing live survives now, so
           // this is the no-survivor path: park the saved session for the restore
           // card.
@@ -423,9 +429,6 @@ export function ensureLocalEndpoint(opts: {
    *  would close a cycle; taking it from the composition root that already holds
    *  both does not. */
   stillServing: Effect.Effect<Residency>;
-  /** First re-converge backoff, in ms — a TEST seam (like
-   *  `startKavalSupervision`'s `pollMs`); production omits it. */
-  reconvergeBackoffMs?: number;
 }): Effect.Effect<void> {
   return Effect.gen(function* () {
     const { home, legacyHome } = opts;
@@ -450,7 +453,6 @@ export function ensureLocalEndpoint(opts: {
       ),
       stillServing: opts.stillServing,
       onRecovered: opts.onRecovered,
-      backoffMs: opts.reconvergeBackoffMs,
     });
     const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>(
       {

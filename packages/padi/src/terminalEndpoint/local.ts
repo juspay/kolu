@@ -1049,6 +1049,20 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     cwd: string,
     commandRooted: boolean,
   ): void {
+    // Installing a sensor set REPLACES any set this terminal already has, rather
+    // than overwriting the `lifecycles` entry and stranding the old one (#2182).
+    // The tail of this function is a bare `lifecycles.set`, and the only thing
+    // that ever aborts a set is `teardownSensors` reading that same map — so
+    // before mid-session re-adoption existed, a second install would have left
+    // the first set's `abort` and `stopAwareness` permanently unreachable: two
+    // awareness loops folding into two accumulators, both writing one terminal's
+    // snapshot, neither stoppable by a later kill or exit. Adoption used to be
+    // once-per-process by construction; a link that heals mid-session (the
+    // healer's re-converge re-runs the boot's adopt) makes it repeatable, so the
+    // install has to be idempotent rather than merely unrepeated. Idempotent by
+    // the same call the kill path uses — a no-op when there is no prior set, and
+    // an abort that ends the old taps WITHOUT tripping `handleExit`.
+    this.teardownSensors(id);
     const abort = new AbortController();
     const { signal } = abort;
     const signals: SensorSignals = {

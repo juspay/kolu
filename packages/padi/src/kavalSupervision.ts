@@ -181,22 +181,41 @@ export function classifyKavalProbe(
  * wrong address is worse than none.
  */
 export function kavalResidency(stateRoot: string): Effect.Effect<Residency> {
-  return Effect.map(
-    Effect.match(probeKavalStatus(heldKaval(stateRoot).socket), {
-      onSuccess: (probe) => ({ ok: true, probe }) as const,
-      onFailure: (err) => ({ ok: false, err }) as const,
-    }),
-    (outcome) => {
-      switch (classifyKavalProbe(outcome).kind) {
-        case "healthy":
-          return "serving" as const;
-        case "wedged":
-          return "stuck" as const;
-        case "unreachable":
-          return "gone" as const;
-      }
-    },
+  // SUSPENDED, so `heldKaval` is read when the residency is ASKED rather than
+  // when the Effect is built. The healer builds this value once, at boot, and
+  // runs it on every attempt for the life of the process — an eager read would
+  // freeze the boot-time socket into every later answer and go on probing an
+  // address a recycle had already moved away from, which is the one failure the
+  // docstring above promises it does not have.
+  return Effect.suspend(() =>
+    probeKavalStatus(heldKaval(stateRoot).socket).pipe(
+      Effect.match({
+        onSuccess: (probe) => ({ ok: true, probe }) as const,
+        onFailure: (err) => ({ ok: false, err }) as const,
+      }),
+      // NOT belt-and-braces, and the same rule the tick below is written to:
+      // `probeKavalStatus` dials through `Effect.promise`, so a connect
+      // rejection (the socket inode is gone — `ENOENT`) is a DEFECT and rides
+      // straight past `match`. Unabsorbed it would kill this Effect and reach
+      // the healer as an unaskable question; absorbed here it reaches
+      // `classifyKavalProbe` as what it is — a probe that produced no reading.
+      Effect.catchDefect((err) => Effect.succeed({ ok: false, err } as const)),
+      Effect.map(residencyOf),
+    ),
   );
+}
+
+/** One probe verdict as the healer's word for it. Total over
+ *  {@link KavalObservation}'s three kinds, so a fourth kind is a type error here
+ *  rather than an `undefined` residency the loop would read as "not serving". */
+function residencyOf(
+  outcome:
+    | { readonly ok: true; readonly probe: KavalProbe }
+    | { readonly ok: false; readonly err: unknown },
+): Residency {
+  const observed = classifyKavalProbe(outcome).kind;
+  if (observed === "healthy") return "serving";
+  return observed === "wedged" ? "stuck" : "gone";
 }
 
 export interface KavalSupervisorDeps {

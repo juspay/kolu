@@ -753,13 +753,21 @@ export const DaemonStatusSchema = Schema.Union([
      *  was re-adopted (juspay/kolu#1365); the client keeps the greatest announced
      *  `adoptedAt` in localStorage and only toasts a strictly newer one. */
     adoptedAt: Schema.optionalKey(Schema.Number),
-    /** #2101 N1: the ms-epoch padi stamped when a probe PROVED that an automatic
-     *  recycle of an unresponsive kaval worked — set only on the `connected`
-     *  status that followed a supervisor-driven repair, never on a boot or on the
-     *  button's recycle (the user who pressed it does not need to be told). Drives
-     *  the client's one-shot "kaval was unresponsive — restarted" toast, deduped
-     *  against a persisted high-water mark exactly as `adoptedAt` is. Absent
-     *  everywhere else, which is the honest reading: nothing was auto-repaired. */
+    /** #2101 N1: the ms-epoch padi stamped when an automatic repair REPLACED an
+     *  unresponsive kaval — never on a boot, and never on the button's recycle
+     *  (the user who pressed it does not need to be told). Drives the client's
+     *  one-shot "kaval was unresponsive — restarted" toast, deduped against a
+     *  persisted high-water mark exactly as `adoptedAt` is.
+     *
+     *  TWO stampers now, and the shared word is "replaced", not "probed"
+     *  (juspay/kolu#2184): the supervision arm stamps it once a probe has PROVED
+     *  the replacement serves, and the link-loss healer stamps it when its own
+     *  re-converge came back with no survivors — a fresh daemon and a parked
+     *  session, which is the same news for the reader even though no probe
+     *  proved it. What both exclude is the healer's ordinary outcome, an ADOPTED
+     *  daemon that never stopped running; that is {@link linkRestoredAt}, whose
+     *  sentence is the opposite one. Absent everywhere else, which is the honest
+     *  reading: nothing was replaced. */
     autoRecoveredAt: Schema.optionalKey(Schema.Number),
     /** #2184: the ms-epoch padi stamped when the self-healing re-converge
      *  re-ADOPTED the resident kaval after the held link died mid-session — the

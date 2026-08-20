@@ -269,12 +269,25 @@ export function startLinkLossHealer(deps: {
     }
     if (published() !== "degraded") return;
     // The precondition, re-asked at every fire because it is a fact about NOW:
-    // only a daemon that is still serving is a link this loop may re-make. The
-    // read absorbs its own failure into `gone` — a residency question we could not
-    // ask is not a licence to spawn.
+    // only a daemon that is still serving is a link this loop may re-make. An
+    // UNASKABLE question folds to `stuck`, never `gone`: both decline to
+    // converge, so neither can spawn, but `gone` is the one branch that stops
+    // this loop for good — and "the probe itself broke" is not evidence the
+    // daemon died. Standing down on it would re-open #2182 through the one door
+    // this guard added.
     const residency = await Effect.runPromise(deps.stillServing).catch(
-      () => "gone" as const,
+      () => "stuck" as const,
     );
+    // The probe took up to its own deadline, and every guard read before it is
+    // now stale — a restart can have claimed the endpoint, or the link can have
+    // healed, while we were asking. Re-read them rather than act on what was true
+    // 5 s ago.
+    if (inFlightHeal !== undefined) return;
+    if (restartsInFlight > 0) {
+      arm();
+      return;
+    }
+    if (published() !== "degraded") return;
     if (residency !== "serving") {
       // One line per DECISION, not per tick: this is where the healer hands the
       // fault to the arm that owns it, and a silent hand-off is how a degraded

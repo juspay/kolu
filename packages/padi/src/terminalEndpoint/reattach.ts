@@ -148,7 +148,15 @@ function adoptSurvivorAsOrphan(entry: PtyHostListEntry): boolean {
 
 /** Reconcile a SURVIVING kaval daemon's live PTYs against the saved session and
  *  adopt the survivors. See the module doc. Called from `ensureLocalEndpoint`
- *  only when the boot adopted a surviving daemon.
+ *  whenever a converge ADOPTED a surviving daemon — at boot, and (since
+ *  juspay/kolu#2182) on every mid-session heal of a link that dropped while the
+ *  daemon behind it kept running. So it is RE-ENTRANT by requirement, not by
+ *  luck: the second run meets a registry that is already full and re-adopts the
+ *  terminals in it, which is what re-establishes the per-terminal taps the dead
+ *  link took with it (they are bridged once, with no re-subscribe loop of their
+ *  own — see `startSnapshotSensors`). Installing a sensor set is idempotent for
+ *  exactly this reason; the reconcile plan itself only ever adopts or seeds, so
+ *  a re-run can add work but never destroy any.
  *
  *  FAILS if it cannot list the survivor's PTYs (F3): a connected daemon holding
  *  PTYs kolu has no registry entry for is a fail-closed condition — the boot

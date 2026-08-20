@@ -100,10 +100,11 @@ perfectly healthy — still running, still holding every terminal, still able to
 answer. From the outside that looks exactly like a stuck kaval, and it is the
 opposite: nothing is broken, and there is only a connection to re-make. padi
 re-makes it by itself, about a second after it drops, and keeps trying — backing
-off to once every half-minute — for as long as it takes. Each attempt takes the
-running daemon back *over* rather than replacing it, so your terminals and the
-agents inside them keep running throughout and there is nothing to restore. When
-the line is back kolu says so once, and the card clears itself.
+off to once every half-minute — for as long as it takes. It only ever re-makes a
+line to a daemon it has just checked is still answering, and taking that daemon
+back *over* is the whole of what it does, so your terminals and the agents inside
+them keep running throughout and there is nothing to restore. When the line is
+back kolu says so once, and the card clears itself.
 
 A daemon that is genuinely gone is a different fact and gets the different
 answer. Re-making a line to a daemon that is not there would mean starting a new
