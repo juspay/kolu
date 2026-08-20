@@ -99,6 +99,17 @@ On macOS, launchd writes the two streams to:
 ~/Library/Logs/kolu.err.log
 ```
 
+Both work because a service manager owns the server's output. Started **by
+hand**, nothing does — `kolu web` writes to your terminal and that is the only
+copy, so redirect it if the run is meant to outlive the shell:
+
+```sh
+kolu web > ~/kolu-server.log 2>&1
+```
+
+This is the log that records **why a host's daemon was stopped or replaced**;
+[Operations](/operations) lists the full set and which question each answers.
+
 Crashes and startup failures remain visible after the process exits.
 
 ## Capture memory diagnostics
