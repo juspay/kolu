@@ -81,11 +81,15 @@ export type CodeViewProps = {
 
 type VersionEntry = { ref: unknown; version: number };
 
-/** Pull the content reference out of an item so reference equality
- *  identifies "same content, no bump needed". For files that's the
- *  `FileContents` object; for diffs it's the `FileDiffMetadata`. */
+/** Pull the content identity out of an item so a live hunk/body swap
+ *  bumps `version`. Prefer Pierre's `cacheKey` (what 1.3 uses as the
+ *  highlight-target id) over object identity — Pierre fills a missing
+ *  key with the filename, so two parses of the same path would otherwise
+ *  look unchanged. */
 const contentRefOf = (item: CodeViewItem): unknown =>
-  item.type === "diff" ? item.fileDiff : item.file;
+  item.type === "diff"
+    ? (item.fileDiff.cacheKey ?? item.fileDiff)
+    : (item.file.cacheKey ?? item.file);
 
 /** Pure transform: stamp each item with a `version` derived from `current`.
  *  An item with no prior entry starts at `1`; an item whose content
@@ -207,10 +211,18 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     on(
       () => props.items,
       (items) =>
-        safeApply(
-          () => instance?.setItems(versionedItems(items)),
-          props.onError,
-        ),
+        safeApply(() => {
+          if (!instance) return;
+          instance.setItems(versionedItems(items));
+          // Pierre 1.3's FileDiff.render early-returns when layout has
+          // already stored the new fileDiff (`fileDiff === this.fileDiff`)
+          // and the viewport range is unchanged — so a same-path hunk
+          // swap (Code tab live git) never paints. setOptions with a
+          // fresh callback identity fails areOptionsEqual and bumps
+          // renderOptionsRevision, which is the forceRender the reused
+          // element path needs.
+          instance.setOptions(buildOptions());
+        }, props.onError),
       { defer: true },
     ),
   );

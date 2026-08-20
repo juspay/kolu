@@ -79,6 +79,24 @@ export interface Subscription<T> extends Accessor<T | undefined> {
    *  `Subscription`-shaped value need not provide it; every subscription minted
    *  by this module's factories does. */
   readonly updated?: (handler: (change: CellChange<T>) => void) => Dispose;
+  /** Subscribe to the FACT of a change — the same change-iff-fired law as
+   *  {@link updated}, fired at the same moments, but without the payload.
+   *
+   *  The distinction is not stylistic and it is not a mode: `updated` must hand
+   *  its handlers a SNAPSHOT, because the store adopts a frame and mutates it on
+   *  the next write, so a retained `{prev, next}` would change out from under the
+   *  consumer. That snapshot is two `structuredClone`s of a whole frame, and it is
+   *  the price of the payload. A consumer that only wants to know THAT something
+   *  arrived — a frame counter, a re-ask trigger, an invalidation — was paying it
+   *  for a value it discarded: two deep clones of a hundred-kilobyte page, per
+   *  keystroke, for an integer. Subscribe here instead and the clones do not
+   *  happen at all; nothing else about the law moves (a first frame is still not a
+   *  change, an equal reconnect snapshot is still silent).
+   *
+   *  Optional for the same reason as {@link updated} and `complete`: a
+   *  hand-assembled `Subscription`-shaped value need not provide it; every
+   *  subscription minted by this module's factories does. */
+  readonly changed?: (handler: () => void) => Dispose;
   /** True once the stream has ENDED NORMALLY (a typed end — never on abort).
    *  Latches permanently: once true, this subscription's value is FROZEN —
    *  it will never update again. Without this fact, an ended subscription
@@ -127,6 +145,15 @@ export interface SubscriptionOptions<T, R = T> {
    *  never reuses an ended stream. "A disposed subscription cannot report anything"
    *  extends here: an aborted subscription must not fire `onComplete`. */
   onComplete?: () => void;
+  /** The field that identifies an element of an array inside this subscription's
+   *  frames — see `./writeValue.ts`, which is the seam that reads it, and
+   *  `CellSpec.arrayKey` in `../define.ts`, which is where a MEMBER declares it.
+   *
+   *  A member's hooks (`useCell`, `useStream`) thread the declaration off the
+   *  descriptor, so a `.use()` call site never supplies it. It is spellable here
+   *  because this primitive takes a RAW `Stream<T>` with no member behind it: such
+   *  a caller has no declaration to inherit and is itself the definition site. */
+  arrayKey?: string;
 }
 
 /** Structural value equality for subscription frames — the change-iff-fired law's
@@ -291,6 +318,31 @@ function framesEqualOnPath(a: unknown, b: unknown, pairing: Pairing): boolean {
   }
 }
 
+/** Fan a frame out to one channel's subscribers, guarded per handler.
+ *
+ *  The guard is the point, and it is why both channels come through here rather
+ *  than writing the loop twice: one consumer's throwing callback must not abort
+ *  fan-out to the others, and — critically for a SHARED subscription behind the
+ *  keyed cache — must not escape into the stream-consume `catch`, where it would
+ *  be misreported as an upstream stream error and terminate the iterator for
+ *  EVERY cached consumer. Report loudly, keep going. `label` names the channel in
+ *  that report, so a thrown handler is traceable to the verb it was registered
+ *  under. The set is copied before iterating, so a handler that unsubscribes
+ *  itself (or a sibling) mid-fan-out cannot perturb the walk. */
+function notifyAll<A extends unknown[]>(
+  handlers: ReadonlySet<(...args: A) => void>,
+  args: A,
+  label: string,
+): void {
+  for (const h of [...handlers]) {
+    try {
+      h(...args);
+    } catch (err) {
+      console.error(`subscription \`${label}\` handler threw`, err);
+    }
+  }
+}
+
 /** The change-iff-fired half of the Dynamic, as a standalone tracker so BOTH
  *  subscription factories share ONE implementation of the law (only the value
  *  type differs). `lastSeen` is tracked from the very first frame — independent
@@ -299,16 +351,26 @@ function framesEqualOnPath(a: unknown, b: unknown, pairing: Pairing): boolean {
  *
  *   - `noteFrame(next)` — call on every stream frame (before the store write):
  *     the first frame seeds `lastSeen` silently; an equal frame (a reconnect
- *     snapshot) is silent; a differing frame fans out one `{prev, next}` change.
+ *     snapshot) is silent; a differing frame fans out one change.
  *   - `reset()` — a fresh subscription (the reactive factory's input change)
  *     re-arms the first-frame rule; handlers survive (they belong to the caller).
- *   - `updated(handler)` — subscribe; returns a `Dispose`. */
+ *   - `updated(handler)` — subscribe WITH the `{prev, next}` payload.
+ *   - `changed(handler)` — subscribe to the FACT alone.
+ *
+ *  ONE law, two subscriber sets, and the split is exactly the snapshot: `prev`
+ *  and `next` must be CLONED before they are handed out, because the store adopts
+ *  a frame and mutates it on the next write. Nothing else needs cloning, so a
+ *  frame with only `changed` subscribers takes none — the deep compare that
+ *  decides whether to fire at all still runs, and must, since it is what keeps an
+ *  equal reconnect snapshot silent. */
 export function createUpdatedTracker<V>(): {
   noteFrame: (next: V) => void;
   updated: (handler: (change: CellChange<V>) => void) => Dispose;
+  changed: (handler: () => void) => Dispose;
   reset: () => void;
 } {
   const handlers = new Set<(change: CellChange<V>) => void>();
+  const factHandlers = new Set<() => void>();
   // A discriminated union, not `{ has, value }`: there is no "unseen with a
   // value" state to represent, and the unseen arm carries no `V` — so nothing
   // manufactures an arbitrary `undefined as V` to satisfy the type.
@@ -321,44 +383,46 @@ export function createUpdatedTracker<V>(): {
         lastSeen = { kind: "seen", value: next }; // first frame: a value, not a change
         return;
       }
-      // Hot-path short-circuit: with no handler registered, the baseline just
-      // advances to the latest frame in O(1) — a handler added later sees only
-      // changes FROM that point on, so it never needs the intervening compares.
-      // This keeps the deep `framesEqual` off every cell/stream/collection frame
-      // for the overwhelmingly common no-`updated`-handler case.
-      if (handlers.size === 0) {
+      // Hot-path short-circuit: with no handler of EITHER kind registered, the
+      // baseline just advances to the latest frame in O(1) — a handler added later
+      // sees only changes FROM that point on, so it never needs the intervening
+      // compares. This keeps the deep `framesEqual` off every cell/stream/collection
+      // frame for the overwhelmingly common nobody-is-listening case.
+      if (handlers.size === 0 && factHandlers.size === 0) {
         lastSeen = { kind: "seen", value: next };
         return;
       }
       if (framesEqual(lastSeen.value, next)) return; // equal reconnect snapshot: silent
       const prev = lastSeen.value;
       lastSeen = { kind: "seen", value: next };
-      // Hand consumers a SNAPSHOT: the store writes these frames through Solid's
-      // `reconcile`, which adopts a frame and mutates it on the next write — a
-      // retained `{prev, next}` would silently mutate out from under the
-      // consumer. Clone only on a firing change with subscribers, so the hot
-      // no-op path pays nothing. (`framesEqual` above ran on the pre-write
-      // values, so the baseline compare is unaffected by the mutation.)
-      const change: CellChange<V> = {
-        prev: structuredClone(prev),
-        next: structuredClone(next),
-      };
-      // Guard each handler: one consumer's throwing `updated` callback must not
-      // abort fan-out to the others, and — critically for a SHARED subscription
-      // behind the keyed cache — must not escape into the stream-consume `catch`,
-      // where it would be misreported as an upstream stream error and terminate
-      // the iterator for EVERY cached consumer. Report loudly, keep going.
-      for (const h of [...handlers]) {
-        try {
-          h(change);
-        } catch (err) {
-          console.error("subscription `updated` handler threw", err);
-        }
+      // Hand payload consumers a SNAPSHOT: the store writes these frames through
+      // Solid's `reconcile`, which adopts a frame and mutates it on the next write
+      // — a retained `{prev, next}` would silently mutate out from under the
+      // consumer. Clone only when somebody is actually going to READ the payload:
+      // a frame watched only by `changed` subscribers pays nothing here, which is
+      // the whole reason that channel exists. (`framesEqual` above ran on the
+      // pre-write values, so the baseline compare is unaffected by the mutation.)
+      if (handlers.size > 0) {
+        notifyAll(
+          handlers,
+          [
+            {
+              prev: structuredClone(prev),
+              next: structuredClone(next),
+            } satisfies CellChange<V>,
+          ],
+          "updated",
+        );
       }
+      notifyAll(factHandlers, [], "changed");
     },
     updated(handler) {
       handlers.add(handler);
       return () => handlers.delete(handler);
+    },
+    changed(handler) {
+      factHandlers.add(handler);
+      return () => factHandlers.delete(handler);
     },
     reset() {
       lastSeen = { kind: "unseen" };
@@ -522,7 +586,7 @@ export function createSubscription<T, R = T>(
     onFrame: (item) => {
       const next = reduce ? reduce(store.v as T | R, item) : (item as T | R);
       tracker.noteFrame(next); // fire `updated` on a genuine change, before the write
-      writeWrappedValue(setStore, next as T | R | undefined);
+      writeWrappedValue(setStore, next as T | R | undefined, options?.arrayKey);
     },
     onComplete: options?.onComplete,
     onError: options?.onError,
@@ -532,6 +596,7 @@ export function createSubscription<T, R = T>(
   return Object.assign(() => store.v as (T | R) | undefined, {
     ...state,
     updated: tracker.updated,
+    changed: tracker.changed,
   }) as Subscription<T | R>;
 }
 

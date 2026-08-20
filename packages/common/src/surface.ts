@@ -1020,6 +1020,15 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       // reactive bridge's law). The map republishes on every move; a move that
       // leaves the rendered list identical never reaches a client.
       equals: sameForwards,
+      // A row IS its `key` — the forward map's own identity for the target (see
+      // {@link KoluForwardSchema}), and the handle its cancel button carries. So
+      // the client's store merges these rows BY it rather than replacing them:
+      // `ForwardRows`' `<For>` keys by reference, and without the declaration a
+      // frame moving ONE forward rebuilt the DOM of ALL of them — dropping the
+      // "Copied" tick on a row somebody had just copied, and any hover or focus
+      // sitting on another. `equals` above stops the frames that say nothing;
+      // this decides what a frame that DOES say something is allowed to disturb.
+      arrayKey: "key",
       verbs: ["get"],
       client: { onError: { kind: "toast", label: "Port forwards" } },
     },

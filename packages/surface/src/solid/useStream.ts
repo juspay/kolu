@@ -37,6 +37,10 @@ export function useStream<Name extends string, I, T>(
     // (kolu#2101 J2).
     (input) =>
       unenrolledStreamCall(source, input, { label: streamDescriptor.name }),
-    options,
+    // The member's DECLARED array identity, read off the descriptor rather than
+    // taken from `options`: a caller's `.use(input, opts)` cannot spell it (its
+    // type has no such field), so the declaration on the spec is the only place
+    // this can come from and two call sites cannot disagree about it.
+    { ...options, arrayKey: streamDescriptor.arrayKey },
   );
 }
