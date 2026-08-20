@@ -52,6 +52,7 @@ import {
   readAgentToolsBake,
   TERMINAL_TOOLS_PATH_ENV,
 } from "kolu-pty";
+import type { KavalObservation } from "../kavalObservation.ts";
 import { log } from "../log.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {
@@ -65,7 +66,7 @@ import {
   setLocalSocketPath,
 } from "./daemonStatus.ts";
 import { withRestartClaim } from "./endpointClaim.ts";
-import { type Residency, startLinkLossHealer } from "./linkLoss.ts";
+import { startLinkLossHealer } from "./linkLoss.ts";
 import {
   type ConvergeVerdict,
   convergeAndReconcile,
@@ -371,15 +372,13 @@ export function ensureLocalEndpoint(opts: {
   /** Is our kaval still serving? The self-healing re-converge's precondition
    *  (#2184) — REQUIRED, because a healer without one re-converges blind, and a
    *  blind converge SPAWNS when nobody is home, which turns a lost link into an
-   *  unledgered restart loop. See {@link Residency}.
+   *  unledgered restart loop. What each answer means to the healer is on
+   *  `startLinkLossHealer`'s `stillServing`.
    *
-   *  INJECTED rather than read here, and not merely for symmetry with the hooks
-   *  above: the sensor is `kavalSupervision`'s (`probeKavalStatus` +
-   *  `classifyKavalProbe` — one implementation, two readers), and that module
-   *  reaches back into this one through `restartLocal.ts`. Importing it here
-   *  would close a cycle; taking it from the composition root that already holds
-   *  both does not. */
-  stillServing: Effect.Effect<Residency>;
+   *  INJECTED rather than read here: the reading is `observeHeldKaval`'s — the
+   *  one both supervision arms take — and taking it from the composition root
+   *  that already holds both keeps this root free of the sensor. */
+  stillServing: Effect.Effect<KavalObservation["kind"]>;
 }): Effect.Effect<void> {
   return Effect.gen(function* () {
     const { home, legacyHome } = opts;

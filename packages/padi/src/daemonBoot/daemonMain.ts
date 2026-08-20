@@ -50,7 +50,8 @@ import {
   shutdownCleanup,
 } from "../koluRoot.ts";
 import { configureDaemonLog, log as padiLog } from "../log.ts";
-import { kavalResidency, startKavalSupervision } from "../kavalSupervision.ts";
+import { observeHeldKaval } from "../kavalObservation.ts";
+import { startKavalSupervision } from "../kavalSupervision.ts";
 import { setPadiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import {
   getLocalSocketPath,
@@ -495,7 +496,10 @@ function bootLocalEndpoint(params: {
       // #2184's precondition, from the sensor the supervision arm below reads —
       // so "is our kaval still there?" has ONE answer on this host, and the
       // healer re-makes links while the probe arm owns daemons that died.
-      stillServing: kavalResidency(params.stateRoot),
+      stillServing: Effect.map(
+        observeHeldKaval(params.stateRoot),
+        (observation) => observation.kind,
+      ),
       onRecovered: (verdict) =>
         verdict === "adopted"
           ? setLinkRestored(encodeHostLocation(LOCAL_LOCATION))

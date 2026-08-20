@@ -40,6 +40,7 @@ import { createEndpointForKoluTest } from "@kolu/surface-daemon-supervisor/creat
 import { Effect } from "effect";
 import type { PtyHostClient, PtyHostIdentity } from "kaval";
 import { afterEach, describe, expect, it } from "vitest";
+import type { KavalObservation } from "../kavalObservation.ts";
 import type { KavalConnectionMetadata } from "./connect.ts";
 import { unreachableDispatch } from "./dispatch.testlib.ts";
 import {
@@ -47,11 +48,7 @@ import {
   withConvergeClaim,
   withRestartClaim,
 } from "./endpointClaim.ts";
-import {
-  type LinkLossHealer,
-  type Residency,
-  startLinkLossHealer,
-} from "./linkLoss.ts";
+import { type LinkLossHealer, startLinkLossHealer } from "./linkLoss.ts";
 import {
   type ConvergeVerdict,
   convergeAndReconcile,
@@ -59,9 +56,13 @@ import {
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** The residency every heal-path case below is ABOUT: the daemon is still there,
- *  and only the link to it broke. The cases that vary it name their own. */
-const SERVING = Effect.succeed<Residency>("serving");
+/** What the healer's precondition answers with — the sensor's own word for what
+ *  is standing at the rendezvous, which is the only vocabulary for it. */
+type Observed = KavalObservation["kind"];
+
+/** What every heal-path case below is ABOUT: the daemon is still there, and
+ *  only the link to it broke. The cases that vary it name their own. */
+const SERVING = Effect.succeed<Observed>("healthy");
 
 /** Poll until `ready`, or fail loudly. The loop under test runs on real node
  *  timers (its `unref`'d, chained `setTimeout` is a deliberate design choice, not
@@ -337,7 +338,7 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
   it("does NOT converge when the daemon is GONE — a restart is the probe arm's job, and this loop stands down", async () => {
     let converges = 0;
     const healer = startLinkLossHealer({
-      stillServing: Effect.succeed<Residency>("gone"),
+      stillServing: Effect.succeed<Observed>("unreachable"),
       reconverge: Effect.sync(() => {
         converges += 1;
         return "no-survivors" as const;
@@ -356,9 +357,9 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
 
   it("does NOT converge on a STUCK daemon either, but keeps re-checking — a busy kaval must not be given up on", async () => {
     let converges = 0;
-    let residency: Residency = "stuck";
+    let observed: Observed = "wedged";
     const healer = startLinkLossHealer({
-      stillServing: Effect.suspend(() => Effect.succeed(residency)),
+      stillServing: Effect.suspend(() => Effect.succeed(observed)),
       reconverge: Effect.sync(() => {
         converges += 1;
         return "adopted" as const;
@@ -374,7 +375,7 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
     expect(converges).toBe(0);
     // ...and the loop is still armed, so the moment the daemon answers again the
     // link is re-made without anyone touching the button.
-    residency = "serving";
+    observed = "healthy";
     await waitFor(
       "the heal to resume once the daemon answers",
       () => converges === 1,

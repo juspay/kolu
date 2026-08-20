@@ -82,26 +82,9 @@
 import type { EndpointState } from "@kolu/surface-daemon-supervisor";
 import { Effect } from "effect";
 import { log } from "../log.ts";
+import type { KavalObservation } from "../kavalObservation.ts";
 import { healClaimed, restartClaimed, withHealClaim } from "./endpointClaim.ts";
 import type { ConvergeVerdict } from "./reconcileConverged.ts";
-
-/** What the rendezvous holds RIGHT NOW, as the healer's precondition — the three
- *  answers `classifyKavalProbe` already gives, named for what each one means to
- *  THIS loop rather than to the probe arm:
- *
- *  - `serving` — a daemon answered. Our link is the only thing that broke, so
- *    re-converging re-attaches to it and nothing is spawned or killed.
- *  - `stuck` — something holds the socket but could not answer. Waiting is right:
- *    a converge here would meet the silence deadline and TAKE OVER a daemon whose
- *    repair the probe arm already owns (and budgets), and a daemon merely busy for
- *    one 5 s window is one we must not give up on either. So: no converge, and no
- *    stand-down — probe again after the next backoff.
- *  - `gone` — nothing is listening. Not our fault to fix: re-converging would
- *    SPAWN, which is a restart, which is the probe arm's ledgered job.
- *
- *  Distinguishing them is the whole reason this loop cannot become a respawn
- *  storm; see {@link startLinkLossHealer}'s `stillServing`. */
-export type Residency = "serving" | "stuck" | "gone";
 
 /** The first wait before a re-converge, and the ceiling the doubling stops at.
  *  Not knobs — there is no override path and no env read: a link that died with
@@ -147,8 +130,22 @@ export function startLinkLossHealer(deps: {
    *  `KAVAL_SUPERVISION_SPEC.unrepaired` exists to bound and `/padi` publishes as
    *  a promise ("padi stops restarting … a hot restart loop is not a repair").
    *  A lost LINK and a dead DAEMON are two faults with two owners; this predicate
-   *  is where the healer declines the one that is not its own. */
-  readonly stillServing: Effect.Effect<Residency>;
+   *  is where the healer declines the one that is not its own.
+   *
+   *  The sensor's OWN word for what it saw, not a second vocabulary for it — one
+   *  condition with two names is one a field log cannot correlate. What each
+   *  answer means to THIS loop:
+   *
+   *  - `healthy` — a daemon answered. Our link is the only thing that broke, so
+   *    re-converging re-attaches to it and nothing is spawned or killed.
+   *  - `wedged` — something holds the socket but could not answer. Waiting is
+   *    right: a converge here would meet the silence deadline and TAKE OVER a
+   *    daemon whose repair the probe arm already owns (and budgets), and a daemon
+   *    merely busy for one 5 s window is one we must not give up on either. So:
+   *    no converge, and no stand-down — probe again after the next backoff.
+   *  - `unreachable` — nothing is listening. Not our fault to fix: re-converging
+   *    would SPAWN, which is a restart, which is the probe arm's ledgered job. */
+  readonly stillServing: Effect.Effect<KavalObservation["kind"]>;
   /** First-wait override, in ms — a TEST seam (like `startKavalSupervision`'s
    *  `pollMs`); production omits it. */
   readonly backoffMs?: number;
@@ -227,13 +224,13 @@ export function startLinkLossHealer(deps: {
     if (published() !== "degraded") return;
     // The precondition, re-asked at every fire because it is a fact about NOW:
     // only a daemon that is still serving is a link this loop may re-make. An
-    // UNASKABLE question folds to `stuck`, never `gone`: both decline to
-    // converge, so neither can spawn, but `gone` is the one branch that stops
-    // this loop for good — and "the probe itself broke" is not evidence the
+    // UNASKABLE question folds to `wedged`, never `unreachable`: both decline to
+    // converge, so neither can spawn, but `unreachable` is the one branch that
+    // stops this loop for good — and "the probe itself broke" is not evidence the
     // daemon died. Standing down on it would re-open #2182 through the one door
     // this guard added.
-    const residency = await Effect.runPromise(deps.stillServing).catch(
-      () => "stuck" as const,
+    const observed = await Effect.runPromise(deps.stillServing).catch(
+      () => "wedged" as const,
     );
     // The probe took up to its own deadline, and every guard read before it is
     // now stale — a restart can have claimed the endpoint, or the link can have
@@ -245,20 +242,20 @@ export function startLinkLossHealer(deps: {
       return;
     }
     if (published() !== "degraded") return;
-    if (residency !== "serving") {
+    if (observed !== "healthy") {
       // One line per DECISION, not per tick: this is where the healer hands the
       // fault to the arm that owns it, and a silent hand-off is how a degraded
       // padi looks identical to a padi nobody is watching.
       log.warn(
-        { residency, attempt: attempt + 1 },
-        residency === "gone"
+        { observed, attempt: attempt + 1 },
+        observed === "unreachable"
           ? "kaval link lost and nothing is serving the socket — the daemon is gone, which is a restart and not a re-connect; standing down for the steady-state probe arm"
-          : "kaval link lost and the daemon is not answering — leaving a stuck daemon to the steady-state probe arm; will re-check after the next backoff",
+          : "kaval link lost and the daemon is not answering — leaving a wedged daemon to the steady-state probe arm; will re-check after the next backoff",
       );
-      // `stuck` is a WAIT (re-arm and ask again); `gone` is a HAND-OFF (do not
-      // re-arm — the probe arm recycles, and its fresh daemon publishes the
-      // `connected` that resets this loop for the next link it loses).
-      if (residency === "stuck") arm();
+      // `wedged` is a WAIT (re-arm and ask again); `unreachable` is a HAND-OFF
+      // (do not re-arm — the probe arm recycles, and its fresh daemon publishes
+      // the `connected` that resets this loop for the next link it loses).
+      if (observed === "wedged") arm();
       return;
     }
     attempt += 1;

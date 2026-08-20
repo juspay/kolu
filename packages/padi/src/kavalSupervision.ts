@@ -31,39 +31,14 @@
  */
 
 import type { Logger } from "@kolu/log";
-import { isNoListenerError } from "@kolu/surface-daemon-supervisor";
 import {
   type FailureClassSpec,
   makeFailureLedger,
 } from "@kolu/surface/failure-ledger";
 import { Effect } from "effect";
-import {
-  heldKaval,
-  HOST_INVENTORY_SAMPLE_INTERVAL_MS,
-  type KavalProbe,
-  probeKavalStatus,
-} from "./hostInventory.ts";
-import type { Residency } from "./ptyHost/linkLoss.ts";
+import { HOST_INVENTORY_SAMPLE_INTERVAL_MS } from "./hostInventory.ts";
+import { type KavalObservation, observeHeldKaval } from "./kavalObservation.ts";
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
-
-/** What ONE probe of the held kaval proved. The two failing shapes are the two
- *  ledger classes; `healthy` is the ledger's `success()`.
- *
- *  `wedged` deliberately covers accepts-then-SILENCE *and* accepts-then-GARBAGE:
- *  the field's late receipts showed a delayed probe against the comatose socket
- *  receiving binary noise (`inbound frame parse failure: Unexpected token …`)
- *  before the transport closed. Both reach us as a rejected probe over a socket
- *  that accepted the dial, and both mean the same thing — this daemon cannot
- *  serve. Splitting them would split a budget without splitting a decision. */
-export type KavalObservation =
-  /** The probe answered all three read-only verbs inside its deadline. */
-  | { readonly kind: "healthy" }
-  /** The dial was accepted and then the probe timed out, errored, or the peer
-   *  answered unspeakably. The field shape. */
-  | { readonly kind: "wedged"; readonly err: unknown }
-  /** Nothing is listening at the held address — the dial was refused, or the
-   *  socket inode is gone. */
-  | { readonly kind: "unreachable" };
 
 export type KavalFailureClass =
   Exclude<KavalObservation["kind"], "healthy"> extends infer K
@@ -131,92 +106,6 @@ export const KAVAL_SUPERVISION_SPEC: Record<
    *  repairs in the first 30 s and then one per tick forever". */
   unrepaired: { ceiling: 3, resets: ["wedged", "unreachable"] },
 };
-
-/** Classify one settled probe of the held kaval.
- *
- *  Two independent spellings of "nobody is listening" both fold to
- *  `unreachable`, because the probe can produce either: `probeKavalStatus`
- *  catches a no-listener error in its FAILURE channel and yields an EMPTY probe
- *  (all fields null), but a dial that rejects with `ENOENT` rides
- *  `Effect.promise` and therefore arrives as a DEFECT, past that catch. Both are
- *  the same fact, so both are read with the same predicate the probe itself uses
- *  (`isNoListenerError`) rather than a second, drifting one.
- *
- *  Everything else that failed is `wedged`: the socket was there, the dial was
- *  accepted, and the daemon behind it did not answer — by timeout, by error, or
- *  by unspeakable bytes. */
-export function classifyKavalProbe(
-  outcome:
-    | { readonly ok: true; readonly probe: KavalProbe }
-    | { readonly ok: false; readonly err: unknown },
-): KavalObservation {
-  if (!outcome.ok) {
-    return isNoListenerError(outcome.err)
-      ? { kind: "unreachable" }
-      : { kind: "wedged", err: outcome.err };
-  }
-  const { terminalCount, contractVersion } = outcome.probe;
-  // An empty probe is the honest "no listener at this path" verdict, not a
-  // served kaval with nothing running: a live kaval always answers
-  // `system.version`, so a null contract version means nobody answered at all.
-  return terminalCount === null && contractVersion === null
-    ? { kind: "unreachable" }
-    : { kind: "healthy" };
-}
-
-/**
- * The held kaval's residency RIGHT NOW, for the link-loss healer's precondition
- * (juspay/kolu#2184) — the same probe this module's own loop reads, folded
- * through the same {@link classifyKavalProbe}, so the two arms can never disagree
- * about what is standing at the rendezvous.
- *
- * It lives here rather than beside the healer for the reason the healer takes it
- * as an injected value: `linkLoss.ts` is reached FROM `ptyHost/index.ts`, and
- * this module reaches back INTO `ptyHost` (`recycleLocalKaval`). The sensor
- * belongs with the classification it shares; the edge belongs to the composition
- * root that already holds both.
- *
- * `heldKaval` (not a captured path) for the reason the loop re-reads it every
- * tick: a recycle can relocate the socket, and a residency answered about the
- * wrong address is worse than none.
- */
-export function kavalResidency(stateRoot: string): Effect.Effect<Residency> {
-  // SUSPENDED, so `heldKaval` is read when the residency is ASKED rather than
-  // when the Effect is built. The healer builds this value once, at boot, and
-  // runs it on every attempt for the life of the process — an eager read would
-  // freeze the boot-time socket into every later answer and go on probing an
-  // address a recycle had already moved away from, which is the one failure the
-  // docstring above promises it does not have.
-  return Effect.suspend(() =>
-    probeKavalStatus(heldKaval(stateRoot).socket).pipe(
-      Effect.match({
-        onSuccess: (probe) => ({ ok: true, probe }) as const,
-        onFailure: (err) => ({ ok: false, err }) as const,
-      }),
-      // NOT belt-and-braces, and the same rule the tick below is written to:
-      // `probeKavalStatus` dials through `Effect.promise`, so a connect
-      // rejection (the socket inode is gone — `ENOENT`) is a DEFECT and rides
-      // straight past `match`. Unabsorbed it would kill this Effect and reach
-      // the healer as an unaskable question; absorbed here it reaches
-      // `classifyKavalProbe` as what it is — a probe that produced no reading.
-      Effect.catchDefect((err) => Effect.succeed({ ok: false, err } as const)),
-      Effect.map(residencyOf),
-    ),
-  );
-}
-
-/** One probe verdict as the healer's word for it. Total over
- *  {@link KavalObservation}'s three kinds, so a fourth kind is a type error here
- *  rather than an `undefined` residency the loop would read as "not serving". */
-function residencyOf(
-  outcome:
-    | { readonly ok: true; readonly probe: KavalProbe }
-    | { readonly ok: false; readonly err: unknown },
-): Residency {
-  const observed = classifyKavalProbe(outcome).kind;
-  if (observed === "healthy") return "serving";
-  return observed === "wedged" ? "stuck" : "gone";
-}
 
 export interface KavalSupervisorDeps {
   /** The ONE repair routine — the same `recycleLocalKaval` the "Restart kaval"
@@ -390,21 +279,15 @@ export function startKavalSupervision(opts: {
   const tick = async (): Promise<void> => {
     if (stopped) return;
     try {
-      // The `.catch` is NOT belt-and-braces: `probeKavalStatus` dials through
-      // `Effect.promise`, so a connect rejection (the socket inode is gone —
-      // `ENOENT`) is a DEFECT and never reaches the `onFailure` arm. A probe that
-      // did not produce a reading is a failed probe however it failed, and
-      // `classifyKavalProbe` is the one place that decides which KIND — so both
-      // channels land on the same value and the classification stays in one
-      // place. (The scan's poll cell absorbs the same defect a different way:
+      // The SAME reading the link-loss arm's precondition takes — one
+      // implementation in `kavalObservation.ts`, so the two arms cannot disagree
+      // about what is standing at the rendezvous by drifting apart. (The scan's
+      // poll cell absorbs the probe's defect channel a different way:
       // cell-locally, one stale tick.)
-      const outcome = await Effect.runPromise(
-        Effect.match(probeKavalStatus(heldKaval(opts.stateRoot).socket), {
-          onSuccess: (probe) => ({ ok: true, probe }) as const,
-          onFailure: (err) => ({ ok: false, err }) as const,
-        }),
-      ).catch((err: unknown) => ({ ok: false, err }) as const);
-      await Effect.runPromise(supervisor.observe(classifyKavalProbe(outcome)));
+      const observation = await Effect.runPromise(
+        observeHeldKaval(opts.stateRoot),
+      );
+      await Effect.runPromise(supervisor.observe(observation));
     } catch (err) {
       // `observe` handles its own repair failure, so reaching here means a DEFECT
       // — a bug in the supervision itself. Say so and keep the cadence: a
