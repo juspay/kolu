@@ -23,6 +23,21 @@ import {
 } from "@pierre/diffs";
 import { toError } from "./toError";
 
+/** Pierre 1.3 fills a missing `cacheKey` with the filename, so two parses
+ *  of the same path with different contents look like the same highlight
+ *  target and a live-updating Code tab keeps painting the first snapshot.
+ *  Hash the raw input: a hunk/body change is a new cache identity. */
+export const contentCacheKey = (id: string, content: string): string => {
+  // FNV-1a 32-bit. Length rides along so a collision also needs a matching
+  // size, which is enough for this cache-identity use (not a security hash).
+  let h = 0x811c9dc5;
+  for (let i = 0; i < content.length; i++) {
+    h ^= content.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `${id}:${content.length.toString(16)}:${(h >>> 0).toString(16)}`;
+};
+
 export const diffItem = (
   id: string,
   rawDiff: string,
@@ -47,7 +62,11 @@ export const diffItem = (
     onError(new Error(`No file entry parsed from diff for ${id}`));
     return undefined;
   }
-  return { id, type: "diff", fileDiff };
+  return {
+    id,
+    type: "diff",
+    fileDiff: { ...fileDiff, cacheKey: contentCacheKey(id, rawDiff) },
+  };
 };
 
 export const fileItem = (
@@ -57,5 +76,5 @@ export const fileItem = (
 ): CodeViewFileItem => ({
   id,
   type: "file",
-  file: { name, contents },
+  file: { name, contents, cacheKey: contentCacheKey(id, contents) },
 });
