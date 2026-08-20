@@ -99,6 +99,17 @@ On macOS, launchd writes the two streams to:
 ~/Library/Logs/kolu.err.log
 ```
 
+Either way the server **also** keeps its own copy, which is the one to reach for
+when kolu was started by hand rather than by a service manager:
+
+```text
+$KOLU_STATE_DIR/kolu-server.log.1     # ~/.config/kolu/kolu-server.log.1
+```
+
+It rolls at 10MB, keeping three older rounds as `.2`–`.4`, and it is where the
+server records **why it stopped or replaced a host's daemon**. See
+[Operations](/operations) for the full set of log locations.
+
 Crashes and startup failures remain visible after the process exits.
 
 ## Capture memory diagnostics
