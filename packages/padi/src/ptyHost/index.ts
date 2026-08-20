@@ -17,13 +17,9 @@
  */
 
 import {
-  converge,
   createEndpoint,
-  destructiveRecycleSteps,
   type Endpoint,
   type EndpointStatus,
-  outcomeAdopted,
-  recycle,
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
