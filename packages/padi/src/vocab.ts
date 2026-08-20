@@ -722,6 +722,24 @@ export const KavalSkewVersionsSchema = Schema.Struct({
 });
 export type KavalSkewVersions = typeof KavalSkewVersionsSchema.Type;
 
+/** Every field only a `connected` daemon status can carry, declared ABSENT —
+ *  ONE list, spread into each non-connected arm below.
+ *
+ *  The arms must stay disjoint on the wire (see the `Schema.Never` note above),
+ *  and that obligation grows by one line per arm every time the `connected` arm
+ *  learns a new fact — with nothing to check that each arm remembered. Written
+ *  once, a new connected-only fact is one edit here. */
+const CONNECTED_ONLY_ABSENT = {
+  identity: Schema.optionalKey(Schema.Never),
+  contractVersion: Schema.optionalKey(Schema.Never),
+  startedAt: Schema.optionalKey(Schema.Never),
+  adopted: Schema.optionalKey(Schema.Never),
+  adoptedAt: Schema.optionalKey(Schema.Never),
+  autoRecoveredAt: Schema.optionalKey(Schema.Never),
+  linkRestoredAt: Schema.optionalKey(Schema.Never),
+  lifetime: Schema.optionalKey(Schema.Never),
+};
+
 /** The live state of one host's pty-host daemon (kaval), as the supervisor's
  *  endpoint reports it — the honest-state surface that makes "the daemon is
  *  down" distinguishable from "you have no terminals" (B2, the empty-canvas-lie
@@ -805,14 +823,7 @@ export const DaemonStatusSchema = Schema.Union([
     // ({@link KavalSkewVersionsSchema}) shared with `recycleKaval`'s declared
     // error data. `.shape` → `.fields` — the same read-off-the-schema promise.
     ...KavalSkewVersionsSchema.fields,
-    identity: Schema.optionalKey(Schema.Never),
-    contractVersion: Schema.optionalKey(Schema.Never),
-    startedAt: Schema.optionalKey(Schema.Never),
-    adopted: Schema.optionalKey(Schema.Never),
-    adoptedAt: Schema.optionalKey(Schema.Never),
-    autoRecoveredAt: Schema.optionalKey(Schema.Never),
-    linkRestoredAt: Schema.optionalKey(Schema.Never),
-    lifetime: Schema.optionalKey(Schema.Never),
+    ...CONNECTED_ONLY_ABSENT,
     socketPath: Schema.optionalKey(Schema.String),
   }),
   Schema.Struct({
@@ -821,14 +832,7 @@ export const DaemonStatusSchema = Schema.Union([
     // obligation here, not a silently-dropped wire member. The `identity` arm
     // below stays kolu's (it is the soul).
     state: Schema.Literals(NON_CONNECTED_ENDPOINT_STATES),
-    identity: Schema.optionalKey(Schema.Never),
-    contractVersion: Schema.optionalKey(Schema.Never),
-    startedAt: Schema.optionalKey(Schema.Never),
-    adopted: Schema.optionalKey(Schema.Never),
-    adoptedAt: Schema.optionalKey(Schema.Never),
-    autoRecoveredAt: Schema.optionalKey(Schema.Never),
-    linkRestoredAt: Schema.optionalKey(Schema.Never),
-    lifetime: Schema.optionalKey(Schema.Never),
+    ...CONNECTED_ONLY_ABSENT,
     daemonVersion: Schema.optionalKey(Schema.Never),
     requiredVersion: Schema.optionalKey(Schema.Never),
     /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)

@@ -476,84 +476,53 @@ createRoot(() => {
   // real adoptedAt is an ms epoch, so it clears the fallback). `localDaemonStatus()`
   // re-emits on every transition (the rail ticks uptime, restarting→connected), so
   // the persisted guard — not a one-shot latch — keeps it idempotent.
-  const [reattachAnnouncedAt, setReattachAnnouncedAt] = persistedPref<
-    Record<string, number>
-  >({
-    name: "kolu.kaval.reattachAnnouncedAt",
-    // A PER-HOST record `{[host]: high-water mark}`, NOT one shared scalar: `adoptedAt` is a raw
-    // foreign epoch on the ACTIVE host's OWN clock (deliberately unreprojected — a monotonic
-    // dedup key, never compared to the browser), and per-host clocks are not mutually monotonic,
-    // so one scalar mark across hosts would let a remote AHEAD-clock toast suppress a genuine
-    // later LOCAL re-adoption on switch-back (re-run #6 — the foreign-clock class, storage
-    // edition). One localStorage key; the value is host-keyed. Serializes as JSON by default.
-    fallback: {},
-    parse: (raw) => {
-      const v: unknown = JSON.parse(raw);
-      if (v === null || typeof v !== "object" || Array.isArray(v))
-        throw new Error(`not a per-host record: ${raw}`);
-      for (const n of Object.values(v as Record<string, unknown>))
-        if (typeof n !== "number" || !Number.isFinite(n))
-          throw new Error(`non-numeric mark in ${raw}`);
-      return v as Record<string, number>;
-    },
-    // Surface a corrupt mark rather than resetting it silently. Resetting to `{}` is benign — at
-    // worst each host's next adoption re-announces once — so a console warning is the right
-    // level (no user-facing toast for a recoverable reset).
-    onInvalid: (err, raw) =>
-      console.warn(
-        `[kaval] reattachAnnouncedAt corrupt (${raw}); resetting to {}:`,
-        err,
-      ),
-  });
-  /** The auto-recovery rail's OWN per-host high-water mark (#2101 N1). Every
-   *  word of the record's rationale above applies verbatim — a raw foreign
-   *  epoch, per-host because per-host clocks are not mutually monotonic — which
-   *  is why this is a sibling key rather than a second field on the same record:
-   *  two independent facts, two independent marks, so neither can suppress the
-   *  other. */
-  const [autoRecoveryAnnouncedAt, setAutoRecoveryAnnouncedAt] = persistedPref<
-    Record<string, number>
-  >({
-    name: "kolu.kaval.autoRecoveryAnnouncedAt",
-    fallback: {},
-    parse: (raw) => {
-      const v: unknown = JSON.parse(raw);
-      if (v === null || typeof v !== "object" || Array.isArray(v))
-        throw new Error(`not a per-host record: ${raw}`);
-      for (const n of Object.values(v as Record<string, unknown>))
-        if (typeof n !== "number" || !Number.isFinite(n))
-          throw new Error(`non-numeric mark in ${raw}`);
-      return v as Record<string, number>;
-    },
-    onInvalid: (err, raw) =>
-      console.warn(
-        `[kaval] autoRecoveryAnnouncedAt corrupt (${raw}); resetting to {}:`,
-        err,
-      ),
-  });
-  /** The link-restore rail's OWN per-host high-water mark (#2184). A third
-   *  sibling key for the reason the second one exists: three independent facts,
-   *  three independent marks, so none can suppress another. */
-  const [linkRestoredAnnouncedAt, setLinkRestoredAnnouncedAt] = persistedPref<
-    Record<string, number>
-  >({
-    name: "kolu.kaval.linkRestoredAnnouncedAt",
-    fallback: {},
-    parse: (raw) => {
-      const v: unknown = JSON.parse(raw);
-      if (v === null || typeof v !== "object" || Array.isArray(v))
-        throw new Error(`not a per-host record: ${raw}`);
-      for (const n of Object.values(v as Record<string, unknown>))
-        if (typeof n !== "number" || !Number.isFinite(n))
-          throw new Error(`non-numeric mark in ${raw}`);
-      return v as Record<string, number>;
-    },
-    onInvalid: (err, raw) =>
-      console.warn(
-        `[kaval] linkRestoredAnnouncedAt corrupt (${raw}); resetting to {}:`,
-        err,
-      ),
-  });
+  /** One rail's per-host high-water record `{[host]: mark}`, persisted under its
+   *  OWN localStorage key.
+   *
+   *  PER-HOST and not one shared scalar: an `adoptedAt`-class stamp is a raw
+   *  foreign epoch on the ACTIVE host's OWN clock (deliberately unreprojected — a
+   *  monotonic dedup key, never compared to the browser), and per-host clocks are
+   *  not mutually monotonic, so one scalar mark across hosts would let a remote
+   *  AHEAD-clock toast suppress a genuine later LOCAL re-announcement on
+   *  switch-back (re-run #6 — the foreign-clock class, storage edition). One key
+   *  per rail, host-keyed inside; serializes as JSON by default.
+   *
+   *  ONE key per rail and not one record for all three: the marks are
+   *  independent facts, and a shared mark would let any of them suppress another.
+   *  One FACTORY rather than three copies of the parser: a bug in the validation
+   *  should not have three homes.
+   *
+   *  A corrupt mark surfaces rather than resetting silently. Resetting to `{}` is
+   *  benign — at worst each host's next repair re-announces once — so a console
+   *  warning is the right level (no user-facing toast for a recoverable reset). */
+  const perHostMarks = (name: string) =>
+    persistedPref<Record<string, number>>({
+      name,
+      fallback: {},
+      parse: (raw) => {
+        const v: unknown = JSON.parse(raw);
+        if (v === null || typeof v !== "object" || Array.isArray(v))
+          throw new Error(`not a per-host record: ${raw}`);
+        for (const n of Object.values(v as Record<string, unknown>))
+          if (typeof n !== "number" || !Number.isFinite(n))
+            throw new Error(`non-numeric mark in ${raw}`);
+        return v as Record<string, number>;
+      },
+      onInvalid: (err, raw) =>
+        console.warn(`[kaval] ${name} corrupt (${raw}); resetting to {}:`, err),
+    });
+
+  const [reattachAnnouncedAt, setReattachAnnouncedAt] = perHostMarks(
+    "kolu.kaval.reattachAnnouncedAt",
+  );
+  /** The auto-recovery rail's OWN mark (#2101 N1). */
+  const [autoRecoveryAnnouncedAt, setAutoRecoveryAnnouncedAt] = perHostMarks(
+    "kolu.kaval.autoRecoveryAnnouncedAt",
+  );
+  /** The link-restore rail's OWN mark (#2184). */
+  const [linkRestoredAnnouncedAt, setLinkRestoredAnnouncedAt] = perHostMarks(
+    "kolu.kaval.linkRestoredAnnouncedAt",
+  );
   createEffect(() => {
     // The glue (`announceReattach`) commits the proven adoptedAt as the new high-water mark
     // BEFORE toasting, so a re-run on the same snapshot is silent — both halves are unit-tested
@@ -563,10 +532,18 @@ createRoot(() => {
     // The record is keyed by the host's CANONICAL string (`encodeHostKey`) — a `HostKey`
     // object can't itself be a `Record` key.
     const host = encodeHostKey(activeHost());
+    /** Commit a proven stamp as THIS host's new high-water mark on one rail —
+     *  the write all three rails share, so the read and the commit target the
+     *  same host and the same shape. */
+    const markFor =
+      (setMarks: typeof setReattachAnnouncedAt) =>
+      (mark: number): void => {
+        setMarks((prev) => ({ ...prev, [host]: mark }));
+      };
     announceReattach(
       localDaemonStatus(),
       reattachAnnouncedAt()[host] ?? 0,
-      (mark) => setReattachAnnouncedAt((prev) => ({ ...prev, [host]: mark })),
+      markFor(setReattachAnnouncedAt),
       (count) =>
         toast.info(`${count} terminal${count === 1 ? "" : "s"} reattached`),
     );
@@ -577,8 +554,7 @@ createRoot(() => {
     announceAutoRecovery(
       localDaemonStatus(),
       autoRecoveryAnnouncedAt()[host] ?? 0,
-      (mark) =>
-        setAutoRecoveryAnnouncedAt((prev) => ({ ...prev, [host]: mark })),
+      markFor(setAutoRecoveryAnnouncedAt),
       () =>
         toast.warning(
           "kaval was unresponsive — kolu restarted it; your session is ready to restore",
@@ -592,8 +568,7 @@ createRoot(() => {
     announceLinkRestored(
       localDaemonStatus(),
       linkRestoredAnnouncedAt()[host] ?? 0,
-      (mark) =>
-        setLinkRestoredAnnouncedAt((prev) => ({ ...prev, [host]: mark })),
+      markFor(setLinkRestoredAnnouncedAt),
       () =>
         toast.success(
           "lost the connection to kaval — kolu reconnected; your terminals kept running",

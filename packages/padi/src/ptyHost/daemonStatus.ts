@@ -168,13 +168,29 @@ export function publishDaemonStatus(
  *  property the high-water mark gives for free. The skewed-clock toast-skip is the
  *  deliberately-accepted cost. */
 export function setAdoptedCount(hostId: string, adopted: number): void {
+  stampOnConnected(hostId, (at) => ({ adopted, adoptedAt: at }));
+}
+
+/** Fold a PROVEN repair onto the host's CURRENT status and re-publish — the one
+ *  mechanism all three stamps below share, written once.
+ *
+ *  The gate every stamp obeys: a fact about a daemon that is no longer
+ *  `connected` is not a fact worth replaying, so it is dropped rather than folded
+ *  onto a status that contradicts it. Each stamp is sticky in the store and
+ *  replayed to every fresh subscription (the client dedupes on it — the #1365
+ *  rule), and each is cleared implicitly by the next non-`connected` publish.
+ *
+ *  Three STAMPS, one implementation: the facts are independent — one shared mark
+ *  would let any of them suppress another — but their mechanics never were. */
+function stampOnConnected(
+  hostId: string,
+  patch: (
+    at: number,
+  ) => Omit<Partial<Extract<DaemonStatus, { state: "connected" }>>, "state">,
+): void {
   const current = store.get(hostId);
   if (!current || current.state !== "connected") return;
-  publishFullDaemonStatus(hostId, {
-    ...current,
-    adopted,
-    adoptedAt: Date.now(),
-  });
+  publishFullDaemonStatus(hostId, { ...current, ...patch(Date.now()) });
 }
 
 /** Fold "this daemon is here because padi recycled an unresponsive one, and the
@@ -187,39 +203,24 @@ export function setAdoptedCount(hostId: string, adopted: number): void {
  *  what the comatose one did too. Only a subsequent healthy probe proves it, and
  *  that is `kavalSupervision`'s edge, not the endpoint's.
  *
- *  The stamp is sticky in the store and replayed to every fresh subscription; the
- *  client dedupes its one-shot toast on it, so a reconnect/reload replay does not
- *  re-fire (the #1365 rule, inherited wholesale from the adoption rail). It is
- *  cleared implicitly: the next non-`connected` publish overwrites the status
- *  without it, which is correct — a daemon that went down again is not a daemon
- *  whose recovery is still worth announcing. */
+ *  Sticky, replayed, deduped and implicitly cleared exactly as every stamp on
+ *  this rail is — see {@link stampOnConnected}, which states the law once. */
 export function setAutoRecovered(hostId: string): void {
-  const current = store.get(hostId);
-  if (!current || current.state !== "connected") return;
-  publishFullDaemonStatus(hostId, {
-    ...current,
-    autoRecoveredAt: Date.now(),
-  });
+  stampOnConnected(hostId, (at) => ({ autoRecoveredAt: at }));
 }
 
 /** Fold "the link to this daemon died mid-session and padi re-made it — the
  *  daemon itself never went away" onto the host's CURRENT status and re-publish
  *  (#2184).
  *
- *  The twin of {@link setAutoRecovered} in every mechanical respect (sticky,
- *  replayed to fresh subscriptions, deduped client-side on the stamp, cleared
- *  implicitly by the next non-`connected` publish) and its OPPOSITE in meaning:
- *  the heal's converge ADOPTED the resident kaval, so no process was recycled and
- *  no terminal was lost. Two stamps rather than one because they are two facts,
- *  and the client owes the user a different sentence for each — the recycle's
- *  "your session is ready to restore" is a lie about an adoption, whose session
- *  never stopped running. Which one the heal stamps is decided by the
- *  `ConvergeVerdict` its re-converge returned, at the one site that knows it. */
+ *  The twin of {@link setAutoRecovered} in every mechanical respect (see
+ *  {@link stampOnConnected}) and its OPPOSITE in meaning: the heal's converge
+ *  ADOPTED the resident kaval, so no process was recycled and no terminal was
+ *  lost. Two stamps rather than one because they are two facts, and the client
+ *  owes the user a different sentence for each — the recycle's "your session is
+ *  ready to restore" is a lie about an adoption, whose session never stopped
+ *  running. Which one the heal stamps is decided by the `ConvergeVerdict` its
+ *  re-converge returned, at the one site that knows it. */
 export function setLinkRestored(hostId: string): void {
-  const current = store.get(hostId);
-  if (!current || current.state !== "connected") return;
-  publishFullDaemonStatus(hostId, {
-    ...current,
-    linkRestoredAt: Date.now(),
-  });
+  stampOnConnected(hostId, (at) => ({ linkRestoredAt: at }));
 }

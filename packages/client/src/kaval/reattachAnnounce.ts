@@ -97,11 +97,13 @@ export function announceAutoRecovery(
   commit: (at: number) => void,
   notify: () => void,
 ): void {
-  const at = status?.autoRecoveredAt;
-  if (status?.state !== "connected") return;
-  if (typeof at !== "number" || at <= lastAnnouncedAt) return;
-  commit(at);
-  notify();
+  announceStamp(
+    status?.state,
+    status?.autoRecoveredAt,
+    lastAnnouncedAt,
+    commit,
+    notify,
+  );
 }
 
 /** The #2184 third of this family: "the link to this host's kaval died
@@ -128,8 +130,32 @@ export function announceLinkRestored(
   commit: (at: number) => void,
   notify: () => void,
 ): void {
-  const at = status?.linkRestoredAt;
-  if (status?.state !== "connected") return;
+  announceStamp(
+    status?.state,
+    status?.linkRestoredAt,
+    lastAnnouncedAt,
+    commit,
+    notify,
+  );
+}
+
+/** The dedupe law all the repair rails obey, written once (the #1365 rule): a
+ *  sticky server stamp on a `connected` status, announced only when strictly
+ *  newer than the greatest already announced, COMMITTED before notifying so a
+ *  replay of the same snapshot is silent.
+ *
+ *  One implementation, independent marks: which mark a rail compares against is
+ *  its caller's, so no fact can suppress another. `reattachToAnnounce` is not
+ *  built on this — it carries a payload and a second `adopted > 0` gate, which is
+ *  a different decision rather than the same one with a different field. */
+function announceStamp(
+  state: DaemonState | undefined,
+  at: number | undefined,
+  lastAnnouncedAt: number,
+  commit: (at: number) => void,
+  notify: () => void,
+): void {
+  if (state !== "connected") return;
   if (typeof at !== "number" || at <= lastAnnouncedAt) return;
   commit(at);
   notify();
