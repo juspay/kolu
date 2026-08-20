@@ -26,8 +26,8 @@ overrides:
   hono: ^4.12.27
   '@modelcontextprotocol/sdk>@hono/node-server': ^2.0.10
   '@anthropic-ai/sdk': ^0.91.1
-  '@xterm/xterm': 6.1.0-beta.300
-  '@xterm/addon-webgl': 0.20.0-beta.297
+  '@xterm/xterm': 6.1.0-beta.302
+  '@xterm/addon-webgl': 0.20.0-beta.298
 
 packageExtensionsChecksum: sha256-GuGZA8jCJUaUE/saX+uezWes2nMASx9CFDTN3Aun/K8=
 
@@ -155,11 +155,11 @@ importers:
         specifier: workspace:*
         version: link:../xterm-kit
       '@pierre/diffs':
-        specifier: ^1.2.12
-        version: 1.2.12(@shikijs/themes@4.2.0)(react@19.2.8)
+        specifier: ^1.3.5
+        version: 1.3.5(@shikijs/themes@4.2.0)(react@19.2.8)
       '@pierre/trees':
         specifier: ^1.0.0-beta.6
-        version: 1.0.0-beta.6(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)
+        version: 1.0.0-beta.6(@pierre/theme@2.0.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)
       '@solid-primitives/event-listener':
         specifier: ^2.4.5
         version: 2.4.5(solid-js@1.9.11)
@@ -188,8 +188,8 @@ importers:
         specifier: ^0.14.0
         version: 0.14.0
       '@xterm/xterm':
-        specifier: 6.1.0-beta.300
-        version: 6.1.0-beta.300
+        specifier: 6.1.0-beta.302
+        version: 6.1.0-beta.302
       effect:
         specifier: 4.0.0-rc.110
         version: 4.0.0-rc.110
@@ -1352,8 +1352,8 @@ importers:
   packages/solid-pierre:
     dependencies:
       '@pierre/diffs':
-        specifier: ^1.2.12
-        version: 1.2.12(@shikijs/themes@4.2.0)(react@19.2.8)
+        specifier: ^1.3.5
+        version: 1.3.5(@shikijs/themes@4.2.0)(react@19.2.8)
       '@pierre/trees':
         specifier: ^1.0.0-beta.6
         version: 1.0.0-beta.6(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)
@@ -2036,8 +2036,8 @@ importers:
   packages/terminal-themes:
     dependencies:
       '@xterm/xterm':
-        specifier: 6.1.0-beta.300
-        version: 6.1.0-beta.300
+        specifier: 6.1.0-beta.302
+        version: 6.1.0-beta.302
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -2225,11 +2225,11 @@ importers:
         specifier: ^0.12.0
         version: 0.12.0
       '@xterm/addon-webgl':
-        specifier: 0.20.0-beta.297
-        version: 0.20.0-beta.297(@xterm/xterm@6.1.0-beta.300)
+        specifier: 0.20.0-beta.298
+        version: 0.20.0-beta.298(@xterm/xterm@6.1.0-beta.302)
       '@xterm/xterm':
-        specifier: 6.1.0-beta.300
-        version: 6.1.0-beta.300
+        specifier: 6.1.0-beta.302
+        version: 6.1.0-beta.302
       effect:
         specifier: 4.0.0-rc.110
         version: 4.0.0-rc.110
@@ -3051,8 +3051,8 @@ packages:
     resolution: {integrity: sha512-C2Xj8FZ0uHWeCXXqX5B4/gVFQmtSkiuOolzAgutjTfseNOHT3pUjljDZsTSxXFGgio54bCzVFqmEOUrIVk8RDA==}
     engines: {node: '>=20.0.0'}
 
-  '@pierre/diffs@1.2.12':
-    resolution: {integrity: sha512-pY/gmgWL03WnagqCyCnBi3QtRXUv4hCIY6FYqd5b1ZGaoI6a4Bsji8j+yRl2RfzPh/8Hf19rCl1GE80G6a1cLQ==}
+  '@pierre/diffs@1.3.5':
+    resolution: {integrity: sha512-BhaLEiUvR+BdIyOYdogA4JLQjluWPubuwySmmIqEkcE0FwIWRbgJgHNC/r884dlxEr89fO4hTk/sBln0a7NSOw==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -3066,8 +3066,12 @@ packages:
     resolution: {integrity: sha512-GC2OWTAfTIIWWYhPCygwG8t2EtePQkRfON4MI2rwIkJylmiyqIttJID2dCL8sUD8cNdEvYkEyfEHHKMeCiDLoQ==}
     engines: {vscode: ^1.0.0}
 
-  '@pierre/theming@0.0.2':
-    resolution: {integrity: sha512-QM1M4stXfnzfaE8I8YbjXSApV8c+2dBsXJj8eYg9WTpBR/cTmCZIcfGnN4p13iRrYu2Br/R/OJfEL7uR8Qjctw==}
+  '@pierre/theme@2.0.0':
+    resolution: {integrity: sha512-yNDd9GYLQl1mEUJR8AneJ5e4ohLIHQd/wZLWr4fagt78vS2RwwZNW530vVgHqXFAyFVcFlRmGUD5ramXH46OXw==}
+    engines: {vscode: ^1.0.0}
+
+  '@pierre/theming@1.0.0':
+    resolution: {integrity: sha512-WsdrnhKfjeyXGDikZmN9pkpeZ5S/cl6EE72feiSc0tlynT1tMYqXqouhuv/foK+PY9OEnebOAVRQn3+rAstR8g==}
     peerDependencies:
       '@pierre/theme': ^1.1.0
       '@shikijs/themes': ^3.0.0 || ^4.0.0
@@ -3086,10 +3090,10 @@ packages:
       shiki:
         optional: true
 
-  '@pierre/theming@1.0.0':
-    resolution: {integrity: sha512-WsdrnhKfjeyXGDikZmN9pkpeZ5S/cl6EE72feiSc0tlynT1tMYqXqouhuv/foK+PY9OEnebOAVRQn3+rAstR8g==}
+  '@pierre/theming@1.0.1':
+    resolution: {integrity: sha512-WCI5Qd7iprDpISL9fBYOLe8RV53+b7mFNA3bPzl60/2CKCSrsKN8zEcep6Y3BAzvARlmca50zGjDodqPGiTUKA==}
     peerDependencies:
-      '@pierre/theme': ^1.1.0
+      '@pierre/theme': ^1.1.0 || ^2.0.0
       '@shikijs/themes': ^3.0.0 || ^4.0.0
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -3712,16 +3716,16 @@ packages:
   '@xterm/addon-web-links@0.12.0':
     resolution: {integrity: sha512-4Smom3RPyVp7ZMYOYDoC/9eGJJJqYhnPLGGqJ6wOBfB8VxPViJNSKdgRYb8NpaM6YSelEKbA2SStD7lGyqaobw==}
 
-  '@xterm/addon-webgl@0.20.0-beta.297':
-    resolution: {integrity: sha512-XWnYnI36ynIdI2nzC9QTlbQis9+W5PgosjBfKYsXy1EJfxyopkcTxctq9YwfaQJ9X1cGsevfNg7gXfj4hpUpUA==}
+  '@xterm/addon-webgl@0.20.0-beta.298':
+    resolution: {integrity: sha512-65jZWGSV3nu2jVyc/r2H31Q+oXnDX8IhcSquREVlDjqmfOINXhAufBj2zcK6BCgYT0jrdx7y64VFgVcQ3vAkRA==}
     peerDependencies:
-      '@xterm/xterm': 6.1.0-beta.300
+      '@xterm/xterm': 6.1.0-beta.302
 
   '@xterm/headless@6.0.0':
     resolution: {integrity: sha512-5Yj1QINYCyzrZtf8OFIHi47iQtI+0qYFPHmouEfG8dHNxbZ9Tb9YGSuLcsEwj9Z+OL75GJqPyJbyoFer80a2Hw==}
 
-  '@xterm/xterm@6.1.0-beta.300':
-    resolution: {integrity: sha512-4gC/RKxyj7SxYm8eC8jMoojV9ZIv6gvdS4ScWVvEbyg/WRW3J7jmwIMYmmWC//fWAe2iL61tYC9oxJ/ECHwLsA==}
+  '@xterm/xterm@6.1.0-beta.302':
+    resolution: {integrity: sha512-yTlcgFDNe0ZE7U1RA1JX9oZkVOE8gKvLLh55tMHrS3/ZHkJCOWHlC0mFt3GYyWChSQ1XF+VY0iIme7ZktSaMRA==}
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -6331,10 +6335,10 @@ snapshots:
       tslib: 2.8.1
       tsyringe: 4.10.0
 
-  '@pierre/diffs@1.2.12(@shikijs/themes@4.2.0)(react@19.2.8)':
+  '@pierre/diffs@1.3.5(@shikijs/themes@4.2.0)(react@19.2.8)':
     dependencies:
-      '@pierre/theme': 1.1.0
-      '@pierre/theming': 0.0.2(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)
+      '@pierre/theme': 2.0.0
+      '@pierre/theming': 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)
       '@shikijs/transformers': 3.23.0
       diff: 9.0.0
       hast-util-to-html: 9.0.5
@@ -6345,14 +6349,10 @@ snapshots:
     transitivePeerDependencies:
       - '@shikijs/themes'
 
-  '@pierre/theme@1.1.0': {}
+  '@pierre/theme@1.1.0':
+    optional: true
 
-  '@pierre/theming@0.0.2(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)':
-    optionalDependencies:
-      '@pierre/theme': 1.1.0
-      '@shikijs/themes': 4.2.0
-      react: 19.2.8
-      shiki: 4.2.0
+  '@pierre/theme@2.0.0': {}
 
   '@pierre/theming@1.0.0(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)':
     optionalDependencies:
@@ -6361,9 +6361,35 @@ snapshots:
       react: 19.2.8
       shiki: 4.2.0
 
+  '@pierre/theming@1.0.0(@pierre/theme@2.0.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)':
+    optionalDependencies:
+      '@pierre/theme': 2.0.0
+      '@shikijs/themes': 4.2.0
+      react: 19.2.8
+      shiki: 4.2.0
+
+  '@pierre/theming@1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)':
+    optionalDependencies:
+      '@pierre/theme': 2.0.0
+      '@shikijs/themes': 4.2.0
+      react: 19.2.8
+      shiki: 4.2.0
+
   '@pierre/trees@1.0.0-beta.6(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)':
     dependencies:
       '@pierre/theming': 1.0.0(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)
+      preact: 11.0.0-beta.0
+      preact-render-to-string: 6.6.5(preact@11.0.0-beta.0)
+    optionalDependencies:
+      react: 19.2.8
+    transitivePeerDependencies:
+      - '@pierre/theme'
+      - '@shikijs/themes'
+      - shiki
+
+  '@pierre/trees@1.0.0-beta.6(@pierre/theme@2.0.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)':
+    dependencies:
+      '@pierre/theming': 1.0.0(@pierre/theme@2.0.0)(@shikijs/themes@4.2.0)(react@19.2.8)(shiki@4.2.0)
       preact: 11.0.0-beta.0
       preact-render-to-string: 6.6.5(preact@11.0.0-beta.0)
     optionalDependencies:
@@ -6852,13 +6878,13 @@ snapshots:
 
   '@xterm/addon-web-links@0.12.0': {}
 
-  '@xterm/addon-webgl@0.20.0-beta.297(@xterm/xterm@6.1.0-beta.300)':
+  '@xterm/addon-webgl@0.20.0-beta.298(@xterm/xterm@6.1.0-beta.302)':
     dependencies:
-      '@xterm/xterm': 6.1.0-beta.300
+      '@xterm/xterm': 6.1.0-beta.302
 
   '@xterm/headless@6.0.0': {}
 
-  '@xterm/xterm@6.1.0-beta.300': {}
+  '@xterm/xterm@6.1.0-beta.302': {}
 
   accepts@2.0.0:
     dependencies:
