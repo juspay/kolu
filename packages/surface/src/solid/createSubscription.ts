@@ -127,6 +127,15 @@ export interface SubscriptionOptions<T, R = T> {
    *  never reuses an ended stream. "A disposed subscription cannot report anything"
    *  extends here: an aborted subscription must not fire `onComplete`. */
   onComplete?: () => void;
+  /** The field that identifies an element of an array inside this subscription's
+   *  frames — see `./writeValue.ts`, which is the seam that reads it, and
+   *  `CellSpec.arrayKey` in `../define.ts`, which is where a MEMBER declares it.
+   *
+   *  A member's hooks (`useCell`, `useStream`) thread the declaration off the
+   *  descriptor, so a `.use()` call site never supplies it. It is spellable here
+   *  because this primitive takes a RAW `Stream<T>` with no member behind it: such
+   *  a caller has no declaration to inherit and is itself the definition site. */
+  arrayKey?: string;
 }
 
 /** Structural value equality for subscription frames — the change-iff-fired law's
@@ -522,7 +531,7 @@ export function createSubscription<T, R = T>(
     onFrame: (item) => {
       const next = reduce ? reduce(store.v as T | R, item) : (item as T | R);
       tracker.noteFrame(next); // fire `updated` on a genuine change, before the write
-      writeWrappedValue(setStore, next as T | R | undefined);
+      writeWrappedValue(setStore, next as T | R | undefined, options?.arrayKey);
     },
     onComplete: options?.onComplete,
     onError: options?.onError,

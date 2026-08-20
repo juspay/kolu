@@ -39,7 +39,7 @@ import {
 import type { Cell } from "../index";
 import { runDetached } from "../runStream";
 import { createSubscription, type Subscription } from "./createSubscription";
-import { unkeyedReconcile } from "./writeValue";
+import { reconcileFrame } from "./writeValue";
 
 export type Authority = "server" | "local";
 
@@ -199,6 +199,7 @@ function useCellServer<Name extends string, T, P>(
     {
       onError: options.onError,
       onComplete: options.onComplete,
+      arrayKey: cellDescriptor.arrayKey,
     },
   );
 
@@ -244,6 +245,7 @@ function useCellLocal<Name extends string, T extends object, P>(
     {
       onError: options.onError,
       onComplete: options.onComplete,
+      arrayKey: cellDescriptor.arrayKey,
     },
   );
   createEffect(
@@ -252,7 +254,7 @@ function useCellLocal<Name extends string, T extends object, P>(
       (server) => {
         if (server !== undefined && !initialized) {
           initialized = true;
-          setStore(unkeyedReconcile(server as T));
+          setStore(reconcileFrame(server as T, cellDescriptor.arrayKey));
         }
       },
     ),
@@ -265,11 +267,11 @@ function useCellLocal<Name extends string, T extends object, P>(
     }
     if (options.applyPatch) {
       const next = options.applyPatch(store as T, p);
-      setStore(unkeyedReconcile(next));
+      setStore(reconcileFrame(next, cellDescriptor.arrayKey));
       return;
     }
     // No patch helpers — treat P as T (full replacement).
-    setStore(unkeyedReconcile(p as unknown as T));
+    setStore(reconcileFrame(p as unknown as T, cellDescriptor.arrayKey));
   }
 
   // Coalesced server flush (opt-in via `coalesceMs`). `applyLocal` has already

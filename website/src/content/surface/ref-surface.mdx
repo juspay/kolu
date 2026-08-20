@@ -46,6 +46,42 @@ custom retry plumbing) stays outside the surface as a raw `Rpc` in the host's ow
 group. For why these four and not one, see
 [Why surfaces](/surface/why-surfaces).
 
+### Declaring array identity — `arrayKey`
+
+A `CellSpec` or a `StreamSpec` may declare **`arrayKey?: string`** — the field
+that identifies an element of an array **inside** that member's value.
+
+It exists because `solid-js/store`'s `reconcile` cannot be told this anywhere
+else, and a framework merging arbitrary app payloads must not guess it (see
+[how a push reconciles](#consuming-in-solidjs)). Undeclared, a frame replaces
+every array element it merges, so a frame that repeats itself still notifies every
+reader of every array. Declared, an array whose elements carry the field is diffed
+by it: a repeated frame notifies nothing, and a reorder moves the objects rather
+than rewriting them.
+
+```ts
+streams: {
+  page: { inputSchema: PageRequest, outputSchema: PageReading, arrayKey: "key" },
+}
+```
+
+Three things it is not:
+
+- **Not a `CollectionSpec.keySchema`.** That is the dictionary key a collection's
+  entries are filed under, on the wire and in the store; `arrayKey` names a field
+  inside one value. A collection has no `arrayKey` at all — its per-key leaves are
+  replaced whole rather than merged, so a `fold` consumer's held object can never
+  mutate under it.
+- **Not per-array.** One field per member, because `reconcile` takes one, and it
+  reaches every array in the value at every depth. Arrays whose elements do not
+  carry the field are merged by POSITION — the declared reach of the key, not a
+  fallback around it; that too is silent on a repeated frame. Name the field that
+  identifies the arrays whose identity a consumer actually follows, and read the
+  rest by value.
+- **Not a use-site option.** It is declared on the spec and travels on the
+  member's descriptor, so no `.use()` call site can spell it, override it, or
+  disagree with another call site about it.
+
 ### The wire shape — one flat tag namespace
 
 The `Surface<S>` value carries four fields:
@@ -435,10 +471,10 @@ below).
 
 | Member | Hook | Returns |
 | --- | --- | --- |
-| cell (mutable) | `.cells.X.use({ authority, initial, applyPatch, onError, coalesceMs })` | a `UseCellResult` `{ value, pending, error, set, patch, sub }` — `value` is the accessor, `sub` is the `Subscription` (its `.updated(...)` is the change channel); mutate with `.set(v)` / `.patch(p)` |
+| cell (mutable) | `.cells.X.use({ authority, initial, applyPatch, onError, coalesceMs })` | a `UseCellResult` `{ value, pending, error, set, patch, sub }` — `value` is the accessor, `sub` is the `Subscription` (its `.updated(...)` / `.changed(...)` is the change channel); mutate with `.set(v)` / `.patch(p)` |
 | cell (read-only, `verbs: ["get"]`) | `.cells.X.use({ onError? })` | a `ReadOnlyUseCellResult` `{ value, pending, error, sub }` — NO `set` / `patch`, and the options accept ONLY `onError` (no `authority: "local"` branch — a get-only cell carries no wire mutation verb) |
 | collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)`. A `deltas`-declaring collection's WHOLE-collection `.use()` also carries `.fold({ init, step })` — see [the frame socket](#the-frame-socket--fold-on-a-deltas-collection) |
-| stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` DIRECTLY — an accessor plus `.pending()`, `.error()`, `.complete()`, and `.updated(...)` |
+| stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` DIRECTLY — an accessor plus `.pending()`, `.error()`, `.complete()`, `.updated(...)` and `.changed(...)` |
 | event | `.events.X.use(inputFn, handler, { onError?, signal? })` | nothing (no current value) |
 | procedure | `.procedures.<ns>.<verb>(input)` | a `ProcedureEffect<O, E>` — `Effect<O, E \| SurfaceCallFailure>`, the declared union in a channel the compiler tracks |
 
@@ -474,22 +510,30 @@ A cell's `authority` is `"server"` (default — every push reconciles) or
 `"local"` (the local store wins after the first server yield). An `inputFn`
 that returns `null` pauses a stream or event.
 
-**How a push reconciles: positionally, never by an inferred key.** Every merge
-into a bound store passes Solid's `reconcile(..., { key: null })`. Solid's own
-default is `key: "id"`, which reads a field called `id` as an element's IDENTITY
-and RECYCLES the previous row objects for the records it thinks matched — so on a
-payload whose elements have no top-level `id` (every element's key reads
-`undefined`, and they all "match") the object that held one record comes to hold
-another. A reader that goes by position never notices; a `<For>` keyed by
-reference, a per-row memo, or a component holding a row across frames sees a row
-whose identity and whose fields disagree. A framework merging arbitrary app
-payloads has no basis for inferring identity from a field name, so it does not:
-an element is replaced rather than recycled. A `deltas` collection's keyed
-dictionary is not merged here at all — its hook owns a store and writes the keys a
-frame NAMES, replacing each leaf whole for the same reason, so an entry a `fold`
-consumer is holding never mutates under it. A keyed merge for array elements INSIDE
-a value, if one is ever wanted, would be DECLARED on the member: a collection's
-`keySchema` is the dictionary key and says nothing about them. `surfaceClients(transport, map)`
+**How a push reconciles: by the member's DECLARED key, else positionally — never
+by an inferred one.** An undeclared merge into a bound store passes Solid's
+`reconcile(..., { key: null })`. Solid's own default is `key: "id"`, which reads a
+field called `id` as an element's IDENTITY and RECYCLES the previous row objects
+for the records it thinks matched — so on a payload whose elements have no
+top-level `id` (every element's key reads `undefined`, and they all "match") the
+object that held one record comes to hold another. A reader that goes by position
+never notices; a `<For>` keyed by reference, a per-row memo, or a component
+holding a row across frames sees a row whose identity and whose fields disagree. A
+framework merging arbitrary app payloads has no basis for inferring identity from a
+field name, so it does not: undeclared, an element is replaced rather than
+recycled.
+
+That safety has a price, and the member is what pays it or opts out of it:
+replacement is total, so a frame that merely REPEATS what the store holds still
+replaces every element and notifies every reader of every array under it — a keyed
+`<For>` tears its DOM down on every frame, and every per-row binding re-runs for
+every row for a one-character change in one row. A cell or stream that declares
+[`arrayKey`](#declaring-array-identity--arraykey) is merged by that field instead:
+a repeated frame notifies nothing, and a reorder MOVES the objects a keyed view is
+following. A `deltas` collection's keyed dictionary is not merged here at all — its
+hook owns a store and writes the keys a frame NAMES, replacing each leaf whole so
+an entry a `fold` consumer is holding never mutates under it, and it therefore
+takes no `arrayKey`. `surfaceClients(transport, map)`
 splits one combined transport into a sibling client per surface — each built over
 a **tag-scoped** dispatch, so the face mints standalone tags and the wrapper
 splices the sibling key in, landing on exactly the tags `implementSurfaces` bound.
@@ -497,7 +541,7 @@ splices the sibling key in, landing on exactly the tags `implementSurfaces` boun
 
 A `Subscription<T>` (`@kolu/surface/solid`) is a SolidJS `Accessor<T | undefined>`
 with `.pending()`, `.error()`, `.complete()` (latches once the stream ends
-normally; the value is then frozen), and `.updated(handler)`. **Where it sits
+normally; the value is then frozen), `.updated(handler)` and `.changed(handler)`. **Where it sits
 differs by member:** `streams.X.use(...)` returns the `Subscription` DIRECTLY (call
 it for the value). A **mutable** `cells.X.use(...)` returns a `UseCellResult` — `{ value,
 pending, error, set, patch, sub }` — whose `.value` is the accessor and whose `.sub` is
@@ -519,6 +563,17 @@ a frame that differs fires exactly once, with `prev` the last-seen value. It
 returns a `Dispose`. Optional for the same reason as `complete` — a
 hand-assembled `Subscription`-shaped value may omit it; every subscription this
 package's factories mint provides it.
+
+`.changed(handler)` is the same law without the payload — same moments, same
+`Dispose`, no `{ prev, next }`. The difference is not stylistic: `.updated()` must
+hand its handlers a SNAPSHOT, because the store adopts a frame and mutates it on
+the next write, so a retained pair would change out from under the consumer. That
+snapshot is two `structuredClone`s of a whole frame, and it is the price of the
+payload. A consumer that only wants to know THAT something arrived — a frame
+counter, a re-ask trigger, an invalidation — was paying two deep clones of a page
+per keystroke for an integer; subscribing here, the clones do not happen at all.
+Reach for `.updated()` when you read `prev`/`next`, `.changed()` when you don't.
+Neither is a raw arrival count: an equal reconnect snapshot is silent on both.
 
 <Aside type="caution" title="Wire links must carry a watchdog">
   `surfaceClient` throws if handed a bare wire dispatch — a `websocketLink` /

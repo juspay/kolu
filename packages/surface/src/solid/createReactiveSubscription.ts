@@ -36,10 +36,22 @@ export interface ReactiveSubscriptionOptions {
   onError?: (err: Error) => void;
 }
 
+/** What this primitive takes on top of what a `.use()` caller may pass: the
+ *  member's DECLARED array identity (see `./writeValue.ts`). Kept off
+ *  {@link ReactiveSubscriptionOptions} — the type `useStream` exposes to a call
+ *  site — because the answer belongs to the member's definition, not to whoever
+ *  happens to be reading it; `useStream` threads it from the descriptor. A caller
+ *  driving a RAW stream through this primitive has no descriptor to inherit from
+ *  and so is itself the declaration site, which is why it is spellable here. */
+export interface ReactiveSubscriptionInternalOptions
+  extends ReactiveSubscriptionOptions {
+  arrayKey?: string;
+}
+
 export function createReactiveSubscription<I, T>(
   inputFn: () => I | null,
   factory: (input: I) => Stream.Stream<T, unknown>,
-  options?: ReactiveSubscriptionOptions,
+  options?: ReactiveSubscriptionInternalOptions,
 ): Subscription<T> {
   const [store, setStore] = createStore<{ v: T | undefined }>({ v: undefined });
   const [error, setError] = createSignal<Error | undefined>();
@@ -76,7 +88,7 @@ export function createReactiveSubscription<I, T>(
           onFrame: (item) =>
             batch(() => {
               tracker.noteFrame(item);
-              writeWrappedValue(setStore, item);
+              writeWrappedValue(setStore, item, options?.arrayKey);
               setPending(false);
               // No clear-on-frame branch for the ERROR: a failure is the fiber's EXIT,
               // so no frame can follow one on the same subscription (see
