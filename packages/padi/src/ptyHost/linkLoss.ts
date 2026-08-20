@@ -124,7 +124,7 @@ export function startLinkLossHealer(deps: {
    *  path, which is a defect here rather than a convenience. */
   readonly onRecovered: (verdict: ConvergeVerdict) => void;
   /** Is the daemon we lost the link to STILL SERVING at the rendezvous? The
-   *  healer's precondition, and the reason it cannot become a respawn loop.
+   *  healer's precondition, and the reason it cannot become a respawn LOOP.
    *
    *  `converge` spawns when it finds nobody home (`convergence/converge.ts` —
    *  "probe-origin absence → decide(null) → spawn/bind"), so a healer that
@@ -136,6 +136,16 @@ export function startLinkLossHealer(deps: {
    *  a promise ("padi stops restarting … a hot restart loop is not a repair").
    *  A lost LINK and a dead DAEMON are two faults with two owners; this predicate
    *  is where the healer declines the one that is not its own.
+   *
+   *  What it rules out is the LOOP, not every spawn: the reading and the converge
+   *  are two dials, so a daemon that exits between them is still converged into
+   *  existence once — and a dying daemon (OOM, shutdown) is exactly one that drops
+   *  its links first and exits seconds later. That single spawn is self-limiting
+   *  (the next round reads `unreachable` and stands down) but it is unledgered,
+   *  and it is honest to say so rather than to claim the guard is airtight. The
+   *  airtight version is not spellable here: it needs an adopt-only mode on
+   *  `converge` — one dial that refuses to create — which lives in
+   *  `@kolu/surface-daemon-supervisor` and is a shared-package change.
    *
    *  The sensor's OWN word for what it saw, not a second vocabulary for it — one
    *  condition with two names is one a field log cannot correlate. What each
