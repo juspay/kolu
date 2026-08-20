@@ -100,14 +100,17 @@ jobs:
       #
       # FORK PRs: this is `pull_request`, not `pull_request_target`, so a fork
       # PR receives NO `ATTIC_TOKEN` — there is nothing to log in with and no
-      # cache to push to. Gating the login (and the push branch in the build
-      # step, and the substitutable-verdict below) on the secret being present
-      # turns what used to be an unavoidable `AccessError` hard-fail on every
-      # fork PR into the intended state: the PR's Nix code still BUILDS (that
-      # is the check a PR is for), and the cache-write is simply skipped. A
-      # same-repo PR / master push still carries the token and warms as before.
+      # cache to push to. The gate is the directly-knowable fork flag, NOT the
+      # secret's presence: `secrets` is not available in a step-level `if:`
+      # (a `secrets.…` step-if fails the whole workflow's parse and turns
+      # EVERY run red), and even a job-level hoist would silently skip on a
+      # same-repo run whose token was rotated/renamed. On `push`/`dispatch`
+      # there is no `pull_request` context, the comparison reads null ≠ true,
+      # and the step runs. A fork PR builds (that is the check a PR is for)
+      # and skips the cache write; a same-repo PR / master push carries the
+      # token and warms exactly as before.
       - name: Install attic (pinned) and log in
-        if: secrets.ATTIC_TOKEN != ''
+        if: github.event.pull_request.head.repo.fork != true
         run: |
           nix profile add "$(jq -r .pins.nixpkgs.url npins/sources.json)#attic-client"
           attic login --set-default oss https://cache.nixos.asia '${{ secrets.ATTIC_TOKEN }}'
@@ -230,9 +233,13 @@ jobs:
       - name: Verify the agent closures are substitutable
         # The verdict re-asks the cache whether the closures a `--host` dial
         # provisions are really there. A fork PR (no ATTIC_TOKEN) built but
-        # pushed nothing, so the honest answer is "not from this PR" — skip the
-        # check rather than fail a run that was never meant to write.
-        if: secrets.ATTIC_TOKEN != ''
+        # pushed nothing, so the honest answer is "not from this PR" — skip
+        # the check rather than fail a run that was never meant to write.
+        # Gated on the FORK FLAG, never the secret's presence: a same-repo run
+        # whose token was rotated/revoked/renamed must still ask (and fail),
+        # or a cold cache would sit green and unobservable — the exact
+        # soft-fail the header below forbids.
+        if: github.event.pull_request.head.repo.fork != true
         shell: bash
         run: |
           set -euo pipefail

@@ -301,7 +301,7 @@ export function createSessionWatcher(
     if (destroyed) return;
     const lines = tailJsonlLines(transcriptPath, TAIL_BYTES);
     // One clock read for the whole pass: the workflow-staleness filter
-    // (`liveOutstandingTasks`), the fork scan, both stale deadlines, and the
+    // (`liveOutstandingTasks`), the sub-agent scan, both stale deadlines, and the
     // transient-decay quiet window all compare against this single `now`, so no
     // two staleness checks in one pass can disagree about the current time.
     const now = Date.now();
@@ -347,19 +347,23 @@ export function createSessionWatcher(
       return;
     }
 
-    // Async sub-agent promotion: a sub-agent (a `/fork`, an async `Agent`, or a
-    // `Task` run) is a background sub-agent the main session launched, but its
-    // launch never lands as a runId-bearing `tool_result` that `deriveState` can
-    // promote on — a `/fork` echoes a local-command and an async `Agent`/`Task`
-    // carries a runId-less enqueue, so neither enters `outstanding`. Detect it
-    // from its on-disk subagent transcript — but only for an otherwise-idle
-    // (`waiting`) main, where a live sub-agent means it's busy-waiting on the
-    // run, not awaiting the human. When a live `Workflow` already promoted to
-    // `running_background`, the row is busy regardless, so the sub-agent scan (a
-    // `subagents/` readdir) is skipped.
+    // Background sub-agent promotion: a sub-agent (a `/fork` or an async
+    // `Agent`/`Task` run) is a background sub-agent the main session launched,
+    // but its launch never reaches `deriveState`'s promotion path — a `/fork`
+    // echoes only a local-command line, and an async `Agent`/`Task`
+    // confirmation enters the launched set with `runId` null, which the
+    // runId-narrowing skips. Detect it from its on-disk subagent transcript —
+    // but only for an otherwise-idle (`waiting`) main, where a live
+    // sub-agent means it's busy-waiting on the run, not awaiting the human,
+    // and only for a sub-agent POSITIVELY classified as background (meta
+    // `agentType:"fork"` or an async-launch confirmation on this transcript —
+    // `outstandingSubagentRuns`'s discriminator) so a finished synchronous
+    // sub-agent's still-fresh artifacts can't publish a phantom. When a live
+    // `Workflow` already promoted to `running_background`, the row is busy
+    // regardless, so the sub-agent scan (a `subagents/` readdir) is skipped.
     const subagents =
       derived.state === "waiting"
-        ? outstandingSubagentRuns(session, completed, now)
+        ? outstandingSubagentRuns(session, lines, completed, now)
         : [];
 
     // Resolve the state to publish and when (if ever) to re-probe. One

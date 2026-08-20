@@ -85,13 +85,28 @@ Feature: Claude Code status detection
     And there should be no page errors
 
   Scenario: An async sub-agent keeps an idle main in running-in-background state
-    # An async `Agent`/`Task` sub-agent writes the same on-disk subagent
-    # artifacts as a `/fork` (meta + streaming transcript) but with a different
-    # / absent agentType. The stale-anchor guard (fresh transcript mtime) is
-    # what makes promotion phantom-safe, so a waiting main busy-waiting on the
-    # sub-agent must read as `running_background`, never `waiting`.
+    # An async `Agent`/`Task` launch lands on the main transcript as a `user`
+    # `tool_result` confirmation ("Async agent launched successfully. (…)
+    # agentId: <id>") and writes the same on-disk subagent artifacts as a
+    # `/fork`. The confirmation positively identifies the run as background;
+    # the artifacts' fresh streaming transcript is the liveness anchor. A
+    # waiting main busy-waiting on that run must read as
+    # `running_background`, never `waiting`.
     When a Claude Code session is mocked with state "async_subagent"
     Then the tile chrome should show an agent indicator with state "running_background"
+    And there should be no page errors
+
+  Scenario: A synchronously-launched sub-agent leaves the idle main at waiting
+    # The negative twin of the scenario above: an ordinary synchronous
+    # `Task`/`Explore`/skill sub-agent writes byte-identical on-disk
+    # artifacts (still fresh right after it returns) but carries no
+    # async-launch confirmation — it returned in-turn via `tool_result` and
+    # emits no completion notification. Promoting on the artifacts alone
+    # would publish a phantom `running_background` for the whole stale
+    # window, suppressing the "your agent needs you" alert exactly when the
+    # human is needed. The main must stay `waiting`.
+    When a Claude Code session is mocked with state "sync_subagent"
+    Then the tile chrome should show an agent indicator with state "waiting"
     And there should be no page errors
 
   Scenario: An AskUserQuestion prompt on screen promotes thinking to awaiting (screen scrape, #905)

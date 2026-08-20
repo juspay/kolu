@@ -563,20 +563,33 @@ export interface BackgroundTask {
   runId: string | null;
 }
 
+/** The async `Agent` launch confirmation, capturing the launched agent's id.
+ *  The REAL tool-result text interposes a long parenthetical between
+ *  "successfully." and "agentId:" ("(This agent is running in the
+ *  background…)") — a gap `\s*` cannot span, which left the plain-phrasing
+ *  regex matching zero real transcripts. `[\s\S]{0,400}?` crosses the
+ *  parenthetical lazily, bounded so a stray "Async agent launched
+ *  successfully." followed by unrelated text can't capture an id from
+ *  further afield. Shared by `BG_LAUNCH_RES` (the launched set) and
+ *  `asyncLaunchedAgentIds` (the sub-agent class discriminator), so the two
+ *  can't drift. */
+const ASYNC_AGENT_LAUNCH_RE =
+  /Async agent launched successfully\.[\s\S]{0,400}?agentId: ([\w-]+)/;
+
 /** Tool-result confirmations that a background task was launched, each paired
  *  with the regex capturing its task ID. Three tools background work, each
  *  with its own phrasing, and the captured ID matches the `<task-id>` in the
  *  eventual completion notification:
  *   - `Workflow`:            "… launched in background. Task ID: <id>"
  *   - `Bash` (background):   "Command running in background with ID: <id>"
- *   - `Agent` (background):  "Async agent launched successfully. agentId: <id>"
+ *   - `Agent` (background):  "Async agent launched successfully. (…) agentId: <id>"
  *  IDs are matched as `[\w-]+` so a templated/quoted marker in pasted code
  *  (e.g. "Task ID: ${x}") doesn't produce a phantom task, and so the trailing
  *  punctuation after a Bash ID ("…with ID: abc. Output…") isn't captured. */
 const BG_LAUNCH_RES = [
   /launched in background\. Task ID: ([\w-]+)/,
   /Command running in background with ID: ([\w-]+)/,
-  /Async agent launched successfully\.\s*agentId: ([\w-]+)/,
+  ASYNC_AGENT_LAUNCH_RE,
 ];
 /** Workflow run ID in the same confirmation ("Run ID: <id>") — only the
  *  `Workflow` tool emits one; it locates the on-disk journal. */
@@ -601,11 +614,14 @@ const TERMINAL_STATUS_RE = new RegExp(
  *
  *  The shared "which runs finished" projection. `outstandingBackgroundTasks`
  *  subtracts it from the launched set; `outstandingSubagentRuns` uses it as the
- *  fast positive-finish signal — a `/fork` never enters the launched set (its
- *  launch is a local-command, not a `tool_result`) and an async `Agent`/`Task`
- *  only carries a `runId`-less enqueue, so without this an idle main would keep
- *  spinning for the full stale window after the sub-agent completed. Here it
- *  demotes the instant the completion notification lands. */
+ *  fast positive-finish signal — a `/fork` never enters the launched set at
+ *  all (its launch is a `system`/`local_command` echo, not a `tool_result`),
+ *  and an async `Agent`/`Task` enters it with `runId` null (no `Run ID:` in
+ *  the confirmation), so `deriveState`'s runId-narrowing never promotes on
+ *  either. Both classes DO emit the `<task-id>`/`<status>` completion
+ *  notification when they finish, so without this set an idle main would keep
+ *  spinning for the full stale window after the sub-agent completed; here it
+ *  demotes the instant the notification lands. */
 export function completedBackgroundTaskIds(lines: string[]): Set<string> {
   const completed = new Set<string>();
   for (const raw of lines) {
@@ -1058,24 +1074,94 @@ export function liveWorkflowRuns(
 // --- Async sub-agent detection (`Agent`/`Task` and `/fork`) ---
 //
 // A background sub-agent spawned by the main session — a `/fork` (slash
-// command), an async `Agent`, or a `Task` run — keeps the main busy-waiting
-// while it runs, but its launch does NOT land as one of the three
-// `BG_LAUNCH_RES` `tool_result` confirmations. A `/fork` echoes only a
-// `system`/`local_command` line; an async `Agent`/`Task` writes a
-// `queue-operation` enqueue that `outstandingBackgroundTasks` matches but with
-// `runId` null (so `deriveState`'s runId-narrowing never promotes on it). The
-// result: an idle (`waiting`) main is reported `waiting` while its sub-agent
-// streams, and the dock reads the row as idle. Detect it from the sub-agent's
-// on-disk artifacts instead — `subagents/agent-<id>.meta.json` + the streaming
+// command) or an async `Agent`/`Task` run — keeps the main busy-waiting while
+// it works, but neither launch reaches `deriveState`'s promotion path: a
+// `/fork` echoes only a `system`/`local_command` line, and an async
+// `Agent`/`Task` confirmation enters the launched set with `runId` null (no
+// `Run ID:`), which the runId-narrowing skips. The result without this scan:
+// an idle (`waiting`) main is reported `waiting` while its sub-agent streams,
+// and the dock reads the row as idle. Detect it from the sub-agent's on-disk
+// artifacts instead — `subagents/agent-<id>.meta.json` + the streaming
 // `subagents/agent-<id>.jsonl` whose mtime is the liveness anchor — the direct
 // analogue of the Workflow journal path.
+//
+// CLASS DISCRIMINATOR (#2171 review, F1): the artifacts alone are NOT enough.
+// A synchronous `Task`/`Explore`/skill sub-agent writes byte-identical files
+// (`agentType:"general-purpose"` et al.) but returns via `tool_result` and
+// emits NO completion notification, so nothing but the stale timer would ever
+// demote it — a finished sync sub-agent with a fresh transcript would publish
+// a phantom `running_background` for up to the full stale window, suppressing
+// the "your agent needs you" alert exactly when the human is needed. So a
+// sub-agent is promoted only on POSITIVE evidence of the background class:
+// its meta tags `agentType:"fork"`, OR the main transcript carries its
+// async-launch confirmation (`asyncLaunchedAgentIds`). "Has a meta file" is
+// deliberately never sufficient.
+
+/** `agentType` value a `/fork`'s meta carries — one half of the positive
+ *  class discriminator (the other half is `asyncLaunchedAgentIds`). */
+const FORK_AGENT_TYPE = "fork";
+
+/** Read a sub-agent's `agentType` from its meta, or null when the meta is
+ *  unreadable/malformed or carries no string `agentType`. Null means the
+ *  sub-agent cannot be POSITIVELY classified as a fork — the conservative
+ *  direction for the discriminator above. */
+function readSubagentAgentType(dir: string, id: string): string | null {
+  try {
+    const meta = JSON.parse(
+      fs.readFileSync(path.join(dir, `agent-${id}.meta.json`), "utf8"),
+    ) as { agentType?: unknown };
+    return typeof meta.agentType === "string" ? meta.agentType : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Ids the main transcript POSITIVELY launched as async background agents —
+ *  the `user` `tool_result` "Async agent launched successfully. (…)
+ *  agentId: <id>" confirmation, matched by `ASYNC_AGENT_LAUNCH_RE`. This is
+ *  the transcript-side half of the sub-agent class discriminator: an id here
+ *  is known to be a backgrounded run (it never returns as an in-turn
+ *  `tool_result`), which is what lets `outstandingSubagentRuns` promote it
+ *  without also promoting the synchronous sub-agents whose artifacts are
+ *  byte-identical. Bounded by the same tail window as `deriveState`. */
+export function asyncLaunchedAgentIds(lines: string[]): Set<string> {
+  const ids = new Set<string>();
+  for (const raw of lines) {
+    let entry: {
+      type?: string;
+      message?: { content?: Array<{ type?: string; content?: unknown }> };
+    };
+    try {
+      entry = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (entry.type !== "user") continue;
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      const tr = toolResultBlock(block);
+      if (!tr) continue;
+      const id = ASYNC_AGENT_LAUNCH_RE.exec(tr.text)?.[1];
+      if (id) ids.add(id);
+    }
+  }
+  return ids;
+}
 
 /** `agent-<id>.meta.json` → captures `<id>` (identical to the completion
- *  notification's `<task-id>`). Both a `/fork` and an async `Agent`/`Task`
- *  write this meta file (differing only in the optional `agentType` field, which
- *  is NOT consulted — the liveness anchor below is what makes promotion
- *  phantom-safe). The `workflows/` live-run subdir has no `.meta.json`, so it is
- *  naturally excluded. */
+ *  notification's `<task-id>`). Every sub-agent class — `/fork`, async
+ *  `Agent`/`Task`, and synchronous `Task`/`Explore`/skill alike — writes this
+ *  meta file, so the filename only ENUMERATES candidates; which candidates
+ *  promote is decided by the class discriminator (`agentType:"fork"` ∨ id ∈
+ *  `asyncLaunchedAgentIds`), never by the meta's presence alone.
+ *
+ *  The `workflows/` live-run tree DOES contain meta files
+ *  (`workflows/wf_<run>/agent-<id>.meta.json`, tagged
+ *  `agentType:"workflow-subagent"`) — it is excluded only because the readdir
+ *  below is non-recursive. Keep the
+ *  scan flat: a recursive walk on these names would flood the candidate set
+ *  with every workflow fan-out agent. */
 const SUBAGENT_META_RE = /^agent-(.+)\.meta\.json$/;
 
 /** An async sub-agent streams its transcript continuously while it runs, so a
@@ -1095,32 +1181,40 @@ const SUBAGENT_META_RE = /^agent-(.+)\.meta\.json$/;
  *  further simplification. */
 export const SUBAGENT_TRANSCRIPT_STALE_MS = 2 * 60 * 1000;
 
-/** Scan `<session>/subagents` for live async sub-agent runs — a `/fork`, an
- *  async `Agent`, or a `Task` — regardless of the meta's `agentType`: not yet
- *  reporting a terminal status (`completed`), and with a transcript written
- *  within `SUBAGENT_TRANSCRIPT_STALE_MS` (still streaming → still running).
- *  Returns each as a `LiveRun` — the shared shape the watcher's promotion path
- *  consumes, alongside the workflow producer (`liveWorkflowRuns`) — anchored on
- *  the streaming transcript's mtime and carrying `SUBAGENT_TRANSCRIPT_STALE_MS`
- *  as its own stale window.
+/** Scan `<session>/subagents` for live background sub-agent runs — a `/fork`
+ *  or a positively async-launched `Agent`/`Task` — not yet reporting a
+ *  terminal status (`completed`), and with a transcript written within
+ *  `SUBAGENT_TRANSCRIPT_STALE_MS` (still streaming → still running). Returns
+ *  each as a `LiveRun` — the shared shape the watcher's promotion path
+ *  consumes, alongside the workflow producer (`liveWorkflowRuns`) — anchored
+ *  on the streaming transcript's mtime and carrying
+ *  `SUBAGENT_TRANSCRIPT_STALE_MS` as its own stale window.
  *
- *  This is the phantom-safe extension of the `/fork` detection to the async
- *  `Agent`/`Task` class: those sub-agents write the SAME `agent-<id>.meta.json`
- *  + streaming `agent-<id>.jsonl` artifacts, so the stale-anchor guard that
- *  keeps forks phantom-free (a dead sub-agent stops streaming and ages out) is
- *  the identical discriminator here. The `agentType` field is deliberately NOT
- *  consulted — a fork and an async agent are indistinguishable at the liveness
- *  anchor, and promoting on a fresh transcript is exactly what keeps both
- *  correct. Plain backgrounded `Bash` (no sub-agent artifacts at all) stays
- *  unpromoted — that arm of the phantom guard is untouched.
+ *  Two guards stack, each closing a distinct phantom hole:
+ *   - CLASS (the discriminator): a sub-agent promotes only on positive
+ *     evidence of the background class — meta `agentType:"fork"` (a `/fork`'s
+ *     launch is a local-command echo, so the meta is the only marker) or its
+ *     id in `asyncLaunchedAgentIds(lines)` (the async-launch confirmation on
+ *     the MAIN transcript). A synchronous `Task`/`Explore`/skill sub-agent
+ *     writes byte-identical artifacts but returns via `tool_result` with no
+ *     completion notification — promoting it would mislabel the idle main
+ *     `running_background` (quiet) for the whole stale window right when the
+ *     human is needed, so it is excluded here and reads as `waiting`.
+ *   - LIVENESS (the phantom guard): the stale-transcript window that keeps
+ *     `/fork`s phantom-free — a dead sub-agent stops streaming and ages out —
+ *     applies unchanged to the async class. Plain backgrounded `Bash` (no
+ *     sub-agent artifacts at all) is untouched.
  *
  *  `completed` (from `completedBackgroundTaskIds`) is the fast positive-finish
- *  signal so an idle main demotes the instant the sub-agent's completion lands;
- *  the mtime gate is the phantom guard for an orphaned sub-agent whose completion
- *  never arrives. The transcript is stat-ed before anything else, so a finished
- *  or stale sub-agent costs only a stat. `now` injectable for tests. */
+ *  signal so an idle main demotes the instant the sub-agent's completion
+ *  notification lands; the mtime gate is the phantom guard for an orphaned
+ *  sub-agent whose completion never arrives. Per candidate the checks run
+ *  cheapest-and-most-selective first — `completed.has(id)`, then the class
+ *  read, then the transcript stat — so a finished, misclassified, or missing
+ *  sub-agent costs no stat at all. `now` injectable for tests. */
 export function outstandingSubagentRuns(
   session: SessionFile,
+  lines: string[],
   completed: Set<string>,
   now: number = Date.now(),
 ): LiveRun[] {
@@ -1131,11 +1225,15 @@ export function outstandingSubagentRuns(
   } catch {
     return []; // no subagents dir → no runs
   }
+  const asyncLaunched = asyncLaunchedAgentIds(lines);
   const runs: LiveRun[] = [];
   for (const name of names) {
     const id = SUBAGENT_META_RE.exec(name)?.[1];
     if (id === undefined) continue;
     if (completed.has(id)) continue; // already finished
+    // Positive class discriminator — never "has a meta file" (see above).
+    const isFork = readSubagentAgentType(dir, id) === FORK_AGENT_TYPE;
+    if (!isFork && !asyncLaunched.has(id)) continue; // synchronous → waiting
     let anchorMs: number;
     try {
       anchorMs = fs.statSync(path.join(dir, `agent-${id}.jsonl`)).mtimeMs;

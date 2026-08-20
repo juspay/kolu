@@ -52,20 +52,24 @@ export const ClaudeCodeInfoSchema = Schema.Struct({
    *    `ExitPlanMode`'s on-screen prompt has no equivalent marker and is a
    *    deliberate follow-up. So this state fires from the screen source even
    *    though it stays absent from the transcript tail.
-   *  - `running_background`: the agent ended its turn (`end_turn`) while an
-   *    outstanding background run it launched is still live — either a dynamic
-   *    `Workflow` with an observable run journal
-   *    (`<session>/workflows/<runId>.json`), or an async sub-agent (a `/fork`,
-   *    an `Agent`, or a `Task` run) with a streaming transcript
-   *    (`<session>/subagents/agent-<id>.jsonl`). Without this the end-of-turn
-   *    would read as `waiting` (needs-user); the agent is actually busy-waiting
-   *    on that run. A backgrounded `Bash` command (no sub-agent artifacts) does
-   *    NOT promote here: its launch marker outlives the process, so a lost
-   *    completion notification would spin the pill forever (the
-   *    phantom-`running_background` bug). The `workflow` field below is
-   *    populated only for the `Workflow` case; a sub-agent promotes the state
-   *    but carries no fan-out journal, so `workflow` stays null.
-   *    Claude-Code-specific — see `deriveState` and the session-watcher. */
+    *  - `running_background`: the agent ended its turn (`end_turn`) while an
+    *    outstanding background run it launched is still live — either a dynamic
+    *    `Workflow` with an observable run journal
+    *    (`<session>/workflows/<runId>.json`), or a background sub-agent
+    *    positively identified as such (a `/fork` by its meta's
+    *    `agentType:"fork"`, or an `Agent`/`Task` carrying the async-launch
+    *    confirmation on the main transcript) with a streaming transcript
+    *    (`<session>/subagents/agent-<id>.jsonl`). Without this the end-of-turn
+    *    would read as `waiting` (needs-user); the agent is actually busy-waiting
+    *    on that run. A synchronous `Task`/`Explore`/skill sub-agent — whose
+    *    artifacts are identical but which returns in-turn — and a backgrounded
+    *    `Bash` command (no sub-agent artifacts) do NOT promote here: nothing
+    *    positively marks them background, and a lost completion notification
+    *    would spin the pill forever (the phantom-`running_background` bug).
+    *    The `workflow` field below is
+    *    populated only for the `Workflow` case; a sub-agent promotes the state
+    *    but carries no fan-out journal, so `workflow` stays null.
+    *    Claude-Code-specific — see `deriveState` and the session-watcher. */
   state: Schema.Literals([
     "thinking",
     "tool_use",
