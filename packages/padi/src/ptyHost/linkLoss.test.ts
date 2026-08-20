@@ -454,7 +454,11 @@ describe("the heal's retry backs off, and stops the moment the link is back", ()
       onRecovered: (v) => {
         announced.push(v);
       },
-      backoffMs: 5,
+      // 20ms rather than the 5ms the other cases use: this is the ONE case that
+      // measures elapsed time, and the assertion below needs the gap between a
+      // reset backoff and a leaked one to be wider than a loaded box's timer
+      // coarseness. The streak escalates 20 → 40 → 80, so a leak is unmistakable.
+      backoffMs: 20,
     });
     healer = healed;
     healers.push(healed);
@@ -479,9 +483,11 @@ describe("the heal's retry backs off, and stops the moment the link is back", ()
     const secondIncidentAt = Date.now();
     healed.observe("degraded");
     await waitFor("the NEXT incident to start promptly", () => attempts === 4);
-    // The streak escalated to 20ms (5 → 10 → 20); a leaked backoff would make
-    // this at least that. One backoff plus scheduling slack is the honest bound.
-    expect(Date.now() - secondIncidentAt).toBeLessThan(20);
+    // The streak escalated to 80ms (20 → 40 → 80), so a leaked backoff cannot
+    // start sooner than that. 60ms sits well clear of one fresh 20ms timer and
+    // well under the leak — a gap wide enough that timer coarseness on a busy
+    // box cannot decide the outcome.
+    expect(Date.now() - secondIncidentAt).toBeLessThan(60);
   });
 
   it("retries a failed re-converge on a doubled backoff, then stops on success with ONE recovery stamp", async () => {
