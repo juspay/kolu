@@ -97,6 +97,7 @@ import { startInventoryReconciler } from "../terminalEndpoint/inventoryReconcile
 import {
   adoptSurvivingSession,
   parkSavedSession,
+  rewireSurvivingSession,
 } from "../terminalEndpoint/reattach.ts";
 import { resolveTerminalEndpoint } from "../terminalEndpoint/resolve.ts";
 import { snapshotSession } from "../terminals.ts";
@@ -484,6 +485,10 @@ function bootLocalEndpoint(params: {
       legacyHome: params.legacyKavalHome,
       onStatus: publishDaemonStatus,
       onAdopted: adoptSurvivingSession,
+      // #2182: a heal re-wires the taps of terminals padi already holds. It does
+      // NOT run the boot's session reconcile — that verb is written for an empty
+      // registry, and over a live one it rewinds chrome to the last autosave.
+      onHealed: rewireSurvivingSession,
       onNotAdopted: parkSavedSession,
       // #2182/#2184. That padi repaired a link the user never touched is kolu's
       // soul, not something `onStatus` can know — but WHICH repair it was decides

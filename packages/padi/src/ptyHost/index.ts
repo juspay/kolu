@@ -337,6 +337,16 @@ export function ensureLocalEndpoint(opts: {
    *  root stays free of the terminal-endpoint layer, which imports back from
    *  here. Skipped on a fresh / recycled boot (no survivors to reconcile). */
   onAdopted?: Effect.Effect<void, unknown>;
+  /** The heal's counterpart to {@link onAdopted} — run when a MID-SESSION
+   *  re-converge adopts the daemon it had lost the link to (juspay/kolu#2182).
+   *  REQUIRED, and separate from `onAdopted` rather than defaulting to it,
+   *  because the two answer different questions over different premises: boot
+   *  adoption reconciles a SAVED SESSION into an empty registry, while a heal
+   *  meets a full registry that is itself the truth and needs only its taps
+   *  re-wired. A heal that ran the boot's hook would rewind every terminal's
+   *  chrome to the last autosave — and persist it. Optionality here would make
+   *  that regression a missing argument away, so there is no default. */
+  onHealed: Effect.Effect<void, unknown>;
   /** Run on the NO-SURVIVOR boot — a fresh / recycled daemon where nothing live
    *  survives (adoption reported `false`), OR after a failed adoption forces a
    *  recycle. PARKS the saved session (W1.R6): seeds a parked registry entry per
@@ -391,7 +401,15 @@ export function ensureLocalEndpoint(opts: {
     // name `ep` here: the re-converge is a DESCRIPTION, and nothing runs it until
     // a link dies — long after this line has bound the reference.
     const healer = startLinkLossHealer({
-      reconverge: Effect.suspend(() => convergeAndReconcile(ep, opts)),
+      // The heal converges with the SAME endpoint and the same no-survivor park,
+      // but its adopt arm is `onHealed`, never the boot's `onAdopted`. Adoption
+      // asks "what was running before I existed?" — a question only the saved
+      // session can answer, and one a heal already knows the answer to, because
+      // its registry never emptied. Handing a heal the boot's answer is how a
+      // repair rewinds a user's chrome to the last autosave and persists it.
+      reconverge: Effect.suspend(() =>
+        convergeAndReconcile(ep, { ...opts, onAdopted: opts.onHealed }),
+      ),
       stillServing: opts.stillServing,
       onRecovered: opts.onRecovered,
     });

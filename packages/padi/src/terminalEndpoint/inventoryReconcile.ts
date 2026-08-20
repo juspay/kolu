@@ -3,8 +3,11 @@
  * tile in kolu while the server is already running.
  *
  * Boot adoption (`adoptSurvivingSession`) reconciles the daemon's live PTYs
- * against the saved session ONCE, at startup. It cannot see a PTY that appears
- * AFTER boot — a `kaval-tui create` against the very daemon kolu is a client of.
+ * against the saved session at startup, and only there — a mid-session link heal
+ * runs `rewireSurvivingSession`, which re-wires the taps of terminals padi
+ * already holds and deliberately claims nothing it does not (juspay/kolu#2182).
+ * Neither can see a PTY that appears AFTER boot — a `kaval-tui create` against
+ * the very daemon kolu is a client of, or one created while a link was down.
  * The daemon owns ONE inventory shared by every client; this subscribes to its
  * membership feed (`ptyHostSurface`'s `inventory` stream, contract 3.1) and
  * adopts anything kolu does not already track. So the daemon's `entries` map

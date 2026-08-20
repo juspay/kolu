@@ -101,10 +101,19 @@ answer. From the outside that looks exactly like a stuck kaval, and it is the
 opposite: nothing is broken, and there is only a connection to re-make. padi
 re-makes it by itself, about a second after it drops, and keeps trying — backing
 off to once every half-minute — for as long as it takes. It only ever re-makes a
-line to a daemon it has just checked is still answering, and taking that daemon
-back *over* is the whole of what it does, so your terminals and the agents inside
-them keep running throughout and there is nothing to restore. When the line is
-back kolu says so once, and the card clears itself.
+line to a daemon it has just checked is still answering, so the ordinary outcome
+is that it takes that daemon back *over*: your terminals and the agents inside
+them keep running throughout, there is nothing to restore, and kolu says so once
+before the card clears itself.
+
+Two narrower cases end somewhere else, and kolu tells you which one you got
+rather than showing you the same line for all three. If the daemon exits in the
+moment between that check and the re-connect, the re-connect starts a fresh one;
+and if a re-connected daemon turns out to hold terminals kolu cannot account
+for, kolu replaces it deliberately rather than leave terminals it cannot see. In
+both, the message is the restart one — *"kaval was unresponsive — kolu restarted
+it; your session is ready to restore"* — and your session comes back through the
+restore card.
 
 A daemon that is genuinely gone is a different fact and gets the different
 answer. Re-making a line to a daemon that is not there would mean starting a new

@@ -142,8 +142,8 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   },
   {
     path: "packages/padi/src/ptyHost/linkLoss.ts",
-    sites: 1,
-    why: "the link-loss healer's raw-timer edge (juspay/kolu#2182): the re-converge attempt rides a chained unref'd `setTimeout` for the same written reasons as `kavalSupervision.ts`'s row (Effect's default Clock cannot express an unref'd sleep, and the endpoint's `onStatus` emit is synchronous, so nothing above the timer is an Effect caller to compose into) — one run, at the tick boundary, absorbing its own failure so the loop owns the retry",
+    sites: 2,
+    why: "the link-loss healer's raw-timer edge (juspay/kolu#2182): the tick rides a chained unref'd `setTimeout` for the same written reasons as `kavalSupervision.ts`'s row (Effect's default Clock cannot express an unref'd sleep, and the endpoint's `onStatus` emit is synchronous, so nothing above the timer is an Effect caller to compose into), so BOTH of the tick's reads cross at that boundary — the residency precondition and, only if it says the daemon is serving, the re-converge attempt. Two runs, one cadence, and deliberately two rather than one composed Effect: the precondition decides whether the second one happens at all, and folding them would put a converge (which SPAWNS when nobody is home) inside the same run as the reading meant to forbid it",
   },
   {
     path: "packages/padi/src/servePadi.ts",

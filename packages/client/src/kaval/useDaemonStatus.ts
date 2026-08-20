@@ -421,8 +421,19 @@ export function daemonConnected(): boolean {
  *    `connected`; and on a SUPERVISED restart, `holdRestarting` masks
  *    capture→reattach as one `restarting` (`surface-daemon-supervisor/restart.ts`),
  *    so the client sees `connected` only once reattach finished.
+ *  - A THIRD path exists since juspay/kolu#2182 and neither argument above covers
+ *    it: a mid-session link heal. `converge` emits `connected` from inside itself
+ *    and the heal's hook runs after, with padi already listening and no
+ *    `holdRestarting` in play — so the client CAN observe `connected` over a
+ *    registry whose sensors have not been re-wired yet. What keeps that benign is
+ *    what the heal does NOT do: it never empties or re-registers the list (it
+ *    re-wires taps on entries that were there throughout), so the window is one
+ *    of stale per-terminal detail, never of a list that looks authoritative while
+ *    it is empty. The residual below is the one to widen if that ever changes.
  *  - RESIDUAL (not covered here — needs a padi-side registry-reconciled marker,
- *    tracked as follow-up #1902): a kaval that HUNG at a padi restart so `converge`
+ *    tracked as follow-up #1902; the heal above is the first path that gives it a
+ *    production trigger rather than a theoretical one): a kaval that HUNG at a
+ *    padi restart so `converge`
  *    threw (its catch only logs — `ptyHost/index.ts`), then recovered, flips
  *    `connected` before the 2s inventory-reconcile loop re-adopts; and
  *    out-of-band (`kaval-tui`-created) terminals appear the same way. In those

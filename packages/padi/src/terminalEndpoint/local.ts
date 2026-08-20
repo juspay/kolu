@@ -815,6 +815,58 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  against the surviving taps. The sibling of `spawnPty`/`spawnAndWire` minus
    *  the spawn RPC: both converge on `installSnapshotSensors`, and a wiring failure
    *  reaps the orphaned PTY through the shared `killHalfWiredPty`. */
+  /** Re-install the sensor set of a terminal padi ALREADY HOLDS, against the
+   *  taps of the daemon it has just re-connected to (juspay/kolu#2182).
+   *
+   *  This is the HEAL's verb, and the whole reason it is not `adoptTerminal`:
+   *  adoption is a BOOT verb, written for an empty registry and a saved session
+   *  that is the only record of what was running. Mid-session neither premise
+   *  holds — the registry never emptied, and it, not the saved session, is the
+   *  truth. Running adoption over it re-registers the saved record (rewinding any
+   *  chrome newer than the last autosave, which `saveSession` then persists),
+   *  wipes a terminal born inside the autosave debounce entirely, re-stamps
+   *  `adoptedAt` so the client announces a boot adoption that never happened, and
+   *  treats a wiring failure as an orphaned PTY to kill. All four are damage to
+   *  a session that was never lost, done in the name of repairing it.
+   *
+   *  What actually died with the link is the taps: they are bridged ONCE, per
+   *  terminal, and have no re-subscribe loop of their own (see
+   *  {@link installSnapshotSensors}). Re-installing them is therefore the entire
+   *  job, and installation is idempotent — it replaces any set the terminal
+   *  already has rather than stranding it.
+   *
+   *  Returns false for an id padi does not hold, which is not this verb's case to
+   *  handle: a PTY that appeared while the link was down is the inventory
+   *  reconciler's to discover, and inventing a registry entry from a live PTY is
+   *  adoption again by another name.
+   *
+   *  A wiring failure here does NOT kill the PTY. The boot's reap exists because
+   *  a half-wired survivor at boot is an orphan nothing else will ever claim; a
+   *  half-wired terminal mid-session is a terminal the user is looking at, whose
+   *  entry is intact and whose next heal will try again. Killing it would be the
+   *  destruction this whole arm exists to prevent. */
+  rewireSurvivingSensors(id: TerminalId, liveEntry: PtyHostListEntry): boolean {
+    const entry = getTerminal(id);
+    if (!entry) return false;
+    const tlog = log.child({ terminal: id });
+    try {
+      this.installSnapshotSensors(
+        id,
+        liveEntry.pid,
+        liveEntry.cwd,
+        liveEntry.commandRooted ?? false,
+      );
+    } catch (err) {
+      tlog.error(
+        { err, pid: liveEntry.pid },
+        "sensor re-wiring failed after a link heal — the terminal is LIVE and keeps running; its taps stay down until the next heal",
+      );
+      return false;
+    }
+    tlog.info({ pid: liveEntry.pid }, "re-wired a surviving PTY's sensors");
+    return true;
+  }
+
   adoptTerminal(
     id: TerminalId,
     authored: AuthoredActiveTerminal,
@@ -850,9 +902,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     } catch (err) {
       // Sensor wiring failed against the survivor — the same reap policy as a
       // failed fresh spawn (the F2 receptacle): tear down partials, kill the
-      // now-orphaned PTY, unwind the entry. Adoption overwrites no prior record
-      // (a survivor is registered fresh at boot), so there is nothing to
-      // restore — `prior` is undefined and the unwind is a plain unregister.
+      // now-orphaned PTY, unwind the entry. `prior` is undefined because THIS
+      // verb only ever runs at boot, over an empty registry, where a half-wired
+      // survivor is an orphan nothing else will claim. That is a precondition of
+      // the reap, not an incidental fact: a mid-session caller would be killing a
+      // terminal the user is looking at. The heal deliberately does not come here
+      // — it re-wires through `rewireSurvivingSensors`, which never kills.
       this.killHalfWiredPty(
         id,
         entry,
@@ -1754,6 +1809,17 @@ export function seedParkedTerminal(record: SavedActiveTerminal): boolean {
  *  The id is validated here too rather than cast: `reconcile` joins saved records
  *  to live PTYs on a raw string, so a saved id that is not a `TerminalId` reached
  *  the registry as a cast — the one hole the orphan path had already closed. */
+/** Re-wire ONE already-held terminal's sensors after a link heal — the heal's
+ *  counterpart to {@link adoptLocalTerminal}, and deliberately not a variant of
+ *  it: no saved record is read, so nothing the user has changed since the last
+ *  autosave can be rewound. Takes the live PTY only, because the registry entry
+ *  it re-wires is already the truth. False when padi does not hold the id. */
+export function rewireLocalSurvivor(liveEntry: PtyHostListEntry): boolean {
+  const idParsed = decodeTerminalId(liveEntry.id);
+  if (Result.isFailure(idParsed)) return false;
+  return localEndpointImpl.rewireSurvivingSensors(idParsed.success, liveEntry);
+}
+
 export function adoptLocalTerminal(
   record: SavedActiveTerminal,
   liveEntry: PtyHostListEntry,

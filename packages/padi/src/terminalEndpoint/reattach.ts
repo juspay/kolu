@@ -64,6 +64,7 @@ import {
   adoptLocalOrphan,
   adoptLocalTerminal,
   reapUnrepresentablePty,
+  rewireLocalSurvivor,
   seedParkedTerminal,
   seedSleepingTerminal,
 } from "./local.ts";
@@ -163,6 +164,59 @@ function adoptSurvivorAsOrphan(entry: PtyHostListEntry): boolean {
  *  recycles it rather than leaving hidden live PTYs behind a stale restore card.
  *  Every per-terminal adoption failure is contained (it reaps just that PTY), so
  *  the only failure is the all-or-nothing `list`. */
+/**
+ * What a mid-session LINK heal runs where the boot runs {@link adoptSurvivingSession}
+ * (juspay/kolu#2182) — re-wire the taps of the terminals padi already holds, and
+ * nothing else.
+ *
+ * The two are not variants of one verb and must not be merged back. Adoption
+ * answers "what was running before I existed?", which is a question only the
+ * saved session can answer; a heal already knows, because its registry never
+ * emptied. Handing a heal the boot's answer is how a repair rewinds a user's
+ * layout to the last autosave and persists it, wipes a tile born inside the
+ * autosave debounce, announces a boot adoption of a session that never left, and
+ * reaps a "half-wired orphan" the user is actively typing into.
+ *
+ * ABSORBS a `list` failure instead of propagating it, which is the exact inverse
+ * of adoption's fail-closed rule, for the exact reason that rule exists: at boot
+ * an unlistable daemon may hold PTYs kolu has no entry for, so the safe move is
+ * to recycle it. Mid-session every live PTY already HAS an entry — there is no
+ * hidden-terminal hazard to fail closed against, and recycling here would destroy
+ * the session the heal was invoked to save. A heal that cannot list simply leaves
+ * the taps down and lets the next attempt try again.
+ */
+export const rewireSurvivingSession: Effect.Effect<void, unknown> = Effect.gen(
+  function* () {
+    const listed = yield* Effect.match(
+      ptyHostClient.surface.terminal.list({}),
+      {
+        onSuccess: (res) => ({ ok: true, entries: res.entries }) as const,
+        onFailure: (err) => ({ ok: false, err }) as const,
+      },
+    );
+    if (!listed.ok) {
+      log.error(
+        { err: listed.err },
+        "link heal could not list the re-connected daemon's PTYs — sensors stay down until the next attempt; the terminals themselves are untouched",
+      );
+      return;
+    }
+    let rewired = 0;
+    let unknown = 0;
+    for (const live of listed.entries) {
+      if (rewireLocalSurvivor(live)) rewired += 1;
+      else unknown += 1;
+    }
+    // `unknown` is not a fault: a PTY created out-of-band while the link was down
+    // has no registry entry yet, and discovering those is the inventory
+    // reconciler's standing job — not something to invent an entry for here.
+    log.info(
+      { rewired, unknown },
+      "re-wired surviving terminals after a link heal",
+    );
+  },
+);
+
 export const adoptSurvivingSession: Effect.Effect<void, unknown> = Effect.gen(
   function* () {
     // Fail CLOSED on a list failure (F3): let it propagate so the boot recycles the

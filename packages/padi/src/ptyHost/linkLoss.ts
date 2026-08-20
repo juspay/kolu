@@ -241,9 +241,14 @@ export function startLinkLossHealer(deps: {
   ): Promise<ConvergeVerdict | undefined> => {
     try {
       const verdict = await Effect.runPromise(deps.reconverge);
+      // "settled", not "restored": the caller owns the one reading of whether
+      // the link actually came back, and a converge can settle on a verdict and
+      // then lose the link again during its own reconcile. Journalling the
+      // stronger word here would make a field grep count attempts that restored
+      // nothing.
       log.info(
         { attempt: attemptNo, verdict },
-        `kaval link restored by re-converge — ${verdict}`,
+        `kaval re-converge settled — ${verdict}`,
       );
       return verdict;
     } catch (err) {
@@ -258,14 +263,22 @@ export function startLinkLossHealer(deps: {
   const tick = async (backoffMs: number): Promise<void> => {
     if (!cleared()) return;
     // The precondition, re-asked at every fire because it is a fact about NOW:
-    // only a daemon that is still serving is a link this loop may re-make. An
-    // UNASKABLE question folds to `wedged`, never `unreachable`: both decline to
-    // converge, so neither can spawn, but `unreachable` is the one branch that
-    // stops this loop for good — and "the probe itself broke" is not evidence the
-    // daemon died. Standing down on it would re-open #2182 through the one door
-    // this guard added.
+    // only a daemon that is still serving is a link this loop may re-make.
+    //
+    // A rejection here is NOT folded into an observation. `observeHeldKaval`
+    // already absorbs both the failure and the defect channel into a
+    // `KavalObservation`, so nothing that reaches this `catch` is a probe that
+    // answered badly — it is a bug in the injected Effect. Fail loudly and treat
+    // the tick as undecided: declining to converge is what makes a spawn
+    // impossible, and it costs one backoff to ask again.
     const observed = await Effect.runPromise(deps.stillServing).catch(
-      () => "wedged" as const,
+      (err: unknown) => {
+        log.error(
+          { err, nextAttempt: attempts + 1 },
+          "kaval residency probe THREW — the reading is a bug in the sensor, not a verdict about the daemon; re-checking after the next backoff",
+        );
+        return undefined;
+      },
     );
     // The probe took up to its own deadline, so the clearance read before it is
     // now stale — a restart can have claimed the endpoint, or the link can have
@@ -273,22 +286,30 @@ export function startLinkLossHealer(deps: {
     // 5 s ago.
     if (!cleared()) return;
     if (observed !== "healthy") {
-      // One line per DECISION, not per tick: this is where the healer hands the
-      // fault to the arm that owns it, and a silent hand-off is how a degraded
+      // One line per DECISION, not per tick: a silent decline is how a degraded
       // padi looks identical to a padi nobody is watching.
       // `nextAttempt`, not `attempt`: no attempt ran here, and one key for both
-      // facts would make a field-log grep for `attempt: 3` match a stand-down
-      // that did nothing as well as the converge that later ran as attempt 3.
-      log.warn(
-        { observed, nextAttempt: attempts + 1 },
-        observed === "unreachable"
-          ? "kaval link lost and nothing is serving the socket — the daemon is gone, which is a restart and not a re-connect; standing down for the steady-state probe arm"
-          : "kaval link lost and the daemon is not answering — leaving a wedged daemon to the steady-state probe arm; will re-check after the next backoff",
-      );
-      // `wedged` is a WAIT (re-arm and ask again); `unreachable` is a HAND-OFF
-      // (do not re-arm — the probe arm recycles, and its fresh daemon publishes
-      // the `connected` that resets this loop for the next link it loses).
-      if (observed === "wedged") arm();
+      // facts would make a field-log grep for `attempt: 3` match a decline that
+      // did nothing as well as the converge that later ran as attempt 3.
+      if (observed !== undefined) {
+        log.warn(
+          { observed, nextAttempt: attempts + 1 },
+          observed === "unreachable"
+            ? "kaval link lost and nothing is serving the socket — a converge here would SPAWN, which is the steady-state probe arm's ledgered job; re-checking after the next backoff"
+            : "kaval link lost and the daemon is not answering — a wedged daemon is the steady-state probe arm's to repair; re-checking after the next backoff",
+        );
+      }
+      // ALWAYS re-arm. What makes a respawn impossible is declining to CONVERGE,
+      // which every branch here already does — so stopping the loop buys nothing
+      // and costs the bug it was meant to prevent. A single `unreachable` is not
+      // proof the daemon is gone for good (the bind gap of an out-of-band
+      // restart reads exactly like it), and a healer that stood down on one
+      // would sit out the daemon's return: the probe arm does not re-dial a
+      // HEALTHY daemon — it clears its ledger and recycles nothing — so nobody
+      // would re-make the link and padi would stay degraded with the destructive
+      // button as its only exit. That is #2182 again, through the door this
+      // guard opened. Re-arming costs one probe per backoff and nothing else.
+      arm();
       return;
     }
     attempts += 1;
