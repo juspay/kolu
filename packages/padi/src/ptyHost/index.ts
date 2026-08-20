@@ -368,7 +368,7 @@ export function ensureLocalEndpoint(opts: {
    *  only the latter is what `startKavalSupervision`'s `onRecovered` proves.
    *  Injected for the same reason as the hooks above: the status store is the
    *  caller's to write, so this composition root never imports it. */
-  onRecovered?: (verdict: ConvergeVerdict) => void;
+  onRecovered: (verdict: ConvergeVerdict) => void;
   /** Is our kaval still serving? The self-healing re-converge's precondition
    *  (#2184) — REQUIRED, because a healer without one re-converges blind, and a
    *  blind converge SPAWNS when nobody is home, which turns a lost link into an

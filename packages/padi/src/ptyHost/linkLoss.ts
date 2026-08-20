@@ -116,8 +116,13 @@ export function startLinkLossHealer(deps: {
    *  itself is new and the saved session is parked for restore. Only the second
    *  is what `startKavalSupervision`'s `onRecovered` proves, so only the second
    *  may share its stamp and its sentence. Injected, so this module never reaches
-   *  into the status store. */
-  readonly onRecovered?: (verdict: ConvergeVerdict) => void;
+   *  into the status store.
+   *
+   *  REQUIRED, like `stillServing` and for the same reason: a heal nobody is told
+   *  about is a silent recovery, and the user is left reading a page that said
+   *  the connection was lost. An optional announcement is a graceful-degradation
+   *  path, which is a defect here rather than a convenience. */
+  readonly onRecovered: (verdict: ConvergeVerdict) => void;
   /** Is the daemon we lost the link to STILL SERVING at the rendezvous? The
    *  healer's precondition, and the reason it cannot become a respawn loop.
    *
@@ -161,13 +166,16 @@ export function startLinkLossHealer(deps: {
    *  class. */
   let everConnected = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let attempt = 0;
+  /** How many re-converges this incident has actually RUN — a running total, not
+   *  the number of ticks: a tick that stands down or reschedules never becomes an
+   *  attempt. */
+  let attempts = 0;
   let waitMs = firstMs;
 
   const cancel = (): void => {
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
-    attempt = 0;
+    attempts = 0;
     waitMs = firstMs;
   };
 
@@ -176,12 +184,35 @@ export function startLinkLossHealer(deps: {
     // re-arms itself if it fails.
     if (timer !== undefined || healClaimed()) return;
     const backoffMs = waitMs;
-    waitMs = Math.min(waitMs * 2, BACKOFF_CEILING_MS);
     timer = setTimeout(() => {
       timer = undefined;
       void tick(backoffMs);
     }, backoffMs);
     timer.unref?.();
+  };
+
+  /** Escalate the wait — only after an attempt that did NOT restore the link.
+   *  The backoff encapsulates how hard we are FAILING, so a tick that never
+   *  converged (a restart owns the endpoint, the daemon is wedged) must not spend
+   *  it: a kaval merely busy for a minute would otherwise reach the 30 s ceiling
+   *  without one converge having been tried, and the link would then stay down
+   *  for up to another 30 s after the daemon answered again. */
+  const backOff = (): void => {
+    waitMs = Math.min(waitMs * 2, BACKOFF_CEILING_MS);
+  };
+
+  /** May this tick converge RIGHT NOW? Asked again after every await, because
+   *  each one can invalidate the answer: our own attempt owns the chain (it
+   *  re-arms itself), a restart owns the ENDPOINT — the one case that reschedules
+   *  behind it — and a status that is no longer `degraded` means the link healed,
+   *  or died terminally, by some other path. */
+  const cleared = (): boolean => {
+    if (healClaimed()) return false;
+    if (restartClaimed()) {
+      arm();
+      return false;
+    }
+    return published() === "degraded";
   };
 
   /** ONE re-converge. Never rejects: the loop owns the retry, so a failed
@@ -215,16 +246,7 @@ export function startLinkLossHealer(deps: {
   };
 
   const tick = async (backoffMs: number): Promise<void> => {
-    // Fire-time re-reads, ordered by what each protects: our own attempt owns the
-    // chain (it re-arms itself), a restart owns the ENDPOINT (so reschedule
-    // behind it), and a status that is no longer `degraded` means the link healed
-    // — or died terminally — by some other path.
-    if (healClaimed()) return;
-    if (restartClaimed()) {
-      arm();
-      return;
-    }
-    if (published() !== "degraded") return;
+    if (!cleared()) return;
     // The precondition, re-asked at every fire because it is a fact about NOW:
     // only a daemon that is still serving is a link this loop may re-make. An
     // UNASKABLE question folds to `wedged`, never `unreachable`: both decline to
@@ -235,22 +257,20 @@ export function startLinkLossHealer(deps: {
     const observed = await Effect.runPromise(deps.stillServing).catch(
       () => "wedged" as const,
     );
-    // The probe took up to its own deadline, and every guard read before it is
+    // The probe took up to its own deadline, so the clearance read before it is
     // now stale — a restart can have claimed the endpoint, or the link can have
-    // healed, while we were asking. Re-read them rather than act on what was true
+    // healed, while we were asking. Ask again rather than act on what was true
     // 5 s ago.
-    if (healClaimed()) return;
-    if (restartClaimed()) {
-      arm();
-      return;
-    }
-    if (published() !== "degraded") return;
+    if (!cleared()) return;
     if (observed !== "healthy") {
       // One line per DECISION, not per tick: this is where the healer hands the
       // fault to the arm that owns it, and a silent hand-off is how a degraded
       // padi looks identical to a padi nobody is watching.
+      // `nextAttempt`, not `attempt`: no attempt ran here, and one key for both
+      // facts would make a field-log grep for `attempt: 3` match a stand-down
+      // that did nothing as well as the converge that later ran as attempt 3.
       log.warn(
-        { observed, attempt: attempt + 1 },
+        { observed, nextAttempt: attempts + 1 },
         observed === "unreachable"
           ? "kaval link lost and nothing is serving the socket — the daemon is gone, which is a restart and not a re-connect; standing down for the steady-state probe arm"
           : "kaval link lost and the daemon is not answering — leaving a wedged daemon to the steady-state probe arm; will re-check after the next backoff",
@@ -261,8 +281,8 @@ export function startLinkLossHealer(deps: {
       if (observed === "wedged") arm();
       return;
     }
-    attempt += 1;
-    const attemptNo = attempt;
+    attempts += 1;
+    const attemptNo = attempts;
     log.warn(
       { attempt: attemptNo, backoffMs },
       `kaval link lost mid-session — re-converging (attempt ${attemptNo}, backoff ${backoffMs}ms)`,
@@ -279,9 +299,12 @@ export function startLinkLossHealer(deps: {
     // announce. Decided HERE rather than leaning on the status store to drop a
     // stamp this module never sees.
     if (verdict !== undefined && published() === "connected") {
-      deps.onRecovered?.(verdict);
+      deps.onRecovered(verdict);
       return;
     }
+    // This attempt did not restore the link, which is the one thing the backoff
+    // measures — so escalate, then re-arm.
+    backOff();
     arm();
   };
 

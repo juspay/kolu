@@ -813,7 +813,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  register the terminal under the `authored` half, release the handle at the
    *  live pid, and re-run the sensor set
    *  against the surviving taps. The sibling of `spawnPty`/`spawnAndWire` minus
-   *  the spawn RPC: both converge on `startSnapshotSensors`, and a wiring failure
+   *  the spawn RPC: both converge on `installSnapshotSensors`, and a wiring failure
    *  reaps the orphaned PTY through the shared `killHalfWiredPty`. */
   adoptTerminal(
     id: TerminalId,
@@ -824,7 +824,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const tlog = log.child({ terminal: id });
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
     // Both halves ride ONE entry — snapshot is a required field
-    // (`startSnapshotSensors` reads `getTerminal(id)!.snapshot` as `record.meta`).
+    // (`installSnapshotSensors` reads `getTerminal(id)!.snapshot` as `record.meta`).
     const entry: ActiveTerminalProcess = {
       info: { id, pid: liveEntry.pid },
       meta: authored,
@@ -841,7 +841,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // from the surviving (replayed) taps. That re-observation must NOT bump recency
       // (the saved value is the truth) — the recency baseline is seeded from the saved
       // restore target, so a re-resolve of the SAME session matches it and is silent.
-      this.startSnapshotSensors(
+      this.installSnapshotSensors(
         id,
         liveEntry.pid,
         liveEntry.cwd,
@@ -948,12 +948,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // we leak an orphaned PTY with no server-side record.
     try {
       // The recency baseline is seeded from the durable restore target inside
-      // `startSnapshotSensors`: a fresh spawn has no target (null baseline) so its
+      // `installSnapshotSensors`: a fresh spawn has no target (null baseline) so its
       // first agent bumps; a RESUMING wake's `exact` target makes the re-resolved
       // session match the baseline and stay silent — no `initialLive` flag needed.
       // A padi spawn is always a shell terminal (the kolu face has no command
       // param — #1872's protection), so the sensors read it shell-rooted.
-      this.startSnapshotSensors(id, res.pid, res.cwd, false);
+      this.installSnapshotSensors(id, res.pid, res.cwd, false);
     } catch (err) {
       this.killHalfWiredPty(
         id,
@@ -1030,8 +1030,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     this.unwindSpawnShadow(id, entry, prior);
   }
 
-  /** Start the per-terminal snapshot PRODUCER against the pty-host's tap streams
-   *  and FOLD its observation stream into the registry entry — the local R9.0 seam.
+  /** INSTALL a terminal's snapshot sensor set, REPLACING any set it already has —
+   *  idempotent by requirement, because a mid-session heal re-runs the boot's
+   *  adopt (#2182). Start the per-terminal snapshot PRODUCER against the pty-host's
+   *  tap streams and FOLD its observation stream into the registry entry — the
+   *  local R9.0 seam.
    *  The producer runs HERE, in kolu-server, so it's always the current build's code
    *  (the freshness guarantee). kolu seeds `current` from the entry's durable
    *  observation + memory and folds each emitted observation: the five snapshot
@@ -1043,7 +1046,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  the session autosave — each effect arm gated by ITS OWN delta so the ~150 ms
    *  agent-detail / foreground firehose reaches NONE of disk, the authored
    *  collection, or (beyond a single snapshot publish) the wire. */
-  private startSnapshotSensors(
+  private installSnapshotSensors(
     id: TerminalId,
     pid: number,
     cwd: string,

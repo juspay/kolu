@@ -19,7 +19,7 @@
  *     synchronously before the daemon's `created` arrives — so the registry
  *     guard makes it a no-op: no double-register, no double-wire.
  *   - **exited** — a no-op. Every terminal kolu tracks has a per-id `exit` tap
- *     (`startSnapshotSensors`) that is the SINGLE authority for its teardown;
+ *     (`installSnapshotSensors`) that is the SINGLE authority for its teardown;
  *     acting here would be a second exit path. The delta exists for clients that
  *     do NOT wire per-id taps (kaval-tui, a future MCP face).
  *

@@ -64,6 +64,12 @@ type Observed = KavalObservation["kind"];
  *  only the link to it broke. The cases that vary it name their own. */
 const SERVING = Effect.succeed<Observed>("healthy");
 
+/** The announcement seam for the cases that are not about what was announced.
+ *  Spelled rather than omitted because `onRecovered` is REQUIRED: a heal nobody
+ *  is told about is a silent recovery, and every case below that expects no
+ *  announcement proves it by counting converges instead. */
+const NO_ANNOUNCE = (): void => {};
+
 /** Poll until `ready`, or fail loudly. The loop under test runs on real node
  *  timers (its `unref`'d, chained `setTimeout` is a deliberate design choice, not
  *  an accident to be faked away), so the suite waits on its EFFECT rather than
@@ -344,6 +350,7 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
         return "no-survivors" as const;
       }),
       backoffMs: 5,
+      onRecovered: NO_ANNOUNCE,
     });
     healers.push(healer);
 
@@ -365,6 +372,7 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
         return "adopted" as const;
       }),
       backoffMs: 5,
+      onRecovered: NO_ANNOUNCE,
     });
     healers.push(healer);
 
@@ -391,6 +399,7 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
         return "adopted" as const;
       }),
       backoffMs: 5,
+      onRecovered: NO_ANNOUNCE,
     });
     healers.push(healer);
 
@@ -521,6 +530,7 @@ describe("a deliberate restart is never mistaken for a lost link", () => {
         return "adopted" as const;
       }),
       backoffMs: 5,
+      onRecovered: NO_ANNOUNCE,
     });
     healers.push(healer);
 
@@ -558,6 +568,7 @@ describe("a deliberate restart is never mistaken for a lost link", () => {
         return "adopted" as const;
       }),
       backoffMs: 10,
+      onRecovered: NO_ANNOUNCE,
     });
     healers.push(healer);
 
@@ -609,6 +620,7 @@ describe("a deliberate restart is never mistaken for a lost link", () => {
         return "adopted" as const;
       }),
       backoffMs: 5,
+      onRecovered: NO_ANNOUNCE,
     });
     healers.push(healer);
 
