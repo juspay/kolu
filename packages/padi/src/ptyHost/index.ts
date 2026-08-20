@@ -64,16 +64,12 @@ import {
   getPadiServeSocketPath,
   setLocalSocketPath,
 } from "./daemonStatus.ts";
-import {
-  requireEndpointClaim,
-  withConvergeClaim,
-  withRestartClaim,
-} from "./endpointClaim.ts";
+import { withRestartClaim } from "./endpointClaim.ts";
+import { type Residency, startLinkLossHealer } from "./linkLoss.ts";
 import {
   type ConvergeVerdict,
-  type Residency,
-  startLinkLossHealer,
-} from "./linkLoss.ts";
+  convergeAndReconcile,
+} from "./reconcileConverged.ts";
 import { localKavalDriver } from "./localDriver.ts";
 
 type Identity = PtyHostIdentity;
@@ -314,65 +310,6 @@ export function __setEndpointForTest(ep: KavalEndpoint): () => void {
   };
 }
 
-/** The post-converge hooks, run by the BOOT converge and by the mid-session
- *  re-converge (juspay/kolu#2182) alike — ONE implementation, because the two
- *  cannot be allowed to drift: a heal that adopts the resident kaval owes the
- *  saved session exactly the reconciliation a boot adoption does, including the
- *  fail-CLOSED arm (F3) that recycles a daemon whose survivors could not be
- *  reconciled rather than leaving invisible live terminals behind the restore
- *  card.
- *
- *  Exported for `linkLoss.test.ts`, which drives these hooks over a REAL endpoint
- *  — the boot's own wiring is what the heal must reproduce, so the suite must be
- *  able to hold the same function the boot holds. */
-export function reconcileConverged(
-  ep: KavalEndpoint,
-  adopted: boolean,
-  opts: {
-    onAdopted?: Effect.Effect<void, unknown>;
-    onNotAdopted?: () => void;
-  },
-): Effect.Effect<ConvergeVerdict, unknown> {
-  return Effect.gen(function* () {
-    if (!adopted) {
-      // Fresh / recycled — no survivors. Park the saved session so the restore
-      // card can re-spawn it (W1.R6).
-      opts.onNotAdopted?.();
-      return "no-survivors" as const;
-    }
-    const reconcile = opts.onAdopted;
-    if (reconcile === undefined) return "adopted" as const;
-    return yield* Effect.catchCause(
-      Effect.as(reconcile, "adopted" as const),
-      (cause) =>
-        Effect.gen(function* () {
-          // Reconciliation failed AFTER we adopted the survivor's connection — the
-          // daemon is connected but holds PTYs kolu may not have registered (F3).
-          // Fail CLOSED: recycle the daemon (kill + spawn fresh) so those hidden
-          // PTYs are destroyed and the user's saved session falls back to the
-          // restore card, rather than leaving invisible live terminals behind it.
-          log.error(
-            { err: Cause.squash(cause) },
-            "surviving-session reconciliation failed — recycling the adopted daemon",
-          );
-          // This recycle kills and respawns, and the healer (armed by the
-          // `degraded` the kill itself emits) must not converge into the gap. It
-          // takes NO claim of its own: it runs on its caller's stack, inside the
-          // claim `withConvergeClaim` took around the converge that reached here
-          // — at boot the restart claim, during a heal the heal's own. A second
-          // claim here would wait on the very heal that is running it (#2184).
-          requireEndpointClaim("the fail-closed recycle");
-          yield* recycle(ep, destructiveRecycleSteps());
-          // The recycle spawned a FRESH daemon — nothing live survives now, so
-          // this is the no-survivor path: park the saved session for the restore
-          // card.
-          opts.onNotAdopted?.();
-          return "recycled" as const;
-        }),
-    );
-  });
-}
-
 /** Boot the local pty-host endpoint under the always-recycle policy and connect.
  *  SUCCEEDS whether or not the daemon came up — a boot failure reports `dead`
  *  via `onStatus` and leaves `ptyHostClient` throwing, so the server can still
@@ -459,14 +396,7 @@ export function ensureLocalEndpoint(opts: {
     // name `ep` here: the re-converge is a DESCRIPTION, and nothing runs it until
     // a link dies — long after this line has bound the reference.
     const healer = startLinkLossHealer({
-      reconverge: Effect.suspend(() =>
-        withConvergeClaim(
-          Effect.gen(function* () {
-            const outcome = yield* converge(ep);
-            return yield* reconcileConverged(ep, outcomeAdopted(outcome), opts);
-          }),
-        ),
-      ),
+      reconverge: Effect.suspend(() => convergeAndReconcile(ep, opts)),
       stillServing: opts.stillServing,
       onRecovered: opts.onRecovered,
     });
@@ -520,20 +450,12 @@ export function ensureLocalEndpoint(opts: {
     // is to show `dead`, not to disappear.
     yield* Effect.catchCause(
       Effect.gen(function* () {
-        // The only boot verb: policy is fixed on the endpoint; no fence, no budget,
-        // no boot-method choice at the call site.
-        // Under the converge claim, which at boot is a restart claim: the
-        // fail-closed arm below replaces the daemon, and the `degraded` its kill
-        // emits would otherwise arm the healer into the gap.
-        yield* withConvergeClaim(
-          Effect.gen(function* () {
-            const outcome = yield* converge(ep);
-            // The adopt / no-survivor / fail-closed-recycle branches are
-            // `reconcileConverged` — shared with the mid-session re-converge
-            // (#2182) so a heal reconciles exactly as a boot does.
-            yield* reconcileConverged(ep, outcomeAdopted(outcome), opts);
-          }),
-        );
+        // The only boot verb: policy is fixed on the endpoint; no fence, no
+        // budget, no boot-method choice at the call site. And the same verb the
+        // mid-session heal takes (#2182) — converge, then the adopt /
+        // no-survivor / fail-closed-recycle branches — so a heal reconciles
+        // exactly as a boot does.
+        yield* convergeAndReconcile(ep, opts);
       }),
       (cause) =>
         Effect.sync(() => {

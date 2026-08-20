@@ -9,9 +9,9 @@
  * `converge`, which ADOPTS the resident same-build kaval.
  *
  * The first suite drives that exact repair over the REAL spine: a genuine
- * `createEndpoint` at a genuine unix-socket rendezvous, the real `converge`, and
- * the real post-converge hooks the BOOT runs (`reconcileConverged`), with the
- * healer wired into the endpoint's own `onStatus` exactly as
+ * `createEndpoint` at a genuine unix-socket rendezvous and the very verb the
+ * BOOT takes (`convergeAndReconcile` — the converge and its post-converge
+ * hooks), with the healer wired into the endpoint's own `onStatus` exactly as
  * `ensureLocalEndpoint` wires it. The connection is dropped the way the
  * transport drops it — the `onClose` the endpoint registered — and nothing in
  * the test re-converges by hand: the loop under test is the only thing that can.
@@ -33,10 +33,8 @@ import { join } from "node:path";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { type ConvergenceIdentity, daemonBuild } from "@kolu/surface-daemon";
 import {
-  converge,
   type EndpointState,
   instanceKeyFromStartedAt,
-  outcomeAdopted,
 } from "@kolu/surface-daemon-supervisor";
 import { createEndpointForKoluTest } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
 import { Effect } from "effect";
@@ -49,13 +47,15 @@ import {
   withConvergeClaim,
   withRestartClaim,
 } from "./endpointClaim.ts";
-import { reconcileConverged } from "./index.ts";
 import {
-  type ConvergeVerdict,
   type LinkLossHealer,
   type Residency,
   startLinkLossHealer,
 } from "./linkLoss.ts";
+import {
+  type ConvergeVerdict,
+  convergeAndReconcile,
+} from "./reconcileConverged.ts";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -232,24 +232,6 @@ afterEach(async () => {
   for (const r of residents.splice(0)) r.dispose();
 });
 
-/** The boot's converge, composed exactly as `ensureLocalEndpoint` composes it —
- *  claim included, since the claim is what covers the reconcile's fail-closed
- *  recycle. */
-function convergeWithHooks(
-  ep: KavalTestEndpoint,
-  hooks: {
-    onAdopted?: Effect.Effect<void, unknown>;
-    onNotAdopted?: () => void;
-  },
-): Effect.Effect<ConvergeVerdict, unknown> {
-  return withConvergeClaim(
-    Effect.gen(function* () {
-      const outcome = yield* converge(ep);
-      return yield* reconcileConverged(ep, outcomeAdopted(outcome), hooks);
-    }),
-  );
-}
-
 describe("mid-session link loss re-converges itself (#2182)", () => {
   it("re-ADOPTS the resident daemon after the held connection closes, runs the boot's own hooks, and stamps the LINK restore — never the recycle-recovery (#2184)", async () => {
     let adoptions = 0;
@@ -276,7 +258,7 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
     const ep = resident.endpoint;
     healer = startLinkLossHealer({
       stillServing: SERVING,
-      reconverge: convergeWithHooks(ep, hooks),
+      reconverge: convergeAndReconcile(ep, hooks),
       onRecovered: (verdict) => {
         if (verdict === "adopted") linkRestores += 1;
         else recoveries += 1;
@@ -286,7 +268,7 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
     healers.push(healer);
 
     // ── boot: converge ADOPTS the resident; the healer sees `connected` ──────
-    expect(await Effect.runPromise(convergeWithHooks(ep, hooks))).toBe(
+    expect(await Effect.runPromise(convergeAndReconcile(ep, hooks))).toBe(
       "adopted",
     );
     expect(adoptions).toBe(1);
@@ -541,7 +523,7 @@ describe("a deliberate restart is never mistaken for a lost link", () => {
     });
     healers.push(healer);
 
-    await Effect.runPromise(convergeWithHooks(ep, {}));
+    await Effect.runPromise(convergeAndReconcile(ep, {}));
     expect(resident.states.at(-1)).toBe("connected");
 
     // A supervised restart tears the connection down INSIDE `holdRestarting` —

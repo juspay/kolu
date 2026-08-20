@@ -83,11 +83,7 @@ import type { EndpointState } from "@kolu/surface-daemon-supervisor";
 import { Effect } from "effect";
 import { log } from "../log.ts";
 import { healClaimed, restartClaimed, withHealClaim } from "./endpointClaim.ts";
-
-/** What one converge + its reconcile settled on — the word the heal's journal
- *  line names. `recycled` is the fail-CLOSED arm: the adoption's reconcile
- *  failed, so the adopted daemon was recycled and the saved session parked. */
-export type ConvergeVerdict = "adopted" | "no-survivors" | "recycled";
+import type { ConvergeVerdict } from "./reconcileConverged.ts";
 
 /** What the rendezvous holds RIGHT NOW, as the healer's precondition — the three
  *  answers `classifyKavalProbe` already gives, named for what each one means to
