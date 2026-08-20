@@ -275,6 +275,15 @@ export interface CellSpec<T = unknown, P = T, TPolicy = never> {
    *  (again `./solid/writeValue.ts`). So name the field that identifies the arrays
    *  whose identity a consumer actually follows, and read the rest by value.
    *
+   *  NAME A FIELD THE SCHEMA TYPES REQUIRED AND NON-NULLABLE. The merge decides
+   *  keyed-versus-positional for a whole array from its FIRST element's value, so
+   *  an optional field lets one row decide for every other row in that frame. It
+   *  cannot corrupt anything — an object survives a position only when its key
+   *  matches the one already there, so a mismatch replaces rather than recycles —
+   *  but it silently drops that frame back to the undeclared behaviour, which is
+   *  the whole thing you came here to stop. The schema is where that is made
+   *  unrepresentable; the merge sees values, not schemas.
+   *
    *  DECLARED HERE and nowhere else: it is a fact about the member's SHAPE, so the
    *  spec is the one place both sides can read it from — the descriptor carries it
    *  to the client hook, and no `.use()` call site can spell it, override it, or

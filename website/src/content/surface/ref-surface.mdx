@@ -66,6 +66,15 @@ streams: {
 }
 ```
 
+**Name a field the schema types required and non-nullable.** The merge decides
+keyed-versus-positional for a whole array from its *first* element's value, so an
+optional field lets whichever row happens to be first decide for every other row
+in that frame. It cannot corrupt anything — an object survives a position only
+when its key matches the one already standing there, so a mismatch replaces
+rather than recycles — but it silently drops that frame back to the undeclared
+behaviour. The schema is where that is made unrepresentable; the merge sees
+values, not schemas.
+
 Three things it is not:
 
 - **Not a `CollectionSpec.keySchema`.** That is the dictionary key a collection's

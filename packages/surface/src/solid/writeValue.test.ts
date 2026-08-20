@@ -453,3 +453,73 @@ describe("the declared field is identity wherever it appears", () => {
     expect(seen[1]?.label).toBe("B");
   });
 });
+
+describe("the declared field must be required and non-nullable", () => {
+  /** Why it is a requirement and not a preference, pinned as behaviour: Solid
+   *  chooses keyed-vs-positional for a WHOLE array by reading `target[0][key]`
+   *  alone. An optional key field therefore lets ONE row — whichever happens to be
+   *  first in that frame — decide how every other row is merged, and the
+   *  declaration would mean something different frame to frame. A schema that
+   *  types the field required and non-nullable makes that unrepresentable, which
+   *  is the only place it CAN be made unrepresentable: the merge sees values, not
+   *  schemas, and the O(1) check cannot tell "an array this key does not describe"
+   *  (positional by design) from "an array whose first row is missing its key". */
+  interface Loose {
+    key?: string;
+    n: number;
+  }
+
+  const write = (frames: readonly Loose[][]): Loose[][] =>
+    createRoot((dispose) => {
+      const [store, setStore] = createStore<{ v: Loose[] | undefined }>({
+        v: undefined,
+      });
+      const seen: Loose[][] = [];
+      for (const frame of frames) {
+        writeWrappedValue(setStore, frame, "key");
+        seen.push([...((unwrap(store).v ?? []) as Loose[])]);
+      }
+      dispose();
+      return seen;
+    });
+
+  it("a frame whose FIRST row carries the key is merged by it", () => {
+    const seen = write([
+      [
+        { key: "a", n: 1 },
+        { key: "b", n: 2 },
+      ],
+      [
+        { key: "b", n: 2 },
+        { key: "a", n: 1 },
+      ],
+    ]);
+    const [before, after] = seen;
+    if (before === undefined || after === undefined) throw new Error("frames");
+    // Keyed: the objects MOVED.
+    expect(after[0]).toBe(before[1]);
+    expect(after[1]).toBe(before[0]);
+  });
+
+  it("a frame whose first row is MISSING it loses the keyed diff — but never mis-assigns", () => {
+    const seen = write([
+      [
+        { key: "a", n: 1 },
+        { key: "b", n: 2 },
+      ],
+      [{ n: 2 }, { key: "a", n: 1 }],
+    ]);
+    const [before, after] = seen;
+    if (before === undefined || after === undefined) throw new Error("frames");
+    // Row 0 answered for the whole array, so the reorder was NOT followed and no
+    // object moved. What did NOT happen is the thing that would matter: nothing was
+    // recycled onto a record it did not already hold. Under a declared key an
+    // object survives a position only when its key MATCHES the one already there —
+    // `undefined` vs `"a"` and `"a"` vs `"b"` both mismatch, so both were replaced.
+    // The cost of an optional key field is lost identity PRESERVATION, never wrong
+    // identity: the frame falls back to the undeclared behaviour for that array.
+    expect(after[0]).not.toBe(before[0]);
+    expect(after[1]).not.toBe(before[1]);
+    expect(after.map((r) => r.n)).toEqual([2, 1]);
+  });
+});

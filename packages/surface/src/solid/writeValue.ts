@@ -70,6 +70,19 @@
  *     (the declaration is one field per member, because Solid's `reconcile` takes
  *     one) or reads them by value.
  *
+ * **The named field must be REQUIRED and NON-NULLABLE on the element**, and that
+ * is a property of the schema because it cannot be one of the merge: Solid picks
+ * keyed-versus-positional for a WHOLE array by reading `target[0][key]` alone, so
+ * an optional field lets whichever row happens to be first in a frame decide how
+ * every other row is merged. What that costs is stated exactly, because it is
+ * smaller than it sounds: identity PRESERVATION, never correctness. An object
+ * survives a position only when its key MATCHES the one already standing there —
+ * a key that reads different replaces — so the worst an optional field can do is
+ * drop that array's frame back to the undeclared behaviour. It cannot recycle an
+ * object onto a record it did not already hold. The O(1) check cannot tell those
+ * two cases apart either, which is why the constraint lives in the schema, where
+ * it is unrepresentable rather than merely unadvised.
+ *
  * The declared field is IDENTITY WHEREVER IT APPEARS, not only inside arrays: a
  * nested object that happens to carry it is merged in place while it reads the
  * same, and REPLACED WHOLE the moment it reads different. That is the same
