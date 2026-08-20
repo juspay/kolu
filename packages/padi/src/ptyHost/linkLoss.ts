@@ -182,8 +182,12 @@ export function startLinkLossHealer(deps: {
    *  rides on it? The `incomplete` verdict's memory, and the only thing that
    *  keeps this loop alive across a `connected` it does not trust: every other
    *  retry here is gated on `degraded`, and an incomplete heal is connected by
-   *  construction. Cleared by any attempt that does finish, and by a fresh link
-   *  loss (which re-enters through `degraded` anyway). */
+   *  construction.
+   *
+   *  Cleared by the attempt that finishes — which must ALSO `cancel()`, because
+   *  holding this bit is exactly what stopped `observe("connected")` from doing
+   *  it, and `cancel()` is the only thing that returns the backoff and the
+   *  attempt count to where a fresh incident should start. */
   let unfinished = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   /** How many re-converges this incident has actually RUN — a running total, not
@@ -356,13 +360,21 @@ export function startLinkLossHealer(deps: {
       return;
     }
     // ONE reading of "did the link come back": a verdict AND an endpoint that is
-    // actually connected. A converge that succeeded emits `connected` from
-    // inside itself, so `observe` has already cancelled this loop and reset the
-    // backoff; anything else — a failed attempt, or a "success" that left the
-    // endpoint down — is still a link to heal, and is not a recovery to
+    // actually connected. Anything else — a failed attempt, or a "success" that
+    // left the endpoint down — is still a link to heal, and is not a recovery to
     // announce.
     if (verdict !== undefined && published() === "connected") {
       unfinished = false;
+      // RESET here, and not only in `observe`. A converge that succeeds emits
+      // `connected` from inside itself, and that emit is normally what resets
+      // the incident — but it is skipped while `unfinished` is set, and it is
+      // still set right through the attempt that clears it (the assignment above
+      // runs after the converge returns). So a heal that ends an incomplete
+      // streak would leave `waitMs` wherever the streak escalated it — up to the
+      // 30 s ceiling — and the NEXT link loss would wait that long before its
+      // first attempt, against a doc that promises "about a second after it
+      // drops". The incident is over; its backoff must go with it.
+      cancel();
       deps.onRecovered(verdict);
       return;
     }

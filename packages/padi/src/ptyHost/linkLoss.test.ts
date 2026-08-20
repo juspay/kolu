@@ -469,6 +469,19 @@ describe("the heal's retry backs off, and stops the moment the link is back", ()
     // The two incomplete rounds announced NOTHING — not the reconnect line, and
     // above all not the recycle line `onRecovered`'s else-arm would have stamped.
     expect(announced).toEqual(["adopted"]);
+
+    // ...and the incident is over, backoff included. Holding `unfinished` is what
+    // stops `observe("connected")` resetting the loop, so the attempt that
+    // clears the bit has to reset it — otherwise the escalated wait outlives the
+    // incident and the NEXT link loss waits that long before its first attempt,
+    // against a doc that promises about a second. Measure the second incident's
+    // first attempt rather than reading the counter: the delay IS the claim.
+    const secondIncidentAt = Date.now();
+    healed.observe("degraded");
+    await waitFor("the NEXT incident to start promptly", () => attempts === 4);
+    // The streak escalated to 20ms (5 → 10 → 20); a leaked backoff would make
+    // this at least that. One backoff plus scheduling slack is the honest bound.
+    expect(Date.now() - secondIncidentAt).toBeLessThan(20);
   });
 
   it("retries a failed re-converge on a doubled backoff, then stops on success with ONE recovery stamp", async () => {
