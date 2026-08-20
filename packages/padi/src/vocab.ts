@@ -722,6 +722,24 @@ export const KavalSkewVersionsSchema = Schema.Struct({
 });
 export type KavalSkewVersions = typeof KavalSkewVersionsSchema.Type;
 
+/** Every field only a `connected` daemon status can carry, declared ABSENT —
+ *  ONE list, spread into each non-connected arm below.
+ *
+ *  The arms must stay disjoint on the wire (see the `Schema.Never` note above),
+ *  and that obligation grows by one line per arm every time the `connected` arm
+ *  learns a new fact — with nothing to check that each arm remembered. Written
+ *  once, a new connected-only fact is one edit here. */
+const CONNECTED_ONLY_ABSENT = {
+  identity: Schema.optionalKey(Schema.Never),
+  contractVersion: Schema.optionalKey(Schema.Never),
+  startedAt: Schema.optionalKey(Schema.Never),
+  adopted: Schema.optionalKey(Schema.Never),
+  adoptedAt: Schema.optionalKey(Schema.Never),
+  autoRecoveredAt: Schema.optionalKey(Schema.Never),
+  linkRestoredAt: Schema.optionalKey(Schema.Never),
+  lifetime: Schema.optionalKey(Schema.Never),
+};
+
 /** The live state of one host's pty-host daemon (kaval), as the supervisor's
  *  endpoint reports it — the honest-state surface that makes "the daemon is
  *  down" distinguishable from "you have no terminals" (B2, the empty-canvas-lie
@@ -753,14 +771,31 @@ export const DaemonStatusSchema = Schema.Union([
      *  was re-adopted (juspay/kolu#1365); the client keeps the greatest announced
      *  `adoptedAt` in localStorage and only toasts a strictly newer one. */
     adoptedAt: Schema.optionalKey(Schema.Number),
-    /** #2101 N1: the ms-epoch padi stamped when a probe PROVED that an automatic
-     *  recycle of an unresponsive kaval worked — set only on the `connected`
-     *  status that followed a supervisor-driven repair, never on a boot or on the
-     *  button's recycle (the user who pressed it does not need to be told). Drives
-     *  the client's one-shot "kaval was unresponsive — restarted" toast, deduped
-     *  against a persisted high-water mark exactly as `adoptedAt` is. Absent
-     *  everywhere else, which is the honest reading: nothing was auto-repaired. */
+    /** #2101 N1: the ms-epoch padi stamped when an automatic repair REPLACED an
+     *  unresponsive kaval — never on a boot, and never on the button's recycle
+     *  (the user who pressed it does not need to be told). Drives the client's
+     *  one-shot "kaval was unresponsive — restarted" toast, deduped against a
+     *  persisted high-water mark exactly as `adoptedAt` is.
+     *
+     *  TWO stampers now, and the shared word is "replaced", not "probed"
+     *  (juspay/kolu#2184): the supervision arm stamps it once a probe has PROVED
+     *  the replacement serves, and the link-loss healer stamps it when its own
+     *  re-converge came back with no survivors — a fresh daemon and a parked
+     *  session, which is the same news for the reader even though no probe
+     *  proved it. What both exclude is the healer's ordinary outcome, an ADOPTED
+     *  daemon that never stopped running; that is {@link linkRestoredAt}, whose
+     *  sentence is the opposite one. Absent everywhere else, which is the honest
+     *  reading: nothing was replaced. */
     autoRecoveredAt: Schema.optionalKey(Schema.Number),
+    /** #2184: the ms-epoch padi stamped when the self-healing re-converge
+     *  re-ADOPTED the resident kaval after the held link died mid-session — the
+     *  daemon was healthy throughout, nothing was restarted, and every terminal
+     *  and agent kept running. A SEPARATE fact from {@link autoRecoveredAt},
+     *  which means the opposite (the daemon was recycled and the session parked
+     *  for restore); the heal stamps whichever its `ConvergeVerdict` proved.
+     *  Deduped against its own persisted high-water mark exactly as `adoptedAt`
+     *  is. Absent everywhere else: no link was lost and re-made. */
+    linkRestoredAt: Schema.optionalKey(Schema.Number),
     /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
      *  — surfaced for the kaval dialog to show where this daemon listens (the
      *  path `kaval-tui` auto-discovers). kolu's soul (a server fact the client
@@ -788,13 +823,7 @@ export const DaemonStatusSchema = Schema.Union([
     // ({@link KavalSkewVersionsSchema}) shared with `recycleKaval`'s declared
     // error data. `.shape` → `.fields` — the same read-off-the-schema promise.
     ...KavalSkewVersionsSchema.fields,
-    identity: Schema.optionalKey(Schema.Never),
-    contractVersion: Schema.optionalKey(Schema.Never),
-    startedAt: Schema.optionalKey(Schema.Never),
-    adopted: Schema.optionalKey(Schema.Never),
-    adoptedAt: Schema.optionalKey(Schema.Never),
-    autoRecoveredAt: Schema.optionalKey(Schema.Never),
-    lifetime: Schema.optionalKey(Schema.Never),
+    ...CONNECTED_ONLY_ABSENT,
     socketPath: Schema.optionalKey(Schema.String),
   }),
   Schema.Struct({
@@ -803,13 +832,7 @@ export const DaemonStatusSchema = Schema.Union([
     // obligation here, not a silently-dropped wire member. The `identity` arm
     // below stays kolu's (it is the soul).
     state: Schema.Literals(NON_CONNECTED_ENDPOINT_STATES),
-    identity: Schema.optionalKey(Schema.Never),
-    contractVersion: Schema.optionalKey(Schema.Never),
-    startedAt: Schema.optionalKey(Schema.Never),
-    adopted: Schema.optionalKey(Schema.Never),
-    adoptedAt: Schema.optionalKey(Schema.Never),
-    autoRecoveredAt: Schema.optionalKey(Schema.Never),
-    lifetime: Schema.optionalKey(Schema.Never),
+    ...CONNECTED_ONLY_ABSENT,
     daemonVersion: Schema.optionalKey(Schema.Never),
     requiredVersion: Schema.optionalKey(Schema.Never),
     /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)

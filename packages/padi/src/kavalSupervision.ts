@@ -31,38 +31,14 @@
  */
 
 import type { Logger } from "@kolu/log";
-import { isNoListenerError } from "@kolu/surface-daemon-supervisor";
 import {
   type FailureClassSpec,
   makeFailureLedger,
 } from "@kolu/surface/failure-ledger";
 import { Effect } from "effect";
-import {
-  heldKaval,
-  HOST_INVENTORY_SAMPLE_INTERVAL_MS,
-  type KavalProbe,
-  probeKavalStatus,
-} from "./hostInventory.ts";
+import { HOST_INVENTORY_SAMPLE_INTERVAL_MS } from "./hostInventory.ts";
+import { type KavalObservation, observeHeldKaval } from "./kavalObservation.ts";
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
-
-/** What ONE probe of the held kaval proved. The two failing shapes are the two
- *  ledger classes; `healthy` is the ledger's `success()`.
- *
- *  `wedged` deliberately covers accepts-then-SILENCE *and* accepts-then-GARBAGE:
- *  the field's late receipts showed a delayed probe against the comatose socket
- *  receiving binary noise (`inbound frame parse failure: Unexpected token …`)
- *  before the transport closed. Both reach us as a rejected probe over a socket
- *  that accepted the dial, and both mean the same thing — this daemon cannot
- *  serve. Splitting them would split a budget without splitting a decision. */
-export type KavalObservation =
-  /** The probe answered all three read-only verbs inside its deadline. */
-  | { readonly kind: "healthy" }
-  /** The dial was accepted and then the probe timed out, errored, or the peer
-   *  answered unspeakably. The field shape. */
-  | { readonly kind: "wedged"; readonly err: unknown }
-  /** Nothing is listening at the held address — the dial was refused, or the
-   *  socket inode is gone. */
-  | { readonly kind: "unreachable" };
 
 export type KavalFailureClass =
   Exclude<KavalObservation["kind"], "healthy"> extends infer K
@@ -130,38 +106,6 @@ export const KAVAL_SUPERVISION_SPEC: Record<
    *  repairs in the first 30 s and then one per tick forever". */
   unrepaired: { ceiling: 3, resets: ["wedged", "unreachable"] },
 };
-
-/** Classify one settled probe of the held kaval.
- *
- *  Two independent spellings of "nobody is listening" both fold to
- *  `unreachable`, because the probe can produce either: `probeKavalStatus`
- *  catches a no-listener error in its FAILURE channel and yields an EMPTY probe
- *  (all fields null), but a dial that rejects with `ENOENT` rides
- *  `Effect.promise` and therefore arrives as a DEFECT, past that catch. Both are
- *  the same fact, so both are read with the same predicate the probe itself uses
- *  (`isNoListenerError`) rather than a second, drifting one.
- *
- *  Everything else that failed is `wedged`: the socket was there, the dial was
- *  accepted, and the daemon behind it did not answer — by timeout, by error, or
- *  by unspeakable bytes. */
-export function classifyKavalProbe(
-  outcome:
-    | { readonly ok: true; readonly probe: KavalProbe }
-    | { readonly ok: false; readonly err: unknown },
-): KavalObservation {
-  if (!outcome.ok) {
-    return isNoListenerError(outcome.err)
-      ? { kind: "unreachable" }
-      : { kind: "wedged", err: outcome.err };
-  }
-  const { terminalCount, contractVersion } = outcome.probe;
-  // An empty probe is the honest "no listener at this path" verdict, not a
-  // served kaval with nothing running: a live kaval always answers
-  // `system.version`, so a null contract version means nobody answered at all.
-  return terminalCount === null && contractVersion === null
-    ? { kind: "unreachable" }
-    : { kind: "healthy" };
-}
 
 export interface KavalSupervisorDeps {
   /** The ONE repair routine — the same `recycleLocalKaval` the "Restart kaval"
@@ -335,21 +279,15 @@ export function startKavalSupervision(opts: {
   const tick = async (): Promise<void> => {
     if (stopped) return;
     try {
-      // The `.catch` is NOT belt-and-braces: `probeKavalStatus` dials through
-      // `Effect.promise`, so a connect rejection (the socket inode is gone —
-      // `ENOENT`) is a DEFECT and never reaches the `onFailure` arm. A probe that
-      // did not produce a reading is a failed probe however it failed, and
-      // `classifyKavalProbe` is the one place that decides which KIND — so both
-      // channels land on the same value and the classification stays in one
-      // place. (The scan's poll cell absorbs the same defect a different way:
+      // The SAME reading the link-loss arm's precondition takes — one
+      // implementation in `kavalObservation.ts`, so the two arms cannot disagree
+      // about what is standing at the rendezvous by drifting apart. (The scan's
+      // poll cell absorbs the probe's defect channel a different way:
       // cell-locally, one stale tick.)
-      const outcome = await Effect.runPromise(
-        Effect.match(probeKavalStatus(heldKaval(opts.stateRoot).socket), {
-          onSuccess: (probe) => ({ ok: true, probe }) as const,
-          onFailure: (err) => ({ ok: false, err }) as const,
-        }),
-      ).catch((err: unknown) => ({ ok: false, err }) as const);
-      await Effect.runPromise(supervisor.observe(classifyKavalProbe(outcome)));
+      const observation = await Effect.runPromise(
+        observeHeldKaval(opts.stateRoot),
+      );
+      await Effect.runPromise(supervisor.observe(observation));
     } catch (err) {
       // `observe` handles its own repair failure, so reaching here means a DEFECT
       // — a bug in the supervision itself. Say so and keep the cadence: a

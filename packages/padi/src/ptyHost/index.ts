@@ -17,13 +17,9 @@
  */
 
 import {
-  converge,
   createEndpoint,
-  destructiveRecycleSteps,
   type Endpoint,
   type EndpointStatus,
-  outcomeAdopted,
-  recycle,
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
@@ -52,6 +48,7 @@ import {
   readAgentToolsBake,
   TERMINAL_TOOLS_PATH_ENV,
 } from "kolu-pty";
+import type { KavalObservation } from "../kavalObservation.ts";
 import { log } from "../log.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {
@@ -64,6 +61,12 @@ import {
   getPadiServeSocketPath,
   setLocalSocketPath,
 } from "./daemonStatus.ts";
+import { withRestartClaim } from "./endpointClaim.ts";
+import { startLinkLossHealer } from "./linkLoss.ts";
+import {
+  type ConvergeVerdict,
+  convergeAndReconcile,
+} from "./reconcileConverged.ts";
 import { localKavalDriver } from "./localDriver.ts";
 
 type Identity = PtyHostIdentity;
@@ -223,11 +226,20 @@ const endpointState = PtyHostEndpointState.of({
   }),
 });
 
-/** Install `ep` (and the restart trigger built over it) as the held endpoint. */
+/** Install `ep` (and the restart trigger built over it) as the held endpoint.
+ *
+ *  The trigger is CLAIMED here, at the one place it is built, so every restart
+ *  that reaches this endpoint takes the link-loss exclusion by construction and
+ *  there is no unclaimed path to the trigger for a caller to forget. The claim is
+ *  still taken synchronously before the trigger runs (`withRestartClaim`
+ *  increments inside its `Effect.suspend`, before the trigger is entered), and it
+ *  still happens BEFORE the trigger rather than around it, so the trigger's
+ *  coalescing is untouched. */
 function holdEndpoint(ep: KavalEndpoint): void {
+  const trigger = serializeRestart(ep);
   setRef(endpointState.current, {
     endpoint: ep,
-    restart: serializeRestart(ep),
+    restart: (steps) => withRestartClaim(trigger(steps)),
   });
 }
 
@@ -303,9 +315,9 @@ export function __setEndpointForTest(ep: KavalEndpoint): () => void {
  *
  *  This boot is NOT re-cast as a typed pipeline (unlike `runPadiDaemon`, L16): its
  *  step order is already enforced by DATA FLOW, not prose. `ep = createEndpoint(...)`
- *  produces the value `converge({ endpoint: ep })` and the `onAdopted`/`onNotAdopted`
- *  branches consume — you cannot converge or reconcile before the endpoint exists,
- *  because there is no `ep` to pass. There is no side-effecting "must run before X"
+ *  produces the value `convergeAndReconcile(ep, …)` takes, and its
+ *  `onAdopted`/`onHealed`/`onNotAdopted` branches consume — you cannot converge or
+ *  reconcile before the endpoint exists, because there is no `ep` to pass. There is no side-effecting "must run before X"
  *  ordering here for a token to guard, so the same shape read as a latent hazard in
  *  `runPadiDaemon` (setters with no data edge between them) is a non-issue here. */
 export function ensureLocalEndpoint(opts: {
@@ -325,6 +337,16 @@ export function ensureLocalEndpoint(opts: {
    *  root stays free of the terminal-endpoint layer, which imports back from
    *  here. Skipped on a fresh / recycled boot (no survivors to reconcile). */
   onAdopted?: Effect.Effect<void, unknown>;
+  /** The heal's counterpart to {@link onAdopted} — run when a MID-SESSION
+   *  re-converge adopts the daemon it had lost the link to (juspay/kolu#2182).
+   *  REQUIRED, and separate from `onAdopted` rather than defaulting to it,
+   *  because the two answer different questions over different premises: boot
+   *  adoption reconciles a SAVED SESSION into an empty registry, while a heal
+   *  meets a full registry that is itself the truth and needs only its taps
+   *  re-wired. A heal that ran the boot's hook would rewind every terminal's
+   *  chrome to the last autosave — and persist it. Optionality here would make
+   *  that regression a missing argument away, so there is no default. */
+  onHealed: Effect.Effect<void, unknown>;
   /** Run on the NO-SURVIVOR boot — a fresh / recycled daemon where nothing live
    *  survives (adoption reported `false`), OR after a failed adoption forces a
    *  recycle. PARKS the saved session (W1.R6): seeds a parked registry entry per
@@ -344,6 +366,25 @@ export function ensureLocalEndpoint(opts: {
    *  across daemon recycles until it aborts (and absorbs a dead-on-boot daemon
    *  the same way — it simply waits, then picks up once the daemon connects). */
   onBootSettled?: (signal: AbortSignal) => void;
+  /** Stamp the PROVEN recovery after the self-healing re-converge restored a
+   *  link that died mid-session (#2182), told WHICH recovery the converge
+   *  settled on (#2184). The verdict is the whole message: `adopted` re-made the
+   *  link to a daemon that never stopped serving, while `no-survivors` /
+   *  `recycled` mean a fresh daemon and a parked session — one signal each, since
+   *  only the latter is what `startKavalSupervision`'s `onRecovered` proves.
+   *  Injected for the same reason as the hooks above: the status store is the
+   *  caller's to write, so this composition root never imports it. */
+  onRecovered: (verdict: ConvergeVerdict) => void;
+  /** Is our kaval still serving? The self-healing re-converge's precondition
+   *  (#2184) — REQUIRED, because a healer without one re-converges blind, and a
+   *  blind converge SPAWNS when nobody is home, which turns a lost link into an
+   *  unledgered restart loop. What each answer means to the healer is on
+   *  `startLinkLossHealer`'s `stillServing`.
+   *
+   *  INJECTED rather than read here: the reading is `observeHeldKaval`'s — the
+   *  one both supervision arms take — and taking it from the composition root
+   *  that already holds both keeps this root free of the sensor. */
+  stillServing: Effect.Effect<KavalObservation["kind"]>;
 }): Effect.Effect<void> {
   return Effect.gen(function* () {
     const { home, legacyHome } = opts;
@@ -355,6 +396,28 @@ export function ensureLocalEndpoint(opts: {
     // Refresh baked identity at boot (staleKey is process-constant, but keep the
     // policy object the single source — bake is already fixed on the const above).
     const osfactsBin = bakedOsFactsBin("KOLU_OSFACTS_BIN");
+    // The self-healing arm (#2182), constructed BEFORE the endpoint because it is
+    // wired into that endpoint's own status emit. `Effect.suspend` is what lets it
+    // name `ep` here: the re-converge is a DESCRIPTION, and nothing runs it until
+    // a link dies — long after this line has bound the reference.
+    const healer = startLinkLossHealer({
+      // The heal converges with the SAME endpoint and the same no-survivor park,
+      // but its adopt arm is `onHealed`, never the boot's `onAdopted`. Adoption
+      // asks "what was running before I existed?" — a question only the saved
+      // session can answer, and one a heal already knows the answer to, because
+      // its registry never emptied. Handing a heal the boot's answer is how a
+      // repair rewinds a user's chrome to the last autosave and persists it.
+      reconverge: Effect.suspend(() =>
+        convergeAndReconcile(ep, {
+          ...opts,
+          onAdopted: opts.onHealed,
+          // A heal never recycles on an unfinished re-wire — see `onAdoptFailure`.
+          onAdoptFailure: "report",
+        }),
+      ),
+      stillServing: opts.stillServing,
+      onRecovered: opts.onRecovered,
+    });
     const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>(
       {
         hostId: encodeHostLocation(LOCAL_LOCATION),
@@ -372,7 +435,14 @@ export function ensureLocalEndpoint(opts: {
         // the framework hands you the path
         connect: (path) => connectKaval(path),
         log,
-        onStatus: opts.onStatus,
+        // Intercepted, never intercepted-away: the healer OBSERVES every status
+        // (it only re-reads a cell and arms a timer — the emit is synchronous, so
+        // nothing may run converge on this stack) and the caller's subscriber
+        // then gets the status unchanged.
+        onStatus: (hostId, status) => {
+          healer.observe(status.state);
+          opts.onStatus(hostId, status);
+        },
         // The W2.2 upgrade bridge (only when the binder hinted a legacy home):
         // if the digest gate is empty but a COMPATIBLE pre-W2.2 kaval is alive at the
         // port socket, ADOPT it and RECORD it as this kaval's live location (so spawned
@@ -398,34 +468,16 @@ export function ensureLocalEndpoint(opts: {
     // is to show `dead`, not to disappear.
     yield* Effect.catchCause(
       Effect.gen(function* () {
-        // The only boot verb: policy is fixed on the endpoint; no fence, no budget,
-        // no boot-method choice at the call site.
-        const outcome = yield* converge(ep);
-        const adopted = outcomeAdopted(outcome);
-        if (adopted && opts.onAdopted) {
-          yield* Effect.catchCause(opts.onAdopted, (cause) =>
-            Effect.gen(function* () {
-              // Reconciliation failed AFTER we adopted the survivor's connection — the
-              // daemon is connected but holds PTYs kolu may not have registered (F3).
-              // Fail CLOSED: recycle the daemon (kill + spawn fresh) so those hidden
-              // PTYs are destroyed and the user's saved session falls back to the
-              // restore card, rather than leaving invisible live terminals behind it.
-              log.error(
-                { err: Cause.squash(cause) },
-                "surviving-session reconciliation failed — recycling the adopted daemon",
-              );
-              yield* recycle(ep, destructiveRecycleSteps());
-              // The recycle spawned a FRESH daemon — nothing live survives now, so
-              // this is the no-survivor path: park the saved session for the restore
-              // card.
-              opts.onNotAdopted?.();
-            }),
-          );
-        } else if (!adopted) {
-          // Fresh / recycled boot — no survivors. Park the saved session so the
-          // restore card can re-spawn it (W1.R6, replacing the old no-op).
-          opts.onNotAdopted?.();
-        }
+        // The only boot verb: policy is fixed on the endpoint; no fence, no
+        // budget, no boot-method choice at the call site. And the same verb the
+        // mid-session heal takes (#2182) — converge, then the adopt /
+        // no-survivor / fail-closed-recycle branches — so a heal reconciles
+        // exactly as a boot does.
+        yield* convergeAndReconcile(ep, {
+          ...opts,
+          // The BOOT fails closed: an unfinished reconcile may hide live PTYs.
+          onAdoptFailure: "recycle",
+        });
       }),
       (cause) =>
         Effect.sync(() => {
@@ -453,7 +505,14 @@ export function ensureLocalEndpoint(opts: {
  *  (B3.2). The caller (`restartLocal.ts`, the soul) supplies the restart steps —
  *  capture the session, drain the terminals, recycle, reattach — and this
  *  forwards them through the endpoint's coalescing + emit-guard trigger. Dies
- *  if the endpoint hasn't been booted yet (`ensureLocalEndpoint` not run). */
+ *  if the endpoint hasn't been booted yet (`ensureLocalEndpoint` not run).
+ *
+ *  The one entry every restart takes — the "Restart kaval" button's RPC and the
+ *  steady-state supervision auto-recycle both arrive here — and the link-loss
+ *  healer's exclusion rides the trigger itself, claimed in {@link holdEndpoint}
+ *  where the trigger is built. So no heal can start behind a restart, an attempt
+ *  already mid-converge is waited out before the recycle begins, and this
+ *  function has no claim to remember. */
 export function restartLocalEndpoint<Ctx>(
   steps: RestartSteps<PtyHostClient, Identity, Ctx, KavalConnectionMetadata>,
 ): Effect.Effect<void, unknown> {

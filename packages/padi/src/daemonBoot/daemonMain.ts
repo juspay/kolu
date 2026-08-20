@@ -50,12 +50,14 @@ import {
   shutdownCleanup,
 } from "../koluRoot.ts";
 import { configureDaemonLog, log as padiLog } from "../log.ts";
+import { observeHeldKaval } from "../kavalObservation.ts";
 import { startKavalSupervision } from "../kavalSupervision.ts";
 import { setPadiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import {
   getLocalSocketPath,
   publishDaemonStatus,
   setAutoRecovered,
+  setLinkRestored,
   setPadiServeSocketPath,
 } from "../ptyHost/daemonStatus.ts";
 import {
@@ -95,6 +97,7 @@ import { startInventoryReconciler } from "../terminalEndpoint/inventoryReconcile
 import {
   adoptSurvivingSession,
   parkSavedSession,
+  rewireSurvivingSession,
 } from "../terminalEndpoint/reattach.ts";
 import { resolveTerminalEndpoint } from "../terminalEndpoint/resolve.ts";
 import { snapshotSession } from "../terminals.ts";
@@ -482,7 +485,30 @@ function bootLocalEndpoint(params: {
       legacyHome: params.legacyKavalHome,
       onStatus: publishDaemonStatus,
       onAdopted: adoptSurvivingSession,
+      // #2182: a heal re-wires the taps of terminals padi already holds. It does
+      // NOT run the boot's session reconcile — that verb is written for an empty
+      // registry, and over a live one it rewinds chrome to the last autosave.
+      onHealed: rewireSurvivingSession,
       onNotAdopted: parkSavedSession,
+      // #2182/#2184. That padi repaired a link the user never touched is kolu's
+      // soul, not something `onStatus` can know — but WHICH repair it was decides
+      // which fact the client may state. An ADOPTED heal re-made the link to a
+      // daemon that never stopped serving, so the terminals and agents behind it
+      // are still running; the supervision arm's sentence below ("restarted it;
+      // your session is ready to restore") is false of it in every clause. The
+      // other verdicts landed on a fresh daemon with the session parked, which is
+      // exactly what that arm proves, so they share its signal.
+      // #2184's precondition, from the sensor the supervision arm below reads —
+      // so "is our kaval still there?" has ONE answer on this host, and the
+      // healer re-makes links while the probe arm owns daemons that died.
+      stillServing: Effect.map(
+        observeHeldKaval(params.stateRoot),
+        (observation) => observation.kind,
+      ),
+      onRecovered: (verdict) =>
+        verdict === "adopted"
+          ? setLinkRestored(encodeHostLocation(LOCAL_LOCATION))
+          : setAutoRecovered(encodeHostLocation(LOCAL_LOCATION)),
       onBootSettled: (signal) => {
         startInventoryReconciler(signal);
         // #2101 N1. Convergence was an event — a boot-time adopt-or-spawn — and
