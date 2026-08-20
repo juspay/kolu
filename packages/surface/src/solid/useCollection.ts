@@ -225,8 +225,10 @@ function assertKeysInjective(dictSize: number, orderLength: number): void {
  *  "what changed" from the keyed store the framework already applied the frame to. */
 export interface CollectionFoldOptions<K, T, A> {
   /** Answer for a FULL-SET frame: the wire's first frame, every reconnect
-   *  snapshot, and the synthetic snapshot a fold registered mid-stream is seeded
-   *  with. Entries are in arrival order. */
+   *  snapshot, and the seeding a fold registered mid-stream is given. Entries are
+   *  the CLIENT STORE's own values in its arrival order — the same objects `byKey`
+   *  reads — for all three, so what `init` receives never depends on WHEN this fold
+   *  registered. */
   init: (entries: ReadonlyArray<readonly [K, T]>) => A;
   /** Answer for ONE coalesced delta frame. MUST be TOTAL over removes of keys it
    *  has never seen: the server's tick coalescer resolves an upsert-then-remove
@@ -277,8 +279,9 @@ export interface UseCollectionDeltasResult<K, T>
  *  homogeneous without a cast and a throwing consumer callback is contained where
  *  its own state is. */
 interface FoldSlot<K, T> {
-  /** Re-initialize from a full-set frame (wire snapshot, or the synthetic one a
-   *  mid-stream registration is seeded with). */
+  /** Re-initialize from a full-set frame — always the one rebuilt from the held
+   *  store, whether the wire delivered a snapshot or this fold registered
+   *  mid-stream. */
   readonly seed: (entries: ReadonlyArray<readonly [K, T]>) => void;
   /** Apply one delta frame. A no-op while this fold has no valid accumulator — a
    *  delta has nothing to land on until a snapshot has built one. */
@@ -440,10 +443,21 @@ export function useCollectionDeltas<Name extends string, K, T>(
     setOrder(nextOrder);
   }
 
-  /** The full-set frame a fold registered MID-STREAM is seeded with, rebuilt from the
-   *  held store. The keyed cache shares ONE slot per collection, so a late fold
-   *  cannot be handed the wire's own snapshot back — it is handed the state that
-   *  snapshot produced, which is the same answer. */
+  /** The full-set frame EVERY fold is seeded with — the wire's snapshot arm and a
+   *  mid-stream registration alike — rebuilt from the held store.
+   *
+   *  REBUILT rather than passed through, and that is the whole of it: the keyed cache
+   *  shares ONE slot per collection, so a late fold cannot be handed the wire's own
+   *  snapshot back; and {@link applySnapshot} is VALUE-diffed, so an entry the wire
+   *  re-serialized unchanged keeps the object the store already held and the wire's
+   *  fresh copy is dropped on the floor. Seeding from `msg.entries` would therefore
+   *  hand a fold objects the store itself refused, and make what `init` receives
+   *  depend on WHEN the fold registered — the store's values when late, the wire's
+   *  when alive across a reconnect. One answer instead: a fold is seeded with what
+   *  `byKey` reads, whichever frame put it there.
+   *
+   *  Costs N pairs on a path that is already O(N) in the frame it just applied, and
+   *  only when a fold is registered at all. */
   function syntheticSnapshot(): [K, T][] {
     return currentOrder().map((k) => {
       const value = held[String(k)];
@@ -478,10 +492,19 @@ export function useCollectionDeltas<Name extends string, K, T>(
           seeded = true;
           // A snapshot RE-INITIALIZES every registered fold. The consumer never
           // distinguishes first-connect from reconnect; both are "here is the whole
-          // set". Iterated over a COPY: a `seed`/`step` that registers another fold
+          // set". From {@link syntheticSnapshot}, never from `msg.entries` — the store
+          // is the ONE answer to "what is a fold seeded with", so a fold alive across
+          // a reconnect and one registering a moment later are handed the same
+          // objects. Iterated over a COPY: a `seed`/`step` that registers another fold
           // has already had it seeded by `fold()` itself, and a live `Set` walk would
-          // visit the newcomer and seed it twice.
-          for (const slot of [...folds]) slot.seed(msg.entries);
+          // visit the newcomer and seed it twice. That copy also answers whether
+          // rebuilding the frame is worth anything — no folds, nothing to rebuild it
+          // for.
+          const registered = [...folds];
+          if (registered.length > 0) {
+            const entries = syntheticSnapshot();
+            for (const slot of registered) slot.seed(entries);
+          }
         } else {
           applyDelta(msg);
           for (const slot of [...folds]) slot.step(msg);
