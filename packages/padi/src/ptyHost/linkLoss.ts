@@ -190,24 +190,27 @@ export function startLinkLossHealer(deps: {
    *
    *  It is told WHICH attempt it is rather than reading the counter: a converge
    *  that succeeds publishes `connected` from inside itself, which resets the
-   *  counter before the line below is written. */
-  const runAttempt = async (attemptNo: number): Promise<boolean> => {
+   *  counter before the line below is written.
+   *
+   *  Returns the verdict a converge settled on, or `undefined` when the attempt
+   *  failed. It does NOT announce: whether the link actually came back is one
+   *  decision, and the caller is where both readings of it meet. */
+  const runAttempt = async (
+    attemptNo: number,
+  ): Promise<ConvergeVerdict | undefined> => {
     try {
       const verdict = await Effect.runPromise(deps.reconverge);
       log.info(
         { attempt: attemptNo, verdict },
         `kaval link restored by re-converge — ${verdict}`,
       );
-      // Sticky on a `connected` status only (the store drops it otherwise), so a
-      // heal that somehow left the endpoint down announces nothing.
-      deps.onRecovered?.(verdict);
-      return true;
+      return verdict;
     } catch (err) {
       log.error(
         { err, attempt: attemptNo },
         "kaval re-converge attempt failed — the link is still down; retrying after the next backoff",
       );
-      return false;
+      return undefined;
     }
   };
 
@@ -267,12 +270,19 @@ export function startLinkLossHealer(deps: {
     // Under the heal claim for the whole attempt — the arbiter publishes the
     // token before the attempt starts, so the converge and everything its
     // reconciliation reaches already sees the heal that is running it.
-    const healed = await withHealClaim(() => runAttempt(attemptNo));
-    // A converge that succeeds emits `connected`, so `observe` has already
-    // cancelled this loop and reset the backoff. Anything else — a failed
-    // attempt, or a "success" that left the endpoint down — is still a link to
-    // heal.
-    if (!healed || published() !== "connected") arm();
+    const verdict = await withHealClaim(() => runAttempt(attemptNo));
+    // ONE reading of "did the link come back": a verdict AND an endpoint that is
+    // actually connected. A converge that succeeded emits `connected` from
+    // inside itself, so `observe` has already cancelled this loop and reset the
+    // backoff; anything else — a failed attempt, or a "success" that left the
+    // endpoint down — is still a link to heal, and is not a recovery to
+    // announce. Decided HERE rather than leaning on the status store to drop a
+    // stamp this module never sees.
+    if (verdict !== undefined && published() === "connected") {
+      deps.onRecovered?.(verdict);
+      return;
+    }
+    arm();
   };
 
   return {
