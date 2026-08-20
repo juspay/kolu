@@ -26,17 +26,18 @@
  *
  * ## What it cannot race
  *
- *   - **Itself.** {@link inFlightHeal} is the in-flight token — presence IS the
- *     flag, the idiom `serializeRestart` uses for the same job one layer down.
- *     An attempt is never started while one is running.
+ *   - **Itself.** The heal claim is the in-flight token — presence IS the flag,
+ *     the idiom `serializeRestart` uses for the same job one layer down. An
+ *     attempt is never started while one is running.
  *   - **A restart.** A user "Restart kaval" and the steady-state supervision
  *     auto-recycle both reach the endpoint through ONE trigger, and that trigger
- *     is wrapped in {@link withRestartClaim}: the claim is taken SYNCHRONOUSLY,
- *     so no heal can start behind it, and it then waits out an attempt already
- *     mid-converge. Both sides check, so the exclusion is total rather than
- *     one-directional — which matters because two spawns at one rendezvous is
- *     the "the new daemon yields to the live gate holder" no-op recycle the
- *     spine fails loudly on.
+ *     is claimed where it is built: the claim is taken SYNCHRONOUSLY, so no heal
+ *     can start behind it, and it then waits out an attempt already mid-converge.
+ *     Both sides check, so the exclusion is total rather than one-directional —
+ *     which matters because two spawns at one rendezvous is the "the new daemon
+ *     yields to the live gate holder" no-op recycle the spine fails loudly on.
+ *     Both sides are `endpointClaim.ts`'s, not this module's: an arbiter of two
+ *     arms cannot live inside one of them.
  *   - **A stale trigger.** The status is re-read at FIRE time, never at arm
  *     time. A link healed by any other path has already reported `connected`,
  *     which cancels the loop and resets the backoff.
@@ -81,6 +82,7 @@
 import type { EndpointState } from "@kolu/surface-daemon-supervisor";
 import { Effect } from "effect";
 import { log } from "../log.ts";
+import { healClaimed, restartClaimed, withHealClaim } from "./endpointClaim.ts";
 
 /** What one converge + its reconcile settled on — the word the heal's journal
  *  line names. `recycled` is the fail-CLOSED arm: the adoption's reconcile
@@ -112,47 +114,6 @@ export type Residency = "serving" | "stuck" | "gone";
  *  attempt either way. */
 const BACKOFF_MS = 1_000;
 const BACKOFF_CEILING_MS = 30_000;
-
-/** How many restarts currently OWN the endpoint. A counter, not a flag, because
- *  the trigger it guards coalesces riders: several callers can hold the claim
- *  over one restart, and the healer must stand down until the last of them is
- *  done. */
-let restartsInFlight = 0;
-
-/** The heal in flight, or `undefined`. A promise rather than a fiber because the
- *  loop is a node timer, not an Effect. It never rejects — the attempt absorbs
- *  its own failure — so waiting on it can only ever be a delay, never a way for
- *  a heal's failure to reach the restart that waited. */
-let inFlightHeal: Promise<void> | undefined;
-
-/**
- * Run `restart` as the endpoint's exclusive owner: the healer stands down for
- * its whole duration, and a heal already mid-converge is waited out first.
- *
- * The claim is taken in the SAME synchronous step that installs the finalizer,
- * so it can never be released without having been taken (nor taken by a restart
- * that is described and never run). The wait is bounded by the endpoint's own
- * deadlines, and it happens BEFORE the trigger rather than around it — so the
- * trigger's coalescing is untouched: concurrent callers still ride one restart.
- */
-export function withRestartClaim<A, E>(
-  restart: Effect.Effect<A, E>,
-): Effect.Effect<A, E> {
-  return Effect.suspend(() => {
-    restartsInFlight += 1;
-    const pending = inFlightHeal;
-    return Effect.gen(function* () {
-      if (pending !== undefined) yield* Effect.promise(() => pending);
-      return yield* restart;
-    }).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          restartsInFlight -= 1;
-        }),
-      ),
-    );
-  });
-}
 
 /** The healer's one seam onto the endpoint: every status it publishes. */
 export interface LinkLossHealer {
@@ -220,7 +181,7 @@ export function startLinkLossHealer(deps: {
   const arm = (): void => {
     // One pending attempt at a time, and none while one runs — a running attempt
     // re-arms itself if it fails.
-    if (timer !== undefined || inFlightHeal !== undefined) return;
+    if (timer !== undefined || healClaimed()) return;
     const backoffMs = waitMs;
     waitMs = Math.min(waitMs * 2, BACKOFF_CEILING_MS);
     timer = setTimeout(() => {
@@ -262,8 +223,8 @@ export function startLinkLossHealer(deps: {
     // chain (it re-arms itself), a restart owns the ENDPOINT (so reschedule
     // behind it), and a status that is no longer `degraded` means the link healed
     // — or died terminally — by some other path.
-    if (inFlightHeal !== undefined) return;
-    if (restartsInFlight > 0) {
+    if (healClaimed()) return;
+    if (restartClaimed()) {
       arm();
       return;
     }
@@ -282,8 +243,8 @@ export function startLinkLossHealer(deps: {
     // now stale — a restart can have claimed the endpoint, or the link can have
     // healed, while we were asking. Re-read them rather than act on what was true
     // 5 s ago.
-    if (inFlightHeal !== undefined) return;
-    if (restartsInFlight > 0) {
+    if (healClaimed()) return;
+    if (restartClaimed()) {
       arm();
       return;
     }
@@ -310,17 +271,10 @@ export function startLinkLossHealer(deps: {
       { attempt: attemptNo, backoffMs },
       `kaval link lost mid-session — re-converging (attempt ${attemptNo}, backoff ${backoffMs}ms)`,
     );
-    const heal = runAttempt(attemptNo);
-    // The token is published before anything can observe its absence: the call
-    // above runs synchronously up to its own first suspension, and this
-    // assignment is the next statement on that same stack.
-    inFlightHeal = heal.then(() => {});
-    let healed: boolean;
-    try {
-      healed = await heal;
-    } finally {
-      inFlightHeal = undefined;
-    }
+    // Under the heal claim for the whole attempt — the arbiter publishes the
+    // token before the attempt starts, so the converge and everything its
+    // reconciliation reaches already sees the heal that is running it.
+    const healed = await withHealClaim(() => runAttempt(attemptNo));
     // A converge that succeeds emits `connected`, so `observe` has already
     // cancelled this loop and reset the backoff. Anything else — a failed
     // attempt, or a "success" that left the endpoint down — is still a link to

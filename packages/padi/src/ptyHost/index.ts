@@ -65,10 +65,14 @@ import {
   setLocalSocketPath,
 } from "./daemonStatus.ts";
 import {
+  requireEndpointClaim,
+  withConvergeClaim,
+  withRestartClaim,
+} from "./endpointClaim.ts";
+import {
   type ConvergeVerdict,
   type Residency,
   startLinkLossHealer,
-  withRestartClaim,
 } from "./linkLoss.ts";
 import { localKavalDriver } from "./localDriver.ts";
 
@@ -229,11 +233,20 @@ const endpointState = PtyHostEndpointState.of({
   }),
 });
 
-/** Install `ep` (and the restart trigger built over it) as the held endpoint. */
+/** Install `ep` (and the restart trigger built over it) as the held endpoint.
+ *
+ *  The trigger is CLAIMED here, at the one place it is built, so every restart
+ *  that reaches this endpoint takes the link-loss exclusion by construction and
+ *  there is no unclaimed path to the trigger for a caller to forget. The claim is
+ *  still taken synchronously before the trigger runs (`withRestartClaim`
+ *  increments inside its `Effect.suspend`, before the trigger is entered), and it
+ *  still happens BEFORE the trigger rather than around it, so the trigger's
+ *  coalescing is untouched. */
 function holdEndpoint(ep: KavalEndpoint): void {
+  const trigger = serializeRestart(ep);
   setRef(endpointState.current, {
     endpoint: ep,
-    restart: serializeRestart(ep),
+    restart: (steps) => withRestartClaim(trigger(steps)),
   });
 }
 
@@ -342,13 +355,14 @@ export function reconcileConverged(
             { err: Cause.squash(cause) },
             "surviving-session reconciliation failed — recycling the adopted daemon",
           );
-          // Under the restart claim, like every other path that replaces this
-          // endpoint's daemon: this recycle kills and respawns, and the healer
-          // (armed by the `degraded` the kill itself emits) must not converge
-          // into the gap. `restartLocalEndpoint` claims for the button and the
-          // supervision arm; this arm reaches `recycle` directly, so it claims
-          // here rather than inheriting one.
-          yield* withRestartClaim(recycle(ep, destructiveRecycleSteps()));
+          // This recycle kills and respawns, and the healer (armed by the
+          // `degraded` the kill itself emits) must not converge into the gap. It
+          // takes NO claim of its own: it runs on its caller's stack, inside the
+          // claim `withConvergeClaim` took around the converge that reached here
+          // — at boot the restart claim, during a heal the heal's own. A second
+          // claim here would wait on the very heal that is running it (#2184).
+          requireEndpointClaim("the fail-closed recycle");
+          yield* recycle(ep, destructiveRecycleSteps());
           // The recycle spawned a FRESH daemon — nothing live survives now, so
           // this is the no-survivor path: park the saved session for the restore
           // card.
@@ -446,10 +460,12 @@ export function ensureLocalEndpoint(opts: {
     // a link dies — long after this line has bound the reference.
     const healer = startLinkLossHealer({
       reconverge: Effect.suspend(() =>
-        Effect.gen(function* () {
-          const outcome = yield* converge(ep);
-          return yield* reconcileConverged(ep, outcomeAdopted(outcome), opts);
-        }),
+        withConvergeClaim(
+          Effect.gen(function* () {
+            const outcome = yield* converge(ep);
+            return yield* reconcileConverged(ep, outcomeAdopted(outcome), opts);
+          }),
+        ),
       ),
       stillServing: opts.stillServing,
       onRecovered: opts.onRecovered,
@@ -506,11 +522,18 @@ export function ensureLocalEndpoint(opts: {
       Effect.gen(function* () {
         // The only boot verb: policy is fixed on the endpoint; no fence, no budget,
         // no boot-method choice at the call site.
-        const outcome = yield* converge(ep);
-        // The adopt / no-survivor / fail-closed-recycle branches are
-        // `reconcileConverged` — shared with the mid-session re-converge (#2182)
-        // so a heal reconciles exactly as a boot does.
-        yield* reconcileConverged(ep, outcomeAdopted(outcome), opts);
+        // Under the converge claim, which at boot is a restart claim: the
+        // fail-closed arm below replaces the daemon, and the `degraded` its kill
+        // emits would otherwise arm the healer into the gap.
+        yield* withConvergeClaim(
+          Effect.gen(function* () {
+            const outcome = yield* converge(ep);
+            // The adopt / no-survivor / fail-closed-recycle branches are
+            // `reconcileConverged` — shared with the mid-session re-converge
+            // (#2182) so a heal reconciles exactly as a boot does.
+            yield* reconcileConverged(ep, outcomeAdopted(outcome), opts);
+          }),
+        );
       }),
       (cause) =>
         Effect.sync(() => {
@@ -541,17 +564,15 @@ export function ensureLocalEndpoint(opts: {
  *  if the endpoint hasn't been booted yet (`ensureLocalEndpoint` not run).
  *
  *  The one entry every restart takes — the "Restart kaval" button's RPC and the
- *  steady-state supervision auto-recycle both arrive here — which is why the
- *  link-loss healer's exclusion is claimed HERE (#2182): the claim is taken
- *  synchronously, before the trigger, so no heal can start behind it, and an
- *  attempt already mid-converge is waited out before the recycle begins. The wait
- *  is bounded by the endpoint's own dial/handshake deadlines, and it preserves
- *  the trigger's coalescing (riders still join one restart) because it happens
- *  BEFORE the trigger, not around it. */
+ *  steady-state supervision auto-recycle both arrive here — and the link-loss
+ *  healer's exclusion rides the trigger itself, claimed in {@link holdEndpoint}
+ *  where the trigger is built. So no heal can start behind a restart, an attempt
+ *  already mid-converge is waited out before the recycle begins, and this
+ *  function has no claim to remember. */
 export function restartLocalEndpoint<Ctx>(
   steps: RestartSteps<PtyHostClient, Identity, Ctx, KavalConnectionMetadata>,
 ): Effect.Effect<void, unknown> {
-  return withRestartClaim(endpointState.restart(steps));
+  return endpointState.restart(steps);
 }
 
 // ── Spawn policy (kolu's soul) — unchanged from the in-process inversion,

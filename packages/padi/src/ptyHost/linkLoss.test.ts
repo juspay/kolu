@@ -44,13 +44,17 @@ import type { PtyHostClient, PtyHostIdentity } from "kaval";
 import { afterEach, describe, expect, it } from "vitest";
 import type { KavalConnectionMetadata } from "./connect.ts";
 import { unreachableDispatch } from "./dispatch.testlib.ts";
+import {
+  requireEndpointClaim,
+  withConvergeClaim,
+  withRestartClaim,
+} from "./endpointClaim.ts";
 import { reconcileConverged } from "./index.ts";
 import {
   type ConvergeVerdict,
   type LinkLossHealer,
   type Residency,
   startLinkLossHealer,
-  withRestartClaim,
 } from "./linkLoss.ts";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -228,7 +232,9 @@ afterEach(async () => {
   for (const r of residents.splice(0)) r.dispose();
 });
 
-/** The boot's converge, composed exactly as `ensureLocalEndpoint` composes it. */
+/** The boot's converge, composed exactly as `ensureLocalEndpoint` composes it —
+ *  claim included, since the claim is what covers the reconcile's fail-closed
+ *  recycle. */
 function convergeWithHooks(
   ep: KavalTestEndpoint,
   hooks: {
@@ -236,10 +242,12 @@ function convergeWithHooks(
     onNotAdopted?: () => void;
   },
 ): Effect.Effect<ConvergeVerdict, unknown> {
-  return Effect.gen(function* () {
-    const outcome = yield* converge(ep);
-    return yield* reconcileConverged(ep, outcomeAdopted(outcome), hooks);
-  });
+  return withConvergeClaim(
+    Effect.gen(function* () {
+      const outcome = yield* converge(ep);
+      return yield* reconcileConverged(ep, outcomeAdopted(outcome), hooks);
+    }),
+  );
 }
 
 describe("mid-session link loss re-converges itself (#2182)", () => {
@@ -449,6 +457,70 @@ describe("the heal's retry backs off, and stops the moment the link is back", ()
     await delay(120);
     expect(startedAt).toHaveLength(2);
     expect(recoveries).toBe(1);
+  });
+});
+
+describe("a heal that has to replace the daemon does not wait on itself (#2184)", () => {
+  it("runs the fail-closed recycle inside the heal's OWN claim, and leaves the endpoint claimable afterwards", async () => {
+    // The reachable path: a link dies → the healer converges → the converge
+    // ADOPTS the survivor → reconciling that survivor fails → `reconcileConverged`
+    // recycles, fail-CLOSED. That recycle runs on the heal's own stack, so a
+    // claim taken THERE waits on the heal that is running it — a circular wait
+    // bounded by nothing, which also strands the heal token and with it the
+    // healer, the "Restart kaval" button and the supervision auto-recycle.
+    //
+    // The spine's real `recycle` is deliberately NOT driven here, for the safety
+    // property `residentPolicy` states above: a destructive recycle reaps the
+    // gate holder, and this fixture's gate names the vitest process. What stands
+    // in for it is exactly what the production arm asserts before it recycles —
+    // that the replacement is COVERED by a claim it did not take itself.
+    let replacements = 0;
+    const verdicts: ConvergeVerdict[] = [];
+    let healer: LinkLossHealer | undefined;
+    const healed = startLinkLossHealer({
+      stillServing: SERVING,
+      reconverge: withConvergeClaim(
+        Effect.sync(() => {
+          requireEndpointClaim("the fail-closed recycle");
+          replacements += 1;
+          // A fail-closed recycle leaves a FRESH daemon connected, as a real one
+          // does — so the loop cancels rather than healing the same link twice.
+          healer?.observe("connected");
+          return "recycled" as const;
+        }),
+      ),
+      onRecovered: (verdict) => {
+        verdicts.push(verdict);
+      },
+      backoffMs: 5,
+    });
+    healer = healed;
+    healers.push(healed);
+
+    healed.observe("connected");
+    healed.observe("degraded");
+    await waitFor(
+      "the fail-closed heal to settle",
+      () => verdicts.length === 1,
+    );
+    expect(replacements).toBe(1);
+    expect(verdicts).toEqual<ConvergeVerdict[]>(["recycled"]);
+
+    // …and the endpoint is claimable again the moment the heal is over: the
+    // button's restart runs promptly instead of waiting on a heal token that
+    // nothing will ever settle.
+    await expect(
+      Promise.race([
+        Effect.runPromise(withRestartClaim(Effect.void)).then(() => "claimed"),
+        delay(500).then(() => "hung"),
+      ]),
+    ).resolves.toBe("claimed");
+  });
+
+  it("refuses an endpoint replacement that nobody has claimed", () => {
+    // Checked, not remembered: a future mutator that reaches the endpoint outside
+    // every claim would race the healer silently, so it says so instead.
+    expect(() => requireEndpointClaim("a stray recycle")).toThrow(/claim/);
   });
 });
 
