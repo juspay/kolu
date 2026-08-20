@@ -255,7 +255,7 @@ const trackMembership = (arr: unknown): void => {
 function replay(
   frames: readonly Reading[],
   arrayKey?: string,
-): { track: number; leaf: number; rowsAfter: Row[] } {
+): { track: number; leaf: number } {
   return createRoot((dispose) => {
     const [store, setStore] = createStore<{ v: Reading | undefined }>({
       v: undefined,
@@ -277,11 +277,48 @@ function replay(
     });
     for (const frame of frames.slice(1))
       writeWrappedValue(setStore, frame, arrayKey);
-    const rowsAfter = ((unwrap(store).v?.rows ?? []) as Row[]).slice();
     dispose();
-    return { track, leaf, rowsAfter };
+    return { track, leaf };
   });
 }
+
+/** Write `frames` into one store under `arrayKey` and hand back the RAW rows and
+ *  names as they stood after EACH write — the one scaffold every identity test in
+ *  this half needs, since what they all ask is which objects survived from one
+ *  frame to the next. Raw (`unwrap`ed) for {@link merge}'s reason: the law is about
+ *  object identity, which a store proxy would hide. `.slice()` per step because
+ *  the store's array is mutated in place by the next write. */
+function steps(
+  frames: readonly Reading[],
+  arrayKey?: string,
+): { rows: Row[][]; names: Reading["names"][] } {
+  return createRoot((dispose) => {
+    const [store, setStore] = createStore<{ v: Reading | undefined }>({
+      v: undefined,
+    });
+    const rows: Row[][] = [];
+    const names: Reading["names"][] = [];
+    for (const frame of frames) {
+      writeWrappedValue(setStore, frame, arrayKey);
+      const held = unwrap(store).v as Reading;
+      rows.push([...held.rows]);
+      names.push([...held.names]);
+    }
+    dispose();
+    return { rows, names };
+  });
+}
+
+/** The rows of one step, by their key — for asserting that a REORDER moved the
+ *  objects it already had rather than minting new ones. */
+const byKey = (rs: readonly Row[]): Map<string, Row> =>
+  new Map(rs.map((r) => [r.key, r] as const));
+
+/** Which record each row held AT THE TIME, paired with the object — {@link observe}'s
+ *  law for the declared half: a surviving object must still describe the record it
+ *  described before, and reading it later would report the id it ended up with. */
+const heldIds = (rs: readonly Row[]): Map<Row, string> =>
+  new Map(rs.map((r) => [r, r.node.id] as const));
 
 describe("a DECLARED array key recycles by that key instead of replacing", () => {
   const KEYS = ["a", "b", "c"];
@@ -303,63 +340,43 @@ describe("a DECLARED array key recycles by that key instead of replacing", () =>
   });
 
   it("DECLARED: a row object survives a frame and still holds its own record", () => {
-    const before = createRoot((dispose) => {
-      const [store, setStore] = createStore<{ v: Reading | undefined }>({
-        v: undefined,
-      });
-      writeWrappedValue(setStore, readingOf(KEYS), "key");
-      const kept = (unwrap(store).v as Reading).rows.slice();
-      writeWrappedValue(setStore, readingOf(KEYS), "key");
-      const after = (unwrap(store).v as Reading).rows.slice();
-      dispose();
-      return { kept, after };
-    });
-    expect(before.after[0]).toBe(before.kept[0]);
-    expect(before.after[1]).toBe(before.kept[1]);
-    expect(before.after[2]).toBe(before.kept[2]);
-    expect(before.after.map((r) => r.node.id)).toEqual(KEYS);
+    const { rows } = steps([readingOf(KEYS), readingOf(KEYS)], "key");
+    const [before, after] = rows;
+    if (before === undefined || after === undefined) throw new Error("frames");
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    expect(after[2]).toBe(before[2]);
+    expect(after.map((r) => r.node.id)).toEqual(KEYS);
   });
 
   it("DECLARED: a REORDER moves the objects rather than rewriting them", () => {
-    const kept = createRoot((dispose) => {
-      const [store, setStore] = createStore<{ v: Reading | undefined }>({
-        v: undefined,
-      });
-      writeWrappedValue(setStore, readingOf(["a", "b", "c"]), "key");
-      const byKey = new Map(
-        (unwrap(store).v as Reading).rows.map((r) => [r.key, r] as const),
-      );
-      writeWrappedValue(setStore, readingOf(["c", "a", "b"]), "key");
-      const after = (unwrap(store).v as Reading).rows.slice();
-      dispose();
-      return { byKey, after };
-    });
-    expect(kept.after.map((r) => r.key)).toEqual(["c", "a", "b"]);
+    const { rows } = steps(
+      [readingOf(["a", "b", "c"]), readingOf(["c", "a", "b"])],
+      "key",
+    );
+    const [before, after] = rows;
+    if (before === undefined || after === undefined) throw new Error("frames");
+    const was = byKey(before);
+    expect(after.map((r) => r.key)).toEqual(["c", "a", "b"]);
     // The same three objects, in a new order — the identity a keyed `<For>` follows.
-    expect(kept.after[0]).toBe(kept.byKey.get("c"));
-    expect(kept.after[1]).toBe(kept.byKey.get("a"));
-    expect(kept.after[2]).toBe(kept.byKey.get("b"));
+    expect(after[0]).toBe(was.get("c"));
+    expect(after[1]).toBe(was.get("a"));
+    expect(after[2]).toBe(was.get("b"));
   });
 
   it("DECLARED: a mid-insert keeps every surviving row on its own record", () => {
-    const seen = createRoot((dispose) => {
-      const [store, setStore] = createStore<{ v: Reading | undefined }>({
-        v: undefined,
-      });
-      writeWrappedValue(setStore, readingOf(["a", "b", "c"]), "key");
-      const was = (unwrap(store).v as Reading).rows.map(
-        (r) => [r, r.node.id] as const,
-      );
-      writeWrappedValue(setStore, readingOf(["a", "mid", "b", "c"]), "key");
-      const after = (unwrap(store).v as Reading).rows.slice();
-      dispose();
-      return { was: new Map(was), after };
-    });
-    for (const row of seen.after) {
-      const previousId = seen.was.get(row);
+    const { rows } = steps(
+      [readingOf(["a", "b", "c"]), readingOf(["a", "mid", "b", "c"])],
+      "key",
+    );
+    const [before, after] = rows;
+    if (before === undefined || after === undefined) throw new Error("frames");
+    const was = heldIds(before);
+    for (const row of after) {
+      const previousId = was.get(row);
       if (previousId !== undefined) expect(row.node.id).toBe(previousId);
     }
-    expect(seen.after.map((r) => r.key)).toEqual(["a", "mid", "b", "c"]);
+    expect(after.map((r) => r.key)).toEqual(["a", "mid", "b", "c"]);
   });
 
   it("DECLARED: an array whose elements DON'T carry the key merges by position", () => {
@@ -368,20 +385,15 @@ describe("a DECLARED array key recycles by that key instead of replacing", () =>
     // elements BY POSITION, which is what keeps an identical frame silent for them
     // too. A consumer that needs `names` identity declares `id` instead (one key
     // per member) or reads them by value.
-    const kept = createRoot((dispose) => {
-      const [store, setStore] = createStore<{ v: Reading | undefined }>({
-        v: undefined,
-      });
-      writeWrappedValue(setStore, readingOf(["a", "b"]), "key");
-      const was = (unwrap(store).v as Reading).names.slice();
-      writeWrappedValue(setStore, readingOf(["a", "b"]), "key");
-      const after = (unwrap(store).v as Reading).names.slice();
-      dispose();
-      return { was, after };
-    });
-    expect(kept.after[0]).toBe(kept.was[0]);
-    expect(kept.after[1]).toBe(kept.was[1]);
-    expect(kept.after.map((n) => n.id)).toEqual(["a", "b"]);
+    const { names } = steps(
+      [readingOf(["a", "b"]), readingOf(["a", "b"])],
+      "key",
+    );
+    const [before, after] = names;
+    if (before === undefined || after === undefined) throw new Error("frames");
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    expect(after.map((n) => n.id)).toEqual(["a", "b"]);
   });
 
   it("a primitive value is still assigned, declaration or not", () => {
