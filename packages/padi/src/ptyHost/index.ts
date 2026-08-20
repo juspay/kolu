@@ -402,11 +402,14 @@ export function ensureLocalEndpoint(opts: {
    *  the same way — it simply waits, then picks up once the daemon connects). */
   onBootSettled?: (signal: AbortSignal) => void;
   /** Stamp the PROVEN recovery after the self-healing re-converge restored a
-   *  link that died mid-session (#2182) — the same one-shot signal
-   *  `startKavalSupervision`'s `onRecovered` stamps, and injected for the same
-   *  reason as the hooks above: the status store is the caller's to write, so
-   *  this composition root never imports it. */
-  onRecovered?: () => void;
+   *  link that died mid-session (#2182), told WHICH recovery the converge
+   *  settled on (#2184). The verdict is the whole message: `adopted` re-made the
+   *  link to a daemon that never stopped serving, while `no-survivors` /
+   *  `recycled` mean a fresh daemon and a parked session — one signal each, since
+   *  only the latter is what `startKavalSupervision`'s `onRecovered` proves.
+   *  Injected for the same reason as the hooks above: the status store is the
+   *  caller's to write, so this composition root never imports it. */
+  onRecovered?: (verdict: ConvergeVerdict) => void;
   /** First re-converge backoff, in ms — a TEST seam (like
    *  `startKavalSupervision`'s `pollMs`); production omits it. */
   reconvergeBackoffMs?: number;

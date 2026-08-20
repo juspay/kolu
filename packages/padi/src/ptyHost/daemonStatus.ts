@@ -201,3 +201,25 @@ export function setAutoRecovered(hostId: string): void {
     autoRecoveredAt: Date.now(),
   });
 }
+
+/** Fold "the link to this daemon died mid-session and padi re-made it — the
+ *  daemon itself never went away" onto the host's CURRENT status and re-publish
+ *  (#2184).
+ *
+ *  The twin of {@link setAutoRecovered} in every mechanical respect (sticky,
+ *  replayed to fresh subscriptions, deduped client-side on the stamp, cleared
+ *  implicitly by the next non-`connected` publish) and its OPPOSITE in meaning:
+ *  the heal's converge ADOPTED the resident kaval, so no process was recycled and
+ *  no terminal was lost. Two stamps rather than one because they are two facts,
+ *  and the client owes the user a different sentence for each — the recycle's
+ *  "your session is ready to restore" is a lie about an adoption, whose session
+ *  never stopped running. Which one the heal stamps is decided by the
+ *  `ConvergeVerdict` its re-converge returned, at the one site that knows it. */
+export function setLinkRestored(hostId: string): void {
+  const current = store.get(hostId);
+  if (!current || current.state !== "connected") return;
+  publishFullDaemonStatus(hostId, {
+    ...current,
+    linkRestoredAt: Date.now(),
+  });
+}

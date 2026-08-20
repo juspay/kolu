@@ -238,10 +238,16 @@ function convergeWithHooks(
 }
 
 describe("mid-session link loss re-converges itself (#2182)", () => {
-  it("re-ADOPTS the resident daemon after the held connection closes, runs the boot's own hooks, and stamps the recovery", async () => {
+  it("re-ADOPTS the resident daemon after the held connection closes, runs the boot's own hooks, and stamps the LINK restore — never the recycle-recovery (#2184)", async () => {
     let adoptions = 0;
     let parks = 0;
     let recoveries = 0;
+    // What `daemonMain` routes the verdict to: `adopted` → the link-restore
+    // stamp, anything else → the recycle-recovery stamp the supervision arm
+    // shares. Counted apart, because the whole defect #2184 fixes was the adopt
+    // path stamping the second one and telling a still-running session it was
+    // restarted and is ready to restore.
+    let linkRestores = 0;
     const hooks = {
       onAdopted: Effect.sync(() => {
         adoptions += 1;
@@ -257,8 +263,9 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
     const ep = resident.endpoint;
     healer = startLinkLossHealer({
       reconverge: convergeWithHooks(ep, hooks),
-      onRecovered: () => {
-        recoveries += 1;
+      onRecovered: (verdict) => {
+        if (verdict === "adopted") linkRestores += 1;
+        else recoveries += 1;
       },
       backoffMs: 10,
     });
@@ -277,7 +284,10 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
     expect(ep.current()).toBeUndefined();
 
     // ── the repair: the loop re-converges, unaided ───────────────────────────
-    await waitFor("the link-loss heal to re-converge", () => recoveries === 1);
+    await waitFor(
+      "the link-loss heal to re-converge",
+      () => linkRestores === 1,
+    );
 
     // The link is back, and it came back by ADOPTION — the resident daemon (its
     // PTYs, its agents) was never replaced. `driver.spawn` fails loudly, so no
@@ -288,6 +298,38 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
     // exactly the reconciliation a boot adoption does.
     expect(adoptions).toBe(2);
     expect(parks).toBe(0);
+    // And the client is told the truth about it: the link came back, nothing was
+    // recycled. The recycle-recovery signal — whose sentence parks the session
+    // for restore — was never stamped.
+    expect(linkRestores).toBe(1);
+    expect(recoveries).toBe(0);
+  });
+
+  it("stamps the recycle-recovery, NOT the link restore, when the heal lands on a daemon with no survivors (#2184)", async () => {
+    // The other arm of the same routing: a converge that finds nothing to adopt
+    // leaves a FRESH daemon and a parked session, which is exactly what the
+    // supervision arm's "restarted it; your session is ready to restore" says.
+    let linkRestores = 0;
+    let recoveries = 0;
+    let healer: LinkLossHealer | undefined;
+    const healed = startLinkLossHealer({
+      reconverge: Effect.suspend(() => {
+        healer?.observe("connected");
+        return Effect.succeed<ConvergeVerdict>("no-survivors");
+      }),
+      onRecovered: (verdict) => {
+        if (verdict === "adopted") linkRestores += 1;
+        else recoveries += 1;
+      },
+      backoffMs: 5,
+    });
+    healer = healed;
+    healers.push(healed);
+
+    healed.observe("connected");
+    healed.observe("degraded");
+    await waitFor("the heal to settle on no survivors", () => recoveries === 1);
+    expect(linkRestores).toBe(0);
   });
 
   it("does NOT heal a daemon that was never connected — a dead-on-boot endpoint keeps its old behaviour", async () => {

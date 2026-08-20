@@ -47,6 +47,18 @@
  *   The claim closes the one instant that guard cannot cover — the trigger
  *   invoked, its `holdRestarting` not yet emitted.
  *
+ * ## What a heal announces — the verdict is the message
+ *
+ * A heal that ADOPTS and a heal that lands on a fresh daemon are two different
+ * facts about the user's session, so {@link ConvergeVerdict} is handed to
+ * `onRecovered` rather than swallowed into the journal line. `adopted` means the
+ * LINK was re-made and nothing was lost — the same pid, the same PTYs, the same
+ * agents. `no-survivors` / `recycled` mean the daemon is new and the saved
+ * session is parked, which is what `startKavalSupervision`'s recycle proves and
+ * why only those two share its stamp. Collapsing them (as #2182 first shipped)
+ * makes the client tell an adopted session it was restarted and is "ready to
+ * restore" while it is still running.
+ *
  * ## Timer choice — node timers, not Effect's Clock
  *
  * The ruling `kavalSupervision` wrote down (see its "Timer choice" section), for
@@ -139,10 +151,15 @@ export function startLinkLossHealer(deps: {
    *  VALUE, not a thunk — an Effect is already the description of work not yet
    *  done — and re-run per attempt. */
   readonly reconverge: Effect.Effect<ConvergeVerdict, unknown>;
-  /** Stamp the PROVEN recovery so the client toasts it once — the same signal
-   *  `startKavalSupervision`'s `onRecovered` stamps. Injected, so this module
-   *  never reaches into the status store. */
-  readonly onRecovered?: () => void;
+  /** Stamp the PROVEN recovery so the client toasts it once, told WHICH recovery
+   *  this was. The verdict is not a detail of the log line: an `adopted` heal
+   *  re-made the LINK to a daemon that never stopped serving (every terminal and
+   *  agent kept running), while `no-survivors` / `recycled` mean the daemon
+   *  itself is new and the saved session is parked for restore. Only the second
+   *  is what `startKavalSupervision`'s `onRecovered` proves, so only the second
+   *  may share its stamp and its sentence. Injected, so this module never reaches
+   *  into the status store. */
+  readonly onRecovered?: (verdict: ConvergeVerdict) => void;
   /** First-wait override, in ms — a TEST seam (like `startKavalSupervision`'s
    *  `pollMs`); production omits it. */
   readonly backoffMs?: number;
@@ -197,7 +214,7 @@ export function startLinkLossHealer(deps: {
       );
       // Sticky on a `connected` status only (the store drops it otherwise), so a
       // heal that somehow left the endpoint down announces nothing.
-      deps.onRecovered?.();
+      deps.onRecovered?.(verdict);
       return true;
     } catch (err) {
       log.error(

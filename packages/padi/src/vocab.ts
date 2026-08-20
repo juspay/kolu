@@ -761,6 +761,15 @@ export const DaemonStatusSchema = Schema.Union([
      *  against a persisted high-water mark exactly as `adoptedAt` is. Absent
      *  everywhere else, which is the honest reading: nothing was auto-repaired. */
     autoRecoveredAt: Schema.optionalKey(Schema.Number),
+    /** #2184: the ms-epoch padi stamped when the self-healing re-converge
+     *  re-ADOPTED the resident kaval after the held link died mid-session — the
+     *  daemon was healthy throughout, nothing was restarted, and every terminal
+     *  and agent kept running. A SEPARATE fact from {@link autoRecoveredAt},
+     *  which means the opposite (the daemon was recycled and the session parked
+     *  for restore); the heal stamps whichever its `ConvergeVerdict` proved.
+     *  Deduped against its own persisted high-water mark exactly as `adoptedAt`
+     *  is. Absent everywhere else: no link was lost and re-made. */
+    linkRestoredAt: Schema.optionalKey(Schema.Number),
     /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
      *  — surfaced for the kaval dialog to show where this daemon listens (the
      *  path `kaval-tui` auto-discovers). kolu's soul (a server fact the client
@@ -794,6 +803,7 @@ export const DaemonStatusSchema = Schema.Union([
     adopted: Schema.optionalKey(Schema.Never),
     adoptedAt: Schema.optionalKey(Schema.Never),
     autoRecoveredAt: Schema.optionalKey(Schema.Never),
+    linkRestoredAt: Schema.optionalKey(Schema.Never),
     lifetime: Schema.optionalKey(Schema.Never),
     socketPath: Schema.optionalKey(Schema.String),
   }),
@@ -809,6 +819,7 @@ export const DaemonStatusSchema = Schema.Union([
     adopted: Schema.optionalKey(Schema.Never),
     adoptedAt: Schema.optionalKey(Schema.Never),
     autoRecoveredAt: Schema.optionalKey(Schema.Never),
+    linkRestoredAt: Schema.optionalKey(Schema.Never),
     lifetime: Schema.optionalKey(Schema.Never),
     daemonVersion: Schema.optionalKey(Schema.Never),
     requiredVersion: Schema.optionalKey(Schema.Never),

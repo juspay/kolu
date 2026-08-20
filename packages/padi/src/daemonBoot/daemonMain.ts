@@ -56,6 +56,7 @@ import {
   getLocalSocketPath,
   publishDaemonStatus,
   setAutoRecovered,
+  setLinkRestored,
   setPadiServeSocketPath,
 } from "../ptyHost/daemonStatus.ts";
 import {
@@ -483,12 +484,18 @@ function bootLocalEndpoint(params: {
       onStatus: publishDaemonStatus,
       onAdopted: adoptSurvivingSession,
       onNotAdopted: parkSavedSession,
-      // #2182. The endpoint's self-healing re-converge stamps the SAME recovery
-      // signal the supervision arm below stamps, and for the same reason: the
-      // fact that this daemon is here because padi repaired a link the user never
-      // touched is kolu's soul, not something `onStatus` can know. One signal, one
-      // client toast, two arms that can prove it.
-      onRecovered: () => setAutoRecovered(encodeHostLocation(LOCAL_LOCATION)),
+      // #2182/#2184. That padi repaired a link the user never touched is kolu's
+      // soul, not something `onStatus` can know — but WHICH repair it was decides
+      // which fact the client may state. An ADOPTED heal re-made the link to a
+      // daemon that never stopped serving, so the terminals and agents behind it
+      // are still running; the supervision arm's sentence below ("restarted it;
+      // your session is ready to restore") is false of it in every clause. The
+      // other verdicts landed on a fresh daemon with the session parked, which is
+      // exactly what that arm proves, so they share its signal.
+      onRecovered: (verdict) =>
+        verdict === "adopted"
+          ? setLinkRestored(encodeHostLocation(LOCAL_LOCATION))
+          : setAutoRecovered(encodeHostLocation(LOCAL_LOCATION)),
       onBootSettled: (signal) => {
         startInventoryReconciler(signal);
         // #2101 N1. Convergence was an event — a boot-time adopt-or-spawn — and

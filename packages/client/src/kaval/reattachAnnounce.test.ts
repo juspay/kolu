@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import { persistedPref } from "../persistedPref";
 import {
   announceAutoRecovery,
+  announceLinkRestored,
   announceReattach,
   reattachToAnnounce,
 } from "./reattachAnnounce";
@@ -274,5 +275,143 @@ describe("announceAutoRecovery — one toast per PROVEN automatic repair (#2101 
       notify,
     );
     expect(notify).not.toHaveBeenCalled();
+  });
+});
+
+describe("announceLinkRestored — one toast per re-made link (#2184)", () => {
+  const connected = (linkRestoredAt?: number) =>
+    ({ state: "connected", linkRestoredAt }) as const;
+
+  it("announces a stamp newer than the mark, committing BEFORE notifying", () => {
+    const order: string[] = [];
+    announceLinkRestored(
+      connected(2_400),
+      0,
+      (at) => order.push(`commit:${at}`),
+      () => order.push("notify"),
+    );
+    expect(order).toEqual(["commit:2400", "notify"]);
+  });
+
+  it("stays silent on a REPLAY of the same stamp — the #1365 rule, inherited", () => {
+    const notify = vi.fn();
+    announceLinkRestored(connected(2_400), 2_400, vi.fn(), notify);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("stays silent on a stamp OLDER than the mark", () => {
+    const notify = vi.fn();
+    announceLinkRestored(connected(1_000), 2_400, vi.fn(), notify);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("stays silent when no link was lost and re-made", () => {
+    const notify = vi.fn();
+    announceLinkRestored(connected(undefined), 0, vi.fn(), notify);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("stays silent on a non-connected snapshot, however it is stamped", () => {
+    const notify = vi.fn();
+    announceLinkRestored(
+      { state: "degraded" } as Parameters<typeof announceLinkRestored>[0],
+      0,
+      vi.fn(),
+      notify,
+    );
+    expect(notify).not.toHaveBeenCalled();
+  });
+});
+
+/** The law that makes three stamps worth having: an adoption, an auto-recovery
+ *  and a re-made link are independent facts about one host, so each announces off
+ *  its OWN mark and none of them can silence another — whatever order they arrive
+ *  in, and however the epochs happen to compare. One shared mark would make the
+ *  greatest stamp win and swallow the rest. */
+describe("the three announcements are independent (#2184)", () => {
+  it("a link restore does not suppress an auto-recovery or a reattach on the same snapshot", () => {
+    const status = {
+      state: "connected",
+      contractVersion: "5.0",
+      startedAt: 1,
+      adopted: 3,
+      adoptedAt: 5_000,
+      autoRecoveredAt: 5_000,
+      linkRestoredAt: 5_000,
+    } as DaemonStatus;
+    // One mark per fact, all still at their `0` fallback.
+    const marks = { reattach: 0, recovery: 0, link: 0 };
+    const reattachNotify = vi.fn();
+    const recoveryNotify = vi.fn();
+    const linkNotify = vi.fn();
+
+    // The link restore announces FIRST and commits its mark — the arrival order
+    // that would hide the other two behind a shared mark.
+    announceLinkRestored(
+      status,
+      marks.link,
+      (at) => (marks.link = at),
+      linkNotify,
+    );
+    announceAutoRecovery(
+      status,
+      marks.recovery,
+      (at) => (marks.recovery = at),
+      recoveryNotify,
+    );
+    announceReattach(
+      status,
+      marks.reattach,
+      (at) => (marks.reattach = at),
+      reattachNotify,
+    );
+
+    expect(linkNotify).toHaveBeenCalledTimes(1);
+    expect(recoveryNotify).toHaveBeenCalledTimes(1);
+    expect(reattachNotify).toHaveBeenCalledTimes(1);
+  });
+
+  it("an auto-recovery already announced does not suppress a LATER link restore, and each still dedupes itself", () => {
+    const recoveryNotify = vi.fn();
+    const linkNotify = vi.fn();
+    // padi recycled a wedged kaval at 1_000; the client announced it.
+    let recoveryMark = 0;
+    let linkMark = 0;
+    announceAutoRecovery(
+      { state: "connected", autoRecoveredAt: 1_000 } as DaemonStatus,
+      recoveryMark,
+      (at) => (recoveryMark = at),
+      recoveryNotify,
+    );
+    expect(recoveryMark).toBe(1_000);
+
+    // Later the link to the (healthy) daemon drops and is re-adopted. The
+    // recovery's committed mark is not this fact's mark, so it announces.
+    const after = {
+      state: "connected",
+      autoRecoveredAt: 1_000,
+      linkRestoredAt: 2_000,
+    } as DaemonStatus;
+    announceLinkRestored(after, linkMark, (at) => (linkMark = at), linkNotify);
+    announceAutoRecovery(
+      after,
+      recoveryMark,
+      (at) => (recoveryMark = at),
+      recoveryNotify,
+    );
+    expect(linkNotify).toHaveBeenCalledTimes(1);
+    // …and the recovery stayed silent on its own replay.
+    expect(recoveryNotify).toHaveBeenCalledTimes(1);
+
+    // A re-emit of the same snapshot announces nothing at all.
+    announceLinkRestored(after, linkMark, (at) => (linkMark = at), linkNotify);
+    announceAutoRecovery(
+      after,
+      recoveryMark,
+      (at) => (recoveryMark = at),
+      recoveryNotify,
+    );
+    expect(linkNotify).toHaveBeenCalledTimes(1);
+    expect(recoveryNotify).toHaveBeenCalledTimes(1);
   });
 });

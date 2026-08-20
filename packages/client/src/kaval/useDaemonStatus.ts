@@ -45,7 +45,11 @@ import {
   liveWarming,
   toKavalPresence,
 } from "./daemonPresentation";
-import { announceAutoRecovery, announceReattach } from "./reattachAnnounce";
+import {
+  announceAutoRecovery,
+  announceLinkRestored,
+  announceReattach,
+} from "./reattachAnnounce";
 
 // Re-export the pure presentation so existing `from "./useDaemonStatus"` imports
 // (the rail, the kaval dialog, App.tsx's canvas, useDaemonRestart) keep resolving
@@ -527,6 +531,29 @@ createRoot(() => {
         err,
       ),
   });
+  /** The link-restore rail's OWN per-host high-water mark (#2184). A third
+   *  sibling key for the reason the second one exists: three independent facts,
+   *  three independent marks, so none can suppress another. */
+  const [linkRestoredAnnouncedAt, setLinkRestoredAnnouncedAt] = persistedPref<
+    Record<string, number>
+  >({
+    name: "kolu.kaval.linkRestoredAnnouncedAt",
+    fallback: {},
+    parse: (raw) => {
+      const v: unknown = JSON.parse(raw);
+      if (v === null || typeof v !== "object" || Array.isArray(v))
+        throw new Error(`not a per-host record: ${raw}`);
+      for (const n of Object.values(v as Record<string, unknown>))
+        if (typeof n !== "number" || !Number.isFinite(n))
+          throw new Error(`non-numeric mark in ${raw}`);
+      return v as Record<string, number>;
+    },
+    onInvalid: (err, raw) =>
+      console.warn(
+        `[kaval] linkRestoredAnnouncedAt corrupt (${raw}); resetting to {}:`,
+        err,
+      ),
+  });
   createEffect(() => {
     // The glue (`announceReattach`) commits the proven adoptedAt as the new high-water mark
     // BEFORE toasting, so a re-run on the same snapshot is silent — both halves are unit-tested
@@ -555,6 +582,21 @@ createRoot(() => {
       () =>
         toast.warning(
           "kaval was unresponsive — kolu restarted it; your session is ready to restore",
+        ),
+    );
+    // #2184's one toast, and a SUCCESS rather than a warning: the connection
+    // dropped, kolu re-made it, and nothing was lost — no process was restarted
+    // and nothing needs restoring, so the recovery line above would be false in
+    // every clause. Its own per-host mark, for the reason the one above has its
+    // own.
+    announceLinkRestored(
+      localDaemonStatus(),
+      linkRestoredAnnouncedAt()[host] ?? 0,
+      (mark) =>
+        setLinkRestoredAnnouncedAt((prev) => ({ ...prev, [host]: mark })),
+      () =>
+        toast.success(
+          "lost the connection to kaval — kolu reconnected; your terminals kept running",
         ),
     );
   });

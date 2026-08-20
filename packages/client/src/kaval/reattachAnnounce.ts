@@ -103,3 +103,34 @@ export function announceAutoRecovery(
   commit(at);
   notify();
 }
+
+/** The #2184 third of this family: "the link to this host's kaval died
+ *  mid-session and padi re-made it — the daemon never went away, and everything
+ *  running behind it still is."
+ *
+ *  Same rail and same dedupe law as the two above (a sticky server stamp,
+ *  replayed to every fresh subscription, announced only when strictly newer than
+ *  the greatest already announced, persisted per host — the #1365 rule). And its
+ *  OWN mark, for the argument {@link announceAutoRecovery} already makes one fact
+ *  over: one mark for both would let a link restore suppress an auto-recovery, or
+ *  the reverse, and these are three independent things that can happen to a host
+ *  in any order.
+ *
+ *  Why it is not the auto-recovery line: that sentence says kaval was
+ *  unresponsive, kolu restarted it, and the session is waiting to be restored.
+ *  Of an ADOPTED heal all three are false — the daemon was healthy the whole
+ *  time, it kept its pid, and the terminals never stopped. Telling a user their
+ *  running session needs restoring is worse than saying nothing, which is why
+ *  padi stamps the two verdicts apart and this announces the one it means. */
+export function announceLinkRestored(
+  status: Pick<DaemonStatus, "state" | "linkRestoredAt"> | undefined,
+  lastAnnouncedAt: number,
+  commit: (at: number) => void,
+  notify: () => void,
+): void {
+  const at = status?.linkRestoredAt;
+  if (status?.state !== "connected") return;
+  if (typeof at !== "number" || at <= lastAnnouncedAt) return;
+  commit(at);
+  notify();
+}
