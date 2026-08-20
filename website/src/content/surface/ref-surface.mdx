@@ -77,7 +77,10 @@ Three things it is not:
   carry the field are merged by POSITION — the declared reach of the key, not a
   fallback around it; that too is silent on a repeated frame. Name the field that
   identifies the arrays whose identity a consumer actually follows, and read the
-  rest by value.
+  rest by value. It is also identity **wherever it appears**, not only inside
+  arrays: a nested object that happens to carry the field is merged in place
+  while the field reads the same, and replaced whole the moment it reads
+  different.
 - **Not a use-site option.** It is declared on the spec and travels on the
   member's descriptor, so no `.use()` call site can spell it, override it, or
   disagree with another call site about it.

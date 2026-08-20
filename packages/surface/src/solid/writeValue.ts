@@ -70,6 +70,14 @@
  *     (the declaration is one field per member, because Solid's `reconcile` takes
  *     one) or reads them by value.
  *
+ * The declared field is IDENTITY WHEREVER IT APPEARS, not only inside arrays: a
+ * nested object that happens to carry it is merged in place while it reads the
+ * same, and REPLACED WHOLE the moment it reads different. That is the same
+ * sentence as the array rule, applied to a value the member did not put in a
+ * list, and it is coherent — the field said what the object IS, and it now says
+ * something else — but it is a consequence worth knowing before naming a field
+ * that also lives outside the rows it was chosen for.
+ *
  * An undeclared member is unchanged in every particular — same `{ key: null }`,
  * same replaced-never-recycled law, same suite pinning it.
  */

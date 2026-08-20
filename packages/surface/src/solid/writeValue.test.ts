@@ -397,3 +397,47 @@ describe("a DECLARED array key recycles by that key instead of replacing", () =>
     });
   });
 });
+
+describe("the declared field is identity wherever it appears", () => {
+  // Not only inside arrays. Solid's diff applies the key at EVERY property, so a
+  // nested object carrying the field is merged while the field reads the same and
+  // replaced whole the moment it reads different. Pinned because it is the
+  // consequence a consumer meets by surprise: it decides whether a component
+  // holding that object across frames keeps it.
+  interface Held {
+    sel: { key: string; label: string };
+    n: number;
+  }
+
+  const write = (frames: readonly Held[]) =>
+    createRoot((dispose) => {
+      const [store, setStore] = createStore<{ v: Held | undefined }>({
+        v: undefined,
+      });
+      const seen: Held["sel"][] = [];
+      for (const frame of frames) {
+        writeWrappedValue(setStore, frame, "key");
+        seen.push((unwrap(store).v as Held).sel);
+      }
+      dispose();
+      return seen;
+    });
+
+  it("keeps the object while the field reads the same", () => {
+    const seen = write([
+      { sel: { key: "a", label: "A" }, n: 1 },
+      { sel: { key: "a", label: "A again" }, n: 1 },
+    ]);
+    expect(seen[1]).toBe(seen[0]);
+    expect(seen[1]?.label).toBe("A again");
+  });
+
+  it("replaces it whole the moment the field reads different", () => {
+    const seen = write([
+      { sel: { key: "a", label: "A" }, n: 1 },
+      { sel: { key: "b", label: "B" }, n: 1 },
+    ]);
+    expect(seen[1]).not.toBe(seen[0]);
+    expect(seen[1]?.label).toBe("B");
+  });
+});
