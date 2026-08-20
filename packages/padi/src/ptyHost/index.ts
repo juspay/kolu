@@ -315,9 +315,9 @@ export function __setEndpointForTest(ep: KavalEndpoint): () => void {
  *
  *  This boot is NOT re-cast as a typed pipeline (unlike `runPadiDaemon`, L16): its
  *  step order is already enforced by DATA FLOW, not prose. `ep = createEndpoint(...)`
- *  produces the value `converge({ endpoint: ep })` and the `onAdopted`/`onNotAdopted`
- *  branches consume — you cannot converge or reconcile before the endpoint exists,
- *  because there is no `ep` to pass. There is no side-effecting "must run before X"
+ *  produces the value `convergeAndReconcile(ep, …)` takes, and its
+ *  `onAdopted`/`onHealed`/`onNotAdopted` branches consume — you cannot converge or
+ *  reconcile before the endpoint exists, because there is no `ep` to pass. There is no side-effecting "must run before X"
  *  ordering here for a token to guard, so the same shape read as a latent hazard in
  *  `runPadiDaemon` (setters with no data edge between them) is a non-issue here. */
 export function ensureLocalEndpoint(opts: {
@@ -408,7 +408,12 @@ export function ensureLocalEndpoint(opts: {
       // its registry never emptied. Handing a heal the boot's answer is how a
       // repair rewinds a user's chrome to the last autosave and persists it.
       reconverge: Effect.suspend(() =>
-        convergeAndReconcile(ep, { ...opts, onAdopted: opts.onHealed }),
+        convergeAndReconcile(ep, {
+          ...opts,
+          onAdopted: opts.onHealed,
+          // A heal never recycles on an unfinished re-wire — see `onAdoptFailure`.
+          onAdoptFailure: "report",
+        }),
       ),
       stillServing: opts.stillServing,
       onRecovered: opts.onRecovered,
@@ -468,7 +473,11 @@ export function ensureLocalEndpoint(opts: {
         // mid-session heal takes (#2182) — converge, then the adopt /
         // no-survivor / fail-closed-recycle branches — so a heal reconciles
         // exactly as a boot does.
-        yield* convergeAndReconcile(ep, opts);
+        yield* convergeAndReconcile(ep, {
+          ...opts,
+          // The BOOT fails closed: an unfinished reconcile may hide live PTYs.
+          onAdoptFailure: "recycle",
+        });
       }),
       (cause) =>
         Effect.sync(() => {

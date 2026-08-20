@@ -31,7 +31,17 @@ import { requireEndpointClaim, withConvergeClaim } from "./endpointClaim.ts";
 /** What one converge + its reconcile settled on — the word the heal's journal
  *  line names. `recycled` is the fail-CLOSED arm: the adoption's reconcile
  *  failed, so the adopted daemon was recycled and the saved session parked. */
-export type ConvergeVerdict = "adopted" | "no-survivors" | "recycled";
+export type ConvergeVerdict =
+  | "adopted"
+  | "no-survivors"
+  | "recycled"
+  /** The connection came back and the post-converge work did NOT finish — the
+   *  heal's arm, and the reason it exists: at boot an unfinished reconcile is
+   *  answered by recycling the daemon, which mid-session would destroy the
+   *  session the heal was invoked to save. So the heal reports instead, and its
+   *  caller keeps trying. Never announced: a link whose sensors are still down is
+   *  not one the user should be told was restored. */
+  | "incomplete";
 
 /** What a converge owes the saved session, per outcome. Its own two-key type
  *  rather than the whole `ensureLocalEndpoint` opts bag, so what this step reads
@@ -44,6 +54,22 @@ export interface ConvergeHooks {
    *  failed adoption forces the fail-closed recycle: PARK the saved session so
    *  the restore card can re-spawn it (W1.R6). */
   onNotAdopted?: () => void;
+  /** What a FAILED `onAdopted` means here. Stated by the caller because the two
+   *  callers mean opposite things by it, and the wrong default is destructive
+   *  either way (juspay/kolu#2184):
+   *
+   *  - `recycle` (the BOOT) — an unfinished reconcile may have left PTYs kolu
+   *    never registered, so the daemon is replaced and the session parked. Fail
+   *    closed against invisible live terminals.
+   *  - `report` (a HEAL) — every live PTY already has an entry, so there is no
+   *    hidden-terminal hazard to fail closed against, and recycling would kill
+   *    the session the heal exists to preserve. Report `incomplete` and let the
+   *    caller retry.
+   *
+   *  Required rather than defaulted: a default is how the heal would silently
+   *  inherit the boot's answer, which is the class of bug this whole file has
+   *  now been bitten by twice. */
+  onAdoptFailure: "recycle" | "report";
 }
 
 /**
@@ -90,6 +116,19 @@ function reconcileConverged<C, I, M>(
       Effect.as(reconcile, "adopted" as const),
       (cause) =>
         Effect.gen(function* () {
+          if (hooks.onAdoptFailure === "report") {
+            // The HEAL's arm. The connection is back; the work that rides on it
+            // is not done. Say exactly that and leave everything standing — the
+            // terminals are alive, their entries are intact, and the caller's
+            // next attempt re-runs this. Recycling here would be the destruction
+            // the whole arm exists to prevent, and reporting `adopted` would end
+            // the retry loop over terminals whose taps are still dead.
+            log.error(
+              { err: Cause.squash(cause) },
+              "link heal re-connected but could not finish re-wiring — leaving every terminal standing; the next attempt retries",
+            );
+            return "incomplete" as const;
+          }
           // Reconciliation failed AFTER we adopted the survivor's connection — the
           // daemon is connected but holds PTYs kolu may not have registered (F3).
           // Fail CLOSED: recycle the daemon (kill + spawn fresh) so those hidden

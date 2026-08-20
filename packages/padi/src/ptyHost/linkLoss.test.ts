@@ -257,6 +257,9 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
       onNotAdopted: () => {
         parks += 1;
       },
+      // These cases drive the BOOT-shaped converge; the heal's "report" policy
+      // is pinned by its own case below.
+      onAdoptFailure: "recycle" as const,
     };
 
     let healer: LinkLossHealer | undefined;
@@ -341,13 +344,14 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
   // `/padi` publishes as a promise. `converge` SPAWNS when it finds nobody home,
   // so "re-converge on every degraded" and "restart a dead daemon every backoff,
   // forever" would be the same program without this.
-  it("does NOT converge when the daemon is GONE — a restart is the probe arm's job, and this loop stands down", async () => {
+  it("does NOT converge when the daemon is GONE, and keeps asking — standing down would sit out the daemon's return", async () => {
     let converges = 0;
+    let observed: Observed = "unreachable";
     const healer = startLinkLossHealer({
-      stillServing: Effect.succeed<Observed>("unreachable"),
+      stillServing: Effect.suspend(() => Effect.succeed(observed)),
       reconverge: Effect.sync(() => {
         converges += 1;
-        return "no-survivors" as const;
+        return "adopted" as const;
       }),
       backoffMs: 5,
       onRecovered: NO_ANNOUNCE,
@@ -356,10 +360,21 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
 
     healer.observe("connected");
     healer.observe("degraded");
-    // Well past several backoffs: a stand-down does not re-arm, so this is not a
-    // race against the first tick — there is no second one to catch us out.
+    // Several backoffs' worth: nothing converges, so nothing can SPAWN — which is
+    // the whole of what the guard owes.
     await delay(60);
     expect(converges).toBe(0);
+
+    // ...and the loop is STILL asking. This half is the one that matters: a
+    // healer that stopped here would sit out the daemon's return forever,
+    // because the probe arm does not re-dial a daemon it finds healthy — it
+    // clears its ledger and recycles nothing. Without this assertion a revert to
+    // the one-way stand-down still passes the half above.
+    observed = "healthy";
+    await waitFor(
+      "the heal to resume once the socket is served again",
+      () => converges === 1,
+    );
   });
 
   it("does NOT converge on a STUCK daemon either, but keeps re-checking — a busy kaval must not be given up on", async () => {
@@ -534,7 +549,9 @@ describe("a deliberate restart is never mistaken for a lost link", () => {
     });
     healers.push(healer);
 
-    await Effect.runPromise(convergeAndReconcile(ep, {}));
+    await Effect.runPromise(
+      convergeAndReconcile(ep, { onAdoptFailure: "recycle" }),
+    );
     expect(resident.states.at(-1)).toBe("connected");
 
     // A supervised restart tears the connection down INSIDE `holdRestarting` —

@@ -236,7 +236,10 @@ describe("a link heal re-wires the terminals padi holds (#2182)", () => {
     await Effect.runPromise(rewireSurvivingSession);
 
     expect(getTerminal(YOUNG_ID as TerminalId)).toBeUndefined();
-    expect(rewireLocalSurvivor(liveEntry(YOUNG_ID))).toBe(false);
+    // `unknown`, NOT `failed`: the caller must tell "not mine" from "mine and I
+    // went blind to it", because only the second one means the heal is
+    // incomplete and has to retry.
+    expect(rewireLocalSurvivor(liveEntry(YOUNG_ID))).toBe("unknown");
   });
 
   it("never kills a terminal — a live PTY is not a half-wired orphan", async () => {
@@ -251,17 +254,50 @@ describe("a link heal re-wires the terminals padi holds (#2182)", () => {
     expect(killed.ids).toEqual([]);
   });
 
-  it("absorbs a failed list instead of failing closed — a heal must never trigger a recycle", async () => {
+  it("FAILS when it cannot list, so the heal reports `incomplete` instead of announcing a restored link", async () => {
     seedLiveTerminal(ID);
     listFails.value = true;
 
-    // Boot adoption propagates a list failure ON PURPOSE, so the boot recycles a
-    // daemon that may hold PTYs kolu cannot see. Mid-session every live PTY
-    // already HAS an entry, so there is no hidden-terminal hazard — and a recycle
-    // here would destroy the session the heal was invoked to save.
+    // The failure is the point. Succeeding quietly here is the trap: the heal's
+    // converge would yield `adopted`, the healer would stamp the reconnect toast
+    // and CANCEL its loop on `connected`, and the "next attempt" the old comment
+    // promised would never come — leaving every terminal's taps dead until the
+    // link happened to drop again. Failing routes to `onAdoptFailure: "report"`,
+    // which retries without recycling.
+    await expect(
+      Effect.runPromise(rewireSurvivingSession),
+    ).rejects.toBeDefined();
+
+    // ...and nothing was destroyed on the way out: the boot answers an unfinished
+    // reconcile with a recycle, which mid-session would kill the session this
+    // exists to save.
+    expect(getTerminal(ID as TerminalId)).toBeDefined();
+    expect(killed.ids).toEqual([]);
+  });
+
+  it("drops a terminal that EXITED while the link was down — its exit tap died with the link", async () => {
+    seedLiveTerminal(ID);
+    seedLiveTerminal(YOUNG_ID);
+    // The daemon lists only one of them: the other's shell ended during the
+    // outage. Nothing else can ever notice — the per-id exit tap died with the
+    // link, and the inventory reconciler's exited arm is a deliberate no-op
+    // BECAUSE it trusts that tap.
+    listEntries.value = [liveEntry(ID)];
+
     await Effect.runPromise(rewireSurvivingSession);
 
     expect(getTerminal(ID as TerminalId)).toBeDefined();
-    expect(killed.ids).toEqual([]);
+    expect(getTerminal(YOUNG_ID as TerminalId)).toBeUndefined();
+  });
+
+  it("does not drop a terminal merely because re-wiring is happening — the live one survives", async () => {
+    seedLiveTerminal(ID);
+    listEntries.value = [liveEntry(ID)];
+
+    await Effect.runPromise(rewireSurvivingSession);
+
+    // The membership sweep must key on the daemon's list, not on some property of
+    // the sweep itself; a bug there would take the whole session with it.
+    expect(getTerminal(ID as TerminalId)).toBeDefined();
   });
 });

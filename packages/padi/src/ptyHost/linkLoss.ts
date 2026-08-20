@@ -140,9 +140,11 @@ export function startLinkLossHealer(deps: {
    *  What it rules out is the LOOP, not every spawn: the reading and the converge
    *  are two dials, so a daemon that exits between them is still converged into
    *  existence once — and a dying daemon (OOM, shutdown) is exactly one that drops
-   *  its links first and exits seconds later. That single spawn is self-limiting
-   *  (the next round reads `unreachable` and stands down) but it is unledgered,
-   *  and it is honest to say so rather than to claim the guard is airtight. The
+   *  its links first and exits seconds later. That single spawn is bounded by the
+   *  reading itself (the next round reads `unreachable` and declines to converge,
+   *  so a second spawn needs a second daemon to die in the same window) but it is
+   *  unledgered, and it is honest to say so rather than to claim the guard is
+   *  airtight. The
    *  airtight version is not spellable here: it needs an adopt-only mode on
    *  `converge` — one dial that refuses to create — which lives in
    *  `@kolu/surface-daemon-supervisor` and is a shared-package change.

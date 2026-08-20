@@ -57,12 +57,13 @@ import {
   getSavedSession,
   saveSession,
 } from "../session/session.ts";
-import { getTerminal } from "../terminal-registry.ts";
+import { getTerminal, terminalEntries } from "../terminal-registry.ts";
 import { restoreActiveTerminalId, snapshotSession } from "../terminals.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {
   adoptLocalOrphan,
   adoptLocalTerminal,
+  dropVanishedTerminal,
   reapUnrepresentablePty,
   rewireLocalSurvivor,
   seedParkedTerminal,
@@ -147,23 +148,6 @@ function adoptSurvivorAsOrphan(entry: PtyHostListEntry): boolean {
   return true;
 }
 
-/** Reconcile a SURVIVING kaval daemon's live PTYs against the saved session and
- *  adopt the survivors. See the module doc. Called from `ensureLocalEndpoint`
- *  whenever a converge ADOPTED a surviving daemon — at boot, and (since
- *  juspay/kolu#2182) on every mid-session heal of a link that dropped while the
- *  daemon behind it kept running. So it is RE-ENTRANT by requirement, not by
- *  luck: the second run meets a registry that is already full and re-adopts the
- *  terminals in it, which is what re-establishes the per-terminal taps the dead
- *  link took with it (they are bridged once, with no re-subscribe loop of their
- *  own — see `installSnapshotSensors`). Installing a sensor set is idempotent for
- *  exactly this reason; the reconcile plan itself only ever adopts or seeds, so
- *  a re-run can add work but never destroy any.
- *
- *  FAILS if it cannot list the survivor's PTYs (F3): a connected daemon holding
- *  PTYs kolu has no registry entry for is a fail-closed condition — the boot
- *  recycles it rather than leaving hidden live PTYs behind a stale restore card.
- *  Every per-terminal adoption failure is contained (it reaps just that PTY), so
- *  the only failure is the all-or-nothing `list`. */
 /**
  * What a mid-session LINK heal runs where the boot runs {@link adoptSurvivingSession}
  * (juspay/kolu#2182) — re-wire the taps of the terminals padi already holds, and
@@ -177,46 +161,87 @@ function adoptSurvivorAsOrphan(entry: PtyHostListEntry): boolean {
  * autosave debounce, announces a boot adoption of a session that never left, and
  * reaps a "half-wired orphan" the user is actively typing into.
  *
- * ABSORBS a `list` failure instead of propagating it, which is the exact inverse
- * of adoption's fail-closed rule, for the exact reason that rule exists: at boot
- * an unlistable daemon may hold PTYs kolu has no entry for, so the safe move is
- * to recycle it. Mid-session every live PTY already HAS an entry — there is no
- * hidden-terminal hazard to fail closed against, and recycling here would destroy
- * the session the heal was invoked to save. A heal that cannot list simply leaves
- * the taps down and lets the next attempt try again.
+ * FAILS when it could not finish, and that failure is NOT the boot's. The boot
+ * answers an unfinished reconcile by recycling the daemon, because an unlistable
+ * survivor may hold PTYs kolu never registered. Mid-session every live PTY
+ * already HAS an entry, so there is no hidden-terminal hazard — and a recycle
+ * would destroy the session this exists to save. The heal's converge therefore
+ * carries `onAdoptFailure: "report"`, which turns this failure into the
+ * `incomplete` verdict: nothing is killed, nothing is announced, and the healer's
+ * next attempt runs it again. Succeeding quietly with the taps down would be
+ * worse than either — the loop would cancel on `connected` and no next attempt
+ * would ever come.
+ *
+ * It also syncs MEMBERSHIP, not just sensors. A PTY that exited while the link
+ * was down is absent from `list()`, and nothing else will ever notice: the
+ * inventory reconciler's exited arm is deliberately a no-op because "every
+ * terminal kolu tracks has a per-id exit tap" — and that tap died with the link.
+ * Boot adoption got this for free by reconciling live-against-saved; dropping
+ * that verb dropped this with it, so the heal has to do it explicitly or leave
+ * dead shells on the canvas as live tiles forever.
  */
 export const rewireSurvivingSession: Effect.Effect<void, unknown> = Effect.gen(
   function* () {
-    const listed = yield* Effect.match(
-      ptyHostClient.surface.terminal.list({}),
-      {
-        onSuccess: (res) => ({ ok: true, entries: res.entries }) as const,
-        onFailure: (err) => ({ ok: false, err }) as const,
-      },
-    );
-    if (!listed.ok) {
-      log.error(
-        { err: listed.err },
-        "link heal could not list the re-connected daemon's PTYs — sensors stay down until the next attempt; the terminals themselves are untouched",
-      );
-      return;
-    }
+    // Propagates on purpose — see the note above. `incomplete`, not a recycle.
+    const live = (yield* ptyHostClient.surface.terminal.list({})).entries;
+    const liveIds = new Set(live.map((e) => e.id));
+
     let rewired = 0;
     let unknown = 0;
-    for (const live of listed.entries) {
-      if (rewireLocalSurvivor(live)) rewired += 1;
-      else unknown += 1;
+    let failed = 0;
+    for (const entry of live) {
+      const outcome = rewireLocalSurvivor(entry);
+      if (outcome === "rewired") rewired += 1;
+      else if (outcome === "unknown") unknown += 1;
+      else failed += 1;
     }
+
+    // MEMBERSHIP: an active terminal we hold that the daemon no longer lists
+    // exited while we could not see it. Its exit tap died with the link, so this
+    // is the only place that fact can still be observed.
+    let vanished = 0;
+    for (const [id, entry] of [...terminalEntries()]) {
+      if (entry.info.pid === 0) continue; // sleeping / parked — never had a PTY
+      if (liveIds.has(id)) continue;
+      dropVanishedTerminal(id);
+      vanished += 1;
+    }
+
     // `unknown` is not a fault: a PTY created out-of-band while the link was down
     // has no registry entry yet, and discovering those is the inventory
     // reconciler's standing job — not something to invent an entry for here.
     log.info(
-      { rewired, unknown },
+      { rewired, unknown, vanished, failed },
       "re-wired surviving terminals after a link heal",
     );
+    // A terminal whose sensors did not come back is a terminal kolu is blind to.
+    // Fail so the heal reports `incomplete` and the loop tries again, rather than
+    // announcing a restored link over a tile nothing is watching.
+    if (failed > 0) {
+      return yield* Effect.fail(
+        new Error(
+          `link heal could not re-wire ${failed} of ${live.length} surviving terminals`,
+        ),
+      );
+    }
   },
 );
 
+/** Reconcile a SURVIVING kaval daemon's live PTYs against the saved session and
+ *  adopt the survivors. See the module doc. Runs at BOOT and only at boot — its
+ *  premises are an empty registry and a saved session that is the only surviving
+ *  record of what was running. A mid-session heal has neither, and runs
+ *  {@link rewireSurvivingSession} instead (juspay/kolu#2182); the two must not be
+ *  merged back into one verb.
+ *
+ *  FAILS if it cannot list the survivor's PTYs (F3): a connected daemon holding
+ *  PTYs kolu has no registry entry for is a fail-closed condition — the boot
+ *  recycles it rather than leaving hidden live PTYs behind a stale restore card.
+ *  That answer is the boot's alone; the same failure during a heal reports
+ *  `incomplete` and retries, because mid-session there are no unregistered PTYs
+ *  to fail closed against and a recycle would destroy a live session.
+ *  Every per-terminal adoption failure is contained (it reaps just that PTY), so
+ *  the only failure is the all-or-nothing `list`. */
 export const adoptSurvivingSession: Effect.Effect<void, unknown> = Effect.gen(
   function* () {
     // Fail CLOSED on a list failure (F3): let it propagate so the boot recycles the
