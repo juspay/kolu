@@ -32,6 +32,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const listEntries = vi.hoisted(() => ({ value: [] as PtyHostListEntry[] }));
 const listFails = vi.hoisted(() => ({ value: false }));
+/** Runs INSIDE the list call, after the entries are captured — the seam that
+ *  reproduces "a terminal was born while the daemon was answering". */
+const listDelay = vi.hoisted(() => ({
+  value: undefined as undefined | (() => Promise<void>),
+}));
 const taps = vi.hoisted(() => ({ opened: [] as string[] }));
 const killed = vi.hoisted(() => ({ ids: [] as string[] }));
 
@@ -53,7 +58,11 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
           list: () =>
             listFails.value
               ? Effect.fail(new Error("daemon refused to list"))
-              : Effect.succeed({ entries: listEntries.value }),
+              : Effect.promise(async () => {
+                  const entries = listEntries.value;
+                  await listDelay.value?.();
+                  return { entries };
+                }),
           kill: ({ id }: { id: string }) =>
             Effect.sync(() => {
               killed.ids.push(id);
@@ -155,6 +164,7 @@ function seedLiveTerminal(id: string): void {
 beforeEach(() => {
   listEntries.value = [];
   listFails.value = false;
+  listDelay.value = undefined;
   taps.opened = [];
   killed.ids = [];
   setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
@@ -298,6 +308,24 @@ describe("a link heal re-wires the terminals padi holds (#2182)", () => {
 
     // The membership sweep must key on the daemon's list, not on some property of
     // the sweep itself; a bug there would take the whole session with it.
+    expect(getTerminal(ID as TerminalId)).toBeDefined();
+  });
+
+  it("never drops a terminal BORN while the list was in flight — it is absent from an answer that predates it", async () => {
+    seedLiveTerminal(ID);
+    listEntries.value = [liveEntry(ID)];
+    // The race: a create or wake that gets its real pid AFTER the daemon
+    // answered. It is legitimately missing from that snapshot, and a sweep that
+    // read the registry as it stands afterwards would call that an exit — tearing
+    // down the tile while the shell it started keeps running, because
+    // `handleExit` does not kill the kaval PTY.
+    listDelay.value = async () => {
+      seedLiveTerminal(YOUNG_ID);
+    };
+
+    await Effect.runPromise(rewireSurvivingSession);
+
+    expect(getTerminal(YOUNG_ID as TerminalId)).toBeDefined();
     expect(getTerminal(ID as TerminalId)).toBeDefined();
   });
 });

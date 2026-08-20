@@ -428,6 +428,49 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
 });
 
 describe("the heal's retry backs off, and stops the moment the link is back", () => {
+  // An `incomplete` verdict is the one shape where the endpoint is CONNECTED and
+  // the heal is not done: the converge re-made the link and published
+  // `connected` from inside itself, then the work riding on it failed. Every
+  // other retry in this loop is gated on `degraded`, so without its own latch
+  // this case ends the loop with the taps still down — and announces a recovery
+  // while doing it, through the one `onRecovered` arm that stamps the RECYCLE
+  // sentence over a session that never stopped running.
+  it("does NOT announce an `incomplete` heal, and keeps retrying it even though the endpoint is connected", async () => {
+    const announced: ConvergeVerdict[] = [];
+    let attempts = 0;
+    let healer: LinkLossHealer | undefined;
+    const healed = startLinkLossHealer({
+      stillServing: SERVING,
+      reconverge: Effect.suspend(() => {
+        attempts += 1;
+        // A real converge publishes `connected` from inside itself, BEFORE the
+        // post-converge work runs. Reproduce that ordering — it is what makes
+        // the degraded-only gate drop the retry.
+        healer?.observe("connected");
+        return Effect.succeed<ConvergeVerdict>(
+          attempts < 3 ? "incomplete" : "adopted",
+        );
+      }),
+      onRecovered: (v) => {
+        announced.push(v);
+      },
+      backoffMs: 5,
+    });
+    healer = healed;
+    healers.push(healed);
+
+    healed.observe("connected");
+    healed.observe("degraded");
+
+    await waitFor("the heal to finish after two incomplete rounds", () =>
+      announced.includes("adopted"),
+    );
+    expect(attempts).toBe(3);
+    // The two incomplete rounds announced NOTHING — not the reconnect line, and
+    // above all not the recycle line `onRecovered`'s else-arm would have stamped.
+    expect(announced).toEqual(["adopted"]);
+  });
+
   it("retries a failed re-converge on a doubled backoff, then stops on success with ONE recovery stamp", async () => {
     const startedAt: number[] = [];
     let recoveries = 0;

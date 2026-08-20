@@ -182,6 +182,19 @@ function adoptSurvivorAsOrphan(entry: PtyHostListEntry): boolean {
  */
 export const rewireSurvivingSession: Effect.Effect<void, unknown> = Effect.gen(
   function* () {
+    // The membership sweep's CANDIDATES, read BEFORE the list is asked for. The
+    // ordering is the whole safety of it: a terminal created or woken while the
+    // list is in flight gets its real pid after the snapshot the daemon answered
+    // with, so it is legitimately absent from that snapshot — and sweeping the
+    // registry as it stands AFTER the await would read that absence as an exit
+    // and tear down a terminal that is starting up. `handleExit` does not kill
+    // the kaval PTY, so the tile would vanish while the shell kept running.
+    // Only ids padi already held before it asked can be judged by the answer.
+    const candidates = new Set(
+      [...terminalEntries()]
+        .filter(([, entry]) => entry.info.pid !== 0)
+        .map(([id]) => id),
+    );
     // Propagates on purpose — see the note above. `incomplete`, not a recycle.
     const live = (yield* ptyHostClient.surface.terminal.list({})).entries;
     const liveIds = new Set(live.map((e) => e.id));
@@ -200,9 +213,11 @@ export const rewireSurvivingSession: Effect.Effect<void, unknown> = Effect.gen(
     // exited while we could not see it. Its exit tap died with the link, so this
     // is the only place that fact can still be observed.
     let vanished = 0;
-    for (const [id, entry] of [...terminalEntries()]) {
-      if (entry.info.pid === 0) continue; // sleeping / parked — never had a PTY
+    for (const id of candidates) {
       if (liveIds.has(id)) continue;
+      // Still held? A kill or exit that landed while we were listing has already
+      // removed it, and dropping it twice would publish a second exit.
+      if (!getTerminal(id)) continue;
       dropVanishedTerminal(id);
       vanished += 1;
     }

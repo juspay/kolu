@@ -1814,28 +1814,6 @@ export function seedParkedTerminal(record: SavedActiveTerminal): boolean {
   });
 }
 
-/** Adopt a surviving local PTY at boot (B3.3) that HAS a saved record — its
- *  persisted chrome rides through whole (`adoptedAuthored`/`adoptedSnapshot`), with the live daemon
- *  snapshot the authority for `cwd`/`foreground`. Exposed as a standalone entry
- *  rather than on the shared `TerminalEndpoint` interface because adoption
- *  is local-only today — P3's remote-host adoption is an additive sibling, not
- *  a retrofit of the shared interface.
- *
- *  TOLERANT of a record this build cannot decode (#2122): returns `false` instead
- *  of throwing, leaving the caller to adopt the still-live PTY as an ORPHAN. The
- *  record is what a build with a WIDER vocabulary wrote — the reported case was a
- *  rollback under a session holding an `AgentKind` the running build's enum does
- *  not carry — and the old throwing decode made that one record fatal to the whole
- *  boot: `adoptSurvivingSession` propagated it, and the fail-closed arm in
- *  `ensureLocalEndpoint` answered by RECYCLING the adopted daemon, killing every
- *  live terminal on the host (including the ones that decoded perfectly). One
- *  unreadable record may cost THAT terminal its saved chrome and nothing more —
- *  the same `persisted-schema-stays-tolerant` rule `seedHandlelessTerminal`
- *  already applies to the sleeping / parked seeds.
- *
- *  The id is validated here too rather than cast: `reconcile` joins saved records
- *  to live PTYs on a raw string, so a saved id that is not a `TerminalId` reached
- *  the registry as a cast — the one hole the orphan path had already closed. */
 /** What re-wiring one terminal settled on. Three-valued because the caller owes
  *  each a different answer: `unknown` is not ours to touch, `failed` is one kolu
  *  has gone blind to (so the heal must report incomplete and retry), and only
@@ -1870,6 +1848,28 @@ export function dropVanishedTerminal(id: TerminalId): void {
   localEndpointImpl.noteVanishedWhileBlind(id);
 }
 
+/** Adopt a surviving local PTY at boot (B3.3) that HAS a saved record — its
+ *  persisted chrome rides through whole (`adoptedAuthored`/`adoptedSnapshot`), with the live daemon
+ *  snapshot the authority for `cwd`/`foreground`. Exposed as a standalone entry
+ *  rather than on the shared `TerminalEndpoint` interface because adoption
+ *  is local-only today — P3's remote-host adoption is an additive sibling, not
+ *  a retrofit of the shared interface.
+ *
+ *  TOLERANT of a record this build cannot decode (#2122): returns `false` instead
+ *  of throwing, leaving the caller to adopt the still-live PTY as an ORPHAN. The
+ *  record is what a build with a WIDER vocabulary wrote — the reported case was a
+ *  rollback under a session holding an `AgentKind` the running build's enum does
+ *  not carry — and the old throwing decode made that one record fatal to the whole
+ *  boot: `adoptSurvivingSession` propagated it, and the fail-closed arm in
+ *  `ensureLocalEndpoint` answered by RECYCLING the adopted daemon, killing every
+ *  live terminal on the host (including the ones that decoded perfectly). One
+ *  unreadable record may cost THAT terminal its saved chrome and nothing more —
+ *  the same `persisted-schema-stays-tolerant` rule `seedHandlelessTerminal`
+ *  already applies to the sleeping / parked seeds.
+ *
+ *  The id is validated here too rather than cast: `reconcile` joins saved records
+ *  to live PTYs on a raw string, so a saved id that is not a `TerminalId` reached
+ *  the registry as a cast — the one hole the orphan path had already closed. */
 export function adoptLocalTerminal(
   record: SavedActiveTerminal,
   liveEntry: PtyHostListEntry,

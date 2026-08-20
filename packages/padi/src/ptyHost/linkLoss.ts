@@ -177,6 +177,14 @@ export function startLinkLossHealer(deps: {
    *  is a link that can be lost again, and the next loss is this same incident
    *  class. */
   let everConnected = false;
+  const isConnected = (): boolean => published() === "connected";
+  /** Did the last attempt re-make the link and then fail to finish the work that
+   *  rides on it? The `incomplete` verdict's memory, and the only thing that
+   *  keeps this loop alive across a `connected` it does not trust: every other
+   *  retry here is gated on `degraded`, and an incomplete heal is connected by
+   *  construction. Cleared by any attempt that does finish, and by a fresh link
+   *  loss (which re-enters through `degraded` anyway). */
+  let unfinished = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   /** How many re-converges this incident has actually RUN — a running total, not
    *  the number of ticks: a tick that stands down or reschedules never becomes an
@@ -224,7 +232,12 @@ export function startLinkLossHealer(deps: {
       arm();
       return false;
     }
-    return published() === "degraded";
+    // `degraded` is the ordinary trigger — we held a connection and lost it. The
+    // second arm is the one an incomplete heal needs: its converge already put
+    // the endpoint back to `connected`, so gating on `degraded` alone would drop
+    // the retry the `incomplete` verdict exists to ask for, and leave a
+    // connected padi whose terminals nothing is watching.
+    return published() === "degraded" || (unfinished && isConnected());
   };
 
   /** ONE re-converge. Never rejects: the loop owns the retry, so a failed
@@ -324,14 +337,32 @@ export function startLinkLossHealer(deps: {
     // token before the attempt starts, so the converge and everything its
     // reconciliation reaches already sees the heal that is running it.
     const verdict = await withHealClaim(() => runAttempt(attemptNo));
+    if (verdict === "incomplete") {
+      // The connection is back and the work that rides on it is NOT done, so
+      // this is not a recovery and must not be announced: `onRecovered`'s only
+      // non-`adopted` arm stamps the RECYCLE sentence ("kolu restarted it; your
+      // session is ready to restore"), which over a session that never stopped
+      // running is the exact lie #2184 split the stamps to end.
+      //
+      // Retrying it needs its own latch, and this is the whole reason one
+      // exists. Every other retry in this loop is gated on `degraded`, and an
+      // incomplete heal is `connected` — the converge emitted it from inside
+      // itself, long before the re-wire failed. Without `unfinished` the next
+      // tick's `cleared()` reads `connected`, returns false, and the timer dies
+      // with the taps still down.
+      unfinished = true;
+      backOff();
+      arm();
+      return;
+    }
     // ONE reading of "did the link come back": a verdict AND an endpoint that is
     // actually connected. A converge that succeeded emits `connected` from
     // inside itself, so `observe` has already cancelled this loop and reset the
     // backoff; anything else — a failed attempt, or a "success" that left the
     // endpoint down — is still a link to heal, and is not a recovery to
-    // announce. Decided HERE rather than leaning on the status store to drop a
-    // stamp this module never sees.
+    // announce.
     if (verdict !== undefined && published() === "connected") {
+      unfinished = false;
       deps.onRecovered(verdict);
       return;
     }
@@ -346,7 +377,13 @@ export function startLinkLossHealer(deps: {
       state = next;
       if (next === "connected") {
         everConnected = true;
-        cancel();
+        // A `connected` normally means somebody re-made the link and this loop
+        // is done. It does NOT mean that while a heal is unfinished: the
+        // converge of an incomplete attempt publishes `connected` itself, and
+        // cancelling on it would drop the very retry that attempt asked for.
+        // Only a finished attempt clears the latch (in `tick`), so an
+        // unfinished loop rides its own timer through any number of them.
+        if (!unfinished) cancel();
         return;
       }
       // `dead` / `incompatible` are boot-time or terminal verdicts this loop does
