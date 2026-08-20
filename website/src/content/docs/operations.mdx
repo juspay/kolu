@@ -28,10 +28,27 @@ they are what a careless stop or a careless test run damages.
 ## Three things to know first
 
 **Two state directories.** `KOLU_STATE_DIR` is the server's config store
-(`~/.config/kolu` by default). `KOLU_PADI_STATE_DIR` is padi's **state root**
-(`~/.local/state/padi`) — saved sessions, `padi.log`, and the anchor for
-everything else. The production launcher supplies both; a bare `padi` with
+(`~/.config/kolu` by default) plus its log. `KOLU_PADI_STATE_DIR` is padi's
+**state root** (`~/.local/state/padi`) — saved sessions, its log, and the anchor
+for everything else. The production launcher supplies both; a bare `padi` with
 neither set refuses to start rather than guess.
+
+**Both logs are numbered.** They roll by size, and the rolling library appends a
+generation number — so the current lines are in `kolu-server.log.1` and
+`padi.log.1`, with `.2` and up holding older rounds. There is no un-numbered
+`kolu-server.log`; padi leaves an empty one, which is not where its lines go.
+
+| File | What it holds |
+| --- | --- |
+| `<KOLU_STATE_DIR>/kolu-server.log.1` | the server's log — **including which policy stopped or replaced a padi, and on what evidence** |
+| `<padi-state-root>/padi.log.1` | one host daemon's log |
+| `<padi-state-root>/padi.stderr.log` | crashes pino cannot see — native stderr, uncaught stacks |
+
+Both are JSON lines, capped at 10MB a generation, and written *in addition to*
+the process's own stdout/stderr — a foreground run still shows everything, and a
+post-mortem still has a file. Reach for `kolu-server.log.1` when a daemon was
+restarted and you want to know why: that decision is the server's, so padi's own
+log records only that it was asked to stop.
 
 Each `config.json` also keeps its own **backup ring**: a `backups/` directory
 beside the file holding the ten most recent boot-time (and daily) snapshots,

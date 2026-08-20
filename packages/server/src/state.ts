@@ -238,10 +238,15 @@ if (!rawStateDir) {
 }
 
 /** The validated state root (`KOLU_STATE_DIR`) — the single place that decides where the
- *  conf store lives (its `cwd`, below). Internal: with W10's `hosts` folded INTO the conf
- *  store (no longer a standalone `hosts.json` beside `config.json`), nothing outside this
- *  module keeps its own file under the root, so none needs the raw path. */
-const stateDir: string = rawStateDir;
+ *  conf store lives (its `cwd`, below). This module owns the ONE read of that env var;
+ *  everything else that needs a path under the root takes it from here rather than
+ *  re-reading (and re-validating) the environment.
+ *
+ *  Exported for `configureServerLog`, which puts `kolu-server.log` beside `config.json`
+ *  (#2183). W10 folded `hosts` INTO the conf store, so that log file is the only thing
+ *  outside this module holding its own path under the root. */
+export const koluStateRoot: string = rawStateDir;
+const stateDir: string = koluStateRoot;
 
 log.info({ path: stateDir }, "state directory");
 

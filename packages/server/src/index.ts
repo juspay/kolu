@@ -51,7 +51,7 @@ import {
   PREVIEW_ROUTE_PATTERN,
   previewRouteHandler,
 } from "./iframePreviewRoute.ts";
-import { log } from "./log.ts";
+import { configureServerLog, log } from "./log.ts";
 import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
 import { installNewTerminalPolicyPusher } from "./padi/newTerminalPolicy.ts";
 import {
@@ -83,7 +83,7 @@ import {
   listServerStateBackups,
   restoreServerStateBackup,
 } from "./stateBackups.ts";
-import { stateBackupRing } from "./state.ts";
+import { koluStateRoot, stateBackupRing } from "./state.ts";
 import {
   assembleServedHandlers,
   currentNewTerminalPolicy,
@@ -117,6 +117,14 @@ let booted = false;
 export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   if (booted) throw new Error("bootKoluWeb called twice in one process");
   booted = true;
+
+  // FIRST, before anything can log: swap the import-time stdout logger for the
+  // rolled-file + stdout multistream, so this process leaves a durable record
+  // instead of writing its only copy to whatever terminal launched it (#2183 —
+  // the convergence decision that SIGTERM'd a healthy padi was logged, to a PTY
+  // that is now gone). Ahead of the `--verbose` override below, which must land
+  // on the logger that survives this swap.
+  configureServerLog(koluStateRoot);
 
   const PWA_BACKGROUND_COLOR = "#0c0c0e";
 
