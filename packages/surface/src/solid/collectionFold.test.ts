@@ -433,19 +433,13 @@ describe("the batched stream's own health — the un-enrolled reach's only chann
 });
 
 describe("fold — a fold is seeded with the STORE's objects, whenever it registered", () => {
-  /** A fold that keeps the entries of every full-set frame it was handed, by
-   *  reference — the identity is the whole assertion here, so nothing is copied. */
-  function seedRecordingFold(view: UseCollectionDeltasResult<string, V>) {
-    const seeds: ReadonlyArray<readonly [string, V]>[] = [];
-    view.fold<number>({
-      init: (entries) => {
-        seeds.push(entries);
-        return entries.length;
-      },
-      step: (n) => n,
-    });
-    return seeds;
-  }
+  /** The full-set frames a {@link recordingFold} was seeded with, in order. It is the
+   *  file's one way to watch what a fold is handed, and it re-tuples an entry without
+   *  touching the VALUE — which is the only identity this suite asserts on. */
+  const seedsOf = (
+    seen: ReturnType<typeof recordingFold>["seen"],
+  ): [string, V][][] =>
+    seen.filter((f) => f.kind === "init").map((f) => f.entries);
 
   /** What `byKey` reads, past the store's read proxy — the object the store HOLDS,
    *  which is what a fold is handed and what the proxy is a view of. */
@@ -456,7 +450,7 @@ describe("fold — a fold is seeded with the STORE's objects, whenever it regist
 
   it("a wire snapshot seeds init with the values byKey reads, not the wire's own", async () => {
     await drive(async ({ view, push }) => {
-      const seeds = seedRecordingFold(view);
+      const { seen } = recordingFold(view);
       push({
         kind: "snapshot",
         entries: [
@@ -465,6 +459,7 @@ describe("fold — a fold is seeded with the STORE's objects, whenever it regist
         ],
       });
       await settle();
+      const seeds = seedsOf(seen);
       expect(seeds[0]?.map(([k]) => k)).toEqual(["a", "b"]);
       for (const [k, v] of seeds[0] ?? []) expect(v).toBe(heldValue(view, k));
     });
@@ -476,7 +471,7 @@ describe("fold — a fold is seeded with the STORE's objects, whenever it regist
     // dropped. Seeding folds from `msg.entries` handed them that dropped copy —
     // objects `byKey` would never return, and a second set of them per link flap.
     await drive(async ({ view, push }) => {
-      const seeds = seedRecordingFold(view);
+      const { seen } = recordingFold(view);
       push({ kind: "snapshot", entries: [["a", { n: 1 }]] });
       await settle();
       const firstConnect = heldValue(view, "a");
@@ -492,6 +487,7 @@ describe("fold — a fold is seeded with the STORE's objects, whenever it regist
       });
       await settle();
 
+      const seeds = seedsOf(seen);
       expect(seeds).toHaveLength(2);
       const [aKey, aValue] = seeds[1]?.[0] as readonly [string, V];
       expect(aKey).toBe("a");
@@ -505,7 +501,7 @@ describe("fold — a fold is seeded with the STORE's objects, whenever it regist
 
   it("registering mid-stream hands over the SAME objects a fold alive across the snapshot got", async () => {
     await drive(async ({ view, push }) => {
-      const early = seedRecordingFold(view);
+      const { seen: earlySeen } = recordingFold(view);
       push({
         kind: "snapshot",
         entries: [
@@ -517,15 +513,16 @@ describe("fold — a fold is seeded with the STORE's objects, whenever it regist
 
       // Its OWN root: this runs after an `await`, and Solid does not carry an
       // ambient owner across one (see the mid-stream suite above).
-      let late: ReadonlyArray<readonly [string, V]>[] = [];
+      let lateSeen!: ReturnType<typeof recordingFold>["seen"];
       const disposeConsumer = createRoot((d) => {
-        late = seedRecordingFold(view);
+        lateSeen = recordingFold(view).seen;
         return d;
       });
-      expect(late[0]).toEqual(early[0]);
-      expect(late[0]?.map(([, v]) => v)).toEqual(early[0]?.map(([, v]) => v));
-      for (const [i, [, v]] of (late[0] ?? []).entries()) {
-        expect(v).toBe(early[0]?.[i]?.[1]); // identical objects, not merely equal
+      const [early] = seedsOf(earlySeen);
+      const [late] = seedsOf(lateSeen);
+      expect(late).toEqual(early);
+      for (const [i, [, v]] of (late ?? []).entries()) {
+        expect(v).toBe(early?.[i]?.[1]); // identical objects, not merely equal
       }
       disposeConsumer();
     });
