@@ -115,6 +115,7 @@ export function createReactiveSubscription<I, T>(
     pending,
     complete,
     updated: tracker.updated,
+    changed: tracker.changed,
   }) as Subscription<T>;
 
   // Route `onError` through the SAME EDGE effect every other subscription uses, by
