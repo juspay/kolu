@@ -50,7 +50,7 @@ import {
   shutdownCleanup,
 } from "../koluRoot.ts";
 import { configureDaemonLog, log as padiLog } from "../log.ts";
-import { startKavalSupervision } from "../kavalSupervision.ts";
+import { kavalResidency, startKavalSupervision } from "../kavalSupervision.ts";
 import { setPadiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import {
   getLocalSocketPath,
@@ -492,6 +492,10 @@ function bootLocalEndpoint(params: {
       // your session is ready to restore") is false of it in every clause. The
       // other verdicts landed on a fresh daemon with the session parked, which is
       // exactly what that arm proves, so they share its signal.
+      // #2184's precondition, from the sensor the supervision arm below reads —
+      // so "is our kaval still there?" has ONE answer on this host, and the
+      // healer re-makes links while the probe arm owns daemons that died.
+      stillServing: kavalResidency(params.stateRoot),
       onRecovered: (verdict) =>
         verdict === "adopted"
           ? setLinkRestored(encodeHostLocation(LOCAL_LOCATION))

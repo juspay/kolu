@@ -43,6 +43,7 @@ import {
   type KavalProbe,
   probeKavalStatus,
 } from "./hostInventory.ts";
+import type { Residency } from "./ptyHost/linkLoss.ts";
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
 
 /** What ONE probe of the held kaval proved. The two failing shapes are the two
@@ -161,6 +162,41 @@ export function classifyKavalProbe(
   return terminalCount === null && contractVersion === null
     ? { kind: "unreachable" }
     : { kind: "healthy" };
+}
+
+/**
+ * The held kaval's residency RIGHT NOW, for the link-loss healer's precondition
+ * (juspay/kolu#2184) — the same probe this module's own loop reads, folded
+ * through the same {@link classifyKavalProbe}, so the two arms can never disagree
+ * about what is standing at the rendezvous.
+ *
+ * It lives here rather than beside the healer for the reason the healer takes it
+ * as an injected value: `linkLoss.ts` is reached FROM `ptyHost/index.ts`, and
+ * this module reaches back INTO `ptyHost` (`recycleLocalKaval`). The sensor
+ * belongs with the classification it shares; the edge belongs to the composition
+ * root that already holds both.
+ *
+ * `heldKaval` (not a captured path) for the reason the loop re-reads it every
+ * tick: a recycle can relocate the socket, and a residency answered about the
+ * wrong address is worse than none.
+ */
+export function kavalResidency(stateRoot: string): Effect.Effect<Residency> {
+  return Effect.map(
+    Effect.match(probeKavalStatus(heldKaval(stateRoot).socket), {
+      onSuccess: (probe) => ({ ok: true, probe }) as const,
+      onFailure: (err) => ({ ok: false, err }) as const,
+    }),
+    (outcome) => {
+      switch (classifyKavalProbe(outcome).kind) {
+        case "healthy":
+          return "serving" as const;
+        case "wedged":
+          return "stuck" as const;
+        case "unreachable":
+          return "gone" as const;
+      }
+    },
+  );
 }
 
 export interface KavalSupervisorDeps {

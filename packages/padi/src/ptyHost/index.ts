@@ -66,6 +66,7 @@ import {
 } from "./daemonStatus.ts";
 import {
   type ConvergeVerdict,
+  type Residency,
   startLinkLossHealer,
   withRestartClaim,
 } from "./linkLoss.ts";
@@ -410,6 +411,18 @@ export function ensureLocalEndpoint(opts: {
    *  Injected for the same reason as the hooks above: the status store is the
    *  caller's to write, so this composition root never imports it. */
   onRecovered?: (verdict: ConvergeVerdict) => void;
+  /** Is our kaval still serving? The self-healing re-converge's precondition
+   *  (#2184) — REQUIRED, because a healer without one re-converges blind, and a
+   *  blind converge SPAWNS when nobody is home, which turns a lost link into an
+   *  unledgered restart loop. See {@link Residency}.
+   *
+   *  INJECTED rather than read here, and not merely for symmetry with the hooks
+   *  above: the sensor is `kavalSupervision`'s (`probeKavalStatus` +
+   *  `classifyKavalProbe` — one implementation, two readers), and that module
+   *  reaches back into this one through `restartLocal.ts`. Importing it here
+   *  would close a cycle; taking it from the composition root that already holds
+   *  both does not. */
+  stillServing: Effect.Effect<Residency>;
   /** First re-converge backoff, in ms — a TEST seam (like
    *  `startKavalSupervision`'s `pollMs`); production omits it. */
   reconvergeBackoffMs?: number;
@@ -435,6 +448,7 @@ export function ensureLocalEndpoint(opts: {
           return yield* reconcileConverged(ep, outcomeAdopted(outcome), opts);
         }),
       ),
+      stillServing: opts.stillServing,
       onRecovered: opts.onRecovered,
       backoffMs: opts.reconvergeBackoffMs,
     });

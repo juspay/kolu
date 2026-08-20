@@ -87,6 +87,24 @@ import { log } from "../log.ts";
  *  failed, so the adopted daemon was recycled and the saved session parked. */
 export type ConvergeVerdict = "adopted" | "no-survivors" | "recycled";
 
+/** What the rendezvous holds RIGHT NOW, as the healer's precondition — the three
+ *  answers `classifyKavalProbe` already gives, named for what each one means to
+ *  THIS loop rather than to the probe arm:
+ *
+ *  - `serving` — a daemon answered. Our link is the only thing that broke, so
+ *    re-converging re-attaches to it and nothing is spawned or killed.
+ *  - `stuck` — something holds the socket but could not answer. Waiting is right:
+ *    a converge here would meet the silence deadline and TAKE OVER a daemon whose
+ *    repair the probe arm already owns (and budgets), and a daemon merely busy for
+ *    one 5 s window is one we must not give up on either. So: no converge, and no
+ *    stand-down — probe again after the next backoff.
+ *  - `gone` — nothing is listening. Not our fault to fix: re-converging would
+ *    SPAWN, which is a restart, which is the probe arm's ledgered job.
+ *
+ *  Distinguishing them is the whole reason this loop cannot become a respawn
+ *  storm; see {@link startLinkLossHealer}'s `stillServing`. */
+export type Residency = "serving" | "stuck" | "gone";
+
 /** The first wait before a re-converge, and the ceiling the doubling stops at.
  *  Not knobs — there is no override path and no env read: a link that died with
  *  a healthy daemon still behind it is re-dialled within a second, and a link
@@ -160,6 +178,20 @@ export function startLinkLossHealer(deps: {
    *  may share its stamp and its sentence. Injected, so this module never reaches
    *  into the status store. */
   readonly onRecovered?: (verdict: ConvergeVerdict) => void;
+  /** Is the daemon we lost the link to STILL SERVING at the rendezvous? The
+   *  healer's precondition, and the reason it cannot become a respawn loop.
+   *
+   *  `converge` spawns when it finds nobody home (`convergence/converge.ts` —
+   *  "probe-origin absence → decide(null) → spawn/bind"), so a healer that
+   *  converged unconditionally would RESTART a daemon that had died rather than
+   *  re-attach to one that had not — at this loop's cadence, with this loop's
+   *  backoff reset on every connect, and past the give-up the steady-state probe
+   *  arm spends its ledger to reach. That is the hot restart loop
+   *  `KAVAL_SUPERVISION_SPEC.unrepaired` exists to bound and `/padi` publishes as
+   *  a promise ("padi stops restarting … a hot restart loop is not a repair").
+   *  A lost LINK and a dead DAEMON are two faults with two owners; this predicate
+   *  is where the healer declines the one that is not its own. */
+  readonly stillServing: Effect.Effect<Residency>;
   /** First-wait override, in ms — a TEST seam (like `startKavalSupervision`'s
    *  `pollMs`); production omits it. */
   readonly backoffMs?: number;
@@ -236,6 +268,29 @@ export function startLinkLossHealer(deps: {
       return;
     }
     if (published() !== "degraded") return;
+    // The precondition, re-asked at every fire because it is a fact about NOW:
+    // only a daemon that is still serving is a link this loop may re-make. The
+    // read absorbs its own failure into `gone` — a residency question we could not
+    // ask is not a licence to spawn.
+    const residency = await Effect.runPromise(deps.stillServing).catch(
+      () => "gone" as const,
+    );
+    if (residency !== "serving") {
+      // One line per DECISION, not per tick: this is where the healer hands the
+      // fault to the arm that owns it, and a silent hand-off is how a degraded
+      // padi looks identical to a padi nobody is watching.
+      log.warn(
+        { residency, attempt: attempt + 1 },
+        residency === "gone"
+          ? "kaval link lost and nothing is serving the socket — the daemon is gone, which is a restart and not a re-connect; standing down for the steady-state probe arm"
+          : "kaval link lost and the daemon is not answering — leaving a stuck daemon to the steady-state probe arm; will re-check after the next backoff",
+      );
+      // `stuck` is a WAIT (re-arm and ask again); `gone` is a HAND-OFF (do not
+      // re-arm — the probe arm recycles, and its fresh daemon publishes the
+      // `connected` that resets this loop for the next link it loses).
+      if (residency === "stuck") arm();
+      return;
+    }
     attempt += 1;
     const attemptNo = attempt;
     log.warn(

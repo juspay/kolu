@@ -48,11 +48,16 @@ import { reconcileConverged } from "./index.ts";
 import {
   type ConvergeVerdict,
   type LinkLossHealer,
+  type Residency,
   startLinkLossHealer,
   withRestartClaim,
 } from "./linkLoss.ts";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** The residency every heal-path case below is ABOUT: the daemon is still there,
+ *  and only the link to it broke. The cases that vary it name their own. */
+const SERVING = Effect.succeed<Residency>("serving");
 
 /** Poll until `ready`, or fail loudly. The loop under test runs on real node
  *  timers (its `unref`'d, chained `setTimeout` is a deliberate design choice, not
@@ -262,6 +267,7 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
     residents.push(resident);
     const ep = resident.endpoint;
     healer = startLinkLossHealer({
+      stillServing: SERVING,
       reconverge: convergeWithHooks(ep, hooks),
       onRecovered: (verdict) => {
         if (verdict === "adopted") linkRestores += 1;
@@ -313,6 +319,7 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
     let recoveries = 0;
     let healer: LinkLossHealer | undefined;
     const healed = startLinkLossHealer({
+      stillServing: SERVING,
       reconverge: Effect.suspend(() => {
         healer?.observe("connected");
         return Effect.succeed<ConvergeVerdict>("no-survivors");
@@ -332,9 +339,62 @@ describe("mid-session link loss re-converges itself (#2182)", () => {
     expect(linkRestores).toBe(0);
   });
 
+  // The guard that keeps this loop from becoming the hot restart loop the probe
+  // arm spends a ledger to bound (`KAVAL_SUPERVISION_SPEC.unrepaired`) and that
+  // `/padi` publishes as a promise. `converge` SPAWNS when it finds nobody home,
+  // so "re-converge on every degraded" and "restart a dead daemon every backoff,
+  // forever" would be the same program without this.
+  it("does NOT converge when the daemon is GONE — a restart is the probe arm's job, and this loop stands down", async () => {
+    let converges = 0;
+    const healer = startLinkLossHealer({
+      stillServing: Effect.succeed<Residency>("gone"),
+      reconverge: Effect.sync(() => {
+        converges += 1;
+        return "no-survivors" as const;
+      }),
+      backoffMs: 5,
+    });
+    healers.push(healer);
+
+    healer.observe("connected");
+    healer.observe("degraded");
+    // Well past several backoffs: a stand-down does not re-arm, so this is not a
+    // race against the first tick — there is no second one to catch us out.
+    await delay(60);
+    expect(converges).toBe(0);
+  });
+
+  it("does NOT converge on a STUCK daemon either, but keeps re-checking — a busy kaval must not be given up on", async () => {
+    let converges = 0;
+    let residency: Residency = "stuck";
+    const healer = startLinkLossHealer({
+      stillServing: Effect.suspend(() => Effect.succeed(residency)),
+      reconverge: Effect.sync(() => {
+        converges += 1;
+        return "adopted" as const;
+      }),
+      backoffMs: 5,
+    });
+    healers.push(healer);
+
+    healer.observe("connected");
+    healer.observe("degraded");
+    await delay(40);
+    // Stuck is a WAIT, not a hand-off: nothing converged, and nothing spawned.
+    expect(converges).toBe(0);
+    // ...and the loop is still armed, so the moment the daemon answers again the
+    // link is re-made without anyone touching the button.
+    residency = "serving";
+    await waitFor(
+      "the heal to resume once the daemon answers",
+      () => converges === 1,
+    );
+  });
+
   it("does NOT heal a daemon that was never connected — a dead-on-boot endpoint keeps its old behaviour", async () => {
     let converges = 0;
     const healer = startLinkLossHealer({
+      stillServing: SERVING,
       reconverge: Effect.sync(() => {
         converges += 1;
         return "adopted" as const;
@@ -358,6 +418,7 @@ describe("the heal's retry backs off, and stops the moment the link is back", ()
     let recoveries = 0;
     let healer: LinkLossHealer | undefined;
     const healed = startLinkLossHealer({
+      stillServing: SERVING,
       // Attempt 1 fails (the daemon is not answering yet); attempt 2 converges
       // and — as a real converge does — publishes `connected` synchronously from
       // inside itself.
@@ -399,6 +460,7 @@ describe("a deliberate restart is never mistaken for a lost link", () => {
     residents.push(resident);
     const ep = resident.endpoint;
     healer = startLinkLossHealer({
+      stillServing: SERVING,
       reconverge: Effect.sync(() => {
         converges += 1;
         return "adopted" as const;
@@ -435,6 +497,7 @@ describe("a deliberate restart is never mistaken for a lost link", () => {
   it("a heal already armed stands down while a restart holds the claim, and never converges behind it", async () => {
     let converges = 0;
     const healer = startLinkLossHealer({
+      stillServing: SERVING,
       reconverge: Effect.sync(() => {
         converges += 1;
         return "adopted" as const;
@@ -481,6 +544,7 @@ describe("a deliberate restart is never mistaken for a lost link", () => {
     let ranDuringConverge = false;
     let release = (): void => {};
     const healer = startLinkLossHealer({
+      stillServing: SERVING,
       reconverge: Effect.promise(async () => {
         converging = true;
         await new Promise<void>((resolve) => {

@@ -95,6 +95,22 @@ restarting and leaves the card and the button — a hot restart loop is not a
 repair. The kaval-down card is for the genuinely unrepairable now, not for every
 case.
 
+The line between padi and its kaval can drop while the daemon behind it is
+perfectly healthy — still running, still holding every terminal, still able to
+answer. From the outside that looks exactly like a stuck kaval, and it is the
+opposite: nothing is broken, and there is only a connection to re-make. padi
+re-makes it by itself, about a second after it drops, and keeps trying — backing
+off to once every half-minute — for as long as it takes. Each attempt takes the
+running daemon back *over* rather than replacing it, so your terminals and the
+agents inside them keep running throughout and there is nothing to restore. When
+the line is back kolu says so once, and the card clears itself.
+
+A daemon that is genuinely gone is a different fact and gets the different
+answer. Re-making a line to a daemon that is not there would mean starting a new
+one, which is a restart — so padi leaves that to the ten-second check above, and
+to its three-strike limit, which is what keeps a kaval that dies as fast as it
+starts from being restarted forever.
+
 kaval watches itself from the other side of the same wire: it asks its **own**
 address a trivial question on the same cadence, and three unanswered self-checks
 in a row make it exit non-zero rather than sit there accepting connections it
