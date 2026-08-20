@@ -73,7 +73,9 @@ function mount(first: { rows: Row[] }, arrayKey?: string) {
 /** The §6 probe, in one line: stamp a serial on every element, and afterwards count
  *  how many of those serials are still on screen. */
 const tag = (els: readonly Element[]): void => {
-  els.forEach((el, i) => el.setAttribute("data-serial", String(i)));
+  els.forEach((el, i) => {
+    el.setAttribute("data-serial", String(i));
+  });
 };
 const survivors = (els: readonly Element[]): string[] =>
   els.map((el) => el.getAttribute("data-serial") ?? "new");
