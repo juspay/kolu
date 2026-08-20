@@ -258,6 +258,42 @@ export interface CellSpec<T = unknown, P = T, TPolicy = never> {
    *  declaration is written, exactly as the missing-interpreter check is runtime
    *  for the same erasure reason. */
   client?: ClientCellPolicy<TPolicy>;
+  /** WHAT IDENTIFIES AN ELEMENT OF AN ARRAY inside this cell's value, as a field
+   *  name — the one thing `solid-js/store`'s `reconcile` cannot be told anywhere
+   *  else, and must never guess (`./solid/writeValue.ts` argues that at length).
+   *
+   *  Undeclared, a frame REPLACES every array element it merges, so a frame that
+   *  merely repeats what the store holds still notifies every reader of every
+   *  array under it: a keyed `<For>` tears its DOM down per frame, and every
+   *  per-row binding re-runs for every row for a one-character change in one row.
+   *  Declared, an array whose elements carry the field is diffed BY IT: a repeated
+   *  frame notifies NOTHING and a reorder MOVES the objects a keyed view follows.
+   *
+   *  ONE field per member, because `reconcile` takes one. It reaches EVERY array in
+   *  the value, at every depth; arrays whose elements do not carry the field are
+   *  merged by POSITION — the declared reach of the key, not a fallback around it
+   *  (again `./solid/writeValue.ts`). So name the field that identifies the arrays
+   *  whose identity a consumer actually follows, and read the rest by value.
+   *
+   *  NAME A FIELD THE SCHEMA TYPES REQUIRED AND NON-NULLABLE. The merge decides
+   *  keyed-versus-positional for a whole array from its FIRST element's value, so
+   *  an optional field lets one row decide for every other row in that frame. It
+   *  cannot corrupt anything — an object survives a position only when its key
+   *  matches the one already there, so a mismatch replaces rather than recycles —
+   *  but it silently drops that frame back to the undeclared behaviour, which is
+   *  the whole thing you came here to stop. The schema is where that is made
+   *  unrepresentable; the merge sees values, not schemas.
+   *
+   *  DECLARED HERE and nowhere else: it is a fact about the member's SHAPE, so the
+   *  spec is the one place both sides can read it from — the descriptor carries it
+   *  to the client hook, and no `.use()` call site can spell it, override it, or
+   *  disagree with another call site about it.
+   *
+   *  It is NOT a `CollectionSpec.keySchema`: that is the dictionary key a
+   *  collection's entries are FILED under, on the wire and in the store; this
+   *  names a field INSIDE one value. A collection declares BOTH — see
+   *  {@link CollectionSpec.arrayKey}. */
+  arrayKey?: string;
 }
 
 export interface CollectionSpec<K = unknown, T = unknown, TPolicy = never> {
@@ -279,11 +315,41 @@ export interface CollectionSpec<K = unknown, T = unknown, TPolicy = never> {
    *  that always moves). It does NOT gate an authored collection's `upsert` publish;
    *  it is the derived reconciler's diff predicate. */
   equals?: (a: T, b: T) => boolean;
+  /** What identifies an element of an array inside ONE ENTRY'S VALUE — the
+   *  collection sibling of {@link CellSpec.arrayKey}, which argues the whole
+   *  thing. Distinct from {@link keySchema} in the way an entry is distinct from
+   *  what is in it: `keySchema` types the dictionary key an entry is FILED under,
+   *  on the wire and in the store; this names a field inside the value filed
+   *  there.
+   *
+   *  WHICH DELIVERY APPLIES IT, precisely, because a collection has two and they
+   *  are chosen per CALL SITE, not per collection:
+   *
+   *    - the PER-KEY path — `.use({ keys })`, and any collection whose verbs omit
+   *      `deltas` — opens one subscription per key through the same
+   *      `createSubscription` seam a cell uses, so the merge is the same merge and
+   *      the declaration governs it exactly as it governs a cell's.
+   *    - the BATCHED `deltas` path replaces each named leaf WHOLE rather than
+   *      merging into it, and must: a `fold` consumer may be holding the very
+   *      object a merge would mutate, so from that store's point of view a frame
+   *      handed onward is frozen. There is no merge there for a key to govern.
+   *
+   *  So a `deltas`-declaring collection may still declare this and mean it — the
+   *  narrowed `.use({ keys })` on that same collection is served per-key and will
+   *  honour it. What the batched path does is a property of that delivery, stated
+   *  where the delivery is, not a declaration silently dropped. */
+  arrayKey?: string;
 }
 
 export interface StreamSpec<I = unknown, T = unknown> {
   inputSchema: WireSchema<I>;
   outputSchema: WireSchema<T>;
+  /** What identifies an element of an array inside this stream's frames — see
+   *  {@link CellSpec.arrayKey}, which argues the whole thing. A stream is where it
+   *  pays most: a stream re-answers one question on every revision, so an
+   *  undeclared frame that repeats itself is the per-keystroke teardown that
+   *  finding names. */
+  arrayKey?: string;
 }
 
 export interface EventSpec<I = unknown, T = unknown> {
@@ -1334,6 +1400,7 @@ function buildSurface(
       name: key,
       schema: s.schema,
       default: s.default,
+      arrayKey: s.arrayKey,
     });
   }
   for (const [key, s] of Object.entries(spec.collections ?? {})) {
@@ -1341,6 +1408,7 @@ function buildSurface(
       name: key,
       keySchema: s.keySchema,
       schema: s.schema,
+      arrayKey: s.arrayKey,
     });
   }
   for (const [key, s] of Object.entries(spec.streams ?? {})) {
@@ -1348,6 +1416,7 @@ function buildSurface(
       name: key,
       inputSchema: s.inputSchema,
       outputSchema: s.outputSchema,
+      arrayKey: s.arrayKey,
     });
   }
   for (const [key, s] of Object.entries(spec.events ?? {})) {

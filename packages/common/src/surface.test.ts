@@ -15,6 +15,7 @@ import {
   DaemonInventorySchema,
   DEFAULT_PREFERENCES,
   type KoluForward,
+  koluSurface,
   KoluForwardSchema,
   PadiConvergenceSchema,
   type Preferences,
@@ -346,5 +347,18 @@ describe("sameForwards — the forwards cell's dedup gate", () => {
       ),
     ).toBe(true);
     expect(sameForwards([ROW], [ROW, ROW])).toBe(false);
+  });
+});
+
+describe("the forwards cell declares what identifies a row", () => {
+  it("names a field the forward schema actually carries", () => {
+    // The declaration and the field it names live in two places, and a rename of
+    // one silently orphans the other: an `arrayKey` no element carries reads as
+    // "no identity declared" at the merge, so every row would go back to being
+    // replaced per frame with nothing red anywhere. Pinned against the schema, so
+    // the rename has to come here.
+    const declared = koluSurface.spec.cells.forwards.arrayKey;
+    expect(declared).toBe("key");
+    expect(Object.keys(KoluForwardSchema.fields)).toContain(declared);
   });
 });

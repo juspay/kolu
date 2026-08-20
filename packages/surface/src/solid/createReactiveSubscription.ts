@@ -36,10 +36,22 @@ export interface ReactiveSubscriptionOptions {
   onError?: (err: Error) => void;
 }
 
+/** `arrayKey` is the member's DECLARED array identity (see `./writeValue.ts`),
+ *  and it is spelled INLINE here rather than as a named type extending
+ *  {@link ReactiveSubscriptionOptions}, because the widening has exactly one call
+ *  site and a name for it would be a concept nothing else can use.
+ *
+ *  It stays OFF `ReactiveSubscriptionOptions` — the type `useStream` and
+ *  `BoundStream.use` expose to a call site — because the answer belongs to the
+ *  member's definition, not to whoever happens to be reading it; `useStream`
+ *  threads it from the descriptor, so no `.use()` caller can spell it, override
+ *  it, or disagree with another about it. A caller driving a RAW stream through
+ *  this primitive has no descriptor to inherit from and is itself the declaration
+ *  site, which is why it is spellable at this layer at all. */
 export function createReactiveSubscription<I, T>(
   inputFn: () => I | null,
   factory: (input: I) => Stream.Stream<T, unknown>,
-  options?: ReactiveSubscriptionOptions,
+  options?: ReactiveSubscriptionOptions & { arrayKey?: string },
 ): Subscription<T> {
   const [store, setStore] = createStore<{ v: T | undefined }>({ v: undefined });
   const [error, setError] = createSignal<Error | undefined>();
@@ -76,7 +88,7 @@ export function createReactiveSubscription<I, T>(
           onFrame: (item) =>
             batch(() => {
               tracker.noteFrame(item);
-              writeWrappedValue(setStore, item);
+              writeWrappedValue(setStore, item, options?.arrayKey);
               setPending(false);
               // No clear-on-frame branch for the ERROR: a failure is the fiber's EXIT,
               // so no frame can follow one on the same subscription (see
@@ -103,6 +115,7 @@ export function createReactiveSubscription<I, T>(
     pending,
     complete,
     updated: tracker.updated,
+    changed: tracker.changed,
   }) as Subscription<T>;
 
   // Route `onError` through the SAME EDGE effect every other subscription uses, by

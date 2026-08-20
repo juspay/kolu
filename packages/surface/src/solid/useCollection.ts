@@ -108,7 +108,12 @@ export function useCollection<Name extends string, K, T, I>(
         // subscription one way (kolu#2101 J2).
         label: `${collDescriptor.name}[${String(key)}]`,
       }),
-      { onError: options.onError },
+      // The member's DECLARED array identity, off the descriptor — this path
+      // merges an entry's value through the same seam a cell's goes through, so
+      // it honours the declaration the same way. (The batched `deltas` path
+      // replaces leaves whole and has no merge to govern; see
+      // `CollectionSpec.arrayKey`.)
+      { onError: options.onError, arrayKey: collDescriptor.arrayKey },
     );
     // Enrol this per-key sub into the client health registry (when wired). Runs
     // in the per-key owner, so the registry's `onCleanup` drop fires on the same
