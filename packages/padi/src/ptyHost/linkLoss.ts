@@ -177,7 +177,6 @@ export function startLinkLossHealer(deps: {
    *  is a link that can be lost again, and the next loss is this same incident
    *  class. */
   let everConnected = false;
-  const isConnected = (): boolean => published() === "connected";
   /** Did the last attempt re-make the link and then fail to finish the work that
    *  rides on it? The `incomplete` verdict's memory, and the only thing that
    *  keeps this loop alive across a `connected` it does not trust: every other
@@ -241,7 +240,9 @@ export function startLinkLossHealer(deps: {
     // the endpoint back to `connected`, so gating on `degraded` alone would drop
     // the retry the `incomplete` verdict exists to ask for, and leave a
     // connected padi whose terminals nothing is watching.
-    return published() === "degraded" || (unfinished && isConnected());
+    return (
+      published() === "degraded" || (unfinished && published() === "connected")
+    );
   };
 
   /** ONE re-converge. Never rejects: the loop owns the retry, so a failed
