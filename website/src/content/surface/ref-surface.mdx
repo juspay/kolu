@@ -545,8 +545,8 @@ const view = client.collections.entries.use();
 
 const index = view.fold({
   // A full-set frame: the wire's first frame, every reconnect snapshot, and the
-  // synthetic snapshot a fold registered mid-stream is seeded with. Entries are in
-  // arrival order.
+  // seeding a fold registered mid-stream is given. Entries are the client store's
+  // own values, in its arrival order — the same objects `byKey` reads.
   init: (entries) => buildIndex(entries),
   // One coalesced delta frame — the wire's own `{ upserts, removes }`, unchanged.
   step: (held, { upserts, removes }) => patch(held, { upserts, removes }),
@@ -562,10 +562,11 @@ never sees inside the accumulator.
 | --- | --- |
 | Snapshot | RE-INITIALIZES every registered fold (`acc = init(entries)`), after the store applies it. First-connect and reconnect are the same event to a fold; it never classifies a frame. |
 | Registering mid-stream | Seeded SYNCHRONOUSLY from the held store, so arriving late is indistinguishable from a reconnect. Registered while `pending()`, the accessor reads `undefined` until the real snapshot lands. |
+| What `init` is handed | The CLIENT STORE's own values, in its arrival order — the same objects `byKey` reads — for every full-set frame, wire snapshot included. Never the wire's entries directly: the store's snapshot write is VALUE-diffed, so an entry a reconnect re-serialized unchanged keeps the object already held and the fresh copy is dropped. Seeding from the wire would hand a fold objects the store refused, and make what `init` receives depend on WHEN the fold registered. |
 | `undefined` | Means exactly one thing: there is no valid accumulator. That is the state before the first snapshot, and the state a throwing `init` / `step` returns the fold to until the next snapshot re-seeds it. |
 | Removes of unknown keys | Delivered VERBATIM. The server's tick coalescer resolves an upsert-then-remove within one producer tick to a bare remove, so `step` MUST be total over a remove of a key it never saw. The framework does not filter it — that would be swallowing part of the frame. |
 | Ordering | assert keys → apply to the store → notify the folds → clear `pending`, all in one tick. A `step` that reads `byKey` sees state consistent with the frame it holds. |
-| Aliasing | `step` receives the wire's decoded frame objects, which the store adopts by REPLACEMENT — neither side ever mutates them, so a fold may retain them without cloning. |
+| Aliasing | `step` receives the wire's decoded frame objects and `init` receives the store's held ones; the store adopts a value by REPLACEMENT and neither side ever mutates one, so a fold may retain either without cloning. A fold that keeps what `init` gave it holds the very objects `byKey` serves, not a second copy of them. |
 | Errors | The batched stream's error is collection-wide and terminal. Fold accessors keep their last value, frozen — exactly `byKey`'s behaviour — and the failure surfaces through the shared `error()` / `onError` / health enrolment. A throwing `init` / `step` is a different matter: it is contained to its own fold and reported loudly (never killing the stream, the store, or another fold), and it INVALIDATES that fold's accumulator — later deltas have no valid base to land on, so the accessor returns to `undefined` rather than reading live while frozen forever. |
 | Teardown | `fold()` must be called under a reactive owner; the registration is dropped by that owner's `onCleanup`. Called ownerless it THROWS, rather than minting an accumulator nothing can drop. |
 

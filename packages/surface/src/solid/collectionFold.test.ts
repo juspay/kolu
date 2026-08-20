@@ -17,13 +17,16 @@
  *     upserted (the server's tick coalescer produces exactly that), because
  *     filtering it here would be the framework swallowing part of the frame again;
  *   - folds run AFTER the store write, in the same tick;
- *   - registering mid-stream is indistinguishable from a reconnect;
+ *   - registering mid-stream is indistinguishable from a reconnect, and both are
+ *     seeded with the CLIENT STORE's own objects — what a fold holds never depends
+ *     on when it registered;
  *   - a fold is owned: ownerless registration throws, and an owner's disposal drops
  *     it;
  *   - a throwing consumer callback is contained to its own fold.
  */
 
 import { createEffect, createRoot } from "solid-js";
+import { unwrap } from "solid-js/store";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionDelta, CollectionDeltasMsg } from "../define";
 import {
@@ -425,6 +428,106 @@ describe("the batched stream's own health — the un-enrolled reach's only chann
       fail(new Error("feed gone"));
       await settle();
       expect(view.stream.error()?.message).toMatch(/feed gone/);
+    });
+  });
+});
+
+describe("fold — a fold is seeded with the STORE's objects, whenever it registered", () => {
+  /** A fold that keeps the entries of every full-set frame it was handed, by
+   *  reference — the identity is the whole assertion here, so nothing is copied. */
+  function seedRecordingFold(view: UseCollectionDeltasResult<string, V>) {
+    const seeds: ReadonlyArray<readonly [string, V]>[] = [];
+    view.fold<number>({
+      init: (entries) => {
+        seeds.push(entries);
+        return entries.length;
+      },
+      step: (n) => n,
+    });
+    return seeds;
+  }
+
+  /** What `byKey` reads, past the store's read proxy — the object the store HOLDS,
+   *  which is what a fold is handed and what the proxy is a view of. */
+  const heldValue = (
+    view: UseCollectionDeltasResult<string, V>,
+    key: string,
+  ): V => unwrap(view.byKey(key)?.() as V);
+
+  it("a wire snapshot seeds init with the values byKey reads, not the wire's own", async () => {
+    await drive(async ({ view, push }) => {
+      const seeds = seedRecordingFold(view);
+      push({
+        kind: "snapshot",
+        entries: [
+          ["a", { n: 1 }],
+          ["b", { n: 2 }],
+        ],
+      });
+      await settle();
+      expect(seeds[0]?.map(([k]) => k)).toEqual(["a", "b"]);
+      for (const [k, v] of seeds[0] ?? []) expect(v).toBe(heldValue(view, k));
+    });
+  });
+
+  it("a reconnect that re-serializes an equal value seeds the object already HELD", async () => {
+    // The sharp arm. `applySnapshot` is value-diffed, so an entry the wire re-sent
+    // unchanged keeps the object the store already had and the wire's fresh copy is
+    // dropped. Seeding folds from `msg.entries` handed them that dropped copy —
+    // objects `byKey` would never return, and a second set of them per link flap.
+    await drive(async ({ view, push }) => {
+      const seeds = seedRecordingFold(view);
+      push({ kind: "snapshot", entries: [["a", { n: 1 }]] });
+      await settle();
+      const firstConnect = heldValue(view, "a");
+
+      // A link flap: the same content, freshly decoded into a different object.
+      const reSerialized = { n: 1 };
+      push({
+        kind: "snapshot",
+        entries: [
+          ["a", reSerialized],
+          ["b", { n: 2 }],
+        ],
+      });
+      await settle();
+
+      expect(seeds).toHaveLength(2);
+      const [aKey, aValue] = seeds[1]?.[0] as readonly [string, V];
+      expect(aKey).toBe("a");
+      expect(aValue).toBe(firstConnect); // the store's object, kept across the flap
+      expect(aValue).not.toBe(reSerialized); // NOT the copy the store discarded
+      // The entry the flap really did change is the wire's new object — because the
+      // store adopted it. Same rule, not an exception to it.
+      for (const [k, v] of seeds[1] ?? []) expect(v).toBe(heldValue(view, k));
+    });
+  });
+
+  it("registering mid-stream hands over the SAME objects a fold alive across the snapshot got", async () => {
+    await drive(async ({ view, push }) => {
+      const early = seedRecordingFold(view);
+      push({
+        kind: "snapshot",
+        entries: [
+          ["a", { n: 1 }],
+          ["b", { n: 2 }],
+        ],
+      });
+      await settle();
+
+      // Its OWN root: this runs after an `await`, and Solid does not carry an
+      // ambient owner across one (see the mid-stream suite above).
+      let late: ReadonlyArray<readonly [string, V]>[] = [];
+      const disposeConsumer = createRoot((d) => {
+        late = seedRecordingFold(view);
+        return d;
+      });
+      expect(late[0]).toEqual(early[0]);
+      expect(late[0]?.map(([, v]) => v)).toEqual(early[0]?.map(([, v]) => v));
+      for (const [i, [, v]] of (late[0] ?? []).entries()) {
+        expect(v).toBe(early[0]?.[i]?.[1]); // identical objects, not merely equal
+      }
+      disposeConsumer();
     });
   });
 });
