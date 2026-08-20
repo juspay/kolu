@@ -48,8 +48,9 @@ group. For why these four and not one, see
 
 ### Declaring array identity — `arrayKey`
 
-A `CellSpec` or a `StreamSpec` may declare **`arrayKey?: string`** — the field
-that identifies an element of an array **inside** that member's value.
+A `CellSpec`, a `StreamSpec` or a `CollectionSpec` may declare
+**`arrayKey?: string`** — the field that identifies an element of an array
+**inside** that member's value (for a collection, inside one entry's value).
 
 It exists because `solid-js/store`'s `reconcile` cannot be told this anywhere
 else, and a framework merging arbitrary app payloads must not guess it (see
@@ -69,9 +70,13 @@ Three things it is not:
 
 - **Not a `CollectionSpec.keySchema`.** That is the dictionary key a collection's
   entries are filed under, on the wire and in the store; `arrayKey` names a field
-  inside one value. A collection has no `arrayKey` at all — its per-key leaves are
-  replaced whole rather than merged, so a `fold` consumer's held object can never
-  mutate under it.
+  inside one value. A collection declares both, and which of its two deliveries
+  applies the `arrayKey` is decided **per call site**: the per-key path
+  (`.use({ keys })`, and any collection whose verbs omit `deltas`) merges an
+  entry's value through the same seam a cell's goes through, so it honours the
+  declaration; the batched `deltas` path replaces each named leaf whole rather
+  than merging — a `fold` consumer may be holding that very object — so there is
+  no merge there for a key to govern.
 - **Not per-array.** One field per member, because `reconcile` takes one, and it
   reaches every array in the value at every depth. Arrays whose elements do not
   carry the field are merged by POSITION — the declared reach of the key, not a
@@ -535,8 +540,9 @@ every row for a one-character change in one row. A cell or stream that declares
 a repeated frame notifies nothing, and a reorder MOVES the objects a keyed view is
 following. A `deltas` collection's keyed dictionary is not merged here at all — its
 hook owns a store and writes the keys a frame NAMES, replacing each leaf whole so
-an entry a `fold` consumer is holding never mutates under it, and it therefore
-takes no `arrayKey`. `surfaceClients(transport, map)`
+an entry a `fold` consumer is holding never mutates under it; a collection's
+PER-KEY delivery does come through this merge, and honours the same declaration.
+`surfaceClients(transport, map)`
 splits one combined transport into a sibling client per surface — each built over
 a **tag-scoped** dispatch, so the face mints standalone tags and the wrapper
 splices the sibling key in, landing on exactly the tags `implementSurfaces` bound.

@@ -282,9 +282,8 @@ export interface CellSpec<T = unknown, P = T, TPolicy = never> {
    *
    *  It is NOT a `CollectionSpec.keySchema`: that is the dictionary key a
    *  collection's entries are FILED under, on the wire and in the store; this
-   *  names a field INSIDE one value. A collection has no `arrayKey` at all — its
-   *  per-key leaves are replaced whole rather than merged, deliberately, because a
-   *  fold may be holding the very object a merge would mutate. */
+   *  names a field INSIDE one value. A collection declares BOTH — see
+   *  {@link CollectionSpec.arrayKey}. */
   arrayKey?: string;
 }
 
@@ -307,6 +306,30 @@ export interface CollectionSpec<K = unknown, T = unknown, TPolicy = never> {
    *  that always moves). It does NOT gate an authored collection's `upsert` publish;
    *  it is the derived reconciler's diff predicate. */
   equals?: (a: T, b: T) => boolean;
+  /** What identifies an element of an array inside ONE ENTRY'S VALUE — the
+   *  collection sibling of {@link CellSpec.arrayKey}, which argues the whole
+   *  thing. Distinct from {@link keySchema} in the way an entry is distinct from
+   *  what is in it: `keySchema` types the dictionary key an entry is FILED under,
+   *  on the wire and in the store; this names a field inside the value filed
+   *  there.
+   *
+   *  WHICH DELIVERY APPLIES IT, precisely, because a collection has two and they
+   *  are chosen per CALL SITE, not per collection:
+   *
+   *    - the PER-KEY path — `.use({ keys })`, and any collection whose verbs omit
+   *      `deltas` — opens one subscription per key through the same
+   *      `createSubscription` seam a cell uses, so the merge is the same merge and
+   *      the declaration governs it exactly as it governs a cell's.
+   *    - the BATCHED `deltas` path replaces each named leaf WHOLE rather than
+   *      merging into it, and must: a `fold` consumer may be holding the very
+   *      object a merge would mutate, so from that store's point of view a frame
+   *      handed onward is frozen. There is no merge there for a key to govern.
+   *
+   *  So a `deltas`-declaring collection may still declare this and mean it — the
+   *  narrowed `.use({ keys })` on that same collection is served per-key and will
+   *  honour it. What the batched path does is a property of that delivery, stated
+   *  where the delivery is, not a declaration silently dropped. */
+  arrayKey?: string;
 }
 
 export interface StreamSpec<I = unknown, T = unknown> {
@@ -1376,6 +1399,7 @@ function buildSurface(
       name: key,
       keySchema: s.keySchema,
       schema: s.schema,
+      arrayKey: s.arrayKey,
     });
   }
   for (const [key, s] of Object.entries(spec.streams ?? {})) {

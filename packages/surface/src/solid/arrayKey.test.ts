@@ -44,6 +44,17 @@ const surface = defineSurface({
       verbs: ["get"],
     },
   },
+  collections: {
+    /** A collection whose ENTRY VALUE carries rows. Its per-key delivery merges
+     *  that value through the same seam a cell's goes through, so it declares the
+     *  same thing. No `deltas` verb, so `.use()` is the per-key path. */
+    boards: {
+      keySchema: Schema.String,
+      schema: Reading,
+      verbs: ["keys", "get"],
+      arrayKey: "key",
+    },
+  },
   streams: {
     /** The member the downstream report is about: one page, re-answered per
      *  revision, rows identified by `key`. */
@@ -87,7 +98,12 @@ function stubDispatch() {
   };
   const dispatch: SurfaceDispatch = {
     unary: (tag) => Effect.fail(new Error(`no member served at "${tag}"`)),
-    stream: (tag) => Stream.suspend(() => feed(tag).source),
+    stream: (tag) =>
+      // The collection's `keys` stream answers a fixed one-key set; every other
+      // tag is a per-member value feed the test pushes into.
+      tag === "surface/boards/keys"
+        ? (Stream.make(["b1"]) as unknown as Stream.Stream<Reading, unknown>)
+        : Stream.suspend(() => feed(tag).source),
   };
   return { dispatch, feed };
 }
@@ -100,6 +116,31 @@ describe("a declared arrayKey reaches the store it is declared for", () => {
     expect(surface.descriptors.cells.plain.arrayKey).toBeUndefined();
     expect(surface.descriptors.streams.page.arrayKey).toBe("key");
     expect(surface.descriptors.streams.plainPage.arrayKey).toBeUndefined();
+    expect(surface.descriptors.collections.boards.arrayKey).toBe("key");
+  });
+
+  it("governs a COLLECTION's PER-KEY merge — the seam a cell's value goes through", async () => {
+    // The path lowy's review found the first cut had foreclosed: an entry's value
+    // is merged by `createSubscription`/`writeWrappedValue`, exactly as a cell's
+    // is, so the same declaration governs it. (The batched `deltas` path replaces
+    // leaves whole and has no merge to govern — see `CollectionSpec.arrayKey`.)
+    const { dispatch, feed } = stubDispatch();
+    await createRoot(async (dispose) => {
+      const app = surfaceClient(surface, dispatch);
+      const boards = app.collections.boards.use();
+      await flush();
+      const value = boards.byKey("b1");
+      if (value === undefined) throw new Error("no per-key subscription");
+      feed("surface/boards/get").push(readingOf(["a", "b"]));
+      await flush();
+      const first = [...(unwrap(value()) as Reading).rows];
+      feed("surface/boards/get").push(readingOf(["a", "b"]));
+      await flush();
+      const second = [...(unwrap(value()) as Reading).rows];
+      expect(second[0]).toBe(first[0]);
+      expect(second[1]).toBe(first[1]);
+      dispose();
+    });
   });
 
   it("governs a STREAM's merge — a repeated frame keeps every row object", async () => {

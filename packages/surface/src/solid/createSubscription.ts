@@ -318,6 +318,31 @@ function framesEqualOnPath(a: unknown, b: unknown, pairing: Pairing): boolean {
   }
 }
 
+/** Fan a frame out to one channel's subscribers, guarded per handler.
+ *
+ *  The guard is the point, and it is why both channels come through here rather
+ *  than writing the loop twice: one consumer's throwing callback must not abort
+ *  fan-out to the others, and — critically for a SHARED subscription behind the
+ *  keyed cache — must not escape into the stream-consume `catch`, where it would
+ *  be misreported as an upstream stream error and terminate the iterator for
+ *  EVERY cached consumer. Report loudly, keep going. `label` names the channel in
+ *  that report, so a thrown handler is traceable to the verb it was registered
+ *  under. The set is copied before iterating, so a handler that unsubscribes
+ *  itself (or a sibling) mid-fan-out cannot perturb the walk. */
+function notifyAll<A extends unknown[]>(
+  handlers: ReadonlySet<(...args: A) => void>,
+  args: A,
+  label: string,
+): void {
+  for (const h of [...handlers]) {
+    try {
+      h(...args);
+    } catch (err) {
+      console.error(`subscription \`${label}\` handler threw`, err);
+    }
+  }
+}
+
 /** The change-iff-fired half of the Dynamic, as a standalone tracker so BOTH
  *  subscription factories share ONE implementation of the law (only the value
  *  type differs). `lastSeen` is tracked from the very first frame — independent
@@ -378,32 +403,18 @@ export function createUpdatedTracker<V>(): {
       // the whole reason that channel exists. (`framesEqual` above ran on the
       // pre-write values, so the baseline compare is unaffected by the mutation.)
       if (handlers.size > 0) {
-        const change: CellChange<V> = {
-          prev: structuredClone(prev),
-          next: structuredClone(next),
-        };
-        // Guard each handler: one consumer's throwing `updated` callback must not
-        // abort fan-out to the others, and — critically for a SHARED subscription
-        // behind the keyed cache — must not escape into the stream-consume `catch`,
-        // where it would be misreported as an upstream stream error and terminate
-        // the iterator for EVERY cached consumer. Report loudly, keep going.
-        for (const h of [...handlers]) {
-          try {
-            h(change);
-          } catch (err) {
-            console.error("subscription `updated` handler threw", err);
-          }
-        }
+        notifyAll(
+          handlers,
+          [
+            {
+              prev: structuredClone(prev),
+              next: structuredClone(next),
+            } satisfies CellChange<V>,
+          ],
+          "updated",
+        );
       }
-      // The payload-free channel, guarded for the same reason and reported under
-      // its own name so a thrown handler is traceable to the channel it came from.
-      for (const h of [...factHandlers]) {
-        try {
-          h();
-        } catch (err) {
-          console.error("subscription `changed` handler threw", err);
-        }
-      }
+      notifyAll(factHandlers, [], "changed");
     },
     updated(handler) {
       handlers.add(handler);

@@ -71,12 +71,17 @@ export interface Collection<Name extends string, K, T> {
   readonly name: Name;
   readonly keySchema: DescriptorSchema<K>;
   readonly schema: DescriptorSchema<T>;
+  /** The field that identifies an element of an array inside ONE ENTRY'S value —
+   *  see `CollectionSpec.arrayKey` in `./define.ts`, which says which of a
+   *  collection's two delivery paths applies it, and {@link Cell.arrayKey}. */
+  readonly arrayKey?: string;
 }
 
 export function collection<Name extends string, K, T>(opts: {
   name: Name;
   keySchema: DescriptorSchema<K>;
   schema: DescriptorSchema<T>;
+  arrayKey?: string;
 }): Collection<Name, K, T> {
   return { kind: "collection", ...opts };
 }
