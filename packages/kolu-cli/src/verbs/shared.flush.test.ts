@@ -91,9 +91,11 @@ describe("the live-feed pump over a real pipe(2)", () => {
  *  only a shell pipeline that exits with `head`, so they stay ungated and keep
  *  running in the ordinary unit lane.
  *
- *  Splitting the file this way is deliberate: gating the WHOLE file would take
- *  the promptness pins out of every CI run, since there is no daemon lane in
- *  the pipeline today. */
+ *  Splitting the file this way is deliberate. Both lanes are real — `ci::unit`
+ *  runs the ungated pins and `ci::daemon` runs all four — so the split is not
+ *  about reaching CI; it is about what a BARE `vitest` may fork. A developer
+ *  running the unit lane on a workstation beside a live kolu gets the
+ *  promptness pins and none of the forks that OOM-reaped a production daemon. */
 describeDaemon("the live-feed pump under a consumer that stops reading", () => {
   afterEach(reapChildren);
 
