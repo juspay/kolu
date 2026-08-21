@@ -238,6 +238,18 @@ async function* attachFrames(
   for await (const frame of deltas) yield frame;
 }
 
+/** The way OUT of a never-match scope, in the WIRE's own grammar. The
+ *  constructor states the invariant ("this watch can never match anything") and
+ *  stops there — deliberately, so each face can say the remedy in the grammar
+ *  its caller actually types. padi's own two entries are that face here, and
+ *  they differ in exactly ONE word: a live stream narrows with `id`, a standing
+ *  subscription with `ids`. Written out twice, the two sentences had already
+ *  drifted by more than that word. */
+const scopeRefused = (message: string, idField: "id" | "ids"): Error =>
+  new Error(
+    `${message} Omit \`${idField}\` to watch the whole fleet, or drop it from \`ignoreIds\`.`,
+  );
+
 /** The DAEMON-LIFETIME teardown for everything `buildPadiSurfaceDeps` stands up
  *  and keeps running past its own return: the finish-quiet tracker (its kaval
  *  activity subscription) and the attention flow (the settle-event source, the
@@ -628,11 +640,7 @@ export function buildPadiSurfaceDeps(deps: {
           // sentence — `watchSpecOf` hands the refusal back as a value, so the
           // stream edge is the one place a throw happens.
           const spec = watchSpecOf(input);
-          if (spec.kind === "error") {
-            throw new Error(
-              `${spec.message} Omit \`id\` to watch the whole fleet, or drop it from \`ignoreIds\`.`,
-            );
-          }
+          if (spec.kind === "error") throw scopeRefused(spec.message, "id");
           return stateWatchSource(stateWatch, spec.value, log);
         },
       },
@@ -706,8 +714,12 @@ export function buildPadiSurfaceDeps(deps: {
                 : { mute: input.ignoreIds }),
             });
             if (scope.kind === "error") {
+              // The NAME is prefixed here and only here: this is the entry that
+              // has one in hand, and a caller with several standing
+              // subscriptions must be told which one it just refused.
+              const refused = scopeRefused(scope.message, "ids");
               throw new Error(
-                `standing subscription "${input.name}": ${scope.message} Omit \`ids\` to watch the whole fleet, or drop it from \`ignoreIds\`.`,
+                `standing subscription "${input.name}": ${refused.message}`,
               );
             }
             const { sub, reattached } = watchRegistry.open(input.name, {

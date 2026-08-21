@@ -12,6 +12,7 @@ import type { PadiStateEvent } from "../surface.ts";
 import {
   frame,
   makeAgent,
+  scopeOf,
   settled,
   silentLogger,
   stateWatchHarness,
@@ -23,7 +24,7 @@ import type {
   StateWatchSpec,
 } from "./stateWatch.ts";
 import { createWatchRegistry, type WatchRegistry } from "./watchRegistry.ts";
-import { type WatchScope, watchScopeOf } from "./watchScope.ts";
+import type { WatchScope } from "./watchScope.ts";
 import { specOf } from "./watchSpec.ts";
 
 let seq = 0;
@@ -41,19 +42,6 @@ const event = (
  *  i.e. the daemon's real high-water mark, which is what the stale-cursor guard
  *  checks an acknowledgement against. A test that wants to model a cursor from a
  *  PREVIOUS daemon generation overrides it. */
-/** The scope a caller states, built through the ONE constructor — so these pins
- *  exercise the same value `servePadi` hands the registry, not a hand-shaped
- *  look-alike. The never-match refusals it raises are pinned in
- *  `watchScope.test.ts`, where the constructor lives. */
-const scopeOf = (opts: {
-  ids?: readonly TerminalId[];
-  mute?: readonly TerminalId[];
-}): WatchScope => {
-  const scope = watchScopeOf(opts);
-  if (scope.kind === "error") throw new Error(scope.message);
-  return scope.value;
-};
-
 const registry = (
   opts: {
     limit?: number;

@@ -10,17 +10,12 @@
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
+import { scopeOf as okScope } from "./attentionFixture.testlib.ts";
 import { scopeAdmits, WATCH_SCOPE_ALL, watchScopeOf } from "./watchScope.ts";
 
 const SELF = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
 const LANE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as TerminalId;
 const GONE = "cccccccc-cccc-4ccc-8ccc-cccccccccccc" as TerminalId;
-
-const okScope = (opts: Parameters<typeof watchScopeOf>[0]) => {
-  const scope = watchScopeOf(opts);
-  if (scope.kind === "error") throw new Error(scope.message);
-  return scope.value;
-};
 
 describe("watchScopeOf — the only constructor", () => {
   it("OMITS both halves for a fleet-wide watch rather than carrying an explicit undefined", () => {

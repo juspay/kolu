@@ -7,19 +7,14 @@
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
-import { WATCH_SCOPE_ALL, watchScopeOf } from "./watchScope.ts";
+import { scopeOf as okScope } from "./attentionFixture.testlib.ts";
+import { WATCH_SCOPE_ALL } from "./watchScope.ts";
 import {
   namesWatchKnobs,
   specOf,
   watchFilterOf,
   watchSpecOf,
 } from "./watchSpec.ts";
-
-const okScope = (opts: Parameters<typeof watchScopeOf>[0]) => {
-  const scope = watchScopeOf(opts);
-  if (scope.kind === "error") throw new Error(scope.message);
-  return scope.value;
-};
 
 const okSpec = (input: Parameters<typeof watchSpecOf>[0]) => {
   const spec = watchSpecOf(input);

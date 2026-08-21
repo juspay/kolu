@@ -14,53 +14,21 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+// The loader and the line reader are this package's own, from the testlib the
+// e2e pins already share — a second derivation of either is a second thing to
+// keep true.
+import { readTerminatedLine, TSX_LOADER } from "../e2eDaemon.testlib.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const TSX_LOADER = pathToFileURL(
-  createRequire(import.meta.url).resolve("tsx"),
-).href;
 const FIXTURE = resolve(here, "stdoutPump.fixture.ts");
 
 /** The fixture behind a shell pipeline, so the consumer is a real process on
  *  the other end of a pipe(2) rather than a Node `data` listener. */
 const pipeline = (flags: string, consumer: string): string =>
   `${JSON.stringify(process.execPath)} --import ${JSON.stringify(TSX_LOADER)} ${JSON.stringify(FIXTURE)} ${flags} | ${consumer}`;
-
-/** Read one terminated line from a pipe, or fail naming the unterminated bytes
- *  we did get — that is the lag, not a timeout with no diagnosis. */
-function readTerminatedLine(
-  stream: NodeJS.ReadableStream,
-  ms: number,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let buf = "";
-    const onData = (chunk: string | Buffer): void => {
-      buf += typeof chunk === "string" ? chunk : chunk.toString("utf8");
-      const nl = buf.indexOf("\n");
-      if (nl === -1) return;
-      cleanup();
-      resolve(buf.slice(0, nl + 1));
-    };
-    const t = setTimeout(() => {
-      cleanup();
-      reject(
-        new Error(
-          `no terminated line in ${ms}ms; unterminated bytes: ${JSON.stringify(buf)}`,
-        ),
-      );
-    }, ms);
-    const cleanup = (): void => {
-      clearTimeout(t);
-      stream.off("data", onData);
-    };
-    stream.setEncoding("utf8");
-    stream.on("data", onData);
-  });
-}
 
 describe("the live-feed pump over a real pipe(2)", () => {
   const children: ChildProcess[] = [];

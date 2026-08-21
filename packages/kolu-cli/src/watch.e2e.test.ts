@@ -48,6 +48,7 @@ import {
   e2eRuntimeRoot,
   KOLU_MAIN,
   type Padi,
+  readTerminatedLine,
   reapPadi,
   sleep,
   spawnPadi,
@@ -455,24 +456,7 @@ describeDaemon("kolu watch — supervision, end to end", () => {
     if (head.stdout === null) {
       throw new Error("head spawned without a stdout pipe");
     }
-    const line = await new Promise<string>((resolve, reject) => {
-      let buf = "";
-      const t = setTimeout(() => {
-        reject(
-          new Error(
-            `head -1 saw no terminated snapshot in 8s; bytes: ${JSON.stringify(buf)}`,
-          ),
-        );
-      }, 8000);
-      head.stdout!.setEncoding("utf8");
-      head.stdout!.on("data", (chunk: string) => {
-        buf += chunk;
-        if (buf.includes("\n")) {
-          clearTimeout(t);
-          resolve(buf.slice(0, buf.indexOf("\n") + 1));
-        }
-      });
-    });
+    const line = await readTerminatedLine(head.stdout, 8000);
     expect(line.startsWith("\n")).toBe(false);
     expect(JSON.parse(line).kind).toBe("snapshot");
     watch.kill("SIGINT");
