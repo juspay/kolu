@@ -160,6 +160,7 @@ import { isValidTimerMs, timerRangeMessage } from "@kolu/surface/wait";
 import { isTerminalId, type TerminalId } from "@kolu/terminal-vocab/schema";
 import { type Cause, Effect, Fiber, Queue, Stream } from "effect";
 import type { Command } from "effect/unstable/cli";
+import { match } from "ts-pattern";
 // `import type` — fully erased, so this does NOT re-enter the command tree at
 // runtime and the per-face dynamic-import fence is untouched.
 import type { watchFlags } from "../cli.ts";
@@ -367,14 +368,20 @@ export function planIgnoreSelf(
   env: { readonly [key: string]: string | undefined } = process.env,
 ): Parsed<TerminalId | undefined> {
   if (!args.ignoreSelf) return { kind: "ok", value: undefined };
-  const self = containingTerminalId(env);
-  if (self.kind === "none") {
-    return { kind: "error", message: IGNORE_SELF_UNRESOLVABLE };
-  }
-  if (self.kind === "invalid") {
-    return { kind: "error", message: ignoreSelfInvalid(self.raw) };
-  }
-  return { kind: "ok", value: self.id };
+  // `returnType` once, rather than the same annotation on all three arms:
+  // the arms are the interesting part.
+  return match(containingTerminalId(env))
+    .returnType<Parsed<TerminalId | undefined>>()
+    .with({ kind: "none" }, () => ({
+      kind: "error",
+      message: IGNORE_SELF_UNRESOLVABLE,
+    }))
+    .with({ kind: "invalid" }, (self) => ({
+      kind: "error",
+      message: ignoreSelfInvalid(self.raw),
+    }))
+    .with({ kind: "ok" }, (self) => ({ kind: "ok", value: self.id }))
+    .exhaustive();
 }
 
 /** Is the terminal `--ignore-self` resolved to one this padi actually owns?
@@ -405,6 +412,16 @@ export function refuseSelfNotInFleet(
     : undefined;
 }
 
+/** One query's verdict, out of `resolveIgnoreQueries`' `match` below — pure
+ *  data, so the loop applies it rather than the `match` arms reaching out to
+ *  mutate `resolved`/`dropped` themselves. `exhaustive()` is the actual payoff:
+ *  a fourth `ResolveResult` arm fails the build here instead of silently
+ *  falling through. */
+type IgnoreQueryVerdict =
+  | { readonly action: "keep"; readonly id: TerminalId }
+  | { readonly action: "drop"; readonly query: string }
+  | { readonly action: "fail"; readonly message: string };
+
 /** Widen `--ignore` queries against the live roster. Unique prefixes become
  *  full ids; a query that matches nothing is kept if it is already a full id
  *  (stale mute, fail-open) and dropped otherwise (it could never match);
@@ -422,25 +439,37 @@ export function resolveIgnoreQueries(
   const resolved: TerminalId[] = [];
   const dropped: string[] = [];
   for (const query of queries) {
-    const result = resolveTerminalId(query, live);
-    if (result.kind === "found") {
-      resolved.push(result.id);
-      continue;
+    const verdict = match(resolveTerminalId(query, live))
+      .with(
+        { kind: "found" },
+        (result): IgnoreQueryVerdict => ({ action: "keep", id: result.id }),
+      )
+      .with(
+        { kind: "ambiguous" },
+        (result): IgnoreQueryVerdict => ({
+          // The sentence, and the match LIST, are `shared.ts`'s — the same words
+          // `--parent` and the subject id use. Only the no-match POLICY below is
+          // this flag's own.
+          action: "fail",
+          message: ambiguousTerminal(query, result.matches, "--ignore"),
+        }),
+      )
+      .with(
+        { kind: "none" },
+        (): IgnoreQueryVerdict =>
+          // keep a full id (inert at the engine); a prefix that named nobody
+          // cannot match a UUID on the wire, so drop it and tell the user —
+          // fail-open for the mute, not silent about a typo.
+          isTerminalId(query)
+            ? { action: "keep", id: query }
+            : { action: "drop", query },
+      )
+      .exhaustive();
+    if (verdict.action === "fail") {
+      return { kind: "error", message: verdict.message };
     }
-    if (result.kind === "ambiguous") {
-      // The sentence, and the match LIST, are `shared.ts`'s — the same words
-      // `--parent` and the subject id use. Only the no-match POLICY below is
-      // this flag's own.
-      return {
-        kind: "error",
-        message: ambiguousTerminal(query, result.matches, "--ignore"),
-      };
-    }
-    // none: keep a full id (inert at the engine); a prefix that named nobody
-    // cannot match a UUID on the wire, so drop it and tell the user — fail-open
-    // for the mute, not silent about a typo.
-    if (isTerminalId(query)) resolved.push(query);
-    else dropped.push(query);
+    if (verdict.action === "keep") resolved.push(verdict.id);
+    else dropped.push(verdict.query);
   }
   return { kind: "ok", value: { ids: resolved, dropped } };
 }
@@ -663,8 +692,12 @@ export function run(
         // Ctrl+C reaches this process as fiber interruption, and the generator
         // never resumes past the yield below — so a `clearInterval` written as a
         // straight-line statement after it is a disposer the primary ending
-        // skips. Closing the scope is what stops the timer.
+        // skips. Closing the scope is what stops the timer — `heartbeatTimer`
+        // below is an ADDITIONAL, narrower clear for the ordinary ending (see
+        // where it's read), not a replacement for this one; a second
+        // `clearInterval` on an already-cleared handle is a no-op.
         const heartbeatMs = plan.heartbeatMs;
+        let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
         if (heartbeatMs !== undefined) {
           const pulse = (): void => {
             offer(
@@ -674,7 +707,7 @@ export function run(
             );
           };
           pulse();
-          yield* Effect.acquireRelease(
+          heartbeatTimer = yield* Effect.acquireRelease(
             Effect.sync(() => setInterval(pulse, heartbeatMs).unref()),
             (timer) => Effect.sync(() => clearInterval(timer)),
           );
@@ -776,6 +809,15 @@ export function run(
         // reader that hangs up during the final flush can no longer erase a link
         // drop that had already happened.
         const selfSettled = !stopped.signal.aborted;
+
+        // Silence the pulse before the queue it feeds stops accepting offers:
+        // `Queue.end` moves `lines` past `"Open"`, and `Queue.offerUnsafe` on a
+        // non-`"Open"` queue returns `false` rather than throwing — a pulse that
+        // fires in the gap between `Queue.end` and the scope's finalizer (below,
+        // via `Fiber.join(pump)` and this generator returning) would vanish with
+        // nothing to say so. `heartbeatTimer` is undefined when `--heartbeat` was
+        // never asked.
+        if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
 
         // Stop producing and FLUSH what is already queued before leaving: a
         // `watch` that dropped its last lines on the way out is indistinguishable

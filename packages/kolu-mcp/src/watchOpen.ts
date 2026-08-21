@@ -35,6 +35,7 @@ import { readTerminalKeys } from "@kolu/padi/read";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
+import { match } from "ts-pattern";
 
 export const WatchOpenArgsSchema = Schema.Struct({
   ...PadiWatchOpenInputSchema.fields,
@@ -91,6 +92,18 @@ export type ParsedWatchOpen =
       readonly detail: Record<string, unknown>;
     };
 
+/** One verdict on `confirmInFleet`'s four-arm sum, out of the `match` below —
+ *  pure data, so the `mute.push`/`return` stays outside the arms. `exhaustive()`
+ *  is the actual payoff: a future fifth `FleetTerminal` arm fails the build here
+ *  instead of silently falling through to "muted". */
+type IgnoreSelfVerdict =
+  | { readonly kind: "muted"; readonly id: TerminalId }
+  | {
+      readonly kind: "error";
+      readonly message: string;
+      readonly detail: Record<string, unknown>;
+    };
+
 /** `live` is the padi's roster — the fleet the stamp is confirmed against. The
  *  caller reads it only when `ignoreSelf` was asked (every other id here is a
  *  full id off the wire), and passes it in so this half stays pure. */
@@ -107,29 +120,44 @@ export function resolveWatchOpenInput(
   if (ignoreSelf === true) {
     // All four arms of padi's one stamp sum, answered here — before the scope,
     // so a stray stamp is never reported as a never-match scope.
-    const found = confirmInFleet(containingTerminalId(env), live);
-    if (found.kind === "none") {
+    const verdict = match(confirmInFleet(containingTerminalId(env), live))
+      .with(
+        { kind: "none" },
+        (): IgnoreSelfVerdict => ({
+          kind: "error",
+          message: IGNORE_SELF_UNRESOLVABLE,
+          detail: { kind: "ignore-self-unresolvable" },
+        }),
+      )
+      .with(
+        { kind: "invalid" },
+        (found): IgnoreSelfVerdict => ({
+          kind: "error",
+          message: ignoreSelfInvalid(found.raw),
+          detail: { kind: "ignore-self-invalid", raw: found.raw },
+        }),
+      )
+      .with(
+        { kind: "stray" },
+        (found): IgnoreSelfVerdict => ({
+          kind: "error",
+          message: ignoreSelfNotInFleet(found.id),
+          detail: { kind: "ignore-self-not-in-fleet", id: found.id },
+        }),
+      )
+      .with(
+        { kind: "ok" },
+        (found): IgnoreSelfVerdict => ({ kind: "muted", id: found.id }),
+      )
+      .exhaustive();
+    if (verdict.kind === "error") {
       return {
         kind: "error",
-        message: IGNORE_SELF_UNRESOLVABLE,
-        detail: { kind: "ignore-self-unresolvable" },
+        message: verdict.message,
+        detail: verdict.detail,
       };
     }
-    if (found.kind === "invalid") {
-      return {
-        kind: "error",
-        message: ignoreSelfInvalid(found.raw),
-        detail: { kind: "ignore-self-invalid", raw: found.raw },
-      };
-    }
-    if (found.kind === "stray") {
-      return {
-        kind: "error",
-        message: ignoreSelfNotInFleet(found.id),
-        detail: { kind: "ignore-self-not-in-fleet", id: found.id },
-      };
-    }
-    mute.push(found.id);
+    mute.push(verdict.id);
   }
   const scope = watchScopeOf({ ...(ids === undefined ? {} : { ids }), mute });
   if (scope.kind === "error") {
