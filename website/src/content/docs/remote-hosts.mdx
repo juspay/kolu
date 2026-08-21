@@ -188,8 +188,10 @@ hover-opened.
 
   The canvas shows a **tail**; the full firehose still lives in the **kolu server logs** —
   the complete Nix provisioning output, and the actual reason if a connect genuinely
-  fails. Under systemd that's `journalctl` for your kolu service; padi also keeps its own
-  log in its state-root on the host.
+  fails. Under systemd that's `journalctl` for your kolu service — started by hand, it is
+  only in the terminal you launched it from unless you [redirected
+  it](/operations#three-things-to-know-first). padi also keeps its own log in its
+  state-root on the host.
 </Aside>
 
 ## Switch hosts, and per-host canvases
