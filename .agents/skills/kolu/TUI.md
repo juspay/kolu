@@ -444,11 +444,13 @@ holding. Every run leads with the currently-matching set, so starting one late
 still shows what is already standing. **`--ignore-self`** keeps *your* terminal
 out of that feed (it reads `$KAVAL_TERMINAL_ID`); **`--ignore <id>`** (repeatable)
 mutes known terminals — fail-open, so a stale id costs nothing and a new
-terminal is always watched. Background this and no finished terminal sits
-unnoticed — except the ones you muted on purpose:
+terminal is always watched. **`--heartbeat 10s`** emits an alive line so a
+piped consumer can tell "nothing matching" from "the stream is dead".
+Background this and no finished terminal sits unnoticed — except the ones you
+muted on purpose:
 
 ```sh
-kolu watch --states waiting,awaiting --held-for 60s --nag 5m --ignore-self
+kolu watch --states waiting,awaiting --held-for 60s --nag 5m --ignore-self --heartbeat 10s
 ```
 
 Omit the id: supervision must never be scoped by enumeration — a watch narrowed
