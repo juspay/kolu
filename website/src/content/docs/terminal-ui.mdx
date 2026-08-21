@@ -76,7 +76,7 @@ An agent terminal finishes and sits at an empty prompt. Nobody notices for
 hours. Every alert kolu has taps you **once**, when the terminal goes idle —
 miss that tap and the terminal is silent forever.
 
-Three flags on `kolu watch` turn it into the alert that doesn't let go:
+Six flags on `kolu watch` turn it into the alert that doesn't let go:
 
 ```sh
 kolu watch --states waiting,awaiting --held-for 60s --nag 5m --ignore-self
@@ -93,7 +93,7 @@ it work or kills it.
 | `--nag` | re-report every interval it keeps holding, so a line you ignored comes back instead of vanishing |
 | `--ignore-self` | mute the terminal this process is running inside (`$KAVAL_TERMINAL_ID`). Refused if you are not in a kolu-owned PTY — pass `--ignore <id>` rather than guessing |
 | `--ignore <id>` | mute this terminal (repeatable). Fail-open: a stale or unknown full id costs nothing, and every new terminal is still watched. A prefix that named nobody is still dropped, but warned on stderr |
-| `--heartbeat` | emit a timestamped alive line every interval so a quiet pipe means *nothing is matching*, not *the stream is dead*. Omit to stay silent when nothing is happening |
+| `--heartbeat` | emit a timestamped alive line every interval — same duration grammar as `--held-for` — so a quiet pipe means *nothing is matching*, not *the stream is dead*. Omit to stay silent when nothing is happening |
 
 Each line says why you are being told: **snapshot** (already in that state when
 you started watching), **transition** (it just got there and held), or **nag**
@@ -102,9 +102,12 @@ see what is already standing, not only what changes next.
 
 ```
 14:02:11  a1b2c3d4  snapshot    waiting   42m  fix the parser
+14:04:11  heartbeat
 14:07:11  a1b2c3d4  nag         waiting   47m  fix the parser
 14:09:40  9f01ee22  transition  awaiting  1m
 ```
+
+A heartbeat is the one line with no terminal on it — that is how you skip it.
 
 Two things it deliberately does **not** do. It never reads the screen — an idle
 agent that repaints its prompt once a second is still idle, and kolu asks the
@@ -119,8 +122,12 @@ id you also muted is refused: that watch could never match.)
 kolu, so a script consumes it with `jq` and nothing has to re-implement the
 timing. Every line carries a `kind` — `snapshot`/`transition`/`nag` here, and
 `terminal`/`removed`/`activity` on the plain change tail — so one `jq` switch
-reads either feed. The same three knobs are [MCP tool parameters](/mcp) for a coding agent
-supervising a fleet.
+reads either feed. `--heartbeat` adds a seventh, `{"kind":"heartbeat","at":<epoch
+ms>}`, and it is the one kind a consumer is meant to skip — it carries no
+terminal. The same knobs are [MCP tool parameters](/mcp) for a coding agent
+supervising a fleet, except `--heartbeat`: over MCP, `watch_next` answers "is
+anything there?" with its own `timeoutMs`, so a clock tick would only mix
+liveness into terminal events.
 
 ### `create` makes you say where the terminal goes
 

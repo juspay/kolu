@@ -120,7 +120,7 @@ import {
 } from "@kolu/padi/render";
 import type { PadiWatchStatesInput } from "@kolu/padi/surface";
 import { isValidTimerMs, timerRangeMessage } from "@kolu/surface/wait";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import { isTerminalId, type TerminalId } from "@kolu/terminal-vocab/schema";
 import { type Cause, Effect, Fiber, Queue, Stream } from "effect";
 import type { Command } from "effect/unstable/cli";
 // `import type` — fully erased, so this does NOT re-enter the command tree at
@@ -129,14 +129,15 @@ import type { watchFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
 import { type CliFailure, errorMessage, failure } from "../exit.ts";
 import {
+  ambiguousTerminal,
   isConsumerHangup,
   type Parsed,
   resolveTerminal,
   type StdoutWriteFailed,
   stdoutLost,
+  stdoutSink,
   waitStateTokens,
   writeErrSync,
-  writeStdoutLine,
 } from "./shared.ts";
 
 /** What the command tree parsed for `watch` — DERIVED from `watchFlags` in
@@ -160,9 +161,9 @@ const pumpToStdout = (
   lines: Queue.Dequeue<string, Cause.Done>,
   stop: () => void,
 ): Effect.Effect<void, CliFailure> => {
-  const drain: Effect.Effect<void, StdoutWriteFailed> = Stream.runForEach(
+  const drain: Effect.Effect<void, StdoutWriteFailed> = Stream.run(
     Stream.fromQueue(lines),
-    writeStdoutLine,
+    stdoutSink,
   );
   return Effect.catchTag(drain, "StdoutWriteFailed", (err) =>
     Effect.flatMap(Effect.sync(stop), () =>
@@ -339,16 +340,18 @@ export function resolveIgnoreQueries(
       continue;
     }
     if (result.kind === "ambiguous") {
+      // The sentence, and the match LIST, are `shared.ts`'s — the same words
+      // `--parent` and the subject id use. Only the no-match POLICY below is
+      // this flag's own.
       return {
         kind: "error",
-        message: `--ignore "${query}" matches ${result.matches.length} terminals — type more characters.`,
+        message: ambiguousTerminal(query, result.matches, "--ignore"),
       };
     }
     // none: keep a full id (inert at the engine); a prefix that named nobody
     // cannot match a UUID on the wire, so drop it and tell the user — fail-open
     // for the mute, not silent about a typo.
-    const self = containingTerminalId({ KAVAL_TERMINAL_ID: query });
-    if (self.kind === "ok") resolved.push(self.id);
+    if (isTerminalId(query)) resolved.push(query);
     else dropped.push(query);
   }
   return { kind: "ok", value: resolved, dropped };
@@ -420,11 +423,11 @@ export function run(
        *  three copies of it agree. The two renderings are THUNKS so the shape
        *  that was not asked for is never formatted. */
       const offer = (line: string): void => {
-        // Trailing newline is `writeStdoutLine`'s job, so a payload that
-        // already ended in one is not doubled and a payload that did not is
-        // never written unterminated. Never a leading newline — that is the
-        // one-event lag: the next write's `\n` is what completed this line.
-        Queue.offerUnsafe(lines, line);
+        // TRAILING newline, in the same queued string as the payload — never a
+        // LEADING one: a line terminated by the NEXT write is a line the
+        // consumer cannot see until another event happens, which is the
+        // one-event lag `watch.e2e.test.ts` pins with `| head -1`.
+        Queue.offerUnsafe(lines, `${line}\n`);
       };
       const emitFor = (
         id: TerminalId,

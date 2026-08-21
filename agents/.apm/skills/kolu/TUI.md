@@ -457,7 +457,9 @@ Omit the id: supervision must never be scoped by enumeration — a watch narrowe
 to the lanes you remembered goes blind to the one you didn't. Mute instead of
 listing who to watch. Lines read
 `HH:MM:SS  <id>  <snapshot|transition|nag>  <state>  <held>  [intent]`;
-`--json` emits the same, filtered inside kolu, as NDJSON.
+`--json` emits the same, filtered inside kolu, as NDJSON. A `--heartbeat` line
+is the exception and the only line with no id — `HH:MM:SS  heartbeat`, or
+`{"kind":"heartbeat","at":<epoch ms>}` — so skip it before you cut field 2.
 
 > **A terminal id is not stable across a daemon restart.** kaval re-keys every
 > terminal when it restarts (crash-restore, a "Restart kaval", a redeploy), so an

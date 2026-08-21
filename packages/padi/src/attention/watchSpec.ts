@@ -17,8 +17,7 @@
 import type { WaitState } from "../terminalVocab.ts";
 import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
 import type { PadiWatchStatesInput } from "../surface.ts";
-import { TerminalIdSchema, type TerminalId } from "@kolu/terminal-vocab/schema";
-import { Result, Schema } from "effect";
+import { isTerminalId, type TerminalId } from "@kolu/terminal-vocab/schema";
 import type { StateWatchFilter, StateWatchSpec } from "./stateWatch.ts";
 
 /** The env a process inside a kolu PTY reads to name itself. Stamped at spawn
@@ -128,10 +127,7 @@ export function containingTerminalId(
 ): ContainingTerminal {
   const raw = env[CONTAINING_TERMINAL_ENV];
   if (raw === undefined || raw === "") return { kind: "none" };
-  const decoded = Schema.decodeUnknownResult(TerminalIdSchema)(raw);
-  return Result.isSuccess(decoded)
-    ? { kind: "ok", id: decoded.success }
-    : { kind: "invalid", raw };
+  return isTerminalId(raw) ? { kind: "ok", id: raw } : { kind: "invalid", raw };
 }
 
 /** The sentence a face raises when `ignoreSelf` was asked and this process

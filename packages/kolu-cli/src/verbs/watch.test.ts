@@ -5,6 +5,7 @@
  * decided here BEFORE anything dials a daemon.
  */
 
+import { shortId } from "@kolu/padi/render";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
@@ -15,7 +16,6 @@ import {
   resolveIgnoreQueries,
   type WatchArgs,
 } from "./watch.ts";
-import { terminateWatchLine } from "./shared.ts";
 
 const args = (over: Partial<WatchArgs> = {}): WatchArgs =>
   ({
@@ -29,20 +29,6 @@ const args = (over: Partial<WatchArgs> = {}): WatchArgs =>
 
 const SELF = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
 const LANE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as TerminalId;
-
-describe("terminateWatchLine — trailing newline, never leading", () => {
-  it("terminates a payload that has no newline", () => {
-    expect(terminateWatchLine("snapshot")).toBe("snapshot\n");
-  });
-
-  it("does not double a payload that already ended in a newline", () => {
-    expect(terminateWatchLine("snapshot\n")).toBe("snapshot\n");
-  });
-
-  it("never puts the terminator BEFORE the payload — that is the one-event lag", () => {
-    expect(terminateWatchLine("snapshot").startsWith("\n")).toBe(false);
-  });
-});
 
 describe("planSupervision", () => {
   it("plans NOTHING when no knob was named — bare `kolu watch` is still the change tail", () => {
@@ -217,7 +203,14 @@ describe("resolveIgnoreQueries — fail-open mute", () => {
     const b = "aaaaaaaa-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as TerminalId;
     const plan = resolveIgnoreQueries(["aaaa"], [a, b]);
     expect(plan.kind).toBe("error");
-    expect(plan.kind === "error" && plan.message).toMatch(/matches 2/);
+    const message = plan.kind === "error" ? plan.message : "";
+    expect(message).toMatch(/matches 2/);
+    // …and LISTS them, in the same words `--parent` and the subject id use.
+    // "type more characters" with nothing to compare against is the sentence
+    // minus the affordance it exists for.
+    expect(message).toContain("--ignore: ");
+    expect(message).toContain(shortId(a));
+    expect(message).toContain(shortId(b));
   });
 });
 

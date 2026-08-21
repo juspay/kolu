@@ -15,10 +15,6 @@ import {
   type WaitState,
 } from "@kolu/terminal-vocab/agentProjection";
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import {
-  terminateWatchLine,
-  writeFlushedLine as writeFlushed,
-} from "@kolu/padi/dial";
 import { readTerminalKeys } from "@kolu/padi/read";
 import { resolveTerminalId, shortId } from "@kolu/padi/render";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
@@ -99,13 +95,23 @@ function resolveOne(
       ),
     );
   }
-  return Effect.fail(
-    failure(
-      `${where}"${query}" matches ${result.matches.length} terminals — type more characters:\n  ${result.matches
-        .map(shortId)
-        .join("\n  ")}`,
-    ),
-  );
+  return Effect.fail(failure(ambiguousTerminal(query, result.matches, flag)));
+}
+
+/** The ambiguity SENTENCE, owned once. A verb that resolves an id-or-prefix
+ *  outside {@link resolveTerminal} — the mute list is one, because its no-match
+ *  arm is fail-open rather than a failure — still says it in these words, with
+ *  the matches LISTED. A second spelling that drops the list is how `--ignore`
+ *  came to tell a user to type more characters without showing what matched. */
+export function ambiguousTerminal(
+  query: string,
+  matches: readonly TerminalId[],
+  flag?: string,
+): string {
+  const where = flag === undefined ? "" : `${flag}: `;
+  return `${where}"${query}" matches ${matches.length} terminals — type more characters:\n  ${matches
+    .map(shortId)
+    .join("\n  ")}`;
 }
 
 /** Read the live key set and resolve `query` against it — the two steps every
@@ -169,19 +175,6 @@ export const stdoutSink: Sink.Sink<void, string, never, StdoutWriteFailed> =
     onError: (cause) => new StdoutWriteFailed({ cause }),
     endOnDone: false,
   });
-
-export { terminateWatchLine };
-
-export const writeFlushedLine = (
-  writable: NodeJS.WritableStream,
-  payload: string,
-): Effect.Effect<void, StdoutWriteFailed> =>
-  writeFlushed(writable, payload, (cause) => new StdoutWriteFailed({ cause }));
-
-export const writeStdoutLine = (
-  payload: string,
-): Effect.Effect<void, StdoutWriteFailed> =>
-  writeFlushedLine(process.stdout, payload);
 
 /** The ONE sentence for a stdout that genuinely died. `what` names the payload,
  *  so a real write error says which output was lost rather than a generic

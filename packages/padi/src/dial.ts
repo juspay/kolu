@@ -94,6 +94,7 @@ export {
 // supervision knob" and must ask padi's ONE definition, not a second list of
 // three fields that agrees today.
 export {
+  CONTAINING_TERMINAL_ENV,
   containingTerminalId,
   ignoreIdsOf,
   ignoreSelfInvalid,
@@ -102,11 +103,6 @@ export {
   namesWatchKnobs,
   WATCH_SCOPE_EMPTY,
 } from "./attention/watchSpec.ts";
-
-export {
-  terminateWatchLine,
-  writeFlushedLine,
-} from "./cliClient/writeStdout.ts";
 
 export {
   activeAgent,
