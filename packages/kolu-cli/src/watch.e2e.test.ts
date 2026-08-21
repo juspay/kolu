@@ -418,24 +418,64 @@ describeDaemon("kolu watch — supervision, end to end", () => {
     watch.stop();
   });
 
-  it("a piped stdout sees the snapshot terminated without a subsequent write", {
+  it("a piped stdout to GNU head sees the snapshot without a subsequent write", {
     timeout: 60000,
   }, async () => {
-    // The one-event lag: each line only completed when the NEXT event was
-    // written. Pin that a connect snapshot arrives as a terminated line with
-    // no nag, no second terminal, nothing else to flush it out. `--nag 1h`
-    // keeps the next event far away; the 8s window is the connect, not a hold.
+    // The live incident: `kolu watch | head` on a DIRECT pipe(2), not a Node
+    // `data` listener. `--nag 1h` keeps the next event far away; head -1 is
+    // the slow consumer that exits on the first terminated line — if that
+    // line is not in the kernel, this hangs until the 8s deadline.
     const { socketPath } = await idleAgentWorld();
-    const watch = runWatch(socketPath, [
-      "--states",
-      "waiting",
-      "--json",
-      "--nag",
-      "1h",
-    ]);
-    const events = await watch.atLeast(1, 8000);
-    expect(events[0]?.kind).toBe("snapshot");
-    watch.stop();
+    assertDaemonSpawnAllowed("a real `kolu watch | head -1` pipeline");
+    const watch = spawn(
+      process.execPath,
+      [
+        "--import",
+        TSX_LOADER,
+        KOLU_MAIN,
+        "watch",
+        "--socket",
+        socketPath,
+        "--states",
+        "waiting",
+        "--json",
+        "--nag",
+        "1h",
+      ],
+      { stdio: ["ignore", "pipe", "pipe"], env: daemonEnv() },
+    );
+    children.push(watch);
+    if (watch.stdout === null) {
+      throw new Error("kolu watch spawned without a stdout pipe");
+    }
+    const head = spawn("head", ["-1"], {
+      stdio: [watch.stdout, "pipe", "pipe"],
+    });
+    children.push(head);
+    if (head.stdout === null) {
+      throw new Error("head spawned without a stdout pipe");
+    }
+    const line = await new Promise<string>((resolve, reject) => {
+      let buf = "";
+      const t = setTimeout(() => {
+        reject(
+          new Error(
+            `head -1 saw no terminated snapshot in 8s; bytes: ${JSON.stringify(buf)}`,
+          ),
+        );
+      }, 8000);
+      head.stdout!.setEncoding("utf8");
+      head.stdout!.on("data", (chunk: string) => {
+        buf += chunk;
+        if (buf.includes("\n")) {
+          clearTimeout(t);
+          resolve(buf.slice(0, buf.indexOf("\n") + 1));
+        }
+      });
+    });
+    expect(line.startsWith("\n")).toBe(false);
+    expect(JSON.parse(line).kind).toBe("snapshot");
+    watch.kill("SIGINT");
   });
 
   it("a watch that RECONNECTS leads with a snapshot of what is already standing", {

@@ -1,16 +1,30 @@
 /**
- * One live-feed line as a single flushed write of payload + trailing newline.
+ * One live-feed line as a single write(2) of payload + trailing newline.
  *
- * NodeSink's `write()` returning true means "the buffer accepted it", not "the
- * pipe consumer can read a terminated line". A piped reader waiting on `\n`
- * then sits one event behind. The terminator is TRAILING, never leading, and
- * rides in the same write as the payload.
+ * `Writable.write()` (and NodeSink) returning/calling back means the userspace
+ * buffer accepted the bytes, not that a piped C consumer (`head`, `grep`) can
+ * read a terminated line. A file redirection looks prompt because Node already
+ * uses a blocking fd write there; a direct pipe does not. `writeSync` is the
+ * same path `kolu mcp` uses for a line that must be on the fd before anything
+ * else happens. The terminator is TRAILING, never leading, and rides in that
+ * one write.
  */
 
+import { writeSync } from "node:fs";
 import { Effect } from "effect";
 
 export function terminateWatchLine(payload: string): string {
   return payload.endsWith("\n") ? payload : `${payload}\n`;
+}
+
+function fdOf(writable: NodeJS.WritableStream): number {
+  const fd = (writable as { readonly fd?: unknown }).fd;
+  if (typeof fd !== "number") {
+    throw new Error(
+      "watch line write needs a file descriptor (a pipe or file), not a buffered in-process stream",
+    );
+  }
+  return fd;
 }
 
 export function writeFlushedLine<E>(
@@ -18,14 +32,10 @@ export function writeFlushedLine<E>(
   payload: string,
   onError: (cause: unknown) => E,
 ): Effect.Effect<void, E> {
-  return Effect.callback<void, E>((resume) => {
-    const line = terminateWatchLine(payload);
-    writable.write(line, (err) => {
-      if (err != null) {
-        resume(Effect.fail(onError(err)));
-      } else {
-        resume(Effect.void);
-      }
-    });
+  return Effect.try({
+    try: () => {
+      writeSync(fdOf(writable), terminateWatchLine(payload));
+    },
+    catch: (cause) => onError(cause),
   });
 }
