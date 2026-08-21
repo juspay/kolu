@@ -16,6 +16,10 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
 import { afterEach, describe, expect, it } from "vitest";
 // The loader and the line reader are this package's own, from the testlib the
 // e2e pins already share — a second derivation of either is a second thing to
@@ -30,13 +34,18 @@ const FIXTURE = resolve(here, "stdoutPump.fixture.ts");
 const pipeline = (flags: string, consumer: string): string =>
   `${JSON.stringify(process.execPath)} --import ${JSON.stringify(TSX_LOADER)} ${JSON.stringify(FIXTURE)} ${flags} | ${consumer}`;
 
+/** Every child this file spawns, reaped by exact handle after each case —
+ *  never by name or pattern, which would reach processes this file did not
+ *  start. */
+const children: ChildProcess[] = [];
+const reapChildren = (): void => {
+  for (const c of children.splice(0)) {
+    if (c.exitCode === null && c.signalCode === null) c.kill("SIGKILL");
+  }
+};
+
 describe("the live-feed pump over a real pipe(2)", () => {
-  const children: ChildProcess[] = [];
-  afterEach(() => {
-    for (const c of children.splice(0)) {
-      if (c.exitCode === null && c.signalCode === null) c.kill("SIGKILL");
-    }
-  });
+  afterEach(reapChildren);
 
   const run = (script: string): ChildProcess => {
     const child = spawn("bash", ["-lc", script], {
@@ -73,12 +82,27 @@ describe("the live-feed pump over a real pipe(2)", () => {
     const line = await readTerminatedLine(stdoutOf(child), 2500);
     expect(line).toBe("SNAPSHOT\n");
   });
+});
+
+/** The backpressure pin forks a node child that floods fd 1 and then idles —
+ *  a real, long-lived fork, so it is DAEMON-GATED at the call site like every
+ *  other real-spawn site in this repo (#1334/#1375). A bare `vitest` skips it;
+ *  `just test-daemon` (CI and `pu` boxes) runs it. The three pins above fork
+ *  only a shell pipeline that exits with `head`, so they stay ungated and keep
+ *  running in the ordinary unit lane.
+ *
+ *  Splitting the file this way is deliberate: gating the WHOLE file would take
+ *  the promptness pins out of every CI run, since there is no daemon lane in
+ *  the pipeline today. */
+describeDaemon("the live-feed pump under a consumer that stops reading", () => {
+  afterEach(reapChildren);
 
   it("a consumer that STOPS reading slows the writer instead of killing it", async () => {
     // Nobody ever reads this pipe, so it fills. A `writeSync` on fd 1 answers
     // EAGAIN once it does and the feed dies mid-run — which reads as "stdout
     // died" to `kolu watch` and as "the consumer hung up" to `padi-tui`. The
     // sink waits on `drain`, so the writer simply waits with it.
+    assertDaemonSpawnAllowed("a flooding writer against an unread pipe");
     const child = spawn(
       process.execPath,
       ["--import", TSX_LOADER, FIXTURE, "--flood"],
