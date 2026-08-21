@@ -44,16 +44,19 @@ website the box serves; the Mac is a browser that you pin as an app.
   </svg>
 </figure>
 
-You need a headless Linux machine with [Nix](https://nixos.asia/en/install)
-(NixOS is common; any Linux with Nix is fine), a Mac, and a
+You need a headless Linux machine with [Nix](https://nixos.asia/en/install) —
+NixOS or Ubuntu, or any other Linux with Nix — a Mac, and a
 [Tailscale](https://tailscale.com) account on both.
 
 <Steps>
 
 1. Run kolu as a user service on the Linux box.
 
-   Import the home-manager module and enable it. The full module, logs, and
-   address options are on [Deployment](/deployment#enable-the-service).
+   Same home-manager module on both. Then linger, so the user systemd starts
+   at boot on a box nobody is logged into. The full module, logs, and address
+   options are on [Deployment](/deployment#enable-the-service).
+
+   **NixOS.** Import the module in that user's home-manager config:
 
    ```nix
    { pkgs, kolu, ... }:
@@ -67,7 +70,61 @@ You need a headless Linux machine with [Nix](https://nixos.asia/en/install)
    }
    ```
 
-   Apply the configuration, then open
+   Rebuild as usual (`nixos-rebuild switch`). On a headless box also set
+   `users.users.<you>.linger = true` in the **system** config so the user
+   systemd starts at boot.
+
+   **Ubuntu** (and other non-NixOS Linux). Install Nix with flakes if you do
+   not have it — the [NixOS Asia guide](https://nixos.asia/en/install). Then a
+   standalone home-manager flake; replace `you` and use `aarch64-linux` on ARM:
+
+   ```nix
+   {
+     description = "kolu on this box";
+
+     inputs = {
+       nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+       home-manager.url = "github:nix-community/home-manager";
+       home-manager.inputs.nixpkgs.follows = "nixpkgs";
+       kolu.url = "github:juspay/kolu";
+     };
+
+     outputs = { nixpkgs, home-manager, kolu, ... }:
+       let
+         system = "x86_64-linux";
+       in {
+         homeConfigurations.you = home-manager.lib.homeManagerConfiguration {
+           pkgs = nixpkgs.legacyPackages.${system};
+           modules = [
+             kolu.homeManagerModules.default
+             ({ pkgs, ... }: {
+               home.username = "you";
+               home.homeDirectory = "/home/you";
+               home.stateVersion = "24.11";
+               services.kolu = {
+                 enable = true;
+                 package = kolu.packages.${pkgs.stdenv.hostPlatform.system}.default;
+               };
+             })
+           ];
+         };
+       };
+   }
+   ```
+
+   From that directory:
+
+   ```sh
+   nix run home-manager -- switch --flake .#you
+   sudo loginctl enable-linger you
+   ```
+
+   Linger is what keeps the service up after SSH disconnects. If the switch
+   starts compiling from source, enable the
+   [binary cache](/deployment#first-run-compiling-enable-the-binary-cache)
+   first.
+
+   Either way, open
    [http://127.0.0.1:7681](http://127.0.0.1:7681) **on the box** (or via ssh
    port-forward). You should see an empty canvas. That is kolu running.
 
@@ -101,7 +158,8 @@ You need a headless Linux machine with [Nix](https://nixos.asia/en/install)
    ];
    ```
 
-   Apply again. Without this, the page may load and then fail to talk to the
+   Apply again (`nixos-rebuild switch`, or `home-manager switch --flake .#you`
+   on Ubuntu). Without this, the page may load and then fail to talk to the
    server.
 
 4. Open the printed URL in a browser on the Mac.

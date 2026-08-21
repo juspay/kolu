@@ -48,6 +48,63 @@ The complete, build-tested flake is in
 CI boots its systemd configuration in a NixOS VM and builds its launchd
 activation package on macOS.
 
+On a **headless** NixOS box, also set `users.users.<you>.linger = true` in the
+system config so the user systemd — and this service — starts at boot without
+a login.
+
+## Ubuntu (and other non-NixOS Linux)
+
+Same module, applied with standalone home-manager. Install Nix with flakes
+first ([NixOS Asia guide](https://nixos.asia/en/install)), then a flake whose
+`homeConfigurations` output imports the module:
+
+```nix
+{
+  description = "kolu on this box";
+
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+    home-manager.url = "github:nix-community/home-manager";
+    home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    kolu.url = "github:juspay/kolu";
+  };
+
+  outputs = { nixpkgs, home-manager, kolu, ... }:
+    let
+      system = "x86_64-linux"; # aarch64-linux on ARM
+    in {
+      homeConfigurations.you = home-manager.lib.homeManagerConfiguration {
+        pkgs = nixpkgs.legacyPackages.${system};
+        modules = [
+          kolu.homeManagerModules.default
+          ({ pkgs, ... }: {
+            home.username = "you";
+            home.homeDirectory = "/home/you";
+            home.stateVersion = "24.11";
+            services.kolu = {
+              enable = true;
+              package = kolu.packages.${pkgs.stdenv.hostPlatform.system}.default;
+            };
+          })
+        ];
+      };
+    };
+}
+```
+
+Replace `you` and `x86_64-linux` to match the box. From that directory:
+
+```sh
+nix run home-manager -- switch --flake .#you
+sudo loginctl enable-linger you
+```
+
+Linger keeps the user systemd running after SSH disconnects — without it the
+service dies when you log out, which is the opposite of a headless box. Then
+open [http://127.0.0.1:7681](http://127.0.0.1:7681). Address, origins, and
+logs below apply unchanged. The [From a Mac](/from-a-mac) tutorial walks this
+as the first step of the Mac-window setup.
+
 ## Choose the address
 
 The service listens on loopback port `7681` by default. Change either value in
