@@ -12,6 +12,7 @@ import {
   formatWatchJson,
   formatWatchRemovalJson,
   resolveTerminalId,
+  WATCH_FEED_KINDS,
 } from "./render.ts";
 
 /** A minimal `active` composed record — the agent the wait predicate reads plus
@@ -191,6 +192,24 @@ describe("formatHeartbeat — a CLI-only alive line", () => {
   it("is a timestamped line, not a terminal event", () => {
     expect(formatHeartbeat(1_700_000_000_000)).toMatch(/heartbeat$/);
     expect(formatHeartbeat(1_700_000_000_000)).not.toMatch(/snapshot/);
+    // The id column is BLANK, not skipped, so the word lands in the KIND
+    // column — at the same offset a neighbouring line's kind does, which is
+    // the alignment the derived widths exist for.
+    const beat = formatHeartbeat(1_700_000_420_000);
+    const event = formatStateEvent({
+      seq: 7,
+      id: "a1b2c3d4-0000-4000-8000-000000000000" as TerminalId,
+      kind: "snapshot",
+      state: "waiting",
+      since: 1_700_000_000_000,
+      at: 1_700_000_420_000,
+    });
+    expect(beat.indexOf("heartbeat")).toBe(event.indexOf("snapshot"));
+  });
+
+  it("declares its kind in the array the feed's column width is derived from", () => {
+    // A consumer building a `jq` switch off the declared kinds is exhaustive.
+    expect([...WATCH_FEED_KINDS]).toContain("heartbeat");
   });
 
   it("JSON carries kind so a jq consumer can skip it", () => {

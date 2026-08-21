@@ -457,7 +457,16 @@ export function formatStateEventJson(event: PadiStateEvent): string {
  *  the repo, the branch or the screen has `kolu ls` and `kolu snapshot`. */
 const widestOf = (words: readonly string[]): number =>
   words.reduce((w, s) => Math.max(w, s.length), 0);
-const KIND_WIDTH = widestOf(WATCH_STATE_EVENT_KINDS);
+/** Every `kind` the CLI's supervision feed can print: padi's state-event kinds
+ *  plus this face's own liveness pulse, which is not a terminal event but IS a
+ *  line on the same stream. ONE array, so the column width, the NDJSON literal
+ *  and a consumer's `jq` switch cannot disagree — the same reason
+ *  {@link WATCH_STATE_EVENT_KINDS} is an array and not a bare literal union. */
+export const WATCH_FEED_KINDS = [
+  ...WATCH_STATE_EVENT_KINDS,
+  "heartbeat",
+] as const;
+const KIND_WIDTH = widestOf(WATCH_FEED_KINDS);
 const STATE_WIDTH = widestOf(WAIT_STATES);
 
 export function formatStateEvent(event: PadiStateEvent): string {
@@ -481,9 +490,16 @@ export function formatStateEvent(event: PadiStateEvent): string {
  *  (stream-dead and process-frozen look the same). Not a padi event — MCP's
  *  `watch_next` already has `timeoutMs` for the same question. */
 export function formatHeartbeat(at: number): string {
-  return `${clockTime(at)}  heartbeat`;
+  // The short-id column is BLANK, not skipped: a two-cell line on a five-cell
+  // table puts the word "heartbeat" where every neighbour has an id, which is
+  // exactly the misalignment the derived widths above exist to prevent. Blank
+  // keeps "no terminal on it" a structural fact rather than a documented habit.
+  return [clockTime(at), " ".repeat(SHORT_ID_LEN), "heartbeat"].join("  ");
 }
 
 export function formatHeartbeatJson(at: number): string {
-  return JSON.stringify({ kind: "heartbeat", at });
+  return JSON.stringify({
+    kind: "heartbeat" satisfies (typeof WATCH_FEED_KINDS)[number],
+    at,
+  });
 }

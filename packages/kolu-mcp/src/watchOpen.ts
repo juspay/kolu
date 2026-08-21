@@ -16,7 +16,6 @@ import {
   CONTAINING_TERMINAL_ENV,
   containingTerminalId,
   type PadiSurfaceClient,
-  type WatchScopeRefusal,
   watchScopeOf,
 } from "@kolu/padi/dial";
 import {
@@ -53,20 +52,21 @@ const ignoreSelfInvalid = (raw: string): string =>
 const ignoreSelfNotInFleet = (self: TerminalId): string =>
   `ignoreSelf: the padi this server is connected to has never heard of terminal ${self} (${CONTAINING_TERMINAL_ENV}) — muting it would mute nobody and report success. This server is fronting another machine's fleet, or a daemon restart has re-keyed the terminals. Pass ignoreIds naming a terminal this padi owns.`;
 
-/** The way OUT of each never-match shape, in THIS face's grammar. padi states
- *  the invariant; a tool caller has an `ids` array, not "the id", so the remedy
- *  is spelled here rather than served to it in a shell's positional wording. */
-const SCOPE_WAY_OUT: Record<WatchScopeRefusal, string> = {
-  covered:
-    "Omit ids to watch the whole fleet, or drop the overlap from ignoreIds.",
-  "no-ids": "Omit ids to watch the whole fleet.",
-};
-
-/** The machine-readable reason a refusal carries, per never-match shape. */
-const SCOPE_DETAIL: Record<WatchScopeRefusal, string> = {
-  covered: "muted-covers-include",
-  "no-ids": "empty-ids",
-};
+/** The way OUT of each never-match shape, and its machine-readable reason, in
+ *  THIS face's grammar. padi states the invariant; a tool caller has an `ids`
+ *  array, not "the id", so the remedy is spelled here rather than served to it
+ *  in a shell's positional wording. Exhaustive over the constructor's refusals,
+ *  so a third shape stops this compiling instead of falling through. */
+const scopeRefusal = (
+  refused: "covered" | "no-ids",
+): { readonly wayOut: string; readonly detail: string } =>
+  refused === "covered"
+    ? {
+        wayOut:
+          "Omit ids to watch the whole fleet, or drop the overlap from ignoreIds.",
+        detail: "muted-covers-include",
+      }
+    : { wayOut: "Omit ids to watch the whole fleet.", detail: "empty-ids" };
 
 /** What this face decided BEFORE anything crosses to padi. */
 export interface WatchOpenPlan {
@@ -121,10 +121,11 @@ export function resolveWatchOpenInput(
   }
   const scope = watchScopeOf({ ...(ids === undefined ? {} : { ids }), mute });
   if (scope.kind === "error") {
+    const { wayOut, detail } = scopeRefusal(scope.refused);
     return {
       kind: "error",
-      message: `${scope.message} ${SCOPE_WAY_OUT[scope.refused]}`,
-      detail: { kind: SCOPE_DETAIL[scope.refused] },
+      message: `${scope.message} ${wayOut}`,
+      detail: { kind: detail },
     };
   }
   return {

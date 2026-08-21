@@ -76,12 +76,59 @@
  * debounce, or remember anything — the same three knobs reach the same engine
  * from the MCP face, so there is no second implementation to drift.
  *
- * ## Narrowing, and output discipline
+ * ## Narrowing, and the mute
  *
- * `<id>` is a short id or any unique prefix, resolved once against the live key
- * set before the mirror starts. It filters at the EMIT funnel rather than
- * opening a different subscription, because padi's collection is the whole
- * terminals set either way — one mirror, one filter.
+ * WHICH terminals this invocation reports is ONE value — padi's `WatchScope`,
+ * built once from the resolved `<id>` and the resolved mute, and read through
+ * padi's one `scopeAdmits`. There is no second predicate here that could agree
+ * with the engine today and drift tomorrow.
+ *
+ * `<id>` is a short id or any unique prefix; `--ignore` takes the same, and both
+ * are resolved against ONE read of the live key set before the mirror starts —
+ * one snapshot, so a terminal that appears or dies mid-resolution cannot make
+ * the two halves describe different fleets.
+ *
+ * The two halves fail in OPPOSITE directions, deliberately. `<id>` fails closed:
+ * name one and nothing else is reported. The mute fails OPEN: an id in it that
+ * no terminal answers to is inert, and a terminal that is not in it is always
+ * watched — which is the whole point, because a watcher narrowed to the
+ * terminals you remembered goes blind to the one you didn't. A scope where every
+ * included terminal is also muted can never match, and is refused rather than
+ * left to look like a quiet workspace.
+ *
+ * WHERE the narrowing is enforced differs by feed, and it is the one genuinely
+ * surprising asymmetry here. The CHANGE tail narrows at the EMIT funnel: padi's
+ * collection is the whole terminals set either way, so there is one mirror and
+ * one filter. The SUPERVISION feed narrows on the WIRE — padi trims the snapshot
+ * as well as the stream, so a debugging tail costs one terminal's worth of
+ * traffic instead of the fleet's. The mute rides the wire there too, and
+ * `scopeAdmits` still guards the funnel, so neither feed can report a terminal
+ * this invocation muted.
+ *
+ * `--ignore-self` asks a question argv cannot answer alone: the containing
+ * terminal comes from the spawn stamp (pre-dial, because a missing stamp is a
+ * usage error), but whether the padi we are about to watch OWNS that terminal is
+ * a ROSTER question and waits for the roster. It is refused when the answer is
+ * no — a mute that mutes nobody and reports success is worse than a refusal, and
+ * that is what `--host`, a `--socket` aimed at a different padi, and a stamp
+ * re-keyed by a daemon restart all produce.
+ *
+ * ## Liveness
+ *
+ * `--heartbeat` prints a timestamped alive line on an otherwise silent stdout,
+ * because silence on a held pipe is unfalsifiable — a dead stream and a quiet
+ * fleet read identically. It is NOT a supervision knob: naming it does not
+ * switch feeds, and it does not reach padi at all. Over MCP the same question
+ * already has an answer (`watch_next`'s `timeoutMs`), so a clock tick in padi's
+ * queue would only mix a liveness pulse into terminal events.
+ *
+ * It bypasses the emit funnel — a pulse is not a terminal event, so there is no
+ * terminal for the scope to admit — and it rides the verb's OWN `Effect.scoped`
+ * lifetime: closing the scope is what stops the interval, on every ending
+ * including the interruption a Ctrl+C arrives as. A `clearInterval` written as a
+ * straight-line statement would be a disposer the primary ending skips.
+ *
+ * ## Output discipline
  *
  * stdout is the data (`--json` makes it NDJSON, one object per line, so `jq -c`
  * streams it); upstream narration goes to stderr as it happens, because on a

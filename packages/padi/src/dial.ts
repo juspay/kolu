@@ -101,7 +101,6 @@ export { namesWatchKnobs } from "./attention/watchSpec.ts";
 // having been litigated once already over `--until`.
 export {
   CONTAINING_TERMINAL_ENV,
-  type ContainingTerminal,
   containingTerminalId,
 } from "./containingTerminal.ts";
 
@@ -114,7 +113,6 @@ export {
   scopeAdmits,
   type WatchScope,
   watchScopeOf,
-  type WatchScopeRefusal,
 } from "./attention/watchScope.ts";
 
 export {

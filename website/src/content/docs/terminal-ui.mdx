@@ -102,12 +102,12 @@ see what is already standing, not only what changes next.
 
 ```
 14:02:11  a1b2c3d4  snapshot    waiting   42m  fix the parser
-14:04:11  heartbeat
+14:04:11            heartbeat
 14:07:11  a1b2c3d4  nag         waiting   47m  fix the parser
 14:09:40  9f01ee22  transition  awaiting  1m
 ```
 
-A heartbeat is the one line with no terminal on it — that is how you skip it.
+A heartbeat is the one line with an empty id column — that is how you skip it.
 
 Two things it deliberately does **not** do. It never reads the screen — an idle
 agent that repaints its prompt once a second is still idle, and kolu asks the
