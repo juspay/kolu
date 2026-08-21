@@ -94,6 +94,7 @@ import {
   containingTerminalId,
   ignoreIdsOf,
   ignoreSelfInvalid,
+  ignoreSelfNotThisFleet,
   ignoreSelfUnresolvable,
   mutedCoversInclude,
   namesWatchKnobs,
@@ -307,12 +308,21 @@ export function planHeartbeat(args: WatchArgs): Parsed<number | undefined> {
 
 /** Resolve `--ignore-self` against this process's containing terminal. BEFORE
  *  the dial: the env is argv-adjacent, and a missing stamp is a usage error,
- *  not a daemon error. Prefixes on `--ignore` wait for the live roster. */
+ *  not a daemon error. Prefixes on `--ignore` wait for the live roster.
+ *
+ *  The ENDPOINT is part of the question, not context: the stamp names a
+ *  terminal on THIS machine, so `--host` asks to mute it in a fleet that has
+ *  never heard of it. Fail-open would make that a silent no-op reporting
+ *  success — the one thing `--ignore-self` refuses to do anywhere else. */
 export function planIgnoreSelf(
   args: WatchArgs,
+  endpoint: Endpoint,
   env: { readonly [key: string]: string | undefined } = process.env,
 ): Parsed<TerminalId | undefined> {
   if (!args.ignoreSelf) return { kind: "ok", value: undefined };
+  if (endpoint.kind === "host") {
+    return { kind: "error", message: ignoreSelfNotThisFleet(endpoint.ssh) };
+  }
   const self = containingTerminalId(env);
   if (self.kind === "none") {
     return { kind: "error", message: ignoreSelfUnresolvable("cli") };
@@ -378,204 +388,212 @@ export function run(
   const plan = planSupervision(args);
   if (plan.kind === "error") return Effect.fail(failure(plan.message));
   const supervise = plan.value;
-  const self = planIgnoreSelf(args);
+  const self = planIgnoreSelf(args, endpoint);
   if (self.kind === "error") return Effect.fail(failure(self.message));
   const beat = planHeartbeat(args);
   if (beat.kind === "error") return Effect.fail(failure(beat.message));
 
-  return withPadi(
-    endpoint,
-    Effect.fn(function* (conn) {
-      const only =
-        args.id === undefined
-          ? undefined
-          : yield* resolveTerminal(conn, args.id);
+  return withPadi(endpoint, (conn) =>
+    // The verb's OWN scope, like `wait`'s: a lifetime this body opens (the
+    // heartbeat's interval) is released by closing it, on every ending —
+    // including the interruption a Ctrl+C arrives as.
+    Effect.scoped(
+      Effect.gen(function* () {
+        const only =
+          args.id === undefined
+            ? undefined
+            : yield* resolveTerminal(conn, args.id);
 
-      const listed: readonly TerminalId[] =
-        args.ignore.length === 0
-          ? []
-          : yield* Effect.flatMap(readTerminalKeys(conn.client), (keys) => {
-              const resolved = resolveIgnoreQueries(args.ignore, keys);
-              if (resolved.kind === "error") {
-                return Effect.fail(failure(resolved.message));
-              }
-              for (const query of resolved.dropped ?? []) {
-                writeErrSync(
-                  `kolu: --ignore ${JSON.stringify(query)} matched no terminal — not muting anything for it\n`,
-                );
-              }
-              return Effect.succeed(resolved.value);
-            });
-      const ignored = ignoreIdsOf(listed, self.value);
-      const overlap = refuseMutedOnly(only, ignored);
-      if (overlap.kind === "error") {
-        return yield* Effect.fail(failure(overlap.message));
-      }
+        const listed: readonly TerminalId[] =
+          args.ignore.length === 0
+            ? []
+            : yield* Effect.flatMap(readTerminalKeys(conn.client), (keys) => {
+                const resolved = resolveIgnoreQueries(args.ignore, keys);
+                if (resolved.kind === "error") {
+                  return Effect.fail(failure(resolved.message));
+                }
+                for (const query of resolved.dropped ?? []) {
+                  writeErrSync(
+                    `kolu: --ignore ${JSON.stringify(query)} matched no terminal — not muting anything for it\n`,
+                  );
+                }
+                return Effect.succeed(resolved.value);
+              });
+        const ignored = ignoreIdsOf(listed, self.value);
+        const overlap = refuseMutedOnly(only, ignored);
+        if (overlap.kind === "error") {
+          return yield* Effect.fail(failure(overlap.message));
+        }
 
-      const lines = yield* Queue.unbounded<string, Cause.Done>();
-      /** Emit ONE line for a terminal event — the three decisions every event
-       *  type makes, made once.
-       *
-       *  Each handler below used to repeat all three: the `only` narrowing, the
-       *  `--json` fork, and the trailing newline. Written per handler, a fourth
-       *  event type can forget the narrowing and quietly report a terminal the
-       *  user asked to be narrowed away — a filter that is only correct because
-       *  three copies of it agree. The two renderings are THUNKS so the shape
-       *  that was not asked for is never formatted. */
-      const offer = (line: string): void => {
-        // TRAILING newline, in the same queued string as the payload — never a
-        // LEADING one: a line terminated by the NEXT write is a line the
-        // consumer cannot see until another event happens, which is the
-        // one-event lag `watch.e2e.test.ts` pins with `| head -1`.
-        Queue.offerUnsafe(lines, `${line}\n`);
-      };
-      const emitFor = (
-        id: TerminalId,
-        json: () => string,
-        human: () => string,
-      ): void => {
-        if (only !== undefined && id !== only) return;
-        if (ignored?.has(id)) return;
-        offer(args.json ? json() : human());
-      };
-      /** Why the mirror REJECTED, if it did — the only thing upstream ever says
-       *  that genuinely names a failure. The `log` lines below are chatter by
-       *  contract (`MirrorRemoteSurfaceOptions.log`: "routine narration a
-       *  consumer may filter freely — a link ending, a reconnect"), so latching
-       *  the first of THOSE would report an ordinary narration line as the
-       *  reason the watch died. They still reach stderr as they happen; they
-       *  just don't get to speak for the ending. */
-      let rejection: string | undefined;
-
-      // Aborted when stdout dies under us — the local half of "stop the watch";
-      // the other half is fiber interruption. Whether that death was a hangup or
-      // a real write failure rides the pump's error channel, joined below.
-      const stopped = new AbortController();
-      const pump = yield* Effect.forkChild(
-        pumpToStdout(lines, () => stopped.abort()),
-      );
-
-      let heartbeat: ReturnType<typeof setInterval> | undefined;
-      if (beat.value !== undefined) {
-        const pulse = (): void => {
-          offer(
-            args.json
-              ? formatHeartbeatJson(Date.now())
-              : formatHeartbeat(Date.now()),
-          );
+        const lines = yield* Queue.unbounded<string, Cause.Done>();
+        /** Emit ONE line for a terminal event — the three decisions every event
+         *  type makes, made once.
+         *
+         *  Each handler below used to repeat all three: the `only` narrowing, the
+         *  `--json` fork, and the trailing newline. Written per handler, a fourth
+         *  event type can forget the narrowing and quietly report a terminal the
+         *  user asked to be narrowed away — a filter that is only correct because
+         *  three copies of it agree. The two renderings are THUNKS so the shape
+         *  that was not asked for is never formatted. */
+        const offer = (line: string): void => {
+          // TRAILING newline, in the same queued string as the payload — never a
+          // LEADING one: a line terminated by the NEXT write is a line the
+          // consumer cannot see until another event happens, which is the
+          // one-event lag `watch.e2e.test.ts` pins with `| head -1`.
+          Queue.offerUnsafe(lines, `${line}\n`);
         };
-        pulse();
-        heartbeat = setInterval(pulse, beat.value);
-        heartbeat.unref?.();
-      }
+        const emitFor = (
+          id: TerminalId,
+          json: () => string,
+          human: () => string,
+        ): void => {
+          if (only !== undefined && id !== only) return;
+          if (ignored?.has(id)) return;
+          offer(args.json ? json() : human());
+        };
+        /** Why the mirror REJECTED, if it did — the only thing upstream ever says
+         *  that genuinely names a failure. The `log` lines below are chatter by
+         *  contract (`MirrorRemoteSurfaceOptions.log`: "routine narration a
+         *  consumer may filter freely — a link ending, a reconnect"), so latching
+         *  the first of THOSE would report an ordinary narration line as the
+         *  reason the watch died. They still reach stderr as they happen; they
+         *  just don't get to speak for the ending. */
+        let rejection: string | undefined;
 
-      yield* Effect.catch(
-        Effect.tryPromise({
-          // `interrupted` is the signal Effect derives from THIS fiber's
-          // interruption, so a Ctrl+C at the run edge reaches the mirror
-          // without a single `process.on` in this file. Combined with the
-          // stdout-death signal because both mean "stop", and the mirror takes
-          // one.
-          try: (interrupted) => {
-            const signal = AbortSignal.any([interrupted, stopped.signal]);
-            const narrate = (line: string): void => {
-              writeErrSync(`kolu: ${line}\n`);
-            };
-            // The two feeds share every ending, every diagnostic and the one
-            // pump; they differ only in which member they subscribe. So this is
-            // the ONLY fork between them — not two verbs, and not two copies of
-            // the lifecycle above and below.
-            return supervise === undefined
-              ? watchTerminals(
-                  conn.client,
-                  {
-                    onUpsert: (id, value, live) =>
-                      emitFor(
-                        id,
-                        () => formatWatchJson(id, value, { live }),
-                        () =>
-                          formatWatchEvent(id, value, {
-                            now: Date.now(),
-                            live,
-                          }),
-                      ),
-                    onRemove: (id) =>
-                      emitFor(
-                        id,
-                        () => formatWatchRemovalJson(id),
-                        () => formatWatchRemoval(id, { now: Date.now() }),
-                      ),
-                    onActivity: (id, live) =>
-                      emitFor(
-                        id,
-                        () => formatWatchActivityJson(id, live),
-                        () =>
-                          formatWatchActivity(id, live, { now: Date.now() }),
-                      ),
-                  },
-                  signal,
-                  narrate,
-                )
-              : watchAgentStates(
-                  conn.client,
-                  // The resolved id rides the WIRE, not a local filter: padi
-                  // narrows the snapshot as well as the stream, so a debugging
-                  // tail costs one terminal's worth of traffic instead of the
-                  // fleet's.
-                  {
-                    ...supervise,
-                    ...(only === undefined ? {} : { id: only }),
-                    ...(ignored === undefined
-                      ? {}
-                      : { ignoreIds: [...ignored] }),
-                  },
-                  (batch) => {
-                    for (const event of batch) {
-                      // Both spellings are `render.ts`'s, like every other line
-                      // this verb prints — the `--json` contract has one owner.
-                      offer(
-                        args.json
-                          ? formatStateEventJson(event)
-                          : formatStateEvent(event),
-                      );
-                    }
-                  },
-                  signal,
-                  narrate,
-                );
-          },
-          catch: (err) => err,
-        }),
-        // A rejection and a self-settle are the same fact — the watch is over —
-        // so both land on the one ending below; the rejection just names itself.
-        (err) =>
-          Effect.sync(() => {
-            rejection = errorMessage(err);
+        // Aborted when stdout dies under us — the local half of "stop the watch";
+        // the other half is fiber interruption. Whether that death was a hangup or
+        // a real write failure rides the pump's error channel, joined below.
+        const stopped = new AbortController();
+        const pump = yield* Effect.forkChild(
+          pumpToStdout(lines, () => stopped.abort()),
+        );
+
+        // The pulse rides the SCOPE, like every other lifetime in this verb: a
+        // Ctrl+C reaches this process as fiber interruption, and the generator
+        // never resumes past the yield below — so a `clearInterval` written as a
+        // straight-line statement after it is a disposer the primary ending
+        // skips. Closing the scope is what stops the timer.
+        if (beat.value !== undefined) {
+          const pulse = (): void => {
+            offer(
+              args.json
+                ? formatHeartbeatJson(Date.now())
+                : formatHeartbeat(Date.now()),
+            );
+          };
+          pulse();
+          yield* Effect.acquireRelease(
+            Effect.sync(() => setInterval(pulse, beat.value).unref()),
+            (timer) => Effect.sync(() => clearInterval(timer)),
+          );
+        }
+
+        yield* Effect.catch(
+          Effect.tryPromise({
+            // `interrupted` is the signal Effect derives from THIS fiber's
+            // interruption, so a Ctrl+C at the run edge reaches the mirror
+            // without a single `process.on` in this file. Combined with the
+            // stdout-death signal because both mean "stop", and the mirror takes
+            // one.
+            try: (interrupted) => {
+              const signal = AbortSignal.any([interrupted, stopped.signal]);
+              const narrate = (line: string): void => {
+                writeErrSync(`kolu: ${line}\n`);
+              };
+              // The two feeds share every ending, every diagnostic and the one
+              // pump; they differ only in which member they subscribe. So this is
+              // the ONLY fork between them — not two verbs, and not two copies of
+              // the lifecycle above and below.
+              return supervise === undefined
+                ? watchTerminals(
+                    conn.client,
+                    {
+                      onUpsert: (id, value, live) =>
+                        emitFor(
+                          id,
+                          () => formatWatchJson(id, value, { live }),
+                          () =>
+                            formatWatchEvent(id, value, {
+                              now: Date.now(),
+                              live,
+                            }),
+                        ),
+                      onRemove: (id) =>
+                        emitFor(
+                          id,
+                          () => formatWatchRemovalJson(id),
+                          () => formatWatchRemoval(id, { now: Date.now() }),
+                        ),
+                      onActivity: (id, live) =>
+                        emitFor(
+                          id,
+                          () => formatWatchActivityJson(id, live),
+                          () =>
+                            formatWatchActivity(id, live, { now: Date.now() }),
+                        ),
+                    },
+                    signal,
+                    narrate,
+                  )
+                : watchAgentStates(
+                    conn.client,
+                    // The resolved id rides the WIRE, not a local filter: padi
+                    // narrows the snapshot as well as the stream, so a debugging
+                    // tail costs one terminal's worth of traffic instead of the
+                    // fleet's.
+                    {
+                      ...supervise,
+                      ...(only === undefined ? {} : { id: only }),
+                      ...(ignored === undefined
+                        ? {}
+                        : { ignoreIds: [...ignored] }),
+                    },
+                    (batch) => {
+                      for (const event of batch) {
+                        // Both spellings are `render.ts`'s, like every other line
+                        // this verb prints — the `--json` contract has one owner.
+                        offer(
+                          args.json
+                            ? formatStateEventJson(event)
+                            : formatStateEvent(event),
+                        );
+                      }
+                    },
+                    signal,
+                    narrate,
+                  );
+            },
+            catch: (err) => err,
           }),
-      );
+          // A rejection and a self-settle are the same fact — the watch is over —
+          // so both land on the one ending below; the rejection just names itself.
+          (err) =>
+            Effect.sync(() => {
+              rejection = errorMessage(err);
+            }),
+        );
 
-      // Read the discrimination HERE, at the instant the mirror ended, not after
-      // the flush: a stdout death always precedes the settle it causes (it is
-      // what aborts the mirror), so this is exactly "nobody local asked" — and a
-      // reader that hangs up during the final flush can no longer erase a link
-      // drop that had already happened.
-      const selfSettled = !stopped.signal.aborted;
+        // Read the discrimination HERE, at the instant the mirror ended, not after
+        // the flush: a stdout death always precedes the settle it causes (it is
+        // what aborts the mirror), so this is exactly "nobody local asked" — and a
+        // reader that hangs up during the final flush can no longer erase a link
+        // drop that had already happened.
+        const selfSettled = !stopped.signal.aborted;
 
-      if (heartbeat !== undefined) clearInterval(heartbeat);
+        // Stop producing and FLUSH what is already queued before leaving: a
+        // `watch` that dropped its last lines on the way out is indistinguishable
+        // from one that never saw the event.
+        yield* Queue.end(lines);
+        // A dead-stdout failure is the pump's, and this join is where it becomes
+        // the verb's — before the link test below, because "I could not print what
+        // I saw" outranks "the feed ended" as the thing that went wrong.
+        yield* Fiber.join(pump);
 
-      // Stop producing and FLUSH what is already queued before leaving: a
-      // `watch` that dropped its last lines on the way out is indistinguishable
-      // from one that never saw the event.
-      yield* Queue.end(lines);
-      // A dead-stdout failure is the pump's, and this join is where it becomes
-      // the verb's — before the link test below, because "I could not print what
-      // I saw" outranks "the feed ended" as the thing that went wrong.
-      yield* Fiber.join(pump);
-
-      // The mirror settled and nothing local asked it to — the link dropped.
-      if (selfSettled) {
-        return yield* Effect.fail(failure(rejection ?? PADI_LINK_CLOSED));
-      }
-    }),
+        // The mirror settled and nothing local asked it to — the link dropped.
+        if (selfSettled) {
+          return yield* Effect.fail(failure(rejection ?? PADI_LINK_CLOSED));
+        }
+      }),
+    ),
   );
 }

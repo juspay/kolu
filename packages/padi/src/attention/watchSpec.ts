@@ -139,6 +139,14 @@ export function ignoreSelfUnresolvable(face: "cli" | "mcp"): string {
     : `ignoreSelf: this MCP server is not running inside a kolu terminal (${CONTAINING_TERMINAL_ENV} is unset). The transport cannot identify the caller — pass ignoreIds with the terminal to mute, rather than guessing.`;
 }
 
+/** The sentence for `--ignore-self` aimed at ANOTHER machine's fleet. The
+ *  stamp names a terminal this padi owns; a remote padi has never heard of it,
+ *  so muting it there is a guaranteed no-op that would report success. Refused
+ *  for the same reason an unresolvable stamp is: the flag is knowably not
+ *  answerable, and a mute that silently mutes nobody is worse than a refusal. */
+export function ignoreSelfNotThisFleet(host: string): string {
+  return `--ignore-self names a terminal on THIS machine, but --host ${host} watches another padi's fleet — that mute could never match. Pass --ignore <id> naming a terminal on ${host}.`;
+}
 export function ignoreSelfInvalid(raw: string, face: "cli" | "mcp"): string {
   const stamp = `${CONTAINING_TERMINAL_ENV}=${JSON.stringify(raw)} is not a terminal id`;
   return face === "cli" ? `--ignore-self: ${stamp}.` : `ignoreSelf: ${stamp}.`;

@@ -98,6 +98,7 @@ export {
   containingTerminalId,
   ignoreIdsOf,
   ignoreSelfInvalid,
+  ignoreSelfNotThisFleet,
   ignoreSelfUnresolvable,
   mutedCoversInclude,
   namesWatchKnobs,

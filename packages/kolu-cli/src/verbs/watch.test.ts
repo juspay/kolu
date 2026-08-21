@@ -5,6 +5,7 @@
  * decided here BEFORE anything dials a daemon.
  */
 
+import type { Endpoint } from "../endpoint.ts";
 import { shortId } from "@kolu/padi/render";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
@@ -152,23 +153,40 @@ describe("planHeartbeat", () => {
   });
 });
 
+const HERE: Endpoint = { kind: "auto" };
+
 describe("planIgnoreSelf", () => {
   it("plans nothing when the flag is off", () => {
-    expect(planIgnoreSelf(args())).toEqual({ kind: "ok", value: undefined });
+    expect(planIgnoreSelf(args(), HERE)).toEqual({
+      kind: "ok",
+      value: undefined,
+    });
   });
 
   it("refuses --ignore-self when this process is not inside a kolu terminal", () => {
-    const plan = planIgnoreSelf(args({ ignoreSelf: true }), {});
+    const plan = planIgnoreSelf(args({ ignoreSelf: true }), HERE, {});
     expect(plan.kind).toBe("error");
     expect(plan.kind === "error" && plan.message).toMatch(/KAVAL_TERMINAL_ID/);
   });
 
   it("resolves --ignore-self to the containing terminal", () => {
     expect(
-      planIgnoreSelf(args({ ignoreSelf: true }), {
+      planIgnoreSelf(args({ ignoreSelf: true }), HERE, {
         KAVAL_TERMINAL_ID: SELF,
       }),
     ).toEqual({ kind: "ok", value: SELF });
+  });
+
+  it("refuses --ignore-self against ANOTHER machine's fleet — the stamp names a terminal here", () => {
+    // Fail-open would make this a mute that mutes nobody and still reports
+    // success, which is the one thing this flag refuses to do.
+    const plan = planIgnoreSelf(
+      args({ ignoreSelf: true }),
+      { kind: "host", ssh: "box" },
+      { KAVAL_TERMINAL_ID: SELF },
+    );
+    expect(plan.kind).toBe("error");
+    expect(plan.kind === "error" && plan.message).toMatch(/--host box/);
   });
 });
 
