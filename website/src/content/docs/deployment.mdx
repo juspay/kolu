@@ -60,12 +60,76 @@ services.kolu = {
 };
 ```
 
+## Bind a different address
+
+A one-off `nix run` (or `kolu web`) listens on loopback too. To expose it on
+your LAN, pass an address and port after `--`:
+
+```sh
+nix --refresh run github:juspay/kolu -- web --bind 0.0.0.0 --port 8080
+```
+
+Open the address you chose. For another device, prefer the private HTTPS
+setup in [From a Mac](/from-a-mac) or [From another
+device](/remote-access); plain LAN HTTP does not unlock install prompts,
+badges, or notifications.
+
 <Aside type="caution" title="The RPC surface has no login">
   The same-origin gate stops a hostile website from reaching kolu through your
   browser; it does not authenticate another device that can reach the listening
   address. Keep access inside a trusted network. For private HTTPS across
-  devices, follow <a href="/remote-access">Remote Access</a>.
+  devices, follow <a href="/from-a-mac">From a Mac</a> or
+  <a href="/remote-access">From another device</a>.
 </Aside>
+
+## First run compiling? Enable the binary cache
+
+Every kolu commit is pre-built and pushed to a public binary cache,
+`https://cache.nixos.asia/oss`. The flake declares it, but Nix only honors a
+flake-declared cache if you accept it **and** your user is
+[trusted](https://nix.dev/manual/nix/latest/command-ref/conf-file#conf-trusted-users)
+by the Nix daemon — and on a standard multi-user install it isn't, so the
+setting is dropped with a one-line warning
+(`ignoring untrusted flake configuration setting 'extra-substituters'`) and the
+first run compiles kolu from source, including downloading a Rust toolchain
+for one of its helper binaries.
+
+To download pre-built binaries instead, add the cache to the **system** Nix
+configuration (`/etc/nix/nix.conf`):
+
+```text
+extra-substituters = https://cache.nixos.asia/oss
+extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
+```
+
+Or, on NixOS:
+
+```nix
+nix.settings = {
+  extra-substituters = [ "https://cache.nixos.asia/oss" ];
+  extra-trusted-public-keys = [ "oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=" ];
+};
+```
+
+After editing `nix.conf`, restart the daemon (`sudo systemctl restart
+nix-daemon` on Linux, `sudo launchctl kickstart -k
+system/org.nixos.nix-daemon` on macOS).
+
+Machines you [add as another machine](/remote-hosts) can inherit the cache
+through kolu: provisioning copies the agent's binaries out of **this** machine's
+store onto the host, cross-architecture included. That copy lands only if the
+host trusts it — your ssh user is in the host's `trusted-users`, or the host
+trusts the cache's signing key. When it doesn't, kolu says so in the connect
+log and the host builds the agent itself; the fix is the same `nix.conf` block
+above, applied on that machine.
+
+Whether this machine has those binaries to copy depends on how you installed
+kolu. If you run kolu as a service through the **home-manager module**, it
+always does: the installed generation carries every agent closure kolu can
+provision, so the cache above is only about kolu's *own* first build, never
+about a remote connect. If you launch kolu with `nix run` or a plain `nix
+profile install`, the agent closure is fetched on demand — from this cache, and
+from source if the cache doesn't have it yet.
 
 ## Allow a reverse-proxy origin
 

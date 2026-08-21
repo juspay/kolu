@@ -1,7 +1,7 @@
 /** Pure selection for the welcome-moments card.
  *
- *  Moments in priority order: Pin · Reach · Run agents · Search everything ·
- *  Add a host · Shortcuts. Done-predicates collapse into a muted header line;
+ *  Moments in priority order: Pin · From another device · Run agents · Search ·
+ *  Add another machine · Shortcuts. Done-predicates collapse into a muted header line;
  *  the card renders the first three still-undone moments. Run-agents, Search,
  *  and Shortcuts are never "done". */
 

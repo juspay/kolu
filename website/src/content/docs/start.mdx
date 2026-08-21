@@ -1,0 +1,41 @@
+---
+title: Get started
+description: "Try kolu on this machine, or use a Mac as the window onto a Linux box."
+order: 1
+section: Start
+koluHero:
+  eyebrow: start here
+  headline: Two ways {in}.
+---
+
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+Kolu is a terminal workspace for running many coding agents at once — real
+terminals on a canvas, not a chat panel bolted to an editor. Two ways to get
+there. Pick the one that matches what you have.
+
+<CardGrid>
+  <LinkCard
+    title="Try it on this machine"
+    href="/quickstart"
+    description="One Nix command. Open a local URL. See the canvas in a minute."
+  />
+  <LinkCard
+    title="Mac window, Linux computer"
+    href="/from-a-mac"
+    description="Kolu runs on a Linux box. You open it from your Mac as an app."
+  />
+</CardGrid>
+
+Once it is running, [First Five Minutes](/first-five-minutes) is the first
+agent tile: open a repo, name a worktree, launch an agent, watch the dock.
+
+## After that
+
+<CardGrid>
+  <LinkCard title="From another device" href="/remote-access" description="reach the running app from a phone or another laptop over private HTTPS" />
+  <LinkCard title="Add another machine" href="/remote-hosts" description="put a second machine's terminals on the same canvas, over ssh" />
+  <LinkCard title="Install as an app" href="/install-pwa" description="pin kolu so it has its own window, dock icon, and badges" />
+  <LinkCard title="Core concepts" href="/concepts" description="the words for what you are looking at: canvas, tiles, dock, worktrees" />
+</CardGrid>

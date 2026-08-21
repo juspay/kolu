@@ -1,5 +1,5 @@
-/** Prioritized, state-aware welcome moments for new users — Pin it · Reach it
- *  anywhere · Run agents · Search everything · Add a host · Shortcuts.
+/** Prioritized, state-aware welcome moments for new users — Pin it ·
+ *  From another device · Run agents · Search everything · Add another machine · Shortcuts.
  *  Rendered inline by `EmptyState` (zero terminals) and inside
  *  `WelcomeDialog` (the palette "Tutorial" command).
  *
@@ -216,8 +216,8 @@ const WelcomeMoments: Component<{
           <MomentShell
             testId="welcome-moment-reach"
             emoji="🌐"
-            title="Reach it anywhere"
-            body="One Tailscale command and kolu follows you to your phone, over real HTTPS."
+            title="From another device"
+            body="Serve it over HTTPS with Tailscale, then pin it as an app on your laptop or phone."
             docSlug="remote-access"
             trailing={
               <DocLink
@@ -279,7 +279,7 @@ const WelcomeMoments: Component<{
           <MomentShell
             testId="welcome-moment-host"
             emoji="🖥️"
-            title="Add a host"
+            title="Add another machine"
             body="Point kolu at another machine over ssh — the whole canvas becomes that host."
             docSlug="remote-hosts"
             trailing={

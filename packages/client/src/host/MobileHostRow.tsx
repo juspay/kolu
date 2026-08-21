@@ -174,7 +174,7 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
       onPointerDown={(e) => e.stopPropagation()}
     >
       <p class="mb-2.5 text-[11px] leading-4 text-fg-2">
-        Remote hosts —{" "}
+        Add another machine —{" "}
         <DocLink slug="remote-hosts" data-testid="mobile-host-add-docs">
           Learn more →
         </DocLink>
