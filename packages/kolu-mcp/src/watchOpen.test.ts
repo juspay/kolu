@@ -12,12 +12,13 @@ import { Effect, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveWatchOpenInput, watchOpenTool } from "./watchOpen.ts";
 
-/** The plan, or the refusal thrown as the tool handler would throw it — so
- *  these pins read the same way they did when the pure half threw, while the
- *  pure half now answers in values like its CLI twin. */
+/** padi's input, or the refusal raised as the tool handler raises it — so these
+ *  pins read as a caller experiences them, while the pure half answers in values
+ *  like its CLI twin. The second argument is the ROSTER the stamp is confirmed
+ *  against; `[]` is a padi that has never heard of this terminal. */
 const plan = (
   ...args: Parameters<typeof resolveWatchOpenInput>
-): { input: PadiWatchOpenInput; self?: TerminalId } => {
+): PadiWatchOpenInput => {
   const parsed = resolveWatchOpenInput(...args);
   if (parsed.kind === "error") {
     throw new ToolFailure(parsed.message, parsed.detail);
@@ -31,16 +32,17 @@ const LANE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as TerminalId;
 describe("resolveWatchOpenInput", () => {
   it("passes ignoreIds through when ignoreSelf was not asked", () => {
     expect(
-      plan({ name: "campaign", ignoreIds: [LANE] }, {}).input.ignoreIds,
+      plan({ name: "campaign", ignoreIds: [LANE] }, [], {}).ignoreIds,
     ).toEqual([LANE]);
-    expect(
-      Object.hasOwn(plan({ name: "campaign" }, {}).input, "ignoreIds"),
-    ).toBe(false);
+    expect(Object.hasOwn(plan({ name: "campaign" }, [], {}), "ignoreIds")).toBe(
+      false,
+    );
   });
 
   it("unions ignoreSelf with listed mutes when the transport knows the caller", () => {
-    const { input } = plan(
+    const input = plan(
       { name: "campaign", ignoreIds: [LANE], ignoreSelf: true },
+      [SELF, LANE],
       { KAVAL_TERMINAL_ID: SELF },
     );
     expect([...(input.ignoreIds ?? [])].sort()).toEqual([LANE, SELF].sort());
@@ -49,7 +51,7 @@ describe("resolveWatchOpenInput", () => {
 
   it("refuses ignoreSelf when the transport cannot identify the caller", () => {
     try {
-      plan({ name: "campaign", ignoreSelf: true }, {});
+      plan({ name: "campaign", ignoreSelf: true }, [], {});
       expect.unreachable("should have refused");
     } catch (e) {
       expect(e).toBeInstanceOf(ToolFailure);
@@ -66,10 +68,9 @@ describe("resolveWatchOpenInput", () => {
 
   it("refuses when ignoreSelf mutes the only id the subscription is scoped to", () => {
     try {
-      plan(
-        { name: "campaign", ids: [SELF], ignoreSelf: true },
-        { KAVAL_TERMINAL_ID: SELF },
-      );
+      plan({ name: "campaign", ids: [SELF], ignoreSelf: true }, [SELF], {
+        KAVAL_TERMINAL_ID: SELF,
+      });
       expect.unreachable("should have refused");
     } catch (e) {
       expect(e).toBeInstanceOf(ToolFailure);
@@ -82,7 +83,7 @@ describe("resolveWatchOpenInput", () => {
 
   it("refuses ids ∩ ignoreIds the same way, even without ignoreSelf", () => {
     try {
-      plan({ name: "campaign", ids: [SELF], ignoreIds: [SELF] }, {});
+      plan({ name: "campaign", ids: [SELF], ignoreIds: [SELF] }, [], {});
       expect.unreachable("should have refused");
     } catch (e) {
       expect(e).toBeInstanceOf(ToolFailure);
@@ -92,12 +93,29 @@ describe("resolveWatchOpenInput", () => {
     }
   });
 
+  it("refuses a STRAY stamp before it refuses the scope it would make empty", () => {
+    // The stamp is resolved fully — fleet arm included — BEFORE the scope, so
+    // this request (ids fully covered by a mute whose self is a stray stamp)
+    // gets the SAME refusal the CLI gives it. Built the other way round, this
+    // face said "can never match" and the CLI said "not in fleet".
+    try {
+      plan({ name: "campaign", ids: [SELF], ignoreSelf: true }, [LANE], {
+        KAVAL_TERMINAL_ID: SELF,
+      });
+      expect.unreachable("should have refused");
+    } catch (e) {
+      expect((e as ToolFailure).detail).toEqual({
+        kind: "ignore-self-not-in-fleet",
+        id: SELF,
+      });
+    }
+  });
+
   it("refuses ignoreSelf rather than guessing when the stamp is not a terminal id", () => {
     try {
-      plan(
-        { name: "campaign", ignoreSelf: true },
-        { KAVAL_TERMINAL_ID: "not-a-uuid" },
-      );
+      plan({ name: "campaign", ignoreSelf: true }, [], {
+        KAVAL_TERMINAL_ID: "not-a-uuid",
+      });
       expect.unreachable("should have refused");
     } catch (e) {
       expect(e).toBeInstanceOf(ToolFailure);

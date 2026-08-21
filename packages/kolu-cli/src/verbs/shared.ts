@@ -245,3 +245,17 @@ export function writeErr(text: string): Effect.Effect<void> {
 export const writeErrSync = (text: string): void => {
   process.stderr.write(text);
 };
+
+/** ONE diagnostic line on stderr, in the binary's own voice — the `kolu: `
+ *  prefix and the newline, spelled once.
+ *
+ *  {@link writeErrSync} exists so the verb layer has one stderr writer; this
+ *  exists so it has one stderr SENTENCE SHAPE. `exit.ts`'s `failure` already
+ *  owned the prefix for the ending, and `watch.ts` had grown two more inline
+ *  copies of it (a mute diagnostic and the mirror's narration sink) — three
+ *  spellings of "kolu says", one of which could quietly lose the prefix. Takes
+ *  the message WITHOUT a newline: a caller that has to remember `\n` is a caller
+ *  that can forget it. */
+export const warn = (message: string): void => {
+  writeErrSync(`kolu: ${message}\n`);
+};

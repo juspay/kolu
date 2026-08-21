@@ -96,37 +96,25 @@
  * included terminal is also muted can never match, and is refused rather than
  * left to look like a quiet workspace.
  *
- * WHERE the narrowing is enforced differs by feed, and it is the one genuinely
- * surprising asymmetry here. The CHANGE tail narrows at the EMIT funnel: padi's
- * collection is the whole terminals set either way, so there is one mirror and
- * one filter. The SUPERVISION feed narrows on the WIRE — padi trims the snapshot
+ * BOTH feeds print through ONE emit funnel, and `scopeAdmits` there is the
+ * correctness boundary — so neither feed can report a terminal this invocation
+ * muted. The supervision feed ALSO narrows on the wire (padi trims the snapshot
  * as well as the stream, so a debugging tail costs one terminal's worth of
- * traffic instead of the fleet's. The mute rides the wire there too, and
- * `scopeAdmits` still guards the funnel, so neither feed can report a terminal
- * this invocation muted.
+ * traffic instead of the fleet's), but that is a BANDWIDTH decision sitting on
+ * top of the funnel, not a second filter the funnel relies on.
  *
- * `--ignore-self` asks a question argv cannot answer alone: the containing
- * terminal comes from the spawn stamp (pre-dial, because a missing stamp is a
- * usage error), but whether the padi we are about to watch OWNS that terminal is
- * a ROSTER question and waits for the roster. It is refused when the answer is
- * no — a mute that mutes nobody and reports success is worse than a refusal, and
- * that is what `--host`, a `--socket` aimed at a different padi, and a stamp
- * re-keyed by a daemon restart all produce.
+ * `--ignore-self` asks a question argv cannot answer alone — see
+ * {@link refuseSelfNotInFleet}, which holds the decision and the reason.
  *
  * ## Liveness
  *
- * `--heartbeat` prints a timestamped alive line on an otherwise silent stdout,
- * because silence on a held pipe is unfalsifiable — a dead stream and a quiet
- * fleet read identically. It is NOT a supervision knob: naming it does not
- * switch feeds, and it does not reach padi at all. Over MCP the same question
- * already has an answer (`watch_next`'s `timeoutMs`), so a clock tick in padi's
- * queue would only mix a liveness pulse into terminal events.
+ * `--heartbeat` prints a timestamped alive line on an otherwise silent stdout;
+ * WHY it is CLI-only is {@link planHeartbeat}'s docblock, and what the line
+ * looks like is `render.ts`'s `formatHeartbeat`.
  *
  * It bypasses the emit funnel — a pulse is not a terminal event, so there is no
  * terminal for the scope to admit — and it rides the verb's OWN `Effect.scoped`
- * lifetime: closing the scope is what stops the interval, on every ending
- * including the interruption a Ctrl+C arrives as. A `clearInterval` written as a
- * straight-line statement would be a disposer the primary ending skips.
+ * lifetime, for the reason spelled at the acquire below.
  *
  * ## Output discipline
  *
@@ -138,6 +126,7 @@
  */
 
 import {
+  confirmInFleet,
   CONTAINING_TERMINAL_ENV,
   containingTerminalId,
   namesWatchKnobs,
@@ -185,7 +174,7 @@ import {
   stdoutLost,
   stdoutSink,
   waitStateTokens,
-  writeErrSync,
+  warn,
 } from "./shared.ts";
 
 /** What the command tree parsed for `watch` — DERIVED from `watchFlags` in
@@ -390,15 +379,18 @@ export function planIgnoreSelf(
 
 /** Is the terminal `--ignore-self` resolved to one this padi actually owns?
  *
- *  ONE membership question, answered from the roster the verb reads anyway —
- *  not from the shape of the endpoint. `endpoint.kind === "host"` was a
- *  TRANSPORT-shaped proxy for it: it caught `--host` and missed
- *  `--socket /tmp/other-padi.sock` (a different padi on the same machine, which
- *  took the ok path and muted an id nobody there has heard of) and missed a
- *  stamp gone stale across a daemon restart. Asking the roster subsumes all
- *  three, exactly, at the cost of the dial — which is the right trade for the
- *  one thing this flag refuses to do anywhere else: mute nobody and report
- *  success.
+ *  The half of the flag argv cannot answer: the stamp is read pre-dial (a
+ *  missing one is a usage error), but MEMBERSHIP is a roster question and waits
+ *  for the roster. It is refused when the answer is no — a mute that mutes
+ *  nobody and reports success is worse than a refusal, and `--host`, a
+ *  `--socket` aimed at a different padi, and a stamp re-keyed by a daemon
+ *  restart all produce exactly that.
+ *
+ *  The membership TEST is padi's `confirmInFleet`, the fourth arm of the same
+ *  sum that answers `none`/`invalid`/`ok` — this face contributes only the
+ *  SENTENCE, and `watchOpen.ts` switches on the same arm to say its own. The
+ *  arm exists because `endpoint.kind === "host"` was a TRANSPORT-shaped proxy
+ *  for it that missed both a sibling padi and a stale stamp.
  *
  *  A VALIDATOR, so it is spelled as one: a sentence when there is something to
  *  say, and nothing when there is not. */
@@ -406,8 +398,11 @@ export function refuseSelfNotInFleet(
   self: TerminalId | undefined,
   live: readonly TerminalId[],
 ): string | undefined {
-  if (self === undefined || live.includes(self)) return undefined;
-  return ignoreSelfNotInFleet(self);
+  if (self === undefined) return undefined;
+  const confirmed = confirmInFleet({ kind: "ok", id: self }, live);
+  return confirmed.kind === "stray"
+    ? ignoreSelfNotInFleet(confirmed.id)
+    : undefined;
 }
 
 /** Widen `--ignore` queries against the live roster. Unique prefixes become
@@ -533,22 +528,59 @@ export function planWatch(
  *  refusal that compares their results. */
 export interface WatchTargets {
   /** The resolved `<id>`, kept apart from {@link scope} because the supervision
-   *  feed narrows on the WIRE with it — padi trims the snapshot as well as the
-   *  stream — while the change tail narrows at the emit funnel. */
+   *  feed ALSO puts it on the WIRE — padi trims the snapshot as well as the
+   *  stream there, which the change tail's collection cannot be asked for. Both
+   *  feeds still narrow at the emit funnel; this only saves the traffic. */
   readonly only?: TerminalId;
   readonly scope: WatchScope;
+  /** The roster snapshot above, EMPTY when no flag needed one. It is handed to
+   *  the mirror as `initialKeys`: a terminal that departed between this read
+   *  and the subscribe is then reported gone on the first frame, instead of
+   *  never — the read already happened, and dropping it threw that away. */
+  readonly live: readonly TerminalId[];
 }
 
-function resolveWatchTargets(
+/** Emit ONE line for a terminal event — the three decisions every event type
+ *  makes, made once: the scope narrowing, the `--json` fork, and the trailing
+ *  newline.
+ *
+ *  Each change-tail handler used to repeat all three, and the supervision batch
+ *  loop repeated NONE of them — it queued its lines directly, filtered only by
+ *  the ids it had put on the wire. Written per site, an event type can forget
+ *  the narrowing and quietly report a terminal the user asked to be muted: a
+ *  filter that is only correct because its copies agree. Both feeds ask padi's
+ *  ONE `scopeAdmits` here now, so the wire narrowing is a BANDWIDTH decision
+ *  and this is the correctness boundary.
+ *
+ *  The two renderings are THUNKS, so the shape that was not asked for is never
+ *  formatted. Exported for the pins: this guard is the only thing standing
+ *  between a muted terminal and stdout. */
+export function emitFunnel(
+  scope: WatchScope,
+  json: boolean,
+  offer: (line: string) => void,
+): (id: TerminalId, asJson: () => string, asHuman: () => string) => void {
+  return (id, asJson, asHuman) => {
+    if (!scopeAdmits(scope, id)) return;
+    offer(json ? asJson() : asHuman());
+  };
+}
+
+/** Read the roster once and turn the plan's queries into {@link WatchTargets}.
+ *
+ *  ORDER is part of the contract, and it is shared with `watchOpen.ts`: the
+ *  stamp is resolved FULLY — fleet arm included — BEFORE the scope is built, so
+ *  one logical request gets one refusal whichever face it arrives on. Exported
+ *  for that pin. */
+export function resolveWatchTargets(
   client: PadiSurfaceClient,
   plan: WatchPlan,
 ): Effect.Effect<WatchTargets, unknown> {
   return Effect.gen(function* () {
-    const needsRoster =
-      plan.id !== undefined ||
-      plan.ignore.length > 0 ||
-      plan.self !== undefined;
-    const live = needsRoster ? yield* readTerminalKeys(client) : [];
+    const live =
+      plan.id !== undefined || plan.ignore.length > 0 || plan.self !== undefined
+        ? yield* readTerminalKeys(client)
+        : [];
     const strayed = refuseSelfNotInFleet(plan.self, live);
     if (strayed !== undefined) return yield* Effect.fail(failure(strayed));
     const only =
@@ -560,8 +592,8 @@ function resolveWatchTargets(
       return yield* Effect.fail(failure(listed.message));
     }
     for (const query of listed.value.dropped) {
-      writeErrSync(
-        `kolu: --ignore ${JSON.stringify(query)} matched no terminal — not muting anything for it\n`,
+      warn(
+        `--ignore ${JSON.stringify(query)} matched no terminal — not muting anything for it`,
       );
     }
     const scope = planWatchScope(only, [
@@ -574,6 +606,7 @@ function resolveWatchTargets(
     return {
       ...(only === undefined ? {} : { only }),
       scope: scope.value,
+      live,
     };
   });
 }
@@ -587,7 +620,6 @@ export function run(
   const planned = planWatch(args);
   if (planned.kind === "error") return Effect.fail(failure(planned.message));
   const plan = planned.value;
-  const supervise = plan.supervise;
 
   return withPadi(endpoint, (conn) =>
     // The verb's OWN scope, like `wait`'s: a lifetime this body opens (the
@@ -595,18 +627,12 @@ export function run(
     // including the interruption a Ctrl+C arrives as.
     Effect.scoped(
       Effect.gen(function* () {
-        const { only, scope } = yield* resolveWatchTargets(conn.client, plan);
+        const { only, scope, live } = yield* resolveWatchTargets(
+          conn.client,
+          plan,
+        );
 
         const lines = yield* Queue.unbounded<string, Cause.Done>();
-        /** Emit ONE line for a terminal event — the three decisions every event
-         *  type makes, made once.
-         *
-         *  Each handler below used to repeat all three: the `only` narrowing, the
-         *  `--json` fork, and the trailing newline. Written per handler, a fourth
-         *  event type can forget the narrowing and quietly report a terminal the
-         *  user asked to be narrowed away — a filter that is only correct because
-         *  three copies of it agree. The two renderings are THUNKS so the shape
-         *  that was not asked for is never formatted. */
         const offer = (line: string): void => {
           // TRAILING newline, in the same queued string as the payload — never a
           // LEADING one: a line terminated by the NEXT write is a line the
@@ -614,17 +640,8 @@ export function run(
           // one-event lag `watch.e2e.test.ts` pins with `| head -1`.
           Queue.offerUnsafe(lines, `${line}\n`);
         };
-        const emitFor = (
-          id: TerminalId,
-          json: () => string,
-          human: () => string,
-        ): void => {
-          // ONE membership question, asked of padi's one reader — the `<id>`
-          // narrowing and the mute are the same rule, so a fourth event type
-          // cannot inherit half of it.
-          if (!scopeAdmits(scope, id)) return;
-          offer(plan.json ? json() : human());
-        };
+        // Every terminal event on EITHER feed goes through this one guard.
+        const emitFor = emitFunnel(scope, plan.json, offer);
         /** Why the mirror REJECTED, if it did — the only thing upstream ever says
          *  that genuinely names a failure. The `log` lines below are chatter by
          *  contract (`MirrorRemoteSurfaceOptions.log`: "routine narration a
@@ -672,14 +689,11 @@ export function run(
             // one.
             try: (interrupted) => {
               const signal = AbortSignal.any([interrupted, stopped.signal]);
-              const narrate = (line: string): void => {
-                writeErrSync(`kolu: ${line}\n`);
-              };
               // The two feeds share every ending, every diagnostic and the one
               // pump; they differ only in which member they subscribe. So this is
               // the ONLY fork between them — not two verbs, and not two copies of
               // the lifecycle above and below.
-              return supervise === undefined
+              return plan.supervise === undefined
                 ? watchTerminals(
                     conn.client,
                     {
@@ -708,7 +722,11 @@ export function run(
                         ),
                     },
                     signal,
-                    narrate,
+                    warn,
+                    // The roster we already read: any key here that the first
+                    // snapshot does not re-assert departed while we were
+                    // resolving, and the mirror reports it gone at once.
+                    () => live,
                   )
                 : watchAgentStates(
                     conn.client,
@@ -717,7 +735,7 @@ export function run(
                     // tail costs one terminal's worth of traffic instead of the
                     // fleet's.
                     {
-                      ...supervise,
+                      ...plan.supervise,
                       ...(only === undefined ? {} : { id: only }),
                       ...(scope.mute === undefined
                         ? {}
@@ -725,17 +743,21 @@ export function run(
                     },
                     (batch) => {
                       for (const event of batch) {
-                        // Both spellings are `render.ts`'s, like every other line
-                        // this verb prints — the `--json` contract has one owner.
-                        offer(
-                          plan.json
-                            ? formatStateEventJson(event)
-                            : formatStateEvent(event),
+                        // Through the SAME funnel the change tail uses — a state
+                        // event names a terminal, so it is a membership question
+                        // of exactly the same kind, and the wire narrowing above
+                        // is bandwidth rather than the boundary. Both spellings
+                        // are `render.ts`'s, like every other line this verb
+                        // prints: the `--json` contract has one owner.
+                        emitFor(
+                          event.id,
+                          () => formatStateEventJson(event),
+                          () => formatStateEvent(event),
                         );
                       }
                     },
                     signal,
-                    narrate,
+                    warn,
                   );
             },
             catch: (err) => err,

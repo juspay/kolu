@@ -5,17 +5,26 @@
  * padi cannot identify the caller: many clients share the daemon. This process
  * can, when it is running inside a kolu terminal (`KAVAL_TERMINAL_ID`). The
  * flag is resolved here into `ignoreIds` before the call crosses; padi only
- * ever sees ids. If the stamp is missing, the param is REFUSED rather than
- * guessed — the same rule the CLI's `--ignore-self` takes.
+ * ever sees ids. If the stamp is missing, garbled, or names a terminal THIS
+ * padi has never heard of, the param is REFUSED rather than guessed — padi's
+ * `confirmInFleet` holds all four arms, and the CLI's `--ignore-self` takes the
+ * same rule off the same sum.
+ *
+ * ORDER matters and is shared with that face: the stamp is resolved FULLY,
+ * fleet arm included, BEFORE the scope is built. Built the other way round, one
+ * logical request — ids covered by a mute whose self is a stray stamp — was
+ * refused as "can never match" here and as "not in fleet" there.
  *
  * The rest of the schema is padi's own `watch.open` input, spread so a knob
  * added on the wire reaches this face by being declared.
  */
 
 import {
+  confirmInFleet,
   CONTAINING_TERMINAL_ENV,
   containingTerminalId,
   type PadiSurfaceClient,
+  type WatchScopeRefusal,
   watchScopeOf,
 } from "@kolu/padi/dial";
 import {
@@ -58,7 +67,7 @@ const ignoreSelfNotInFleet = (self: TerminalId): string =>
  *  in a shell's positional wording. Exhaustive over the constructor's refusals,
  *  so a third shape stops this compiling instead of falling through. */
 const scopeRefusal = (
-  refused: "covered" | "no-ids",
+  refused: WatchScopeRefusal,
 ): { readonly wayOut: string; readonly detail: string } =>
   refused === "covered"
     ? {
@@ -68,30 +77,26 @@ const scopeRefusal = (
       }
     : { wayOut: "Omit ids to watch the whole fleet.", detail: "empty-ids" };
 
-/** What this face decided BEFORE anything crosses to padi. */
-export interface WatchOpenPlan {
-  /** padi's own `watch.open` input, `ignoreSelf` already resolved into ids. */
-  readonly input: PadiWatchOpenInput;
-  /** The containing terminal `ignoreSelf` resolved to, when it was asked —
-   *  carried out so the handler can ask the padi it is about to call whether
-   *  that terminal is in ITS roster. */
-  readonly self?: TerminalId;
-}
-
 /** A refusal is a VALUE here, the same shape the CLI half uses, so one feature
  *  has one representation of "refused before we dial" rather than a throw on one
  *  face and a value on the other. The handler below is the ONE place it becomes
- *  a {@link ToolFailure}. */
+ *  a {@link ToolFailure}. The ok arm is padi's own `watch.open` input,
+ *  `ignoreSelf` already resolved into ids — nothing this face still has to
+ *  carry out and re-decide. */
 export type ParsedWatchOpen =
-  | { readonly kind: "ok"; readonly value: WatchOpenPlan }
+  | { readonly kind: "ok"; readonly value: PadiWatchOpenInput }
   | {
       readonly kind: "error";
       readonly message: string;
       readonly detail: Record<string, unknown>;
     };
 
+/** `live` is the padi's roster — the fleet the stamp is confirmed against. The
+ *  caller reads it only when `ignoreSelf` was asked (every other id here is a
+ *  full id off the wire), and passes it in so this half stays pure. */
 export function resolveWatchOpenInput(
   args: WatchOpenArgs,
+  live: readonly TerminalId[],
   env: { readonly [key: string]: string | undefined } = process.env,
 ): ParsedWatchOpen {
   const { ignoreSelf, ignoreIds, ids, ...rest } = args;
@@ -99,9 +104,10 @@ export function resolveWatchOpenInput(
   // id in the mute, never how the mute is built. (The two used to be separate
   // paths and had already diverged on the empty list.)
   const mute: TerminalId[] = [...(ignoreIds ?? [])];
-  let self: TerminalId | undefined;
   if (ignoreSelf === true) {
-    const found = containingTerminalId(env);
+    // All four arms of padi's one stamp sum, answered here — before the scope,
+    // so a stray stamp is never reported as a never-match scope.
+    const found = confirmInFleet(containingTerminalId(env), live);
     if (found.kind === "none") {
       return {
         kind: "error",
@@ -116,8 +122,14 @@ export function resolveWatchOpenInput(
         detail: { kind: "ignore-self-invalid", raw: found.raw },
       };
     }
-    self = found.id;
-    mute.push(self);
+    if (found.kind === "stray") {
+      return {
+        kind: "error",
+        message: ignoreSelfNotInFleet(found.id),
+        detail: { kind: "ignore-self-not-in-fleet", id: found.id },
+      };
+    }
+    mute.push(found.id);
   }
   const scope = watchScopeOf({ ...(ids === undefined ? {} : { ids }), mute });
   if (scope.kind === "error") {
@@ -131,16 +143,13 @@ export function resolveWatchOpenInput(
   return {
     kind: "ok",
     value: {
-      input: {
-        ...rest,
-        ...(scope.value.include === undefined
-          ? {}
-          : { ids: [...scope.value.include] }),
-        ...(scope.value.mute === undefined
-          ? {}
-          : { ignoreIds: [...scope.value.mute] }),
-      },
-      ...(self === undefined ? {} : { self }),
+      ...rest,
+      ...(scope.value.include === undefined
+        ? {}
+        : { ids: [...scope.value.include] }),
+      ...(scope.value.mute === undefined
+        ? {}
+        : { ignoreIds: [...scope.value.mute] }),
     },
   };
 }
@@ -152,37 +161,27 @@ export const watchOpenTool: BespokeTool = {
   description:
     "Start (or re-attach to) a named standing subscription. Omit ids to watch the WHOLE fleet — a list you forget to update goes blind to a lane nobody added. ignoreIds mutes known terminals (fail-open: a stale id costs nothing). ignoreSelf mutes the terminal this MCP server is running inside. Naming any of states/heldForMs/nagMs turns the subscription into an agent-state watch (snapshot · transition · nag); naming none leaves the settle detector (asking · finished · gone). Re-open the SAME name after a restart to reattach to the queue.",
   handler: (args, client) => {
-    const parsed = resolveWatchOpenInput(args as WatchOpenArgs);
-    // The ONE throw: the pure half above answers in values, and this is the
-    // boundary that must speak MCP's failure vocabulary.
-    if (parsed.kind === "error") {
-      throw new ToolFailure(parsed.message, parsed.detail);
-    }
     const padi = client as PadiSurfaceClient;
-    const { input, self } = parsed.value;
+    const asked = args as WatchOpenArgs;
     return Effect.gen(function* () {
-      // The SAME membership question the CLI asks: is the containing terminal
-      // one THIS padi owns? `kolu mcp` honors --host and --socket, so this face
-      // can be fronting another machine's fleet — in which case the stamp names
-      // a terminal nobody there has heard of, and the mute would mute nobody
-      // and return success. The CLI used to ask and this face did not; asking
-      // the ROSTER (rather than the transport's shape) is what makes both
-      // exact, and covers a stamp re-keyed by a daemon restart as well.
-      if (self !== undefined) {
-        const live = yield* readTerminalKeys(padi);
-        if (!live.includes(self)) {
-          // On the ERROR channel, not thrown: a throw inside a generator is a
-          // DEFECT, and `failFrom` reads a `ToolFailure`'s own detail off the
-          // failure it is handed. A refusal is not a bug in this server.
-          return yield* Effect.fail(
-            new ToolFailure(ignoreSelfNotInFleet(self), {
-              kind: "ignore-self-not-in-fleet",
-              id: self,
-            }),
-          );
-        }
+      // The roster, and ONLY when the stamp needs confirming against it: `kolu
+      // mcp` honors --host and --socket, so this face can be fronting another
+      // machine's fleet, in which case the stamp names a terminal nobody there
+      // has heard of and the mute would mute nobody and return success. Every
+      // other id on this call is a full id off the wire, so a caller who never
+      // asked `ignoreSelf` pays no round trip.
+      const live =
+        asked.ignoreSelf === true ? yield* readTerminalKeys(padi) : [];
+      const parsed = resolveWatchOpenInput(asked, live);
+      // On the ERROR channel, not thrown: a throw inside a generator is a
+      // DEFECT, and `failFrom` reads a `ToolFailure`'s own detail off the
+      // failure it is handed. A refusal is not a bug in this server.
+      if (parsed.kind === "error") {
+        return yield* Effect.fail(
+          new ToolFailure(parsed.message, parsed.detail),
+        );
       }
-      return yield* padi.surface.watch.open(input);
+      return yield* padi.surface.watch.open(parsed.value);
     });
   },
 };

@@ -5,10 +5,19 @@
  * decided here BEFORE anything dials a daemon.
  */
 
-import { shortId } from "@kolu/padi/render";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { describe, expect, it } from "vitest";
+import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import {
+  formatStateEvent,
+  formatStateEventJson,
+  shortId,
+} from "@kolu/padi/render";
+import type { PadiStateEvent } from "@kolu/padi/surface";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import { Effect, Stream } from "effect";
+import { describe, expect, it } from "vitest";
+import type { CliFailure } from "../exit.ts";
+import {
+  emitFunnel,
   planHeartbeat,
   planIgnoreSelf,
   planSupervision,
@@ -16,7 +25,9 @@ import {
   planWatchScope,
   refuseSelfNotInFleet,
   resolveIgnoreQueries,
+  resolveWatchTargets,
   type WatchArgs,
+  type WatchPlan,
 } from "./watch.ts";
 
 const args = (over: Partial<WatchArgs> = {}): WatchArgs =>
@@ -180,20 +191,15 @@ describe("planIgnoreSelf", () => {
     expect(plan.kind === "error" && plan.message).toMatch(/not-a-uuid/);
   });
 
+  // …and it does NOT ask which fleet: that is a roster question, and the roster
+  // is not argv. The endpoint used to be part of this parse (`--host` was
+  // refused here) — a transport-shaped proxy that missed a --socket aimed at a
+  // different padi, and missed a stamp gone stale across a restart.
   it("resolves --ignore-self to the containing terminal", () => {
     expect(
       planIgnoreSelf(args({ ignoreSelf: true }), {
         KAVAL_TERMINAL_ID: SELF,
       }),
-    ).toEqual({ kind: "ok", value: SELF });
-  });
-
-  it("does NOT ask which fleet — that is a roster question, and the roster is not argv", () => {
-    // The endpoint used to be part of this parse (`--host` was refused here).
-    // It was a transport-shaped proxy: it missed a --socket aimed at a
-    // different padi, and missed a stamp gone stale across a restart.
-    expect(
-      planIgnoreSelf(args({ ignoreSelf: true }), { KAVAL_TERMINAL_ID: SELF }),
     ).toEqual({ kind: "ok", value: SELF });
   });
 });
@@ -328,5 +334,112 @@ describe("planWatch — everything argv decides, decided once", () => {
     expect(planWatch(args({ heldFor: "banana" }), {}).kind).toBe("error");
     expect(planWatch(args({ heartbeat: "0s" }), {}).kind).toBe("error");
     expect(planWatch(args({ ignoreSelf: true }), {}).kind).toBe("error");
+  });
+});
+
+/** A state event naming `id` — the supervision feed's payload, thin on purpose
+ *  (what it renders to is `render.ts`'s pin, not this one's). */
+const stateEvent = (id: TerminalId): PadiStateEvent =>
+  ({
+    kind: "nag",
+    id,
+    state: "waiting",
+    at: 1_700_000_060_000,
+    since: 1_700_000_000_000,
+  }) as PadiStateEvent;
+
+describe("emitFunnel — the ONE guard both feeds print through", () => {
+  const muting = (self: TerminalId) => {
+    const scope = planWatchScope(undefined, [self]);
+    if (scope.kind === "error") throw new Error(scope.message);
+    return scope.value;
+  };
+
+  it("DROPS a supervision event for a muted terminal, locally", () => {
+    // The supervision feed used to queue its lines directly, filtered only by
+    // the `ignoreIds` it had put on the wire — so a padi that ignored the field,
+    // or a re-attached subscription opened with another scope, printed the one
+    // terminal this invocation muted. The mute is enforced HERE now, on both
+    // feeds, and this is the pin that says so.
+    const lines: string[] = [];
+    const emit = emitFunnel(muting(SELF), true, (l) => lines.push(l));
+    const event = stateEvent(SELF);
+    emit(
+      event.id,
+      () => formatStateEventJson(event),
+      () => formatStateEvent(event),
+    );
+    expect(lines).toEqual([]);
+  });
+
+  it("emits one NDJSON line for a terminal the scope admits", () => {
+    const lines: string[] = [];
+    const emit = emitFunnel(muting(SELF), true, (l) => lines.push(l));
+    const event = stateEvent(LANE);
+    emit(
+      event.id,
+      () => formatStateEventJson(event),
+      () => formatStateEvent(event),
+    );
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "{}")).toMatchObject({
+      kind: "nag",
+      id: LANE,
+    });
+  });
+
+  it("formats ONLY the shape that was asked for", () => {
+    const lines: string[] = [];
+    const emit = emitFunnel(muting(SELF), false, (l) => lines.push(l));
+    emit(
+      LANE,
+      () => {
+        throw new Error("the --json rendering must not be built for a table");
+      },
+      () => "a table line",
+    );
+    expect(lines).toEqual(["a table line"]);
+  });
+});
+
+/** A padi whose roster is exactly `live` — `terminals.keys` opens with a
+ *  SNAPSHOT frame, as the real one does. */
+const fakePadi = (live: readonly TerminalId[]): PadiSurfaceClient =>
+  ({
+    surface: { terminals: { keys: () => Stream.make(live) } },
+  }) as unknown as PadiSurfaceClient;
+
+const targetPlan = (over: Partial<WatchPlan> = {}): WatchPlan => ({
+  ignore: [],
+  json: false,
+  ...over,
+});
+
+describe("resolveWatchTargets — the stamp is resolved before the scope", () => {
+  it("refuses a STRAY --ignore-self before the id and the scope it would empty", async () => {
+    // The same request `watch_open` refuses with the same arm: ids covered by a
+    // mute whose self is a stamp this padi has never heard of. Resolved the
+    // other way round, this face said "no terminal matching" or "can never
+    // match" while the MCP face said "not in fleet".
+    // The refusal is a value on the ERROR channel, and a `CliFailure` carries
+    // its sentence as the stderr line it will print — not as `message`.
+    const refused: CliFailure = await Effect.runPromise(
+      Effect.catch(
+        resolveWatchTargets(
+          fakePadi([LANE]),
+          targetPlan({ id: SELF, self: SELF }),
+        ) as Effect.Effect<never, CliFailure>,
+        (e) => Effect.succeed(e),
+      ),
+    );
+    expect(refused.stderr).toMatch(/never heard of terminal/);
+  });
+
+  it("carries the roster it read out, so the mirror can sweep a departed terminal", async () => {
+    const targets = await Effect.runPromise(
+      resolveWatchTargets(fakePadi([SELF, LANE]), targetPlan({ id: LANE })),
+    );
+    expect(targets.only).toBe(LANE);
+    expect(targets.live).toEqual([SELF, LANE]);
   });
 });
