@@ -64,26 +64,6 @@ describe("process.stdout | head — CLI child, real pipe(2), no later write", ()
     }
   });
 
-  it("GNU head -1 prints the snapshot with no subsequent write from the child", async () => {
-    const writer = spawn(process.execPath, ["--import", TSX_LOADER, FIXTURE], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    children.push(writer);
-    if (writer.stdout === null) {
-      throw new Error("writer spawned without stdout pipe");
-    }
-    const head = spawn("head", ["-1"], {
-      stdio: [writer.stdout, "pipe", "ignore"],
-    });
-    children.push(head);
-    if (head.stdout === null) {
-      throw new Error("head spawned without stdout pipe");
-    }
-    const line = await readTerminatedLine(head.stdout, 2500);
-    expect(line.startsWith("\n")).toBe(false);
-    expect(line).toBe("SNAPSHOT\n");
-  });
-
   it("goes red when the child writes no newline — the pin is not vacuous", async () => {
     const pipeline = spawn(
       "bash",
@@ -116,6 +96,7 @@ describe("process.stdout | head — CLI child, real pipe(2), no later write", ()
       throw new Error("pipeline spawned without stdout pipe");
     }
     const line = await readTerminatedLine(pipeline.stdout, 2500);
+    expect(line.startsWith("\n")).toBe(false);
     expect(line).toBe("SNAPSHOT\n");
   });
 
