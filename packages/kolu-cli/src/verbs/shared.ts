@@ -75,11 +75,12 @@ export type Parsed<T> =
  *  exited 0 reads, to the driving loop above it, exactly like one that worked.
  *  Ambiguity lists the matches in the short form the user already recognizes, so
  *  adding characters is a glance rather than a second `kolu ls`. */
-function resolveOne(
+export function resolveTerminalIn(
   query: string,
   ids: readonly TerminalId[],
-  flag: string | undefined,
+  opts: { readonly flag?: string } = {},
 ): Effect.Effect<TerminalId, CliFailure> {
+  const flag = opts.flag;
   // The ONE thing that varies between the verb's SUBJECT id and an id passed as
   // one of two arguments: whether the sentence names the flag it came from. A
   // message label is not volatility — decomposing around it is what produced a
@@ -115,9 +116,11 @@ export function ambiguousTerminal(
 }
 
 /** Read the live key set and resolve `query` against it — the two steps every
- *  id-taking verb runs before its real call, spelled once. The pure half
- *  ({@link resolveOne}) has no caller outside this module, so it stays private:
- *  a verb resolves through this pair or not at all.
+ *  id-taking verb runs before its real call, spelled once. The pure half is
+ *  {@link resolveTerminalIn} — exported for the one verb that resolves TWO
+ *  things (`kolu watch <id> --ignore …`) and must resolve both against ONE
+ *  snapshot of a live, mutating roster rather than against two reads that need
+ *  not agree.
  *
  *  It asks for a `client`, never the whole `Connection`: the other fact a
  *  `Connection` carries (`localCwd`) belongs to `create` alone, and a resolve
@@ -136,7 +139,7 @@ export function resolveTerminal(
   opts: { readonly flag?: string } = {},
 ): Effect.Effect<TerminalId, unknown> {
   return Effect.flatMap(readTerminalKeys(conn.client), (ids) =>
-    resolveOne(query, ids, opts.flag),
+    resolveTerminalIn(query, ids, opts),
   );
 }
 

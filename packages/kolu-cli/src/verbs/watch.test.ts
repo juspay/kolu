@@ -13,6 +13,7 @@ import {
   planHeartbeat,
   planIgnoreSelf,
   planSupervision,
+  planWatch,
   planWatchScope,
   resolveIgnoreQueries,
   type WatchArgs,
@@ -206,8 +207,9 @@ describe("resolveIgnoreQueries — fail-open mute", () => {
   it("widens a unique prefix to the live id", () => {
     expect(resolveIgnoreQueries(["aaaa"], [SELF, LANE])).toEqual({
       kind: "ok",
-      value: [SELF],
-      dropped: [],
+      // The drop list rides the SUCCESS arm — there is no shape of this result
+      // that is both a refusal and a diagnostic.
+      value: { ids: [SELF], dropped: [] },
     });
   });
 
@@ -215,16 +217,14 @@ describe("resolveIgnoreQueries — fail-open mute", () => {
     const gone = "cccccccc-cccc-4ccc-8ccc-cccccccccccc" as TerminalId;
     expect(resolveIgnoreQueries([gone], [SELF])).toEqual({
       kind: "ok",
-      value: [gone],
-      dropped: [],
+      value: { ids: [gone], dropped: [] },
     });
   });
 
   it("drops a prefix that named nobody — it could never match a UUID on the wire", () => {
     expect(resolveIgnoreQueries(["zzzz"], [SELF])).toEqual({
       kind: "ok",
-      value: [],
-      dropped: ["zzzz"],
+      value: { ids: [], dropped: ["zzzz"] },
     });
   });
 
@@ -271,5 +271,45 @@ describe("planWatchScope — id ∩ ignore is a silent never-match", () => {
   it("spells an empty mute as mute-nobody — fail-open, one spelling", () => {
     const plan = planWatchScope(undefined, []);
     expect(plan.kind === "ok" && plan.value).toEqual({});
+  });
+});
+
+describe("planWatch — everything argv decides, decided once", () => {
+  it("carries the daemon-needing queries across UNRESOLVED — a roster is not argv", () => {
+    const plan = planWatch(
+      args({ id: "aaaa", ignore: ["bbbb"], json: true }),
+      HERE,
+      {},
+    );
+    expect(plan).toEqual({
+      kind: "ok",
+      value: { ignore: ["bbbb"], id: "aaaa", json: true },
+    });
+  });
+
+  it("resolves --ignore-self and --heartbeat, which need no daemon", () => {
+    const plan = planWatch(
+      args({ ignoreSelf: true, heartbeat: "10s", nag: "5m" }),
+      HERE,
+      { KAVAL_TERMINAL_ID: SELF },
+    );
+    expect(plan).toEqual({
+      kind: "ok",
+      value: {
+        supervise: { nagMs: 300_000 },
+        self: SELF,
+        heartbeatMs: 10_000,
+        ignore: [],
+        json: false,
+      },
+    });
+  });
+
+  it("has ONE error arm — a fourth flag cannot land on the wrong side of the dial", () => {
+    // Each of the three pre-dial refusals reaches the caller through this one
+    // return, rather than through a block the author had to remember to add.
+    expect(planWatch(args({ heldFor: "banana" }), HERE, {}).kind).toBe("error");
+    expect(planWatch(args({ heartbeat: "0s" }), HERE, {}).kind).toBe("error");
+    expect(planWatch(args({ ignoreSelf: true }), HERE, {}).kind).toBe("error");
   });
 });

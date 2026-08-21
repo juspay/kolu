@@ -95,6 +95,7 @@ import {
   containingTerminalId,
   namesWatchKnobs,
   PADI_LINK_CLOSED,
+  type PadiSurfaceClient,
   scopeAdmits,
   WAIT_STATES,
   type WaitState,
@@ -131,7 +132,7 @@ import {
   ambiguousTerminal,
   isConsumerHangup,
   type Parsed,
-  resolveTerminal,
+  resolveTerminalIn,
   type StdoutWriteFailed,
   stdoutLost,
   stdoutSink,
@@ -354,7 +355,13 @@ export function planIgnoreSelf(
 export function resolveIgnoreQueries(
   queries: readonly string[],
   live: readonly TerminalId[],
-): Parsed<readonly TerminalId[]> & { readonly dropped?: readonly string[] } {
+): Parsed<{
+  readonly ids: readonly TerminalId[];
+  /** Prefixes that named nobody — warned on stderr, never muted. Inside the
+   *  SUCCESS arm, because that is the only arm it can describe: intersected
+   *  across both, the type says a refusal may also carry a drop list. */
+  readonly dropped: readonly string[];
+}> {
   const resolved: TerminalId[] = [];
   const dropped: string[] = [];
   for (const query of queries) {
@@ -378,7 +385,7 @@ export function resolveIgnoreQueries(
     if (isTerminalId(query)) resolved.push(query);
     else dropped.push(query);
   }
-  return { kind: "ok", value: resolved, dropped };
+  return { kind: "ok", value: { ids: resolved, dropped } };
 }
 
 /** WHICH terminals this invocation reports — padi's one scope value, built from
@@ -404,19 +411,117 @@ export function planWatchScope(
   return scope;
 }
 
+/** Everything argv decides, decided BEFORE anything dials — one value, one
+ *  error arm, one test surface.
+ *
+ *  It used to be three `Parsed` locals composed by hand in `run`, three
+ *  near-identical `kind === "error"` blocks, and then the raw flag record read
+ *  again from inside a hundred-line closure. A fourth flag was a fourth block
+ *  plus a fourth chance to place it on the wrong side of the dial — the bug
+ *  `cli.ts:209-216` records having already happened once in this binary.
+ *
+ *  What is NOT here is anything needing the daemon: `<id>` and `--ignore`'s
+ *  prefixes are carried across unresolved, because a roster is not argv. */
+export interface WatchPlan {
+  /** The supervision feed's wire input, or absent for the change tail. */
+  readonly supervise?: PadiWatchStatesInput;
+  /** What `--ignore-self` resolved to, when it was named. */
+  readonly self?: TerminalId;
+  /** The liveness pulse interval, or absent for no pulse. */
+  readonly heartbeatMs?: number;
+  /** `--ignore` queries — ids or prefixes, resolved against the roster. */
+  readonly ignore: readonly string[];
+  /** The `<id>` query, resolved against the same roster. */
+  readonly id?: string;
+  /** NDJSON rather than the human table. */
+  readonly json: boolean;
+}
+
+export function planWatch(
+  args: WatchArgs,
+  endpoint: Endpoint,
+  env: { readonly [key: string]: string | undefined } = process.env,
+): Parsed<WatchPlan> {
+  const supervise = planSupervision(args);
+  if (supervise.kind === "error") return supervise;
+  const self = planIgnoreSelf(args, endpoint, env);
+  if (self.kind === "error") return self;
+  const heartbeat = planHeartbeat(args);
+  if (heartbeat.kind === "error") return heartbeat;
+  return {
+    kind: "ok",
+    value: {
+      ...(supervise.value === undefined ? {} : { supervise: supervise.value }),
+      ...(self.value === undefined ? {} : { self: self.value }),
+      ...(heartbeat.value === undefined
+        ? {}
+        : { heartbeatMs: heartbeat.value }),
+      ignore: args.ignore,
+      ...(args.id === undefined ? {} : { id: args.id }),
+      json: args.json,
+    },
+  };
+}
+
+/** WHICH terminals this invocation reports, resolved against ONE roster
+ *  snapshot.
+ *
+ *  One read, deliberately: `<id>` and `--ignore` used to resolve against two
+ *  separate `readTerminalKeys` round trips (two ssh hops under `--host`), so a
+ *  terminal that appeared or died between them could flip the never-match
+ *  refusal that compares their results. */
+export interface WatchTargets {
+  /** The resolved `<id>`, kept apart from {@link scope} because the supervision
+   *  feed narrows on the WIRE with it — padi trims the snapshot as well as the
+   *  stream — while the change tail narrows at the emit funnel. */
+  readonly only?: TerminalId;
+  readonly scope: WatchScope;
+}
+
+function resolveWatchTargets(
+  client: PadiSurfaceClient,
+  plan: WatchPlan,
+): Effect.Effect<WatchTargets, unknown> {
+  return Effect.gen(function* () {
+    const needsRoster = plan.id !== undefined || plan.ignore.length > 0;
+    const live = needsRoster ? yield* readTerminalKeys(client) : [];
+    const only =
+      plan.id === undefined
+        ? undefined
+        : yield* resolveTerminalIn(plan.id, live);
+    const listed = resolveIgnoreQueries(plan.ignore, live);
+    if (listed.kind === "error") {
+      return yield* Effect.fail(failure(listed.message));
+    }
+    for (const query of listed.value.dropped) {
+      writeErrSync(
+        `kolu: --ignore ${JSON.stringify(query)} matched no terminal — not muting anything for it\n`,
+      );
+    }
+    const scope = planWatchScope(only, [
+      ...listed.value.ids,
+      ...(plan.self === undefined ? [] : [plan.self]),
+    ]);
+    if (scope.kind === "error") {
+      return yield* Effect.fail(failure(scope.message));
+    }
+    return {
+      ...(only === undefined ? {} : { only }),
+      scope: scope.value,
+    };
+  });
+}
+
 export function run(
   endpoint: Endpoint,
   args: WatchArgs,
 ): Effect.Effect<void, unknown> {
   // BEFORE the dial: a mistyped duration is argv, and argv is answerable without
   // a daemon.
-  const plan = planSupervision(args);
-  if (plan.kind === "error") return Effect.fail(failure(plan.message));
-  const supervise = plan.value;
-  const self = planIgnoreSelf(args, endpoint);
-  if (self.kind === "error") return Effect.fail(failure(self.message));
-  const beat = planHeartbeat(args);
-  if (beat.kind === "error") return Effect.fail(failure(beat.message));
+  const planned = planWatch(args, endpoint);
+  if (planned.kind === "error") return Effect.fail(failure(planned.message));
+  const plan = planned.value;
+  const supervise = plan.supervise;
 
   return withPadi(endpoint, (conn) =>
     // The verb's OWN scope, like `wait`'s: a lifetime this body opens (the
@@ -424,34 +529,7 @@ export function run(
     // including the interruption a Ctrl+C arrives as.
     Effect.scoped(
       Effect.gen(function* () {
-        const only =
-          args.id === undefined
-            ? undefined
-            : yield* resolveTerminal(conn, args.id);
-
-        const listed: readonly TerminalId[] =
-          args.ignore.length === 0
-            ? []
-            : yield* Effect.flatMap(readTerminalKeys(conn.client), (keys) => {
-                const resolved = resolveIgnoreQueries(args.ignore, keys);
-                if (resolved.kind === "error") {
-                  return Effect.fail(failure(resolved.message));
-                }
-                for (const query of resolved.dropped ?? []) {
-                  writeErrSync(
-                    `kolu: --ignore ${JSON.stringify(query)} matched no terminal — not muting anything for it\n`,
-                  );
-                }
-                return Effect.succeed(resolved.value);
-              });
-        const planned = planWatchScope(only, [
-          ...listed,
-          ...(self.value === undefined ? [] : [self.value]),
-        ]);
-        if (planned.kind === "error") {
-          return yield* Effect.fail(failure(planned.message));
-        }
-        const scope = planned.value;
+        const { only, scope } = yield* resolveWatchTargets(conn.client, plan);
 
         const lines = yield* Queue.unbounded<string, Cause.Done>();
         /** Emit ONE line for a terminal event — the three decisions every event
@@ -479,7 +557,7 @@ export function run(
           // narrowing and the mute are the same rule, so a fourth event type
           // cannot inherit half of it.
           if (!scopeAdmits(scope, id)) return;
-          offer(args.json ? json() : human());
+          offer(plan.json ? json() : human());
         };
         /** Why the mirror REJECTED, if it did — the only thing upstream ever says
          *  that genuinely names a failure. The `log` lines below are chatter by
@@ -503,17 +581,18 @@ export function run(
         // never resumes past the yield below — so a `clearInterval` written as a
         // straight-line statement after it is a disposer the primary ending
         // skips. Closing the scope is what stops the timer.
-        if (beat.value !== undefined) {
+        const heartbeatMs = plan.heartbeatMs;
+        if (heartbeatMs !== undefined) {
           const pulse = (): void => {
             offer(
-              args.json
+              plan.json
                 ? formatHeartbeatJson(Date.now())
                 : formatHeartbeat(Date.now()),
             );
           };
           pulse();
           yield* Effect.acquireRelease(
-            Effect.sync(() => setInterval(pulse, beat.value).unref()),
+            Effect.sync(() => setInterval(pulse, heartbeatMs).unref()),
             (timer) => Effect.sync(() => clearInterval(timer)),
           );
         }
@@ -583,7 +662,7 @@ export function run(
                         // Both spellings are `render.ts`'s, like every other line
                         // this verb prints — the `--json` contract has one owner.
                         offer(
-                          args.json
+                          plan.json
                             ? formatStateEventJson(event)
                             : formatStateEvent(event),
                         );
