@@ -134,8 +134,10 @@ looping waits and reporting back); it drops reports at four seams and it is what
 ```jsonc
 // once — omit `ids` to watch every terminal. The three state knobs are what
 // make an ignored terminal come BACK instead of being reported once and lost.
+// ignoreSelf keeps YOUR house out of the feed (the terminal this MCP server
+// is running inside). ignoreIds mutes known terminals; a stale id costs nothing.
 watch_open { name: "campaign", states: ["awaiting", "waiting"],
-             heldForMs: 60000, nagMs: 300000 }
+             heldForMs: 60000, nagMs: 300000, ignoreSelf: true }
 watch_next { name: "campaign", timeoutMs: 60000 }                // first call
 watch_next { name: "campaign", after: <ackAfter>, timeoutMs: … } // then ACK the last batch each time
 watch_close { name: "campaign" }                                 // when the campaign ends
@@ -183,6 +185,9 @@ watch_close { name: "campaign" }                                 // when the cam
   reconcile rather than trusting the delta.
 - Prefer the default (all terminals) over an `ids` list: a kaval recycle retires
   every active terminal id, so a frozen id list ages out where "all" does not.
+  Mute with `ignoreIds` / `ignoreSelf` instead of enumerating who to watch —
+  a mute fails open (new terminals are always watched; a stale id is inert),
+  an id watch-list fails closed.
 
 ## Provisioning the inner agent
 

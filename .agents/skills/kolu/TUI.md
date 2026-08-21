@@ -441,15 +441,19 @@ reports the AGENT's own state (never the screen — an idle agent that repaints
 its prompt every second is still idle), `--held-for 60s` reports it only once it
 has held that long, and `--nag 5m` re-reports it every five minutes it keeps
 holding. Every run leads with the currently-matching set, so starting one late
-still shows what is already standing. Background this and no finished terminal
-sits unnoticed:
+still shows what is already standing. **`--ignore-self`** keeps *your* terminal
+out of that feed (it reads `$KAVAL_TERMINAL_ID`); **`--ignore <id>`** (repeatable)
+mutes known terminals — fail-open, so a stale id costs nothing and a new
+terminal is always watched. Background this and no finished terminal sits
+unnoticed — except the ones you muted on purpose:
 
 ```sh
-kolu watch --states waiting,awaiting --held-for 60s --nag 5m
+kolu watch --states waiting,awaiting --held-for 60s --nag 5m --ignore-self
 ```
 
 Omit the id: supervision must never be scoped by enumeration — a watch narrowed
-to the lanes you remembered goes blind to the one you didn't. Lines read
+to the lanes you remembered goes blind to the one you didn't. Mute instead of
+listing who to watch. Lines read
 `HH:MM:SS  <id>  <snapshot|transition|nag>  <state>  <held>  [intent]`;
 `--json` emits the same, filtered inside kolu, as NDJSON.
 
