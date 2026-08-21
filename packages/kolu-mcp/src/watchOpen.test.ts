@@ -48,6 +48,37 @@ describe("resolveWatchOpenInput", () => {
     }
   });
 
+  it("refuses when ignoreSelf mutes the only id the subscription is scoped to", () => {
+    try {
+      resolveWatchOpenInput(
+        { name: "campaign", ids: [SELF], ignoreSelf: true },
+        { KAVAL_TERMINAL_ID: SELF },
+      );
+      expect.unreachable("should have refused");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ToolFailure);
+      expect((e as ToolFailure).message).toMatch(/can never match/);
+      expect((e as ToolFailure).detail).toEqual({
+        kind: "muted-covers-include",
+      });
+    }
+  });
+
+  it("refuses ids ∩ ignoreIds the same way, even without ignoreSelf", () => {
+    try {
+      resolveWatchOpenInput(
+        { name: "campaign", ids: [SELF], ignoreIds: [SELF] },
+        {},
+      );
+      expect.unreachable("should have refused");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ToolFailure);
+      expect((e as ToolFailure).detail).toEqual({
+        kind: "muted-covers-include",
+      });
+    }
+  });
+
   it("refuses ignoreSelf rather than guessing when the stamp is not a terminal id", () => {
     try {
       resolveWatchOpenInput(

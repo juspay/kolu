@@ -11,6 +11,7 @@ import {
   containingTerminalId,
   ignoreIdsOf,
   ignoreSelfUnresolvable,
+  mutedCoversInclude,
   namesWatchKnobs,
   specOf,
   watchFilterOf,
@@ -33,6 +34,37 @@ describe("specOf — the one place a filter becomes a spec", () => {
     expect([
       ...(specOf(filter, undefined, new Set([SELF])).ignoreIds ?? []),
     ]).toEqual([SELF]);
+  });
+
+  it("refuses when every included id is also muted — a watch that can never match", () => {
+    const filter = { states: new Set(["waiting"] as const), heldForMs: 0 };
+    expect(() => specOf(filter, new Set([SELF]), new Set([SELF]))).toThrow(
+      /can never match/,
+    );
+    expect(() =>
+      specOf(filter, new Set([SELF, LANE]), new Set([SELF, LANE])),
+    ).toThrow(/can never match/);
+  });
+
+  it("does NOT refuse a fleet-wide mute, or a mute that leaves someone to watch", () => {
+    const filter = { states: new Set(["waiting"] as const), heldForMs: 0 };
+    expect(() => specOf(filter, undefined, new Set([SELF]))).not.toThrow();
+    expect(() =>
+      specOf(filter, new Set([SELF, LANE]), new Set([SELF])),
+    ).not.toThrow();
+  });
+});
+
+describe("mutedCoversInclude", () => {
+  it("is the empty-include shape: every scoped id is muted", () => {
+    expect(mutedCoversInclude(new Set([SELF]), new Set([SELF]))).toBe(true);
+    expect(mutedCoversInclude(new Set([SELF]), new Set([SELF, LANE]))).toBe(
+      true,
+    );
+    expect(mutedCoversInclude(undefined, new Set([SELF]))).toBe(false);
+    expect(mutedCoversInclude(new Set([SELF, LANE]), new Set([SELF]))).toBe(
+      false,
+    );
   });
 });
 

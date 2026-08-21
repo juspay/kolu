@@ -75,12 +75,32 @@ export function specOf(
   ids?: ReadonlySet<TerminalId>,
   ignoreIds?: ReadonlySet<TerminalId>,
 ): StateWatchSpec {
+  if (mutedCoversInclude(ids, ignoreIds)) {
+    throw new Error(WATCH_SCOPE_EMPTY);
+  }
   return {
     ...filter,
     ...(ids === undefined ? {} : { ids }),
     ...(ignoreIds === undefined || ignoreIds.size === 0 ? {} : { ignoreIds }),
   };
 }
+
+/** True when every included id is also muted — a subscription that can never
+ *  match, the same shape as an empty `ids` list. A fleet-wide watch (no `ids`)
+ *  that mutes someone is the intended `--ignore-self` case and is not this. */
+export function mutedCoversInclude(
+  ids: ReadonlySet<TerminalId> | undefined,
+  ignoreIds: ReadonlySet<TerminalId> | undefined,
+): boolean {
+  if (ids === undefined || ids.size === 0) return false;
+  if (ignoreIds === undefined || ignoreIds.size === 0) return false;
+  for (const id of ids) if (!ignoreIds.has(id)) return false;
+  return true;
+}
+
+/** The one sentence both faces use when {@link mutedCoversInclude} is true. */
+export const WATCH_SCOPE_EMPTY =
+  "this watch can never match anything: every included terminal is also muted. Omit the id to watch the rest of the fleet, or drop it from the mute.";
 
 /** The mute set a face hands the engine. Empty or absent is "mute nobody" —
  *  fail-open, so a stale id costs nothing and a new terminal is always

@@ -15,6 +15,10 @@ import {
   type WaitState,
 } from "@kolu/terminal-vocab/agentProjection";
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
+import {
+  terminateWatchLine,
+  writeFlushedLine as writeFlushed,
+} from "@kolu/padi/dial";
 import { readTerminalKeys } from "@kolu/padi/read";
 import { resolveTerminalId, shortId } from "@kolu/padi/render";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
@@ -166,33 +170,13 @@ export const stdoutSink: Sink.Sink<void, string, never, StdoutWriteFailed> =
     endOnDone: false,
   });
 
-/** One live-feed line, as a single flushed write of `payload` + trailing
- *  newline. The live `watch` pump uses this rather than {@link stdoutSink}:
- *  NodeSink's `write()` returning true means "the buffer accepted it", not
- *  "the pipe consumer can read a terminated line", and a piped reader waiting
- *  on `\n` then sits one event behind — the next write's bytes complete the
- *  previous line. A file looks fine because the next write is already in it.
- *
- *  The terminator is TRAILING, never leading, and rides in the same write as
- *  the payload so a consumer never needs a subsequent event to see this one. */
-export function terminateWatchLine(payload: string): string {
-  return payload.endsWith("\n") ? payload : `${payload}\n`;
-}
+export { terminateWatchLine };
 
 export const writeFlushedLine = (
   writable: NodeJS.WritableStream,
   payload: string,
 ): Effect.Effect<void, StdoutWriteFailed> =>
-  Effect.callback<void, StdoutWriteFailed>((resume) => {
-    const line = terminateWatchLine(payload);
-    writable.write(line, (err) => {
-      if (err !== undefined && err !== null) {
-        resume(Effect.fail(new StdoutWriteFailed({ cause: err })));
-      } else {
-        resume(Effect.void);
-      }
-    });
-  });
+  writeFlushed(writable, payload, (cause) => new StdoutWriteFailed({ cause }));
 
 export const writeStdoutLine = (
   payload: string,

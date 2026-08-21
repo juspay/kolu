@@ -98,8 +98,15 @@ export {
   ignoreIdsOf,
   ignoreSelfInvalid,
   ignoreSelfUnresolvable,
+  mutedCoversInclude,
   namesWatchKnobs,
+  WATCH_SCOPE_EMPTY,
 } from "./attention/watchSpec.ts";
+
+export {
+  terminateWatchLine,
+  writeFlushedLine,
+} from "./cliClient/writeStdout.ts";
 
 export {
   activeAgent,

@@ -11,6 +11,7 @@ import {
   planHeartbeat,
   planIgnoreSelf,
   planSupervision,
+  refuseMutedOnly,
   resolveIgnoreQueries,
   type WatchArgs,
 } from "./watch.ts";
@@ -190,6 +191,7 @@ describe("resolveIgnoreQueries — fail-open mute", () => {
     expect(resolveIgnoreQueries(["aaaa"], [SELF, LANE])).toEqual({
       kind: "ok",
       value: [SELF],
+      dropped: [],
     });
   });
 
@@ -198,6 +200,7 @@ describe("resolveIgnoreQueries — fail-open mute", () => {
     expect(resolveIgnoreQueries([gone], [SELF])).toEqual({
       kind: "ok",
       value: [gone],
+      dropped: [],
     });
   });
 
@@ -205,6 +208,7 @@ describe("resolveIgnoreQueries — fail-open mute", () => {
     expect(resolveIgnoreQueries(["zzzz"], [SELF])).toEqual({
       kind: "ok",
       value: [],
+      dropped: ["zzzz"],
     });
   });
 
@@ -214,5 +218,27 @@ describe("resolveIgnoreQueries — fail-open mute", () => {
     const plan = resolveIgnoreQueries(["aaaa"], [a, b]);
     expect(plan.kind).toBe("error");
     expect(plan.kind === "error" && plan.message).toMatch(/matches 2/);
+  });
+});
+
+describe("refuseMutedOnly — id ∩ ignore is a silent never-match", () => {
+  it("refuses tailing the one terminal that is also muted", () => {
+    const plan = refuseMutedOnly(SELF, new Set([SELF]));
+    expect(plan.kind).toBe("error");
+    expect(plan.kind === "error" && plan.message).toMatch(/can never match/);
+  });
+
+  it("allows a fleet watch that merely mutes someone", () => {
+    expect(refuseMutedOnly(undefined, new Set([SELF]))).toEqual({
+      kind: "ok",
+      value: undefined,
+    });
+  });
+
+  it("allows a scoped watch whose mute is someone else", () => {
+    expect(refuseMutedOnly(LANE, new Set([SELF]))).toEqual({
+      kind: "ok",
+      value: undefined,
+    });
   });
 });

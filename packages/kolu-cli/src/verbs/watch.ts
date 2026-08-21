@@ -95,9 +95,11 @@ import {
   ignoreIdsOf,
   ignoreSelfInvalid,
   ignoreSelfUnresolvable,
+  mutedCoversInclude,
   namesWatchKnobs,
   PADI_LINK_CLOSED,
   WAIT_STATES,
+  WATCH_SCOPE_EMPTY,
   type WaitState,
   watchAgentStates,
   watchTerminals,
@@ -327,8 +329,9 @@ export function planIgnoreSelf(
 export function resolveIgnoreQueries(
   queries: readonly string[],
   live: readonly TerminalId[],
-): Parsed<readonly TerminalId[]> {
+): Parsed<readonly TerminalId[]> & { readonly dropped?: readonly string[] } {
   const resolved: TerminalId[] = [];
+  const dropped: string[] = [];
   for (const query of queries) {
     const result = resolveTerminalId(query, live);
     if (result.kind === "found") {
@@ -341,12 +344,26 @@ export function resolveIgnoreQueries(
         message: `--ignore "${query}" matches ${result.matches.length} terminals — type more characters.`,
       };
     }
-    // none: keep a full id (inert at the engine), drop a prefix that named
-    // nobody — it cannot match a UUID on the wire anyway.
+    // none: keep a full id (inert at the engine); a prefix that named nobody
+    // cannot match a UUID on the wire, so drop it and tell the user — fail-open
+    // for the mute, not silent about a typo.
     const self = containingTerminalId({ KAVAL_TERMINAL_ID: query });
     if (self.kind === "ok") resolved.push(self.id);
+    else dropped.push(query);
   }
-  return { kind: "ok", value: resolved };
+  return { kind: "ok", value: resolved, dropped };
+}
+
+/** `kolu watch <id> --ignore-self` inside that same terminal: a scoped watch
+ *  whose only member is muted. The same never-match `ids: []` already refuses. */
+export function refuseMutedOnly(
+  only: TerminalId | undefined,
+  ignored: ReadonlySet<TerminalId> | undefined,
+): Parsed<undefined> {
+  if (only !== undefined && mutedCoversInclude(new Set([only]), ignored)) {
+    return { kind: "error", message: WATCH_SCOPE_EMPTY };
+  }
+  return { kind: "ok", value: undefined };
 }
 
 export function run(
@@ -376,11 +393,21 @@ export function run(
           ? []
           : yield* Effect.flatMap(readTerminalKeys(conn.client), (keys) => {
               const resolved = resolveIgnoreQueries(args.ignore, keys);
-              return resolved.kind === "error"
-                ? Effect.fail(failure(resolved.message))
-                : Effect.succeed(resolved.value);
+              if (resolved.kind === "error") {
+                return Effect.fail(failure(resolved.message));
+              }
+              for (const query of resolved.dropped ?? []) {
+                writeErrSync(
+                  `kolu: --ignore ${JSON.stringify(query)} matched no terminal — not muting anything for it\n`,
+                );
+              }
+              return Effect.succeed(resolved.value);
             });
       const ignored = ignoreIdsOf(listed, self.value);
+      const overlap = refuseMutedOnly(only, ignored);
+      if (overlap.kind === "error") {
+        return yield* Effect.fail(failure(overlap.message));
+      }
 
       const lines = yield* Queue.unbounded<string, Cause.Done>();
       /** Emit ONE line for a terminal event — the three decisions every event

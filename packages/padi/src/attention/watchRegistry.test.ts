@@ -323,6 +323,16 @@ describe("watch registry", () => {
     expect(() => r.open("bad", { ids: [] })).toThrow(/could never match/);
   });
 
+  it("refuses when ignoreIds covers every scoped id — the same never-match", () => {
+    const r = registry();
+    expect(() =>
+      r.open("bad", {
+        ids: ["self" as TerminalId],
+        ignoreIds: ["self" as TerminalId],
+      }),
+    ).toThrow(/can never match/);
+  });
+
   it("rings the doorbell only for subscriptions the event is in scope for", () => {
     const r = registry();
     const rings = { all: 0, a: 0 };

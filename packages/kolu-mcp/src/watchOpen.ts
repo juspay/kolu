@@ -17,13 +17,16 @@ import {
   ignoreIdsOf,
   ignoreSelfInvalid,
   ignoreSelfUnresolvable,
+  mutedCoversInclude,
   type PadiSurfaceClient,
+  WATCH_SCOPE_EMPTY,
 } from "@kolu/padi/dial";
 import {
   type PadiWatchOpenInput,
   PadiWatchOpenInputSchema,
 } from "@kolu/padi/surface";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
 
 export const WatchOpenArgsSchema = Schema.Struct({
@@ -43,12 +46,10 @@ export function resolveWatchOpenInput(
 ): { readonly input: PadiWatchOpenInput } {
   const { ignoreSelf, ignoreIds, ...rest } = args;
   if (ignoreSelf !== true) {
-    return {
-      input: {
-        ...rest,
-        ...(ignoreIds === undefined ? {} : { ignoreIds }),
-      },
-    };
+    return finishOpenInput(
+      rest,
+      ignoreIds === undefined ? undefined : new Set(ignoreIds),
+    );
   }
   const self = containingTerminalId(env);
   if (self.kind === "none") {
@@ -62,7 +63,21 @@ export function resolveWatchOpenInput(
       raw: self.raw,
     });
   }
-  const muted = ignoreIdsOf(ignoreIds, self.id);
+  return finishOpenInput(rest, ignoreIdsOf(ignoreIds, self.id));
+}
+
+function finishOpenInput(
+  rest: Omit<WatchOpenArgs, "ignoreSelf" | "ignoreIds">,
+  muted: ReadonlySet<TerminalId> | undefined,
+): { readonly input: PadiWatchOpenInput } {
+  if (
+    mutedCoversInclude(
+      rest.ids === undefined ? undefined : new Set(rest.ids),
+      muted,
+    )
+  ) {
+    throw new ToolFailure(WATCH_SCOPE_EMPTY, { kind: "muted-covers-include" });
+  }
   return {
     input: {
       ...rest,

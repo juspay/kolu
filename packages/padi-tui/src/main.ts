@@ -56,6 +56,7 @@ import {
   WAIT_STATES,
   type WaitState,
   watchTerminals,
+  writeFlushedLine,
 } from "@kolu/padi/dial";
 import {
   PADI_SURFACE_VERSION,
@@ -297,6 +298,16 @@ const stdoutSink: Sink.Sink<void, string, never, StdoutClosed> =
 const writeOut = (text: string): Effect.Effect<void, StdoutClosed> =>
   Stream.run(Stream.make(text), stdoutSink);
 
+/** One flushed write of payload + trailing newline — the same pump `kolu watch`
+ *  uses. NodeSink's `write()` returning true is not "the pipe consumer can read
+ *  a terminated line"; waiting on the write callback is. */
+const writeStdoutLine = (payload: string): Effect.Effect<void, StdoutClosed> =>
+  writeFlushedLine(
+    process.stdout,
+    payload,
+    (cause) => new StdoutClosed({ cause }),
+  );
+
 /** Drain a queue of ready-to-print lines into stdout until the queue ends,
  *  calling `onClosed` if the consumer hangs up first (`… | head -1`). The
  *  queue's END is what flushes it, so a caller that stops producing and ends the
@@ -305,7 +316,7 @@ const pumpToStdout = (
   lines: Queue.Dequeue<string, Cause.Done>,
   onClosed: () => void,
 ): Effect.Effect<void> =>
-  Stream.run(Stream.fromQueue(lines), stdoutSink).pipe(
+  Stream.runForEach(Stream.fromQueue(lines), writeStdoutLine).pipe(
     Effect.catchTag("StdoutClosed", () => Effect.sync(onClosed)),
   );
 

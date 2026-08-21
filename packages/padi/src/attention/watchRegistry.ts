@@ -59,6 +59,7 @@ import {
   type StateWatchBatch,
   type StateWatchFilter,
 } from "./stateWatch.ts";
+import { mutedCoversInclude, WATCH_SCOPE_EMPTY } from "./watchSpec.ts";
 
 /** What a queue holds — either source's events, one `kind` vocabulary. */
 export type WatchEvent = PadiWatchEvent;
@@ -381,6 +382,11 @@ export function createWatchRegistry(opts: {
         ignoreIds === undefined || ignoreIds.length === 0
           ? undefined
           : new Set(ignoreIds);
+      if (mutedCoversInclude(scope, ignoreScope)) {
+        throw new Error(
+          `standing subscription "${name}": ${WATCH_SCOPE_EMPTY}`,
+        );
+      }
       const existing = subs.get(name);
       if (existing !== undefined) {
         // A re-attach REBUILDS the record from the incoming scope. What survives
