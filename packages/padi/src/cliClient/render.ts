@@ -476,3 +476,14 @@ export function formatStateEvent(event: PadiStateEvent): string {
   if (event.intent !== undefined) cells.push(event.intent);
   return cells.join("  ");
 }
+
+/** A CLI-only alive line: silence on a held stdout is otherwise unfalsifiable
+ *  (stream-dead and process-frozen look the same). Not a padi event — MCP's
+ *  `watch_next` already has `timeoutMs` for the same question. */
+export function formatHeartbeat(at: number): string {
+  return `${clockTime(at)}  heartbeat`;
+}
+
+export function formatHeartbeatJson(at: number): string {
+  return JSON.stringify({ kind: "heartbeat", at });
+}

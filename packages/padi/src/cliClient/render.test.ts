@@ -3,6 +3,8 @@ import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { isWaitState, WAIT_STATES } from "../dial.ts";
 import {
+  formatHeartbeat,
+  formatHeartbeatJson,
   formatStateEvent,
   formatStateEventJson,
   formatStatus,
@@ -182,5 +184,19 @@ describe("formatStateEventJson — the other half of the --json contract", () =>
         kind,
       );
     }
+  });
+});
+
+describe("formatHeartbeat — a CLI-only alive line", () => {
+  it("is a timestamped line, not a terminal event", () => {
+    expect(formatHeartbeat(1_700_000_000_000)).toMatch(/heartbeat$/);
+    expect(formatHeartbeat(1_700_000_000_000)).not.toMatch(/snapshot/);
+  });
+
+  it("JSON carries kind so a jq consumer can skip it", () => {
+    expect(JSON.parse(formatHeartbeatJson(1_700_000_000_000))).toEqual({
+      kind: "heartbeat",
+      at: 1_700_000_000_000,
+    });
   });
 });

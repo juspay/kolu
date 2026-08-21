@@ -8,11 +8,13 @@
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
+  planHeartbeat,
   planIgnoreSelf,
   planSupervision,
   resolveIgnoreQueries,
   type WatchArgs,
 } from "./watch.ts";
+import { terminateWatchLine } from "./shared.ts";
 
 const args = (over: Partial<WatchArgs> = {}): WatchArgs =>
   ({
@@ -20,11 +22,26 @@ const args = (over: Partial<WatchArgs> = {}): WatchArgs =>
     json: false,
     ignore: [],
     ignoreSelf: false,
+    heartbeat: undefined,
     ...over,
   }) as WatchArgs;
 
 const SELF = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
 const LANE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as TerminalId;
+
+describe("terminateWatchLine — trailing newline, never leading", () => {
+  it("terminates a payload that has no newline", () => {
+    expect(terminateWatchLine("snapshot")).toBe("snapshot\n");
+  });
+
+  it("does not double a payload that already ended in a newline", () => {
+    expect(terminateWatchLine("snapshot\n")).toBe("snapshot\n");
+  });
+
+  it("never puts the terminator BEFORE the payload — that is the one-event lag", () => {
+    expect(terminateWatchLine("snapshot").startsWith("\n")).toBe(false);
+  });
+});
 
 describe("planSupervision", () => {
   it("plans NOTHING when no knob was named — bare `kolu watch` is still the change tail", () => {
@@ -117,13 +134,34 @@ describe("planSupervision", () => {
     expect(planSupervision(args({ states: " , " })).kind).toBe("error");
   });
 
-  it("does NOT switch feed for --ignore / --ignore-self alone — they are a mute, not a mode", () => {
-    expect(planSupervision(args({ ignore: [SELF], ignoreSelf: true }))).toEqual(
-      {
-        kind: "ok",
-        value: undefined,
-      },
-    );
+  it("does NOT switch feed for --ignore / --ignore-self / --heartbeat alone — they are not supervision knobs", () => {
+    expect(
+      planSupervision(
+        args({ ignore: [SELF], ignoreSelf: true, heartbeat: "10s" }),
+      ),
+    ).toEqual({
+      kind: "ok",
+      value: undefined,
+    });
+  });
+});
+
+describe("planHeartbeat", () => {
+  it("is off when the flag is absent", () => {
+    expect(planHeartbeat(args())).toEqual({ kind: "ok", value: undefined });
+  });
+
+  it("reads the same duration grammar as --nag", () => {
+    expect(planHeartbeat(args({ heartbeat: "10s" }))).toEqual({
+      kind: "ok",
+      value: 10_000,
+    });
+  });
+
+  it("refuses an interval of zero — a spin, not a fast heartbeat", () => {
+    const plan = planHeartbeat(args({ heartbeat: "0s" }));
+    expect(plan.kind).toBe("error");
+    expect(plan.kind === "error" && plan.message).toMatch(/spin/);
   });
 });
 

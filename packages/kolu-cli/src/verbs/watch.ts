@@ -104,6 +104,8 @@ import {
 } from "@kolu/padi/dial";
 import { readTerminalKeys } from "@kolu/padi/read";
 import {
+  formatHeartbeat,
+  formatHeartbeatJson,
   formatStateEvent,
   formatStateEventJson,
   formatWatchActivity,
@@ -130,9 +132,9 @@ import {
   resolveTerminal,
   type StdoutWriteFailed,
   stdoutLost,
-  stdoutSink,
   waitStateTokens,
   writeErrSync,
+  writeStdoutLine,
 } from "./shared.ts";
 
 /** What the command tree parsed for `watch` — DERIVED from `watchFlags` in
@@ -156,9 +158,9 @@ const pumpToStdout = (
   lines: Queue.Dequeue<string, Cause.Done>,
   stop: () => void,
 ): Effect.Effect<void, CliFailure> => {
-  const drain: Effect.Effect<void, StdoutWriteFailed> = Stream.run(
+  const drain: Effect.Effect<void, StdoutWriteFailed> = Stream.runForEach(
     Stream.fromQueue(lines),
-    stdoutSink,
+    writeStdoutLine,
   );
   return Effect.catchTag(drain, "StdoutWriteFailed", (err) =>
     Effect.flatMap(Effect.sync(stop), () =>
@@ -286,6 +288,20 @@ export function planSupervision(
   return { kind: "ok", value: namesWatchKnobs(input) ? input : undefined };
 }
 
+/** `--heartbeat` is CLI-only: a line on a held stdout. MCP `watch_next` already
+ *  answers "still nothing" with `timeoutMs`; a clock tick in the padi queue
+ *  would mix a liveness pulse into terminal events. Naming it does NOT switch
+ *  the feed — it is not a supervision knob. */
+export function planHeartbeat(args: WatchArgs): Parsed<number | undefined> {
+  if (args.heartbeat === undefined) return { kind: "ok", value: undefined };
+  const parsed = parseDuration("heartbeat", args.heartbeat, {
+    ms: 1,
+    why: "an interval of zero is a spin, not a fast heartbeat. Pass a real interval (10s), or leave --heartbeat off.",
+  });
+  if (parsed.kind === "error") return parsed;
+  return { kind: "ok", value: parsed.value };
+}
+
 /** Resolve `--ignore-self` against this process's containing terminal. BEFORE
  *  the dial: the env is argv-adjacent, and a missing stamp is a usage error,
  *  not a daemon error. Prefixes on `--ignore` wait for the live roster. */
@@ -344,6 +360,8 @@ export function run(
   const supervise = plan.value;
   const self = planIgnoreSelf(args);
   if (self.kind === "error") return Effect.fail(failure(self.message));
+  const beat = planHeartbeat(args);
+  if (beat.kind === "error") return Effect.fail(failure(beat.message));
 
   return withPadi(
     endpoint,
@@ -375,7 +393,11 @@ export function run(
        *  three copies of it agree. The two renderings are THUNKS so the shape
        *  that was not asked for is never formatted. */
       const offer = (line: string): void => {
-        Queue.offerUnsafe(lines, `${line}\n`);
+        // Trailing newline is `writeStdoutLine`'s job, so a payload that
+        // already ended in one is not doubled and a payload that did not is
+        // never written unterminated. Never a leading newline — that is the
+        // one-event lag: the next write's `\n` is what completed this line.
+        Queue.offerUnsafe(lines, line);
       };
       const emitFor = (
         id: TerminalId,
@@ -402,6 +424,20 @@ export function run(
       const pump = yield* Effect.forkChild(
         pumpToStdout(lines, () => stopped.abort()),
       );
+
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+      if (beat.value !== undefined) {
+        const pulse = (): void => {
+          offer(
+            args.json
+              ? formatHeartbeatJson(Date.now())
+              : formatHeartbeat(Date.now()),
+          );
+        };
+        pulse();
+        heartbeat = setInterval(pulse, beat.value);
+        heartbeat.unref?.();
+      }
 
       yield* Effect.catch(
         Effect.tryPromise({
@@ -494,6 +530,8 @@ export function run(
       // reader that hangs up during the final flush can no longer erase a link
       // drop that had already happened.
       const selfSettled = !stopped.signal.aborted;
+
+      if (heartbeat !== undefined) clearInterval(heartbeat);
 
       // Stop producing and FLUSH what is already queued before leaving: a
       // `watch` that dropped its last lines on the way out is indistinguishable

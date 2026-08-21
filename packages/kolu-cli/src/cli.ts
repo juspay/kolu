@@ -666,6 +666,13 @@ export const watchFlags = {
       ),
     ),
   ),
+  heartbeat: opt(
+    Flag.string("heartbeat").pipe(
+      Flag.withDescription(
+        "emit a timestamped alive line every interval so a quiet pipe means 'nothing matching', not 'the stream is dead' — 10000, or 10s. Omit to stay silent when nothing is happening",
+      ),
+    ),
+  ),
 } as const;
 
 const watch = Command.make(
@@ -690,9 +697,9 @@ const watch = Command.make(
         "The supervision loop — every terminal idle a minute announces itself, every 5 minutes, until someone deals with it. --ignore-self keeps the orchestrator's own house out of the feed",
     },
     {
-      command: "kolu watch --nag 5m --json",
+      command: "kolu watch --nag 5m --json --heartbeat 10s",
       description:
-        "The same over NDJSON, filtered in padi, for a script to consume with jq",
+        "The same over NDJSON, filtered in padi, for a script to consume with jq. --heartbeat makes a quiet pipe mean nothing is matching, not that the stream died",
     },
   ]),
 );

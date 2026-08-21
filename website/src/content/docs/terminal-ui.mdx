@@ -93,6 +93,7 @@ it work or kills it.
 | `--nag` | re-report every interval it keeps holding, so a line you ignored comes back instead of vanishing |
 | `--ignore-self` | mute the terminal this process is running inside (`$KAVAL_TERMINAL_ID`). Refused if you are not in a kolu-owned PTY — pass `--ignore <id>` rather than guessing |
 | `--ignore <id>` | mute this terminal (repeatable). Fail-open: a stale or unknown id costs nothing, and every new terminal is still watched |
+| `--heartbeat` | emit a timestamped alive line every interval so a quiet pipe means *nothing is matching*, not *the stream is dead*. Omit to stay silent when nothing is happening |
 
 Each line says why you are being told: **snapshot** (already in that state when
 you started watching), **transition** (it just got there and held), or **nag**

@@ -418,6 +418,26 @@ describeDaemon("kolu watch — supervision, end to end", () => {
     watch.stop();
   });
 
+  it("a piped stdout sees the snapshot terminated without a subsequent write", {
+    timeout: 60000,
+  }, async () => {
+    // The one-event lag: each line only completed when the NEXT event was
+    // written. Pin that a connect snapshot arrives as a terminated line with
+    // no nag, no second terminal, nothing else to flush it out. `--nag 1h`
+    // keeps the next event far away; the 8s window is the connect, not a hold.
+    const { socketPath } = await idleAgentWorld();
+    const watch = runWatch(socketPath, [
+      "--states",
+      "waiting",
+      "--json",
+      "--nag",
+      "1h",
+    ]);
+    const events = await watch.atLeast(1, 8000);
+    expect(events[0]?.kind).toBe("snapshot");
+    watch.stop();
+  });
+
   it("a watch that RECONNECTS leads with a snapshot of what is already standing", {
     timeout: 180000,
   }, async () => {
