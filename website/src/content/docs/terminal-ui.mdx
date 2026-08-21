@@ -76,7 +76,7 @@ An agent terminal finishes and sits at an empty prompt. Nobody notices for
 hours. Every alert kolu has taps you **once**, when the terminal goes idle —
 miss that tap and the terminal is silent forever.
 
-Six flags on `kolu watch` turn it into the alert that doesn't let go:
+The flags on `kolu watch` turn it into the alert that doesn't let go:
 
 ```sh
 kolu watch --states waiting,awaiting --held-for 60s --nag 5m --ignore-self
@@ -114,20 +114,19 @@ agent that repaints its prompt once a second is still idle, and kolu asks the
 agent's own state rather than guessing from output. And it is never scoped by a
 list of ids: no argument means the whole fleet, because a watcher narrowed to
 the terminals you remembered goes blind to the one you didn't. Mute with
-`--ignore` / `--ignore-self` instead — a mute fails open, an id list fails
-closed. (A single id still works, as a debugging tail — but tailing the one
-id you also muted is refused: that watch could never match.)
+`--ignore` / `--ignore-self` instead. (A single id still works, as a debugging
+tail — but tailing the one id you also muted is refused: that watch could never
+match.)
 
 `--json` gives the same feed as NDJSON, filtered the same way before it leaves
 kolu, so a script consumes it with `jq` and nothing has to re-implement the
 timing. Every line carries a `kind` — `snapshot`/`transition`/`nag` here, and
 `terminal`/`removed`/`activity` on the plain change tail — so one `jq` switch
-reads either feed. `--heartbeat` adds a seventh, `{"kind":"heartbeat","at":<epoch
-ms>}`, and it is the one kind a consumer is meant to skip — it carries no
-terminal. The same knobs are [MCP tool parameters](/mcp) for a coding agent
-supervising a fleet, except `--heartbeat`: over MCP, `watch_next` answers "is
-anything there?" with its own `timeoutMs`, so a clock tick would only mix
-liveness into terminal events.
+reads either feed. `--heartbeat` adds `{"kind":"heartbeat","at":<epoch ms>}`.
+The same knobs are [MCP tool parameters](/mcp) for a coding agent supervising a
+fleet, except `--heartbeat`: over MCP, `watch_next` answers "is anything
+there?" with its own `timeoutMs`, so a clock tick would only mix liveness into
+terminal events.
 
 ### `create` makes you say where the terminal goes
 

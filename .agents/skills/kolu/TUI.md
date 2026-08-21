@@ -458,8 +458,11 @@ to the lanes you remembered goes blind to the one you didn't. Mute instead of
 listing who to watch. Lines read
 `HH:MM:SS  <id>  <snapshot|transition|nag>  <state>  <held>  [intent]`;
 `--json` emits the same, filtered inside kolu, as NDJSON. A `--heartbeat` line
-is the exception and the only line with no id — `HH:MM:SS  heartbeat`, or
-`{"kind":"heartbeat","at":<epoch ms>}` — so skip it before you cut field 2.
+is the exception and the only line with no terminal on it: its id column is
+BLANK, not absent, so the word `heartbeat` lands in the kind column at the same
+offset as a neighbour's `snapshot` and a fixed-width `cut` still lines up. In
+`--json` it is `{"kind":"heartbeat","at":<epoch ms>}`. Skip it before you read
+the id.
 
 > **A terminal id is not stable across a daemon restart.** kaval re-keys every
 > terminal when it restarts (crash-restore, a "Restart kaval", a redeploy), so an
