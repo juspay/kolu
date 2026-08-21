@@ -19,6 +19,7 @@ import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
 import type { PadiWatchStatesInput } from "../surface.ts";
 import { isTerminalId, type TerminalId } from "@kolu/terminal-vocab/schema";
 import type { StateWatchFilter, StateWatchSpec } from "./stateWatch.ts";
+import { type WatchScope, watchScopeOf } from "./watchScope.ts";
 
 /** The env a process inside a kolu PTY reads to name itself. Stamped at spawn
  *  as `KAVAL_TERMINAL_ID` — the self-knowledge twin of `KAVAL_SOCKET` — so
@@ -64,54 +65,16 @@ export function watchFilterOf(knobs: WatchKnobs): StateWatchFilter | undefined {
   return namesWatchKnobs(knobs) ? filterFrom(knobs) : undefined;
 }
 
-/** A filter plus the scope it is applied at — the ONE place a filter becomes a
- *  spec, so a standing subscription and the live stream cannot disagree about
- *  what an unscoped watch means. Omit-or-spread, never an explicit `undefined`:
- *  `ids` rides an optional key, and "the whole fleet" is spelled by the key
- *  being missing everywhere it travels. */
+/** A filter plus the {@link WatchScope} it is applied at — the ONE place a
+ *  filter becomes a spec, so a standing subscription and the live stream cannot
+ *  disagree about what an unscoped watch means. PURE: the never-match refusal
+ *  lives in {@link watchScopeOf}, the only thing that can make the scope this
+ *  takes, so there is nothing left here to reject. */
 export function specOf(
   filter: StateWatchFilter,
-  ids?: ReadonlySet<TerminalId>,
-  ignoreIds?: ReadonlySet<TerminalId>,
+  scope: WatchScope,
 ): StateWatchSpec {
-  if (mutedCoversInclude(ids, ignoreIds)) {
-    throw new Error(WATCH_SCOPE_EMPTY);
-  }
-  return {
-    ...filter,
-    ...(ids === undefined ? {} : { ids }),
-    ...(ignoreIds === undefined || ignoreIds.size === 0 ? {} : { ignoreIds }),
-  };
-}
-
-/** True when every included id is also muted — a subscription that can never
- *  match, the same shape as an empty `ids` list. A fleet-wide watch (no `ids`)
- *  that mutes someone is the intended `--ignore-self` case and is not this. */
-export function mutedCoversInclude(
-  ids: ReadonlySet<TerminalId> | undefined,
-  ignoreIds: ReadonlySet<TerminalId> | undefined,
-): boolean {
-  if (ids === undefined || ids.size === 0) return false;
-  if (ignoreIds === undefined || ignoreIds.size === 0) return false;
-  for (const id of ids) if (!ignoreIds.has(id)) return false;
-  return true;
-}
-
-/** The one sentence both faces use when {@link mutedCoversInclude} is true. */
-export const WATCH_SCOPE_EMPTY =
-  "this watch can never match anything: every included terminal is also muted. Omit the id to watch the rest of the fleet, or drop it from the mute.";
-
-/** The mute set a face hands the engine. Empty or absent is "mute nobody" —
- *  fail-open, so a stale id costs nothing and a new terminal is always
- *  watched. `self` is the optional extra id `--ignore-self` / `ignoreSelf`
- *  resolved to; the engine never hears about "self", only about ids. */
-export function ignoreIdsOf(
-  listed?: readonly TerminalId[],
-  self?: TerminalId,
-): ReadonlySet<TerminalId> | undefined {
-  const ids = new Set<TerminalId>(listed ?? []);
-  if (self !== undefined) ids.add(self);
-  return ids.size === 0 ? undefined : ids;
+  return { ...filter, scope };
 }
 
 /** What `$KAVAL_TERMINAL_ID` names, if anything. `none` is "not inside a kolu
@@ -152,13 +115,19 @@ export function ignoreSelfInvalid(raw: string, face: "cli" | "mcp"): string {
   return face === "cli" ? `--ignore-self: ${stamp}.` : `ignoreSelf: ${stamp}.`;
 }
 
-/** The full spec behind one `watchStates` subscription. Unlike a standing
- *  subscription there is nothing to choose here: opening the stream at all IS
- *  the ask, so the defaults always apply. */
-export function watchSpecOf(input: PadiWatchStatesInput): StateWatchSpec {
-  return specOf(
-    filterFrom(input),
-    input.id === undefined ? undefined : new Set([input.id]),
-    input.ignoreIds === undefined ? undefined : new Set(input.ignoreIds),
-  );
+/** The full spec behind one `watchStates` subscription, or the refusal that says
+ *  the scope it asked for can never match. Unlike a standing subscription there
+ *  is nothing to CHOOSE here: opening the stream at all IS the ask, so the
+ *  defaults always apply. */
+export function watchSpecOf(
+  input: PadiWatchStatesInput,
+):
+  | { readonly kind: "ok"; readonly value: StateWatchSpec }
+  | { readonly kind: "error"; readonly message: string } {
+  const scope = watchScopeOf({
+    ...(input.id === undefined ? {} : { ids: [input.id] }),
+    ...(input.ignoreIds === undefined ? {} : { mute: input.ignoreIds }),
+  });
+  if (scope.kind === "error") return scope;
+  return { kind: "ok", value: specOf(filterFrom(input), scope.value) };
 }

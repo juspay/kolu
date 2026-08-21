@@ -19,6 +19,7 @@ import {
   stateWatchHarness as harness,
 } from "./attentionFixture.testlib.ts";
 import type { StateWatchSpec } from "./stateWatch.ts";
+import { WATCH_SCOPE_ALL } from "./watchScope.ts";
 
 /** Subscribe and collect every batch. */
 function collect(
@@ -30,6 +31,7 @@ function collect(
     {
       states: new Set(["waiting", "awaiting"] as const),
       heldForMs: 0,
+      scope: WATCH_SCOPE_ALL,
       ...spec,
     },
     (batch) => batches.push(batch),
@@ -288,7 +290,7 @@ describe("createStateWatchHub", () => {
         .map((e) => e.id),
     ).toEqual(["a", "b"]);
     expect(
-      collect(h.hub, { ids: new Set(["b" as TerminalId]) })
+      collect(h.hub, { scope: { include: new Set(["b" as TerminalId]) } })
         .flat()
         .map((e) => e.id),
     ).toEqual(["b"]);
@@ -458,7 +460,11 @@ describe("createStateWatchHub", () => {
     h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
     h.hub.subscribe(
-      { states: new Set(["waiting"] as const), heldForMs: 0 },
+      {
+        states: new Set(["waiting"] as const),
+        heldForMs: 0,
+        scope: WATCH_SCOPE_ALL,
+      },
       () => {
         throw new Error("boom");
       },
@@ -480,7 +486,7 @@ describe("createStateWatchHub", () => {
     );
     await settled();
     const { batches } = collect(h.hub, {
-      ignoreIds: new Set(["self" as TerminalId]),
+      scope: { mute: new Set(["self" as TerminalId]) },
       nagMs: 60_000,
     });
     expect(batches.flat().map((e) => [e.kind, e.id])).toEqual([
@@ -520,7 +526,7 @@ describe("createStateWatchHub", () => {
     await settled();
     expect(
       collect(h.hub, {
-        ignoreIds: new Set(["gone" as TerminalId]),
+        scope: { mute: new Set(["gone" as TerminalId]) },
       })
         .flat()
         .map((e) => e.id),

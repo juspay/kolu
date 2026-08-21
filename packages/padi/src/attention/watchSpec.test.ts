@@ -7,64 +7,43 @@
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
+import { WATCH_SCOPE_ALL, watchScopeOf } from "./watchScope.ts";
 import {
   containingTerminalId,
-  ignoreIdsOf,
   ignoreSelfUnresolvable,
-  mutedCoversInclude,
   namesWatchKnobs,
   specOf,
   watchFilterOf,
   watchSpecOf,
 } from "./watchSpec.ts";
 
+const okScope = (opts: Parameters<typeof watchScopeOf>[0]) => {
+  const scope = watchScopeOf(opts);
+  if (scope.kind === "error") throw new Error(scope.message);
+  return scope.value;
+};
+
+const okSpec = (input: Parameters<typeof watchSpecOf>[0]) => {
+  const spec = watchSpecOf(input);
+  if (spec.kind === "error") throw new Error(spec.message);
+  return spec.value;
+};
+
 const SELF = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
-const LANE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as TerminalId;
 
 describe("specOf — the one place a filter becomes a spec", () => {
-  it("OMITS `ids` for a fleet-wide watch rather than sending an explicit undefined", () => {
+  it("joins the filter to the scope it is applied at, and nothing else", () => {
     const filter = { states: new Set(["waiting"] as const), heldForMs: 0 };
-    expect(Object.hasOwn(specOf(filter), "ids")).toBe(false);
-    expect([...(specOf(filter, new Set(["abc"])).ids ?? [])]).toEqual(["abc"]);
-  });
-
-  it("OMITS `ignoreIds` when none were asked for, and carries a mute set when they were", () => {
-    const filter = { states: new Set(["waiting"] as const), heldForMs: 0 };
-    expect(Object.hasOwn(specOf(filter), "ignoreIds")).toBe(false);
+    expect(specOf(filter, WATCH_SCOPE_ALL)).toEqual({
+      ...filter,
+      scope: WATCH_SCOPE_ALL,
+    });
     expect([
-      ...(specOf(filter, undefined, new Set([SELF])).ignoreIds ?? []),
+      ...(specOf(filter, okScope({ ids: [SELF] })).scope.include ?? []),
     ]).toEqual([SELF]);
-  });
-
-  it("refuses when every included id is also muted — a watch that can never match", () => {
-    const filter = { states: new Set(["waiting"] as const), heldForMs: 0 };
-    expect(() => specOf(filter, new Set([SELF]), new Set([SELF]))).toThrow(
-      /can never match/,
-    );
-    expect(() =>
-      specOf(filter, new Set([SELF, LANE]), new Set([SELF, LANE])),
-    ).toThrow(/can never match/);
-  });
-
-  it("does NOT refuse a fleet-wide mute, or a mute that leaves someone to watch", () => {
-    const filter = { states: new Set(["waiting"] as const), heldForMs: 0 };
-    expect(() => specOf(filter, undefined, new Set([SELF]))).not.toThrow();
-    expect(() =>
-      specOf(filter, new Set([SELF, LANE]), new Set([SELF])),
-    ).not.toThrow();
-  });
-});
-
-describe("mutedCoversInclude", () => {
-  it("is the empty-include shape: every scoped id is muted", () => {
-    expect(mutedCoversInclude(new Set([SELF]), new Set([SELF]))).toBe(true);
-    expect(mutedCoversInclude(new Set([SELF]), new Set([SELF, LANE]))).toBe(
-      true,
-    );
-    expect(mutedCoversInclude(undefined, new Set([SELF]))).toBe(false);
-    expect(mutedCoversInclude(new Set([SELF, LANE]), new Set([SELF]))).toBe(
-      false,
-    );
+    expect([
+      ...(specOf(filter, okScope({ mute: [SELF] })).scope.mute ?? []),
+    ]).toEqual([SELF]);
   });
 });
 
@@ -119,39 +98,27 @@ describe("watchFilterOf", () => {
 
 describe("watchSpecOf", () => {
   it("applies the SAME defaults the standing subscription gets", () => {
-    const spec = watchSpecOf({});
+    const spec = okSpec({});
     expect([...spec.states]).toEqual([...WATCH_DEFAULT_STATES]);
     expect(spec.heldForMs).toBe(0);
   });
 
   it("scopes to the one optional id, and to the fleet without it", () => {
-    expect([...(watchSpecOf({ id: "abc" }).ids ?? [])]).toEqual(["abc"]);
-    expect(watchSpecOf({}).ids).toBeUndefined();
+    expect([...(okSpec({ id: "abc" }).scope.include ?? [])]).toEqual(["abc"]);
+    expect(okSpec({}).scope.include).toBeUndefined();
   });
 
   it("carries ignoreIds onto the spec the same way, omitted when none", () => {
-    expect(Object.hasOwn(watchSpecOf({}), "ignoreIds")).toBe(false);
-    expect([...(watchSpecOf({ ignoreIds: [SELF] }).ignoreIds ?? [])]).toEqual([
+    expect(okSpec({}).scope.mute).toBeUndefined();
+    expect([...(okSpec({ ignoreIds: [SELF] }).scope.mute ?? [])]).toEqual([
       SELF,
     ]);
   });
-});
 
-describe("ignoreIdsOf — listed mutes plus optional self, fail-open", () => {
-  it("OMITS the key when nothing is muted", () => {
-    expect(ignoreIdsOf()).toBeUndefined();
-    expect(ignoreIdsOf([])).toBeUndefined();
-  });
-
-  it("unions listed ids with self when both are present", () => {
-    expect([...(ignoreIdsOf([LANE], SELF) ?? [])].sort()).toEqual(
-      [LANE, SELF].sort(),
-    );
-  });
-
-  it("a listed id that is not live is still in the set — inert at the engine, not refused here", () => {
-    const gone = "cccccccc-cccc-4ccc-8ccc-cccccccccccc" as TerminalId;
-    expect([...(ignoreIdsOf([gone]) ?? [])]).toEqual([gone]);
+  it("hands the never-match refusal back as a VALUE — the stream edge throws, not this", () => {
+    const spec = watchSpecOf({ id: SELF, ignoreIds: [SELF] });
+    expect(spec.kind).toBe("error");
+    expect(spec.kind === "error" && spec.message).toMatch(/can never match/);
   });
 });
 

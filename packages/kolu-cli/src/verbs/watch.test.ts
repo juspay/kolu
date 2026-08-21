@@ -13,7 +13,7 @@ import {
   planHeartbeat,
   planIgnoreSelf,
   planSupervision,
-  refuseMutedOnly,
+  planWatchScope,
   resolveIgnoreQueries,
   type WatchArgs,
 } from "./watch.ts";
@@ -232,24 +232,32 @@ describe("resolveIgnoreQueries — fail-open mute", () => {
   });
 });
 
-describe("refuseMutedOnly — id ∩ ignore is a silent never-match", () => {
-  it("refuses tailing the one terminal that is also muted", () => {
-    const plan = refuseMutedOnly(SELF, new Set([SELF]));
+describe("planWatchScope — id ∩ ignore is a silent never-match", () => {
+  it("refuses tailing the one terminal that is also muted, in argv's own grammar", () => {
+    const plan = planWatchScope(SELF, [SELF]);
     expect(plan.kind).toBe("error");
     expect(plan.kind === "error" && plan.message).toMatch(/can never match/);
+    // padi states the invariant; the way OUT is this face's to spell.
+    expect(plan.kind === "error" && plan.message).toMatch(/--ignore/);
   });
 
   it("allows a fleet watch that merely mutes someone", () => {
-    expect(refuseMutedOnly(undefined, new Set([SELF]))).toEqual({
-      kind: "ok",
-      value: undefined,
-    });
+    const plan = planWatchScope(undefined, [SELF]);
+    expect(plan.kind).toBe("ok");
+    expect(plan.kind === "ok" && [...(plan.value.mute ?? [])]).toEqual([SELF]);
+    expect(plan.kind === "ok" && plan.value.include).toBeUndefined();
   });
 
   it("allows a scoped watch whose mute is someone else", () => {
-    expect(refuseMutedOnly(LANE, new Set([SELF]))).toEqual({
-      kind: "ok",
-      value: undefined,
-    });
+    const plan = planWatchScope(LANE, [SELF]);
+    expect(plan.kind).toBe("ok");
+    expect(plan.kind === "ok" && [...(plan.value.include ?? [])]).toEqual([
+      LANE,
+    ]);
+  });
+
+  it("spells an empty mute as mute-nobody — fail-open, one spelling", () => {
+    const plan = planWatchScope(undefined, []);
+    expect(plan.kind === "ok" && plan.value).toEqual({});
   });
 });

@@ -92,17 +92,17 @@
 
 import {
   containingTerminalId,
-  ignoreIdsOf,
   ignoreSelfInvalid,
   ignoreSelfNotThisFleet,
   ignoreSelfUnresolvable,
-  mutedCoversInclude,
   namesWatchKnobs,
   PADI_LINK_CLOSED,
+  scopeAdmits,
   WAIT_STATES,
-  WATCH_SCOPE_EMPTY,
   type WaitState,
   watchAgentStates,
+  type WatchScope,
+  watchScopeOf,
   watchTerminals,
 } from "@kolu/padi/dial";
 import { readTerminalKeys } from "@kolu/padi/read";
@@ -367,16 +367,27 @@ export function resolveIgnoreQueries(
   return { kind: "ok", value: resolved, dropped };
 }
 
-/** `kolu watch <id> --ignore-self` inside that same terminal: a scoped watch
- *  whose only member is muted. The same never-match `ids: []` already refuses. */
-export function refuseMutedOnly(
+/** WHICH terminals this invocation reports — padi's one scope value, built from
+ *  the resolved `<id>` and the resolved mute.
+ *
+ *  The never-match refusal is the CONSTRUCTOR's (`kolu watch <id> --ignore-self`
+ *  inside that same terminal is a watch whose only member is muted); this adds
+ *  the way OUT in argv's own grammar, which is the half padi must not hold. */
+export function planWatchScope(
   only: TerminalId | undefined,
-  ignored: ReadonlySet<TerminalId> | undefined,
-): Parsed<undefined> {
-  if (only !== undefined && mutedCoversInclude(new Set([only]), ignored)) {
-    return { kind: "error", message: WATCH_SCOPE_EMPTY };
+  mute: readonly TerminalId[],
+): Parsed<WatchScope> {
+  const scope = watchScopeOf({
+    ...(only === undefined ? {} : { ids: [only] }),
+    mute,
+  });
+  if (scope.kind === "error") {
+    return {
+      kind: "error",
+      message: `${scope.message} Omit the id to watch the rest of the fleet, or drop it from --ignore.`,
+    };
   }
-  return { kind: "ok", value: undefined };
+  return scope;
 }
 
 export function run(
@@ -419,11 +430,14 @@ export function run(
                 }
                 return Effect.succeed(resolved.value);
               });
-        const ignored = ignoreIdsOf(listed, self.value);
-        const overlap = refuseMutedOnly(only, ignored);
-        if (overlap.kind === "error") {
-          return yield* Effect.fail(failure(overlap.message));
+        const planned = planWatchScope(only, [
+          ...listed,
+          ...(self.value === undefined ? [] : [self.value]),
+        ]);
+        if (planned.kind === "error") {
+          return yield* Effect.fail(failure(planned.message));
         }
+        const scope = planned.value;
 
         const lines = yield* Queue.unbounded<string, Cause.Done>();
         /** Emit ONE line for a terminal event — the three decisions every event
@@ -447,8 +461,10 @@ export function run(
           json: () => string,
           human: () => string,
         ): void => {
-          if (only !== undefined && id !== only) return;
-          if (ignored?.has(id)) return;
+          // ONE membership question, asked of padi's one reader — the `<id>`
+          // narrowing and the mute are the same rule, so a fourth event type
+          // cannot inherit half of it.
+          if (!scopeAdmits(scope, id)) return;
           offer(args.json ? json() : human());
         };
         /** Why the mirror REJECTED, if it did — the only thing upstream ever says
@@ -544,9 +560,9 @@ export function run(
                     {
                       ...supervise,
                       ...(only === undefined ? {} : { id: only }),
-                      ...(ignored === undefined
+                      ...(scope.mute === undefined
                         ? {}
-                        : { ignoreIds: [...ignored] }),
+                        : { ignoreIds: [...scope.mute] }),
                     },
                     (batch) => {
                       for (const event of batch) {

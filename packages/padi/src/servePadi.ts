@@ -47,6 +47,7 @@ import { createStateWatchHub } from "./attention/stateWatch.ts";
 import { createWatchRegistry } from "./attention/watchRegistry.ts";
 import { stateWatchSource } from "./attention/stateWatchStream.ts";
 import { specOf, watchFilterOf, watchSpecOf } from "./attention/watchSpec.ts";
+import { watchScopeOf } from "./attention/watchScope.ts";
 import type {
   EndpointGrid,
   TerminalAttachFrame,
@@ -333,8 +334,8 @@ export function buildPadiSurfaceDeps(deps: {
     // three knobs the caller named, and the scope the SUBSCRIPTION owns. The
     // queue never mints a spec, so the state watch's scoping is the only
     // scoping there is for a state feed.
-    subscribeStates: (filter, ids, emit, ignoreIds) =>
-      stateWatch.subscribe(specOf(filter, ids, ignoreIds), emit),
+    subscribeStates: (filter, scope, emit) =>
+      stateWatch.subscribe(specOf(filter, scope), emit),
   });
   const unsubscribeSettle = settleEvents.onFrame((events) =>
     watchRegistry.acceptSettle(events),
@@ -622,8 +623,18 @@ export function buildPadiSurfaceDeps(deps: {
       // rides, minus the queue. A socket-holding face needs no buffer: the
       // subscription IS the delivery, and its first frame is the snapshot.
       watchStates: {
-        source: (input: PadiWatchStatesInput) =>
-          stateWatchSource(stateWatch, watchSpecOf(input), log),
+        source: (input: PadiWatchStatesInput) => {
+          // The never-match scope is refused HERE, at the entry that owns the
+          // sentence — `watchSpecOf` hands the refusal back as a value, so the
+          // stream edge is the one place a throw happens.
+          const spec = watchSpecOf(input);
+          if (spec.kind === "error") {
+            throw new Error(
+              `${spec.message} Omit \`id\` to watch the whole fleet, or drop it from \`ignoreIds\`.`,
+            );
+          }
+          return stateWatchSource(stateWatch, spec.value, log);
+        },
       },
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
@@ -684,11 +695,23 @@ export function buildPadiSurfaceDeps(deps: {
             // the three knobs — the presence of a knob IS the choice of source,
             // so there is no mode flag here to contradict them.
             const filter = watchFilterOf(input);
-            const { sub, reattached } = watchRegistry.open(input.name, {
+            // The scope is built ONCE, by the only constructor there is, and a
+            // never-match one is refused here — where the subscription's NAME is
+            // in hand to say which one. The registry is a queue and never mints
+            // one, so there is no second policy to disagree with this.
+            const scope = watchScopeOf({
               ...(input.ids === undefined ? {} : { ids: input.ids }),
               ...(input.ignoreIds === undefined
                 ? {}
-                : { ignoreIds: input.ignoreIds }),
+                : { mute: input.ignoreIds }),
+            });
+            if (scope.kind === "error") {
+              throw new Error(
+                `standing subscription "${input.name}": ${scope.message} Omit \`ids\` to watch the whole fleet, or drop it from \`ignoreIds\`.`,
+              );
+            }
+            const { sub, reattached } = watchRegistry.open(input.name, {
+              scope: scope.value,
               ...(filter === undefined ? {} : { filter }),
             });
             log.info(

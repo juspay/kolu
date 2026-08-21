@@ -14,12 +14,11 @@
 
 import {
   containingTerminalId,
-  ignoreIdsOf,
   ignoreSelfInvalid,
   ignoreSelfUnresolvable,
-  mutedCoversInclude,
   type PadiSurfaceClient,
-  WATCH_SCOPE_EMPTY,
+  type WatchScopeRefusal,
+  watchScopeOf,
 } from "@kolu/padi/dial";
 import {
   type PadiWatchOpenInput,
@@ -40,48 +39,93 @@ export const WatchOpenArgsSchema = Schema.Struct({
 });
 export type WatchOpenArgs = typeof WatchOpenArgsSchema.Type;
 
+/** The way OUT of each never-match shape, in THIS face's grammar. padi states
+ *  the invariant; a tool caller has an `ids` array, not "the id", so the remedy
+ *  is spelled here rather than served to it in a shell's positional wording. */
+const SCOPE_WAY_OUT: Record<WatchScopeRefusal, string> = {
+  covered:
+    "Omit ids to watch the whole fleet, or drop the overlap from ignoreIds.",
+  "no-ids": "Omit ids to watch the whole fleet.",
+};
+
+/** The machine-readable reason a refusal carries, per never-match shape. */
+const SCOPE_DETAIL: Record<WatchScopeRefusal, string> = {
+  covered: "muted-covers-include",
+  "no-ids": "empty-ids",
+};
+
+/** What this face decided BEFORE anything crosses to padi. */
+export interface WatchOpenPlan {
+  /** padi's own `watch.open` input, `ignoreSelf` already resolved into ids. */
+  readonly input: PadiWatchOpenInput;
+  /** The containing terminal `ignoreSelf` resolved to, when it was asked —
+   *  carried out so the handler can ask the padi it is about to call whether
+   *  that terminal is in ITS roster. */
+  readonly self?: TerminalId;
+}
+
+/** A refusal is a VALUE here, the same shape the CLI half uses, so one feature
+ *  has one representation of "refused before we dial" rather than a throw on one
+ *  face and a value on the other. The handler below is the ONE place it becomes
+ *  a {@link ToolFailure}. */
+export type ParsedWatchOpen =
+  | { readonly kind: "ok"; readonly value: WatchOpenPlan }
+  | {
+      readonly kind: "error";
+      readonly message: string;
+      readonly detail: Record<string, unknown>;
+    };
+
 export function resolveWatchOpenInput(
   args: WatchOpenArgs,
   env: { readonly [key: string]: string | undefined } = process.env,
-): { readonly input: PadiWatchOpenInput } {
-  const { ignoreSelf, ignoreIds, ...rest } = args;
-  if (ignoreSelf !== true) {
-    return finishOpenInput(
-      rest,
-      ignoreIds === undefined ? undefined : new Set(ignoreIds),
-    );
+): ParsedWatchOpen {
+  const { ignoreSelf, ignoreIds, ids, ...rest } = args;
+  // ONE assembly, both branches: `ignoreSelf` decides whether there is an EXTRA
+  // id in the mute, never how the mute is built. (The two used to be separate
+  // paths and had already diverged on the empty list.)
+  const mute: TerminalId[] = [...(ignoreIds ?? [])];
+  let self: TerminalId | undefined;
+  if (ignoreSelf === true) {
+    const found = containingTerminalId(env);
+    if (found.kind === "none") {
+      return {
+        kind: "error",
+        message: ignoreSelfUnresolvable("mcp"),
+        detail: { kind: "ignore-self-unresolvable" },
+      };
+    }
+    if (found.kind === "invalid") {
+      return {
+        kind: "error",
+        message: ignoreSelfInvalid(found.raw, "mcp"),
+        detail: { kind: "ignore-self-invalid", raw: found.raw },
+      };
+    }
+    self = found.id;
+    mute.push(self);
   }
-  const self = containingTerminalId(env);
-  if (self.kind === "none") {
-    throw new ToolFailure(ignoreSelfUnresolvable("mcp"), {
-      kind: "ignore-self-unresolvable",
-    });
-  }
-  if (self.kind === "invalid") {
-    throw new ToolFailure(ignoreSelfInvalid(self.raw, "mcp"), {
-      kind: "ignore-self-invalid",
-      raw: self.raw,
-    });
-  }
-  return finishOpenInput(rest, ignoreIdsOf(ignoreIds, self.id));
-}
-
-function finishOpenInput(
-  rest: Omit<WatchOpenArgs, "ignoreSelf" | "ignoreIds">,
-  muted: ReadonlySet<TerminalId> | undefined,
-): { readonly input: PadiWatchOpenInput } {
-  if (
-    mutedCoversInclude(
-      rest.ids === undefined ? undefined : new Set(rest.ids),
-      muted,
-    )
-  ) {
-    throw new ToolFailure(WATCH_SCOPE_EMPTY, { kind: "muted-covers-include" });
+  const scope = watchScopeOf({ ...(ids === undefined ? {} : { ids }), mute });
+  if (scope.kind === "error") {
+    return {
+      kind: "error",
+      message: `${scope.message} ${SCOPE_WAY_OUT[scope.refused]}`,
+      detail: { kind: SCOPE_DETAIL[scope.refused] },
+    };
   }
   return {
-    input: {
-      ...rest,
-      ...(muted === undefined ? {} : { ignoreIds: [...muted] }),
+    kind: "ok",
+    value: {
+      input: {
+        ...rest,
+        ...(scope.value.include === undefined
+          ? {}
+          : { ids: [...scope.value.include] }),
+        ...(scope.value.mute === undefined
+          ? {}
+          : { ignoreIds: [...scope.value.mute] }),
+      },
+      ...(self === undefined ? {} : { self }),
     },
   };
 }
@@ -93,7 +137,12 @@ export const watchOpenTool: BespokeTool = {
   description:
     "Start (or re-attach to) a named standing subscription. Omit ids to watch the WHOLE fleet — a list you forget to update goes blind to a lane nobody added. ignoreIds mutes known terminals (fail-open: a stale id costs nothing). ignoreSelf mutes the terminal this MCP server is running inside. Naming any of states/heldForMs/nagMs turns the subscription into an agent-state watch (snapshot · transition · nag); naming none leaves the settle detector (asking · finished · gone). Re-open the SAME name after a restart to reattach to the queue.",
   handler: (args, client) => {
-    const { input } = resolveWatchOpenInput(args as WatchOpenArgs);
-    return (client as PadiSurfaceClient).surface.watch.open(input);
+    const parsed = resolveWatchOpenInput(args as WatchOpenArgs);
+    // The ONE throw: the pure half above answers in values, and this is the
+    // boundary that must speak MCP's failure vocabulary.
+    if (parsed.kind === "error") {
+      throw new ToolFailure(parsed.message, parsed.detail);
+    }
+    return (client as PadiSurfaceClient).surface.watch.open(parsed.value.input);
   },
 };

@@ -95,15 +95,25 @@ export {
 // three fields that agrees today.
 export {
   CONTAINING_TERMINAL_ENV,
+  type ContainingTerminal,
   containingTerminalId,
-  ignoreIdsOf,
   ignoreSelfInvalid,
   ignoreSelfNotThisFleet,
   ignoreSelfUnresolvable,
-  mutedCoversInclude,
   namesWatchKnobs,
-  WATCH_SCOPE_EMPTY,
 } from "./attention/watchSpec.ts";
+
+// WHICH terminals a subscription reports is ONE concept with ONE constructor
+// and ONE reader, so the dial carries three names for it rather than a kit of
+// parts each face re-assembles: the value, the constructor that is the only way
+// to make one (and where every never-match refusal lives), and the predicate
+// every event source asks.
+export {
+  scopeAdmits,
+  type WatchScope,
+  watchScopeOf,
+  type WatchScopeRefusal,
+} from "./attention/watchScope.ts";
 
 export {
   activeAgent,

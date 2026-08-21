@@ -23,6 +23,7 @@ import type {
   StateWatchSpec,
 } from "./stateWatch.ts";
 import { createWatchRegistry, type WatchRegistry } from "./watchRegistry.ts";
+import { type WatchScope, watchScopeOf } from "./watchScope.ts";
 import { specOf } from "./watchSpec.ts";
 
 let seq = 0;
@@ -40,6 +41,19 @@ const event = (
  *  i.e. the daemon's real high-water mark, which is what the stale-cursor guard
  *  checks an acknowledgement against. A test that wants to model a cursor from a
  *  PREVIOUS daemon generation overrides it. */
+/** The scope a caller states, built through the ONE constructor — so these pins
+ *  exercise the same value `servePadi` hands the registry, not a hand-shaped
+ *  look-alike. The never-match refusals it raises are pinned in
+ *  `watchScope.test.ts`, where the constructor lives. */
+const scopeOf = (opts: {
+  ids?: readonly TerminalId[];
+  mute?: readonly TerminalId[];
+}): WatchScope => {
+  const scope = watchScopeOf(opts);
+  if (scope.kind === "error") throw new Error(scope.message);
+  return scope.value;
+};
+
 const registry = (
   opts: {
     limit?: number;
@@ -47,7 +61,7 @@ const registry = (
     daemonSeq?: () => number;
     subscribeStates?: (
       filter: StateWatchFilter,
-      ids: ReadonlySet<TerminalId> | undefined,
+      scope: WatchScope,
       emit: (batch: StateWatchBatch) => void,
     ) => () => void;
   } = {},
@@ -97,16 +111,11 @@ function fakeStateWatch() {
     liveCount: () => live.size,
     subscribeStates: (
       filter: StateWatchFilter,
-      ids: ReadonlySet<TerminalId> | undefined,
+      scope: WatchScope,
       emit: (batch: StateWatchBatch) => void,
-      ignoreIds?: ReadonlySet<TerminalId>,
     ) => {
       const key = ++handle;
-      const spec: StateWatchSpec = {
-        ...filter,
-        ...(ids === undefined ? {} : { ids }),
-        ...(ignoreIds === undefined ? {} : { ignoreIds }),
-      };
+      const spec: StateWatchSpec = { ...filter, scope };
       specs.push(spec);
       live.set(key, { spec, emit });
       // The real engine answers a subscribe with the currently-matching set.
@@ -210,7 +219,7 @@ describe("watch registry", () => {
 
   it("scopes to an id list, and widens back to all when re-opened without one", () => {
     const r = registry();
-    r.open("narrow", { ids: ["a" as TerminalId] });
+    r.open("narrow", { scope: scopeOf({ ids: ["a" as TerminalId] }) });
     acceptOne(r, "a", "b");
     const first = r.drain("narrow");
     expect(first.events.map((e) => e.id)).toEqual(["a"]);
@@ -225,7 +234,7 @@ describe("watch registry", () => {
   it("muting an id is fail-open — the others still arrive, a stale mute is inert", () => {
     const r = registry();
     r.open("campaign", {
-      ignoreIds: ["self" as TerminalId, "gone" as TerminalId],
+      scope: scopeOf({ mute: ["self" as TerminalId, "gone" as TerminalId] }),
     });
     acceptOne(r, "self", "lane", "gone");
     expect(r.drain("campaign").events.map((e) => e.id)).toEqual(["lane"]);
@@ -233,12 +242,14 @@ describe("watch registry", () => {
 
   it("NARROWING the scope drops what the queue just stopped caring about", () => {
     const r = registry();
-    r.open("both", { ids: ["a" as TerminalId, "b" as TerminalId] });
+    r.open("both", {
+      scope: scopeOf({ ids: ["a" as TerminalId, "b" as TerminalId] }),
+    });
     acceptOne(r, "a", "b");
     // Re-scoping is a statement about the QUEUE, not only about future events —
     // otherwise `ids` and `buffer` describe two different subscriptions and the
     // next drain hands over an event the caller has said it does not want.
-    r.open("both", { ids: ["a" as TerminalId] });
+    r.open("both", { scope: scopeOf({ ids: ["a" as TerminalId] }) });
     expect(r.drain("both").events.map((e) => e.id)).toEqual(["a"]);
   });
 
@@ -318,21 +329,6 @@ describe("watch registry", () => {
     }
   });
 
-  it("refuses an EMPTY id list rather than silently watching everything", () => {
-    const r = registry();
-    expect(() => r.open("bad", { ids: [] })).toThrow(/could never match/);
-  });
-
-  it("refuses when ignoreIds covers every scoped id — the same never-match", () => {
-    const r = registry();
-    expect(() =>
-      r.open("bad", {
-        ids: ["self" as TerminalId],
-        ignoreIds: ["self" as TerminalId],
-      }),
-    ).toThrow(/can never match/);
-  });
-
   it("rings the doorbell only for subscriptions the event is in scope for", () => {
     const r = registry();
     const rings = { all: 0, a: 0 };
@@ -343,7 +339,7 @@ describe("watch registry", () => {
       rings.a += 1;
     });
     r.open("all");
-    r.open("just-a", { ids: ["a" as TerminalId] });
+    r.open("just-a", { scope: scopeOf({ ids: ["a" as TerminalId] }) });
     acceptOne(r, "b");
     expect(rings.all).toBe(1);
     expect(rings.a).toBe(0);
@@ -442,24 +438,27 @@ describe("watch registry — a subscription that named the agent-state knobs", (
   it("threads the subscription's OWN scope into the state watch — one id list, not two", () => {
     const watch = fakeStateWatch();
     const r = registry({ subscribeStates: watch.subscribeStates });
-    r.open("supervise", { ids: ["a" as TerminalId], filter });
-    expect([...(watch.specs[0]?.ids ?? [])]).toEqual(["a"]);
+    r.open("supervise", {
+      scope: scopeOf({ ids: ["a" as TerminalId] }),
+      filter,
+    });
+    expect([...(watch.specs[0]?.scope.include ?? [])]).toEqual(["a"]);
     r.open("fleet", { filter });
     // Omitting ids is the ABSENCE of a claim, so the fleet is watched — the
     // enumeration-blindness the optional list exists to end.
-    expect(watch.specs[1]?.ids).toBeUndefined();
+    expect(watch.specs[1]?.scope.include).toBeUndefined();
   });
 
   it("threads ignoreIds into the state watch the same way — a mute, not a roster", () => {
     const watch = fakeStateWatch();
     const r = registry({ subscribeStates: watch.subscribeStates });
     r.open("supervise", {
-      ignoreIds: ["self" as TerminalId],
+      scope: scopeOf({ mute: ["self" as TerminalId] }),
       filter,
     });
-    expect([...(watch.specs[0]?.ignoreIds ?? [])]).toEqual(["self"]);
+    expect([...(watch.specs[0]?.scope.mute ?? [])]).toEqual(["self"]);
     r.open("fleet", { filter });
-    expect(watch.specs[1]?.ignoreIds).toBeUndefined();
+    expect(watch.specs[1]?.scope.mute).toBeUndefined();
   });
 
   it("RE-opening replaces the attachment rather than stacking one — a nag is never doubled", () => {
@@ -573,8 +572,8 @@ describe("watch registry — the MCP face under a repainting idle terminal", () 
       // wires it. Two would leave the watermark reading numbers the buffer
       // never carries, and every event would be silently discarded.
       daemonSeq: () => h.seq.last(),
-      subscribeStates: (filter, ids, emit, ignoreIds) =>
-        h.hub.subscribe(specOf(filter, ids, ignoreIds), emit),
+      subscribeStates: (filter, scope, emit) =>
+        h.hub.subscribe(specOf(filter, scope), emit),
     });
     return { h, r };
   }
