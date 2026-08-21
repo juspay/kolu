@@ -602,7 +602,7 @@ const AddHostAffordance: Component = () => {
             style={{ ...panelStyle(), ...addHostChrome.style }}
           >
             <p class="mb-2.5 text-[11px] leading-4 text-fg-2">
-              Remote hosts —{" "}
+              Add another machine —{" "}
               <DocLink slug="remote-hosts" data-testid="host-add-docs">
                 Learn more →
               </DocLink>

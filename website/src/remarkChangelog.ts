@@ -103,7 +103,7 @@ const validateLedger = (tree: Root, srcDir: string) => {
     pageCandidates(slug).some((candidate) => existsSync(candidate));
 
   // A product area can be a SECTION of a page rather than a whole page — port
-  // forwarding lives under Remote Hosts, for one. The fragment is checked, not
+  // forwarding lives under Add another machine, for one. The fragment is checked, not
   // merely tolerated: an anchor that no heading in the target page produces is
   // a link that silently lands at the top, which is exactly the drift this
   // validator exists to make impossible.

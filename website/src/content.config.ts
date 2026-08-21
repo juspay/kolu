@@ -41,8 +41,9 @@ const docs = defineCollection({
 // The Surface collection — the four-quadrant Diátaxis home for the @kolu/surface
 // framework, mounted under its OWN top-level prefix: src/content/surface/<slug>.mdx
 // renders at /surface/<slug> (and index.mdx at /surface) via src/pages/surface/.
-// A sibling of `docs` rather than a nested section so it carries its own sidebar
-// and top-nav entry, keeping the product docs and the framework docs distinct.
+// A sibling of `docs` rather than a nested section so it carries its own sidebar,
+// keeping the product docs and the framework docs distinct. Surface is linked
+// from the footer, not the top nav — it is builder docs, not the product foyer.
 const surface = defineCollection({
   loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/surface" }),
   schema: docPage,

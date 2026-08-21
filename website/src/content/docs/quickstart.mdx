@@ -4,7 +4,7 @@ description: "Run kolu with Nix, open the local workspace, and create the first 
 order: 10
 section: Start
 koluHero:
-  eyebrow: start here
+  eyebrow: this machine
   headline: From zero to {running}.
 ---
 
@@ -13,7 +13,7 @@ import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
-kolu is packaged with Nix. Install Nix with flakes enabled, then run one
+Kolu is packaged with Nix. Install Nix with flakes enabled, then run one
 command. The same command runs kolu _and_ updates it: `--refresh` busts Nix's
 flake cache so you pull the current commit.
 
@@ -40,111 +40,8 @@ flake cache so you pull the current commit.
 
 <figure class="doc-shot">
   <img src="/demo/hero-demo.webp" alt="Kolu running in a browser workspace with the dock, a terminal tile, and the code panel visible." loading="eager" />
-  <figcaption>The running workspace is the product: real xterm.js terminals on a canvas, with repo and agent state around them.</figcaption>
+  <figcaption>The running workspace is the product: real terminals on a canvas, with repo and agent state around them.</figcaption>
 </figure>
-
-The [Core Concepts](/concepts) page names the pieces you see here — canvas,
-tiles, dock rows, worktrees, and agent state — once the app is running.
-
-## First run compiling? Enable the binary cache
-
-Every kolu commit is pre-built and pushed to a public binary cache,
-`https://cache.nixos.asia/oss`. The flake declares it, but Nix only honors a
-flake-declared cache if you accept it **and** your user is
-[trusted](https://nix.dev/manual/nix/latest/command-ref/conf-file#conf-trusted-users)
-by the Nix daemon — and on a standard multi-user install it isn't, so the
-setting is dropped with a one-line warning
-(`ignoring untrusted flake configuration setting 'extra-substituters'`) and the
-first run compiles kolu from source, including downloading a Rust toolchain
-for one of its helper binaries.
-
-To download pre-built binaries instead, add the cache to the **system** Nix
-configuration (`/etc/nix/nix.conf`):
-
-```text
-extra-substituters = https://cache.nixos.asia/oss
-extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
-```
-
-Or, on NixOS:
-
-```nix
-nix.settings = {
-  extra-substituters = [ "https://cache.nixos.asia/oss" ];
-  extra-trusted-public-keys = [ "oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=" ];
-};
-```
-
-After editing `nix.conf`, restart the daemon (`sudo systemctl restart
-nix-daemon` on Linux, `sudo launchctl kickstart -k
-system/org.nixos.nix-daemon` on macOS).
-
-Machines you [add as a remote host](/remote-hosts) can inherit the cache
-through kolu: provisioning copies the agent's binaries out of **this** machine's
-store onto the host, cross-architecture included. That copy lands only if the
-host trusts it — your ssh user is in the host's `trusted-users`, or the host
-trusts the cache's signing key. When it doesn't, kolu says so in the connect
-log and the host builds the agent itself; the fix is the same `nix.conf` block
-above, applied on that machine.
-
-Whether this machine has those binaries to copy depends on how you installed
-kolu. If you run kolu as a service through the **home-manager module**, it
-always does: the installed generation carries every agent closure kolu can
-provision, so the cache above is only about kolu's *own* first build, never
-about a remote connect. If you launch kolu with `nix run` or a plain `nix
-profile install`, the agent closure is fetched on demand — from this cache, and
-from source if the cache doesn't have it yet.
-
-## Bind a different address
-
-By default, kolu listens on loopback. To expose it on your LAN, pass an address
-and port after `--`:
-
-```sh
-nix --refresh run github:juspay/kolu -- web --bind 0.0.0.0 --port 8080
-```
-
-Open the address you chose. You should see an empty canvas. The empty canvas is
-the welcome state — a short list of next moments (pin the app, reach it over
-HTTPS, run an agent, add a host, open shortcuts), each with a link into the
-matching product-docs page. Done moments collapse into a one-line header so the
-card always shows what's still open. It goes away when you create the first
-terminal and returns whenever there are none.
-
-For another device, prefer the private HTTPS setup in
-[Remote Access](/remote-access); plain LAN HTTP does not unlock install prompts,
-badges, or notifications.
-
-## Subcommands
-
-`kolu` picks a face by name: **`kolu web`** is the server everything above runs
-on. A bare `kolu` starts nothing — it prints the subcommand list and exits,
-because with a dozen faces, silently booting a web server is a footgun rather
-than a convenience.
-
-`kolu` also drives this host's terminals from the shell — `kolu ls`, `create`,
-`send`, `wait`, `snapshot`, `history`, `kill`, `watch`, with `--host user@box`
-to reach another machine. That is the loop the
-[agent fleets](/agent-fleets) pattern is built on.
-
-`kolu mcp` connects a **coding agent** — Claude Code, Codex, any MCP host — to
-this host's terminals over MCP (stdio), no browser involved. Register it and the
-agent can create terminals, type into them (text and Enter as separate sends),
-wait for output to settle or a turn to end, read the screen, and watch which
-terminals need you:
-
-```sh
-# Claude Code
-claude mcp add kolu -- nix --refresh run github:juspay/kolu -- mcp
-# a kolu on another machine, over ssh
-claude mcp add kolu-zest -- nix --refresh run github:juspay/kolu -- mcp --host user@zest
-```
-
-The full guide — wiring, the drive loop, and every tool — is on the [MCP
-page](/mcp).
-
-`kolu tui` (a terminal-side canvas) is **reserved**: today it exits with a
-pointer at the plan instead of running. `kolu --help` lists the subcommands.
 
 <Aside type="tip" title="Create the first terminal">
   Double-click any empty spot on the canvas to open the New terminal menu. The
@@ -152,10 +49,23 @@ pointer at the plan instead of running. `kolu --help` lists the subcommands.
   [First Five Minutes](/first-five-minutes).
 </Aside>
 
+The empty canvas is the welcome state — a short list of next moments (pin the
+app, reach it over HTTPS, run an agent). It goes away when you create the first
+terminal and returns whenever there are none.
+
+## First run compiling? Enable the binary cache
+
+If the first run starts **compiling** instead of downloading, enable the
+[binary cache](/deployment#first-run-compiling-enable-the-binary-cache). To
+listen on a different address, see
+[Deployment](/deployment#bind-a-different-address). The command that starts
+the app is `kolu web`; a bare `kolu` lists subcommands — [Terminal
+UI](/terminal-ui) for the shell, [MCP](/mcp) for a coding agent.
+
 ## Keep going
 
 <CardGrid>
   <LinkCard title="First five minutes" href="/first-five-minutes" description="open a repo, name a worktree, and launch an agent" />
+  <LinkCard title="From a Mac" href="/from-a-mac" description="the usual setup: Linux box, Mac as the window" />
   <LinkCard title="Install as an app" href="/install-pwa" description="pin kolu as a PWA and unlock badges/notifications" />
-  <LinkCard title="Reach it anywhere" href="/remote-access" description="put kolu behind a private HTTPS URL with Tailscale Serve" />
 </CardGrid>
