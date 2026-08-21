@@ -34,7 +34,7 @@ Open <http://127.0.0.1:7681>. Continue with
 [Start](https://kolu.dev/start), the [Quickstart](https://kolu.dev/quickstart),
 and [First Five Minutes](https://kolu.dev/first-five-minutes).
 
-The usual setup is a [Mac window onto a Linux box](https://kolu.dev/from-a-mac).
+The usual setup is a [Mac window onto a headless Linux box](https://kolu.dev/from-a-mac).
 
 If the first run starts **compiling** instead of downloading, enable kolu's
 binary cache — see
