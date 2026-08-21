@@ -93,7 +93,13 @@ export {
 // vocabulary does: `kolu watch` has to ask "did this invocation name a
 // supervision knob" and must ask padi's ONE definition, not a second list of
 // three fields that agrees today.
-export { namesWatchKnobs } from "./attention/watchSpec.ts";
+export {
+  containingTerminalId,
+  ignoreIdsOf,
+  ignoreSelfInvalid,
+  ignoreSelfUnresolvable,
+  namesWatchKnobs,
+} from "./attention/watchSpec.ts";
 
 export {
   activeAgent,

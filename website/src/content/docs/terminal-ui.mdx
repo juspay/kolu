@@ -79,7 +79,7 @@ miss that tap and the terminal is silent forever.
 Three flags on `kolu watch` turn it into the alert that doesn't let go:
 
 ```sh
-kolu watch --states waiting,awaiting --held-for 60s --nag 5m
+kolu watch --states waiting,awaiting --held-for 60s --nag 5m --ignore-self
 ```
 
 Background that, and every terminal that has been idle for a minute announces
@@ -91,6 +91,8 @@ it work or kills it.
 | `--states` | which agent states to report — any of `working`, `awaiting`, `waiting`, comma-separated. `awaiting` is an agent blocked on you; `waiting` is one whose turn ended |
 | `--held-for` | report a state only once it has *held* that long — milliseconds, like kolu's other windows (`60000`), or with a unit: `500ms`, `60s`, `5m`, `2h`, `1d`. An agent handed more work inside the window is never reported at all |
 | `--nag` | re-report every interval it keeps holding, so a line you ignored comes back instead of vanishing |
+| `--ignore-self` | mute the terminal this process is running inside (`$KAVAL_TERMINAL_ID`). Refused if you are not in a kolu-owned PTY — pass `--ignore <id>` rather than guessing |
+| `--ignore <id>` | mute this terminal (repeatable). Fail-open: a stale or unknown id costs nothing, and every new terminal is still watched |
 
 Each line says why you are being told: **snapshot** (already in that state when
 you started watching), **transition** (it just got there and held), or **nag**
@@ -107,8 +109,9 @@ Two things it deliberately does **not** do. It never reads the screen — an idl
 agent that repaints its prompt once a second is still idle, and kolu asks the
 agent's own state rather than guessing from output. And it is never scoped by a
 list of ids: no argument means the whole fleet, because a watcher narrowed to
-the terminals you remembered goes blind to the one you didn't. (A single id
-still works, as a debugging tail.)
+the terminals you remembered goes blind to the one you didn't. Mute with
+`--ignore` / `--ignore-self` instead — a mute fails open, an id list fails
+closed. (A single id still works, as a debugging tail.)
 
 `--json` gives the same feed as NDJSON, filtered the same way before it leaves
 kolu, so a script consumes it with `jq` and nothing has to re-implement the

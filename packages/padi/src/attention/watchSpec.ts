@@ -17,8 +17,14 @@
 import type { WaitState } from "../terminalVocab.ts";
 import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
 import type { PadiWatchStatesInput } from "../surface.ts";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import { TerminalIdSchema, type TerminalId } from "@kolu/terminal-vocab/schema";
+import { Result, Schema } from "effect";
 import type { StateWatchFilter, StateWatchSpec } from "./stateWatch.ts";
+
+/** The env a process inside a kolu PTY reads to name itself. Stamped at spawn
+ *  as `KAVAL_TERMINAL_ID` — the self-knowledge twin of `KAVAL_SOCKET` — so
+ *  `--ignore-self` has nothing to configure and cannot go stale. */
+export const CONTAINING_TERMINAL_ENV = "KAVAL_TERMINAL_ID";
 
 /** The three knobs as either face's schema decodes them. Structural, so both
  *  wire inputs satisfy it without an adapter object per call — and unexported,
@@ -67,8 +73,59 @@ export function watchFilterOf(knobs: WatchKnobs): StateWatchFilter | undefined {
 export function specOf(
   filter: StateWatchFilter,
   ids?: ReadonlySet<TerminalId>,
+  ignoreIds?: ReadonlySet<TerminalId>,
 ): StateWatchSpec {
-  return { ...filter, ...(ids === undefined ? {} : { ids }) };
+  return {
+    ...filter,
+    ...(ids === undefined ? {} : { ids }),
+    ...(ignoreIds === undefined || ignoreIds.size === 0 ? {} : { ignoreIds }),
+  };
+}
+
+/** The mute set a face hands the engine. Empty or absent is "mute nobody" —
+ *  fail-open, so a stale id costs nothing and a new terminal is always
+ *  watched. `self` is the optional extra id `--ignore-self` / `ignoreSelf`
+ *  resolved to; the engine never hears about "self", only about ids. */
+export function ignoreIdsOf(
+  listed?: readonly TerminalId[],
+  self?: TerminalId,
+): ReadonlySet<TerminalId> | undefined {
+  const ids = new Set<TerminalId>(listed ?? []);
+  if (self !== undefined) ids.add(self);
+  return ids.size === 0 ? undefined : ids;
+}
+
+/** What `$KAVAL_TERMINAL_ID` names, if anything. `none` is "not inside a kolu
+ *  terminal"; `invalid` is a stamp that is not a terminal id, refused rather
+ *  than guessed at. */
+export type ContainingTerminal =
+  | { readonly kind: "none" }
+  | { readonly kind: "ok"; readonly id: TerminalId }
+  | { readonly kind: "invalid"; readonly raw: string };
+
+export function containingTerminalId(
+  env: { readonly [key: string]: string | undefined } = process.env,
+): ContainingTerminal {
+  const raw = env[CONTAINING_TERMINAL_ENV];
+  if (raw === undefined || raw === "") return { kind: "none" };
+  const decoded = Schema.decodeUnknownResult(TerminalIdSchema)(raw);
+  return Result.isSuccess(decoded)
+    ? { kind: "ok", id: decoded.success }
+    : { kind: "invalid", raw };
+}
+
+/** The sentence a face raises when `ignoreSelf` was asked and this process
+ *  cannot name its containing terminal. CLI and MCP share the env and the way
+ *  out; they differ only in how the flag is spelled. */
+export function ignoreSelfUnresolvable(face: "cli" | "mcp"): string {
+  return face === "cli"
+    ? `--ignore-self: this process is not running inside a kolu terminal (${CONTAINING_TERMINAL_ENV} is unset). Run watch from inside a kolu-owned PTY, or pass --ignore <id>.`
+    : `ignoreSelf: this MCP server is not running inside a kolu terminal (${CONTAINING_TERMINAL_ENV} is unset). The transport cannot identify the caller — pass ignoreIds with the terminal to mute, rather than guessing.`;
+}
+
+export function ignoreSelfInvalid(raw: string, face: "cli" | "mcp"): string {
+  const stamp = `${CONTAINING_TERMINAL_ENV}=${JSON.stringify(raw)} is not a terminal id`;
+  return face === "cli" ? `--ignore-self: ${stamp}.` : `ignoreSelf: ${stamp}.`;
 }
 
 /** The full spec behind one `watchStates` subscription. Unlike a standing
@@ -78,5 +135,6 @@ export function watchSpecOf(input: PadiWatchStatesInput): StateWatchSpec {
   return specOf(
     filterFrom(input),
     input.id === undefined ? undefined : new Set([input.id]),
+    input.ignoreIds === undefined ? undefined : new Set(input.ignoreIds),
   );
 }

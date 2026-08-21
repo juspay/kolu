@@ -1042,6 +1042,20 @@ export const PadiWatchFilterFields = {
   ),
 } as const;
 
+/** Terminals to MUTE — the fail-open complement of `ids`. Declared ONCE and
+ *  spread into both faces, so a CLI `--ignore` and an MCP `ignoreIds` cannot
+ *  mean different things. Not a supervision knob: naming only this does not
+ *  switch the feed. An empty list is the identity (mute nobody), so unlike
+ *  `ids` it is not refused when empty. */
+export const PadiWatchIgnoreFields = {
+  ignoreIds: Schema.optionalKey(
+    Schema.Array(TerminalIdSchema).annotate({
+      description:
+        "Terminals to mute. Fail-open: a stale or unknown id costs nothing, and every NEW terminal is still watched. Contrast `ids`, which fails closed — a list you forget to update goes blind to a lane nobody added.",
+    }),
+  ),
+} as const;
+
 /** Why a subscriber is being told about a terminal — the three kinds, as an
  *  ARRAY beside the schema that spells them.
  *
@@ -1150,7 +1164,9 @@ export const PadiWatchOpenInputSchema = Schema.Struct({
   // One decision, made by the presence of a knob, so there is no mode flag to
   // contradict the knobs.
   ...PadiWatchFilterFields,
+  ...PadiWatchIgnoreFields,
 });
+export type PadiWatchOpenInput = typeof PadiWatchOpenInputSchema.Type;
 
 export const PadiWatchOpenOutputSchema = Schema.Struct({
   name: Schema.String,
@@ -1205,6 +1221,7 @@ export const PadiWatchDrainOutputSchema = Schema.Struct({
  *  `watch.open`'s `ids`.) */
 export const PadiWatchStatesInputSchema = Schema.Struct({
   ...PadiWatchFilterFields,
+  ...PadiWatchIgnoreFields,
   id: Schema.optionalKey(TerminalIdSchema),
 });
 export type PadiWatchStatesInput = typeof PadiWatchStatesInputSchema.Type;

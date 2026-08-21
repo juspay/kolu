@@ -114,6 +114,10 @@ export interface WatchSubscription {
    *  terminal on the host. An explicit list is refused when empty (a subscription
    *  that can never match is a caller bug, not a quiet no-op). */
   readonly ids?: ReadonlySet<TerminalId>;
+  /** Terminals this subscription mutes — fail-open, so an unknown id is inert.
+   *  Applied to both sources, so a mute on a settle watch and on a state watch
+   *  is the same set. */
+  readonly ignoreIds?: ReadonlySet<TerminalId>;
   /** The source this subscription is fed by, with its queue. Replaced whole on a
    *  re-open — never mutated into a different arm. */
   readonly feed: WatchFeed;
@@ -161,7 +165,11 @@ export interface WatchRegistry {
    *  with whatever changed while it was away. */
   open(
     name: string,
-    opts?: { ids?: readonly TerminalId[]; filter?: StateWatchFilter },
+    opts?: {
+      ids?: readonly TerminalId[];
+      ignoreIds?: readonly TerminalId[];
+      filter?: StateWatchFilter;
+    },
   ): WatchOpened;
   /** Hand over everything buffered, ACKNOWLEDGING everything at or below `after`
    *  first. Never blocks — a caller that wants to wait parks on the doorbell
@@ -224,6 +232,7 @@ export function createWatchRegistry(opts: {
     filter: StateWatchFilter,
     ids: ReadonlySet<TerminalId> | undefined,
     emit: (batch: StateWatchBatch) => void,
+    ignoreIds?: ReadonlySet<TerminalId>,
   ) => () => void;
 }): WatchRegistry {
   const { log } = opts;
@@ -288,7 +297,8 @@ export function createWatchRegistry(opts: {
         // drain. The window is real: `open` reads the watermark while a
         // settle frame may already be mid-flight to the sinks.
         e.seq > sub.acknowledged &&
-        (sub.ids === undefined || sub.ids.has(e.id)),
+        (sub.ids === undefined || sub.ids.has(e.id)) &&
+        !sub.ignoreIds?.has(e.id),
     );
     if (mine.length === 0) return;
     feed.buffer.push(...mine);
@@ -315,6 +325,7 @@ export function createWatchRegistry(opts: {
   const makeFeed = (opened: {
     readonly filter: StateWatchFilter | undefined;
     readonly scope: ReadonlySet<TerminalId> | undefined;
+    readonly ignoreScope: ReadonlySet<TerminalId> | undefined;
     /** The feed this one replaces, on a re-open. */
     readonly previous?: WatchFeed;
     /** What survives from `previous` — the caller's re-question and re-scope
@@ -324,7 +335,7 @@ export function createWatchRegistry(opts: {
     readonly carry?: <E extends WatchEvent>(buffer: E[]) => E[];
     readonly owner: () => WatchSubscription;
   }): { feed: WatchFeed; start: () => void } => {
-    const { filter, scope, previous, carry, owner } = opened;
+    const { filter, scope, ignoreScope, previous, carry, owner } = opened;
     if (filter === undefined) {
       const buffer =
         previous?.source === "settle" && carry !== undefined
@@ -348,21 +359,28 @@ export function createWatchRegistry(opts: {
         // The scope goes to the state watch as the SUBSCRIPTION's, joined into a
         // spec by the composition root that owns both halves — not by this
         // module, which is a queue and has no business knowing what a spec is.
-        stop = opts.subscribeStates(filter, scope, (batch) =>
-          enqueue(owner(), feed, batch),
+        stop = opts.subscribeStates(
+          filter,
+          scope,
+          (batch) => enqueue(owner(), feed, batch),
+          ignoreScope,
         );
       },
     };
   };
 
   return {
-    open(name, { ids, filter } = {}) {
+    open(name, { ids, ignoreIds, filter } = {}) {
       if (ids !== undefined && ids.length === 0) {
         throw new Error(
           `standing subscription "${name}" was opened with an empty id list — it could never match anything. Omit the list to watch every terminal.`,
         );
       }
       const scope = ids === undefined ? undefined : new Set(ids);
+      const ignoreScope =
+        ignoreIds === undefined || ignoreIds.length === 0
+          ? undefined
+          : new Set(ignoreIds);
       const existing = subs.get(name);
       if (existing !== undefined) {
         // A re-attach REBUILDS the record from the incoming scope. What survives
@@ -402,15 +420,14 @@ export function createWatchRegistry(opts: {
         }
         /** What the new feed inherits: nothing when the question changed, and
          *  otherwise the answers still inside the new scope. */
+        const inScope = (id: TerminalId): boolean =>
+          (scope === undefined || scope.has(id)) && !ignoreScope?.has(id);
         const carry = <E extends WatchEvent>(buffer: E[]): E[] =>
-          requestioned
-            ? []
-            : scope === undefined
-              ? buffer
-              : buffer.filter((e) => scope.has(e.id));
+          requestioned ? [] : buffer.filter((e) => inScope(e.id));
         const { feed, start } = makeFeed({
           filter,
           scope,
+          ignoreScope,
           previous: existing.feed,
           carry,
           owner: () => next,
@@ -418,6 +435,7 @@ export function createWatchRegistry(opts: {
         const next: WatchSubscription = {
           name: existing.name,
           ...(scope === undefined ? {} : { ids: scope }),
+          ...(ignoreScope === undefined ? {} : { ignoreIds: ignoreScope }),
           feed,
           acknowledged: existing.acknowledged,
           dropped: existing.dropped,
@@ -442,10 +460,16 @@ export function createWatchRegistry(opts: {
           `cannot open standing subscription "${name}": ${subs.size} are already open (limit ${subLimit}). Subscriptions are meant to be REUSED by name across restarts, not minted per call — close the ones you are done with (open: ${[...subs.keys()].join(", ")}).`,
         );
       }
-      const { feed, start } = makeFeed({ filter, scope, owner: () => sub });
+      const { feed, start } = makeFeed({
+        filter,
+        scope,
+        ignoreScope,
+        owner: () => sub,
+      });
       const sub: WatchSubscription = {
         name,
         ...(scope === undefined ? {} : { ids: scope }),
+        ...(ignoreScope === undefined ? {} : { ignoreIds: ignoreScope }),
         feed,
         // A FRESH subscription is acknowledged up to NOW, so it reports what
         // happens next rather than replaying edges the supervisor already acted

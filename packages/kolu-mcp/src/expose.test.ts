@@ -58,20 +58,15 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
       "lifecycle_kill",
       "screen_history",
       "watch_close",
-      "watch_open",
     ]);
     // The read/write split is the authz bit the host renders — pin it. The two
     // watch verbs MUTATE: they create and destroy daemon-side state that
     // outlives the call, which is exactly what a standing subscription is.
     const mutating = resolved.tools.filter((t) => t.mutates).map((t) => t.name);
-    expect(mutating.sort()).toEqual([
-      "lifecycle_kill",
-      "watch_close",
-      "watch_open",
-    ]);
+    expect(mutating.sort()).toEqual(["lifecycle_kill", "watch_close"]);
   });
 
-  it("the bespoke registry carries the six face-local tools", () => {
+  it("the bespoke registry carries the seven face-local tools", () => {
     expect(Object.keys(KOLU_MCP_TOOLS).sort()).toEqual([
       "lifecycle_create",
       "lifecycle_sendInput",
@@ -79,6 +74,7 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
       "wait_agentState",
       "wait_outputSettled",
       "watch_next",
+      "watch_open",
     ]);
     // The wait/watch reads + snapshot read are read-only; create and the send
     // mutate.
@@ -92,6 +88,7 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
     expect(KOLU_MCP_TOOLS.wait_outputSettled?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.wait_agentState?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.watch_next?.mutates).toBe(false);
+    expect(KOLU_MCP_TOOLS.watch_open?.mutates).toBe(true);
   });
 });
 
@@ -142,6 +139,7 @@ describe("KOLU_MCP_DENIED — every denial is real, absent, and unreachable", ()
       "screen.text",
       "lifecycle.sendInput",
       "lifecycle.create",
+      "watch.open",
     ]) {
       expect(member in KOLU_MCP_EXPOSE, `${member} is exposed raw`).toBe(false);
       expect(

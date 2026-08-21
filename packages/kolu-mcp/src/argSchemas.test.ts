@@ -44,6 +44,7 @@ import {
   WaitOutputSettledArgsSchema,
 } from "./wait.ts";
 import { WatchNextArgsSchema } from "./watchNext.ts";
+import { WatchOpenArgsSchema } from "./watchOpen.ts";
 
 type JsonNode = Record<string, unknown>;
 
@@ -271,6 +272,20 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
     expect(name.type).toBe("string");
     expect(name.allOf).toEqual([{ minLength: 1 }, { maxLength: 128 }]);
     expect(typeof name.description).toBe("string");
+  });
+
+  it("watch_open advertises ignoreIds and ignoreSelf on the property node", () => {
+    const schema = toInputSchema(WatchOpenArgsSchema);
+    const ignoreIds = property(schema, "ignoreIds");
+    expect(ignoreIds.type).toBe("array");
+    expect(typeof ignoreIds.description).toBe("string");
+    expect(ignoreIds.description).toMatch(/Fail-open/);
+    const ignoreSelf = property(schema, "ignoreSelf");
+    expect(ignoreSelf.type).toBe("boolean");
+    expect(typeof ignoreSelf.description).toBe("string");
+    expect(ignoreSelf.description).toMatch(/KAVAL_TERMINAL_ID/);
+    // Both optional — existing callers stay valid.
+    expect(schema.required).toEqual(["name"]);
   });
 
   it("wait_agentState advertises the three buckets as a literal enum", () => {

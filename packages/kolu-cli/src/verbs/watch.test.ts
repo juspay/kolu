@@ -5,11 +5,26 @@
  * decided here BEFORE anything dials a daemon.
  */
 
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import { planSupervision, type WatchArgs } from "./watch.ts";
+import {
+  planIgnoreSelf,
+  planSupervision,
+  resolveIgnoreQueries,
+  type WatchArgs,
+} from "./watch.ts";
 
 const args = (over: Partial<WatchArgs> = {}): WatchArgs =>
-  ({ id: undefined, json: false, ...over }) as WatchArgs;
+  ({
+    id: undefined,
+    json: false,
+    ignore: [],
+    ignoreSelf: false,
+    ...over,
+  }) as WatchArgs;
+
+const SELF = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
+const LANE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as TerminalId;
 
 describe("planSupervision", () => {
   it("plans NOTHING when no knob was named — bare `kolu watch` is still the change tail", () => {
@@ -100,5 +115,66 @@ describe("planSupervision", () => {
 
   it("refuses an empty --states rather than silently watching everything", () => {
     expect(planSupervision(args({ states: " , " })).kind).toBe("error");
+  });
+
+  it("does NOT switch feed for --ignore / --ignore-self alone — they are a mute, not a mode", () => {
+    expect(planSupervision(args({ ignore: [SELF], ignoreSelf: true }))).toEqual(
+      {
+        kind: "ok",
+        value: undefined,
+      },
+    );
+  });
+});
+
+describe("planIgnoreSelf", () => {
+  it("plans nothing when the flag is off", () => {
+    expect(planIgnoreSelf(args())).toEqual({ kind: "ok", value: undefined });
+  });
+
+  it("refuses --ignore-self when this process is not inside a kolu terminal", () => {
+    const plan = planIgnoreSelf(args({ ignoreSelf: true }), {});
+    expect(plan.kind).toBe("error");
+    expect(plan.kind === "error" && plan.message).toMatch(/KAVAL_TERMINAL_ID/);
+  });
+
+  it("resolves --ignore-self to the containing terminal", () => {
+    expect(
+      planIgnoreSelf(args({ ignoreSelf: true }), {
+        KAVAL_TERMINAL_ID: SELF,
+      }),
+    ).toEqual({ kind: "ok", value: SELF });
+  });
+});
+
+describe("resolveIgnoreQueries — fail-open mute", () => {
+  it("widens a unique prefix to the live id", () => {
+    expect(resolveIgnoreQueries(["aaaa"], [SELF, LANE])).toEqual({
+      kind: "ok",
+      value: [SELF],
+    });
+  });
+
+  it("keeps a stale full id — a mute that names nobody costs nothing", () => {
+    const gone = "cccccccc-cccc-4ccc-8ccc-cccccccccccc" as TerminalId;
+    expect(resolveIgnoreQueries([gone], [SELF])).toEqual({
+      kind: "ok",
+      value: [gone],
+    });
+  });
+
+  it("drops a prefix that named nobody — it could never match a UUID on the wire", () => {
+    expect(resolveIgnoreQueries(["zzzz"], [SELF])).toEqual({
+      kind: "ok",
+      value: [],
+    });
+  });
+
+  it("refuses an ambiguous prefix rather than guessing which mute", () => {
+    const a = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
+    const b = "aaaaaaaa-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as TerminalId;
+    const plan = resolveIgnoreQueries(["aaaa"], [a, b]);
+    expect(plan.kind).toBe("error");
+    expect(plan.kind === "error" && plan.message).toMatch(/matches 2/);
   });
 });

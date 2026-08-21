@@ -91,6 +91,10 @@
  */
 
 import {
+  containingTerminalId,
+  ignoreIdsOf,
+  ignoreSelfInvalid,
+  ignoreSelfUnresolvable,
   namesWatchKnobs,
   PADI_LINK_CLOSED,
   WAIT_STATES,
@@ -98,6 +102,7 @@ import {
   watchAgentStates,
   watchTerminals,
 } from "@kolu/padi/dial";
+import { readTerminalKeys } from "@kolu/padi/read";
 import {
   formatStateEvent,
   formatStateEventJson,
@@ -107,6 +112,7 @@ import {
   formatWatchJson,
   formatWatchRemoval,
   formatWatchRemovalJson,
+  resolveTerminalId,
 } from "@kolu/padi/render";
 import type { PadiWatchStatesInput } from "@kolu/padi/surface";
 import { isValidTimerMs, timerRangeMessage } from "@kolu/surface/wait";
@@ -280,6 +286,53 @@ export function planSupervision(
   return { kind: "ok", value: namesWatchKnobs(input) ? input : undefined };
 }
 
+/** Resolve `--ignore-self` against this process's containing terminal. BEFORE
+ *  the dial: the env is argv-adjacent, and a missing stamp is a usage error,
+ *  not a daemon error. Prefixes on `--ignore` wait for the live roster. */
+export function planIgnoreSelf(
+  args: WatchArgs,
+  env: { readonly [key: string]: string | undefined } = process.env,
+): Parsed<TerminalId | undefined> {
+  if (!args.ignoreSelf) return { kind: "ok", value: undefined };
+  const self = containingTerminalId(env);
+  if (self.kind === "none") {
+    return { kind: "error", message: ignoreSelfUnresolvable("cli") };
+  }
+  if (self.kind === "invalid") {
+    return { kind: "error", message: ignoreSelfInvalid(self.raw, "cli") };
+  }
+  return { kind: "ok", value: self.id };
+}
+
+/** Widen `--ignore` queries against the live roster. Unique prefixes become
+ *  full ids; a query that matches nothing is kept if it is already a full id
+ *  (stale mute, fail-open) and dropped otherwise (it could never match);
+ *  ambiguity still fails — that is two live terminals, not a stale one. */
+export function resolveIgnoreQueries(
+  queries: readonly string[],
+  live: readonly TerminalId[],
+): Parsed<readonly TerminalId[]> {
+  const resolved: TerminalId[] = [];
+  for (const query of queries) {
+    const result = resolveTerminalId(query, live);
+    if (result.kind === "found") {
+      resolved.push(result.id);
+      continue;
+    }
+    if (result.kind === "ambiguous") {
+      return {
+        kind: "error",
+        message: `--ignore "${query}" matches ${result.matches.length} terminals — type more characters.`,
+      };
+    }
+    // none: keep a full id (inert at the engine), drop a prefix that named
+    // nobody — it cannot match a UUID on the wire anyway.
+    const self = containingTerminalId({ KAVAL_TERMINAL_ID: query });
+    if (self.kind === "ok") resolved.push(self.id);
+  }
+  return { kind: "ok", value: resolved };
+}
+
 export function run(
   endpoint: Endpoint,
   args: WatchArgs,
@@ -289,6 +342,8 @@ export function run(
   const plan = planSupervision(args);
   if (plan.kind === "error") return Effect.fail(failure(plan.message));
   const supervise = plan.value;
+  const self = planIgnoreSelf(args);
+  if (self.kind === "error") return Effect.fail(failure(self.message));
 
   return withPadi(
     endpoint,
@@ -297,6 +352,17 @@ export function run(
         args.id === undefined
           ? undefined
           : yield* resolveTerminal(conn, args.id);
+
+      const listed: readonly TerminalId[] =
+        args.ignore.length === 0
+          ? []
+          : yield* Effect.flatMap(readTerminalKeys(conn.client), (keys) => {
+              const resolved = resolveIgnoreQueries(args.ignore, keys);
+              return resolved.kind === "error"
+                ? Effect.fail(failure(resolved.message))
+                : Effect.succeed(resolved.value);
+            });
+      const ignored = ignoreIdsOf(listed, self.value);
 
       const lines = yield* Queue.unbounded<string, Cause.Done>();
       /** Emit ONE line for a terminal event — the three decisions every event
@@ -317,6 +383,7 @@ export function run(
         human: () => string,
       ): void => {
         if (only !== undefined && id !== only) return;
+        if (ignored?.has(id)) return;
         offer(args.json ? json() : human());
       };
       /** Why the mirror REJECTED, if it did — the only thing upstream ever says
@@ -392,6 +459,9 @@ export function run(
                   {
                     ...supervise,
                     ...(only === undefined ? {} : { id: only }),
+                    ...(ignored === undefined
+                      ? {}
+                      : { ignoreIds: [...ignored] }),
                   },
                   (batch) => {
                     for (const event of batch) {

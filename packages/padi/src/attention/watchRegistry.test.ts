@@ -99,11 +99,13 @@ function fakeStateWatch() {
       filter: StateWatchFilter,
       ids: ReadonlySet<TerminalId> | undefined,
       emit: (batch: StateWatchBatch) => void,
+      ignoreIds?: ReadonlySet<TerminalId>,
     ) => {
       const key = ++handle;
       const spec: StateWatchSpec = {
         ...filter,
         ...(ids === undefined ? {} : { ids }),
+        ...(ignoreIds === undefined ? {} : { ignoreIds }),
       };
       specs.push(spec);
       live.set(key, { spec, emit });
@@ -218,6 +220,15 @@ describe("watch registry", () => {
     expect(r.drain("narrow", first.ackAfter).events.map((e) => e.id)).toEqual([
       "b",
     ]);
+  });
+
+  it("muting an id is fail-open — the others still arrive, a stale mute is inert", () => {
+    const r = registry();
+    r.open("campaign", {
+      ignoreIds: ["self" as TerminalId, "gone" as TerminalId],
+    });
+    acceptOne(r, "self", "lane", "gone");
+    expect(r.drain("campaign").events.map((e) => e.id)).toEqual(["lane"]);
   });
 
   it("NARROWING the scope drops what the queue just stopped caring about", () => {
@@ -429,6 +440,18 @@ describe("watch registry — a subscription that named the agent-state knobs", (
     expect(watch.specs[1]?.ids).toBeUndefined();
   });
 
+  it("threads ignoreIds into the state watch the same way — a mute, not a roster", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    r.open("supervise", {
+      ignoreIds: ["self" as TerminalId],
+      filter,
+    });
+    expect([...(watch.specs[0]?.ignoreIds ?? [])]).toEqual(["self"]);
+    r.open("fleet", { filter });
+    expect(watch.specs[1]?.ignoreIds).toBeUndefined();
+  });
+
   it("RE-opening replaces the attachment rather than stacking one — a nag is never doubled", () => {
     const watch = fakeStateWatch();
     const r = registry({ subscribeStates: watch.subscribeStates });
@@ -540,8 +563,8 @@ describe("watch registry — the MCP face under a repainting idle terminal", () 
       // wires it. Two would leave the watermark reading numbers the buffer
       // never carries, and every event would be silently discarded.
       daemonSeq: () => h.seq.last(),
-      subscribeStates: (filter, ids, emit) =>
-        h.hub.subscribe(specOf(filter, ids), emit),
+      subscribeStates: (filter, ids, emit, ignoreIds) =>
+        h.hub.subscribe(specOf(filter, ids, ignoreIds), emit),
     });
     return { h, r };
   }

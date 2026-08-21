@@ -71,6 +71,9 @@ export interface StateWatchSpec {
   readonly states: ReadonlySet<WaitState>;
   /** Terminals to report, or `undefined` for the whole fleet. */
   readonly ids?: ReadonlySet<TerminalId>;
+  /** Terminals to MUTE. Fail-open: an unknown or stale id is inert, and a
+   *  terminal not in this set is always watched. `undefined` mutes nobody. */
+  readonly ignoreIds?: ReadonlySet<TerminalId>;
   /** How long a state must hold before it is reported. 0 reports on entry. */
   readonly heldForMs: number;
   /** How often to RE-report while it keeps holding, or `undefined` to report
@@ -79,8 +82,9 @@ export interface StateWatchSpec {
 }
 
 /** The three knobs alone — a spec minus the scope, which a standing
- *  subscription states once as its own `ids` and must not restate here. */
-export type StateWatchFilter = Omit<StateWatchSpec, "ids">;
+ *  subscription states once as its own `ids` / `ignoreIds` and must not
+ *  restate here. */
+export type StateWatchFilter = Omit<StateWatchSpec, "ids" | "ignoreIds">;
 
 /** Do two filters ask the SAME question? Lives beside the filter it compares —
  *  "same question" is spec knowledge, not queue knowledge — and is load-bearing
@@ -215,6 +219,7 @@ export function createStateWatchHub(opts: {
     if (state === "other") return undefined;
     if (!sub.spec.states.has(state)) return undefined;
     if (sub.spec.ids !== undefined && !sub.spec.ids.has(id)) return undefined;
+    if (sub.spec.ignoreIds?.has(id)) return undefined;
     return state;
   };
 

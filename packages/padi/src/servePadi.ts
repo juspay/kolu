@@ -333,8 +333,8 @@ export function buildPadiSurfaceDeps(deps: {
     // three knobs the caller named, and the scope the SUBSCRIPTION owns. The
     // queue never mints a spec, so the state watch's scoping is the only
     // scoping there is for a state feed.
-    subscribeStates: (filter, ids, emit) =>
-      stateWatch.subscribe(specOf(filter, ids), emit),
+    subscribeStates: (filter, ids, emit, ignoreIds) =>
+      stateWatch.subscribe(specOf(filter, ids, ignoreIds), emit),
   });
   const unsubscribeSettle = settleEvents.onFrame((events) =>
     watchRegistry.acceptSettle(events),
@@ -686,6 +686,9 @@ export function buildPadiSurfaceDeps(deps: {
             const filter = watchFilterOf(input);
             const { sub, reattached } = watchRegistry.open(input.name, {
               ...(input.ids === undefined ? {} : { ids: input.ids }),
+              ...(input.ignoreIds === undefined
+                ? {}
+                : { ignoreIds: input.ignoreIds }),
               ...(filter === undefined ? {} : { filter }),
             });
             log.info(

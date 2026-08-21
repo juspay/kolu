@@ -16,13 +16,15 @@
  * SEE "the daemon restarted under me" instead of inferring it from weirdness
  * (the restart-discipline section's generation-visibility mandate).
  *
- * `screen.text`, `lifecycle.sendInput` and `lifecycle.create` are deliberately
- * NOT exposed as raw procedures here — each is served by a bespoke tool of the
- * same wire name (`screen_text` adds the tail mode the skills' "read the last N
- * lines" call needs; `lifecycle_sendInput` adds the named-key vocabulary with
- * the text-XOR-key submit discipline; `lifecycle_create` adds the worktree
- * directory and the typed first command, so one call is `kolu create --toplevel --repo …
- * --worktree … -- <cmd>`). These are SUPERSESSIONS, not denials: the verb is
+ * `screen.text`, `lifecycle.sendInput`, `lifecycle.create` and `watch.open`
+ * are deliberately NOT exposed as raw procedures here — each is served by a
+ * bespoke tool of the same wire name (`screen_text` adds the tail mode the
+ * skills' "read the last N lines" call needs; `lifecycle_sendInput` adds the
+ * named-key vocabulary with the text-XOR-key submit discipline;
+ * `lifecycle_create` adds the worktree directory and the typed first command,
+ * so one call is `kolu create --toplevel --repo … --worktree … -- <cmd>`;
+ * `watch_open` resolves `ignoreSelf` from this process's containing terminal,
+ * which the daemon cannot). These are SUPERSESSIONS, not denials: the verb is
  * still reachable under its own wire name, so it does not belong in
  * {@link KOLU_MCP_DENIED} (whose members must all fail as `unknown tool`), and
  * the boot-time name-collision gate in `@kolu/surface-mcp` is what guarantees
@@ -65,9 +67,8 @@ export const KOLU_MCP_EXPOSE = {
   "lifecycle.kill": { tool: { mutates: true } },
 
   // ── Standing settle-event subscriptions ──────────────────────────────────
-  /** Open (or re-attach to) a named subscription. `mutates` because it creates
-   *  daemon-side state that outlives the call — that is the point of it. */
-  "watch.open": { tool: { mutates: true } },
+  // `watch.open` is superseded by the bespoke tool of the same wire name —
+  // it resolves `ignoreSelf` from KAVAL_TERMINAL_ID, which the daemon cannot.
   /** Drop a subscription and its buffer. */
   "watch.close": { tool: { mutates: true } },
   // `watch.drain` is NOT exposed raw: it never blocks (by design — padi holds no

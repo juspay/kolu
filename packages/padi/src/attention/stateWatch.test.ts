@@ -469,4 +469,61 @@ describe("createStateWatchHub", () => {
     await settled();
     expect(batches.flat().map((e) => e.kind)).toEqual(["transition"]);
   });
+
+  it("an ignored id emits nothing — not a snapshot, not a transition, not a nag", async () => {
+    const h = harness();
+    h.observe(
+      terminals({
+        self: { agent: makeAgent("waiting") },
+        lane: { agent: makeAgent("waiting") },
+      }),
+    );
+    await settled();
+    const { batches } = collect(h.hub, {
+      ignoreIds: new Set(["self" as TerminalId]),
+      nagMs: 60_000,
+    });
+    expect(batches.flat().map((e) => [e.kind, e.id])).toEqual([
+      ["snapshot", "lane"],
+    ]);
+
+    h.advance(60_000);
+    expect(batches.flat().map((e) => [e.kind, e.id])).toEqual([
+      ["snapshot", "lane"],
+      ["nag", "lane"],
+    ]);
+
+    h.observe(
+      terminals({
+        self: { agent: makeAgent("thinking") },
+        lane: { agent: makeAgent("thinking") },
+      }),
+    );
+    await settled();
+    h.observe(
+      terminals({
+        self: { agent: makeAgent("waiting") },
+        lane: { agent: makeAgent("waiting") },
+      }),
+    );
+    await settled();
+    expect(batches.flat().map((e) => [e.kind, e.id])).toEqual([
+      ["snapshot", "lane"],
+      ["nag", "lane"],
+      ["transition", "lane"],
+    ]);
+  });
+
+  it("an unknown ignore id is inert — fail-open, a stale mute costs nothing", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    expect(
+      collect(h.hub, {
+        ignoreIds: new Set(["gone" as TerminalId]),
+      })
+        .flat()
+        .map((e) => e.id),
+    ).toEqual(["a"]);
+  });
 });
