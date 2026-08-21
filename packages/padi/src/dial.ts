@@ -93,15 +93,17 @@ export {
 // vocabulary does: `kolu watch` has to ask "did this invocation name a
 // supervision knob" and must ask padi's ONE definition, not a second list of
 // three fields that agrees today.
+export { namesWatchKnobs } from "./attention/watchSpec.ts";
+
+// Self-identity, not watch knobs: the FACT the stamp carries, never a sentence
+// about it. What a refusal READS like is argv/tool-arg grammar and belongs at
+// the face that owns the spelling — the same rule `cliClient/render.ts` records
+// having been litigated once already over `--until`.
 export {
   CONTAINING_TERMINAL_ENV,
   type ContainingTerminal,
   containingTerminalId,
-  ignoreSelfInvalid,
-  ignoreSelfNotThisFleet,
-  ignoreSelfUnresolvable,
-  namesWatchKnobs,
-} from "./attention/watchSpec.ts";
+} from "./containingTerminal.ts";
 
 // WHICH terminals a subscription reports is ONE concept with ONE constructor
 // and ONE reader, so the dial carries three names for it rather than a kit of

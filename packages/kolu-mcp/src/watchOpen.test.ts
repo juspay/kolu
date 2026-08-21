@@ -52,6 +52,10 @@ describe("resolveWatchOpenInput", () => {
     } catch (e) {
       expect(e).toBeInstanceOf(ToolFailure);
       expect((e as ToolFailure).message).toMatch(/KAVAL_TERMINAL_ID/);
+      // This face's own sentence: a tool caller has `ignoreIds`, never
+      // `--ignore <id>`, so padi holds the fact and not the wording.
+      expect((e as ToolFailure).message).toMatch(/^ignoreSelf:/);
+      expect((e as ToolFailure).message).toMatch(/ignoreIds/);
       expect((e as ToolFailure).detail).toEqual({
         kind: "ignore-self-unresolvable",
       });

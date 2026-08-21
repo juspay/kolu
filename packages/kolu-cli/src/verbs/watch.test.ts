@@ -166,7 +166,19 @@ describe("planIgnoreSelf", () => {
   it("refuses --ignore-self when this process is not inside a kolu terminal", () => {
     const plan = planIgnoreSelf(args({ ignoreSelf: true }), HERE, {});
     expect(plan.kind).toBe("error");
+    // The sentence is THIS face's: it names the env padi read and the way out
+    // in argv's own grammar, which padi has no business spelling.
     expect(plan.kind === "error" && plan.message).toMatch(/KAVAL_TERMINAL_ID/);
+    expect(plan.kind === "error" && plan.message).toMatch(/--ignore <id>/);
+  });
+
+  it("refuses a garbled stamp rather than guessing, in this face's words", () => {
+    const plan = planIgnoreSelf(args({ ignoreSelf: true }), HERE, {
+      KAVAL_TERMINAL_ID: "not-a-uuid",
+    });
+    expect(plan.kind).toBe("error");
+    expect(plan.kind === "error" && plan.message).toMatch(/^--ignore-self:/);
+    expect(plan.kind === "error" && plan.message).toMatch(/not-a-uuid/);
   });
 
   it("resolves --ignore-self to the containing terminal", () => {

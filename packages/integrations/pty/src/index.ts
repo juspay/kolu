@@ -16,6 +16,7 @@ export {
   cleanEnv,
   composeSpawnEnv,
   configureNixShellEnv,
+  CONTAINING_TERMINAL_ENV,
   type InitFile,
   koluIdentityEnv,
   NIX_ENV_WHITELIST,

@@ -474,6 +474,21 @@ export const AGENT_TOOLS_BAKE_ENV = "KOLU_AGENT_TOOLS_PATH";
  *  property `KAVAL_TERMINAL_ID` has). */
 export const TERMINAL_TOOLS_PATH_ENV = "KOLU_TERMINAL_TOOLS_PATH";
 
+/** The SELF-KNOWLEDGE stamp: which terminal a process is running inside.
+ *
+ *  Written by every spawner of a kolu PTY — padi's `ptyHost` (the authoritative
+ *  one: the id is a fact about the terminal, assigned there rather than
+ *  inherited) and `kaval-tui create` — and read by anything that has to answer
+ *  "which terminal am I in?" without being told (`kolu watch --ignore-self`, the
+ *  MCP face's `ignoreSelf`). The twin of the `KAVAL_SOCKET` stamp beside it, and
+ *  a member of `kaval-tui`'s rejected-`--env` set for the same reason: it is
+ *  STAMPED, never caller-set.
+ *
+ *  Named HERE, in the env-policy home, because a name only one side knows is not
+ *  encapsulated — a reader holding a constant while three writers hold the
+ *  literal renames half-way and fails silently. */
+export const CONTAINING_TERMINAL_ENV = "KAVAL_TERMINAL_ID";
+
 /**
  * The tool dirs a wrapper baked onto THIS process — the client CLIs every
  * terminal this daemon spawns must be able to run (`kaval-tui`, `padi-tui`, and

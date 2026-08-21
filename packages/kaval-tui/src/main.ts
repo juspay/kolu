@@ -58,6 +58,7 @@ import {
   type PtyHostSpawnInput,
   resolveRunningKavalSocket,
 } from "kaval";
+import { CONTAINING_TERMINAL_ENV } from "kolu-pty";
 import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { kavalHostDialOptions } from "./hostConnect.ts";
@@ -598,7 +599,7 @@ function cmdHistory(
  *  `constructor` are NOT rejected: they are valid env names, and the record is
  *  null-prototype below, so a literal `__proto__=…` round-trips as an ordinary data key
  *  rather than mutating a prototype — the arbitrary-K=V contract holds.) */
-const REJECTED_ENV_KEYS = new Set(["KAVAL_TERMINAL_ID", "KAVAL_SOCKET"]);
+const REJECTED_ENV_KEYS = new Set([CONTAINING_TERMINAL_ENV, "KAVAL_SOCKET"]);
 
 /** Parse+VALIDATE the repeatable `--env K=V` flag, pre-dial (like `sendCall`), so a
  *  malformed value fails BEFORE `--host` provisions the closure and launches a remote

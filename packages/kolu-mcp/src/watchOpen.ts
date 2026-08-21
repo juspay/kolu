@@ -13,9 +13,8 @@
  */
 
 import {
+  CONTAINING_TERMINAL_ENV,
   containingTerminalId,
-  ignoreSelfInvalid,
-  ignoreSelfUnresolvable,
   type PadiSurfaceClient,
   type WatchScopeRefusal,
   watchScopeOf,
@@ -38,6 +37,17 @@ export const WatchOpenArgsSchema = Schema.Struct({
   ),
 });
 export type WatchOpenArgs = typeof WatchOpenArgsSchema.Type;
+
+// ── The ignoreSelf sentences (tool-arg grammar — padi holds the FACT) ───────
+//
+// A tool caller has `ignoreSelf` and `ignoreIds`, never `--ignore-self`. padi
+// answers what the stamp said and stops there; the sentence is this face's, the
+// same way the CLI's is the CLI's.
+
+const IGNORE_SELF_UNRESOLVABLE = `ignoreSelf: this MCP server is not running inside a kolu terminal (${CONTAINING_TERMINAL_ENV} is unset). The transport cannot identify the caller — pass ignoreIds with the terminal to mute, rather than guessing.`;
+
+const ignoreSelfInvalid = (raw: string): string =>
+  `ignoreSelf: ${CONTAINING_TERMINAL_ENV}=${JSON.stringify(raw)} is not a terminal id.`;
 
 /** The way OUT of each never-match shape, in THIS face's grammar. padi states
  *  the invariant; a tool caller has an `ids` array, not "the id", so the remedy
@@ -91,14 +101,14 @@ export function resolveWatchOpenInput(
     if (found.kind === "none") {
       return {
         kind: "error",
-        message: ignoreSelfUnresolvable("mcp"),
+        message: IGNORE_SELF_UNRESOLVABLE,
         detail: { kind: "ignore-self-unresolvable" },
       };
     }
     if (found.kind === "invalid") {
       return {
         kind: "error",
-        message: ignoreSelfInvalid(found.raw, "mcp"),
+        message: ignoreSelfInvalid(found.raw),
         detail: { kind: "ignore-self-invalid", raw: found.raw },
       };
     }

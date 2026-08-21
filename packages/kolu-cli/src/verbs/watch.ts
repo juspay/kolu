@@ -91,10 +91,8 @@
  */
 
 import {
+  CONTAINING_TERMINAL_ENV,
   containingTerminalId,
-  ignoreSelfInvalid,
-  ignoreSelfNotThisFleet,
-  ignoreSelfUnresolvable,
   namesWatchKnobs,
   PADI_LINK_CLOSED,
   scopeAdmits,
@@ -306,6 +304,22 @@ export function planHeartbeat(args: WatchArgs): Parsed<number | undefined> {
   return { kind: "ok", value: parsed.value };
 }
 
+// ── The --ignore-self sentences (argv grammar — padi holds the FACT) ────────
+//
+// padi answers "what did the stamp say"; what a refusal READS like is this
+// face's, beside the other --flag sentences. A padi-side sentence cannot name
+// `--ignore-self` and `--ignore <id>` without holding one consumer's argv
+// grammar for every other consumer — the placement `cliClient/render.ts:192`
+// records this repo having litigated once already, over `--until`.
+
+const IGNORE_SELF_UNRESOLVABLE = `--ignore-self: this process is not running inside a kolu terminal (${CONTAINING_TERMINAL_ENV} is unset). Run watch from inside a kolu-owned PTY, or pass --ignore <id>.`;
+
+const ignoreSelfInvalid = (raw: string): string =>
+  `--ignore-self: ${CONTAINING_TERMINAL_ENV}=${JSON.stringify(raw)} is not a terminal id.`;
+
+const ignoreSelfNotThisFleet = (host: string): string =>
+  `--ignore-self names a terminal on THIS machine, but --host ${host} watches another padi's fleet — that mute could never match. Pass --ignore <id> naming a terminal on ${host}.`;
+
 /** Resolve `--ignore-self` against this process's containing terminal. BEFORE
  *  the dial: the env is argv-adjacent, and a missing stamp is a usage error,
  *  not a daemon error. Prefixes on `--ignore` wait for the live roster.
@@ -325,10 +339,10 @@ export function planIgnoreSelf(
   }
   const self = containingTerminalId(env);
   if (self.kind === "none") {
-    return { kind: "error", message: ignoreSelfUnresolvable("cli") };
+    return { kind: "error", message: IGNORE_SELF_UNRESOLVABLE };
   }
   if (self.kind === "invalid") {
-    return { kind: "error", message: ignoreSelfInvalid(self.raw, "cli") };
+    return { kind: "error", message: ignoreSelfInvalid(self.raw) };
   }
   return { kind: "ok", value: self.id };
 }

@@ -41,6 +41,7 @@ import {
   type PtyHostSystemInfo,
 } from "kaval";
 import {
+  CONTAINING_TERMINAL_ENV,
   cleanEnv,
   koluIdentityEnv,
   prepareShellInit,
@@ -609,7 +610,7 @@ export function composeSpawnInput(
   // KAVAL_* key, so any ambient KAVAL_TERMINAL_ID is already dropped upstream — this
   // stamp doesn't need to STOMP an inherited value, it simply IS the value.
   // Pairs as `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"`.
-  env.KAVAL_TERMINAL_ID = args.id;
+  env[CONTAINING_TERMINAL_ENV] = args.id;
   env.KAVAL_SOCKET = spec.kavalSocket;
   // The toolchain (docblock item 6). Two assignments, one fact: the dirs go on
   // PATH for anything the terminal runs, and the joined value is stamped under

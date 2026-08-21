@@ -9,8 +9,6 @@ import { describe, expect, it } from "vitest";
 import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
 import { WATCH_SCOPE_ALL, watchScopeOf } from "./watchScope.ts";
 import {
-  containingTerminalId,
-  ignoreSelfUnresolvable,
   namesWatchKnobs,
   specOf,
   watchFilterOf,
@@ -119,37 +117,5 @@ describe("watchSpecOf", () => {
     const spec = watchSpecOf({ id: SELF, ignoreIds: [SELF] });
     expect(spec.kind).toBe("error");
     expect(spec.kind === "error" && spec.message).toMatch(/can never match/);
-  });
-});
-
-describe("containingTerminalId — KAVAL_TERMINAL_ID, or none", () => {
-  it("is none when the env does not name a terminal", () => {
-    expect(containingTerminalId({})).toEqual({ kind: "none" });
-    expect(containingTerminalId({ KAVAL_TERMINAL_ID: "" })).toEqual({
-      kind: "none",
-    });
-  });
-
-  it("is this terminal when the env carries a real id", () => {
-    expect(containingTerminalId({ KAVAL_TERMINAL_ID: SELF })).toEqual({
-      kind: "ok",
-      id: SELF,
-    });
-  });
-
-  it("is invalid rather than a guess when the stamp is not a terminal id", () => {
-    expect(containingTerminalId({ KAVAL_TERMINAL_ID: "not-a-uuid" })).toEqual({
-      kind: "invalid",
-      raw: "not-a-uuid",
-    });
-  });
-});
-
-describe("ignoreSelfUnresolvable — refuse rather than guess", () => {
-  it("names the env the face would have read, and the way out", () => {
-    expect(ignoreSelfUnresolvable("cli")).toMatch(/KAVAL_TERMINAL_ID/);
-    expect(ignoreSelfUnresolvable("cli")).toMatch(/--ignore/);
-    expect(ignoreSelfUnresolvable("mcp")).toMatch(/KAVAL_TERMINAL_ID/);
-    expect(ignoreSelfUnresolvable("mcp")).toMatch(/ignoreIds/);
   });
 });
