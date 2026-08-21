@@ -117,6 +117,7 @@ import {
   formatWatchRemoval,
   formatWatchRemovalJson,
   resolveTerminalId,
+  shortId,
 } from "@kolu/padi/render";
 import type { PadiWatchStatesInput } from "@kolu/padi/surface";
 import { isValidTimerMs, timerRangeMessage } from "@kolu/surface/wait";
@@ -318,26 +319,18 @@ const IGNORE_SELF_UNRESOLVABLE = `--ignore-self: this process is not running ins
 const ignoreSelfInvalid = (raw: string): string =>
   `--ignore-self: ${CONTAINING_TERMINAL_ENV}=${JSON.stringify(raw)} is not a terminal id.`;
 
-const ignoreSelfNotThisFleet = (host: string): string =>
-  `--ignore-self names a terminal on THIS machine, but --host ${host} watches another padi's fleet — that mute could never match. Pass --ignore <id> naming a terminal on ${host}.`;
+const ignoreSelfNotInFleet = (self: TerminalId): string =>
+  `--ignore-self: this padi has never heard of terminal ${shortId(self)} (${CONTAINING_TERMINAL_ENV}) — muting it would mute nobody and report success. You are watching another machine's fleet (--host, or a --socket pointing at a different padi), or a daemon restart has re-keyed the terminals. Pass --ignore <id> naming a terminal this padi owns.`;
 
 /** Resolve `--ignore-self` against this process's containing terminal. BEFORE
  *  the dial: the env is argv-adjacent, and a missing stamp is a usage error,
- *  not a daemon error. Prefixes on `--ignore` wait for the live roster.
- *
- *  The ENDPOINT is part of the question, not context: the stamp names a
- *  terminal on THIS machine, so `--host` asks to mute it in a fleet that has
- *  never heard of it. Fail-open would make that a silent no-op reporting
- *  success — the one thing `--ignore-self` refuses to do anywhere else. */
+ *  not a daemon error. WHETHER that terminal is one this padi owns is a roster
+ *  question and waits for the roster — see {@link refuseSelfNotInFleet}. */
 export function planIgnoreSelf(
   args: WatchArgs,
-  endpoint: Endpoint,
   env: { readonly [key: string]: string | undefined } = process.env,
 ): Parsed<TerminalId | undefined> {
   if (!args.ignoreSelf) return { kind: "ok", value: undefined };
-  if (endpoint.kind === "host") {
-    return { kind: "error", message: ignoreSelfNotThisFleet(endpoint.ssh) };
-  }
   const self = containingTerminalId(env);
   if (self.kind === "none") {
     return { kind: "error", message: IGNORE_SELF_UNRESOLVABLE };
@@ -346,6 +339,28 @@ export function planIgnoreSelf(
     return { kind: "error", message: ignoreSelfInvalid(self.raw) };
   }
   return { kind: "ok", value: self.id };
+}
+
+/** Is the terminal `--ignore-self` resolved to one this padi actually owns?
+ *
+ *  ONE membership question, answered from the roster the verb reads anyway —
+ *  not from the shape of the endpoint. `endpoint.kind === "host"` was a
+ *  TRANSPORT-shaped proxy for it: it caught `--host` and missed
+ *  `--socket /tmp/other-padi.sock` (a different padi on the same machine, which
+ *  took the ok path and muted an id nobody there has heard of) and missed a
+ *  stamp gone stale across a daemon restart. Asking the roster subsumes all
+ *  three, exactly, at the cost of the dial — which is the right trade for the
+ *  one thing this flag refuses to do anywhere else: mute nobody and report
+ *  success.
+ *
+ *  A VALIDATOR, so it is spelled as one: a sentence when there is something to
+ *  say, and nothing when there is not. */
+export function refuseSelfNotInFleet(
+  self: TerminalId | undefined,
+  live: readonly TerminalId[],
+): string | undefined {
+  if (self === undefined || live.includes(self)) return undefined;
+  return ignoreSelfNotInFleet(self);
 }
 
 /** Widen `--ignore` queries against the live roster. Unique prefixes become
@@ -439,12 +454,11 @@ export interface WatchPlan {
 
 export function planWatch(
   args: WatchArgs,
-  endpoint: Endpoint,
   env: { readonly [key: string]: string | undefined } = process.env,
 ): Parsed<WatchPlan> {
   const supervise = planSupervision(args);
   if (supervise.kind === "error") return supervise;
-  const self = planIgnoreSelf(args, endpoint, env);
+  const self = planIgnoreSelf(args, env);
   if (self.kind === "error") return self;
   const heartbeat = planHeartbeat(args);
   if (heartbeat.kind === "error") return heartbeat;
@@ -483,8 +497,13 @@ function resolveWatchTargets(
   plan: WatchPlan,
 ): Effect.Effect<WatchTargets, unknown> {
   return Effect.gen(function* () {
-    const needsRoster = plan.id !== undefined || plan.ignore.length > 0;
+    const needsRoster =
+      plan.id !== undefined ||
+      plan.ignore.length > 0 ||
+      plan.self !== undefined;
     const live = needsRoster ? yield* readTerminalKeys(client) : [];
+    const strayed = refuseSelfNotInFleet(plan.self, live);
+    if (strayed !== undefined) return yield* Effect.fail(failure(strayed));
     const only =
       plan.id === undefined
         ? undefined
@@ -518,7 +537,7 @@ export function run(
 ): Effect.Effect<void, unknown> {
   // BEFORE the dial: a mistyped duration is argv, and argv is answerable without
   // a daemon.
-  const planned = planWatch(args, endpoint);
+  const planned = planWatch(args);
   if (planned.kind === "error") return Effect.fail(failure(planned.message));
   const plan = planned.value;
   const supervise = plan.supervise;

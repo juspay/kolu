@@ -91,7 +91,7 @@ it work or kills it.
 | `--states` | which agent states to report — any of `working`, `awaiting`, `waiting`, comma-separated. `awaiting` is an agent blocked on you; `waiting` is one whose turn ended |
 | `--held-for` | report a state only once it has *held* that long — milliseconds, like kolu's other windows (`60000`), or with a unit: `500ms`, `60s`, `5m`, `2h`, `1d`. An agent handed more work inside the window is never reported at all |
 | `--nag` | re-report every interval it keeps holding, so a line you ignored comes back instead of vanishing |
-| `--ignore-self` | mute the terminal this process is running inside (`$KAVAL_TERMINAL_ID`). Refused if you are not in a kolu-owned PTY, and refused with `--host`, whose fleet has never heard of this terminal — pass `--ignore <id>` rather than guessing |
+| `--ignore-self` | mute the terminal this process is running inside (`$KAVAL_TERMINAL_ID`). Refused if you are not in a kolu-owned PTY, and refused if the padi you are watching does not know that terminal — because the mute would then mute nobody and still report success. That covers `--host`, a `--socket` aimed at a different padi, and a stamp gone stale across a daemon restart, which re-keys terminals. Pass `--ignore <id>` rather than guessing |
 | `--ignore <id>` | mute this terminal (repeatable). Fail-open: a stale or unknown full id costs nothing, and every new terminal is still watched. A prefix that named nobody is still dropped, but warned on stderr |
 | `--heartbeat` | emit a timestamped alive line every interval — same duration grammar as `--held-for` — so a quiet pipe means *nothing is matching*, not *the stream is dead*. Omit to stay silent when nothing is happening |
 

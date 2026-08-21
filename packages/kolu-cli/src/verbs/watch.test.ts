@@ -5,7 +5,6 @@
  * decided here BEFORE anything dials a daemon.
  */
 
-import type { Endpoint } from "../endpoint.ts";
 import { shortId } from "@kolu/padi/render";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
@@ -15,6 +14,7 @@ import {
   planSupervision,
   planWatch,
   planWatchScope,
+  refuseSelfNotInFleet,
   resolveIgnoreQueries,
   type WatchArgs,
 } from "./watch.ts";
@@ -154,18 +154,16 @@ describe("planHeartbeat", () => {
   });
 });
 
-const HERE: Endpoint = { kind: "auto" };
-
 describe("planIgnoreSelf", () => {
   it("plans nothing when the flag is off", () => {
-    expect(planIgnoreSelf(args(), HERE)).toEqual({
+    expect(planIgnoreSelf(args())).toEqual({
       kind: "ok",
       value: undefined,
     });
   });
 
   it("refuses --ignore-self when this process is not inside a kolu terminal", () => {
-    const plan = planIgnoreSelf(args({ ignoreSelf: true }), HERE, {});
+    const plan = planIgnoreSelf(args({ ignoreSelf: true }), {});
     expect(plan.kind).toBe("error");
     // The sentence is THIS face's: it names the env padi read and the way out
     // in argv's own grammar, which padi has no business spelling.
@@ -174,7 +172,7 @@ describe("planIgnoreSelf", () => {
   });
 
   it("refuses a garbled stamp rather than guessing, in this face's words", () => {
-    const plan = planIgnoreSelf(args({ ignoreSelf: true }), HERE, {
+    const plan = planIgnoreSelf(args({ ignoreSelf: true }), {
       KAVAL_TERMINAL_ID: "not-a-uuid",
     });
     expect(plan.kind).toBe("error");
@@ -184,22 +182,41 @@ describe("planIgnoreSelf", () => {
 
   it("resolves --ignore-self to the containing terminal", () => {
     expect(
-      planIgnoreSelf(args({ ignoreSelf: true }), HERE, {
+      planIgnoreSelf(args({ ignoreSelf: true }), {
         KAVAL_TERMINAL_ID: SELF,
       }),
     ).toEqual({ kind: "ok", value: SELF });
   });
 
-  it("refuses --ignore-self against ANOTHER machine's fleet — the stamp names a terminal here", () => {
-    // Fail-open would make this a mute that mutes nobody and still reports
-    // success, which is the one thing this flag refuses to do.
-    const plan = planIgnoreSelf(
-      args({ ignoreSelf: true }),
-      { kind: "host", ssh: "box" },
-      { KAVAL_TERMINAL_ID: SELF },
-    );
-    expect(plan.kind).toBe("error");
-    expect(plan.kind === "error" && plan.message).toMatch(/--host box/);
+  it("does NOT ask which fleet — that is a roster question, and the roster is not argv", () => {
+    // The endpoint used to be part of this parse (`--host` was refused here).
+    // It was a transport-shaped proxy: it missed a --socket aimed at a
+    // different padi, and missed a stamp gone stale across a restart.
+    expect(
+      planIgnoreSelf(args({ ignoreSelf: true }), { KAVAL_TERMINAL_ID: SELF }),
+    ).toEqual({ kind: "ok", value: SELF });
+  });
+});
+
+describe("refuseSelfNotInFleet — the membership question, asked of the roster", () => {
+  it("says nothing when the containing terminal IS in this padi's roster", () => {
+    expect(refuseSelfNotInFleet(SELF, [SELF, LANE])).toBeUndefined();
+  });
+
+  it("says nothing when --ignore-self was never asked", () => {
+    expect(refuseSelfNotInFleet(undefined, [])).toBeUndefined();
+  });
+
+  it("refuses when this padi has never heard of the containing terminal", () => {
+    // The one shape --ignore-self exists to refuse: a mute that mutes nobody
+    // and reports success. Subsumes --host, a --socket aimed at a different
+    // padi, and a stamp re-keyed by a daemon restart.
+    const message = refuseSelfNotInFleet(SELF, [LANE]);
+    expect(message).toBeDefined();
+    expect(message).toContain(shortId(SELF));
+    expect(message).toMatch(/--ignore <id>/);
+    // A restart re-keys terminals, which is the other way a stamp goes stale.
+    expect(message).toMatch(/restart/);
   });
 });
 
@@ -278,7 +295,6 @@ describe("planWatch — everything argv decides, decided once", () => {
   it("carries the daemon-needing queries across UNRESOLVED — a roster is not argv", () => {
     const plan = planWatch(
       args({ id: "aaaa", ignore: ["bbbb"], json: true }),
-      HERE,
       {},
     );
     expect(plan).toEqual({
@@ -290,8 +306,9 @@ describe("planWatch — everything argv decides, decided once", () => {
   it("resolves --ignore-self and --heartbeat, which need no daemon", () => {
     const plan = planWatch(
       args({ ignoreSelf: true, heartbeat: "10s", nag: "5m" }),
-      HERE,
-      { KAVAL_TERMINAL_ID: SELF },
+      {
+        KAVAL_TERMINAL_ID: SELF,
+      },
     );
     expect(plan).toEqual({
       kind: "ok",
@@ -308,8 +325,8 @@ describe("planWatch — everything argv decides, decided once", () => {
   it("has ONE error arm — a fourth flag cannot land on the wrong side of the dial", () => {
     // Each of the three pre-dial refusals reaches the caller through this one
     // return, rather than through a block the author had to remember to add.
-    expect(planWatch(args({ heldFor: "banana" }), HERE, {}).kind).toBe("error");
-    expect(planWatch(args({ heartbeat: "0s" }), HERE, {}).kind).toBe("error");
-    expect(planWatch(args({ ignoreSelf: true }), HERE, {}).kind).toBe("error");
+    expect(planWatch(args({ heldFor: "banana" }), {}).kind).toBe("error");
+    expect(planWatch(args({ heartbeat: "0s" }), {}).kind).toBe("error");
+    expect(planWatch(args({ ignoreSelf: true }), {}).kind).toBe("error");
   });
 });

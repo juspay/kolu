@@ -23,9 +23,10 @@ import {
   type PadiWatchOpenInput,
   PadiWatchOpenInputSchema,
 } from "@kolu/padi/surface";
+import { readTerminalKeys } from "@kolu/padi/read";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 export const WatchOpenArgsSchema = Schema.Struct({
   ...PadiWatchOpenInputSchema.fields,
@@ -48,6 +49,9 @@ const IGNORE_SELF_UNRESOLVABLE = `ignoreSelf: this MCP server is not running ins
 
 const ignoreSelfInvalid = (raw: string): string =>
   `ignoreSelf: ${CONTAINING_TERMINAL_ENV}=${JSON.stringify(raw)} is not a terminal id.`;
+
+const ignoreSelfNotInFleet = (self: TerminalId): string =>
+  `ignoreSelf: the padi this server is connected to has never heard of terminal ${self} (${CONTAINING_TERMINAL_ENV}) — muting it would mute nobody and report success. This server is fronting another machine's fleet, or a daemon restart has re-keyed the terminals. Pass ignoreIds naming a terminal this padi owns.`;
 
 /** The way OUT of each never-match shape, in THIS face's grammar. padi states
  *  the invariant; a tool caller has an `ids` array, not "the id", so the remedy
@@ -153,6 +157,31 @@ export const watchOpenTool: BespokeTool = {
     if (parsed.kind === "error") {
       throw new ToolFailure(parsed.message, parsed.detail);
     }
-    return (client as PadiSurfaceClient).surface.watch.open(parsed.value.input);
+    const padi = client as PadiSurfaceClient;
+    const { input, self } = parsed.value;
+    return Effect.gen(function* () {
+      // The SAME membership question the CLI asks: is the containing terminal
+      // one THIS padi owns? `kolu mcp` honors --host and --socket, so this face
+      // can be fronting another machine's fleet — in which case the stamp names
+      // a terminal nobody there has heard of, and the mute would mute nobody
+      // and return success. The CLI used to ask and this face did not; asking
+      // the ROSTER (rather than the transport's shape) is what makes both
+      // exact, and covers a stamp re-keyed by a daemon restart as well.
+      if (self !== undefined) {
+        const live = yield* readTerminalKeys(padi);
+        if (!live.includes(self)) {
+          // On the ERROR channel, not thrown: a throw inside a generator is a
+          // DEFECT, and `failFrom` reads a `ToolFailure`'s own detail off the
+          // failure it is handed. A refusal is not a bug in this server.
+          return yield* Effect.fail(
+            new ToolFailure(ignoreSelfNotInFleet(self), {
+              kind: "ignore-self-not-in-fleet",
+              id: self,
+            }),
+          );
+        }
+      }
+      return yield* padi.surface.watch.open(input);
+    });
   },
 };

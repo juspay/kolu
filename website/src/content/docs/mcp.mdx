@@ -227,7 +227,7 @@ parameters on `watch_open` replace that with a level you cannot miss:
 | `states` | which agent states to report — any of `working`, `awaiting`, `waiting`. Defaults to `awaiting` + `waiting`, the two that need somebody |
 | `heldForMs` | report a terminal only once it has *held* that state this long. An agent handed more work inside the window is never reported |
 | `nagMs` | re-report it every this many milliseconds for as long as it keeps holding |
-| `ignoreSelf` | mute the terminal this MCP server is running inside. Refused if the transport cannot identify the caller — pass `ignoreIds` rather than guessing |
+| `ignoreSelf` | mute the terminal this MCP server is running inside. Refused if the transport cannot identify the caller, and refused if the padi this server is connected to does not know that terminal (another machine's fleet, or a daemon restart that re-keyed them) — pass `ignoreIds` rather than guessing |
 | `ignoreIds` | mute these terminals. Fail-open: a stale id costs nothing, and every new terminal is still watched. Prefer this over `ids`. An `ids` list that is entirely muted is refused rather than hanging silent |
 
 ```json

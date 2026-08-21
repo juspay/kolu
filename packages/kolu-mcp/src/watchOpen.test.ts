@@ -6,9 +6,11 @@
 
 import type { PadiWatchOpenInput } from "@kolu/padi/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import { ToolFailure } from "@kolu/surface-mcp";
-import { describe, expect, it } from "vitest";
-import { resolveWatchOpenInput } from "./watchOpen.ts";
+import { Effect, Stream } from "effect";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { resolveWatchOpenInput, watchOpenTool } from "./watchOpen.ts";
 
 /** The plan, or the refusal thrown as the tool handler would throw it — so
  *  these pins read the same way they did when the pure half threw, while the
@@ -104,5 +106,99 @@ describe("resolveWatchOpenInput", () => {
         raw: "not-a-uuid",
       });
     }
+  });
+});
+
+/** A padi whose roster is exactly `live`, and whose `watch.open` records what it
+ *  was handed. `terminals.keys` opens with a SNAPSHOT frame, as the real one
+ *  does — `readTerminalKeys` treats an empty stream as a link failure. */
+const fakePadi = (live: readonly TerminalId[]) => {
+  const opened: PadiWatchOpenInput[] = [];
+  const client = {
+    surface: {
+      terminals: { keys: () => Stream.make(live) },
+      watch: {
+        open: (input: PadiWatchOpenInput) => {
+          opened.push(input);
+          return Effect.succeed({ name: input.name, reattached: false });
+        },
+      },
+    },
+  } as unknown as PadiSurfaceClient;
+  return { client, opened };
+};
+
+describe("watch_open — ignoreSelf against a fleet that has never heard of us", () => {
+  beforeEach(() => {
+    process.env.KAVAL_TERMINAL_ID = SELF;
+  });
+  afterEach(() => {
+    delete process.env.KAVAL_TERMINAL_ID;
+  });
+
+  it("opens when the containing terminal IS in this padi's roster", async () => {
+    const { client, opened } = fakePadi([SELF, LANE]);
+    await Effect.runPromise(
+      watchOpenTool.handler(
+        { name: "campaign", ignoreSelf: true },
+        client,
+        undefined,
+      ),
+    );
+    expect(opened[0]?.ignoreIds).toEqual([SELF]);
+  });
+
+  it("REFUSES when it is not — the same question the CLI asks, on the face that used to skip it", async () => {
+    // `kolu mcp` honors --host / --socket, so this server can be fronting
+    // another machine's fleet. Fail-open here would mute nobody and return
+    // success, which is the one thing ignoreSelf refuses to do.
+    const { client, opened } = fakePadi([LANE]);
+    await expect(
+      Effect.runPromise(
+        watchOpenTool.handler(
+          { name: "campaign", ignoreSelf: true },
+          client,
+          undefined,
+        ),
+      ),
+    ).rejects.toThrow(/never heard of terminal/);
+    expect(opened).toEqual([]);
+  });
+
+  it("names the terminal, the way out, and the restart that re-keys them", async () => {
+    const { client } = fakePadi([LANE]);
+    // On the ERROR channel — which is what `failFrom` reads the detail off, and
+    // what keeps a refusal from looking like a defect in this server.
+    const err: ToolFailure = await Effect.runPromise(
+      Effect.catch(
+        watchOpenTool.handler(
+          { name: "campaign", ignoreSelf: true },
+          client,
+          undefined,
+        ) as Effect.Effect<never, ToolFailure>,
+        (e) => Effect.succeed(e),
+      ),
+    );
+    expect(err).toBeInstanceOf(ToolFailure);
+    expect(err.message).toContain(SELF);
+    expect(err.message).toMatch(/ignoreIds/);
+    expect(err.message).toMatch(/restart/);
+    expect(err.detail).toEqual({ kind: "ignore-self-not-in-fleet", id: SELF });
+  });
+
+  it("does NOT read the roster when ignoreSelf was never asked", async () => {
+    const client = {
+      surface: {
+        terminals: {
+          keys: () => {
+            throw new Error("the roster must not be read here");
+          },
+        },
+        watch: { open: () => Effect.succeed({ name: "x", reattached: false }) },
+      },
+    } as unknown as PadiSurfaceClient;
+    await Effect.runPromise(
+      watchOpenTool.handler({ name: "campaign" }, client, undefined),
+    );
   });
 });
