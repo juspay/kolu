@@ -11,39 +11,31 @@
  * It is also the smallest honest example of what a host owes: mount the
  * projected commands, run them, and let the failure's own
  * `Runtime.errorExitCode` decide the code. That is the whole integration —
- * `reportOf` writes the line, the runtime reads the number, and no command in
- * this package ever calls `process.exit`.
+ * `runEdge` decides the line and the verdict, the runtime reads the number off
+ * that verdict, and no command in this package ever calls `process.exit`.
  */
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect } from "effect";
 import { Command } from "effect/unstable/cli";
-import { reportOf } from "./exit";
+import { runEdge } from "./exit";
 import { fixtureRoot } from "./fixture.testlib";
-
-/** The brand every `effect/unstable/cli` error carries. Matched on the BRAND
- *  rather than on `_tag`: the library sets `_tag` to the short name
- *  (`ShowHelp`, `DuplicateOption`, …) and stamps this key alongside it. */
-const CLI_ERROR_BRAND = "~effect/cli/CliError";
-
-/** Has the CLI library already put this failure's text on screen? A `--help`, a
- *  typo'd subcommand, a rejected flag — re-reporting any of them would print the
- *  diagnostic twice. */
-const alreadyRendered = (error: unknown): boolean =>
-  typeof error === "object" && error !== null && CLI_ERROR_BRAND in error;
 
 NodeRuntime.runMain(
   Command.run(fixtureRoot(), { version: "0.0.0" }).pipe(
     Effect.catch((error) => {
-      if (alreadyRendered(error)) return Effect.fail(error);
-      // A failure this face raised: write its ONE line, then let the teardown
-      // read the code straight off the error.
+      // The WHOLE run edge, in three lines: ask `runEdge` what to write and what
+      // to fail with, write it, re-fail. Everything a host would otherwise have
+      // to know — which failures the CLI library already rendered, which code a
+      // rendered refusal deserves, how to word an arbitrary defect — lives in
+      // `exit.ts` beside the matrix it makes true, rather than in a fixture.
+      const { stderr, failure } = runEdge("demo", error);
       return Effect.flatMap(
         Effect.sync(() => {
-          process.stderr.write(reportOf("demo", error));
+          if (stderr !== "") process.stderr.write(stderr);
         }),
-        () => Effect.fail(error),
+        () => Effect.fail(failure),
       );
     }),
     Effect.provide(NodeServices.layer),

@@ -1302,8 +1302,11 @@ for the allowlist.
 | `SurfaceVerbInputSchema<I>` | the bound on a verb's `input`: `Schema.Codec<I, unknown, never, never>` — context-free, because an argument that arrived as argv or as JSON has no environment to decode in |
 | `toolName(ns, verb)` | the flat name a procedure answers to on a face with no dots to spend — `<ns>_<verb>`. Only the SEPARATOR is rewritten, so `a.b`·`c` mints `a.b_c` and stays reversible to one pair |
 | `toInputSchema(schema?)` | the Effect Schema → JSON-Schema bridge (draft 2020-12), dereferenced, opened, numeric-normalised, top-level object enforced |
-| `inputSchema(schema?)` | as above **and** the `wrapped` bit: whether a non-object input had to travel under one property |
-| `wrapSchema` · `unwrapArgs` · `wrapValue` · `isRecord` | the wrapping rule both edges read, so the key a scalar travels under is spelled once |
+| `inputSchema(schema?)` | → `AdvertisedInput`: the document, the `wrapped` bit (did a non-object input have to travel under one property?), and that value's own `inner` node — handed over so a face never NAMES the wrapper property |
+| `unwrapArgs` · `wrapValue` | the two halves of the wrapping rule a face performs; the key a scalar travels under stays private to the module |
+| `decodeTextValue(schema, text)` | land a text token in a declared type — verbatim first, then its JSON reading — answering with BOTH: `decoded` for a face that addresses by value, `encoded` for one that hands a member's own ref something to decode |
+| `SurfaceClientCallable` | the callable-leaved client shape a projecting face holds opaquely |
+| `messageOf(error)` | the one derivation of "what did this failure say" — the shapes `e instanceof Error ? e.message : String(e)` gets wrong (a tagged error whose `message` is empty; a failure declared as a plain object) |
 
 `mutates` defaults **conservatively**: absent means mutating, because a
 read-only hint can let an MCP host auto-run a verb unconfirmed. Mark a genuinely

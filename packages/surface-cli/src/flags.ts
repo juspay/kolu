@@ -26,15 +26,34 @@
  * | --- | --- |
  * | `string` | `--name <text>` (an `enum` becomes a choice, so `--help` lists the values) |
  * | `integer` / `number` | `--name <n>` |
- * | `boolean` | `--name` / `--no-name` — a TRISTATE when the field is optional, so "I did not say" and "I said false" stay different states |
+ * | `boolean` | `--name` / `--no-name` — a TRISTATE, so "I did not say" and "I said false" stay different states |
  * | array of scalars | `--name <v>` repeated |
  * | `Record<string, string>` (an open object with no properties) | `--name k=v` repeated |
  * | anything deeper | `--name '<json>'` — the field's own JSON, parsed and validated by the verb's schema |
  * | a non-object input (`wrapped`) | the bare `<value>` positional |
  *
- * A property carrying a `default` becomes a defaulted flag, so `--help` shows
- * the value the server would have supplied rather than leaving the reader to
- * guess.
+ * ## Every param is OPTIONAL to the PARSER, and that is load-bearing
+ *
+ * `--json` carries the WHOLE input as an alternative to the field flags. A
+ * required field projected as a parser-required param makes that unspellable:
+ * Effect CLI refuses the command before {@link InputProjection.assemble} — the
+ * only code that can see `--json` was given — ever runs, so the escape hatch is
+ * a dead branch on every verb that declares a required field, which is most of
+ * them. So requiredness is enforced ONE layer up, where both inputs are in view:
+ * `assemble` names a missing required field itself, in this face's own words and
+ * on this face's own exit code, and only when `--json` is absent.
+ *
+ * What that costs, and what is done about it: the LIBRARY can no longer render
+ * "Missing required flag: --pid", and `--help` can no longer mark the param
+ * required from its own shape. Both are paid back in the same place they were
+ * spent — the refusal is worded here (naming the verb, the field, and the
+ * `--json` alternative), and a required field's help line says `(required)`.
+ *
+ * A property carrying a `default` is likewise NOT given to the parser as a
+ * default: `Flag.withDefault` makes a field the caller never typed
+ * indistinguishable from one they did, which turned "`--json` cannot be combined
+ * with the field flags" into a refusal citing a flag nobody passed. The default
+ * is applied HERE, in the non-`--json` branch, and shown in the help line.
  *
  * ## Names are NOT transformed
  *
@@ -48,8 +67,8 @@
 
 import type { WireSchemaAny } from "@kolu/surface/define";
 import { inputSchema } from "@kolu/surface/verbs";
-import { Argument, Flag } from "effect/unstable/cli";
 import { Option } from "effect";
+import { Argument, Flag } from "effect/unstable/cli";
 
 /** A JSON-Schema node, walked structurally. */
 type JsonSchema = Record<string, unknown>;
@@ -68,21 +87,25 @@ export const JSON_FLAG = "json";
 export interface InputProjection {
   /** Flags and positionals, keyed as `Command.make`'s config wants them. */
   readonly config: Record<string, Param>;
-  /** Every argv name this projection claims — flags AND positionals — so a
-   *  caller can prove the endpoint flags do not collide with them. */
-  readonly claims: readonly string[];
   /** Read the parsed config back into the verb's ENCODED input.
    *
-   *  Fails with a SENTENCE, never a thrown value: every way this can go wrong
-   *  is a usage error the caller turns into exit 2, and the caller is the one
-   *  that knows the binary's name to put in front of it. */
+   *  `stdin` is the text `--json -` means, already read — a thunk here would
+   *  make this function's purity a lie and would read a descriptor the caller
+   *  may not have wanted read.
+   *
+   *  Fails with a SENTENCE, never a thrown value: every way this can go wrong is
+   *  a usage error the caller turns into exit 2, and the caller is the one that
+   *  knows the binary's name to put in front of it. */
   readonly assemble: (
     values: Record<string, unknown>,
-    stdin: () => string,
+    stdin: string | undefined,
   ) => { ok: true; input: unknown } | { ok: false; because: string };
   /** Whether the input is a non-object the wire carries under one property —
    *  the bit the verb's own schema needs unwrapping against. */
   readonly wrapped: boolean;
+  /** Does the projection want stdin? True exactly when `--json -` was given, so
+   *  a caller reads the descriptor only for the command that asked for it. */
+  readonly wantsStdin: (values: Record<string, unknown>) => boolean;
 }
 
 /** A flag name a shell and Effect CLI can both carry. Deliberately strict: a
@@ -177,7 +200,14 @@ function flagFor(name: string, node: JsonSchema): Flag.Flag<any> {
     const itemNode =
       items !== null && typeof items === "object" ? (items as JsonSchema) : {};
     if (scalarKind(itemNode) !== undefined) {
-      return flagFor(name, itemNode).pipe(Flag.atLeast(0));
+      // `atLeast(1)`, never `atLeast(0)`: a variadic with `min: 0` SUCCEEDS with
+      // `[]` when the flag never appears, so the enclosing `Flag.optional` sees
+      // `Some([])` and the field reaches the server as an explicit empty array —
+      // where `Schema.optionalKey` means absent — while `assemble` counts it as
+      // supplied and refuses a `--json` beside a flag nobody typed. With
+      // `atLeast(1)` an absent flag is genuinely absent, and one occurrence is
+      // still enough.
+      return flagFor(name, itemNode).pipe(Flag.atLeast(1));
     }
     return jsonFlag(name);
   }
@@ -228,6 +258,12 @@ export function flagsOf(
   return projectInput(schema, opts?.positional ?? []);
 }
 
+/** Does this parsed config carry `--json -`? Spelled once, and read both by the
+ *  caller (to decide whether to spend a read on stdin) and by `assemble` (to
+ *  decide whether the text it was handed is the payload). */
+const wantsStdin = (values: Record<string, unknown>): boolean =>
+  values[JSON_FLAG] === "-";
+
 function projectInput(
   schema: WireSchemaAny | undefined,
   positional: readonly string[],
@@ -235,7 +271,6 @@ function projectInput(
   const built = inputSchema(schema);
   const doc = built.schema as JsonSchema;
   const config: Record<string, Param> = {};
-  const claims: string[] = [];
 
   // The escape hatch is on EVERY verb, including one with no input at all: a
   // caller scripting against the surface should never have to know whether this
@@ -247,7 +282,6 @@ function projectInput(
       ),
     ),
   );
-  claims.push(JSON_FLAG);
 
   if (built.wrapped) {
     if (positional.length > 0) {
@@ -255,17 +289,18 @@ function projectInput(
         `this verb's input is a single value, so it has no fields to bind to positions; drop the "positional" annotation (it named ${positional.map((p) => `"${p}"`).join(", ")}).`,
       );
     }
-    const inner = ((doc.properties ?? {}) as JsonSchema).value as JsonSchema;
+    // The wrapped value's OWN node, from the bridge — this face never names the
+    // property the wire carries it under, which is why that key is private.
+    const inner = built.inner ?? {};
     config.value = optionalArgument(
-      argumentFor("value", inner ?? {}).pipe(
+      argumentFor("value", inner).pipe(
         Argument.withDescription("the verb's input"),
       ),
     );
-    claims.push("value");
     return {
       config,
-      claims,
       wrapped: true,
+      wantsStdin,
       assemble: (values, stdin) => {
         const fromJson = readJsonFlag(values, stdin);
         if (fromJson.kind === "bad")
@@ -320,38 +355,53 @@ function projectInput(
     }
   }
 
+  // A field's DEFAULT, captured rather than handed to the parser — see the
+  // header. Applied in the non-`--json` branch of `assemble`, so "the caller did
+  // not say" survives as a state the assembler can still see.
+  const defaults = new Map<string, unknown>();
+  for (const name of fields) {
+    const fallback = (properties[name] as JsonSchema | undefined)?.default;
+    if (fallback !== undefined) defaults.set(name, fallback);
+  }
+
   // Positionals in the order the annotation gave them, then the flags. Effect
-  // CLI reads positions in config order, so this order IS the argv order.
+  // CLI reads positions in config order, so this order IS the argv order. Both
+  // arms are OPTIONAL to the parser; requiredness is `assemble`'s (see header).
   for (const name of positional) {
     const node = (properties[name] ?? {}) as JsonSchema;
-    const described = describe(argumentFor(name, node), node);
-    config[name] = required.has(name) ? described : optionalArgument(described);
-    claims.push(name);
+    config[name] = optionalArgument(
+      describe(argumentFor(name, node), node, required.has(name), defaults),
+    );
   }
   for (const name of fields) {
     if (asPositional.has(name)) continue;
     const node = (properties[name] ?? {}) as JsonSchema;
-    const base = describe(flagFor(name, node), node);
-    const fallback = node.default;
-    config[name] =
-      fallback !== undefined
-        ? Flag.withDefault(base, fallback)
-        : required.has(name)
-          ? base
-          : optionalFlag(base);
-    claims.push(name);
+    config[name] = optionalFlag(
+      describe(
+        flagFor(name, node),
+        node,
+        required.has(name),
+        defaults.get(name),
+      ),
+    );
   }
+
+  /** Which fields did the CALLER actually name? Read off `undefined`, which is
+   *  honest here precisely because nothing in this projection can produce one:
+   *  no parser default, and an absent repeated flag is `None` rather than `[]`. */
+  const suppliedIn = (values: Record<string, unknown>): string[] =>
+    [...positional, ...fields.filter((name) => !asPositional.has(name))].filter(
+      (name) => values[name] !== undefined,
+    );
 
   return {
     config,
-    claims,
     wrapped: false,
+    wantsStdin,
     assemble: (values, stdin) => {
       const fromJson = readJsonFlag(values, stdin);
       if (fromJson.kind === "bad") return { ok: false, because: fromJson.why };
-      const supplied = [...positional, ...fields].filter(
-        (name) => values[name] !== undefined,
-      );
+      const supplied = suppliedIn(values);
       if (fromJson.kind === "given") {
         return supplied.length === 0
           ? { ok: true, input: fromJson.value }
@@ -362,38 +412,81 @@ function projectInput(
       }
       const input: Record<string, unknown> = {};
       for (const name of supplied) input[name] = values[name];
+      for (const [name, fallback] of defaults) {
+        if (input[name] === undefined) input[name] = fallback;
+      }
+      // Requiredness, enforced HERE because this is the only layer that can see
+      // that `--json` was not the answer. The parser cannot: it would have to
+      // refuse before knowing.
+      const missing = [...required].filter(
+        (name) => input[name] === undefined && Object.hasOwn(properties, name),
+      );
+      if (missing.length > 0) {
+        return {
+          ok: false,
+          because: `this verb needs ${missing.map((n) => `"${n}"`).join(", ")} — pass ${missing.length === 1 ? "it" : "them"}, or the whole input with --${JSON_FLAG}.`,
+        };
+      }
       return { ok: true, input };
     },
   };
 }
 
-/** Read `--json`, resolving `-` to stdin. Three answers, because "absent" and
- *  "present but unreadable" must not collapse into one. */
+/** Read `--json`, resolving `-` to the stdin text the caller read for us. Three
+ *  answers, because "absent" and "present but unreadable" must not collapse into
+ *  one. */
 function readJsonFlag(
   values: Record<string, unknown>,
-  stdin: () => string,
+  stdin: string | undefined,
 ):
   | { kind: "absent" }
   | { kind: "given"; value: unknown }
   | { kind: "bad"; why: string } {
   const raw = values[JSON_FLAG];
   if (raw === undefined) return { kind: "absent" };
-  const text = raw === "-" ? stdin() : String(raw);
+  const fromStdin = raw === "-";
+  if (fromStdin && stdin === undefined) {
+    // The caller asks `wantsStdin` before assembling, so an absent text here is
+    // a wiring mistake, not a user's — say which, rather than blaming a payload
+    // nobody supplied.
+    return {
+      kind: "bad",
+      why: `--${JSON_FLAG} - was given but stdin was never read — the host did not ask this projection whether it wanted it.`,
+    };
+  }
+  const text = fromStdin ? (stdin as string) : String(raw);
   try {
     return { kind: "given", value: JSON.parse(text) as unknown };
   } catch (err) {
     return {
       kind: "bad",
-      why: `--${JSON_FLAG} takes the whole input as JSON${raw === "-" ? " on stdin" : ""}, and that is not JSON: ${err instanceof Error ? err.message : String(err)}`,
+      why: `--${JSON_FLAG} takes the whole input as JSON${fromStdin ? " on stdin" : ""}, and that is not JSON: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }
 
-/** Carry the schema's own `description` onto the param, so `--help` says what
- *  the surface author wrote rather than repeating the field name. */
-function describe<P extends Param>(param: P, node: JsonSchema): P {
-  const text = node.description;
-  if (typeof text !== "string" || text === "") return param;
+/** The help line for one field: the schema author's own `description`, plus the
+ *  two facts the PARSER no longer carries.
+ *
+ *  Both matter because every param here is parser-optional (see the header): the
+ *  library can no longer mark a required field, and it never sees the default at
+ *  all — so a reader would learn neither from `--help` unless the line says so. */
+function describe<P extends Param>(
+  param: P,
+  node: JsonSchema,
+  isRequired: boolean,
+  fallback: unknown,
+): P {
+  const written = node.description;
+  const parts = [
+    ...(typeof written === "string" && written !== "" ? [written] : []),
+    ...(isRequired ? ["(required)"] : []),
+    ...(fallback === undefined
+      ? []
+      : [`(default: ${JSON.stringify(fallback)})`]),
+  ];
+  if (parts.length === 0) return param;
+  const text = parts.join(" ");
   return (
     param.kind === "flag"
       ? // biome-ignore lint/suspicious/noExplicitAny: the param's value type is the field's.

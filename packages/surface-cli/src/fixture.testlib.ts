@@ -54,6 +54,8 @@ const LogFrame = Schema.Struct({
   text: Schema.String,
 });
 
+const Tick = Schema.Struct({ at: Schema.Int, every: Schema.Int });
+
 /** A DECLARED refusal — the exit-1 arm of the contract, as a real domain error
  *  rather than a fabricated one. */
 export class NoSuchPid extends Schema.TaggedError<NoSuchPid>(
@@ -85,8 +87,19 @@ export const surface = defineSurface({
       // the projection reads the member's OWN verbs rather than assuming.
       verbs: ["keys", "get", "deltas", "upsert", "delete"],
     },
+    // A collection with NO `keys` verb — legal, and the case that used to make a
+    // read of an item THAT IS RIGHT THERE fail, because the item read was handed
+    // a membership stream the surface does not serve.
+    mounts: { keySchema: Schema.String, schema: Schema.String, verbs: ["get"] },
   },
-  streams: { nodeLog: { inputSchema: Schema.String, outputSchema: LogFrame } },
+  streams: {
+    nodeLog: { inputSchema: Schema.String, outputSchema: LogFrame },
+    // A NON-STRING input, so the `[arg]` position is driven through the
+    // JSON-reading half of the text-to-schema rule and not only the verbatim
+    // half — a face that forwarded the raw token would hand the string "5" to a
+    // decoder that has already proven it needs the number 5.
+    ticks: { inputSchema: Schema.Int, outputSchema: Tick },
+  },
   events: {
     autosave: {
       inputSchema: Schema.String,
@@ -111,7 +124,9 @@ export const surface = defineSurface({
 export const EXPOSE = {
   load: "resource",
   processes: "resource",
+  mounts: "resource",
   nodeLog: "resource",
+  ticks: "resource",
   autosave: "resource",
   "proc.kill": "tool",
   "proc.count": { tool: { mutates: false } },
@@ -124,18 +139,17 @@ export const VERBS: Record<string, SurfaceVerb> = {
   echo: {
     description: "Echo one line back — a hand-authored verb over the client.",
     mutates: false,
-    input: Schema.String as unknown as Schema.Codec<
-      unknown,
-      unknown,
-      never,
-      never
-    >,
+    input: Schema.String,
     handler: (args, _client: SurfaceClientCallable) =>
       Effect.succeed({ said: args }),
   },
 };
 
 // ── Serving it ───────────────────────────────────────────────────────────
+
+/** A fixed, keys-less collection — nothing mutates it, so a read of it answers
+ *  the same in every case. */
+const MOUNTS = new Map<string, string>([["root", "/"]]);
 
 const TABLE = new Map<number, typeof Proc.Type>([
   [7, { command: "vitest", cpuPct: 12.5, memPct: 3 }],
@@ -158,6 +172,11 @@ export function buildRuntime() {
           table.delete(pid);
         },
       },
+      mounts: {
+        readAll: () => MOUNTS,
+        upsert: () => {},
+        remove: () => {},
+      },
     },
     streams: {
       nodeLog: {
@@ -166,6 +185,15 @@ export function buildRuntime() {
             kind: "snapshot" as const,
             text: `opened ${nodeId}`,
           }),
+      },
+      // A BURST, not one frame: the hung-up-reader case needs a producer that
+      // keeps writing after its reader has left, and enough of it to fill a pipe
+      // buffer — otherwise the whole answer fits in the pipe, nothing ever meets
+      // an EPIPE, and the case passes while measuring nothing. The one-shot read
+      // still takes only the head.
+      ticks: {
+        source: (every) =>
+          Stream.map(Stream.range(0, 50_000), (at) => ({ at, every })),
       },
     },
     events: { autosave: {} },
@@ -211,16 +239,21 @@ export async function serveFixture(
  *  one dial. Exactly the shape `packages/server`'s `dialOlai` will have. */
 export const endpointFlags = { socket: Flag.string("socket") };
 
-export function dialFixture(values: {
-  readonly socket: string;
-}): Promise<SurfaceCliConnection> {
-  return unixSocketLink({
-    group: surface.group,
-    socketPath: values.socket,
-  }).then((link) => ({
-    client: buildSurfaceFace(surface, link.dispatch) as SurfaceClientCallable,
-    dispose: () => link.dispose(),
-  }));
+export function resolveFixture(values: { readonly socket: string }) {
+  return {
+    where: values.socket,
+    open: (): Promise<SurfaceCliConnection> =>
+      unixSocketLink({
+        group: surface.group,
+        socketPath: values.socket,
+      }).then((link) => ({
+        client: buildSurfaceFace(
+          surface,
+          link.dispatch,
+        ) as SurfaceClientCallable,
+        dispose: () => link.dispose(),
+      })),
+  };
 }
 
 /** The projected commands, as the fixture host mounts them. */
@@ -229,13 +262,15 @@ export function fixtureCommands(): ReadonlyArray<ProjectedCommand> {
     surface,
     expose: EXPOSE,
     verbs: VERBS,
-    endpoint: {
-      flags: endpointFlags,
-      describe: (values: { readonly socket: string }) => values.socket,
-      connect: dialFixture,
+    endpoint: { flags: endpointFlags, resolve: resolveFixture },
+    annotate: {
+      proc_kill: { positional: ["pid"] },
+      // The one `render` in the tree, so the TTY arm has a driver. Its shape is
+      // deliberately unlike the JSON: a test asserting one cannot pass by
+      // accident against the other.
+      proc_count: { render: (out) => `processes: ${(out as { n: number }).n}` },
     },
-    annotate: { proc_kill: { positional: ["pid"] } },
-    info: { name: "demo", version: "0.0.0" },
+    info: { name: "demo" },
   });
 }
 

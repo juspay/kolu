@@ -18,6 +18,12 @@
  *   - {@link toInputSchema} — the Effect Schema → JSON-Schema bridge. A face
  *     that has to DESCRIBE an input to a schema-less caller (an MCP host's
  *     `tools/list`, a CLI's flag table) reads the same normalized document.
+ *   - {@link decodeTextValue} — land a text token in a declared type. Every
+ *     schema-less caller hands scalars over as text, and the two faces address
+ *     the same items by it, so it is one rule or it is a way for them to
+ *     disagree.
+ *   - {@link messageOf} — the one derivation of "what did this failure SAY",
+ *     so a caught failure is worded the same wherever it is folded in.
  *
  * They live HERE, in the framework, for the reason `@kolu/surface/expose` gives
  * for the expose map: two faces reading one contract by two grammars is the
@@ -191,14 +197,14 @@ type JsonSchema = Record<string, unknown>;
  *  wrapping rule are decided by, so {@link wrapValue}'s runtime test and the
  *  document walk cannot drift apart into two hand-written expressions that
  *  merely happen to agree. */
-export function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 /** Advertise a non-object INPUT as an object with one property. Decided from
  *  the DECLARED schema, so `wrapped` is a static bit a face carries and
  *  {@link unwrapArgs} reads back. */
-export function wrapSchema(schema: JsonSchema): JsonSchema {
+function wrapSchema(schema: JsonSchema): JsonSchema {
   return {
     type: "object",
     properties: { [WRAP_KEY]: schema },
@@ -260,16 +266,29 @@ export function toInputSchema(schema?: WireSchemaAny): Record<string, unknown> {
   return inputSchema(schema).schema;
 }
 
-/** As {@link toInputSchema}, but also reports whether the original schema was a
- *  non-object (scalar/array/union) that had to be wrapped under a single
- *  `value` property. A dispatching face needs `wrapped` so it can
- *  {@link unwrapArgs} back into the bare value the verb's schema actually
- *  expects (a `Schema.String` input is advertised as `{ value: string }`, but
- *  the procedure wants the string itself). */
-export function inputSchema(schema?: WireSchemaAny): {
-  schema: Record<string, unknown>;
-  wrapped: boolean;
-} {
+/** What an advertised input looks like, plus the two facts a projecting face
+ *  needs beside it.
+ *
+ *  `wrapped` says the original schema was a non-object (scalar/array/union) that
+ *  had to travel under a single property, so a dispatching face can
+ *  {@link unwrapArgs} back into the bare value the verb's schema expects (a
+ *  `Schema.String` input is advertised as `{ value: string }`, but the procedure
+ *  wants the string itself).
+ *
+ *  `inner` is that wrapped value's OWN node, handed over so a face never has to
+ *  NAME the wrapper property: `@kolu/surface-cli` binds a wrapped input to a
+ *  positional whose type it reads off this node, and the key the value travels
+ *  under stays private to this module — which is the whole reason the key is
+ *  private. Absent exactly when `wrapped` is false: the two are one fact, and
+ *  the shape says so rather than leaving a face to test the flag first. */
+export interface AdvertisedInput {
+  readonly schema: Record<string, unknown>;
+  readonly wrapped: boolean;
+  readonly inner?: Record<string, unknown>;
+}
+
+/** As {@link toInputSchema}, but with the facts above beside the document. */
+export function inputSchema(schema?: WireSchemaAny): AdvertisedInput {
   // Divergence 3: a NO-ARG member declares `Schema.Void` (what `defineSurface`
   // substitutes for an absent `input`), whose ENCODED form is `{"type":"null"}`.
   // Caught here, before `enforceObject` can wrap it into a verb that demands
@@ -451,17 +470,16 @@ function pruneRequired(node: JsonSchema): JsonSchema {
  *  scalar/array/union input (`Schema.String`, `Schema.Array(...)`) is wrapped
  *  under a single property so the verb still presents an object; the dispatch
  *  layer unwraps it (signalled by `wrapped: true`). The wrapping itself is
- *  {@link wrapSchema}'s — this decides WHETHER, not HOW. */
-function enforceObject(schema: JsonSchema): {
-  schema: JsonSchema;
-  wrapped: boolean;
-} {
+ *  {@link wrapSchema}'s — this decides WHETHER, not HOW — and the wrapped node
+ *  travels out as {@link AdvertisedInput}'s `inner`, so no face has to reach
+ *  back through the wrapper by name. */
+function enforceObject(schema: JsonSchema): AdvertisedInput {
   if (schema.type === "object") return { schema, wrapped: false };
   // An empty schema (`{}`, from an opaque declaration Effect cannot represent)
   // is most useful as "accept any object" rather than a wrapped scalar.
   if (Object.keys(schema).length === 0)
     return { schema: emptyObjectSchema(), wrapped: false };
-  return { schema: wrapSchema(schema), wrapped: true };
+  return { schema: wrapSchema(schema), wrapped: true, inner: schema };
 }
 
 // ── The client a face holds ──────────────────────────────────────────────
@@ -490,6 +508,22 @@ export type SurfaceClientCallable = {
 
 // ── Text in, declared type out ───────────────────────────────────────────
 
+/** A text token, landed in a declared schema — in BOTH readings.
+ *
+ *  `decoded` is the value the schema produced; `encoded` is the reading that
+ *  produced it — the token verbatim, or its `JSON.parse` form. Both, because
+ *  the two faces need different ones and neither can re-derive the other: an
+ *  MCP resource read addresses a collection item with the DECODED key, while a
+ *  CLI hands a member's `get` the ENCODED input, because the client's own
+ *  member ref decodes what it is given. A face that forwarded the raw token to
+ *  a member whose input is a number handed a string to a decoder that had
+ *  already proven it needed a number — which fails as a DEFECT at the call
+ *  site, outside every error contract the face publishes. */
+export interface TextValue {
+  readonly encoded: unknown;
+  readonly decoded: unknown;
+}
+
 /** Land a TEXT token in a declared schema's type — the rule every schema-less
  *  caller needs, because every schema-less caller hands scalars over as text.
  *
@@ -510,15 +544,73 @@ export type SurfaceClientCallable = {
 export function decodeTextValue(
   schema: WireSchemaAny,
   text: string,
-): Option.Option<unknown> {
+): Option.Option<TextValue> {
   const decode = Schema.decodeUnknownOption(schema);
   const direct = decode(text);
-  if (Option.isSome(direct)) return direct;
+  if (Option.isSome(direct))
+    return Option.some({ encoded: text, decoded: direct.value });
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
     return Option.none(); // not JSON — undecodable for a non-string schema
   }
-  return decode(parsed);
+  return Option.map(decode(parsed), (decoded) => ({
+    encoded: parsed,
+    decoded,
+  }));
+}
+
+/** The best sentence an arbitrary thrown value has in it — the one place this
+ *  stack decides what an unknown failure SAYS, so a face that folds a caught
+ *  failure into its own answer words it exactly as its request edge would.
+ *
+ *  `e instanceof Error ? e.message : String(e)` was ALMOST right and wrong for
+ *  the two shapes Effect actually delivers here:
+ *
+ *    - a `Data.TaggedError` is an `Error` whose `message` is `""` — its identity
+ *      lives in `_tag` — so it reached consumers as a bare prefix;
+ *    - a failure declared as a plain object is not an `Error` at all, and
+ *      `String(e)` renders it `[object Object]`.
+ *
+ *  Both are exactly the failures worth reading, so each falls back to the next
+ *  most specific thing the value KNOWS about itself — never to a placeholder.
+ *
+ *  It lives HERE rather than in either face because both need it and a second
+ *  copy is a place they can disagree about what a failure said. (`@kolu/surface-mcp`
+ *  re-exports it under the name it shipped.) */
+export function messageOf(e: unknown): string {
+  if (e instanceof Error) {
+    if (e.message !== "") return e.message;
+    const tag = (e as { _tag?: unknown })._tag;
+    return typeof tag === "string" && tag !== "" ? tag : e.name;
+  }
+  if (typeof e === "object" && e !== null) {
+    // `String(e)` is NOT the answer for an object — it is the `[object Object]`
+    // this function exists to stop — so name the value the way a value can
+    // always be named: its constructor and the fields it actually has.
+    try {
+      return JSON.stringify(e) ?? describeObject(e);
+    } catch (unstringifiable) {
+      // NOT only a cycle. `stringify` also refuses a `BigInt` anywhere in the
+      // tree, and it EVALUATES every own enumerable getter — so a property that
+      // throws on read throws from here, carrying a real and unrelated reason
+      // ("network timeout while computing x"). Discarding it would swallow the
+      // most specific thing known about the failure inside the one function
+      // whose whole job is to find that. It rides along with the shape.
+      return `${describeObject(e)} (unstringifiable: ${messageOf(unstringifiable)})`;
+    }
+  }
+  return String(e);
+}
+
+/** Name an object JSON cannot render: its constructor and its own keys. Never
+ *  `[object Object]` — the point is that the reader learns WHAT failed even when
+ *  it cannot learn the whole value.
+ *
+ *  `||`, not `??`: an anonymous class expression HAS a constructor and its
+ *  `.name` is `""`, which would render a nameless `{ a, b }`. */
+function describeObject(e: object): string {
+  const name = e.constructor?.name || "Object";
+  return `${name} { ${Object.keys(e).join(", ")} }`;
 }

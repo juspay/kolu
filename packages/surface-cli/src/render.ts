@@ -1,17 +1,17 @@
 /**
- * The OUTPUT DISCIPLINE — what lands on stdout, what lands on stderr, and in
- * what shape.
+ * The OUTPUT DISCIPLINE — what lands on stdout, and in what shape.
  *
  *   - **stdout is DATA.** One JSON value for a one-shot read, one compact JSON
  *     line per frame for anything streamed (ndjson). Nothing else ever goes
  *     there: a diagnostic on stdout is a corrupted pipe.
- *   - **stderr is PROSE** — and the one exception proves it: a verb's declared
- *     refusal is JSON on stderr, because it is machine-readable data that is
- *     nonetheless not the verb's answer (`exit.ts`'s `refused`).
  *   - **A TTY gets indentation, a pipe gets compact.** `JSON.stringify(v, null,
  *     2)` is for a human reading a terminal; a pipe is read by a program that
  *     does not care and by a `wc -c` that does. ndjson is compact either way —
  *     a "line" with newlines in it is not a line.
+ *   - **stderr is PROSE**, and it is the run EDGE's, not this module's: a
+ *     failure carries the exact text it wants written (`exit.ts`) and the host
+ *     writes it once, outside the command. A second stderr writer here would be
+ *     a second policy about when a diagnostic is worth failing over.
  *
  * ## Why the `Stdio` service and not `process.stdout`
  *
@@ -29,20 +29,29 @@
  * `surface watch nodes | head -1` closes the pipe under a live subscription.
  * That is the reader getting exactly what it asked for, not a failure — so an
  * `EPIPE` ends the command at exit 0. Every other write failure (a full disk, a
- * revoked descriptor) is real and is reported, because a write that vanished is
- * the silent degradation this repo treats as a defect.
+ * revoked descriptor) is real and DIES, loudly: a write that vanished is the
+ * silent degradation this repo treats as a defect, and stdout is the one
+ * channel a CLI cannot report the loss of on.
  */
 
-import { Effect, Stream } from "effect";
+import { Cause, Effect, Result, Stream } from "effect";
 import { Stdio } from "effect";
 
 /** Did the consumer hang up (`… | head -1`), or did the write genuinely fail?
- *  `EPIPE` is the reader leaving; anything else must be said out loud. */
-function isConsumerHangup(cause: unknown): boolean {
-  const code = (cause as { readonly cause?: { readonly code?: unknown } })
+ *
+ *  Takes the FAILURE, not the cause it arrived in: `Effect.catchCause` hands
+ *  over a `Cause`, whose own shape carries no `code` at all, so a predicate
+ *  reading `code` off it matches nothing and the EPIPE arm is dead — every
+ *  hung-up reader would die instead of exiting 0. {@link out} unwraps first.
+ *
+ *  The `code` sits one level in, on the platform error's own `cause`, which is
+ *  where Node's `EPIPE` lands after the sink wraps it; the direct reading is
+ *  kept beside it for a platform that raises the errno flat. */
+function isConsumerHangup(failure: unknown): boolean {
+  const nested = (failure as { readonly cause?: { readonly code?: unknown } })
     ?.cause?.code;
-  if (code === "EPIPE") return true;
-  return (cause as { readonly code?: unknown })?.code === "EPIPE";
+  if (nested === "EPIPE") return true;
+  return (failure as { readonly code?: unknown })?.code === "EPIPE";
 }
 
 /** Write one chunk to stdout, treating a hung-up reader as a complete run. */
@@ -51,20 +60,13 @@ export function out(text: string): Effect.Effect<void, never, Stdio.Stdio> {
     const stdio = yield* Stdio.Stdio;
     yield* Effect.catchCause(
       Stream.run(Stream.make(text), stdio.stdout({ endOnDone: false })),
-      (cause) =>
-        isConsumerHangup(cause) ? Effect.void : Effect.failCause(cause),
+      (cause) => {
+        const failure = Cause.findError(cause);
+        return Result.isSuccess(failure) && isConsumerHangup(failure.success)
+          ? Effect.void
+          : Effect.failCause(cause);
+      },
     ).pipe(Effect.orDie);
-  });
-}
-
-/** Write one prose line to stderr. A trailer that cannot reach a closed stderr
- *  is not worth failing a command over, so this never fails. */
-export function err(text: string): Effect.Effect<void, never, Stdio.Stdio> {
-  return Effect.gen(function* () {
-    const stdio = yield* Stdio.Stdio;
-    yield* Effect.ignore(
-      Stream.run(Stream.make(text), stdio.stderr({ endOnDone: false })),
-    );
   });
 }
 
@@ -72,8 +74,7 @@ export function err(text: string): Effect.Effect<void, never, Stdio.Stdio> {
  *  through a pipe, newline-terminated. */
 export function data(value: unknown): Effect.Effect<void, never, Stdio.Stdio> {
   return Effect.gen(function* () {
-    const stdio = yield* Stdio.Stdio;
-    const tty = yield* stdio.stdoutIsTerminal;
+    const tty = yield* (yield* Stdio.Stdio).stdoutIsTerminal;
     yield* out(`${json(value, tty)}\n`);
   });
 }

@@ -15,7 +15,7 @@ import { Command } from "effect/unstable/cli";
 const verbs = surfaceCommands({
   surface,
   expose: { load: "resource", "proc.kill": "tool" },
-  endpoint: { flags, describe, connect },
+  endpoint: { flags, resolve },
   info: { name: "example" },
 });
 

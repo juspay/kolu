@@ -33,7 +33,10 @@
 
 import type { Surface, SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import { isDeadTransportError } from "@kolu/surface/errors";
-import { firstFrameOfCollectionItem } from "@kolu/surface/first-frame";
+import {
+  firstFrameOfCollectionItem,
+  ITEM_READ_DEADLINE_MS,
+} from "@kolu/surface/first-frame";
 import type { ExposeMap } from "@kolu/surface/expose";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -821,7 +824,9 @@ function asStream(
  *  The DECODED key is what comes back, which is what the face's collection
  *  payloads are built from (`{ key }` carries decoded keys — client.ts). */
 function decodeKey(keySchema: WireSchemaAny, id: string): unknown {
-  return Option.getOrUndefined(decodeTextValue(keySchema, id));
+  return Option.getOrUndefined(
+    Option.map(decodeTextValue(keySchema, id), (landed) => landed.decoded),
+  );
 }
 
 /** Open the streaming source for a subscribed URI (the pusher's `StreamFor`).
@@ -956,8 +961,13 @@ function readFirstFrameSnapshot(
  *  `keys` verb has no membership signal to resolve an absent key against at all,
  *  and one WITH a `keys` verb can still keep saying "still a member" while the
  *  item stream says nothing. Both bounds are always armed — see
- *  {@link readCollectionItemSnapshot}. */
-const KEYSLESS_ITEM_READ_DEADLINE_MS = 5_000;
+ *  {@link readCollectionItemSnapshot}.
+ *
+ *  The NUMBER is the framework's, beside the reader it bounds: this adapter has
+ *  no information about "how long may a local read wait" that the CLI face
+ *  lacks, and the two spelled the same `5_000` independently until the constant
+ *  existed. The local name stays because the sentence above is this face's. */
+const KEYSLESS_ITEM_READ_DEADLINE_MS = ITEM_READ_DEADLINE_MS;
 
 /** One-shot read of a collection-item URI, BOUNDED against `collectionHandlers.get`'s
  *  held-open-on-absent semantic (#1681): the item `get` yields nothing until the key

@@ -33,22 +33,27 @@ nothing, reads no argv, and runs no program.
 | `verbs?` | hand-authored [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs)s, by name — the same record `serveSurfaceAsMcp` takes as `tools` |
 | `endpoint` | the transport seam: `{ flags, describe, connect }` — see below |
 | `annotate?` | CLI-only ergonomics by verb name: `{ positional?, render? }` |
-| `info` | the **binary's** identity. `name` fronts every diagnostic, because a user reads `olai: no surface at …` and never the package's name |
+| `info` | the **binary's** identity: `name`, which fronts every diagnostic, because a user reads `olai: no surface at …` and never the package's name |
 
 ### The endpoint seam
 
-Three parts, because resolving an endpoint, naming it and dialling it are three
-different moments — the name is needed exactly when the dial fails.
+**One** step, not two: `resolve` reads the flags once and answers with the
+endpoint's *name* beside the thunk that opens it. The name is needed exactly when
+the dial **fails** — when there is no connection left to ask — and a separate
+`describe(values)` beside a `connect(values)` is two readings of one decision
+with nothing holding them together.
 
 | Field | Meaning |
 | --- | --- |
 | `flags` | the flags every generated command carries (`--socket`, `--url`, `--host`) |
-| `describe(values)` | name the endpoint these values resolve to, for the diagnostic a failed dial writes |
-| `connect(values)` | dial it, returning `{ client, dispose }`. Rejecting is the honest answer for "nothing is serving there", and the rejection's own words reach the user |
+| `resolve(values)` | → `{ where, open }`. `where` names the endpoint in the app's own words; `open()` dials it, returning `{ client, dispose }`. `open` rejecting is the honest answer for "nothing is serving there", and the rejection's own words reach the user beside `where` |
 
-`dispose` is **required**. A CLI dials, does one thing and exits; the failure
-that costs a user something is a socket left open in a shell loop. An in-process
-host passes `() => {}`.
+`client` is a [`SurfaceClientCallable`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) —
+what `buildSurfaceFace(surface, link.dispatch)` mints. `dispose` is
+**required**: a CLI dials, does one thing and exits, and the failure that costs a
+user something is a socket left open in a shell loop. An in-process host passes
+`() => {}`. A `dispose` that rejects is ignored rather than allowed to replace
+the command's own verdict.
 
 <Aside type="caution" title="The endpoint flags ride each verb">
   They are merged into every generated command's own config, not onto the
@@ -64,14 +69,18 @@ host passes `() => {}`.
 | a bespoke `SurfaceVerb` | `<name> …`, by the same rule over its `input` |
 | cell | `get <member> [--follow]` |
 | stream · event | `get <member> [input] [--follow]` |
-| collection | `get <member> <key> [--follow]` · `keys <member> [--follow]` · `watch <member>` |
-| always | `list [--json]` — this face's `tools/list` |
+| collection | `get <member> <key> [--follow]` · `keys <member> [--follow]` (only when it declares `keys`) · `watch <member>` (only when it declares `deltas`) |
+| always | `list [--json]` — this face's `tools/list`. Its `--json` is a **switch** forcing the JSON table instead of the aligned text, unlike a verb's `--json`, which is the input |
 
 `--follow` turns a one-shot read into the subscription itself: one ndjson line
 per frame, until the stream ends or you interrupt it. Without it a read takes
 the **opening snapshot frame** and stops — which is what every snapshot-then-
 deltas member opens with. `watch` is a delta stream with no one-shot reading, so
 it takes no `--follow` and always streams.
+
+An **event** is the one member with no snapshot to take: it is occurrences over
+time, so a one-shot `get` of it would wait for ever. It is refused (exit 2)
+naming `--follow`, which is the only honest reading of an event.
 
 A one-shot read of a collection **item** is bounded against both membership and
 a deadline, so a key that is not there answers
@@ -94,14 +103,24 @@ the other's idea of what the verb takes.
 | --- | --- |
 | `string` | `--name <text>` (an `enum` becomes a choice, listed in `--help`) |
 | `integer` · `number` | `--name <n>` |
-| `boolean` | `--name` / `--no-name` — a **tristate** when the field is optional, so "I did not say" and "I said false" stay different |
+| `boolean` | `--name` / `--no-name` — a **tristate**, so "I did not say" and "I said false" stay different |
 | array of scalars | `--name <v>`, repeated |
 | `Record<string, string>` | `--name k=v`, repeated |
 | anything deeper | `--name '<json>'` — the field's own JSON |
 | a non-object input | the bare `<value>` positional |
 
-A property carrying a `default` becomes a defaulted flag, so `--help` shows the
-value the server would have supplied.
+Every param is **optional to the parser**, and that is load-bearing rather than
+lax: `--json` carries the whole input *as an alternative to the field flags*, so
+a required field projected as a parser-required param would make the escape hatch
+unspellable — the command would be refused before the assembler could see that
+`--json` was the answer. Requiredness is enforced one layer up instead, where
+both inputs are in view: a missing required field is named by this face, on
+**exit 2**, and only when `--json` is absent. A `default` is likewise applied at
+assembly rather than by the parser, because `Flag.withDefault` makes a field the
+caller never typed indistinguishable from one they did.
+
+Both facts reach `--help` in the line rather than in the shape: a required field
+says `(required)`, a defaulted one says `(default: …)`.
 
 **Names are not transformed.** The flag is the field, spelled the same:
 `--filePath`, not `--file-path`. A transformation would be a second name for one
@@ -145,7 +164,7 @@ name the codes rather than re-spell the integers.
 | `0` | the verb did what it was asked |
 | `1` | the verb's **declared** error — its refusal, as JSON on stderr |
 | `2` | a usage error: the request never left the process |
-| `3` | nothing is serving the endpoint, or the transport died mid-call |
+| `3` | nothing is serving the endpoint, or the transport died mid-call — including a read whose member opened and closed without its snapshot |
 | `130` | interrupted (Ctrl-C) |
 
 `1` and `2` are the split that matters: a refusal is an answer from the far
@@ -159,16 +178,37 @@ package calls `process.exit`, and `130` is Effect's own: a Ctrl-C interrupts the
 fiber, the stream's finalizers unsubscribe, and the connection is released on
 the way out.
 
+One arm of the matrix is not this package's to raise, which is what
+**`runEdge(binary, error)`** is for — hand it a failed program's error at your
+run edge, write the `stderr` it hands back, and fail with its `failure`:
+
+```ts
+Effect.catch((error) => {
+  const { stderr, failure } = runEdge("example", error)
+  if (stderr !== "") process.stderr.write(stderr)
+  return Effect.fail(failure)
+})
+```
+
+It is what makes exit **2** true of a real binary: a refusal from the CLI
+*library* — a rejected flag, an unknown subcommand, a value outside a choice — is
+a usage error by every reading of the matrix, but it arrives already rendered and
+carrying no code of ours, so left alone it takes whatever your catch-all does
+with it. (`--help` and `--version` are action flags in the pinned `effect`: they
+print and return success, so they never reach it.)
+
 ## Other exports
 
 | Export | Role |
 | --- | --- |
 | `EXIT` | the matrix above, as data |
 | `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to a command config plus its assembler |
-| `reportOf(binary, error)` | the one line a host's run edge writes for a failed program |
+| `runEdge(binary, error)` | → `{ stderr, failure }` — what a host's run edge should write and re-fail with, so the exit matrix is true of a real binary |
+| `messageOf(error)` | the framework's one derivation of "what did this failure say", re-exported so a host words a caught failure the way this face would |
 | `SurfaceCliFailure` | the failure class carrying both the text and the code |
 | `SurfaceCliBuildError` | a malformed projection, refused when the tree is built (a positional naming no field, a flag-name collision, a field that cannot be a flag) |
-| `SurfaceCliOptions` · `EndpointSeam` · `SurfaceCliConnection` · `VerbAnnotation` · `ProjectedCommand` | types |
+| `SurfaceCliOptions` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `ProjectedCommand` | types |
+| `SurfaceClientCallable` | re-exported from [`@kolu/surface/verbs`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) — the client shape `resolve`'s `open` must return |
 
 ## Two gates, as with MCP
 

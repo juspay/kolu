@@ -29,9 +29,11 @@ yours — the resolution order (`--socket`, then an environment variable, then a
 dev file, then the per-user runtime socket) is your app's policy and nothing in
 the adapter could guess it.
 
-The seam is three parts, because resolving an endpoint, *naming* it and dialling
-it are three different moments: the name is needed exactly when the dial fails,
-which is when there is no connection left to ask.
+The seam is **one** step, and its shape is the point: `resolve` reads the flags
+once and answers with the endpoint's *name* beside the thunk that opens it. The
+name is needed exactly when the dial fails — which is when there is no connection
+left to ask — and a `describe` beside a `connect` would walk your resolution
+order twice and could name one endpoint while dialling another.
 
 <Snippet src="packages/surface/example/snippets/cli.ts" region="endpoint" />
 
@@ -108,11 +110,19 @@ The two facts a script needs are the shape of the output and the exit code.
 - **the exit code says which happened** — see
   [the matrix](/surface/ref-surface-cli#exit-codes).
 
+An absent collection item is a **successful read** whose answer says so, not a
+failure — the read genuinely happened, and "not there" is what it found — so
+branch on the payload and keep the exit code for the things that are not answers:
+
 ```sh
-if pid=$(example get processes 4321); then
-  echo "still running: $pid"
-elif [ $? -eq 3 ]; then
-  echo "nothing serving — is the daemon up?" >&2
+if ! proc=$(example get processes 4321); then
+  [ "$?" -eq 3 ] && echo "nothing serving — is the daemon up?" >&2
+  exit 1
+fi
+if [ "$(jq -r '.present // "yes"' <<<"$proc")" = "false" ]; then
+  echo "4321 is gone"
+else
+  echo "still running: $(jq -r .command <<<"$proc")"
 fi
 ```
 

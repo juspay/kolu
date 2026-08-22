@@ -57,7 +57,6 @@
  * ergonomics, never security.
  */
 
-import { readFileSync } from "node:fs";
 import { isTransportError } from "@kolu/surface/client";
 import type {
   CollectionSpec,
@@ -65,7 +64,10 @@ import type {
   SurfaceSpec,
   WireSchemaAny,
 } from "@kolu/surface/define";
-import { collectionHasDeltas } from "@kolu/surface/define";
+import {
+  collectionHasDeltas,
+  resolveCollectionVerbs,
+} from "@kolu/surface/define";
 import { isDeadTransportError } from "@kolu/surface/errors";
 import {
   classifyExpose,
@@ -75,6 +77,7 @@ import {
 import {
   firstFrameOfCollectionItem,
   firstFrameOrThrow,
+  ITEM_READ_DEADLINE_MS,
 } from "@kolu/surface/first-frame";
 import {
   decodeTextValue,
@@ -86,9 +89,10 @@ import {
 import { Effect, Option, Schema, Stdio, Stream } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import {
+  EXIT,
   messageOf,
   refused,
-  type SurfaceCliFailure,
+  SurfaceCliFailure,
   unreachable,
   usage,
 } from "./exit";
@@ -137,45 +141,54 @@ export interface SurfaceCliOptions<S extends SurfaceSpec> {
   readonly endpoint: EndpointSeam;
   /** CLI-only ergonomics, by verb name. */
   readonly annotate?: Record<string, VerbAnnotation>;
-  /** The BINARY's identity. `name` fronts every diagnostic this face writes,
-   *  because a user reads `olai: no surface at …` and never the package's name —
-   *  so it is required, not defaulted to something that would be wrong. */
-  readonly info: { readonly name: string; readonly version?: string };
+  /** The BINARY's identity — its `name`, which fronts every diagnostic this
+   *  face writes, because a user reads `olai: no surface at …` and never the
+   *  package's name. Required, not defaulted to something that would be wrong.
+   *
+   *  A `version` sat here too and nothing ever read it: the run edge takes the
+   *  version (`Command.run(root, { version })`) and this face has no line to put
+   *  one in. A public option nothing reads is a promise to a consumer that the
+   *  code never keeps, so it is gone rather than documented. */
+  readonly info: { readonly name: string };
 }
 
 /** Where to dial, and how — the one seam this adapter is blind behind.
  *
- *  Three parts because resolving an endpoint, NAMING it and DIALLING it are
- *  three different moments: the name is needed when the dial FAILS, which is
- *  exactly when there is no connection to ask. The app owns all three, because
- *  the resolution order (`--socket` → `$APP_SOCKET` → a dev file → the runtime
- *  socket) is the app's policy and nothing here could guess it. */
+ *  ONE step, not two, and the shape is the point: `resolve` reads the flags once
+ *  and answers with the endpoint's NAME beside the thunk that opens it. The name
+ *  is needed exactly when the dial FAILS — when there is no connection left to
+ *  ask — and a separate `describe(values)` beside a `connect(values)` is two
+ *  readings of one decision that nothing holds together: an app whose resolution
+ *  order is `--socket` → `$APP_SOCKET` → a dev file → the runtime socket would
+ *  have to walk it twice and could name one endpoint while dialling another.
+ *
+ *  The app owns the resolution, because that order is its policy and nothing
+ *  here could guess it. */
 export interface EndpointSeam {
   /** Flags every generated command carries — `--socket`, `--url`, `--host`. */
   // biome-ignore lint/suspicious/noExplicitAny: the host's flag types are the host's.
   readonly flags: Record<string, Flag.Flag<any>>;
-  /** Name the endpoint these flag values resolve to, for the diagnostic a failed
-   *  dial writes. It is the fact a user can ACT on, so the app that owns the
-   *  resolution order owns the sentence. */
+  /** Read the flags, decide WHERE, and hand back both halves of the answer. */
   // biome-ignore lint/suspicious/noExplicitAny: the host's flag types are the host's.
-  readonly describe: (values: any) => string;
-  /** Dial it. Rejecting is the honest answer for "nothing is serving there", and
-   *  the rejection's own words are carried into the exit-3 diagnostic. */
-  readonly connect: (
-    // biome-ignore lint/suspicious/noExplicitAny: the host's flag types are the host's.
-    values: any,
-  ) => Promise<SurfaceCliConnection> | SurfaceCliConnection;
+  readonly resolve: (values: any) => ResolvedEndpoint;
 }
 
-/** How long a one-shot collection-item read waits before saying it cannot tell.
+/** One resolved endpoint: what to call it, and how to open it.
  *
- *  A collection `get` for a key that is not a member yet is a held-open
- *  subscription that yields nothing (juspay/kolu#1681), so the read is bounded
- *  against membership AND a deadline — `firstFrameOfCollectionItem` owns the
- *  race. A constant and not an option: "how long should a local read wait" is not
- *  a decision an app has information this file lacks about, and a knob whose
- *  default is right is a knob nobody should have to set. */
-const ITEM_READ_DEADLINE_MS = 5_000;
+ *  `where` is what the user typed or what the app fell back to, in the app's own
+ *  words — the fact a failed dial can act on. `open` rejecting is the honest
+ *  answer for "nothing is serving there", and the rejection's own words are
+ *  carried into the exit-3 diagnostic beside `where`. */
+export interface ResolvedEndpoint {
+  readonly where: string;
+  readonly open: () => Promise<SurfaceCliConnection> | SurfaceCliConnection;
+}
+
+/** The commands this face mounts that are NOT verbs. Declared once, because two
+ *  readers of the fact exist and they must agree: the builders below mint them,
+ *  and the verb-name collision check refuses a bespoke verb that would shadow
+ *  one. */
+const READER_NAMES = ["get", "keys", "watch", "list"] as const;
 
 /** A runtime-assembled command. The tree is built from a spec walk, so its type
  *  parameters carry nothing a caller could trust — the host mounts the values
@@ -294,7 +307,14 @@ function callableVerbs<S extends SurfaceSpec>(
   }
 
   out.sort((a, b) => a.name.localeCompare(b.name));
-  const seen = new Map<string, string>();
+  // Seeded with the READER commands, because they share one namespace with the
+  // verbs: a bespoke verb called `get` would be mounted beside the reader of the
+  // same name and the parser would answer with whichever it met first. The two
+  // verb-vs-verb collisions were already refused here; this is the third, and it
+  // was the invisible one.
+  const seen = new Map<string, string>(
+    READER_NAMES.map((name) => [name, "a reader command"]),
+  );
   for (const verb of out) {
     const prior = seen.get(verb.name);
     if (prior !== undefined) {
@@ -303,6 +323,15 @@ function callableVerbs<S extends SurfaceSpec>(
       );
     }
     seen.set(verb.name, verb.source);
+  }
+  // Every annotation must name a verb that exists. A key that names nothing is
+  // ergonomics its author asked for and silently did not get — the same class of
+  // silence `positional` naming no field is already refused for.
+  const stray = Object.keys(annotate).filter((name) => !seen.has(name));
+  if (stray.length > 0) {
+    throw new SurfaceCliBuildError(
+      `surface-cli: "annotate" names ${stray.map((n) => `"${n}"`).join(", ")}, which no verb answers to — this surface offers ${out.map((v) => `"${v.name}"`).join(", ") || "no verbs"}.`,
+    );
   }
   return out;
 }
@@ -369,7 +398,15 @@ function runVerb<S extends SurfaceSpec>(
   values: Record<string, unknown>,
 ): Effect.Effect<void, unknown, Stdio.Stdio> {
   return Effect.gen(function* () {
-    const assembled = verb.projection.assemble(values, readStdin);
+    // Stdin is read ONLY for the command that asked for it (`--json -`), and
+    // through the `Stdio` service every handler already requires — not off fd 0
+    // synchronously inside what is otherwise a pure assembly. A verb that did
+    // not ask never touches the descriptor, so nothing hangs waiting on a
+    // terminal nobody typed into.
+    const stdin = verb.projection.wantsStdin(values)
+      ? yield* readStdin
+      : undefined;
+    const assembled = verb.projection.assemble(values, stdin);
     if (!assembled.ok) {
       return yield* Effect.fail(usage(opts.info.name, assembled.because));
     }
@@ -431,6 +468,11 @@ interface Readable {
   readonly argSchema?: WireSchemaAny;
   /** Does the collection declare `deltas`, so `watch` can address it? */
   readonly watchable: boolean;
+  /** Does the collection declare `keys`? Read off the member's own verbs, not
+   *  assumed: `keys` is a DEFAULT collection verb and a spec may drop it, and a
+   *  bounded item read handed a membership stream that does not exist fails a
+   *  read of an item that is right there. */
+  readonly listable: boolean;
 }
 
 function readables(entries: readonly ExposeEntry[]): Map<string, Readable> {
@@ -439,11 +481,13 @@ function readables(entries: readonly ExposeEntry[]): Map<string, Readable> {
     if (entry.kind === "procedure") continue;
     if (entry.kind === "collection") {
       const spec = entry.spec as CollectionSpec<unknown, unknown, unknown>;
+      const verbs = resolveCollectionVerbs(spec);
       table.set(entry.key, {
         name: entry.key,
         kind: "collection",
         argSchema: spec.keySchema,
         watchable: collectionHasDeltas(spec),
+        listable: verbs.includes("keys"),
       });
       continue;
     }
@@ -455,6 +499,7 @@ function readables(entries: readonly ExposeEntry[]): Map<string, Readable> {
           ? undefined
           : (entry.spec as { inputSchema: WireSchemaAny }).inputSchema,
       watchable: false,
+      listable: false,
     });
   }
   return table;
@@ -513,14 +558,15 @@ function readerCommands<S extends SurfaceSpec>(
     ) as ProjectedCommand,
   );
 
-  if (collections.length > 0) {
+  const listable = collections.filter((c) => c.listable);
+  if (listable.length > 0) {
     commands.push(
       Command.make(
         "keys",
         mergeConfig(opts, "keys", {
           member: memberArgument(
             "collection",
-            collections.map((c) => c.name),
+            listable.map((c) => c.name),
           ),
           follow: followFlag,
         }),
@@ -608,11 +654,12 @@ function runGet<S extends SurfaceSpec>(
           ),
         );
       }
-      return yield* withConnection(opts, values, (client) =>
+      return yield* withConnection(opts, values, (client, dropped) =>
         readStream(
           memberStream(client, member.name, "get", undefined),
           follow,
           member.name,
+          dropped,
         ),
       );
     }
@@ -626,8 +673,8 @@ function runGet<S extends SurfaceSpec>(
           ),
         );
       }
-      const key = decodeTextValue(member.argSchema as WireSchemaAny, raw);
-      if (Option.isNone(key)) {
+      const landed = decodeTextValue(member.argSchema as WireSchemaAny, raw);
+      if (Option.isNone(landed)) {
         return yield* Effect.fail(
           usage(
             opts.info.name,
@@ -635,14 +682,31 @@ function runGet<S extends SurfaceSpec>(
           ),
         );
       }
-      return yield* withConnection(opts, values, (client) =>
+      // A collection payload is built from DECODED keys (`client.ts`) — the
+      // other half of the same landed token the stream arm takes encoded.
+      const key = landed.value.decoded;
+      return yield* withConnection(opts, values, (client, dropped) =>
         follow
           ? readStream(
-              memberStream(client, member.name, "get", { key: key.value }),
+              memberStream(client, member.name, "get", { key }),
               true,
               member.name,
+              dropped,
             )
-          : readCollectionItem(client, member, key.value),
+          : readCollectionItem(client, member, key, dropped),
+      );
+    }
+
+    // An EVENT has no current value — it is occurrences over time, and its
+    // handler yields nothing until one happens. A one-shot read of it therefore
+    // waits forever, silently, which is the worst answer a command can give; so
+    // it is refused HERE, in this face's own words, rather than hanging.
+    if (member.kind === "event" && !follow) {
+      return yield* Effect.fail(
+        usage(
+          opts.info.name,
+          `"${member.name}" is an event — it has occurrences, not a current value, so there is nothing to read once. Use --follow to watch for them.`,
+        ),
       );
     }
 
@@ -651,11 +715,12 @@ function runGet<S extends SurfaceSpec>(
     // through the one text-to-schema rule both faces share.
     const schema = member.argSchema as WireSchemaAny;
     const input = yield* streamInput(opts, member.name, schema, raw);
-    return yield* withConnection(opts, values, (client) =>
+    return yield* withConnection(opts, values, (client, dropped) =>
       readStream(
         memberStream(client, member.name, "get", input),
         follow,
         member.name,
+        dropped,
       ),
     );
   });
@@ -683,9 +748,14 @@ function streamInput<S extends SurfaceSpec>(
           ),
         );
   }
-  const decoded = decodeTextValue(schema, raw);
-  return Option.isSome(decoded)
-    ? Effect.succeed(raw)
+  const landed = decodeTextValue(schema, raw);
+  // The ENCODED reading, never the raw token: a member's client ref decodes what
+  // it is handed, eagerly and synchronously, so a stream whose input is a number
+  // handed the string "42" throws at the call site — a DEFECT, outside every arm
+  // of the exit contract. `decodeTextValue` already knows which reading landed;
+  // this takes it rather than assuming the token was its own encoding.
+  return Option.isSome(landed)
+    ? Effect.succeed(landed.value.encoded)
     : Effect.fail(
         usage(
           opts.info.name,
@@ -704,14 +774,15 @@ function runKeys<S extends SurfaceSpec>(
       opts,
       table,
       values,
-      (r) => r.kind === "collection",
-      "collection",
+      (r) => r.kind === "collection" && r.listable,
+      "collection with a key set",
     );
-    yield* withConnection(opts, values, (client) =>
+    yield* withConnection(opts, values, (client, dropped) =>
       readStream(
         memberStream(client, member.name, "keys", undefined),
         values.follow === true,
         member.name,
+        dropped,
       ),
     );
   });
@@ -732,11 +803,12 @@ function runWatch<S extends SurfaceSpec>(
     );
     // `watch` IS the subscription — there is no one-shot reading of a delta
     // stream, so it takes no `--follow` and always streams.
-    yield* withConnection(opts, values, (client) =>
+    yield* withConnection(opts, values, (client, dropped) =>
       readStream(
         memberStream(client, member.name, "deltas", undefined),
         true,
         member.name,
+        dropped,
       ),
     );
   });
@@ -768,12 +840,23 @@ function readStream(
   stream: Stream.Stream<unknown, unknown>,
   follow: boolean,
   member: string,
+  dropped: (detail: string) => SurfaceCliFailure,
 ): Effect.Effect<void, unknown, Stdio.Stdio> {
   if (follow) return Stream.runForEach(stream, (value) => frame(value));
   return Effect.flatMap(
-    firstFrameOrThrow(
-      stream,
-      `"${member}" opened and closed without a snapshot frame — the link dropped.`,
+    // An empty open is a DROPPED LINK, not a refusal: every snapshot-then-deltas
+    // member opens with its current value, so a member that opened and closed
+    // saying nothing is the endpoint going away mid-read. `firstFrameOrThrow`
+    // says so with a bare `Error`, which `classify` would otherwise read as the
+    // verb's own answer and report as exit 1 — the one code that means the far
+    // side spoke. It is worded as this face's exit-3 arm instead, beside the
+    // failed dial it is the same event as.
+    Effect.catch(
+      firstFrameOrThrow(
+        stream,
+        `"${member}" opened and closed without a snapshot frame`,
+      ),
+      (error) => Effect.fail(dropped(messageOf(error))),
     ),
     (value) => data(value),
   );
@@ -791,14 +874,27 @@ function readCollectionItem(
   client: SurfaceClientCallable,
   member: Readable,
   key: unknown,
+  dropped: (detail: string) => SurfaceCliFailure,
 ): Effect.Effect<void, unknown, Stdio.Stdio> {
   return Effect.flatMap(
-    firstFrameOfCollectionItem(
-      memberStream(client, member.name, "get", { key }),
-      memberStream(client, member.name, "keys", undefined),
-      key,
-      `"${member.name}" opened and closed without a snapshot frame — the link dropped.`,
-      ITEM_READ_DEADLINE_MS,
+    Effect.catch(
+      firstFrameOfCollectionItem(
+        memberStream(client, member.name, "get", { key }),
+        // `null`, not a stream that will fail: a collection may legitimately
+        // declare no `keys` verb, and the framework's reader takes the ABSENCE of
+        // a membership signal as a case (it falls back to the deadline alone)
+        // rather than as an error. Handing it a stream that fails instead turned a
+        // read of an item that is right there into a failure.
+        member.listable
+          ? memberStream(client, member.name, "keys", undefined)
+          : null,
+        key,
+        `"${member.name}" opened and closed without a snapshot frame`,
+        ITEM_READ_DEADLINE_MS,
+      ),
+      // A PRESENT item that opened and said nothing is the link going away, the
+      // same event as a failed dial — exit 3, not the verb's own refusal.
+      (error) => Effect.fail(dropped(messageOf(error))),
     ),
     (found) =>
       found.present
@@ -914,22 +1010,40 @@ function withConnection<S extends SurfaceSpec, A>(
   values: Record<string, unknown>,
   use: (
     client: SurfaceClientCallable,
+    /** This endpoint's exit-3 arm, pre-named — for a failure the USE discovers
+     *  that is nonetheless about the endpoint (a read whose link dropped
+     *  mid-snapshot), which only this function knows `where` for. */
+    dropped: (detail: string) => SurfaceCliFailure,
   ) => Effect.Effect<A, unknown, Stdio.Stdio>,
 ): Effect.Effect<A, unknown, Stdio.Stdio> {
-  const where = opts.endpoint.describe(values);
+  const { where, open } = opts.endpoint.resolve(values);
   return Effect.scoped(
     Effect.flatMap(
       Effect.acquireRelease(
         Effect.tryPromise({
-          try: async () => await opts.endpoint.connect(values),
+          try: async () => await open(),
           catch: (cause) =>
             unreachable(opts.info.name, where, messageOf(cause)),
         }),
-        (connection) => Effect.promise(async () => await connection.dispose()),
+        // IGNORED, deliberately: a teardown that fails has nothing to add to a
+        // command that already has its answer, and `Effect.promise` would turn a
+        // rejected `dispose` into a DEFECT that replaces the verdict — a
+        // successful capture reported as a crash because a socket close raced
+        // the process. The socket is going away with the process either way.
+        (connection) =>
+          Effect.ignore(
+            Effect.tryPromise({
+              try: async () => await connection.dispose(),
+              catch: (cause) => cause,
+            }),
+          ),
       ),
       (connection) =>
-        Effect.catch(use(connection.client), (error) =>
-          Effect.fail(classify(opts, where, error)),
+        Effect.catch(
+          use(connection.client, (detail) =>
+            unreachable(opts.info.name, where, detail),
+          ),
+          (error) => Effect.fail(classify(opts, where, error)),
         ),
     ),
   );
@@ -993,16 +1107,28 @@ function payloadOf(error: unknown): unknown {
   return { message: messageOf(error) };
 }
 
-/** Read the whole of stdin, synchronously — what `--json -` means.
+/** The whole of stdin, as text — what `--json -` means.
  *
- *  Synchronous because it happens BEFORE anything is dialled, in the assembly of
- *  one input, and a CLI reading its own stdin has nothing else to do meanwhile.
- *  An empty stdin is an empty string, which `JSON.parse` then refuses as the
- *  usage error it is. */
-function readStdin(): string {
-  try {
-    return readFileSync(0, "utf8");
-  } catch {
-    return "";
-  }
-}
+ *  Read through the `Stdio` service rather than off fd 0, for the reason
+ *  `render.ts` writes through it: `Command.run` already requires it, so a
+ *  handler that reads its own stdin stays inside the Effect that bounds it (a
+ *  Ctrl-C mid-read interrupts the read) and a test can hand it a stream instead
+ *  of a global descriptor.
+ *
+ *  A read that FAILS is not an empty payload. Collapsing the two reported "that
+ *  is not JSON" for a descriptor that was never readable — blaming a payload
+ *  nobody supplied — so the failure keeps its own words. */
+const readStdin: Effect.Effect<string, SurfaceCliFailure, Stdio.Stdio> =
+  Effect.gen(function* () {
+    const stdio = yield* Stdio.Stdio;
+    return yield* Effect.catch(
+      Stream.decodeText(stdio.stdin).pipe(Stream.mkString),
+      (cause) =>
+        Effect.fail(
+          new SurfaceCliFailure({
+            stderr: `could not read stdin for --json -: ${messageOf(cause)}\n`,
+            code: EXIT.usage,
+          }),
+        ),
+    );
+  });

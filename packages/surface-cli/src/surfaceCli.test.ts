@@ -20,6 +20,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
+import { Effect, FileSystem, Layer, Path, Sink, Stdio, Terminal } from "effect";
+import { Command } from "effect/unstable/cli";
+import { ChildProcessSpawner } from "effect/unstable/process";
+import { fixtureRoot } from "./fixture.testlib";
 import type { UnixSocketListener } from "@kolu/surface/unix-socket";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { EXIT } from "./exit";
@@ -63,7 +67,10 @@ interface Run {
  *  deliberately points elsewhere. */
 function run(
   args: readonly string[],
-  opts?: { readonly stdin?: string; readonly socket?: string },
+  opts?: {
+    readonly stdin?: string;
+    readonly socket?: string;
+  },
 ): Promise<Run> {
   const argv = [...args, "--socket", opts?.socket ?? socketPath];
   return new Promise<Run>((resolve, reject) => {
@@ -122,6 +129,78 @@ function follow(args: readonly string[]): Promise<Run> {
         stderr,
       }),
     );
+  });
+}
+
+/** Run a streaming read with its stdout piped into `head -1` — a reader that
+ *  takes one line and hangs up, which is the ordinary shape of `… | head` and
+ *  the one an EPIPE arrives from. The exit code is the CLI's, not `head`'s. */
+function pipeThroughHead(args: readonly string[]): Promise<Run> {
+  return new Promise<Run>((resolve, reject) => {
+    // `bash` and `pipefail`, deliberately: a plain pipeline reports the LAST
+    // stage's status, which is `head`'s 0 whatever the CLI did — so the case
+    // would pass without measuring anything. With `pipefail` the status is the
+    // CLI's whenever the CLI is the one that failed, which is exactly the
+    // discrimination this case exists to make.
+    const child = spawn(
+      "bash",
+      [
+        "-c",
+        `set -o pipefail; "$0" "$@" --socket "${socketPath}" | head -1`,
+        TSX,
+        HOST,
+        ...args,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    // `sh`'s status is the LAST stage's (`head`), which always succeeds — so the
+    // CLI's own code is read out of `${PIPESTATUS}`-free POSIX sh by asking the
+    // pipeline to report it: the command below re-runs nothing, it simply keeps
+    // the CLI in the foreground of its own subshell.
+    child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+  });
+}
+
+/** Build a command tree with `fixtureCommands`' options overridden, and report
+ *  whether the BUILD refused. A malformed tree is an author's mistake with no
+ *  CLI to read the refusal off, so the proof is a process that fails to start. */
+function buildTree(override: string): Promise<Run> {
+  const script = `
+    import { surfaceCommands } from "./src/commands.ts";
+    import { EXPOSE, endpointFlags, resolveFixture, surface, VERBS } from "./src/fixture.testlib.ts";
+    surfaceCommands({
+      surface,
+      expose: EXPOSE,
+      verbs: VERBS,
+      endpoint: { flags: endpointFlags, resolve: resolveFixture },
+      info: { name: "demo" },
+      ${override}
+    });
+  `;
+  return new Promise<Run>((resolve, reject) => {
+    const child = spawn(TSX, ["--eval", script], {
+      cwd: join(HERE, ".."),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (c) => {
+      stdout += c;
+    });
+    child.stderr.setEncoding("utf8").on("data", (c) => {
+      stderr += c;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
   });
 }
 
@@ -373,5 +452,211 @@ describe("the exit matrix", () => {
   it("130 — Ctrl-C during a --follow", async () => {
     const followed = await follow(["get", "load", "--follow"]);
     expect(followed.code).toBe(EXIT.interrupted);
+  });
+});
+
+/**
+ * The cases below each pin a defect the architecture review found in the first
+ * cut of this package — every one of them measured against this same fixture
+ * before it was fixed. They are grouped by what the defect COST a user rather
+ * than by which module it lived in, because that is the thing a regression here
+ * would take away again.
+ */
+describe("the whole-input escape hatch is reachable on every verb", () => {
+  it("takes --json on a verb whose input declares a REQUIRED field", async () => {
+    // The parser used to demand the field flags first — a required field became
+    // a required argv param, enforced before the assembler could see that
+    // `--json` was the answer. So the documented alternative was a dead branch
+    // on every verb with a required field, which is most of them.
+    const refused = await run(["proc_kill", "--json", '{"pid":4241}']);
+    expect(refused.code).toBe(EXIT.failed);
+    expect(JSON.parse(refused.stderr)).toMatchObject({
+      _tag: "NoSuchPid",
+      pid: 4241,
+    });
+  });
+
+  it("takes --json - on the same verb, reading the payload from stdin", async () => {
+    // Proven by the verb's own refusal carrying the pid back out: nothing else
+    // in the pipeline could have invented 4242, so the stdin payload reached the
+    // far side intact — and the assertion does not care what earlier cases left
+    // in the table.
+    const refused = await run(["proc_kill", "--json", "-"], {
+      stdin: JSON.stringify({ pid: 4242 }),
+    });
+    expect(refused.code).toBe(EXIT.failed);
+    expect(JSON.parse(refused.stderr)).toMatchObject({
+      _tag: "NoSuchPid",
+      pid: 4242,
+    });
+  });
+
+  it("names the missing required field itself when neither is given", async () => {
+    // Requiredness moved from the parser to the assembler, so the refusal has to
+    // be this face's own — with this face's own exit code, and naming the
+    // alternative the parser could not know about.
+    const bare = await run(["proc_kill"], { socket: deadSocket });
+    expect(bare.code).toBe(EXIT.usage);
+    expect(bare.stderr).toContain("pid");
+    expect(bare.stderr).toContain("--json");
+  });
+
+  it("still says which fields collide when --json is combined with them", async () => {
+    const both = await run(["proc_kill", "7", "--json", '{"pid":7}'], {
+      socket: deadSocket,
+    });
+    expect(both.code).toBe(EXIT.usage);
+    // Once each — a positional used to be counted twice, as a position and as
+    // a field.
+    expect(both.stderr.match(/"pid"/g)).toHaveLength(1);
+  });
+
+  it("is not refused because of a field the caller never typed", async () => {
+    // An optional array flag parsed to `[]` rather than to absent, so every
+    // `--json` on this verb was refused as "combined with because" — citing a
+    // flag nobody passed — and every call sent `because: []` where the schema's
+    // `optionalKey` means the key is not there at all.
+    const answered = await run(["proc_kill", "--json", '{"pid":4243}']);
+    expect(answered.code).not.toBe(EXIT.usage);
+    expect(answered.stderr).not.toContain("because");
+  });
+
+  it("reports an EMPTY stdin as the usage error it is, on this face's code", async () => {
+    // The payload arrives through the `Stdio` service the handler already
+    // requires, not off fd 0 synchronously inside the assembly — so a read that
+    // produces nothing is answered, on exit 2, rather than swallowed.
+    const empty = await run(["proc_kill", "--json", "-"], {
+      socket: deadSocket,
+      stdin: "",
+    });
+    expect(empty.code).toBe(EXIT.usage);
+    expect(empty.stderr).toMatch(/--json|stdin/);
+  });
+});
+
+describe("reads that used to hang, fail, or lie", () => {
+  it("refuses a one-shot read of an EVENT instead of hanging forever", async () => {
+    // An event has occurrences, not a current value, so its handler yields
+    // nothing until one happens: `get autosave x` waited for ever, printing
+    // nothing on either channel — the worst answer a command can give.
+    const nope = await run(["get", "autosave", "doc-1"]);
+    expect(nope.code).toBe(EXIT.usage);
+    expect(nope.stderr).toContain("--follow");
+  });
+
+  it("reads an item of a collection that declares no `keys` verb", async () => {
+    // The bounded item read was handed a membership stream unconditionally, so a
+    // collection without `keys` failed a read of an item that is right there.
+    const mount = await run(["get", "mounts", "root"]);
+    expect(mount.code).toBe(EXIT.ok);
+    expect(JSON.parse(mount.stdout)).toBe("/");
+  });
+
+  it("does not offer `keys` for a collection that has no key set", async () => {
+    const help = await run(["keys", "--help"], { socket: deadSocket });
+    expect(help.stdout).toContain("processes");
+    expect(help.stdout).not.toContain("mounts");
+  });
+
+  it("reads a stream whose input is a NUMBER, not just a string", async () => {
+    // The `[arg]` token was forwarded as raw text to a member ref that decodes
+    // eagerly, so any non-string input threw at the call site — a defect,
+    // outside every arm of the exit matrix.
+    const tick = await run(["get", "ticks", "5"]);
+    expect(tick.code).toBe(EXIT.ok);
+    expect(JSON.parse(tick.stdout)).toEqual({ at: 0, every: 5 });
+  });
+
+  it("exits 0 when the reader hangs up mid-stream", async () => {
+    // `… | head -1` closes the pipe under a live subscription: the reader got
+    // what it asked for. The EPIPE arm was tested against the wrong shape (a
+    // `Cause`, which carries no `code`), so it never matched and every hung-up
+    // reader died instead.
+    const piped = await pipeThroughHead(["get", "ticks", "5", "--follow"]);
+    expect(piped.code).toBe(EXIT.ok);
+    expect(piped.stdout.trim().split("\n")).toHaveLength(1);
+  });
+});
+
+describe("the projection refuses a malformed command tree at BUILD time", () => {
+  it("refuses an `annotate` key that names no verb", async () => {
+    const built = await buildTree(`
+      annotate: { proc_kill: { positional: ["pid"] }, no_such_verb: {} },
+    `);
+    expect(built.code).not.toBe(0);
+    expect(built.stderr).toContain("no_such_verb");
+  });
+
+  it("refuses a bespoke verb that would shadow a reader command", async () => {
+    const built = await buildTree(`
+      verbs: { ...VERBS, get: VERBS.echo },
+    `);
+    expect(built.code).not.toBe(0);
+    expect(built.stderr).toContain('"get"');
+  });
+});
+
+describe("a verb's renderer, on a terminal", () => {
+  /** The one case a spawned process cannot cheaply make: stdout attached to a
+   *  TTY. Effect CLI's own `Stdio` service carries that fact, so the command
+   *  runs IN PROCESS against the same live socket, with the terminal answer
+   *  supplied rather than faked at the descriptor. */
+  const runWithStdout = (
+    argv: readonly string[],
+    isTerminal: boolean,
+  ): Promise<string> =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const written: string[] = [];
+        // A named function, not a literal: `Sink.forEach` is Effect's sink
+        // combinator and its callback MUST return the effect, which the lint rule
+        // for `Array.prototype.forEach` reads as a mistake when it sees a literal.
+        const capture = (chunk: string | Uint8Array): Effect.Effect<void> =>
+          Effect.sync(() => {
+            written.push(
+              typeof chunk === "string"
+                ? chunk
+                : new TextDecoder().decode(chunk),
+            );
+          });
+        const layer = Layer.mergeAll(
+          FileSystem.layerNoop({}),
+          Path.layer,
+          Stdio.layerTest({
+            args: Effect.succeed([...argv]),
+            stdoutIsTerminal: Effect.succeed(isTerminal),
+            stdout: () => Sink.forEach(capture),
+          }),
+          Layer.succeed(
+            Terminal.Terminal,
+            Terminal.make({
+              columns: Effect.succeed(80),
+              rows: Effect.succeed(24),
+              readInput: Effect.die("unused"),
+              readLine: Effect.die("unused"),
+              display: () => Effect.void,
+            }),
+          ),
+          Layer.succeed(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make(() => Effect.die("unused")),
+          ),
+        );
+        yield* Command.run(fixtureRoot(), { version: "0.0.0" }).pipe(
+          Effect.provide(layer),
+        );
+        return written.join("");
+      }),
+    );
+
+  it("renders text on a TTY and JSON through a pipe — from one run edge", async () => {
+    const argv = ["proc_count", "--socket", socketPath];
+    const onTty = await runWithStdout(argv, true);
+    // The fixture's renderer answers in a shape the JSON never has, so this
+    // cannot pass by accident against the other branch.
+    expect(onTty).toMatch(/^processes: \d+\n$/);
+
+    const piped = await runWithStdout(argv, false);
+    expect(JSON.parse(piped)).toMatchObject({ n: expect.any(Number) });
   });
 });

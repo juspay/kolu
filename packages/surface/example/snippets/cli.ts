@@ -22,9 +22,14 @@ import { Effect } from "effect";
 import { surface } from "./surface";
 
 // #region endpoint
-// WHERE to dial is the app's policy, so the app owns all three parts: the flags
-// a user spells it with, the sentence that names it when the dial fails, and the
-// dial itself. Nothing in `surface-cli` knows what a socket is.
+// WHERE to dial is the app's policy, so the app owns the resolution: the flags a
+// user spells it with, and one step that reads them. Nothing in `surface-cli`
+// knows what a socket is.
+//
+// ONE step, answering with the endpoint's NAME beside the thunk that opens it —
+// the name is what a FAILED dial has to report, which is exactly when there is
+// no connection left to ask. A separate `describe` beside a `connect` would walk
+// the resolution order twice and could name one endpoint while dialling another.
 const endpointFlags = {
   socket: Flag.string("socket").pipe(
     Flag.withDefault(
@@ -33,22 +38,22 @@ const endpointFlags = {
   ),
 };
 
-const describe = (values: { readonly socket: string }): string => values.socket;
-
-const connect = async (values: {
-  readonly socket: string;
-}): Promise<SurfaceCliConnection> => {
-  const link = await unixSocketLink({
-    group: surface.group,
-    socketPath: values.socket,
-  });
-  return {
-    client: buildSurfaceFace(surface, link.dispatch) as SurfaceClientCallable,
-    // Required, not optional: a CLI dials, does one thing and exits, and the one
-    // failure that costs a user something is a socket left open in a shell loop.
-    dispose: () => link.dispose(),
-  };
-};
+const resolve = (values: { readonly socket: string }) => ({
+  where: values.socket,
+  open: async (): Promise<SurfaceCliConnection> => {
+    const link = await unixSocketLink({
+      group: surface.group,
+      socketPath: values.socket,
+    });
+    return {
+      client: buildSurfaceFace(surface, link.dispatch) as SurfaceClientCallable,
+      // Required, not optional: a CLI dials, does one thing and exits, and the
+      // one failure that costs a user something is a socket left open in a
+      // shell loop.
+      dispose: () => link.dispose(),
+    };
+  },
+});
 // #endregion endpoint
 
 // #region verbs
@@ -74,11 +79,11 @@ const commands = surfaceCommands({
     "proc.kill": "tool",
   },
   verbs,
-  endpoint: { flags: endpointFlags, describe, connect },
+  endpoint: { flags: endpointFlags, resolve },
   // CLI-only ergonomics, BESIDE the verb table rather than inside it: `pid`
   // becomes an argv position, so it is `proc_kill 4321`, not `--pid 4321`.
   annotate: { proc_kill: { positional: ["pid"] } },
-  info: { name: "example", version: "1.0.0" },
+  info: { name: "example" },
 });
 // #endregion project
 

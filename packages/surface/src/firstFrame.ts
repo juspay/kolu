@@ -88,6 +88,19 @@ export type CollectionItemFrame<T> =
   | { readonly present: true; readonly value: T }
   | { readonly present: false; readonly reason: "absent" | "deadline" };
 
+/** The deadline a one-shot collection-item read is bounded by when its caller
+ *  has no reason of its own to pick one.
+ *
+ *  It lives HERE, beside the reader it bounds, because every projecting face
+ *  needs the same number for the same reason and none of them knows anything
+ *  the others don't: "how long may a local read wait before it must say it
+ *  cannot tell" is a property of the held-open-on-absent semantic this module
+ *  guards, not of MCP or of argv. Both faces spelled it `5_000` independently
+ *  before this constant existed. It stays a PARAMETER on
+ *  {@link firstFrameOfCollectionItem} for a caller that genuinely has a
+ *  different budget — a request already carrying a shorter deadline of its own. */
+export const ITEM_READ_DEADLINE_MS = 5_000;
+
 /** What one arm of the bounded race settles with.
  *
  *  Every arm SUCCEEDS with one of these — including the failure arm. That is

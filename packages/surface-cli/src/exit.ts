@@ -24,8 +24,9 @@
  * reassembles later, plus `Runtime.errorExitCode` — the marker
  * `NodeRuntime.runMain`'s own teardown reads off the squashed cause. So there is
  * no exit-code ACCESSOR in this module and no exit-code table at the host's run
- * edge: the host writes the line ({@link reportOf}) and re-fails, and the
- * runtime reads the code straight off the error. Neither the line nor the code
+ * edge: the host hands the failure to {@link runEdge}, writes the line it
+ * gets back and re-fails, and the runtime reads the code straight off the
+ * error. Neither the line nor the code
  * can drift from the arm that means them, and no command calls `process.exit`.
  *
  * ## 130 is the one arm that is not a value here
@@ -45,7 +46,13 @@
  * this package holds.
  */
 
+import { messageOf } from "@kolu/surface/verbs";
 import { Data, Runtime } from "effect";
+
+// "What did this failure SAY" is the framework's one derivation
+// (`@kolu/surface/verbs`), shared with the MCP face — a second copy here drifted
+// from it within the same change that introduced it.
+export { messageOf };
 
 /** The published matrix, as data. Exported so a consumer (a host's docs, a
  *  driving script's test) can name the codes rather than re-spell the integers,
@@ -72,7 +79,7 @@ export const EXIT = {
  *  is DATA, and `Runtime.errorExitCode` is a getter over it.
  *
  *  `errorReported: false` says "this failure has already been reported to the
- *  user": the host prints {@link reportOf}'s one line and Effect's pretty cause
+ *  user": the host prints {@link runEdge}'s one line and Effect's pretty cause
  *  dump on top of it would be noise, not information. */
 export class SurfaceCliFailure extends Data.TaggedError("SurfaceCliFailure")<{
   /** Exactly what to write to stderr, newline included. */
@@ -129,38 +136,57 @@ export const refused = (payload: unknown): SurfaceCliFailure =>
     code: EXIT.failed,
   });
 
-/** The best sentence an arbitrary thrown value has in it — the one place this
- *  package decides what an unknown failure SAYS.
+/** The brand every `effect/unstable/cli` error carries.
  *
- *  `e instanceof Error ? e.message : String(e)` is ALMOST right and wrong for
- *  the two shapes Effect actually delivers: a `Data.TaggedError` is an `Error`
- *  whose `message` is `""` (its identity lives in `_tag`), and a failure
- *  declared as a plain object is not an `Error` at all, so `String(e)` renders
- *  it `[object Object]`. Both are exactly the failures worth reading. */
-export function messageOf(error: unknown): string {
-  if (error instanceof Error) {
-    if (error.message !== "") return error.message;
-    const tag = (error as { _tag?: unknown })._tag;
-    return typeof tag === "string" && tag !== "" ? tag : error.name;
-  }
-  if (typeof error === "object" && error !== null) {
-    try {
-      return JSON.stringify(error) ?? String(error);
-    } catch {
-      return `${error.constructor?.name || "Object"} { ${Object.keys(error).join(", ")} }`;
-    }
-  }
-  return String(error);
-}
+ *  Matched on the BRAND rather than on `_tag`: the library sets `_tag` to the
+ *  short name (`ShowHelp`, `DuplicateOption`, …) and stamps this key alongside
+ *  it, so a `_tag.startsWith("~effect/cli/")` test — the obvious-looking one —
+ *  silently matches nothing and double-prints every diagnostic. */
+const CLI_ERROR_BRAND = "~effect/cli/CliError";
 
-/** What a host's run edge writes for a failed program.
+/** Has the CLI LIBRARY already put this failure's text on screen? A typo'd
+ *  subcommand, a rejected flag, a value an enum does not admit — the library
+ *  renders the reason and the usage itself, so re-reporting it would print the
+ *  diagnostic twice. */
+const alreadyRendered = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && CLI_ERROR_BRAND in error;
+
+/** What a host's RUN EDGE should do with a failed program: write `stderr` (when
+ *  it is non-empty), then fail with `failure`, whose exit-code marker the
+ *  runtime's own teardown reads.
  *
- *  An arm of the contract writes its own exact text. Anything ELSE — a defect,
- *  a raw rejection from a dependency — is still reported, in the same one-line
- *  shape: a failure that printed nothing would be the silent degradation this
- *  repo treats as a defect. */
-export function reportOf(binary: string, error: unknown): string {
+ *  This exists so the exit matrix above is TRUE of a real binary rather than
+ *  true of the failures this package happens to raise. Two of the five arms are
+ *  not this package's to raise at all:
+ *
+ *    - a refusal from the CLI LIBRARY — a rejected flag, an unknown subcommand,
+ *      a value outside a choice — is a usage error by every reading of the
+ *      matrix, but it arrives already rendered and carrying no code of ours.
+ *      Left alone it takes whatever the host's own catch-all does with it,
+ *      which is how "a usage error is exit 2" quietly became "sometimes 2,
+ *      sometimes whatever". Here it becomes {@link EXIT.usage}, printing
+ *      nothing more, because the library already printed it.
+ *    - `--help` and `--version` are ACTION flags in the pinned `effect`: they
+ *      print and return SUCCESS, so they never reach this function. That is the
+ *      library's choice rather than its contract, which is why the arm above is
+ *      written as "a rendered failure is a usage error" and not as "every
+ *      CliError is one" — a rendered SUCCESS is not a failure and does not
+ *      arrive.
+ *
+ *  Everything else keeps its own verdict: a {@link SurfaceCliFailure} carries
+ *  the exact line it means and the code that goes with it, and an arbitrary
+ *  defect is reported in the same one-line shape rather than vanishing. */
+export function runEdge(
+  binary: string,
+  error: unknown,
+): { readonly stderr: string; readonly failure: unknown } {
   const carried = (error as { readonly stderr?: unknown })?.stderr;
-  if (typeof carried === "string") return carried;
-  return line(binary, messageOf(error));
+  if (typeof carried === "string") return { stderr: carried, failure: error };
+  if (alreadyRendered(error)) {
+    return {
+      stderr: "",
+      failure: new SurfaceCliFailure({ stderr: "", code: EXIT.usage }),
+    };
+  }
+  return { stderr: line(binary, messageOf(error)), failure: error };
 }
