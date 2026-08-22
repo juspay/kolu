@@ -118,6 +118,22 @@ export const unreachable = (
     code: EXIT.unreachable,
   });
 
+/** There is no endpoint to dial (exit 3) — the host's own resolution came up
+ *  empty, or threw.
+ *
+ *  The SAME arm as a failed dial, deliberately: both mean there is no surface to
+ *  reach, and the one thing a user does about either is point the binary
+ *  somewhere else. It is separate from {@link unreachable} only because there is
+ *  no `where` to name — that is precisely what resolution failed to produce. */
+export const unresolvable = (
+  binary: string,
+  detail: string,
+): SurfaceCliFailure =>
+  new SurfaceCliFailure({
+    stderr: line(binary, `no endpoint to dial — ${detail}`),
+    code: EXIT.unreachable,
+  });
+
 /** The verb's DECLARED error (exit 1) — its refusal, as JSON on stderr.
  *
  *  JSON and not prose, and on stderr and not stdout: a refusal is machine-

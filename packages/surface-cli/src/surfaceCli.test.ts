@@ -70,12 +70,26 @@ function run(
   opts?: {
     readonly stdin?: string;
     readonly socket?: string;
+    /** Which shape of host to spawn — see `host.fixture.ts`. The default is the
+     *  one every other case drives: the endpoint flag on each generated verb. */
+    readonly fixture?: string;
+    /** Put the endpoint flag FIRST, before the verb name — the parse a host
+     *  buys by declaring it on its own parent, and the one a flag declared on
+     *  the subcommand cannot answer. */
+    readonly flagFirst?: boolean;
   },
 ): Promise<Run> {
-  const argv = [...args, "--socket", opts?.socket ?? socketPath];
+  const endpoint = ["--socket", opts?.socket ?? socketPath];
+  const argv = opts?.flagFirst
+    ? [...endpoint, ...args]
+    : [...args, ...endpoint];
   return new Promise<Run>((resolve, reject) => {
     const child = spawn(TSX, [HOST, ...argv], {
       stdio: ["pipe", "pipe", "pipe"],
+      env:
+        opts?.fixture === undefined
+          ? process.env
+          : { ...process.env, SURFACE_CLI_FIXTURE: opts.fixture },
     });
     let stdout = "";
     let stderr = "";
@@ -418,6 +432,59 @@ describe("reading members", () => {
     expect(nope.code).toBe(EXIT.usage);
     expect(nope.stderr).toContain("not-a-pid");
   });
+});
+
+describe("where the endpoint flags live is the HOST's decision", () => {
+  it("dials the same surface when the host declares the flag on its own PARENT", async () => {
+    // The seam used to hard-code WHERE the flags live — on every generated
+    // command — which is a decision about the host's own argv grammar. A host
+    // that also declared them on the parent (`Command.withSharedFlags`, which
+    // is what `kolu-cli` does, deliberately) collided outright and failed to
+    // start; so this mounting was unreachable, and with it the parse it buys.
+    const before = await run(["proc_count"], {
+      fixture: "parent-flags",
+      flagFirst: true,
+    });
+    expect(before.code).toBe(EXIT.ok);
+    expect(JSON.parse(before.stdout)).toMatchObject({ n: expect.any(Number) });
+  });
+
+  it("still parses the flag AFTER the verb, so neither spelling is lost", async () => {
+    const after = await run(["proc_count"], { fixture: "parent-flags" });
+    expect(after.code).toBe(EXIT.ok);
+    expect(JSON.parse(after.stdout)).toMatchObject({ n: expect.any(Number) });
+  });
+
+  it("reads a member through a parent-flag mounting too — the projection is unchanged", async () => {
+    const load = await run(["get", "load"], {
+      fixture: "parent-flags",
+      flagFirst: true,
+    });
+    expect(load.code).toBe(EXIT.ok);
+    expect(JSON.parse(load.stdout)).toEqual({ one: 0, five: 0, fifteen: 0 });
+  });
+});
+
+describe("a resolution that refuses reaches the exit matrix", () => {
+  // `resolve` is an Effect precisely so an app whose order can come up empty has
+  // somewhere to say so. Both ways of saying it land on 3 — the same arm as a
+  // failed dial, because both mean there is no surface to reach.
+  for (const [how, fixture] of [
+    ["as a typed failure", "resolve-fails"],
+    ["as a bare throw out of the seam", "resolve-throws"],
+  ] as const) {
+    it(`is exit 3, naming the reason, ${how}`, async () => {
+      // The throw arm is the one that used to escape: a synchronous throw inside
+      // a generator body is a DEFECT, so no `Effect.catch` saw it, `runEdge`
+      // never ran, and the process exited on the runtime's default — colliding
+      // with exit 1, which the matrix reserves for "the verb refused".
+      const nope = await run(["proc_count"], { fixture });
+      expect(nope.code).toBe(EXIT.unreachable);
+      expect(nope.stderr).toContain("demo:");
+      expect(nope.stderr).toContain("$DEMO_SOCKET");
+      expect(nope.stdout).toBe("");
+    });
+  }
 });
 
 describe("the exit matrix", () => {

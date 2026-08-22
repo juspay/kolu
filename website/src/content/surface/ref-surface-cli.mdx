@@ -31,7 +31,7 @@ nothing, reads no argv, and runs no program.
 | `surface` | the `Surface<S>` being projected (`expose` is checked against its `spec` at build) |
 | `expose` | the default-deny allowlist — the same [`ExposeMap`](/surface/ref-surface#per-face-expose-kolusurfaceexpose) every other face takes |
 | `verbs?` | hand-authored [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs)s, by name — the same record `serveSurfaceAsMcp` takes as `tools` |
-| `endpoint` | the transport seam: `{ flags, describe, connect }` — see below |
+| `endpoint` | the transport seam: `{ flags?, resolve }` — see below |
 | `annotate?` | CLI-only ergonomics by verb name: `{ positional?, render? }` |
 | `info` | the **binary's** identity: `name`, which fronts every diagnostic, because a user reads `olai: no surface at …` and never the package's name |
 
@@ -45,20 +45,32 @@ with nothing holding them together.
 
 | Field | Meaning |
 | --- | --- |
-| `flags` | the flags every generated command carries (`--socket`, `--url`, `--host`) |
-| `resolve(values)` | → `{ where, open }`. `where` names the endpoint in the app's own words; `open()` dials it, returning `{ client, dispose }`. `open` rejecting is the honest answer for "nothing is serving there", and the rejection's own words reach the user beside `where` |
+| `flags?` | the flags every generated command carries (`--socket`, `--url`, `--host`). **Optional**: omit it when your binary declares them on its own parent instead — see below |
+| `resolve(values)` | → `Effect<{ where, open }>`. `values` is **typed from `flags`**, so renaming a flag is a compile error here rather than an `undefined` your app dials. `where` names the endpoint in the app's own words; `open()` dials it, returning `{ client, dispose }`. `open` rejecting is the honest answer for "nothing is serving there", and the rejection's own words reach the user beside `where` |
 
-`client` is a [`SurfaceClientCallable`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) —
+`client` is a [`SurfaceClientCallable`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient) —
 what `buildSurfaceFace(surface, link.dispatch)` mints. `dispose` is
 **required**: a CLI dials, does one thing and exits, and the failure that costs a
 user something is a socket left open in a shell loop. An in-process host passes
 `() => {}`. A `dispose` that rejects is ignored rather than allowed to replace
 the command's own verdict.
 
-<Aside type="caution" title="The endpoint flags ride each verb">
-  They are merged into every generated command's own config, not onto the
-  parent — this function does not own the parent, and a host that added them
-  there as well would collide outright (`DuplicateOption`) and fail to start.
+`resolve` returns an **Effect**, which is what makes both of the next two
+things possible. A resolution order that can come up empty ("no `$APP_SOCKET`,
+no runtime dir, nothing to dial") **fails** it, and that failure — or a throw out
+of it — is exit `3`, the same arm as a failed dial, rather than a defect exiting
+on the runtime's default. And a host whose flags sit on its own parent reads them
+from the parent's context here.
+
+<Aside type="note" title="Where the endpoint flags live is YOUR decision">
+  Declare them in `endpoint.flags` and they are merged into every generated
+  command's own config, so `app proc_kill 4321 --socket /run/x.sock` parses.
+  Declare them on your own parent instead (`Command.withSharedFlags`, so
+  `app --socket X proc_kill 4321` parses too — a flag declared on a subcommand
+  only parses *after* that subcommand's name), **omit** `flags` here, and read
+  them back in `resolve`: this face then adds none and nothing collides. What it
+  must not be is both at once — Effect CLI refuses a parent/child flag of the
+  same name outright (`DuplicateOption`).
 </Aside>
 
 ## The projection
@@ -164,7 +176,7 @@ name the codes rather than re-spell the integers.
 | `0` | the verb did what it was asked |
 | `1` | the verb's **declared** error — its refusal, as JSON on stderr |
 | `2` | a usage error: the request never left the process |
-| `3` | nothing is serving the endpoint, or the transport died mid-call — including a read whose member opened and closed without its snapshot |
+| `3` | nothing is serving the endpoint: the dial failed, the transport died mid-call, a read whose member opened and closed without its snapshot — or your own `resolve` refused, because "nothing to dial" is the same answer one step earlier |
 | `130` | interrupted (Ctrl-C) |
 
 `1` and `2` are the split that matters: a refusal is an answer from the far

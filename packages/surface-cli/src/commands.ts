@@ -23,14 +23,17 @@
  * an in-flight call for free, rather than through a signal handler this package
  * would otherwise have to install.
  *
- * ## The endpoint flags ride each VERB, not the parent
+ * ## WHERE the endpoint flags live is the HOST's decision
  *
- * `endpoint.flags` are merged into every generated command's own config, so
- * `surface capture "…" --socket /run/x.sock` parses. They deliberately do NOT go
- * on the parent as shared flags: this function does not own the parent (the host
- * makes it), and a host that added them there as well would collide outright —
- * Effect CLI refuses a parent/child flag of the same name with `DuplicateOption`.
- * One home, and it is the one this function can guarantee.
+ * Declare them in `endpoint.flags` and they are merged into every generated
+ * command's own config, so `surface capture "…" --socket /run/x.sock` parses.
+ * Declare them on your own parent instead (`Command.withSharedFlags`, which is
+ * what `kolu-cli` does so `kolu --host pu1 create` and `kolu create --host pu1`
+ * both parse), OMIT `flags` here, and read them back in `resolve` — this face
+ * then adds none and nothing collides. Both are the host's own argv grammar,
+ * which is why this seam expresses both rather than picking one: a projection
+ * that hard-coded where the flags sit would make one binary's verbs answer to a
+ * different grammar than its native ones.
  *
  * ## What is projected
  *
@@ -91,9 +94,16 @@ import {
   toInputSchema,
   toolName,
 } from "@kolu/surface/verbs";
-import { Effect, Option, Schema, Stdio, Stream } from "effect";
+import { Cause, Effect, Option, Schema, Stdio, Stream } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
-import { EXIT, refused, SurfaceCliFailure, unreachable, usage } from "./exit";
+import {
+  EXIT,
+  refused,
+  SurfaceCliFailure,
+  unreachable,
+  unresolvable,
+  usage,
+} from "./exit";
 import { flagsOf, type InputProjection, SurfaceCliBuildError } from "./flags";
 import { data, frame, json, out } from "./render";
 
@@ -132,7 +142,11 @@ export interface VerbAnnotation {
   readonly render?: (output: unknown) => string;
 }
 
-export interface SurfaceCliOptions<S extends SurfaceSpec> {
+export interface SurfaceCliOptions<
+  S extends SurfaceSpec,
+  F extends FlagRecord = FlagRecord,
+  R = never,
+> {
   readonly surface: Surface<S>;
   /** Default-deny allowlist — the SAME map shape `serveSurfaceAsMcp` and the
    *  wire faces take (`@kolu/surface/expose`). */
@@ -141,7 +155,7 @@ export interface SurfaceCliOptions<S extends SurfaceSpec> {
    *  `tools`, so the two faces offer one table under one set of names. */
   readonly verbs?: Record<string, SurfaceVerb>;
   /** The transport seam: app-owned, framework-blind. */
-  readonly endpoint: EndpointSeam;
+  readonly endpoint: EndpointSeam<F, R>;
   /** CLI-only ergonomics, by verb name. */
   readonly annotate?: Record<string, VerbAnnotation>;
   /** The BINARY's identity — its `name`, which fronts every diagnostic this
@@ -155,6 +169,17 @@ export interface SurfaceCliOptions<S extends SurfaceSpec> {
   readonly info: { readonly name: string };
 }
 
+/** A host's flag table, keyed as `Command.make`'s config wants it. */
+// biome-ignore lint/suspicious/noExplicitAny: the host's flag types are the host's.
+type FlagRecord = Record<string, Flag.Flag<any>>;
+
+/** The parsed value one flag produces. The pinned `effect/unstable/cli` ships no
+ *  extractor of its own (`Flag<A>` is the whole public shape), so it is spelled
+ *  here — once — rather than at each host. */
+type FlagValues<F extends FlagRecord> = {
+  readonly [K in keyof F]: F[K] extends Flag.Flag<infer A> ? A : never;
+};
+
 /** Where to dial, and how — the one seam this adapter is blind behind.
  *
  *  ONE step, not two, and the shape is the point: `resolve` reads the flags once
@@ -166,14 +191,38 @@ export interface SurfaceCliOptions<S extends SurfaceSpec> {
  *  have to walk it twice and could name one endpoint while dialling another.
  *
  *  The app owns the resolution, because that order is its policy and nothing
- *  here could guess it. */
-export interface EndpointSeam {
-  /** Flags every generated command carries — `--socket`, `--url`, `--host`. */
-  // biome-ignore lint/suspicious/noExplicitAny: the host's flag types are the host's.
-  readonly flags: Record<string, Flag.Flag<any>>;
-  /** Read the flags, decide WHERE, and hand back both halves of the answer. */
-  // biome-ignore lint/suspicious/noExplicitAny: the host's flag types are the host's.
-  readonly resolve: (values: any) => ResolvedEndpoint;
+ *  here could guess it. Generic over its OWN flag record so the two halves are
+ *  one type: `resolve`'s parameter is DERIVED from `flags`, so renaming a flag
+ *  is a compile error here rather than an `undefined` the app dials as the
+ *  string `"undefined"`. Inference from the `endpoint: { flags, resolve }`
+ *  literal supplies `F` at every call site — no host writes it, and `R` — what
+ *  `resolve` needs to run — is inferred the same way and travels out on the
+ *  commands, so a host that reads its own parent context is asked for it at ITS
+ *  run edge rather than here. */
+export interface EndpointSeam<F extends FlagRecord = FlagRecord, R = never> {
+  /** Flags every generated command carries — `--socket`, `--url`, `--host`.
+   *
+   *  OMIT it (or pass `{}`) when the host declares them on its OWN parent with
+   *  `Command.withSharedFlags` and reads them back in `resolve`: this face then
+   *  adds none, and nothing collides. Where the flags live is the host's
+   *  decision about its own argv grammar, not this projection's. */
+  readonly flags?: F;
+  /** Read the flags, decide WHERE, and hand back both halves of the answer.
+   *
+   *  An EFFECT, for two reasons that are the same reason: a host whose flags sit
+   *  on the PARENT reads them out of the parent's context (`kolu-cli`'s
+   *  `Effect.flatMap(koluRoot, endpointOf)`), and a host whose resolution order
+   *  can come up empty ("no `$APP_SOCKET`, no runtime dir, nothing to dial")
+   *  needs somewhere to SAY so. A host with everything in `values` and nothing
+   *  to refuse writes `Effect.succeed({ … })`.
+   *
+   *  A failure — or a throw — is exit 3, the same arm as a failed dial: there is
+   *  no surface to reach. It is caught here rather than left as a defect on the
+   *  runtime's default, because a path out of the process that never reaches the
+   *  matrix is a matrix that is not true of the binary. */
+  readonly resolve: (
+    values: FlagValues<F>,
+  ) => Effect.Effect<ResolvedEndpoint, unknown, R>;
 }
 
 /** One resolved endpoint: what to call it, and how to open it.
@@ -195,22 +244,29 @@ const READER_NAMES = ["get", "keys", "watch", "list"] as const;
 
 /** A runtime-assembled command. The tree is built from a spec walk, so its type
  *  parameters carry nothing a caller could trust — the host mounts the values
- *  and `Command.run` types the whole. */
-export type ProjectedCommand = Command.Command<
+ *  and `Command.run` types the whole.
+ *
+ *  The REQUIREMENT channel is a PARAMETER, not a constant: a host whose
+ *  `resolve` reads its own parent context (`CommandContext<"kolu">`) produces
+ *  handlers requiring it, and a channel pinned to what this face needs would
+ *  refuse the very idiom the seam exists to allow. It defaults to `Stdio.Stdio`
+ *  — what this face itself needs — so a host that resolves from `values` alone
+ *  reads exactly what it read before. */
+export type ProjectedCommand<R = Stdio.Stdio> = Command.Command<
   string,
   // biome-ignore lint/suspicious/noExplicitAny: the parsed-input type of a runtime-built config.
   any,
   // biome-ignore lint/suspicious/noExplicitAny: the parent-context type the host decides.
   any,
   unknown,
-  Stdio.Stdio
+  R
 >;
 
 /** Every command this face mounts, in the order a `--help` should list them:
  *  the verbs (alphabetical), then the readers, then `list`. */
-export function surfaceCommands<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
-): ReadonlyArray<ProjectedCommand> {
+export function surfaceCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
+): ReadonlyArray<ProjectedCommand<Stdio.Stdio | R>> {
   const entries = classifyExpose(opts.surface.spec, opts.expose, "surface-cli");
   const verbs = callableVerbs(opts, entries);
   return [
@@ -245,8 +301,8 @@ interface CallableVerb {
   ) => Effect.Effect<unknown, unknown>;
 }
 
-function callableVerbs<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
+function callableVerbs<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
   entries: readonly ExposeEntry[],
 ): CallableVerb[] {
   const annotate = opts.annotate ?? {};
@@ -354,10 +410,10 @@ function build<T>(name: string, f: () => T): T {
   }
 }
 
-function verbCommand<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
+function verbCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
   verb: CallableVerb,
-): ProjectedCommand {
+): ProjectedCommand<Stdio.Stdio | R> {
   return Command.make(
     verb.name,
     mergeConfig(opts, verb.name, verb.projection.config),
@@ -368,37 +424,40 @@ function verbCommand<S extends SurfaceSpec>(
         ? (verb.description ?? `Call ${verb.name}.`)
         : `${verb.description ?? `Call ${verb.name}.`} (read-only)`,
     ),
-  ) as ProjectedCommand;
+  ) as ProjectedCommand<Stdio.Stdio | R>;
 }
 
 /** Merge the endpoint flags into a command's own config, refusing a collision.
+ *
+ *  A host that declares them on its own parent instead passes none, and this is
+ *  the identity — the seam's whole point being that where they live is the
+ *  host's call.
  *
  *  A bare spread would let one silently overwrite the other — the later key
  *  wins, and a field the user can see on the sibling MCP face simply stops
  *  parsing here. So the collision is named at build, where an author can fix it.
  *  (Effect CLI independently refuses two params sharing a flag NAME; this covers
  *  the record KEY, which is the half a spread eats.) */
-function mergeConfig<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
+function mergeConfig<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
   name: string,
   own: Command.Command.Config,
 ): Command.Command.Config {
-  const clash = Object.keys(opts.endpoint.flags).filter((key) =>
-    Object.hasOwn(own, key),
-  );
+  const endpoint = opts.endpoint.flags ?? {};
+  const clash = Object.keys(endpoint).filter((key) => Object.hasOwn(own, key));
   if (clash.length > 0) {
     throw new SurfaceCliBuildError(
       `surface-cli: "${name}" declares ${clash.map((c) => `"${c}"`).join(", ")}, which the endpoint flags also declare. Rename the endpoint flag, or the input field.`,
     );
   }
-  return { ...own, ...opts.endpoint.flags };
+  return { ...own, ...endpoint };
 }
 
-function runVerb<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
+function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
   verb: CallableVerb,
   values: Record<string, unknown>,
-): Effect.Effect<void, unknown, Stdio.Stdio> {
+): Effect.Effect<void, unknown, Stdio.Stdio | R> {
   return Effect.gen(function* () {
     // Stdin is read ONLY for the command that asked for it (`--json -`), and
     // through the `Stdio` service every handler already requires — not off fd 0
@@ -527,16 +586,16 @@ const memberArgument = (label: string, names: readonly string[]) =>
     ),
   );
 
-function readerCommands<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
+function readerCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
   entries: readonly ExposeEntry[],
-): ProjectedCommand[] {
+): Array<ProjectedCommand<Stdio.Stdio | R>> {
   const table = readables(entries);
   if (table.size === 0) return [];
   const collections = [...table.values()].filter(
     (r) => r.kind === "collection",
   );
-  const commands: ProjectedCommand[] = [];
+  const commands: Array<ProjectedCommand<Stdio.Stdio | R>> = [];
 
   commands.push(
     Command.make(
@@ -557,7 +616,7 @@ function readerCommands<S extends SurfaceSpec>(
       Command.withDescription(
         "Read one exposed member — its current value, or (with --follow) its live subscription as ndjson.",
       ),
-    ) as ProjectedCommand,
+    ) as ProjectedCommand<Stdio.Stdio | R>,
   );
 
   const listable = collections.filter((c) => c.listable);
@@ -577,7 +636,7 @@ function readerCommands<S extends SurfaceSpec>(
         Command.withDescription(
           "List a collection's current key set — with --follow, every key set as it changes.",
         ),
-      ) as ProjectedCommand,
+      ) as ProjectedCommand<Stdio.Stdio | R>,
     );
   }
 
@@ -597,7 +656,7 @@ function readerCommands<S extends SurfaceSpec>(
         Command.withDescription(
           "Follow a collection: the whole set as one snapshot frame, then one ndjson line per batch of changes.",
         ),
-      ) as ProjectedCommand,
+      ) as ProjectedCommand<Stdio.Stdio | R>,
     );
   }
 
@@ -609,8 +668,8 @@ function readerCommands<S extends SurfaceSpec>(
  *  A name that reaches no member is a usage error, never an empty answer: an
  *  empty answer for a typo is the silent degradation this repo treats as a
  *  defect. */
-function resolveMember<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
+function resolveMember<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
   table: Map<string, Readable>,
   values: Record<string, unknown>,
   want?: (readable: Readable) => boolean,
@@ -637,11 +696,11 @@ function resolveMember<S extends SurfaceSpec>(
   return Effect.succeed(found);
 }
 
-function runGet<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
+function runGet<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
   table: Map<string, Readable>,
   values: Record<string, unknown>,
-): Effect.Effect<void, unknown, Stdio.Stdio> {
+): Effect.Effect<void, unknown, Stdio.Stdio | R> {
   return Effect.gen(function* () {
     const member = yield* resolveMember(opts, table, values);
     const follow = values.follow === true;
@@ -737,8 +796,8 @@ function runGet<S extends SurfaceSpec>(
  *  argument" answered twice is a way for the two faces to disagree about which
  *  members exist. Each face keeps its own policy for a `false`: a boot refusal
  *  there, this usage error here. */
-function streamInput<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
+function streamInput<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
   member: string,
   schema: WireSchemaAny,
   raw: string | undefined,
@@ -769,11 +828,11 @@ function streamInput<S extends SurfaceSpec>(
       );
 }
 
-function runKeys<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
+function runKeys<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
   table: Map<string, Readable>,
   values: Record<string, unknown>,
-): Effect.Effect<void, unknown, Stdio.Stdio> {
+): Effect.Effect<void, unknown, Stdio.Stdio | R> {
   return Effect.gen(function* () {
     const member = yield* resolveMember(
       opts,
@@ -793,11 +852,11 @@ function runKeys<S extends SurfaceSpec>(
   });
 }
 
-function runWatch<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
+function runWatch<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
   table: Map<string, Readable>,
   values: Record<string, unknown>,
-): Effect.Effect<void, unknown, Stdio.Stdio> {
+): Effect.Effect<void, unknown, Stdio.Stdio | R> {
   return Effect.gen(function* () {
     const member = yield* resolveMember(
       opts,
@@ -929,11 +988,11 @@ interface ListTable {
   }>;
 }
 
-function listCommand<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
+function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
   verbs: readonly CallableVerb[],
   entries: readonly ExposeEntry[],
-): ProjectedCommand {
+): ProjectedCommand<Stdio.Stdio | R> {
   const table: ListTable = {
     verbs: verbs.map((verb) => ({
       name: verb.name,
@@ -969,7 +1028,7 @@ function listCommand<S extends SurfaceSpec>(
     Command.withDescription(
       "List what this surface offers — every verb and every readable member. This face's tools/list, answered from the projection itself, so it dials nothing.",
     ),
-  ) as ProjectedCommand;
+  ) as ProjectedCommand<Stdio.Stdio | R>;
 }
 
 function runList(
@@ -1009,9 +1068,14 @@ function runList(
  *  around a promise would not — there is no promise left to unwind.
  *
  *  A failed dial is exit 3 and names WHERE, because that is the fact a user can
- *  act on. */
-function withConnection<S extends SurfaceSpec, A>(
-  opts: SurfaceCliOptions<S>,
+ *  act on. So is a failed RESOLUTION, one step earlier: the seam is an Effect,
+ *  and a host whose order came up empty ("no `$APP_SOCKET`, nothing to dial")
+ *  fails it — or throws out of it, which under a generator body would be a
+ *  DEFECT no `Effect.catch` sees, exiting on the runtime's default and colliding
+ *  with exit 1, the code the matrix reserves for "the verb refused". Both are
+ *  caught here, so no path out of this process misses the matrix. */
+function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
+  opts: SurfaceCliOptions<S, F, R>,
   values: Record<string, unknown>,
   use: (
     client: SurfaceClientCallable,
@@ -1020,36 +1084,42 @@ function withConnection<S extends SurfaceSpec, A>(
      *  mid-snapshot), which only this function knows `where` for. */
     dropped: (detail: string) => SurfaceCliFailure,
   ) => Effect.Effect<A, unknown, Stdio.Stdio>,
-): Effect.Effect<A, unknown, Stdio.Stdio> {
-  const { where, open } = opts.endpoint.resolve(values);
-  return Effect.scoped(
-    Effect.flatMap(
-      Effect.acquireRelease(
-        Effect.tryPromise({
-          try: async () => await open(),
-          catch: (cause) =>
-            unreachable(opts.info.name, where, messageOf(cause)),
-        }),
-        // IGNORED, deliberately: a teardown that fails has nothing to add to a
-        // command that already has its answer, and `Effect.promise` would turn a
-        // rejected `dispose` into a DEFECT that replaces the verdict — a
-        // successful capture reported as a crash because a socket close raced
-        // the process. The socket is going away with the process either way.
+): Effect.Effect<A, unknown, Stdio.Stdio | R> {
+  const resolved = Effect.catchCause(
+    Effect.suspend(() => opts.endpoint.resolve(values as FlagValues<F>)),
+    (cause) =>
+      Effect.fail(unresolvable(opts.info.name, messageOf(Cause.squash(cause)))),
+  );
+  return Effect.flatMap(resolved, ({ where, open }) =>
+    Effect.scoped(
+      Effect.flatMap(
+        Effect.acquireRelease(
+          Effect.tryPromise({
+            try: async () => await open(),
+            catch: (cause) =>
+              unreachable(opts.info.name, where, messageOf(cause)),
+          }),
+          // IGNORED, deliberately: a teardown that fails has nothing to add to a
+          // command that already has its answer, and `Effect.promise` would turn
+          // a rejected `dispose` into a DEFECT that replaces the verdict — a
+          // successful capture reported as a crash because a socket close raced
+          // the process. The socket is going away with the process either way.
+          (connection) =>
+            Effect.ignore(
+              Effect.tryPromise({
+                try: async () => await connection.dispose(),
+                catch: (cause) => cause,
+              }),
+            ),
+        ),
         (connection) =>
-          Effect.ignore(
-            Effect.tryPromise({
-              try: async () => await connection.dispose(),
-              catch: (cause) => cause,
-            }),
+          Effect.catch(
+            use(connection.client, (detail) =>
+              unreachable(opts.info.name, where, detail),
+            ),
+            (error) => Effect.fail(classify(opts, where, error)),
           ),
       ),
-      (connection) =>
-        Effect.catch(
-          use(connection.client, (detail) =>
-            unreachable(opts.info.name, where, detail),
-          ),
-          (error) => Effect.fail(classify(opts, where, error)),
-        ),
     ),
   );
 }
@@ -1060,8 +1130,8 @@ function withConnection<S extends SurfaceSpec, A>(
  *  is exit 3 — the endpoint stopped answering, which is not the verb's answer.
  *  Everything else is the verb's DECLARED error and rides out as exit 1, as
  *  JSON, because a refusal is data the caller acts on. */
-function classify<S extends SurfaceSpec>(
-  opts: SurfaceCliOptions<S>,
+function classify<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
   where: string,
   error: unknown,
 ): unknown {

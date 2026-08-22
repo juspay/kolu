@@ -11,7 +11,7 @@
  * ```ts
  * const verbs = surfaceCommands({
  *   surface, expose: AGENT, verbs: TOOLS,
- *   endpoint: { flags, describe, connect },
+ *   endpoint: { flags, resolve },
  *   info: { name: "olai" },
  * })
  * Command.make("surface").pipe(Command.withSubcommands(verbs))
@@ -23,6 +23,7 @@ export { flagsOf, type InputProjection, SurfaceCliBuildError } from "./flags";
 export {
   type EndpointSeam,
   type ProjectedCommand,
+  type ResolvedEndpoint,
   surfaceCommands,
   type SurfaceCliConnection,
   type SurfaceCliOptions,

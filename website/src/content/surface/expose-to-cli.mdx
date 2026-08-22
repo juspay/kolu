@@ -35,6 +35,11 @@ name is needed exactly when the dial fails — which is when there is no connect
 left to ask — and a `describe` beside a `connect` would walk your resolution
 order twice and could name one endpoint while dialling another.
 
+It returns an **Effect**, so an order that can come up empty has somewhere to say
+so: fail it and the user gets exit `3` ("no endpoint to dial"), the same arm as a
+failed dial, instead of a crash. And `values` is typed from your own flag record,
+so renaming a flag is a compile error rather than an `undefined` your app dials.
+
 <Snippet src="packages/surface/example/snippets/cli.ts" region="endpoint" />
 
 <Aside type="note" title="dispose is required">
@@ -72,10 +77,14 @@ Which faces your binary offers is your decision, so the adapter hands back
 values and runs nothing. Your `Command.run` is already the run edge; there is no
 `runSurfaceCli` to learn.
 
-<Aside type="caution" title="The endpoint flags live on the verbs, not on the parent">
-  `surfaceCommands` merges your endpoint flags into every command it generates,
-  so `example proc_kill 4321 --socket /run/x.sock` parses. Do **not** also add
-  them to the parent with `Command.withSharedFlags` — Effect CLI refuses a
+<Aside type="note" title="Where the endpoint flags live is your decision — but pick ONE">
+  As written above, `surfaceCommands` merges your endpoint flags into every
+  command it generates, so `example proc_kill 4321 --socket /run/x.sock` parses.
+  If you would rather they sat on your own root — so `example --socket X
+  proc_kill 4321` parses too, which a flag declared on a subcommand cannot do —
+  declare them there with `Command.withSharedFlags`, **omit** `flags` from the
+  seam, and read them back in `resolve` (`Effect.flatMap(root, …)`): this face
+  then adds none. What you must not do is both at once — Effect CLI refuses a
   parent/child flag of the same name outright (`DuplicateOption`), and your
   binary would fail to start.
 </Aside>

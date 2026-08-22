@@ -20,10 +20,31 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect } from "effect";
 import { Command } from "effect/unstable/cli";
 import { runEdge } from "./exit";
-import { fixtureRoot } from "./fixture.testlib";
+import {
+  fixtureRoot,
+  fixtureRootWithParentFlags,
+  fixtureRootWithUnresolvableEndpoint,
+} from "./fixture.testlib";
+
+// WHICH shape of host this run is. One binary and ONE run edge for all of them,
+// so a case proves an alternative mounting reaches the same answers rather than
+// only that it compiles:
+//
+//   (default)        the endpoint flag on every generated verb
+//   parent-flags     declared once on the PARENT, read back in `resolve`
+//   resolve-fails    a resolution that refuses, as a typed failure
+//   resolve-throws   the same refusal as a bare throw out of the seam
+const root = ((mode) => {
+  if (mode === "parent-flags") return fixtureRootWithParentFlags();
+  if (mode === "resolve-fails")
+    return fixtureRootWithUnresolvableEndpoint("fail");
+  if (mode === "resolve-throws")
+    return fixtureRootWithUnresolvableEndpoint("throw");
+  return fixtureRoot();
+})(process.env.SURFACE_CLI_FIXTURE);
 
 NodeRuntime.runMain(
-  Command.run(fixtureRoot(), { version: "0.0.0" }).pipe(
+  Command.run(root, { version: "0.0.0" }).pipe(
     Effect.catch((error) => {
       // The WHOLE run edge, in three lines: ask `runEdge` what to write and what
       // to fail with, write it, re-fail. Everything a host would otherwise have

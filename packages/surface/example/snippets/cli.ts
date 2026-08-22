@@ -18,7 +18,11 @@ import {
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
 import type { SurfaceVerb } from "@kolu/surface/verbs";
-import { type SurfaceCliConnection, surfaceCommands } from "@kolu/surface-cli";
+import {
+  type EndpointSeam,
+  type SurfaceCliConnection,
+  surfaceCommands,
+} from "@kolu/surface-cli";
 import { Command, Flag } from "effect/unstable/cli";
 // #endregion imports
 import { Effect } from "effect";
@@ -41,22 +45,37 @@ const endpointFlags = {
   ),
 };
 
-const resolve = (values: { readonly socket: string }) => ({
-  where: values.socket,
-  open: async (): Promise<SurfaceCliConnection> => {
-    const link = await unixSocketLink({
-      group: surface.group,
-      socketPath: values.socket,
-    });
-    return {
-      client: buildSurfaceFace(surface, link.dispatch) as SurfaceClientCallable,
-      // Required, not optional: a CLI dials, does one thing and exits, and the
-      // one failure that costs a user something is a socket left open in a
-      // shell loop.
-      dispose: () => link.dispose(),
-    };
-  },
-});
+// `values` is TYPED from the flag record above — nothing restates its shape, so
+// renaming the flag is a compile error here rather than an `undefined` the app
+// would dial as the string "undefined".
+//
+// `resolve` returns an Effect: a resolution order that can come up empty ("no
+// $APP_SOCKET, no runtime dir") has somewhere to say so, and a host whose flags
+// sit on its OWN parent (`Command.withSharedFlags`) reads them from the parent's
+// context here instead — omit `flags` in that case and this face adds none.
+const endpoint: EndpointSeam<typeof endpointFlags> = {
+  flags: endpointFlags,
+  resolve: (values) =>
+    Effect.succeed({
+      where: values.socket,
+      open: async (): Promise<SurfaceCliConnection> => {
+        const link = await unixSocketLink({
+          group: surface.group,
+          socketPath: values.socket,
+        });
+        return {
+          client: buildSurfaceFace(
+            surface,
+            link.dispatch,
+          ) as SurfaceClientCallable,
+          // Required, not optional: a CLI dials, does one thing and exits, and
+          // the one failure that costs a user something is a socket left open in
+          // a shell loop.
+          dispose: () => link.dispose(),
+        };
+      },
+    }),
+};
 // #endregion endpoint
 
 // #region verbs
@@ -82,7 +101,7 @@ const commands = surfaceCommands({
     "proc.kill": "tool",
   },
   verbs,
-  endpoint: { flags: endpointFlags, resolve },
+  endpoint,
   // CLI-only ergonomics, BESIDE the verb table rather than inside it: `pid`
   // becomes an argv position, so it is `proc_kill 4321`, not `--pid 4321`.
   annotate: { proc_kill: { positional: ["pid"] } },

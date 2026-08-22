@@ -242,8 +242,11 @@ export async function serveFixture(
  *  one dial. Exactly the shape `packages/server`'s `dialOlai` will have. */
 export const endpointFlags = { socket: Flag.string("socket") };
 
+/** The parameter type is INFERRED from `endpointFlags` above — nothing here
+ *  restates the flag record's shape, so renaming `socket` is a compile error
+ *  rather than an `undefined` this fixture would dial as `"undefined"`. */
 export function resolveFixture(values: { readonly socket: string }) {
-  return {
+  return Effect.succeed({
     where: values.socket,
     open: (): Promise<SurfaceCliConnection> =>
       unixSocketLink({
@@ -256,7 +259,7 @@ export function resolveFixture(values: { readonly socket: string }) {
         ) as SurfaceClientCallable,
         dispose: () => link.dispose(),
       })),
-  };
+  });
 }
 
 /** The projected commands, as the fixture host mounts them. */
@@ -283,5 +286,59 @@ export function fixtureRoot() {
   return Command.make("demo").pipe(
     Command.withDescription("the surface-cli fixture host"),
     Command.withSubcommands([...fixtureCommands()]),
+  );
+}
+
+/** The SAME projection, mounted the other way the seam allows: the endpoint flag
+ *  is declared ONCE on the parent as a shared flag, and `resolve` reads it back
+ *  out of the parent's context — which is what `kolu-cli` does, and why, so that
+ *  `demo --socket X proc_count` parses as well as `demo proc_count --socket X`.
+ *  A flag declared on a subcommand only parses AFTER that subcommand's name.
+ *
+ *  Nothing about the projection changes: `flags` is simply absent, so this face
+ *  adds none and there is no parent/child collision to have. */
+export function fixtureRootWithParentFlags() {
+  const root = Command.make("demo").pipe(
+    Command.withSharedFlags(endpointFlags),
+    Command.withDescription("the surface-cli fixture host (parent flags)"),
+  );
+  const commands = surfaceCommands({
+    surface,
+    expose: EXPOSE,
+    verbs: VERBS,
+    endpoint: { resolve: () => Effect.flatMap(root, resolveFixture) },
+    annotate: {
+      proc_kill: { positional: ["pid"] },
+      proc_count: { render: (out) => `processes: ${(out as { n: number }).n}` },
+    },
+    info: { name: "demo" },
+  });
+  return root.pipe(Command.withSubcommands([...commands]));
+}
+
+/** A projection whose endpoint RESOLUTION refuses — the arm an app with a
+ *  resolution order that can come up empty needs ("no `$DEMO_SOCKET`, no runtime
+ *  dir, nothing to dial"). `how` picks the two ways a host can say it, because
+ *  they must land on the SAME code: a typed failure, and a bare throw out of the
+ *  seam — which is a defect the runtime would otherwise exit on with a number
+ *  the matrix means something else by. */
+export function fixtureRootWithUnresolvableEndpoint(how: "fail" | "throw") {
+  const because = new Error("no $DEMO_SOCKET, and no runtime dir");
+  const commands = surfaceCommands({
+    surface,
+    expose: EXPOSE,
+    verbs: VERBS,
+    endpoint: {
+      flags: endpointFlags,
+      resolve: () => {
+        if (how === "throw") throw because;
+        return Effect.fail(because);
+      },
+    },
+    info: { name: "demo" },
+  });
+  return Command.make("demo").pipe(
+    Command.withDescription("the surface-cli fixture host (no endpoint)"),
+    Command.withSubcommands([...commands]),
   );
 }
