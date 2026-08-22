@@ -224,7 +224,26 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  waved through as compatible on the strength of a string it can no longer even
  *  transmit. The major digit names the epoch; the minor resumes its usual additive
  *  duty from here, exactly as it did across 3.x–5.x. */
-export const PTY_HOST_CONTRACT_VERSION = "7.0";
+/*  Bumped to 7.1 (MINOR · additive): `terminal.getScreenCells`, the attributed
+ *  read a rendered screenshot is drawn from (padi's `screen.image`, the
+ *  `screen_image` MCP tool, `kolu screenshot`).
+ *
+ *  A NEW PROCEDURE is a new emitted member, so this follows the 5.3 activity-stream
+ *  precedent, not the `commandRooted` optional-field one: a survivor 7.0 daemon
+ *  does not serve it at all, and a 7.1 padi calling it would hit a missing
+ *  procedure rather than degrade. The minor bump makes that skew a RECYCLE (the
+ *  session parks and restores) instead of a runtime hole.
+ *
+ *  The competing call was to add it with NO bump and let a survivor answer
+ *  screenshot requests with a loud per-call failure — `commandRooted`'s rule that
+ *  "a cosmetic readout must never cost a terminal", and a screenshot is cosmetic.
+ *  It was rejected because the two cases differ in WHERE the absence lands:
+ *  `commandRooted` absent degrades to the pre-existing reading with nothing to
+ *  explain, while a missing procedure surfaces as an unspeakable-member error at
+ *  the wire — the class of failure this constant exists to convert into an honest,
+ *  managed recycle. The park/restore cost is bounded and already the routine price
+ *  of every other additive member. */
+export const PTY_HOST_CONTRACT_VERSION = "7.1";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -232,6 +251,79 @@ export const PTY_HOST_CONTRACT_VERSION = "7.0";
 const PtyIdSchema = Schema.String;
 
 const TerminalIdInputSchema = Schema.Struct({ id: PtyIdSchema });
+
+/** The single bound axis of a screen read, as a closed union — so the host
+ *  can't be handed two conflicting bounds (a tail AND a viewport) to silently
+ *  choose between. Omit it for the full buffer. `viewport` carries no payload:
+ *  it resolves to the last `rows` rendered lines against the host's own live
+ *  grid, which the caller can't know (a CLI's stdout is usually a pipe, never
+ *  the daemon terminal's size).
+ *
+ *  ONE schema shared by `getScreenText` and `getScreenCells`: they read the
+ *  same slice and differ only in what they return, so a bound legal for one is
+ *  legal for the other by construction. */
+const ScreenExtentSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("full") }),
+  Schema.Struct({
+    kind: Schema.Literal("range"),
+    startLine: Schema.optionalKey(Schema.Int),
+    endLine: Schema.optionalKey(Schema.Int),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("tail"),
+    // "Last N lines" — N is a count, so a negative is meaningless. Reject it at
+    // the wire boundary (fail loud) rather than letting a `Math.max(0, …)`
+    // clamp downstream turn it into a silent empty read.
+    lines: NonNegativeInt,
+  }),
+  Schema.Struct({ kind: Schema.Literal("viewport") }),
+]);
+
+const ScreenReadInputSchema = Schema.Struct({
+  id: PtyIdSchema,
+  extent: Schema.optionalKey(ScreenExtentSchema),
+});
+
+/** A cell colour exactly as the VT stream expressed it — NOT a resolved
+ *  pixel. "palette 4" only becomes a colour once someone knows which theme is
+ *  on, and this daemon does not: kolu's themes are a per-terminal user choice
+ *  padi holds. Keeping the raw attribute on the wire is what keeps the PTY
+ *  host out of the rendering business. */
+const CellColorSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("default") }),
+  Schema.Struct({ kind: Schema.Literal("palette"), index: NonNegativeInt }),
+  Schema.Struct({ kind: Schema.Literal("rgb"), value: NonNegativeInt }),
+]);
+
+/** One painted cell. `width` is the VT display width: 1 ordinary, 2 for the
+ *  leading half of a wide glyph. The TRAILING half is never emitted — it is
+ *  already covered by its leader, and sending it would let a renderer
+ *  double-strike the glyph. */
+const SnapshotCellSchema = Schema.Struct({
+  col: NonNegativeInt,
+  chars: Schema.String,
+  width: NonNegativeInt,
+  fg: CellColorSchema,
+  bg: CellColorSchema,
+  bold: Schema.Boolean,
+  italic: Schema.Boolean,
+  inverse: Schema.Boolean,
+});
+
+/** A rectangular slice of the screen as attributed cells.
+ *
+ *  `lines.length` always equals `rows` — a line the mirror doesn't have comes
+ *  back as an empty row rather than a hole, so a consumer indexes by screen
+ *  row without re-deriving the offset. Blank unstyled cells are OMITTED from a
+ *  row (a terminal screen is mostly blank), which is what keeps a screenful
+ *  small enough to be an ordinary frame rather than a chunked transfer. */
+const SnapshotGridSchema = Schema.Struct({
+  cols: NonNegativeInt,
+  rows: NonNegativeInt,
+  lines: Schema.Array(
+    Schema.Struct({ cells: Schema.Array(SnapshotCellSchema) }),
+  ),
+});
 
 /** A PTY grid — cols AND rows, together or not at all. The ONE grid rule this
  *  surface has: every member that carries a grid reuses it, so tightening the
@@ -677,29 +769,21 @@ export const ptyHostSurface = defineSurface({
         // last `rows` rendered lines against the host's own live grid (the CLI
         // can't know it; its stdout is usually a pipe, never the daemon
         // terminal's size).
-        input: Schema.Struct({
-          id: PtyIdSchema,
-          extent: Schema.optionalKey(
-            Schema.Union([
-              Schema.Struct({ kind: Schema.Literal("full") }),
-              Schema.Struct({
-                kind: Schema.Literal("range"),
-                startLine: Schema.optionalKey(Schema.Int),
-                endLine: Schema.optionalKey(Schema.Int),
-              }),
-              Schema.Struct({
-                kind: Schema.Literal("tail"),
-                // "Last N lines" — N is a count, so a negative is meaningless.
-                // Reject it at the wire boundary (fail loud) rather than letting
-                // `getScreenText`'s `Math.max(0, …)` clamp turn it into a silent
-                // empty read.
-                lines: NonNegativeInt,
-              }),
-              Schema.Struct({ kind: Schema.Literal("viewport") }),
-            ]),
-          ),
-        }),
+        input: ScreenReadInputSchema,
         output: Schema.Struct({ text: Schema.String }),
+        error: PtyNotFound,
+      },
+      /** The same slice `getScreenText` serves, as ATTRIBUTED cells — what a
+       *  rendered screenshot is drawn from (contract 7.1 · additive).
+       *
+       *  Returns cells rather than an image on purpose. Rendering needs a
+       *  theme, a font and a rasteriser; this daemon owns the PTYs and the
+       *  screen mirror and should own none of those. Handing padi the cells
+       *  keeps the hot process free of a wasm rasteriser and several megabytes
+       *  of font, and puts the picture where the theme already lives. */
+      getScreenCells: {
+        input: ScreenReadInputSchema,
+        output: SnapshotGridSchema,
         error: PtyNotFound,
       },
       /** Older-scrollback read for the client's in-place backfill (contract

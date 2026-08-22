@@ -27,7 +27,8 @@
     "@xterm/headless": "^6.0.0",
     "effect": "catalog:",
     "node-pty": "github:juspay/node-pty#feat/foreground-pid-dist",
-    "osfacts-client": "workspace:*"
+    "osfacts-client": "workspace:*",
+    "terminal-snapshot": "workspace:*"
   },
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",

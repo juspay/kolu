@@ -183,6 +183,7 @@ describe("padiSurface contract", () => {
       "state",
       "text",
       "history",
+      "image",
     ]);
     expect(Object.keys(procs.fs ?? {})).toEqual([
       "listAll",
@@ -521,6 +522,7 @@ describe("the declared error vocabulary (PLAN D4)", () => {
         "lifecycle.wake",
         "preview.read",
         "screen.history",
+        "screen.image",
         "screen.state",
         "screen.text",
         "scratch.write",

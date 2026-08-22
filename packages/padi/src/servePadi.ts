@@ -17,6 +17,7 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
+import { renderScreenImage, screenshotLabel } from "./screenImage.ts";
 import { rmSync } from "node:fs";
 import { base64DecodedLength } from "@kolu/surface/frame-chunking";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
@@ -956,6 +957,19 @@ export function buildPadiSurfaceDeps(deps: {
               input.epoch,
             ),
           ),
+        image: ({ input }) =>
+          handle(async () => {
+            const entry = requireActiveTerminal(input.id);
+            // The cells come from kaval RAW — "palette 4", not a colour. This
+            // is the hop that knows which theme this terminal wears, so it is
+            // the hop that resolves them.
+            const grid = await entry.handle.getScreenCells(input.lines);
+            return renderScreenImage({
+              grid,
+              themeName: entry.meta.themeName,
+              label: screenshotLabel(entry.snapshot),
+            });
+          }),
       },
 
       // fs reads off the SAME shared endpoint `serveFsGit` wraps (its procedure

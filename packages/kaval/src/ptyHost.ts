@@ -35,6 +35,7 @@ import {
   snapToWrapHead,
 } from "@kolu/xterm-kit";
 import { Effect, type Scope, Stream } from "effect";
+import { readGrid, type SnapshotGrid } from "terminal-snapshot";
 import * as pty from "node-pty";
 import { FanOut, type SubscriberOverflow } from "./fanOut.ts";
 import { type PtyGrid, PtyNotFound } from "./ptyHostSurface.ts";
@@ -130,6 +131,46 @@ export function getScreenText(
   return lines.join("\n");
 }
 
+/** Resolve a {@link ScreenExtent} to the absolute half-open line range
+ *  `[start, end)` it names, clamped to what the buffer actually holds.
+ *
+ *  ONE resolution shared by every screen read — the plain-text one and the
+ *  attributed-cell one. They are two renderings of the SAME slice, and the
+ *  only way "the text and the picture show the same thing" can be true by
+ *  construction rather than by two switch statements agreeing is for both to
+ *  ask this function where the slice is.
+ *
+ *  `rows` is the live grid height, which only the host knows — it is what
+ *  `viewport` resolves against. */
+export function resolveScreenExtent(
+  bufferLength: number,
+  rows: number,
+  extent: ScreenExtent = { kind: "full" },
+): { start: number; end: number } {
+  switch (extent.kind) {
+    case "full":
+      return { start: 0, end: bufferLength };
+    case "range": {
+      const end = Math.min(bufferLength, extent.endLine ?? bufferLength);
+      return { start: Math.max(0, extent.startLine ?? 0), end };
+    }
+    case "tail":
+      return {
+        start: Math.max(0, bufferLength - Math.max(0, extent.lines)),
+        end: bufferLength,
+      };
+    case "viewport":
+      // The visible screen = a tail of the live grid's own height. The last
+      // `rows` lines are exactly the viewport in BOTH buffers: the normal
+      // buffer's bottom screenful, and the whole alt buffer (whose length IS
+      // rows) that a full-screen TUI draws into.
+      return {
+        start: Math.max(0, bufferLength - Math.max(0, rows)),
+        end: bufferLength,
+      };
+  }
+}
+
 /** Which slice of the rendered buffer a screen-text read returns — the single
  *  bound axis as a closed set of mutually-exclusive variants, so an illegal
  *  combination (a tail AND a range, a viewport AND a tail) is unrepresentable
@@ -170,6 +211,16 @@ export interface PtyHandle {
    *  slice (range / tail / viewport); omit it for the full buffer (scrollback +
    *  viewport). See {@link ScreenExtent}. */
   getScreenText(extent?: ScreenExtent): string;
+  /** The same slice as {@link getScreenText}, but as ATTRIBUTED cells —
+   *  characters plus the colours and bold/italic/inverse the VT stream asked
+   *  for. The read a picture is rendered from.
+   *
+   *  Deliberately stops at "what the escape sequences said" and does not
+   *  resolve a colour to a pixel: `palette 4` becomes a theme colour only
+   *  once someone knows WHICH theme, and this mirror doesn't — kolu's themes
+   *  are a per-terminal user choice held by padi. Handing out raw attributes
+   *  is what keeps the PTY host out of the rendering business entirely. */
+  getScreenCells(extent?: ScreenExtent): SnapshotGrid;
 }
 
 /** What a caller hands the host to spawn a PTY. Env/shell prep is the
@@ -520,6 +571,10 @@ export interface PtyHost {
    *  to one slice (range / tail / viewport); omit it for the full buffer. See
    *  {@link ScreenExtent}. */
   getScreenText(id: PtyId, extent?: ScreenExtent): string;
+  /** Attributed cells for the same slice `getScreenText` would return —
+   *  an EMPTY grid if the PTY is gone, mirroring the empty string the text
+   *  read answers with. See {@link PtyHandle.getScreenCells}. */
+  getScreenCells(id: PtyId, extent?: ScreenExtent): SnapshotGrid;
   /** Serialize the older-history chunk of up to `max` rows sitting immediately
    *  ABOVE absolute mirror line `before` — the backfill read the client pages as
    *  it scrolls up. An omitted `before` starts from the top of the current screen
@@ -1230,23 +1285,37 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     const entry = entries.get(id);
     if (!entry) return "";
     const buffer = entry.headless.buffer.active;
-    // One bound axis, one switch — no silent precedence to pick between bounds.
-    const bound: ScreenExtent = extent ?? { kind: "full" };
-    switch (bound.kind) {
-      case "full":
-        return getScreenText(buffer);
-      case "range":
-        return getScreenText(buffer, bound.startLine, bound.endLine);
-      case "tail":
-        return getScreenText(buffer, undefined, undefined, bound.lines);
-      case "viewport":
-        // The visible screen = a tail of the live grid's height, the only place
-        // the real `rows` is known. The last `rows` lines of `buffer.active` are
-        // exactly the viewport in both buffers: the normal buffer's bottom
-        // screenful, and the whole alt buffer (whose length IS rows) a
-        // full-screen TUI draws into.
-        return getScreenText(buffer, undefined, undefined, entry.headless.rows);
-    }
+    const { start, end } = resolveScreenExtent(
+      buffer.length,
+      entry.headless.rows,
+      extent,
+    );
+    return getScreenText(buffer, start, end);
+  }
+
+  /** The same slice as {@link getScreenTextFor}, read as attributed cells.
+   *
+   *  Shares {@link resolveScreenExtent} with the text read rather than
+   *  re-switching on the extent — the two are the same slice rendered two
+   *  ways, and a second switch is a second place for "what does viewport
+   *  mean" to drift. A gone PTY answers with an EMPTY grid, mirroring the
+   *  empty string the text read gives, so a caller has one absent-shape to
+   *  handle rather than two. */
+  function getScreenCellsFor(id: PtyId, extent?: ScreenExtent): SnapshotGrid {
+    const entry = entries.get(id);
+    if (!entry) return { cols: 0, rows: 0, lines: [] };
+    const buffer = entry.headless.buffer.active;
+    const { start, end } = resolveScreenExtent(
+      buffer.length,
+      entry.headless.rows,
+      extent,
+    );
+    return readGrid(
+      buffer,
+      entry.headless.cols,
+      start,
+      Math.max(0, end - start),
+    );
   }
 
   function getHistory(
@@ -1377,6 +1446,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       resize: (cols, rows) => resize(id, cols, rows),
       getScreenState: () => getScreenState(id),
       getScreenText: (extent) => getScreenTextFor(id, extent),
+      getScreenCells: (extent) => getScreenCellsFor(id, extent),
     };
   }
 
@@ -1446,6 +1516,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     getTitle: (id) => entries.get(id)?.title,
     getScreenState,
     getScreenText: getScreenTextFor,
+    getScreenCells: getScreenCellsFor,
     getHistory,
     handle,
     dispose: () => {

@@ -32,6 +32,7 @@ import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { createTool } from "./create.ts";
 import { KOLU_MCP_EXPOSE } from "./expose.ts";
+import { screenImageTool } from "./screenImage.ts";
 import { screenTextTool } from "./screenText.ts";
 import { sendInputTool } from "./sendInput.ts";
 import { waitAgentStateTool, waitOutputSettledTool } from "./wait.ts";
@@ -65,6 +66,7 @@ export const KOLU_MCP_TOOLS: Record<string, BespokeTool> = {
   lifecycle_create: createTool,
   lifecycle_sendInput: sendInputTool,
   screen_text: screenTextTool,
+  screen_image: screenImageTool,
   wait_outputSettled: waitOutputSettledTool,
   wait_agentState: waitAgentStateTool,
   watch_open: watchOpenTool,

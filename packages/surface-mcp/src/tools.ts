@@ -77,6 +77,15 @@ export interface BespokeTool<I = unknown, O = unknown> {
      *  doc: the handler's effect is already run under this signal. */
     signal: AbortSignal | undefined,
   ) => Effect.Effect<O, unknown>;
+  /** How this tool's success value becomes MCP content. Defaults to {@link ok}
+   *  — JSON for the model, the same value structured for the caller.
+   *
+   *  Declared per TOOL rather than sniffed per RESULT: whether an answer is
+   *  prose or a picture is a fixed property of the tool, so a handler cannot
+   *  accidentally change its own content type on one call, and the dispatch
+   *  never has to guess from the shape of a value. The only in-tree override
+   *  today is {@link okImage} (kolu's `screen_image`). */
+  render?: (out: O) => ToolResult;
 }
 
 /** The MCP `CallTool` result shape we emit. `content` is prose for the model to
@@ -90,8 +99,18 @@ export interface BespokeTool<I = unknown, O = unknown> {
  *
  *  MCP types the structured arm as a JSON **object**, which is the whole reason
  *  for `wrapping.ts`'s `wrapValue`. */
+/** One block of what a tool shows the model.
+ *
+ *  Text is what every tool emitted before images existed here, and still the
+ *  default. An IMAGE block is for an answer whose meaning IS pixels — a
+ *  rendered terminal screen, a chart — where handing the model a base64 blob
+ *  inside a JSON string would be handing it something it cannot look at. */
+export type ToolContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
 export interface ToolResult {
-  content: { type: "text"; text: string }[];
+  content: ToolContent[];
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }
@@ -143,6 +162,28 @@ export function ok(data: unknown): ToolResult {
   return {
     content: [{ type: "text", text }],
     structuredContent: wrapValue(json),
+  };
+}
+
+/** An image the tool is SHOWING, plus the same answer as data.
+ *
+ *  Both arms again, and for the same reason `ok` has both: the model reads
+ *  the picture, the caller reads `structuredContent` — but here they are not
+ *  the same serialization, because a PNG has no JSON form worth giving a
+ *  model. The structured arm therefore carries the metadata (mime type,
+ *  dimensions, and the base64 itself for a caller that wants the bytes), and
+ *  the content arm carries the image alone.
+ *
+ *  The base64 is NOT repeated into a text block. An MCP host renders the image
+ *  block; a text block holding the same megabyte of base64 would be spent
+ *  straight out of the model's context window for nothing. */
+export function okImage(
+  image: { mimeType: string; data: string },
+  detail: Record<string, unknown>,
+): ToolResult {
+  return {
+    content: [{ type: "image", data: image.data, mimeType: image.mimeType }],
+    structuredContent: wrapValue(wireForm(detail).json),
   };
 }
 

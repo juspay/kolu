@@ -45,6 +45,7 @@
 // re-typed: a `--help` line that hand-copies a constant is a sentence nothing
 // stops from going quietly false. (`@kolu/terminal-vocab/agentProjection` is a
 // pure fold module, so this costs the dynamic-import fence nothing.)
+import { SCREEN_IMAGE_MAX_ROWS } from "@kolu/padi/surface";
 import {
   WAIT_STATES,
   WATCH_DEFAULT_STATES,
@@ -572,6 +573,52 @@ const snapshot = Command.make(
   ),
 );
 
+export const screenshotFlags = {
+  id: Argument.string("id").pipe(
+    Argument.withDescription("terminal id (any unique prefix)"),
+  ),
+  // Bounds ROWS OF THE PICTURE — a different question from `snapshot --tail`'s
+  // "how much text do I want back", which is why it is not called `--tail`.
+  // Capped at padi's own ceiling: the render cost and the pixel height both
+  // grow with rows, and kolu retains 50k lines of scrollback, so an unbounded
+  // request is a way to ask for a 900,000-pixel-tall PNG. The parse REFUSES an
+  // over-cap value rather than silently clamping it — a caller who asked for
+  // 5,000 rows and got 200 would be handed a picture that is not the answer to
+  // its question.
+  lines: opt(
+    Flag.integer("lines").pipe(
+      Flag.filter(
+        (n) => n > 0 && n <= SCREEN_IMAGE_MAX_ROWS,
+        (n) =>
+          `--lines takes a positive whole number of rows, at most ${SCREEN_IMAGE_MAX_ROWS}, got ${n}.`,
+      ),
+      Flag.withDescription(
+        `capture only the last N rendered rows (1-${SCREEN_IMAGE_MAX_ROWS}; default: the visible screen)`,
+      ),
+    ),
+  ),
+  out: opt(
+    Flag.string("out").pipe(
+      Flag.withAlias("o"),
+      Flag.withDescription(
+        "write the PNG here (default: kolu-screenshot.png; `-` writes the bytes to stdout)",
+      ),
+    ),
+  ),
+} as const;
+
+const screenshot = Command.make(
+  "screenshot",
+  screenshotFlags,
+  Effect.fn(function* (args) {
+    yield* runVerb(() => import("./verbs/screenshot.ts"), args);
+  }),
+).pipe(
+  Command.withDescription(
+    "Save a terminal's screen as a themed PNG — the picture `snapshot` flattens to text.",
+  ),
+);
+
 export const historyFlags = {
   id: Argument.string("id").pipe(
     Argument.withDescription("terminal id (any unique prefix)"),
@@ -714,6 +761,7 @@ export const koluCli = koluRoot.pipe(
     wait,
     debrief,
     snapshot,
+    screenshot,
     history,
     kill,
     watch,

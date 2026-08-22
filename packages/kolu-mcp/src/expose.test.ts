@@ -66,10 +66,11 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
     expect(mutating.sort()).toEqual(["lifecycle_kill", "watch_close"]);
   });
 
-  it("the bespoke registry carries the seven face-local tools", () => {
+  it("the bespoke registry carries the eight face-local tools", () => {
     expect(Object.keys(KOLU_MCP_TOOLS).sort()).toEqual([
       "lifecycle_create",
       "lifecycle_sendInput",
+      "screen_image",
       "screen_text",
       "wait_agentState",
       "wait_outputSettled",
@@ -85,6 +86,7 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
     expect(KOLU_MCP_TOOLS.lifecycle_create?.mutates).toBe(true);
     expect(KOLU_MCP_TOOLS.lifecycle_sendInput?.mutates).toBe(true);
     expect(KOLU_MCP_TOOLS.screen_text?.mutates).toBe(false);
+    expect(KOLU_MCP_TOOLS.screen_image?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.wait_outputSettled?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.wait_agentState?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.watch_next?.mutates).toBe(false);
@@ -202,6 +204,7 @@ describe("the served face — default deny at the wire", () => {
       "lifecycle_kill",
       "lifecycle_sendInput",
       "screen_history",
+      "screen_image",
       "screen_text",
       "wait_agentState",
       "wait_outputSettled",
