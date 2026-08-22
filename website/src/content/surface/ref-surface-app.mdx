@@ -140,9 +140,9 @@ installers: merge them into your app layer in any order — routes are ranked by
 specificity, so your `/rpc/*` route always beats the static `GET /*` catch-all.
 `freshStaticLayer` and `surfaceAppLayer` require the platform services that read
 files — `FileSystem`, `Path`, `HttpPlatform` — which on Node come from
-`NodeHttpServer.layerHttpServices`. Both **throw at composition time** if
-`assetPrefix` would capture a shell path (that would put a compressed
-`index.html` sibling on the wire; kolu#1319).
+`NodeHttpServer.layerHttpServices`. Both **throw at composition time** if `assetPrefix` is malformed, or would
+capture a shell path (that would put a compressed `index.html` sibling on the
+wire; kolu#1319).
 
 | Export | Subpath | Role |
 | --- | --- | --- |
@@ -204,12 +204,14 @@ siblings and the code splitting every consumer used to bolt on afterwards.
 | --- | --- | --- |
 | `surfaceApp()` | `/vite` | Vite plugin that injects the build commit onto the shell |
 | `buildSurfaceClient(opts)` | `/bun` | the Bun build: hashed assets, rewritten shell, siblings, splitting |
-| `SurfaceClientBuildOptions` | `/bun` | its options — entrypoint, `distDir`, the HTML template + placeholders, `extraAssets`, `publicDir`, `minify`, `commit` |
-| `SurfaceClientBuildResult` | `/bun` | `{ jsHref, assetHrefs, preloadHrefs, assets }` — every hashed URL the shell now names (the JS entry, one per extra asset, and the entry's static chunks in load order), plus an `AssetReport` per **compressible** asset in the hashed dir (sourcemaps and already-compressed media are skipped, and absent from the report) |
+| `SurfaceClientBuildOptions` | `/bun` | its options — entrypoint, `distDir`, the HTML template + placeholders, `extraAssets`, `publicDir`, `minify`, `commit`, `assetPrefix` |
+| `SurfaceClientBuildResult` | `/bun` | `{ jsHref, assetHrefs, assetPrefix, preloadHrefs, assets }` — every hashed URL the shell now names (the JS entry, one per extra asset, and the entry's static chunks in load order), plus an `AssetReport` per **compressible** asset in the hashed dir (sourcemaps and already-compressed media are skipped, and absent from the report) |
 | `AssetReport` | `/bun` | `{ file, bytes, siblings }` — identity size and each sibling's size, keyed by `Content-Encoding` |
 | `injectShellHead(html, { preloadHrefs, commit })` | `.` | the whole head prelude in one splice — preload links first, then the build identity — for a caller templating its own shell from a build result |
 | `injectShellCommit(html, commit)` | `.` | that same splice with nothing to preload: the build identity alone |
 | `PRECOMPRESSED_ENCODINGS` | `.` | the `[encoding, suffix]` table BOTH halves read: `freshStaticLayer` to negotiate, the builder to emit |
+| `assertAssetPrefix(assetPrefix?)` | `.` | a hashed-asset request prefix, checked and handed back — the one place its shape is judged, so a prefix the build refuses is not one the server accepts |
+| `assetDirOf(assetPrefix?)` | `.` | …and the dist-relative directory that prefix names, which the Bun build reads to choose its `outdir` |
 
 ```ts
 const { jsHref, assets } = await buildSurfaceClient({
@@ -246,8 +248,30 @@ for (const a of assets) console.log(a.file, a.bytes, a.siblings);
   build rewrites no placeholder for, so the shell would name it nowhere.
 </Aside>
 
+<Aside type="tip" title="Moving the bundle out of the app's URL space">
+  `assetPrefix` (default `/assets/`) is the one thing about the dist's shape you
+  may say, and it is here because the right answer is not universal: it is a
+  fact about **whose URL space** sits at `/`. An app serving somebody else's
+  files there — olai serves a person's own directory, so `/assets/notes.md` is
+  one of their pages — cannot leave the bundle on the convention: a miss under
+  the immutable prefix 404s by design rather than reaching the shell, so a whole
+  folder of theirs has no page at all. Pass the same string to the build and to
+  `freshStaticLayer` and the collision is gone; `assetDirOf` derives the
+  dist-relative directory from it, so the hrefs in the shell and the bytes on
+  disk are one setting rather than two that can part. The prefix must start and
+  end with `/` and must not be the root — each refusal throws where it is
+  written. Vite-built clients say the same thing through Vite's own
+  `build.assetsDir`. **Moving the prefix wants a clean `distDir`**: the prune
+  below measures the directory this build wrote and cannot know where the last
+  one put its files, so a rebuild that moves the prefix leaves the vacated
+  directory behind. Deleting a sibling directory on the strength of its name is
+  the alternative, and it would eat a `publicDir` output the day someone moved
+  the prefix onto one.
+</Aside>
+
 <Aside type="caution" title="The hashed dir belongs to the build">
-  Every rebuild PRUNES `<distDir>/assets/` down to what it just produced (plus
+  Every rebuild PRUNES the hashed dir (`<distDir>/assets/` by default) down to
+  what it just produced (plus
   their sourcemaps and siblings): a hashed file the new shell does not name is
   unreachable, and leaving it there is what makes a long dev session pay brotli
   over a growing pile. A sibling that already sits beside an unchanged asset is

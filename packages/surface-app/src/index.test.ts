@@ -10,6 +10,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ASSET_MISS_CACHE_CONTROL,
+  assertAssetPrefix,
+  assetDirOf,
   cacheControlFor,
   clientIsStale,
   injectShellCommit,
@@ -203,6 +205,58 @@ describe("cacheControlFor", () => {
     // The Vite default prefix is no longer special under an override.
     expect(cacheControlFor("/assets/x-hash.js", paths)).toBeNull();
     expect(cacheControlFor("/app.html", paths)).toBe("no-store");
+  });
+});
+
+describe("assetDirOf — the request prefix IS the dist-relative directory", () => {
+  it("defaults to the Vite convention when an app says nothing", () => {
+    expect(assetDirOf()).toBe("assets");
+    expect(assetDirOf(undefined)).toBe("assets");
+    expect(assertAssetPrefix()).toBe("/assets/");
+  });
+
+  it("derives the directory a moved bundle is written to and served from", () => {
+    // The whole of the agreement: a build emitting into <dist>/_olai/assets and
+    // a server pinned to /_olai/assets/ are ONE setting, so there is nowhere for
+    // the shell's hrefs and the bytes on disk to disagree.
+    expect(assetDirOf("/_olai/assets/")).toBe("_olai/assets");
+    expect(assetDirOf("/static/")).toBe("static");
+  });
+
+  it("agrees with isImmutableAssetPath about what sits under the prefix", () => {
+    const assetPrefix = "/_olai/assets/";
+    const dir = assetDirOf(assetPrefix);
+    expect(isImmutableAssetPath(`/${dir}/main-abc.js`, { assetPrefix })).toBe(
+      true,
+    );
+    // ...and the space the bundle vacated is the app's again.
+    expect(isImmutableAssetPath("/assets/notes.md", { assetPrefix })).toBe(
+      false,
+    );
+  });
+
+  it("hands the prefix back when it takes one — the check reads as taking the value", () => {
+    // `freshStaticLayer` wants the prefix, not the directory; a bare assertion
+    // standing beside the assignment is the shape this split exists to avoid.
+    expect(assertAssetPrefix("/_olai/assets/")).toBe("/_olai/assets/");
+  });
+
+  it("refuses a prefix without both slashes — startsWith would match a sibling dir", () => {
+    // `/assetsXtra/main.js`.startsWith("/assets") is true: an unterminated
+    // prefix pins a directory no build ever wrote to.
+    expect(() => assetDirOf("/assets")).toThrow(/start and end/);
+    expect(() => assetDirOf("assets/")).toThrow(/start and end/);
+    expect(() => assetDirOf("")).toThrow(/start and end/);
+  });
+
+  it("refuses the root, which would put the no-store shell under the immutable contract", () => {
+    expect(() => assetDirOf("/")).toThrow(/kolu#1319/);
+  });
+
+  it("refuses a prefix that could not be a directory under the dist", () => {
+    expect(() => assetDirOf("//assets/")).toThrow(/empty segment/);
+    expect(() => assetDirOf("/../assets/")).toThrow(/climb out/);
+    expect(() => assetDirOf("/assets/?v=1/")).toThrow(/query/);
   });
 });
 
