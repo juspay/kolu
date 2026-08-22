@@ -91,27 +91,6 @@ function titleLabel(meta: TerminalMetadata | undefined): string {
   return meta.git?.branch ? `${name} (${meta.git.branch})` : name;
 }
 
-function roundedRectPath(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-): void {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
-
 /** Execute a scene against a 2D context. A dumb executor by design: every
  *  colour and every coordinate is read straight off the scene, never
  *  re-derived here — the moment this function computes a position, the
@@ -132,15 +111,22 @@ function paintScene(
   // they were two literals here and two more in the SVG writer, which is the
   // drift the scene exists to prevent.
   const { strokeInset, strokeWidth } = scene.window;
-  const outline = () =>
-    roundedRectPath(
-      ctx,
+  // `ctx.roundRect` — the platform primitive — rather than a hand-built path.
+  // Its corner is a true elliptical quarter-arc, which is exactly what the SVG
+  // backend's `<rect rx>` draws. The two used to be a `quadraticCurveTo` here
+  // (a parabola) against an `A r,r` arc there: the ONE piece of geometry
+  // neither backend took off the scene, and so the one place they could draw
+  // different pictures from the same scene.
+  const outline = () => {
+    ctx.beginPath();
+    ctx.roundRect(
       strokeInset,
       strokeInset,
       scene.width - strokeWidth,
       scene.height - strokeWidth,
       scene.radius,
     );
+  };
 
   outline();
   ctx.fillStyle = scene.window.bg;

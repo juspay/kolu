@@ -10,7 +10,15 @@
  *  contract. That is not a missed batching optimisation — independent text
  *  elements are what stop the font's shaper from applying ligatures and
  *  kerning across cell boundaries, which is exactly the drift a terminal
- *  must not have. */
+ *  must not have.
+ *
+ *  The only string work this backend does is `escapeHtml` — turning `<`, `&`
+ *  and `"` into entities, which is a fact about XML syntax and nothing else.
+ *  DROPPING the code points no renderer can paint happens in `scene.ts`, where
+ *  a cell's paintable characters are decided: doing it here made this backend
+ *  the only one that did it, so the canvas painter drew an unpaired surrogate
+ *  as U+FFFD and a C1 control as a box while the SVG drew nothing — two
+ *  visibly different pictures from one scene. */
 
 import { escapeHtml } from "@kolu/html-escape";
 import type { SnapshotScene } from "./scene.ts";
@@ -21,38 +29,25 @@ function n(value: number): string {
   return (Math.round(value * 10) / 10).toString();
 }
 
-/** Code points XML 1.0 cannot carry at all — not even as an entity: the C0
- *  controls (bar tab/LF/CR, which a terminal cell never holds), DEL and the
- *  C1 block, and the two noncharacters at the end of the BMP.
+/** The window outline's rect attributes — its position, its size and its
+ *  corner radius — spelled once for the three places that need the SAME
+ *  shape: the clip path, the background fill, and the stroked border.
  *
- *  Surrogates are matched only when UNPAIRED — `\p{Surrogate}` under the `u`
- *  flag never matches a well-formed pair, where a blanket `\uD800-\uDFFF`
- *  class would tear every astral glyph (emoji, and the CJK a wide cell
- *  holds) in half. */
-const XML_ILLEGAL =
-  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFE\uFFFF]|\p{Surrogate}/gu;
-
-/** Escape a string for XML text or an attribute value, first DROPPING the
- *  code points XML cannot carry.
+ *  A `<rect rx>` rather than a hand-written arc path, and that is the whole
+ *  point: `rx` is a true elliptical quarter-arc, and so is the canvas
+ *  backend's `ctx.roundRect()`. This used to be an `A r,r` path here against a
+ *  `quadraticCurveTo` there — a circular arc against a parabola, on the ONE
+ *  piece of geometry neither backend read off the scene, and therefore the one
+ *  place two backends could draw different pictures from the same scene. Both
+ *  now name a platform primitive with the same definition rather than each
+ *  approximating the corner in its own curve language.
  *
- *  A terminal cell holds whatever the PTY put there. A single stray control
- *  byte in the scrollback would otherwise make the whole document
- *  unparseable and fail every screenshot of that terminal — a
- *  disproportionate answer to one unprintable character that the live
- *  terminal itself renders as nothing. Dropping is not a silent degradation
- *  of a MEANINGFUL value: these code points have no glyph, so the picture is
- *  the same one xterm draws. */
-function xml(s: string): string {
-  return escapeHtml(s.replace(XML_ILLEGAL, ""));
-}
-
-/** The window outline as a rounded rect path. The inset comes off the scene —
- *  it is the same decision as the stroke width, and both backends used to
- *  spell it as a bare number of their own. */
-function windowPath(scene: SnapshotScene): string {
-  const { width, height, radius } = scene;
-  const i = scene.window.strokeInset;
-  return `M${n(radius + i)},${n(i)} H${n(width - radius - i)} A${radius},${radius} 0 0 1 ${n(width - i)},${n(radius + i)} V${n(height - radius - i)} A${radius},${radius} 0 0 1 ${n(width - radius - i)},${n(height - i)} H${n(radius + i)} A${radius},${radius} 0 0 1 ${n(i)},${n(height - radius - i)} V${n(radius + i)} A${radius},${radius} 0 0 1 ${n(radius + i)},${n(i)} Z`;
+ *  `<rect rx>` is legal in all three positions — inside a `<clipPath>`, as a
+ *  fill, and as the stroked outline — so the path builder bought nothing the
+ *  primitive does not already give. */
+function windowRect(scene: SnapshotScene): string {
+  const { strokeInset, strokeWidth } = scene.window;
+  return `x="${n(strokeInset)}" y="${n(strokeInset)}" width="${n(scene.width - strokeWidth)}" height="${n(scene.height - strokeWidth)}" rx="${n(scene.radius)}"`;
 }
 
 export function sceneToSvg(scene: SnapshotScene): string {
@@ -67,11 +62,11 @@ export function sceneToSvg(scene: SnapshotScene): string {
   // body both get the window's rounded corners without either knowing the
   // radius.
   parts.push(
-    `<defs><clipPath id="win"><path d="${windowPath(scene)}"/></clipPath></defs>`,
+    `<defs><clipPath id="win"><rect ${windowRect(scene)}/></clipPath></defs>`,
   );
   parts.push(`<g clip-path="url(#win)">`);
   parts.push(
-    `<path d="${windowPath(scene)}" fill="${scene.window.bg}"/>`,
+    `<rect ${windowRect(scene)} fill="${scene.window.bg}"/>`,
     `<rect x="0" y="0" width="${n(scene.width)}" height="${n(titleBar.height)}" fill="${titleBar.bg}"/>`,
     `<rect x="0" y="${n(titleBar.height)}" width="${n(scene.width)}" height="1" fill="${scene.window.border}"/>`,
   );
@@ -90,7 +85,7 @@ export function sceneToSvg(scene: SnapshotScene): string {
     [titleBar.brand, ` font-weight="600"`],
   ] as const) {
     parts.push(
-      `<text x="${n(t.x)}" y="${n(t.y)}" font-family="${xml(font.family)}" font-size="${t.size}" fill="${titleBar.fg}" text-anchor="${t.anchor}" dominant-baseline="central"${weight}>${xml(t.text)}</text>`,
+      `<text x="${n(t.x)}" y="${n(t.y)}" font-family="${escapeHtml(font.family)}" font-size="${t.size}" fill="${titleBar.fg}" text-anchor="${t.anchor}" dominant-baseline="central"${weight}>${escapeHtml(t.text)}</text>`,
     );
   }
 
@@ -107,12 +102,12 @@ export function sceneToSvg(scene: SnapshotScene): string {
 
   // The glyph baseline sits one font-size below the cell top, matching the
   // canvas backend's `fillText(chars, px, py + fontSize)`.
-  const family = xml(font.family);
+  const family = escapeHtml(font.family);
   for (const g of scene.glyphs) {
     const weight = g.bold ? ` font-weight="bold"` : "";
     const style = g.italic ? ` font-style="italic"` : "";
     parts.push(
-      `<text x="${n(g.x)}" y="${n(g.y + font.size)}" font-family="${family}" font-size="${font.size}" fill="${g.fill}"${weight}${style}>${xml(g.text)}</text>`,
+      `<text x="${n(g.x)}" y="${n(g.y + font.size)}" font-family="${family}" font-size="${font.size}" fill="${g.fill}"${weight}${style}>${escapeHtml(g.text)}</text>`,
     );
   }
 
@@ -120,7 +115,7 @@ export function sceneToSvg(scene: SnapshotScene): string {
   // The border is stroked LAST and outside the clip, so it is not half-eaten
   // by its own clip path the way a clipped stroke would be.
   parts.push(
-    `<path d="${windowPath(scene)}" fill="none" stroke="${scene.window.border}" stroke-width="${n(scene.window.strokeWidth)}"/>`,
+    `<rect ${windowRect(scene)} fill="none" stroke="${scene.window.border}" stroke-width="${n(scene.window.strokeWidth)}"/>`,
   );
   parts.push(`</svg>`);
   return parts.join("");

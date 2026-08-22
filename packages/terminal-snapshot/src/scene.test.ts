@@ -148,22 +148,16 @@ describe("svg", () => {
     expect(svg).not.toMatch(/>[<&]</);
   });
 
-  it("drops control characters XML cannot carry rather than emitting a broken document", () => {
-    // A stray control byte in the scrollback must not make every screenshot
-    // of that terminal unparseable: it is DROPPED (not escaped — XML 1.0
-    // cannot carry it even as an entity) and the printable text survives.
-    //
-    // Spelled as an ESCAPE rather than as a raw byte, and asserting BOTH
-    // halves: an invisible control character in the source reads to a
-    // reviewer as a case that exercises nothing.
-    const svg = sceneToSvg(gridSvgOf("a\u0001b"));
-    expect(svg).toContain(">ab<");
-    expect(svg).not.toContain("\u0001");
-  });
-
-  it("keeps an astral glyph whole — a surrogate PAIR is legal XML", () => {
-    const svg = sceneToSvg(gridSvgOf("🚀"));
-    expect(svg).toContain("🚀");
+  it("draws the window outline as a rounded <rect>, the primitive the canvas backend also names", () => {
+    // Both backends must round the corner the SAME way. `<rect rx>` and
+    // `ctx.roundRect()` are both true elliptical arcs; the hand-built paths
+    // these replaced were an `A r,r` circular arc here against a
+    // `quadraticCurveTo` parabola there — two different corners from one scene.
+    const s = scene(gridOf([[cell()]]));
+    const svg = sceneToSvg(s);
+    expect(svg).not.toContain("<path");
+    // Clip, fill and stroke are the same shape — three rects, one geometry.
+    expect(svg.match(new RegExp(`rx="${s.radius}"`, "g"))).toHaveLength(3);
   });
 
   it("carries bold and italic through as font attributes", () => {
@@ -184,6 +178,59 @@ describe("svg", () => {
 function gridSvgOf(chars: string) {
   return scene(gridOf([[cell({ chars })]]));
 }
+
+describe("what a cell can paint is decided once, in the scene", () => {
+  // These live here rather than under `svg` on purpose. The DROP used to be
+  // the SVG writer's, so the canvas painter never did it and Chromium drew an
+  // unpaired surrogate as U+FFFD and a C1 control as a box — the same scene,
+  // two visibly different pictures. Asserting on the SCENE is what pins the
+  // fix: whatever a backend does next, it is handed text it can paint.
+  //
+  // Spelled as an ESCAPE rather than as a raw byte: an invisible control
+  // character in the source reads to a reviewer as a case that exercises
+  // nothing.
+  it("drops a control character no renderer can paint, keeping the text around it", () => {
+    const s = gridSvgOf("a\u0001b");
+    expect(s.glyphs[0]?.text).toBe("ab");
+    // And the document that comes out is parseable, which is the failure this
+    // prevents in the SVG backend specifically: XML 1.0 cannot carry a C0
+    // control even as an entity.
+    const svg = sceneToSvg(s);
+    expect(svg).toContain(">ab<");
+    expect(svg).not.toContain("\u0001");
+  });
+
+  it("drops an UNPAIRED surrogate, which a canvas would otherwise paint as U+FFFD", () => {
+    expect(gridSvgOf("a\uD800b").glyphs[0]?.text).toBe("ab");
+  });
+
+  it("keeps an astral glyph whole — a surrogate PAIR is a real character", () => {
+    const s = gridSvgOf("🚀");
+    expect(s.glyphs[0]?.text).toBe("🚀");
+    expect(sceneToSvg(s)).toContain("🚀");
+  });
+
+  it("emits no glyph for a cell that held nothing paintable at all", () => {
+    expect(gridSvgOf("\u0001").glyphs).toHaveLength(0);
+  });
+
+  it("cleans the title-bar caption too — it is text a backend draws", () => {
+    // The caption comes from a terminal's cwd and git branch, which are
+    // strings the filesystem can make as strange as it likes.
+    const s = buildScene({
+      grid: gridOf([[cell()]]),
+      theme: THEME,
+      label: "repo\u0001 (main)",
+      brand: "kolu\u0001",
+      fontFamily: "Test Mono",
+      fontSize: 10,
+      cellW: 6,
+      cellH: 12,
+    });
+    expect(s.titleBar.title.text).toBe("repo (main)");
+    expect(s.titleBar.brand.text).toBe("kolu");
+  });
+});
 
 describe("a grid that contradicts itself is refused, not painted", () => {
   it("rejects a cell outside the column count it was read from", () => {

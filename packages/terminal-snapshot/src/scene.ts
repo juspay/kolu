@@ -59,6 +59,37 @@ const UNDERLINE_THICKNESS = 1;
  *  wired to anything. */
 const DOT_COLORS = ["#ff5f57", "#febc2e", "#28c840"] as const;
 
+/** Code points no terminal renderer can paint and no serialization can carry:
+ *  the C0 controls (bar tab/LF/CR, which a terminal cell never holds), DEL and
+ *  the C1 block, and the two noncharacters at the end of the BMP.
+ *
+ *  Surrogates are matched only when UNPAIRED — `\p{Surrogate}` under the `u`
+ *  flag never matches a well-formed pair, where a blanket `\uD800-\uDFFF`
+ *  class would tear every astral glyph (emoji, and the CJK a wide cell holds)
+ *  in half. */
+const UNPAINTABLE =
+  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFE\uFFFF]|\p{Surrogate}/gu;
+
+/** The paintable characters of a string a PTY produced.
+ *
+ *  A terminal cell holds whatever bytes the stream put there. Dropping is not
+ *  a silent degradation of a MEANINGFUL value: these code points have no
+ *  glyph, so what is left is the picture xterm itself draws — and for the SVG
+ *  backend the alternative is worse than a lost character, because a single
+ *  stray control byte anywhere in the scrollback makes the whole document
+ *  unparseable and fails every screenshot of that terminal.
+ *
+ *  HERE rather than in a backend, and that is the load-bearing part. It used
+ *  to live in `svg.ts`, so only ONE of the two backends did it: the canvas
+ *  painter handed the raw string to `fillText`, where Chromium draws an
+ *  unpaired surrogate as U+FFFD and a C1 control as a box. Same scene, two
+ *  visibly different pictures — the one thing this module exists to make
+ *  impossible. What a cell's paintable characters are is a layout question,
+ *  and it is answered once, here. */
+function paintable(s: string): string {
+  return s.replace(UNPAINTABLE, "");
+}
+
 /** Standard xterm 256-colour palette geometry: indices 16-231 form a 6x6x6
  *  RGB cube, 232-255 a 24-step greyscale ramp. */
 const CUBE_STEPS: readonly [number, number, number, number, number, number] = [
@@ -376,11 +407,16 @@ export function buildScene(input: SceneInput): SnapshotScene {
           fill: ink,
         });
       }
-      if (cell.chars !== "" && cell.chars !== " ") {
+      // The cell's paintable text, decided once for both backends — see
+      // {@link paintable}. A cell holding nothing BUT unpaintable code points
+      // reduces to "" here and falls through the same "no glyph" arm a blank
+      // already takes.
+      const chars = paintable(cell.chars);
+      if (chars !== "" && chars !== " ") {
         glyphs.push({
           x,
           y,
-          text: cell.chars,
+          text: chars,
           fill: ink,
           bold: cell.bold,
           italic: cell.italic,
@@ -393,7 +429,11 @@ export function buildScene(input: SceneInput): SnapshotScene {
     width,
     height,
     radius: CHROME.radius,
-    font: { family: fontFamily, size: fontSize, cellW, cellH },
+    // The family name and both captions go through `paintable` for the same
+    // reason a cell's characters do: they are strings a backend will draw or
+    // write into a document, and the scene is where "what can be painted" is
+    // settled — not in whichever backend happens to be strict about it.
+    font: { family: paintable(fontFamily), size: fontSize, cellW, cellH },
     window: {
       bg: theme.bg,
       border,
@@ -408,14 +448,14 @@ export function buildScene(input: SceneInput): SnapshotScene {
         x: width / 2,
         y: textY,
         size: CHROME.titleSize,
-        text: label,
+        text: paintable(label),
         anchor: "middle",
       },
       brand: {
         x: width - CHROME.brandRightMargin,
         y: textY,
         size: CHROME.brandSize,
-        text: brand,
+        text: paintable(brand),
         anchor: "end",
       },
       dots,
