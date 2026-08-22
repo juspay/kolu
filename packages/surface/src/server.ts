@@ -331,6 +331,65 @@ function pullOnly<T>(
   };
 }
 
+/**
+ * How far a subscription's delivery may run AHEAD of the consumer reading it,
+ * in values — and the reason it is a number rather than "as many as there are".
+ *
+ * A subscription's frames are acknowledged: `RpcServer` sends one `Chunk` frame
+ * per stream chunk and, where the transport ACKs (every websocket client does),
+ * waits for the ack before the next (`RpcServer.streamEffect`'s
+ * `Stream.runForEachArray` and its latch). So the SHAPE of the chunks the
+ * producer emits decides how much of a backlog one round trip carries — and
+ * `Stream.fromAsyncIterable` wraps every value in a chunk of its own
+ * (`Channel.fromAsyncIterableArray`'s `Arr.of`), which makes every subscription
+ * STOP-AND-WAIT: exactly one publish per round trip, whatever has piled up.
+ * Buffered, the pull is `Queue.takeAll` and a chunk is everything published
+ * since the last one went out.
+ *
+ * WHY IT IS BOUNDED, and this is the half that a first attempt at this got
+ * wrong (#2199, reverted in #2201). The AsyncIterable bridge pulled only when
+ * the consumer pulled, so a stalled consumer backed up into the CHANNEL's own
+ * per-subscriber buffer and that channel's declared policy — `highWaterMark`
+ * with `drop-oldest` or `abort` (`inMemoryChannel`) — decided what happened.
+ * An unbounded buffer here silently retires that policy: the channel never
+ * fills, `onOverflow` never fires, and a bounded channel's whole contract stops
+ * meaning anything. `suspend` restores it — the buffer's own pump parks when
+ * full, the backlog goes back to sitting in the channel, and the channel's
+ * bound is once again the one that decides.
+ *
+ * WHY THIS NUMBER, and what actually holds it. It has to be big enough that an
+ * ordinary burst rides in one chunk — a chat answer streaming at forty tokens a
+ * second over a 200ms link leaves about eight behind each round trip (olai's
+ * `transcript-stream-quadratic`, which is what found the defect) — so 512 is
+ * some sixty bursts, comfortably more than one round trip's worth and nowhere
+ * near a backlog anybody is reading.
+ *
+ * WHAT KEEPS IT FROM USURPING THE PRODUCER'S OWN BOUND is `suspend`, not the
+ * number. A finite capacity with a suspending strategy means the pump PARKS
+ * when it is full, so a consumer that has genuinely stopped reading leaves the
+ * backlog where it was — in the channel, for whatever policy that channel
+ * declared. That is true of any finite capacity; the number only decides how
+ * much rides in one chunk before the parking starts. It is deliberately NOT
+ * derived from `inMemoryChannel`'s mark, which has no default at all
+ * (`highWaterMark` is optional and unbounded when absent) — the 4,096 that gets
+ * quoted around this is `@kolu/surface-remote`'s own
+ * `RESERVE_CHANNEL_HIGH_WATER_MARK`, one consumer's setting rather than a floor
+ * this file may lean on.
+ *
+ * WHICH TESTS HOLD WHICH HALF, since it is not the same file for both. The
+ * BATCHING is {@link ./streamBatching.test.ts}: a consumer coming back after a
+ * burst is handed the burst, and values published one at a time still arrive
+ * one at a time. The BACK-PRESSURE is `@kolu/surface-remote`'s
+ * `reServeSurface.test.ts`, and what it is a tripwire for is precisely an
+ * ALWAYS-ON DRAIN — a bridge that pulls the channel dry whether or not anyone
+ * is consuming, which is what #2199 shipped and what that test caught. It is
+ * NOT a proof of any arithmetic about this constant: its consumer parks on the
+ * snapshot, before `concat` reaches the buffered half, so an unbounded
+ * `Stream.buffer` would pass it too. The bound is real by construction of
+ * `suspend`; the test is real about the drain.
+ */
+const STREAM_AHEAD = 512;
+
 /** Open ONE subscription on `bus` as a scoped resource and expose it as a
  *  `Stream`. The ONE place a surface's pub/sub face meets Effect's:
  *
@@ -349,7 +408,13 @@ function pullOnly<T>(
  *  A channel-level failure (a bounded channel's overflow abort) is a DEFECT, not
  *  a member failure: no surface member declares an error channel for its
  *  snapshot/delta stream, so an undeclared fault must crash loudly rather than
- *  masquerade as an end-of-stream the consumer would read as "no more data". */
+ *  masquerade as an end-of-stream the consumer would read as "no more data".
+ *
+ *  IT IS BUFFERED, which is a decision about ROUND TRIPS and is argued where
+ *  its bound is ({@link STREAM_AHEAD}): a chunk carries everything published
+ *  since the last one went out rather than one publish per round trip, and the
+ *  buffer suspends rather than growing, so the channel's own bound is still the
+ *  one that decides what happens to a backlog nobody is reading. */
 function channelSubscription<T>(
   bus: Channel<T>,
 ): Effect.Effect<Stream.Stream<T>, never, Scope.Scope> {
@@ -373,6 +438,13 @@ function channelSubscription<T>(
           pullOnly(iterator, controller.signal),
           (err) => err,
         ),
+      ).pipe(
+        // The framework's own operator rather than a queue of ours: it forks a
+        // pump that drains upstream into a queue and pulls with
+        // `Queue.takeAll`, which is precisely "a chunk is everything published
+        // since the last one went out" — and `suspend` is what keeps the
+        // BACK-PRESSURE the AsyncIterable bridge had (see {@link STREAM_AHEAD}).
+        Stream.buffer({ capacity: STREAM_AHEAD, strategy: "suspend" }),
       ),
   );
 }
@@ -413,6 +485,22 @@ export function streamFromAbortableSource<T>(
             ),
             (err) => err,
           ),
+        ).pipe(
+          // THE SAME BUFFER, for the same reason and with the same bound
+          // ({@link STREAM_AHEAD}). A producer bridged here is exactly the
+          // shape that suffers: a PTY tap emits at the rate a program writes,
+          // which is token-rate for anything a person is watching, and one
+          // value per chunk is one frame per round trip whatever the link.
+          //
+          // It is safe for PTY OUTPUT specifically because that output is a
+          // sequence, not a state: the consumer appends what arrives, so N
+          // values in one chunk render exactly as N chunks of one did — there
+          // is no coalescing of meaning here, only of frames. And `suspend`
+          // keeps this bridge as back-pressuring as it was: a producer faster
+          // than its reader parks the pump rather than growing a buffer, so
+          // whatever bound the producer already had is still the one that
+          // decides.
+          Stream.buffer({ capacity: STREAM_AHEAD, strategy: "suspend" }),
         ),
     ),
   );

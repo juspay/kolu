@@ -96,13 +96,49 @@ function watchKeys(
   return subscribeMember<readonly number[]>(handlers, "surface/items/keys");
 }
 
+/**
+ * How many frames there are once the count has STOPPED MOVING.
+ *
+ * Every assertion in this file is about MEMBERSHIP — did a key set change, and
+ * did an unchanged one stay quiet — and none is about how many turns of the
+ * event loop a frame takes to arrive. `flush()` conflates the two: it is ONE
+ * turn, which was enough while a subscription's delivery was one hop (publish,
+ * then the consumer's next pull) and is a hop COUNT rather than a wait either
+ * way. When delivery gained a buffer between those two, a frame started landing
+ * a turn later than it used to, and a count sampled exactly one turn after the
+ * action read either the frame before it or the one after — the same test
+ * passing and failing on scheduling.
+ *
+ * So the wait here is for QUIET: read the count until it holds still, and
+ * answer with the number it settled on. That is the same answer for any
+ * delivery that eventually delivers, which is the only promise a membership
+ * stream makes — and it keeps the claims exactly as they were, because "the
+ * count did not move" is precisely what a no-re-broadcast test means.
+ *
+ * STILL is four turns rather than one, because "quiet" has to outlast the hops
+ * a delivery may take; the cap is there so a stream that never settles fails
+ * this file rather than hanging it.
+ */
+const STILL = 4;
+const settled = async (count: () => number): Promise<number> => {
+  let last = count();
+  let held = 0;
+  for (let turn = 0; turn < 200 && held < STILL; turn++) {
+    await flush();
+    const now = count();
+    held = now === last ? held + 1 : 0;
+    last = now;
+  }
+  return last;
+};
+
 describe("served collection keys-stream — membership for a registry-backed projection", () => {
   it("broadcasts a key added AFTER a consumer subscribed (the registry-projection membership bug)", async () => {
     const kolu = serveRegistryBacked();
     kolu.add(1, "a"); // a terminal present before the consumer connects
 
     const { seen, stop } = watchKeys(kolu.handlers);
-    await flush();
+    await settled(() => seen.length);
     // The connect snapshot carries the pre-existing key.
     expect(seen.at(-1)).toEqual([1]);
 
@@ -110,12 +146,12 @@ describe("served collection keys-stream — membership for a registry-backed pro
     // then publish (kolu's `installSnapshot` ordering). Without the fix the
     // keys-set delta is suppressed and the consumer is stuck at [1].
     kolu.add(2, "b");
-    await flush();
+    await settled(() => seen.length);
     expect([...(seen.at(-1) ?? [])].sort()).toEqual([1, 2]);
 
     // A third, to be sure it isn't a one-off.
     kolu.add(3, "c");
-    await flush();
+    await settled(() => seen.length);
     expect([...(seen.at(-1) ?? [])].sort()).toEqual([1, 2, 3]);
 
     await stop();
@@ -172,11 +208,11 @@ describe("served collection keys-stream — membership for a registry-backed pro
     kolu.add(2, "b");
 
     const { seen, stop } = watchKeys(kolu.handlers);
-    await flush();
+    await settled(() => seen.length);
     expect([...(seen.at(-1) ?? [])].sort()).toEqual([1, 2]);
 
     kolu.drop(1); // registry entry gone, then publish
-    await flush();
+    await settled(() => seen.length);
     expect(seen.at(-1)).toEqual([2]);
 
     await stop();
@@ -187,25 +223,21 @@ describe("served collection keys-stream — membership for a registry-backed pro
     kolu.add(1, "a");
 
     const { seen, stop } = watchKeys(kolu.handlers);
-    await flush();
-    const framesAfterConnect = seen.length;
+    const framesAfterConnect = await settled(() => seen.length);
 
     // Drop a key that was never added/seeded: membership is unchanged, so the keys
     // stream must NOT re-yield. Without the guard the remove path would fire a
     // redundant full-snapshot, breaking the symmetry the upsert path enforces.
     kolu.drop(99);
-    await flush();
-    expect(seen.length).toBe(framesAfterConnect);
+    expect(await settled(() => seen.length)).toBe(framesAfterConnect);
 
     // Dropping the SAME key twice: the first drop is a real membership delta, the
     // second is a no-op that must NOT re-yield.
     kolu.drop(1);
-    await flush();
+    const framesAfterRealDrop = await settled(() => seen.length);
     expect(seen.at(-1)).toEqual([]);
-    const framesAfterRealDrop = seen.length;
     kolu.drop(1);
-    await flush();
-    expect(seen.length).toBe(framesAfterRealDrop);
+    expect(await settled(() => seen.length)).toBe(framesAfterRealDrop);
 
     await stop();
   });
@@ -215,15 +247,13 @@ describe("served collection keys-stream — membership for a registry-backed pro
     kolu.add(1, "a");
 
     const { seen, stop } = watchKeys(kolu.handlers);
-    await flush();
-    const framesAfterConnect = seen.length;
+    const framesAfterConnect = await settled(() => seen.length);
 
     // Same key, new value: membership is unchanged, so the keys stream must NOT
     // re-yield (a value-only churn can't storm keys subscribers). The value
     // travels the per-key `get` stream instead.
     kolu.add(1, "a-renamed");
-    await flush();
-    expect(seen.length).toBe(framesAfterConnect);
+    expect(await settled(() => seen.length)).toBe(framesAfterConnect);
 
     await stop();
   });
@@ -240,15 +270,13 @@ describe("served collection keys-stream — membership for a registry-backed pro
       readAlls++;
     });
     const { seen, stop } = watchKeys(kolu.handlers);
-    await flush();
-    const framesAfterConnect = seen.length;
+    const framesAfterConnect = await settled(() => seen.length);
     readAlls = 0; // count only the burst below, not the connect snapshot
 
     const M = 100;
     for (let k = 1; k <= M; k++) kolu.add(k, `n${k}`);
-    await flush();
 
-    expect(seen.length).toBe(framesAfterConnect + 1);
+    expect(await settled(() => seen.length)).toBe(framesAfterConnect + 1);
     expect([...(seen.at(-1) ?? [])].length).toBe(M);
     expect(readAlls).toBe(1);
 
@@ -265,16 +293,14 @@ describe("served collection keys-stream — membership for a registry-backed pro
     kolu.add(2, "b");
 
     const { seen, stop } = watchKeys(kolu.handlers);
-    await flush();
-    const framesAfterConnect = seen.length;
+    const framesAfterConnect = await settled(() => seen.length);
 
     kolu.add(3, "c");
     kolu.drop(1);
     kolu.add(4, "d");
     kolu.drop(2);
-    await flush();
 
-    expect(seen.length).toBe(framesAfterConnect + 1);
+    expect(await settled(() => seen.length)).toBe(framesAfterConnect + 1);
     expect([...(seen.at(-1) ?? [])].sort()).toEqual([3, 4]);
 
     await stop();
@@ -292,14 +318,12 @@ describe("served collection keys-stream — membership for a registry-backed pro
     kolu.add(1, "a");
 
     const { seen, stop } = watchKeys(kolu.handlers);
-    await flush();
-    const framesAfterConnect = seen.length;
+    const framesAfterConnect = await settled(() => seen.length);
 
     kolu.add(2, "b");
     kolu.drop(2);
-    await flush();
 
-    expect(seen.length).toBe(framesAfterConnect);
+    expect(await settled(() => seen.length)).toBe(framesAfterConnect);
     expect(seen.at(-1)).toEqual([1]);
 
     await stop();
@@ -314,7 +338,7 @@ describe("served collection keys-stream — membership for a registry-backed pro
     const kolu = serveRegistryBacked([[1, { name: "a" }]]);
 
     const { seen, stop } = watchKeys(kolu.handlers);
-    await flush();
+    await settled(() => seen.length);
     // The connect snapshot still carries the preloaded key.
     expect(seen.at(-1)).toEqual([1]);
     const framesAfterConnect = seen.length;
@@ -322,13 +346,12 @@ describe("served collection keys-stream — membership for a registry-backed pro
     // A value-only update on the PRELOADED key: membership is unchanged, so the
     // keys stream must NOT re-yield even though this key never went through upsert.
     kolu.add(1, "a-renamed");
-    await flush();
-    expect(seen.length).toBe(framesAfterConnect);
+    expect(await settled(() => seen.length)).toBe(framesAfterConnect);
 
     // A genuinely new key (not preloaded) still fires the membership delta, so the
     // seed suppresses only the redundant snapshot, never a real add.
     kolu.add(2, "b");
-    await flush();
+    await settled(() => seen.length);
     expect([...(seen.at(-1) ?? [])].sort()).toEqual([1, 2]);
 
     await stop();

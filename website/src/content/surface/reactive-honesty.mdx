@@ -119,12 +119,53 @@ shape: report by returning, and let the poll publish what the read returns. The
 reactor now detects the cycle and crashes naming the source, so the class costs a
 stack trace rather than an outage.
 
+## A round trip carries the backlog, not one frame of it
+
+A subscription's frames are acknowledged: the server sends one, waits to hear it
+arrived, then sends the next. That is what keeps a slow reader from being
+drowned, and it means the cost of a burst is decided by something you would not
+think to look at — the SHAPE of the chunks the producer emits. One value per
+chunk makes a subscription stop-and-wait: exactly one publish per round trip,
+however much has piled up behind it.
+
+Nothing about that is visible on a laptop, where a round trip is a tenth of a
+millisecond. Put a real link in the middle and it is the only thing that
+matters: a producer publishing faster than the round trip can never be caught up
+with, so the reader falls behind by (publishes × RTT) and stays there — and the
+lag is independent of bandwidth, so a fatter pipe buys nothing.
+
+Olai found this the way you find it: a chat panel in Canada watching an agent in
+India type. The agent finished its answer in ten seconds; the last of it reached
+the screen seventy-two seconds later, at five chunks a second on a 200ms link,
+with the reader watching a paragraph that had been written a minute earlier.
+
+The framework's own producers batch now: what has been published since the last
+chunk went out rides together, so the ack window fills with the backlog instead
+of one frame of it. It changes nothing about the protocol and nothing about what
+you write — the frames that were going to be sent are sent together. What it
+means for YOUR producers is one line: emit a chunk of what you have, not a chunk
+per value, and a burst costs one round trip instead of one each.
+
+**The buffer that does it is bounded, and that is the load-bearing half.** A
+first attempt at this batched into an unbounded one, and the cost was invisible
+until CI found it: a subscription that never blocks stops pushing back, so a
+channel that declared a `highWaterMark` and a drop policy never reached it, and
+that policy quietly stopped meaning anything. The buffer suspends instead — when
+a consumer has genuinely stopped reading, the backlog goes back to sitting in
+the channel, and the channel's own bound is once again the thing that decides
+what happens to it. The rule for a producer with a bound of its own: batching
+belongs to the delivery, but the DECISION about a backlog nobody is reading
+stays where the bound is declared.
+
 ## The through-line
 
 Every rule here is the same instinct applied at a different layer: a caught error
 must surface, never collapse to an empty or default state. Snapshot-then-deltas
 keeps a reconnect from lying about state; fail-fast keeps a broken pipe from
 looking empty; fine-grained consume keeps a recovered view from staying frozen;
-health-as-fact keeps the app from mistaking "up" for "ready." The cost is that
-you give up the easy fallbacks — the `?? {}`, the swallowed error, the "just
-show nothing." In exchange, when the view says a number, the number is real.
+health-as-fact keeps the app from mistaking "up" for "ready"; and a round trip
+that carries the backlog keeps a reader from being told the truth so slowly that
+it has stopped being true. The cost is that you give up the easy fallbacks — the
+`?? {}`, the swallowed error, the "just show nothing," and the unbounded buffer
+that makes a slow reader somebody else's problem. In exchange, when the view says
+a number, the number is real, and it is the number now.
