@@ -28,18 +28,21 @@
  *  never-cached SPA shell. Both are INPUTS (not baked-in) so a non-Vite build
  *  can override the convention. */
 export interface FreshnessPaths {
-  /** Prefix of content-hashed, `immutable` assets. Default: Vite's `/assets/`. */
+  /** Prefix of content-hashed, `immutable` assets. Default: Vite's `/assets/`.
+   *  It is the dist-relative directory too — see {@link assetDirOf}, which is
+   *  what a Bun build reads to emit under the same prefix its server pins. */
   assetPrefix?: string;
   /** Paths served as the `no-store` SPA shell. Default: `["/", "/index.html"]`. */
   shellPaths?: string[];
 }
 
-/** The content-hashed asset directory, relative to the dist root (`assets`) —
- *  the on-disk counterpart to the `/assets/` request prefix below. A Bun- or
- *  Vite-built client emits hashed bundles under `<dist>/${ASSET_DIR}/`; the
- *  server pins exactly that prefix `immutable`. Single-sourced here so the
- *  builder (`@kolu/surface-app/bun`) and the server can't disagree on where
- *  hashed assets live. */
+/** The DEFAULT content-hashed asset directory, relative to the dist root
+ *  (`assets`) — the on-disk counterpart to the `/assets/` request prefix below.
+ *  A Bun- or Vite-built client that says nothing emits hashed bundles under
+ *  `<dist>/${ASSET_DIR}/`; the server pins exactly that prefix `immutable`.
+ *  Single-sourced here so the builder (`@kolu/surface-app/bun`) and the server
+ *  can't disagree on where hashed assets live — and {@link assetDirOf} is the
+ *  same agreement for an app that moves them somewhere else. */
 export const ASSET_DIR = "assets";
 
 /** The default request prefix of the immutable, content-hashed assets (Vite's
@@ -49,6 +52,66 @@ export const ASSET_DIR = "assets";
  *  literal, keeping the "safe to precompress" set single-sourced with the
  *  immutable-asset taxonomy. */
 export const DEFAULT_ASSET_PREFIX = `/${ASSET_DIR}/`;
+
+/**
+ * A hashed-asset request prefix, checked — the ONE place its shape is judged,
+ * so a prefix a build refuses cannot be one a server accepts.
+ *
+ * WHY THE PREFIX IS SAYABLE AT ALL, since a knob here would otherwise be a
+ * defect: an app whose root URL space is somebody ELSE's — olai serves a
+ * person's own directory of files at `/`, so `/assets/notes.md` is a page a
+ * reader can address — cannot have the bundle answer first, and a `/assets/*`
+ * miss deliberately 404s rather than falling through to the shell (invariant
+ * #1: an asset miss must never be served HTML). Moving the bundle under a
+ * prefix of the app's own choosing is the only fix; `FreshnessPaths` has taken
+ * that prefix as an input since the freshness contract was written, and the
+ * Vite half honours it through Vite's own `build.assetsDir`. The Bun half is
+ * what had no way to say it.
+ *
+ * Asserted rather than normalised, on this file's fail-fast stance. A prefix
+ * that does not start and end with `/` makes `isImmutableAssetPath`'s
+ * `startsWith` match a sibling directory (`/assetsX/`) or nothing at all; a
+ * bare `/` puts the shell under the immutable contract (kolu#1319); an empty
+ * segment or a `..` names no directory under the dist. Each is a
+ * misconfiguration, not a degraded mode. Returns the prefix, so the check reads
+ * as part of taking the value rather than as a statement standing beside it.
+ */
+export function assertAssetPrefix(
+  assetPrefix: string = DEFAULT_ASSET_PREFIX,
+): string {
+  const wrong =
+    !assetPrefix.startsWith("/") || !assetPrefix.endsWith("/")
+      ? "must start and end with `/`"
+      : assetPrefix === "/"
+        ? "must not be the root, which would put the `no-store` shell under the immutable contract and pin returning browsers to a stale build (kolu#1319)"
+        : assetPrefix.includes("//")
+          ? "must not contain an empty segment"
+          : assetPrefix.split("/").includes("..")
+            ? "must not climb out of the dist with `..`"
+            : /[?#]/.test(assetPrefix)
+              ? "is a path prefix, so it carries no query and no fragment"
+              : null;
+  if (wrong !== null)
+    throw new Error(`assetPrefix ${JSON.stringify(assetPrefix)} ${wrong}.`);
+  return assetPrefix;
+}
+
+/**
+ * …and the dist-relative DIRECTORY that prefix names, which is the same string
+ * without its slashes.
+ *
+ * It is the same string because the static layer serves `<root>/<path>`: a
+ * file requested at `/_app/assets/main-abc.js` is
+ * `<dist>/_app/assets/main-abc.js` on disk and nowhere else. So a build that
+ * emits under one directory and a server pinned to another prefix are not two
+ * settings that disagree — they are one setting spelled twice, and this
+ * derivation is what stops the second spelling existing.
+ * `@kolu/surface-app/bun` reads it to choose its `outdir`, and it is the only
+ * caller that needs the directory at all.
+ */
+export const assetDirOf = (assetPrefix?: string): string =>
+  assertAssetPrefix(assetPrefix).slice(1, -1);
+
 /** A `Content-Encoding` token this package will serve a build-time sibling for. */
 export type PrecompressedEncoding = "br" | "zstd" | "gzip";
 /** The file suffix carrying one encoding's bytes beside the identity asset. */
