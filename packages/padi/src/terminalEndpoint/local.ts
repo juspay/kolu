@@ -1338,23 +1338,34 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     lc.stopAwareness();
   }
 
-  /** Fully remove a terminal from existence — the two-store teardown tail as one
-   *  receptacle: drop the registry entry AND its snapshot store value (the IFF
-   *  lockstep), then arm the autosave. `dropSnapshot` fans the removal onto padi's
-   *  `terminals` collection (its keys stream IS the client's terminal list), so no
-   *  separate list emit is needed. handleExit / killTerminal / discardSleeping / a
-   *  failed fresh `spawnPty` all converge here, so an R9 snapshot-backing change (or
-   *  any change to the notification set) touches ONE place instead of four call
-   *  sites. Each site's differing PREAMBLE (`terminalExit` publish,
-   *  `cleanupTerminalScratch`, the kill RPC, the identity gate) stays at the call
-   *  site; only this identical tail is encapsulated.
+  /** Fully remove a terminal from existence — drop the registry entry AND its
+   *  snapshot store value (the IFF lockstep), then arm the autosave.
+   *  `dropSnapshot` fans the removal onto padi's `terminals` collection (its keys
+   *  stream IS the client's terminal list), so no separate list emit is needed.
+   *  handleExit / killTerminal / discardSleeping / a failed fresh `spawnPty` all
+   *  converge here, so an R9 snapshot-backing change (or any change to the
+   *  notification set) touches ONE place instead of four call sites. Only the
+   *  removal itself is encapsulated; each site keeps its own surrounding steps.
+   *
+   *  Its POSITION differs by site, so this is not a "tail": it is the tail for
+   *  `handleExit` and the discards, and the CLAIM for `killTerminal` — which
+   *  calls it BEFORE the pty-host round-trip, so its kill and its scratch scrub
+   *  both follow.
+   *
+   *  Returns whether THIS call was the one that removed the entry — the
+   *  single-entry dual of `drainTerminals`'s snapshot-and-clear. A teardown that
+   *  yields claims through this RETURN VALUE rather than through the read that
+   *  admitted it, so of N overlapping callers exactly one proceeds even if an
+   *  `await` is later introduced above it. The other three sites ignore the
+   *  boolean.
    *
    *  The SEED counterpart is `registerAndInstall` (register the entry + fan its
    *  snapshot out), so birth and removal read as symmetric receptacles. */
-  private finalizeRemoval(id: TerminalId): void {
-    unregisterTerminal(id);
+  private finalizeRemoval(id: TerminalId): boolean {
+    const claimed = unregisterTerminal(id);
     dropSnapshot(id);
     notifyDirty();
+    return claimed;
   }
 
   /** A terminal's PTY exited naturally. Stop its sensor layer, publish the
@@ -1385,19 +1396,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // double-publish `terminalExit`. The kill RPC's response drives client
     // cleanup instead.
     this.teardownSensors(id);
-    // CLAIM the terminal before yielding. The guard above is a read, and every
-    // `await` below is a window in which a second kill would read the SAME live
-    // entry, log its own "killing", and fire its own pty-host kill at a pid this
-    // one is already retiring — a pid the OS may by then have recycled. Removing
-    // the entry here (not after the round-trip) makes the guard and the claim one
-    // indivisible step, so the second caller falls out at `!entry` exactly as a
-    // second SEQUENTIAL kill already does. Production dispatched this pair 124ms
-    // apart on one split close; `killIdempotence.test.ts` pins both fences.
-    //
-    // Nothing is lost by removing early: the kill's failure arm ALREADY
-    // unregistered regardless ("unregistering anyway"), so the registry outcome
-    // was never conditional on the round-trip.
-    this.finalizeRemoval(id);
+    // CLAIM, before any `await`: the REMOVAL decides the winner, not the read
+    // above, so a second overlapping kill falls out here rather than firing a
+    // second signal at a pid this one is already retiring. Costs nothing — the
+    // kill's failure arm already unregistered regardless. The incident and both
+    // fences are written up in `killIdempotence.test.ts`.
+    if (!this.finalizeRemoval(id)) return undefined;
     try {
       await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
     } catch (err) {
@@ -1551,21 +1555,33 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   async killAllTerminals(): Promise<void> {
-    const ids = listTerminals().map((info) => info.id);
-    log.info({ count: ids.length }, "killing all terminals");
-    for (const id of ids) this.teardownSensors(id);
+    // CLAIM first, for the reason `killTerminal` claims first — this method is
+    // the same shape and owes the same fence. `drainTerminals` is the registry's
+    // snapshot-and-clear, i.e. the claim-all; on the FAR side of the await every
+    // entry is still live, so an overlapping `lifecycle.kill` would claim a
+    // terminal `killAll` has already asked the pty-host to end and aim a second
+    // signal at that pid (and a terminal SPAWNED in that window would be swept
+    // away though `killAll` never covered its PTY).
+    const entries = drainTerminals();
+    log.info({ count: entries.length }, "killing all terminals");
+    for (const entry of entries) this.teardownSensors(entry.info.id);
     try {
       await runEndpointEdge(ptyHostClient.surface.terminal.killAll({}));
     } catch (err) {
-      log.error({ err }, "pty-host killAll failed; draining anyway");
+      log.error({ err }, "pty-host killAll failed; already drained");
     }
-    const entries = drainTerminals();
     for (const entry of entries) {
+      // AFTER the kill, as in `killTerminal`: the PTY must not be able to
+      // re-create the scratch dir being deleted.
       cleanupTerminalScratch(entry.info.id);
       // `dropSnapshot` fans each removal onto padi's `terminals` collection, so
       // the client's terminal list (its keys stream) empties as the drain runs.
       dropSnapshot(entry.info.id);
     }
+    // Deliberately NO `notifyDirty()`: this drain must fire no `terminals:dirty`,
+    // or the restart-capture path arms a fresh autosave timer that fires ~500ms
+    // later with an empty snapshot and clobbers the capture (session.ts, the F1
+    // receptacle). The one removal path that is right not to arm the autosave.
   }
 
   async attach(

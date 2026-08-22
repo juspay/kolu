@@ -213,21 +213,23 @@ export interface TerminalEndpoint {
    *  caller-supplied so the tile can render before this returns. */
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo;
 
-  /** Stop providers, CLAIM the terminal (unregister from the shared registry),
-   *  kill the PTY, then scrub per-terminal scratch storage. Sole termination
-   *  path. Awaits the pty-host's kill (hence the Promise).
+  /** Stop providers, CLAIM the terminal, kill the PTY, unregister it from the
+   *  shared registry. Sole termination path. Awaits the host's kill (hence the
+   *  Promise).
    *
-   *  The claim comes BEFORE the kill on purpose, and it is unconditional: an
-   *  implementation must not make unregistering depend on the kill succeeding.
-   *  That buys idempotence under concurrency — the guard and the claim are one
-   *  indivisible step, so a second overlapping kill returns `undefined` instead
-   *  of driving a second teardown and a second signal at a pid the OS may have
-   *  recycled. It costs nothing, because a kill *can* fail (a socket/ssh
-   *  endpoint especially) and unregistering-anyway was already the behaviour, so
-   *  that a failed kill never strands a dead entry in the UI. Unregistering is
-   *  therefore not a promise that the child is gone; reattach-time
-   *  reconciliation against `terminal.list` reaps a surviving orphan. The
-   *  scratch scrub stays AFTER the kill so the PTY cannot re-create it. */
+   *  CONTRACT — idempotent under CONCURRENCY, not merely under sequence. An
+   *  implementation must remove the registry entry BEFORE its first suspension
+   *  and UNCONDITIONALLY (never gated on the kill succeeding), so that of N
+   *  overlapping kills exactly one returns the info and the rest return
+   *  `undefined`, exactly as a second SEQUENTIAL kill does. Unregistering is
+   *  therefore not a promise that the child is gone — a kill *can* fail (a
+   *  socket/ssh endpoint especially), and a failed kill must still not strand a
+   *  dead entry in the UI; reattach-time reconciliation against `terminal.list`
+   *  reaps a surviving orphan.
+   *
+   *  Ordering any per-terminal cleanup around the kill is the implementation's
+   *  own business — a remote endpoint has no `cleanupTerminalScratch` to place.
+   *  How the local one places its own is in `terminalEndpoint/local.ts`. */
   killTerminal(id: TerminalId): Promise<TerminalInfo | undefined>;
 
   /** Drain and dispose every terminal owned by this endpoint. Used by
