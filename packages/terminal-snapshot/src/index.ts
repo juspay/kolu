@@ -22,6 +22,8 @@ export {
 } from "./cell.ts";
 export {
   buildScene,
+  CELL_HEIGHT_RATIO,
+  cellHeight,
   CHROME,
   type ResolvedTheme,
   resolveTheme,

@@ -29,13 +29,15 @@ import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { toast } from "solid-sonner";
+import { DEFAULT_FONT_SIZE } from "kolu-common/config";
 import {
   buildScene,
+  cellHeight,
   type ReadableBuffer,
   readGrid,
   type SnapshotScene,
 } from "terminal-snapshot";
-import { FONT_FAMILY, type ITheme } from "terminal-themes";
+import { DEFAULT_THEME, FONT_FAMILY, type ITheme } from "terminal-themes";
 import type { UiAction } from "./runAction";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 
@@ -236,7 +238,7 @@ export function screenshotTerminal(
       buffer: { active: ReadableBuffer & { viewportY: number } };
     };
 
-    const fontSize = xterm.options.fontSize ?? 14;
+    const fontSize = xterm.options.fontSize ?? DEFAULT_FONT_SIZE;
     const fontFamily = xterm.options.fontFamily ?? FONT_FAMILY;
     // Wait for webfonts — on the first screenshot after a cold page load,
     // @font-face declarations may not have finished loading. fillText would
@@ -270,10 +272,9 @@ export function screenshotTerminal(
     }
     probe.font = `${fontSize}px ${fontFamily}`;
     const cellW = Math.max(1, probe.measureText("M").width);
-    // xterm's default lineHeight is 1.0; we add a small padding so descenders
-    // (g, y) don't get clipped by the next row's background. The daemon uses
-    // the same formula, so both backends land on the same row height.
-    const cellH = Math.ceil(fontSize * 1.2);
+    // Row height comes from the shared package, not from a formula re-spelled
+    // here: it is the one derivation both backends must land on.
+    const cellH = cellHeight(fontSize);
 
     const buffer = xterm.buffer.active;
     // The VISIBLE slice only: `xterm.rows` lines from `viewportY`. Reading
@@ -281,7 +282,11 @@ export function screenshotTerminal(
     const grid = readGrid(buffer, xterm.cols, buffer.viewportY, xterm.rows);
     const scene = buildScene({
       grid,
-      theme: xterm.options.theme ?? {},
+      // The daemon's absent-theme arm is `getThemeByName(undefined)`, i.e.
+      // kolu's DEFAULT_THEME. Landing on the same theme is what keeps "both
+      // backends draw the same picture" true for the no-theme case too — an
+      // empty theme here would have been filled from a different table.
+      theme: xterm.options.theme ?? DEFAULT_THEME,
       label: titleLabel(meta),
       fontFamily,
       fontSize,

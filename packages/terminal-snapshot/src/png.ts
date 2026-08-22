@@ -26,7 +26,12 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { initWasm, Resvg } from "@resvg/resvg-wasm";
-import type { SnapshotScene } from "./scene.ts";
+import {
+  buildScene,
+  cellHeight,
+  type SceneInput,
+  type SnapshotScene,
+} from "./scene.ts";
 import { sceneToSvg } from "./svg.ts";
 
 /** The face every other is a fallback for — named once, and spelled into
@@ -36,13 +41,15 @@ const PRIMARY_FACE = "FiraCode Nerd Font Mono";
 
 /** The font family list every glyph is drawn with, most-specific first.
  *
- *  Exported because a scene rendered to PNG MUST carry this exact list:
- *  resvg falls back along the family list in the DOCUMENT, not along the
- *  order buffers were registered in. A scene built with a bare
- *  `"FiraCode Nerd Font"` renders tofu for every glyph FiraCode lacks even
- *  though the fallback faces are loaded — measured, not assumed, and now
- *  refused outright by {@link sceneToPng}. */
-export const PNG_FONT_FAMILY = [
+ *  A scene rendered to PNG MUST carry this exact list: resvg falls back along
+ *  the family list in the DOCUMENT, not along the order buffers were
+ *  registered in. A scene built with a bare `"FiraCode Nerd Font"` renders
+ *  tofu for every glyph FiraCode lacks even though the fallback faces are
+ *  loaded — measured, not assumed.
+ *
+ *  MODULE-PRIVATE on purpose: it is applied by {@link buildPngScene}, so a
+ *  caller never has to remember to apply it (and cannot get it wrong). */
+const PNG_FONT_FAMILY = [
   PRIMARY_FACE,
   "Symbols Nerd Font Mono",
   "DejaVu Sans Mono",
@@ -53,8 +60,29 @@ export const PNG_FONT_FAMILY = [
 /** Advance width of one cell as a fraction of the font size, for FiraCode.
  *  The daemon has no `measureText`, and this ratio is a property of the
  *  typeface (600/1000 em by its own metrics, which every FiraCode face
- *  shares), so it is a constant here rather than a per-render measurement. */
-export const PNG_CELL_WIDTH_RATIO = 0.6;
+ *  shares), so it is a constant here rather than a per-render measurement.
+ *  Module-private for the same reason as {@link PNG_FONT_FAMILY}. */
+const PNG_CELL_WIDTH_RATIO = 0.6;
+
+/** Build a scene this backend can actually rasterise.
+ *
+ *  The ONE entry point the daemon side needs. The font family, the cell
+ *  advance and the row height are facts about THIS backend — its baked faces,
+ *  its lack of a `measureText` — so they are applied here rather than handed
+ *  out as constants for every caller to re-apply identically. Two call sites
+ *  used to hand-assemble that recipe, with only one of the three facts checked
+ *  and only after the scene existed; a scene built any other way is now
+ *  unspellable rather than refused. */
+export function buildPngScene(
+  input: Omit<SceneInput, "fontFamily" | "cellW" | "cellH">,
+): SnapshotScene {
+  return buildScene({
+    ...input,
+    fontFamily: PNG_FONT_FAMILY,
+    cellW: input.fontSize * PNG_CELL_WIDTH_RATIO,
+    cellH: cellHeight(input.fontSize),
+  });
+}
 
 /** The faces to load, relative to the font root. Order is immaterial —
  *  {@link PNG_FONT_FAMILY} is what picks — but every file here must exist:
@@ -141,16 +169,17 @@ function loadFonts(): Promise<readonly Uint8Array[]> {
  *  that renders a screenshot every few seconds and never frees them grows
  *  until it is killed.
  *
- *  The scene's font family MUST be {@link PNG_FONT_FAMILY}: resvg falls back
- *  along the family list in the DOCUMENT, so a scene built with any other name
- *  renders tofu for every glyph the first face lacks while still producing a
- *  perfectly valid-looking PNG. That is the silent-wrong-output case, so it is
- *  refused rather than rendered.
+ *  Takes a scene from {@link buildPngScene} — the family check below is an
+ *  assertion, not a validation: the family list is module-private, so the only
+ *  way to build a rasterisable scene is that entry point. It stays because the
+ *  failure it names is silent (resvg falls back along the family list in the
+ *  DOCUMENT, so another name renders tofu for every glyph the first face lacks
+ *  while still producing a perfectly valid-looking PNG).
  */
 export async function sceneToPng(scene: SnapshotScene): Promise<Uint8Array> {
   if (scene.font.family !== PNG_FONT_FAMILY) {
     throw new Error(
-      `terminal-snapshot: a PNG scene must be built with PNG_FONT_FAMILY, got "${scene.font.family}". resvg resolves fallbacks along the document's family list, so another name renders tofu for every glyph the first face lacks — and looks like a valid screenshot while doing it.`,
+      `terminal-snapshot: a PNG scene must come from buildPngScene, got font family "${scene.font.family}". resvg resolves fallbacks along the document's family list, so another name renders tofu for every glyph the first face lacks — and looks like a valid screenshot while doing it.`,
     );
   }
   const [, fontBuffers] = await Promise.all([initRasteriser(), loadFonts()]);

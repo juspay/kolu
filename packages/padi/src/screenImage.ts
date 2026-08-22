@@ -8,18 +8,14 @@
  *  free of a wasm rasteriser and several megabytes of font, and the picture
  *  gets made where the palette is known.
  *
- *  Everything below the `buildScene` call is shared with the browser's
+ *  Everything below the `buildPngScene` call is shared with the browser's
  *  copy-to-clipboard screenshot (`terminal-snapshot`), so the agent's PNG and
  *  the user's PNG are the same picture by construction. */
 
 import { getThemeByName } from "terminal-themes";
 import { SCREEN_IMAGE_MAX_ROWS } from "./surface.ts";
-import { buildScene, gridRows, type SnapshotGrid } from "terminal-snapshot";
-import {
-  PNG_CELL_WIDTH_RATIO,
-  PNG_FONT_FAMILY,
-  sceneToPng,
-} from "terminal-snapshot/png";
+import { gridRows, type SnapshotGrid } from "terminal-snapshot";
+import { buildPngScene, sceneToPng } from "terminal-snapshot/png";
 
 /** Type size of a rendered screenshot, in CSS pixels.
  *
@@ -27,10 +23,6 @@ import {
  *  own — often by a model, at whatever scale the host shows it — rather than
  *  in a terminal the reader can zoom. */
 const FONT_SIZE = 15;
-
-/** Row height. The same `fontSize * 1.2` the browser backend uses, so a
- *  screenshot of the same screen is the same height from either face. */
-const LINE_HEIGHT_RATIO = 1.2;
 
 /** What the title bar says. The same `(repo, branch)` projection kolu shows
  *  on a tile, spelled from the metadata padi already holds.
@@ -90,14 +82,14 @@ export async function renderScreenImage(
   input: ScreenImageInput,
 ): Promise<ScreenImage> {
   const grid = capRows(input.grid);
-  const scene = buildScene({
+  // The font, the cell advance and the row height are the PNG backend's own
+  // facts, applied by `buildPngScene`; what is padi's to say is the theme, the
+  // caption and the type size.
+  const scene = buildPngScene({
     grid,
     theme: getThemeByName(input.themeName),
     label: input.label,
-    fontFamily: PNG_FONT_FAMILY,
     fontSize: FONT_SIZE,
-    cellW: FONT_SIZE * PNG_CELL_WIDTH_RATIO,
-    cellH: Math.ceil(FONT_SIZE * LINE_HEIGHT_RATIO),
   });
   const png = await sceneToPng(scene);
   return {

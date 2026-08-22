@@ -34,6 +34,14 @@ export const CHROME = {
   dotGap: 8,
   dotMarginLeft: 16,
   brandRightMargin: 14,
+  /** Title-bar type size. A property of the BAR, not of the terminal's font
+   *  size: the bar is a fixed `titleHeight` and the traffic-light dots never
+   *  scale, so a user zoomed to 24px must not push the caption out of its own
+   *  chrome — and the daemon rendering at 15px and the browser at 14 must not
+   *  caption the same terminal at two different sizes. */
+  titleSize: 13,
+  /** Wordmark type size, one step below the caption. Same reasoning. */
+  brandSize: 12,
 } as const;
 
 /** macOS-style traffic lights. Decoration only — they are drawn, never
@@ -66,6 +74,23 @@ function greyColor(i: number): string {
 function rgbColor(packed: number): string {
   return `rgb(${(packed >> 16) & 0xff},${(packed >> 8) & 0xff},${packed & 0xff})`;
 }
+
+/** How much taller than the type size a row is drawn.
+ *
+ *  xterm's own default lineHeight is 1.0; the extra 20% is what stops a
+ *  descender (g, y) being clipped by the next row's background. */
+export const CELL_HEIGHT_RATIO = 1.2;
+
+/** Row height for a given type size — the ONE derivation both backends land
+ *  on.
+ *
+ *  A function here rather than a formula re-spelled per backend: every caller
+ *  in the tree passed the identical `Math.ceil(fontSize * 1.2)`, kept in
+ *  agreement by three comments, which is exactly the prose-kept agreement this
+ *  module exists to abolish. A caller that really does render at another line
+ *  height still passes its own {@link SceneInput.cellH}. */
+export const cellHeight = (fontSize: number): number =>
+  Math.ceil(fontSize * CELL_HEIGHT_RATIO);
 
 /** A theme with every colour a cell can reference resolved to a concrete
  *  string — the defaults are xterm.js's own, so an under-specified theme
@@ -234,9 +259,9 @@ export interface SceneInput {
   /** Advance width of one cell, measured by the backend against the font it
    *  will actually draw with. */
   readonly cellW: number;
-  /** Row height. Backends pass the same formula (`ceil(fontSize * 1.2)`);
-   *  it is an input rather than a constant so a caller rendering at an
-   *  unusual line height stays consistent between the two. */
+  /** Row height. Both backends take it from {@link cellHeight}, the one
+   *  authority for the derivation; it stays an input so a caller that really
+   *  does render at another line height can say so. */
   readonly cellH: number;
 }
 
@@ -317,14 +342,14 @@ export function buildScene(input: SceneInput): SnapshotScene {
       title: {
         x: width / 2,
         y: textY,
-        size: Math.round(fontSize * 0.95),
+        size: CHROME.titleSize,
         text: label,
         anchor: "middle",
       },
       brand: {
         x: width - CHROME.brandRightMargin,
         y: textY,
-        size: Math.round(fontSize * 0.9),
+        size: CHROME.brandSize,
         text: "kolu",
         anchor: "end",
       },

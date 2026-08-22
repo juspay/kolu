@@ -11,8 +11,7 @@ import { writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { DEFAULT_THEME } from "terminal-themes";
 import { readGrid } from "./cell.ts";
-import { sceneToPng, PNG_CELL_WIDTH_RATIO, PNG_FONT_FAMILY } from "./png.ts";
-import { buildScene } from "./scene.ts";
+import { buildPngScene, sceneToPng } from "./png.ts";
 
 const require = createRequire(import.meta.url);
 const { Terminal } =
@@ -54,14 +53,11 @@ await write("$ ");
 
 const grid = readGrid(term.buffer.active, cols, 0, rows);
 const fontSize = 15;
-const scene = buildScene({
+const scene = buildPngScene({
   grid,
   theme: DEFAULT_THEME,
   label: "kolu (great-profit)",
-  fontFamily: PNG_FONT_FAMILY,
   fontSize,
-  cellW: fontSize * PNG_CELL_WIDTH_RATIO,
-  cellH: Math.ceil(fontSize * 1.2),
 });
 
 const png = await sceneToPng(scene);
