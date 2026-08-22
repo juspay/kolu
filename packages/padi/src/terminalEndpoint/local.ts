@@ -1624,10 +1624,30 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     await Promise.all(
       entries.map((entry) => removeTerminalScratch(entry.info.id)),
     );
-    // Deliberately NO `notifyDirty()`: this drain must fire no `terminals:dirty`,
-    // or the restart-capture path arms a fresh autosave timer that fires ~500ms
-    // later with an empty snapshot and clobbers the capture (session.ts, the F1
-    // receptacle). The one removal path that is right not to arm the autosave.
+    // No `notifyDirty()` here — and that is load-bearing for ONE of the two
+    // callers, not a blanket property of this method. Stated per caller, because
+    // a justification that is only sometimes true is worse than none:
+    //
+    //  - `ptyHost/restartLocal.ts` — RIGHT to fire nothing. That path captures
+    //    the session BEFORE the drain; a `terminals:dirty` here would arm a
+    //    fresh autosave timer that lands ~500ms later with an empty snapshot and
+    //    clobbers the capture (`session.ts`, the F1 receptacle).
+    //  - `servePadi.ts`'s `killAll` RPC (the client's "Close All") — NOT covered
+    //    by that argument, and there is a real gap behind it. It holds no freeze
+    //    lease and took no prior capture, so the emptied registry never runs the
+    //    ordinary `persist` — the very path `session/autosaveGate.ts` documents
+    //    as the one that clears the blob when "the user closed them". At the next
+    //    orderly shutdown `persistFinal` PRESERVES on an empty snapshot (a rule
+    //    whose own docstring assumes an autosave already saw the session empty),
+    //    so the pre-close session can be offered back by the restore card.
+    //
+    // PRE-EXISTING (the base commit fires nothing here either) and deliberately
+    // NOT fixed in this PR, whose scope is the two link/kill defects. It is left
+    // named rather than blessed: two reviewers reached opposite fixes — arm it
+    // unconditionally and let the freeze guard no-op it for the restart caller,
+    // versus keep it silent because that guard may not cover the timer — and
+    // settling that is a session-persistence change that deserves its own change
+    // and its own repro, not a tail-end edit on this one.
   }
 
   async attach(
