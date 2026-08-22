@@ -1276,6 +1276,48 @@ export const PadiScreenTextInputSchema = Schema.Struct({
   endLine: Schema.optionalKey(NonNegativeInt),
 });
 
+/** The most rows one `screen.image` will ever render.
+ *
+ *  A hard ceiling, not a default: the render cost and the pixel height both
+ *  grow linearly with rows, and kolu retains 50,000 lines of scrollback, so an
+ *  unbounded request is a way to ask the daemon for a 900,000-pixel-tall PNG.
+ *  Requests above this are REJECTED at the wire rather than silently truncated
+ *  — a caller that asked for 5,000 rows and got 300 would be shown a picture
+ *  that is not the answer to its question. */
+export const SCREEN_IMAGE_MAX_ROWS = 200;
+
+/** `screen.image` — the terminal as a picture.
+ *
+ *  `lines` bounds the capture to the last N rendered rows; OMIT it for the
+ *  viewport (the live grid's own height — what the terminal is showing right
+ *  now, and the read a driving agent almost always wants). There is
+ *  deliberately no whole-scrollback arm: see {@link SCREEN_IMAGE_MAX_ROWS}. */
+export const PadiScreenImageInputSchema = Schema.Struct({
+  id: TerminalIdSchema,
+  lines: Schema.optionalKey(
+    Schema.Int.check(
+      Schema.isGreaterThan(0),
+      Schema.isLessThanOrEqualTo(SCREEN_IMAGE_MAX_ROWS),
+    ),
+  ),
+});
+
+/** What `screen.image` returns: the PNG as base64, with the grid it was
+ *  rendered from.
+ *
+ *  `mimeType` is spelled rather than assumed because this value is handed
+ *  straight to an MCP host as image content, which requires one — and a
+ *  hardcoded string at the far end would be a second place for the format to
+ *  be declared. `cols`/`rows` ride along so a caller can report what it
+ *  captured without decoding the image to find out. */
+export const PadiScreenImageOutputSchema = Schema.Struct({
+  mimeType: Schema.Literal("image/png"),
+  /** Base64-encoded PNG bytes. */
+  data: Schema.String,
+  cols: NonNegativeInt,
+  rows: NonNegativeInt,
+});
+
 /** `screen.history` — the client's scrollback-backfill read. `before` is the
  *  caller's absolute mirror-line cursor (the attach snapshot's `topLine`, then
  *  each reply's `topLine`); the host serves up to `max` older rows above it. */
@@ -1857,6 +1899,18 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       history: {
         input: PadiScreenHistoryInputSchema,
         output: PadiScreenHistoryOutputSchema,
+        error: TerminalNotFound,
+      },
+      /** The screen as a rendered PNG — the read a face that can SHOW an
+       *  image makes (the `screen_image` MCP tool, `kolu screenshot`), where
+       *  `screen.text` is the read a face that can only show text makes.
+       *
+       *  Rendering lives on THIS side of the wire, not in kaval: the theme is
+       *  a per-terminal choice padi holds, so padi is the only place that
+       *  knows what colour "palette 4" is. */
+      image: {
+        input: PadiScreenImageInputSchema,
+        output: PadiScreenImageOutputSchema,
         error: TerminalNotFound,
       },
     },

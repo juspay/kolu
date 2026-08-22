@@ -595,7 +595,9 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
             tool.handler(parsed, client, extra.signal),
             extra.signal,
           );
-          return ok(out);
+          // The tool's own renderer when it declared one (an image face),
+          // else the JSON default every other tool uses.
+          return tool.render ? tool.render(out) : ok(out);
         });
       }
       return fail(brand(`unknown tool "${name}"`));

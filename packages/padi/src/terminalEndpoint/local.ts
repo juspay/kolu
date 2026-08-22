@@ -22,6 +22,7 @@
  * `terminal-workspace` surface over the link, so there is one fs/git impl.
  */
 
+import type { SnapshotGrid } from "terminal-snapshot";
 import type { WireSchema } from "@kolu/surface/define";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type {
@@ -314,6 +315,22 @@ export class PtyHostTerminalProxy implements TerminalHandle {
       }),
     );
     return text;
+  }
+
+  async getScreenCells(tailLines?: number): Promise<SnapshotGrid> {
+    await this.ready;
+    // Two bounds, both explicit: a tail when the caller asked for one, else
+    // the VIEWPORT — resolved host-side against the live grid, because the
+    // caller cannot know how tall the PTY currently is.
+    return runEndpointEdge(
+      this.client.surface.terminal.getScreenCells({
+        id: this.id,
+        extent:
+          tailLines === undefined
+            ? ({ kind: "viewport" } as const)
+            : ({ kind: "tail", lines: tailLines } as const),
+      }),
+    );
   }
 
   async getHistory(

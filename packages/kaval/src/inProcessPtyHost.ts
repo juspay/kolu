@@ -497,6 +497,13 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           Effect.map(requirePtyEffect(input.id as PtyId), () => ({
             text: host.getScreenText(input.id, input.extent),
           })),
+        // Same missing-PTY discipline as its text twin: a gone PTY FAILS here
+        // rather than answering with the empty grid the in-process primitive
+        // returns, so a divergence can never read as "the screen is blank".
+        getScreenCells: ({ input }) =>
+          Effect.map(requirePtyEffect(input.id as PtyId), () =>
+            host.getScreenCells(input.id, input.extent),
+          ),
         getHistory: ({ input }) =>
           Effect.map(requirePtyEffect(input.id as PtyId), () =>
             host.getHistory(input.id, input.before, input.max, input.epoch),

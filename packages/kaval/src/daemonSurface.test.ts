@@ -61,6 +61,7 @@ const EXPECTED_DAEMON_TAGS = [
   "surface/system/info",
   "surface/system/version",
   "surface/terminal/getHistory",
+  "surface/terminal/getScreenCells",
   "surface/terminal/getScreenState",
   "surface/terminal/getScreenText",
   "surface/terminal/kill",

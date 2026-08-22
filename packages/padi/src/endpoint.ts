@@ -42,6 +42,7 @@
  *    the contract is what makes the instant-tile UX work.
  */
 
+import type { SnapshotGrid } from "terminal-snapshot";
 import type {
   TerminalEndpointFs,
   TerminalEndpointGit,
@@ -189,6 +190,16 @@ export interface TerminalHandle {
     endLine?: number,
     tailLines?: number,
   ): Promise<string>;
+  /** Attributed cells — characters plus colours and bold/italic/inverse — for
+   *  the screen slice a picture is rendered from.
+   *
+   *  `tailLines` reads the last N rendered lines; OMIT it for the viewport
+   *  (the live grid's own height, which only the host knows). Those are the
+   *  only two bounds a screenshot ever wants, so they are the only two
+   *  spellable here — there is no full-scrollback arm, because rendering
+   *  50,000 lines is never the ask and an unbounded image is a footgun, not a
+   *  feature. */
+  getScreenCells(tailLines?: number): Promise<SnapshotGrid>;
   /** Older-scrollback read for the client's in-place backfill: serialize up to
    *  `max` mirror rows immediately ABOVE absolute line `before` (the client's
    *  cursor — the attach `topLine`, then each reply's `topLine`). Absolute
