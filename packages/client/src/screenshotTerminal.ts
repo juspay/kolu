@@ -41,6 +41,11 @@ import { DEFAULT_THEME, FONT_FAMILY, type ITheme } from "terminal-themes";
 import type { UiAction } from "./runAction";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 
+/** The wordmark stamped in the title bar. A scene input rather than something
+ *  the shared package knows: whose product this is, is not a fact about a
+ *  terminal grid. */
+const BRAND = "kolu";
+
 const BRAND_LOGO_URL = new URL("../favicon.svg", import.meta.url).href;
 /** One decode of the brand logo, memoized by its RESULT.
  *
@@ -123,22 +128,24 @@ function paintScene(
   logo: HTMLImageElement | undefined,
 ): void {
   const { font, titleBar } = scene;
-  // The window outline is inset by half a pixel so the 1px stroke lands ON
-  // the boundary rather than straddling it (same inset as the SVG backend).
+  // The outline's inset and stroke width are the scene's, not this backend's —
+  // they were two literals here and two more in the SVG writer, which is the
+  // drift the scene exists to prevent.
+  const { strokeInset, strokeWidth } = scene.window;
   const outline = () =>
     roundedRectPath(
       ctx,
-      0.5,
-      0.5,
-      scene.width - 1,
-      scene.height - 1,
+      strokeInset,
+      strokeInset,
+      scene.width - strokeWidth,
+      scene.height - strokeWidth,
       scene.radius,
     );
 
   outline();
   ctx.fillStyle = scene.window.bg;
   ctx.fill();
-  ctx.lineWidth = 1;
+  ctx.lineWidth = strokeWidth;
   ctx.strokeStyle = scene.window.border;
   ctx.stroke();
 
@@ -288,6 +295,7 @@ export function screenshotTerminal(
       // empty theme here would have been filled from a different table.
       theme: xterm.options.theme ?? DEFAULT_THEME,
       label: titleLabel(meta),
+      brand: BRAND,
       fontFamily,
       fontSize,
       cellW,

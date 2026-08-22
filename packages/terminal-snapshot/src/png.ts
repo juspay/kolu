@@ -22,7 +22,7 @@
  *  lacks and an agent TUI leans on constantly — the braille spinner frames,
  *  and `⎿`, the connector Claude Code draws under every tool call. */
 
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { initWasm, Resvg } from "@resvg/resvg-wasm";
@@ -84,18 +84,6 @@ export function buildPngScene(
   });
 }
 
-/** The faces to load, relative to the font root. Order is immaterial —
- *  {@link PNG_FONT_FAMILY} is what picks — but every file here must exist:
- *  a missing face is a broken Nix closure, not a degraded render. */
-const FONT_FILES = [
-  "FiraCodeNerdFontMono-Regular.ttf",
-  "FiraCodeNerdFontMono-Bold.ttf",
-  "SymbolsNerdFontMono-Regular.ttf",
-  "DejaVuSansMono.ttf",
-  "NotoSansSymbols2-Regular.otf",
-  "NotoSansSymbols.ttf",
-] as const;
-
 /** Where the font files live, baked by Nix.
  *
  *  No PATH search and no bundled-copy fallback: kolu's rule is that a
@@ -147,10 +135,19 @@ let fonts: Promise<readonly Uint8Array[]> | undefined;
 
 function loadFonts(): Promise<readonly Uint8Array[]> {
   fonts ??= (async () => {
+    // EVERY face in the directory, rather than a re-spelling of the derivation's
+    // own list: `nix/packages/fonts/snapshot.nix` is the one authority for which
+    // faces exist, and a copy here would only fail at runtime with an ENOENT
+    // when the two parted. Order is immaterial — {@link PNG_FONT_FAMILY} is what
+    // picks — so the directory carries everything this read needs.
     const dir = fontDir();
-    return await Promise.all(
-      FONT_FILES.map((f) => readFile(path.join(dir, f))),
-    );
+    const names = (await readdir(dir)).filter((f) => /\.(?:ttf|otf)$/i.test(f));
+    if (names.length === 0) {
+      throw new Error(
+        `terminal-snapshot: ${dir} holds no font faces — the Nix font closure (nix/packages/fonts) is broken. A screenshot rendered in no font at all is not a degraded render, it is tofu.`,
+      );
+    }
+    return await Promise.all(names.map((f) => readFile(path.join(dir, f))));
   })().catch((cause: unknown) => {
     fonts = undefined;
     throw cause;

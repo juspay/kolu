@@ -72,6 +72,7 @@ describe("theme resolution reaches the picture", () => {
           grid: gridWith(1),
           theme: getThemeByName(themeName),
           label: "t",
+          brand: "kolu",
           fontFamily: "M",
           fontSize: 10,
           cellW: 6,

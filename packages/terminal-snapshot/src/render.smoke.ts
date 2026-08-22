@@ -57,6 +57,7 @@ const scene = buildPngScene({
   grid,
   theme: DEFAULT_THEME,
   label: "kolu (great-profit)",
+  brand: "kolu",
   fontSize,
 });
 

@@ -19,10 +19,11 @@
 #     either consumer; two derivations let the client build depend on ~1MB of
 #     woff2 and the daemon on ~15MB of outlines, each without the other.
 #
-# The output is a FLAT directory whose filenames are exactly the strings in
-# png.ts's `FONT_FILES` — that array and this list are the same contract, and a
-# rename on either side fails this build (cp on a missing source) rather than
-# rendering tofu at runtime.
+# The output is a FLAT directory, and THIS list is the only place the face set
+# is named: `png.ts` loads whatever `.ttf`/`.otf` files the directory holds
+# (and throws if it holds none), so adding or renaming a face here needs no
+# matching edit there — a second spelling in TypeScript could only fail at
+# runtime, when the two had already parted.
 { lib, runCommand, nerd-fonts, dejavu_fonts, noto-fonts }:
 let
   # Each entry: the store path of the face, flattened to its basename in $out.

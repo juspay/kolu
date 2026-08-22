@@ -46,11 +46,13 @@ function xml(s: string): string {
   return escapeHtml(s.replace(XML_ILLEGAL, ""));
 }
 
-/** The window outline as a rounded rect path, inset by half a pixel so the
- *  1px stroke lands ON the boundary rather than straddling it. */
+/** The window outline as a rounded rect path. The inset comes off the scene —
+ *  it is the same decision as the stroke width, and both backends used to
+ *  spell it as a bare number of their own. */
 function windowPath(scene: SnapshotScene): string {
   const { width, height, radius } = scene;
-  return `M${n(radius + 0.5)},0.5 H${n(width - radius - 0.5)} A${radius},${radius} 0 0 1 ${n(width - 0.5)},${n(radius + 0.5)} V${n(height - radius - 0.5)} A${radius},${radius} 0 0 1 ${n(width - radius - 0.5)},${n(height - 0.5)} H${n(radius + 0.5)} A${radius},${radius} 0 0 1 0.5,${n(height - radius - 0.5)} V${n(radius + 0.5)} A${radius},${radius} 0 0 1 ${n(radius + 0.5)},0.5 Z`;
+  const i = scene.window.strokeInset;
+  return `M${n(radius + i)},${n(i)} H${n(width - radius - i)} A${radius},${radius} 0 0 1 ${n(width - i)},${n(radius + i)} V${n(height - radius - i)} A${radius},${radius} 0 0 1 ${n(width - radius - i)},${n(height - i)} H${n(radius + i)} A${radius},${radius} 0 0 1 ${n(i)},${n(height - radius - i)} V${n(radius + i)} A${radius},${radius} 0 0 1 ${n(radius + i)},${n(i)} Z`;
 }
 
 export function sceneToSvg(scene: SnapshotScene): string {
@@ -118,7 +120,7 @@ export function sceneToSvg(scene: SnapshotScene): string {
   // The border is stroked LAST and outside the clip, so it is not half-eaten
   // by its own clip path the way a clipped stroke would be.
   parts.push(
-    `<path d="${windowPath(scene)}" fill="none" stroke="${scene.window.border}" stroke-width="1"/>`,
+    `<path d="${windowPath(scene)}" fill="none" stroke="${scene.window.border}" stroke-width="${n(scene.window.strokeWidth)}"/>`,
   );
   parts.push(`</svg>`);
   return parts.join("");

@@ -13,8 +13,9 @@
  *  the user's PNG are the same picture by construction. */
 
 import { getThemeByName } from "terminal-themes";
+import type { PadiScreenImageOutput } from "./surface.ts";
 import { SCREEN_IMAGE_MAX_ROWS } from "./surface.ts";
-import { gridRows, type SnapshotGrid } from "terminal-snapshot";
+import type { SnapshotGrid } from "terminal-snapshot";
 import { buildPngScene, sceneToPng } from "terminal-snapshot/png";
 
 /** Type size of a rendered screenshot, in CSS pixels.
@@ -23,6 +24,11 @@ import { buildPngScene, sceneToPng } from "terminal-snapshot/png";
  *  own — often by a model, at whatever scale the host shows it — rather than
  *  in a terminal the reader can zoom. */
 const FONT_SIZE = 15;
+
+/** The wordmark stamped in the title bar — the same one the browser's
+ *  screenshot stamps. An input to the scene rather than a fact the generic
+ *  renderer holds. */
+const BRAND = "kolu";
 
 /** What the title bar says. The same `(repo, branch)` projection kolu shows
  *  on a tile, spelled from the metadata padi already holds.
@@ -50,13 +56,9 @@ export interface ScreenImageInput {
   readonly label: string;
 }
 
-export interface ScreenImage {
-  readonly mimeType: "image/png";
-  /** Base64 PNG bytes. */
-  readonly data: string;
-  readonly cols: number;
-  readonly rows: number;
-}
+/** What this module hands back: the wire's own reply type, so the renderer and
+ *  the schema cannot describe two different values. */
+export type ScreenImage = PadiScreenImageOutput;
 
 /** Trim a grid to the last {@link SCREEN_IMAGE_MAX_ROWS} rows.
  *
@@ -67,7 +69,7 @@ export interface ScreenImage {
  *  row count it actually rendered, so the trim is visible to the caller rather
  *  than silent. */
 function capRows(grid: SnapshotGrid): SnapshotGrid {
-  const rows = gridRows(grid);
+  const rows = grid.lines.length;
   if (rows <= SCREEN_IMAGE_MAX_ROWS) return grid;
   return {
     cols: grid.cols,
@@ -89,6 +91,7 @@ export async function renderScreenImage(
     grid,
     theme: getThemeByName(input.themeName),
     label: input.label,
+    brand: BRAND,
     fontSize: FONT_SIZE,
   });
   const png = await sceneToPng(scene);
@@ -96,6 +99,6 @@ export async function renderScreenImage(
     mimeType: "image/png",
     data: Buffer.from(png).toString("base64"),
     cols: grid.cols,
-    rows: gridRows(grid),
+    rows: grid.lines.length,
   };
 }

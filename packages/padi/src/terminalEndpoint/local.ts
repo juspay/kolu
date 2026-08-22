@@ -42,6 +42,7 @@ import { trackRecentAgent, trackRecentRepo } from "../activity/activity.ts";
 import type {
   EndpointGrid,
   PtySpawnOpts,
+  ScreenCellsExtent,
   TerminalAttachment,
   TerminalEndpoint,
   TerminalHandle,
@@ -317,19 +318,14 @@ export class PtyHostTerminalProxy implements TerminalHandle {
     return text;
   }
 
-  async getScreenCells(tailLines?: number): Promise<SnapshotGrid> {
+  async getScreenCells(extent: ScreenCellsExtent): Promise<SnapshotGrid> {
     await this.ready;
-    // Two bounds, both explicit: a tail when the caller asked for one, else
-    // the VIEWPORT — resolved host-side against the live grid, because the
-    // caller cannot know how tall the PTY currently is.
+    // Straight through: the bound is already the host's own closed union, so
+    // this layer has nothing to decode and nothing to get wrong. `viewport`
+    // resolves host-side against the live grid, because the caller cannot know
+    // how tall the PTY currently is.
     return runEndpointEdge(
-      this.client.surface.terminal.getScreenCells({
-        id: this.id,
-        extent:
-          tailLines === undefined
-            ? ({ kind: "viewport" } as const)
-            : ({ kind: "tail", lines: tailLines } as const),
-      }),
+      this.client.surface.terminal.getScreenCells({ id: this.id, extent }),
     );
   }
 

@@ -346,7 +346,13 @@ const CellColorSchema = Schema.Union([
 const SnapshotCellSchema = Schema.Struct({
   col: NonNegativeInt,
   chars: Schema.String,
-  width: NonNegativeInt,
+  // 1 or 2 — the only widths `readGrid` emits. 0 is the trailing half of a
+  // wide glyph, dropped at the read, so admitting it here would only let a
+  // peer hand a renderer a zero-width cell to paint.
+  width: NonNegativeInt.check(
+    Schema.isGreaterThan(0),
+    Schema.isLessThanOrEqualTo(2),
+  ),
   fg: CellColorSchema,
   bg: CellColorSchema,
   bold: Schema.Boolean,

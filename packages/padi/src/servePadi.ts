@@ -963,7 +963,14 @@ export function buildPadiSurfaceDeps(deps: {
             // The cells come from kaval RAW — "palette 4", not a colour. This
             // is the hop that knows which theme this terminal wears, so it is
             // the hop that resolves them.
-            const grid = await entry.handle.getScreenCells(input.lines);
+            // The one place the wire input becomes a bound: an absent `lines`
+            // means the viewport, and it is said HERE rather than carried down
+            // as an absence every layer has to re-read.
+            const grid = await entry.handle.getScreenCells(
+              input.lines === undefined
+                ? { kind: "viewport" }
+                : { kind: "tail", lines: input.lines },
+            );
             return renderScreenImage({
               grid,
               themeName: entry.meta.themeName,

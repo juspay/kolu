@@ -36,6 +36,7 @@ const scene = (grid: SnapshotGrid) =>
     grid,
     theme: THEME,
     label: "repo (main)",
+    brand: "kolu",
     fontFamily: "Test Mono",
     fontSize: 10,
     cellW: 6,
@@ -146,10 +147,16 @@ describe("svg", () => {
   });
 
   it("drops control characters XML cannot carry rather than emitting a broken document", () => {
-    // A stray \x01 in the scrollback must not make every screenshot of that
-    // terminal unparseable.
-    const svg = sceneToSvg(gridSvgOf("ab"));
+    // A stray control byte in the scrollback must not make every screenshot
+    // of that terminal unparseable: it is DROPPED (not escaped — XML 1.0
+    // cannot carry it even as an entity) and the printable text survives.
+    //
+    // Spelled as an ESCAPE rather than as a raw byte, and asserting BOTH
+    // halves: an invisible control character in the source reads to a
+    // reviewer as a case that exercises nothing.
+    const svg = sceneToSvg(gridSvgOf("a\u0001b"));
     expect(svg).toContain(">ab<");
+    expect(svg).not.toContain("\u0001");
   });
 
   it("keeps an astral glyph whole — a surrogate PAIR is legal XML", () => {

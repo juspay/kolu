@@ -156,6 +156,16 @@ export interface PtySpawnOpts {
   resumeCommand?: string;
 }
 
+/** The screen slice a PICTURE is rendered from — kaval's own closed union,
+ *  carried through this layer rather than flattened back into an optional
+ *  number whose ABSENCE has to mean "the viewport".
+ *
+ *  `viewport` carries no payload: it resolves host-side against the live grid,
+ *  a height only the host knows. */
+export type ScreenCellsExtent =
+  | { readonly kind: "viewport" }
+  | { readonly kind: "tail"; readonly lines: number };
+
 /** Control surface for one running terminal. Read/write on the PTY and
  *  the headless xterm buffer. Deliberately omits `dispose()` —
  *  termination flows through `TerminalEndpoint.killTerminal` (kill
@@ -193,13 +203,12 @@ export interface TerminalHandle {
   /** Attributed cells — characters plus colours and bold/italic/inverse — for
    *  the screen slice a picture is rendered from.
    *
-   *  `tailLines` reads the last N rendered lines; OMIT it for the viewport
-   *  (the live grid's own height, which only the host knows). Those are the
-   *  only two bounds a screenshot ever wants, so they are the only two
-   *  spellable here — there is no full-scrollback arm, because rendering
-   *  50,000 lines is never the ask and an unbounded image is a footgun, not a
-   *  feature. */
-  getScreenCells(tailLines?: number): Promise<SnapshotGrid>;
+   *  Takes the host's own closed union rather than flattening it back to an
+   *  optional number: an absence that has to MEAN `viewport` is a value
+   *  wearing two hats, and it has nowhere to put a third bound. There is no
+   *  full-scrollback arm here or on the wire below — rendering 50,000 lines is
+   *  never the ask, and an unbounded image is a footgun, not a feature. */
+  getScreenCells(extent: ScreenCellsExtent): Promise<SnapshotGrid>;
   /** Older-scrollback read for the client's in-place backfill: serialize up to
    *  `max` mirror rows immediately ABOVE absolute line `before` (the client's
    *  cursor — the attach `topLine`, then each reply's `topLine`). Absolute

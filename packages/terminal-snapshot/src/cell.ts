@@ -71,9 +71,6 @@ export interface SnapshotGrid {
   readonly lines: readonly SnapshotRow[];
 }
 
-/** How many rows the grid holds — the one place the question is answered. */
-export const gridRows = (grid: SnapshotGrid): number => grid.lines.length;
-
 /** The subset of xterm.js's `IBufferCell` this package reads.
  *
  *  Predicate methods (`isFgRGB`) rather than the raw `getFgColorMode()`

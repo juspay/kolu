@@ -28,8 +28,8 @@ The one thing a scene deliberately does **not** carry is glyph metrics. `cellW`/
 
 | Entry | What it is | Who imports it |
 | --- | --- | --- |
-| `terminal-snapshot` | Pure and **browser-safe**: no canvas, no DOM, no `node:` anything, no fonts. `readGrid` (buffer → `SnapshotGrid`), `buildScene` (grid + theme → `SnapshotScene`), `resolveTheme`, `sceneToSvg`, and the `CHROME` geometry both backends frame the window with. | the client's `screenshotTerminal.ts`, padi |
-| `terminal-snapshot/png` | **Node-only.** `sceneToPng` — the scene as SVG, rasterised by [`@resvg/resvg-wasm`](https://github.com/yisibl/resvg-js) — plus the `PNG_FONT_FAMILY` / `PNG_CELL_WIDTH_RATIO` the caller must build the scene with. | padi's `screen.image` |
+| `terminal-snapshot` | Pure and **browser-safe**: no canvas, no DOM, no `node:` anything, no fonts. `readGrid` (buffer → `SnapshotGrid`), `buildScene` (grid + theme → `SnapshotScene`), `cellHeight` (the row height both backends land on), `resolveTheme`, `sceneToSvg`, and the `CHROME` geometry both backends frame the window with. | the client's `screenshotTerminal.ts`, padi |
+| `terminal-snapshot/png` | **Node-only.** `buildPngScene` (a scene wearing this backend's font, cell advance and row height) and `sceneToPng` — the scene as SVG, rasterised by [`@resvg/resvg-wasm`](https://github.com/yisibl/resvg-js). The font family and the cell-width ratio are the backend's own facts, so they are applied there rather than handed to the caller. | padi's `screen.image` |
 
 The split is the point of the second entry: the browser has a canvas and needs none of the rasteriser, so the wasm module and the font reads must not be reachable from the root import.
 

@@ -23,7 +23,11 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { SCREEN_IMAGE_MAX_ROWS } from "@kolu/padi/surface";
+import type { PadiScreenImageOutput } from "@kolu/padi/surface";
+import {
+  SCREEN_IMAGE_LINES_CHECKS,
+  SCREEN_IMAGE_MAX_ROWS,
+} from "@kolu/padi/surface";
 import type { BespokeTool } from "@kolu/surface-mcp";
 import { okImage } from "@kolu/surface-mcp";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
@@ -31,25 +35,16 @@ import { Schema } from "effect";
 
 export const ScreenImageArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
+  // The RULE comes from padi, which owns it; this face adds only the blurb
+  // that teaches an agent what the number counts — annotate-first, checks
+  // spread after, which is what keeps the description on the property node.
   lines: Schema.optionalKey(
     Schema.Number.annotate({
       description: `Capture only the last N rendered rows (1-${SCREEN_IMAGE_MAX_ROWS}). Omit for the visible screen, which is almost always what you want.`,
-    }).check(
-      Schema.isInt(),
-      Schema.isGreaterThan(0),
-      Schema.isLessThanOrEqualTo(SCREEN_IMAGE_MAX_ROWS),
-    ),
+    }).check(...SCREEN_IMAGE_LINES_CHECKS),
   ),
 });
 export type ScreenImageArgs = typeof ScreenImageArgsSchema.Type;
-
-/** What `screen.image` hands back — the PNG plus the grid it rendered. */
-interface ScreenImageReply {
-  mimeType: "image/png";
-  data: string;
-  cols: number;
-  rows: number;
-}
 
 export const screenImageTool: BespokeTool = {
   input: ScreenImageArgsSchema,
@@ -70,7 +65,7 @@ export const screenImageTool: BespokeTool = {
   // The picture is the answer, so it travels as an image block; the caller
   // still gets the dimensions (and the bytes) in the structured arm.
   render: (out) => {
-    const { data, mimeType, cols, rows } = out as ScreenImageReply;
+    const { data, mimeType, cols, rows } = out as PadiScreenImageOutput;
     // The bytes ride the image block ONLY. Repeating them in the structured
     // arm would double a ~50KB base64 payload for a reader that does not
     // exist on this path — the host renders the image, and an agent reading

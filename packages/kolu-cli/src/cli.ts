@@ -45,7 +45,7 @@
 // re-typed: a `--help` line that hand-copies a constant is a sentence nothing
 // stops from going quietly false. (`@kolu/terminal-vocab/agentProjection` is a
 // pure fold module, so this costs the dynamic-import fence nothing.)
-import { SCREEN_IMAGE_MAX_ROWS } from "@kolu/padi/surface";
+import { isScreenImageLines, SCREEN_IMAGE_MAX_ROWS } from "@kolu/padi/surface";
 import {
   WAIT_STATES,
   WATCH_DEFAULT_STATES,
@@ -587,8 +587,11 @@ export const screenshotFlags = {
   // its question.
   lines: opt(
     Flag.integer("lines").pipe(
+      // The RULE is padi's, spelled once there: a flag parser cannot speak
+      // Effect Schema, but it must not hold a second opinion about what a
+      // legal row count is either.
       Flag.filter(
-        (n) => n > 0 && n <= SCREEN_IMAGE_MAX_ROWS,
+        isScreenImageLines,
         (n) =>
           `--lines takes a positive whole number of rows, at most ${SCREEN_IMAGE_MAX_ROWS}, got ${n}.`,
       ),

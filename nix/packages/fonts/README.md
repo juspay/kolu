@@ -80,9 +80,11 @@ $out/
   NotoSansSymbols.ttf
 ```
 
-The filenames are a contract with `FONT_FILES` in `png.ts`. A rename on either
-side fails the Nix build (`cp` on a missing source) rather than rendering tofu at
-runtime.
+This list is the ONE place the face set is named: `png.ts` loads every
+`.ttf`/`.otf` the directory holds (and throws if it holds none), so adding or
+renaming a face here needs no matching edit in TypeScript. A rename of a SOURCE
+still fails the Nix build (`cp` on a missing source) rather than rendering tofu
+at runtime.
 
 ### Integration
 

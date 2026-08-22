@@ -19,7 +19,7 @@
 
 import type { ITheme } from "terminal-themes";
 import { parseColor, type RGB } from "terminal-themes/color";
-import { type CellColor, gridRows, type SnapshotGrid } from "./cell.ts";
+import type { CellColor, SnapshotGrid } from "./cell.ts";
 
 /** Window chrome geometry, in logical pixels. Shared by both backends so the
  *  daemon's PNG and the browser's PNG frame the terminal identically. */
@@ -42,6 +42,11 @@ export const CHROME = {
   titleSize: 13,
   /** Wordmark type size, one step below the caption. Same reasoning. */
   brandSize: 12,
+  /** Width of the window outline's stroke. On the scene beside
+   *  {@link SnapshotScene.window.strokeInset} so neither backend hardcodes it:
+   *  a 1px line and a half-pixel inset are one decision, and the two used to
+   *  be spelled as bare numbers in both painters. */
+  strokeWidth: 1,
 } as const;
 
 /** macOS-style traffic lights. Decoration only — they are drawn, never
@@ -228,14 +233,21 @@ export interface SnapshotScene {
     readonly cellW: number;
     readonly cellH: number;
   };
-  readonly window: { readonly bg: string; readonly border: string };
+  readonly window: {
+    readonly bg: string;
+    readonly border: string;
+    readonly strokeWidth: number;
+    /** Half the stroke, so the line lands ON the window boundary rather than
+     *  straddling it. Both backends inset by this rather than by a literal. */
+    readonly strokeInset: number;
+  };
   readonly titleBar: {
     readonly height: number;
     readonly bg: string;
     readonly fg: string;
     /** The terminal's caption, centred in the bar. */
     readonly title: SceneText;
-    /** The kolu wordmark, right-aligned. The browser draws its logo just left
+    /** The caller's wordmark, right-aligned. The browser draws its logo just left
      *  of this — the one piece of the title bar a scene cannot carry, because
      *  a decoded raster is not a value. */
     readonly brand: SceneText;
@@ -254,6 +266,10 @@ export interface SceneInput {
   readonly theme: ITheme;
   /** Title-bar label — kolu passes the terminal's name and git branch. */
   readonly label: string;
+  /** Wordmark, right-aligned in the title bar. An INPUT for the same reason
+   *  {@link label} is: whose product this is, is not a fact about a terminal
+   *  grid. kolu passes "kolu". */
+  readonly brand: string;
   readonly fontFamily: string;
   readonly fontSize: number;
   /** Advance width of one cell, measured by the backend against the font it
@@ -267,10 +283,10 @@ export interface SceneInput {
 
 /** Lay a grid out into backend-free drawing instructions. Pure. */
 export function buildScene(input: SceneInput): SnapshotScene {
-  const { grid, label, fontFamily, fontSize, cellW, cellH } = input;
+  const { grid, label, brand, fontFamily, fontSize, cellW, cellH } = input;
   const theme = resolveTheme(input.theme);
 
-  const rows = gridRows(grid);
+  const rows = grid.lines.length;
   const termW = Math.ceil(cellW * grid.cols);
   const termH = cellH * rows;
   const width = termW + CHROME.pad * 2;
@@ -334,7 +350,12 @@ export function buildScene(input: SceneInput): SnapshotScene {
     height,
     radius: CHROME.radius,
     font: { family: fontFamily, size: fontSize, cellW, cellH },
-    window: { bg: theme.bg, border },
+    window: {
+      bg: theme.bg,
+      border,
+      strokeWidth: CHROME.strokeWidth,
+      strokeInset: CHROME.strokeWidth / 2,
+    },
     titleBar: {
       height: CHROME.titleHeight,
       bg: titleBg,
@@ -350,7 +371,7 @@ export function buildScene(input: SceneInput): SnapshotScene {
         x: width - CHROME.brandRightMargin,
         y: textY,
         size: CHROME.brandSize,
-        text: "kolu",
+        text: brand,
         anchor: "end",
       },
       dots,

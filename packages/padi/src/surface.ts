@@ -1293,6 +1293,34 @@ export const PadiScreenTextInputSchema = Schema.Struct({
  *  rather than hidden. */
 export const SCREEN_IMAGE_MAX_ROWS = 200;
 
+/** What a legal `lines` is: a whole count of rows, at least one, at most
+ *  {@link SCREEN_IMAGE_MAX_ROWS} — as CHECKS, so a face can spread them onto
+ *  its own base node.
+ *
+ *  Exported in this shape rather than as a finished schema because the MCP
+ *  face must annotate a check-FREE base and add every check after (an
+ *  annotation lands on the last check otherwise, where no host looks for a
+ *  property description — `screenText.ts` states that law at length). Sharing
+ *  the rule and honouring the law are both possible; sharing only the constant
+ *  and re-spelling `integer ∧ > 0 ∧ ≤ MAX` per face is what left three copies
+ *  of one decision. */
+export const SCREEN_IMAGE_LINES_CHECKS = [
+  Schema.isInt(),
+  Schema.isGreaterThan(0),
+  Schema.isLessThanOrEqualTo(SCREEN_IMAGE_MAX_ROWS),
+] as const;
+
+/** The same rule as a ready-made schema, for a face with nothing to annotate. */
+export const ScreenImageLinesSchema = Schema.Number.check(
+  ...SCREEN_IMAGE_LINES_CHECKS,
+);
+
+/** The same rule for a face that parses FLAGS rather than schemas — the CLI's
+ *  `Flag.filter` cannot speak Effect Schema, and must not therefore hold a
+ *  second opinion about what a legal row count is. */
+export const isScreenImageLines = (n: number): boolean =>
+  Number.isInteger(n) && n > 0 && n <= SCREEN_IMAGE_MAX_ROWS;
+
 /** `screen.image` — the terminal as a picture.
  *
  *  `lines` bounds the capture to the last N rendered rows; OMIT it for the
@@ -1301,12 +1329,7 @@ export const SCREEN_IMAGE_MAX_ROWS = 200;
  *  deliberately no whole-scrollback arm: see {@link SCREEN_IMAGE_MAX_ROWS}. */
 export const PadiScreenImageInputSchema = Schema.Struct({
   id: TerminalIdSchema,
-  lines: Schema.optionalKey(
-    Schema.Int.check(
-      Schema.isGreaterThan(0),
-      Schema.isLessThanOrEqualTo(SCREEN_IMAGE_MAX_ROWS),
-    ),
-  ),
+  lines: Schema.optionalKey(ScreenImageLinesSchema),
 });
 
 /** What `screen.image` returns: the PNG as base64, with the grid it was
@@ -1324,6 +1347,12 @@ export const PadiScreenImageOutputSchema = Schema.Struct({
   cols: NonNegativeInt,
   rows: NonNegativeInt,
 });
+
+/** The decoded reply, derived from the schema rather than re-declared beside
+ *  it — the convention this surface follows everywhere else. Both readers (the
+ *  renderer that produces it and the MCP face that renders it) name THIS, so a
+ *  field renamed in the schema is a type error rather than a runtime hole. */
+export type PadiScreenImageOutput = typeof PadiScreenImageOutputSchema.Type;
 
 /** `screen.history` — the client's scrollback-backfill read. `before` is the
  *  caller's absolute mirror-line cursor (the attach snapshot's `topLine`, then

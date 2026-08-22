@@ -12,7 +12,6 @@
 export {
   DEFAULT_COLOR,
   type CellColor,
-  gridRows,
   type ReadableBuffer,
   type ReadableCell,
   readGrid,
@@ -31,6 +30,7 @@ export {
   type SceneGlyph,
   type SceneInput,
   type SceneRect,
+  type SceneText,
   type SnapshotScene,
 } from "./scene.ts";
 export { sceneToSvg } from "./svg.ts";
