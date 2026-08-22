@@ -261,7 +261,12 @@ for (const a of assets) console.log(a.file, a.bytes, a.siblings);
   disk are one setting rather than two that can part. The prefix must start and
   end with `/` and must not be the root — each refusal throws where it is
   written. Vite-built clients say the same thing through Vite's own
-  `build.assetsDir`.
+  `build.assetsDir`. **Moving the prefix wants a clean `distDir`**: the prune
+  below measures the directory this build wrote and cannot know where the last
+  one put its files, so a rebuild that moves the prefix leaves the vacated
+  directory behind. Deleting a sibling directory on the strength of its name is
+  the alternative, and it would eat a `publicDir` output the day someone moved
+  the prefix onto one.
 </Aside>
 
 <Aside type="caution" title="The hashed dir belongs to the build">

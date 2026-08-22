@@ -43,7 +43,6 @@ import {
   assertAssetPrefix,
   ASSET_MISS_CACHE_CONTROL,
   cacheControlFor,
-  DEFAULT_ASSET_PREFIX,
   DEFAULT_SHELL_PATHS,
   type FreshnessPaths,
   isImmutableAssetPath,
@@ -145,9 +144,7 @@ export function freshStaticLayer(
   // Bun build takes it through (`assertAssetPrefix`) — so `/assetsX` without
   // its trailing slash cannot silently pin `/assetsXtra/` immutable here while
   // no build would ever have written there.
-  const assetPrefix = assertAssetPrefix(
-    opts.assetPrefix ?? DEFAULT_ASSET_PREFIX,
-  );
+  const assetPrefix = assertAssetPrefix(opts.assetPrefix);
   // That guarantee holds ONLY while `assetPrefix` is disjoint from the shell — a
   // caller-supplied `assetPrefix: "/"` (or `""`) would put `/index.html` under
   // negotiation too and re-open the exact kolu#1319 stale-stamp footgun.
@@ -158,7 +155,14 @@ export function freshStaticLayer(
   // layer CONSTRUCTOR, not its build, so a misconfigured app dies where it is
   // composed rather than mid-boot.
   const shellPaths = opts.shellPaths ?? DEFAULT_SHELL_PATHS;
-  if (shellPaths.some((p) => isImmutableAssetPath(p, opts))) {
+  // The freshness paths this layer classifies by, RESOLVED — the asserted
+  // prefix and the defaulted shell list, not `opts`. Every `isImmutableAssetPath`
+  // / `cacheControlFor` below reads this one value, so the string the check was
+  // run against is the string the handler answers with. Passing `opts` instead
+  // left the assert a statement standing beside the classifier rather than the
+  // reading it is written to be, and it would re-default the shell list per call.
+  const paths: FreshnessPaths = { assetPrefix, shellPaths };
+  if (shellPaths.some((p) => isImmutableAssetPath(p, paths))) {
     throw new Error(
       `freshStaticLayer: assetPrefix ${JSON.stringify(assetPrefix)} captures a shell path (${JSON.stringify(shellPaths)}); it must be a non-root sub-path disjoint from the shell, or a compressed index.html sibling could be served and pin returning browsers to a stale post-build stamp (kolu#1319).`,
     );
@@ -242,7 +246,7 @@ export function freshStaticLayer(
         path: string,
         response: HttpServerResponse.HttpServerResponse,
       ): HttpServerResponse.HttpServerResponse => {
-        const directive = cacheControlFor(path, opts);
+        const directive = cacheControlFor(path, paths);
         return directive === null
           ? response
           : HttpServerResponse.setHeader(response, "cache-control", directive);
@@ -257,7 +261,7 @@ export function freshStaticLayer(
             headers: Headers.removeMany(request.headers, CONDITIONAL_HEADERS),
           });
           const hit = yield* serveAt(plain, path);
-          if (isImmutableAssetPath(path, opts)) {
+          if (isImmutableAssetPath(path, paths)) {
             // A hashed-asset miss 404s and that 404 is itself uncacheable — it must
             // NEVER fall through to the HTML shell, which under a `.js` URL is the
             // wrong MIME and would be pinned `immutable` for a year.

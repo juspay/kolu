@@ -69,8 +69,8 @@
 
 import { existsSync } from "node:fs";
 import { cp, mkdir } from "node:fs/promises";
-import { basename, resolve } from "node:path";
-import { assetDirOf, DEFAULT_ASSET_PREFIX, injectShellHead } from "./index";
+import { basename, join, resolve } from "node:path";
+import { assertAssetPrefix, assetDirOf, injectShellHead } from "./index";
 import { type ChunkGraph, staticImportChunks } from "./modulePreload";
 import {
   type AssetReport,
@@ -195,7 +195,14 @@ export interface SurfaceClientBuildOptions {
    *  directory at `/` needs `/assets/…` back, and a miss under this prefix
    *  404s rather than reaching the shell, so a file of theirs under it has no
    *  page at all. {@link assetDirOf} derives the dist-relative directory and is
-   *  the whole of the agreement between the two halves. */
+   *  the whole of the agreement between the two halves.
+   *
+   *  CHANGING it mid-dist leaves the old directory behind: the prune below
+   *  measures the dir this build wrote and cannot know where a previous build
+   *  put its files, so a rebuild that MOVES the prefix wants a clean `distDir`.
+   *  Not guessed at — a builder that deleted a sibling directory on the
+   *  strength of a name would be deleting an app's `publicDir` output the day
+   *  someone moved the prefix onto one. */
   assetPrefix?: string;
   /** Minify the JS bundle (default `true`). */
   minify?: boolean;
@@ -245,11 +252,17 @@ export async function buildSurfaceClient(
 ): Promise<SurfaceClientBuildResult> {
   const Bun = bun();
   const distDir = resolve(opts.distDir);
-  const assetPrefix = opts.assetPrefix ?? DEFAULT_ASSET_PREFIX;
+  // Taken THROUGH the check, so the string interpolated into every href below
+  // is the string whose shape was judged — not a sibling of it.
+  const assetPrefix = assertAssetPrefix(opts.assetPrefix);
   // The prefix IS the directory (`assetDirOf`), which is what keeps a moved
   // bundle one setting rather than two: there is no second place to say where
   // the files went, so the shell's hrefs and the bytes on disk cannot part.
-  const assetsDir = resolve(distDir, assetDirOf(assetPrefix));
+  // `join`, not `resolve`: an absolute second argument would silently discard
+  // `distDir` and write the bundle outside the dist. `assertAssetPrefix` makes
+  // that unreachable today (the leading `/` is sliced off, and an empty segment
+  // is refused); `join` makes it unreachable by construction.
+  const assetsDir = join(distDir, assetDirOf(assetPrefix));
   /** A file in the hashed dir, as the shell must name it — for the entry, the
    *  preloaded chunks and the extra assets alike, off the same prefix the
    *  server pins `immutable` (`isImmutableAssetPath`), so an href this build
@@ -392,7 +405,10 @@ export async function buildSurfaceClient(
   // Finish the dist the server is built to serve. Prune FIRST — an earlier
   // build's assets are unreachable the moment the shell above stopped naming
   // them, and compressing them would be a growing bill for bytes nobody can
-  // request. Then write the siblings `freshStaticLayer` negotiates, skipping any
+  // request. It walks THIS build's hashed dir and only that one: a build whose
+  // `assetPrefix` moved since the last one leaves the vacated directory where
+  // it was, because nothing here knows where that was and a name-based guess
+  // would eventually delete an app's own `publicDir` output. Then write the siblings `freshStaticLayer` negotiates, skipping any
   // that already sit beside an unchanged (so identically hashed) asset, which is
   // what keeps a rebuild's brotli bill proportional to what actually changed.
   await pruneAssets(assetsDir, produced);

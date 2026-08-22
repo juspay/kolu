@@ -534,12 +534,24 @@ describe("buildSurfaceClient — a bundle moved under a reserved prefix", () => 
     // Moved under a prefix of the app's own, the same path is an ordinary
     // unmatched one: it reaches the no-store SPA shell, and the app's router
     // gets to say what it means.
-    await build();
-    const res = await drive(layer(), "/assets/notes.md", {});
+    const { jsHref } = await build();
+    const app = layer();
+    const res = await drive(app, "/assets/notes.md", {});
     expect(res.status).toBe(200);
     expect(res.header("Cache-Control")).toBe("no-store");
     expect(res.text).toContain("<!doctype html>");
     expect(res.header("Content-Type")).toContain("text/html");
+
+    // …and the BUILD is what vacated it, not just the server's classification.
+    // The arm above would pass with a builder that still wrote `<dist>/assets/`:
+    // this layer does not class `/assets/*` as immutable any more, so a miss
+    // there reaches the shell either way. Asking for the ENTRY at its
+    // conventional address is the producer's half — that file exists under
+    // `<dist>/assets/` for a build that ignored the prefix, and is served as
+    // JavaScript; here nothing is there at all, so it is the shell.
+    const vacated = await drive(app, `/assets/${jsHref.split("/").pop()}`, {});
+    expect(vacated.header("Content-Type")).toContain("text/html");
+    expect(vacated.header("Cache-Control")).toBe("no-store");
   });
 
   it("refuses a prefix the build could never have written under", async () => {
