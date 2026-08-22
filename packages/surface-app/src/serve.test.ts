@@ -45,6 +45,7 @@ import {
   serveSurfaceApp,
   SurfaceAppListenFailed,
   type ServeSurfaceAppOptions,
+  type SurfaceAppConnection,
   type SurfaceAppEvent,
 } from "./serve";
 
@@ -233,12 +234,23 @@ function httpsText(
 }
 
 /** A real dial at the served surface, over a real `ws` client socket. */
-async function dial(server: Booted, url = server.wsUrl) {
+async function dial(
+  server: Booted,
+  url = server.wsUrl,
+  /** Request headers to stamp on the UPGRADE — what a reverse proxy in front of
+   *  the listener writes. A browser cannot set them, which is the whole reason
+   *  they are worth anything when the proxy is the only way in. */
+  headers?: Record<string, string>,
+) {
   const socket = await createSurfaceSocket({
     group: server.runtime.group,
     url,
     retired: () => {},
-    connect: (target) => new WsClient(target) as unknown as WebSocket,
+    connect: (target) =>
+      new WsClient(
+        target,
+        headers === undefined ? undefined : { headers },
+      ) as unknown as WebSocket,
   });
   return socket;
 }
@@ -406,6 +418,93 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
       connection: { id: 2 },
     });
     await second.dispose();
+  });
+});
+
+describe("serveSurfaceApp — the upgrade facts a connection carries", () => {
+  /** Read whatever `pick` makes of the accepted connection back out through a
+   *  real dispatch, so every claim below is about what a HANDLER sees — not
+   *  about an object a test built. JSON, because the facts under test are a
+   *  record and `Viewer` carries one string. */
+  const readConnection = async (
+    pick: (connection: SurfaceAppConnection) => unknown,
+    options: Partial<ServeSurfaceAppOptions<Viewer>> = {},
+    headers?: Record<string, string>,
+  ): Promise<unknown> => {
+    const server = await boot<Viewer>({
+      ...options,
+      services: (connection) =>
+        Layer.succeed(Viewer)({ seen: JSON.stringify(pick(connection)) }),
+    });
+    const socket = await dial(server, server.wsUrl, headers);
+    const answer = await Effect.runPromise(
+      socket.link.dispatch.unary("surface/viewer/seen", {}),
+    );
+    await socket.dispose();
+    return JSON.parse((answer as { seen: string }).seen);
+  };
+
+  it("carries the headers the app NAMED, under the app's own spelling — and no others", async () => {
+    // The whole claim in one assertion, because the interesting half is what is
+    // ABSENT: `cookie` and `authorization` were sent on this very upgrade and
+    // are not named, so the context cannot see them. A name with no header
+    // behind it contributes no key at all rather than an `undefined` a consumer
+    // would have to tell apart from an empty value.
+    await expect(
+      readConnection(
+        (connection) => connection.headers,
+        { upgradeHeaders: ["Tailscale-User-Login", "Tailscale-User-Name"] },
+        {
+          "Tailscale-User-Login": "ada@example.com",
+          Cookie: "session=hunter2",
+          Authorization: "Bearer hunter2",
+        },
+      ),
+    ).resolves.toEqual({ "Tailscale-User-Login": "ada@example.com" });
+  });
+
+  it("names no headers by DEFAULT — the whole bag is never the fallback", async () => {
+    await expect(
+      readConnection(
+        (connection) => connection.headers,
+        {},
+        {
+          "Tailscale-User-Login": "ada@example.com",
+          Cookie: "session=hunter2",
+        },
+      ),
+    ).resolves.toEqual({});
+  });
+
+  it("matches a name case-insensitively, and keeps an EMPTY value as a value", async () => {
+    // HTTP field names are case-insensitive and node lowercases what arrives, so
+    // an app that spells a name the way its proxy documents it must still be
+    // answered. And a header the proxy sent EMPTY is present-and-empty, not
+    // absent — kolu's own viewer facts say `undefined` and `""` are different
+    // facts downstream, so this seam must not flatten them either.
+    await expect(
+      readConnection(
+        (connection) => connection.headers,
+        { upgradeHeaders: ["x-forwarded-for", "X-Empty"] },
+        { "X-Forwarded-For": "10.0.0.1", "x-empty": "" },
+      ),
+    ).resolves.toEqual({ "x-forwarded-for": "10.0.0.1", "X-Empty": "" });
+  });
+
+  it("carries the direct peer's address — the fact a proxy header is weighed against", async () => {
+    // kolu's `viewerAddress`. Loopback, since that is where `boot` binds; the
+    // point is that it IS the socket's peer and not a guess.
+    await expect(
+      readConnection((connection) => connection.remoteAddress),
+    ).resolves.toMatch(/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/);
+  });
+
+  it("refuses to bind on a name that is not an HTTP field name", async () => {
+    // A name no header can ever match would read to the app as "the proxy never
+    // sends it" — a silent, permanent absence. It takes the bind down instead.
+    await expect(
+      boot({ upgradeHeaders: ["X-Ok", "not a name"] }),
+    ).rejects.toThrow(/"not a name" is not an HTTP header name/);
   });
 });
 
