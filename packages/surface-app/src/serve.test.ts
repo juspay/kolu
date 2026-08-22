@@ -124,9 +124,13 @@ afterEach(async () => {
 
 /** Generic in `Svc`, so a test supplying `services` exercises the TYPE-level seam
  *  (a `Layer<Viewer>` reaching a handler that requires `Viewer`) and not only the
- *  runtime passthrough — the whole reason `services` is generic. */
-async function boot<Svc = never>(
-  overrides: Partial<ServeSurfaceAppOptions<Svc>> = {},
+ *  runtime passthrough — the whole reason `services` is generic. Generic in `H`
+ *  for the same reason and one more: TypeScript infers no type argument
+ *  partially, so a harness that pinned `serveSurfaceApp<Svc>` would hand every
+ *  test the DEFAULT `H` and no test would ever reach the allowlist through the
+ *  inference a consumer actually uses. */
+async function boot<Svc = never, H extends string = never>(
+  overrides: Partial<ServeSurfaceAppOptions<Svc, H>> = {},
 ): Promise<Booted> {
   const dist = makeDist();
   const runtime = makeRuntime();
@@ -147,7 +151,7 @@ async function boot<Svc = never>(
     dist.cleanup();
   };
   const bound = await Effect.runPromise(
-    serveSurfaceApp<Svc>({
+    serveSurfaceApp<Svc, H>({
       group: runtime.group,
       handlers: runtime.handlers,
       clientDist: dist.dir,
@@ -426,12 +430,12 @@ describe("serveSurfaceApp — the upgrade facts a connection carries", () => {
    *  real dispatch, so every claim below is about what a HANDLER sees — not
    *  about an object a test built. JSON, because the facts under test are a
    *  record and `Viewer` carries one string. */
-  const readConnection = async (
-    pick: (connection: SurfaceAppConnection) => unknown,
-    options: Partial<ServeSurfaceAppOptions<Viewer>> = {},
+  const readConnection = async <H extends string = never>(
+    pick: (connection: SurfaceAppConnection<H>) => unknown,
+    options: Partial<ServeSurfaceAppOptions<Viewer, H>> = {},
     headers?: Record<string, string>,
   ): Promise<unknown> => {
-    const server = await boot<Viewer>({
+    const server = await boot<Viewer, H>({
       ...options,
       services: (connection) =>
         Layer.succeed(Viewer)({ seen: JSON.stringify(pick(connection)) }),
@@ -508,28 +512,35 @@ describe("serveSurfaceApp — the upgrade facts a connection carries", () => {
     ).resolves.toEqual({ __proto__: "sent" });
   });
 
-  it("makes a read the allowlist does not name a COMPILE error, not a silent undefined", () => {
+  it("makes a read the allowlist does not name a COMPILE error, not a silent undefined", async () => {
     // The other half of the serve-time check: a name outside the grammar takes
     // the bind down, and a name outside the ALLOWLIST does not compile. Both
     // close the same failure — a header read that answers `undefined` forever
     // and looks exactly like an honest "the proxy did not send it".
-    const reads = (connection: SurfaceAppConnection<"x-forwarded-for">) => ({
-      right: connection.headers["x-forwarded-for"],
-      // @ts-expect-error — not in the allowlist `H` was inferred from.
-      wrongCase: connection.headers["X-Forwarded-For"],
-      // @ts-expect-error — a plain typo, the same way.
-      typo: connection.headers["x-forwarded-fro"],
-    });
-    // The `@ts-expect-error`s above ARE the assertion (typecheck fails without
-    // them); this keeps the helper live so a rename cannot leave it unread.
-    expect(
-      reads({
-        id: 1,
-        url: new URL("http://x/"),
-        remoteAddress: undefined,
-        headers: { "x-forwarded-for": "10.0.0.1" },
-      }).right,
-    ).toBe("10.0.0.1");
+    //
+    // Read off the connection a REAL `serveSurfaceApp` hands a REAL `services`
+    // callback, so what is under test is the path a consumer is actually on:
+    // `H` inferred from `upgradeHeaders` one object literal over, while `Svc`
+    // is being inferred in the same breath. A connection this test annotated
+    // for itself would prove the guarantee about its own annotation.
+    //
+    // The `@ts-expect-error`s ARE the assertion — `just check` fails the moment
+    // either bad read starts compiling. The runtime expectation keeps the good
+    // read live: `undefined` does not survive `JSON.stringify`, so the two bad
+    // ones contribute no key.
+    await expect(
+      readConnection(
+        (connection) => ({
+          right: connection.headers["x-forwarded-for"],
+          // @ts-expect-error — not in the allowlist `H` was inferred from.
+          wrongCase: connection.headers["X-Forwarded-For"],
+          // @ts-expect-error — a plain typo, the same way.
+          typo: connection.headers["x-forwarded-fro"],
+        }),
+        { upgradeHeaders: ["x-forwarded-for"] },
+        { "X-Forwarded-For": "10.0.0.1" },
+      ),
+    ).resolves.toEqual({ right: "10.0.0.1" });
   });
 
   it("carries the direct peer's address — the fact a proxy header is weighed against", async () => {

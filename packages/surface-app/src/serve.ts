@@ -182,7 +182,7 @@ export class SurfaceAppListenFailed extends Data.TaggedError(
  *  short enough to read, which is what kolu's per-connection `ws:` field has
  *  always been. Not global and not a uuid: it identifies a connection within one
  *  listener's lifetime, which is the only span anything correlates over. */
-export interface SurfaceAppConnection<H extends string = string> {
+export interface SurfaceAppConnection<H extends string = never> {
   /** This connection's ordinal within this listener — 1 for the first accepted. */
   readonly id: number;
   /** The upgrade's request target (the `pid` echo, a `?host=` selector). */
@@ -210,6 +210,17 @@ export interface SurfaceAppConnection<H extends string = string> {
   readonly headers: Readonly<Partial<Record<H, string>>>;
 }
 
+/** The allowlist as the accept path reads it: each name the app spelled, paired
+ *  with the lowercase key node files that header under.
+ *
+ *  NAMED rather than spelled out at both ends, so `H` survives the trip from
+ *  {@link upgradeHeaderLookup} into {@link pickUpgradeHeaders} — which is what
+ *  lets the picked record's keys be CHECKED against the allowlist rather than
+ *  asserted with a cast. */
+type UpgradeHeaderLookup<H extends string> = ReadonlyArray<
+  readonly [asked: H, lowercased: string]
+>;
+
 /** The allowlist, checked once at serve time and turned into the lookup the
  *  accept path runs: each name the app spelled, paired with the lowercase key
  *  node actually files that header under.
@@ -223,9 +234,9 @@ export interface SurfaceAppConnection<H extends string = string> {
  *  the app's own defect, not a condition of the machine, and handing it to a
  *  consumer's `EADDRINUSE` port policy would have it retry forever against
  *  something no port can fix — the same reason the non-TCP address below throws. */
-const upgradeHeaderLookup = (
-  names: ReadonlyArray<string>,
-): ReadonlyArray<readonly [asked: string, lowercased: string]> =>
+const upgradeHeaderLookup = <H extends string>(
+  names: ReadonlyArray<H>,
+): UpgradeHeaderLookup<H> =>
   names.map((asked) => {
     try {
       validateHeaderName(asked);
@@ -255,9 +266,12 @@ const upgradeHeaderLookup = (
  *  every later event arm. */
 const pickUpgradeHeaders = <H extends string>(
   request: IncomingMessage,
-  lookup: ReadonlyArray<readonly [asked: string, lowercased: string]>,
+  lookup: UpgradeHeaderLookup<H>,
 ): Readonly<Partial<Record<H, string>>> => {
-  const picked: Record<string, string> = Object.create(null);
+  // The one cast left is about the PROTOTYPE, not the keys: `H` reaches this
+  // record from the allowlist through the lookup, so nothing here ASSERTS that
+  // the keys are the names — the compiler holds it.
+  const picked = Object.create(null) as Partial<Record<H, string>>;
   for (const [asked, lowercased] of lookup) {
     if (!Object.hasOwn(request.headers, lowercased)) continue;
     const value = request.headers[lowercased];
@@ -265,7 +279,7 @@ const pickUpgradeHeaders = <H extends string>(
     if (value === undefined) continue;
     picked[asked] = Array.isArray(value) ? value.join(", ") : value;
   }
-  return Object.freeze(picked) as Readonly<Partial<Record<H, string>>>;
+  return Object.freeze(picked);
 };
 
 /** Something the listener wants narrated. ONE sink, because every consumer has
@@ -280,10 +294,10 @@ const pickUpgradeHeaders = <H extends string>(
  *  handler the stale gate installs before enrolment) carry the `url` instead,
  *  parsed one line before the origin gate runs, so the sink never has to say
  *  "some upgrade, somewhere". */
-export type SurfaceAppEvent =
+export type SurfaceAppEvent<H extends string = never> =
   /** Gated, enrolled, and about to be served. The place a live-connection count
    *  increments and a consumer writes its `connected` line. */
-  | { readonly _tag: "Connected"; readonly connection: SurfaceAppConnection }
+  | { readonly _tag: "Connected"; readonly connection: SurfaceAppConnection<H> }
   /** That same connection hung up (peer, reaper, or our own teardown), with the
    *  close frame's own account of why: a `1006` with no reason is an abrupt drop,
    *  a `1009` is the frame cap (`FRAME_TOO_LARGE_CLOSE_CODE`), and a reaper's
@@ -293,7 +307,7 @@ export type SurfaceAppEvent =
    *  sent none, which is the ordinary case. */
   | {
       readonly _tag: "Disconnected";
-      readonly connection: SurfaceAppConnection;
+      readonly connection: SurfaceAppConnection<H>;
       readonly code: number;
       readonly reason: string;
     }
@@ -319,7 +333,7 @@ export type SurfaceAppEvent =
   | {
       readonly _tag: "ServingFailed";
       readonly cause: unknown;
-      readonly connection: SurfaceAppConnection;
+      readonly connection: SurfaceAppConnection<H>;
     };
 
 /** What a listener says when nobody is listening: loud on every fault, silent on
@@ -330,7 +344,9 @@ export type SurfaceAppEvent =
  *
  *  Exported so it is readable and testable as a policy, and so a consumer's own
  *  `onEvent` can delegate to it for the arms it does not care about. */
-export const reportSurfaceAppEvent = (event: SurfaceAppEvent): void => {
+export const reportSurfaceAppEvent = <H extends string>(
+  event: SurfaceAppEvent<H>,
+): void => {
   switch (event._tag) {
     case "Connected":
     case "Disconnected":
@@ -379,7 +395,7 @@ export type SurfaceAppHttpMiddleware = <E, R>(
 /** Everything `serveSurfaceApp` needs. The required half is the app's identity —
  *  what is served on the wire, what is served over HTTP, and where. Every option
  *  below it is observational or a shell-freshness passthrough. */
-export interface ServeSurfaceAppOptions<Svc = never, H extends string = string>
+export interface ServeSurfaceAppOptions<Svc = never, H extends string = never>
   extends SurfaceAppLayerOptions {
   /** The served surface's flat `RpcGroup` — `runtime.group`. */
   readonly group: RpcGroup.RpcGroup<Rpc.Any>;
@@ -447,7 +463,7 @@ export interface ServeSurfaceAppOptions<Svc = never, H extends string = string>
   readonly services?: (connection: SurfaceAppConnection<H>) => Layer.Layer<Svc>;
   /** Narrate a listener event — connects, disconnects, and every fault, on ONE
    *  sink. Defaults to {@link reportSurfaceAppEvent}. */
-  readonly onEvent?: (event: SurfaceAppEvent) => void;
+  readonly onEvent?: (event: SurfaceAppEvent<H>) => void;
 }
 
 /**
@@ -459,7 +475,7 @@ export interface ServeSurfaceAppOptions<Svc = never, H extends string = string>
  * forget to call. Returns the URL actually bound (the OS's answer, so `port: 0`
  * reports the port it was given).
  */
-export const serveSurfaceApp = <Svc = never, H extends string = string>(
+export const serveSurfaceApp = <Svc = never, H extends string = never>(
   options: ServeSurfaceAppOptions<Svc, H>,
 ): Effect.Effect<string, SurfaceAppListenFailed, Scope.Scope> =>
   Effect.gen(function* () {
@@ -591,7 +607,7 @@ export const serveSurfaceApp = <Svc = never, H extends string = string>(
             id: ++accepted,
             url,
             remoteAddress: request.socket.remoteAddress,
-            headers: pickUpgradeHeaders<H>(request, upgradeHeaders),
+            headers: pickUpgradeHeaders(request, upgradeHeaders),
           });
           report({ _tag: "Connected", connection });
           peer.once("close", (code: number, reason: Buffer) =>
