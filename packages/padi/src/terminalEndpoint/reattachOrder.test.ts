@@ -32,7 +32,7 @@ const killed = vi.hoisted(() => ({ ids: [] as string[] }));
 
 vi.mock("../ptyHost/index.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ptyHost/index.ts")>();
-  const { emptySensorTaps } = await import("./sensorTaps.testutil.ts");
+  const { emptySensorTaps } = await import("./sensorTaps.testlib.ts");
   // Same surviving-daemon double as `adoptTolerance.test.ts`: the shared empty
   // per-terminal taps (adoption must not depend on a sensor emitting, and an
   // ABSENT tap would make adoption reap the PTY under test), and a recording
