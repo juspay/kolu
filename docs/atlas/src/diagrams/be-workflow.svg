@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
      viewBox="0 0 1500 1320" font-family="ui-sans-serif, system-ui, sans-serif" role="img"
-     aria-label="The /be workflow: one interview up front, then autonomous — set up, implement test-first, open a draft PR, run the four-reviewer serial gauntlet, ship CI and evidence in parallel on a pu box, then report and self-improve. Every skill node links to its SKILL.md on GitHub.">
+     aria-label="The /be workflow: one interview up front, then autonomous — set up, implement test-first, open a draft PR, run the four-reviewer serial gauntlet, ship CI and evidence in parallel on a pu box, then report. Every skill node links to its SKILL.md on GitHub.">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-end">
       <path d="M0,0 L10,5 L0,10 z" fill="#5b6472"/>
@@ -247,13 +247,6 @@
   <text class="ptitle" x="380" y="1146">Done</text>
   <text class="psub"   x="380" y="1167">report PR · gauntlet outcome · CI status</text>
   <text class="psub"   x="380" y="1182">never merge — the human reviews &amp; merges</text>
-
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/self-improve/SKILL.md" target="_blank" rel="noopener">
-    <path class="link" d="M750,1152 L800,1152"/>
-    <rect class="chip" x="800" y="1126" width="340" height="52" rx="8"/>
-    <text class="skill"  x="818" y="1148">/self-improve  (forked)</text>
-    <text class="skilln" x="818" y="1166">mine the session → sharpen the skill-set</text>
-  </a>
 
   <!-- ============ Legend ============ -->
   <g transform="translate(60,1235)">

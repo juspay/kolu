@@ -1,8 +1,7 @@
 # Why /be's rules exist — read when editing this skill, not when running it
 
 Incident ledger behind the SKILL.md rules. Each entry is why a clause survives
-edits; the full stories live in git history and the sessions cited by
-`/self-improve` PRs.
+edits; the full stories live in git history.
 
 - **Interruptions resume unasked; an in-flight step restarts.** A §4 gauntlet
   interrupted to chase a field bug was never restarted, and the run described
