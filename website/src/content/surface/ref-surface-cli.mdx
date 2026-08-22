@@ -214,11 +214,11 @@ print and return success, so they never reach it.)
 | Export | Role |
 | --- | --- |
 | `EXIT` | the matrix above, as data |
-| `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to a command config plus its assembler |
+| `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to an `InputProjection`: the command config, plus the `assemble(values, stdin)` that reads a parsed config back into the verb's encoded input. `stdin` is an **Effect**, described rather than read, so the descriptor is touched only on the `--json -` path and no caller has to ask first |
 | `runEdge(binary, error)` | → `{ stderr, failure }` — what a host's run edge should write and re-fail with, so the exit matrix is true of a real binary |
 | `SurfaceCliFailure` | the failure class carrying both the text and the code |
 | `SurfaceCliBuildError` | a malformed projection, refused when the tree is built (a positional naming no field, a flag-name collision, a field that cannot be a flag) |
-| `SurfaceCliOptions` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `ProjectedCommand` | types |
+| `SurfaceCliOptions` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `Assembled` · `ProjectedCommand` | types |
 
 This package re-exports nothing of the framework's: `messageOf` is
 [`@kolu/surface/errors`](/surface/ref-surface#the-tagged-error-vocabulary-kolusurfaceerrors)'s

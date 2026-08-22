@@ -654,6 +654,18 @@ describe("the projection refuses a malformed command tree at BUILD time", () => 
     expect(built.stderr).toContain("no_such_verb");
   });
 
+  it("refuses an `annotate` key that names a READER, which no annotation reaches", async () => {
+    // `annotate` is only ever looked up by verb name, so `{ get: … }` was
+    // checked against the set that also holds the reader commands and passed —
+    // then did nothing. Ergonomics its author asked for and silently did not
+    // get, which is the exact silence this check exists to prevent.
+    const built = await buildTree(`
+      annotate: { get: { render: (o) => String(o) } },
+    `);
+    expect(built.code).not.toBe(0);
+    expect(built.stderr).toContain('"get"');
+  });
+
   it("refuses a bespoke verb that would shadow a reader command", async () => {
     const built = await buildTree(`
       verbs: { ...VERBS, get: VERBS.echo },

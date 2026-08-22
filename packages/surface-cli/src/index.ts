@@ -19,7 +19,12 @@
  */
 
 export { EXIT, runEdge, SurfaceCliFailure } from "./exit";
-export { flagsOf, type InputProjection, SurfaceCliBuildError } from "./flags";
+export {
+  type Assembled,
+  flagsOf,
+  type InputProjection,
+  SurfaceCliBuildError,
+} from "./flags";
 export {
   type EndpointSeam,
   type ProjectedCommand,

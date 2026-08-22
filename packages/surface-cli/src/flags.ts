@@ -67,7 +67,7 @@
 
 import type { WireSchemaAny } from "@kolu/surface/define";
 import { inputSchema } from "@kolu/surface/verbs";
-import { Option } from "effect";
+import { Effect, Option } from "effect";
 import { Argument, Flag } from "effect/unstable/cli";
 
 /** A JSON-Schema node, walked structurally. */
@@ -82,6 +82,14 @@ type Param = Flag.Flag<any> | Argument.Argument<any>;
  *  than shipping a command with two meanings for one flag. */
 export const JSON_FLAG = "json";
 
+/** One assembly's answer: the verb's ENCODED input, or the sentence to refuse
+ *  with. A SENTENCE and never a thrown value, because every way this can go
+ *  wrong is a usage error the caller turns into exit 2, and the caller is the
+ *  one that knows the binary's name to put in front of it. */
+export type Assembled =
+  | { ok: true; input: unknown }
+  | { ok: false; because: string };
+
 /** What a verb's input projects to: the config `Command.make` takes, and the
  *  assembler that reads a parsed config back into one encoded input value. */
 export interface InputProjection {
@@ -89,23 +97,21 @@ export interface InputProjection {
   readonly config: Record<string, Param>;
   /** Read the parsed config back into the verb's ENCODED input.
    *
-   *  `stdin` is the text `--json -` means, already read — a thunk here would
-   *  make this function's purity a lie and would read a descriptor the caller
-   *  may not have wanted read.
+   *  `stdin` is DESCRIBED, not read: it is an Effect, and it is yielded only on
+   *  the `--json -` path — so a verb that did not ask never touches the
+   *  descriptor and nothing hangs waiting on a terminal nobody typed into. An
+   *  Effect is not a thunk; it is a description, so `assemble` stays a pure
+   *  function from values to a value while "read it only if it was asked for"
+   *  becomes structural rather than an ordering rule the caller has to remember.
    *
-   *  Fails with a SENTENCE, never a thrown value: every way this can go wrong is
-   *  a usage error the caller turns into exit 2, and the caller is the one that
-   *  knows the binary's name to put in front of it. */
-  readonly assemble: (
+   *  That rule used to be a two-step protocol — ask `wantsStdin`, then hand over
+   *  the text — with a whole failure arm reading "the host did not ask this
+   *  projection whether it wanted it" to reconcile a caller that forgot. The
+   *  reconciliation machinery was the bug, not the fix. */
+  readonly assemble: <E, R>(
     values: Record<string, unknown>,
-    stdin: string | undefined,
-  ) => { ok: true; input: unknown } | { ok: false; because: string };
-  /** Whether the input is a non-object the wire carries under one property —
-   *  the bit the verb's own schema needs unwrapping against. */
-  readonly wrapped: boolean;
-  /** Does the projection want stdin? True exactly when `--json -` was given, so
-   *  a caller reads the descriptor only for the command that asked for it. */
-  readonly wantsStdin: (values: Record<string, unknown>) => boolean;
+    stdin: Effect.Effect<string, E, R>,
+  ) => Effect.Effect<Assembled, E, R>;
 }
 
 /** A flag name a shell and Effect CLI can both carry. Deliberately strict: a
@@ -258,12 +264,6 @@ export function flagsOf(
   return projectInput(schema, opts?.positional ?? []);
 }
 
-/** Does this parsed config carry `--json -`? Spelled once, and read both by the
- *  caller (to decide whether to spend a read on stdin) and by `assemble` (to
- *  decide whether the text it was handed is the payload). */
-const wantsStdin = (values: Record<string, unknown>): boolean =>
-  values[JSON_FLAG] === "-";
-
 function projectInput(
   schema: WireSchemaAny | undefined,
   positional: readonly string[],
@@ -299,28 +299,26 @@ function projectInput(
     );
     return {
       config,
-      wrapped: true,
-      wantsStdin,
-      assemble: (values, stdin) => {
-        const fromJson = readJsonFlag(values, stdin);
-        if (fromJson.kind === "bad")
-          return { ok: false, because: fromJson.why };
-        const bare = values.value;
-        if (fromJson.kind === "given") {
+      assemble: (values, stdin) =>
+        Effect.map(readJsonFlag(values, stdin), (fromJson): Assembled => {
+          if (fromJson.kind === "bad")
+            return { ok: false, because: fromJson.why };
+          const bare = values.value;
+          if (fromJson.kind === "given") {
+            return bare === undefined
+              ? { ok: true, input: fromJson.value }
+              : {
+                  ok: false,
+                  because: `--${JSON_FLAG} carries the whole input, so it cannot be combined with the <value> argument — pass one or the other.`,
+                };
+          }
           return bare === undefined
-            ? { ok: true, input: fromJson.value }
-            : {
+            ? {
                 ok: false,
-                because: `--${JSON_FLAG} carries the whole input, so it cannot be combined with the <value> argument — pass one or the other.`,
-              };
-        }
-        return bare === undefined
-          ? {
-              ok: false,
-              because: `this verb takes one value — pass it as the argument, or the whole input with --${JSON_FLAG}.`,
-            }
-          : { ok: true, input: bare };
-      },
+                because: `this verb takes one value — pass it as the argument, or the whole input with --${JSON_FLAG}.`,
+              }
+            : { ok: true, input: bare };
+        }),
     };
   }
 
@@ -396,73 +394,73 @@ function projectInput(
 
   return {
     config,
-    wrapped: false,
-    wantsStdin,
-    assemble: (values, stdin) => {
-      const fromJson = readJsonFlag(values, stdin);
-      if (fromJson.kind === "bad") return { ok: false, because: fromJson.why };
-      const supplied = suppliedIn(values);
-      if (fromJson.kind === "given") {
-        return supplied.length === 0
-          ? { ok: true, input: fromJson.value }
-          : {
-              ok: false,
-              because: `--${JSON_FLAG} carries the whole input, so it cannot be combined with ${supplied.map((n) => `"${n}"`).join(", ")} — pass one or the other.`,
-            };
-      }
-      const input: Record<string, unknown> = {};
-      for (const name of supplied) input[name] = values[name];
-      for (const [name, fallback] of defaults) {
-        if (input[name] === undefined) input[name] = fallback;
-      }
-      // Requiredness, enforced HERE because this is the only layer that can see
-      // that `--json` was not the answer. The parser cannot: it would have to
-      // refuse before knowing.
-      const missing = [...required].filter(
-        (name) => input[name] === undefined && Object.hasOwn(properties, name),
-      );
-      if (missing.length > 0) {
-        return {
-          ok: false,
-          because: `this verb needs ${missing.map((n) => `"${n}"`).join(", ")} — pass ${missing.length === 1 ? "it" : "them"}, or the whole input with --${JSON_FLAG}.`,
-        };
-      }
-      return { ok: true, input };
-    },
+    assemble: (values, stdin) =>
+      Effect.map(readJsonFlag(values, stdin), (fromJson): Assembled => {
+        if (fromJson.kind === "bad")
+          return { ok: false, because: fromJson.why };
+        const supplied = suppliedIn(values);
+        if (fromJson.kind === "given") {
+          return supplied.length === 0
+            ? { ok: true, input: fromJson.value }
+            : {
+                ok: false,
+                because: `--${JSON_FLAG} carries the whole input, so it cannot be combined with ${supplied.map((n) => `"${n}"`).join(", ")} — pass one or the other.`,
+              };
+        }
+        const input: Record<string, unknown> = {};
+        for (const name of supplied) input[name] = values[name];
+        for (const [name, fallback] of defaults) {
+          if (input[name] === undefined) input[name] = fallback;
+        }
+        // Requiredness, enforced HERE because this is the only layer that can
+        // see that `--json` was not the answer. The parser cannot: it would have
+        // to refuse before knowing.
+        const missing = [...required].filter(
+          (name) =>
+            input[name] === undefined && Object.hasOwn(properties, name),
+        );
+        if (missing.length > 0) {
+          return {
+            ok: false,
+            because: `this verb needs ${missing.map((n) => `"${n}"`).join(", ")} — pass ${missing.length === 1 ? "it" : "them"}, or the whole input with --${JSON_FLAG}.`,
+          };
+        }
+        return { ok: true, input };
+      }),
   };
 }
 
-/** Read `--json`, resolving `-` to the stdin text the caller read for us. Three
- *  answers, because "absent" and "present but unreadable" must not collapse into
- *  one. */
-function readJsonFlag(
-  values: Record<string, unknown>,
-  stdin: string | undefined,
-):
+/** One reading of `--json`. Three answers, because "absent" and "present but
+ *  unreadable" must not collapse into one. */
+type JsonFlag =
   | { kind: "absent" }
   | { kind: "given"; value: unknown }
-  | { kind: "bad"; why: string } {
+  | { kind: "bad"; why: string };
+
+/** Read `--json`, resolving `-` by RUNNING the stdin description — and only
+ *  then. The descriptor is touched on this one path and no other, which is what
+ *  makes "a verb that did not ask never waits on a terminal" a property of the
+ *  code rather than of a caller remembering to ask first. */
+function readJsonFlag<E, R>(
+  values: Record<string, unknown>,
+  stdin: Effect.Effect<string, E, R>,
+): Effect.Effect<JsonFlag, E, R> {
   const raw = values[JSON_FLAG];
-  if (raw === undefined) return { kind: "absent" };
+  if (raw === undefined) return Effect.succeed({ kind: "absent" });
   const fromStdin = raw === "-";
-  if (fromStdin && stdin === undefined) {
-    // The caller asks `wantsStdin` before assembling, so an absent text here is
-    // a wiring mistake, not a user's — say which, rather than blaming a payload
-    // nobody supplied.
-    return {
-      kind: "bad",
-      why: `--${JSON_FLAG} - was given but stdin was never read — the host did not ask this projection whether it wanted it.`,
-    };
-  }
-  const text = fromStdin ? (stdin as string) : String(raw);
-  try {
-    return { kind: "given", value: JSON.parse(text) as unknown };
-  } catch (err) {
-    return {
-      kind: "bad",
-      why: `--${JSON_FLAG} takes the whole input as JSON${fromStdin ? " on stdin" : ""}, and that is not JSON: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
+  return Effect.map(
+    fromStdin ? stdin : Effect.succeed(String(raw)),
+    (text): JsonFlag => {
+      try {
+        return { kind: "given", value: JSON.parse(text) as unknown };
+      } catch (err) {
+        return {
+          kind: "bad",
+          why: `--${JSON_FLAG} takes the whole input as JSON${fromStdin ? " on stdin" : ""}, and that is not JSON: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    },
+  );
 }
 
 /** The help line for one field: the schema author's own `description`, plus the

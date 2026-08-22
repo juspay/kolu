@@ -291,13 +291,15 @@ interface CallableVerb {
   readonly schema: WireSchemaAny | undefined;
   readonly projection: InputProjection;
   readonly annotation: VerbAnnotation;
-  /** Place the call. Takes BOTH readings of the input, because a procedure's
-   *  client ref decodes what it is handed while a bespoke handler wants the
-   *  decoded args — and the CLI has both by then. */
+  /** WHICH reading of the input this verb's dispatch wants. A procedure's client
+   *  ref decodes what it is handed, so it takes the ENCODED one; a bespoke
+   *  handler's `args` ARE the decoded value. The CLI has both by then, and this
+   *  says which to hand over — data beside the arm that knows it, rather than a
+   *  pair of positionals of which every implementation ignores one. */
+  readonly reading: "encoded" | "decoded";
   readonly call: (
     client: SurfaceClientCallable,
-    encoded: unknown,
-    decoded: unknown,
+    input: unknown,
   ) => Effect.Effect<unknown, unknown>;
 }
 
@@ -326,7 +328,8 @@ function callableVerbs<S extends SurfaceSpec, F extends FlagRecord, R>(
         flagsOf(schema, { positional: annotation.positional }),
       ),
       annotation,
-      call: (client, encoded) => {
+      reading: "encoded",
+      call: (client, input) => {
         const proc = client.surface[entry.ns]?.[entry.verb];
         if (proc === undefined) {
           return Effect.fail(
@@ -337,7 +340,7 @@ function callableVerbs<S extends SurfaceSpec, F extends FlagRecord, R>(
         }
         // A no-input procedure declares `Schema.Void`, so it is called with
         // `undefined` rather than with an empty object.
-        return proc(schema === undefined ? undefined : encoded);
+        return proc(schema === undefined ? undefined : input);
       },
     });
   }
@@ -356,11 +359,11 @@ function callableVerbs<S extends SurfaceSpec, F extends FlagRecord, R>(
         flagsOf(schema, { positional: annotation.positional }),
       ),
       annotation,
+      reading: "decoded",
       // A bespoke handler is `(args, client, signal) => Effect`, exactly as on
       // the MCP face. There is no signal to hand it: cancellation here IS fiber
       // interruption, and a handler that composes surface members inherits it.
-      call: (client, _encoded, decoded) =>
-        verb.handler(decoded, client, undefined),
+      call: (client, args) => verb.handler(args, client, undefined),
     });
   }
 
@@ -382,10 +385,14 @@ function callableVerbs<S extends SurfaceSpec, F extends FlagRecord, R>(
     }
     seen.set(verb.name, verb.source);
   }
-  // Every annotation must name a verb that exists. A key that names nothing is
-  // ergonomics its author asked for and silently did not get — the same class of
-  // silence `positional` naming no field is already refused for.
-  const stray = Object.keys(annotate).filter((name) => !seen.has(name));
+  // Every annotation must name a VERB that exists — asked of the set that
+  // answers that question, not of `seen`, which answers "is this name taken?"
+  // and includes the reader commands. `annotate` is only ever looked up by verb
+  // name, so `{ get: { render } }` passed the old check and did nothing: exactly
+  // the silence this block exists to prevent, and the same class of silence
+  // `positional` naming no field is already refused for.
+  const verbNames = new Set(out.map((verb) => verb.name));
+  const stray = Object.keys(annotate).filter((name) => !verbNames.has(name));
   if (stray.length > 0) {
     throw new SurfaceCliBuildError(
       `surface-cli: "annotate" names ${stray.map((n) => `"${n}"`).join(", ")}, which no verb answers to — this surface offers ${out.map((v) => `"${v.name}"`).join(", ") || "no verbs"}.`,
@@ -459,15 +466,12 @@ function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
   values: Record<string, unknown>,
 ): Effect.Effect<void, unknown, Stdio.Stdio | R> {
   return Effect.gen(function* () {
-    // Stdin is read ONLY for the command that asked for it (`--json -`), and
-    // through the `Stdio` service every handler already requires — not off fd 0
-    // synchronously inside what is otherwise a pure assembly. A verb that did
-    // not ask never touches the descriptor, so nothing hangs waiting on a
-    // terminal nobody typed into.
-    const stdin = verb.projection.wantsStdin(values)
-      ? yield* readStdin
-      : undefined;
-    const assembled = verb.projection.assemble(values, stdin);
+    // Stdin is DESCRIBED here and read only by the one path that wants it
+    // (`--json -`), inside `assemble` — not off fd 0 synchronously, and not on a
+    // pre-flight question this caller could forget to ask. A verb that did not
+    // ask never touches the descriptor, so nothing hangs waiting on a terminal
+    // nobody typed into.
+    const assembled = yield* verb.projection.assemble(values, readStdin);
     if (!assembled.ok) {
       return yield* Effect.fail(usage(opts.info.name, assembled.because));
     }
@@ -492,7 +496,7 @@ function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
     }
 
     const output = yield* withConnection(opts, values, (client) =>
-      verb.call(client, encoded, decoded),
+      verb.call(client, verb.reading === "decoded" ? decoded : encoded),
     );
     yield* writeOutput(verb, output);
   });
