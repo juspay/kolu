@@ -158,7 +158,7 @@ live one hop below the diff.
 > that convention explicitly; report violations with file:line. Overlay absent
 > → skip and say so.
 
-## Adding a check (the self-improve contract)
+## Adding a check
 
 A human catches a smell the checks missed → a GENERAL lesson lands here as a new
 named check or sharpened prompt line (and upstreams); a PROJECT lesson lands in

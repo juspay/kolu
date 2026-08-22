@@ -4,7 +4,7 @@ description: How kolu takes a task to a shipped, reviewed PR — one interview u
 parents: [reference, llm-autonomy]
 status: implemented
 maturity: budding
-updated: 2026-07-24
+updated: 2026-08-22
 ---
 
 import Svg from "../../components/Svg.astro";
@@ -25,7 +25,6 @@ export const SKILL_URL = {
     "https://github.com/juspay/kolu/blob/master/agents/.apm/skills/architecture-first-principles/SKILL.md",
   "agent-debate": "https://github.com/juspay/kolu/blob/master/agents/.apm/skills/agent-debate/SKILL.md",
   evidence: "https://github.com/juspay/kolu/blob/master/.apm/skills/evidence/SKILL.md",
-  "self-improve": "https://github.com/juspay/kolu/blob/master/.apm/skills/self-improve/SKILL.md",
   do: "https://github.com/srid/agency/blob/master/.apm/skills/do/SKILL.md",
   "forge-pr": "https://github.com/srid/agency/blob/master/.apm/skills/forge-pr/SKILL.md",
   "code-police": "https://github.com/srid/agency/blob/master/.apm/skills/code-police/SKILL.md",
@@ -126,8 +125,7 @@ above; the rest are fully autonomous.
 5. **Ship** — CI and evidence, in parallel (section after next).
 6. **Done** — report the PR, the gauntlet outcome (or that the gauntlet was
    skipped), and CI status. `/be` *never merges*; the human reviews the commits
-   and merges when satisfied. Then it runs <Skill name="self-improve" /> to mine
-   the session for recurring friction.
+   and merges when satisfied.
 
 ## The review gauntlet
 
@@ -166,7 +164,7 @@ local-only. If the diff touches a perf-sensitive surface, a performance pass
 checks it against the [performance map](/atlas/performance.html) and updates that
 note when a win is banked or a new one surfaces.
 
-## Ship in parallel, then close the loop
+## Ship in parallel
 
 Phase 5 runs two independent lanes at once — there's no reason to wait for green
 before capturing:
@@ -183,12 +181,6 @@ Both lanes run on a <Skill name="pu" /> box, never locally — a prior run piled
 local builds beside production kolu and the OOM-killer took production down. The
 lanes rejoin before Done: CI must be green on the final `HEAD` *and* evidence
 posted.
-
-After Done, `/be` closes the loop with <Skill name="self-improve" />, which runs
-**forked** (off the main context) to mine this session's transcript for every
-point a human had to intervene. It produces nothing unless a lesson durably
-recurs; when one does, it ships a small fix to the skill sources on its *own*
-draft PR for a human to review — never on the `/be` branch, never merged.
 
 <Callout type="note">
 **This note is kept in sync with the skills it describes.** The skill sources
