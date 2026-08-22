@@ -43,13 +43,13 @@ const killed = vi.hoisted(() => ({ ids: [] as string[] }));
 vi.mock("../ptyHost/index.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ptyHost/index.ts")>();
   const { Stream } = await import("effect");
-  // Empty taps, for the reason `adoptTolerance.test.ts` names: re-wiring must not
-  // depend on any sensor emitting, and a MISSING tap would make the wiring throw
-  // — which is a different case, pinned separately below.
-  const tap = (name: string) => () => {
-    taps.opened.push(name);
-    return Stream.empty;
-  };
+  const { emptySensorTaps } = await import("./sensorTaps.testlib.ts");
+  // The SAME five tap names every other endpoint test mocks — taken from the one
+  // list rather than re-typed here — but RECORDING, because re-wiring is what this
+  // file is about. Each tap still yields nothing and ends, for the reason
+  // `adoptTolerance.test.ts` names: re-wiring must not depend on any sensor
+  // emitting, and a MISSING tap would make the wiring throw — a different case,
+  // pinned separately below.
   return {
     ...actual,
     ptyHostClient: {
@@ -68,11 +68,12 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
               killed.ids.push(id);
             }),
         },
-        cwd: { get: tap("cwd") },
-        title: { get: tap("title") },
-        commandRun: { get: tap("commandRun") },
-        foreground: { get: tap("foreground") },
-        exit: { get: tap("exit") },
+        ...emptySensorTaps((name) => ({
+          get: () => {
+            taps.opened.push(name);
+            return Stream.empty;
+          },
+        })),
       },
     },
   };
