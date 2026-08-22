@@ -396,30 +396,48 @@ export function formatWatchActivity(
   return `${clockTime(opts.now)}  ${shortId(id)}  ${live ? "● busy" : "○ idle"}`;
 }
 
+/** Every `kind` the CHANGE tail can print — the vocabulary this module INVENTS
+ *  (unlike {@link WATCH_STATE_EVENT_KINDS}, which is padi's own wire spelling).
+ *  An array rather than three bare literals at three unrelated call sites: it is
+ *  half of what a consumer's `jq` switch must know, and the three sites had no
+ *  way to disagree loudly. */
+export const WATCH_CHANGE_EVENT_KINDS = [
+  "terminal",
+  "removed",
+  "activity",
+] as const;
+
 export function formatWatchActivityJson(id: TerminalId, live: boolean): string {
-  return JSON.stringify({ kind: "activity", id, activity: live });
+  return JSON.stringify({
+    kind: "activity" satisfies WatchFeedKind,
+    id,
+    activity: live,
+  });
 }
 
 /** `watch --json` — one JSON object per line (NDJSON, so `jq -c` streams it): the
  *  full raw record plus the live flag and the full terminal id. The `id` key
  *  matches `status --json`.
  *
- *  EVERY line carries a `kind`, whichever feed produced it. `kolu watch --json`
- *  emits one of two vocabularies — the change tail's
- *  `terminal`/`removed`/`activity` and the supervision feed's
- *  `snapshot`/`transition`/`nag` — and a consumer must be able to tell them
- *  apart by reading a line, not by inspecting the argv that produced it or
- *  probing for which key happens to be present. */
+ *  EVERY line carries a `kind`, whichever feed produced it — the whole
+ *  vocabulary is {@link WATCH_FEED_KINDS}. A consumer must be able to tell the
+ *  two feeds apart by reading a line, not by inspecting the argv that produced
+ *  it or probing for which key happens to be present. */
 export function formatWatchJson(
   id: TerminalId,
   v: PadiTerminal,
   opts: { live: boolean },
 ): string {
-  return JSON.stringify({ kind: "terminal", id, live: opts.live, ...v });
+  return JSON.stringify({
+    kind: "terminal" satisfies WatchFeedKind,
+    id,
+    live: opts.live,
+    ...v,
+  });
 }
 
 export function formatWatchRemovalJson(id: TerminalId): string {
-  return JSON.stringify({ kind: "removed", id });
+  return JSON.stringify({ kind: "removed" satisfies WatchFeedKind, id });
 }
 
 /** One agent-STATE event as an NDJSON line — the wire event, verbatim.
@@ -435,7 +453,7 @@ export function formatWatchRemovalJson(id: TerminalId): string {
  *  Verbatim because the event already IS the line: re-shaping it would invent a
  *  second spelling of padi's own answer for a consumer's `jq` to learn. */
 export function formatStateEventJson(event: PadiStateEvent): string {
-  return JSON.stringify(event satisfies { kind: string });
+  return JSON.stringify(event satisfies { kind: WatchFeedKind });
 }
 
 /** One agent-STATE event as a human line:
@@ -457,7 +475,27 @@ export function formatStateEventJson(event: PadiStateEvent): string {
  *  the repo, the branch or the screen has `kolu ls` and `kolu snapshot`. */
 const widestOf = (words: readonly string[]): number =>
   words.reduce((w, s) => Math.max(w, s.length), 0);
-const KIND_WIDTH = widestOf(WATCH_STATE_EVENT_KINDS);
+/** Every `kind` a `kolu watch --json` line can carry, both feeds and the pulse:
+ *  padi's state-event kinds, the change tail's, and this face's own liveness
+ *  line — which is not a terminal event but IS a line on the same stream. ONE
+ *  array, so the column width, every NDJSON literal above and a consumer's `jq`
+ *  switch cannot disagree — the same reason {@link WATCH_STATE_EVENT_KINDS} is
+ *  an array and not a bare literal union. */
+export const WATCH_FEED_KINDS = [
+  ...WATCH_STATE_EVENT_KINDS,
+  ...WATCH_CHANGE_EVENT_KINDS,
+  "heartbeat",
+] as const;
+
+/** One line's `kind`, whichever feed produced it — what every `--json` writer
+ *  above declares itself against. */
+export type WatchFeedKind = (typeof WATCH_FEED_KINDS)[number];
+
+// The supervision table's kind column, measured over the WHOLE vocabulary: the
+// change tail has no such column, so the only cost of measuring it too is that
+// a widened change kind would widen a column it never appears in — and the one
+// thing that must not happen (a running feed silently misaligning) still cannot.
+const KIND_WIDTH = widestOf(WATCH_FEED_KINDS);
 const STATE_WIDTH = widestOf(WAIT_STATES);
 
 export function formatStateEvent(event: PadiStateEvent): string {
@@ -475,4 +513,22 @@ export function formatStateEvent(event: PadiStateEvent): string {
   ];
   if (event.intent !== undefined) cells.push(event.intent);
   return cells.join("  ");
+}
+
+/** A CLI-only alive line: silence on a held stdout is otherwise unfalsifiable
+ *  (stream-dead and process-frozen look the same). Not a padi event — MCP's
+ *  `watch_next` already has `timeoutMs` for the same question. */
+export function formatHeartbeat(at: number): string {
+  // The short-id column is BLANK, not skipped: a two-cell line on a five-cell
+  // table puts the word "heartbeat" where every neighbour has an id, which is
+  // exactly the misalignment the derived widths above exist to prevent. Blank
+  // keeps "no terminal on it" a structural fact rather than a documented habit.
+  return [clockTime(at), " ".repeat(SHORT_ID_LEN), "heartbeat"].join("  ");
+}
+
+export function formatHeartbeatJson(at: number): string {
+  return JSON.stringify({
+    kind: "heartbeat" satisfies WatchFeedKind,
+    at,
+  });
 }

@@ -50,6 +50,12 @@ import { match, P } from "ts-pattern";
 export const TerminalIdSchema = Schema.String.check(Schema.isUUID());
 export type TerminalId = typeof TerminalIdSchema.Type;
 
+/** Is this string a FULL terminal id, rather than a prefix of one? The
+ *  predicate half of {@link TerminalIdSchema}, spelled beside it: a caller
+ *  asking that question must not have to reach for a decoder that answers a
+ *  different one, nor re-derive the shape from the UUID check. */
+export const isTerminalId = Schema.is(TerminalIdSchema);
+
 // ── Client scrollback depth ───────────────────────────────────────────
 
 /** The CLIENT's visible scrollback, in lines — what the browser xterm retains,

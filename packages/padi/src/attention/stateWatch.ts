@@ -54,6 +54,7 @@ import type { PadiStateEvent, PadiTerminal } from "../surface.ts";
 import { activeAgent, type WaitState } from "../terminalVocab.ts";
 import type { EdgeMemory } from "./edgeMemory.ts";
 import type { EventSeq } from "./eventSeq.ts";
+import { scopeAdmits, type WatchScope } from "./watchScope.ts";
 
 /** The bucket a terminal is holding — the shared `agentBucket` fold's own
  *  answer, including the `other` arm no subscription can target (so an
@@ -69,8 +70,11 @@ export interface StateWatchSpec {
    *  here, because an empty set is a subscription that can never match and would
    *  read to its owner exactly like a quiet workspace. */
   readonly states: ReadonlySet<WaitState>;
-  /** Terminals to report, or `undefined` for the whole fleet. */
-  readonly ids?: ReadonlySet<TerminalId>;
+  /** WHICH terminals this subscription reports — the include list and the mute
+   *  as ONE value, so "does it report this terminal" has one answer and one
+   *  reader ({@link scopeAdmits}) rather than a two-clause conjunction copied
+   *  into every event source. */
+  readonly scope: WatchScope;
   /** How long a state must hold before it is reported. 0 reports on entry. */
   readonly heldForMs: number;
   /** How often to RE-report while it keeps holding, or `undefined` to report
@@ -79,8 +83,9 @@ export interface StateWatchSpec {
 }
 
 /** The three knobs alone — a spec minus the scope, which a standing
- *  subscription states once as its own `ids` and must not restate here. */
-export type StateWatchFilter = Omit<StateWatchSpec, "ids">;
+ *  subscription states once as its own {@link WatchScope} and must not restate
+ *  here. */
+export type StateWatchFilter = Omit<StateWatchSpec, "scope">;
 
 /** Do two filters ask the SAME question? Lives beside the filter it compares —
  *  "same question" is spec knowledge, not queue knowledge — and is load-bearing
@@ -214,7 +219,7 @@ export function createStateWatchHub(opts: {
     const state = level.state;
     if (state === "other") return undefined;
     if (!sub.spec.states.has(state)) return undefined;
-    if (sub.spec.ids !== undefined && !sub.spec.ids.has(id)) return undefined;
+    if (!scopeAdmits(sub.spec.scope, id)) return undefined;
     return state;
   };
 

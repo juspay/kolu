@@ -17,8 +17,8 @@
 import type { WaitState } from "../terminalVocab.ts";
 import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
 import type { PadiWatchStatesInput } from "../surface.ts";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { StateWatchFilter, StateWatchSpec } from "./stateWatch.ts";
+import { type WatchScope, watchScopeOf } from "./watchScope.ts";
 
 /** The three knobs as either face's schema decodes them. Structural, so both
  *  wire inputs satisfy it without an adapter object per call — and unexported,
@@ -59,24 +59,31 @@ export function watchFilterOf(knobs: WatchKnobs): StateWatchFilter | undefined {
   return namesWatchKnobs(knobs) ? filterFrom(knobs) : undefined;
 }
 
-/** A filter plus the scope it is applied at — the ONE place a filter becomes a
- *  spec, so a standing subscription and the live stream cannot disagree about
- *  what an unscoped watch means. Omit-or-spread, never an explicit `undefined`:
- *  `ids` rides an optional key, and "the whole fleet" is spelled by the key
- *  being missing everywhere it travels. */
+/** A filter plus the {@link WatchScope} it is applied at — the ONE place a
+ *  filter becomes a spec, so a standing subscription and the live stream cannot
+ *  disagree about what an unscoped watch means. PURE: the never-match refusal
+ *  lives in {@link watchScopeOf}, the only thing that can make the scope this
+ *  takes, so there is nothing left here to reject. */
 export function specOf(
   filter: StateWatchFilter,
-  ids?: ReadonlySet<TerminalId>,
+  scope: WatchScope,
 ): StateWatchSpec {
-  return { ...filter, ...(ids === undefined ? {} : { ids }) };
+  return { ...filter, scope };
 }
 
-/** The full spec behind one `watchStates` subscription. Unlike a standing
- *  subscription there is nothing to choose here: opening the stream at all IS
- *  the ask, so the defaults always apply. */
-export function watchSpecOf(input: PadiWatchStatesInput): StateWatchSpec {
-  return specOf(
-    filterFrom(input),
-    input.id === undefined ? undefined : new Set([input.id]),
-  );
+/** The full spec behind one `watchStates` subscription, or the refusal that says
+ *  the scope it asked for can never match. Unlike a standing subscription there
+ *  is nothing to CHOOSE here: opening the stream at all IS the ask, so the
+ *  defaults always apply. */
+export function watchSpecOf(
+  input: PadiWatchStatesInput,
+):
+  | { readonly kind: "ok"; readonly value: StateWatchSpec }
+  | { readonly kind: "error"; readonly message: string } {
+  const scope = watchScopeOf({
+    ...(input.id === undefined ? {} : { ids: [input.id] }),
+    ...(input.ignoreIds === undefined ? {} : { mute: input.ignoreIds }),
+  });
+  if (scope.kind === "error") return scope;
+  return { kind: "ok", value: specOf(filterFrom(input), scope.value) };
 }

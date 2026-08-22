@@ -75,11 +75,12 @@ export type Parsed<T> =
  *  exited 0 reads, to the driving loop above it, exactly like one that worked.
  *  Ambiguity lists the matches in the short form the user already recognizes, so
  *  adding characters is a glance rather than a second `kolu ls`. */
-function resolveOne(
+export function resolveTerminalIn(
   query: string,
   ids: readonly TerminalId[],
-  flag: string | undefined,
+  opts: { readonly flag?: string } = {},
 ): Effect.Effect<TerminalId, CliFailure> {
+  const flag = opts.flag;
   // The ONE thing that varies between the verb's SUBJECT id and an id passed as
   // one of two arguments: whether the sentence names the flag it came from. A
   // message label is not volatility — decomposing around it is what produced a
@@ -95,19 +96,31 @@ function resolveOne(
       ),
     );
   }
-  return Effect.fail(
-    failure(
-      `${where}"${query}" matches ${result.matches.length} terminals — type more characters:\n  ${result.matches
-        .map(shortId)
-        .join("\n  ")}`,
-    ),
-  );
+  return Effect.fail(failure(ambiguousTerminal(query, result.matches, flag)));
+}
+
+/** The ambiguity SENTENCE, owned once. A verb that resolves an id-or-prefix
+ *  outside {@link resolveTerminal} — the mute list is one, because its no-match
+ *  arm is fail-open rather than a failure — still says it in these words, with
+ *  the matches LISTED. A second spelling that drops the list is how `--ignore`
+ *  came to tell a user to type more characters without showing what matched. */
+export function ambiguousTerminal(
+  query: string,
+  matches: readonly TerminalId[],
+  flag?: string,
+): string {
+  const where = flag === undefined ? "" : `${flag}: `;
+  return `${where}"${query}" matches ${matches.length} terminals — type more characters:\n  ${matches
+    .map(shortId)
+    .join("\n  ")}`;
 }
 
 /** Read the live key set and resolve `query` against it — the two steps every
- *  id-taking verb runs before its real call, spelled once. The pure half
- *  ({@link resolveOne}) has no caller outside this module, so it stays private:
- *  a verb resolves through this pair or not at all.
+ *  id-taking verb runs before its real call, spelled once. The pure half is
+ *  {@link resolveTerminalIn} — exported for the one verb that resolves TWO
+ *  things (`kolu watch <id> --ignore …`) and must resolve both against ONE
+ *  snapshot of a live, mutating roster rather than against two reads that need
+ *  not agree.
  *
  *  It asks for a `client`, never the whole `Connection`: the other fact a
  *  `Connection` carries (`localCwd`) belongs to `create` alone, and a resolve
@@ -126,7 +139,7 @@ export function resolveTerminal(
   opts: { readonly flag?: string } = {},
 ): Effect.Effect<TerminalId, unknown> {
   return Effect.flatMap(readTerminalKeys(conn.client), (ids) =>
-    resolveOne(query, ids, opts.flag),
+    resolveTerminalIn(query, ids, opts),
   );
 }
 
@@ -231,4 +244,18 @@ export function writeErr(text: string): Effect.Effect<void> {
  *  `verbs/`.) */
 export const writeErrSync = (text: string): void => {
   process.stderr.write(text);
+};
+
+/** ONE diagnostic line on stderr, in the binary's own voice — the `kolu: `
+ *  prefix and the newline, spelled once.
+ *
+ *  {@link writeErrSync} exists so the verb layer has one stderr writer; this
+ *  exists so it has one stderr SENTENCE SHAPE. `exit.ts`'s `failure` already
+ *  owned the prefix for the ending, and `watch.ts` had grown two more inline
+ *  copies of it (a mute diagnostic and the mirror's narration sink) — three
+ *  spellings of "kolu says", one of which could quietly lose the prefix. Takes
+ *  the message WITHOUT a newline: a caller that has to remember `\n` is a caller
+ *  that can forget it. */
+export const warn = (message: string): void => {
+  writeErrSync(`kolu: ${message}\n`);
 };

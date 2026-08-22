@@ -21,6 +21,7 @@ import {
   stateWatchHarness,
 } from "./attentionFixture.testlib.ts";
 import { stateWatchSource } from "./stateWatchStream.ts";
+import { WATCH_SCOPE_ALL } from "./watchScope.ts";
 
 /** The shared harness, already looking at ONE idle terminal — every pin here is
  *  about what the STREAM does with what the hub hands it, so the fleet is a
@@ -35,6 +36,7 @@ const NAG = {
   states: new Set(["waiting"] as const),
   heldForMs: 0,
   nagMs: 1_000,
+  scope: WATCH_SCOPE_ALL,
 };
 
 function pull(hub: ReturnType<typeof harness>["hub"]) {

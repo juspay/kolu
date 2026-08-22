@@ -53,6 +53,46 @@ export const TSX_LOADER = pathToFileURL(
 export const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
+/** Read ONE newline-terminated line off a pipe, or fail NAMING the unterminated
+ *  bytes that did arrive.
+ *
+ *  Every live-feed pin in this package asks the same question — did the line
+ *  reach the kernel without a later write behind it? — and the diagnosis is the
+ *  reason this is not an inline promise: a bare timeout says "nothing in 8s",
+ *  while the bytes say whether the payload was written and left unterminated
+ *  (the one-event lag) or never written at all. The listener comes off on BOTH
+ *  paths: a copy of this that only cleaned up on the timeout kept a `data`
+ *  handler on a stream the test had finished with. */
+export function readTerminatedLine(
+  stream: NodeJS.ReadableStream,
+  ms: number,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let buf = "";
+    const onData = (chunk: string | Buffer): void => {
+      buf += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      const nl = buf.indexOf("\n");
+      if (nl === -1) return;
+      cleanup();
+      resolve(buf.slice(0, nl + 1));
+    };
+    const t = setTimeout(() => {
+      cleanup();
+      reject(
+        new Error(
+          `no terminated line in ${ms}ms; unterminated bytes: ${JSON.stringify(buf)}`,
+        ),
+      );
+    }, ms);
+    const cleanup = (): void => {
+      clearTimeout(t);
+      stream.off("data", onData);
+    };
+    stream.setEncoding("utf8");
+    stream.on("data", onData);
+  });
+}
+
 export interface Padi {
   readonly child: ChildProcess;
   readonly exited: Promise<number | null>;

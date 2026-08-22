@@ -7,6 +7,9 @@
  * `TerminalSnapshot` or to the authored record was a four-file edit, and the one
  * rule the helper encodes (below) was remembered four times.
  *
+ * {@link scopeOf} is here for the same reason and no other: three of those files
+ * had a byte-identical copy of it.
+ *
  * `.testlib.ts`, per the repo's convention for a fixture shared between test
  * files — it forks nothing and is never reachable from production code.
  */
@@ -21,6 +24,7 @@ import type { PadiTerminal } from "../surface.ts";
 import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
 import { createEdgeMemory } from "./edgeMemory.ts";
 import { createEventSeq, type EventSeq } from "./eventSeq.ts";
+import { type WatchScope, watchScopeOf } from "./watchScope.ts";
 import {
   createStateWatchHub,
   type ScheduleTimer,
@@ -175,3 +179,16 @@ export function stateWatchHarness(): {
 /** Let the queued observe-flush run. The hub deliberately does NOT deliver on
  *  the derivation's stack, so nothing has arrived before this. */
 export const settled = (): Promise<void> => Promise.resolve();
+
+/** The scope a caller states, built through the ONE constructor — so a pin
+ *  exercises the same value `servePadi` hands the registry, not a hand-shaped
+ *  look-alike. The never-match refusals it raises are pinned in
+ *  `watchScope.test.ts`, where the constructor lives; a test that gets one here
+ *  meant to build a scope and did not, so it throws. */
+export const scopeOf = (
+  opts: Parameters<typeof watchScopeOf>[0],
+): WatchScope => {
+  const scope = watchScopeOf(opts);
+  if (scope.kind === "error") throw new Error(scope.message);
+  return scope.value;
+};

@@ -45,7 +45,6 @@
  * see one zero times.
  */
 
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { WatchSubscriptionNotFound } from "../errors.ts";
 import type {
@@ -59,6 +58,7 @@ import {
   type StateWatchBatch,
   type StateWatchFilter,
 } from "./stateWatch.ts";
+import { scopeAdmits, WATCH_SCOPE_ALL, type WatchScope } from "./watchScope.ts";
 
 /** What a queue holds — either source's events, one `kind` vocabulary. */
 export type WatchEvent = PadiWatchEvent;
@@ -110,10 +110,11 @@ export type WatchFeed =
 
 export interface WatchSubscription {
   readonly name: string;
-  /** The terminals this subscription cares about — `undefined` means every
-   *  terminal on the host. An explicit list is refused when empty (a subscription
-   *  that can never match is a caller bug, not a quiet no-op). */
-  readonly ids?: ReadonlySet<TerminalId>;
+  /** WHICH terminals this subscription reports. Applied to BOTH sources, so a
+   *  mute on a settle watch and on a state watch is the same rule read through
+   *  the same {@link scopeAdmits}. Built by `watchScopeOf` at the entry that
+   *  owns the wording — a scope that can never match cannot arrive here. */
+  readonly scope: WatchScope;
   /** The source this subscription is fed by, with its queue. Replaced whole on a
    *  re-open — never mutated into a different arm. */
   readonly feed: WatchFeed;
@@ -161,7 +162,13 @@ export interface WatchRegistry {
    *  with whatever changed while it was away. */
   open(
     name: string,
-    opts?: { ids?: readonly TerminalId[]; filter?: StateWatchFilter },
+    opts?: {
+      /** Defaults to the whole fleet, unmuted. Only `watchScopeOf` can make
+       *  one, which is what keeps the never-match refusal at the entry that
+       *  owns the sentence instead of restated here. */
+      scope?: WatchScope;
+      filter?: StateWatchFilter;
+    },
   ): WatchOpened;
   /** Hand over everything buffered, ACKNOWLEDGING everything at or below `after`
    *  first. Never blocks — a caller that wants to wait parks on the doorbell
@@ -222,7 +229,7 @@ export function createWatchRegistry(opts: {
    *  the moment the test asks for something it did not build. */
   subscribeStates: (
     filter: StateWatchFilter,
-    ids: ReadonlySet<TerminalId> | undefined,
+    scope: WatchScope,
     emit: (batch: StateWatchBatch) => void,
   ) => () => void;
 }): WatchRegistry {
@@ -287,8 +294,7 @@ export function createWatchRegistry(opts: {
         // one into the buffer would make the promise false on its very first
         // drain. The window is real: `open` reads the watermark while a
         // settle frame may already be mid-flight to the sinks.
-        e.seq > sub.acknowledged &&
-        (sub.ids === undefined || sub.ids.has(e.id)),
+        e.seq > sub.acknowledged && scopeAdmits(sub.scope, e.id),
     );
     if (mine.length === 0) return;
     feed.buffer.push(...mine);
@@ -314,7 +320,7 @@ export function createWatchRegistry(opts: {
    *  feed is complete the moment it exists, `detach` included. */
   const makeFeed = (opened: {
     readonly filter: StateWatchFilter | undefined;
-    readonly scope: ReadonlySet<TerminalId> | undefined;
+    readonly scope: WatchScope;
     /** The feed this one replaces, on a re-open. */
     readonly previous?: WatchFeed;
     /** What survives from `previous` — the caller's re-question and re-scope
@@ -356,13 +362,7 @@ export function createWatchRegistry(opts: {
   };
 
   return {
-    open(name, { ids, filter } = {}) {
-      if (ids !== undefined && ids.length === 0) {
-        throw new Error(
-          `standing subscription "${name}" was opened with an empty id list — it could never match anything. Omit the list to watch every terminal.`,
-        );
-      }
-      const scope = ids === undefined ? undefined : new Set(ids);
+    open(name, { scope = WATCH_SCOPE_ALL, filter } = {}) {
       const existing = subs.get(name);
       if (existing !== undefined) {
         // A re-attach REBUILDS the record from the incoming scope. What survives
@@ -403,11 +403,7 @@ export function createWatchRegistry(opts: {
         /** What the new feed inherits: nothing when the question changed, and
          *  otherwise the answers still inside the new scope. */
         const carry = <E extends WatchEvent>(buffer: E[]): E[] =>
-          requestioned
-            ? []
-            : scope === undefined
-              ? buffer
-              : buffer.filter((e) => scope.has(e.id));
+          requestioned ? [] : buffer.filter((e) => scopeAdmits(scope, e.id));
         const { feed, start } = makeFeed({
           filter,
           scope,
@@ -417,7 +413,7 @@ export function createWatchRegistry(opts: {
         });
         const next: WatchSubscription = {
           name: existing.name,
-          ...(scope === undefined ? {} : { ids: scope }),
+          scope,
           feed,
           acknowledged: existing.acknowledged,
           dropped: existing.dropped,
@@ -442,10 +438,14 @@ export function createWatchRegistry(opts: {
           `cannot open standing subscription "${name}": ${subs.size} are already open (limit ${subLimit}). Subscriptions are meant to be REUSED by name across restarts, not minted per call — close the ones you are done with (open: ${[...subs.keys()].join(", ")}).`,
         );
       }
-      const { feed, start } = makeFeed({ filter, scope, owner: () => sub });
+      const { feed, start } = makeFeed({
+        filter,
+        scope,
+        owner: () => sub,
+      });
       const sub: WatchSubscription = {
         name,
-        ...(scope === undefined ? {} : { ids: scope }),
+        scope,
         feed,
         // A FRESH subscription is acknowledged up to NOW, so it reports what
         // happens next rather than replaying edges the supervisor already acted

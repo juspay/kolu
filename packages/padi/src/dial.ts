@@ -95,6 +95,31 @@ export {
 // three fields that agrees today.
 export { namesWatchKnobs } from "./attention/watchSpec.ts";
 
+// Self-identity, not watch knobs: the FACT the stamp carries, never a sentence
+// about it. What a refusal READS like is argv/tool-arg grammar and belongs at
+// the face that owns the spelling — the same rule `cliClient/render.ts` records
+// having been litigated once already over `--until`.
+export {
+  confirmInFleet,
+  CONTAINING_TERMINAL_ENV,
+  containingTerminalId,
+  type FleetTerminal,
+} from "./containingTerminal.ts";
+
+// WHICH terminals a subscription reports is ONE concept with ONE constructor
+// and ONE reader, so the dial carries three names for it rather than a kit of
+// parts each face re-assembles: the value, the constructor that is the only way
+// to make one (and where every never-match refusal lives), and the predicate
+// every event source asks.
+export {
+  scopeAdmits,
+  type WatchScope,
+  watchScopeOf,
+  // …and WHICH never-match shape a refusal is, so a face can append its own way
+  // out without re-spelling the union the constructor already declares.
+  type WatchScopeRefusal,
+} from "./attention/watchScope.ts";
+
 export {
   activeAgent,
   type AgentStateOutcome,

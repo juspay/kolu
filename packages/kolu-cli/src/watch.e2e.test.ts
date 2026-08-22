@@ -48,6 +48,7 @@ import {
   e2eRuntimeRoot,
   KOLU_MAIN,
   type Padi,
+  readTerminatedLine,
   reapPadi,
   sleep,
   spawnPadi,
@@ -416,6 +417,49 @@ describeDaemon("kolu watch — supervision, end to end", () => {
       (events[1]?.at ?? 0) - (events[1]?.since ?? 0),
     );
     watch.stop();
+  });
+
+  it("a piped stdout to GNU head sees the snapshot without a subsequent write", {
+    timeout: 60000,
+  }, async () => {
+    // The live incident: `kolu watch | head` on a DIRECT pipe(2), not a Node
+    // `data` listener. `--nag 1h` keeps the next event far away; head -1 is
+    // the slow consumer that exits on the first terminated line — if that
+    // line is not in the kernel, this hangs until the 8s deadline.
+    const { socketPath } = await idleAgentWorld();
+    assertDaemonSpawnAllowed("a real `kolu watch | head -1` pipeline");
+    const watch = spawn(
+      process.execPath,
+      [
+        "--import",
+        TSX_LOADER,
+        KOLU_MAIN,
+        "watch",
+        "--socket",
+        socketPath,
+        "--states",
+        "waiting",
+        "--json",
+        "--nag",
+        "1h",
+      ],
+      { stdio: ["ignore", "pipe", "pipe"], env: daemonEnv() },
+    );
+    children.push(watch);
+    if (watch.stdout === null) {
+      throw new Error("kolu watch spawned without a stdout pipe");
+    }
+    const head = spawn("head", ["-1"], {
+      stdio: [watch.stdout, "pipe", "pipe"],
+    });
+    children.push(head);
+    if (head.stdout === null) {
+      throw new Error("head spawned without a stdout pipe");
+    }
+    const line = await readTerminatedLine(head.stdout, 8000);
+    expect(line.startsWith("\n")).toBe(false);
+    expect(JSON.parse(line).kind).toBe("snapshot");
+    watch.kill("SIGINT");
   });
 
   it("a watch that RECONNECTS leads with a snapshot of what is already standing", {

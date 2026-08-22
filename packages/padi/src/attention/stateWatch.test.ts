@@ -19,6 +19,7 @@ import {
   stateWatchHarness as harness,
 } from "./attentionFixture.testlib.ts";
 import type { StateWatchSpec } from "./stateWatch.ts";
+import { WATCH_SCOPE_ALL } from "./watchScope.ts";
 
 /** Subscribe and collect every batch. */
 function collect(
@@ -30,6 +31,7 @@ function collect(
     {
       states: new Set(["waiting", "awaiting"] as const),
       heldForMs: 0,
+      scope: WATCH_SCOPE_ALL,
       ...spec,
     },
     (batch) => batches.push(batch),
@@ -288,7 +290,7 @@ describe("createStateWatchHub", () => {
         .map((e) => e.id),
     ).toEqual(["a", "b"]);
     expect(
-      collect(h.hub, { ids: new Set(["b" as TerminalId]) })
+      collect(h.hub, { scope: { include: new Set(["b" as TerminalId]) } })
         .flat()
         .map((e) => e.id),
     ).toEqual(["b"]);
@@ -458,7 +460,11 @@ describe("createStateWatchHub", () => {
     h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
     await settled();
     h.hub.subscribe(
-      { states: new Set(["waiting"] as const), heldForMs: 0 },
+      {
+        states: new Set(["waiting"] as const),
+        heldForMs: 0,
+        scope: WATCH_SCOPE_ALL,
+      },
       () => {
         throw new Error("boom");
       },
@@ -468,5 +474,62 @@ describe("createStateWatchHub", () => {
     h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
     await settled();
     expect(batches.flat().map((e) => e.kind)).toEqual(["transition"]);
+  });
+
+  it("an ignored id emits nothing — not a snapshot, not a transition, not a nag", async () => {
+    const h = harness();
+    h.observe(
+      terminals({
+        self: { agent: makeAgent("waiting") },
+        lane: { agent: makeAgent("waiting") },
+      }),
+    );
+    await settled();
+    const { batches } = collect(h.hub, {
+      scope: { mute: new Set(["self" as TerminalId]) },
+      nagMs: 60_000,
+    });
+    expect(batches.flat().map((e) => [e.kind, e.id])).toEqual([
+      ["snapshot", "lane"],
+    ]);
+
+    h.advance(60_000);
+    expect(batches.flat().map((e) => [e.kind, e.id])).toEqual([
+      ["snapshot", "lane"],
+      ["nag", "lane"],
+    ]);
+
+    h.observe(
+      terminals({
+        self: { agent: makeAgent("thinking") },
+        lane: { agent: makeAgent("thinking") },
+      }),
+    );
+    await settled();
+    h.observe(
+      terminals({
+        self: { agent: makeAgent("waiting") },
+        lane: { agent: makeAgent("waiting") },
+      }),
+    );
+    await settled();
+    expect(batches.flat().map((e) => [e.kind, e.id])).toEqual([
+      ["snapshot", "lane"],
+      ["nag", "lane"],
+      ["transition", "lane"],
+    ]);
+  });
+
+  it("an unknown ignore id is inert — fail-open, a stale mute costs nothing", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    expect(
+      collect(h.hub, {
+        scope: { mute: new Set(["gone" as TerminalId]) },
+      })
+        .flat()
+        .map((e) => e.id),
+    ).toEqual(["a"]);
   });
 });

@@ -325,7 +325,10 @@ agent buckets do I care about* (`states`), *how long must one hold before I hear
 about it* (`heldForMs`), and *how often should I be told again while it keeps
 holding* (`nagMs`). Those three knobs are the whole of `kolu watch --states /
 --held-for / --nag` and of the same-named `watch.open` params — one engine, two
-faces, no client-side filtering anywhere.
+faces. `--ignore` / `ignoreIds` (and `--ignore-self` / `ignoreSelf`, resolved at
+the face from `$KAVAL_TERMINAL_ID`) mute known terminals fail-open: a stale id
+costs nothing, and a new terminal is always watched. Contrast `ids`, which fails
+closed.
 
 It reads the ADAPTER, never the bytes: the level is `agentBucket(agent.state)`,
 what the agent's own adapter published, so a quiet screen is not taken for an

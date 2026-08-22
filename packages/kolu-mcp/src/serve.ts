@@ -35,6 +35,7 @@ import { KOLU_MCP_EXPOSE } from "./expose.ts";
 import { screenTextTool } from "./screenText.ts";
 import { sendInputTool } from "./sendInput.ts";
 import { waitAgentStateTool, waitOutputSettledTool } from "./wait.ts";
+import { watchOpenTool } from "./watchOpen.ts";
 import { watchNextTool } from "./watchNext.ts";
 
 /** A live, padi-scoped connection the injected factory produces — the adapter's
@@ -59,13 +60,14 @@ export interface KoluMcpConnection extends OwnedSurfaceConnection {
 /** The face's bespoke tools, named once so the serve call and the tests read
  *  one registry: the worktree-capable create, the named-key send, the
  *  tail-mode snapshot, the two composite wait done-signals, and the
- *  standing-subscription drain. */
+ *  standing-subscription open (resolves ignoreSelf) and drain. */
 export const KOLU_MCP_TOOLS: Record<string, BespokeTool> = {
   lifecycle_create: createTool,
   lifecycle_sendInput: sendInputTool,
   screen_text: screenTextTool,
   wait_outputSettled: waitOutputSettledTool,
   wait_agentState: waitAgentStateTool,
+  watch_open: watchOpenTool,
   watch_next: watchNextTool,
 };
 
