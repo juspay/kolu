@@ -91,7 +91,6 @@ import {
   admitsNoArgument,
   decodeTextValue,
   type SurfaceVerb,
-  toInputSchema,
   toolName,
 } from "@kolu/surface/verbs";
 import type { Stdio } from "effect";
@@ -1039,9 +1038,17 @@ function readCollectionItem(
 // ── `list` ───────────────────────────────────────────────────────────────
 
 /** What `list` answers: every verb with the input it takes, and every readable
- *  member with its kind. The face's own `tools/list`, and it carries the SAME
- *  advertised input document the MCP face publishes — one description of one
- *  verb, whichever face you ask. */
+ *  member with its kind. The face's own `tools/list`, answered off the SAME
+ *  advertised document the flag table was built from — one walk of one schema,
+ *  so the table cannot describe a verb the commands do not.
+ *
+ *  `input` is that document in the reading THIS face takes, which is not always
+ *  the MCP face's: a scalar / array / union input travels the wire under one
+ *  property, and MCP publishes that WRAPPER (`{properties:{value:…}}`). Argv
+ *  binds the bare value to a `<value>` positional and has no `--value` flag at
+ *  all — so publishing the wrapper here would make this face's authoritative
+ *  "what can I address" describe the one shape it refuses, for exactly the verbs
+ *  whose command line is simplest. */
 interface ListTable {
   readonly verbs: ReadonlyArray<{
     readonly name: string;
@@ -1057,27 +1064,43 @@ interface ListTable {
   }>;
 }
 
-function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
+/** The table `list` writes, built WHEN `list` RUNS.
+ *
+ *  Not at build time, which is where it was: every invocation of every verb paid
+ *  for a table almost none of them read, and the only converter call it needed
+ *  had already happened — `flagsOf` runs the same bridge over the same schema to
+ *  make the flags, moments earlier. So the walk ran twice per verb (56× on olai,
+ *  0.023 ms each) and once more than any run of the binary can use. */
+function listTable(
   verbs: readonly CallableVerb[],
   readable: Map<string, Readable>,
-): ProjectedCommand<Stdio.Stdio | R> {
-  const table: ListTable = {
-    verbs: verbs.map((verb) => ({
-      name: verb.name,
-      source: verb.source,
-      mutates: verb.mutates,
-      ...(verb.title === undefined ? {} : { title: verb.title }),
-      ...(verb.description === undefined
-        ? {}
-        : { description: verb.description }),
-      input: toInputSchema(verb.schema),
-    })),
+): ListTable {
+  return {
+    verbs: verbs.map((verb) => {
+      const advertised = verb.projection.advertised;
+      return {
+        name: verb.name,
+        source: verb.source,
+        mutates: verb.mutates,
+        ...(verb.title === undefined ? {} : { title: verb.title }),
+        ...(verb.description === undefined
+          ? {}
+          : { description: verb.description }),
+        input: advertised.inner ?? advertised.schema,
+      };
+    }),
     resources: [...readable.values()].map((member) => ({
       name: member.name,
       kind: member.kind,
     })),
   };
+}
+
+function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
+  verbs: readonly CallableVerb[],
+  readable: Map<string, Readable>,
+): ProjectedCommand<Stdio.Stdio | R> {
   return Command.make(
     "list",
     // The endpoint flags ride `list` too, even though it dials nothing: every
@@ -1096,7 +1119,8 @@ function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
     // the aligned table, and a human who wants the JSON in front of them pipes
     // it — the same price a verb's renderer already charges, now charged once.
     mergeConfig(opts, "list", {}),
-    () => runList(table),
+    // A THUNK, so the table is built by the one command that writes it.
+    () => runList(listTable(verbs, readable)),
   ).pipe(
     Command.withDescription(
       "List what this surface offers — every verb and every readable member. This face's tools/list, answered from the projection itself, so it dials nothing.",

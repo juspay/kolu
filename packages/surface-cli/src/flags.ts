@@ -66,7 +66,7 @@
  */
 
 import type { WireSchemaAny } from "@kolu/surface/define";
-import { inputSchema } from "@kolu/surface/verbs";
+import { type AdvertisedInput, inputSchema } from "@kolu/surface/verbs";
 import { Effect, Option } from "effect";
 import { Argument, Flag } from "effect/unstable/cli";
 
@@ -95,6 +95,18 @@ export type Assembled =
 export interface InputProjection {
   /** Flags and positionals, keyed as `Command.make`'s config wants them. */
   readonly config: Record<string, Param>;
+  /** The advertised document this projection was built FROM, handed back rather
+   *  than left behind: every caller that wants it has already built the
+   *  projection, and running the bridge again over the same schema is the same
+   *  walk for the same answer. `list` is that caller — it describes what each
+   *  verb takes, and it used to re-run the converter for every verb of the
+   *  surface before argv was so much as parsed.
+   *
+   *  `inner` is the reading THIS face takes. A wrapped input (a scalar, an
+   *  array, a union) binds to the bare `<value>` positional here, so the wrapper
+   *  object in `schema` — `{properties:{value:…}}` — describes a command line
+   *  nobody on this face can type: there is no `--value` flag. */
+  readonly advertised: AdvertisedInput;
   /** Read the parsed config back into the verb's ENCODED input.
    *
    *  `stdin` is DESCRIBED, not read: it is an Effect, and it is yielded only on
@@ -293,6 +305,7 @@ export function flagsOf(
     );
     return {
       config,
+      advertised: built,
       assemble: (values, stdin) =>
         Effect.map(readJsonFlag(values, stdin), (fromJson): Assembled => {
           if (fromJson.kind === "bad")
@@ -418,6 +431,7 @@ export function flagsOf(
 
   return {
     config,
+    advertised: built,
     assemble: (values, stdin) =>
       Effect.map(readJsonFlag(values, stdin), (fromJson): Assembled => {
         if (fromJson.kind === "bad")
