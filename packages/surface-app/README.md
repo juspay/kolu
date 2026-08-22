@@ -18,6 +18,10 @@ import { serveSurfaceApp } from "@kolu/surface-app/serve";
 // close/done stay with the composition root that built it.
 const url = yield* serveSurfaceApp({
   group, handlers, clientDist, host, port, allowedOrigins,
+  upgradeHeaders: ["Tailscale-User-Login"], // an ALLOWLIST — empty by default
+  services: (connection) => Layer.succeed(Viewer)({ // this connection's own facts
+    login: connection.headers["Tailscale-User-Login"], // undefined ⇒ not sent
+  }),
 });
 ```
 
@@ -27,6 +31,15 @@ needs — kolu's own server is one of these calls. `expose` is the per-face
 allowlist ([`@kolu/surface/expose`](../surface/src/expose.ts)): name what
 BROWSERS may reach and the rest is refused here while a trusted face — a unix
 socket, an MCP adapter — still serves it.
+
+`services` is what a handler needs to know about *this* connection, and
+`upgradeHeaders` is where that knowledge comes from — a live wire's one request
+is the upgrade, so a header a proxy stamps there is the only per-connection claim
+about who is calling that the wire can carry. It **reports** that header, it does
+not authenticate it: naming one is sound only if the proxy in front *owns* it —
+strips or overwrites any copy a client sent. Why it is an allowlist and not the
+request, what an absent name means, and what a misspelling costs:
+[Reference](https://kolu.dev/surface/ref-surface-app).
 
 Connecting is one call too:
 

@@ -36,6 +36,8 @@ const url = yield* serveSurfaceApp({
   allowedOrigins,
   tls, // present → an `https.Server`, and the returned URL says `https://`
   middleware, // wraps every HTTP request — an app's bridge to its own logger
+  upgradeHeaders, // request headers this app reads off the upgrade, by name
+  services, // (connection) => Layer — what THIS connection's handlers require
 });
 ```
 
@@ -80,6 +82,86 @@ The path is fixed at `SURFACE_WS_PATH` (`/rpc/ws`); any other upgrade target is
 destroyed. Both legs read that one constant, so the dial URL and the upgrade
 handler cannot drift.
 
+### The upgrade's headers — `upgradeHeaders`
+
+A live wire is one websocket, so its one request is the upgrade. A header a
+reverse proxy stamps there (`Tailscale-User-Login`, `X-Forwarded-For`) is
+therefore the only per-**connection** claim about who is calling that the wire
+can carry, and `serveSurfaceApp` — which owns the upgrade — is the only thing on
+this path that can hand one on. (A hand-built listener on
+[`acceptSurfaceSocket`](#accepting-a-browser-socket) stands in its own `upgrade` handler
+holding the request, so it reads what it needs directly; this option has nothing
+to offer it. Same split as `expose`.)
+
+`upgradeHeaders` names which ones. Each accepted connection carries those values
+on `SurfaceAppConnection.headers`, keyed by the **spelling used here**, and a
+`services` layer reads them per connection:
+
+```ts
+const url = yield* serveSurfaceApp({
+  // …
+  upgradeHeaders: ["Tailscale-User-Login"],
+  services: (connection) =>
+    Layer.succeed(Viewer)({
+      login: connection.headers["Tailscale-User-Login"],
+      peer: connection.remoteAddress,
+    }),
+});
+```
+
+| Fact | Shape | Notes |
+| --- | --- | --- |
+| `upgradeHeaders` | `ReadonlyArray<H>` | the allowlist. **Empty by default** — a header nobody named is not available at all |
+| `connection.headers` | `Readonly<Partial<Record<H, string>>>` | the named headers this upgrade carried. Matched case-insensitively against the wire; keyed by the spelling in `upgradeHeaders` |
+| `connection.remoteAddress` | `string \| undefined` | the **direct** TCP peer — the proxy itself, when there is one. Never a guess |
+| `services` | `(connection: SurfaceAppConnection<H>) => Layer.Layer<Svc>` | the per-connection `Layer` those facts are read into. Effect's socket-server protocol forwards no per-request context, so a connection-scoped fact is **provided**, never carried on the request |
+
+`H` is inferred from `upgradeHeaders` — the names are the keys, so
+`connection.headers["X-Forwarded-For"]` does not compile when the allowlist said
+`"x-forwarded-for"`. That is deliberate: a header's absence is a load-bearing
+answer here, and an open index would hand a misspelling the same honest-looking
+`undefined` a real absence has.
+
+A named header the request did not carry is **absent** from the record, so
+`undefined` ("not sent") and `""` ("sent empty") stay different facts — which is
+what a consumer deciding whether to trust a proxy claim needs. A repeated header
+arrives folded into one comma-joined string, with the separator node itself uses.
+`set-cookie` — node's one array-shaped exception, and the one header whose values
+carry commas of their own — is **refused at the allowlist** rather than folded
+into a string nothing could split back apart (RFC 6265 §5.2).
+
+<Aside type="caution" title="An allowlist, because the alternative leaks">
+  The connection used to carry the raw `IncomingMessage`, which is the whole
+  header bag — `Cookie` and `Authorization` included. The allowlist is not a
+  filter over something a `services` layer could still reach: it **is** the
+  access, so the leak has nowhere to be expressed. Naming a header is the app
+  saying it trusts the proxy that writes it, and that is a claim only the app can
+  make. A name outside HTTP's field-name grammar (node's own
+  `validateHeaderName`), or one wire header named **twice** (`X-Forwarded-For`
+  beside `x-forwarded-for`, which would file one value under two keys), is a
+  **defect**: the effect raises it when it runs, before anything binds, so no
+  listener is left behind — deliberately not a `SurfaceAppListenFailed`, which a
+  port-retry policy would loop on forever against something no port can fix.
+</Aside>
+
+<Aside type="caution" title="Naming a header says who may WRITE it">
+  This seam **reports**; it does not authenticate. What reaches
+  `connection.headers` is whatever was on the upgrade — and a client dialling the
+  listener directly can send `Tailscale-User-Login` itself, which `services`
+  will then receive as faithfully as a proxy's own.
+
+  So naming a header is sound **only when the proxy owns it**: strips or
+  overwrites any inbound copy, and is the only way in (the listener bound to
+  loopback or a tailnet). Naming one the proxy merely *passes through* hands
+  every caller a claim they wrote about themselves.
+
+  Nothing here can check that — the deployment is not visible from the listener,
+  which is why the naming is the app's to do. Where the check *can* live, it
+  does, and it is **not** at this seam: kolu's `x-forwarded-for` is safe because
+  [`viewerAddressOf`](/surface/ref-surface) weighs the claim against the direct
+  peer. An app that names an identity header gets the value, never that judgment.
+</Aside>
+
 <Aside type="tip" title="`expose` gates THIS face, not the surface">
   `expose` takes the same `ExposeMap` the MCP adapter takes and applies it to
   the websocket alone — so a verb can be reachable over a trusted unix socket
@@ -94,7 +176,7 @@ handler cannot drift.
 | --- | --- | --- |
 | `serveSurfaceApp(opts)` | `/serve` | the whole listener — shell, socket, gates, heartbeat, bind, teardown |
 | `SurfaceAppListenFailed` | `/serve` | the one failure it reports, `cause` intact |
-| `SurfaceAppConnection` | `/serve` | one accepted connection's `{ id, request, url }` — what a per-connection `services` layer is built from |
+| `SurfaceAppConnection` | `/serve` | one accepted connection's `{ id, url, remoteAddress, headers }` — what a per-connection `services` layer is built from |
 | `SurfaceAppEvent` | `/serve` | the tagged union `onEvent` narrates |
 | `SurfaceAppHttpMiddleware` | `/serve` | the shape `middleware` takes — error and response types preserved, adding only `HttpServerRequest` |
 | `reportSurfaceAppEvent(event)` | `/serve` | the default narration policy, exported so an `onEvent` can delegate to it |

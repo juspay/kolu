@@ -83,6 +83,49 @@
  * 8 MiB, which killed a 10 MiB frame the framework said it would carry) and one
  * above it would accept frames senders were told to refuse.
  *
+ * ## The upgrade's headers are an ALLOWLIST, and the default is empty
+ *
+ * A surface app's live wire is one websocket, so its ONE request is the upgrade
+ * — and a header a reverse proxy stamps there (`Tailscale-User-Login`) is the
+ * only per-connection claim about WHO is calling that the wire can carry. This
+ * module owns the upgrade, so on THIS path it is the only thing that can hand
+ * one on. (A hand-built path — `acceptSurfaceSocket` + `serveSurfaceSocket`,
+ * which drishti's per-host dispatch uses — is standing in its own `upgrade`
+ * handler holding the request, so it reads what it needs directly and this
+ * option has nothing to offer it. Same split as `expose`: the face that owns
+ * the door takes the policy at bind; the hand-built one applies its own.)
+ *
+ * It hands on the ones the app NAMED (`upgradeHeaders`) and no others, as VALUES
+ * on {@link SurfaceAppConnection}. Not the `IncomingMessage`, which is what this
+ * used to carry: that is the whole header bag, `Cookie` and `Authorization`
+ * included, and a per-connection `Layer` a year from now would reach into it for
+ * one field and put the rest one `JSON.stringify` away from a log line. The
+ * allowlist is not a filter over a thing you could still get at — it IS the
+ * access, so the leak has nowhere to be expressed.
+ *
+ * What that costs is deliberate too: a header nobody named is not available at
+ * all, and adding one is an edit at the app's composition root. That edit is the
+ * app saying it trusts the proxy that writes that header, which is the one part
+ * of this nothing downstream can decide.
+ *
+ * ### Naming a header says who may WRITE it, and that is a precondition, not a check
+ *
+ * What arrives on {@link SurfaceAppConnection.headers} is whatever was on the
+ * upgrade — this seam reports, it does not authenticate. A client dialling the
+ * listener directly can send `Tailscale-User-Login` itself, and it will be
+ * handed to `services` as faithfully as a proxy's own. So naming a header is
+ * sound ONLY when the proxy OWNS it: strips or overwrites any inbound copy, and
+ * is the only way in (the listener bound to loopback or a tailnet). Naming one
+ * the proxy merely PASSES THROUGH hands every caller a claim they wrote about
+ * themselves.
+ *
+ * This module cannot check that for you — the deployment is not visible from
+ * here, which is exactly why the naming is the app's to do. Where the check CAN
+ * live, it does: kolu's `x-forwarded-for` is safe because
+ * `viewerAddressOf` (`@kolu/surface/viewer-identity`) weighs the claim against
+ * the direct peer, and that gate is in the surface package, NOT at this seam —
+ * an app that names an identity header gets the value, never that judgment.
+ *
  * ## What it deliberately does NOT own
  *
  * - **The surface runtime's lifetime.** `serveSurfaceApp` takes the
@@ -103,6 +146,7 @@
 import {
   createServer as createHttpServer,
   type IncomingMessage,
+  validateHeaderName,
 } from "node:http";
 import {
   createServer as createHttpsServer,
@@ -153,8 +197,7 @@ export class SurfaceAppListenFailed extends Data.TaggedError(
 }
 
 /** One accepted browser connection, as the facts a per-connection `Layer` can
- *  be built from: the upgrade request (its peer address, its forwarded-for
- *  header) and its parsed URL (the `pid` echo, a `?host=` selector).
+ *  be built from — VALUES read off the upgrade, never the upgrade itself.
  *
  *  Every arm of {@link SurfaceAppEvent} that describes a given connection is
  *  handed the SAME object — so a consumer may key a map on it — but {@link id} is
@@ -162,12 +205,122 @@ export class SurfaceAppListenFailed extends Data.TaggedError(
  *  short enough to read, which is what kolu's per-connection `ws:` field has
  *  always been. Not global and not a uuid: it identifies a connection within one
  *  listener's lifetime, which is the only span anything correlates over. */
-export interface SurfaceAppConnection {
+export interface SurfaceAppConnection<H extends string = never> {
   /** This connection's ordinal within this listener — 1 for the first accepted. */
   readonly id: number;
-  readonly request: IncomingMessage;
+  /** The upgrade's request target (the `pid` echo, a `?host=` selector) — a
+   *  live `URL`, shared by every arm that describes this connection: read it,
+   *  do not mutate it. */
   readonly url: URL;
+  /** The DIRECT TCP peer of this connection, or `undefined` when the socket
+   *  cannot tell. Never a guess. Behind a reverse proxy this is the PROXY, and
+   *  the viewer's own address is in a forwarded header — which is why an app
+   *  that needs both names the header in {@link
+   *  ServeSurfaceAppOptions.upgradeHeaders} and weighs the two itself. */
+  readonly remoteAddress: string | undefined;
+  /** The headers the app NAMED in {@link ServeSurfaceAppOptions.upgradeHeaders},
+   *  as read at upgrade.
+   *
+   *  The KEYS ARE THE NAMES — `H` is inferred from the allowlist, so reading a
+   *  name that was never asked for does not compile. A named header the request
+   *  did not carry is ABSENT, so `undefined` means "not sent" and `""` means
+   *  "sent empty" — two different facts to a consumer deciding whether to trust
+   *  a proxy claim.
+   *
+   *  Why it is an allowlist, and why an unnamed read must not compile: this
+   *  module's header, "The upgrade's headers are an ALLOWLIST". */
+  readonly headers: Readonly<Partial<Record<H, string>>>;
 }
+
+/** The allowlist, checked once at serve time — and handed back UNCHANGED, so
+ *  `H` reaches {@link pickUpgradeHeaders} straight off the app's own array and
+ *  the picked record's keys are CHECKED against it rather than asserted.
+ *
+ *  The grammar is `node:http`'s own `validateHeaderName` — the same check the
+ *  runtime applies to a header it writes, so this seam cannot drift from what a
+ *  request can carry. A name outside it can never match, so an app asking for
+ *  one would read a permanent, silent absence as "my proxy never sends this".
+ *
+ *  Two spellings of ONE wire header (`X-Forwarded-For` beside
+ *  `x-forwarded-for`) are the same class of defect and are refused the same
+ *  way: they would file one wire value under two keys, with nothing saying the
+ *  two reads agree.
+ *
+ *  `set-cookie` is refused for a third reason of the same kind: it is the ONE
+ *  header node hands over as an array, and its values contain commas of their
+ *  own (`Expires=Wed, 21 Oct 2026 …`), so the comma-joined string this seam
+ *  reports every other header as cannot be split back apart — RFC 6265 §5.2
+ *  forbids folding it for exactly that reason. A name whose value this seam
+ *  cannot state honestly is refused rather than reported wrongly. (It is a
+ *  RESPONSE header; a request that carries one is already odd.)
+ *
+ *  Throws rather than failing with {@link SurfaceAppListenFailed}: a bad name is
+ *  the app's own defect, not a condition of the machine, and handing it to a
+ *  consumer's `EADDRINUSE` port policy would have it retry forever against
+ *  something no port can fix — the same reason the non-TCP address below throws. */
+const checkUpgradeHeaders = <H extends string>(
+  names: ReadonlyArray<H>,
+): ReadonlyArray<H> => {
+  const seen = new Set<string>();
+  for (const asked of names) {
+    try {
+      validateHeaderName(asked);
+    } catch {
+      throw new Error(
+        `serveSurfaceApp: ${JSON.stringify(asked)} is not an HTTP header name — a connection's headers can only carry names a request can actually carry`,
+      );
+    }
+    const lowercased = asked.toLowerCase();
+    if (lowercased === "set-cookie") {
+      throw new Error(
+        `serveSurfaceApp: ${JSON.stringify(asked)} cannot be read off an upgrade — set-cookie is the one header that arrives as a list, and its values carry commas, so the joined string this seam reports cannot be split back apart`,
+      );
+    }
+    if (seen.has(lowercased)) {
+      throw new Error(
+        `serveSurfaceApp: ${JSON.stringify(asked)} names a header already in upgradeHeaders — one wire header cannot be read under two names`,
+      );
+    }
+    seen.add(lowercased);
+  }
+  return names;
+};
+
+/** {@link SurfaceAppConnection.headers} for one upgrade: the named headers this
+ *  request carried, and nothing else.
+ *
+ *  Node hands a REPEATED header over already folded into one comma-joined
+ *  string (`", "` — the separator this function reuses, so the two agree).
+ *  `set-cookie` is its one array-shaped exception and is refused at the
+ *  allowlist above, so the array arm here is what satisfies node's type rather
+ *  than a shape a named header can actually arrive in: a consumer reading a
+ *  header it named gets a string, always.
+ *
+ *  Prototype-free on BOTH sides, which is not tidiness: `constructor` and
+ *  `__proto__` are valid field names, so a plain `{}` would answer
+ *  `headers["constructor"]` with `Object`'s constructor for a header nobody
+ *  sent, and `picked["__proto__"] = …` would hit the setter and store nothing
+ *  at all. `Object.hasOwn` and a null-prototype target make both unrepresentable
+ *  rather than unlikely. Frozen so this record cannot be written through after
+ *  the fact — one object is handed to `services` and to every later event arm. */
+const pickUpgradeHeaders = <H extends string>(
+  request: IncomingMessage,
+  names: ReadonlyArray<H>,
+): Readonly<Partial<Record<H, string>>> => {
+  // The one cast is about the PROTOTYPE, not the keys: `H` reaches this record
+  // off the app's own allowlist, so nothing here ASSERTS that the keys are the
+  // names — the compiler holds it.
+  const picked = Object.create(null) as Partial<Record<H, string>>;
+  for (const asked of names) {
+    const lowercased = asked.toLowerCase();
+    if (!Object.hasOwn(request.headers, lowercased)) continue;
+    const value = request.headers[lowercased];
+    // `undefined` is "not sent" and stays absent; `""` is a value and is kept.
+    if (value === undefined) continue;
+    picked[asked] = Array.isArray(value) ? value.join(", ") : value;
+  }
+  return Object.freeze(picked);
+};
 
 /** Something the listener wants narrated. ONE sink, because every consumer has
  *  exactly one logger: the four separate callbacks this replaced were the same
@@ -181,10 +334,10 @@ export interface SurfaceAppConnection {
  *  handler the stale gate installs before enrolment) carry the `url` instead,
  *  parsed one line before the origin gate runs, so the sink never has to say
  *  "some upgrade, somewhere". */
-export type SurfaceAppEvent =
+export type SurfaceAppEvent<H extends string = never> =
   /** Gated, enrolled, and about to be served. The place a live-connection count
    *  increments and a consumer writes its `connected` line. */
-  | { readonly _tag: "Connected"; readonly connection: SurfaceAppConnection }
+  | { readonly _tag: "Connected"; readonly connection: SurfaceAppConnection<H> }
   /** That same connection hung up (peer, reaper, or our own teardown), with the
    *  close frame's own account of why: a `1006` with no reason is an abrupt drop,
    *  a `1009` is the frame cap (`FRAME_TOO_LARGE_CLOSE_CODE`), and a reaper's
@@ -194,7 +347,7 @@ export type SurfaceAppEvent =
    *  sent none, which is the ordinary case. */
   | {
       readonly _tag: "Disconnected";
-      readonly connection: SurfaceAppConnection;
+      readonly connection: SurfaceAppConnection<H>;
       readonly code: number;
       readonly reason: string;
     }
@@ -220,7 +373,7 @@ export type SurfaceAppEvent =
   | {
       readonly _tag: "ServingFailed";
       readonly cause: unknown;
-      readonly connection: SurfaceAppConnection;
+      readonly connection: SurfaceAppConnection<H>;
     };
 
 /** What a listener says when nobody is listening: loud on every fault, silent on
@@ -231,7 +384,7 @@ export type SurfaceAppEvent =
  *
  *  Exported so it is readable and testable as a policy, and so a consumer's own
  *  `onEvent` can delegate to it for the arms it does not care about. */
-export const reportSurfaceAppEvent = (event: SurfaceAppEvent): void => {
+export const reportSurfaceAppEvent = (event: SurfaceAppEvent<string>): void => {
   switch (event._tag) {
     case "Connected":
     case "Disconnected":
@@ -280,7 +433,7 @@ export type SurfaceAppHttpMiddleware = <E, R>(
 /** Everything `serveSurfaceApp` needs. The required half is the app's identity —
  *  what is served on the wire, what is served over HTTP, and where. Every option
  *  below it is observational or a shell-freshness passthrough. */
-export interface ServeSurfaceAppOptions<Svc = never>
+export interface ServeSurfaceAppOptions<Svc = never, H extends string = never>
   extends SurfaceAppLayerOptions {
   /** The served surface's flat `RpcGroup` — `runtime.group`. */
   readonly group: RpcGroup.RpcGroup<Rpc.Any>;
@@ -331,14 +484,25 @@ export interface ServeSurfaceAppOptions<Svc = never>
    *  reverse-proxy / `tailscale serve` escape hatch. `parseAllowedOrigins`
    *  (`@kolu/surface/ws-origin`) of the app's own env var. */
   readonly allowedOrigins: ReadonlyArray<string>;
+  /** The request headers this app wants off the upgrade, by name — the only way
+   *  a header reaches {@link SurfaceAppConnection.headers}. Empty by default.
+   *
+   *  Matched case-insensitively (HTTP field names are) and read back under the
+   *  spelling used HERE — these strings are the KEYS of the connection's
+   *  `headers`, and `H` infers from them, so a read that does not match one does
+   *  not compile. A name outside HTTP's grammar, or one wire header named twice,
+   *  takes the bind down.
+   *
+   *  Why it is an ALLOWLIST: this module's header. */
+  readonly upgradeHeaders?: ReadonlyArray<H>;
   /** Services this ONE connection's handlers require — kolu's per-viewer
    *  address, taken off the upgrade request. Effect's socket-server protocol
    *  carries no per-request headers, so a per-connection serving stack simply
    *  provides them. */
-  readonly services?: (connection: SurfaceAppConnection) => Layer.Layer<Svc>;
+  readonly services?: (connection: SurfaceAppConnection<H>) => Layer.Layer<Svc>;
   /** Narrate a listener event — connects, disconnects, and every fault, on ONE
    *  sink. Defaults to {@link reportSurfaceAppEvent}. */
-  readonly onEvent?: (event: SurfaceAppEvent) => void;
+  readonly onEvent?: (event: SurfaceAppEvent<H>) => void;
 }
 
 /**
@@ -350,8 +514,8 @@ export interface ServeSurfaceAppOptions<Svc = never>
  * forget to call. Returns the URL actually bound (the OS's answer, so `port: 0`
  * reports the port it was given).
  */
-export const serveSurfaceApp = <Svc = never>(
-  options: ServeSurfaceAppOptions<Svc>,
+export const serveSurfaceApp = <Svc = never, H extends string = never>(
+  options: ServeSurfaceAppOptions<Svc, H>,
 ): Effect.Effect<string, SurfaceAppListenFailed, Scope.Scope> =>
   Effect.gen(function* () {
     // The ONE sink, resolved once: every narration below goes through `report`,
@@ -365,6 +529,10 @@ export const serveSurfaceApp = <Svc = never>(
       options.handlers,
       options.expose,
     );
+    // The header allowlist, resolved once here for the same reason: a name no
+    // header can match is a defect, and a defect belongs at the bind and not at
+    // the first upgrade that happens to arrive hours later.
+    const upgradeHeaders = checkUpgradeHeaders(options.upgradeHeaders ?? []);
     // The HTTP handler's own scope: `makeHandler` forks each request as a fiber
     // in it, so it must outlive every in-flight request and die with the
     // listener. `Scope.fork` is the library contract for exactly that —
@@ -474,11 +642,12 @@ export const serveSurfaceApp = <Svc = never>(
         acceptor.accept(peer, url, () => {
           // Gated and enrolled — so this is the first instant at which there IS a
           // connection to narrate, and the pair a live-connection count needs.
-          const connection: SurfaceAppConnection = {
+          const connection: SurfaceAppConnection<H> = Object.freeze({
             id: ++accepted,
-            request,
             url,
-          };
+            remoteAddress: request.socket.remoteAddress,
+            headers: pickUpgradeHeaders(request, upgradeHeaders),
+          });
           report({ _tag: "Connected", connection });
           peer.once("close", (code: number, reason: Buffer) =>
             report({

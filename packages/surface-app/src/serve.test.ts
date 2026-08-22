@@ -45,6 +45,7 @@ import {
   serveSurfaceApp,
   SurfaceAppListenFailed,
   type ServeSurfaceAppOptions,
+  type SurfaceAppConnection,
   type SurfaceAppEvent,
 } from "./serve";
 
@@ -123,9 +124,13 @@ afterEach(async () => {
 
 /** Generic in `Svc`, so a test supplying `services` exercises the TYPE-level seam
  *  (a `Layer<Viewer>` reaching a handler that requires `Viewer`) and not only the
- *  runtime passthrough — the whole reason `services` is generic. */
-async function boot<Svc = never>(
-  overrides: Partial<ServeSurfaceAppOptions<Svc>> = {},
+ *  runtime passthrough — the whole reason `services` is generic. Generic in `H`
+ *  for the same reason and one more: TypeScript infers no type argument
+ *  partially, so a harness that pinned `serveSurfaceApp<Svc>` would hand every
+ *  test the DEFAULT `H` and no test would ever reach the allowlist through the
+ *  inference a consumer actually uses. */
+async function boot<Svc = never, H extends string = never>(
+  overrides: Partial<ServeSurfaceAppOptions<Svc, H>> = {},
 ): Promise<Booted> {
   const dist = makeDist();
   const runtime = makeRuntime();
@@ -146,7 +151,7 @@ async function boot<Svc = never>(
     dist.cleanup();
   };
   const bound = await Effect.runPromise(
-    serveSurfaceApp<Svc>({
+    serveSurfaceApp<Svc, H>({
       group: runtime.group,
       handlers: runtime.handlers,
       clientDist: dist.dir,
@@ -233,15 +238,58 @@ function httpsText(
 }
 
 /** A real dial at the served surface, over a real `ws` client socket. */
-async function dial(server: Booted, url = server.wsUrl) {
+async function dial(
+  server: Booted,
+  url = server.wsUrl,
+  /** Request headers to stamp on the UPGRADE — what a reverse proxy in front of
+   *  the listener writes. A browser cannot set them, which is the whole reason
+   *  they are worth anything when the proxy is the only way in. */
+  headers?: Record<string, string>,
+) {
   const socket = await createSurfaceSocket({
     group: server.runtime.group,
     url,
     retired: () => {},
-    connect: (target) => new WsClient(target) as unknown as WebSocket,
+    connect: (target) =>
+      new WsClient(
+        target,
+        headers === undefined ? undefined : { headers },
+      ) as unknown as WebSocket,
   });
   return socket;
 }
+
+/** Boot a listener, dial it, and read whatever `pick` makes of the accepted
+ *  connection back out through a REAL dispatch — so every claim built on this is
+ *  about what a HANDLER sees, not about an object a test wrote for itself. That
+ *  matters most for `upgradeHeaders`: `H` is inferred here from the allowlist
+ *  one object literal over, which is the path a consumer is actually on.
+ *
+ *  JSON on the way out, because the facts under test are a record while `Viewer`
+ *  carries one string. `undefined` does not survive `JSON.stringify`, so a key
+ *  whose value is absent simply does not come back. */
+const readConnection = async <H extends string = never>({
+  pick,
+  upgradeHeaders,
+  sent,
+}: {
+  readonly pick: (connection: SurfaceAppConnection<H>) => unknown;
+  readonly upgradeHeaders?: ReadonlyArray<H>;
+  /** Request headers the dial stamps on the upgrade — the proxy's half. */
+  readonly sent?: Record<string, string>;
+}): Promise<unknown> => {
+  const server = await boot<Viewer, H>({
+    upgradeHeaders,
+    services: (connection) =>
+      Layer.succeed(Viewer)({ seen: JSON.stringify(pick(connection)) }),
+  });
+  const socket = await dial(server, server.wsUrl, sent);
+  const answer = await Effect.runPromise(
+    socket.link.dispatch.unary("surface/viewer/seen", {}),
+  );
+  await socket.dispose();
+  return JSON.parse((answer as { seen: string }).seen);
+};
 
 describe("serveSurfaceApp — the whole listener in one call", () => {
   it("serves the shell over HTTP and the surface over one websocket", async () => {
@@ -329,16 +377,9 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
   }, 60_000);
 
   it("supplies each connection's own services to its handlers", async () => {
-    const server = await boot({
-      services: (connection) =>
-        Layer.succeed(Viewer)({ seen: connection.url.pathname }),
-    });
-    const socket = await dial(server);
-    const answer = await Effect.runPromise(
-      socket.link.dispatch.unary("surface/viewer/seen", {}),
-    );
-    expect(answer).toEqual({ seen: SURFACE_WS_PATH });
-    await socket.dispose();
+    await expect(
+      readConnection({ pick: (connection) => connection.url.pathname }),
+    ).resolves.toBe(SURFACE_WS_PATH);
   });
 
   it("narrates a connection's whole life on the ONE sink", async () => {
@@ -406,6 +447,151 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
       connection: { id: 2 },
     });
     await second.dispose();
+  });
+});
+
+describe("serveSurfaceApp — the upgrade facts a connection carries", () => {
+  it("carries the headers the app NAMED, under the app's own spelling — and no others", async () => {
+    // The whole claim in one assertion, because the interesting half is what is
+    // ABSENT: `cookie` and `authorization` were sent on this very upgrade and
+    // are not named, so the context cannot see them. A name with no header
+    // behind it contributes no key at all rather than an `undefined` a consumer
+    // would have to tell apart from an empty value.
+    await expect(
+      readConnection({
+        pick: (connection) => connection.headers,
+        upgradeHeaders: ["Tailscale-User-Login", "Tailscale-User-Name"],
+        sent: {
+          "Tailscale-User-Login": "ada@example.com",
+          Cookie: "session=hunter2",
+          Authorization: "Bearer hunter2",
+        },
+      }),
+    ).resolves.toEqual({ "Tailscale-User-Login": "ada@example.com" });
+  });
+
+  it("names no headers by DEFAULT — the whole bag is never the fallback", async () => {
+    await expect(
+      readConnection({
+        pick: (connection) => connection.headers,
+        sent: {
+          "Tailscale-User-Login": "ada@example.com",
+          Cookie: "session=hunter2",
+        },
+      }),
+    ).resolves.toEqual({});
+  });
+
+  it("matches a name case-insensitively, and keeps an EMPTY value as a value", async () => {
+    // HTTP field names are case-insensitive and node lowercases what arrives, so
+    // an app that spells a name the way its proxy documents it must still be
+    // answered. And a header the proxy sent EMPTY is present-and-empty, not
+    // absent: a seam that reports what a request carried must not invent a value
+    // it did not receive, and an app that treats "sent, but blank" as a reason
+    // to distrust a proxy claim has to be able to see it.
+    await expect(
+      readConnection({
+        pick: (connection) => connection.headers,
+        upgradeHeaders: ["x-forwarded-for", "X-Empty"],
+        sent: { "X-Forwarded-For": "10.0.0.1", "x-empty": "" },
+      }),
+    ).resolves.toEqual({ "x-forwarded-for": "10.0.0.1", "X-Empty": "" });
+  });
+
+  it("keeps a name that collides with Object.prototype honest", async () => {
+    // The reachable half of `pickUpgradeHeaders`' prototype note. Probed against
+    // node 24 rather than assumed:
+    //
+    //   - `request.headers` is a PLAIN object — its prototype IS
+    //     `Object.prototype` — and `constructor` is a valid, already-lowercase
+    //     field name. So without the `Object.hasOwn` guard, a name the request
+    //     never carried reads back as `Object`'s constructor. Sent, it arrives
+    //     as an ordinary own key and must round-trip like any other header.
+    //   - a `__proto__` header LINE is dropped at parse — it never becomes an
+    //     own key — so it is named here only as the ABSENT case. The write-side
+    //     hazard `Object.create(null)` closes is unreachable from the wire, and
+    //     no test can honestly claim to pin it.
+    //
+    // The assertion is on `Object.keys`, not on the record alone: a stray
+    // `Object` constructor does not survive `JSON.stringify`, so asserting the
+    // values would pass with the guard removed — which is exactly how the first
+    // version of this test was vacuous.
+    await expect(
+      readConnection({
+        pick: (connection) => ({
+          named: Object.keys(connection.headers).sort(),
+          sentValue: connection.headers.constructor,
+        }),
+        upgradeHeaders: ["constructor", "__proto__"],
+        sent: { constructor: "made" },
+      }),
+    ).resolves.toEqual({ named: ["constructor"], sentValue: "made" });
+  });
+
+  it("makes a read the allowlist does not name a COMPILE error, not a silent undefined", async () => {
+    // The other half of the serve-time check: a name outside the grammar takes
+    // the bind down, and a name outside the ALLOWLIST does not compile. Both
+    // close the same failure — a header read that answers `undefined` forever
+    // and looks exactly like an honest "the proxy did not send it".
+    //
+    // Read off the connection a REAL `serveSurfaceApp` hands a REAL `services`
+    // callback, so what is under test is the path a consumer is actually on:
+    // `H` inferred from `upgradeHeaders` one object literal over, while `Svc`
+    // is being inferred in the same breath. A connection this test annotated
+    // for itself would prove the guarantee about its own annotation.
+    //
+    // The `@ts-expect-error`s ARE the assertion — `just check` fails the moment
+    // either bad read starts compiling. The runtime expectation keeps the good
+    // read live: `undefined` does not survive `JSON.stringify`, so the two bad
+    // ones contribute no key.
+    await expect(
+      readConnection({
+        pick: (connection) => ({
+          right: connection.headers["x-forwarded-for"],
+          // @ts-expect-error — not in the allowlist `H` was inferred from.
+          wrongCase: connection.headers["X-Forwarded-For"],
+          // @ts-expect-error — a plain typo, the same way.
+          typo: connection.headers["x-forwarded-fro"],
+        }),
+        upgradeHeaders: ["x-forwarded-for"],
+        sent: { "x-forwarded-for": "10.0.0.1" },
+      }),
+    ).resolves.toEqual({ right: "10.0.0.1" });
+  });
+
+  it("carries the direct peer's address — the fact a proxy header is weighed against", async () => {
+    // kolu's `viewerAddress`. Loopback, since that is where `boot` binds; the
+    // point is that it IS the socket's peer and not a guess.
+    await expect(
+      readConnection({ pick: (connection) => connection.remoteAddress }),
+    ).resolves.toMatch(/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/);
+  });
+
+  it("refuses to bind on a name that is not an HTTP field name", async () => {
+    // A name no header can ever match would read to the app as "the proxy never
+    // sends it" — a silent, permanent absence. It takes the bind down instead.
+    await expect(
+      boot({ upgradeHeaders: ["X-Ok", "not a name"] }),
+    ).rejects.toThrow(/"not a name" is not an HTTP header name/);
+  });
+
+  it("refuses to bind on set-cookie, whose value a joined string cannot carry", async () => {
+    // The one header node hands over as a list, and the one whose values carry
+    // commas of their own — so the string this seam reports every other header
+    // as could not be split back apart. Refused rather than reported wrongly.
+    await expect(boot({ upgradeHeaders: ["Set-Cookie"] })).rejects.toThrow(
+      /"Set-Cookie" cannot be read off an upgrade/,
+    );
+  });
+
+  it("refuses to bind on ONE wire header named twice", async () => {
+    // The same class of app defect as a name outside the grammar, and the same
+    // treatment — the message says why.
+    await expect(
+      boot({ upgradeHeaders: ["X-Forwarded-For", "x-forwarded-for"] }),
+    ).rejects.toThrow(
+      /"x-forwarded-for" names a header already in upgradeHeaders/,
+    );
   });
 });
 
