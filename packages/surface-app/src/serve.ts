@@ -88,7 +88,12 @@
  * A surface app's live wire is one websocket, so its ONE request is the upgrade
  * — and a header a reverse proxy stamps there (`Tailscale-User-Login`) is the
  * only per-connection claim about WHO is calling that the wire can carry. This
- * module owns the upgrade, so it is the only place that can hand one on.
+ * module owns the upgrade, so on THIS path it is the only thing that can hand
+ * one on. (A hand-built path — `acceptSurfaceSocket` + `serveSurfaceSocket`,
+ * which drishti's per-host dispatch uses — is standing in its own `upgrade`
+ * handler holding the request, so it reads what it needs directly and this
+ * option has nothing to offer it. Same split as `expose`: the face that owns
+ * the door takes the policy at bind; the hand-built one applies its own.)
  *
  * It hands on the ones the app NAMED (`upgradeHeaders`) and no others, as VALUES
  * on {@link SurfaceAppConnection}. Not the `IncomingMessage`, which is what this
@@ -209,19 +214,9 @@ export interface SurfaceAppConnection<H extends string = never> {
   readonly headers: Readonly<Partial<Record<H, string>>>;
 }
 
-/** The allowlist as the accept path reads it: each name the app spelled, paired
- *  with the lowercase key node files that header under.
- *
- *  NAMED rather than spelled out at both ends, so `H` survives the trip from
- *  {@link upgradeHeaderLookup} into {@link pickUpgradeHeaders} — which is what
- *  lets the picked record's keys be CHECKED against the allowlist rather than
- *  asserted with a cast. */
-type UpgradeHeaderLookup<H extends string> = ReadonlyArray<
-  readonly [asked: H, lowercased: string]
->;
-
-/** The allowlist, checked once at serve time and turned into the lookup the
- *  accept path runs.
+/** The allowlist, checked once at serve time — and handed back UNCHANGED, so
+ *  `H` reaches {@link pickUpgradeHeaders} straight off the app's own array and
+ *  the picked record's keys are CHECKED against it rather than asserted.
  *
  *  The grammar is `node:http`'s own `validateHeaderName` — the same check the
  *  runtime applies to a header it writes, so this seam cannot drift from what a
@@ -237,11 +232,11 @@ type UpgradeHeaderLookup<H extends string> = ReadonlyArray<
  *  the app's own defect, not a condition of the machine, and handing it to a
  *  consumer's `EADDRINUSE` port policy would have it retry forever against
  *  something no port can fix — the same reason the non-TCP address below throws. */
-const upgradeHeaderLookup = <H extends string>(
+const checkUpgradeHeaders = <H extends string>(
   names: ReadonlyArray<H>,
-): UpgradeHeaderLookup<H> => {
+): ReadonlyArray<H> => {
   const seen = new Set<string>();
-  return names.map((asked) => {
+  for (const asked of names) {
     try {
       validateHeaderName(asked);
     } catch {
@@ -256,8 +251,8 @@ const upgradeHeaderLookup = <H extends string>(
       );
     }
     seen.add(lowercased);
-    return [asked, lowercased] as const;
-  });
+  }
+  return names;
 };
 
 /** {@link SurfaceAppConnection.headers} for one upgrade: the named headers this
@@ -265,26 +260,26 @@ const upgradeHeaderLookup = <H extends string>(
  *
  *  Node hands a REPEATED header over already folded into one comma-joined
  *  string; `set-cookie` is its one exception, arriving as an array. Joining that
- *  array the same way keeps ONE shape at this seam rather than two — a consumer
- *  reading a header it named gets a string, whichever header it named.
+ *  array the same way leaves a consumer ONE shape to read here, whichever header
+ *  it named.
  *
  *  Prototype-free on BOTH sides, which is not tidiness: `constructor` and
  *  `__proto__` are valid field names, so a plain `{}` would answer
  *  `headers["constructor"]` with `Object`'s constructor for a header nobody
  *  sent, and `picked["__proto__"] = …` would hit the setter and store nothing
  *  at all. `Object.hasOwn` and a null-prototype target make both unrepresentable
- *  rather than unlikely. Frozen, because the module's whole claim about this
- *  object is that it is a VALUE — and one object is handed to `services` and to
- *  every later event arm. */
+ *  rather than unlikely. Frozen so this record cannot be written through after
+ *  the fact — one object is handed to `services` and to every later event arm. */
 const pickUpgradeHeaders = <H extends string>(
   request: IncomingMessage,
-  lookup: UpgradeHeaderLookup<H>,
+  names: ReadonlyArray<H>,
 ): Readonly<Partial<Record<H, string>>> => {
-  // The one cast left is about the PROTOTYPE, not the keys: `H` reaches this
-  // record from the allowlist through the lookup, so nothing here ASSERTS that
-  // the keys are the names — the compiler holds it.
+  // The one cast is about the PROTOTYPE, not the keys: `H` reaches this record
+  // off the app's own allowlist, so nothing here ASSERTS that the keys are the
+  // names — the compiler holds it.
   const picked = Object.create(null) as Partial<Record<H, string>>;
-  for (const [asked, lowercased] of lookup) {
+  for (const asked of names) {
+    const lowercased = asked.toLowerCase();
     if (!Object.hasOwn(request.headers, lowercased)) continue;
     const value = request.headers[lowercased];
     // `undefined` is "not sent" and stays absent; `""` is a value and is kept.
@@ -356,9 +351,7 @@ export type SurfaceAppEvent<H extends string = never> =
  *
  *  Exported so it is readable and testable as a policy, and so a consumer's own
  *  `onEvent` can delegate to it for the arms it does not care about. */
-export const reportSurfaceAppEvent = <H extends string>(
-  event: SurfaceAppEvent<H>,
-): void => {
+export const reportSurfaceAppEvent = (event: SurfaceAppEvent<string>): void => {
   switch (event._tag) {
     case "Connected":
     case "Disconnected":
@@ -506,7 +499,7 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
     // The header allowlist, resolved once here for the same reason: a name no
     // header can match is a defect, and a defect belongs at the bind and not at
     // the first upgrade that happens to arrive hours later.
-    const upgradeHeaders = upgradeHeaderLookup(options.upgradeHeaders ?? []);
+    const upgradeHeaders = checkUpgradeHeaders(options.upgradeHeaders ?? []);
     // The HTTP handler's own scope: `makeHandler` forks each request as a fiber
     // in it, so it must outlive every in-flight request and die with the
     // listener. `Scope.fork` is the library contract for exactly that —

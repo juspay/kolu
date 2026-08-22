@@ -42,10 +42,11 @@ import type { ServedFragment } from "./surface.ts";
  *
  *  It is a service, not an argument, because Effect RPC has no per-request context
  *  bag: the transport mount provides it per CONNECTION. `index.ts` builds a
- *  `Layer.succeed(CurrentViewer)({…})` from the upgrade request's peer address and
- *  `x-forwarded-for` header, and hands that layer to `serveSurfaceSocket` — so each
- *  websocket's RPC serving stack carries its own viewer facts and a broadcast
- *  surface cell (which could not differ per viewer) is not needed.
+ *  `Layer.succeed(CurrentViewer)({…})` from the connection facts `serveSurfaceApp`
+ *  hands its `services` factory — the direct peer, and the `x-forwarded-for` it
+ *  named in `upgradeHeaders` — so each websocket's RPC serving stack carries its
+ *  own viewer facts and a broadcast surface cell (which could not differ per
+ *  viewer) is not needed.
  *
  *  BOTH facts, deliberately: behind a reverse proxy the TCP peer is the PROXY and
  *  the viewer's own address is in the header. Reading only the peer is why this

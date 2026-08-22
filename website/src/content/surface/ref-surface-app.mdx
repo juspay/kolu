@@ -87,8 +87,11 @@ handler cannot drift.
 A live wire is one websocket, so its one request is the upgrade. A header a
 reverse proxy stamps there (`Tailscale-User-Login`, `X-Forwarded-For`) is
 therefore the only per-**connection** claim about who is calling that the wire
-can carry, and `serveSurfaceApp` — which owns the upgrade — is the only place
-that can hand one on.
+can carry, and `serveSurfaceApp` — which owns the upgrade — is the only thing on
+this path that can hand one on. (A hand-built listener on
+[`acceptSurfaceSocket`](#accepting-a-browser-socket) stands in its own `upgrade` handler
+holding the request, so it reads what it needs directly; this option has nothing
+to offer it. Same split as `expose`.)
 
 `upgradeHeaders` names which ones. Each accepted connection carries those values
 on `SurfaceAppConnection.headers`, keyed by the **spelling used here**, and a
