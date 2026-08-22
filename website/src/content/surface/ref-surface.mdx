@@ -801,15 +801,18 @@ pinger kills the link ~10s later — and a consumer that reconnects on that
 retries a peer that will never speak, forever. The gate makes that blind attach
 unrepresentable rather than merely discouraged.
 
-The death itself now says which death it was, as data:
-`SurfaceStdioTransportClosed` carries a `death` field —
-`"keepAliveUnanswered"`, `"streamEnded"` or `"disposed"` — so a consumer that
-puts words on a screen branches on the field rather than reading `reason`. A
-duplex leg reports an unanswered keep-alive as itself and explicitly declines to
-claim the peer exited. The distinction is diagnostic, not behavioural: the link
-is dead either way, and `neverReconnect` still halts on the first failure. The
-field is an optional key, so a payload from a peer built before it existed still
-decodes — absent means "the producer did not classify".
+The death itself now says which death it was, as data. **Both** tags
+`isDeadTransportError` unions carry a `death` field, under the same name so the
+union is uniformly branchable: `SurfaceStdioTransportClosed` takes a
+`StdioTransportDeath` — `"keepAliveUnanswered"`, `"streamEnded"` or
+`"disposed"` — and `SurfaceTransportRetired` a `RetiredTransportDeath` —
+`"retiredByServer"` or `"disposed"`. A consumer that puts words on a screen
+branches on the field rather than reading `reason`; a duplex leg reports an
+unanswered keep-alive as itself and explicitly declines to claim the peer
+exited. The distinction is diagnostic, not behavioural: the link is dead either
+way, and `neverReconnect` still halts on the first failure. Each field is an
+**optional key**, so a payload from a peer built before it existed still decodes
+— absent means "the producer did not classify", never a defaulted guess.
 
 | Export                                             | What it does                                                                    |
 | -------------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -1157,8 +1160,8 @@ intact.
 
 | Class | Meaning | Retryable |
 | --- | --- | --- |
-| `SurfaceTransportRetired` | the server retired this browser socket (a stale tab, close `4001`) | never — terminal by construction |
-| `SurfaceStdioTransportClosed` | a stdio / unix-socket leg closed; the owner re-dials for a **new** link. Carries `death: StdioTransportDeath` (`"keepAliveUnanswered"` · `"streamEnded"` · `"disposed"`) as an **optional key** — absent means a producer from before the field existed, never a defaulted guess | never |
+| `SurfaceTransportRetired` | the server retired this browser socket (a stale tab, close `4001`). Carries `death: RetiredTransportDeath` — see [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | never — terminal by construction |
+| `SurfaceStdioTransportClosed` | a stdio / unix-socket leg closed; the owner re-dials for a **new** link. Carries `death: StdioTransportDeath` — see [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | never |
 | `SurfaceRelayTransportLost` | a re-serve relay's **middle-hop** upstream drop the parent will heal | **yes** — the one retryable framework error |
 | `MapKeyNonCanonical` · `MapKeyUnknown` · `MapEntryFailed` | the keyed-map rejections (see [`@kolu/surface-map`](/surface/ref-surface-map)) | never |
 
