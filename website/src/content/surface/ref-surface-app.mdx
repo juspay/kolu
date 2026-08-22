@@ -36,6 +36,8 @@ const url = yield* serveSurfaceApp({
   allowedOrigins,
   tls, // present → an `https.Server`, and the returned URL says `https://`
   middleware, // wraps every HTTP request — an app's bridge to its own logger
+  upgradeHeaders, // request headers this app reads off the upgrade, by name
+  services, // (connection) => Layer — what THIS connection's handlers require
 });
 ```
 
@@ -106,9 +108,16 @@ const url = yield* serveSurfaceApp({
 
 | Fact | Shape | Notes |
 | --- | --- | --- |
-| `upgradeHeaders` | `ReadonlyArray<string>` | the allowlist. **Empty by default** — a header nobody named is not available at all |
-| `connection.headers` | `Readonly<Record<string, string>>` | the named headers this upgrade carried. Matched case-insensitively; keyed by the spelling in `upgradeHeaders` |
+| `upgradeHeaders` | `ReadonlyArray<H>` | the allowlist. **Empty by default** — a header nobody named is not available at all |
+| `connection.headers` | `Readonly<Partial<Record<H, string>>>` | the named headers this upgrade carried. Matched case-insensitively against the wire; keyed by the spelling in `upgradeHeaders` |
 | `connection.remoteAddress` | `string \| undefined` | the **direct** TCP peer — the proxy itself, when there is one. Never a guess |
+| `services` | `(connection: SurfaceAppConnection<H>) => Layer.Layer<Svc>` | the per-connection `Layer` those facts are read into. Effect's socket-server protocol forwards no per-request context, so a connection-scoped fact is **provided**, never carried on the request |
+
+`H` is inferred from `upgradeHeaders` — the names are the keys, so
+`connection.headers["X-Forwarded-For"]` does not compile when the allowlist said
+`"x-forwarded-for"`. That is deliberate: a header's absence is a load-bearing
+answer here, and an open index would hand a misspelling the same honest-looking
+`undefined` a real absence has.
 
 A named header the request did not carry is **absent** from the record, so
 `undefined` ("not sent") and `""` ("sent empty") stay different facts — which is
@@ -121,8 +130,11 @@ arrives folded into one comma-joined string, as node folds it.
   filter over something a `services` layer could still reach: it **is** the
   access, so the leak has nowhere to be expressed. Naming a header is the app
   saying it trusts the proxy that writes it, and that is a claim only the app can
-  make. A name outside HTTP's field-name grammar takes the **bind** down (it
-  throws) rather than reading, forever, as a header the proxy never sends.
+  make. A name outside HTTP's field-name grammar (node's own
+  `validateHeaderName`) is a **defect**: the effect raises it when it runs,
+  before anything binds, so no listener is left behind — deliberately not a
+  `SurfaceAppListenFailed`, which a port-retry policy would loop on forever
+  against something no port can fix.
 </Aside>
 
 <Aside type="tip" title="`expose` gates THIS face, not the surface">

@@ -480,8 +480,9 @@ describe("serveSurfaceApp — the upgrade facts a connection carries", () => {
     // HTTP field names are case-insensitive and node lowercases what arrives, so
     // an app that spells a name the way its proxy documents it must still be
     // answered. And a header the proxy sent EMPTY is present-and-empty, not
-    // absent — kolu's own viewer facts say `undefined` and `""` are different
-    // facts downstream, so this seam must not flatten them either.
+    // absent: a seam that reports what a request carried must not invent a value
+    // it did not receive, and an app that treats "sent, but blank" as a reason
+    // to distrust a proxy claim has to be able to see it.
     await expect(
       readConnection(
         (connection) => connection.headers,
@@ -489,6 +490,46 @@ describe("serveSurfaceApp — the upgrade facts a connection carries", () => {
         { "X-Forwarded-For": "10.0.0.1", "x-empty": "" },
       ),
     ).resolves.toEqual({ "x-forwarded-for": "10.0.0.1", "X-Empty": "" });
+  });
+
+  it("keeps a name that collides with Object.prototype honest, both ways", async () => {
+    // `constructor` and `__proto__` are valid HTTP field names and are ALREADY
+    // lowercase, so they survive the fold onto node's own keys. On a plain `{}`
+    // the first would answer with `Object`'s constructor for a header nobody
+    // sent, and assigning the second would hit the setter and store nothing.
+    // Both are read through `Object.hasOwn` onto a null-prototype record, so
+    // an unsent one is absent and a sent one is its value.
+    await expect(
+      readConnection(
+        (connection) => connection.headers,
+        { upgradeHeaders: ["constructor", "__proto__"] },
+        { __proto__: "sent" },
+      ),
+    ).resolves.toEqual({ __proto__: "sent" });
+  });
+
+  it("makes a read the allowlist does not name a COMPILE error, not a silent undefined", () => {
+    // The other half of the serve-time check: a name outside the grammar takes
+    // the bind down, and a name outside the ALLOWLIST does not compile. Both
+    // close the same failure — a header read that answers `undefined` forever
+    // and looks exactly like an honest "the proxy did not send it".
+    const reads = (connection: SurfaceAppConnection<"x-forwarded-for">) => ({
+      right: connection.headers["x-forwarded-for"],
+      // @ts-expect-error — not in the allowlist `H` was inferred from.
+      wrongCase: connection.headers["X-Forwarded-For"],
+      // @ts-expect-error — a plain typo, the same way.
+      typo: connection.headers["x-forwarded-fro"],
+    });
+    // The `@ts-expect-error`s above ARE the assertion (typecheck fails without
+    // them); this keeps the helper live so a rename cannot leave it unread.
+    expect(
+      reads({
+        id: 1,
+        url: new URL("http://x/"),
+        remoteAddress: undefined,
+        headers: { "x-forwarded-for": "10.0.0.1" },
+      }).right,
+    ).toBe("10.0.0.1");
   });
 
   it("carries the direct peer's address — the fact a proxy header is weighed against", async () => {

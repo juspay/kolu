@@ -28,10 +28,10 @@ allowlist ([`@kolu/surface/expose`](../surface/src/expose.ts)): name what
 BROWSERS may reach and the rest is refused here while a trusted face — a unix
 socket, an MCP adapter — still serves it.
 
-A live wire is one websocket, so its one request is the **upgrade** — and a
-header a reverse proxy stamps there is the only per-connection claim about *who
-is calling* the wire can carry. `upgradeHeaders` names the ones this app wants;
-each connection's `services` layer reads them back off `SurfaceAppConnection`:
+`services` is what a handler needs to know about *this* connection, and
+`upgradeHeaders` is where that knowledge comes from — a live wire's one request
+is the upgrade, so a header a proxy stamps there is the only per-connection claim
+about who is calling that the wire can carry:
 
 ```ts
 serveSurfaceApp({
@@ -45,11 +45,8 @@ serveSurfaceApp({
 });
 ```
 
-Named, never inferred: the listener holds the whole `Cookie` and `Authorization`
-of every upgrade, and naming a header is the app saying it trusts the proxy that
-writes it — a claim only the app can make. A name outside HTTP's field-name
-grammar takes the **bind** down rather than reading as a header that never
-arrives.
+Why it is an allowlist and not the request, what an absent name means, and what a
+misspelling costs: [Reference](https://kolu.dev/surface/ref-surface-app).
 
 Connecting is one call too:
 
