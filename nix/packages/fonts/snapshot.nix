@@ -19,11 +19,20 @@
 #     either consumer; two derivations let the client build depend on ~1MB of
 #     woff2 and the daemon on ~15MB of outlines, each without the other.
 #
-# The output is a FLAT directory, and THIS list is the only place the face set
-# is named: `png.ts` loads whatever `.ttf`/`.otf` files the directory holds
+# The output is a FLAT directory, and THIS list is the only place the FILE set
+# is named: `pngFonts.ts` loads whatever `.ttf`/`.otf` files the directory holds
 # (and throws if it holds none), so adding or renaming a face here needs no
 # matching edit there — a second spelling in TypeScript could only fail at
 # runtime, when the two had already parted.
+#
+# The FAMILY names inside those files are a different matter, and they ARE
+# spelled on both sides: `PNG_FONT_FAMILIES` in `pngFonts.ts` lists the families
+# an SVG document may name, and resvg resolves fallbacks by those names. So a
+# nixpkgs bump that renames a face's internal family ("Symbols Nerd Font Mono" →
+# "Symbols Nerd Font") leaves this derivation building and the directory
+# populated while every braille spinner and `⎿` connector renders as tofu. That
+# is why `pngFonts.ts` reads each face's `name` table at load and refuses, by
+# name, a set that cannot answer the document — the check Nix cannot make.
 { lib, runCommand, nerd-fonts, dejavu_fonts, noto-fonts }:
 let
   # Each entry: the store path of the face, flattened to its basename in $out.

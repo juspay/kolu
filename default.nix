@@ -151,7 +151,7 @@ let
 
   # The terminal-snapshot PNG rasteriser's font directory (nix/packages/fonts/
   # snapshot.nix). Read from koluEnv for the same reason as osfactsBakeArg: the
-  # wrapper and the dev shell must name ONE store path. png.ts throws when this
+  # wrapper and the dev shell must name ONE store path. pngFonts.ts throws when this
   # is unset, so the bake is the runtime hop that makes the build-time value
   # (koluEnv is spread into the build derivation's env below) reach a spawned
   # daemon, which inherits nothing from the shell that built it.
@@ -718,7 +718,7 @@ let
     # BROWSER half only (readGrid — a pure buffer read); the wasm rasteriser and
     # its ~9MB of outline faces sit behind the `terminal-snapshot/png` export,
     # which nothing in kaval imports. Baking it would hang the font closure on
-    # every PTY daemon for no reader, and png.ts throws by name the moment that
+    # every PTY daemon for no reader, and pngFonts.ts throws by name the moment that
     # stops being true — so the omission fails loudly rather than silently.
     makeWrapper ${runtimeNode}/bin/node $out/bin/kaval \
       --add-flags "--import ${runtimeTsxLoader}" \

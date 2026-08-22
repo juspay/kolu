@@ -10,14 +10,18 @@
  *  tree that builds for x86_64-linux and aarch64-darwin from one lockfile,
  *  where a `.wasm` is the same bytes everywhere.
  *
- *  This module owns the DOCUMENT — the font stack, the cell advance, the
- *  scene-to-SVG build and the guard that a scene came from
- *  {@link buildPngScene}. It does not own the rasteriser: that is
+ *  This module owns the DOCUMENT — the cell advance, the scene-to-SVG build
+ *  and the guard that a scene came from {@link buildPngScene}. The FONT STACK
+ *  is {@link ./pngFonts.ts}, which owns the family list AND the loader that
+ *  proves the baked faces can answer it — one module, because a family name
+ *  and the face declaring it are one fact. It does not own the rasteriser
+ *  either: that is
  *  {@link ./pngWorker.ts}, on a thread of its own, because the wasm region is
  *  synchronous and long enough to freeze padi's event loop. See that file for
  *  the measurements and the font closure. */
 
 import { Worker } from "node:worker_threads";
+import { PNG_FONT_FAMILY, PNG_PRIMARY_FACE } from "./pngFonts.ts";
 import type { PngRasteriseReply } from "./pngWorker.ts";
 import {
   buildScene,
@@ -27,34 +31,12 @@ import {
 } from "./scene.ts";
 import { sceneToSvg } from "./svg.ts";
 
-/** The face every other is a fallback for — named once, and spelled into
- *  {@link PNG_FONT_FAMILY}'s head rather than beside it, so the two cannot
- *  drift. */
-const PRIMARY_FACE = "FiraCode Nerd Font Mono";
-
-/** The font family list every glyph is drawn with, most-specific first.
- *
- *  A scene rendered to PNG MUST carry this exact list: resvg falls back along
- *  the family list in the DOCUMENT, not along the order buffers were
- *  registered in. A scene built with a bare `"FiraCode Nerd Font"` renders
- *  tofu for every glyph FiraCode lacks even though the fallback faces are
- *  loaded — measured, not assumed.
- *
- *  MODULE-PRIVATE on purpose: it is applied by {@link buildPngScene}, so a
- *  caller never has to remember to apply it (and cannot get it wrong). */
-const PNG_FONT_FAMILY = [
-  PRIMARY_FACE,
-  "Symbols Nerd Font Mono",
-  "DejaVu Sans Mono",
-  "Noto Sans Symbols 2",
-  "Noto Sans Symbols",
-].join(", ");
-
 /** Advance width of one cell as a fraction of the font size, for FiraCode.
  *  The daemon has no `measureText`, and this ratio is a property of the
  *  typeface (600/1000 em by its own metrics, which every FiraCode face
  *  shares), so it is a constant here rather than a per-render measurement.
- *  Module-private for the same reason as {@link PNG_FONT_FAMILY}. */
+ *  Module-private for the same reason the family list is package-private: it
+ *  is applied by {@link buildPngScene}, so a caller cannot get it wrong. */
 const PNG_CELL_WIDTH_RATIO = 0.6;
 
 /** Build a scene this backend can actually rasterise.
@@ -207,7 +189,7 @@ function sendOne(svg: string): Promise<Uint8Array> {
     worker.on("message", onMessage);
     worker.on("error", onError);
     worker.on("exit", onExit);
-    worker.postMessage({ svg, defaultFamily: PRIMARY_FACE });
+    worker.postMessage({ svg, defaultFamily: PNG_PRIMARY_FACE });
   });
 }
 

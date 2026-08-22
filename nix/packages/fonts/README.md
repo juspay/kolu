@@ -80,11 +80,18 @@ $out/
   NotoSansSymbols.ttf
 ```
 
-This list is the ONE place the face set is named: `png.ts` loads every
+This list is the ONE place the FILE set is named: `pngFonts.ts` loads every
 `.ttf`/`.otf` the directory holds (and throws if it holds none), so adding or
 renaming a face here needs no matching edit in TypeScript. A rename of a SOURCE
 still fails the Nix build (`cp` on a missing source) rather than rendering tofu
 at runtime.
+
+The FAMILY names *inside* the files are spelled on both sides — `PNG_FONT_FAMILIES`
+in `pngFonts.ts` is what an SVG document names and what resvg resolves fallbacks
+by — and Nix cannot check them. So `pngFonts.ts` reads each face's `name` table
+as it loads and throws, by family name, if one is missing: a nixpkgs bump that
+renames a face (`Symbols Nerd Font Mono` → `Symbols Nerd Font`) fails the next
+screenshot instead of quietly rendering every braille spinner as tofu.
 
 ### Integration
 

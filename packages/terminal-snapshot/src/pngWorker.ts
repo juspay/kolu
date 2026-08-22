@@ -26,7 +26,7 @@
  *  ## Fonts
  *
  *  resvg does no system font discovery here (`loadSystemFonts: false`) — it
- *  gets exactly the faces this module hands it, so the daemon's PNG cannot
+ *  gets exactly the faces `./pngFonts.ts` hands it, so the daemon's PNG cannot
  *  quietly change because a host has a different fontconfig. The stack is
  *  chosen by measured coverage, not taste: kolu's own FiraCode Nerd Font
  *  first (it is what the browser draws, and it alone carries the powerline
@@ -35,17 +35,20 @@
  *  lacks and an agent TUI leans on constantly — the braille spinner frames,
  *  and `⎿`, the connector Claude Code draws under every tool call.
  *
- *  WHICH family list a glyph resolves along is not this thread's to say: it
- *  is a property of the document, and the document is built by `png.ts`
- *  (`buildPngScene`). That is why `defaultFamily` rides on the request rather
- *  than being re-spelled here — one authority for the font stack, on the side
- *  that also validates it. */
+ *  Neither the family list nor the read of the baked faces lives here: both
+ *  are `./pngFonts.ts`, which loads the directory AND asserts that every
+ *  family the document may name is actually declared by a face's `name`
+ *  table. A thread that cannot answer the document fails to EVALUATE — the
+ *  main thread sees an `error` event naming the missing family — rather than
+ *  serving a screenshot in the wrong glyphs. That is also why `defaultFamily`
+ *  rides on the request rather than being re-spelled here: one authority for
+ *  the font stack, on the side that also validates it. */
 
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import path from "node:path";
 import { parentPort } from "node:worker_threads";
 import { initWasm, Resvg } from "@resvg/resvg-wasm";
+import { loadSnapshotFonts } from "./pngFonts.ts";
 
 /** One rasterise. `defaultFamily` is resvg's fallback for an element that
  *  names no family of its own; `png.ts` owns the list it comes from. */
@@ -68,39 +71,6 @@ if (!port) {
   );
 }
 
-/** Where the font files live, baked by Nix.
- *
- *  No PATH search and no bundled-copy fallback: kolu's rule is that a
- *  required value is baked in and its absence CRASHES rather than silently
- *  degrading, and a screenshot rendered in a substitute font is exactly the
- *  silent degradation that rule exists to prevent — it would look plausible
- *  and be wrong. */
-function fontDir(): string {
-  const dir = process.env.KOLU_SNAPSHOT_FONTS_DIR;
-  if (!dir) {
-    throw new Error(
-      "KOLU_SNAPSHOT_FONTS_DIR is unset — the terminal-snapshot renderer needs the Nix-provided font directory (nix/packages/fonts). It is baked onto the daemon wrapper in default.nix and exported by shell.nix for a dev tree.",
-    );
-  }
-  return dir;
-}
-
-async function loadFonts(): Promise<Uint8Array[]> {
-  // EVERY face in the directory, rather than a re-spelling of the derivation's
-  // own list: `nix/packages/fonts/snapshot.nix` is the one authority for which
-  // faces exist, and a copy here would only fail at runtime with an ENOENT
-  // when the two parted. Order is immaterial — the document's family list is
-  // what picks — so the directory carries everything this read needs.
-  const dir = fontDir();
-  const names = (await readdir(dir)).filter((f) => /\.(?:ttf|otf)$/i.test(f));
-  if (names.length === 0) {
-    throw new Error(
-      `terminal-snapshot: ${dir} holds no font faces — the Nix font closure (nix/packages/fonts) is broken. A screenshot rendered in no font at all is not a degraded render, it is tofu.`,
-    );
-  }
-  return await Promise.all(names.map((f) => readFile(path.join(dir, f))));
-}
-
 // The two per-thread facts, taken before a single message is served. The port
 // buffers anything the main thread posts while this runs, so an early
 // screenshot waits rather than misses.
@@ -108,7 +78,7 @@ const require = createRequire(import.meta.url);
 await initWasm(
   await readFile(require.resolve("@resvg/resvg-wasm/index_bg.wasm")),
 );
-const fontBuffers = await loadFonts();
+const fontBuffers = await loadSnapshotFonts();
 
 /** Rasterise one document.
  *

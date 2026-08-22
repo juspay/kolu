@@ -20,7 +20,7 @@ in
 {
   KOLU_FONTS_DIR = pkgs.kolu-fonts;
   # The daemon-side font set — the outline faces @resvg/resvg-wasm loads to
-  # rasterise a terminal screen to PNG (packages/terminal-snapshot/src/png.ts,
+  # rasterise a terminal screen to PNG (packages/terminal-snapshot/src/pngFonts.ts,
   # `fontDir()` throws when this is unset). Same footing as KOLU_GH_BIN/
   # KOLU_OSFACTS_BIN: a required absolute path baked by Nix, present in the
   # packaged wrappers AND the dev shell, with no PATH search and no bundled
