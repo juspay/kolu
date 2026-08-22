@@ -276,6 +276,32 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   point the arrow backwards. The **subpaths above are unchanged**: the directory
   is padi's internal layout, not its public one.
 
+## `screen.image` — padi is where the picture gets made
+
+Beside `screen.text` (characters) padi serves `screen.image`: the terminal
+rendered to a themed PNG, the read a face that can SHOW an image makes — the
+`screen_image` MCP tool and `kolu screenshot`. `lines` bounds it to the last N
+rendered rows, capped at `SCREEN_IMAGE_MAX_ROWS` (200) and **refused** above
+that rather than clamped; omitted, it is the viewport, which only the daemon
+can resolve because only the daemon knows how tall the PTY currently is.
+
+The rendering lives on THIS side of the wire on purpose. kaval hands over
+attributed CELLS (`terminal.getScreenCells`, contract 7.1) — characters plus
+"palette 4", "rgb 0x78c8ff", "default" — and stops there, because turning
+`palette 4` into a colour needs a theme, and the theme is a **per-terminal user
+choice padi holds**. So padi is the only process that can answer, and the PTY
+host stays free of a wasm rasteriser and several megabytes of font
+(`./src/screenImage.ts`).
+
+Layout is not decided here either: `terminal-snapshot` turns grid + theme into
+flat drawing instructions, and padi merely rasterises them
+(`terminal-snapshot/png`). The browser's copy-screenshot-to-clipboard paints
+the same instructions onto a canvas — so the agent's PNG and the user's PNG are
+the same picture by construction. The fonts come from the Nix closure
+(`KOLU_SNAPSHOT_FONTS_DIR`) and are **required**: a missing font dir fails the
+call, because a screenshot in a substitute font would look plausible and be
+wrong. CJK and emoji are outside that font set and render as tofu.
+
 ## Settle events — the standing subscriptions
 
 padi already computed WHO needs attention: the `urgency` cell's `awaitingIds` (an

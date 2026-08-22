@@ -11,7 +11,9 @@ terminals with a single command. Every verb is a **pure padi client**:
 `padiSurface` already carries the union of both TUIs' needs
 (`lifecycle.create`/`sendInput`/`kill`/`resize`, `screen.text`/`history`, the
 `terminalAttach` stream, the `terminalExit` event), so verb parity costs **no
-kaval dependency** here and padi stays the only daemon a face speaks to.
+kaval dependency** here and padi stays the only daemon a face speaks to. The
+one read neither TUI ever wanted, `screen.image`, is served from the same
+place — so `kolu screenshot` is a padi client like every other verb.
 
 ```
 kolu                          print the subcommand list and exit non-zero
@@ -24,6 +26,9 @@ kolu wait <id> --until <cond> block until output settles/matches, or the agent's
                               [--settled <ms>] also require output quiet; [--snapshot N] stamp the screen
 kolu debrief <id>             the composed protocol: wait until the turn is over AND quiet, print the screen
 kolu snapshot <id> [--tail N] the terminal's rendered text — use --tail N for "what's on screen"
+kolu screenshot <id> [--lines N] [-o FILE]
+                              the same screen as a themed PNG — colours, box drawing, highlights;
+                              writes kolu-screenshot.png, or the bytes to stdout with -o -
 kolu history <id> [--lines N] the scrollback above the current screen
 kolu kill <id>                end a terminal
 kolu watch [id] [--json]      stream terminal changes and output activity
@@ -54,7 +59,7 @@ parse on **either side of the verb name**: `kolu --host box create` and
 `kolu create --host box` are one parse. A flag declared on a subcommand only
 parses after that subcommand's name — the positional straitjacket this CLI
 exists to drop. **`kolu mcp` honors all three** — `--socket` / `--state-root` /
-`--host` — exactly as the nine verbs do, because its dial resolves through the
+`--host` — exactly as the ten verbs do, because its dial resolves through the
 same `localPadiSocket` policy they do (`kolu mcp --state-root .kolu-dev/padi`
 points an agent at a dev kolu). The ONE face left with anything to refuse is
 `web`, which dials no padi at all: it **refuses** what it can't act on rather
@@ -115,7 +120,7 @@ intercepts would send a driving loop watching for a code kolu never writes.
 ## Three breaking changes
 
 1. **Bare `kolu` no longer starts the web server.** It prints the subcommand
-   list and exits non-zero, so a user picks a face explicitly. With twelve
+   list and exits non-zero, so a user picks a face explicitly. With thirteen
    subcommands, silently booting a web server for a bare invocation is a footgun
    rather than a convenience. The server is **`kolu web`**.
 2. **`kolu web --host <addr>` is now `kolu web --bind <addr>`.** `--host` is a
@@ -252,6 +257,44 @@ viewport" is not a thing this transport can express and approximating it
 client-side would be a silent lie about which lines you are looking at. The same
 shape as the MCP face's `screen_text { tail }`, so the two faces have one
 contract between them. Older-than-the-screen output is `kolu history`'s job.
+
+## `screenshot` — the picture `snapshot` flattens away
+
+```
+kolu screenshot <id> [--lines N] [-o FILE]
+      --lines   render only the last N rendered rows (1-200; default: the visible screen)
+      -o FILE   where the PNG goes (default: kolu-screenshot.png; `-` means stdout)
+```
+
+Text loses what a terminal uses to *mean* things: colour is how a test run says
+pass-vs-fail and how a diff says added-vs-removed, box drawing is what makes a
+TUI a layout rather than a wall of punctuation, and a highlighted row is what
+says "this one is selected". `kolu snapshot` throws all of it away. This keeps
+it — the same renderer the browser's copy-screenshot action and the
+`screen_image` MCP tool use, so all three faces show the same picture of the
+same terminal. `snapshot` is still the read you want by default: characters are
+cheap, greppable, and enough for "did the command finish".
+
+**The default is a FILE because stdout is data.** This CLI's scriptability
+rests on stdout being the answer and nothing else (`kolu snapshot 3f9c | grep
+MARK-`), and image bytes sprayed at a tty is the one output that can leave the
+reader's terminal broken. So the PNG is written to a file and its path reported
+on stderr; bytes reach stdout only when the caller typed `-o -` and meant it.
+
+`--lines` bounds ROWS OF THE PICTURE, which is a different question from
+`snapshot --tail`'s "how much text do I want back" — hence the different name.
+Omit it and you get the viewport, resolved daemon-side because only the daemon
+knows how tall the PTY currently is. Over-cap values are **refused**, not
+clamped: a caller who asked for 5,000 rows and was handed 200 would be looking
+at a picture that is not the answer to its question.
+
+**CJK and emoji come out as tofu.** The daemon renders from a fixed font set
+baked by Nix — Latin, box drawing, powerline/Nerd Font icons, braille spinners
+and the misc-technical glyphs an agent TUI leans on — and no CJK or emoji face,
+which would add tens of megabytes to the daemon's closure. The fonts are also
+*required*: a missing font directory crashes the render rather than quietly
+substituting a face, because a screenshot in the wrong font looks plausible and
+is wrong.
 
 ## Boundaries
 
