@@ -251,42 +251,59 @@ export async function duplexWireLink(opts: {
 
   /**
    * Did this link die because the PEER WENT QUIET, rather than because the pipe
-   * broke? Effect RPC spells those two with the same word, and here — and ONLY
-   * here — one of the two readings is impossible.
+   * broke? This docstring is the CANONICAL account of Effect's pinger for this
+   * repo — `stdioPingStall.test.ts`, `sshConnector.ts`, `errors.ts` and the
+   * surface reference page each carry one sentence and a pointer here, because
+   * this is the only code that acts on the fact.
    *
-   * `SocketOpenError{kind:"Timeout"}` has exactly two producers in Effect: a
-   * socket's `openTimeout` (a DIAL that never opened) and
-   * `makeProtocolSocket`'s own pinger (`makePinger` — a ping every 5s, and the
-   * run ends the moment a tick finds the previous ping unanswered). This
-   * function is a CLOSURE inside `duplexWireLink`, and that is load-bearing
-   * rather than tidiness: the reading below is true only because of how the
-   * socket three lines up was built — `fromDuplex` over an ALREADY-OPEN
-   * `Duplex`, with no `openTimeout` — so there is no dial on this leg to time
-   * out. Every public door into this function (`stdioLink`, `socketDuplexLink`,
-   * `unixSocketLink`) hands over an already-open duplex, and the function is
-   * package-internal, so that enumeration is closed.
+   * THE MECHANISM. `RpcClient.makeProtocolSocket` runs a pinger of its own:
+   * `makePinger` writes a ping every 5s and ends the socket run the moment a
+   * tick finds the previous ping unanswered — so 5–10s of silence is fatal, and
+   * the cadence is not a knob (`makeProtocolSocket` exposes no option for it).
+   * `heartbeat.ts`, this framework's own watchdog, is suspension-aware and would
+   * have deferred; it never gets a vote, because the lower deadline always wins.
+   * We cannot move that deadline, and we cannot retry through it (see
+   * {@link neverReconnect}, where that is MEASURED). Naming the death correctly
+   * is what is left.
    *
-   * At module scope it would be one import away from `openWireLink`'s OTHER
-   * caller — the websocket leg, whose socket comes from `Socket.makeWebSocket`
-   * and DOES apply `openTimeout ?? 10000`, minting the identical shape for a
-   * dial that genuinely never opened. Same predicate, opposite meaning. The
-   * scope is the proof; a comment would not be.
+   * THE READING. That death arrives as `SocketOpenError{kind:"Timeout"}` — the
+   * same shape a DIAL that never opened produces, and the proof that a dial is
+   * not what happened is three lines up rather than in this sentence:
+   * `fromDuplex` is handed an ALREADY-OPEN `Duplex` and is passed no
+   * `openTimeout`, so this leg has no dial to time out. Every public door into
+   * this function (`stdioLink`, `socketDuplexLink`, `unixSocketLink`) hands over
+   * an already-open duplex, and the function is package-internal, so that
+   * enumeration is closed.
    *
-   * Why bother: `SocketOpenError`'s own `message` getter renders the fixed
-   * string `timeout waiting for "open"` for both, so an established link whose
-   * peer merely got busy reported itself, verbatim, as a socket that never
-   * opened — under a suffix asserting "the peer process exited". Every word of
-   * that was wrong, and the wrongness is expensive: juspay/kolu#2101 burned an
-   * incident on a log line "indistinguishable from an unreachable box", and a
-   * later production stall (a 16-core box at load 67, its agent alive
-   * throughout and demonstrably serving a request 79ms after we declared it
-   * dead) was read the same way again. `heartbeat.ts`, this framework's own
-   * watchdog, is suspension-aware and would have deferred — but it never gets a
-   * vote, because Effect's 5s pinger is hardcoded and always fires first.
+   * That construction argument is also why this is a CLOSURE rather than a
+   * module-level helper. At module scope it would be one import away from
+   * `openWireLink`'s OTHER caller, the websocket leg, whose socket comes from
+   * `Socket.makeWebSocket` and DOES apply `openTimeout ?? 10000` — the identical
+   * shape, the opposite meaning. The scope is the proof; a comment would not be.
    *
-   * We cannot move that deadline (`makeProtocolSocket` exposes no ping cadence)
-   * and cannot retry through it (see {@link neverReconnect}). Naming the fact
-   * correctly is what is left.
+   * BETA-ASSUMPTION(rc.110): the producers of `SocketOpenError{kind:"Timeout"}` are enumerable, and `fromDuplex` adds one only when handed an `openTimeout`.
+   * Three exist, and Effect does distinguish them one field deeper than the
+   * shape — each carries its own `cause`: the pinger's `ping timeout`
+   * (`unstable/rpc/RpcClient.ts`), a WebSocket dial's `timeout waiting for
+   * "open"` (`unstable/socket/Socket.ts`), and `fromDuplex`'s own `openTimeout`
+   * arm, `Connection timed out` (`@effect/platform-node-shared/NodeSocket.ts`),
+   * which arms only when that option is passed — and this call passes none.
+   * Nothing local holds any of that: a bump that adds a producer, or gives
+   * `fromDuplex` a default `openTimeout`, inverts this predicate silently.
+   * `stdioPingStall.test.ts` is what MEASURES it.
+   *
+   * We deliberately do NOT predicate on `cause`, tempting as those three
+   * distinct strings are: an upstream rewording would silently demote us to the
+   * wrong branch, which is the fallback this repo forbids. The construction
+   * argument above is version-independent; the `cause` values are evidence for a
+   * re-verifier, not an input to the reading.
+   *
+   * Why any of this is worth the words: `SocketOpenError`'s `message` getter
+   * RENDERS the fixed `timeout waiting for "open"` for every arm, so an
+   * established link whose peer merely got busy reported itself, verbatim, as a
+   * socket that never opened — under a suffix asserting "the peer process
+   * exited". Every word of that was wrong. What it cost is written up once, in
+   * `stdioPingStall.test.ts`.
    */
   const keepAliveWentUnanswered = (error: RpcClientError): boolean =>
     error.reason._tag === "SocketOpenError" && error.reason.kind === "Timeout";
@@ -294,17 +311,30 @@ export async function duplexWireLink(opts: {
   return openWireLink({
     group: opts.group,
     protocol,
-    transportError: (failure) =>
-      new SurfaceStdioTransportClosed({
-        reason:
-          failure.kind === "disposed"
-            ? `${opts.describe} link disposed; request not sent`
-            : keepAliveWentUnanswered(failure.error)
-              ? // `describe` names the TRANSPORT (a binary on a host, a socket
-                // path, "loopback"), so the peer gets its own noun — a socket
-                // path cannot be the thing that stopped answering.
-                `the peer on ${opts.describe} stopped answering the keep-alive ping, so the link was dropped. It may still be ALIVE and merely too busy to answer within the ping deadline — this is not evidence that it exited.`
-              : `${opts.describe} transport closed (${failure.error.message}); the peer process exited or its stream ended`,
-      }),
+    // The classification is DATA (`death`); `reason` is only the sentence beside
+    // it. What each death means about the peer belongs to the literal's own
+    // docstring in `errors.ts`, so this framework mints no operator paragraph
+    // and a consumer that owns the user-facing words can brand its own.
+    transportError: (failure) => {
+      if (failure.kind === "disposed")
+        return new SurfaceStdioTransportClosed({
+          death: "disposed",
+          reason: `${opts.describe} link disposed; request not sent`,
+        });
+      if (keepAliveWentUnanswered(failure.error))
+        return new SurfaceStdioTransportClosed({
+          death: "keepAliveUnanswered",
+          // `describe` is a noun phrase naming the TRANSPORT — `padi on myhost`,
+          // `unix socket /run/padi.sock`, `loopback` — and none of those is
+          // something a peer sits "on". So it takes the LABEL position that
+          // `readiness.ts` already puts the same string in, and the peer gets
+          // its own noun after the colon.
+          reason: `${opts.describe}: the peer stopped answering the keep-alive ping`,
+        });
+      return new SurfaceStdioTransportClosed({
+        death: "streamEnded",
+        reason: `${opts.describe} transport closed (${failure.error.message}); the peer process exited or its stream ended`,
+      });
+    },
   });
 }

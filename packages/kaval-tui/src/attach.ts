@@ -33,7 +33,10 @@
  *     describe neither.
  */
 import { StringDecoder } from "node:string_decoder";
-import { isDeadTransportError } from "@kolu/surface/errors";
+import {
+  isDeadTransportError,
+  isSurfaceStdioTransportClosed,
+} from "@kolu/surface/errors";
 import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import { createTerminalResponseStripper } from "@kolu/terminal-protocol";
 import { Data, Deferred, Effect, Fiber, Queue, Stream } from "effect";
@@ -80,8 +83,16 @@ export function helpText(escapeChar: string): string {
 
 function describeError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
-  // The link's dead-transport rejection (and the rawer shapes a mid-stream
-  // socket death can surface) get the actionable copy; anything else prints
+  // A dead transport does NOT mean a dead daemon, and this is the one place
+  // kaval-tui says which it was. `death === "keepAliveUnanswered"` is a peer
+  // that stopped answering the link's keep-alive inside its deadline — it may
+  // be alive and merely too busy — so telling the operator it "went away" is
+  // precisely the misdiagnosis the framework's field exists to end. Branch on
+  // the field, never on the sentence.
+  if (isSurfaceStdioTransportClosed(err) && err.death === "keepAliveUnanswered")
+    return `the daemon stopped answering (${message}) — it may still be running and merely too busy; re-run \`kaval-tui attach\`.`;
+  // Every other dead-transport rejection (and the rawer shapes a mid-stream
+  // socket death can surface) get the went-away copy; anything else prints
   // as-is. The tagged `SurfaceStdioTransportClosed` replaced the old
   // `code === SURFACE_STDIO_TRANSPORT_CLOSED` compare (PLAN D4).
   if (

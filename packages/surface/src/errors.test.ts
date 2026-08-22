@@ -89,6 +89,47 @@ describe("surface error vocabulary", () => {
   it("refuses a foreign tag rather than silently decoding it", () => {
     expect(() => decode({ _tag: "SomeAppError", reason: "nope" })).toThrow();
   });
+
+  it("decodes a pre-`death` payload from a version-skewed peer", () => {
+    // The one property `death` had to be an OPTIONAL key for. This tag crosses a
+    // re-serve relay hop, and the peer on the far side of that hop may be a
+    // build from before the field existed — it encodes `{_tag, reason}` and
+    // nothing more. A NEW consumer decoding that payload must not fail; it must
+    // read "the producer did not classify", which is the truth about it.
+    const preUpgrade = {
+      _tag: "SurfaceStdioTransportClosed",
+      reason: "padi respawning",
+    };
+    const decoded = decode(preUpgrade);
+    expect(isSurfaceStdioTransportClosed(decoded)).toBe(true);
+    expect((decoded as SurfaceStdioTransportClosed).death).toBeUndefined();
+    // And it re-encodes to the SAME bytes — the relay hop does not invent a
+    // classification on the payload's way back out.
+    expect(JSON.stringify(encode(decoded))).toBe(JSON.stringify(preUpgrade));
+  });
+
+  it("carries `death` across the relay hop when the producer set it", () => {
+    const dead = new SurfaceStdioTransportClosed({
+      reason: "padi on myhost: the peer stopped answering the keep-alive ping",
+      death: "keepAliveUnanswered",
+    });
+    const rehydrated = decode(JSON.parse(JSON.stringify(encode(dead))));
+    expect((rehydrated as SurfaceStdioTransportClosed).death).toBe(
+      "keepAliveUnanswered",
+    );
+  });
+
+  it("refuses a `death` value outside the closed set", () => {
+    // The field is a discriminant, not free text: an unknown arm is a decode
+    // failure, never a fourth meaning smuggled in as a string.
+    expect(() =>
+      decode({
+        _tag: "SurfaceStdioTransportClosed",
+        reason: "x",
+        death: "peerOnFire",
+      }),
+    ).toThrow();
+  });
 });
 
 describe("surface error predicates", () => {

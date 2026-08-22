@@ -1,38 +1,25 @@
 /**
  * A peer that goes SILENT but is not dead — the shape that took a production
- * host down (a box at load 67 on 16 cores, its `padi --stdio` front too starved
- * to answer inside Effect RPC's ping window).
+ * host down, and the INCIDENT NARRATIVE for it. A box at load 67 on 16 cores,
+ * its `padi --stdio` front too starved to answer inside Effect RPC's ping
+ * window: the agent was alive throughout and demonstrably served a request 79ms
+ * after we had declared it dead. juspay/kolu#2101 had already burned an incident
+ * on the same reading — a log line "indistinguishable from an unreachable box".
  *
- * Effect RPC's `makeProtocolSocket` runs its own pinger, and it is not a knob:
- * `makePinger` writes a ping every 5s and ends the socket run the moment a tick
- * finds the previous ping unanswered — so 5–10s of silence is fatal, regardless
- * of what `@kolu/surface`'s own `heartbeat.ts` watchdog (15s interval, 10s
- * timeout, suspension-aware) would have decided. The lower deadline always wins.
+ * Why the death can be read as the keep-alive at all, why the deadline is not a
+ * knob, and why the link cannot be retried through are argued ONCE, in
+ * `keepAliveWentUnanswered` and `neverReconnect` in `links/wire.ts`. This file
+ * measures them rather than restating them.
  *
- * That death is reported as `SocketOpenError{kind:"Timeout"}`, whose `message`
- * getter renders the misleading `timeout waiting for "open"` — the same string a
- * failed DIAL produces. On this leg the two cannot be the same fact: `fromDuplex`
- * is handed an ALREADY-OPEN duplex and no `openTimeout`, so a `Timeout` here is
- * only ever the pinger. `wire.ts`'s `neverReconnect` is argued from the dial
- * reading ("a re-dial would re-acquire the SAME dead fds") and is applied to
- * both.
- *
- * What this file measures:
+ * What it measures:
  *
  *  1. the bytes never stop flowing permanently — the pipes are open at both ends
  *     throughout, and the server answers correctly the instant a SHORT stall
  *     lifts. Nothing here is ever a dead fd;
  *  2. a stall past the ping window nevertheless kills the link, irrecoverably;
- *  3. and the diagnosis it dies with names the keep-alive rather than claiming
- *     the peer exited — which is the part this repo can actually fix.
- *
- * On (2), the obvious fix is MEASURED not to work, and the measurement is
- * recorded in `wire.ts` beside `neverReconnect`: `retryTransientErrors: true`
- * plus a spaced schedule (what the websocket leg does) re-acquires the duplex
- * that the socket run's own scope finaliser has already destroyed, so the retry
- * dies on its first write. The link stays dead either way; only the error gets
- * worse. Moving the deadline is not available either — Effect hardcodes the
- * pinger's 5s cadence with no option to tune it.
+ *  3. and the diagnosis it dies with names the keep-alive — as DATA, on
+ *     `death` — rather than claiming the peer exited, which is the part this
+ *     repo can actually fix.
  *
  * Real time, deliberately: the pinger's cadence is hardcoded in Effect, so there
  * is no clock to fake without faking the thing under test.
@@ -167,15 +154,26 @@ describe("stdio link — a peer that is slow, not dead", () => {
       throw new Error(
         `expected the ping deadline to have killed the link, but the call answered with ${String(failure.value)}`,
       );
-    const error = failure.error as { _tag?: string; message?: string };
+    const error = failure.error as {
+      _tag?: string;
+      death?: string;
+      message?: string;
+    };
     expect(error._tag).toBe("SurfaceStdioTransportClosed");
 
-    // But the diagnosis must describe what happened. The peer never exited and
-    // its stream never ended, so neither claim may appear; and the dial-shaped
-    // `timeout waiting for "open"` is a lie about a link that was open all
-    // along and carried a successful call moments earlier.
-    expect(error.message).toContain("stopped answering the keep-alive ping");
+    // The DISCRIMINANT, not the sentence. This is the assertion that fails if
+    // the classification regresses, and it is what a consumer branches on — so
+    // the wording below stays re-writable instead of becoming load-bearing API.
+    expect(error.death).toBe("keepAliveUnanswered");
+
+    // One prose check, and it is about the LABEL rather than the diagnosis: the
+    // transport `describe` must reach the operator's line.
     expect(error.message).toContain("padi on a starved host");
+
+    // The never-claims. The peer did not exit and its stream did not end, so
+    // neither may appear; and the dial-shaped `timeout waiting for "open"` is a
+    // lie about a link that was open all along and carried a successful call
+    // moments earlier.
     expect(error.message).not.toContain('timeout waiting for "open"');
     expect(error.message).not.toContain("the peer process exited");
 

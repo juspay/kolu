@@ -50,19 +50,50 @@ export class SurfaceTransportRetired extends Schema.TaggedError<SurfaceTransport
   }
 }
 
+/** WHICH death a {@link SurfaceStdioTransportClosed} was — the discriminant, so
+ *  a consumer that puts words on a screen never has to read `reason` to tell two
+ *  of them apart. All three are permanently dead for that link and re-dialling is
+ *  the right response to each, which is why they share ONE tag; they are not the
+ *  same fact about the PEER, and reading `keepAliveUnanswered` as `streamEnded`
+ *  is the misdiagnosis kolu#2101 cost an incident on. */
+export const StdioTransportDeath = Schema.Literals([
+  /** The peer stopped answering the transport's keep-alive inside its deadline.
+   *  It may still be ALIVE and merely too busy to answer — a box under load, not
+   *  a box that exited. This is NOT evidence that it exited. (The mechanism, and
+   *  why a duplex leg may read that timeout this way at all, is argued once — in
+   *  `keepAliveWentUnanswered` in `links/wire.ts`.) */
+  "keepAliveUnanswered",
+  /** The subprocess or socket the link rode is gone: the stream ended or the
+   *  pipe broke. The far end really is unreachable. */
+  "streamEnded",
+  /** The owner released the link; the request was never sent. Nothing is known
+   *  or claimed about the peer. */
+  "disposed",
+]);
+
+/** The decoded value of {@link StdioTransportDeath}. */
+export type StdioTransportDeath = typeof StdioTransportDeath.Type;
+
 /** A stdio/unix-socket leg was CLOSED (kolu#1719). Permanently dead for that
  *  link — the owner re-dials and gets a NEW link; the dead one never heals.
  *
- *  The link being dead does NOT mean the peer is: two causes reach here and only
- *  one of them is "the subprocess or socket the link rode is gone". The other is
- *  a peer that merely stopped answering the transport's keep-alive inside its
- *  deadline — a box under load, not a box that exited. `reason` distinguishes
- *  them in words, deliberately, because reading the second as the first is the
- *  misdiagnosis kolu#2101 cost an incident on. Re-dialling is the right response
- *  to both, which is why they share one tag. */
+ *  The link being dead does NOT mean the peer is. {@link StdioTransportDeath}
+ *  carries which death it was, and each arm says what it means about the far
+ *  end; `reason` is the human sentence beside it. Code branches on `death` —
+ *  never on the prose, per this module's own header.
+ *
+ *  `death` is an OPTIONAL key for WIRE SKEW, not as a knob: this tag crosses a
+ *  re-serve relay hop, and a peer built before the field existed encodes a
+ *  payload without it. Absent therefore means exactly "the producer did not
+ *  classify" — the truth about such a payload, never a defaulted guess at one
+ *  (`errors.test.ts` pins the tolerant decode). Every producer in this tree sets
+ *  it. */
 export class SurfaceStdioTransportClosed extends Schema.TaggedError<SurfaceStdioTransportClosed>(
   "@kolu/surface/SurfaceStdioTransportClosed",
-)("SurfaceStdioTransportClosed", { reason: Schema.String }) {
+)("SurfaceStdioTransportClosed", {
+  reason: Schema.String,
+  death: Schema.optionalKey(StdioTransportDeath),
+}) {
   override get message(): string {
     return `surface stdio transport closed: ${this.reason}`;
   }

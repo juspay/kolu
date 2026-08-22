@@ -797,14 +797,15 @@ pinger kills the link ~10s later — and a consumer that reconnects on that
 retries a peer that will never speak, forever. The gate makes that blind attach
 unrepresentable rather than merely discouraged.
 
-The death itself now says which death it was. Effect renders a ping timeout as
-`SocketOpenError{kind:"Timeout"}`, whose `message` is the fixed, dial-shaped
-string `timeout waiting for "open"`; on a duplex leg that reading is impossible
-(the stream pair is handed over already open, and no `openTimeout` is set), so
-`SurfaceStdioTransportClosed` reports it as the keep-alive going unanswered and
-explicitly declines to claim the peer exited. The distinction is diagnostic, not
-behavioural — the link is dead either way, and `neverReconnect` still halts on
-the first failure.
+The death itself now says which death it was, as data:
+`SurfaceStdioTransportClosed` carries a `death` field —
+`"keepAliveUnanswered"`, `"streamEnded"` or `"disposed"` — so a consumer that
+puts words on a screen branches on the field rather than reading `reason`. A
+duplex leg reports an unanswered keep-alive as itself and explicitly declines to
+claim the peer exited. The distinction is diagnostic, not behavioural: the link
+is dead either way, and `neverReconnect` still halts on the first failure. The
+field is an optional key, so a payload from a peer built before it existed still
+decodes — absent means "the producer did not classify".
 
 | Export                                             | What it does                                                                    |
 | -------------------------------------------------- | ------------------------------------------------------------------------------- |
