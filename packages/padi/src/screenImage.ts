@@ -14,7 +14,6 @@
 
 import { getThemeByName } from "terminal-themes";
 import type { PadiScreenImageOutput } from "./surface.ts";
-import { SCREEN_IMAGE_MAX_ROWS } from "./surface.ts";
 import type { SnapshotGrid } from "terminal-snapshot";
 import { buildPngScene, sceneToPng } from "terminal-snapshot/png";
 
@@ -56,34 +55,25 @@ export interface ScreenImageInput {
   readonly label: string;
 }
 
-/** What this module hands back: the wire's own reply type, so the renderer and
- *  the schema cannot describe two different values. */
-export type ScreenImage = PadiScreenImageOutput;
-
-/** Trim a grid to the last {@link SCREEN_IMAGE_MAX_ROWS} rows.
- *
- *  Only the `viewport` capture can land here: an explicit `lines` above the
- *  cap is refused by the wire schema before it reaches this module. A terminal
- *  window genuinely taller than the cap still gets a picture — of its bottom,
- *  which is where a terminal's present tense lives — and the reply reports the
- *  row count it actually rendered, so the trim is visible to the caller rather
- *  than silent. */
-function capRows(grid: SnapshotGrid): SnapshotGrid {
-  const rows = grid.lines.length;
-  if (rows <= SCREEN_IMAGE_MAX_ROWS) return grid;
-  return {
-    cols: grid.cols,
-    lines: grid.lines.slice(rows - SCREEN_IMAGE_MAX_ROWS),
-  };
-}
-
 /** Render the grid. Rejects if the font closure is missing or the rasteriser
  *  fails — a screenshot that silently came out in the wrong font would look
- *  plausible and be wrong, which is the failure this refuses to ship. */
+ *  plausible and be wrong, which is the failure this refuses to ship.
+ *
+ *  The grid arrives already inside `SCREEN_IMAGE_MAX_ROWS` (`surface.ts`), and
+ *  this module deliberately does not re-check it. The trim happens in kaval's
+ *  `getScreenCellsFor`, where the grid is BUILT — which is the only place it
+ *  can help, because a viewport read of a 2,000-row terminal is past the RPC
+ *  frame limit and never survives the hop to be trimmed here. A second trim on
+ *  this side was unreachable code kept honest by nothing: the two ceilings are
+ *  pinned equal by `screenImage.test.ts`, which is what makes leaning on
+ *  kaval's safe.
+ *
+ *  Returns the wire's own reply type, so the renderer and the schema cannot
+ *  describe two different values. */
 export async function renderScreenImage(
   input: ScreenImageInput,
-): Promise<ScreenImage> {
-  const grid = capRows(input.grid);
+): Promise<PadiScreenImageOutput> {
+  const { grid } = input;
   // The font, the cell advance and the row height are the PNG backend's own
   // facts, applied by `buildPngScene`; what is padi's to say is the theme, the
   // caption and the type size.

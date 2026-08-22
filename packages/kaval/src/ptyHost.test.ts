@@ -12,6 +12,7 @@ import {
   getScreenText,
   HEADLESS_TERM_ID,
   type PtyHost,
+  resolveScreenExtent,
 } from "./ptyHost.ts";
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { runScopedSync, subscribeFrames } from "./streamFrame.testlib.ts";
@@ -76,28 +77,52 @@ describe("getScreenText", () => {
     expect(text).toContain("only line");
     term.dispose();
   });
+});
 
-  it("tailLines reads only the last N rendered lines", async () => {
-    const term = createTerminal({ rows: 10 });
-    await writeAndFlush(term, "line0\r\nline1\r\nline2\r\nline3\r\n");
-    // Buffer has line0..line3 then blank rows; tail of 2 painted lines yields
-    // the last two non-empty rows (and possibly trailing blanks), never line0/1.
-    const text = getScreenText(term.buffer.active, undefined, 4, 2);
-    expect(text).not.toContain("line0");
-    expect(text).not.toContain("line1");
-    expect(text).toContain("line2");
-    expect(text).toContain("line3");
-    term.dispose();
+// The bound-picking these two used to exercise through `getScreenText`'s
+// `tailLines` parameter now lives in `resolveScreenExtent`, which is where
+// BOTH screen reads — the text one and the attributed-cell one — ask what a
+// slice means. Testing it directly is testing the thing that decides.
+describe("resolveScreenExtent", () => {
+  it("resolves a tail to the last N lines of the buffer", () => {
+    expect(resolveScreenExtent(100, 24, { kind: "tail", lines: 2 })).toEqual({
+      start: 98,
+      end: 100,
+    });
   });
 
-  it("tailLines overrides startLine and clamps at 0", async () => {
-    const term = createTerminal({ rows: 5 });
-    await writeAndFlush(term, "only line\r\n");
-    // A tail larger than the buffer just yields everything (start clamps to 0),
-    // and the explicit startLine is ignored in favor of the tail.
-    const text = getScreenText(term.buffer.active, 999, undefined, 1000);
-    expect(text).toContain("only line");
-    term.dispose();
+  it("clamps a tail larger than the buffer to the whole buffer", () => {
+    expect(resolveScreenExtent(4, 24, { kind: "tail", lines: 1000 })).toEqual({
+      start: 0,
+      end: 4,
+    });
+  });
+
+  it("resolves a viewport to a tail of the live grid's own height", () => {
+    // The one bound a caller cannot compute: only the host knows how tall the
+    // PTY currently is.
+    expect(resolveScreenExtent(100, 24, { kind: "viewport" })).toEqual({
+      start: 76,
+      end: 100,
+    });
+  });
+
+  it("resolves an absent extent, and an explicit `full`, to the whole buffer", () => {
+    expect(resolveScreenExtent(100, 24)).toEqual({ start: 0, end: 100 });
+    expect(resolveScreenExtent(100, 24, { kind: "full" })).toEqual({
+      start: 0,
+      end: 100,
+    });
+  });
+
+  it("clamps an out-of-bounds range rather than reading past the buffer", () => {
+    expect(
+      resolveScreenExtent(10, 24, {
+        kind: "range",
+        startLine: -5,
+        endLine: 1000,
+      }),
+    ).toEqual({ start: 0, end: 10 });
   });
 });
 

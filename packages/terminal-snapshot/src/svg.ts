@@ -89,11 +89,10 @@ export function sceneToSvg(scene: SnapshotScene): string {
     );
   }
 
-  // Terminal body: its own background, then the cell backgrounds that differ
-  // from it, then the glyphs.
-  parts.push(
-    `<rect x="${n(scene.term.x)}" y="${n(scene.term.y)}" width="${n(scene.term.w)}" height="${n(scene.term.h)}" fill="${scene.term.fill}"/>`,
-  );
+  // Terminal body: the cell backgrounds that differ from the terminal
+  // background, then the glyphs. The body's own background needs no rect —
+  // it IS the window background (one `theme.bg`, not two agreeing values),
+  // already painted over the whole rounded rect above.
   for (const r of scene.rects) {
     parts.push(
       `<rect x="${n(r.x)}" y="${n(r.y)}" width="${n(r.w)}" height="${n(r.h)}" fill="${r.fill}"/>`,

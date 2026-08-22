@@ -103,16 +103,16 @@ export const HEADLESS_TERM_ID = "xterm-headless(kolu)";
 /** Opaque PTY identifier. */
 export type PtyId = string;
 
-/** Extract plain text from an xterm buffer within a line range.
+/** Extract plain text from an xterm buffer within a line range, clamped to
+ *  what the buffer actually holds.
  *
- *  `tailLines` is a convenience for "the last N rendered lines": it pins
- *  `startLine` to `buffer.length - tailLines` (clamped at 0), the only place
- *  the live buffer length is known. Screen-scrape detectors that inspect only
- *  the screen bottom pass it so a long scrollback (the configured 50k lines)
- *  isn't allocated, joined, and shipped every poll just to be discarded. This
- *  positional leaf is the single translation target for {@link ScreenExtent};
- *  callers above pick exactly one bound, so `startLine` and `tailLines` never
- *  arrive together. */
+ *  A pure range read and nothing else. It used to take a `tailLines` shortcut
+ *  as well — "the last N rendered lines", resolved against the live buffer
+ *  length — from when this was the single translation target for
+ *  {@link ScreenExtent}. {@link resolveScreenExtent} is that target now, and it
+ *  resolves a tail (and a viewport) into exactly this `[start, end)` before
+ *  calling here, so the parameter had no production caller left: two ways to
+ *  say one bound, one of them reachable only from a test. */
 export function getScreenText(
   buffer: {
     length: number;
@@ -122,12 +122,9 @@ export function getScreenText(
   },
   startLine?: number,
   endLine?: number,
-  tailLines?: number,
 ): string {
   const end = Math.min(buffer.length, endLine ?? buffer.length);
-  const tailStart =
-    tailLines === undefined ? startLine : end - Math.max(0, tailLines);
-  const start = Math.max(0, tailStart ?? 0);
+  const start = Math.max(0, startLine ?? 0);
   const lines: string[] = [];
   for (let i = start; i < end; i++) {
     lines.push(buffer.getLine(i)?.translateToString(true) ?? "");
@@ -215,18 +212,11 @@ export interface PtyHandle {
    *  slice (range / tail / viewport); omit it for the full buffer (scrollback +
    *  viewport). See {@link ScreenExtent}. */
   getScreenText(extent?: ScreenExtent): string;
-  /** The same slice as {@link getScreenText}, but as ATTRIBUTED cells —
-   *  characters plus the colours and bold/italic/inverse the VT stream asked
-   *  for. The read a picture is rendered from.
-   *
-   *  Deliberately stops at "what the escape sequences said" and does not
-   *  resolve a colour to a pixel: `palette 4` becomes a theme colour only
-   *  once someone knows WHICH theme, and this mirror doesn't — kolu's themes
-   *  are a per-terminal user choice held by padi. Handing out raw attributes
-   *  is what keeps the PTY host out of the rendering business entirely.
-   *
-   *  Omit `extent` for the viewport — the slice a screenshot means. */
-  getScreenCells(extent?: ScreenExtent): SnapshotGrid;
+  /* Deliberately NO `getScreenCells` twin of the read above. The attributed
+   * read has exactly one consumer — the wire handler in `inProcessPtyHost`,
+   * which holds the host and the id already — so a facade member for it was a
+   * method nothing called, carrying a full docstring that read as API. The
+   * host's {@link PtyHost.getScreenCells} is the one entry point. */
 }
 
 /** What a caller hands the host to spawn a PTY. Env/shell prep is the
@@ -577,10 +567,17 @@ export interface PtyHost {
    *  to one slice (range / tail / viewport); omit it for the full buffer. See
    *  {@link ScreenExtent}. */
   getScreenText(id: PtyId, extent?: ScreenExtent): string;
-  /** Attributed cells for the screen slice a picture is drawn from, or
-   *  `undefined` if the PTY is gone — a gone terminal has no screen, it does
-   *  not have a blank one. Omit `extent` for the viewport. See
-   *  {@link PtyHandle.getScreenCells}. */
+  /** Attributed cells for the screen slice a picture is drawn from — the same
+   *  slice {@link getScreenText} returns, as characters plus the colours and
+   *  bold/italic/inverse the VT stream asked for. `undefined` if the PTY is
+   *  gone: a gone terminal has no screen, it does not have a blank one. Omit
+   *  `extent` for the viewport, which is what a screenshot means.
+   *
+   *  Deliberately stops at "what the escape sequences said" and does not
+   *  resolve a colour to a pixel: `palette 4` becomes a theme colour only once
+   *  someone knows WHICH theme, and this mirror doesn't — kolu's themes are a
+   *  per-terminal user choice held by padi. Handing out raw attributes is what
+   *  keeps the PTY host out of the rendering business entirely. */
   getScreenCells(id: PtyId, extent?: ScreenExtent): SnapshotGrid | undefined;
   /** Serialize the older-history chunk of up to `max` rows sitting immediately
    *  ABOVE absolute mirror line `before` — the backfill read the client pages as
@@ -1471,14 +1468,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       resize: (cols, rows) => resize(id, cols, rows),
       getScreenState: () => getScreenState(id),
       getScreenText: (extent) => getScreenTextFor(id, extent),
-      getScreenCells: (extent) => {
-        const grid = getScreenCellsFor(id, extent);
-        // A handle is only reachable while its PTY is alive, so an absent grid
-        // is a contradiction rather than a case to serve — it fails loud with
-        // the same error every other vanished-entry read raises.
-        if (!grid) throw new PtyNotFound({ id });
-        return grid;
-      },
     };
   }
 

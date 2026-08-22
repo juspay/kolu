@@ -216,12 +216,16 @@ function mix(a: string, b: string, ratio: number): string {
   return `rgb(${at("r")},${at("g")},${at("b")})`;
 }
 
-/** A filled rectangle in scene (window) coordinates. */
-export interface SceneRect {
+/** A rectangle in scene (window) coordinates. */
+export interface SceneBox {
   readonly x: number;
   readonly y: number;
   readonly w: number;
   readonly h: number;
+}
+
+/** A box with a colour to fill it with. */
+export interface SceneRect extends SceneBox {
   readonly fill: string;
 }
 
@@ -275,11 +279,14 @@ export interface SnapshotScene {
   readonly width: number;
   readonly height: number;
   readonly radius: number;
+  /** The font both backends draw every glyph with. Deliberately only the two
+   *  facts a backend still needs at DRAW time: the cell advance and the row
+   *  height are layout inputs, and every position they produce is already
+   *  absolute in the boxes and glyphs below — carrying them out again would be
+   *  a second, unread authority for numbers the scene has already spent. */
   readonly font: {
     readonly family: string;
     readonly size: number;
-    readonly cellW: number;
-    readonly cellH: number;
   };
   readonly window: {
     readonly bg: string;
@@ -301,8 +308,15 @@ export interface SnapshotScene {
     readonly brand: SceneText;
     readonly dots: readonly SceneDot[];
   };
-  /** The terminal grid's own box within the window. */
-  readonly term: SceneRect;
+  /** The terminal grid's own box within the window.
+   *
+   *  Geometry with no fill, deliberately. The terminal background and the
+   *  window background are not two decisions that happen to agree — they are
+   *  ONE value (`theme.bg`) read twice, so a `fill` here made both backends
+   *  repaint a region the window fill had already painted that exact colour.
+   *  The box stays because where the grid sits is a real answer this layout
+   *  gives; the redundant paint does not. */
+  readonly term: SceneBox;
   /** Cell backgrounds — only those that differ from the terminal background,
    *  so a plain screen emits none. */
   readonly rects: readonly SceneRect[];
@@ -433,7 +447,7 @@ export function buildScene(input: SceneInput): SnapshotScene {
     // reason a cell's characters do: they are strings a backend will draw or
     // write into a document, and the scene is where "what can be painted" is
     // settled — not in whichever backend happens to be strict about it.
-    font: { family: paintable(fontFamily), size: fontSize, cellW, cellH },
+    font: { family: paintable(fontFamily), size: fontSize },
     window: {
       bg: theme.bg,
       border,
@@ -460,7 +474,7 @@ export function buildScene(input: SceneInput): SnapshotScene {
       },
       dots,
     },
-    term: { x: termX, y: termY, w: termW, h: termH, fill: theme.bg },
+    term: { x: termX, y: termY, w: termW, h: termH },
     rects,
     glyphs,
   };

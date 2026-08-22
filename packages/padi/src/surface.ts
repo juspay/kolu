@@ -1339,8 +1339,13 @@ export const SCREEN_IMAGE_LINES_CHECKS = [
   Schema.isLessThanOrEqualTo(SCREEN_IMAGE_MAX_ROWS),
 ] as const;
 
-/** The same rule as a ready-made schema, for a face with nothing to annotate. */
-export const ScreenImageLinesSchema = Schema.Number.check(
+/** The same rule as a ready-made schema, for a face with nothing to annotate —
+ *  which today is only this module's own `screen.image` input. Module-private
+ *  rather than exported: a face that has something to annotate must spread
+ *  {@link SCREEN_IMAGE_LINES_CHECKS} onto its own base node instead (the
+ *  annotate-first law `screenText.ts` states at length), so an export here
+ *  would be an invitation to get that wrong. */
+const ScreenImageLinesSchema = Schema.Number.check(
   ...SCREEN_IMAGE_LINES_CHECKS,
 );
 

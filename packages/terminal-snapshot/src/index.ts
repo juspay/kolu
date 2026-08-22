@@ -9,11 +9,15 @@
  *  font files — lives behind `terminal-snapshot/png`, which only the daemon
  *  imports. */
 
+/*  What leaves this package is what a consumer outside it actually reads —
+ *  the wire vocabulary kaval and padi mirror, the two entry points, and the
+ *  scene the backends execute. The palette resolver, the row-height ratio and
+ *  the individual drawing-instruction shapes are the layout's own working
+ *  parts: re-exporting them advertised a surface no caller ever asked for, and
+ *  every name in a barrel is a name someone can start depending on. */
 export {
-  DEFAULT_COLOR,
   type CellColor,
   type ReadableBuffer,
-  type ReadableCell,
   readGrid,
   type SnapshotCell,
   type SnapshotGrid,
@@ -21,16 +25,10 @@ export {
 } from "./cell.ts";
 export {
   buildScene,
-  CELL_HEIGHT_RATIO,
   cellHeight,
   CHROME,
-  type ResolvedTheme,
-  resolveTheme,
-  type SceneDot,
   type SceneGlyph,
   type SceneInput,
-  type SceneRect,
-  type SceneText,
   type SnapshotScene,
 } from "./scene.ts";
 export { sceneToSvg } from "./svg.ts";

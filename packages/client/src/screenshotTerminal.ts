@@ -186,11 +186,11 @@ function paintScene(
   ctx.textAlign = "start";
   ctx.textBaseline = "alphabetic";
 
-  // Terminal body: its own background, then the cell backgrounds that differ
-  // from it, then the glyphs. All three are already in absolute scene
-  // coordinates — no translate, no per-cell arithmetic.
-  ctx.fillStyle = scene.term.fill;
-  ctx.fillRect(scene.term.x, scene.term.y, scene.term.w, scene.term.h);
+  // Terminal body: the cell backgrounds that differ from the terminal
+  // background, then the glyphs — both already in absolute scene coordinates,
+  // so no translate and no per-cell arithmetic. The body's own background
+  // needs no fill: it IS the window background (one `theme.bg`, not two
+  // agreeing values), already painted over the whole rounded rect above.
   for (const rect of scene.rects) {
     ctx.fillStyle = rect.fill;
     ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
