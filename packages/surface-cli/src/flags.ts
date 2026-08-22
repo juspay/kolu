@@ -362,7 +362,18 @@ export function flagsOf(
   for (const name of positional) {
     const node = (properties[name] ?? {}) as JsonSchema;
     config[name] = optionalArgument(
-      describe(argumentFor(name, node), node, required.has(name), defaults),
+      // `defaults.get(name)`, not `defaults` — the flag arm below always passed
+      // the value and this arm passed the whole Map, which is never `undefined`
+      // and which `JSON.stringify` renders `{}`. So EVERY positional advertised
+      // itself `(default: {})`: a help line whose whole job is to carry the two
+      // facts the parser no longer does, telling the reader they could omit an
+      // argument that is in fact required.
+      describe(
+        argumentFor(name, node),
+        node,
+        required.has(name),
+        defaults.get(name),
+      ),
     );
   }
   for (const name of fields) {

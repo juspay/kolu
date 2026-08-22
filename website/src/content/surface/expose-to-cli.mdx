@@ -77,6 +77,18 @@ Which faces your binary offers is your decision, so the adapter hands back
 values and runs nothing. Your `Command.run` is already the run edge; there is no
 `runSurfaceCli` to learn.
 
+**Do not skip the catch, and catch the CAUSE.** Every failure this face raises
+carries its own line and its own exit code, and marks itself already-reported so
+Effect's cause dump does not print on top of it — which means a host that
+re-fails without writing `runEdge`'s `stderr` exits with the right code and says
+*nothing at all*. A refusal from the CLI *library* (a rejected flag, an unknown
+subcommand) carries no code of ours until `runEdge` gives it one. And a **defect**
+is not a failure, so `Effect.catch` never sees one and the runtime reports it
+through the default logger — onto **stdout**, in the middle of your data. Those
+few lines are what make the
+[exit matrix](/surface/ref-surface-cli#exit-codes) true of your binary rather
+than only of this package's own failures.
+
 <Aside type="note" title="Where the endpoint flags live is your decision — but pick ONE">
   As written above, `surfaceCommands` merges your endpoint flags into every
   command it generates, so `example proc_kill 4321 --socket /run/x.sock` parses.
@@ -121,18 +133,25 @@ The two facts a script needs are the shape of the output and the exit code.
 
 An absent collection item is a **successful read** whose answer says so, not a
 failure — the read genuinely happened, and "not there" is what it found — so
-branch on the payload and keep the exit code for the things that are not answers:
+branch on the payload and keep the exit code for the things that are not answers.
+
+Branch on `why`, not on `present` alone: an absence is one of **two** answers,
+and only one of them is evidence. `"absent"` is a fact about the *item* —
+membership said it is not there. `"deadline"` is a fact about the *read* — it ran
+out of time, which a quiet producer or a collection with no key set can cause
+while the item is perfectly alive. A script that reaps on absence must act on the
+first and never on the second:
 
 ```sh
 if ! proc=$(example get processes 4321); then
   [ "$?" -eq 3 ] && echo "nothing serving — is the daemon up?" >&2
   exit 1
 fi
-if [ "$(jq -r '.present // "yes"' <<<"$proc")" = "false" ]; then
-  echo "4321 is gone"
-else
-  echo "still running: $(jq -r .command <<<"$proc")"
-fi
+case "$(jq -r '.why // "present"' <<<"$proc")" in
+  present)  echo "still running: $(jq -r .command <<<"$proc")" ;;
+  absent)   echo "4321 is gone" ;;
+  deadline) echo "could not tell in time — not treating 4321 as gone" >&2 ;;
+esac
 ```
 
 ## Where to go next

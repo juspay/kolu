@@ -282,14 +282,22 @@ describe("the command table", () => {
     expect(table.verbs.find((verb) => verb.name === "echo")?.source).toBe(
       "bespoke",
     );
-    expect(table.resources).toEqual(
-      expect.arrayContaining([
-        { name: "load", kind: "cell" },
-        { name: "processes", kind: "collection" },
-        { name: "nodeLog", kind: "stream" },
-        { name: "autosave", kind: "event" },
-      ]),
-    );
+    // EXACT, not `arrayContaining`: a member silently dropped from the
+    // projection is precisely what this table is for, and a containment
+    // assertion cannot see one go missing.
+    expect(
+      [...table.resources].sort((a, b) => a.name.localeCompare(b.name)),
+    ).toEqual([
+      { name: "autosave", kind: "event" },
+      { name: "load", kind: "cell" },
+      { name: "mounts", kind: "collection" },
+      { name: "nodeLog", kind: "stream" },
+      { name: "processes", kind: "collection" },
+      { name: "ticks", kind: "stream" },
+      // Offered by the CLI and WITHHELD by the served face — the two gates are
+      // separate decisions, and this table is the CLI's.
+      { name: "withheld", kind: "cell" },
+    ]);
     // The advertised input is the SAME document the MCP face publishes.
     expect(
       table.verbs.find((verb) => verb.name === "proc_count")?.input,
@@ -345,10 +353,16 @@ describe("the flag shapes a verb's input projects to", () => {
     const bad = await run(["proc_kill", "42", "--signal", "HUP"], {
       socket: deadSocket,
     });
-    // The library's own parse refusal — exit 1 is the host's arm for
-    // "already on screen", and what matters is that it never left the process.
-    expect(bad.code).not.toBe(EXIT.ok);
-    expect(`${bad.stdout}${bad.stderr}`).toContain("HUP");
+    // The library's own parse refusal, which `runEdge` maps onto THIS face's
+    // usage arm — the whole reason `runEdge` exists, so the matrix is true of a
+    // binary and not only of the failures this package raises itself.
+    expect(bad.code).toBe(EXIT.usage);
+    // Effect CLI renders its own refusals: the reason on stderr, and the usage
+    // document on STDOUT. That is the one documented exception to "stdout is
+    // data", and it is the library's, not this face's — pinned so a change in
+    // either direction is seen.
+    expect(bad.stderr).toContain("HUP");
+    expect(bad.stdout).not.toBe("");
   });
 
   it("takes the whole input as JSON, and from stdin with `-`", async () => {
@@ -416,7 +430,7 @@ describe("the flag shapes a verb's input projects to", () => {
     const nope = await run(["proc_kill", "7", "--trace", "nope"], {
       socket: deadSocket,
     });
-    expect(nope.code).not.toBe(EXIT.ok);
+    expect(nope.code).toBe(EXIT.usage);
     expect(`${nope.stdout}${nope.stderr}`).toContain("trace");
   });
 
@@ -822,6 +836,48 @@ describe("`--json` means ONE thing across the mounted command set", () => {
     expect(help.stdout).not.toContain("--json");
 
     const refused = await run(["list", "--json", "{}"], { socket: deadSocket });
-    expect(refused.code).not.toBe(EXIT.ok);
+    expect(refused.code).toBe(EXIT.usage);
+  });
+});
+
+describe("a member's own refusal is not an unreachable endpoint", () => {
+  it("reports a SERVER refusal on the verb's arm, not on the endpoint's", async () => {
+    // The two gates are separate decisions: `withheld` is on the CLI's table and
+    // off the served face's, so a user can type it and the server says no. That
+    // refusal is the far side ANSWERING — exit 1, the verb's own arm — and not
+    // exit 3, the code that tells a driver to try a different socket.
+    //
+    // The one-shot arm used to catch the whole failure channel of
+    // `firstFrameOrThrow` and re-word every failure as a dropped link, so this
+    // came back as `demo: no surface at …` while the SAME refusal under
+    // `--follow` reported correctly. One member, two answers, decided by a flag.
+    const refused = await run(["get", "withheld"]);
+    expect(refused.code).toBe(EXIT.failed);
+    expect(refused.stdout).toBe("");
+    expect(refused.stderr).not.toContain("no surface at");
+
+    // And the two readings agree, which is the property that broke.
+    const followed = await run(["get", "withheld", "--follow"]);
+    expect(followed.code).toBe(EXIT.failed);
+  });
+
+  it("still reports a dead endpoint as exit 3", async () => {
+    // The arm that survives: nothing serving is still the endpoint's fault.
+    const dead = await run(["get", "load"], { socket: deadSocket });
+    expect(dead.code).toBe(EXIT.unreachable);
+    expect(dead.stderr).toContain("no surface at");
+  });
+});
+
+describe("a help line carries the two facts the parser no longer does", () => {
+  it("marks a required positional required, and invents no default for it", async () => {
+    // Every positional was advertised `(default: {})`: the whole `defaults` Map
+    // was passed where the value belonged, and a Map is never undefined and
+    // stringifies to `{}`. The line whose entire job is to carry requiredness and
+    // defaults was telling the reader they could omit a required argument.
+    const help = await run(["proc_kill", "--help"], { socket: deadSocket });
+    expect(help.code).toBe(EXIT.ok);
+    expect(help.stdout).toContain("(required)");
+    expect(help.stdout).not.toContain("(default:");
   });
 });

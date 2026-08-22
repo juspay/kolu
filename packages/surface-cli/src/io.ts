@@ -47,8 +47,7 @@
  */
 
 import { messageOf } from "@kolu/surface/errors";
-import { Cause, Effect, Result, Stdio, Stream } from "effect";
-import { EXIT, SurfaceCliFailure } from "./exit";
+import { Cause, Data, Effect, Result, Stdio, Stream } from "effect";
 
 /** Did the consumer hang up (`… | head -1`), or did the write genuinely fail?
  *
@@ -141,18 +140,26 @@ function json(value: unknown, indent: boolean): string {
  *
  *  A read that FAILS is not an empty payload. Collapsing the two reported "that
  *  is not JSON" for a descriptor that was never readable — blaming a payload
- *  nobody supplied — so the failure keeps its own words. */
-export const readStdin: Effect.Effect<string, SurfaceCliFailure, Stdio.Stdio> =
+ *  nobody supplied — so the failure keeps its own words.
+ *
+ *  It fails with a {@link StdinUnreadable} rather than with a worded failure,
+ *  because THIS module does not know the binary's name and every diagnostic this
+ *  face writes wears it. A module that built the sentence anyway produced the one
+ *  line in the whole face with no `demo: ` in front of it. The caller, which has
+ *  the name, words it. */
+export const readStdin: Effect.Effect<string, StdinUnreadable, Stdio.Stdio> =
   Effect.gen(function* () {
     const stdio = yield* Stdio.Stdio;
     return yield* Effect.catch(
       Stream.decodeText(stdio.stdin).pipe(Stream.mkString),
-      (cause) =>
-        Effect.fail(
-          new SurfaceCliFailure({
-            stderr: `could not read stdin for --json -: ${messageOf(cause)}\n`,
-            code: EXIT.usage,
-          }),
-        ),
+      (cause) => Effect.fail(new StdinUnreadable({ why: messageOf(cause) })),
     );
   });
+
+/** Stdin could not be read at all — a revoked descriptor, not an empty payload.
+ *
+ *  A VALUE, carrying only `why`: the sentence in front of it is the binary's
+ *  name, which this module has no way to know (see {@link readStdin}). */
+export class StdinUnreadable extends Data.TaggedError("StdinUnreadable")<{
+  readonly why: string;
+}> {}

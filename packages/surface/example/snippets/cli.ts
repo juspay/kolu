@@ -20,12 +20,13 @@ import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
 import type { SurfaceVerb } from "@kolu/surface/verbs";
 import {
   type EndpointSeam,
+  runEdge,
   type SurfaceCliConnection,
   surfaceCommands,
 } from "@kolu/surface-cli";
 import { Command, Flag } from "effect/unstable/cli";
 // #endregion imports
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { surface } from "./surface";
 
 // #region endpoint
@@ -112,7 +113,29 @@ const commands = surfaceCommands({
 // #region mount
 // The host binary mounts them beside its own faces and keeps the run edge —
 // `surfaceCommands` returns values and runs no program.
-export const cli = Command.make("example").pipe(
+//
+// The catch is not optional garnish: it is what makes the published exit matrix
+// true of a real binary. Every failure this face raises carries
+// `Runtime.errorReported = false` (its line is its own, and Effect's pretty cause
+// dump on top would be noise), so a host that re-fails without writing
+// `runEdge`'s `stderr` exits with the right code and says NOTHING. And a refusal
+// from the CLI *library* — a rejected flag, an unknown subcommand — carries no
+// code of ours at all until `runEdge` gives it one.
+const root = Command.make("example").pipe(
   Command.withSubcommands([...commands]),
+);
+
+export const cli = Command.run(root, { version: "1.0.0" }).pipe(
+  // `catchCause`, not `catch`: a DEFECT is not a failure, so `catch` never sees
+  // one — and the runtime then reports it itself, through the default logger,
+  // which writes to STDOUT and drops a log line into the data channel. Catching
+  // the CAUSE puts every arm through one door. An INTERRUPT passes through
+  // untouched: that is Ctrl-C, and 130 is the runtime's own teardown.
+  Effect.catchCause((cause) => {
+    if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+    const { stderr, failure } = runEdge("example", Cause.squash(cause));
+    if (stderr !== "") process.stderr.write(stderr);
+    return Effect.fail(failure);
+  }),
 );
 // #endregion mount

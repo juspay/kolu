@@ -94,7 +94,14 @@ const KillArgs = Schema.Struct({
 });
 
 export const surface = defineSurface({
-  cells: { load: { schema: Load, default: ZERO } },
+  cells: {
+    load: { schema: Load, default: ZERO },
+    // Offered by the CLI's map, WITHHELD by the served face (see `SERVED`). The
+    // two gates are separate decisions by design, so this is a member a user can
+    // type and the server refuses — and the refusal is the far side ANSWERING,
+    // which must not be reported as an unreachable endpoint.
+    withheld: { schema: Schema.String, default: "never seen" },
+  },
   collections: {
     processes: {
       keySchema: Pid,
@@ -147,6 +154,7 @@ export const EXPOSE = {
   mounts: "resource",
   nodeLog: "resource",
   ticks: "resource",
+  withheld: "resource",
   autosave: "resource",
   "proc.kill": "tool",
   "proc.count": { tool: { mutates: false } },
@@ -188,7 +196,10 @@ const TABLE = new Map<number, typeof Proc.Type>([
 export function buildRuntime() {
   const table = new Map(TABLE);
   return implementSurface(surface, {
-    cells: { load: { store: inMemoryStore(ZERO) } },
+    cells: {
+      load: { store: inMemoryStore(ZERO) },
+      withheld: { store: inMemoryStore("never seen") },
+    },
     collections: {
       processes: {
         readAll: () => table,
@@ -239,7 +250,23 @@ export function buildRuntime() {
   });
 }
 
-/** Serve the fixture on `socketPath`, with the agent face's own exposure — the
+/** What the SERVED face allows — deliberately NARROWER than {@link EXPOSE}, the
+ *  CLI's own table. The two gates are separate decisions (a client's table is
+ *  ergonomics; the serving face's is the gate), and `withheld` is the member that
+ *  proves it: the CLI offers it, the server refuses it, and the refusal has to
+ *  read as the far side answering rather than as nothing being there. */
+export const SERVED = {
+  load: "resource",
+  processes: "resource",
+  mounts: "resource",
+  nodeLog: "resource",
+  ticks: "resource",
+  autosave: "resource",
+  "proc.kill": "tool",
+  "proc.count": { tool: { mutates: false } },
+} satisfies ExposeMap<typeof surface.spec>;
+
+/** Serve the fixture on `socketPath`, with the served face's own exposure — the
  *  second gate, so a test proves the CLI's table and the server's are separate
  *  decisions. */
 export async function serveFixture(
@@ -254,7 +281,7 @@ export async function serveFixture(
     socketPath,
     group: runtime.group,
     handlers: runtime.handlers,
-    expose: exposeFace(surface, EXPOSE),
+    expose: exposeFace(surface, SERVED),
     log,
   });
   return { listener, runtime };

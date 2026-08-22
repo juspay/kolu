@@ -297,7 +297,25 @@ const alreadyRendered = (error: unknown): boolean =>
  *
  *  Everything else keeps its own verdict: a {@link SurfaceCliFailure} carries
  *  the exact line it means and the code that goes with it, and an arbitrary
- *  defect is reported in the same one-line shape rather than vanishing. */
+ *  defect is reported in the same one-line shape rather than vanishing.
+ *
+ *  ## Catch the CAUSE, not the failure — and why "stdout is data" depends on it
+ *
+ *  A host must reach this through `Effect.catchCause` + `Cause.squash`, not
+ *  `Effect.catch`. A DEFECT is not a failure, so `catch` never sees one — and
+ *  the runtime then reports it itself, on the main fiber, through the default
+ *  logger, which writes to STDOUT. That drops a log line into the middle of the
+ *  data channel a script is reading, and the case is not exotic: the server's
+ *  own per-request refusal crosses the wire as a defect whenever the SERVING
+ *  face withholds a member this face's map offers, which is the two-gates
+ *  arrangement working exactly as designed.
+ *
+ *  Two rules come with it, both in `host.fixture.ts`, which is the smallest
+ *  honest example of the whole edge: an INTERRUPT passes through untouched (that
+ *  is Ctrl-C, and its 130 is the runtime's own teardown reading an
+ *  interrupts-only cause), and the runtime's error REPORTING is disabled,
+ *  because the line is already written here and Effect's would be a second,
+ *  differently-worded copy of it — on stdout. */
 export function runEdge(
   binary: string,
   error: unknown,

@@ -84,6 +84,7 @@ import {
 import {
   firstFrameOfCollectionItem,
   firstFrameOrThrow,
+  isNoSnapshotFrame,
   ITEM_READ_DEADLINE_MS,
 } from "@kolu/surface/first-frame";
 import {
@@ -94,7 +95,7 @@ import {
   toolName,
 } from "@kolu/surface/verbs";
 import type { Stdio } from "effect";
-import { Cause, Effect, Option, Schema, Stream } from "effect";
+import { Cause, Effect, Option, Result, Schema, Stream } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import {
   classify,
@@ -104,7 +105,12 @@ import {
   unresolvable,
   usage,
 } from "./exit";
-import { flagsOf, type InputProjection, SurfaceCliBuildError } from "./flags";
+import {
+  flagsOf,
+  type InputProjection,
+  JSON_FLAG,
+  SurfaceCliBuildError,
+} from "./flags";
 import { data, frame, present, readStdin } from "./io";
 
 /** A live connection this face owns for the length of ONE command.
@@ -487,7 +493,22 @@ function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
     // pre-flight question this caller could forget to ask. A verb that did not
     // ask never touches the descriptor, so nothing hangs waiting on a terminal
     // nobody typed into.
-    const assembled = yield* verb.projection.assemble(values, readStdin);
+    // `readStdin` fails with a VALUE — it does not know the binary's name. This
+    // is where the name is, so this is where the sentence is written: one
+    // constructor and one prefix, like every other usage arm. (It read
+    // `could not read stdin …` with nothing in front of it, the only line in the
+    // face without the binary's name on it.)
+    const assembled = yield* Effect.catchTag(
+      verb.projection.assemble(values, readStdin),
+      "StdinUnreadable",
+      (unreadable) =>
+        Effect.fail(
+          usage(
+            opts.info.name,
+            `could not read stdin for --${JSON_FLAG} -: ${unreadable.why}`,
+          ),
+        ),
+    );
     if (!assembled.ok) {
       return yield* Effect.fail(usage(opts.info.name, assembled.because));
     }
@@ -499,16 +520,21 @@ function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
     const encoded = assembled.input;
     let decoded: unknown = encoded;
     if (verb.schema !== undefined) {
-      const result = Schema.decodeUnknownOption(verb.schema)(encoded);
-      if (Option.isNone(result)) {
+      // `Result`, not `Option`: the whole point of decoding HERE is that a typo
+      // is a local usage error "from the same taxonomy the server would have
+      // used", and the taxonomy is IN the parse failure — which field, which
+      // check. Discarding it left the user reading back the blob they had just
+      // typed, with nothing said about what was wrong with it.
+      const result = Schema.decodeUnknownResult(verb.schema)(encoded);
+      if (Result.isFailure(result)) {
         return yield* Effect.fail(
           usage(
             opts.info.name,
-            `${verb.name}: this input does not match what the verb declares — ${JSON.stringify(encoded)}`,
+            `${verb.name}: this input does not match what the verb declares — ${messageOf(result.failure)}`,
           ),
         );
       }
-      decoded = result.value;
+      decoded = result.success;
     }
 
     const output = yield* withConnection(opts, values, (client) =>
@@ -936,17 +962,28 @@ function readStream(
   return Effect.flatMap(
     // An empty open is a DROPPED LINK, not a refusal: every snapshot-then-deltas
     // member opens with its current value, so a member that opened and closed
-    // saying nothing is the endpoint going away mid-read. `firstFrameOrThrow`
-    // says so with a bare `Error`, which the matrix would otherwise read as the
-    // verb's own answer and report as exit 1 — the one code that means the far
-    // side spoke. Said as a VALUE the one classifier knows: it words it as the
-    // exit-3 arm, beside the failed dial it is the same event as.
+    // saying nothing is the endpoint going away mid-read. Said as a VALUE the one
+    // classifier knows, so it words it as the exit-3 arm — beside the failed dial
+    // it is the same event as.
+    //
+    // ONLY that one, and by its TAG. This used to catch the whole failure channel
+    // and re-word it, and `firstFrameOrThrow` fails on the stream's OWN error too
+    // — so a member's DECLARED refusal came back as "no surface at …" on exit 3,
+    // the code that tells a driver to try a different socket. The same refusal
+    // under `--follow` reported correctly, because that arm never wrapped: one
+    // member, two answers, decided by a flag. Everything that is not the empty
+    // open now falls through to `classify`, exactly as the follow arm's does.
     Effect.catch(
       firstFrameOrThrow(
         stream,
         `"${member}" opened and closed without a snapshot frame`,
       ),
-      (error) => Effect.fail(new LinkDropped({ detail: messageOf(error) })),
+      (error) =>
+        Effect.fail(
+          isNoSnapshotFrame(error)
+            ? new LinkDropped({ detail: error.message })
+            : error,
+        ),
     ),
     (value) => data(value),
   );
@@ -982,8 +1019,15 @@ function readCollectionItem(
         ITEM_READ_DEADLINE_MS,
       ),
       // A PRESENT item that opened and said nothing is the link going away, the
-      // same event as a failed dial — exit 3, not the verb's own refusal.
-      (error) => Effect.fail(new LinkDropped({ detail: messageOf(error) })),
+      // same event as a failed dial — exit 3, not the verb's own refusal. Only
+      // THAT, by its tag: the item and membership streams carry their own error
+      // channels, and a declared refusal on either is the far side answering.
+      (error) =>
+        Effect.fail(
+          isNoSnapshotFrame(error)
+            ? new LinkDropped({ detail: error.message })
+            : error,
+        ),
     ),
     (found) =>
       found.present
@@ -1117,7 +1161,18 @@ function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
   const resolved = Effect.catchCause(
     Effect.suspend(() => opts.endpoint.resolve(values as FlagValues<F>)),
     (cause) =>
-      Effect.fail(unresolvable(opts.info.name, messageOf(Cause.squash(cause)))),
+      // An INTERRUPT passes through untouched. `catchCause` catches failures,
+      // defects AND interruptions, and `resolve` is an Effect precisely so a host
+      // can do real work in it (stat a socket, read a runtime dir) — so a Ctrl-C
+      // during that work landed here and was re-worded as "no endpoint to dial",
+      // exit 3, instead of the 130 the matrix publishes. 130 is Effect's own
+      // teardown reading an interrupts-only cause; the way to keep it is to hand
+      // that cause straight back.
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.failCause(cause)
+        : Effect.fail(
+            unresolvable(opts.info.name, messageOf(Cause.squash(cause))),
+          ),
   );
   return Effect.flatMap(resolved, ({ where, open }) =>
     Effect.scoped(

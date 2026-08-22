@@ -103,9 +103,20 @@ time, so a one-shot `get` of it would wait for ever. It is refused (exit 2)
 naming `--follow`, which is the only honest reading of an event.
 
 A one-shot read of a collection **item** is bounded against both membership and
-a deadline, so a key that is not there answers
-`{"present":false,"why":"absent"}` instead of hanging on a subscription that
-will never yield.
+a deadline, so a key that is not there answers instead of hanging on a
+subscription that will never yield. Both bounds are always armed, and they answer
+**differently on purpose**:
+
+| answer | means | is it evidence? |
+| --- | --- | --- |
+| `{"present":true,…}` | the item's current value | — |
+| `{"present":false,"why":"absent"}` | membership says it is not a member | yes — the item is gone |
+| `{"present":false,"why":"deadline"}` | the read ran out of time | **no** — a fact about the read, not the item |
+
+Both are exit **0**, because in both the read genuinely happened. A caller
+reaping on absence must act on `"absent"` alone: a quiet producer, or a
+collection with no key set to resolve against, produces `"deadline"` while the
+item is perfectly alive.
 
 `list` answers from the projection itself, so it dials nothing — it accepts the
 endpoint flags anyway, so a script looping over the verbs does not break on the
@@ -165,6 +176,12 @@ precedence nobody can see.
   line per frame for anything streamed. Indented only when stdout is a terminal,
   so a pipe always gets machine-shaped output — which is why there is no flag to
   force it, and why `--json` on a verb keeps its single meaning (the input).
+  *The one exception is not this package's:* a refusal from the CLI **library**
+  (a rejected flag, an unknown subcommand, a value outside a choice) is rendered
+  by Effect CLI itself, which prints the usage document on **stdout** and the
+  reason on stderr before `runEdge` maps it to exit 2. This face's own usage
+  errors never do that — they are one line on stderr and an empty stdout — so a
+  script that captures stdout should branch on the exit code before reading it.
 - **stderr is prose**, with one deliberate exception: a verb's declared refusal
   is JSON on stderr, because it is data you can act on that is nonetheless not
   the verb's answer.
@@ -203,12 +220,23 @@ One arm of the matrix is not this package's to raise, which is what
 run edge, write the `stderr` it hands back, and fail with its `failure`:
 
 ```ts
-Effect.catch((error) => {
-  const { stderr, failure } = runEdge("example", error)
+Effect.catchCause((cause) => {
+  if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)  // Ctrl-C → 130
+  const { stderr, failure } = runEdge("example", Cause.squash(cause))
   if (stderr !== "") process.stderr.write(stderr)
   return Effect.fail(failure)
 })
 ```
+
+The **cause**, not the failure, and the interrupt passed through — both matter.
+A *defect* is not a failure, so `Effect.catch` never sees one, and the runtime
+then reports it itself through the default logger, which writes to **stdout**:
+a log line in the middle of the data channel. That case is not exotic — the
+server's own per-request refusal crosses the wire as a defect whenever the
+[serving face](#two-gates-as-with-mcp) withholds a member this face's map
+offers. Pair it with `runMain`'s `disableErrorReporting: true`, since the line
+is already written and Effect's would be a second, differently-worded copy of
+it.
 
 It is what makes exit **2** true of a real binary: a refusal from the CLI
 *library* — a rejected flag, an unknown subcommand, a value outside a choice — is
