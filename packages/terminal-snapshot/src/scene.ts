@@ -19,7 +19,7 @@
 
 import type { ITheme } from "terminal-themes";
 import { parseColor, type RGB } from "terminal-themes/color";
-import type { CellColor, SnapshotGrid } from "./cell.ts";
+import { type CellColor, gridRows, type SnapshotGrid } from "./cell.ts";
 
 /** Window chrome geometry, in logical pixels. Shared by both backends so the
  *  daemon's PNG and the browser's PNG frame the terminal identically. */
@@ -165,6 +165,26 @@ export interface SceneGlyph {
   readonly italic: boolean;
 }
 
+/** A piece of title-bar text, positioned and sized by the scene.
+ *
+ *  Here rather than in each backend because it is exactly the kind of small
+ *  geometric decision that looks too trivial to share and then silently
+ *  diverges: the brand's right margin lived as a bare `14` in the SVG writer
+ *  while the canvas painter read `CHROME.brandRightMargin`, and nothing would
+ *  have caught the two drifting apart.
+ *
+ *  `y` is the text's optical centre — both backends centre on it (canvas
+ *  `textBaseline: "middle"`, SVG `dominant-baseline: "central"`), so neither
+ *  applies a nudge of its own. */
+export interface SceneText {
+  readonly x: number;
+  readonly y: number;
+  readonly size: number;
+  readonly text: string;
+  /** How `x` reads: the text's centre, or its right-hand end. */
+  readonly anchor: "middle" | "end";
+}
+
 export interface SceneDot {
   readonly cx: number;
   readonly cy: number;
@@ -188,8 +208,12 @@ export interface SnapshotScene {
     readonly height: number;
     readonly bg: string;
     readonly fg: string;
-    readonly label: string;
-    readonly brand: string;
+    /** The terminal's caption, centred in the bar. */
+    readonly title: SceneText;
+    /** The kolu wordmark, right-aligned. The browser draws its logo just left
+     *  of this — the one piece of the title bar a scene cannot carry, because
+     *  a decoded raster is not a value. */
+    readonly brand: SceneText;
     readonly dots: readonly SceneDot[];
   };
   /** The terminal grid's own box within the window. */
@@ -221,8 +245,9 @@ export function buildScene(input: SceneInput): SnapshotScene {
   const { grid, label, fontFamily, fontSize, cellW, cellH } = input;
   const theme = resolveTheme(input.theme);
 
+  const rows = gridRows(grid);
   const termW = Math.ceil(cellW * grid.cols);
-  const termH = cellH * grid.rows;
+  const termH = cellH * rows;
   const width = termW + CHROME.pad * 2;
   const height = termH + CHROME.titleHeight + CHROME.pad * 2;
   const termX = CHROME.pad;
@@ -233,6 +258,9 @@ export function buildScene(input: SceneInput): SnapshotScene {
   const titleFg = mix(theme.bg, theme.fg, 0.7);
 
   const dotY = CHROME.titleHeight / 2;
+  // Title-bar text sits a pixel below the true centre: the dots are measured
+  // from their own centre, and matching them exactly reads as slightly high.
+  const textY = dotY + 1;
   const dots = DOT_COLORS.map((fill, i) => ({
     cx: CHROME.dotMarginLeft + i * (CHROME.dotRadius * 2 + CHROME.dotGap),
     cy: dotY,
@@ -250,6 +278,15 @@ export function buildScene(input: SceneInput): SnapshotScene {
       // ANSI reverse video, applied once, here — so both backends inherit
       // the swap instead of each remembering to do it.
       if (cell.inverse) [fg, bg] = [bg, fg];
+      // A cell outside the grid it claims to belong to is an inconsistency
+      // in the producer, not a value to paint at a clamped position: it would
+      // draw outside the terminal's own box and over the window chrome. Fail
+      // loud — a screenshot that silently lost a column is worse than none.
+      if (cell.col < 0 || cell.col >= grid.cols) {
+        throw new Error(
+          `terminal-snapshot: cell at column ${cell.col} is outside the ${grid.cols}-column grid it was read from`,
+        );
+      }
       const x = termX + cell.col * cellW;
       if (bg !== theme.bg) {
         rects.push({ x, y, w: cellW * cell.width, h: cellH, fill: bg });
@@ -277,8 +314,20 @@ export function buildScene(input: SceneInput): SnapshotScene {
       height: CHROME.titleHeight,
       bg: titleBg,
       fg: titleFg,
-      label,
-      brand: "kolu",
+      title: {
+        x: width / 2,
+        y: textY,
+        size: Math.round(fontSize * 0.95),
+        text: label,
+        anchor: "middle",
+      },
+      brand: {
+        x: width - CHROME.brandRightMargin,
+        y: textY,
+        size: Math.round(fontSize * 0.9),
+        text: "kolu",
+        anchor: "end",
+      },
       dots,
     },
     term: { x: termX, y: termY, w: termW, h: termH, fill: theme.bg },

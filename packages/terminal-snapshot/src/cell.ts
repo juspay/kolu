@@ -58,12 +58,21 @@ export interface SnapshotRow {
   readonly cells: readonly SnapshotCell[];
 }
 
-/** A rectangular slice of a terminal's screen, ready to render. */
+/** A rectangular slice of a terminal's screen, ready to render.
+ *
+ *  There is deliberately NO `rows` field. It would be a second authority for
+ *  a number `lines.length` already holds, and a consumer would then have to
+ *  pick one — which is exactly the bug shape that hides in a flat product of
+ *  fields: a grid claiming 200 rows while carrying 3 reads perfectly well
+ *  field-by-field, and sizes an image 200 rows tall with 3 rows of content in
+ *  it. Row count is asked of the lines. */
 export interface SnapshotGrid {
   readonly cols: number;
-  readonly rows: number;
   readonly lines: readonly SnapshotRow[];
 }
+
+/** How many rows the grid holds — the one place the question is answered. */
+export const gridRows = (grid: SnapshotGrid): number => grid.lines.length;
 
 /** The subset of xterm.js's `IBufferCell` this package reads.
  *
@@ -155,5 +164,5 @@ export function readGrid(
     }
     lines.push({ cells });
   }
-  return { cols, rows: rowCount, lines };
+  return { cols, lines };
 }

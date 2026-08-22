@@ -50,4 +50,10 @@ The daemon backend does **no** system font discovery (`loadSystemFonts: false`).
 - **Blank cells are omitted.** A terminal screen is mostly empty, so a row is typically a handful of cells — which is what keeps a grid cheap enough to put on a wire (kaval's `terminal.getScreenCells`).
 - **XML-illegal code points are dropped, not escaped.** A single stray control byte in the scrollback would otherwise make the SVG unparseable and fail every screenshot of that terminal.
 
-`src/scene.test.ts` pins the layout contract; `src/render.smoke.ts` is the manual smoke — it drives a real headless buffer through the whole pipeline and writes a PNG you can look at (`node --import tsx packages/terminal-snapshot/src/render.smoke.ts /tmp/out.png`, with the font directory on the environment).
+`src/scene.test.ts` pins the layout contract; `src/render.smoke.ts` is the manual smoke — it drives a real headless buffer through the whole pipeline and writes a PNG you can look at — run it from the repo root inside the dev shell, which supplies `KOLU_SNAPSHOT_FONTS_DIR`:
+
+```sh
+nix develop . -c ./node_modules/.bin/tsx packages/terminal-snapshot/src/render.smoke.ts /tmp/out.png
+```
+
+(`tsx` is a workspace binary, not a resolvable package name, so `node --import tsx` does not work from the repo root.)

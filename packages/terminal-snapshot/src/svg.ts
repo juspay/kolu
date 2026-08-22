@@ -80,14 +80,17 @@ export function sceneToSvg(scene: SnapshotScene): string {
     );
   }
 
-  const titleY = titleBar.height / 2;
-  const titleSize = Math.round(font.size * 0.95);
-  parts.push(
-    `<text x="${n(scene.width / 2)}" y="${n(titleY)}" font-family="${xml(font.family)}" font-size="${titleSize}" fill="${titleBar.fg}" text-anchor="middle" dominant-baseline="central">${xml(titleBar.label)}</text>`,
-  );
-  parts.push(
-    `<text x="${n(scene.width - 14)}" y="${n(titleY)}" font-family="${xml(font.family)}" font-size="${Math.round(font.size * 0.9)}" font-weight="600" fill="${titleBar.fg}" text-anchor="end" dominant-baseline="central">${xml(titleBar.brand)}</text>`,
-  );
+  // Both title-bar texts arrive positioned and sized by the scene — this
+  // backend chooses none of it, which is what stops it drifting from the
+  // canvas one. Only the wordmark's weight is a rendering flourish.
+  for (const [t, weight] of [
+    [titleBar.title, ""],
+    [titleBar.brand, ` font-weight="600"`],
+  ] as const) {
+    parts.push(
+      `<text x="${n(t.x)}" y="${n(t.y)}" font-family="${xml(font.family)}" font-size="${t.size}" fill="${titleBar.fg}" text-anchor="${t.anchor}" dominant-baseline="central"${weight}>${xml(t.text)}</text>`,
+    );
+  }
 
   // Terminal body: its own background, then the cell backgrounds that differ
   // from it, then the glyphs.

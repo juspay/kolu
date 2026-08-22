@@ -31,7 +31,6 @@ import { terminalKey } from "kolu-common/terminalKey";
 import { toast } from "solid-sonner";
 import {
   buildScene,
-  CHROME,
   type ReadableBuffer,
   readGrid,
   type SnapshotScene,
@@ -112,9 +111,10 @@ function roundedRectPath(
  *  browser and the daemon can disagree again.
  *
  *  The one thing the scene deliberately does not carry is the brand logo: it
- *  is a decoded raster, which only a browser has. It is placed from
- *  `CHROME` + `scene.titleBar` so it still lands on the geometry the shared
- *  package owns. */
+ *  is a decoded raster, which only a browser has. Even that is placed against
+ *  `scene.titleBar.brand` — the wordmark's own anchor — so the logo lands on
+ *  the geometry the shared package owns rather than on a margin re-derived
+ *  here. */
 function paintScene(
   ctx: CanvasRenderingContext2D,
   scene: SnapshotScene,
@@ -158,30 +158,34 @@ function paintScene(
     ctx.fill();
   }
 
-  // Title text — centered in the bar. The +1 nudges the optical centre down
-  // to match the dots, whose radius is measured from the true centre.
-  const titleY = titleBar.height / 2;
-  ctx.font = `${Math.round(font.size * 0.95)}px ${font.family}`;
+  // Title text — the scene decided where it goes and how big it is; this
+  // reads those out rather than re-deriving them, so the two backends cannot
+  // disagree about the title bar the way they once did about the wordmark's
+  // right margin.
+  const { title, brand } = titleBar;
+  ctx.font = `${title.size}px ${font.family}`;
   ctx.fillStyle = titleBar.fg;
   ctx.textBaseline = "middle";
-  ctx.textAlign = "center";
-  ctx.fillText(titleBar.label, scene.width / 2, titleY + 1);
+  ctx.textAlign = title.anchor === "middle" ? "center" : "end";
+  ctx.fillText(title.text, title.x, title.y);
 
   // Kolu branding — right-aligned wordmark + logo, matching /favicon.svg.
   // The stamp is subtle so it reads as attribution rather than a watermark.
-  ctx.font = `600 ${Math.round(font.size * 0.9)}px ${font.family}`;
-  const brandTextWidth = ctx.measureText(titleBar.brand).width;
+  // The LOGO is the one thing the scene cannot carry (a decoded raster is not
+  // a value), so its placement is derived here — from the wordmark's own
+  // measured width, which only a canvas knows.
+  ctx.font = `600 ${brand.size}px ${font.family}`;
+  const brandTextWidth = ctx.measureText(brand.text).width;
   const logoH = titleBar.height - 12;
   const logoW = logo
     ? logoH *
       ((logo.naturalWidth || logo.width) / (logo.naturalHeight || logo.height))
     : 0;
   const logoY = (titleBar.height - logoH) / 2;
-  const brandTextX = scene.width - CHROME.brandRightMargin;
-  const logoX = brandTextX - brandTextWidth - (logo ? 6 : 0) - logoW;
-  ctx.textAlign = "end";
+  const logoX = brand.x - brandTextWidth - (logo ? 6 : 0) - logoW;
+  ctx.textAlign = brand.anchor === "end" ? "end" : "center";
   ctx.fillStyle = titleBar.fg;
-  ctx.fillText(titleBar.brand, brandTextX, titleY + 1);
+  ctx.fillText(brand.text, brand.x, brand.y);
   if (logo) ctx.drawImage(logo, logoX, logoY, logoW, logoH);
 
   ctx.textAlign = "start";

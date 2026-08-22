@@ -261,9 +261,9 @@ contract between them. Older-than-the-screen output is `kolu history`'s job.
 ## `screenshot` — the picture `snapshot` flattens away
 
 ```
-kolu screenshot <id> [--lines N] [-o FILE]
-      --lines   render only the last N rendered rows (1-200; default: the visible screen)
-      -o FILE   where the PNG goes (default: kolu-screenshot.png; `-` means stdout)
+kolu screenshot <id> [--lines N] [--out FILE]
+      --lines       render only the last N rendered rows (1-200; default: the visible screen)
+      --out, -o     where the PNG goes (default: kolu-screenshot.png; `-` means stdout)
 ```
 
 Text loses what a terminal uses to *mean* things: colour is how a test run says

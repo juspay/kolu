@@ -28,7 +28,6 @@ const cell = (over: Partial<SnapshotCell> = {}): SnapshotCell => ({
 
 const gridOf = (cells: SnapshotCell[][], cols = 10): SnapshotGrid => ({
   cols,
-  rows: cells.length,
   lines: cells.map((c) => ({ cells: c })),
 });
 
@@ -176,3 +175,50 @@ describe("svg", () => {
 function gridSvgOf(chars: string) {
   return scene(gridOf([[cell({ chars })]]));
 }
+
+describe("a grid that contradicts itself is refused, not painted", () => {
+  it("rejects a cell outside the column count it was read from", () => {
+    // Reachable only from a producer bug or a peer that lied on the wire, and
+    // the honest answer is neither to clamp it (a column silently in the wrong
+    // place) nor to drop it (a column silently missing) — it is to fail.
+    expect(() => scene(gridOf([[cell({ col: 12 })]], 10))).toThrow(
+      /outside the 10-column grid/,
+    );
+  });
+
+  it("rejects a negative column", () => {
+    expect(() => scene(gridOf([[cell({ col: -1 })]], 10))).toThrow(
+      /outside the 10-column grid/,
+    );
+  });
+
+  it("takes the row count from the lines themselves, so the two cannot disagree", () => {
+    // There is no `rows` field to get wrong: an image is exactly as tall as
+    // the content it carries.
+    const s = scene(gridOf([[cell()], [cell()], [cell()]]));
+    expect(s.height).toBe(12 * 3 + CHROME.titleHeight + CHROME.pad * 2);
+    expect(s.term.h).toBe(12 * 3);
+  });
+});
+
+describe("title-bar geometry is the scene's, not a backend's", () => {
+  it("right-aligns the wordmark at the shared margin", () => {
+    const s = scene(gridOf([[cell()]]));
+    expect(s.titleBar.brand.x).toBe(s.width - CHROME.brandRightMargin);
+    expect(s.titleBar.brand.anchor).toBe("end");
+  });
+
+  it("centres the title, and puts both texts on one baseline", () => {
+    const s = scene(gridOf([[cell()]]));
+    expect(s.titleBar.title.x).toBe(s.width / 2);
+    expect(s.titleBar.title.anchor).toBe("middle");
+    expect(s.titleBar.title.y).toBe(s.titleBar.brand.y);
+  });
+
+  it("puts the scene's own numbers in the SVG — no literal margin of its own", () => {
+    const s = scene(gridOf([[cell()]]));
+    const svg = sceneToSvg(s);
+    expect(svg).toContain(`x="${s.titleBar.brand.x}"`);
+    expect(svg).toContain('text-anchor="end"');
+  });
+});

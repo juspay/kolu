@@ -364,8 +364,8 @@ export function runContractCorpus(opts: {
           extent: { kind: "viewport" },
         }),
       );
-      expect(grid.rows).toBeGreaterThan(0);
-      expect(grid.lines).toHaveLength(grid.rows);
+      expect(grid.lines.length).toBeGreaterThan(0);
+      expect(grid.cols).toBeGreaterThan(0);
       const fromCells = grid.lines
         .map((line) => line.cells.map((c) => c.chars).join(""))
         .join("\n");

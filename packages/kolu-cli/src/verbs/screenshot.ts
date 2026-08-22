@@ -27,6 +27,7 @@
  * means to anyone who asks for it.
  */
 
+import { writeFile } from "node:fs/promises";
 import { shortId } from "@kolu/padi/render";
 import { Effect } from "effect";
 import type { Command } from "effect/unstable/cli";
@@ -34,8 +35,8 @@ import type { Command } from "effect/unstable/cli";
 // runtime and the per-face dynamic-import fence is untouched.
 import type { screenshotFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
-import { failure } from "../exit.ts";
-import { resolveTerminal, writeErr } from "./shared.ts";
+import { errorMessage, failure } from "../exit.ts";
+import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
 
 /** What the command tree hands this verb — DERIVED from `screenshotFlags` in
  *  `cli.ts`, which carries the "a positive whole number of rows, capped" rule,
@@ -88,14 +89,12 @@ export const run = Effect.fn("kolu screenshot")(function* (
   const out = args.out ?? DEFAULT_OUT;
 
   if (out === STDOUT) {
-    yield* Effect.tryPromise({
-      try: () =>
-        new Promise<void>((resolve, reject) => {
-          process.stdout.write(png, (err) => (err ? reject(err) : resolve()));
-        }),
-      catch: (err) =>
-        failure(`could not write the PNG to stdout: ${String(err)}`),
-    });
+    // The SAME stdout path every other verb uses — backpressure-aware, and
+    // treating a hung-up reader (`kolu screenshot … -o - | head -c 100`) as a
+    // complete run rather than a failure. Writing the bytes here by hand is
+    // what made this verb the only one in the CLI that exited non-zero on a
+    // pipe the reader closed.
+    yield* writeOut(png, "the PNG");
     yield* writeErr(
       `— ${shortId(id)} · ${image.cols}x${image.rows} · ${png.length} bytes\n`,
     );
@@ -103,11 +102,8 @@ export const run = Effect.fn("kolu screenshot")(function* (
   }
 
   yield* Effect.tryPromise({
-    try: async () => {
-      const { writeFile } = await import("node:fs/promises");
-      await writeFile(out, png);
-    },
-    catch: (err) => failure(`could not write ${out}: ${String(err)}`),
+    try: () => writeFile(out, png),
+    catch: (err) => failure(`could not write ${out}: ${errorMessage(err)}`),
   });
   yield* writeErr(
     `— ${shortId(id)} · ${image.cols}x${image.rows} · ${png.length} bytes → ${out}\n`,

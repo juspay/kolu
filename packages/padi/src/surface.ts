@@ -1281,9 +1281,16 @@ export const PadiScreenTextInputSchema = Schema.Struct({
  *  A hard ceiling, not a default: the render cost and the pixel height both
  *  grow linearly with rows, and kolu retains 50,000 lines of scrollback, so an
  *  unbounded request is a way to ask the daemon for a 900,000-pixel-tall PNG.
- *  Requests above this are REJECTED at the wire rather than silently truncated
- *  — a caller that asked for 5,000 rows and got 300 would be shown a picture
- *  that is not the answer to its question. */
+ *
+ *  The two ways to exceed it are answered DIFFERENTLY, because the questions
+ *  differ. An explicit `lines` above the cap is REJECTED at the wire rather
+ *  than truncated — a caller that asked for 5,000 rows and silently got 200
+ *  would be shown a picture that is not the answer to its question. A
+ *  `viewport` capture of a terminal taller than the cap (a very tall window)
+ *  is TRIMMED to the last `SCREEN_IMAGE_MAX_ROWS` rows, because "show me the
+ *  screen" is still answerable and its bottom is the part that matters — and
+ *  the reply's own `rows` says how much was captured, so the trim is stated
+ *  rather than hidden. */
 export const SCREEN_IMAGE_MAX_ROWS = 200;
 
 /** `screen.image` — the terminal as a picture.

@@ -13,7 +13,8 @@
  *  the user's PNG are the same picture by construction. */
 
 import { getThemeByName } from "terminal-themes";
-import { buildScene, type SnapshotGrid } from "terminal-snapshot";
+import { SCREEN_IMAGE_MAX_ROWS } from "./surface.ts";
+import { buildScene, gridRows, type SnapshotGrid } from "terminal-snapshot";
 import {
   PNG_CELL_WIDTH_RATIO,
   PNG_FONT_FAMILY,
@@ -65,14 +66,32 @@ export interface ScreenImage {
   readonly rows: number;
 }
 
+/** Trim a grid to the last {@link SCREEN_IMAGE_MAX_ROWS} rows.
+ *
+ *  Only the `viewport` capture can land here: an explicit `lines` above the
+ *  cap is refused by the wire schema before it reaches this module. A terminal
+ *  window genuinely taller than the cap still gets a picture — of its bottom,
+ *  which is where a terminal's present tense lives — and the reply reports the
+ *  row count it actually rendered, so the trim is visible to the caller rather
+ *  than silent. */
+function capRows(grid: SnapshotGrid): SnapshotGrid {
+  const rows = gridRows(grid);
+  if (rows <= SCREEN_IMAGE_MAX_ROWS) return grid;
+  return {
+    cols: grid.cols,
+    lines: grid.lines.slice(rows - SCREEN_IMAGE_MAX_ROWS),
+  };
+}
+
 /** Render the grid. Rejects if the font closure is missing or the rasteriser
  *  fails — a screenshot that silently came out in the wrong font would look
  *  plausible and be wrong, which is the failure this refuses to ship. */
 export async function renderScreenImage(
   input: ScreenImageInput,
 ): Promise<ScreenImage> {
+  const grid = capRows(input.grid);
   const scene = buildScene({
-    grid: input.grid,
+    grid,
     theme: getThemeByName(input.themeName),
     label: input.label,
     fontFamily: PNG_FONT_FAMILY,
@@ -84,7 +103,7 @@ export async function renderScreenImage(
   return {
     mimeType: "image/png",
     data: Buffer.from(png).toString("base64"),
-    cols: input.grid.cols,
-    rows: input.grid.rows,
+    cols: grid.cols,
+    rows: gridRows(grid),
   };
 }

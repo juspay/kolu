@@ -150,8 +150,10 @@ in the first column is what your agent calls. Eight of them — `screen_text` an
 the two watch tools — also carry a readable display name a host can show
 instead ("Send input to a terminal").
 
-Every **successful** answer comes back as **structured data** as well as text, so
-your agent acts on a field rather than re-reading prose. A refusal carries data
+Every **successful** answer comes back as **structured data**, so your agent acts
+on a field rather than re-reading prose — alongside text for every tool but
+`screen_image`, whose answer is the image itself (its structured arm carries the
+size and mime type, and the picture is not repeated as base64 prose). A refusal carries data
 when the tool has a machine-readable reason to give: `lifecycle_sendInput` labels
 its four refusals `text-and-key`, `key-refused`, `text-refused` or `no-input`,
 and `lifecycle_create` labels its directory refusals (`cwd-and-worktree`,

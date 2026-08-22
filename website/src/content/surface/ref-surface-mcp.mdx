@@ -124,16 +124,17 @@ intent, so repeating one replays nothing.*
 
 ## Bespoke tools and curation
 
-- `tools:` — hand-authored, call-shaped capabilities (spawn-and-wait, blocking polls). Each is `{ description, title?, input: Schema.Struct(...), mutates, handler }`; the `handler(args, client, signal)` composes over the live client and still rides the JSON-Schema bridge and lifecycle. A scalar, array, or union input is advertised **wrapped** under `value` and unwrapped before decode. `title` is MCP's display name — a host that has none renders `name`, the machine spelling. `title` and `description` are **bespoke-only** today: `ToolExposure` has no field for either, so a procedure-derived tool carries neither.
+- `tools:` — hand-authored, call-shaped capabilities (spawn-and-wait, blocking polls). Each is `{ description, title?, input: Schema.Struct(...), mutates, handler, render? }`; the `handler(args, client, signal)` composes over the live client and still rides the JSON-Schema bridge and lifecycle. A scalar, array, or union input is advertised **wrapped** under `value` and unwrapped before decode. `title` is MCP's display name — a host that has none renders `name`, the machine spelling. `title` and `description` are **bespoke-only** today: `ToolExposure` has no field for either, so a procedure-derived tool carries neither. `render?: (out) => ToolResult` overrides how the success value becomes content — declared per TOOL rather than sniffed per result, so a handler cannot change its own content type call-to-call and the dispatch never guesses from a value's shape. Its one purpose today is an answer that is a **picture** (see below).
 - **Failure framing**: a rejecting handler (or a failing procedure call — e.g. the bridged transport down mid-call) always returns an `isError` **tool result**, never a JSON-RPC protocol error — so the agent sees a typed, retryable failure instead of its SDK throwing.
 - **One tool namespace**: generated (`<ns>_<verb>`) and bespoke names are checked for collision in one pass at boot, each candidate tagged by origin so the error names both sources.
 - `projectSurface` (from `@kolu/surface/project`) is the cleanest curation: project the live surface into an observer-safe second surface — drop dangerous procedures, bound logs, derive verdicts — and serve *that*.
 
 ## Tool results — the same answer twice
 
-Every **successful** result carries prose in `content` and data in
-`structuredContent`, so an agent acts on the value and never parses the sentence.
-Both arms are read off one serialization, so they cannot disagree — which is also
+Every **successful** result carries data in `structuredContent` — and, for every
+tool that answers in words, prose in `content` — so an agent acts on the value
+and never parses the sentence. Both arms are read off one serialization, so they
+cannot disagree — which is also
 what keeps a value that is an object in memory and a string on the wire (a
 `Date`) from publishing a `structuredContent` that is not an object. MCP types
 the structured arm as a JSON **object**, so a scalar, array or `null` answer
@@ -202,6 +203,24 @@ reaches the host as its tag, and a non-`Error` failure value as its JSON.
   agent. Whoever adds `outputSchema` owes the refusal shape a home in it first.
 </Aside>
 
+### When the answer is a picture
+
+A tool whose answer is **pixels** declares `render: okImage(...)` and returns an
+MCP **image** content block instead of prose. `okImage(image, detail)` puts the
+bytes in `content` exactly once and the facts *about* them in
+`structuredContent` — mime type, dimensions — through the same normalization
+every other result uses.
+
+The payload is deliberately **not** repeated as text or smuggled into `detail`:
+a host renders the image, so a second copy is a megabyte spent straight out of
+the model's context window for nothing, and two copies are a second place for the
+answer to be wrong. `okImage` **throws** if `detail` carries the payload again,
+because that cost is invisible at the call site and enormous on the wire.
+
+`ToolContent` is the resulting union — `{ type: "text" }` or
+`{ type: "image", data, mimeType }`. kolu's `screen_image` (a terminal's screen
+as a themed PNG) is the in-tree consumer.
+
 ## The schema bridge
 
 Effect ships the converter (`Schema.toJsonSchemaDocument`, draft 2020-12 — the
@@ -228,7 +247,8 @@ cannot see through, so a default declared outside it never reaches the agent.
 | `resolveExpose(spec, expose)` | the default-deny resolver → `{ resources, resourceTemplates, tools }` |
 | `ToolFailure<D>(message, detail)` | the refusal a handler fails with when the reason is machine-readable — `detail` becomes the result's `structuredContent`, normalized the same way a success is |
 | `messageOf(error)` | the adapter's own "name what broke" derivation — the one the request edge uses to word a failure. Reach for it in a bespoke tool that folds a caught failure into its own message instead of raising it, so both paths word the same error the same way; it handles the two shapes `e instanceof Error ? e.message : String(e)` gets wrong (a tagged error whose `message` is empty, a failure declared as a plain object) |
-| `BespokeTool` · `ToolInputSchema` · `ToolResult` · `ServeSurfaceAsMcpOptions` · `SurfaceClientCallable` | types |
+| `okImage(image, detail)` | wrap a tool result whose answer is an image — the bytes travel once, as an MCP image block; `detail` becomes the structured arm and must not repeat the payload (it throws if it does) |
+| `BespokeTool` · `ToolInputSchema` · `ToolResult` · `ToolContent` · `ServeSurfaceAsMcpOptions` · `SurfaceClientCallable` | types |
 
 `ExposeMap` and `ToolExposure` are **not** exported here — import them from
 [`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose),

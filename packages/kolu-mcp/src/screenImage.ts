@@ -70,12 +70,11 @@ export const screenImageTool: BespokeTool = {
   // The picture is the answer, so it travels as an image block; the caller
   // still gets the dimensions (and the bytes) in the structured arm.
   render: (out) => {
-    const reply = out as ScreenImageReply;
-    return okImage(reply, {
-      mimeType: reply.mimeType,
-      cols: reply.cols,
-      rows: reply.rows,
-      data: reply.data,
-    });
+    const { data, mimeType, cols, rows } = out as ScreenImageReply;
+    // The bytes ride the image block ONLY. Repeating them in the structured
+    // arm would double a ~50KB base64 payload for a reader that does not
+    // exist on this path — the host renders the image, and an agent reading
+    // `structuredContent` wants the dimensions, not the pixels.
+    return okImage({ mimeType, data }, { mimeType, cols, rows });
   },
 };

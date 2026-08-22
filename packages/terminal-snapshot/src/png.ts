@@ -29,15 +29,26 @@ import { initWasm, Resvg } from "@resvg/resvg-wasm";
 import type { SnapshotScene } from "./scene.ts";
 import { sceneToSvg } from "./svg.ts";
 
+/** The face every other is a fallback for — named once, and spelled into
+ *  {@link PNG_FONT_FAMILY}'s head rather than beside it, so the two cannot
+ *  drift. */
+const PRIMARY_FACE = "FiraCode Nerd Font Mono";
+
 /** The font family list every glyph is drawn with, most-specific first.
  *
- *  Exported because the scene's `fontFamily` MUST be this list for the
- *  fallbacks to be reachable: resvg falls back along the family list in the
- *  document, not along the order buffers were registered in. A scene built
- *  with a bare `"FiraCode Nerd Font"` renders tofu for every glyph FiraCode
- *  lacks even though the fallback faces are loaded — measured, not assumed. */
-export const PNG_FONT_FAMILY =
-  "FiraCode Nerd Font Mono, Symbols Nerd Font Mono, DejaVu Sans Mono, Noto Sans Symbols 2, Noto Sans Symbols";
+ *  Exported because a scene rendered to PNG MUST carry this exact list:
+ *  resvg falls back along the family list in the DOCUMENT, not along the
+ *  order buffers were registered in. A scene built with a bare
+ *  `"FiraCode Nerd Font"` renders tofu for every glyph FiraCode lacks even
+ *  though the fallback faces are loaded — measured, not assumed, and now
+ *  refused outright by {@link sceneToPng}. */
+export const PNG_FONT_FAMILY = [
+  PRIMARY_FACE,
+  "Symbols Nerd Font Mono",
+  "DejaVu Sans Mono",
+  "Noto Sans Symbols 2",
+  "Noto Sans Symbols",
+].join(", ");
 
 /** Advance width of one cell as a fraction of the font size, for FiraCode.
  *  The daemon has no `measureText`, and this ratio is a property of the
@@ -74,45 +85,90 @@ function fontDir(): string {
   return dir;
 }
 
-/** One process-wide load of the wasm module and the font bytes.
+/** The wasm module, initialised exactly once per process.
  *
- *  Memoised by the PROMISE, so concurrent first screenshots share one load
- *  rather than racing two `initWasm` calls — `initWasm` throws if it is
- *  called twice. A REJECTED load is dropped from the memo so a transient
- *  read failure doesn't poison every later screenshot in the process. */
-let renderer: Promise<readonly Uint8Array[]> | undefined;
+ *  Split from the font read deliberately, and the split is load-bearing:
+ *  `initWasm` throws "Already initialized" if it is ever called a second
+ *  time, so it must NOT sit behind a memo that a failure clears. It did, and
+ *  the result was a trap — a font read that failed *after* the wasm was up
+ *  cleared the whole memo, and every later screenshot in that process then
+ *  re-entered `initWasm` and died with "Already initialized", reporting a
+ *  wasm problem for what was actually a missing file. The two have different
+ *  retry semantics, so they get different memos: the wasm is a
+ *  once-and-for-all fact, the fonts are a read that may legitimately be tried
+ *  again. */
+let wasmReady: Promise<void> | undefined;
 
-function loadRenderer(): Promise<readonly Uint8Array[]> {
-  renderer ??= (async () => {
+function initRasteriser(): Promise<void> {
+  wasmReady ??= (async () => {
     const require = createRequire(import.meta.url);
-    const wasm = await readFile(
-      require.resolve("@resvg/resvg-wasm/index_bg.wasm"),
+    await initWasm(
+      await readFile(require.resolve("@resvg/resvg-wasm/index_bg.wasm")),
     );
-    await initWasm(wasm);
+  })();
+  return wasmReady;
+}
+
+/** The font faces, read once and shared by every render.
+ *
+ *  Memoised by the PROMISE so concurrent first screenshots share one read
+ *  rather than each loading ~9MB. A REJECTED read is dropped from the memo —
+ *  a transient failure (a store path not yet realised) is worth retrying, and
+ *  unlike the wasm above, re-running this is harmless. */
+let fonts: Promise<readonly Uint8Array[]> | undefined;
+
+function loadFonts(): Promise<readonly Uint8Array[]> {
+  fonts ??= (async () => {
     const dir = fontDir();
     return await Promise.all(
       FONT_FILES.map((f) => readFile(path.join(dir, f))),
     );
   })().catch((cause: unknown) => {
-    renderer = undefined;
+    fonts = undefined;
     throw cause;
   });
-  return renderer;
+  return fonts;
 }
 
 /** Render a scene to PNG bytes.
  *
  *  The scene's own `width`/`height` are the raster size — a scene is already
  *  in logical pixels and the daemon has no device pixel ratio to honour, so
- *  there is no scaling decision to make here. */
+ *  there is no scaling decision to make here.
+ *
+ *  Both wasm handles are freed in a `finally`. They are not garbage — they own
+ *  memory inside the wasm heap that the JS collector cannot see, so a daemon
+ *  that renders a screenshot every few seconds and never frees them grows
+ *  until it is killed.
+ *
+ *  The scene's font family MUST be {@link PNG_FONT_FAMILY}: resvg falls back
+ *  along the family list in the DOCUMENT, so a scene built with any other name
+ *  renders tofu for every glyph the first face lacks while still producing a
+ *  perfectly valid-looking PNG. That is the silent-wrong-output case, so it is
+ *  refused rather than rendered.
+ */
 export async function sceneToPng(scene: SnapshotScene): Promise<Uint8Array> {
-  const fontBuffers = await loadRenderer();
+  if (scene.font.family !== PNG_FONT_FAMILY) {
+    throw new Error(
+      `terminal-snapshot: a PNG scene must be built with PNG_FONT_FAMILY, got "${scene.font.family}". resvg resolves fallbacks along the document's family list, so another name renders tofu for every glyph the first face lacks — and looks like a valid screenshot while doing it.`,
+    );
+  }
+  const [, fontBuffers] = await Promise.all([initRasteriser(), loadFonts()]);
   const resvg = new Resvg(sceneToSvg(scene), {
     font: {
       fontBuffers: fontBuffers as Uint8Array[],
-      defaultFontFamily: "FiraCode Nerd Font Mono",
+      defaultFontFamily: PRIMARY_FACE,
       loadSystemFonts: false,
     },
   });
-  return resvg.render().asPng();
+  try {
+    const rendered = resvg.render();
+    try {
+      return rendered.asPng();
+    } finally {
+      rendered.free();
+    }
+  } finally {
+    resvg.free();
+  }
 }

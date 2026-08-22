@@ -12,6 +12,7 @@
 export {
   DEFAULT_COLOR,
   type CellColor,
+  gridRows,
   type ReadableBuffer,
   type ReadableCell,
   readGrid,

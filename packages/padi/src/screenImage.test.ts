@@ -12,7 +12,6 @@ import { screenshotLabel } from "./screenImage.ts";
 
 const gridWith = (fg: number): SnapshotGrid => ({
   cols: 4,
-  rows: 1,
   lines: [
     {
       cells: [

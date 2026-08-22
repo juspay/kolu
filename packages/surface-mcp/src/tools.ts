@@ -165,25 +165,39 @@ export function ok(data: unknown): ToolResult {
   };
 }
 
-/** An image the tool is SHOWING, plus the same answer as data.
+/** An image the tool is SHOWING, with the facts ABOUT it as the structured arm.
  *
- *  Both arms again, and for the same reason `ok` has both: the model reads
- *  the picture, the caller reads `structuredContent` — but here they are not
- *  the same serialization, because a PNG has no JSON form worth giving a
- *  model. The structured arm therefore carries the metadata (mime type,
- *  dimensions, and the base64 itself for a caller that wants the bytes), and
- *  the content arm carries the image alone.
+ *  Both arms again, and for the same reason {@link ok} has both — but here they
+ *  are deliberately NOT the same value, because a PNG has no JSON form worth
+ *  giving a model. The content arm carries the image; the structured arm
+ *  carries what a caller needs to reason about it (mime type, dimensions)
+ *  WITHOUT the bytes.
  *
- *  The base64 is NOT repeated into a text block. An MCP host renders the image
- *  block; a text block holding the same megabyte of base64 would be spent
- *  straight out of the model's context window for nothing. */
+ *  The base64 appears EXACTLY ONCE, in the image block. It is not repeated as
+ *  a text block, and `detail` must not carry it either: an MCP host renders
+ *  the image, so a second copy is a megabyte spent straight out of the model's
+ *  context window for nothing — and the two copies would be a second place for
+ *  the answer to be wrong. A `detail` that smuggles the payload back in is
+ *  refused rather than quietly published, because the cost of getting this
+ *  wrong is invisible at the call site and enormous on the wire.
+ *
+ *  The structured arm goes through the SAME {@link structuredArm} the failure
+ *  path uses — one normalization, so an image tool cannot publish a
+ *  `structuredContent` shape the other arms would have rejected. */
 export function okImage(
   image: { mimeType: string; data: string },
   detail: Record<string, unknown>,
 ): ToolResult {
+  for (const [key, value] of Object.entries(detail)) {
+    if (value === image.data) {
+      throw new Error(
+        `okImage: detail.${key} repeats the image payload. The bytes travel in the image block; a second copy in structuredContent doubles the wire and the context cost for no reader.`,
+      );
+    }
+  }
   return {
     content: [{ type: "image", data: image.data, mimeType: image.mimeType }],
-    structuredContent: wrapValue(wireForm(detail).json),
+    structuredContent: structuredArm(detail),
   };
 }
 

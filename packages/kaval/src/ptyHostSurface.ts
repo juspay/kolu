@@ -312,14 +312,18 @@ const SnapshotCellSchema = Schema.Struct({
 
 /** A rectangular slice of the screen as attributed cells.
  *
- *  `lines.length` always equals `rows` — a line the mirror doesn't have comes
- *  back as an empty row rather than a hole, so a consumer indexes by screen
- *  row without re-deriving the offset. Blank unstyled cells are OMITTED from a
- *  row (a terminal screen is mostly blank), which is what keeps a screenful
- *  small enough to be an ordinary frame rather than a chunked transfer. */
+ *  The row count is `lines.length` and is NOT carried as a field of its own:
+ *  a second authority for a number the array already holds is a contradiction
+ *  waiting to be constructed (a grid claiming 200 rows while carrying 3), and
+ *  every consumer would have to choose which to believe. A line the mirror
+ *  doesn't have comes back as an EMPTY ROW rather than a hole, so a consumer
+ *  still indexes by screen row without re-deriving the offset.
+ *
+ *  Blank unstyled cells are OMITTED from a row (a terminal screen is mostly
+ *  blank), which is what keeps a screenful small enough to be an ordinary
+ *  frame rather than a chunked transfer. */
 const SnapshotGridSchema = Schema.Struct({
   cols: NonNegativeInt,
-  rows: NonNegativeInt,
   lines: Schema.Array(
     Schema.Struct({ cells: Schema.Array(SnapshotCellSchema) }),
   ),

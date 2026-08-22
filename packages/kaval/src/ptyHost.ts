@@ -1303,7 +1303,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
    *  handle rather than two. */
   function getScreenCellsFor(id: PtyId, extent?: ScreenExtent): SnapshotGrid {
     const entry = entries.get(id);
-    if (!entry) return { cols: 0, rows: 0, lines: [] };
+    if (!entry) return { cols: 0, lines: [] };
     const buffer = entry.headless.buffer.active;
     const { start, end } = resolveScreenExtent(
       buffer.length,
