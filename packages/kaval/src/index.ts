@@ -100,9 +100,10 @@ export {
 export {
   DEFAULT_SPAWN_SHELL,
   PTY_HOST_CONTRACT_VERSION,
-  // The one attributed-cell row ceiling. Exported because padi DERIVES its own
-  // `SCREEN_IMAGE_MAX_ROWS` from it rather than spelling a second 200 that
-  // could drift out of step with the schema that enforces it.
+  // The attributed-cell row ceiling. padi cannot IMPORT this — its
+  // `surface.ts` is browser-safe and this barrel re-exports a node-pty child —
+  // so padi spells its own `SCREEN_IMAGE_MAX_ROWS` and pins the two equal in a
+  // node-side test. This export exists for that pin.
   SCREEN_CELLS_MAX_ROWS,
   type PtyHostDataMsg,
   type PtyHostForegroundMsg,

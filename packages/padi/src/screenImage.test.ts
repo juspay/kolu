@@ -8,6 +8,8 @@
 
 import { describe, expect, it } from "vitest";
 import type { SnapshotGrid } from "terminal-snapshot";
+import { SCREEN_CELLS_MAX_ROWS } from "kaval";
+import { SCREEN_IMAGE_MAX_ROWS } from "./surface.ts";
 import { screenshotLabel } from "./screenImage.ts";
 
 const gridWith = (fg: number): SnapshotGrid => ({
@@ -91,5 +93,20 @@ describe("theme resolution reaches the picture", () => {
     const { getThemeByName, DEFAULT_THEME } = await import("terminal-themes");
     expect(getThemeByName("no-such-theme")).toBe(DEFAULT_THEME);
     expect(getThemeByName(undefined)).toBe(DEFAULT_THEME);
+  });
+});
+
+describe("the row ceiling is one number, spelled twice on purpose", () => {
+  it("padi's ceiling equals kaval's", () => {
+    // `surface.ts` is browser-safe and cannot import kaval's package — its
+    // barrel re-exports a node-pty child — so the constant is duplicated the
+    // way `vocab.ts` duplicates kaval's schemas. This test is the seam that
+    // makes the duplicate safe, and it lives here because a padi *test* is on
+    // the node side of that seal where importing kaval is free.
+    //
+    // If they ever drift, an explicit `lines` legal to padi's schema dies as a
+    // kaval decode error instead — which is the refuse-vs-trim split collapsing
+    // into whichever layer happens to be tighter.
+    expect(SCREEN_IMAGE_MAX_ROWS).toBe(SCREEN_CELLS_MAX_ROWS);
   });
 });

@@ -55,7 +55,6 @@
  * coordinator restructures that next).
  */
 
-import { SCREEN_CELLS_MAX_ROWS } from "kaval";
 import { MAX_TIMER_MS } from "@kolu/surface/wait";
 import {
   composeSurfaceContracts,
@@ -1307,12 +1306,21 @@ export const PadiScreenTextInputSchema = Schema.Struct({
  *  the reply's own `rows` says how much was captured, so the trim is stated
  *  rather than hidden.
  *
- *  DERIVED from kaval's own ceiling rather than spelled again. Two independent
- *  200s would let the pair drift into a contradiction the caller pays for: a
- *  padi-legal `lines` that kaval's decoder then refuses, or a tail kaval
- *  serves and padi silently trims — collapsing the refuse-vs-trim split that is
- *  deliberate above. padi already depends on kaval, so there is one number. */
-export const SCREEN_IMAGE_MAX_ROWS: number = SCREEN_CELLS_MAX_ROWS;
+ *  This is kaval's `SCREEN_CELLS_MAX_ROWS` spelled a second time, and the
+ *  duplication is deliberate — the same call `vocab.ts` makes for
+ *  `PtyHostIdentitySchema` and `DaemonLifetimeInfoSchema`. This module is
+ *  BROWSER-SAFE and the client value-imports it (`LOCAL_LOCATION`), while
+ *  kaval's only entry is a barrel that re-exports `createPtyHost` — a
+ *  `node-pty` child. Importing the constant from there to save a literal
+ *  would put the PTY daemon in the browser's module graph, resting on a
+ *  bundler's tree-shaking to take it back out again.
+ *
+ *  Two spellings CAN drift, and the drift is real: it would let a padi-legal
+ *  `lines` die as a kaval decode error, collapsing the refuse-vs-trim split
+ *  that is deliberate above. So the equality is PINNED by a test on the node
+ *  side of the seal (`screenImage.test.ts`), where importing kaval costs
+ *  nothing. A pinned duplicate beats an import that crosses a layer. */
+export const SCREEN_IMAGE_MAX_ROWS = 200;
 
 /** What a legal `lines` is: a whole count of rows, at least one, at most
  *  {@link SCREEN_IMAGE_MAX_ROWS} — as CHECKS, so a face can spread them onto
