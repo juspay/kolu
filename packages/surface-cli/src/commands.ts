@@ -84,7 +84,6 @@ import {
 import {
   firstFrameOfCollectionItem,
   firstFrameOrThrow,
-  isNoSnapshotFrame,
   ITEM_READ_DEADLINE_MS,
 } from "@kolu/surface/first-frame";
 import {
@@ -98,7 +97,6 @@ import { Cause, Effect, Option, Result, Schema, Stream } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import {
   classify,
-  LinkDropped,
   type SurfaceCliFailure,
   unreachable,
   unresolvable,
@@ -958,35 +956,26 @@ function readStream(
   member: string,
 ): Effect.Effect<void, unknown, Stdio.Stdio> {
   if (follow) return Stream.runForEach(stream, (value) => frame(value));
+  // NOTHING is caught here, and that is the fix this arm carries. An empty open
+  // IS a dropped link — every snapshot-then-deltas member opens with its current
+  // value — but `firstFrameOrThrow` already says so with a tag, and `classify`
+  // reads that tag itself. This arm used to catch the whole failure channel and
+  // re-word it, so a member's DECLARED refusal came back as "no surface at …" on
+  // exit 3, the code that tells a driver to try a different socket, while the
+  // same refusal under `--follow` reported correctly: one member, two answers,
+  // decided by a flag. Both arms now hand the failure over untouched.
   return Effect.flatMap(
-    // An empty open is a DROPPED LINK, not a refusal: every snapshot-then-deltas
-    // member opens with its current value, so a member that opened and closed
-    // saying nothing is the endpoint going away mid-read. Said as a VALUE the one
-    // classifier knows, so it words it as the exit-3 arm — beside the failed dial
-    // it is the same event as.
-    //
-    // ONLY that one, and by its TAG. This used to catch the whole failure channel
-    // and re-word it, and `firstFrameOrThrow` fails on the stream's OWN error too
-    // — so a member's DECLARED refusal came back as "no surface at …" on exit 3,
-    // the code that tells a driver to try a different socket. The same refusal
-    // under `--follow` reported correctly, because that arm never wrapped: one
-    // member, two answers, decided by a flag. Everything that is not the empty
-    // open now falls through to `classify`, exactly as the follow arm's does.
-    Effect.catch(
-      firstFrameOrThrow(
-        stream,
-        `"${member}" opened and closed without a snapshot frame`,
-      ),
-      (error) =>
-        Effect.fail(
-          isNoSnapshotFrame(error)
-            ? new LinkDropped({ detail: error.message })
-            : error,
-        ),
-    ),
+    firstFrameOrThrow(stream, noSnapshot(member)),
     (value) => data(value),
   );
 }
+
+/** What a one-shot reader tells the framework an EMPTY OPEN is. One sentence for
+ *  both readers below rather than two literals a reword could separate; what it
+ *  MEANS — the endpoint going away mid-read, exit 3 — is `classify`'s, off the
+ *  `NoSnapshotFrame` tag `firstFrameOrThrow` raises with it. */
+const noSnapshot = (member: string): string =>
+  `"${member}" opened and closed without a snapshot frame`;
 
 /** The bounded one-shot read of a collection ITEM.
  *
@@ -1001,32 +990,25 @@ function readCollectionItem(
   member: Extract<Readable, { kind: "collection" }>,
   key: unknown,
 ): Effect.Effect<void, unknown, Stdio.Stdio> {
+  // Nothing is caught here either: a PRESENT item that opened and said nothing
+  // is the link going away, and the framework's reader raises it with the tag
+  // `classify` reads. The item and membership streams carry their own error
+  // channels, and a declared refusal on either is the far side answering — which
+  // is exactly what re-wording this whole channel used to lose.
   return Effect.flatMap(
-    Effect.catch(
-      firstFrameOfCollectionItem(
-        memberStream(client, member.name, "get", { key }),
-        // `null`, not a stream that will fail: a collection may legitimately
-        // declare no `keys` verb, and the framework's reader takes the ABSENCE of
-        // a membership signal as a case (it falls back to the deadline alone)
-        // rather than as an error. Handing it a stream that fails instead turned a
-        // read of an item that is right there into a failure.
-        member.listable
-          ? memberStream(client, member.name, "keys", undefined)
-          : null,
-        key,
-        `"${member.name}" opened and closed without a snapshot frame`,
-        ITEM_READ_DEADLINE_MS,
-      ),
-      // A PRESENT item that opened and said nothing is the link going away, the
-      // same event as a failed dial — exit 3, not the verb's own refusal. Only
-      // THAT, by its tag: the item and membership streams carry their own error
-      // channels, and a declared refusal on either is the far side answering.
-      (error) =>
-        Effect.fail(
-          isNoSnapshotFrame(error)
-            ? new LinkDropped({ detail: error.message })
-            : error,
-        ),
+    firstFrameOfCollectionItem(
+      memberStream(client, member.name, "get", { key }),
+      // `null`, not a stream that will fail: a collection may legitimately
+      // declare no `keys` verb, and the framework's reader takes the ABSENCE of
+      // a membership signal as a case (it falls back to the deadline alone)
+      // rather than as an error. Handing it a stream that fails instead turned a
+      // read of an item that is right there into a failure.
+      member.listable
+        ? memberStream(client, member.name, "keys", undefined)
+        : null,
+      key,
+      noSnapshot(member.name),
+      ITEM_READ_DEADLINE_MS,
     ),
     (found) =>
       found.present
@@ -1175,9 +1157,11 @@ function alignedTable(value: unknown): string {
 function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
   opts: SurfaceCliOptions<S, F, R>,
   values: Record<string, unknown>,
-  /** Whatever the command does with the live client. A failure it discovers
-   *  that is nonetheless about the ENDPOINT says so as a {@link LinkDropped}
-   *  value; the classifier below is the one that knows `where` and words it. */
+  /** Whatever the command does with the live client. Its failure travels to
+   *  `classify` untouched — including one that is about the ENDPOINT rather than
+   *  about the verb (a member that opened and closed with no snapshot frame),
+   *  because the classifier owns the arms and is the only thing here that knows
+   *  `where`. */
   use: (
     client: SurfaceClientCallable,
   ) => Effect.Effect<A, unknown, Stdio.Stdio>,

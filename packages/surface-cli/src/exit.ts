@@ -73,6 +73,7 @@
 
 import { isTransportError } from "@kolu/surface/client";
 import { isDeadTransportError, messageOf } from "@kolu/surface/errors";
+import { isNoSnapshotFrame } from "@kolu/surface/first-frame";
 import { Data, Runtime } from "effect";
 
 /** The published matrix, as data. Exported so a consumer (a host's docs, a
@@ -210,20 +211,6 @@ function refusalLine(error: unknown): string {
   return JSON.stringify({ message: messageOf(error) });
 }
 
-/** The link went away under an IN-FLIGHT read — the same event as a failed dial,
- *  discovered by the reader instead of by the dialler.
- *
- *  A VALUE, so the one classifier can read it. It carries no `where`: only the
- *  connection scope knows that, and it is the one that words the failure. Every
- *  snapshot-then-deltas member opens with its current value, so a member that
- *  opened and closed saying nothing is the endpoint going away mid-read — which
- *  `firstFrameOrThrow` reports as a bare `Error` that {@link classify} would
- *  otherwise read as the verb's own answer and report as exit 1, the one code
- *  that means the far side spoke. */
-export class LinkDropped extends Data.TaggedError("SurfaceCliLinkDropped")<{
-  readonly detail: string;
-}> {}
-
 /** WHICH arm of the exit contract a failure lands on — the whole dispatch, in
  *  the module that owns the arms.
  *
@@ -238,8 +225,24 @@ export function classify(
   error: unknown,
 ): unknown {
   if (isOwnFailure(error)) return error;
-  if (error instanceof LinkDropped) {
-    return unreachable(binary, where, error.detail);
+  // An EMPTY OPEN: the link went away under an in-flight read, discovered by the
+  // reader instead of by the dialler. Every snapshot-then-deltas member opens
+  // with its current value, so a member that opened and closed saying nothing is
+  // the endpoint going away mid-read — which is the same event as a failed dial
+  // and not the verb's answer, and would otherwise land on exit 1, the one code
+  // that means the far side spoke.
+  //
+  // Asked HERE, of the framework's OWN tag, and not re-raised as a CLI-local
+  // value at each read site. `isNoSnapshotFrame` is the predicate
+  // `firstFrameOrThrow` mints its failure for, so a second tagged class whose
+  // only journey was reader → classifier asked one question twice and decided
+  // two of the five arms a package away from the module that publishes them.
+  //
+  // ONLY that tag, never the whole failure channel: `firstFrameOrThrow` fails on
+  // the stream's own error too, and re-wording those as "no surface at …" told a
+  // driver to try a different socket for a member that had answered.
+  if (isNoSnapshotFrame(error)) {
+    return unreachable(binary, where, messageOf(error));
   }
   if (isTransportError(error) || isDeadTransportError(error)) {
     return unreachable(binary, where, messageOf(error));
