@@ -31,7 +31,7 @@ knows nothing about shell-environment preparation: callers hand it a ready
 
 | Tap            | Source                          | API                       |
 | -------------- | ------------------------------- | ------------------------- |
-| screen output  | `node-pty` `onData`             | `attach` (bounded snapshot+deltas) · `getHistory` (older chunks) · `getScreenText` / `getScreenCells` (one-shot reads of the same slice — as text, or as attributed cells) |
+| screen output  | `node-pty` `onData`             | `attach` (bounded snapshot+deltas) · `getHistory` (older chunks) · `getScreenText` / `getScreenCells` (one-shot reads of the same slice — as text, or as attributed cells, the latter bounded to a viewport or a capped tail) |
 | meaningful output (activity edge) | `onData`, **resize-repaint excluded** | host-global `activity` stream (`{ id }` edges) |
 | cwd            | OSC 7 `file://` reports         | `subscribeCwd` / `getCwd` |
 | title          | OSC 0/2 title changes           | `subscribeTitle` / `getTitle` |
@@ -190,7 +190,11 @@ Turning `palette 4` into a colour needs a theme, and a picture needs a font and
 a rasteriser; kaval owns the PTYs and the screen mirror and should own none of
 those, so the render happens in padi (`screen.image`, behind `kolu screenshot`
 and the `screen_image` MCP tool) where the per-terminal theme already lives.
-This host stays free of a wasm rasteriser and several megabytes of font. The
+This host stays free of a wasm rasteriser and several megabytes of font. Its
+extent is deliberately NARROWER than `getScreenText`'s — a viewport or a tail
+of at most `SCREEN_CELLS_MAX_ROWS` rows, never the whole scrollback, because a
+cell costs ~30x its character and 50,000 attributed rows is a frame past the
+wire's own limit. The
 bump is a MINOR one because a new procedure is a new emitted member: a 7.0
 survivor does not serve it at all, so the skew becomes a managed recycle rather
 than an unspeakable-member error at the wire.

@@ -59,6 +59,12 @@ import {
   type WireSchema,
 } from "@kolu/surface/define";
 import { Schema } from "effect";
+import type {
+  CellColor,
+  SnapshotCell,
+  SnapshotGrid,
+  SnapshotRow,
+} from "terminal-snapshot";
 
 /** A whole positive count — the `z.number().int().positive()` of this wire.
  *  Named once so every grid dimension, chunk bound and scrollback depth is the
@@ -259,9 +265,9 @@ const TerminalIdInputSchema = Schema.Struct({ id: PtyIdSchema });
  *  grid, which the caller can't know (a CLI's stdout is usually a pipe, never
  *  the daemon terminal's size).
  *
- *  ONE schema shared by `getScreenText` and `getScreenCells`: they read the
- *  same slice and differ only in what they return, so a bound legal for one is
- *  legal for the other by construction. */
+ *  The VOCABULARY is shared with `getScreenCells` (see
+ *  {@link ScreenCellsInputSchema}); the CEILING is not — a full-scrollback
+ *  read is a string here and a 50,000-row attributed frame there. */
 const ScreenExtentSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("full") }),
   Schema.Struct({
@@ -284,21 +290,59 @@ const ScreenReadInputSchema = Schema.Struct({
   extent: Schema.optionalKey(ScreenExtentSchema),
 });
 
-/** A cell colour exactly as the VT stream expressed it — NOT a resolved
- *  pixel. "palette 4" only becomes a colour once someone knows which theme is
- *  on, and this daemon does not: kolu's themes are a per-terminal user choice
- *  padi holds. Keeping the raw attribute on the wire is what keeps the PTY
- *  host out of the rendering business. */
+/** The most rows ONE attributed-cell read will ever serve.
+ *
+ *  A cell costs ~30x its character on the wire, so a bound that is fine for
+ *  `getScreenText` is not fine here: `full` over kolu's 50,000-line retention
+ *  is a frame far past `RPC_MAX_FRAME_BYTES`. padi caps its own `screen.image`
+ *  face too — this is the wire's ceiling underneath that one, so the bound is
+ *  a property of the contract rather than of whichever caller remembered. */
+export const SCREEN_CELLS_MAX_ROWS = 200;
+
+/** The slice a PICTURE read can ask for — deliberately narrower than
+ *  {@link ScreenExtentSchema}, which the text read uses.
+ *
+ *  No `full` and no `range`: a screenshot is drawn of the present tense, and
+ *  an unbounded attributed read is a footgun rather than a feature. Same
+ *  vocabulary, so `resolveScreenExtent` still resolves both slices with one
+ *  answer to "what does viewport mean". */
+const ScreenCellsInputSchema = Schema.Struct({
+  id: PtyIdSchema,
+  extent: Schema.optionalKey(
+    Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("viewport") }),
+      Schema.Struct({
+        kind: Schema.Literal("tail"),
+        lines: Schema.Int.check(
+          Schema.isGreaterThan(0),
+          Schema.isLessThanOrEqualTo(SCREEN_CELLS_MAX_ROWS),
+        ),
+      }),
+    ]),
+  ),
+});
+
+/** The wire form of `terminal-snapshot`'s {@link CellColor} — a cell colour
+ *  exactly as the VT stream expressed it, NOT a resolved pixel. "palette 4"
+ *  only becomes a colour once someone knows which theme is on, and this daemon
+ *  does not: kolu's themes are a per-terminal user choice padi holds.
+ *
+ *  `satisfies WireSchema<T>` on this and the three below is what stops the
+ *  schema and the TS type it mirrors drifting: they are one vocabulary spelled
+ *  twice — once for the wire, once for the renderer that reads it — and a
+ *  field added to either without the other now fails typecheck here instead of
+ *  being silently dropped at encode. Same idiom, same reason, as
+ *  {@link DaemonLifetimeInfoSchema} below. */
 const CellColorSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("default") }),
   Schema.Struct({ kind: Schema.Literal("palette"), index: NonNegativeInt }),
   Schema.Struct({ kind: Schema.Literal("rgb"), value: NonNegativeInt }),
-]);
+]) satisfies WireSchema<CellColor>;
 
-/** One painted cell. `width` is the VT display width: 1 ordinary, 2 for the
- *  leading half of a wide glyph. The TRAILING half is never emitted — it is
- *  already covered by its leader, and sending it would let a renderer
- *  double-strike the glyph. */
+/** The wire form of {@link SnapshotCell}. `width` is the VT display width: 1
+ *  ordinary, 2 for the leading half of a wide glyph. The TRAILING half is
+ *  never emitted — it is already covered by its leader, and sending it would
+ *  let a renderer double-strike the glyph. */
 const SnapshotCellSchema = Schema.Struct({
   col: NonNegativeInt,
   chars: Schema.String,
@@ -308,26 +352,23 @@ const SnapshotCellSchema = Schema.Struct({
   bold: Schema.Boolean,
   italic: Schema.Boolean,
   inverse: Schema.Boolean,
-});
+}) satisfies WireSchema<SnapshotCell>;
 
-/** A rectangular slice of the screen as attributed cells.
- *
- *  The row count is `lines.length` and is NOT carried as a field of its own:
- *  a second authority for a number the array already holds is a contradiction
- *  waiting to be constructed (a grid claiming 200 rows while carrying 3), and
- *  every consumer would have to choose which to believe. A line the mirror
- *  doesn't have comes back as an EMPTY ROW rather than a hole, so a consumer
- *  still indexes by screen row without re-deriving the offset.
- *
- *  Blank unstyled cells are OMITTED from a row (a terminal screen is mostly
- *  blank), which is what keeps a screenful small enough to be an ordinary
+/** The wire form of {@link SnapshotRow} — only the cells worth painting; a
+ *  blank unstyled cell is omitted, which is what keeps a screenful an ordinary
  *  frame rather than a chunked transfer. */
+const SnapshotRowSchema = Schema.Struct({
+  cells: Schema.Array(SnapshotCellSchema),
+}) satisfies WireSchema<SnapshotRow>;
+
+/** The wire form of {@link SnapshotGrid} — a rectangular slice of the screen
+ *  as attributed cells. See `terminal-snapshot/src/cell.ts` for why the row
+ *  count is `lines.length` and not a field of its own, and why a line the
+ *  mirror doesn't have comes back as an empty row rather than a hole. */
 const SnapshotGridSchema = Schema.Struct({
   cols: NonNegativeInt,
-  lines: Schema.Array(
-    Schema.Struct({ cells: Schema.Array(SnapshotCellSchema) }),
-  ),
-});
+  lines: Schema.Array(SnapshotRowSchema),
+}) satisfies WireSchema<SnapshotGrid>;
 
 /** A PTY grid — cols AND rows, together or not at all. The ONE grid rule this
  *  surface has: every member that carries a grid reuses it, so tightening the
@@ -777,8 +818,12 @@ export const ptyHostSurface = defineSurface({
         output: Schema.Struct({ text: Schema.String }),
         error: PtyNotFound,
       },
-      /** The same slice `getScreenText` serves, as ATTRIBUTED cells — what a
-       *  rendered screenshot is drawn from (contract 7.1 · additive).
+      /** The screen as ATTRIBUTED cells — what a rendered screenshot is drawn
+       *  from (contract 7.1 · additive).
+       *
+       *  Its extent is a NARROWER union than `getScreenText`'s: viewport or a
+       *  bounded tail, never the whole scrollback. See
+       *  {@link SCREEN_CELLS_MAX_ROWS}.
        *
        *  Returns cells rather than an image on purpose. Rendering needs a
        *  theme, a font and a rasteriser; this daemon owns the PTYs and the
@@ -786,7 +831,7 @@ export const ptyHostSurface = defineSurface({
        *  keeps the hot process free of a wasm rasteriser and several megabytes
        *  of font, and puts the picture where the theme already lives. */
       getScreenCells: {
-        input: ScreenReadInputSchema,
+        input: ScreenCellsInputSchema,
         output: SnapshotGridSchema,
         error: PtyNotFound,
       },

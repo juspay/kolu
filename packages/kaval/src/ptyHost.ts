@@ -219,7 +219,9 @@ export interface PtyHandle {
    *  resolve a colour to a pixel: `palette 4` becomes a theme colour only
    *  once someone knows WHICH theme, and this mirror doesn't — kolu's themes
    *  are a per-terminal user choice held by padi. Handing out raw attributes
-   *  is what keeps the PTY host out of the rendering business entirely. */
+   *  is what keeps the PTY host out of the rendering business entirely.
+   *
+   *  Omit `extent` for the viewport — the slice a screenshot means. */
   getScreenCells(extent?: ScreenExtent): SnapshotGrid;
 }
 
@@ -571,10 +573,11 @@ export interface PtyHost {
    *  to one slice (range / tail / viewport); omit it for the full buffer. See
    *  {@link ScreenExtent}. */
   getScreenText(id: PtyId, extent?: ScreenExtent): string;
-  /** Attributed cells for the same slice `getScreenText` would return —
-   *  an EMPTY grid if the PTY is gone, mirroring the empty string the text
-   *  read answers with. See {@link PtyHandle.getScreenCells}. */
-  getScreenCells(id: PtyId, extent?: ScreenExtent): SnapshotGrid;
+  /** Attributed cells for the screen slice a picture is drawn from, or
+   *  `undefined` if the PTY is gone — a gone terminal has no screen, it does
+   *  not have a blank one. Omit `extent` for the viewport. See
+   *  {@link PtyHandle.getScreenCells}. */
+  getScreenCells(id: PtyId, extent?: ScreenExtent): SnapshotGrid | undefined;
   /** Serialize the older-history chunk of up to `max` rows sitting immediately
    *  ABOVE absolute mirror line `before` — the backfill read the client pages as
    *  it scrolls up. An omitted `before` starts from the top of the current screen
@@ -1298,12 +1301,22 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
    *  Shares {@link resolveScreenExtent} with the text read rather than
    *  re-switching on the extent — the two are the same slice rendered two
    *  ways, and a second switch is a second place for "what does viewport
-   *  mean" to drift. A gone PTY answers with an EMPTY grid, mirroring the
-   *  empty string the text read gives, so a caller has one absent-shape to
-   *  handle rather than two. */
-  function getScreenCellsFor(id: PtyId, extent?: ScreenExtent): SnapshotGrid {
+   *  mean" to drift.
+   *
+   *  A gone PTY answers `undefined`, NOT an empty grid: `{ cols: 0, lines: [] }`
+   *  would be one value carrying two meanings — "this screen is blank" and
+   *  "there is no such terminal" — and every embedder would have to remember to
+   *  compensate the way the wire handler does.
+   *
+   *  The default extent is the VIEWPORT rather than the text read's whole
+   *  buffer: this read is what a picture is drawn from, and 50,000 attributed
+   *  rows is never the ask. */
+  function getScreenCellsFor(
+    id: PtyId,
+    extent: ScreenExtent = { kind: "viewport" },
+  ): SnapshotGrid | undefined {
     const entry = entries.get(id);
-    if (!entry) return { cols: 0, lines: [] };
+    if (!entry) return undefined;
     const buffer = entry.headless.buffer.active;
     const { start, end } = resolveScreenExtent(
       buffer.length,
@@ -1446,7 +1459,14 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       resize: (cols, rows) => resize(id, cols, rows),
       getScreenState: () => getScreenState(id),
       getScreenText: (extent) => getScreenTextFor(id, extent),
-      getScreenCells: (extent) => getScreenCellsFor(id, extent),
+      getScreenCells: (extent) => {
+        const grid = getScreenCellsFor(id, extent);
+        // A handle is only reachable while its PTY is alive, so an absent grid
+        // is a contradiction rather than a case to serve — it fails loud with
+        // the same error every other vanished-entry read raises.
+        if (!grid) throw new PtyNotFound({ id });
+        return grid;
+      },
     };
   }
 

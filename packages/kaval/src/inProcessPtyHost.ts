@@ -497,13 +497,16 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           Effect.map(requirePtyEffect(input.id as PtyId), () => ({
             text: host.getScreenText(input.id, input.extent),
           })),
-        // Same missing-PTY discipline as its text twin: a gone PTY FAILS here
-        // rather than answering with the empty grid the in-process primitive
-        // returns, so a divergence can never read as "the screen is blank".
-        getScreenCells: ({ input }) =>
-          Effect.map(requirePtyEffect(input.id as PtyId), () =>
-            host.getScreenCells(input.id, input.extent),
-          ),
+        // Same missing-PTY discipline as its text twin, and ONE check rather
+        // than two: the primitive's own absent value IS the missing PTY, so it
+        // becomes the declared error directly instead of being re-derived from
+        // a second `has()` beside a branch that can no longer be reached.
+        getScreenCells: ({ input }) => {
+          const grid = host.getScreenCells(input.id as PtyId, input.extent);
+          return grid
+            ? Effect.succeed(grid)
+            : Effect.fail(new PtyNotFound({ id: input.id as PtyId }));
+        },
         getHistory: ({ input }) =>
           Effect.map(requirePtyEffect(input.id as PtyId), () =>
             host.getHistory(input.id, input.before, input.max, input.epoch),
