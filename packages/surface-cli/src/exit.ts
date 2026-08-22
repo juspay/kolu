@@ -20,6 +20,31 @@
  * retry on 2. `3` is separate again because it is about the endpoint, not about
  * the request — the one code that means "try a different `--socket`".
  *
+ * ## The whole matrix is here, dispatch included
+ *
+ * {@link classify} is in this module and not at the projection, because
+ * "which arm does this failure land on" is the same fact as "what are the arms":
+ * an arm added or reworded elsewhere would edit two files, and the reason the
+ * codes live together is that nothing can then see one without the others. What
+ * a refusal's JSON BODY contains ({@link refusalLine}) is here for the same
+ * reason — it is the exit-1 arm's payload, not a thing the projection knows.
+ *
+ * ## Another binary's matrix disagrees, and one day that will have to be settled
+ *
+ * `packages/kolu-cli` publishes its own: `1 = usage error or dropped link`,
+ * `2 = wait timed out`, `3 = terminal exited`. Against this face's `2` is a
+ * usage error and `3` is an unreachable endpoint — so `2` means two different
+ * things across the two binaries, and `kolu`'s `UsageRefused` maps to `1` where
+ * `runEdge` maps the same CLI-library refusal to `2`.
+ *
+ * That is recorded, not worked around. Nothing mounts both faces today
+ * (`kolu-cli` is deliberately not migrated onto this projection, and the
+ * Phase-2 host is a different binary with no matrix of its own), and the day one
+ * binary does mount both is the day ONE of the two matrices has to give. That is
+ * a decision for that change — an override on this seam would only let the
+ * collision ship quietly, with the same integer meaning two things inside one
+ * binary and no one place to read the truth off.
+ *
  * Each arm carries the EXACT text it writes, not a fragment a formatter
  * reassembles later, plus `Runtime.errorExitCode` — the marker
  * `NodeRuntime.runMain`'s own teardown reads off the squashed cause. So there is
@@ -46,7 +71,8 @@
  * this package holds.
  */
 
-import { messageOf } from "@kolu/surface/errors";
+import { isTransportError } from "@kolu/surface/client";
+import { isDeadTransportError, messageOf } from "@kolu/surface/errors";
 import { Data, Runtime } from "effect";
 
 /** The published matrix, as data. Exported so a consumer (a host's docs, a
@@ -140,12 +166,97 @@ export const unresolvable = (
  *  readable data the caller can act on ("these three children are not done" is
  *  a list, not a sentence to parse back apart), but it is not the verb's
  *  ANSWER, so it must not land in the stream a pipe is reading. Both halves of
- *  that are the reason this arm exists separately from {@link usage}. */
-export const refused = (payload: unknown): SurfaceCliFailure =>
+ *  that are the reason this arm exists separately from {@link usage}.
+ *
+ *  Takes the LINE, already serialized by {@link refusalLine}: the body and the
+ *  question of whether it can travel are one decision, and the function that
+ *  knows the fallback is the one that must own the `JSON.stringify`. */
+const refused = (line: string): SurfaceCliFailure =>
   new SurfaceCliFailure({
-    stderr: `${JSON.stringify(payload)}\n`,
+    stderr: `${line}\n`,
     code: EXIT.failed,
   });
+
+/** A refusal's machine-readable body, AS THE LINE it will be written as.
+ *
+ *  A tagged error is already data — carry it whole, so `_tag` and every field the
+ *  raiser attached reach the caller. `message` is added only when the value does
+ *  not carry one, because a `Data.TaggedError`'s own message is `""` and the
+ *  sentence worth reading is in `_tag`. Anything JSON cannot render falls back to
+ *  that one sentence rather than failing the write.
+ *
+ *  One serialization, not two: asking "can this travel?" by stringifying, then
+ *  throwing the string away for the caller to stringify again, is the same
+ *  question answered twice — and the fallback belongs where the failure is
+ *  understood. */
+function refusalLine(error: unknown): string {
+  if (typeof error === "object" && error !== null) {
+    const own = { ...(error as Record<string, unknown>) };
+    const tag = (error as { readonly _tag?: unknown })._tag;
+    const body = {
+      ...(typeof tag === "string" ? { _tag: tag } : {}),
+      ...own,
+      ...(typeof own.message === "string" && own.message !== ""
+        ? {}
+        : { message: messageOf(error) }),
+    };
+    try {
+      return JSON.stringify(body);
+    } catch {
+      // A cycle, a BigInt, a throwing getter: the shape cannot travel, but the
+      // sentence can — and a refusal that printed nothing would be worse.
+    }
+  }
+  return JSON.stringify({ message: messageOf(error) });
+}
+
+/** The link went away under an IN-FLIGHT read — the same event as a failed dial,
+ *  discovered by the reader instead of by the dialler.
+ *
+ *  A VALUE, so the one classifier can read it. It carries no `where`: only the
+ *  connection scope knows that, and it is the one that words the failure. Every
+ *  snapshot-then-deltas member opens with its current value, so a member that
+ *  opened and closed saying nothing is the endpoint going away mid-read — which
+ *  `firstFrameOrThrow` reports as a bare `Error` that {@link classify} would
+ *  otherwise read as the verb's own answer and report as exit 1, the one code
+ *  that means the far side spoke. */
+export class LinkDropped extends Data.TaggedError("SurfaceCliLinkDropped")<{
+  readonly detail: string;
+}> {}
+
+/** WHICH arm of the exit contract a failure lands on — the whole dispatch, in
+ *  the module that owns the arms.
+ *
+ *  A failure this face already worded keeps its own verdict. A link that dropped
+ *  under an in-flight read, and a TRANSPORT failure, are both exit 3 — the
+ *  endpoint stopped answering, which is not the verb's answer. Everything else
+ *  is the verb's DECLARED error and rides out as exit 1, as JSON, because a
+ *  refusal is data the caller acts on. */
+export function classify(
+  binary: string,
+  where: string,
+  error: unknown,
+): unknown {
+  if (isOwnFailure(error)) return error;
+  if (error instanceof LinkDropped) {
+    return unreachable(binary, where, error.detail);
+  }
+  if (isTransportError(error) || isDeadTransportError(error)) {
+    return unreachable(binary, where, messageOf(error));
+  }
+  return refused(refusalLine(error));
+}
+
+/** Is this a failure this face already worded and gave a code to? Matched on the
+ *  tag rather than by `instanceof`, so a value that crossed a module boundary is
+ *  still recognised as its own verdict rather than re-classified as a refusal. */
+function isOwnFailure(value: unknown): value is SurfaceCliFailure {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { readonly _tag?: unknown })._tag === "SurfaceCliFailure"
+  );
+}
 
 /** The brand every `effect/unstable/cli` error carries.
  *

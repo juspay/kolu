@@ -60,10 +60,9 @@
  * ergonomics, never security.
  */
 
-import {
-  isTransportError,
-  type OwnedSurfaceConnection,
-  type SurfaceClientCallable,
+import type {
+  OwnedSurfaceConnection,
+  SurfaceClientCallable,
 } from "@kolu/surface/client";
 import type {
   CollectionSpec,
@@ -75,7 +74,7 @@ import {
   collectionHasDeltas,
   resolveCollectionVerbs,
 } from "@kolu/surface/define";
-import { isDeadTransportError, messageOf } from "@kolu/surface/errors";
+import { messageOf } from "@kolu/surface/errors";
 import {
   classifyExpose,
   type ExposeEntry,
@@ -97,15 +96,16 @@ import {
 import { Cause, Effect, Option, Schema, Stdio, Stream } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import {
+  classify,
   EXIT,
-  refused,
+  LinkDropped,
   SurfaceCliFailure,
   unreachable,
   unresolvable,
   usage,
 } from "./exit";
 import { flagsOf, type InputProjection, SurfaceCliBuildError } from "./flags";
-import { data, frame, json, out } from "./render";
+import { data, frame, out } from "./render";
 
 /** A live connection this face owns for the length of ONE command.
  *
@@ -484,7 +484,7 @@ function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
         return yield* Effect.fail(
           usage(
             opts.info.name,
-            `${verb.name}: this input does not match what the verb declares — ${json(encoded, false)}`,
+            `${verb.name}: this input does not match what the verb declares — ${JSON.stringify(encoded)}`,
           ),
         );
       }
@@ -715,12 +715,11 @@ function runGet<S extends SurfaceSpec, F extends FlagRecord, R>(
           ),
         );
       }
-      return yield* withConnection(opts, values, (client, dropped) =>
+      return yield* withConnection(opts, values, (client) =>
         readStream(
           memberStream(client, member.name, "get", undefined),
           follow,
           member.name,
-          dropped,
         ),
       );
     }
@@ -746,15 +745,14 @@ function runGet<S extends SurfaceSpec, F extends FlagRecord, R>(
       // A collection payload is built from DECODED keys (`client.ts`) — the
       // other half of the same landed token the stream arm takes encoded.
       const key = landed.value.decoded;
-      return yield* withConnection(opts, values, (client, dropped) =>
+      return yield* withConnection(opts, values, (client) =>
         follow
           ? readStream(
               memberStream(client, member.name, "get", { key }),
               true,
               member.name,
-              dropped,
             )
-          : readCollectionItem(client, member, key, dropped),
+          : readCollectionItem(client, member, key),
       );
     }
 
@@ -776,12 +774,11 @@ function runGet<S extends SurfaceSpec, F extends FlagRecord, R>(
     // through the one text-to-schema rule both faces share.
     const schema = member.argSchema as WireSchemaAny;
     const input = yield* streamInput(opts, member.name, schema, raw);
-    return yield* withConnection(opts, values, (client, dropped) =>
+    return yield* withConnection(opts, values, (client) =>
       readStream(
         memberStream(client, member.name, "get", input),
         follow,
         member.name,
-        dropped,
       ),
     );
   });
@@ -841,12 +838,11 @@ function runKeys<S extends SurfaceSpec, F extends FlagRecord, R>(
       (r) => r.kind === "collection" && r.listable,
       "collection with a key set",
     );
-    yield* withConnection(opts, values, (client, dropped) =>
+    yield* withConnection(opts, values, (client) =>
       readStream(
         memberStream(client, member.name, "keys", undefined),
         values.follow === true,
         member.name,
-        dropped,
       ),
     );
   });
@@ -867,12 +863,11 @@ function runWatch<S extends SurfaceSpec, F extends FlagRecord, R>(
     );
     // `watch` IS the subscription — there is no one-shot reading of a delta
     // stream, so it takes no `--follow` and always streams.
-    yield* withConnection(opts, values, (client, dropped) =>
+    yield* withConnection(opts, values, (client) =>
       readStream(
         memberStream(client, member.name, "deltas", undefined),
         true,
         member.name,
-        dropped,
       ),
     );
   });
@@ -904,23 +899,22 @@ function readStream(
   stream: Stream.Stream<unknown, unknown>,
   follow: boolean,
   member: string,
-  dropped: (detail: string) => SurfaceCliFailure,
 ): Effect.Effect<void, unknown, Stdio.Stdio> {
   if (follow) return Stream.runForEach(stream, (value) => frame(value));
   return Effect.flatMap(
     // An empty open is a DROPPED LINK, not a refusal: every snapshot-then-deltas
     // member opens with its current value, so a member that opened and closed
     // saying nothing is the endpoint going away mid-read. `firstFrameOrThrow`
-    // says so with a bare `Error`, which `classify` would otherwise read as the
+    // says so with a bare `Error`, which the matrix would otherwise read as the
     // verb's own answer and report as exit 1 — the one code that means the far
-    // side spoke. It is worded as this face's exit-3 arm instead, beside the
-    // failed dial it is the same event as.
+    // side spoke. Said as a VALUE the one classifier knows: it words it as the
+    // exit-3 arm, beside the failed dial it is the same event as.
     Effect.catch(
       firstFrameOrThrow(
         stream,
         `"${member}" opened and closed without a snapshot frame`,
       ),
-      (error) => Effect.fail(dropped(messageOf(error))),
+      (error) => Effect.fail(new LinkDropped({ detail: messageOf(error) })),
     ),
     (value) => data(value),
   );
@@ -938,7 +932,6 @@ function readCollectionItem(
   client: SurfaceClientCallable,
   member: Readable,
   key: unknown,
-  dropped: (detail: string) => SurfaceCliFailure,
 ): Effect.Effect<void, unknown, Stdio.Stdio> {
   return Effect.flatMap(
     Effect.catch(
@@ -958,7 +951,7 @@ function readCollectionItem(
       ),
       // A PRESENT item that opened and said nothing is the link going away, the
       // same event as a failed dial — exit 3, not the verb's own refusal.
-      (error) => Effect.fail(dropped(messageOf(error))),
+      (error) => Effect.fail(new LinkDropped({ detail: messageOf(error) })),
     ),
     (found) =>
       found.present
@@ -1077,12 +1070,11 @@ function runList(
 function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
   opts: SurfaceCliOptions<S, F, R>,
   values: Record<string, unknown>,
+  /** Whatever the command does with the live client. A failure it discovers
+   *  that is nonetheless about the ENDPOINT says so as a {@link LinkDropped}
+   *  value; the classifier below is the one that knows `where` and words it. */
   use: (
     client: SurfaceClientCallable,
-    /** This endpoint's exit-3 arm, pre-named — for a failure the USE discovers
-     *  that is nonetheless about the endpoint (a read whose link dropped
-     *  mid-snapshot), which only this function knows `where` for. */
-    dropped: (detail: string) => SurfaceCliFailure,
   ) => Effect.Effect<A, unknown, Stdio.Stdio>,
 ): Effect.Effect<A, unknown, Stdio.Stdio | R> {
   const resolved = Effect.catchCause(
@@ -1113,73 +1105,12 @@ function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
             ),
         ),
         (connection) =>
-          Effect.catch(
-            use(connection.client, (detail) =>
-              unreachable(opts.info.name, where, detail),
-            ),
-            (error) => Effect.fail(classify(opts, where, error)),
+          Effect.catch(use(connection.client), (error) =>
+            Effect.fail(classify(opts.info.name, where, error)),
           ),
       ),
     ),
   );
-}
-
-/** Which arm of the exit contract a failure lands on.
- *
- *  A failure this face already worded keeps its own verdict. A TRANSPORT failure
- *  is exit 3 — the endpoint stopped answering, which is not the verb's answer.
- *  Everything else is the verb's DECLARED error and rides out as exit 1, as
- *  JSON, because a refusal is data the caller acts on. */
-function classify<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
-  where: string,
-  error: unknown,
-): unknown {
-  if (isOwnFailure(error)) return error;
-  if (isTransportError(error) || isDeadTransportError(error)) {
-    return unreachable(opts.info.name, where, messageOf(error));
-  }
-  return refused(payloadOf(error));
-}
-
-/** Is this a failure this face already worded and gave a code to? Matched on the
- *  tag rather than by `instanceof`, so a value that crossed a module boundary is
- *  still recognised as its own verdict rather than re-classified as a refusal. */
-function isOwnFailure(value: unknown): value is SurfaceCliFailure {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { readonly _tag?: unknown })._tag === "SurfaceCliFailure"
-  );
-}
-
-/** A refusal's machine-readable body.
- *
- *  A tagged error is already data — carry it whole, so `_tag` and every field the
- *  raiser attached reach the caller. `message` is added only when the value does
- *  not carry one, because a `Data.TaggedError`'s own message is `""` and the
- *  sentence worth reading is in `_tag`. Anything JSON cannot render falls back to
- *  that one sentence rather than failing the write. */
-function payloadOf(error: unknown): unknown {
-  if (typeof error === "object" && error !== null) {
-    const own = { ...(error as Record<string, unknown>) };
-    const tag = (error as { readonly _tag?: unknown })._tag;
-    const body = {
-      ...(typeof tag === "string" ? { _tag: tag } : {}),
-      ...own,
-      ...(typeof own.message === "string" && own.message !== ""
-        ? {}
-        : { message: messageOf(error) }),
-    };
-    try {
-      JSON.stringify(body);
-      return body;
-    } catch {
-      // A cycle, a BigInt, a throwing getter: the shape cannot travel, but the
-      // sentence can — and a refusal that printed nothing would be worse.
-    }
-  }
-  return { message: messageOf(error) };
 }
 
 /** The whole of stdin, as text — what `--json -` means.
