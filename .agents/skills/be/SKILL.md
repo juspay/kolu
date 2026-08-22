@@ -166,8 +166,4 @@ Report the PR URL, gauntlet outcome (fixes applied, adjudications, peer +
 consensus, police findings — or that `--skip-gauntlet` skipped §4), and CI
 status. **Never merge** — the human does.
 
-Then close the loop: run **`/self-improve`** (forked), passing this run's
-`$CLAUDE_CODE_SESSION_ID`. It ships any durable lesson as its own draft PR and
-produces nothing on a clean run.
-
 ARGUMENTS: $ARGUMENTS
