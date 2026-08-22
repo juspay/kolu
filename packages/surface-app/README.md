@@ -29,9 +29,8 @@ BROWSERS may reach and the rest is refused here while a trusted face — a unix
 socket, an MCP adapter — still serves it.
 
 `services` is what a handler needs to know about *this* connection, and
-`upgradeHeaders` is where that knowledge comes from — a live wire's one request
-is the upgrade, so a header a proxy stamps there is the only per-connection claim
-about who is calling that the wire can carry:
+`upgradeHeaders` — the request-header names this app wants off the upgrade — is
+where that knowledge comes from:
 
 ```ts
 serveSurfaceApp({

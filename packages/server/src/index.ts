@@ -1108,10 +1108,10 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       // operator's own browser. Non-browser clients send no Origin and pass;
       // same-origin UI traffic passes; see `@kolu/surface/ws-origin`.
       allowedOrigins,
-      // The ONE header kolu reads off an upgrade, and naming it here is the only
-      // way it reaches a connection: `serveSurfaceApp` hands on the headers an
-      // app asks for and no others, so the `Cookie` and `Authorization` of every
-      // upgrade stay somewhere a per-connection service cannot reach them.
+      // The ONE header kolu reads off an upgrade: it trusts its reverse proxy
+      // for the forwarded ADDRESS and for nothing else, and `viewerHost` weighs
+      // that claim against the direct peer below. Why naming it here is the only
+      // way it reaches a connection at all: `serveSurfaceApp`'s own header.
       upgradeHeaders: ["x-forwarded-for"],
       // The viewer's connection facts, provided as this connection's OWN service
       // — the shape review #15 forced. Effect's socket-server RPC protocol

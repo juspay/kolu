@@ -131,10 +131,11 @@ arrives folded into one comma-joined string, as node folds it.
   access, so the leak has nowhere to be expressed. Naming a header is the app
   saying it trusts the proxy that writes it, and that is a claim only the app can
   make. A name outside HTTP's field-name grammar (node's own
-  `validateHeaderName`) is a **defect**: the effect raises it when it runs,
-  before anything binds, so no listener is left behind — deliberately not a
-  `SurfaceAppListenFailed`, which a port-retry policy would loop on forever
-  against something no port can fix.
+  `validateHeaderName`), or one wire header named **twice** (`X-Forwarded-For`
+  beside `x-forwarded-for`, which would file one value under two keys), is a
+  **defect**: the effect raises it when it runs, before anything binds, so no
+  listener is left behind — deliberately not a `SurfaceAppListenFailed`, which a
+  port-retry policy would loop on forever against something no port can fix.
 </Aside>
 
 <Aside type="tip" title="`expose` gates THIS face, not the surface">

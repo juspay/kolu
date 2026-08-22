@@ -558,6 +558,17 @@ describe("serveSurfaceApp — the upgrade facts a connection carries", () => {
       boot({ upgradeHeaders: ["X-Ok", "not a name"] }),
     ).rejects.toThrow(/"not a name" is not an HTTP header name/);
   });
+
+  it("refuses to bind on ONE wire header named twice", async () => {
+    // Two spellings of one field name are the same class of app defect: they
+    // would file a single wire value under two keys, with nothing saying the
+    // two reads agree. Same treatment as a name outside the grammar.
+    await expect(
+      boot({ upgradeHeaders: ["X-Forwarded-For", "x-forwarded-for"] }),
+    ).rejects.toThrow(
+      /"x-forwarded-for" names a header already in upgradeHeaders/,
+    );
+  });
 });
 
 describe("serveSurfaceApp — the shell it serves", () => {

@@ -185,7 +185,9 @@ export class SurfaceAppListenFailed extends Data.TaggedError(
 export interface SurfaceAppConnection<H extends string = never> {
   /** This connection's ordinal within this listener — 1 for the first accepted. */
   readonly id: number;
-  /** The upgrade's request target (the `pid` echo, a `?host=` selector). */
+  /** The upgrade's request target (the `pid` echo, a `?host=` selector) — a
+   *  live `URL`, shared by every arm that describes this connection: read it,
+   *  do not mutate it. */
   readonly url: URL;
   /** The DIRECT TCP peer of this connection, or `undefined` when the socket
    *  cannot tell. Never a guess. Behind a reverse proxy this is the PROXY, and
@@ -197,16 +199,13 @@ export interface SurfaceAppConnection<H extends string = never> {
    *  as read at upgrade.
    *
    *  The KEYS ARE THE NAMES — `H` is inferred from the allowlist, so reading a
-   *  name that was never asked for does not compile. That is the point: a
-   *  header's absence is a load-bearing answer here ("the proxy did not vouch
-   *  for this viewer"), and an open `Record<string, string>` would hand a
-   *  mis-spelled read the same honest-looking `undefined` a real absence has —
-   *  the silent, permanent failure the serve-time check refuses at the other
-   *  end of the same string.
+   *  name that was never asked for does not compile. A named header the request
+   *  did not carry is ABSENT, so `undefined` means "not sent" and `""` means
+   *  "sent empty" — two different facts to a consumer deciding whether to trust
+   *  a proxy claim.
    *
-   *  A named header the request did not carry is ABSENT — so `undefined` means
-   *  "not sent" and `""` means "sent empty", which are different facts to a
-   *  consumer deciding whether to trust a proxy claim. */
+   *  Why it is an allowlist, and why an unnamed read must not compile: this
+   *  module's header, "The upgrade's headers are an ALLOWLIST". */
   readonly headers: Readonly<Partial<Record<H, string>>>;
 }
 
@@ -222,13 +221,17 @@ type UpgradeHeaderLookup<H extends string> = ReadonlyArray<
 >;
 
 /** The allowlist, checked once at serve time and turned into the lookup the
- *  accept path runs: each name the app spelled, paired with the lowercase key
- *  node actually files that header under.
+ *  accept path runs.
  *
  *  The grammar is `node:http`'s own `validateHeaderName` — the same check the
  *  runtime applies to a header it writes, so this seam cannot drift from what a
  *  request can carry. A name outside it can never match, so an app asking for
  *  one would read a permanent, silent absence as "my proxy never sends this".
+ *
+ *  Two spellings of ONE wire header (`X-Forwarded-For` beside
+ *  `x-forwarded-for`) are the same class of defect and are refused the same
+ *  way: they would file one wire value under two keys, with nothing saying the
+ *  two reads agree.
  *
  *  Throws rather than failing with {@link SurfaceAppListenFailed}: a bad name is
  *  the app's own defect, not a condition of the machine, and handing it to a
@@ -236,8 +239,9 @@ type UpgradeHeaderLookup<H extends string> = ReadonlyArray<
  *  something no port can fix — the same reason the non-TCP address below throws. */
 const upgradeHeaderLookup = <H extends string>(
   names: ReadonlyArray<H>,
-): UpgradeHeaderLookup<H> =>
-  names.map((asked) => {
+): UpgradeHeaderLookup<H> => {
+  const seen = new Set<string>();
+  return names.map((asked) => {
     try {
       validateHeaderName(asked);
     } catch {
@@ -245,8 +249,16 @@ const upgradeHeaderLookup = <H extends string>(
         `serveSurfaceApp: ${JSON.stringify(asked)} is not an HTTP header name — a connection's headers can only carry names a request can actually carry`,
       );
     }
-    return [asked, asked.toLowerCase()] as const;
+    const lowercased = asked.toLowerCase();
+    if (seen.has(lowercased)) {
+      throw new Error(
+        `serveSurfaceApp: ${JSON.stringify(asked)} names a header already in upgradeHeaders — one wire header cannot be read under two names`,
+      );
+    }
+    seen.add(lowercased);
+    return [asked, lowercased] as const;
   });
+};
 
 /** {@link SurfaceAppConnection.headers} for one upgrade: the named headers this
  *  request carried, and nothing else.
@@ -446,15 +458,16 @@ export interface ServeSurfaceAppOptions<Svc = never, H extends string = never>
    *  reverse-proxy / `tailscale serve` escape hatch. `parseAllowedOrigins`
    *  (`@kolu/surface/ws-origin`) of the app's own env var. */
   readonly allowedOrigins: ReadonlyArray<string>;
-  /** The request headers this app wants off the upgrade, by name — an ALLOWLIST,
-   *  and the only way a header reaches {@link SurfaceAppConnection.headers}.
-   *  Empty by default; why that default and not the request itself is the module
-   *  header's "the upgrade's headers are an ALLOWLIST".
+  /** The request headers this app wants off the upgrade, by name — the only way
+   *  a header reaches {@link SurfaceAppConnection.headers}. Empty by default.
    *
    *  Matched case-insensitively (HTTP field names are) and read back under the
    *  spelling used HERE — these strings are the KEYS of the connection's
    *  `headers`, and `H` infers from them, so a read that does not match one does
-   *  not compile. */
+   *  not compile. A name outside HTTP's grammar, or one wire header named twice,
+   *  takes the bind down.
+   *
+   *  Why it is an ALLOWLIST: this module's header. */
   readonly upgradeHeaders?: ReadonlyArray<H>;
   /** Services this ONE connection's handlers require — kolu's per-viewer
    *  address, taken off the upgrade request. Effect's socket-server protocol
