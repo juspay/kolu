@@ -335,7 +335,14 @@ const ScreenCellsInputSchema = Schema.Struct({
  *  {@link DaemonLifetimeInfoSchema} below. */
 const CellColorSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("default") }),
-  Schema.Struct({ kind: Schema.Literal("palette"), index: NonNegativeInt }),
+  // Bounded to xterm's actual 256-colour table. `NonNegativeInt` alone let a
+  // stale or lying peer send index 300, which the renderer's greyscale ramp
+  // extrapolates into an out-of-range channel — a valid-looking PNG with
+  // garbage colours. Refused at decode instead.
+  Schema.Struct({
+    kind: Schema.Literal("palette"),
+    index: NonNegativeInt.check(Schema.isLessThanOrEqualTo(255)),
+  }),
   Schema.Struct({ kind: Schema.Literal("rgb"), value: NonNegativeInt }),
 ]) satisfies WireSchema<CellColor>;
 
@@ -357,6 +364,8 @@ const SnapshotCellSchema = Schema.Struct({
   bg: CellColorSchema,
   bold: Schema.Boolean,
   italic: Schema.Boolean,
+  dim: Schema.Boolean,
+  underline: Schema.Boolean,
   inverse: Schema.Boolean,
 }) satisfies WireSchema<SnapshotCell>;
 

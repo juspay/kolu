@@ -100,6 +100,10 @@ export {
 export {
   DEFAULT_SPAWN_SHELL,
   PTY_HOST_CONTRACT_VERSION,
+  // The one attributed-cell row ceiling. Exported because padi DERIVES its own
+  // `SCREEN_IMAGE_MAX_ROWS` from it rather than spelling a second 200 that
+  // could drift out of step with the schema that enforces it.
+  SCREEN_CELLS_MAX_ROWS,
   type PtyHostDataMsg,
   type PtyHostForegroundMsg,
   type PtyHostIdentity,

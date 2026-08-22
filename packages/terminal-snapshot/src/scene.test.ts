@@ -22,6 +22,8 @@ const cell = (over: Partial<SnapshotCell> = {}): SnapshotCell => ({
   bg: { kind: "default" },
   bold: false,
   italic: false,
+  dim: false,
+  underline: false,
   inverse: false,
   ...over,
 });
@@ -227,5 +229,71 @@ describe("title-bar geometry is the scene's, not a backend's", () => {
     const svg = sceneToSvg(s);
     expect(svg).toContain(`x="${s.titleBar.brand.x}"`);
     expect(svg).toContain('text-anchor="end"');
+  });
+});
+
+describe("attributes a terminal uses to mean something", () => {
+  it("paints a dim cell toward the background, not at full intensity", () => {
+    // An agent TUI's secondary voice — Claude Code's tool-result lines are
+    // dim. Rendering them at full strength makes the picture disagree with the
+    // screen, which is the one thing this feature must not do.
+    const plain = scene(
+      gridOf([[cell({ fg: { kind: "palette", index: 1 } })]]),
+    );
+    const dim = scene(
+      gridOf([[cell({ fg: { kind: "palette", index: 1 }, dim: true })]]),
+    );
+    expect(dim.glyphs[0]?.fill).not.toBe(plain.glyphs[0]?.fill);
+    // Halfway between the red and the theme background.
+    expect(dim.glyphs[0]?.fill).toBe("rgb(117,67,68)");
+  });
+
+  it("draws an underline as a rule under the cell, in the ink colour", () => {
+    const s = scene(gridOf([[cell({ underline: true })]]));
+    const rule = s.rects.at(-1);
+    expect(rule?.h).toBe(1);
+    expect(rule?.w).toBe(6);
+    expect(rule?.fill).toBe(s.glyphs[0]?.fill);
+    // Sits inside the cell, near its bottom.
+    expect(rule?.y).toBe(s.term.y + 12 - 2);
+  });
+
+  it("keeps an underlined blank — it still shows a rule", () => {
+    const s = scene(gridOf([[cell({ chars: " ", underline: true })]]));
+    expect(s.rects).toHaveLength(1);
+    expect(s.glyphs).toHaveLength(0);
+  });
+
+  it("carries the underline into the SVG as a rect, not a font decoration", () => {
+    const svg = sceneToSvg(scene(gridOf([[cell({ underline: true })]])));
+    expect(svg).not.toContain("text-decoration");
+    expect(svg).toContain('height="1"');
+  });
+});
+
+describe("a producer that lies is refused, not approximated", () => {
+  it("rejects a wide cell that would overrun the right edge into the chrome", () => {
+    expect(() => scene(gridOf([[cell({ col: 9, width: 2 })]], 10))).toThrow(
+      /overruns the 10-column grid/,
+    );
+  });
+
+  it("accepts a wide cell that ends exactly on the last column", () => {
+    expect(() =>
+      scene(gridOf([[cell({ col: 8, width: 2 })]], 10)),
+    ).not.toThrow();
+  });
+
+  it("rejects a palette index outside xterm's 256-colour table", () => {
+    // greyColor would extrapolate index 300 to rgb(688,688,688) — not a colour,
+    // in a PNG that otherwise looks fine.
+    expect(() =>
+      scene(gridOf([[cell({ fg: { kind: "palette", index: 300 } })]])),
+    ).toThrow(/outside xterm's 256-colour table/);
+  });
+
+  it("still accepts the last legal index", () => {
+    const s = scene(gridOf([[cell({ fg: { kind: "palette", index: 255 } })]]));
+    expect(s.glyphs[0]?.fill).toBe("rgb(238,238,238)");
   });
 });

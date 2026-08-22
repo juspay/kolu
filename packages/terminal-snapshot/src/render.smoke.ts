@@ -41,7 +41,7 @@ await write(
   "  \x1b[2m⎿  Read 42 lines\x1b[0m  \x1b[32m✓ done\x1b[0m  \x1b[31m✗ failed\x1b[0m\r\n",
 );
 await write(
-  "\x1b[36m⠋⠙⠹⠸⠼\x1b[0m spinner  \x1b[1mbold\x1b[0m \x1b[3mitalic\x1b[0m \x1b[7minverse\x1b[0m\r\n",
+  "\x1b[36m⠋⠙⠹⠸⠼\x1b[0m spin \x1b[1mbold\x1b[0m \x1b[3mitalic\x1b[0m \x1b[4munderline\x1b[0m \x1b[7minverse\x1b[0m\r\n",
 );
 await write(
   "\x1b[38;5;208m256-colour\x1b[0m \x1b[38;2;120;200;255mtruecolour\x1b[0m \x1b[44;97m bg \x1b[0m\r\n",

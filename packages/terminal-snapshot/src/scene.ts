@@ -49,6 +49,12 @@ export const CHROME = {
   strokeWidth: 1,
 } as const;
 
+/** Where the underline rule sits inside its cell, and how thick it is. Pixels
+ *  rather than a ratio: at kolu's type sizes a scaled rule rounds to the same
+ *  1px anyway, and a constant keeps the two backends from rounding differently. */
+const UNDERLINE_INSET = 2;
+const UNDERLINE_THICKNESS = 1;
+
 /** macOS-style traffic lights. Decoration only — they are drawn, never
  *  wired to anything. */
 const DOT_COLORS = ["#ff5f57", "#febc2e", "#28c840"] as const;
@@ -132,6 +138,17 @@ export function resolveTheme(theme: ITheme): ResolvedTheme {
 }
 
 function paletteColor(idx: number, t: ResolvedTheme): string {
+  // xterm's palette is exactly 256 entries. An index past it cannot be
+  // rendered honestly and must not be approximated: `greyColor` extrapolates
+  // linearly, so index 300 yields `rgb(688,688,688)` — not a colour any
+  // renderer can show, and a PNG that comes out looking plausible while being
+  // wrong. The wire schema bounds this too; the throw is what makes an
+  // unbounded producer a loud failure instead of a quiet lie.
+  if (idx < 0 || idx > 255) {
+    throw new Error(
+      `terminal-snapshot: palette index ${idx} is outside xterm's 256-colour table`,
+    );
+  }
   if (idx < 16) return t.ansi[idx] ?? t.fg;
   if (idx < 232) return cubeColor(idx);
   return greyColor(idx);
@@ -328,16 +345,43 @@ export function buildScene(input: SceneInput): SnapshotScene {
           `terminal-snapshot: cell at column ${cell.col} is outside the ${grid.cols}-column grid it was read from`,
         );
       }
+      // The same rule for the cell's FAR edge: a wide (CJK/emoji) leader
+      // parked on the last column would paint its second half into the window
+      // padding, over the chrome. Clamping it to the edge is the silent
+      // wrong-place draw the check above refuses for the near edge, so this
+      // refuses it too.
+      if (cell.col + cell.width > grid.cols) {
+        throw new Error(
+          `terminal-snapshot: a width-${cell.width} cell at column ${cell.col} overruns the ${grid.cols}-column grid it was read from`,
+        );
+      }
       const x = termX + cell.col * cellW;
       if (bg !== theme.bg) {
         rects.push({ x, y, w: cellW * cell.width, h: cellH, fill: bg });
+      }
+      // SGR 2, applied AFTER the inverse swap so a dim inverse cell dims the
+      // colour actually being painted. Half-way to the background is what
+      // xterm's own reduced-intensity looks like, and doing it here means both
+      // backends inherit it without either knowing the rule.
+      const ink = cell.dim ? mix(fg, bg, 0.5) : fg;
+      // SGR 4 as an explicit rule rather than a font feature: `text-decoration`
+      // and a canvas stroke disagree about thickness and position, and this
+      // scene exists so they cannot. One rect, one place, both backends.
+      if (cell.underline) {
+        rects.push({
+          x,
+          y: y + cellH - UNDERLINE_INSET,
+          w: cellW * cell.width,
+          h: UNDERLINE_THICKNESS,
+          fill: ink,
+        });
       }
       if (cell.chars !== "" && cell.chars !== " ") {
         glyphs.push({
           x,
           y,
           text: cell.chars,
-          fill: fg,
+          fill: ink,
           bold: cell.bold,
           italic: cell.italic,
         });

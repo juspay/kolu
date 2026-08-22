@@ -43,6 +43,14 @@ export interface SnapshotCell {
   readonly bg: CellColor;
   readonly bold: boolean;
   readonly italic: boolean;
+  /** SGR 2. Rendered as a fill mixed toward the background, which is how a
+   *  terminal shows it — and it matters: an agent TUI uses dim as its
+   *  secondary voice (Claude Code's tool-result lines), so painting it at full
+   *  intensity is the picture disagreeing with the screen. */
+  readonly dim: boolean;
+  /** SGR 4. Drawn as a rule under the cell rather than a font feature, so both
+   *  backends get the same line in the same place. */
+  readonly underline: boolean;
   /** ANSI reverse-video. Kept as the ATTRIBUTE, not pre-swapped colours: the
    *  swap is a rendering act, and doing it here would mean a consumer that
    *  wants the raw fact (a text export, a diff) can't get it back. */
@@ -88,6 +96,8 @@ export interface ReadableCell {
   isBold(): number;
   isItalic(): number;
   isInverse(): number;
+  isDim(): number;
+  isUnderline(): number;
 }
 
 /** The subset of xterm.js's `IBuffer` this package reads. */
@@ -112,7 +122,11 @@ function colorOf(isRgb: boolean, isPalette: boolean, value: number): CellColor {
  *  foreground colour as a block, so an inverse blank is NOT skippable). */
 function isBlank(cell: SnapshotCell): boolean {
   return (
-    cell.chars.trim() === "" && cell.bg.kind === "default" && !cell.inverse
+    cell.chars.trim() === "" &&
+    cell.bg.kind === "default" &&
+    !cell.inverse &&
+    // An underline shows on a blank cell; dim without ink does not.
+    !cell.underline
   );
 }
 
@@ -155,6 +169,8 @@ export function readGrid(
         bg: colorOf(raw.isBgRGB(), raw.isBgPalette(), raw.getBgColor()),
         bold: raw.isBold() !== 0,
         italic: raw.isItalic() !== 0,
+        dim: raw.isDim() !== 0,
+        underline: raw.isUnderline() !== 0,
         inverse: raw.isInverse() !== 0,
       };
       if (!isBlank(cell)) cells.push(cell);

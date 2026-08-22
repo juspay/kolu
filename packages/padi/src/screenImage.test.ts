@@ -23,6 +23,8 @@ const gridWith = (fg: number): SnapshotGrid => ({
           bg: { kind: "default" },
           bold: false,
           italic: false,
+          dim: false,
+          underline: false,
           inverse: false,
         },
       ],

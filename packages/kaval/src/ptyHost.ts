@@ -38,7 +38,11 @@ import { Effect, type Scope, Stream } from "effect";
 import { readGrid, type SnapshotGrid } from "terminal-snapshot";
 import * as pty from "node-pty";
 import { FanOut, type SubscriberOverflow } from "./fanOut.ts";
-import { type PtyGrid, PtyNotFound } from "./ptyHostSurface.ts";
+import {
+  type PtyGrid,
+  PtyNotFound,
+  SCREEN_CELLS_MAX_ROWS,
+} from "./ptyHostSurface.ts";
 
 /** Default terminal grid dimensions (matches xterm/VT100 standard). */
 const DEFAULT_COLS = 80;
@@ -1323,12 +1327,20 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       entry.headless.rows,
       extent,
     );
-    return readGrid(
-      buffer,
-      entry.headless.cols,
-      start,
-      Math.max(0, end - start),
-    );
+    // The ceiling is enforced HERE, where the grid is built — not by the
+    // caller, and not by the schema alone.
+    //
+    // The schema bounds `tail.lines`, which is the only extent a caller can
+    // put a number in. `viewport` carries no number: it resolves to the live
+    // grid's own height, and a terminal resized to 200x2000 makes that a
+    // 2000-row read of ATTRIBUTED cells — roughly two orders of magnitude more
+    // bytes than the same screen as text, and past the 16 MiB frame limit the
+    // socket closes on. padi trims too, but it trims AFTER this hop, so its cap
+    // cannot save a frame that was too large to arrive. Serving the BOTTOM rows
+    // matches what the trim downstream would have chosen, and the reply's own
+    // row count reports what was actually served.
+    const rows = Math.min(Math.max(0, end - start), SCREEN_CELLS_MAX_ROWS);
+    return readGrid(buffer, entry.headless.cols, end - rows, rows);
   }
 
   function getHistory(

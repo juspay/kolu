@@ -55,6 +55,7 @@
  * coordinator restructures that next).
  */
 
+import { SCREEN_CELLS_MAX_ROWS } from "kaval";
 import { MAX_TIMER_MS } from "@kolu/surface/wait";
 import {
   composeSurfaceContracts,
@@ -408,8 +409,22 @@ export * from "./vocab.ts";
  *  binder against a 5.2 padi drains it before consuming its surface, and an
  *  older binder against a 5.3 padi is build-mismatched and drains it first). It
  *  can also never meet one by accident: a 5.2 caller cannot spell the params
- *  that put a state event in a queue. */
-export const PADI_SURFACE_VERSION = "5.3";
+ *  that put a state event in a queue.
+ *
+ *  5.4 (additive · minor): `screen.image` — the terminal as a rendered PNG
+ *  ({@link PadiScreenImageInputSchema} → {@link PadiScreenImageOutputSchema}),
+ *  serving the `screen_image` MCP tool and `kolu screenshot`.
+ *
+ *  A NEW PROCEDURE is exactly the shape the minor rule exists for, and the
+ *  reasoning is the CLI/MCP face's, not the browser's. `connectPadi` gates on
+ *  {@link isContractVersionCompatible}, and those faces are gate-only — they
+ *  never drain (#1313). Left at 5.3, a fresh `kolu screenshot` would ADOPT a
+ *  surviving 5.3 padi that does not serve the member and die on a missing
+ *  procedure; the minor makes convergence drain-and-respawn it first, which is
+ *  the honest recycle. This is the same call kaval's own 7.1 note makes for
+ *  `getScreenCells`, and the same one 4.4 (`listIgnored`), 4.6
+ *  (`listDirectory`) and 5.2 (backups) made before it. */
+export const PADI_SURFACE_VERSION = "5.4";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1290,8 +1305,14 @@ export const PadiScreenTextInputSchema = Schema.Struct({
  *  is TRIMMED to the last `SCREEN_IMAGE_MAX_ROWS` rows, because "show me the
  *  screen" is still answerable and its bottom is the part that matters — and
  *  the reply's own `rows` says how much was captured, so the trim is stated
- *  rather than hidden. */
-export const SCREEN_IMAGE_MAX_ROWS = 200;
+ *  rather than hidden.
+ *
+ *  DERIVED from kaval's own ceiling rather than spelled again. Two independent
+ *  200s would let the pair drift into a contradiction the caller pays for: a
+ *  padi-legal `lines` that kaval's decoder then refuses, or a tail kaval
+ *  serves and padi silently trims — collapsing the refuse-vs-trim split that is
+ *  deliberate above. padi already depends on kaval, so there is one number. */
+export const SCREEN_IMAGE_MAX_ROWS: number = SCREEN_CELLS_MAX_ROWS;
 
 /** What a legal `lines` is: a whole count of rows, at least one, at most
  *  {@link SCREEN_IMAGE_MAX_ROWS} — as CHECKS, so a face can spread them onto
