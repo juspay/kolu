@@ -57,6 +57,7 @@ import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
 import {
   type ActiveTerminalProcess,
+  claimActiveTerminal,
   drainTerminals,
   getActiveTerminal,
   getTerminal,
@@ -68,7 +69,10 @@ import {
   terminalNotFound,
   unregisterTerminal,
 } from "../terminal-registry.ts";
-import { cleanupTerminalScratch } from "../terminalScratch.ts";
+import {
+  cleanupTerminalScratch,
+  removeTerminalScratch,
+} from "../terminalScratch.ts";
 import { createTerminalWorkspaceEndpoint } from "../terminalWorkspace/endpoint.ts";
 import {
   type FoldCtx,
@@ -1342,30 +1346,32 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  snapshot store value (the IFF lockstep), then arm the autosave.
    *  `dropSnapshot` fans the removal onto padi's `terminals` collection (its keys
    *  stream IS the client's terminal list), so no separate list emit is needed.
-   *  handleExit / killTerminal / discardSleeping / a failed fresh `spawnPty` all
-   *  converge here, so an R9 snapshot-backing change (or any change to the
-   *  notification set) touches ONE place instead of four call sites. Only the
-   *  removal itself is encapsulated; each site keeps its own surrounding steps.
+   *  EVERY non-racing removal converges here — handleExit, the discards, a failed
+   *  fresh `spawnPty` — so an R9 snapshot-backing change (or any change to the
+   *  notification set) touches ONE place rather than each site. Only the removal
+   *  itself is encapsulated; each site keeps its own surrounding steps.
    *
-   *  Its POSITION differs by site, so this is not a "tail": it is the tail for
-   *  `handleExit` and the discards, and the CLAIM for `killTerminal` — which
-   *  calls it BEFORE the pty-host round-trip, so its kill and its scratch scrub
-   *  both follow.
-   *
-   *  Returns whether THIS call was the one that removed the entry — the
-   *  single-entry dual of `drainTerminals`'s snapshot-and-clear. A teardown that
-   *  yields claims through this RETURN VALUE rather than through the read that
-   *  admitted it, so of N overlapping callers exactly one proceeds even if an
-   *  `await` is later introduced above it. The other three sites ignore the
-   *  boolean.
+   *  Every caller reaches it SYNCHRONOUSLY, having already decided the entry is
+   *  theirs to drop, so it needs no claim of its own and returns nothing —
+   *  there is no "did I win" for a caller to forget to check. The one path that
+   *  DOES race (`killTerminal`) claims through `claimActiveTerminal`, which
+   *  removes and returns the entry in one step, and then runs this receptacle's
+   *  two publish steps itself.
    *
    *  The SEED counterpart is `registerAndInstall` (register the entry + fan its
    *  snapshot out), so birth and removal read as symmetric receptacles. */
-  private finalizeRemoval(id: TerminalId): boolean {
-    const claimed = unregisterTerminal(id);
+  private finalizeRemoval(id: TerminalId): void {
+    unregisterTerminal(id);
+    this.publishRemoval(id);
+  }
+
+  /** The publish half of a removal — fan it onto the `terminals` collection and
+   *  arm the autosave. Split out from `finalizeRemoval` because `killTerminal`'s
+   *  removal is the CLAIM (`claimActiveTerminal`), which has already dropped the
+   *  entry: it still owes these two, and must not owe them to a second remove. */
+  private publishRemoval(id: TerminalId): void {
     dropSnapshot(id);
     notifyDirty();
-    return claimed;
   }
 
   /** A terminal's PTY exited naturally. Stop its sensor layer, publish the
@@ -1381,34 +1387,41 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   async killTerminal(id: TerminalId): Promise<TerminalInfo | undefined> {
-    // Kill requires an ACTIVE terminal — the symmetric mirror of `discardSleeping`
-    // (which requires sleeping). A sleeping id is "not found" here so a raw `kill`
-    // RPC or a multi-client race can't run a dead-PTY kill against a record sleep
-    // already released; sleeping terminals exit via `discardSleeping`. The clients
-    // already route sleeping → discard, so this only fences off misuse.
-    const entry = getActiveTerminal(id);
+    // CLAIM FIRST, and the claim IS the guard: `claimActiveTerminal` removes the
+    // entry and hands it back in one step, so there is no earlier read left to go
+    // stale. That answers two questions at once —
+    //  - WRONG ARM: a sleeping/parked id is "not found" here, the symmetric mirror
+    //    of `discardSleeping` (which requires sleeping). Sleeping terminals exit
+    //    via `discardSleeping`, so a raw `kill` RPC or a multi-client race can't
+    //    run a dead-PTY kill against a record whose sleep already released it;
+    //  - RACE: of N overlapping kills exactly one holds the entry. The losers
+    //    return HERE, before logging `killing` and before touching the sensors —
+    //    which is what makes the production symptom (two `killing` lines 124ms
+    //    apart on one split close) impossible rather than merely harmless.
+    // Both fences are written up in `killIdempotence.test.ts`.
+    const entry = claimActiveTerminal(id);
     if (!entry) return undefined;
     const tlog = log.child({ terminal: id });
     tlog.info({ pid: entry.info.pid }, "killing");
-    // Stop the sensor layer FIRST — this aborts the `exit` tap, so the
-    // pty-host's exit (which fires on an intentional kill too, since pty-host
-    // makes no kill/exit distinction) can't reach `handleExit` and
+    // Stop the sensor layer BEFORE anything can re-publish: this aborts the
+    // `exit` tap, so the pty-host's exit (which fires on an intentional kill too,
+    // since pty-host makes no kill/exit distinction) can't reach `handleExit` and
     // double-publish `terminalExit`. The kill RPC's response drives client
-    // cleanup instead.
+    // cleanup instead. Synchronously ADJACENT to the claim above — nothing runs
+    // between them — which is the property `commitSnapshot` relies on.
     this.teardownSensors(id);
-    // CLAIM, before any `await`: the REMOVAL decides the winner, not the read
-    // above, so a second overlapping kill falls out here rather than firing a
-    // second signal at a pid this one is already retiring. Costs nothing — the
-    // kill's failure arm already unregistered regardless. The incident and both
-    // fences are written up in `killIdempotence.test.ts`.
-    if (!this.finalizeRemoval(id)) return undefined;
+    // The claim already dropped the entry; this is the rest of what
+    // `finalizeRemoval` would have done (fan the removal out, arm the autosave).
+    this.publishRemoval(id);
     try {
       await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
     } catch (err) {
       tlog.error({ err }, "pty-host kill failed; already unregistered");
     }
     // AFTER the kill: the PTY is gone by now, so nothing can re-create the
-    // scratch dir we are deleting.
+    // scratch dir we are deleting. Unlike `releaseSleptPty`'s tail this needs no
+    // re-check across the await — the claim REMOVED the id, so a terminal
+    // spawned in this window is a different id with a different scratch dir.
     cleanupTerminalScratch(id);
     return entry.info;
   }
@@ -1464,14 +1477,19 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  sleeping). A kill failure is logged, not thrown — the record is sleeping
    *  regardless, and boot reconcile reaps any survivor (adopt-or-reap).
    *
-   *  NOT fenced here, and does not need to be: `beginSleep` is the claim — it
-   *  flips the arm and returns `false` to a loser — and `sleepTerminal` cannot
-   *  reach this without winning it, so exactly one release runs per sleep. The
-   *  claim-before-yield rule `killTerminal` states is satisfied upstream. Said
-   *  here because this is the third async kill site in the file and the reader
-   *  who finds one fenced and two not must be able to tell F1's gap from this
-   *  satisfied one. */
+   *  A second RELEASE is fenced upstream: `beginSleep` is that claim (it flips the
+   *  arm and answers `false` to a loser), and `sleepTerminal` cannot reach here
+   *  without winning it. What that claim does NOT fence is RE-ACTIVATION, because
+   *  sleep deliberately keeps the id in the registry: a `wake(id)` landing while
+   *  this kill is in flight re-registers the SAME id as a LIVE terminal on a fresh
+   *  PTY. So the tail carries the sleeping entry across the await as a VALUE and
+   *  re-checks identity — `spawnViaClient` / `unwindSpawnShadow`'s idiom — because
+   *  `cleanupTerminalScratch` is `rmSync(dirFor(id))` and takes no account of who
+   *  owns the dir today: run blind, it deletes a LIVE terminal's pasted images and
+   *  dropped files, and the agent reading a path kolu handed it gets ENOENT.
+   *  Pinned in `sleepWakeRace.test.ts`. */
   async releaseSleptPty(id: TerminalId): Promise<void> {
+    const slept = getTerminal(id);
     try {
       await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
     } catch (err) {
@@ -1481,6 +1499,16 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           { err },
           "pty-host kill failed while sleeping; record is sleeping regardless",
         );
+    }
+    if (getTerminal(id) !== slept) {
+      // The id was re-activated (or discarded and re-created) under us. The dir
+      // belongs to whoever holds the slot now — leave it alone.
+      log
+        .child({ terminal: id })
+        .info(
+          "slept terminal was re-activated mid-release; keeping its scratch",
+        );
+      return;
     }
     cleanupTerminalScratch(id);
   }
@@ -1572,20 +1600,30 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // away though `killAll` never covered its PTY).
     const entries = drainTerminals();
     log.info({ count: entries.length }, "killing all terminals");
+    // Sensors down, THEN the snapshots — all SYNCHRONOUS, so the registry and the
+    // `terminals` collection move in the IFF lockstep `finalizeRemoval` exists to
+    // keep. Splitting them across the await was a real regression: for the whole
+    // killAll round-trip the registry was empty while the collection still held
+    // every key, so a client listed rows whose per-terminal RPCs all throw.
+    // Sensors go FIRST for the reason `killTerminal` gives — nothing may
+    // re-publish after the entry is gone.
     for (const entry of entries) this.teardownSensors(entry.info.id);
+    // `dropSnapshot` fans each removal onto padi's `terminals` collection, so the
+    // client's terminal list (its keys stream) empties with the registry.
+    for (const entry of entries) dropSnapshot(entry.info.id);
     try {
       await runEndpointEdge(ptyHostClient.surface.terminal.killAll({}));
     } catch (err) {
       log.error({ err }, "pty-host killAll failed; already drained");
     }
-    for (const entry of entries) {
-      // AFTER the kill, as in `killTerminal`: the PTY must not be able to
-      // re-create the scratch dir being deleted.
-      cleanupTerminalScratch(entry.info.id);
-      // `dropSnapshot` fans each removal onto padi's `terminals` collection, so
-      // the client's terminal list (its keys stream) empties as the drain runs.
-      dropSnapshot(entry.info.id);
-    }
+    // AFTER the kill, as in `killTerminal`: the PTY must not be able to re-create
+    // the scratch dir being deleted. This is the ONE step with a reason to sit on
+    // the far side. CONCURRENT and non-blocking — a shutdown with N terminals ran
+    // N sequential `rmSync`s on the daemon's event loop, each a recursive
+    // directory walk, right at the moment the daemon owes its clients an answer.
+    await Promise.all(
+      entries.map((entry) => removeTerminalScratch(entry.info.id)),
+    );
     // Deliberately NO `notifyDirty()`: this drain must fire no `terminals:dirty`,
     // or the restart-capture path arms a fresh autosave timer that fires ~500ms
     // later with an empty snapshot and clobbers the capture (session.ts, the F1

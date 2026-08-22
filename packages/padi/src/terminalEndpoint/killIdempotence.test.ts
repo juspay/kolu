@@ -2,17 +2,19 @@
  * `killTerminal` must be idempotent under CONCURRENCY, not merely under
  * sequence.
  *
- * The guard (`getActiveTerminal`) sits BEFORE an `await` — the pty-host kill
- * round-trip — and the registry entry is only dropped AFTER it. So two kills
- * that overlap in that window both observe a live entry, both drive the whole
- * teardown, both ask the pty-host to kill the same pid, and both report the
- * terminal as theirs to have killed. Production showed exactly this pair,
- * 124ms apart, on one split close:
+ * The guard used to be a plain READ (`getActiveTerminal`) sitting before an
+ * `await` — the pty-host kill round-trip — with the registry entry dropped only
+ * after it. So two kills that overlap in that window both observed a live entry,
+ * both logged `killing`, both drove the whole teardown, both asked the pty-host
+ * to kill the same pid, and both reported the terminal as theirs to have killed.
+ * Production showed exactly this pair, 124ms apart, on one split close:
  *
  *     [09:47:10.985] INFO (4186350): killing {"terminal":"b4fc3794-…"}
  *     [09:47:11.109] INFO (4186350): killing {"terminal":"b4fc3794-…"}
  *
- * Two fences are pinned, because they fail differently:
+ * The cure is `claimActiveTerminal`: remove-and-return in ONE step, so the claim
+ * IS the guard and there is no earlier read left to go stale. Two fences are
+ * pinned, because they fail differently:
  *
  *  - the RETURN VALUE, which is what a caller acts on: exactly ONE kill may
  *    claim the terminal. A second concurrent kill is the same "already gone"
@@ -25,7 +27,8 @@
  * The pty-host kill is mocked as a genuinely DEFERRED round-trip, because that
  * is what it is in production. A mock that answers synchronously closes the
  * very window under test — the endpoint never yields, and the race cannot be
- * expressed.
+ * expressed. So the delay is unconditional: there is no configuration under
+ * which this file wants an instant kill.
  */
 
 import { setTimeout as delay } from "node:timers/promises";
@@ -36,28 +39,16 @@ import {
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
-import {
-  type ActiveTerminalProcess,
-  getTerminal,
-  registerTerminal,
-  unregisterTerminal,
-} from "../terminal-registry.ts";
-import { LOCAL_LOCATION } from "../vocab.ts";
+import { getTerminal, unregisterTerminal } from "../terminal-registry.ts";
 import { localTerminalEndpoint } from "./local.ts";
-import { installSnapshot } from "./metadata.ts";
+import { seedActiveTerminal } from "./terminalFixtures.testlib.ts";
 
 const killed = vi.hoisted(() => ({ ids: [] as string[] }));
-/** Holds the pty-host kill open, so both callers are inside the window the
- *  guard doesn't cover. A real kaval round-trip crosses a unix socket; this is
- *  the cheapest honest stand-in for "it does not answer within this tick". */
-const killGate = vi.hoisted(() => ({
-  value: undefined as undefined | (() => Promise<void>),
-}));
 
 vi.mock("../ptyHost/index.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ptyHost/index.ts")>();
   const { Effect } = await import("effect");
-  const { emptySensorTaps } = await import("./sensorTaps.testutil.ts");
+  const { emptySensorTaps } = await import("./sensorTaps.testlib.ts");
   return {
     ...actual,
     ptyHostClient: {
@@ -66,7 +57,10 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
           kill: ({ id }: { id: string }) =>
             Effect.promise(async () => {
               killed.ids.push(id);
-              await killGate.value?.();
+              // The pty-host takes a beat to answer — a real kaval round-trip
+              // crosses a unix socket — so the first kill is still parked here
+              // while a second runs its synchronous preamble.
+              await delay(20);
             }),
         },
         ...emptySensorTaps(),
@@ -77,34 +71,6 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
 
 const ID = "22222222-2222-4222-8222-222222222222";
 
-function activeEntry(): ActiveTerminalProcess {
-  return {
-    info: { id: ID, pid: 4242 },
-    meta: {
-      state: "active",
-      location: LOCAL_LOCATION,
-      themeName: "rose",
-      lastActivityAt: 123,
-      restoreTarget: { kind: "none" },
-    },
-    snapshot: {
-      cwd: "/work/repo",
-      git: null,
-      pr: { kind: "pending" },
-      agent: null,
-      foreground: null,
-      ports: { status: "unknown" },
-    },
-    handle: {} as ActiveTerminalProcess["handle"],
-  };
-}
-
-/** The pty-host takes a beat to answer, so the first kill is still parked on
- *  its round-trip while the second runs its synchronous preamble. */
-function slowPtyHost(): void {
-  killGate.value = () => delay(20);
-}
-
 // `cleanupTerminalScratch` reads the per-instance scratch root, which boot
 // injects before any of this runs; mirror that here so the read hits the happy
 // path rather than the boot-order crash.
@@ -112,10 +78,8 @@ setDaemonProcessId("kill-idempotence-test-server");
 
 beforeEach(() => {
   setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
-  registerTerminal(ID, activeEntry());
-  installSnapshot(ID);
+  seedActiveTerminal(ID);
   killed.ids = [];
-  killGate.value = undefined;
 });
 
 afterEach(() => {
@@ -134,28 +98,13 @@ describe("killTerminal idempotence", () => {
     expect(getTerminal(ID)).toBeUndefined();
   });
 
-  it("a CONCURRENT second kill reports the same thing — one winner, one `undefined`", async () => {
-    slowPtyHost();
-
-    const [first, second] = await Promise.all([
-      localTerminalEndpoint.killTerminal(ID),
-      localTerminalEndpoint.killTerminal(ID),
-    ]);
-
-    const claimed = [first, second].filter((info) => info !== undefined);
-    expect(claimed).toHaveLength(1);
-    expect(claimed[0]?.id).toBe(ID);
-    expect(getTerminal(ID)).toBeUndefined();
-  });
-
-  it("the loser's `undefined` already means GONE, not gone eventually", async () => {
-    slowPtyHost();
-
-    // Observed AT each answer rather than after both settle, which is the
-    // contract `terminals.ts` advertises and the weaker post-settle check above
-    // does not reach. The winner is still parked on the pty-host round-trip when
-    // the loser is answered, so a caller acting on `undefined` — re-spawn, list
-    // refresh — must not find a registry entry that is still live.
+  it("a CONCURRENT second kill answers the same, and fires no second signal", async () => {
+    // Each answer is observed AT the moment it lands rather than after both
+    // settle: that is the contract `terminals.ts` advertises, and a post-settle
+    // check cannot reach it. The winner is still parked on the pty-host
+    // round-trip when the loser is answered, so a caller acting on `undefined`
+    // — re-spawn, list refresh — must not find a registry entry that is still
+    // live.
     const observed = await Promise.all(
       [
         localTerminalEndpoint.killTerminal(ID),
@@ -168,19 +117,17 @@ describe("killTerminal idempotence", () => {
       ),
     );
 
+    // Fence 1 — the return value: exactly one winner, and the loser's
+    // `undefined` already means GONE, not gone eventually.
+    const claimed = observed.filter((answer) => answer.info !== undefined);
+    expect(claimed).toHaveLength(1);
+    expect(claimed[0]?.info?.id).toBe(ID);
     const loser = observed.find((answer) => answer.info === undefined);
     expect(loser).toBeDefined();
     expect(loser?.stillRegistered).toBe(false);
-  });
 
-  it("a CONCURRENT second kill does not fire a second pty-host kill at the pid", async () => {
-    slowPtyHost();
-
-    await Promise.all([
-      localTerminalEndpoint.killTerminal(ID),
-      localTerminalEndpoint.killTerminal(ID),
-    ]);
-
+    // Fence 2 — the pty-host call count: the dead pid is signalled once.
     expect(killed.ids).toEqual([ID]);
+    expect(getTerminal(ID)).toBeUndefined();
   });
 });
