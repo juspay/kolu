@@ -24,13 +24,20 @@ const normalized = pathname.replace(new RegExp(`^${base}`), '') || '/';
 const isActive = (p: string) =>
   p === '/' ? normalized === '/' : normalized.startsWith(p);
 
+// Docs is the product-docs foyer. Highlight it on every product-docs page,
+// not only /start — and never on the framework docs, the blog, or home.
+const isDocsActive =
+  normalized !== '/' &&
+  !normalized.startsWith('/blog') &&
+  !normalized.startsWith('/changelog') &&
+  !normalized.startsWith('/surface') &&
+  !normalized.startsWith('/open-graph');
+
 // `hideOnMobile` drops the longest labels below `sm` so the single-row nav fits
-// narrow phones without overflowing. Product pages such as Padi and Kaval now
-// live in the docs sidebar and the homepage system map.
+// narrow phones without overflowing. Architecture and Surface live in the
+// footer — they are builder docs, not the product foyer.
 const nav = [
-  { label: 'Docs', href: href('/quickstart'), path: '/quickstart' },
-  { label: 'Surface', href: href('/surface'), path: '/surface' },
-  { label: 'Architecture', href: href('/architecture'), path: '/architecture', hideOnMobile: true },
+  { label: 'Docs', href: href('/start'), path: '/start', docs: true },
   { label: 'Blog', href: href('/blog'), path: '/blog' },
   { label: 'Changelog', href: href('/changelog'), path: '/changelog', hideOnMobile: true },
   { label: 'Discord', href: 'https://discord.com/invite/9acjNV8nmS', external: true, hideOnMobile: true },
@@ -75,7 +82,9 @@ const nav = [
             class:list={[
               'transition-colors',
               'hideOnMobile' in item && 'hidden sm:inline-block',
-              isActive(item.path) ? 'text-kolu-primary' : 'text-ink-dim hover:text-ink',
+              ('docs' in item && item.docs ? isDocsActive : isActive(item.path))
+                ? 'text-kolu-primary'
+                : 'text-ink-dim hover:text-ink',
             ]}
           >
             {item.label}

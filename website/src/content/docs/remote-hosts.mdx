@@ -1,10 +1,10 @@
 ---
-title: Remote Hosts
+title: Add another machine
 description: "Run terminals on other machines as first-class canvas tiles — add hosts from the host row (or pre-seed with KOLU_PADI_HOST), switch between them live, and the ssh-session limitations (including gh's 'The token in default is invalid')."
 order: 52
 section: Use Kolu
 koluHero:
-  eyebrow: "remote terminals"
+  eyebrow: "another computer"
   headline: |
     Your terminals,
     on {other} machines.
@@ -16,7 +16,7 @@ import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
-kolu can put terminals from **other machines** right on your canvas. A remote
+Kolu can put terminals from **other machines** right on your canvas. A remote
 host's terminals are first-class tiles — same [Code tab and file
 preview](/power-features), same paste, same session restore — just running on that
 host over ssh. The canvas shows **one host at a time**; a host row lets you switch
@@ -25,13 +25,10 @@ pull-down chrome sheet on a phone — and switching swaps the whole canvas **liv
 with no reload**. Each host keeps its own arrangement, so `you@box` looks the same
 from your laptop, your desktop, or your phone.
 
-Under the hood that's [padi](/padi) — kolu's per-host workspace daemon — bound to
-the remote over the same ssh transport [`kaval-tui`](/kaval) uses from the shell;
-[Architecture](/architecture) shows the full stack, and [Across the
-hosts](/surface/across-the-hosts) is the surface-mirror pattern behind live
-cross-host data. This is separate from [Remote
-Access](/remote-access), which is about reaching the kolu **browser app** itself
-from another device.
+This is the other direction from [From another device](/remote-access) (and from
+[From a Mac](/from-a-mac)): those pages are about **reaching the kolu app**.
+This page is about kolu **reaching another machine** over ssh, once the app is
+already running.
 
 ## Prerequisites
 
@@ -106,7 +103,7 @@ Where the bits come from depends on how kolu itself was installed. Run as a
 service through the **home-manager module**, kolu already holds every agent
 closure it can send: the installed generation carries them, so the transfer
 starts immediately and the host never compiles the daemon, even with no
-[binary cache](/quickstart#first-run-compiling-enable-the-binary-cache) in
+[binary cache](/deployment#first-run-compiling-enable-the-binary-cache) in
 reach. Launched with `nix run` or a plain `nix profile install`, kolu fetches
 the agent from the cache first, and falls back to building it when the cache
 doesn't have it yet.
@@ -393,6 +390,7 @@ you hit one that isn't here, that's the signal to add it.
   <LinkCard title="Padi" href="/padi" description="the per-host workspace daemon kolu binds on each machine, local or remote" />
   <LinkCard title="Architecture" href="/architecture" description="how the client, kolu-server, padi, and kaval layer up — and survive restarts and ssh blips" />
   <LinkCard title="Kaval remote terminals" href="/kaval#reach-a-remote-kaval--over-ssh" description="drive a PTY daemon on another machine from the shell — the same ssh transport, no browser" />
-  <LinkCard title="Remote Access" href="/remote-access" description="reach the kolu browser app itself from another device over Tailscale" />
+  <LinkCard title="From another device" href="/remote-access" description="reach the kolu browser app itself from another device over Tailscale" />
+  <LinkCard title="From a Mac" href="/from-a-mac" description="the usual setup: Linux box, Mac as the window" />
   <LinkCard title="Install as an App" href="/install-pwa" description="the PWA install paths that unlock cross-host app badges and notifications" />
 </CardGrid>

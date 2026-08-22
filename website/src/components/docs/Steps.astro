@@ -21,7 +21,7 @@
   .doc-steps :global(ol > li) {
     counter-increment: step;
     position: relative;
-    padding-left: 2.8rem;
+    padding-left: 3.1rem;
     color: var(--color-ink-dim);
     line-height: 1.6;
   }
@@ -29,20 +29,28 @@
     content: counter(step);
     position: absolute;
     left: 0;
-    top: 0;
+    top: 0.12rem;
     display: grid;
     place-items: center;
-    width: 1.8rem;
-    height: 1.8rem;
-    border-radius: 0.5rem;
+    width: 1.85rem;
+    height: 1.85rem;
+    border-radius: 0.45rem;
     background: color-mix(in srgb, var(--color-kolu-top) 14%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-kolu-top) 42%, transparent);
     color: var(--color-kolu-top-strong);
     font-family: var(--font-mono);
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     font-weight: 700;
   }
+  /* The first block of each step is the title — paint it as an h3, not as
+     another paragraph of dim body copy sitting next to a number. */
   .doc-steps :global(ol > li > :first-child) {
-    margin-top: 0;
+    margin: 0 0 0.7rem;
+    font-family: var(--font-sans);
+    font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.25rem);
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    color: var(--color-ink);
   }
 </style>

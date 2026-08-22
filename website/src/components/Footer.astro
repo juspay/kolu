@@ -1,10 +1,12 @@
 ---
 const year = new Date().getFullYear();
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => `${base}${p}` || '/';
 ---
 
 <footer class="border-t border-rule mt-28" data-pagefind-ignore>
   <div
-    class="mx-auto max-w-[68rem] px-6 py-10 flex flex-col md:flex-row md:items-end md:justify-between gap-6"
+    class="mx-auto max-w-[68rem] px-6 py-10 flex flex-col gap-8 md:flex-row md:items-start md:justify-between"
   >
     <div>
       <p class="eyebrow mb-2">colophon</p>
@@ -17,21 +19,34 @@ const year = new Date().getFullYear();
       </p>
     </div>
 
-    <div class="mono text-[0.72rem] text-ink-muted space-y-1 md:text-right">
-      <div>© {year} · AGPL-3.0</div>
-      <div>
+    <div class="flex flex-wrap gap-x-12 gap-y-6 mono text-[0.72rem]">
+      <div class="space-y-1.5">
+        <p class="text-ink-muted uppercase tracking-[0.12em]">Product</p>
+        <a href={href('/start')} class="block text-ink-dim hover:text-kolu-primary transition-colors">Get started</a>
+        <a href={href('/from-a-mac')} class="block text-ink-dim hover:text-kolu-primary transition-colors">From a Mac</a>
+        <a href={href('/changelog')} class="block text-ink-dim hover:text-kolu-primary transition-colors">Changelog</a>
+        <a href={href('/blog')} class="block text-ink-dim hover:text-kolu-primary transition-colors">Blog</a>
+      </div>
+      <div class="space-y-1.5">
+        <p class="text-ink-muted uppercase tracking-[0.12em]">Builders</p>
+        <a href={href('/architecture')} class="block text-ink-dim hover:text-kolu-primary transition-colors">Architecture</a>
+        <a href={href('/surface')} class="block text-ink-dim hover:text-kolu-primary transition-colors">Surface</a>
+        <a href={href('/padi')} class="block text-ink-dim hover:text-kolu-primary transition-colors">Padi</a>
+        <a href={href('/kaval')} class="block text-ink-dim hover:text-kolu-primary transition-colors">Kaval</a>
+      </div>
+      <div class="space-y-1.5">
+        <p class="text-ink-muted uppercase tracking-[0.12em]">Elsewhere</p>
         <a
           href="https://github.com/juspay/kolu"
           rel="noopener"
-          class="hover:text-kolu-primary transition-colors">github.com/juspay/kolu</a
+          class="block text-ink-dim hover:text-kolu-primary transition-colors">GitHub ↗</a
         >
-      </div>
-      <div>
         <a
           href="https://discord.com/invite/9acjNV8nmS"
           rel="noopener"
-          class="hover:text-kolu-primary transition-colors">discord ↗</a
+          class="block text-ink-dim hover:text-kolu-primary transition-colors">Discord ↗</a
         >
+        <p class="text-ink-muted pt-2">© {year} · AGPL-3.0</p>
       </div>
     </div>
   </div>

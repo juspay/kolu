@@ -16,7 +16,8 @@ kolu is a terminal app built for scale: real `xterm.js` tiles on an infinite
 
 <p align="center">
   <a href="https://kolu.dev">Documentation</a> ·
-  <a href="https://kolu.dev/quickstart">Quickstart</a> ·
+  <a href="https://kolu.dev/start">Start</a> ·
+  <a href="https://kolu.dev/from-a-mac">From a Mac</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="LICENSE">AGPL-3.0-or-later</a>
 </p>
@@ -29,13 +30,15 @@ kolu is a terminal app built for scale: real `xterm.js` tiles on an infinite
 nix --refresh run github:juspay/kolu -- web
 ```
 
-Open <http://127.0.0.1:7681>. Continue with the
-[Quickstart](https://kolu.dev/quickstart) and
-[First Five Minutes](https://kolu.dev/first-five-minutes).
+Open <http://127.0.0.1:7681>. Continue with
+[Start](https://kolu.dev/start), the [Quickstart](https://kolu.dev/quickstart),
+and [First Five Minutes](https://kolu.dev/first-five-minutes).
+
+The usual setup is a [Mac window onto a headless Linux box](https://kolu.dev/from-a-mac).
 
 If the first run starts **compiling** instead of downloading, enable kolu's
 binary cache — see
-[the Quickstart](https://kolu.dev/quickstart#first-run-compiling-enable-the-binary-cache).
+[Deployment](https://kolu.dev/deployment#first-run-compiling-enable-the-binary-cache).
 
 ## Why kolu
 
@@ -57,9 +60,9 @@ Read the full [Philosophy](https://kolu.dev/philosophy).
   working, finished, or waiting for you.
 - **[Durable sessions](https://kolu.dev/sessions)** — keep shells and agents
   alive across tab closes, server restarts, and redeploys.
-- **[Remote access](https://kolu.dev/remote-access) and
-  [hosts](https://kolu.dev/remote-hosts)** — reach kolu from another device,
-  bring other machines onto the same canvas, and
+- **[From another device](https://kolu.dev/remote-access) and
+  [Add another machine](https://kolu.dev/remote-hosts)** — reach kolu from a
+  phone or laptop, bring other machines onto the same canvas, and
   [forward a port](https://kolu.dev/remote-hosts#port-forwarding) so a dev
   server on any of them opens in your browser.
 - **[Deployment](https://kolu.dev/deployment)** — keep kolu running as a

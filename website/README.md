@@ -12,7 +12,7 @@ just website::nix-build    # reproducible Nix build → /nix/store/...
 ```
 
 Docs: `src/content/docs/*.{md,mdx}`, rendered at root-level URLs by
-`src/pages/[slug].astro` (`quickstart.mdx` → `/quickstart`). Required
+`src/pages/[slug].astro` (`start.mdx` → `/start`). Required
 frontmatter is `title`; `description`, `order`, `section`, and `koluHero` are
 optional. `order` controls sidebar and previous/next order; `section` groups the
 sidebar. Docs render through `DocsLayout`, which provides the native site header,

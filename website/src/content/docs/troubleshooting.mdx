@@ -23,7 +23,7 @@ You can still pin manually:
 - iOS: Share → Add to Home Screen.
 
 For the one-click prompt plus app badge, open the `https://...ts.net` URL from
-[Remote Access](/remote-access).
+[From another device](/remote-access).
 
 ## I am not getting desktop notifications
 
@@ -35,7 +35,7 @@ instead and no banner fires. The multi-agent notification flow is part of
 Past that, check these in order:
 
 1. **Secure context.** Notifications ride a service worker, which needs HTTPS or
-   `localhost`; [Remote Access](/remote-access) gives kolu a private HTTPS URL.
+   `localhost`; [From another device](/remote-access) gives kolu a private HTTPS URL.
 2. **Browser permission.** Re-enable notifications from the address-bar lock icon
    if the browser prompt was dismissed.
 3. **OS permission.** On macOS, the browser and the pinned app can have separate
@@ -57,7 +57,7 @@ above is the likely explanation.
 Yes. Locally over `localhost`, everything works, including one-click install,
 because loopback is a secure-context exemption. Tailscale matters when you want
 to reach kolu from another device and keep the install/badge/notification path;
-see [Remote Access](/remote-access).
+see [From another device](/remote-access).
 
 ## Which agents does kolu support?
 
@@ -194,7 +194,8 @@ diagnostics](/deployment#capture-memory-diagnostics).
 ## Still stuck?
 
 <CardGrid>
-  <LinkCard title="Remote Access" href="/remote-access" description="private HTTPS, install prompts, and Tailscale Serve" />
+  <LinkCard title="From another device" href="/remote-access" description="private HTTPS, install prompts, and Tailscale Serve" />
+  <LinkCard title="From a Mac" href="/from-a-mac" description="the usual setup: Linux box, Mac as the window" />
   <LinkCard title="Install as an App" href="/install-pwa" description="browser-specific PWA install paths" />
   <LinkCard title="Deployment" href="/deployment" description="home-manager service, logs, origins, and heap diagnostics" />
   <LinkCard title="Operations" href="/operations" description="stopping the daemons, rolling back, and testing beside production" />

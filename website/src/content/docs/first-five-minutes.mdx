@@ -14,9 +14,7 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
 The whole point lands in one move: open a repository and start an agent in its
-own tile. If the words canvas, tile, dock, and worktree are still fuzzy, keep
-[Core Concepts](/concepts) nearby; kolu watches what you do, so setup is mostly
-just using your shell.
+own tile. Kolu watches what you do, so setup is mostly just using your shell.
 
 <figure class="doc-shot">
   <img src="/blog/kolu-evidence-worktree-name-leaf.png" alt="Kolu's New terminal sub-palette with a generated worktree name and a Plain shell choice." loading="lazy" />
@@ -25,13 +23,11 @@ just using your shell.
 
 <Steps>
 
-1. Open the [switcher](/switcher).
+1. Open search.
 
    Press <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd>. This is kolu's one search box for
-   **everything** — terminals, hosts, commands, themes, and shortcuts. Type a
-   branch or machine name to jump there; <kbd>Cmd/Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>
-   and <kbd>Cmd/Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd> deep-link into scoped
-   views of the same surface.
+   terminals, hosts, commands, themes, and shortcuts. Type a branch or machine
+   name to jump there.
 
 2. Drill into **New terminal → your repo**.
 
@@ -46,10 +42,9 @@ just using your shell.
 
 4. Watch the dock.
 
-   The dock row pulses while the agent is working and changes when it is waiting
-   on you, so a glance tells you who needs attention even across many tiles. The
-   same state becomes more important once you are using the
-   [multi-agent tools](/power-features).
+   The dock is the list of terminals on the left. The row pulses while the
+   agent is working and changes when it is waiting on you, so a glance tells
+   you who needs attention even across many tiles.
 
 </Steps>
 
@@ -69,13 +64,15 @@ branches can be checked out side by side without stashing or re-cloning.
   dock row.
 - Branch, PR number, and CI status come from each terminal's working directory.
 - You can run several agents on several branches at once; the dock keeps them
-  distinct, and [padi](/padi) is the daemon that keeps that workspace memory
-  durable.
+  distinct.
+
+The words for what you just used — canvas, tile, dock, worktree — are on
+[Core Concepts](/concepts).
 
 ## Next
 
 <CardGrid>
   <LinkCard title="Core concepts" href="/concepts" description="the vocabulary: canvas, tiles, dock, worktrees, and code comments" />
-  <LinkCard title="Power features" href="/power-features" description="sessions, sleep/wake, export, recording, and shell control" />
-  <LinkCard title="Padi" href="/padi" description="the workspace daemon that makes the dock and repo context durable" />
+  <LinkCard title="The Canvas" href="/canvas" description="pan, zoom, maximize, arrange, and agent state as motion" />
+  <LinkCard title="The Dock" href="/dock" description="the left-edge list that tells you who needs you" />
 </CardGrid>
