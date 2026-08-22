@@ -91,6 +91,20 @@ function titleLabel(meta: TerminalMetadata | undefined): string {
   return meta.git?.branch ? `${name} (${meta.git.branch})` : name;
 }
 
+/** A scene's text anchor in canvas spelling.
+ *
+ *  The scene says where a piece of title-bar text is anchored; the two
+ *  backends only disagree about the WORD for it — SVG's `text-anchor` takes
+ *  `middle`, canvas's `textAlign` takes `center`. One translation rather than
+ *  two: this was written out twice below, once as `=== "middle" ? "center" :
+ *  "end"` and once as `=== "end" ? "end" : "center"`, which are the same
+ *  mapping spelled from opposite ends and one edit away from disagreeing. */
+function textAlignOf(
+  anchor: SnapshotScene["titleBar"]["title"]["anchor"],
+): CanvasTextAlign {
+  return anchor === "end" ? "end" : "center";
+}
+
 /** Execute a scene against a 2D context. A dumb executor by design: every
  *  colour and every coordinate is read straight off the scene, never
  *  re-derived here — the moment this function computes a position, the
@@ -107,25 +121,20 @@ function paintScene(
   logo: HTMLImageElement | undefined,
 ): void {
   const { font, titleBar } = scene;
-  // The outline's inset and stroke width are the scene's, not this backend's —
+  // The outline box and the stroke width are the scene's, not this backend's —
   // they were two literals here and two more in the SVG writer, which is the
   // drift the scene exists to prevent.
-  const { strokeInset, strokeWidth } = scene.window;
+  const { outline: box, strokeWidth } = scene.window;
   // `ctx.roundRect` — the platform primitive — rather than a hand-built path.
   // Its corner is a true elliptical quarter-arc, which is exactly what the SVG
   // backend's `<rect rx>` draws. The two used to be a `quadraticCurveTo` here
   // (a parabola) against an `A r,r` arc there: the ONE piece of geometry
   // neither backend took off the scene, and so the one place they could draw
-  // different pictures from the same scene.
+  // different pictures from the same scene. Even the rectangle it rounds is
+  // the scene's — there is no inset or size arithmetic left in this backend.
   const outline = () => {
     ctx.beginPath();
-    ctx.roundRect(
-      strokeInset,
-      strokeInset,
-      scene.width - strokeWidth,
-      scene.height - strokeWidth,
-      scene.radius,
-    );
+    ctx.roundRect(box.x, box.y, box.w, box.h, scene.radius);
   };
 
   outline();
@@ -161,7 +170,7 @@ function paintScene(
   ctx.font = `${title.size}px ${font.family}`;
   ctx.fillStyle = titleBar.fg;
   ctx.textBaseline = "middle";
-  ctx.textAlign = title.anchor === "middle" ? "center" : "end";
+  ctx.textAlign = textAlignOf(title.anchor);
   ctx.fillText(title.text, title.x, title.y);
 
   // Kolu branding — right-aligned wordmark + logo, matching /favicon.svg.
@@ -178,7 +187,7 @@ function paintScene(
     : 0;
   const logoY = (titleBar.height - logoH) / 2;
   const logoX = brand.x - brandTextWidth - (logo ? 6 : 0) - logoW;
-  ctx.textAlign = brand.anchor === "end" ? "end" : "center";
+  ctx.textAlign = textAlignOf(brand.anchor);
   ctx.fillStyle = titleBar.fg;
   ctx.fillText(brand.text, brand.x, brand.y);
   if (logo) ctx.drawImage(logo, logoX, logoY, logoW, logoH);

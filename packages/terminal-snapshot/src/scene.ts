@@ -42,10 +42,10 @@ export const CHROME = {
   titleSize: 13,
   /** Wordmark type size, one step below the caption. Same reasoning. */
   brandSize: 12,
-  /** Width of the window outline's stroke. On the scene beside
-   *  {@link SnapshotScene.window.strokeInset} so neither backend hardcodes it:
-   *  a 1px line and a half-pixel inset are one decision, and the two used to
-   *  be spelled as bare numbers in both painters. */
+  /** Width of the window outline's stroke. On the scene beside the outline box
+   *  it is inset by, so neither backend hardcodes it: the line width and where
+   *  the line lands are one decision, and both used to be spelled as bare
+   *  numbers in both painters. */
   strokeWidth: 1,
 } as const;
 
@@ -292,9 +292,17 @@ export interface SnapshotScene {
     readonly bg: string;
     readonly border: string;
     readonly strokeWidth: number;
-    /** Half the stroke, so the line lands ON the window boundary rather than
-     *  straddling it. Both backends inset by this rather than by a literal. */
-    readonly strokeInset: number;
+    /** The rounded rect the window is filled with, clipped to and stroked
+     *  along — already inset by half the stroke, so the line lands ON the
+     *  window boundary rather than straddling it.
+     *
+     *  A finished BOX rather than the inset alone. The inset was
+     *  `strokeWidth / 2`, derivable from its own sibling, and a backend holding
+     *  it still had to spell `width - strokeWidth` itself to use it — two
+     *  arithmetic steps re-done per backend on the shape the scene is most
+     *  insistent both backends draw identically. Handing over the rectangle
+     *  leaves neither of them anything to compute. */
+    readonly outline: SceneBox;
   };
   readonly titleBar: {
     readonly height: number;
@@ -452,7 +460,12 @@ export function buildScene(input: SceneInput): SnapshotScene {
       bg: theme.bg,
       border,
       strokeWidth: CHROME.strokeWidth,
-      strokeInset: CHROME.strokeWidth / 2,
+      outline: {
+        x: CHROME.strokeWidth / 2,
+        y: CHROME.strokeWidth / 2,
+        w: width - CHROME.strokeWidth,
+        h: height - CHROME.strokeWidth,
+      },
     },
     titleBar: {
       height: CHROME.titleHeight,

@@ -166,12 +166,15 @@ function loadFonts(): Promise<readonly Uint8Array[]> {
  *  that renders a screenshot every few seconds and never frees them grows
  *  until it is killed.
  *
- *  Takes a scene from {@link buildPngScene} — the family check below is an
- *  assertion, not a validation: the family list is module-private, so the only
- *  way to build a rasterisable scene is that entry point. It stays because the
- *  failure it names is silent (resvg falls back along the family list in the
- *  DOCUMENT, so another name renders tofu for every glyph the first face lacks
- *  while still producing a perfectly valid-looking PNG).
+ *  Takes a scene from {@link buildPngScene}, and the family check below is a
+ *  real validation rather than a belt-and-braces assertion. `buildScene` is a
+ *  public export, so a caller CAN hand-assemble a scene with a font family of
+ *  its own and bring it here — the module-private family list makes that the
+ *  awkward path, not an impossible one. The check matters because the failure
+ *  it names is silent: resvg falls back along the family list in the DOCUMENT,
+ *  not along the order buffers were registered in, so another name renders
+ *  tofu for every glyph the first face lacks while still producing a perfectly
+ *  valid-looking PNG.
  */
 export async function sceneToPng(scene: SnapshotScene): Promise<Uint8Array> {
   if (scene.font.family !== PNG_FONT_FAMILY) {

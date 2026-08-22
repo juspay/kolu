@@ -1,16 +1,19 @@
 /** padi's half of `screen.image`: the theme is resolved HERE, and the label is
  *  the caption a reader uses to tell one screenshot from another.
  *
- *  The render itself is covered by `terminal-snapshot`'s own tests (layout,
- *  palette, SVG) — what is padi-specific, and therefore tested here, is that
- *  the terminal's OWN theme reaches the picture and that the caption survives
- *  the fallback arm. */
+ *  Layout, palette and SVG are covered by `terminal-snapshot`'s own tests —
+ *  what is padi-specific, and therefore tested here, is that the terminal's OWN
+ *  theme reaches the picture and that the caption survives the fallback arm.
+ *  The theme test drives `renderScreenImage` end to end (real fonts, real
+ *  rasteriser) rather than rebuilding a scene beside it: a test that
+ *  hand-assembles the pipeline it is meant to be checking stays green while the
+ *  pipeline rots. */
 
 import { describe, expect, it } from "vitest";
 import type { SnapshotGrid } from "terminal-snapshot";
 import { SCREEN_CELLS_MAX_ROWS } from "kaval";
 import { SCREEN_IMAGE_MAX_ROWS } from "./surface.ts";
-import { screenshotLabel } from "./screenImage.ts";
+import { renderScreenImage, screenshotLabel } from "./screenImage.ts";
 
 const gridWith = (fg: number): SnapshotGrid => ({
   cols: 4,
@@ -62,37 +65,33 @@ describe("screenshotLabel", () => {
 });
 
 describe("theme resolution reaches the picture", () => {
+  // Through `renderScreenImage` itself, not through a scene rebuilt here with
+  // parameters no production caller uses. The pair this replaced hand-called
+  // `buildScene`/`sceneToSvg` and asserted a `terminal-snapshot` /
+  // `terminal-themes` property — green whatever padi did, including if this
+  // module stopped passing the theme along at all.
   it("renders the SAME cell differently under two themes", async () => {
     // The whole reason rendering lives in padi rather than kaval: the cells say
     // "palette 1", and only this side knows what colour that is. If the theme
-    // were ignored, these two would be byte-identical.
-    const { buildScene } = await import("terminal-snapshot");
-    const { sceneToSvg } = await import("terminal-snapshot");
-    const { getThemeByName } = await import("terminal-themes");
+    // did not reach the renderer, these two would be byte-identical.
+    const render = (themeName: string | undefined) =>
+      renderScreenImage({ grid: gridWith(1), themeName, label: "t" });
 
-    const render = (themeName: string) =>
-      sceneToSvg(
-        buildScene({
-          grid: gridWith(1),
-          theme: getThemeByName(themeName),
-          label: "t",
-          brand: "kolu",
-          fontFamily: "M",
-          fontSize: 10,
-          cellW: 6,
-          cellH: 12,
-        }),
-      );
+    const [a, b] = await Promise.all([
+      render("Tomorrow Night"),
+      render("Nord"),
+    ]);
+    expect(a.data).not.toBe(b.data);
+    // And the reply describes the grid it actually rendered.
+    expect(a.mimeType).toBe("image/png");
+    expect(a.cols).toBe(4);
+    expect(a.rows).toBe(1);
 
-    const a = render("Tomorrow Night");
-    const b = render("Nord");
-    expect(a).not.toBe(b);
-  });
-
-  it("falls back to the default theme for an unknown name instead of failing the screenshot", async () => {
-    const { getThemeByName, DEFAULT_THEME } = await import("terminal-themes");
-    expect(getThemeByName("no-such-theme")).toBe(DEFAULT_THEME);
-    expect(getThemeByName(undefined)).toBe(DEFAULT_THEME);
+    // An unknown name is kolu's default theme rather than a failed screenshot —
+    // `getThemeByName`'s documented behaviour, asserted where padi relies on it.
+    const unknown = await render("no-such-theme");
+    const absent = await render(undefined);
+    expect(unknown.data).toBe(absent.data);
   });
 });
 

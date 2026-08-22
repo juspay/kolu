@@ -88,24 +88,28 @@ export const run = Effect.fn("kolu screenshot")(function* (
   const png = Buffer.from(image.data, "base64");
   const out = args.out ?? DEFAULT_OUT;
 
-  if (out === STDOUT) {
+  // Only the WRITE differs between the two destinations. The summary line was
+  // hand-copied into both arms, differing by a trailing `→ <path>` — one edit
+  // away from two verbs' worth of drift in what is meant to be one sentence —
+  // so the branch covers the write and nothing else.
+  const toStdout = out === STDOUT;
+  if (toStdout) {
     // The SAME stdout path every other verb uses — backpressure-aware, and
     // treating a hung-up reader (`kolu screenshot … -o - | head -c 100`) as a
     // complete run rather than a failure. Writing the bytes here by hand is
     // what made this verb the only one in the CLI that exited non-zero on a
     // pipe the reader closed.
     yield* writeOut(png, "the PNG");
-    yield* writeErr(
-      `— ${shortId(id)} · ${image.cols}x${image.rows} · ${png.length} bytes\n`,
-    );
-    return;
+  } else {
+    yield* Effect.tryPromise({
+      try: () => writeFile(out, png),
+      catch: (err) => failure(`could not write ${out}: ${errorMessage(err)}`),
+    });
   }
 
-  yield* Effect.tryPromise({
-    try: () => writeFile(out, png),
-    catch: (err) => failure(`could not write ${out}: ${errorMessage(err)}`),
-  });
   yield* writeErr(
-    `— ${shortId(id)} · ${image.cols}x${image.rows} · ${png.length} bytes → ${out}\n`,
+    `— ${shortId(id)} · ${image.cols}x${image.rows} · ${png.length} bytes${
+      toStdout ? "" : ` → ${out}`
+    }\n`,
   );
 });

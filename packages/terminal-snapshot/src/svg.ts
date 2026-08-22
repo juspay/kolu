@@ -46,8 +46,8 @@ function n(value: number): string {
  *  fill, and as the stroked outline — so the path builder bought nothing the
  *  primitive does not already give. */
 function windowRect(scene: SnapshotScene): string {
-  const { strokeInset, strokeWidth } = scene.window;
-  return `x="${n(strokeInset)}" y="${n(strokeInset)}" width="${n(scene.width - strokeWidth)}" height="${n(scene.height - strokeWidth)}" rx="${n(scene.radius)}"`;
+  const { x, y, w, h } = scene.window.outline;
+  return `x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" rx="${n(scene.radius)}"`;
 }
 
 export function sceneToSvg(scene: SnapshotScene): string {

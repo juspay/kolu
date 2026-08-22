@@ -45,6 +45,9 @@ const scene = (grid: SnapshotGrid) =>
     cellH: 12,
   });
 
+/** A one-cell scene holding exactly these characters. */
+const cellSceneOf = (chars: string) => scene(gridOf([[cell({ chars })]]));
+
 describe("theme resolution", () => {
   it("fills every unset colour from xterm's own defaults rather than leaving a hole", () => {
     const t = resolveTheme({});
@@ -125,6 +128,14 @@ describe("layout", () => {
     expect(s.glyphs).toHaveLength(0);
     expect(s.rects).toHaveLength(1);
   });
+
+  it("takes the row count from the lines themselves, so the two cannot disagree", () => {
+    // There is no `rows` field to get wrong: an image is exactly as tall as
+    // the content it carries.
+    const s = scene(gridOf([[cell()], [cell()], [cell()]]));
+    expect(s.height).toBe(12 * 3 + CHROME.titleHeight + CHROME.pad * 2);
+    expect(s.term.h).toBe(12 * 3);
+  });
 });
 
 describe("svg", () => {
@@ -141,7 +152,7 @@ describe("svg", () => {
   });
 
   it("escapes XML metacharacters a shell prompt really produces", () => {
-    const svg = sceneToSvg(gridSvgOf('<&>"'));
+    const svg = sceneToSvg(cellSceneOf('<&>"'));
     expect(svg).toContain("&lt;");
     expect(svg).toContain("&amp;");
     expect(svg).toContain("&gt;");
@@ -175,10 +186,6 @@ describe("svg", () => {
   });
 });
 
-function gridSvgOf(chars: string) {
-  return scene(gridOf([[cell({ chars })]]));
-}
-
 describe("what a cell can paint is decided once, in the scene", () => {
   // These live here rather than under `svg` on purpose. The DROP used to be
   // the SVG writer's, so the canvas painter never did it and Chromium drew an
@@ -190,7 +197,7 @@ describe("what a cell can paint is decided once, in the scene", () => {
   // character in the source reads to a reviewer as a case that exercises
   // nothing.
   it("drops a control character no renderer can paint, keeping the text around it", () => {
-    const s = gridSvgOf("a\u0001b");
+    const s = cellSceneOf("a\u0001b");
     expect(s.glyphs[0]?.text).toBe("ab");
     // And the document that comes out is parseable, which is the failure this
     // prevents in the SVG backend specifically: XML 1.0 cannot carry a C0
@@ -201,17 +208,17 @@ describe("what a cell can paint is decided once, in the scene", () => {
   });
 
   it("drops an UNPAIRED surrogate, which a canvas would otherwise paint as U+FFFD", () => {
-    expect(gridSvgOf("a\uD800b").glyphs[0]?.text).toBe("ab");
+    expect(cellSceneOf("a\uD800b").glyphs[0]?.text).toBe("ab");
   });
 
   it("keeps an astral glyph whole — a surrogate PAIR is a real character", () => {
-    const s = gridSvgOf("🚀");
+    const s = cellSceneOf("🚀");
     expect(s.glyphs[0]?.text).toBe("🚀");
     expect(sceneToSvg(s)).toContain("🚀");
   });
 
   it("emits no glyph for a cell that held nothing paintable at all", () => {
-    expect(gridSvgOf("\u0001").glyphs).toHaveLength(0);
+    expect(cellSceneOf("\u0001").glyphs).toHaveLength(0);
   });
 
   it("cleans the title-bar caption too — it is text a backend draws", () => {
@@ -232,7 +239,7 @@ describe("what a cell can paint is decided once, in the scene", () => {
   });
 });
 
-describe("a grid that contradicts itself is refused, not painted", () => {
+describe("a grid that contradicts itself is refused, not approximated", () => {
   it("rejects a cell outside the column count it was read from", () => {
     // Reachable only from a producer bug or a peer that lied on the wire, and
     // the honest answer is neither to clamp it (a column silently in the wrong
@@ -248,12 +255,31 @@ describe("a grid that contradicts itself is refused, not painted", () => {
     );
   });
 
-  it("takes the row count from the lines themselves, so the two cannot disagree", () => {
-    // There is no `rows` field to get wrong: an image is exactly as tall as
-    // the content it carries.
-    const s = scene(gridOf([[cell()], [cell()], [cell()]]));
-    expect(s.height).toBe(12 * 3 + CHROME.titleHeight + CHROME.pad * 2);
-    expect(s.term.h).toBe(12 * 3);
+  it("rejects a wide cell that would overrun the right edge into the chrome", () => {
+    // The same rule for the cell's FAR edge: a wide leader parked on the last
+    // column would paint its second half over the window chrome.
+    expect(() => scene(gridOf([[cell({ col: 9, width: 2 })]], 10))).toThrow(
+      /overruns the 10-column grid/,
+    );
+  });
+
+  it("accepts a wide cell that ends exactly on the last column", () => {
+    expect(() =>
+      scene(gridOf([[cell({ col: 8, width: 2 })]], 10)),
+    ).not.toThrow();
+  });
+
+  it("rejects a palette index outside xterm's 256-colour table", () => {
+    // greyColor would extrapolate index 300 to rgb(688,688,688) — not a colour,
+    // in a PNG that otherwise looks fine.
+    expect(() =>
+      scene(gridOf([[cell({ fg: { kind: "palette", index: 300 } })]])),
+    ).toThrow(/outside xterm's 256-colour table/);
+  });
+
+  it("still accepts the last legal index", () => {
+    const s = scene(gridOf([[cell({ fg: { kind: "palette", index: 255 } })]]));
+    expect(s.glyphs[0]?.fill).toBe("rgb(238,238,238)");
   });
 });
 
@@ -315,32 +341,5 @@ describe("attributes a terminal uses to mean something", () => {
     const svg = sceneToSvg(scene(gridOf([[cell({ underline: true })]])));
     expect(svg).not.toContain("text-decoration");
     expect(svg).toContain('height="1"');
-  });
-});
-
-describe("a producer that lies is refused, not approximated", () => {
-  it("rejects a wide cell that would overrun the right edge into the chrome", () => {
-    expect(() => scene(gridOf([[cell({ col: 9, width: 2 })]], 10))).toThrow(
-      /overruns the 10-column grid/,
-    );
-  });
-
-  it("accepts a wide cell that ends exactly on the last column", () => {
-    expect(() =>
-      scene(gridOf([[cell({ col: 8, width: 2 })]], 10)),
-    ).not.toThrow();
-  });
-
-  it("rejects a palette index outside xterm's 256-colour table", () => {
-    // greyColor would extrapolate index 300 to rgb(688,688,688) — not a colour,
-    // in a PNG that otherwise looks fine.
-    expect(() =>
-      scene(gridOf([[cell({ fg: { kind: "palette", index: 300 } })]])),
-    ).toThrow(/outside xterm's 256-colour table/);
-  });
-
-  it("still accepts the last legal index", () => {
-    const s = scene(gridOf([[cell({ fg: { kind: "palette", index: 255 } })]]));
-    expect(s.glyphs[0]?.fill).toBe("rgb(238,238,238)");
   });
 });
