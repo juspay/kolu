@@ -53,7 +53,7 @@ The daemon backend does **no** system font discovery (`loadSystemFonts: false`).
 `src/scene.test.ts` pins the layout contract; `src/render.smoke.ts` is the manual smoke — it drives a real headless buffer through the whole pipeline and writes a PNG you can look at — run it from the repo root inside the dev shell, which supplies `KOLU_SNAPSHOT_FONTS_DIR`:
 
 ```sh
-nix develop . -c ./node_modules/.bin/tsx packages/terminal-snapshot/src/render.smoke.ts /tmp/out.png
+nix develop . -c ./node_modules/.bin/tsx packages/terminal-snapshot/src/render.smoke.ts ./out.png
 ```
 
 (`tsx` is a workspace binary, not a resolvable package name, so `node --import tsx` does not work from the repo root.)

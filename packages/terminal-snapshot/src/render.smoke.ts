@@ -3,7 +3,8 @@
  *
  *  Not a unit test — it needs the Nix font directory and writes a file.
  *  Run it from the repo root with:
- *    node --import tsx packages/terminal-snapshot/src/render.smoke.ts /tmp/out.png
+ *    nix develop . -c ./node_modules/.bin/tsx \\
+ *      packages/terminal-snapshot/src/render.smoke.ts ./out.png
  */
 
 import { writeFile } from "node:fs/promises";
@@ -17,7 +18,16 @@ const require = createRequire(import.meta.url);
 const { Terminal } =
   require("@xterm/headless") as typeof import("@xterm/headless");
 
-const out = process.argv[2] ?? "/tmp/terminal-snapshot.png";
+// The output path is REQUIRED, not defaulted. A hardcoded `/tmp/<fixed name>`
+// is a predictable path any local user can pre-create or symlink, and this
+// script happily writes through it — so the caller says where the PNG goes.
+const out = process.argv[2];
+if (!out) {
+  console.error(
+    "usage: render.smoke.ts <output.png>  (run inside `nix develop`, which supplies KOLU_SNAPSHOT_FONTS_DIR)",
+  );
+  process.exit(2);
+}
 const cols = 74;
 const rows = 12;
 const term = new Terminal({ cols, rows, allowProposedApi: true });
