@@ -1306,6 +1306,14 @@ export const PadiScreenTextInputSchema = Schema.Struct({
  *  the reply's own `rows` says how much was captured, so the trim is stated
  *  rather than hidden.
  *
+ *  ROWS ONLY, on purpose. The other axis is not a caller's to name — there is
+ *  no `cols` in this input, and a terminal's width is whatever its owner
+ *  resized it to — so the width of a capture is bounded where the cells are
+ *  READ, by kaval's area cap (`SCREEN_CELLS_MAX_CELLS`, `rows * cols`): a
+ *  terminal both very tall and very wide comes back at fewer columns, leftmost
+ *  kept. The reply's `cols` states that the same way `rows` states this trim.
+ *  There is nothing to refuse on that axis and so nothing to check here.
+ *
  *  This is kaval's `SCREEN_CELLS_MAX_ROWS` spelled a second time, and the
  *  duplication is deliberate — the same call `vocab.ts` makes for
  *  `PtyHostIdentitySchema` and `DaemonLifetimeInfoSchema`. This module is

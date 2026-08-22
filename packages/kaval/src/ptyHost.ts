@@ -39,9 +39,9 @@ import { readGrid, type SnapshotGrid } from "terminal-snapshot";
 import * as pty from "node-pty";
 import { FanOut, type SubscriberOverflow } from "./fanOut.ts";
 import {
+  boundScreenCells,
   type PtyGrid,
   PtyNotFound,
-  SCREEN_CELLS_MAX_ROWS,
 } from "./ptyHostSurface.ts";
 
 /** Default terminal grid dimensions (matches xterm/VT100 standard). */
@@ -1332,12 +1332,16 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // grid's own height, and a terminal resized to 200x2000 makes that a
     // 2000-row read of ATTRIBUTED cells — roughly two orders of magnitude more
     // bytes than the same screen as text, and past the 16 MiB frame limit the
-    // socket closes on. padi trims too, but it trims AFTER this hop, so its cap
-    // cannot save a frame that was too large to arrive. Serving the BOTTOM rows
-    // matches what the trim downstream would have chosen, and the reply's own
-    // row count reports what was actually served.
-    const rows = Math.min(Math.max(0, end - start), SCREEN_CELLS_MAX_ROWS);
-    return readGrid(buffer, entry.headless.cols, end - rows, rows);
+    // socket closes on. Nor is the WIDTH ever a caller's number: `resize` takes
+    // whatever the ioctl accepts, so a wide-enough terminal is the same
+    // ambush on the other axis. padi trims too, but it trims AFTER this hop, so
+    // its cap cannot save a frame that was too large to arrive.
+    //
+    // {@link boundScreenCells} owns which rows and columns survive that (bottom
+    // rows, leftmost columns) and why; the grid it produces reports both, so
+    // the trim is stated rather than hidden.
+    const { rows, cols } = boundScreenCells(end - start, entry.headless.cols);
+    return readGrid(buffer, cols, end - rows, rows);
   }
 
   function getHistory(

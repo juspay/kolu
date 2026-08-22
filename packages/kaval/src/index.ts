@@ -100,10 +100,12 @@ export {
 export {
   DEFAULT_SPAWN_SHELL,
   PTY_HOST_CONTRACT_VERSION,
-  // The attributed-cell row ceiling. padi cannot IMPORT this — its
-  // `surface.ts` is browser-safe and this barrel re-exports a node-pty child —
-  // so padi spells its own `SCREEN_IMAGE_MAX_ROWS` and pins the two equal in a
-  // node-side test. This export exists for that pin.
+  // The attributed-cell ceilings — rows, and the area that actually binds.
+  // padi cannot IMPORT either — its `surface.ts` is browser-safe and this
+  // barrel re-exports a node-pty child — so padi spells its own
+  // `SCREEN_IMAGE_MAX_ROWS` and pins the two equal in a node-side test. These
+  // exports exist for that pin and for the area cap's own cases.
+  SCREEN_CELLS_MAX_CELLS,
   SCREEN_CELLS_MAX_ROWS,
   type PtyHostDataMsg,
   type PtyHostForegroundMsg,

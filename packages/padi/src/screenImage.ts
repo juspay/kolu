@@ -59,14 +59,19 @@ export interface ScreenImageInput {
  *  fails — a screenshot that silently came out in the wrong font would look
  *  plausible and be wrong, which is the failure this refuses to ship.
  *
- *  The grid arrives already inside `SCREEN_IMAGE_MAX_ROWS` (`surface.ts`), and
- *  this module deliberately does not re-check it. The trim happens in kaval's
- *  `getScreenCellsFor`, where the grid is BUILT — which is the only place it
- *  can help, because a viewport read of a 2,000-row terminal is past the RPC
- *  frame limit and never survives the hop to be trimmed here. A second trim on
- *  this side was unreachable code kept honest by nothing: the two ceilings are
- *  pinned equal by `screenImage.test.ts`, which is what makes leaning on
- *  kaval's safe.
+ *  The grid arrives already inside both of kaval's ceilings — the row cap
+ *  `SCREEN_IMAGE_MAX_ROWS` mirrors, and the `rows * cols` AREA cap that bounds
+ *  the axis no caller can name — and this module deliberately re-checks
+ *  neither. The trim happens in kaval's `getScreenCellsFor`, where the grid is
+ *  BUILT, which is the only place it can help: a viewport read of a 2,000-row
+ *  (or 1,000-column) terminal is past the RPC frame limit and never survives
+ *  the hop to be trimmed here. A second trim on this side was unreachable code
+ *  kept honest by nothing: the row ceilings are pinned equal by
+ *  `screenImage.test.ts`, which is what makes leaning on kaval's safe.
+ *
+ *  What this module DOES owe the caller is the truth about what it drew, which
+ *  is why the reply's `cols`/`rows` come off the grid itself rather than off
+ *  the request.
  *
  *  Returns the wire's own reply type, so the renderer and the schema cannot
  *  describe two different values. */

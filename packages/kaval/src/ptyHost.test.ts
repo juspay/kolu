@@ -14,6 +14,11 @@ import {
   type PtyHost,
   resolveScreenExtent,
 } from "./ptyHost.ts";
+import {
+  boundScreenCells,
+  SCREEN_CELLS_MAX_CELLS,
+  SCREEN_CELLS_MAX_ROWS,
+} from "./ptyHostSurface.ts";
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { runScopedSync, subscribeFrames } from "./streamFrame.testlib.ts";
 
@@ -123,6 +128,42 @@ describe("resolveScreenExtent", () => {
         endLine: 1000,
       }),
     ).toEqual({ start: 0, end: 10 });
+  });
+});
+
+describe("boundScreenCells", () => {
+  it("leaves an ordinary screen alone — the cap is a ceiling, not a resize", () => {
+    expect(boundScreenCells(24, 80)).toEqual({ rows: 24, cols: 80 });
+    expect(boundScreenCells(50, 120)).toEqual({ rows: 50, cols: 120 });
+  });
+
+  it("trims rows to the row cap — the axis a caller can name", () => {
+    expect(boundScreenCells(2000, 80)).toEqual({
+      rows: SCREEN_CELLS_MAX_ROWS,
+      cols: 80,
+    });
+  });
+
+  it("trims COLUMNS to hold the area, which the row cap alone never did", () => {
+    // The hole this closes: 200 rows was legal at any width, and `resize`
+    // takes whatever the ioctl accepts. A 200x1000 read is 200,000 cells — one
+    // `<text>` element each — which is the multi-second stall the row cap was
+    // built to remove, arriving on the other axis.
+    const wide = boundScreenCells(200, 1000);
+    expect(wide.rows).toBe(200);
+    expect(wide.rows * wide.cols).toBeLessThanOrEqual(SCREEN_CELLS_MAX_CELLS);
+    expect(wide).toEqual({ rows: 200, cols: 130 });
+  });
+
+  it("lets the two axes trade — a wide terminal keeps its width at fewer rows", () => {
+    expect(boundScreenCells(80, 300)).toEqual({ rows: 80, cols: 300 });
+    expect(boundScreenCells(2000, 300).cols).toBe(130);
+  });
+
+  it("keeps the full width of an empty read rather than dividing by no rows", () => {
+    // A zero-column grid is not a grid: the wire schema refuses one, and every
+    // cell of it would be out of bounds for the renderer.
+    expect(boundScreenCells(0, 200)).toEqual({ rows: 0, cols: 200 });
   });
 });
 

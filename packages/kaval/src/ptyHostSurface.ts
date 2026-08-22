@@ -296,8 +296,72 @@ const ScreenReadInputSchema = Schema.Struct({
  *  `getScreenText` is not fine here: `full` over kolu's 50,000-line retention
  *  is a frame far past `RPC_MAX_FRAME_BYTES`. padi caps its own `screen.image`
  *  face too — this is the wire's ceiling underneath that one, so the bound is
- *  a property of the contract rather than of whichever caller remembered. */
+ *  a property of the contract rather than of whichever caller remembered.
+ *
+ *  Rows are the only axis a CALLER can name, which is why this one is a wire
+ *  check. What the read actually costs is an area — see
+ *  {@link SCREEN_CELLS_MAX_CELLS}. */
 export const SCREEN_CELLS_MAX_ROWS = 200;
+
+/** The most CELLS one attributed read will ever serve — the ceiling that
+ *  actually binds.
+ *
+ *  A row cap alone bounded one axis of a two-axis cost. Nothing bounds
+ *  columns: `terminal.resize` takes a bare positive `cols`, so the width is
+ *  whatever the OS ioctl accepts, and a screen 200 rows tall and 1,000 columns
+ *  wide is 200,000 cells — an eighth of a megapixel of `<text>` elements (the
+ *  renderer emits one per CELL, deliberately, for ligature safety), which
+ *  reintroduces on the column axis exactly the multi-second stall the row cap
+ *  was built to remove.
+ *
+ *  An AREA rather than a second axis ceiling, because two independent
+ *  ceilings multiply: even a tight 200x200 pair still admits 40,000 cells, and
+ *  a generous one admits millions. `rows * cols` is the number the cost is
+ *  actually linear in, so it is the number to bound.
+ *
+ *  26,000 is 200 x 130 — the exact grid BOTH of this subsystem's worst-case
+ *  measurements were taken on: the 4.1 MB frame that motivated
+ *  {@link omittedWhenDefault}, and the 2,482 ms rasterise `terminal-snapshot`'s
+ *  `pngWorker.ts` records. Holding the area there is what keeps those two
+ *  numbers the worst case rather than a sample of it.
+ *
+ *  The two axes trade, which is the point of an area: a 300-column terminal
+ *  gets its full width at 80 rows, and an 80x24 shell is nowhere near the
+ *  ceiling either way. Only a read that is BOTH very tall and very wide is
+ *  trimmed. */
+export const SCREEN_CELLS_MAX_CELLS = 26_000;
+
+/** The slice a read of `rows` x `cols` actually gets, trimmed to both
+ *  ceilings.
+ *
+ *  ROWS are honoured first and trimmed only by {@link SCREEN_CELLS_MAX_ROWS},
+ *  because rows are the axis a caller can NAME: an explicit `tail.lines` past
+ *  the cap is refused at the wire (a caller that asked for 5,000 rows and
+ *  silently got 200 would be shown a picture that is not the answer to its
+ *  question), and a `viewport` of a taller terminal keeps the BOTTOM rows —
+ *  where the prompt is.
+ *
+ *  COLUMNS then absorb whatever the area cap still needs, and take the
+ *  LEFTMOST — a terminal's left edge carries the prompt, the tree glyphs and
+ *  the structure, while its right edge is mostly the ragged ends of lines.
+ *  Nothing to refuse on this axis: no caller can state a width, so a trim here
+ *  is never a caller being told something other than what it asked for. It is
+ *  STATED, not hidden — the grid carries the `cols` it was actually read at,
+ *  and padi's `screen.image` reply echoes it.
+ *
+ *  A zero-row read (an empty buffer) keeps the full width: there is no area to
+ *  divide, and a zero `cols` is not a grid any renderer would accept. */
+export function boundScreenCells(
+  rows: number,
+  cols: number,
+): { readonly rows: number; readonly cols: number } {
+  const served = Math.min(Math.max(0, rows), SCREEN_CELLS_MAX_ROWS);
+  if (served === 0) return { rows: 0, cols };
+  return {
+    rows: served,
+    cols: Math.min(cols, Math.floor(SCREEN_CELLS_MAX_CELLS / served)),
+  };
+}
 
 /** The slice a PICTURE read can ask for — deliberately narrower than
  *  {@link ScreenExtentSchema}, which the text read uses.

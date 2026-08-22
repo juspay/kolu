@@ -135,7 +135,12 @@ function isBlank(cell: SnapshotCell): boolean {
  *  `startLine`/`rowCount` bound the read; a line the buffer doesn't have
  *  yields an empty row rather than a hole, so `lines.length` always equals
  *  the requested `rows` and a consumer can index by screen row without
- *  re-deriving the offset. */
+ *  re-deriving the offset.
+ *
+ *  `cols` is a real SLICE width, not just the buffer's own width: kaval reads
+ *  a wide terminal at fewer columns to hold an attributed read inside its area
+ *  cap. Leftmost columns, so a caller narrows the read by asking for a smaller
+ *  `cols` and nothing else. */
 export function readGrid(
   buffer: ReadableBuffer,
   cols: number,
@@ -161,6 +166,14 @@ export function readGrid(
       // The trailing half of a wide glyph — its leader already covers this
       // column. Painting it again would double-strike the glyph.
       if (width === 0) continue;
+      // A wide glyph whose LEADER lands on the last column of the slice: its
+      // second half is outside the grid this read describes, and a renderer
+      // told to draw it there paints over the window chrome (`scene.ts`
+      // refuses such a cell outright, so it would fail the whole screenshot).
+      // A live buffer never puts one there — xterm wraps instead — but a
+      // narrowed read can cut exactly through one, and half a glyph is not a
+      // glyph.
+      if (x + width > cols) continue;
       const cell: SnapshotCell = {
         col: x,
         chars: raw.getChars(),

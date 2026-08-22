@@ -120,8 +120,8 @@ function rasteriser(): Worker {
 /** How long ONE rasterise may take before the thread is presumed WEDGED.
  *
  *  Six times the slowest render this subsystem can legally be asked for: 2,482
- *  ms, measured at the row cap (see {@link ./pngWorker.ts} for the numbers, and
- *  kaval's `SCREEN_CELLS_MAX_ROWS` for what holds that ceiling still). The
+ *  ms, measured at the cell cap (see {@link ./pngWorker.ts} for the numbers,
+ *  and kaval's `SCREEN_CELLS_MAX_CELLS` for what holds that ceiling still). The
  *  margin is for a loaded box — a daemon sharing a core with a build — not for
  *  a bigger picture: nothing legal draws more cells than that, so a document
  *  still in flight at 15 s is not slow, it is stuck.

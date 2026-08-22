@@ -4,9 +4,10 @@
  *  render: past them, `new Resvg()` / `render()` / `asPng()` are ONE
  *  uninterrupted synchronous wasm region. On padi — the daemon that owns
  *  terminal I/O — that region measured a 146 ms event-loop stall at 80×24, 359
- *  ms at 120×50 and 2,482 ms at the 200-row cap. A 2.5 s stall is not a slow
- *  screenshot, it is a frozen workspace: every PTY byte, every surface frame
- *  and every RPC reply waits behind it.
+ *  ms at 120×50 and 2,482 ms at the cell cap — 200×130, the widest-and-tallest
+ *  grid kaval's `SCREEN_CELLS_MAX_CELLS` lets an attributed read reach. A 2.5 s
+ *  stall is not a slow screenshot, it is a frozen workspace: every PTY byte,
+ *  every surface frame and every RPC reply waits behind it.
  *
  *  So the wasm lives here instead, and the seam is deliberately narrow: a
  *  plain SVG string in, a transferable `Uint8Array` out. Nothing about a
