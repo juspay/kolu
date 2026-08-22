@@ -1385,13 +1385,27 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // double-publish `terminalExit`. The kill RPC's response drives client
     // cleanup instead.
     this.teardownSensors(id);
+    // CLAIM the terminal before yielding. The guard above is a read, and every
+    // `await` below is a window in which a second kill would read the SAME live
+    // entry, log its own "killing", and fire its own pty-host kill at a pid this
+    // one is already retiring — a pid the OS may by then have recycled. Removing
+    // the entry here (not after the round-trip) makes the guard and the claim one
+    // indivisible step, so the second caller falls out at `!entry` exactly as a
+    // second SEQUENTIAL kill already does. Production dispatched this pair 124ms
+    // apart on one split close; `killIdempotence.test.ts` pins both fences.
+    //
+    // Nothing is lost by removing early: the kill's failure arm ALREADY
+    // unregistered regardless ("unregistering anyway"), so the registry outcome
+    // was never conditional on the round-trip.
+    this.finalizeRemoval(id);
     try {
       await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
     } catch (err) {
-      tlog.error({ err }, "pty-host kill failed; unregistering anyway");
+      tlog.error({ err }, "pty-host kill failed; already unregistered");
     }
+    // AFTER the kill: the PTY is gone by now, so nothing can re-create the
+    // scratch dir we are deleting.
     cleanupTerminalScratch(id);
-    this.finalizeRemoval(id);
     return entry.info;
   }
 

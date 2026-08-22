@@ -793,9 +793,18 @@ writes the banner, the client half reads it — and hands back the proof
 to obtain one is to read a peer's `ready` banner off the very stream you are
 about to attach to. Building an RPC protocol starts Effect RPC's pinger; a peer
 from a **previous protocol epoch** accepts the pipe and then says nothing, so the
-pinger kills the link ~10s later with a transport error indistinguishable from an
-unreachable host — which a reconnecting consumer retries forever. The gate makes
-that blind attach unrepresentable rather than merely discouraged.
+pinger kills the link ~10s later — and a consumer that reconnects on that
+retries a peer that will never speak, forever. The gate makes that blind attach
+unrepresentable rather than merely discouraged.
+
+The death itself now says which death it was. Effect renders a ping timeout as
+`SocketOpenError{kind:"Timeout"}`, whose `message` is the fixed, dial-shaped
+string `timeout waiting for "open"`; on a duplex leg that reading is impossible
+(the stream pair is handed over already open, and no `openTimeout` is set), so
+`SurfaceStdioTransportClosed` reports it as the keep-alive going unanswered and
+explicitly declines to claim the peer exited. The distinction is diagnostic, not
+behavioural — the link is dead either way, and `neverReconnect` still halts on
+the first failure.
 
 | Export                                             | What it does                                                                    |
 | -------------------------------------------------- | ------------------------------------------------------------------------------- |

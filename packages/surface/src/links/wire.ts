@@ -46,13 +46,58 @@ import { brandHalfOpenDispatch, type SurfaceDispatch } from "../link";
 
 /** The retry schedule for a link bound to one stream pair: halt on the first
  *  failure. Not a policy knob — a re-dial would re-acquire the SAME dead fds,
- *  so the only honest schedule is "never". */
+ *  so the only honest schedule is "never".
+ *
+ *  MEASURED, not assumed (`stdioPingStall.test.ts`): flipping this to
+ *  `retryTransientErrors: true` + a spaced schedule — the obvious "let a slow
+ *  peer recover" fix, and the one the WEBSOCKET leg really does take — does not
+ *  work here and cannot. `fromDuplex` acquires the duplex inside the socket
+ *  RUN's scope, whose finaliser destroys it when the run ends; the retry then
+ *  re-acquires that destroyed duplex and dies on its first write. The stall test
+ *  fails either way, only with a less honest error (`SocketWriteError`). Anyone
+ *  reaching for that flag here should re-run that test first. */
 const neverReconnect: Schedule.Schedule<number, Socket.SocketError> =
   Schedule.fromStepWithMetadata(
     Effect.succeed((meta: Schedule.InputMetadata<Socket.SocketError>) =>
       Cause.done(meta.attempt),
     ),
   );
+
+/**
+ * Did this link die because the PEER WENT QUIET, rather than because the pipe
+ * broke? On a duplex leg those are different facts, and Effect RPC spells them
+ * with the same word.
+ *
+ * `SocketOpenError{kind:"Timeout"}` has exactly two producers in Effect: the
+ * socket's `openTimeout` (a DIAL that never opened) and `makeProtocolSocket`'s
+ * own pinger (`makePinger` — a ping every 5s, and the run ends the moment a tick
+ * finds the previous ping unanswered). Only the second can occur here, by
+ * construction and not by luck: {@link duplexWireLink} is handed an ALREADY-OPEN
+ * `Duplex` and passes no `openTimeout`, so there is no dial on this leg to time
+ * out. A `Timeout` here is always the keep-alive.
+ *
+ * That matters because `SocketOpenError`'s own `message` getter renders the
+ * fixed string `timeout waiting for "open"` for both — so an established link
+ * whose peer merely got busy reported itself, verbatim, as a socket that never
+ * opened, over a suffix asserting "the peer process exited". Every word of that
+ * was wrong, and the wrongness is expensive: juspay/kolu#2101 burned an incident
+ * on a log line "indistinguishable from an unreachable box", and a later
+ * production stall (a 16-core box at load 67, its agent alive throughout and
+ * demonstrably serving a request 79ms after we declared it dead) was read the
+ * same way again. The framework's own liveness watchdog (`heartbeat.ts`) is
+ * suspension-aware and would have deferred here; it never gets a vote, because
+ * Effect's 5s pinger is hardcoded and always fires first.
+ *
+ * We cannot move that deadline — `makeProtocolSocket` exposes no ping cadence —
+ * and we cannot retry through it (see {@link neverReconnect}). What we CAN do,
+ * and what this does, is stop the diagnosis from lying about which of the two
+ * things happened.
+ */
+function keepAliveWentUnanswered(error: RpcClientError): boolean {
+  return (
+    error.reason._tag === "SocketOpenError" && error.reason.kind === "Timeout"
+  );
+}
 
 /** What every wire link factory returns: the dispatch the face binds against,
  *  plus the release of the scope the link opened. `dispose` is idempotent and
@@ -248,7 +293,9 @@ export async function duplexWireLink(opts: {
         reason:
           failure.kind === "disposed"
             ? `${opts.describe} link disposed; request not sent`
-            : `${opts.describe} transport closed (${failure.error.message}); the peer process exited or its stream ended`,
+            : keepAliveWentUnanswered(failure.error)
+              ? `${opts.describe} stopped answering the keep-alive ping, so the link was dropped. The peer may still be ALIVE and merely too busy to answer within the ping deadline — this is not evidence that it exited.`
+              : `${opts.describe} transport closed (${failure.error.message}); the peer process exited or its stream ended`,
       }),
   });
 }
