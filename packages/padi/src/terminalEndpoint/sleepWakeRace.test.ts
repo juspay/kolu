@@ -28,7 +28,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { koluScratchDir, setDaemonProcessId } from "../koluRoot.ts";
@@ -38,6 +38,7 @@ import {
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
 import { getTerminal, unregisterTerminal } from "../terminal-registry.ts";
+import { saveTerminalFile } from "../terminalScratch.ts";
 import {
   beginSleepLocal,
   releaseSleptLocalPty,
@@ -102,23 +103,32 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 // dir this test writes is nobody else's.
 // UNPREDICTABLE, deliberately. The scrub under test computes its own path from
 // this id, so the test cannot point production at a `mkdtemp` dir of its own —
-// it has to let `koluScratchDir()` derive the real one. Randomising the id is
-// what keeps that real path un-guessable, so nothing else can pre-create or
-// symlink the dir this test writes (CodeQL js/insecure-temporary-file).
+// it has to let `koluScratchDir()` derive the real one. Randomising the id keeps
+// that real path unique per run, so concurrent files and leftovers never collide.
 setDaemonProcessId(`sleep-wake-race-${randomUUID()}`);
 
 const scratchDir = join(koluScratchDir(), ID);
-const pastedFile = join(scratchDir, "pasted.png");
+/** Set by `saveTerminalFile` in `beforeEach` — the canonical path it returns. */
+let pastedFile = "";
 
 beforeEach(() => {
   setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
   killed.ids = [];
   spawned.ids = [];
   killGate.value = undefined;
-  // A real file in a real dir: the scrub under test is an `rmSync`, so the only
-  // honest assertion is "the bytes are still there".
-  mkdirSync(scratchDir, { recursive: true, mode: 0o700 });
-  writeFileSync(pastedFile, "a screenshot the agent has not read yet");
+  // Seed the file through the PRODUCTION writer, not a hand-rolled
+  // mkdir+write. Two reasons, and the second is the load-bearing one:
+  //  - fidelity — this is exactly how a pasted screenshot lands, so the bytes
+  //    the scrub deletes are the bytes a real user would lose;
+  //  - `saveTerminalFile` owns the safe-creation rules (0700 dir, 0600 file)
+  //    and says so at its definition, naming CodeQL's js/insecure-temporary-file.
+  //    A test that re-implements the create re-implements them WITHOUT those
+  //    rules, which is precisely what the rule fires on.
+  pastedFile = saveTerminalFile(
+    ID,
+    "pasted.png",
+    Buffer.from("a screenshot the agent has not read yet").toString("base64"),
+  );
 });
 
 afterEach(() => {
