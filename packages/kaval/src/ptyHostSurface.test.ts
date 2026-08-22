@@ -225,6 +225,89 @@ describe("wire byte fixtures — inventory, list entry, getHistory, extent", () 
     );
   });
 
+  it("encodes an ordinary cell as TWO keys — the omitted defaults are ~70% of the frame", () => {
+    // The saving this encoding exists for is invisible to every other test in
+    // the tree: `contractCorpus` exercises the DECODED grid, where every field
+    // is present by construction, so a regression that quietly stopped
+    // omitting would pass it and simply put the 4.1 MB frame back (measured on
+    // a 200x130 grid: 4,049,022 bytes with the defaults, 668,822 without).
+    // What has to be pinned is the SHAPE on the wire.
+    const schema = spec.procedures.terminal.getScreenCells.output;
+    const plain = {
+      col: 7,
+      chars: "a",
+      width: 1,
+      fg: { kind: "default" },
+      bg: { kind: "default" },
+      bold: false,
+      italic: false,
+      dim: false,
+      underline: false,
+      inverse: false,
+    };
+    expect(encodeJson(schema, { cols: 80, lines: [{ cells: [plain] }] })).toBe(
+      '{"cols":80,"lines":[{"cells":[{"col":7,"chars":"a"}]}]}',
+    );
+  });
+
+  it("keeps every NON-default attribute on the wire, and round-trips the pair", () => {
+    // The other half of the rule: omission is conditional, so a styled cell
+    // must still carry all ten keys. `withDecodingDefaultKey`'s `"omit"`
+    // strategy would have dropped `bold: true` with the rest — which is why
+    // this schema hand-rolls the encode getter.
+    const schema = spec.procedures.terminal.getScreenCells.output;
+    const styled = {
+      col: 0,
+      chars: "日",
+      width: 2,
+      fg: { kind: "palette", index: 4 },
+      bg: { kind: "rgb", value: 0x78c8ff },
+      bold: true,
+      italic: true,
+      dim: true,
+      underline: true,
+      inverse: true,
+    };
+    const grid = { cols: 80, lines: [{ cells: [styled] }] };
+    expect(encodeJson(schema, grid)).toBe(
+      '{"cols":80,"lines":[{"cells":[{"col":0,"chars":"日","width":2,' +
+        '"fg":{"kind":"palette","index":4},"bg":{"kind":"rgb","value":7915775},' +
+        '"bold":true,"italic":true,"dim":true,"underline":true,"inverse":true}]}]}',
+    );
+    // Decoding the compact form puts the defaults BACK: the omission is an
+    // encoding, not a hole in the vocabulary a renderer would have to patch.
+    expect(
+      Schema.decodeUnknownSync(schema as AnySchema)(
+        JSON.parse('{"cols":80,"lines":[{"cells":[{"col":7,"chars":"a"}]}]}'),
+      ),
+    ).toEqual({
+      cols: 80,
+      lines: [
+        {
+          cells: [
+            {
+              col: 7,
+              chars: "a",
+              width: 1,
+              fg: { kind: "default" },
+              bg: { kind: "default" },
+              bold: false,
+              italic: false,
+              dim: false,
+              underline: false,
+              inverse: false,
+            },
+          ],
+        },
+      ],
+    });
+    expect(
+      Schema.decodeUnknownSync(schema as AnySchema)(
+        JSON.parse(encodeJson(schema, grid)),
+      ),
+    ).toEqual(grid);
+  });
+
   it("encodes the build identity pair exactly (padi's `expectedKaval` reads these bytes)", () => {
     expect(
       JSON.stringify(

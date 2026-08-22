@@ -187,7 +187,17 @@ function paletteColor(idx: number, t: ResolvedTheme): string {
 
 /** Resolve one VT colour against the theme. `fallback` is what "default"
  *  means in this position — the theme's foreground for a cell's fg, its
- *  background for a cell's bg. */
+ *  background for a cell's bg.
+ *
+ *  A bare `switch` rather than the repo's usual `match(...).exhaustive()`, and
+ *  deliberately: `ts-pattern` is not a dependency of this package and must not
+ *  become one. `terminal-snapshot` is a browser-safe leaf whose whole point is
+ *  that the client can pull the scene builder into a bundle — a runtime
+ *  dependency for a three-arm dispatch is a real cost paid by every user's
+ *  first paint, in exchange for nothing this switch does not already give:
+ *  `CellColor` is a closed union and the function's return type is `string`,
+ *  so a new arm makes the implicit `undefined` fall-through a type error
+ *  exactly where `.exhaustive()` would have raised one. */
 function resolveColor(
   color: CellColor,
   t: ResolvedTheme,
