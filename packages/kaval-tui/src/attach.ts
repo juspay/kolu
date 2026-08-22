@@ -88,9 +88,12 @@ function describeError(err: unknown): string {
   // that stopped answering the link's keep-alive inside its deadline — it may
   // be alive and merely too busy — so telling the operator it "went away" is
   // precisely the misdiagnosis the framework's field exists to end. Branch on
-  // the field, never on the sentence.
+  // the field, never on the sentence. The framework's own sentence already says
+  // the keep-alive went unanswered, so this arm adds only what kaval-tui knows
+  // that the framework does not — what it means for the operator — in the same
+  // `<claim> (<message>) — <what to do>` shape as the arm below.
   if (isSurfaceStdioTransportClosed(err) && err.death === "keepAliveUnanswered")
-    return `the daemon stopped answering (${message}) — it may still be running and merely too busy; re-run \`kaval-tui attach\`.`;
+    return `the daemon may still be running and merely too busy (${message}) — re-run \`kaval-tui attach\`.`;
   // Every other dead-transport rejection (and the rawer shapes a mid-stream
   // socket death can surface) get the went-away copy; anything else prints
   // as-is. The tagged `SurfaceStdioTransportClosed` replaced the old
