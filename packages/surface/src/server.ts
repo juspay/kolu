@@ -54,7 +54,7 @@
  * that doesn't fit `implementSurface`'s declarative path.
  */
 
-import { Cause, Effect, Layer, Queue, type Scope, Stream } from "effect";
+import { Cause, Effect, Layer, type Scope, Stream } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcServer } from "effect/unstable/rpc";
 import {
@@ -334,32 +334,6 @@ function pullOnly<T>(
 /** Open ONE subscription on `bus` as a scoped resource and expose it as a
  *  `Stream`. The ONE place a surface's pub/sub face meets Effect's:
  *
- *  IT PRODUCES THROUGH A QUEUE, and that is a decision about ROUND TRIPS
- *  rather than about buffering. `RpcServer` sends one `Chunk` frame per
- *  stream chunk and — where the transport ACKs, which every websocket client
- *  does — waits for the ack before sending the next
- *  (`RpcServer.streamEffect`'s `Stream.runForEachArray` and its latch). So the
- *  SHAPE of the chunks the producer emits decides how much of a backlog one
- *  round trip carries. `Stream.fromAsyncIterable` wraps every element in an
- *  array of its own (`Channel.fromAsyncIterableArray`'s `Arr.of`), which makes
- *  a subscription STOP-AND-WAIT: exactly one publish per round trip, whatever
- *  has piled up behind it. `Stream.fromQueue` pulls with `Queue.takeAll`, so a
- *  chunk is everything published since the last one went out — the ack window
- *  fills with the backlog instead of one frame of it.
- *
- *  It is worth naming what that changes, because it is not a throughput
- *  nicety: a producer publishing faster than the round trip could never be
- *  caught up with, so the consumer fell behind by (publishes × RTT) and stayed
- *  there. A chat answer streamed at twenty chunks a second over a 200ms link
- *  arrived at five, and finished a minute and a half after the agent did
- *  (olai's `transcript-stream-quadratic`). Nothing about the protocol changes;
- *  the frames that were going to be sent are sent together.
- *
- *  The queue is UNBOUNDED, which is the same bound the AsyncIterable bridge had
- *  — `inMemoryChannel`'s per-subscriber buffer is where a bound belongs and
- *  where it is configurable (`highWaterMark`), and a second bound here would be
- *  a second policy for one backlog.
- *
  *    - ACQUIRE registers the subscriber SYNCHRONOUSLY (`Channel.subscribe`
  *      registers before it returns — see `inMemoryChannel`), which is what lets
  *      {@link subscribeBeforeSnapshot} put the registration strictly before the
@@ -381,50 +355,25 @@ function channelSubscription<T>(
 ): Effect.Effect<Stream.Stream<T>, never, Scope.Scope> {
   return Effect.map(
     Effect.acquireRelease(
-      Effect.map(Queue.unbounded<T, Cause.Done>(), (queue) => {
+      Effect.sync(() => {
         const controller = new AbortController();
-        // SUBSCRIBE, still — the verb has not changed and neither has when it
-        // is called. What has changed is where the values go: into a queue the
-        // stream pulls in batches, rather than into a stream that wraps each
-        // one in a chunk of its own.
-        const iterator = bus
-          .subscribe(controller.signal)
-          [Symbol.asyncIterator]();
-        // The drain is deliberately NOT a fiber. It is the same loop the
-        // AsyncIterable bridge ran inside the stream, moved one step earlier so
-        // that a publish lands in the queue the moment it happens rather than
-        // when a consumer next pulls — which is the whole of the batching: what
-        // is in the queue when the pull comes is what the round trip carries.
-        void (async () => {
-          try {
-            for await (const value of pullOnly(iterator, controller.signal)) {
-              Queue.offerUnsafe(queue, value);
-            }
-          } catch (err) {
-            // The same classification `Stream.orDie` made here: no surface
-            // member declares an error channel for its snapshot/delta stream,
-            // so an undeclared fault crashes loudly rather than reaching a
-            // consumer as the end-of-stream it would read as "no more data".
-            // An ABORT is not one of these — `pullOnly` has already turned the
-            // stream's own signal into a clean end.
-            Queue.failCauseUnsafe(queue, Cause.die(err));
-            return;
-          }
-          Queue.endUnsafe(queue);
-        })();
-        return { queue, controller };
+        return {
+          controller,
+          iterator: bus.subscribe(controller.signal)[Symbol.asyncIterator](),
+        };
       }),
-      ({ queue, controller }) =>
+      ({ controller }) =>
         Effect.sync(() => {
           controller.abort();
-          // Ended HERE as well as at the end of the drain, because the drain is
-          // parked on a pull that resolves a tick later: a consumer whose scope
-          // has closed is owed the end of its stream now, not after the
-          // producer has noticed.
-          Queue.endUnsafe(queue);
         }),
     ),
-    ({ queue }) => Stream.fromQueue(queue),
+    ({ controller, iterator }) =>
+      Stream.orDie(
+        Stream.fromAsyncIterable<T, unknown>(
+          pullOnly(iterator, controller.signal),
+          (err) => err,
+        ),
+      ),
   );
 }
 
