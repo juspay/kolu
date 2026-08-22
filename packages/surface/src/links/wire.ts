@@ -46,7 +46,16 @@ import { brandHalfOpenDispatch, type SurfaceDispatch } from "../link";
 
 /** The retry schedule for a link bound to one stream pair: halt on the first
  *  failure. Not a policy knob — a re-dial would re-acquire the SAME dead fds,
- *  so the only honest schedule is "never". */
+ *  so the only honest schedule is "never".
+ *
+ *  MEASURED, not assumed (`stdioPingStall.test.ts`): flipping this to
+ *  `retryTransientErrors: true` + a spaced schedule — the obvious "let a slow
+ *  peer recover" fix, and the one the WEBSOCKET leg really does take — does not
+ *  work here and cannot. `fromDuplex` acquires the duplex inside the socket
+ *  RUN's scope, whose finaliser destroys it when the run ends; the retry then
+ *  re-acquires that destroyed duplex and dies on its first write. The stall test
+ *  fails either way, only with a less honest error (`SocketWriteError`). Anyone
+ *  reaching for that flag here should re-run that test first. */
 const neverReconnect: Schedule.Schedule<number, Socket.SocketError> =
   Schedule.fromStepWithMetadata(
     Effect.succeed((meta: Schedule.InputMetadata<Socket.SocketError>) =>
@@ -66,13 +75,6 @@ export interface WireLink {
    *  transport error rather than parking on a dead protocol. */
   dispose(): Promise<void>;
 }
-
-/** Why the TRANSPORT (never a member's declared error) failed a call — the
- *  input to a leg's error vocabulary. `disposed` is not an `RpcClientError`
- *  because no protocol produced it: the owner released the link. */
-export type WireTransportFailure =
-  | { readonly kind: "protocol"; readonly error: RpcClientError }
-  | { readonly kind: "disposed" };
 
 /** True for the transport failure channel Effect RPC unions into EVERY call
  *  (socket open/close/read/write, protocol decode defects) — as opposed to a
@@ -95,18 +97,26 @@ type FlatDispatch = (
 
 /** Build a wire link over `protocol`.
  *
- *  `transportError` is the leg's error vocabulary (D4): whenever the transport
- *  channel fails — including a call issued after {@link WireLink.dispose} — the
- *  raw `RpcClientError` is replaced by whatever this returns. The stdio/unix
- *  legs mint `SurfaceStdioTransportClosed`; the websocket leg mints
- *  `SurfaceTransportRetired` once its terminal-close classifier has fired and
- *  otherwise passes the `RpcClientError` through, because THAT is the shape the
- *  face's retry fence retries on. Returning the error unchanged is therefore a
- *  legitimate answer, not a no-op. */
+ *  `transportError` is the leg's READING of a transport death (D4): whenever the
+ *  transport channel fails, the raw `RpcClientError` is replaced by whatever this
+ *  returns. The stdio/unix legs mint `SurfaceStdioTransportClosed`; the websocket
+ *  leg mints `SurfaceTransportRetired` once its terminal-close classifier has
+ *  fired and otherwise passes the `RpcClientError` through, because THAT is the
+ *  shape the face's retry fence retries on. Returning the error unchanged is
+ *  therefore a legitimate answer, not a no-op.
+ *
+ *  `disposedError` is the OTHER channel, and it is split out because it is not a
+ *  reading of anything: a call issued after {@link WireLink.dispose} never
+ *  reached a protocol, so no transport reported. THIS function owns that fact —
+ *  it owns `dispose` — and stamps it, so a leg cannot re-derive "was it
+ *  disposed?" from a `kind` field and cannot get the answer different from the
+ *  bookkeeping that decided it. The leg supplies only the value, because the two
+ *  legs' vocabularies are different classes. */
 export async function openWireLink(opts: {
   readonly group: RpcGroup.RpcGroup<Rpc.Any>;
   readonly protocol: Layer.Layer<RpcClient.Protocol, never, never>;
-  readonly transportError: (failure: WireTransportFailure) => unknown;
+  readonly transportError: (error: RpcClientError) => unknown;
+  readonly disposedError: () => unknown;
 }): Promise<WireLink> {
   // The link's own scope. It outlives `openWireLink` by construction — the
   // protocol layer forks its dial/ping/pump fibers INTO it — which is why the
@@ -126,8 +136,6 @@ export async function openWireLink(opts: {
   );
 
   let disposed = false;
-  const disposedError = () =>
-    opts.transportError({ kind: "disposed" }) as unknown;
 
   /** Translate a call's cause into the leg's vocabulary. Three kinds arrive
    *  here and exactly one is ours:
@@ -146,18 +154,15 @@ export async function openWireLink(opts: {
     const failure = Cause.findError(cause);
     if (Result.isSuccess(failure)) {
       return isRpcClientError(failure.success)
-        ? Cause.fail(
-            opts.transportError({ kind: "protocol", error: failure.success }),
-          )
+        ? Cause.fail(opts.transportError(failure.success))
         : cause;
     }
     const defect = Cause.findDefect(cause);
     if (Result.isSuccess(defect) && Socket.isSocketError(defect.success)) {
       return Cause.fail(
-        opts.transportError({
-          kind: "protocol",
-          error: new RpcClientError({ reason: defect.success.reason }),
-        }),
+        opts.transportError(
+          new RpcClientError({ reason: defect.success.reason }),
+        ),
       );
     }
     return cause;
@@ -167,14 +172,14 @@ export async function openWireLink(opts: {
     unary: (tag: string, payload: unknown) =>
       Effect.suspend(
         (): Effect.Effect<unknown, unknown> =>
-          disposed ? Effect.fail(disposedError()) : client(tag, payload),
+          disposed ? Effect.fail(opts.disposedError()) : client(tag, payload),
       ).pipe(Effect.catchCause((cause) => Effect.failCause(rescue(cause)))),
     stream: (tag: string, payload: unknown) =>
       Stream.unwrap(
         Effect.suspend(
           (): Effect.Effect<Stream.Stream<unknown, unknown>> =>
             disposed
-              ? Effect.succeed(Stream.fail(disposedError()))
+              ? Effect.succeed(Stream.fail(opts.disposedError()))
               : Effect.succeed(client(tag, payload)),
         ),
       ).pipe(Stream.catchCause((cause) => Stream.failCause(rescue(cause)))),
@@ -240,15 +245,91 @@ export async function duplexWireLink(opts: {
     ]),
   );
 
+  /**
+   * Did this link die because the PEER WENT QUIET, rather than because the pipe
+   * broke? This docstring is the CANONICAL account of Effect's pinger for this
+   * repo — `stdioPingStall.test.ts`, `sshConnector.ts`, `errors.ts` and the
+   * surface reference page each carry one sentence and a pointer here, because
+   * this is the only code that acts on the fact.
+   *
+   * THE MECHANISM. `RpcClient.makeProtocolSocket` runs a pinger of its own:
+   * `makePinger` writes a ping every 5s and ends the socket run the moment a
+   * tick finds the previous ping unanswered — so 5–10s of silence is fatal, and
+   * the cadence is not a knob (`makeProtocolSocket` exposes no option for it).
+   * `heartbeat.ts`, this framework's own watchdog, is suspension-aware and would
+   * have deferred; it never gets a vote, because the lower deadline always wins.
+   * We cannot move that deadline, and we cannot retry through it (see
+   * {@link neverReconnect}, where that is MEASURED). Naming the death correctly
+   * is what is left.
+   *
+   * THE READING. That death arrives as `SocketOpenError{kind:"Timeout"}` — the
+   * same shape a DIAL that never opened produces, and the proof that a dial is
+   * not what happened is three lines up rather than in this sentence:
+   * `fromDuplex` is handed an ALREADY-OPEN `Duplex` and is passed no
+   * `openTimeout`, so this leg has no dial to time out. Every public door into
+   * this function (`stdioLink`, `socketDuplexLink`, `unixSocketLink`) hands over
+   * an already-open duplex, and the function is package-internal, so that
+   * enumeration is closed.
+   *
+   * That construction argument is also why this is a CLOSURE rather than a
+   * module-level helper. At module scope it would be one import away from
+   * `openWireLink`'s OTHER caller, the websocket leg, whose socket comes from
+   * `Socket.makeWebSocket` and DOES apply `openTimeout ?? 10000` — the identical
+   * shape, the opposite meaning. The scope is the proof; a comment would not be.
+   *
+   * BETA-ASSUMPTION(rc.110): the producers of `SocketOpenError{kind:"Timeout"}` are enumerable, and `fromDuplex` adds one only when handed an `openTimeout`.
+   * Three exist, and Effect does distinguish them one field deeper than the
+   * shape — each carries its own `cause`: the pinger's `ping timeout`
+   * (`unstable/rpc/RpcClient.ts`), a WebSocket dial's `timeout waiting for
+   * "open"` (`unstable/socket/Socket.ts`), and `fromDuplex`'s own `openTimeout`
+   * arm, `Connection timed out` (`@effect/platform-node-shared/NodeSocket.ts`),
+   * which arms only when that option is passed — and this call passes none.
+   * Nothing local holds any of that: a bump that adds a producer, or gives
+   * `fromDuplex` a default `openTimeout`, inverts this predicate silently.
+   * `stdioPingStall.test.ts` is what MEASURES it.
+   *
+   * We deliberately do NOT predicate on `cause`, tempting as those three
+   * distinct strings are: an upstream rewording would silently demote us to the
+   * wrong branch, which is the fallback this repo forbids. The construction
+   * argument above is version-independent; the `cause` values are evidence for a
+   * re-verifier, not an input to the reading.
+   *
+   * Why any of this is worth the words: `SocketOpenError`'s `message` getter
+   * RENDERS the fixed `timeout waiting for "open"` for every arm, so an
+   * established link whose peer merely got busy reported itself, verbatim, as a
+   * socket that never opened — under a suffix asserting "the peer process
+   * exited". Every word of that was wrong. What it cost is written up once, in
+   * `stdioPingStall.test.ts`.
+   */
+  const keepAliveWentUnanswered = (error: RpcClientError): boolean =>
+    error.reason._tag === "SocketOpenError" && error.reason.kind === "Timeout";
+
   return openWireLink({
     group: opts.group,
     protocol,
-    transportError: (failure) =>
+    // The classification is DATA (`death`); `reason` is only the sentence beside
+    // it. What each death means about the peer belongs to the literal's own
+    // docstring in `errors.ts`, so this framework mints no operator paragraph
+    // and a consumer that owns the user-facing words can brand its own.
+    transportError: (error) =>
+      keepAliveWentUnanswered(error)
+        ? new SurfaceStdioTransportClosed({
+            death: "keepAliveUnanswered",
+            // `describe` is a noun phrase naming the TRANSPORT — `padi on myhost`,
+            // `unix socket /run/padi.sock`, `loopback` — and none of those is
+            // something a peer sits "on". So it takes the LABEL position that
+            // `readiness.ts` already puts the same string in, and the peer gets
+            // its own noun after the colon.
+            reason: `${opts.describe}: the peer stopped answering the keep-alive ping`,
+          })
+        : new SurfaceStdioTransportClosed({
+            death: "streamEnded",
+            reason: `${opts.describe} transport closed (${error.message}); the peer process exited or its stream ended`,
+          }),
+    disposedError: () =>
       new SurfaceStdioTransportClosed({
-        reason:
-          failure.kind === "disposed"
-            ? `${opts.describe} link disposed; request not sent`
-            : `${opts.describe} transport closed (${failure.error.message}); the peer process exited or its stream ended`,
+        death: "disposed",
+        reason: `${opts.describe} link disposed; request not sent`,
       }),
   });
 }

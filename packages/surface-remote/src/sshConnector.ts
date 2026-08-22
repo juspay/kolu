@@ -294,10 +294,15 @@ export function sshConnector<S extends SurfaceSpec>(
     // building one starts Effect RPC's pinger. A remote daemon from a PREVIOUS
     // protocol epoch accepts the splice and then says nothing — it is waiting
     // for a greeting in a protocol we no longer speak — so the pinger kills the
-    // link ~10s later with `SocketOpenError: timeout waiting for "open"`, the
-    // session classifies that as `"network"`, and `"network"` retries forever.
-    // That is the incident: every remote host wedged in a permanent loop, with a
-    // log line indistinguishable from an unreachable box.
+    // link ~10s later on its unanswered keep-alive (the mechanism is argued in
+    // `duplexWireLink`'s `keepAliveWentUnanswered`), the session classifies that
+    // as `"network"`, and `"network"` retries forever. That is the incident:
+    // every remote host wedged in a permanent loop, with a log line
+    // indistinguishable from an unreachable box.
+    //
+    // A CLEARER MESSAGE DOES NOT SHORTEN THIS LOOP — a previous-epoch peer is
+    // silent forever, so the retry is just as permanent however honestly the
+    // death is named. The gate below is what stops it.
     //
     // So the banner is read FIRST, and the proof it mints is the only way to
     // construct the link at all (see `@kolu/surface/links/readiness`).

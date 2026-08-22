@@ -1,5 +1,11 @@
 /**
- * CONFINEMENT PIN (SR10) — registry-entry mutation lives in ONE file.
+ * TWO CONFINEMENT PINS over the registry, both AST-detected over the non-test
+ * modules under `packages/padi/src`: entry MUTATION lives in one file
+ * (`terminalEndpoint/metadata.ts`), and entry REMOVAL lives in one module
+ * (`terminalEndpoint/local.ts`). The second is documented above its own describe
+ * block at the foot of the file.
+ *
+ * PIN 1 (SR10) — registry-entry mutation lives in ONE file.
  *
  * A `TerminalProcess` obtained from the registry (`getTerminal` /
  * `requireTerminal` / `requireMutableTerminal`) carries the two publish-relevant
@@ -160,6 +166,36 @@ function registryEntryMutations(file: string): string[] {
   return hits;
 }
 
+/** The registry doors that REMOVE an entry. `claimActiveTerminal` is the
+ *  termination door (remove-and-return, so a terminator has no separate read to
+ *  go stale); the other two are the plain single/bulk removes. */
+const REMOVAL_DOORS = new Set([
+  "claimActiveTerminal",
+  "unregisterTerminal",
+  "drainTerminals",
+]);
+
+/** The non-test modules that IMPORT a removal door, relative to `packages/padi/src`. */
+function removalDoorImporters(sources: string[]): string[] {
+  const importers: string[] = [];
+  for (const file of sources) {
+    const src = readFileSync(file, "utf8");
+    const ast = parse(src, {
+      sourceFilename: file,
+      sourceType: "module",
+      plugins: file.endsWith(".tsx") ? ["typescript", "jsx"] : ["typescript"],
+    }) as unknown as AstNode;
+    let hit = false;
+    visitAst(ast, (node) => {
+      if (node.type !== "ImportSpecifier" || !isAstNode(node.imported)) return;
+      if (node.imported.type !== "Identifier") return;
+      if (REMOVAL_DOORS.has(node.imported.name as string)) hit = true;
+    });
+    if (hit) importers.push(relative(PADI_SRC, file));
+  }
+  return importers;
+}
+
 describe("registry-entry mutation is confined to terminalEndpoint/metadata.ts", () => {
   const sources = walkSources(PADI_SRC);
 
@@ -180,5 +216,30 @@ describe("registry-entry mutation is confined to terminalEndpoint/metadata.ts", 
     // Proves the detector actually fires — so the pass above means "confined",
     // not "the matcher is broken".
     expect(registryEntryMutations(HOME).length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * PIN 2 — TERMINATION lives in ONE module.
+ *
+ * The kill race this suite's sibling (`killIdempotence.test.ts`) pins was a
+ * read-then-await-then-remove: the guard was a `getActiveTerminal` read and the
+ * removal came later, so two overlapping kills both passed the guard. The cure is
+ * `claimActiveTerminal` — remove-and-return in one step, the claim IS the guard.
+ *
+ * That cure only holds while every terminator goes through a door in
+ * `terminal-registry.ts` FROM ONE PLACE. A second module that removes entries can
+ * re-express the defect however carefully this one is written, so the property
+ * pinned here is not a COUNT of call sites (which drifts and nothing enforces) but
+ * the confinement itself: the local endpoint is the only non-test module that
+ * imports a removal door.
+ */
+describe("terminal removal is confined to terminalEndpoint/local.ts", () => {
+  const sources = walkSources(PADI_SRC);
+
+  it("no other module imports a registry removal door", () => {
+    expect(removalDoorImporters(sources)).toEqual([
+      join("terminalEndpoint", "local.ts"),
+    ]);
   });
 });

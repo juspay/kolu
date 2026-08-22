@@ -121,6 +121,34 @@ export function unregisterTerminal(id: TerminalId): boolean {
   return terminals.delete(id);
 }
 
+/** CLAIM a terminal for termination — remove it from the registry and hand the
+ *  removed ACTIVE entry back, in ONE step. Returns `undefined` when `id` is not
+ *  an active terminal, which now covers three cases with one answer: absent,
+ *  DORMANT (sleeping/parked — those exit via `discardSleeping`/`discardParked`,
+ *  never through a dead-PTY kill), and ALREADY CLAIMED by an overlapping caller.
+ *
+ *  This is THE door to termination, and it is remove-and-return precisely so a
+ *  terminator has no separate read to go stale. `killTerminal` used to read the
+ *  entry, log, tear the sensors down, and only then remove it — so two kills
+ *  overlapping inside the pty-host round-trip both passed the read, both logged
+ *  `killing`, both tore down, and both aimed a signal at a pid the other was
+ *  already retiring (production, 124ms apart, on one split close). With the
+ *  claim AS the guard the loser has nothing to observe and returns before it can
+ *  act on anything; a future teardown that yields cannot re-express the defect,
+ *  because there is no read to go stale between the guard and the mutation.
+ *
+ *  The single-entry dual of {@link drainTerminals}'s snapshot-and-clear. Removal
+ *  is confined to this file's three doors (this, `unregisterTerminal`,
+ *  `drainTerminals`), pinned by `terminalEndpoint/registryMutationConfinement.test.ts`. */
+export function claimActiveTerminal(
+  id: TerminalId,
+): ActiveTerminalProcess | undefined {
+  const entry = terminals.get(id);
+  if (!entry?.handle) return undefined;
+  terminals.delete(id);
+  return entry;
+}
+
 /** Snapshot + clear. Used by `killAllTerminals` where the caller needs
  *  to dispose each handle AFTER the map is empty (so onExit callbacks
  *  can't find the entry and trigger session saves). Returning the

@@ -16,6 +16,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { rm } from "node:fs/promises";
 import { basename, join, parse, sep } from "node:path";
 import { koluScratchDir } from "./koluRoot.ts";
 
@@ -160,4 +161,15 @@ export function appendTerminalFile(
  *  was never created. */
 export function cleanupTerminalScratch(terminalId: string): void {
   rmSync(dirFor(terminalId), { recursive: true, force: true });
+}
+
+/** Remove a terminal's scratch directory WITHOUT blocking the event loop — the
+ *  async twin of {@link cleanupTerminalScratch}, for the one caller that reaps
+ *  MANY dirs at once (`killAllTerminals` at shutdown, where N sequential
+ *  recursive `rmSync`s stall the daemon just as it owes its clients an answer).
+ *  The sync spelling stays for the single-terminal callers, where the walk is one
+ *  small dir and the surrounding code is synchronous. Safe to call when the dir
+ *  was never created. */
+export async function removeTerminalScratch(terminalId: string): Promise<void> {
+  await rm(dirFor(terminalId), { recursive: true, force: true });
 }

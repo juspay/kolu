@@ -213,13 +213,27 @@ export interface TerminalEndpoint {
    *  caller-supplied so the tile can render before this returns. */
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo;
 
-  /** Stop providers, kill the PTY, scrub per-terminal scratch storage,
-   *  unregister from the shared registry. Sole termination path. Awaits the
-   *  pty-host's kill (hence the Promise) — synchronous and infallible
-   *  in-process. A socket/ssh endpoint's kill *can* fail; it still unregisters
-   *  (so a failed kill never strands a dead entry in the UI) and relies on
-   *  reattach-time reconciliation against `terminal.list` to reap any surviving
-   *  orphan — so unregistering is not a promise that the child is gone. */
+  /** CLAIM the terminal (which removes it from the shared registry), stop its
+   *  providers, kill the PTY. Sole termination path. Awaits the host's kill (hence
+   *  the Promise).
+   *
+   *  CONTRACT — idempotent under CONCURRENCY, not merely under sequence. The
+   *  removal must BE the guard: an implementation claims the entry (removing it)
+   *  before its first suspension and UNCONDITIONALLY (never gated on the kill
+   *  succeeding), and a caller that does not hold the claim returns `undefined`
+   *  having done nothing at all — no log line, no teardown. So of N overlapping
+   *  kills exactly one returns the info and the rest answer exactly as a second
+   *  SEQUENTIAL kill does. A separate read admitting the caller and a later
+   *  removal deciding the winner is NOT this contract: it leaves the losers
+   *  acting on a terminal that is not theirs. Unregistering is therefore not a
+   *  promise that the child is gone — a kill *can* fail (a
+   *  socket/ssh endpoint especially), and a failed kill must still not strand a
+   *  dead entry in the UI; reattach-time reconciliation against `terminal.list`
+   *  reaps a surviving orphan.
+   *
+   *  Ordering any per-terminal cleanup around the kill is the implementation's
+   *  own business — a remote endpoint has no `cleanupTerminalScratch` to place.
+   *  How the local one places its own is in `terminalEndpoint/local.ts`. */
   killTerminal(id: TerminalId): Promise<TerminalInfo | undefined>;
 
   /** Drain and dispose every terminal owned by this endpoint. Used by

@@ -183,10 +183,12 @@ export function restoreSpawn(
   });
 }
 
-/** Kill a terminal. Returns final info, or undefined if not found. Async
- *  since #951 R4c: the local endpoint awaits the daemon's kill confirmation
- *  over the socket before unregistering (so a failed kill can't orphan the
- *  PTY). */
+/** Kill a terminal, routed to the endpoint that owns it. Returns final info, or
+ *  `undefined` when `id` is not an active terminal — which includes LOSING the
+ *  race to a concurrent kill that claimed it first: overlapping kills are
+ *  answered like sequential ones, exactly one winner. Async since #951 R4c: an
+ *  endpoint awaits its host's kill round-trip. See
+ *  `TerminalEndpoint.killTerminal` (endpoint.ts) for the claim contract. */
 export async function killTerminal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {
