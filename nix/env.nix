@@ -19,6 +19,14 @@ let
 in
 {
   KOLU_FONTS_DIR = pkgs.kolu-fonts;
+  # The daemon-side font set — the outline faces @resvg/resvg-wasm loads to
+  # rasterise a terminal screen to PNG (packages/terminal-snapshot/src/pngFonts.ts,
+  # `fontDir()` throws when this is unset). Same footing as KOLU_GH_BIN/
+  # KOLU_OSFACTS_BIN: a required absolute path baked by Nix, present in the
+  # packaged wrappers AND the dev shell, with no PATH search and no bundled
+  # fallback in the reader — a screenshot drawn in a substitute face would look
+  # plausible and be wrong.
+  KOLU_SNAPSHOT_FONTS_DIR = pkgs.kolu-snapshot-fonts;
   # Official Rhai TextMate grammar, pinned through npins and exposed as a file
   # so Vite can lazy-load it without vendoring an upstream snapshot.
   KOLU_RHAI_GRAMMAR = rhaiGrammar;

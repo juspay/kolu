@@ -90,7 +90,7 @@ describe("padiSurface contract", () => {
     // reading a restore's active tile off the `session` cell's next snapshot. That
     // was a race the client cannot win: the snapshot publishes behind a
     // synchronous disk write while the restored terminals publish as they spawn.
-    expect(PADI_SURFACE_VERSION).toBe("5.3");
+    expect(PADI_SURFACE_VERSION).toBe("5.4");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -111,6 +111,11 @@ describe("padiSurface contract", () => {
     expect(isContractVersionCompatible("5.2", "5.3")).toBe(false);
     // A newer additive minor still serves a 5.2 consumer.
     expect(isContractVersionCompatible("5.3", "5.2")).toBe(true);
+    // 5.4 is `screen.image`: a binder expecting it refuses a 5.3 padi that
+    // cannot serve it, which is the whole point of the bump — a gate-only
+    // CLI/MCP face would otherwise adopt that padi and die on the member.
+    expect(isContractVersionCompatible("5.3", "5.4")).toBe(false);
+    expect(isContractVersionCompatible("5.4", "5.3")).toBe(true);
     // A major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("6.0", "5.0")).toBe(false);
     expect(isContractVersionCompatible("5.0", "6.0")).toBe(false);
@@ -183,6 +188,7 @@ describe("padiSurface contract", () => {
       "state",
       "text",
       "history",
+      "image",
     ]);
     expect(Object.keys(procs.fs ?? {})).toEqual([
       "listAll",
@@ -521,6 +527,7 @@ describe("the declared error vocabulary (PLAN D4)", () => {
         "lifecycle.wake",
         "preview.read",
         "screen.history",
+        "screen.image",
         "screen.state",
         "screen.text",
         "scratch.write",

@@ -77,6 +77,15 @@ export interface BespokeTool<I = unknown, O = unknown> {
      *  doc: the handler's effect is already run under this signal. */
     signal: AbortSignal | undefined,
   ) => Effect.Effect<O, unknown>;
+  /** How this tool's success value becomes MCP content. Defaults to {@link ok}
+   *  — JSON for the model, the same value structured for the caller.
+   *
+   *  Declared per TOOL rather than sniffed per RESULT: whether an answer is
+   *  prose or a picture is a fixed property of the tool, so a handler cannot
+   *  accidentally change its own content type on one call, and the dispatch
+   *  never has to guess from the shape of a value. The only in-tree override
+   *  today is {@link okImage} (kolu's `screen_image`). */
+  render?: (out: O) => ToolResult;
 }
 
 /** The MCP `CallTool` result shape we emit. `content` is prose for the model to
@@ -90,8 +99,18 @@ export interface BespokeTool<I = unknown, O = unknown> {
  *
  *  MCP types the structured arm as a JSON **object**, which is the whole reason
  *  for `wrapping.ts`'s `wrapValue`. */
+/** One block of what a tool shows the model.
+ *
+ *  Text is what every tool emitted before images existed here, and still the
+ *  default. An IMAGE block is for an answer whose meaning IS pixels — a
+ *  rendered terminal screen, a chart — where handing the model a base64 blob
+ *  inside a JSON string would be handing it something it cannot look at. */
+export type ToolContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
 export interface ToolResult {
-  content: { type: "text"; text: string }[];
+  content: ToolContent[];
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }
@@ -143,6 +162,39 @@ export function ok(data: unknown): ToolResult {
   return {
     content: [{ type: "text", text }],
     structuredContent: wrapValue(json),
+  };
+}
+
+/** An image the tool is SHOWING, with the facts ABOUT it as the structured arm.
+ *
+ *  Both arms again, and for the same reason {@link ok} has both — but here they
+ *  are deliberately NOT the same value, because a PNG has no JSON form worth
+ *  giving a model. The content arm carries the image; the structured arm
+ *  carries what a caller needs to reason about it (mime type, dimensions)
+ *  WITHOUT the bytes.
+ *
+ *  The base64 appears EXACTLY ONCE, in the image block. It is not repeated as
+ *  a text block, and `detail` must not carry it either: an MCP host renders
+ *  the image, so a second copy is a megabyte spent straight out of the model's
+ *  context window for nothing — and the two copies would be a second place for
+ *  the answer to be wrong. That rule is stated here rather than enforced: the
+ *  guard that used to sit in the body compared each `detail` value against the
+ *  base64 by identity, which caught only a caller that passed the very same
+ *  string reference — `detail.data = image.data.slice()` sailed straight
+ *  through — so it read as a check while stopping nothing. The prose is what
+ *  actually teaches this; a check that catches one spelling of the mistake
+ *  mostly teaches that the mistake is caught.
+ *
+ *  The structured arm goes through the SAME {@link structuredArm} the failure
+ *  path uses — one normalization, so an image tool cannot publish a
+ *  `structuredContent` shape the other arms would have rejected. */
+export function okImage(
+  image: { mimeType: string; data: string },
+  detail: Record<string, unknown>,
+): ToolResult {
+  return {
+    content: [{ type: "image", data: image.data, mimeType: image.mimeType }],
+    structuredContent: structuredArm(detail),
   };
 }
 

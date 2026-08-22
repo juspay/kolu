@@ -31,6 +31,7 @@
     "@kolu/surface-app": "workspace:*",
     "@kolu/surface-map": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
+    "@kolu/terminal-vocab": "workspace:*",
     "@kolu/theme": "workspace:*",
     "@kolu/url-shape": "workspace:*",
     "@kolu/xterm-kit": "workspace:*",
@@ -53,6 +54,7 @@
     "nonempty": "workspace:*",
     "solid-js": "^1.9.0",
     "solid-sonner": "^0.2.0",
+    "terminal-snapshot": "workspace:*",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {

@@ -149,6 +149,14 @@ let
   # and the dev shell cannot drift.
   osfactsBakeArg = ''--set KOLU_OSFACTS_BIN "${koluEnv.KOLU_OSFACTS_BIN}"'';
 
+  # The terminal-snapshot PNG rasteriser's font directory (nix/packages/fonts/
+  # snapshot.nix). Read from koluEnv for the same reason as osfactsBakeArg: the
+  # wrapper and the dev shell must name ONE store path. pngFonts.ts throws when this
+  # is unset, so the bake is the runtime hop that makes the build-time value
+  # (koluEnv is spread into the build derivation's env below) reach a spawned
+  # daemon, which inherits nothing from the shell that built it.
+  snapshotFontsBakeArg = ''--set KOLU_SNAPSHOT_FONTS_DIR "${koluEnv.KOLU_SNAPSHOT_FONTS_DIR}"'';
+
   # ── Daemon identity: DERIVED from the workspace dependency graph (#2094) ──
   #
   # A daemon's staleKey used to be a hand-listed fileset here, mirrored by an
@@ -248,6 +256,18 @@ let
         # rides the contract bump, while a browser-only /solid or /backfill
         # change must not fire kaval's PTY-costing currency nudge.
         "@kolu/xterm-kit"
+        # `terminal-snapshot` — the grid→picture leaf. kaval consumes ONE
+        # function from it (`readGrid`, a pure buffer read); the scene builder,
+        # the SVG writer and the wasm rasteriser behind `terminal-snapshot/png`
+        # never run in this process (the kaval wrapper below bakes no
+        # KOLU_SNAPSHOT_FONTS_DIR, and says why). The kaval-relevant surface is
+        # the SHAPE `readGrid` emits, and that shape is `SnapshotGridSchema` in
+        # kaval/src — hashed via PTY_HOST_CONTRACT_VERSION, so a wire-relevant
+        # change rides the contract bump. A chrome-geometry or palette edit —
+        # or a `themes.json` regeneration, which reaches here through
+        # `terminal-themes` — must not fire kaval's PTY-costing currency nudge.
+        # Same argument as @kolu/xterm-kit above.
+        "terminal-snapshot"
         # `@kolu/shell-quote` — the POSIX-quote source of truth. kaval seeds a
         # command-rooted PTY's `lastCommand` with `shellJoin` (#1872), and the
         # seed's DIALECT is carried on the `commandRun` frame's `shellJoin`
@@ -539,6 +559,7 @@ let
       --set KOLU_CLIENT_DIST "${koluClientDist}" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${osfactsBakeArg} \
+      ${snapshotFontsBakeArg} \
       --set KOLU_COMMIT_HASH "${commitHash}" \
       ${kavalIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
@@ -692,6 +713,13 @@ let
     # `kaval-…` subdir and arms the V8 heap-snapshot flags (incl.
     # --heapsnapshot-near-heap-limit), so the next near-OOM dumps a snapshot that
     # names the leak in the real workload. Unset = passthrough, zero overhead.
+    #
+    # NOT baked here: KOLU_SNAPSHOT_FONTS_DIR. kaval consumes terminal-snapshot's
+    # BROWSER half only (readGrid — a pure buffer read); the wasm rasteriser and
+    # its ~9MB of outline faces sit behind the `terminal-snapshot/png` export,
+    # which nothing in kaval imports. Baking it would hang the font closure on
+    # every PTY daemon for no reader, and pngFonts.ts throws by name the moment that
+    # stops being true — so the omission fails loudly rather than silently.
     makeWrapper ${runtimeNode}/bin/node $out/bin/kaval \
       --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/kaval/src/bin.ts" \
@@ -741,6 +769,7 @@ let
       ${kavalIdentity.bakeArgs} \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${osfactsBakeArg} \
+      ${snapshotFontsBakeArg} \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh ]} \
       --run '${exportPadiStateDirRun}' \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}

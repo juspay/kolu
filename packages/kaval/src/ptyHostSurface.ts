@@ -58,7 +58,13 @@ import {
   type SurfaceTypes,
   type WireSchema,
 } from "@kolu/surface/define";
-import { Schema } from "effect";
+import { Option, Schema, SchemaGetter } from "effect";
+import type {
+  CellColor,
+  SnapshotCell,
+  SnapshotGrid,
+  SnapshotRow,
+} from "terminal-snapshot";
 
 /** A whole positive count — the `z.number().int().positive()` of this wire.
  *  Named once so every grid dimension, chunk bound and scrollback depth is the
@@ -224,7 +230,26 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  waved through as compatible on the strength of a string it can no longer even
  *  transmit. The major digit names the epoch; the minor resumes its usual additive
  *  duty from here, exactly as it did across 3.x–5.x. */
-export const PTY_HOST_CONTRACT_VERSION = "7.0";
+/*  Bumped to 7.1 (MINOR · additive): `terminal.getScreenCells`, the attributed
+ *  read a rendered screenshot is drawn from (padi's `screen.image`, the
+ *  `screen_image` MCP tool, `kolu screenshot`).
+ *
+ *  A NEW PROCEDURE is a new emitted member, so this follows the 5.3 activity-stream
+ *  precedent, not the `commandRooted` optional-field one: a survivor 7.0 daemon
+ *  does not serve it at all, and a 7.1 padi calling it would hit a missing
+ *  procedure rather than degrade. The minor bump makes that skew a RECYCLE (the
+ *  session parks and restores) instead of a runtime hole.
+ *
+ *  The competing call was to add it with NO bump and let a survivor answer
+ *  screenshot requests with a loud per-call failure — `commandRooted`'s rule that
+ *  "a cosmetic readout must never cost a terminal", and a screenshot is cosmetic.
+ *  It was rejected because the two cases differ in WHERE the absence lands:
+ *  `commandRooted` absent degrades to the pre-existing reading with nothing to
+ *  explain, while a missing procedure surfaces as an unspeakable-member error at
+ *  the wire — the class of failure this constant exists to convert into an honest,
+ *  managed recycle. The park/restore cost is bounded and already the routine price
+ *  of every other additive member. */
+export const PTY_HOST_CONTRACT_VERSION = "7.1";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -232,6 +257,264 @@ export const PTY_HOST_CONTRACT_VERSION = "7.0";
 const PtyIdSchema = Schema.String;
 
 const TerminalIdInputSchema = Schema.Struct({ id: PtyIdSchema });
+
+/** The single bound axis of a screen read, as a closed union — so the host
+ *  can't be handed two conflicting bounds (a tail AND a viewport) to silently
+ *  choose between. Omit it for the full buffer. `viewport` carries no payload:
+ *  it resolves to the last `rows` rendered lines against the host's own live
+ *  grid, which the caller can't know (a CLI's stdout is usually a pipe, never
+ *  the daemon terminal's size).
+ *
+ *  The VOCABULARY is shared with `getScreenCells` (see
+ *  {@link ScreenCellsInputSchema}); the CEILING is not — a full-scrollback
+ *  read is a string here and a 50,000-row attributed frame there. */
+const ScreenExtentSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("full") }),
+  Schema.Struct({
+    kind: Schema.Literal("range"),
+    startLine: Schema.optionalKey(Schema.Int),
+    endLine: Schema.optionalKey(Schema.Int),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("tail"),
+    // "Last N lines" — N is a count, so a negative is meaningless. Reject it at
+    // the wire boundary (fail loud) rather than letting a `Math.max(0, …)`
+    // clamp downstream turn it into a silent empty read.
+    lines: NonNegativeInt,
+  }),
+  Schema.Struct({ kind: Schema.Literal("viewport") }),
+]);
+
+const ScreenReadInputSchema = Schema.Struct({
+  id: PtyIdSchema,
+  extent: Schema.optionalKey(ScreenExtentSchema),
+});
+
+/** The most rows ONE attributed-cell read will ever serve.
+ *
+ *  A cell costs ~30x its character on the wire, so a bound that is fine for
+ *  `getScreenText` is not fine here: `full` over kolu's 50,000-line retention
+ *  is a frame far past `RPC_MAX_FRAME_BYTES`. padi caps its own `screen.image`
+ *  face too — this is the wire's ceiling underneath that one, so the bound is
+ *  a property of the contract rather than of whichever caller remembered.
+ *
+ *  Rows are the only axis a CALLER can name, which is why this one is a wire
+ *  check. What the read actually costs is an area — see
+ *  {@link SCREEN_CELLS_MAX_CELLS}. */
+export const SCREEN_CELLS_MAX_ROWS = 200;
+
+/** The most CELLS one attributed read will ever serve — the ceiling that
+ *  actually binds.
+ *
+ *  A row cap alone bounded one axis of a two-axis cost. Nothing bounds
+ *  columns: `terminal.resize` takes a bare positive `cols`, so the width is
+ *  whatever the OS ioctl accepts, and a screen 200 rows tall and 1,000 columns
+ *  wide is 200,000 cells — an eighth of a megapixel of `<text>` elements (the
+ *  renderer emits one per CELL, deliberately, for ligature safety), which
+ *  reintroduces on the column axis exactly the multi-second stall the row cap
+ *  was built to remove.
+ *
+ *  An AREA rather than a second axis ceiling, because two independent
+ *  ceilings multiply: even a tight 200x200 pair still admits 40,000 cells, and
+ *  a generous one admits millions. `rows * cols` is the number the cost is
+ *  actually linear in, so it is the number to bound.
+ *
+ *  26,000 is 200 x 130 — the exact grid BOTH of this subsystem's worst-case
+ *  measurements were taken on: the 4.1 MB frame that motivated
+ *  {@link omittedWhenDefault}, and the 2,482 ms rasterise `terminal-snapshot`'s
+ *  `pngWorker.ts` records. Holding the area there is what keeps those two
+ *  numbers the worst case rather than a sample of it.
+ *
+ *  The two axes trade, which is the point of an area: a 300-column terminal
+ *  gets its full width at 80 rows, and an 80x24 shell is nowhere near the
+ *  ceiling either way. Only a read that is BOTH very tall and very wide is
+ *  trimmed. */
+export const SCREEN_CELLS_MAX_CELLS = 26_000;
+
+/** The slice a read of `rows` x `cols` actually gets, trimmed to both
+ *  ceilings.
+ *
+ *  ROWS are honoured first and trimmed only by {@link SCREEN_CELLS_MAX_ROWS},
+ *  because rows are the axis a caller can NAME: an explicit `tail.lines` past
+ *  the cap is refused at the wire (a caller that asked for 5,000 rows and
+ *  silently got 200 would be shown a picture that is not the answer to its
+ *  question), and a `viewport` of a taller terminal keeps the BOTTOM rows —
+ *  where the prompt is.
+ *
+ *  COLUMNS then absorb whatever the area cap still needs, and take the
+ *  LEFTMOST — a terminal's left edge carries the prompt, the tree glyphs and
+ *  the structure, while its right edge is mostly the ragged ends of lines.
+ *  Nothing to refuse on this axis: no caller can state a width, so a trim here
+ *  is never a caller being told something other than what it asked for. It is
+ *  STATED, not hidden — the grid carries the `cols` it was actually read at,
+ *  and padi's `screen.image` reply echoes it.
+ *
+ *  A zero-row read (an empty buffer) keeps the full width: there is no area to
+ *  divide, and a zero `cols` is not a grid any renderer would accept. */
+export function boundScreenCells(
+  rows: number,
+  cols: number,
+): { readonly rows: number; readonly cols: number } {
+  const served = Math.min(Math.max(0, rows), SCREEN_CELLS_MAX_ROWS);
+  if (served === 0) return { rows: 0, cols };
+  return {
+    rows: served,
+    cols: Math.min(cols, Math.floor(SCREEN_CELLS_MAX_CELLS / served)),
+  };
+}
+
+/** The slice a PICTURE read can ask for — deliberately narrower than
+ *  {@link ScreenExtentSchema}, which the text read uses.
+ *
+ *  No `full` and no `range`: a screenshot is drawn of the present tense, and
+ *  an unbounded attributed read is a footgun rather than a feature. Same
+ *  vocabulary, so `resolveScreenExtent` still resolves both slices with one
+ *  answer to "what does viewport mean". */
+const ScreenCellsInputSchema = Schema.Struct({
+  id: PtyIdSchema,
+  extent: Schema.optionalKey(
+    Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("viewport") }),
+      Schema.Struct({
+        kind: Schema.Literal("tail"),
+        lines: PositiveInt.check(
+          Schema.isLessThanOrEqualTo(SCREEN_CELLS_MAX_ROWS),
+        ),
+      }),
+    ]),
+  ),
+});
+
+/** The wire form of `terminal-snapshot`'s {@link CellColor} — a cell colour
+ *  exactly as the VT stream expressed it, NOT a resolved pixel. "palette 4"
+ *  only becomes a colour once someone knows which theme is on, and this daemon
+ *  does not: kolu's themes are a per-terminal user choice padi holds.
+ *
+ *  `satisfies WireSchema<T>` on this and the three below is what stops the
+ *  schema and the TS type it mirrors drifting: they are one vocabulary spelled
+ *  twice — once for the wire, once for the renderer that reads it — and a
+ *  field added to either without the other now fails typecheck here instead of
+ *  being silently dropped at encode. Same idiom, same reason, as
+ *  {@link DaemonLifetimeInfoSchema} below. */
+const CellColorSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("default") }),
+  // Bounded to xterm's actual 256-colour table. `NonNegativeInt` alone let a
+  // stale or lying peer send index 300, which the renderer's greyscale ramp
+  // extrapolates into an out-of-range channel — a valid-looking PNG with
+  // garbage colours. Refused at decode instead.
+  Schema.Struct({
+    kind: Schema.Literal("palette"),
+    index: NonNegativeInt.check(Schema.isLessThanOrEqualTo(255)),
+  }),
+  Schema.Struct({ kind: Schema.Literal("rgb"), value: NonNegativeInt }),
+]) satisfies WireSchema<CellColor>;
+
+/** A field whose commonest value is left OFF the wire entirely — absent on
+ *  encode, restored on decode — while the decoded type keeps it required.
+ *
+ *  A screenful of cells is the largest thing this surface ever ships, and
+ *  almost every cell is unstyled: at the 200-row cap a frame measured 4.1 MB,
+ *  of which `"bold":false,"italic":false,…`, `{"kind":"default"}` twice and
+ *  `"width":1` were ~70% of the literal NDJSON bytes (1.24 MB with them
+ *  omitted, and ~70% of the 30.7 ms encode / 41.1 ms decode with them).
+ *
+ *  NOT `Schema.withDecodingDefaultKey`, which is the repo's usual spelling for
+ *  a defaulted key: its `encodingStrategy` is either `"passthrough"` (writes
+ *  the field, no saving) or `"omit"` (drops it ALWAYS, losing `bold: true`).
+ *  The saving needs omission to be CONDITIONAL, which is what the encode
+ *  getter below does.
+ *
+ *  `fallback` and `isFallback` are one fact spelled for each direction and
+ *  MUST agree — a value the encoder drops is a value the decoder puts back.
+ *  They are two arguments rather than one because "is this the default" is
+ *  `===` for a flag and a `kind` test for a colour, and a generic deep compare
+ *  run a quarter of a million times a frame would cost more than it saves. */
+function omittedWhenDefault<T>(
+  schema: Schema.Codec<T, T, never, never>,
+  fallback: T,
+  isFallback: (value: T) => boolean,
+) {
+  return Schema.optionalKey(schema).pipe(
+    Schema.decodeTo(schema, {
+      decode: SchemaGetter.transformOptional<T, T>((encoded) =>
+        Option.isNone(encoded) ? Option.some(fallback) : encoded,
+      ),
+      encode: SchemaGetter.transformOptional<T, T>((value) =>
+        Option.isSome(value) && isFallback(value.value) ? Option.none() : value,
+      ),
+    }),
+  );
+}
+
+/** The three defaults worth omitting, named once each and reused across the
+ *  eight cell keys that take them. */
+const AbsentWhenFalse = omittedWhenDefault(
+  Schema.Boolean,
+  false,
+  (flag) => flag === false,
+);
+const AbsentWhenDefaultColor = omittedWhenDefault(
+  CellColorSchema,
+  { kind: "default" },
+  (color) => color.kind === "default",
+);
+/** 1 or 2 — the only widths `readGrid` emits. 0 is the trailing half of a
+ *  wide glyph, dropped at the read, so admitting it here would only let a
+ *  peer hand a renderer a zero-width cell to paint. */
+const AbsentWhenSingleWidth = omittedWhenDefault(
+  PositiveInt.check(Schema.isLessThanOrEqualTo(2)),
+  1,
+  (width) => width === 1,
+);
+
+/** The wire form of {@link SnapshotCell}. `width` is the VT display width: 1
+ *  ordinary, 2 for the leading half of a wide glyph. The TRAILING half is
+ *  never emitted — it is already covered by its leader, and sending it would
+ *  let a renderer double-strike the glyph.
+ *
+ *  Only `col` and `chars` are always on the wire; the other eight ride
+ *  {@link omittedWhenDefault}, so an ordinary cell is `{"col":7,"chars":"a"}`.
+ *  The DECODED shape is unchanged and every field stays required — see
+ *  `terminal-snapshot/src/cell.ts`, which is what a renderer reads; the
+ *  omission is an encoding, not a hole in the vocabulary.
+ *
+ *  No `PTY_HOST_CONTRACT_VERSION` bump: `terminal.getScreenCells` — the only
+ *  member this shape reaches — is itself new at 7.1, so there is no released
+ *  peer that could meet a cell of either spelling. Were it older, this WOULD
+ *  be a major: an old client's all-required schema rejects a new daemon's
+ *  omitted key, and that is the old-client/new-daemon direction the
+ *  compatibility predicate waves through. */
+const SnapshotCellSchema = Schema.Struct({
+  col: NonNegativeInt,
+  chars: Schema.String,
+  width: AbsentWhenSingleWidth,
+  fg: AbsentWhenDefaultColor,
+  bg: AbsentWhenDefaultColor,
+  bold: AbsentWhenFalse,
+  italic: AbsentWhenFalse,
+  dim: AbsentWhenFalse,
+  underline: AbsentWhenFalse,
+  inverse: AbsentWhenFalse,
+}) satisfies WireSchema<SnapshotCell>;
+
+/** The wire form of {@link SnapshotRow} — only the cells worth painting; a
+ *  blank unstyled cell is omitted, which is what keeps a screenful an ordinary
+ *  frame rather than a chunked transfer. */
+const SnapshotRowSchema = Schema.Struct({
+  cells: Schema.Array(SnapshotCellSchema),
+}) satisfies WireSchema<SnapshotRow>;
+
+/** The wire form of {@link SnapshotGrid} — a rectangular slice of the screen
+ *  as attributed cells. See `terminal-snapshot/src/cell.ts` for why the row
+ *  count is `lines.length` and not a field of its own, and why a line the
+ *  mirror doesn't have comes back as an empty row rather than a hole. */
+const SnapshotGridSchema = Schema.Struct({
+  // `PositiveInt`, the same rule {@link PtyGridSchema} states for a live PTY's
+  // grid: a zero-column screen is not a screen, and admitting one here let a
+  // peer hand the renderer a grid whose cells are all out of bounds.
+  cols: PositiveInt,
+  lines: Schema.Array(SnapshotRowSchema),
+}) satisfies WireSchema<SnapshotGrid>;
 
 /** A PTY grid — cols AND rows, together or not at all. The ONE grid rule this
  *  surface has: every member that carries a grid reuses it, so tightening the
@@ -677,29 +960,25 @@ export const ptyHostSurface = defineSurface({
         // last `rows` rendered lines against the host's own live grid (the CLI
         // can't know it; its stdout is usually a pipe, never the daemon
         // terminal's size).
-        input: Schema.Struct({
-          id: PtyIdSchema,
-          extent: Schema.optionalKey(
-            Schema.Union([
-              Schema.Struct({ kind: Schema.Literal("full") }),
-              Schema.Struct({
-                kind: Schema.Literal("range"),
-                startLine: Schema.optionalKey(Schema.Int),
-                endLine: Schema.optionalKey(Schema.Int),
-              }),
-              Schema.Struct({
-                kind: Schema.Literal("tail"),
-                // "Last N lines" — N is a count, so a negative is meaningless.
-                // Reject it at the wire boundary (fail loud) rather than letting
-                // `getScreenText`'s `Math.max(0, …)` clamp turn it into a silent
-                // empty read.
-                lines: NonNegativeInt,
-              }),
-              Schema.Struct({ kind: Schema.Literal("viewport") }),
-            ]),
-          ),
-        }),
+        input: ScreenReadInputSchema,
         output: Schema.Struct({ text: Schema.String }),
+        error: PtyNotFound,
+      },
+      /** The screen as ATTRIBUTED cells — what a rendered screenshot is drawn
+       *  from (contract 7.1 · additive).
+       *
+       *  Its extent is a NARROWER union than `getScreenText`'s: viewport or a
+       *  bounded tail, never the whole scrollback. See
+       *  {@link SCREEN_CELLS_MAX_ROWS}.
+       *
+       *  Returns cells rather than an image on purpose. Rendering needs a
+       *  theme, a font and a rasteriser; this daemon owns the PTYs and the
+       *  screen mirror and should own none of those. Handing padi the cells
+       *  keeps the hot process free of a wasm rasteriser and several megabytes
+       *  of font, and puts the picture where the theme already lives. */
+      getScreenCells: {
+        input: ScreenCellsInputSchema,
+        output: SnapshotGridSchema,
         error: PtyNotFound,
       },
       /** Older-scrollback read for the client's in-place backfill (contract

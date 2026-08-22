@@ -12,7 +12,7 @@ import {
   computeTerminalKeys,
   type TerminalKey,
   terminalKey,
-} from "kolu-common/terminalKey";
+} from "@kolu/terminal-vocab/terminalKey";
 import type {
   PaletteAction,
   PaletteGroup,

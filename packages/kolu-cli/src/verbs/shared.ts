@@ -172,12 +172,16 @@ export const isConsumerHangup = (cause: unknown): boolean =>
  *  of inflating an in-memory backlog. `endOnDone: false` because this process
  *  does not own `process.stdout`'s lifetime: a sink that ended it would close
  *  the shell's own descriptor. */
-export const stdoutSink: Sink.Sink<void, string, never, StdoutWriteFailed> =
-  NodeSink.fromWritable<StdoutWriteFailed, string>({
-    evaluate: () => process.stdout,
-    onError: (cause) => new StdoutWriteFailed({ cause }),
-    endOnDone: false,
-  });
+export const stdoutSink: Sink.Sink<
+  void,
+  string | Uint8Array,
+  never,
+  StdoutWriteFailed
+> = NodeSink.fromWritable<StdoutWriteFailed, string | Uint8Array>({
+  evaluate: () => process.stdout,
+  onError: (cause) => new StdoutWriteFailed({ cause }),
+  endOnDone: false,
+});
 
 /** The ONE sentence for a stdout that genuinely died. `what` names the payload,
  *  so a real write error says which output was lost rather than a generic
@@ -186,13 +190,20 @@ export const stdoutSink: Sink.Sink<void, string, never, StdoutWriteFailed> =
 export const stdoutLost = (what: string, cause: unknown): CliFailure =>
   failure(`could not write ${what} to stdout: ${errorMessage(cause)}`);
 
-/** Write the verb's DATA to stdout, treating a hung-up reader as a complete run. */
+/** Write the verb's DATA to stdout, treating a hung-up reader as a complete run.
+ *
+ *  Takes BYTES as well as text, because `process.stdout` is a binary writable
+ *  and one verb's payload is a PNG (`kolu screenshot -o -`). Widening the one
+ *  path is deliberate: the alternative — a second, image-shaped write beside
+ *  it — is how `screenshot` briefly came to disagree with every other verb
+ *  about what a hung-up reader means, turning `kolu screenshot … -o - | head`
+ *  into a non-zero exit where every sibling exits clean. */
 export function writeOut(
-  text: string,
+  payload: string | Uint8Array,
   what: string,
 ): Effect.Effect<void, CliFailure> {
   const write: Effect.Effect<void, StdoutWriteFailed> = Stream.run(
-    Stream.make(text),
+    Stream.make(payload),
     stdoutSink,
   );
   return Effect.catchTag(write, "StdoutWriteFailed", (err) =>

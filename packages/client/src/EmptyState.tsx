@@ -3,7 +3,7 @@
 import type { SavedSession, SavedTerminal } from "@kolu/padi/surface";
 import type { PwaInstall } from "@kolu/solid-pwa-install";
 import { resumableCommand } from "kolu-common/surface";
-import { terminalKey } from "kolu-common/terminalKey";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { showsWelcome } from "./capabilities";
 import ForfeitSessionButton from "./ForfeitSessionButton";

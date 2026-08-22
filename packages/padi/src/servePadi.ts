@@ -17,6 +17,7 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
+import { renderScreenImage } from "./screenImage.ts";
 import { rmSync } from "node:fs";
 import { base64DecodedLength } from "@kolu/surface/frame-chunking";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
@@ -27,6 +28,7 @@ import {
 } from "@kolu/surface/server";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
+import { terminalCaption } from "@kolu/terminal-vocab/terminalKey";
 import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
 import { Effect } from "effect";
 import {
@@ -956,6 +958,26 @@ export function buildPadiSurfaceDeps(deps: {
               input.epoch,
             ),
           ),
+        image: ({ input }) =>
+          handle(async () => {
+            const entry = requireActiveTerminal(input.id);
+            // The cells come from kaval RAW — "palette 4", not a colour. This
+            // is the hop that knows which theme this terminal wears, so it is
+            // the hop that resolves them.
+            // The one place the wire input becomes a bound: an absent `lines`
+            // means the viewport, and it is said HERE rather than carried down
+            // as an absence every layer has to re-read.
+            const grid = await entry.handle.getScreenCells(
+              input.lines === undefined
+                ? { kind: "viewport" }
+                : { kind: "tail", lines: input.lines },
+            );
+            return renderScreenImage({
+              grid,
+              themeName: entry.meta.themeName,
+              label: terminalCaption(entry.snapshot),
+            });
+          }),
       },
 
       // fs reads off the SAME shared endpoint `serveFsGit` wraps (its procedure
