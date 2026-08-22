@@ -1,6 +1,6 @@
 /** Terminal display info — client-derived decorations (colors, sub-count)
  *  and the canonical identity key. Identity-and-presentation come from
- *  `terminalKey()` in `kolu-common`; this module only adds the decorations.
+ *  `terminalKey()` in `@kolu/terminal-vocab`; this module only adds the decorations.
  *
  *  Deliberately carries NO live `TerminalMetadata`. This value rides the
  *  `displayInfos` memo, which is invalidated only by git / cwd / membership
@@ -17,7 +17,7 @@ import {
   computeTerminalKeys,
   type TerminalKey,
   terminalKey,
-} from "kolu-common/terminalKey";
+} from "@kolu/terminal-vocab/terminalKey";
 
 export type TerminalDisplayInfo = {
   /** Deterministic OKLCH hue per repo `group`. Always defined: `group`

@@ -27,7 +27,7 @@ import type { TerminalMetadata } from "@kolu/padi/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { terminalKey } from "kolu-common/terminalKey";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { toast } from "solid-sonner";
 import { DEFAULT_FONT_SIZE } from "kolu-common/config";
 import {

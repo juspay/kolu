@@ -1,16 +1,49 @@
 /** Terminal identity keys — the canonical `(group, label)` projection
  *  used to group, deduplicate, AND display terminals across every
- *  surface (workspace switcher, restore card, canvas tile chrome).
+ *  surface (workspace switcher, restore card, canvas tile chrome, and
+ *  the caption on a screenshot).
  *
  *  Pure: same inputs produce the same outputs on every client, so the
  *  server never has to broadcast suffixes. Single function: identity
  *  and presentation are deliberately fused — the only way to keep them
  *  in sync is to make them the same projection.
+ *
+ *  Lives HERE, in the browser-safe terminal vocabulary, rather than in
+ *  `kolu-common` where it was born. The projection is a fact about what
+ *  a terminal IS, and its second reader is `@kolu/padi` — the per-host
+ *  daemon, which must not grow an edge to kolu's domain-contract
+ *  package. While it sat in `kolu-common`, padi could not reach it and
+ *  hand-rolled its own basename for the screenshot caption instead: the
+ *  exact divergent projection the note below warns about, shipped
+ *  because the shared home was in the wrong package. Moving it down to
+ *  the leaf both sides already depend on is what makes "one projection"
+ *  true by construction rather than by prose.
+ *
+ *  `shortenCwd`/`cwdBasename` live in this file, not beside it: keeping
+ *  the projection self-contained means there is no separate
+ *  "presentation" function that drifts from identity.
  */
 
 import type { GitInfo } from "kolu-git/schemas";
-import { cwdBasename, shortenCwd } from "./path";
-import type { TerminalId } from "./surface";
+import type { TerminalId } from "./schema.ts";
+
+/** Replace home directory prefix with `~` for compact display. */
+export function shortenCwd(cwd: string): string {
+  return cwd.replace(/^\/(home\/[^/]+|root)(\/|$)/, "~$2");
+}
+
+/** Last segment of a path, with `~` for home directory and the same `~`
+ *  as a fallback for empty input — never returns the empty string.
+ *
+ *  A trailing slash is trimmed before the last segment is taken: `/x/y/`
+ *  names the same directory as `/x/y`, and without the trim the split
+ *  pops the empty string after it and the whole path collapses to the
+ *  `~` fallback — a terminal in `~/scratch/` captioned "~", which reads
+ *  as the home directory it is not. */
+export function cwdBasename(cwd: string): string {
+  const short = shortenCwd(cwd).replace(/\/+$/, "");
+  return short.split("/").pop() || "~";
+}
 
 /** `(group, label)` plus an optional `suffix` for ids that collide on
  *  `(group, label)` within the live set.

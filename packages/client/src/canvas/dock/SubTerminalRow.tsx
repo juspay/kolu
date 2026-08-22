@@ -13,7 +13,7 @@
 import { activeArm } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
-import { cwdBasename } from "kolu-common/path";
+import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";

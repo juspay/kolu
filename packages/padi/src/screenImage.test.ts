@@ -42,7 +42,15 @@ describe("screenshotLabel", () => {
     expect(
       screenshotLabel({
         cwd: "/src/kolu",
-        git: { repoName: "kolu", branch: "main" },
+        git: {
+          repoRoot: "/src/kolu",
+          repoName: "kolu",
+          worktreePath: "/src/kolu",
+          branch: "main",
+          isWorktree: false,
+          mainRepoRoot: "/src/kolu",
+          remoteUrl: null,
+        },
       }),
     ).toBe("kolu (main)");
   });
@@ -59,8 +67,13 @@ describe("screenshotLabel", () => {
     );
   });
 
+  // `~`, not `/`, since the caption became the SHARED `cwdBasename` projection:
+  // its documented no-last-segment fallback is `~`, which is what kolu's own
+  // dock has always shown for a terminal sitting at the filesystem root. The
+  // caption agreeing with the tile is the point — a screenshot that spelled
+  // root differently from the switcher beside it was the drift this closed.
   it("keeps the root path readable rather than collapsing it to nothing", () => {
-    expect(screenshotLabel({ cwd: "/", git: null })).toBe("/");
+    expect(screenshotLabel({ cwd: "/", git: null })).toBe("~");
   });
 });
 

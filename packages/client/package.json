@@ -31,6 +31,7 @@
     "@kolu/surface-app": "workspace:*",
     "@kolu/surface-map": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
+    "@kolu/terminal-vocab": "workspace:*",
     "@kolu/theme": "workspace:*",
     "@kolu/url-shape": "workspace:*",
     "@kolu/xterm-kit": "workspace:*",

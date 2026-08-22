@@ -12,6 +12,10 @@
  *  copy-to-clipboard screenshot (`terminal-snapshot`), so the agent's PNG and
  *  the user's PNG are the same picture by construction. */
 
+import {
+  terminalKey,
+  type TerminalLocation,
+} from "@kolu/terminal-vocab/terminalKey";
 import { getThemeByName } from "terminal-themes";
 import type { PadiScreenImageOutput } from "./surface.ts";
 import type { SnapshotGrid } from "terminal-snapshot";
@@ -29,21 +33,20 @@ const FONT_SIZE = 15;
  *  renderer holds. */
 const BRAND = "kolu";
 
-/** What the title bar says. The same `(repo, branch)` projection kolu shows
- *  on a tile, spelled from the metadata padi already holds.
+/** What the title bar says — THE `(group, label)` projection kolu shows on a
+ *  tile, not a second spelling of it.
  *
- *  Deliberately NOT an import of `kolu-common`'s `terminalKey`: padi does not
- *  depend on the domain-contract package and should not grow that dependency
- *  for a decoration. The two can disagree only in the fallback arm (no git),
- *  where this shows the directory and the tile shows a shortened path — a
- *  difference in a caption, not in the picture. */
-export function screenshotLabel(snapshot: {
-  cwd: string;
-  git: { repoName: string; branch: string } | null;
-}): string {
-  if (snapshot.git) return `${snapshot.git.repoName} (${snapshot.git.branch})`;
-  const trimmed = snapshot.cwd.replace(/\/+$/, "");
-  return trimmed.slice(trimmed.lastIndexOf("/") + 1) || snapshot.cwd;
+ *  It used to re-derive the non-git arm by hand (`slice(lastIndexOf("/") + 1)`)
+ *  because `terminalKey` lived in `kolu-common`, the domain-contract package
+ *  padi must not depend on. That constraint was real; the duplicate was the
+ *  wrong answer to it, and it had already drifted — this captioned a
+ *  home-relative directory the way the shell does while the tile beside it
+ *  showed `cwdBasename`'s `~`-aware form. The projection now lives in
+ *  `@kolu/terminal-vocab`, the browser-safe leaf padi and the client BOTH
+ *  already depend on, so the caption is shared code rather than a promise. */
+export function screenshotLabel(snapshot: TerminalLocation): string {
+  const { group, label } = terminalKey(snapshot);
+  return snapshot.git ? `${group} (${label})` : group;
 }
 
 export interface ScreenImageInput {

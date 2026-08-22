@@ -12,7 +12,7 @@
 import { escapeHtml } from "@kolu/html-escape";
 import type { TerminalMetadata } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { terminalKey } from "kolu-common/terminalKey";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
 import { getTerminalRefs } from "./terminal/terminalRefs";

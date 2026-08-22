@@ -67,7 +67,7 @@ import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
-import { cwdBasename } from "kolu-common/path";
+import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import {
   type Component,
   createMemo,

@@ -22,7 +22,10 @@ import {
   type TerminalId,
   type TerminalPorts,
 } from "kolu-common/surface";
-import { terminalKey, type TerminalLocation } from "kolu-common/terminalKey";
+import {
+  terminalKey,
+  type TerminalLocation,
+} from "@kolu/terminal-vocab/terminalKey";
 
 /** What this join needs from one terminal — deliberately not a `TerminalMetadata`:
  *  the caller has that and this needs three fields, so the seam stays testable

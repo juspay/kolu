@@ -1,7 +1,7 @@
 /** Tab bar for sub-terminals within a parent's sub-panel. */
 
 import type { TerminalMetadata } from "@kolu/padi/surface";
-import { cwdBasename } from "kolu-common/path";
+import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import { ACTIONS } from "../input/actions";

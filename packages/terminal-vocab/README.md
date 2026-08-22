@@ -13,13 +13,15 @@ here is the shared leaf, renamed to say what it now is.
 
 ## Entry points
 
-The export map is the boundary — both entries are **browser-safe**:
+The export map is the boundary — every entry is **browser-safe**:
 
 | Entry | What |
 | --- | --- |
 | `./schema` | the `TerminalSnapshot` / `AgentMemory` / `AgentInfo` / `TerminalId` / `RestoreTarget` / `ProcessRss` schemas plus the `RepoChangePulse` / `FsFileInput` / `FsReadFileTextOutput` fs/git wire schemas `@kolu/padi/surface` composes. Re-exports the common port *types* used on the wire (`PortInfo`, `foldPorts`, …) and adds the two pieces that ARE domain: `TerminalPorts`' `known`/`unknown` two-way, and `portReach` |
 | `./ports` | the port vocabulary leaf itself (`PortInfo`, `PortScope`, `PortFamily`, `foldPorts`, `isTcpPort`, …) — Effect Schema only, no sensors. Prefer this entry when you need a symbol that is not re-exported on `./schema` |
 | `./agentProjection` | the pure agent-status projection (`agentBucket` · `agentPaintClass` · `agentUrgency` · `alertClass`) over a `TerminalSnapshot` |
+| `./attentionTransitions` | the pure attention-edge folds shared by the client and padi |
+| `./terminalKey` | the canonical `(group, label)` identity-and-display projection (`terminalKey` · `computeTerminalKeys`) and the two path helpers it is built from (`cwdBasename` · `shortenCwd`). Moved down from `kolu-common` so `@kolu/padi` can caption a screenshot with the SAME projection the client paints a tile with, instead of hand-rolling a second one |
 
 ## Who reads it
 

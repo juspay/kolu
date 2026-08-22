@@ -145,6 +145,9 @@ importers:
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
+      '@kolu/terminal-vocab':
+        specifier: workspace:*
+        version: link:../terminal-vocab
       '@kolu/theme':
         specifier: workspace:*
         version: link:../theme
