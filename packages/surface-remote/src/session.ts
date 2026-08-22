@@ -1140,8 +1140,13 @@ export function makeSession<
             // Supersession guard, the same one the `finally` below carries: a reject that
             // lands after this connection was replaced must not cycle its successor.
             if (destroyed || current !== conn) return;
+            // Carry the leg's OWN words through. This is the one path written to
+            // recognise this class of death, and it is the path a starved-but-alive
+            // remote takes — so swallowing `err` here is exactly where the link's
+            // "it stopped answering, it did not necessarily exit" would stop
+            // reaching the operator who needs it.
             forceCycle(
-              "liveness probe hit a dead transport — force-cycling the link",
+              `liveness probe hit a dead transport (${err instanceof Error ? err.message : String(err)}) — force-cycling the link`,
             );
           })
           .finally(() => {

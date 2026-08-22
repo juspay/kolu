@@ -183,10 +183,18 @@ export function restoreSpawn(
   });
 }
 
-/** Kill a terminal. Returns final info, or undefined if not found. Async
- *  since #951 R4c: the local endpoint awaits the daemon's kill confirmation
- *  over the socket before unregistering (so a failed kill can't orphan the
- *  PTY). */
+/** Kill a terminal. Returns final info, or `undefined` when `id` is not an
+ *  active terminal — which now includes losing a race to a CONCURRENT kill that
+ *  already claimed it.
+ *
+ *  Async since #951 R4c: the local endpoint awaits the pty-host's kill
+ *  round-trip. It no longer waits for that confirmation before unregistering,
+ *  though — the registry entry is CLAIMED up front, so two overlapping kills
+ *  cannot both drive the teardown and both fire at the same pid (see
+ *  `terminalEndpoint/local.ts` and `killIdempotence.test.ts`). Unregistering was
+ *  never a promise that the child is gone in any case: the failure arm always
+ *  unregistered regardless, and reattach-time reconciliation against
+ *  `terminal.list` reaps a surviving orphan. */
 export async function killTerminal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {

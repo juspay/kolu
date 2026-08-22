@@ -213,13 +213,21 @@ export interface TerminalEndpoint {
    *  caller-supplied so the tile can render before this returns. */
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo;
 
-  /** Stop providers, kill the PTY, scrub per-terminal scratch storage,
-   *  unregister from the shared registry. Sole termination path. Awaits the
-   *  pty-host's kill (hence the Promise) — synchronous and infallible
-   *  in-process. A socket/ssh endpoint's kill *can* fail; it still unregisters
-   *  (so a failed kill never strands a dead entry in the UI) and relies on
-   *  reattach-time reconciliation against `terminal.list` to reap any surviving
-   *  orphan — so unregistering is not a promise that the child is gone. */
+  /** Stop providers, CLAIM the terminal (unregister from the shared registry),
+   *  kill the PTY, then scrub per-terminal scratch storage. Sole termination
+   *  path. Awaits the pty-host's kill (hence the Promise).
+   *
+   *  The claim comes BEFORE the kill on purpose, and it is unconditional: an
+   *  implementation must not make unregistering depend on the kill succeeding.
+   *  That buys idempotence under concurrency — the guard and the claim are one
+   *  indivisible step, so a second overlapping kill returns `undefined` instead
+   *  of driving a second teardown and a second signal at a pid the OS may have
+   *  recycled. It costs nothing, because a kill *can* fail (a socket/ssh
+   *  endpoint especially) and unregistering-anyway was already the behaviour, so
+   *  that a failed kill never strands a dead entry in the UI. Unregistering is
+   *  therefore not a promise that the child is gone; reattach-time
+   *  reconciliation against `terminal.list` reaps a surviving orphan. The
+   *  scratch scrub stays AFTER the kill so the PTY cannot re-create it. */
   killTerminal(id: TerminalId): Promise<TerminalInfo | undefined>;
 
   /** Drain and dispose every terminal owned by this endpoint. Used by

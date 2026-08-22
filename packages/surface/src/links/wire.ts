@@ -63,42 +63,6 @@ const neverReconnect: Schedule.Schedule<number, Socket.SocketError> =
     ),
   );
 
-/**
- * Did this link die because the PEER WENT QUIET, rather than because the pipe
- * broke? On a duplex leg those are different facts, and Effect RPC spells them
- * with the same word.
- *
- * `SocketOpenError{kind:"Timeout"}` has exactly two producers in Effect: the
- * socket's `openTimeout` (a DIAL that never opened) and `makeProtocolSocket`'s
- * own pinger (`makePinger` — a ping every 5s, and the run ends the moment a tick
- * finds the previous ping unanswered). Only the second can occur here, by
- * construction and not by luck: {@link duplexWireLink} is handed an ALREADY-OPEN
- * `Duplex` and passes no `openTimeout`, so there is no dial on this leg to time
- * out. A `Timeout` here is always the keep-alive.
- *
- * That matters because `SocketOpenError`'s own `message` getter renders the
- * fixed string `timeout waiting for "open"` for both — so an established link
- * whose peer merely got busy reported itself, verbatim, as a socket that never
- * opened, over a suffix asserting "the peer process exited". Every word of that
- * was wrong, and the wrongness is expensive: juspay/kolu#2101 burned an incident
- * on a log line "indistinguishable from an unreachable box", and a later
- * production stall (a 16-core box at load 67, its agent alive throughout and
- * demonstrably serving a request 79ms after we declared it dead) was read the
- * same way again. The framework's own liveness watchdog (`heartbeat.ts`) is
- * suspension-aware and would have deferred here; it never gets a vote, because
- * Effect's 5s pinger is hardcoded and always fires first.
- *
- * We cannot move that deadline — `makeProtocolSocket` exposes no ping cadence —
- * and we cannot retry through it (see {@link neverReconnect}). What we CAN do,
- * and what this does, is stop the diagnosis from lying about which of the two
- * things happened.
- */
-function keepAliveWentUnanswered(error: RpcClientError): boolean {
-  return (
-    error.reason._tag === "SocketOpenError" && error.reason.kind === "Timeout"
-  );
-}
-
 /** What every wire link factory returns: the dispatch the face binds against,
  *  plus the release of the scope the link opened. `dispose` is idempotent and
  *  is the ONLY way a link's protocol fibers (dialing, ping/pong, response
@@ -285,6 +249,48 @@ export async function duplexWireLink(opts: {
     ]),
   );
 
+  /**
+   * Did this link die because the PEER WENT QUIET, rather than because the pipe
+   * broke? Effect RPC spells those two with the same word, and here — and ONLY
+   * here — one of the two readings is impossible.
+   *
+   * `SocketOpenError{kind:"Timeout"}` has exactly two producers in Effect: a
+   * socket's `openTimeout` (a DIAL that never opened) and
+   * `makeProtocolSocket`'s own pinger (`makePinger` — a ping every 5s, and the
+   * run ends the moment a tick finds the previous ping unanswered). This
+   * function is a CLOSURE inside `duplexWireLink`, and that is load-bearing
+   * rather than tidiness: the reading below is true only because of how the
+   * socket three lines up was built — `fromDuplex` over an ALREADY-OPEN
+   * `Duplex`, with no `openTimeout` — so there is no dial on this leg to time
+   * out. Every public door into this function (`stdioLink`, `socketDuplexLink`,
+   * `unixSocketLink`) hands over an already-open duplex, and the function is
+   * package-internal, so that enumeration is closed.
+   *
+   * At module scope it would be one import away from `openWireLink`'s OTHER
+   * caller — the websocket leg, whose socket comes from `Socket.makeWebSocket`
+   * and DOES apply `openTimeout ?? 10000`, minting the identical shape for a
+   * dial that genuinely never opened. Same predicate, opposite meaning. The
+   * scope is the proof; a comment would not be.
+   *
+   * Why bother: `SocketOpenError`'s own `message` getter renders the fixed
+   * string `timeout waiting for "open"` for both, so an established link whose
+   * peer merely got busy reported itself, verbatim, as a socket that never
+   * opened — under a suffix asserting "the peer process exited". Every word of
+   * that was wrong, and the wrongness is expensive: juspay/kolu#2101 burned an
+   * incident on a log line "indistinguishable from an unreachable box", and a
+   * later production stall (a 16-core box at load 67, its agent alive
+   * throughout and demonstrably serving a request 79ms after we declared it
+   * dead) was read the same way again. `heartbeat.ts`, this framework's own
+   * watchdog, is suspension-aware and would have deferred — but it never gets a
+   * vote, because Effect's 5s pinger is hardcoded and always fires first.
+   *
+   * We cannot move that deadline (`makeProtocolSocket` exposes no ping cadence)
+   * and cannot retry through it (see {@link neverReconnect}). Naming the fact
+   * correctly is what is left.
+   */
+  const keepAliveWentUnanswered = (error: RpcClientError): boolean =>
+    error.reason._tag === "SocketOpenError" && error.reason.kind === "Timeout";
+
   return openWireLink({
     group: opts.group,
     protocol,
@@ -294,7 +300,10 @@ export async function duplexWireLink(opts: {
           failure.kind === "disposed"
             ? `${opts.describe} link disposed; request not sent`
             : keepAliveWentUnanswered(failure.error)
-              ? `${opts.describe} stopped answering the keep-alive ping, so the link was dropped. The peer may still be ALIVE and merely too busy to answer within the ping deadline — this is not evidence that it exited.`
+              ? // `describe` names the TRANSPORT (a binary on a host, a socket
+                // path, "loopback"), so the peer gets its own noun — a socket
+                // path cannot be the thing that stopped answering.
+                `the peer on ${opts.describe} stopped answering the keep-alive ping, so the link was dropped. It may still be ALIVE and merely too busy to answer within the ping deadline — this is not evidence that it exited.`
               : `${opts.describe} transport closed (${failure.error.message}); the peer process exited or its stream ended`,
       }),
   });

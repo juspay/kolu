@@ -38,7 +38,8 @@
  * is no clock to fake without faking the thing under test.
  */
 
-import { PassThrough, Transform, type TransformCallback } from "node:stream";
+import { PassThrough } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { defineSurface } from "../define";
@@ -51,45 +52,6 @@ import { stdioLink } from "./stdio";
  *  the previous ping unanswered, so total silence is fatal between 5s and 10s.
  *  Stall past the upper bound, plus margin for a loaded CI box. */
 const PING_DEATH_WINDOW_MS = 13_000;
-
-/**
- * A relay that can HOLD the bytes crossing it without breaking anything: while
- * stalled it parks each chunk *and its callback*, which is real backpressure —
- * exactly what a starved peer does when it stops draining its socket. Releasing
- * flushes every held chunk in order.
- *
- * This is the whole fidelity claim of the file: no stream is destroyed, no FIN
- * is sent, no error is raised. The only fact injected is "the peer said nothing
- * for a while".
- */
-class Stall extends Transform {
-  private held: Array<[unknown, TransformCallback]> = [];
-  private stalled = false;
-
-  override _transform(
-    chunk: unknown,
-    _enc: BufferEncoding,
-    cb: TransformCallback,
-  ): void {
-    if (this.stalled) this.held.push([chunk, cb]);
-    else {
-      this.push(chunk);
-      cb();
-    }
-  }
-
-  hold(): void {
-    this.stalled = true;
-  }
-
-  release(): void {
-    this.stalled = false;
-    for (const [chunk, cb] of this.held.splice(0)) {
-      this.push(chunk);
-      cb();
-    }
-  }
-}
 
 const surface = defineSurface({
   procedures: {
@@ -115,8 +77,8 @@ async function wiredThroughStalls() {
   const serverRead = new PassThrough();
   const serverWrite = new PassThrough();
   const clientRead = new PassThrough();
-  const upstream = new Stall();
-  const downstream = new Stall();
+  const upstream = new PassThrough();
+  const downstream = new PassThrough();
   clientWrite.pipe(upstream).pipe(serverRead);
   serverWrite.pipe(downstream).pipe(clientRead);
 
@@ -146,13 +108,18 @@ async function wiredThroughStalls() {
 
   return {
     add,
+    // `cork` is node:stream's own "hold what is written to me until I say so":
+    // the relay buffers instead of forwarding, and `uncork` flushes in order.
+    // Nothing is destroyed, no FIN is sent, no error is raised — the only fact
+    // injected is "the peer said nothing for a while", which is what a starved
+    // peer that has stopped draining its socket looks like from this end.
     stall: () => {
-      upstream.hold();
-      downstream.hold();
+      upstream.cork();
+      downstream.cork();
     },
     resume: () => {
-      upstream.release();
-      downstream.release();
+      upstream.uncork();
+      downstream.uncork();
     },
     done: async () => {
       await link.dispose();
@@ -172,7 +139,7 @@ describe("stdio link — a peer that is slow, not dead", () => {
     // Hold the wire for a beat — well inside the ping window, so this is only
     // ever a pause, and prove the peer is still there afterwards.
     w.stall();
-    await new Promise((r) => setTimeout(r, 1_000));
+    await delay(1_000);
     w.resume();
 
     expect(await w.add(20, 3)).toBe(23);
@@ -184,11 +151,11 @@ describe("stdio link — a peer that is slow, not dead", () => {
     expect(await w.add(2, 3)).toBe(5);
 
     w.stall();
-    await new Promise((r) => setTimeout(r, PING_DEATH_WINDOW_MS));
+    await delay(PING_DEATH_WINDOW_MS);
     // The peer comes back. Every byte held above is still queued and in order;
     // nothing was destroyed at either end, and the server is answering.
     w.resume();
-    await new Promise((r) => setTimeout(r, 1_000));
+    await delay(1_000);
 
     const failure = await w.add(40, 2).then(
       (value) => ({ ok: true as const, value }),

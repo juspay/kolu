@@ -50,9 +50,16 @@ export class SurfaceTransportRetired extends Schema.TaggedError<SurfaceTransport
   }
 }
 
-/** A stdio/unix-socket leg was CLOSED (kolu#1719): the subprocess or socket the
- *  link rode is gone. Permanently dead for that link — the owner re-dials and gets
- *  a NEW link; the dead one never heals. */
+/** A stdio/unix-socket leg was CLOSED (kolu#1719). Permanently dead for that
+ *  link — the owner re-dials and gets a NEW link; the dead one never heals.
+ *
+ *  The link being dead does NOT mean the peer is: two causes reach here and only
+ *  one of them is "the subprocess or socket the link rode is gone". The other is
+ *  a peer that merely stopped answering the transport's keep-alive inside its
+ *  deadline — a box under load, not a box that exited. `reason` distinguishes
+ *  them in words, deliberately, because reading the second as the first is the
+ *  misdiagnosis kolu#2101 cost an incident on. Re-dialling is the right response
+ *  to both, which is why they share one tag. */
 export class SurfaceStdioTransportClosed extends Schema.TaggedError<SurfaceStdioTransportClosed>(
   "@kolu/surface/SurfaceStdioTransportClosed",
 )("SurfaceStdioTransportClosed", { reason: Schema.String }) {

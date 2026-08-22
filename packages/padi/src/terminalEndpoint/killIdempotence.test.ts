@@ -28,6 +28,7 @@
  * expressed.
  */
 
+import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
@@ -107,8 +108,7 @@ function activeEntry(): ActiveTerminalProcess {
 /** The pty-host takes a beat to answer, so the first kill is still parked on
  *  its round-trip while the second runs its synchronous preamble. */
 function slowPtyHost(): void {
-  killGate.value = () =>
-    new Promise<void>((resolve) => setTimeout(resolve, 20));
+  killGate.value = () => delay(20);
 }
 
 // `cleanupTerminalScratch` reads the per-instance scratch root, which boot
