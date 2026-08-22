@@ -58,7 +58,7 @@ import {
   type SurfaceTypes,
   type WireSchema,
 } from "@kolu/surface/define";
-import { Schema } from "effect";
+import { Option, Schema, SchemaGetter } from "effect";
 import type {
   CellColor,
   SnapshotCell,
@@ -345,24 +345,92 @@ const CellColorSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("rgb"), value: NonNegativeInt }),
 ]) satisfies WireSchema<CellColor>;
 
+/** A field whose commonest value is left OFF the wire entirely — absent on
+ *  encode, restored on decode — while the decoded type keeps it required.
+ *
+ *  A screenful of cells is the largest thing this surface ever ships, and
+ *  almost every cell is unstyled: at the 200-row cap a frame measured 4.1 MB,
+ *  of which `"bold":false,"italic":false,…`, `{"kind":"default"}` twice and
+ *  `"width":1` were ~70% of the literal NDJSON bytes (1.24 MB with them
+ *  omitted, and ~70% of the 30.7 ms encode / 41.1 ms decode with them).
+ *
+ *  NOT `Schema.withDecodingDefaultKey`, which is the repo's usual spelling for
+ *  a defaulted key: its `encodingStrategy` is either `"passthrough"` (writes
+ *  the field, no saving) or `"omit"` (drops it ALWAYS, losing `bold: true`).
+ *  The saving needs omission to be CONDITIONAL, which is what the encode
+ *  getter below does.
+ *
+ *  `fallback` and `isFallback` are one fact spelled for each direction and
+ *  MUST agree — a value the encoder drops is a value the decoder puts back.
+ *  They are two arguments rather than one because "is this the default" is
+ *  `===` for a flag and a `kind` test for a colour, and a generic deep compare
+ *  run a quarter of a million times a frame would cost more than it saves. */
+function omittedWhenDefault<T>(
+  schema: Schema.Codec<T, T, never, never>,
+  fallback: T,
+  isFallback: (value: T) => boolean,
+) {
+  return Schema.optionalKey(schema).pipe(
+    Schema.decodeTo(schema, {
+      decode: SchemaGetter.transformOptional<T, T>((encoded) =>
+        Option.isNone(encoded) ? Option.some(fallback) : encoded,
+      ),
+      encode: SchemaGetter.transformOptional<T, T>((value) =>
+        Option.isSome(value) && isFallback(value.value) ? Option.none() : value,
+      ),
+    }),
+  );
+}
+
+/** The three defaults worth omitting, named once each and reused across the
+ *  eight cell keys that take them. */
+const AbsentWhenFalse = omittedWhenDefault(
+  Schema.Boolean,
+  false,
+  (flag) => flag === false,
+);
+const AbsentWhenDefaultColor = omittedWhenDefault(
+  CellColorSchema,
+  { kind: "default" },
+  (color) => color.kind === "default",
+);
+/** 1 or 2 — the only widths `readGrid` emits. 0 is the trailing half of a
+ *  wide glyph, dropped at the read, so admitting it here would only let a
+ *  peer hand a renderer a zero-width cell to paint. */
+const AbsentWhenSingleWidth = omittedWhenDefault(
+  PositiveInt.check(Schema.isLessThanOrEqualTo(2)),
+  1,
+  (width) => width === 1,
+);
+
 /** The wire form of {@link SnapshotCell}. `width` is the VT display width: 1
  *  ordinary, 2 for the leading half of a wide glyph. The TRAILING half is
  *  never emitted — it is already covered by its leader, and sending it would
- *  let a renderer double-strike the glyph. */
+ *  let a renderer double-strike the glyph.
+ *
+ *  Only `col` and `chars` are always on the wire; the other eight ride
+ *  {@link omittedWhenDefault}, so an ordinary cell is `{"col":7,"chars":"a"}`.
+ *  The DECODED shape is unchanged and every field stays required — see
+ *  `terminal-snapshot/src/cell.ts`, which is what a renderer reads; the
+ *  omission is an encoding, not a hole in the vocabulary.
+ *
+ *  No `PTY_HOST_CONTRACT_VERSION` bump: `terminal.getScreenCells` — the only
+ *  member this shape reaches — is itself new at 7.1, so there is no released
+ *  peer that could meet a cell of either spelling. Were it older, this WOULD
+ *  be a major: an old client's all-required schema rejects a new daemon's
+ *  omitted key, and that is the old-client/new-daemon direction the
+ *  compatibility predicate waves through. */
 const SnapshotCellSchema = Schema.Struct({
   col: NonNegativeInt,
   chars: Schema.String,
-  // 1 or 2 — the only widths `readGrid` emits. 0 is the trailing half of a
-  // wide glyph, dropped at the read, so admitting it here would only let a
-  // peer hand a renderer a zero-width cell to paint.
-  width: PositiveInt.check(Schema.isLessThanOrEqualTo(2)),
-  fg: CellColorSchema,
-  bg: CellColorSchema,
-  bold: Schema.Boolean,
-  italic: Schema.Boolean,
-  dim: Schema.Boolean,
-  underline: Schema.Boolean,
-  inverse: Schema.Boolean,
+  width: AbsentWhenSingleWidth,
+  fg: AbsentWhenDefaultColor,
+  bg: AbsentWhenDefaultColor,
+  bold: AbsentWhenFalse,
+  italic: AbsentWhenFalse,
+  dim: AbsentWhenFalse,
+  underline: AbsentWhenFalse,
+  inverse: AbsentWhenFalse,
 }) satisfies WireSchema<SnapshotCell>;
 
 /** The wire form of {@link SnapshotRow} — only the cells worth painting; a

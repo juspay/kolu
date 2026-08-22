@@ -171,6 +171,22 @@ describe("svg", () => {
     expect(svg.match(new RegExp(`rx="${s.radius}"`, "g"))).toHaveLength(3);
   });
 
+  it("names the font stack ONCE, on the group every glyph inherits from", () => {
+    // The family list is 96 characters. Respelling it on every `<text>` made
+    // the document ~4x larger for a renderer that reads the same thing either
+    // way — `font-family` and `font-size` are inheritable SVG presentation
+    // attributes. The per-glyph attributes that are genuinely per-CELL (bold,
+    // italic, fill) stay where they are; this pins only the hoist.
+    const svg = sceneToSvg(
+      scene(gridOf([[cell({ col: 0 }), cell({ col: 1 })]])),
+    );
+    expect(svg.match(/font-family=/g)).toHaveLength(1);
+    expect(svg).toMatch(/<g clip-path="url\(#win\)" font-family=/);
+    // The title bar's two texts are sized by the scene, not by the grid, so
+    // they keep their own `font-size` — and nothing else does.
+    expect(svg.match(/font-size=/g)).toHaveLength(3);
+  });
+
   it("carries bold and italic through as font attributes", () => {
     const svg = sceneToSvg(
       scene(gridOf([[cell({ bold: true, italic: true })]])),
