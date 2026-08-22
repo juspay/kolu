@@ -117,6 +117,23 @@ function rasteriser(): Worker {
   return created;
 }
 
+/** How long ONE rasterise may take before the thread is presumed WEDGED.
+ *
+ *  Six times the slowest render this subsystem can legally be asked for: 2,482
+ *  ms, measured at the row cap (see {@link ./pngWorker.ts} for the numbers, and
+ *  kaval's `SCREEN_CELLS_MAX_ROWS` for what holds that ceiling still). The
+ *  margin is for a loaded box — a daemon sharing a core with a build — not for
+ *  a bigger picture: nothing legal draws more cells than that, so a document
+ *  still in flight at 15 s is not slow, it is stuck.
+ *
+ *  A DEADLINE rather than a knob, and it is not a fallback either: the caller
+ *  is told its screenshot failed. What it buys is that the failure costs ONE
+ *  screenshot. Without it, a synchronous wasm region that never returns settles
+ *  nothing — {@link lock} chains off the same promise, so every later
+ *  screenshot queues behind a render that will never finish, and the `ref()`
+ *  below holds the daemon open at exit for the life of the process. */
+const RASTERISE_DEADLINE_MS = 15_000;
+
 /** Hand ONE document to the warm thread and await its reply.
  *
  *  Every failure path is loud and named — there is no main-thread rasterise to
@@ -128,12 +145,34 @@ function sendOne(svg: string): Promise<Uint8Array> {
   worker.ref();
   return new Promise<Uint8Array>((resolve, reject) => {
     const settle = (finish: () => void) => {
+      clearTimeout(deadline);
       worker.off("message", onMessage);
       worker.off("error", onError);
       worker.off("exit", onExit);
       worker.unref();
       finish();
     };
+    const deadline = setTimeout(() => {
+      // TERMINATE, not just reject: the thread is inside an uninterruptible
+      // synchronous wasm region, so there is nothing to cancel and no way to
+      // know what it would eventually post. Killing it is what makes the
+      // recovery real — `retire` here (rather than waiting for the async `exit`
+      // this kill will raise) means a screenshot arriving in the meantime is
+      // never handed the corpse, and the next one builds a fresh thread with a
+      // fresh wasm registry, exactly as the death paths below do.
+      retire(worker);
+      void worker.terminate();
+      settle(() =>
+        reject(
+          new Error(
+            `terminal-snapshot: the rasteriser did not answer within ${RASTERISE_DEADLINE_MS} ms and was killed — the thread was wedged, not slow.`,
+          ),
+        ),
+      );
+    }, RASTERISE_DEADLINE_MS);
+    // The ref'd WORKER is the one thing that says "a render is in flight"; this
+    // timer must not become a second one holding a shutting-down daemon open.
+    deadline.unref();
     const onMessage = (reply: PngRasteriseReply) =>
       settle(() =>
         reply.ok
