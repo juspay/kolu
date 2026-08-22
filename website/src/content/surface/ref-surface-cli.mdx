@@ -204,11 +204,18 @@ print and return success, so they never reach it.)
 | `EXIT` | the matrix above, as data |
 | `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to a command config plus its assembler |
 | `runEdge(binary, error)` | → `{ stderr, failure }` — what a host's run edge should write and re-fail with, so the exit matrix is true of a real binary |
-| `messageOf(error)` | the framework's one derivation of "what did this failure say", re-exported so a host words a caught failure the way this face would |
 | `SurfaceCliFailure` | the failure class carrying both the text and the code |
 | `SurfaceCliBuildError` | a malformed projection, refused when the tree is built (a positional naming no field, a flag-name collision, a field that cannot be a flag) |
 | `SurfaceCliOptions` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `ProjectedCommand` | types |
-| `SurfaceClientCallable` | re-exported from [`@kolu/surface/verbs`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) — the client shape `resolve`'s `open` must return |
+
+This package re-exports nothing of the framework's: `messageOf` is
+[`@kolu/surface/errors`](/surface/ref-surface#the-tagged-error-vocabulary-kolusurfaceerrors)'s
+and `SurfaceClientCallable` — the client shape `resolve`'s `open` must return —
+is [`@kolu/surface/client`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient)'s.
+One concept, one import path; a face that published the framework's rules under
+its own name would be a second place to look for them. `SurfaceCliConnection` is
+an alias of that module's `OwnedSurfaceConnection`, which is the same shape the
+MCP face holds — so one connection factory can feed both faces.
 
 ## Two gates, as with MCP
 

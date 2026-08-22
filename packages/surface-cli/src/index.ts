@@ -18,7 +18,7 @@
  * ```
  */
 
-export { EXIT, messageOf, runEdge, SurfaceCliFailure } from "./exit";
+export { EXIT, runEdge, SurfaceCliFailure } from "./exit";
 export { flagsOf, type InputProjection, SurfaceCliBuildError } from "./flags";
 export {
   type EndpointSeam,

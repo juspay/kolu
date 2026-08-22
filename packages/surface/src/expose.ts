@@ -153,14 +153,29 @@ type CollectionName<S extends SurfaceSpec> =
  *  procedure the map names is callable on that face, whatever the value says.
  *  Nothing below this line is interpreted by `@kolu/surface`.
  *
- *  The MCP half is `mutates`, a presentation HINT for a host — the write
- *  capability it surfaces as `readOnlyHint`/`destructiveHint`. It defaults
- *  CONSERVATIVELY in `@kolu/surface-mcp`: both the bare `"tool"` shorthand and
- *  `{ tool: {} }` (no explicit flag) are treated as MUTATING, so an unannotated
- *  procedure is never advertised as auto-approvable read-only. Mark a genuinely
- *  read-only procedure with `{ tool: { mutates: false } }`. It describes how a
- *  host should PRESENT a call, never whether a face may make it. */
+ *  The PROJECTING half is `mutates`, a presentation HINT for a host — the write
+ *  capability MCP surfaces as `readOnlyHint`/`destructiveHint` and a CLI's
+ *  `list` reports as `writes`/`reads`. It defaults CONSERVATIVELY (see
+ *  {@link exposureMutates}): both the bare `"tool"` shorthand and `{ tool: {} }`
+ *  (no explicit flag) are treated as MUTATING, so an unannotated procedure is
+ *  never advertised as auto-approvable read-only. Mark a genuinely read-only
+ *  procedure with `{ tool: { mutates: false } }`. It describes how a host should
+ *  PRESENT a call, never whether a face may make it. */
 export type ToolExposure = "tool" | { tool: { mutates?: boolean } };
+
+/** Does this exposure declare a MUTATING procedure?
+ *
+ *  CONSERVATIVE by construction: an exposure that does not explicitly say
+ *  `mutates: false` is mutating. A read-only hint can let a host auto-execute a
+ *  call unconfirmed, so an unannotated procedure must fail SAFE — the
+ *  inverted-default defect, in one derivation rather than in one per face.
+ *
+ *  It is the FRAMEWORK's and not each face's precisely because it is a safety
+ *  default: both faces spelled it character for character, each with its own
+ *  paragraph explaining the same reasoning, which is two places for one rule to
+ *  be relaxed in and only one of them to be noticed. */
+export const exposureMutates = (exposure: ToolExposure): boolean =>
+  typeof exposure === "object" ? (exposure.tool.mutates ?? true) : true;
 
 /** The default-deny allowlist. Keys are the spec's own primitives and
  *  procedures; omission means *not exposed*. A primitive maps to `"resource"`;

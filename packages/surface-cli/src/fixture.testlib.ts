@@ -15,7 +15,10 @@
  */
 
 import type { Logger } from "@kolu/log";
-import { buildSurfaceFace } from "@kolu/surface/client";
+import {
+  buildSurfaceFace,
+  type SurfaceClientCallable,
+} from "@kolu/surface/client";
 import { defineSurface } from "@kolu/surface/define";
 import { exposeFace, type ExposeMap } from "@kolu/surface/expose";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
@@ -24,7 +27,7 @@ import {
   serveOverUnixSocket,
   type UnixSocketListener,
 } from "@kolu/surface/unix-socket";
-import type { SurfaceClientCallable, SurfaceVerb } from "@kolu/surface/verbs";
+import type { SurfaceVerb } from "@kolu/surface/verbs";
 import { Effect, Schema, Stream } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import {

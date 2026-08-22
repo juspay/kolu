@@ -132,7 +132,12 @@ describe("ResourcePusher", () => {
     const disposed: number[] = [];
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
-      client: () => ({ client: { id: 7 }, dispose: () => disposed.push(7) }),
+      client: () => ({
+        client: { id: 7 },
+        dispose: () => {
+          disposed.push(7);
+        },
+      }),
       stream: () => source.stream,
     });
 
@@ -329,7 +334,12 @@ describe("ResourcePusher", () => {
     // dispose the freshly-opened connection rather than store an idle
     // attachment.
     const resolve = resolveDial as ((c: Conn) => void) | null;
-    resolve?.({ client: { id: 99 }, dispose: () => disposed.push(99) });
+    resolve?.({
+      client: { id: 99 },
+      dispose: () => {
+        disposed.push(99);
+      },
+    });
     await vi.advanceTimersByTimeAsync(0);
     expect(pusher.attached).toBe(false);
     expect(disposed).toEqual([99]);
@@ -354,7 +364,12 @@ describe("ResourcePusher", () => {
         const n = (dials += 1);
         return new Promise((resolve) => {
           gates.push(() =>
-            resolve({ client: sharedClient, dispose: () => disposed.push(n) }),
+            resolve({
+              client: sharedClient,
+              dispose: () => {
+                disposed.push(n);
+              },
+            }),
           );
         });
       },
@@ -396,7 +411,9 @@ describe("ResourcePusher", () => {
         const n = (dials += 1);
         return {
           client: { id: n },
-          dispose: () => disposed.push(n),
+          dispose: () => {
+            disposed.push(n);
+          },
           onClose: (cb: () => void) => closers.push(cb),
         };
       },

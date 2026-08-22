@@ -57,7 +57,11 @@
  * ergonomics, never security.
  */
 
-import { isTransportError } from "@kolu/surface/client";
+import {
+  isTransportError,
+  type OwnedSurfaceConnection,
+  type SurfaceClientCallable,
+} from "@kolu/surface/client";
 import type {
   CollectionSpec,
   Surface,
@@ -68,11 +72,12 @@ import {
   collectionHasDeltas,
   resolveCollectionVerbs,
 } from "@kolu/surface/define";
-import { isDeadTransportError } from "@kolu/surface/errors";
+import { isDeadTransportError, messageOf } from "@kolu/surface/errors";
 import {
   classifyExpose,
   type ExposeEntry,
   type ExposeMap,
+  exposureMutates,
 } from "@kolu/surface/expose";
 import {
   firstFrameOfCollectionItem,
@@ -80,36 +85,34 @@ import {
   ITEM_READ_DEADLINE_MS,
 } from "@kolu/surface/first-frame";
 import {
+  admitsNoArgument,
   decodeTextValue,
-  type SurfaceClientCallable,
   type SurfaceVerb,
   toInputSchema,
   toolName,
 } from "@kolu/surface/verbs";
 import { Effect, Option, Schema, Stdio, Stream } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
-import {
-  EXIT,
-  messageOf,
-  refused,
-  SurfaceCliFailure,
-  unreachable,
-  usage,
-} from "./exit";
+import { EXIT, refused, SurfaceCliFailure, unreachable, usage } from "./exit";
 import { flagsOf, type InputProjection, SurfaceCliBuildError } from "./flags";
 import { data, frame, json, out } from "./render";
 
 /** A live connection this face owns for the length of ONE command.
  *
+ *  The framework's {@link OwnedSurfaceConnection} under this face's name, not a
+ *  third spelling of it: "a client plus the release the face is responsible for"
+ *  is one shape, and the MCP face's `PusherConnection` is the same one at a
+ *  different span. One shape is what lets a host write ONE factory that feeds
+ *  both faces — which is exactly what the shared verb table and the shared
+ *  expose map exist to make possible.
+ *
  *  `dispose` is REQUIRED, not optional: a CLI dials, does one thing and exits,
  *  and the one failure that costs a user something is a socket left open under a
  *  shell loop. An in-process host with nothing to release passes `() => {}` —
  *  which is a decision it makes out loud rather than an absence this face has to
- *  guess the meaning of. */
-export interface SurfaceCliConnection {
-  readonly client: SurfaceClientCallable;
-  dispose: () => void | Promise<void>;
-}
+ *  guess the meaning of. `onClose` is on the base and unused here: a CLI never
+ *  redials, so it has nothing to do with a transport announcing its close. */
+export type SurfaceCliConnection = OwnedSurfaceConnection;
 
 /** CLI-only ergonomics for one verb, keyed by the verb's name.
  *
@@ -257,12 +260,11 @@ function callableVerbs<S extends SurfaceSpec>(
     out.push({
       name,
       source: "procedure",
-      // The conservative default the whole stack shares: an exposure that does
-      // not explicitly say `mutates: false` is treated as mutating.
-      mutates:
-        typeof entry.exposure === "object"
-          ? (entry.exposure.tool.mutates ?? true)
-          : true,
+      // The conservative default the whole stack shares, read through the
+      // framework's one derivation rather than re-spelled here: an exposure that
+      // does not explicitly say `mutates: false` is mutating, and a SAFETY
+      // default spelled once per face is one that can be relaxed on one face.
+      mutates: exposureMutates(entry.exposure),
       schema,
       projection: build(name, () =>
         flagsOf(schema, { positional: annotation.positional }),
@@ -729,9 +731,12 @@ function runGet<S extends SurfaceSpec>(
 /** What to call a stream's or event's `get` with: the decoded `[arg]`, or the
  *  no-argument value when the member's own schema admits one.
  *
- *  The admission test is the schema's, not a guess: `Schema.Void` (what a member
- *  with no declared input mints) decodes `undefined` and a struct does not — the
- *  same question `serveSurfaceAsMcp` asks before publishing a static resource. */
+ *  The admission test is the schema's, not a guess — and it is the FRAMEWORK's
+ *  {@link admitsNoArgument}, the same predicate `serveSurfaceAsMcp` asks before
+ *  publishing a static resource, because "is this member addressable with no
+ *  argument" answered twice is a way for the two faces to disagree about which
+ *  members exist. Each face keeps its own policy for a `false`: a boot refusal
+ *  there, this usage error here. */
 function streamInput<S extends SurfaceSpec>(
   opts: SurfaceCliOptions<S>,
   member: string,
@@ -739,7 +744,7 @@ function streamInput<S extends SurfaceSpec>(
   raw: string | undefined,
 ): Effect.Effect<unknown, SurfaceCliFailure> {
   if (raw === undefined) {
-    return Option.isSome(Schema.decodeUnknownOption(schema)(undefined))
+    return admitsNoArgument(schema)
       ? Effect.succeed(undefined)
       : Effect.fail(
           usage(

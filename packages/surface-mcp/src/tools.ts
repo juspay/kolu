@@ -22,7 +22,7 @@
  * coercion from an arbitrary thrown value to a framed answer sits beside the
  * shape it is coerced into. Both request edges (`tools/call` and
  * `resources/read`) call in; neither owns a second copy. The SENTENCE inside
- * that coercion is the framework's `messageOf` (`@kolu/surface/verbs`), because
+ * that coercion is the framework's `messageOf` (`@kolu/surface/errors`), because
  * the CLI face folds failures into answers too — re-exported here.
  *
  * **On cancellation (D10).** Effect RPC carries no `signal`, so a surface member
@@ -42,11 +42,13 @@
  * parameter and let interruption do the work.
  */
 
-import { messageOf, wrapValue } from "@kolu/surface/verbs";
+import { messageOf } from "@kolu/surface/errors";
+import { wrapValue } from "@kolu/surface/verbs";
 
-// "What did this failure SAY" is the FRAMEWORK's derivation
-// (`@kolu/surface/verbs`): both projecting faces fold a caught failure into an
-// answer, and a second copy is a place they can disagree about the sentence.
+// "What did this failure SAY" is the FRAMEWORK's derivation, and it lives with
+// the rest of the failure vocabulary (`@kolu/surface/errors`) rather than with
+// the verbs: both projecting faces fold a caught failure into an answer, and a
+// second copy is a place they can disagree about the sentence.
 // Re-exported from this package's root under the name it shipped with, and used
 // by {@link failFrom} below exactly as when it lived here.
 export { messageOf };

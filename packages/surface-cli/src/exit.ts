@@ -46,13 +46,8 @@
  * this package holds.
  */
 
-import { messageOf } from "@kolu/surface/verbs";
+import { messageOf } from "@kolu/surface/errors";
 import { Data, Runtime } from "effect";
-
-// "What did this failure SAY" is the framework's one derivation
-// (`@kolu/surface/verbs`), shared with the MCP face — a second copy here drifted
-// from it within the same change that introduced it.
-export { messageOf };
 
 /** The published matrix, as data. Exported so a consumer (a host's docs, a
  *  driving script's test) can name the codes rather than re-spell the integers,

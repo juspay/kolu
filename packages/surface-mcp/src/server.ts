@@ -56,17 +56,18 @@ import { match } from "ts-pattern";
 import { COLLECTION_PREFIX, type ResourceEntry, resolveExpose } from "./expose";
 import { type PusherConnection, ResourcePusher } from "./pusher";
 import { brand, fail, failFrom, messageOf, ok, type ToolResult } from "./tools";
+import type { SurfaceClientCallable } from "@kolu/surface/client";
 import {
   decodeTextValue,
   inputSchema,
-  type SurfaceClientCallable,
   type SurfaceVerb,
   unwrapArgs,
 } from "@kolu/surface/verbs";
 
 // The client shape a projecting face holds opaquely is the FRAMEWORK's
-// (`@kolu/surface/verbs`) — the CLI face holds exactly the same one. Re-exported
-// from this module because it is part of this module's published vocabulary:
+// (`@kolu/surface/client`, beside the `buildSurfaceFace` that mints one) — the
+// CLI face holds exactly the same one. Re-exported from this module because it
+// is part of this module's published vocabulary:
 // `OwnedSurfaceConnection` below is that type, and a consumer reading the doc
 // has to be able to import the name it names.
 export type { SurfaceClientCallable };

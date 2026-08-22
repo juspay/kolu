@@ -916,6 +916,7 @@ serve it.
 | Export | Role |
 | --- | --- |
 | `ExposeMap<S>` · `ToolExposure` | the map shape — the ONE home for it. `@kolu/surface-mcp` imports it from here rather than re-exporting or declaring its own |
+| `exposureMutates(exposure)` | does this exposure declare a MUTATING procedure? Conservative: anything that does not explicitly say `mutates: false` is mutating. One derivation rather than one per face, because it is a **safety** default — a read-only hint can let a host auto-execute a call unconfirmed, and a rule spelled twice can be relaxed in one place and noticed in neither |
 | `classifyExpose(spec, map, face?)` | **the** key grammar — what each key names, with the member spec it resolved carried on the entry. Every face reads a map through this one function, `serveSurfaceAsMcp` included, which is what makes "the same key means the same thing on every face" true rather than aspirational. `face` is the optional brand a non-framework face stamps on the refusal, at the throw — `@kolu/surface-mcp` passes its adapter name |
 | `exposeFace(surface, map)` | map + standalone surface → `FaceExposure`: the tag set one **wire** face serves, plus the `universe` of tags the surface it was built from advertises |
 | `exposeFaces(surfaces, maps)` | the sibling-bundle twin: one map per sibling, keyed the way the bundle is, over the **standalone** sibling surfaces. A fold of `exposeFace`'s step over `composeSurfaceContracts` — the same composition `implementSurfaces` binds against, so the scoped tags the gate names and the ones the runtime serves come from one walk. A sibling with no map is fully denied; a map for a sibling that does not EXIST is an `ExposeMapError` |
@@ -1064,6 +1065,17 @@ the fiber tears the wire subscription down. In both cases the argument is decode
 **eagerly**, at the call site, exactly where zod's `.parse`-at-input used to
 throw; only the dispatch is deferred.
 
+Two shapes a *projecting face* holds live here, beside the builder that mints
+them. `SurfaceClientCallable` is the callable-leaved loosening of `SurfaceFace`
+a face holds opaquely — permissive enough that a concrete `SurfaceClientOf<S>`
+assigns without a cast, yet callable at the leaf, which `SurfaceFace`'s
+`unknown` leaves forbid. `OwnedSurfaceConnection<Client>` is that client plus
+the release the face is responsible for (`dispose`, and the transport's optional
+`onClose`) — **one** shape whether the span is one CLI command or an MCP
+subscription's lifetime, so a host can write one connection factory that feeds
+both faces. `@kolu/surface-mcp`'s `PusherConnection` / `OwnedSurfaceConnection`
+and `@kolu/surface-cli`'s `SurfaceCliConnection` are aliases of it.
+
 The per-subscription **retry fence** lives here too, not in a link: a link that
 retried inside itself could not tell one subscriber's supersession from
 another's. `STREAM_RETRY` retries forever on a failure the fence accepts, spaced
@@ -1176,6 +1188,15 @@ App-declared procedure errors are **not** in this union — they are declared pe
 procedure on `ProcedureSpec.error` and travel on that procedure's own error
 channel. And a defect is still a defect: an undeclared throw stays an
 `Effect.die` and is not modelled here.
+
+`messageOf(error)` sits at the foot of the same module for that reason: it is
+what a face falls back to when the value it caught is **not** one of the
+declared errors — a defect, a scaffold's throw, a plain object someone failed
+with. One derivation, so every projecting face words one failure the same way,
+and it handles the two shapes `e instanceof Error ? e.message : String(e)` gets
+wrong: a tagged error whose `message` is empty (its identity is in `_tag`), and
+a failure declared as a plain object (`[object Object]`). A value JSON cannot
+render is named by its constructor and its keys, carrying the reason it refused.
 
 ### One-shot snapshot reads (`@kolu/surface/first-frame`)
 
@@ -1291,10 +1312,10 @@ one predicate); reach for it when a budget has more than one failure class.
 
 A surface is served to more than one kind of caller, and a *projecting face* —
 [`@kolu/surface-mcp`](/surface/ref-surface-mcp) as MCP,
-[`@kolu/surface-cli`](/surface/ref-surface-cli) as argv — needs three things
-that belong to neither transport. They live here so two faces read one contract
-by one grammar, exactly as [`expose`](#per-face-expose-kolusurfaceexpose) does
-for the allowlist.
+[`@kolu/surface-cli`](/surface/ref-surface-cli) as argv — needs a handful of
+things that belong to neither transport. They live here so two faces read one
+contract by one grammar, exactly as [`expose`](#per-face-expose-kolusurfaceexpose)
+does for the allowlist.
 
 | Export | Purpose |
 | --- | --- |
@@ -1305,12 +1326,31 @@ for the allowlist.
 | `inputSchema(schema?)` | → `AdvertisedInput`: the document, the `wrapped` bit (did a non-object input have to travel under one property?), and that value's own `inner` node — handed over so a face never NAMES the wrapper property |
 | `unwrapArgs` · `wrapValue` | the two halves of the wrapping rule a face performs; the key a scalar travels under stays private to the module |
 | `decodeTextValue(schema, text)` | land a text token in a declared type — verbatim first, then its JSON reading — answering with BOTH: `decoded` for a face that addresses by value, `encoded` for one that hands a member's own ref something to decode |
-| `SurfaceClientCallable` | the callable-leaved client shape a projecting face holds opaquely |
-| `messageOf(error)` | the one derivation of "what did this failure say" — the shapes `e instanceof Error ? e.message : String(e)` gets wrong (a tagged error whose `message` is empty; a failure declared as a plain object) |
+| `admitsNoArgument(schema)` | does this member's declared input admit *no argument at all*? The question every face asks before offering a member that carries none — MCP before publishing a static `surface://` resource, the CLI before letting `get <member>` stand with no `[arg]`. One predicate, because each face turns a `false` into its own refusal and two spellings is how they come to disagree about which members are addressable |
 
 `mutates` defaults **conservatively**: absent means mutating, because a
 read-only hint can let an MCP host auto-run a verb unconfirmed. Mark a genuinely
-read-only verb `mutates: false`.
+read-only verb `mutates: false`. For a *procedure*, that default is
+[`exposureMutates(exposure)`](#per-face-expose-kolusurfaceexpose) — one
+derivation both faces read, because a safety default spelled once per face is
+one that can be relaxed on one face.
+
+The Schema → JSON-Schema bridge (`toInputSchema` · `inputSchema` ·
+`unwrapArgs` · `wrapValue`) has a **module of its own** behind this subpath,
+which re-exports it: it is the one piece of this vocabulary with a version seam
+(the converter's option defaults shift between effect betas, with a byte fixture
+standing over them), and a file that holds the volatility says which half moves.
+Nothing about how you import it changes — one concept, one import path.
+
+Two things that a face reads are deliberately **not** here, so nothing has to
+import the projection vocabulary to reach them:
+[`SurfaceClientCallable`](#the-face-and-its-retry-fence-kolusurfaceclient) — the
+callable-leaved client shape a face holds opaquely, and the connection it owns —
+is `@kolu/surface/client`'s, beside the `buildSurfaceFace` that mints one; and
+[`messageOf`](#the-tagged-error-vocabulary-kolusurfaceerrors) is
+`@kolu/surface/errors`'s, because "what did this failure say" is failure
+vocabulary and words a stdin read and a run-edge defect that have nothing to do
+with verbs. There is no re-export of either: one concept, one import path.
 
 <Aside type="note" title="The MCP adapter still exports the old names">
   `SurfaceVerb` and `SurfaceVerbInputSchema` shipped from `@kolu/surface-mcp` as
