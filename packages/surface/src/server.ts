@@ -331,6 +331,50 @@ function pullOnly<T>(
   };
 }
 
+/**
+ * How far a subscription's delivery may run AHEAD of the consumer reading it,
+ * in values — and the reason it is a number rather than "as many as there are".
+ *
+ * A subscription's frames are acknowledged: `RpcServer` sends one `Chunk` frame
+ * per stream chunk and, where the transport ACKs (every websocket client does),
+ * waits for the ack before the next (`RpcServer.streamEffect`'s
+ * `Stream.runForEachArray` and its latch). So the SHAPE of the chunks the
+ * producer emits decides how much of a backlog one round trip carries — and
+ * `Stream.fromAsyncIterable` wraps every value in a chunk of its own
+ * (`Channel.fromAsyncIterableArray`'s `Arr.of`), which makes every subscription
+ * STOP-AND-WAIT: exactly one publish per round trip, whatever has piled up.
+ * Buffered, the pull is `Queue.takeAll` and a chunk is everything published
+ * since the last one went out.
+ *
+ * WHY IT IS BOUNDED, and this is the half that a first attempt at this got
+ * wrong (#2199, reverted in #2201). The AsyncIterable bridge pulled only when
+ * the consumer pulled, so a stalled consumer backed up into the CHANNEL's own
+ * per-subscriber buffer and that channel's declared policy — `highWaterMark`
+ * with `drop-oldest` or `abort` (`inMemoryChannel`) — decided what happened.
+ * An unbounded buffer here silently retires that policy: the channel never
+ * fills, `onOverflow` never fires, and a bounded channel's whole contract stops
+ * meaning anything. `suspend` restores it — the buffer's own pump parks when
+ * full, the backlog goes back to sitting in the channel, and the channel's
+ * bound is once again the one that decides.
+ *
+ * WHY THIS NUMBER. It has to be big enough that an ordinary burst rides in one
+ * chunk (a chat answer streaming at forty tokens a second over a 200ms link
+ * puts about eight behind each round trip — olai's
+ * `transcript-stream-quadratic`, which is what found the defect), and small
+ * enough that it cannot usurp the bound it is deferring to: it sits three
+ * orders above a burst and three below `inMemoryChannel`'s own default reach,
+ * so a consumer that has genuinely stopped reading hits the CHANNEL's mark
+ * rather than this one. `reServeSurface`'s back-pressure test is the arithmetic
+ * made explicit — it floods 6,000 past a 4,096 mark, and 512 + 4,096 leaves
+ * 1,392 frames' worth of margin before the policy has to fire.
+ *
+ * Both halves are pinned by tests rather than by this paragraph
+ * ({@link ./streamBatching.test.ts}): one that a consumer coming back after a
+ * burst is handed the burst, one that a consumer that never comes back still
+ * fires its channel's overflow policy.
+ */
+const STREAM_AHEAD = 512;
+
 /** Open ONE subscription on `bus` as a scoped resource and expose it as a
  *  `Stream`. The ONE place a surface's pub/sub face meets Effect's:
  *
@@ -349,7 +393,13 @@ function pullOnly<T>(
  *  A channel-level failure (a bounded channel's overflow abort) is a DEFECT, not
  *  a member failure: no surface member declares an error channel for its
  *  snapshot/delta stream, so an undeclared fault must crash loudly rather than
- *  masquerade as an end-of-stream the consumer would read as "no more data". */
+ *  masquerade as an end-of-stream the consumer would read as "no more data".
+ *
+ *  IT IS BUFFERED, which is a decision about ROUND TRIPS and is argued where
+ *  its bound is ({@link STREAM_AHEAD}): a chunk carries everything published
+ *  since the last one went out rather than one publish per round trip, and the
+ *  buffer suspends rather than growing, so the channel's own bound is still the
+ *  one that decides what happens to a backlog nobody is reading. */
 function channelSubscription<T>(
   bus: Channel<T>,
 ): Effect.Effect<Stream.Stream<T>, never, Scope.Scope> {
@@ -373,6 +423,13 @@ function channelSubscription<T>(
           pullOnly(iterator, controller.signal),
           (err) => err,
         ),
+      ).pipe(
+        // The framework's own operator rather than a queue of ours: it forks a
+        // pump that drains upstream into a queue and pulls with
+        // `Queue.takeAll`, which is precisely "a chunk is everything published
+        // since the last one went out" — and `suspend` is what keeps the
+        // BACK-PRESSURE the AsyncIterable bridge had (see {@link STREAM_AHEAD}).
+        Stream.buffer({ capacity: STREAM_AHEAD, strategy: "suspend" }),
       ),
   );
 }
