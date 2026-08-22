@@ -782,10 +782,14 @@ different surfaces.
 no dispatch. It is two cross-piped `PassThrough` ends you feed *into* one:
 `pair.client` to `stdioLink`, `pair.server` to `serveOverStdio`. The framing is
 the same ndjson the real stdio and socket legs carry, so a loopback round-trip is
-genuine end-to-end evidence without a subprocess. `greetLoopback(pair)` (same
-module) performs the readiness handshake below over that pair — the server half
-writes the banner, the client half reads it — and hands back the proof
-`stdioLink` needs.
+genuine end-to-end evidence without a subprocess. `greetLoopback(pair, describe?)`
+(same module) performs the readiness handshake below over that pair — the server
+half writes the banner, the client half reads it — and hands back the proof
+`stdioLink` needs; `describe` defaults to `"loopback"` and is the name the link
+puts in its transport errors. `stallLoopback(pair)` returns `{ stall, resume }`,
+which cork and uncork BOTH directions: nothing is destroyed and no FIN is sent,
+so it injects only "the peer said nothing for a while" — the shape a starved but
+living peer has from the far end.
 
 ### The stdio readiness gate — `@kolu/surface/links/readiness`
 
@@ -793,9 +797,22 @@ writes the banner, the client half reads it — and hands back the proof
 to obtain one is to read a peer's `ready` banner off the very stream you are
 about to attach to. Building an RPC protocol starts Effect RPC's pinger; a peer
 from a **previous protocol epoch** accepts the pipe and then says nothing, so the
-pinger kills the link ~10s later with a transport error indistinguishable from an
-unreachable host — which a reconnecting consumer retries forever. The gate makes
-that blind attach unrepresentable rather than merely discouraged.
+pinger kills the link ~10s later — and a consumer that reconnects on that
+retries a peer that will never speak, forever. The gate makes that blind attach
+unrepresentable rather than merely discouraged.
+
+The death itself now says which death it was, as data. **Both** tags
+`isDeadTransportError` unions carry a `death` field, under the same name so the
+union is uniformly branchable: `SurfaceStdioTransportClosed` takes a
+`StdioTransportDeath` — `"keepAliveUnanswered"`, `"streamEnded"` or
+`"disposed"` — and `SurfaceTransportRetired` a `RetiredTransportDeath` —
+`"retiredByServer"` or `"disposed"`. A consumer that puts words on a screen
+branches on the field rather than reading `reason`; a duplex leg reports an
+unanswered keep-alive as itself and explicitly declines to claim the peer
+exited. The distinction is diagnostic, not behavioural: the link is dead either
+way, and `neverReconnect` still halts on the first failure. Each field is an
+**optional key**, so a payload from a peer built before it existed still decodes
+— absent means "the producer did not classify", never a defaulted guess.
 
 | Export                                             | What it does                                                                    |
 | -------------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -1143,8 +1160,8 @@ intact.
 
 | Class | Meaning | Retryable |
 | --- | --- | --- |
-| `SurfaceTransportRetired` | the server retired this browser socket (a stale tab, close `4001`) | never — terminal by construction |
-| `SurfaceStdioTransportClosed` | a stdio / unix-socket leg closed; the owner re-dials for a **new** link | never |
+| `SurfaceTransportRetired` | the server retired this browser socket (a stale tab, close `4001`). Carries `death: RetiredTransportDeath` — see [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | never — terminal by construction |
+| `SurfaceStdioTransportClosed` | a stdio / unix-socket leg closed; the owner re-dials for a **new** link. Carries `death: StdioTransportDeath` — see [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | never |
 | `SurfaceRelayTransportLost` | a re-serve relay's **middle-hop** upstream drop the parent will heal | **yes** — the one retryable framework error |
 | `MapKeyNonCanonical` · `MapKeyUnknown` · `MapEntryFailed` | the keyed-map rejections (see [`@kolu/surface-map`](/surface/ref-surface-map)) | never |
 

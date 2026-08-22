@@ -27,11 +27,6 @@
  * failed-wake path, asserted below.
  */
 
-import type {
-  AgentIdentity,
-  RestoreTarget,
-  TerminalSnapshot,
-} from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
 import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -42,7 +37,6 @@ import {
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
 import {
-  type ActiveTerminalProcess,
   getTerminal,
   registerTerminal,
   snapshotFor,
@@ -61,6 +55,11 @@ import {
   wakeLocalTerminal,
 } from "./local.ts";
 import { installSnapshot, updateMemory } from "./metadata.ts";
+import {
+  activeEntry,
+  EXACT_TARGET,
+  seedActiveTerminal,
+} from "./terminalFixtures.testlib.ts";
 
 // discardSleeping drives `cleanupTerminalScratch`, which reads the per-instance
 // scratch root. Boot injects the server id before any of this runs; mirror that
@@ -68,25 +67,6 @@ import { installSnapshot, updateMemory } from "./metadata.ts";
 setDaemonProcessId("sleepwake-test-server");
 
 const ID = "11111111-1111-4111-8111-111111111111";
-
-/** The native session id of the opencode conversation that was live at sleep —
- *  the EXACT conversation wake must resume (#1495). */
-const SESSION_ID = "ses_118316090ffewMmbj6bsfKwj4R";
-
-/** The agent IDENTITY the fold derived from the live agent (its `kind` + native
- *  `sessionId`) — the `exact` target's payload. Replaces the deleted sticky
- *  `agentSession` ref. */
-const RESUME_AGENT: AgentIdentity = { kind: "opencode", sessionId: SESSION_ID };
-
-/** The fold-derived `restoreTarget` the fixture seeds — an `exact` target carrying
- *  the launch command + the live agent's identity, so wake resumes THAT
- *  conversation by id (#1495). The `command` matches the seeded `lastAgentCommand`,
- *  exactly as `restoreTargetOf` would have produced it. */
-const EXACT_TARGET: RestoreTarget = {
-  kind: "exact",
-  command: "opencode --model sonnet",
-  agent: RESUME_AGENT,
-};
 
 /** A padi ctx that RECORDS every `terminals.upsert` into `sink` (id + state), so a
  *  test can assert the composed record was actually PUSHED to the collection on a
@@ -120,66 +100,6 @@ function recordingPadiCtx(
   } as ReturnType<typeof noopPadiSurfaceCtxForTest>;
 }
 
-/** An active registry entry — the AUTHORED half (location + client chrome + the
- *  remembered `AgentMemory` + the fold-derived `restoreTarget`) plus the
- *  OBSERVATION half on the one entry (defaulting to `snapshotActive()`).
- *  `restoreTarget` rides an options object so a test can pass `{ restoreTarget:
- *  { kind: "none" } }` for the quit-to-shell case (wake → bare shell) or a
- *  `legacyMostRecent` target — an options bag, not a defaulted scalar, since
- *  `authoredActive(undefined)` would resurrect the default. */
-function authoredActive(
-  opts: { restoreTarget?: RestoreTarget } = { restoreTarget: EXACT_TARGET },
-): ActiveTerminalProcess {
-  return {
-    info: { id: ID, pid: 4242 },
-    meta: {
-      state: "active",
-      location: LOCAL_LOCATION,
-      themeName: "rose",
-      intent: "fix the auth race",
-      // The two remembered facts + the derived restore target — the fold writes
-      // these onto the authored record live; here we seed them directly.
-      lastActivityAt: 123,
-      lastAgentCommand: "opencode --model sonnet",
-      restoreTarget: opts.restoreTarget,
-    },
-    snapshot: snapshotActive(),
-    handle: {} as ActiveTerminalProcess["handle"],
-  };
-}
-
-/** The OBSERVATION half — the six snapshot fields a memoryless producer emits,
- *  with a RESOLVED live `pr` (so the wake-time reset back to `pending` is
- *  meaningful, and the sleep carry-over of the restore-relevant `pr` is visible). */
-function snapshotActive(): TerminalSnapshot {
-  return {
-    cwd: "/work/repo",
-    git: null,
-    pr: {
-      kind: "ok",
-      value: {
-        number: 42,
-        title: "Fix the auth race",
-        url: "https://github.com/o/r/pull/42",
-        state: "open",
-        checks: "pass",
-        checkRuns: [],
-      },
-    },
-    agent: null,
-    foreground: null,
-    ports: { status: "unknown" },
-  };
-}
-
-/** Seed an active terminal's two halves into the registry (one entry), then fan
- *  its awareness out. */
-function seedActive(): void {
-  const entry = authoredActive();
-  registerTerminal(ID, entry);
-  installSnapshot(ID);
-}
-
 beforeEach(() => {
   // padi's ctx backs the composed `terminals` collection + `urgency` cell + the
   // `terminalExit` event — the whole terminal publish seam. A no-op here (surface.ts
@@ -196,7 +116,7 @@ afterEach(() => {
 
 describe("beginSleep — flip active → sleeping in place", () => {
   it("keeps the SAME id, rides the resume inputs on the authored arm, keeps the snapshot (incl. pr), releases the handle", () => {
-    seedActive();
+    seedActiveTerminal(ID);
     expect(beginSleepLocal(ID)).toBe(true);
 
     const entry = getTerminal(ID);
@@ -243,7 +163,7 @@ describe("beginSleep — flip active → sleeping in place", () => {
   });
 
   it("is a no-op on an already-sleeping id (idempotent)", () => {
-    seedActive();
+    seedActiveTerminal(ID);
     expect(beginSleepLocal(ID)).toBe(true);
     expect(beginSleepLocal(ID)).toBe(false);
     expect(getTerminal(ID)?.meta.state).toBe("sleeping");
@@ -274,8 +194,7 @@ describe("beginSleep after the fold's authored write — the sleeping decode", (
   });
 
   it("flips and PUBLISHES sleeping for a terminal whose fold remembered no launch line", () => {
-    const entry = authoredActive({ restoreTarget: { kind: "none" } });
-    entry.info = { id: MEM_ID, pid: 4242 };
+    const entry = activeEntry(MEM_ID, { restoreTarget: { kind: "none" } });
     // A terminal that never ran a KNOWN agent has no remembered launch line —
     // the absent-key shape, the only one `Schema.optionalKey` accepts.
     delete (entry.meta as { lastAgentCommand?: string }).lastAgentCommand;
@@ -299,7 +218,7 @@ describe("beginSleep after the fold's authored write — the sleeping decode", (
 
 describe("snapshotSession — a slept terminal serializes through the sleeping arm", () => {
   it("emits state=sleeping + sleptAt, strips agent/foreground, keeps the pr snapshot + lastAgentCommand + restoreTarget", () => {
-    seedActive();
+    seedActiveTerminal(ID);
     beginSleepLocal(ID);
 
     const saved = snapshotSession().terminals.find((t) => t.id === ID);
@@ -325,7 +244,7 @@ describe("snapshotSession — a slept terminal serializes through the sleeping a
 
 describe("wake — resets the snapshot, keeps the authored memory", () => {
   it("re-seeds the snapshot to defaults, rides the resume inputs through on the authored record, and resumes the exact conversation", async () => {
-    seedActive();
+    seedActiveTerminal(ID);
     expect(beginSleepLocal(ID)).toBe(true);
 
     // Wake registers the active sync-shadow synchronously (the spawn tail fails on
@@ -364,7 +283,7 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
     // A quit-to-shell drops the live agent, so the fold wrote `restoreTarget: none`.
     // Even with a sticky `lastAgentCommand` still on the record, wake resumes NOTHING
     // — `none` is read as a bare shell, never the most-recent fallback (model B).
-    const entry = authoredActive({ restoreTarget: { kind: "none" } });
+    const entry = activeEntry(ID, { restoreTarget: { kind: "none" } });
     registerTerminal(ID, entry);
     installSnapshot(ID);
     expect(beginSleepLocal(ID)).toBe(true);
@@ -380,7 +299,7 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
     // session id migrates to a NAMED `legacyMostRecent` target — so the old
     // most-recent behavior is preserved for already-saved sessions, distinctly from
     // a quit-to-shell `none`.
-    const entry = authoredActive({
+    const entry = activeEntry(ID, {
       restoreTarget: {
         kind: "legacyMostRecent",
         command: "opencode --model sonnet",
@@ -487,7 +406,7 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
 
 describe("discardSleeping — removes only a sleeping record (both halves)", () => {
   it("removes a sleeping record and its snapshot", () => {
-    seedActive();
+    seedActiveTerminal(ID);
     beginSleepLocal(ID);
     expect(discardLocalSleeping(ID)).toBe(true);
     expect(getTerminal(ID)).toBeUndefined();
@@ -495,7 +414,7 @@ describe("discardSleeping — removes only a sleeping record (both halves)", () 
   });
 
   it("is a no-op on an active id (active terminals must be killed, not discarded)", () => {
-    seedActive();
+    seedActiveTerminal(ID);
     expect(discardLocalSleeping(ID)).toBe(false);
     expect(getTerminal(ID)?.meta.state).toBe("active");
   });

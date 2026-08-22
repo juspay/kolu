@@ -72,12 +72,42 @@ export function createLoopbackPair(): LoopbackPair {
  */
 export function greetLoopback(
   pair: LoopbackPair,
+  describe = "loopback",
 ): Promise<StdioReadinessProof> {
   const proof = awaitStdioReadiness({
     read: pair.client.read,
     deadlineMs: 10_000,
-    describe: "loopback",
+    describe,
   });
   writeStdioReadiness(pair.server.write, { verdict: "ready" });
   return proof;
+}
+
+/** Hold BOTH directions of a loopback pair without breaking either — the
+ *  in-process shape of a peer that has gone quiet rather than gone away.
+ *
+ *  `cork()` is node:stream's own "buffer what is written to me until I say so",
+ *  so a corked `PassThrough` never runs `_write` and its readable side stays
+ *  silent; `uncork()` then flushes everything in order. Nothing is destroyed, no
+ *  FIN is sent and no error is raised, which is the whole point: the only fact
+ *  injected is "the peer said nothing for a while" — a starved box that has
+ *  stopped draining its socket, seen from the far end. Corking the pair's OWN
+ *  two ends is enough because there is exactly one `PassThrough` per direction;
+ *  a test needs no relay chain of its own.
+ *
+ *  Both directions, because a starved peer neither reads nor writes. */
+export function stallLoopback(pair: LoopbackPair): {
+  stall(): void;
+  resume(): void;
+} {
+  return {
+    stall: () => {
+      pair.client.write.cork();
+      pair.server.write.cork();
+    },
+    resume: () => {
+      pair.client.write.uncork();
+      pair.server.write.uncork();
+    },
+  };
 }
