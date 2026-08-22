@@ -10,22 +10,15 @@
  *  tree that builds for x86_64-linux and aarch64-darwin from one lockfile,
  *  where a `.wasm` is the same bytes everywhere.
  *
- *  ## Fonts
- *
- *  resvg does no system font discovery here (`loadSystemFonts: false`) — it
- *  gets exactly the faces this module hands it, so the daemon's PNG cannot
- *  quietly change because a host has a different fontconfig. The stack is
- *  chosen by measured coverage, not taste: kolu's own FiraCode Nerd Font
- *  first (it is what the browser draws, and it alone carries the powerline
- *  and private-use icons a shell prompt uses), then DejaVu Sans Mono and the
- *  two Noto symbol faces, which between them supply the glyphs FiraCode
- *  lacks and an agent TUI leans on constantly — the braille spinner frames,
- *  and `⎿`, the connector Claude Code draws under every tool call. */
+ *  This module owns the DOCUMENT — the font stack, the cell advance, the
+ *  scene-to-SVG build and the guard that a scene came from
+ *  {@link buildPngScene}. It does not own the rasteriser: that is
+ *  {@link ./pngWorker.ts}, on a thread of its own, because the wasm region is
+ *  synchronous and long enough to freeze padi's event loop. See that file for
+ *  the measurements and the font closure. */
 
-import { readdir, readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
-import path from "node:path";
-import { initWasm, Resvg } from "@resvg/resvg-wasm";
+import { Worker } from "node:worker_threads";
+import type { PngRasteriseReply } from "./pngWorker.ts";
 import {
   buildScene,
   cellHeight,
@@ -84,87 +77,119 @@ export function buildPngScene(
   });
 }
 
-/** Where the font files live, baked by Nix.
+/** The warm rasteriser thread, or none yet.
  *
- *  No PATH search and no bundled-copy fallback: kolu's rule is that a
- *  required value is baked in and its absence CRASHES rather than silently
- *  degrading, and a screenshot rendered in a substitute font is exactly the
- *  silent degradation that rule exists to prevent — it would look plausible
- *  and be wrong. */
-function fontDir(): string {
-  const dir = process.env.KOLU_SNAPSHOT_FONTS_DIR;
-  if (!dir) {
-    throw new Error(
-      "KOLU_SNAPSHOT_FONTS_DIR is unset — the terminal-snapshot renderer needs the Nix-provided font directory (nix/packages/fonts). It is baked onto the daemon wrapper in default.nix and exported by shell.nix for a dev tree.",
-    );
-  }
-  return dir;
+ *  LAZY: created by the first screenshot, never at import or daemon boot — a
+ *  padi that is never asked for a picture pays neither the thread nor the
+ *  ~12 MB the wasm and the faces take. KEPT WARM: one thread serves every
+ *  later screenshot, so `initWasm` and the ~9 MB font read are paid once.
+ *
+ *  REPLACEABLE, and that is the subtle half. `initWasm` throws "Already
+ *  initialized" if it is ever called twice, which used to make a cleared memo
+ *  a trap: a font read that failed after the wasm was up cleared the whole
+ *  memo, and every later screenshot re-entered `initWasm` and died reporting a
+ *  wasm problem for a missing file. A THREAD is the right granularity for that
+ *  memo precisely because it makes the trap unspellable — a fresh thread is a
+ *  fresh module registry, so re-taking `initWasm` there is not a second call
+ *  at all. A dead thread is therefore forgotten (see {@link retire}) and the
+ *  next screenshot gets a new one, rather than poisoning the process. */
+let warm: Worker | undefined;
+
+/** Forget a thread that has died, unless a newer one has already replaced it. */
+function retire(dead: Worker): void {
+  if (warm === dead) warm = undefined;
 }
 
-/** The wasm module, initialised exactly once per process.
- *
- *  Split from the font read deliberately, and the split is load-bearing:
- *  `initWasm` throws "Already initialized" if it is ever called a second
- *  time, so it must NOT sit behind a memo that a failure clears. It did, and
- *  the result was a trap — a font read that failed *after* the wasm was up
- *  cleared the whole memo, and every later screenshot in that process then
- *  re-entered `initWasm` and died with "Already initialized", reporting a
- *  wasm problem for what was actually a missing file. The two have different
- *  retry semantics, so they get different memos: the wasm is a
- *  once-and-for-all fact, the fonts are a read that may legitimately be tried
- *  again. */
-let wasmReady: Promise<void> | undefined;
-
-function initRasteriser(): Promise<void> {
-  wasmReady ??= (async () => {
-    const require = createRequire(import.meta.url);
-    await initWasm(
-      await readFile(require.resolve("@resvg/resvg-wasm/index_bg.wasm")),
-    );
-  })();
-  return wasmReady;
+function rasteriser(): Worker {
+  if (warm) return warm;
+  // `import.meta.url`-relative, the way the wasm itself is resolved: the
+  // daemon runs TypeScript straight from the Nix store under a tsx loader, so
+  // the sibling `.ts` file IS the artifact — there is no bundle step that
+  // could have rewritten this path.
+  const created = new Worker(new URL("./pngWorker.ts", import.meta.url));
+  // A screenshot must never be the reason a daemon refuses to exit. The
+  // thread is unref'd while idle and ref'd only for the window a render is
+  // actually in flight (see {@link sendOne}) — so a shutting-down padi is
+  // held open by a picture it is still drawing, and by nothing else.
+  created.unref();
+  created.once("exit", () => retire(created));
+  warm = created;
+  return created;
 }
 
-/** The font faces, read once and shared by every render.
+/** Hand ONE document to the warm thread and await its reply.
  *
- *  Memoised by the PROMISE so concurrent first screenshots share one read
- *  rather than each loading ~9MB. A REJECTED read is dropped from the memo —
- *  a transient failure (a store path not yet realised) is worth retrying, and
- *  unlike the wasm above, re-running this is harmless. */
-let fonts: Promise<readonly Uint8Array[]> | undefined;
-
-function loadFonts(): Promise<readonly Uint8Array[]> {
-  fonts ??= (async () => {
-    // EVERY face in the directory, rather than a re-spelling of the derivation's
-    // own list: `nix/packages/fonts/snapshot.nix` is the one authority for which
-    // faces exist, and a copy here would only fail at runtime with an ENOENT
-    // when the two parted. Order is immaterial — {@link PNG_FONT_FAMILY} is what
-    // picks — so the directory carries everything this read needs.
-    const dir = fontDir();
-    const names = (await readdir(dir)).filter((f) => /\.(?:ttf|otf)$/i.test(f));
-    if (names.length === 0) {
-      throw new Error(
-        `terminal-snapshot: ${dir} holds no font faces — the Nix font closure (nix/packages/fonts) is broken. A screenshot rendered in no font at all is not a degraded render, it is tofu.`,
+ *  Every failure path is loud and named — there is no main-thread rasterise to
+ *  fall back to, because a screenshot that silently took 2.5 s of the daemon's
+ *  event loop is the defect this module exists to remove, not a degraded mode
+ *  worth keeping. */
+function sendOne(svg: string): Promise<Uint8Array> {
+  const worker = rasteriser();
+  worker.ref();
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const settle = (finish: () => void) => {
+      worker.off("message", onMessage);
+      worker.off("error", onError);
+      worker.off("exit", onExit);
+      worker.unref();
+      finish();
+    };
+    const onMessage = (reply: PngRasteriseReply) =>
+      settle(() =>
+        reply.ok
+          ? resolve(reply.png)
+          : reject(
+              new Error(
+                `terminal-snapshot: the rasteriser refused the document — ${reply.message}`,
+              ),
+            ),
       );
-    }
-    return await Promise.all(names.map((f) => readFile(path.join(dir, f))));
-  })().catch((cause: unknown) => {
-    fonts = undefined;
-    throw cause;
+    const onError = (cause: Error) => {
+      retire(worker);
+      settle(() =>
+        reject(
+          new Error(
+            `terminal-snapshot: the rasteriser thread failed — ${cause.message}`,
+            { cause },
+          ),
+        ),
+      );
+    };
+    const onExit = (code: number) => {
+      retire(worker);
+      settle(() =>
+        reject(
+          new Error(
+            `terminal-snapshot: the rasteriser thread exited (code ${code}) with a screenshot in flight.`,
+          ),
+        ),
+      );
+    };
+    worker.on("message", onMessage);
+    worker.on("error", onError);
+    worker.on("exit", onExit);
+    worker.postMessage({ svg, defaultFamily: PRIMARY_FACE });
   });
-  return fonts;
 }
+
+/** The lock that keeps ONE document in flight on the one warm thread.
+ *
+ *  Serialised rather than correlated by request id, because the rasterise is
+ *  SYNCHRONOUS inside the worker: two outstanding ids would still execute one
+ *  after the other on that thread, so correlation buys interleaved bookkeeping
+ *  and not one millisecond of wall clock. One in-flight message also makes the
+ *  death path exact — a thread that dies has exactly one caller to tell, and
+ *  no reply can ever arrive against a request that is already gone.
+ *
+ *  Always a resolved-or-resolving promise, never a rejecting one: a screenshot
+ *  that fails must not fail the screenshot queued behind it. */
+let lock: Promise<unknown> = Promise.resolve();
 
 /** Render a scene to PNG bytes.
  *
  *  The scene's own `width`/`height` are the raster size — a scene is already
  *  in logical pixels and the daemon has no device pixel ratio to honour, so
  *  there is no scaling decision to make here.
- *
- *  Both wasm handles are freed in a `finally`. They are not garbage — they own
- *  memory inside the wasm heap that the JS collector cannot see, so a daemon
- *  that renders a screenshot every few seconds and never frees them grows
- *  until it is killed.
  *
  *  Takes a scene from {@link buildPngScene}, and the family check below is a
  *  real validation rather than a belt-and-braces assertion. `buildScene` is a
@@ -175,6 +200,9 @@ function loadFonts(): Promise<readonly Uint8Array[]> {
  *  not along the order buffers were registered in, so another name renders
  *  tofu for every glyph the first face lacks while still producing a perfectly
  *  valid-looking PNG.
+ *
+ *  It runs HERE, on the main thread, before the hop: a document the guard
+ *  would refuse never costs a thread hand-off.
  */
 export async function sceneToPng(scene: SnapshotScene): Promise<Uint8Array> {
   if (scene.font.family !== PNG_FONT_FAMILY) {
@@ -182,22 +210,13 @@ export async function sceneToPng(scene: SnapshotScene): Promise<Uint8Array> {
       `terminal-snapshot: a PNG scene must come from buildPngScene, got font family "${scene.font.family}". resvg resolves fallbacks along the document's family list, so another name renders tofu for every glyph the first face lacks — and looks like a valid screenshot while doing it.`,
     );
   }
-  const [, fontBuffers] = await Promise.all([initRasteriser(), loadFonts()]);
-  const resvg = new Resvg(sceneToSvg(scene), {
-    font: {
-      fontBuffers: fontBuffers as Uint8Array[],
-      defaultFontFamily: PRIMARY_FACE,
-      loadSystemFonts: false,
-    },
-  });
-  try {
-    const rendered = resvg.render();
-    try {
-      return rendered.asPng();
-    } finally {
-      rendered.free();
-    }
-  } finally {
-    resvg.free();
-  }
+  // `sceneToSvg` stays on the main thread on purpose: 2–29 ms of string
+  // building is not worth a hop, and it keeps the seam a plain string.
+  const svg = sceneToSvg(scene);
+  const rendered = lock.then(() => sendOne(svg));
+  lock = rendered.then(
+    () => undefined,
+    () => undefined,
+  );
+  return await rendered;
 }
