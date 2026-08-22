@@ -251,7 +251,11 @@ describe("the command table", () => {
   });
 
   it("`list` answers the table this face offers, with each verb's own input", async () => {
-    const listed = await run(["list", "--json"]);
+    // No flag: `list` through a pipe IS the JSON, because a spawned child's
+    // stdout is not a terminal — the same rule a verb's renderer follows, which
+    // is why `list` needs no `--json` of its own and `--json` keeps its one
+    // meaning across the mounted set.
+    const listed = await run(["list"]);
     expect(listed.code).toBe(EXIT.ok);
     const table = JSON.parse(listed.stdout) as {
       verbs: {
@@ -806,5 +810,18 @@ describe("a verb's renderer, on a terminal", () => {
 
     const piped = await runWithStdout(argv, false);
     expect(JSON.parse(piped)).toMatchObject({ n: expect.any(Number) });
+  });
+});
+
+describe("`--json` means ONE thing across the mounted command set", () => {
+  it("`list` has no `--json` of its own — it is the input flag, everywhere", async () => {
+    // `list` used to take a `--json` SWITCH forcing its data frame, so one flag
+    // name meant the whole input on every verb and an output format here. It
+    // needs no second mechanism: through a pipe it is already JSON.
+    const help = await run(["list", "--help"], { socket: deadSocket });
+    expect(help.stdout).not.toContain("--json");
+
+    const refused = await run(["list", "--json", "{}"], { socket: deadSocket });
+    expect(refused.code).not.toBe(EXIT.ok);
   });
 });

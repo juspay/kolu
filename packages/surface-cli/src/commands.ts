@@ -44,7 +44,7 @@
  * | cell exposed `"resource"` | `get <member> [--follow]` |
  * | stream / event exposed `"resource"` | `get <member> [input] [--follow]` |
  * | collection exposed `"resource"` | `get <member> <key> [--follow]` · `keys <member> [--follow]` · `watch <member>` |
- * | always | `list [--json]` — this face's `tools/list` |
+ * | always | `list` — this face's `tools/list`. It takes **no `--json` of its own**: the aligned table on a terminal, JSON through a pipe, exactly like a verb with a renderer — so `--json` means ONE thing across the whole mounted set, the input |
  *
  * `--follow` turns a one-shot read into the subscription itself, one ndjson line
  * per frame, until the stream ends or the fiber is interrupted. Without it a
@@ -1042,13 +1042,17 @@ function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
     // projection, which is the same table whatever endpoint you point at — the
     // help line says so, so the flag is accepted rather than quietly promising
     // something it does not do.
-    mergeConfig(opts, "list", {
-      json: Flag.boolean("json").pipe(
-        Flag.withDescription("emit the table as JSON instead of aligned text"),
-        Flag.withDefault(false),
-      ),
-    }),
-    (values: Record<string, unknown>) => runList(table, values.json === true),
+    //
+    // And it takes NO `--json` of its own. It had one — a switch forcing the
+    // data frame — which made `--json` mean two things across one mounted set:
+    // the whole INPUT on every verb, an OUTPUT FORMAT here. `list` needs no
+    // second mechanism, because it already has the one every verb with a
+    // renderer has: text for a human on a terminal, JSON through a pipe. So
+    // `list | jq` is JSON without a flag to remember, `list` on a terminal is
+    // the aligned table, and a human who wants the JSON in front of them pipes
+    // it — the same price a verb's renderer already charges, now charged once.
+    mergeConfig(opts, "list", {}),
+    () => runList(table),
   ).pipe(
     Command.withDescription(
       "List what this surface offers — every verb and every readable member. This face's tools/list, answered from the projection itself, so it dials nothing.",
@@ -1056,15 +1060,12 @@ function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
   ) as ProjectedCommand<Stdio.Stdio | R>;
 }
 
-/** `list` answers with the same discipline every verb does: its `--json` switch
- *  forces the data frame, and otherwise it is the aligned table for a human and
- *  the JSON through a pipe — the ONE branch, in `io.ts`, rather than a second
- *  mechanism this command reinvents. */
-function runList(
-  table: ListTable,
-  asJson: boolean,
-): Effect.Effect<void, never, Stdio.Stdio> {
-  return asJson ? data(table) : present(table, alignedTable);
+/** `list` answers with exactly the discipline every verb does: the aligned table
+ *  for a human on a terminal, the JSON through a pipe — the ONE branch, in
+ *  `io.ts`, rather than a second mechanism this command reinvents or a flag that
+ *  would be a second meaning for a name a verb already spends. */
+function runList(table: ListTable): Effect.Effect<void, never, Stdio.Stdio> {
+  return present(table, alignedTable);
 }
 
 /** The table as a human reads it: one line per verb and per readable member,

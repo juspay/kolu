@@ -90,7 +90,7 @@ from the parent's context here.
 | cell | `get <member> [--follow]` |
 | stream · event | `get <member> [input] [--follow]` |
 | collection | `get <member> <key> [--follow]` · `keys <member> [--follow]` (only when it declares `keys`) · `watch <member>` (only when it declares `deltas`) |
-| always | `list [--json]` — this face's `tools/list`. Its `--json` is a **switch** forcing the JSON table instead of the aligned text, unlike a verb's `--json`, which is the input |
+| always | `list` — this face's `tools/list`. It takes **no `--json` of its own**: the aligned table on a terminal, JSON through a pipe, exactly like a verb with a renderer — so `--json` means ONE thing across the whole mounted set, the input |
 
 `--follow` turns a one-shot read into the subscription itself: one ndjson line
 per frame, until the stream ends or you interrupt it. Without it a read takes
