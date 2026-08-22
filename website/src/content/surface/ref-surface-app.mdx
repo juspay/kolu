@@ -125,10 +125,12 @@ answer here, and an open index would hand a misspelling the same honest-looking
 A named header the request did not carry is **absent** from the record, so
 `undefined` ("not sent") and `""` ("sent empty") stay different facts — which is
 what a consumer deciding whether to trust a proxy claim needs. A repeated header
-arrives folded into one comma-joined string, with the separator node itself uses.
-`set-cookie` — node's one array-shaped exception, and the one header whose values
-carry commas of their own — is **refused at the allowlist** rather than folded
-into a string nothing could split back apart (RFC 6265 §5.2).
+arrives folded into one comma-joined string, with the separator node itself uses
+(`", "` — and it is a string, never an array). This seam reports that string; it
+does not join. `set-cookie` — node's one array-shaped exception, and the one
+header whose values carry commas of their own — is **refused at the allowlist**
+rather than folded into a string nothing could split back apart (RFC 6265 §5.2).
+An array reaching this seam is that same defect and is refused, not joined.
 
 <Aside type="caution" title="An allowlist, because the alternative leaks">
   The connection used to carry the raw `IncomingMessage`, which is the whole

@@ -244,7 +244,7 @@ async function dial(
   /** Request headers to stamp on the UPGRADE — what a reverse proxy in front of
    *  the listener writes. A browser cannot set them, which is the whole reason
    *  they are worth anything when the proxy is the only way in. */
-  headers?: Record<string, string>,
+  headers?: Record<string, string | string[]>,
 ) {
   const socket = await createSurfaceSocket({
     group: server.runtime.group,
@@ -275,8 +275,10 @@ const readConnection = async <H extends string = never>({
 }: {
   readonly pick: (connection: SurfaceAppConnection<H>) => unknown;
   readonly upgradeHeaders?: ReadonlyArray<H>;
-  /** Request headers the dial stamps on the upgrade — the proxy's half. */
-  readonly sent?: Record<string, string>;
+  /** Request headers the dial stamps on the upgrade — the proxy's half.
+   *  A list sends that many header lines; node folds a repeated
+   *  `x-forwarded-for` into one `", "`-joined string before we see it. */
+  readonly sent?: Record<string, string | string[]>;
 }): Promise<unknown> => {
   const server = await boot<Viewer, H>({
     upgradeHeaders,
@@ -480,6 +482,21 @@ describe("serveSurfaceApp — the upgrade facts a connection carries", () => {
         },
       }),
     ).resolves.toEqual({});
+  });
+
+  it("reports a repeated header as the ONE string node already folded", async () => {
+    // Probed against node 24 rather than assumed: a client that sends two
+    // `X-Forwarded-For` lines reaches THIS seam as `"1.1.1.1, 2.2.2.2"` — a
+    // string, never an array. Node folds with `", "`. The array arm that used
+    // to re-join here was satisfying node's type, not a shape a named header
+    // can arrive in (only `set-cookie` does, and the allowlist refuses it).
+    await expect(
+      readConnection({
+        pick: (connection) => connection.headers,
+        upgradeHeaders: ["x-forwarded-for"],
+        sent: { "X-Forwarded-For": ["1.1.1.1", "2.2.2.2"] },
+      }),
+    ).resolves.toEqual({ "x-forwarded-for": "1.1.1.1, 2.2.2.2" });
   });
 
   it("matches a name case-insensitively, and keeps an EMPTY value as a value", async () => {
