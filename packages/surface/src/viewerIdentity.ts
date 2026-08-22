@@ -153,15 +153,17 @@ function effectiveViewerAddress(opts: {
   return vouched ?? opts.peerAddress;
 }
 
-/** The `X-Forwarded-For` value as ONE string, from either shape a node request
- *  can hand over.
+/** The `X-Forwarded-For` value as ONE string, from either shape a caller can
+ *  hand over.
  *
- *  Node gives a repeated header as an ARRAY, and a proxy chain legitimately
- *  produces one — so the halves are re-joined in arrival order, which keeps the
- *  "last entry is the closest hop" rule true across both spellings. An absent
- *  header stays `undefined` rather than becoming `""`: "no proxy said anything"
- *  and "a proxy said nothing usable" are different facts, and only the first
- *  means there was no proxy. */
+ *  Node folds a repeated header into one comma-joined string (`", "`), and only
+ *  `set-cookie` arrives as an array — so the array arm here is not a shape node
+ *  produces for this header. It exists so a caller who already has a list does
+ *  not have to join first; the halves are re-joined in arrival order, which
+ *  keeps the "last entry is the closest hop" rule true across both spellings.
+ *  An absent header stays `undefined` rather than becoming `""`: "no proxy said
+ *  anything" and "a proxy said nothing usable" are different facts, and only
+ *  the first means there was no proxy. */
 function forwardedForOf(
   header: string | readonly string[] | null | undefined,
 ): string | undefined {
@@ -179,10 +181,11 @@ function forwardedForOf(
  *  consumer would re-read that prose and one of them would eventually get the
  *  order wrong, which is a security decision.
  *
- *  The header is taken in EITHER shape a node request hands over (a string, or
- *  the array node produces for a repeated header), so a consumer never has to
- *  normalise it first — that normalisation was the one piece kolu was importing
- *  separately, at two entry points, on its way to this same call. */
+ *  The header is taken as a string or as a list a caller already split, so a
+ *  consumer never has to normalise it first — that normalisation was the one
+ *  piece kolu was importing separately, at two entry points, on its way to this
+ *  same call. Node itself folds a repeated header into one string; only
+ *  `set-cookie` arrives as an array. */
 export function viewerAddressOf(conn: {
   peerAddress: string | undefined;
   /** The raw `X-Forwarded-For`, however the request carried it. */
