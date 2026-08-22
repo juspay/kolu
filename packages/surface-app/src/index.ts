@@ -54,16 +54,8 @@ export const ASSET_DIR = "assets";
 export const DEFAULT_ASSET_PREFIX = `/${ASSET_DIR}/`;
 
 /**
- * The dist-relative DIRECTORY a hashed-asset request prefix names — and the one
- * place that prefix's shape is checked.
- *
- * The two are the same string because the static layer serves `<root>/<path>`:
- * a file requested at `/_app/assets/main-abc.js` is
- * `<dist>/_app/assets/main-abc.js` on disk and nowhere else. So a build that
- * emits under one directory and a server pinned to another prefix is not two
- * settings that disagree — it is one setting spelled twice, and this derivation
- * is what stops the second spelling existing. `@kolu/surface-app/bun` reads it
- * to choose its `outdir`; `freshStaticLayer` calls it for the check alone.
+ * A hashed-asset request prefix, checked — the ONE place its shape is judged,
+ * so a prefix a build refuses cannot be one a server accepts.
  *
  * WHY THE PREFIX IS SAYABLE AT ALL, since a knob here would otherwise be a
  * defect: an app whose root URL space is somebody ELSE's — olai serves a
@@ -76,14 +68,17 @@ export const DEFAULT_ASSET_PREFIX = `/${ASSET_DIR}/`;
  * Vite half honours it through Vite's own `build.assetsDir`. The Bun half is
  * what had no way to say it.
  *
- * The shape is asserted rather than normalised, on this file's fail-fast
- * stance: a prefix that does not start and end with `/` makes
- * `isImmutableAssetPath`'s `startsWith` match a sibling directory
- * (`/assetsX/`) or nothing at all, a bare `/` puts the shell under the
- * immutable contract (kolu#1319), and a `..` segment names a directory
- * outside the dist. Each is a misconfiguration, not a degraded mode.
+ * Asserted rather than normalised, on this file's fail-fast stance. A prefix
+ * that does not start and end with `/` makes `isImmutableAssetPath`'s
+ * `startsWith` match a sibling directory (`/assetsX/`) or nothing at all; a
+ * bare `/` puts the shell under the immutable contract (kolu#1319); an empty
+ * segment or a `..` names no directory under the dist. Each is a
+ * misconfiguration, not a degraded mode. Returns the prefix, so the check reads
+ * as part of taking the value rather than as a statement standing beside it.
  */
-export function assetDirOf(assetPrefix: string = DEFAULT_ASSET_PREFIX): string {
+export function assertAssetPrefix(
+  assetPrefix: string = DEFAULT_ASSET_PREFIX,
+): string {
   const wrong =
     !assetPrefix.startsWith("/") || !assetPrefix.endsWith("/")
       ? "must start and end with `/`"
@@ -97,11 +92,25 @@ export function assetDirOf(assetPrefix: string = DEFAULT_ASSET_PREFIX): string {
               ? "is a path prefix, so it carries no query and no fragment"
               : null;
   if (wrong !== null)
-    throw new Error(
-      `assetDirOf: assetPrefix ${JSON.stringify(assetPrefix)} ${wrong}.`,
-    );
-  return assetPrefix.slice(1, -1);
+    throw new Error(`assetPrefix ${JSON.stringify(assetPrefix)} ${wrong}.`);
+  return assetPrefix;
 }
+
+/**
+ * …and the dist-relative DIRECTORY that prefix names, which is the same string
+ * without its slashes.
+ *
+ * It is the same string because the static layer serves `<root>/<path>`: a
+ * file requested at `/_app/assets/main-abc.js` is
+ * `<dist>/_app/assets/main-abc.js` on disk and nowhere else. So a build that
+ * emits under one directory and a server pinned to another prefix are not two
+ * settings that disagree — they are one setting spelled twice, and this
+ * derivation is what stops the second spelling existing.
+ * `@kolu/surface-app/bun` reads it to choose its `outdir`, and it is the only
+ * caller that needs the directory at all.
+ */
+export const assetDirOf = (assetPrefix?: string): string =>
+  assertAssetPrefix(assetPrefix).slice(1, -1);
 
 /** A `Content-Encoding` token this package will serve a build-time sibling for. */
 export type PrecompressedEncoding = "br" | "zstd" | "gzip";

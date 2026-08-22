@@ -210,7 +210,8 @@ siblings and the code splitting every consumer used to bolt on afterwards.
 | `injectShellHead(html, { preloadHrefs, commit })` | `.` | the whole head prelude in one splice — preload links first, then the build identity — for a caller templating its own shell from a build result |
 | `injectShellCommit(html, commit)` | `.` | that same splice with nothing to preload: the build identity alone |
 | `PRECOMPRESSED_ENCODINGS` | `.` | the `[encoding, suffix]` table BOTH halves read: `freshStaticLayer` to negotiate, the builder to emit |
-| `assetDirOf(assetPrefix?)` | `.` | the dist-relative directory a hashed-asset request prefix names — and the one place that prefix's shape is checked |
+| `assertAssetPrefix(assetPrefix?)` | `.` | a hashed-asset request prefix, checked and handed back — the one place its shape is judged, so a prefix the build refuses is not one the server accepts |
+| `assetDirOf(assetPrefix?)` | `.` | …and the dist-relative directory that prefix names, which the Bun build reads to choose its `outdir` |
 
 ```ts
 const { jsHref, assets } = await buildSurfaceClient({

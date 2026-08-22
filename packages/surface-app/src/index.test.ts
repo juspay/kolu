@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ASSET_MISS_CACHE_CONTROL,
+  assertAssetPrefix,
   assetDirOf,
   cacheControlFor,
   clientIsStale,
@@ -211,6 +212,7 @@ describe("assetDirOf — the request prefix IS the dist-relative directory", () 
   it("defaults to the Vite convention when an app says nothing", () => {
     expect(assetDirOf()).toBe("assets");
     expect(assetDirOf(undefined)).toBe("assets");
+    expect(assertAssetPrefix()).toBe("/assets/");
   });
 
   it("derives the directory a moved bundle is written to and served from", () => {
@@ -231,6 +233,12 @@ describe("assetDirOf — the request prefix IS the dist-relative directory", () 
     expect(isImmutableAssetPath("/assets/notes.md", { assetPrefix })).toBe(
       false,
     );
+  });
+
+  it("hands the prefix back when it takes one — the check reads as taking the value", () => {
+    // `freshStaticLayer` wants the prefix, not the directory; a bare assertion
+    // standing beside the assignment is the shape this split exists to avoid.
+    expect(assertAssetPrefix("/_olai/assets/")).toBe("/_olai/assets/");
   });
 
   it("refuses a prefix without both slashes — startsWith would match a sibling dir", () => {

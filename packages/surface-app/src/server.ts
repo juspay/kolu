@@ -40,7 +40,7 @@ import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcServer } from "effect/unstable/rpc";
 import { Socket, SocketServer } from "effect/unstable/socket";
 import {
-  assetDirOf,
+  assertAssetPrefix,
   ASSET_MISS_CACHE_CONTROL,
   cacheControlFor,
   DEFAULT_ASSET_PREFIX,
@@ -141,7 +141,13 @@ export function freshStaticLayer(
   // payload win is the `/assets/*` bundle (~2.56 MB → ~571 kB), so scoping costs
   // nothing; a consumer that precompresses nothing serves byte-identical identity
   // responses either way.
-  const assetPrefix = opts.assetPrefix ?? DEFAULT_ASSET_PREFIX;
+  // Taking the prefix is where its shape is judged, by the same reading the
+  // Bun build takes it through (`assertAssetPrefix`) — so `/assetsX` without
+  // its trailing slash cannot silently pin `/assetsXtra/` immutable here while
+  // no build would ever have written there.
+  const assetPrefix = assertAssetPrefix(
+    opts.assetPrefix ?? DEFAULT_ASSET_PREFIX,
+  );
   // That guarantee holds ONLY while `assetPrefix` is disjoint from the shell — a
   // caller-supplied `assetPrefix: "/"` (or `""`) would put `/index.html` under
   // negotiation too and re-open the exact kolu#1319 stale-stamp footgun.
@@ -151,14 +157,6 @@ export function freshStaticLayer(
   // shell and this is a misconfiguration, not a degraded mode. Thrown from the
   // layer CONSTRUCTOR, not its build, so a misconfigured app dies where it is
   // composed rather than mid-boot.
-  //
-  // The prefix's own SHAPE is asserted by the same derivation the Bun build
-  // reads it through (`assetDirOf`) — called for the check, since the directory
-  // it returns is the builder's business and not this layer's. One reading, so
-  // a prefix a build refused cannot be one a server accepts: `/assetsX` without
-  // its trailing slash would silently pin `/assetsXtra/` immutable here while
-  // no build would ever have written there.
-  assetDirOf(assetPrefix);
   const shellPaths = opts.shellPaths ?? DEFAULT_SHELL_PATHS;
   if (shellPaths.some((p) => isImmutableAssetPath(p, opts))) {
     throw new Error(

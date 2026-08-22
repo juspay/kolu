@@ -3,9 +3,8 @@
  *
  * The freshness contract (`index.ts` invariant #1) is only correct for
  * *content-hashed* assets pinned `immutable` behind a *no-store* shell that
- * names them. Producing that layout — hashed asset filenames under one prefix,
- * the build
- * commit published on the shell global (`SHELL_COMMIT_GLOBAL`, via
+ * names them. Producing that layout — hashed asset filenames under one
+ * prefix, the build commit published on the shell global (`SHELL_COMMIT_GLOBAL`, via
  * `injectShellCommit` — in the `no-store` shell, NEVER a `define` into the
  * hashed bundle; kolu#1319), and the shell rewritten to point at the hashed
  * URLs — is the build half of the contract, and it was being hand-rolled per
@@ -144,8 +143,8 @@ const bun = (): BunLike => {
 export type { AssetReport } from "./precompress";
 
 /** An extra content-hashed asset the app produces with its own toolchain (e.g.
- *  Tailwind CSS), to be emitted under `<assetPrefix><name>-<hash>.<ext>` with the
- *  `immutable` contract as the JS bundle. The app builds the bytes; the helper
+ *  Tailwind CSS), to be emitted under `<assetPrefix><name>-<hash>.<ext>` with
+ *  the same `immutable` contract as the JS bundle. The app builds the bytes; the helper
  *  hashes, names, writes, and rewrites the shell to point at the hashed URL. */
 export interface SurfaceClientExtraAsset {
   /** Base name without the hash, e.g. `styles`. */
@@ -228,9 +227,8 @@ export interface SurfaceClientBuildResult {
 }
 
 /** Build a surface-app client bundle that satisfies the freshness contract:
- *  content-hashed assets under `assetPrefix` (the prerequisite for `immutable`
- *  caching), the
- *  build commit published on the shell global (`window.__SURFACE_APP_COMMIT__`
+ *  content-hashed assets under `assetPrefix` (the prerequisite for
+ *  `immutable` caching), the build commit published on the shell global (`window.__SURFACE_APP_COMMIT__`
  *  in the `no-store` `index.html` — never inside a hashed asset; kolu#1319),
  *  the shell rewritten to name the hashed assets, and a `modulepreload` link for
  *  each chunk the entry statically imports. The hashed dir it leaves
@@ -262,8 +260,8 @@ export async function buildSurfaceClient(
   const commit = opts.commit ?? resolveCommit(opts.commitEnvVar);
 
   // JS bundle. `naming` carries a `[hash]` token so the entry lands at
-  // `<assetPrefix><name>-<hash>.js` — a content hash is the prerequisite for the
-  // server's `immutable` pin: the byte-identical bundle keeps its URL across
+  // `<assetPrefix><name>-<hash>.js` — a content hash is the prerequisite for
+  // the server's `immutable` pin: the byte-identical bundle keeps its URL across
   // rebuilds, a changed one gets a new URL, so an installed client pins assets
   // for a year yet always converges after a deploy. NO commit define: the
   // bundle must stay commit-independent (same name ⇒ same bytes), or a
@@ -325,8 +323,8 @@ export async function buildSurfaceClient(
   );
 
   // Extra assets (e.g. Tailwind CSS): the app builds the bytes; we hash them on
-  // their own content, write `<assetPrefix><name>-<hash>.<ext>`, and key the href by
-  // `name` so the shell rewrite and the return value agree. Same immutable
+  // their own content, write `<assetPrefix><name>-<hash>.<ext>`, and key the
+  // href by `name` so the shell rewrite and the return value agree. Same immutable
   // contract as the JS bundle — identical bytes keep their URL.
   const assetHrefs: Record<string, string> = {};
   // Every file this build put in the hashed dir, by name — the entry, the split
