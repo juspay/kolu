@@ -42,6 +42,7 @@
  *    the contract is what makes the instant-tile UX work.
  */
 
+import type { SnapshotGrid } from "terminal-snapshot";
 import type {
   TerminalEndpointFs,
   TerminalEndpointGit,
@@ -155,6 +156,16 @@ export interface PtySpawnOpts {
   resumeCommand?: string;
 }
 
+/** The screen slice a PICTURE is rendered from — kaval's own closed union,
+ *  carried through this layer rather than flattened back into an optional
+ *  number whose ABSENCE has to mean "the viewport".
+ *
+ *  `viewport` carries no payload: it resolves host-side against the live grid,
+ *  a height only the host knows. */
+export type ScreenCellsExtent =
+  | { readonly kind: "viewport" }
+  | { readonly kind: "tail"; readonly lines: number };
+
 /** Control surface for one running terminal. Read/write on the PTY and
  *  the headless xterm buffer. Deliberately omits `dispose()` —
  *  termination flows through `TerminalEndpoint.killTerminal` (kill
@@ -189,6 +200,15 @@ export interface TerminalHandle {
     endLine?: number,
     tailLines?: number,
   ): Promise<string>;
+  /** Attributed cells — characters plus colours and bold/italic/inverse — for
+   *  the screen slice a picture is rendered from.
+   *
+   *  Takes the host's own closed union rather than flattening it back to an
+   *  optional number: an absence that has to MEAN `viewport` is a value
+   *  wearing two hats, and it has nowhere to put a third bound. There is no
+   *  full-scrollback arm here or on the wire below — rendering 50,000 lines is
+   *  never the ask, and an unbounded image is a footgun, not a feature. */
+  getScreenCells(extent: ScreenCellsExtent): Promise<SnapshotGrid>;
   /** Older-scrollback read for the client's in-place backfill: serialize up to
    *  `max` mirror rows immediately ABOVE absolute line `before` (the client's
    *  cursor — the attach `topLine`, then each reply's `topLine`). Absolute

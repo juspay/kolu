@@ -55,14 +55,17 @@ import { Effect, Option, Schema, Stream } from "effect";
 import { match } from "ts-pattern";
 import { COLLECTION_PREFIX, type ResourceEntry, resolveExpose } from "./expose";
 import { type PusherConnection, ResourcePusher } from "./pusher";
-import { brand, fail, failFrom, messageOf, ok, type ToolResult } from "./tools";
-import type { SurfaceClientCallable } from "@kolu/surface/client";
 import {
-  decodeTextValue,
-  inputSchema,
-  type SurfaceVerb,
-  unwrapArgs,
-} from "@kolu/surface/verbs";
+  type BespokeTool,
+  brand,
+  fail,
+  failFrom,
+  messageOf,
+  ok,
+  type ToolResult,
+} from "./tools";
+import type { SurfaceClientCallable } from "@kolu/surface/client";
+import { decodeTextValue, inputSchema, unwrapArgs } from "@kolu/surface/verbs";
 
 // The client shape a projecting face holds opaquely is the FRAMEWORK's
 // (`@kolu/surface/client`, beside the `buildSurfaceFace` that mints one) — the
@@ -101,9 +104,10 @@ export interface ServeSurfaceAsMcpOptions<S extends SurfaceSpec> {
   /** Default-deny allowlist — what an agent may touch. */
   expose: ExposeMap<S>;
   /** Hand-authored, call-shaped verbs composing over the live client — the
-   *  framework record (`SurfaceVerb`), so the same table also projects as argv
-   *  through `@kolu/surface-cli`. */
-  tools?: Record<string, SurfaceVerb>;
+   *  framework record (`SurfaceVerb`) plus this face's own `render`, so the same
+   *  table also projects as argv through `@kolu/surface-cli`: a tool that only
+   *  fills the shared half is a `SurfaceVerb` and assigns here unchanged. */
+  tools?: Record<string, BespokeTool>;
   serverInfo?: { name: string; version: string };
   /** The server's own `instructions`, answered to a host at `initialize` — where
    *  an embedding app teaches an agent the domain the surface is about ("a node
@@ -139,7 +143,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // the full pass each time.
   const bespokeTools = new Map<
     string,
-    { tool: SurfaceVerb; schema: Record<string, unknown>; wrapped: boolean }
+    { tool: BespokeTool; schema: Record<string, unknown>; wrapped: boolean }
   >(
     Object.entries(bespoke).map(([name, t]) => [
       name,
@@ -511,7 +515,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
       title: tool.title,
       description: tool.description,
       inputSchema: schema,
-      // Conservative default (see `SurfaceVerb.mutates`): an absent `mutates`
+      // Conservative default (see `SurfaceVerb.mutates`, the shared half): an absent `mutates`
       // is treated as MUTATING, so an unannotated tool is never advertised as
       // auto-approvable read-only. A genuinely read-only tool opts in with an
       // explicit `mutates: false`.
@@ -588,7 +592,9 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
             tool.handler(parsed, client, extra.signal),
             extra.signal,
           );
-          return ok(out);
+          // The tool's own renderer when it declared one (an image face),
+          // else the JSON default every other tool uses.
+          return tool.render ? tool.render(out) : ok(out);
         });
       }
       return fail(brand(`unknown tool "${name}"`));

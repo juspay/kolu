@@ -145,12 +145,15 @@ rhythm whether you do it by hand or your agent does it in code:
 ## What your agent can do
 
 The tools and live views below are what `kolu mcp` gives the agent, and the name
-in the first column is what your agent calls. Five of them — `screen_text`,
-`lifecycle_sendInput`, the two waits and `watch_next` — also carry a readable
-display name a host can show instead ("Send input to a terminal").
+in the first column is what your agent calls. Eight of them — `screen_text` and
+`screen_image`, `lifecycle_create` and `lifecycle_sendInput`, the two waits and
+the two watch tools — also carry a readable display name a host can show
+instead ("Send input to a terminal").
 
-Every **successful** answer comes back as **structured data** as well as text, so
-your agent acts on a field rather than re-reading prose. A refusal carries data
+Every **successful** answer comes back as **structured data**, so your agent acts
+on a field rather than re-reading prose — alongside text for every tool but
+`screen_image`, whose answer is the image itself (its structured arm carries the
+size and mime type, and the picture is not repeated as base64 prose). A refusal carries data
 when the tool has a machine-readable reason to give: `lifecycle_sendInput` labels
 its four refusals `text-and-key`, `key-refused`, `text-refused` or `no-input`,
 and `lifecycle_create` labels its directory refusals (`cwd-and-worktree`,
@@ -270,6 +273,7 @@ subscriptions; the next call says so plainly instead of reporting silence.
 | Tool | What it does |
 | --- | --- |
 | `screen_text` | Read a terminal's rendered screen as text; ask for just the last N lines. |
+| `screen_image` | See the same screen as a picture — a themed PNG with the colours, box drawing and highlights text throws away. Ask for the last N rows (up to 200), or omit that for the visible screen. Reach for it when the answer is visual — a TUI's layout, a coloured diff, a pass/fail run; `screen_text` stays the cheaper everyday read, and your agent's host has to be able to show images. CJK and emoji render as empty boxes. |
 | `screen_history` | Read the older scrollback above the current screen. |
 | `git_getStatus` · `git_getDiff` | The git status and diff for a terminal's repo. |
 | `fs_listAll` · `fs_readFile` | List and read files in a terminal's project. |

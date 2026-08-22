@@ -11,7 +11,8 @@
     "./schema": "./src/schema.ts",
     "./ports": "./src/ports.ts",
     "./agentProjection": "./src/agentProjection.ts",
-    "./attentionTransitions": "./src/attentionTransitions.ts"
+    "./attentionTransitions": "./src/attentionTransitions.ts",
+    "./terminalKey": "./src/terminalKey.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

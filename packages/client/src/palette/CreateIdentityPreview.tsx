@@ -6,7 +6,7 @@
  *  thing, then place it," not "spawn, then recognize it." */
 
 import type { TerminalMetadata } from "@kolu/padi/surface";
-import { terminalKey } from "kolu-common/terminalKey";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import type { Component } from "solid-js";
 import { createMemo, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";

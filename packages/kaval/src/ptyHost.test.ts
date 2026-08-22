@@ -12,7 +12,13 @@ import {
   getScreenText,
   HEADLESS_TERM_ID,
   type PtyHost,
+  resolveScreenExtent,
 } from "./ptyHost.ts";
+import {
+  boundScreenCells,
+  SCREEN_CELLS_MAX_CELLS,
+  SCREEN_CELLS_MAX_ROWS,
+} from "./ptyHostSurface.ts";
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { runScopedSync, subscribeFrames } from "./streamFrame.testlib.ts";
 
@@ -76,28 +82,88 @@ describe("getScreenText", () => {
     expect(text).toContain("only line");
     term.dispose();
   });
+});
 
-  it("tailLines reads only the last N rendered lines", async () => {
-    const term = createTerminal({ rows: 10 });
-    await writeAndFlush(term, "line0\r\nline1\r\nline2\r\nline3\r\n");
-    // Buffer has line0..line3 then blank rows; tail of 2 painted lines yields
-    // the last two non-empty rows (and possibly trailing blanks), never line0/1.
-    const text = getScreenText(term.buffer.active, undefined, 4, 2);
-    expect(text).not.toContain("line0");
-    expect(text).not.toContain("line1");
-    expect(text).toContain("line2");
-    expect(text).toContain("line3");
-    term.dispose();
+// The bound-picking these two used to exercise through `getScreenText`'s
+// `tailLines` parameter now lives in `resolveScreenExtent`, which is where
+// BOTH screen reads — the text one and the attributed-cell one — ask what a
+// slice means. Testing it directly is testing the thing that decides.
+describe("resolveScreenExtent", () => {
+  it("resolves a tail to the last N lines of the buffer", () => {
+    expect(resolveScreenExtent(100, 24, { kind: "tail", lines: 2 })).toEqual({
+      start: 98,
+      end: 100,
+    });
   });
 
-  it("tailLines overrides startLine and clamps at 0", async () => {
-    const term = createTerminal({ rows: 5 });
-    await writeAndFlush(term, "only line\r\n");
-    // A tail larger than the buffer just yields everything (start clamps to 0),
-    // and the explicit startLine is ignored in favor of the tail.
-    const text = getScreenText(term.buffer.active, 999, undefined, 1000);
-    expect(text).toContain("only line");
-    term.dispose();
+  it("clamps a tail larger than the buffer to the whole buffer", () => {
+    expect(resolveScreenExtent(4, 24, { kind: "tail", lines: 1000 })).toEqual({
+      start: 0,
+      end: 4,
+    });
+  });
+
+  it("resolves a viewport to a tail of the live grid's own height", () => {
+    // The one bound a caller cannot compute: only the host knows how tall the
+    // PTY currently is.
+    expect(resolveScreenExtent(100, 24, { kind: "viewport" })).toEqual({
+      start: 76,
+      end: 100,
+    });
+  });
+
+  it("resolves an absent extent, and an explicit `full`, to the whole buffer", () => {
+    expect(resolveScreenExtent(100, 24)).toEqual({ start: 0, end: 100 });
+    expect(resolveScreenExtent(100, 24, { kind: "full" })).toEqual({
+      start: 0,
+      end: 100,
+    });
+  });
+
+  it("clamps an out-of-bounds range rather than reading past the buffer", () => {
+    expect(
+      resolveScreenExtent(10, 24, {
+        kind: "range",
+        startLine: -5,
+        endLine: 1000,
+      }),
+    ).toEqual({ start: 0, end: 10 });
+  });
+});
+
+describe("boundScreenCells", () => {
+  it("leaves an ordinary screen alone — the cap is a ceiling, not a resize", () => {
+    expect(boundScreenCells(24, 80)).toEqual({ rows: 24, cols: 80 });
+    expect(boundScreenCells(50, 120)).toEqual({ rows: 50, cols: 120 });
+  });
+
+  it("trims rows to the row cap — the axis a caller can name", () => {
+    expect(boundScreenCells(2000, 80)).toEqual({
+      rows: SCREEN_CELLS_MAX_ROWS,
+      cols: 80,
+    });
+  });
+
+  it("trims COLUMNS to hold the area, which the row cap alone never did", () => {
+    // The hole this closes: 200 rows was legal at any width, and `resize`
+    // takes whatever the ioctl accepts. A 200x1000 read is 200,000 cells — one
+    // `<text>` element each — which is the multi-second stall the row cap was
+    // built to remove, arriving on the other axis.
+    const wide = boundScreenCells(200, 1000);
+    expect(wide.rows).toBe(200);
+    expect(wide.rows * wide.cols).toBeLessThanOrEqual(SCREEN_CELLS_MAX_CELLS);
+    expect(wide).toEqual({ rows: 200, cols: 130 });
+  });
+
+  it("lets the two axes trade — a wide terminal keeps its width at fewer rows", () => {
+    expect(boundScreenCells(80, 300)).toEqual({ rows: 80, cols: 300 });
+    expect(boundScreenCells(2000, 300).cols).toBe(130);
+  });
+
+  it("keeps the full width of an empty read rather than dividing by no rows", () => {
+    // A zero-column grid is not a grid: the wire schema refuses one, and every
+    // cell of it would be out of bounds for the renderer.
+    expect(boundScreenCells(0, 200)).toEqual({ rows: 0, cols: 200 });
   });
 });
 

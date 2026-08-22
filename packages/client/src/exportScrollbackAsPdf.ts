@@ -12,9 +12,9 @@
 import { escapeHtml } from "@kolu/html-escape";
 import type { TerminalMetadata } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { terminalKey } from "kolu-common/terminalKey";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
+import { terminalExportTitle } from "./terminal/terminalDisplay";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 
 export function exportScrollbackAsPdf(
@@ -29,13 +29,11 @@ export function exportScrollbackAsPdf(
   const bodyHtml = refs.serialize.serializeAsHTML({
     includeGlobalBackground: true,
   });
-  // Prefer repo + branch from git metadata for the document title; fall back
-  // to the canonical name (basename for non-git), then to "Terminal".
-  const label = meta?.git
-    ? `${meta.git.repoName} (${meta.git.branch})`
-    : meta
-      ? terminalKey(meta).group
-      : "Terminal";
+  // The SAME title the clipboard PNG carries. This used to compose its own
+  // "repo (branch)" beside `screenshotTerminal`'s, and the two had already
+  // parted on the absent-metadata arm ("Terminal" here, "terminal" there), so
+  // one terminal exported under two names depending on which button you hit.
+  const label = terminalExportTitle(meta);
   // Pull the active theme off the live xterm so the popup matches exactly
   // what the user sees — serializeAsHTML only emits a global background,
   // not a default foreground, so unset text would fall back to browser

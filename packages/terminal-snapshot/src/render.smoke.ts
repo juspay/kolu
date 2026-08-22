@@ -1,0 +1,69 @@
+/** Manual smoke: drive a real @xterm/headless buffer through the whole
+ *  pipeline and write a PNG, so the render can be LOOKED AT.
+ *
+ *  Not a unit test — it needs the Nix font directory and writes a file.
+ *  Run it from the repo root with:
+ *    nix develop . -c ./node_modules/.bin/tsx \\
+ *      packages/terminal-snapshot/src/render.smoke.ts ./out.png
+ */
+
+import { writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { DEFAULT_THEME } from "terminal-themes";
+import { readGrid } from "./cell.ts";
+import { buildPngScene, sceneToPng } from "./png.ts";
+
+const require = createRequire(import.meta.url);
+const { Terminal } =
+  require("@xterm/headless") as typeof import("@xterm/headless");
+
+// The output path is REQUIRED, not defaulted. A hardcoded `/tmp/<fixed name>`
+// is a predictable path any local user can pre-create or symlink, and this
+// script happily writes through it — so the caller says where the PNG goes.
+const out = process.argv[2];
+if (!out) {
+  console.error(
+    "usage: render.smoke.ts <output.png>  (run inside `nix develop`, which supplies KOLU_SNAPSHOT_FONTS_DIR)",
+  );
+  process.exit(2);
+}
+const cols = 74;
+const rows = 12;
+const term = new Terminal({ cols, rows, allowProposedApi: true });
+
+const write = (s: string) =>
+  new Promise<void>((resolve) => term.write(s, resolve));
+
+await write(
+  "\x1b[1;32m$\x1b[0m claude  \x1b[35m✻ Thinking…\x1b[0m  a != b => c\r\n",
+);
+await write(
+  "  \x1b[2m⎿  Read 42 lines\x1b[0m  \x1b[32m✓ done\x1b[0m  \x1b[31m✗ failed\x1b[0m\r\n",
+);
+await write(
+  "\x1b[36m⠋⠙⠹⠸⠼\x1b[0m spin \x1b[1mbold\x1b[0m \x1b[3mitalic\x1b[0m \x1b[4munderline\x1b[0m \x1b[7minverse\x1b[0m\r\n",
+);
+await write(
+  "\x1b[38;5;208m256-colour\x1b[0m \x1b[38;2;120;200;255mtruecolour\x1b[0m \x1b[44;97m bg \x1b[0m\r\n",
+);
+await write("╭──────┬──────╮  ██▓▒░ ▁▂▃▄▅▆▇  →←↑↓\r\n");
+await write("│ hi   │ yo   │  wide: 日本語 emoji: 🚀\r\n");
+await write(`╰──────┴──────╯  nerd: \u{f015} \u{e0b0} \u{f09b} \u{f121}\r\n`);
+await write("$ ");
+
+const grid = readGrid(term.buffer.active, cols, 0, rows);
+const fontSize = 15;
+const scene = buildPngScene({
+  grid,
+  theme: DEFAULT_THEME,
+  label: "kolu (great-profit)",
+  brand: "kolu",
+  fontSize,
+});
+
+const png = await sceneToPng(scene);
+await writeFile(out, png);
+console.log(
+  `wrote ${out} — ${png.length} bytes, ${scene.width}x${scene.height}, ${scene.glyphs.length} glyphs, ${scene.rects.length} rects`,
+);
+term.dispose();

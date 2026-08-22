@@ -1,16 +1,57 @@
 /** Terminal identity keys — the canonical `(group, label)` projection
  *  used to group, deduplicate, AND display terminals across every
- *  surface (workspace switcher, restore card, canvas tile chrome).
+ *  surface (workspace switcher, restore card, canvas tile chrome, and
+ *  the caption on a screenshot).
  *
  *  Pure: same inputs produce the same outputs on every client, so the
  *  server never has to broadcast suffixes. Single function: identity
  *  and presentation are deliberately fused — the only way to keep them
  *  in sync is to make them the same projection.
+ *
+ *  Lives HERE, in the browser-safe terminal vocabulary, rather than in
+ *  `kolu-common` where it was born. The projection is a fact about what
+ *  a terminal IS, and its second reader is `@kolu/padi` — the per-host
+ *  daemon, which must not grow an edge to kolu's domain-contract
+ *  package. While it sat in `kolu-common`, padi could not reach it and
+ *  hand-rolled its own basename for the screenshot caption instead: the
+ *  exact divergent projection the note below warns about, shipped
+ *  because the shared home was in the wrong package. Moving it down to
+ *  the leaf both sides already depend on is what makes "one projection"
+ *  true by construction rather than by prose.
+ *
+ *  `shortenCwd`/`cwdBasename` live in this file, not beside it: keeping
+ *  the projection self-contained means there is no separate
+ *  "presentation" function that drifts from identity.
  */
 
 import type { GitInfo } from "kolu-git/schemas";
-import { cwdBasename, shortenCwd } from "./path";
-import type { TerminalId } from "./surface";
+import type { TerminalId } from "./schema.ts";
+
+/** Replace home directory prefix with `~` for compact display. */
+export function shortenCwd(cwd: string): string {
+  return cwd.replace(/^\/(home\/[^/]+|root)(\/|$)/, "~$2");
+}
+
+/** Last segment of a path, with `~` for home directory and the same `~`
+ *  as a fallback for empty input — never returns the empty string.
+ *
+ *  A trailing slash is trimmed before the last segment is taken: `/x/y/`
+ *  names the same directory as `/x/y`, and without the trim the split
+ *  pops the empty string after it and the whole path collapses to the
+ *  `~` fallback — a terminal in `~/scratch/` captioned "~", which reads
+ *  as the home directory it is not. */
+export function cwdBasename(cwd: string): string {
+  // Split-and-drop-empties rather than a trailing-slash regex. `/\/+$/` reads
+  // as the obvious spelling and is a polynomial ReDoS (`js/polynomial-redos`):
+  // on a long run of slashes that does NOT end the string, the engine retries
+  // `\/+$` from every position. A cwd is not obviously attacker-controlled,
+  // but it arrives from a PTY's OSC 7 and is captioned on a picture served to
+  // an agent, so it is not obviously not, either — and the regex bought
+  // nothing a filter doesn't. This also handles the interior doubles (`/x//y`)
+  // the trim never did.
+  const segments = shortenCwd(cwd).split("/").filter(Boolean);
+  return segments[segments.length - 1] ?? "~";
+}
 
 /** `(group, label)` plus an optional `suffix` for ids that collide on
  *  `(group, label)` within the live set.
@@ -59,6 +100,32 @@ export function terminalKey(t: TerminalLocation): {
 } {
   if (t.git) return { group: t.git.repoName, label: t.git.branch };
   return { group: cwdBasename(t.cwd), label: shortenCwd(t.cwd) };
+}
+
+/** The one-line CAPTION for a terminal — `"repo (branch)"` inside a git
+ *  worktree, the bare directory name outside one.
+ *
+ *  THE caption, not a caption: the PNG the browser copies to the clipboard,
+ *  the PNG padi renders for an agent, and the PDF the scrollback export prints
+ *  all title a terminal from here. Three sites composed this string by hand
+ *  before, and all three had already parted — two disagreed on the absent-
+ *  metadata fallback ("Terminal" vs "terminal"), and padi's re-derived the
+ *  basename. The exported PDF and the copied screenshot of ONE terminal were
+ *  captioned differently.
+ *
+ *  Composition kept: the git arm parenthesises `label`, the non-git arm does
+ *  not. Always parenthesising was rejected — outside a repo `label` is the
+ *  shortened cwd, so the caption would read "scratch (~/scratch)": the same
+ *  fact twice. Inside a repo the halves are genuinely different facts (which
+ *  repo, which branch), which is where the parentheses earn their place.
+ *
+ *  Takes a location, never an absence. "There is no terminal" is the CALLER's
+ *  state to name — the client's screenshot has one, padi has no such state —
+ *  and folding a UI default in here would put a placeholder string in the
+ *  vocabulary. */
+export function terminalCaption(t: TerminalLocation): string {
+  const { group, label } = terminalKey(t);
+  return t.git ? `${group} (${label})` : group;
 }
 
 /** Compute keys for every terminal in one pass.

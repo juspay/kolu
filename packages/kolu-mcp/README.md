@@ -14,7 +14,12 @@ default-deny with named, tested denials:
   a human now), and the status story (`status` · `daemonStatus` · `identity` —
   kaval health + padi's own generation, so a daemon restart is *data*, not an
   anomaly);
-- **read-only tools**: `screen_text` (tail-mode snapshot) · `screen_history` ·
+- **read-only tools**: `screen_text` (tail-mode snapshot) · `screen_image` (the
+  same screen as a themed PNG, returned as an MCP image block — reach for it
+  when the answer is *visual*: a TUI's layout, a coloured diff, a pass/fail run
+  a text dump flattens into indistinguishable characters. `screen_text` stays
+  the default read, because characters cost a fraction of the context and
+  answer "did it finish?" on their own) · `screen_history` ·
   `git_getStatus`/`git_getDiff` · `fs_listAll`/`fs_readFile`, the two composite
   done-signals `wait_outputSettled` / `wait_agentState` (the /orchestrator·/kolu
   dispatch loop's load-bearing verbs), and `watch_next` (below);

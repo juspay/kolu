@@ -1,0 +1,29 @@
+{
+  "name": "terminal-snapshot",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./png": "./src/png.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@kolu/html-escape": "workspace:*",
+    "@resvg/resvg-wasm": "^2.6.2",
+    "terminal-themes": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@xterm/headless": "^6.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.0"
+  }
+}

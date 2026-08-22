@@ -9,8 +9,10 @@
  *     reads) ride here, sharing the framework's Schema→JSON-Schema bridge and
  *     this package's result framing — they just supply an Effect Schema input
  *     and a function. The record itself is the framework's `SurfaceVerb`
- *     (`@kolu/surface/verbs`), re-exported from this package's root as
- *     `BespokeTool`: an app hands the SAME record to the CLI face.
+ *     (`@kolu/surface/verbs`) — an app hands the SAME one to the CLI face —
+ *     which {@link BespokeTool} extends with the single field only this face can
+ *     act on: `render`, because a `ToolResult` is content blocks and no other
+ *     face has those.
  *
  * Both wrap their return as a `ToolResult` — the model's prose in `content`,
  * the caller's data in `structuredContent` — and surface a thrown error as
@@ -43,6 +45,7 @@
  */
 
 import { messageOf } from "@kolu/surface/errors";
+import type { SurfaceVerb, SurfaceVerbInputSchema } from "@kolu/surface/verbs";
 import { wrapValue } from "@kolu/surface/verbs";
 
 // "What did this failure SAY" is the FRAMEWORK's derivation, and it lives with
@@ -52,6 +55,35 @@ import { wrapValue } from "@kolu/surface/verbs";
 // Re-exported from this package's root under the name it shipped with, and used
 // by {@link failFrom} below exactly as when it lived here.
 export { messageOf };
+
+/** A bespoke tool's input schema — the FRAMEWORK's bound
+ *  (`SurfaceVerbInputSchema`, `@kolu/surface/verbs`) under the name this package
+ *  shipped it with: any context-free Effect Schema whose DECODED type is the
+ *  handler's `args`. */
+export type ToolInputSchema<I> = SurfaceVerbInputSchema<I>;
+
+/** A hand-authored MCP tool: the FRAMEWORK's {@link SurfaceVerb} — the record an
+ *  app hands to every projecting face verbatim — plus the one field only this
+ *  face can act on.
+ *
+ *  The shared half (`input`, `handler`, `description`, `title`, `mutates`, and
+ *  the conservative default `mutates` carries) is documented on `SurfaceVerb`
+ *  and is NOT restated here: an app hands the same table to
+ *  `@kolu/surface-cli`, and two copies of that doc is two places it can go
+ *  stale. What is added below is MCP's, because a `ToolResult` is content blocks
+ *  and no other face has those. */
+export interface BespokeTool<I = unknown, O = unknown>
+  extends SurfaceVerb<I, O> {
+  /** How this tool's success value becomes MCP content. Defaults to {@link ok}
+   *  — JSON for the model, the same value structured for the caller.
+   *
+   *  Declared per TOOL rather than sniffed per RESULT: whether an answer is
+   *  prose or a picture is a fixed property of the tool, so a handler cannot
+   *  accidentally change its own content type on one call, and the dispatch
+   *  never has to guess from the shape of a value. The only in-tree override
+   *  today is {@link okImage} (kolu's `screen_image`). */
+  render?: (out: O) => ToolResult;
+}
 
 /** The MCP `CallTool` result shape we emit. `content` is prose for the model to
  *  read; `structuredContent` is data for the caller to act on, so neither side
@@ -64,8 +96,18 @@ export { messageOf };
  *
  *  MCP types the structured arm as a JSON **object**, which is the whole reason
  *  for `wrapping.ts`'s `wrapValue`. */
+/** One block of what a tool shows the model.
+ *
+ *  Text is what every tool emitted before images existed here, and still the
+ *  default. An IMAGE block is for an answer whose meaning IS pixels — a
+ *  rendered terminal screen, a chart — where handing the model a base64 blob
+ *  inside a JSON string would be handing it something it cannot look at. */
+export type ToolContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
 export interface ToolResult {
-  content: { type: "text"; text: string }[];
+  content: ToolContent[];
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }
@@ -117,6 +159,39 @@ export function ok(data: unknown): ToolResult {
   return {
     content: [{ type: "text", text }],
     structuredContent: wrapValue(json),
+  };
+}
+
+/** An image the tool is SHOWING, with the facts ABOUT it as the structured arm.
+ *
+ *  Both arms again, and for the same reason {@link ok} has both — but here they
+ *  are deliberately NOT the same value, because a PNG has no JSON form worth
+ *  giving a model. The content arm carries the image; the structured arm
+ *  carries what a caller needs to reason about it (mime type, dimensions)
+ *  WITHOUT the bytes.
+ *
+ *  The base64 appears EXACTLY ONCE, in the image block. It is not repeated as
+ *  a text block, and `detail` must not carry it either: an MCP host renders
+ *  the image, so a second copy is a megabyte spent straight out of the model's
+ *  context window for nothing — and the two copies would be a second place for
+ *  the answer to be wrong. That rule is stated here rather than enforced: the
+ *  guard that used to sit in the body compared each `detail` value against the
+ *  base64 by identity, which caught only a caller that passed the very same
+ *  string reference — `detail.data = image.data.slice()` sailed straight
+ *  through — so it read as a check while stopping nothing. The prose is what
+ *  actually teaches this; a check that catches one spelling of the mistake
+ *  mostly teaches that the mistake is caught.
+ *
+ *  The structured arm goes through the SAME {@link structuredArm} the failure
+ *  path uses — one normalization, so an image tool cannot publish a
+ *  `structuredContent` shape the other arms would have rejected. */
+export function okImage(
+  image: { mimeType: string; data: string },
+  detail: Record<string, unknown>,
+): ToolResult {
+  return {
+    content: [{ type: "image", data: image.data, mimeType: image.mimeType }],
+    structuredContent: structuredArm(detail),
   };
 }
 

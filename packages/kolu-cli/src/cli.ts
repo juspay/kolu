@@ -45,6 +45,7 @@
 // re-typed: a `--help` line that hand-copies a constant is a sentence nothing
 // stops from going quietly false. (`@kolu/terminal-vocab/agentProjection` is a
 // pure fold module, so this costs the dynamic-import fence nothing.)
+import { isScreenImageLines, SCREEN_IMAGE_MAX_ROWS } from "@kolu/padi/surface";
 import {
   WAIT_STATES,
   WATCH_DEFAULT_STATES,
@@ -572,6 +573,59 @@ const snapshot = Command.make(
   ),
 );
 
+export const screenshotFlags = {
+  id: Argument.string("id").pipe(
+    Argument.withDescription("terminal id (any unique prefix)"),
+  ),
+  // Bounds ROWS OF THE PICTURE — a different question from `snapshot --tail`'s
+  // "how much text do I want back", which is why it is not called `--tail`.
+  // Capped at padi's own ceiling: the render cost and the pixel height both
+  // grow with rows, and kolu retains 50k lines of scrollback, so an unbounded
+  // request is a way to ask for a 900,000-pixel-tall PNG. The parse REFUSES an
+  // over-cap value rather than silently clamping it — a caller who asked for
+  // 5,000 rows and got 200 would be handed a picture that is not the answer to
+  // its question.
+  lines: opt(
+    // Two halves, each taken from the one place that owns it. POSITIVITY is
+    // this CLI's own rule, and `positiveLines` is where it is declared — a
+    // second inline spelling here is exactly what made `history --lines 0` and
+    // `screenshot --lines 0` print two different sentences about one flag
+    // name. The CEILING is padi's, spelled once there: a flag parser cannot
+    // speak Effect Schema, but it must not hold a second opinion about how
+    // many rows are legal either.
+    positiveLines("lines").pipe(
+      Flag.filter(
+        isScreenImageLines,
+        (n) =>
+          `--lines captures at most ${SCREEN_IMAGE_MAX_ROWS} rows, got ${n}.`,
+      ),
+      Flag.withDescription(
+        `capture only the last N rendered rows (1-${SCREEN_IMAGE_MAX_ROWS}; default: the visible screen)`,
+      ),
+    ),
+  ),
+  out: opt(
+    Flag.string("out").pipe(
+      Flag.withAlias("o"),
+      Flag.withDescription(
+        "write the PNG here (default: kolu-screenshot.png; `-` writes the bytes to stdout)",
+      ),
+    ),
+  ),
+} as const;
+
+const screenshot = Command.make(
+  "screenshot",
+  screenshotFlags,
+  Effect.fn(function* (args) {
+    yield* runVerb(() => import("./verbs/screenshot.ts"), args);
+  }),
+).pipe(
+  Command.withDescription(
+    "Save a terminal's screen as a themed PNG — the picture `snapshot` flattens to text.",
+  ),
+);
+
 export const historyFlags = {
   id: Argument.string("id").pipe(
     Argument.withDescription("terminal id (any unique prefix)"),
@@ -714,6 +768,7 @@ export const koluCli = koluRoot.pipe(
     wait,
     debrief,
     snapshot,
+    screenshot,
     history,
     kill,
     watch,

@@ -13,6 +13,7 @@
 // `ExposeMap` / `ToolExposure` are deliberately NOT re-exported here: the map
 // shape is the framework's shared vocabulary and has ONE home,
 // `@kolu/surface/expose`, which every face imports it from.
+export type { BespokeTool, ToolInputSchema } from "./tools";
 export {
   type ResolvedExpose,
   type ResourceEntry,
@@ -38,17 +39,22 @@ export {
   // `e instanceof Error ? e.message : String(e)` is the spelling this function's
   // own doc records as wrong for two shapes Effect actually delivers.
   messageOf,
+  // The image-content constructor a bespoke tool reaches for from its
+  // `render` hook — the one in-tree face whose answer is pixels rather than
+  // prose (kolu's `screen_image`).
+  okImage,
   ToolFailure,
+  type ToolContent,
   type ToolResult,
 } from "./tools";
-// The three neutral pieces of the projection now live in the FRAMEWORK
-// (`@kolu/surface/verbs`), where the CLI face reads the same ones — a verb
+// The neutral pieces of the projection now live in the FRAMEWORK
+// (`@kolu/surface/verbs`), where the CLI face reads the same ones — the verb
 // record, its flat name, and the Schema→JSON-Schema bridge were never
-// MCP-specific. Re-exported here under the names this package shipped them
-// with, so a consumer written against the adapter keeps compiling; new code
-// should import them from `@kolu/surface/verbs` directly.
-export {
-  type SurfaceVerb as BespokeTool,
-  type SurfaceVerbInputSchema as ToolInputSchema,
-  toInputSchema,
-} from "@kolu/surface/verbs";
+// MCP-specific. Re-exported here under the names this package shipped them with,
+// so a consumer written against the adapter keeps compiling; new code should
+// import them from `@kolu/surface/verbs` directly.
+//
+// `BespokeTool` and `ToolInputSchema` come from `./tools` rather than from here:
+// the first is the framework record EXTENDED with this face's own `render`, and
+// the second is the framework bound under this package's name beside it.
+export { toInputSchema } from "@kolu/surface/verbs";

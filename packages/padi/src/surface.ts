@@ -408,8 +408,22 @@ export * from "./vocab.ts";
  *  binder against a 5.2 padi drains it before consuming its surface, and an
  *  older binder against a 5.3 padi is build-mismatched and drains it first). It
  *  can also never meet one by accident: a 5.2 caller cannot spell the params
- *  that put a state event in a queue. */
-export const PADI_SURFACE_VERSION = "5.3";
+ *  that put a state event in a queue.
+ *
+ *  5.4 (additive · minor): `screen.image` — the terminal as a rendered PNG
+ *  ({@link PadiScreenImageInputSchema} → {@link PadiScreenImageOutputSchema}),
+ *  serving the `screen_image` MCP tool and `kolu screenshot`.
+ *
+ *  A NEW PROCEDURE is exactly the shape the minor rule exists for, and the
+ *  reasoning is the CLI/MCP face's, not the browser's. `connectPadi` gates on
+ *  {@link isContractVersionCompatible}, and those faces are gate-only — they
+ *  never drain (#1313). Left at 5.3, a fresh `kolu screenshot` would ADOPT a
+ *  surviving 5.3 padi that does not serve the member and die on a missing
+ *  procedure; the minor makes convergence drain-and-respawn it first, which is
+ *  the honest recycle. This is the same call kaval's own 7.1 note makes for
+ *  `getScreenCells`, and the same one 4.4 (`listIgnored`), 4.6
+ *  (`listDirectory`) and 5.2 (backups) made before it. */
+export const PADI_SURFACE_VERSION = "5.4";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1276,6 +1290,112 @@ export const PadiScreenTextInputSchema = Schema.Struct({
   endLine: Schema.optionalKey(NonNegativeInt),
 });
 
+/** The most rows one `screen.image` will ever render.
+ *
+ *  A hard ceiling, not a default: the render cost and the pixel height both
+ *  grow linearly with rows, and kolu retains 50,000 lines of scrollback, so an
+ *  unbounded request is a way to ask the daemon for a 900,000-pixel-tall PNG.
+ *
+ *  The two ways to exceed it are answered DIFFERENTLY, because the questions
+ *  differ. An explicit `lines` above the cap is REJECTED at the wire rather
+ *  than truncated — a caller that asked for 5,000 rows and silently got 200
+ *  would be shown a picture that is not the answer to its question. A
+ *  `viewport` capture of a terminal taller than the cap (a very tall window)
+ *  is TRIMMED to the last `SCREEN_IMAGE_MAX_ROWS` rows, because "show me the
+ *  screen" is still answerable and its bottom is the part that matters — and
+ *  the reply's own `rows` says how much was captured, so the trim is stated
+ *  rather than hidden.
+ *
+ *  ROWS ONLY, on purpose. The other axis is not a caller's to name — there is
+ *  no `cols` in this input, and a terminal's width is whatever its owner
+ *  resized it to — so the width of a capture is bounded where the cells are
+ *  READ, by kaval's area cap (`SCREEN_CELLS_MAX_CELLS`, `rows * cols`): a
+ *  terminal both very tall and very wide comes back at fewer columns, leftmost
+ *  kept. The reply's `cols` states that the same way `rows` states this trim.
+ *  There is nothing to refuse on that axis and so nothing to check here.
+ *
+ *  This is kaval's `SCREEN_CELLS_MAX_ROWS` spelled a second time, and the
+ *  duplication is deliberate — the same call `vocab.ts` makes for
+ *  `PtyHostIdentitySchema` and `DaemonLifetimeInfoSchema`. This module is
+ *  BROWSER-SAFE and the client value-imports it (`LOCAL_LOCATION`), while
+ *  kaval's only entry is a barrel that re-exports `createPtyHost` — a
+ *  `node-pty` child. Importing the constant from there to save a literal
+ *  would put the PTY daemon in the browser's module graph, resting on a
+ *  bundler's tree-shaking to take it back out again.
+ *
+ *  Two spellings CAN drift, and the drift is real: it would let a padi-legal
+ *  `lines` die as a kaval decode error, collapsing the refuse-vs-trim split
+ *  that is deliberate above. So the equality is PINNED by a test on the node
+ *  side of the seal (`screenImage.test.ts`), where importing kaval costs
+ *  nothing. A pinned duplicate beats an import that crosses a layer. */
+export const SCREEN_IMAGE_MAX_ROWS = 200;
+
+/** What a legal `lines` is: a whole count of rows, at least one, at most
+ *  {@link SCREEN_IMAGE_MAX_ROWS} — as CHECKS, so a face can spread them onto
+ *  its own base node.
+ *
+ *  Exported in this shape rather than as a finished schema because the MCP
+ *  face must annotate a check-FREE base and add every check after (an
+ *  annotation lands on the last check otherwise, where no host looks for a
+ *  property description — `screenText.ts` states that law at length). Sharing
+ *  the rule and honouring the law are both possible; sharing only the constant
+ *  and re-spelling `integer ∧ > 0 ∧ ≤ MAX` per face is what left three copies
+ *  of one decision. */
+export const SCREEN_IMAGE_LINES_CHECKS = [
+  Schema.isInt(),
+  Schema.isGreaterThan(0),
+  Schema.isLessThanOrEqualTo(SCREEN_IMAGE_MAX_ROWS),
+] as const;
+
+/** The same rule as a ready-made schema, for a face with nothing to annotate —
+ *  which today is only this module's own `screen.image` input. Module-private
+ *  rather than exported: a face that has something to annotate must spread
+ *  {@link SCREEN_IMAGE_LINES_CHECKS} onto its own base node instead (the
+ *  annotate-first law `screenText.ts` states at length), so an export here
+ *  would be an invitation to get that wrong. */
+const ScreenImageLinesSchema = Schema.Number.check(
+  ...SCREEN_IMAGE_LINES_CHECKS,
+);
+
+/** The same rule for a face that parses FLAGS rather than schemas — the CLI's
+ *  `Flag.filter` cannot speak Effect Schema, and must not therefore hold a
+ *  second opinion about what a legal row count is. */
+export const isScreenImageLines = (n: number): boolean =>
+  Number.isInteger(n) && n > 0 && n <= SCREEN_IMAGE_MAX_ROWS;
+
+/** `screen.image` — the terminal as a picture.
+ *
+ *  `lines` bounds the capture to the last N rendered rows; OMIT it for the
+ *  viewport (the live grid's own height — what the terminal is showing right
+ *  now, and the read a driving agent almost always wants). There is
+ *  deliberately no whole-scrollback arm: see {@link SCREEN_IMAGE_MAX_ROWS}. */
+export const PadiScreenImageInputSchema = Schema.Struct({
+  id: TerminalIdSchema,
+  lines: Schema.optionalKey(ScreenImageLinesSchema),
+});
+
+/** What `screen.image` returns: the PNG as base64, with the grid it was
+ *  rendered from.
+ *
+ *  `mimeType` is spelled rather than assumed because this value is handed
+ *  straight to an MCP host as image content, which requires one — and a
+ *  hardcoded string at the far end would be a second place for the format to
+ *  be declared. `cols`/`rows` ride along so a caller can report what it
+ *  captured without decoding the image to find out. */
+export const PadiScreenImageOutputSchema = Schema.Struct({
+  mimeType: Schema.Literal("image/png"),
+  /** Base64-encoded PNG bytes. */
+  data: Schema.String,
+  cols: NonNegativeInt,
+  rows: NonNegativeInt,
+});
+
+/** The decoded reply, derived from the schema rather than re-declared beside
+ *  it — the convention this surface follows everywhere else. Both readers (the
+ *  renderer that produces it and the MCP face that renders it) name THIS, so a
+ *  field renamed in the schema is a type error rather than a runtime hole. */
+export type PadiScreenImageOutput = typeof PadiScreenImageOutputSchema.Type;
+
 /** `screen.history` — the client's scrollback-backfill read. `before` is the
  *  caller's absolute mirror-line cursor (the attach snapshot's `topLine`, then
  *  each reply's `topLine`); the host serves up to `max` older rows above it. */
@@ -1857,6 +1977,18 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       history: {
         input: PadiScreenHistoryInputSchema,
         output: PadiScreenHistoryOutputSchema,
+        error: TerminalNotFound,
+      },
+      /** The screen as a rendered PNG — the read a face that can SHOW an
+       *  image makes (the `screen_image` MCP tool, `kolu screenshot`), where
+       *  `screen.text` is the read a face that can only show text makes.
+       *
+       *  Rendering lives on THIS side of the wire, not in kaval: the theme is
+       *  a per-terminal choice padi holds, so padi is the only place that
+       *  knows what colour "palette 4" is. */
+      image: {
+        input: PadiScreenImageInputSchema,
+        output: PadiScreenImageOutputSchema,
         error: TerminalNotFound,
       },
     },
