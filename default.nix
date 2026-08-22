@@ -256,6 +256,18 @@ let
         # rides the contract bump, while a browser-only /solid or /backfill
         # change must not fire kaval's PTY-costing currency nudge.
         "@kolu/xterm-kit"
+        # `terminal-snapshot` — the grid→picture leaf. kaval consumes ONE
+        # function from it (`readGrid`, a pure buffer read); the scene builder,
+        # the SVG writer and the wasm rasteriser behind `terminal-snapshot/png`
+        # never run in this process (the kaval wrapper below bakes no
+        # KOLU_SNAPSHOT_FONTS_DIR, and says why). The kaval-relevant surface is
+        # the SHAPE `readGrid` emits, and that shape is `SnapshotGridSchema` in
+        # kaval/src — hashed via PTY_HOST_CONTRACT_VERSION, so a wire-relevant
+        # change rides the contract bump. A chrome-geometry or palette edit —
+        # or a `themes.json` regeneration, which reaches here through
+        # `terminal-themes` — must not fire kaval's PTY-costing currency nudge.
+        # Same argument as @kolu/xterm-kit above.
+        "terminal-snapshot"
         # `@kolu/shell-quote` — the POSIX-quote source of truth. kaval seeds a
         # command-rooted PTY's `lastCommand` with `shellJoin` (#1872), and the
         # seed's DIALECT is carried on the `commandRun` frame's `shellJoin`
