@@ -27,6 +27,7 @@
  * the `rmSync` is observable rather than mocked away.
  */
 
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -99,7 +100,12 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 // The scratch root derives from the boot-injected daemon id; boot sets it before
 // anything reads it, so mirror that here — and make it unique to this file so the
 // dir this test writes is nobody else's.
-setDaemonProcessId("sleep-wake-race-test-server");
+// UNPREDICTABLE, deliberately. The scrub under test computes its own path from
+// this id, so the test cannot point production at a `mkdtemp` dir of its own —
+// it has to let `koluScratchDir()` derive the real one. Randomising the id is
+// what keeps that real path un-guessable, so nothing else can pre-create or
+// symlink the dir this test writes (CodeQL js/insecure-temporary-file).
+setDaemonProcessId(`sleep-wake-race-${randomUUID()}`);
 
 const scratchDir = join(koluScratchDir(), ID);
 const pastedFile = join(scratchDir, "pasted.png");
