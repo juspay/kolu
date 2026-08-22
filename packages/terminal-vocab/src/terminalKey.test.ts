@@ -121,3 +121,36 @@ describe("terminalCaption", () => {
     expect(terminalCaption({ cwd: "/", git: null })).toBe("~");
   });
 });
+
+describe("cwdBasename needs no backtracking regex", () => {
+  it("names the directory whether or not the path ends in a slash", () => {
+    expect(cwdBasename("/x/y")).toBe("y");
+    expect(cwdBasename("/x/y/")).toBe("y");
+    expect(cwdBasename("/x/y///")).toBe("y");
+  });
+
+  it("collapses interior doubles the old trailing-slash trim never saw", () => {
+    expect(cwdBasename("/x//y")).toBe("y");
+  });
+
+  it("falls back to ~ for a path with no segment at all", () => {
+    expect(cwdBasename("/")).toBe("~");
+    expect(cwdBasename("")).toBe("~");
+    expect(cwdBasename("///")).toBe("~");
+  });
+
+  it("still shortens a home directory to ~", () => {
+    expect(cwdBasename("/home/srid")).toBe("~");
+    expect(cwdBasename("/home/srid/scratch/")).toBe("scratch");
+  });
+
+  it("returns promptly on a long run of slashes that does not end the string", () => {
+    // The shape `js/polynomial-redos` flagged: `/\/+$/` retried from every
+    // position. A filter is linear, so this is a timing assertion with three
+    // orders of magnitude of headroom rather than a tight one.
+    const hostile = `${"/".repeat(200_000)}x`;
+    const started = performance.now();
+    expect(cwdBasename(hostile)).toBe("x");
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+});

@@ -41,8 +41,16 @@ export function shortenCwd(cwd: string): string {
  *  `~` fallback — a terminal in `~/scratch/` captioned "~", which reads
  *  as the home directory it is not. */
 export function cwdBasename(cwd: string): string {
-  const short = shortenCwd(cwd).replace(/\/+$/, "");
-  return short.split("/").pop() || "~";
+  // Split-and-drop-empties rather than a trailing-slash regex. `/\/+$/` reads
+  // as the obvious spelling and is a polynomial ReDoS (`js/polynomial-redos`):
+  // on a long run of slashes that does NOT end the string, the engine retries
+  // `\/+$` from every position. A cwd is not obviously attacker-controlled,
+  // but it arrives from a PTY's OSC 7 and is captioned on a picture served to
+  // an agent, so it is not obviously not, either — and the regex bought
+  // nothing a filter doesn't. This also handles the interior doubles (`/x//y`)
+  // the trim never did.
+  const segments = shortenCwd(cwd).split("/").filter(Boolean);
+  return segments[segments.length - 1] ?? "~";
 }
 
 /** `(group, label)` plus an optional `suffix` for ids that collide on
