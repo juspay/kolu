@@ -520,48 +520,73 @@ function writeOutput(
 // ── The reader half ──────────────────────────────────────────────────────
 
 /** An exposed primitive, resolved to what a reader needs in order to address
- *  it: which member verb to call, and what the `[arg]` position decodes against. */
-interface Readable {
-  readonly name: string;
-  readonly kind: "cell" | "collection" | "stream" | "event";
-  /** A collection's key schema, or a stream's/event's input schema — the one the
-   *  `[arg]` position lands in. A cell has neither and takes no argument. */
-  readonly argSchema?: WireSchemaAny;
-  /** Does the collection declare `deltas`, so `watch` can address it? */
-  readonly watchable: boolean;
-  /** Does the collection declare `keys`? Read off the member's own verbs, not
-   *  assumed: `keys` is a DEFAULT collection verb and a spec may drop it, and a
-   *  bounded item read handed a membership stream that does not exist fails a
-   *  read of an item that is right there. */
-  readonly listable: boolean;
-}
+ *  it: which member verb to call, and what the `[arg]` position decodes against.
+ *
+ *  A SUM and not a flat product, because validity here is per kind and the flat
+ *  shape admitted states the domain forbids — a cell with a key schema, a stream
+ *  that answers `listable`. Every consumer narrows on `kind` and the compiler
+ *  hands it exactly the fields that kind has: the two `as WireSchemaAny` casts
+ *  that used to launder away an optionality the domain never had are gone, and
+ *  `listable` cannot be asked of a stream at all. The schema also stops being one
+ *  name for two things (a collection's KEY, a stream's INPUT), which is why its
+ *  doc comment had to spell out both. */
+type Readable =
+  | { readonly kind: "cell"; readonly name: string }
+  | {
+      readonly kind: "collection";
+      readonly name: string;
+      /** What the `<key>` position decodes against. */
+      readonly keySchema: WireSchemaAny;
+      /** Does it declare `deltas`, so `watch` can address it? */
+      readonly watchable: boolean;
+      /** Does it declare `keys`? Read off the member's own verbs, not assumed:
+       *  `keys` is a DEFAULT collection verb and a spec may drop it, and a
+       *  bounded item read handed a membership stream that does not exist fails
+       *  a read of an item that is right there. */
+      readonly listable: boolean;
+    }
+  | {
+      readonly kind: "stream" | "event";
+      readonly name: string;
+      /** What the `[input]` position decodes against. */
+      readonly inputSchema: WireSchemaAny;
+    };
 
 function readables(entries: readonly ExposeEntry[]): Map<string, Readable> {
   const table = new Map<string, Readable>();
   for (const entry of entries) {
-    if (entry.kind === "procedure") continue;
-    if (entry.kind === "collection") {
-      const spec = entry.spec as CollectionSpec<unknown, unknown, unknown>;
-      const verbs = resolveCollectionVerbs(spec);
-      table.set(entry.key, {
-        name: entry.key,
-        kind: "collection",
-        argSchema: spec.keySchema,
-        watchable: collectionHasDeltas(spec),
-        listable: verbs.includes("keys"),
-      });
-      continue;
+    switch (entry.kind) {
+      case "procedure":
+        break;
+      case "cell":
+        table.set(entry.key, { kind: "cell", name: entry.key });
+        break;
+      case "collection": {
+        const spec = entry.spec as CollectionSpec<unknown, unknown, unknown>;
+        table.set(entry.key, {
+          kind: "collection",
+          name: entry.key,
+          keySchema: spec.keySchema,
+          watchable: collectionHasDeltas(spec),
+          listable: resolveCollectionVerbs(spec).includes("keys"),
+        });
+        break;
+      }
+      case "stream":
+      case "event":
+        table.set(entry.key, {
+          kind: entry.kind,
+          name: entry.key,
+          inputSchema: entry.spec.inputSchema,
+        });
+        break;
+      default:
+        // Exhaustiveness fence — the same one the MCP face's walk has, in the
+        // spelling this package can afford (no `ts-pattern` dependency): a fifth
+        // `ExposeEntry` kind stops this compiling and gets a decision HERE,
+        // rather than being quietly mounted as a stream by a trailing `else`.
+        entry satisfies never;
     }
-    table.set(entry.key, {
-      name: entry.key,
-      kind: entry.kind,
-      argSchema:
-        entry.kind === "cell"
-          ? undefined
-          : (entry.spec as { inputSchema: WireSchemaAny }).inputSchema,
-      watchable: false,
-      listable: false,
-    });
   }
   return table;
 }
@@ -733,7 +758,7 @@ function runGet<S extends SurfaceSpec, F extends FlagRecord, R>(
           ),
         );
       }
-      const landed = decodeTextValue(member.argSchema as WireSchemaAny, raw);
+      const landed = decodeTextValue(member.keySchema, raw);
       if (Option.isNone(landed)) {
         return yield* Effect.fail(
           usage(
@@ -771,9 +796,14 @@ function runGet<S extends SurfaceSpec, F extends FlagRecord, R>(
 
     // A stream or an event. Its input rides the same `[arg]` position, decoded
     // against the member's OWN schema — the argv twin of the collection key,
-    // through the one text-to-schema rule both faces share.
-    const schema = member.argSchema as WireSchemaAny;
-    const input = yield* streamInput(opts, member.name, schema, raw);
+    // through the one text-to-schema rule both faces share. No cast: the two
+    // arms above narrowed `kind`, so this one HAS an `inputSchema`.
+    const input = yield* streamInput(
+      opts,
+      member.name,
+      member.inputSchema,
+      raw,
+    );
     return yield* withConnection(opts, values, (client) =>
       readStream(
         memberStream(client, member.name, "get", input),
@@ -930,7 +960,7 @@ function readStream(
  *  answers and only the first is evidence. */
 function readCollectionItem(
   client: SurfaceClientCallable,
-  member: Readable,
+  member: Extract<Readable, { kind: "collection" }>,
   key: unknown,
 ): Effect.Effect<void, unknown, Stdio.Stdio> {
   return Effect.flatMap(
