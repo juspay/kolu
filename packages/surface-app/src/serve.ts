@@ -108,6 +108,24 @@
  * app saying it trusts the proxy that writes that header, which is the one part
  * of this nothing downstream can decide.
  *
+ * ### Naming a header says who may WRITE it, and that is a precondition, not a check
+ *
+ * What arrives on {@link SurfaceAppConnection.headers} is whatever was on the
+ * upgrade — this seam reports, it does not authenticate. A client dialling the
+ * listener directly can send `Tailscale-User-Login` itself, and it will be
+ * handed to `services` as faithfully as a proxy's own. So naming a header is
+ * sound ONLY when the proxy OWNS it: strips or overwrites any inbound copy, and
+ * is the only way in (the listener bound to loopback or a tailnet). Naming one
+ * the proxy merely PASSES THROUGH hands every caller a claim they wrote about
+ * themselves.
+ *
+ * This module cannot check that for you — the deployment is not visible from
+ * here, which is exactly why the naming is the app's to do. Where the check CAN
+ * live, it does: kolu's `x-forwarded-for` is safe because
+ * `viewerAddressOf` (`@kolu/surface/viewer-identity`) weighs the claim against
+ * the direct peer, and that gate is in the surface package, NOT at this seam —
+ * an app that names an identity header gets the value, never that judgment.
+ *
  * ## What it deliberately does NOT own
  *
  * - **The surface runtime's lifetime.** `serveSurfaceApp` takes the
@@ -228,6 +246,14 @@ export interface SurfaceAppConnection<H extends string = never> {
  *  way: they would file one wire value under two keys, with nothing saying the
  *  two reads agree.
  *
+ *  `set-cookie` is refused for a third reason of the same kind: it is the ONE
+ *  header node hands over as an array, and its values contain commas of their
+ *  own (`Expires=Wed, 21 Oct 2026 …`), so the comma-joined string this seam
+ *  reports every other header as cannot be split back apart — RFC 6265 §5.2
+ *  forbids folding it for exactly that reason. A name whose value this seam
+ *  cannot state honestly is refused rather than reported wrongly. (It is a
+ *  RESPONSE header; a request that carries one is already odd.)
+ *
  *  Throws rather than failing with {@link SurfaceAppListenFailed}: a bad name is
  *  the app's own defect, not a condition of the machine, and handing it to a
  *  consumer's `EADDRINUSE` port policy would have it retry forever against
@@ -245,6 +271,11 @@ const checkUpgradeHeaders = <H extends string>(
       );
     }
     const lowercased = asked.toLowerCase();
+    if (lowercased === "set-cookie") {
+      throw new Error(
+        `serveSurfaceApp: ${JSON.stringify(asked)} cannot be read off an upgrade — set-cookie is the one header that arrives as a list, and its values carry commas, so the joined string this seam reports cannot be split back apart`,
+      );
+    }
     if (seen.has(lowercased)) {
       throw new Error(
         `serveSurfaceApp: ${JSON.stringify(asked)} names a header already in upgradeHeaders — one wire header cannot be read under two names`,
@@ -259,9 +290,11 @@ const checkUpgradeHeaders = <H extends string>(
  *  request carried, and nothing else.
  *
  *  Node hands a REPEATED header over already folded into one comma-joined
- *  string; `set-cookie` is its one exception, arriving as an array. Joining that
- *  array the same way leaves a consumer ONE shape to read here, whichever header
- *  it named.
+ *  string (`", "` — the separator this function reuses, so the two agree).
+ *  `set-cookie` is its one array-shaped exception and is refused at the
+ *  allowlist above, so the array arm here is what satisfies node's type rather
+ *  than a shape a named header can actually arrive in: a consumer reading a
+ *  header it named gets a string, always.
  *
  *  Prototype-free on BOTH sides, which is not tidiness: `constructor` and
  *  `__proto__` are valid field names, so a plain `{}` would answer

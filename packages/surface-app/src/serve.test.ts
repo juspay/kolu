@@ -498,17 +498,34 @@ describe("serveSurfaceApp — the upgrade facts a connection carries", () => {
     ).resolves.toEqual({ "x-forwarded-for": "10.0.0.1", "X-Empty": "" });
   });
 
-  it("keeps a name that collides with Object.prototype honest, both ways", async () => {
-    // The two names `pickUpgradeHeaders`' prototype note is about: an unsent one
-    // is absent (not `Object`'s constructor) and a sent one is its value (not
-    // swallowed by the `__proto__` setter).
+  it("keeps a name that collides with Object.prototype honest", async () => {
+    // The reachable half of `pickUpgradeHeaders`' prototype note. Probed against
+    // node 24 rather than assumed:
+    //
+    //   - `request.headers` is a PLAIN object — its prototype IS
+    //     `Object.prototype` — and `constructor` is a valid, already-lowercase
+    //     field name. So without the `Object.hasOwn` guard, a name the request
+    //     never carried reads back as `Object`'s constructor. Sent, it arrives
+    //     as an ordinary own key and must round-trip like any other header.
+    //   - a `__proto__` header LINE is dropped at parse — it never becomes an
+    //     own key — so it is named here only as the ABSENT case. The write-side
+    //     hazard `Object.create(null)` closes is unreachable from the wire, and
+    //     no test can honestly claim to pin it.
+    //
+    // The assertion is on `Object.keys`, not on the record alone: a stray
+    // `Object` constructor does not survive `JSON.stringify`, so asserting the
+    // values would pass with the guard removed — which is exactly how the first
+    // version of this test was vacuous.
     await expect(
       readConnection({
-        pick: (connection) => connection.headers,
+        pick: (connection) => ({
+          named: Object.keys(connection.headers).sort(),
+          sentValue: connection.headers.constructor,
+        }),
         upgradeHeaders: ["constructor", "__proto__"],
-        sent: { __proto__: "sent" },
+        sent: { constructor: "made" },
       }),
-    ).resolves.toEqual({ __proto__: "sent" });
+    ).resolves.toEqual({ named: ["constructor"], sentValue: "made" });
   });
 
   it("makes a read the allowlist does not name a COMPILE error, not a silent undefined", async () => {
@@ -556,6 +573,15 @@ describe("serveSurfaceApp — the upgrade facts a connection carries", () => {
     await expect(
       boot({ upgradeHeaders: ["X-Ok", "not a name"] }),
     ).rejects.toThrow(/"not a name" is not an HTTP header name/);
+  });
+
+  it("refuses to bind on set-cookie, whose value a joined string cannot carry", async () => {
+    // The one header node hands over as a list, and the one whose values carry
+    // commas of their own — so the string this seam reports every other header
+    // as could not be split back apart. Refused rather than reported wrongly.
+    await expect(boot({ upgradeHeaders: ["Set-Cookie"] })).rejects.toThrow(
+      /"Set-Cookie" cannot be read off an upgrade/,
+    );
   });
 
   it("refuses to bind on ONE wire header named twice", async () => {
