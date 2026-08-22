@@ -39,10 +39,9 @@ import { describe, expect, it } from "vitest";
 import { cell } from "./index";
 import { cellHandlers, inMemoryChannel, inMemoryStore } from "./server";
 
-/** A cell's `get` stream, over a bus this test publishes into — with the
- *  channel's own bound, when the case is about one. */
-const subscription = (options: Parameters<typeof inMemoryChannel>[0] = {}) => {
-  const bus = inMemoryChannel<number>(options);
+/** A cell's `get` stream, over a bus this test publishes into. */
+const subscription = () => {
+  const bus = inMemoryChannel<number>();
   const handlers = cellHandlers(
     cell({ name: "n", schema: Schema.Number, default: 0 }),
     { store: inMemoryStore(0), bus },

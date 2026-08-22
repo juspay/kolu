@@ -163,6 +163,9 @@ Every rule here is the same instinct applied at a different layer: a caught erro
 must surface, never collapse to an empty or default state. Snapshot-then-deltas
 keeps a reconnect from lying about state; fail-fast keeps a broken pipe from
 looking empty; fine-grained consume keeps a recovered view from staying frozen;
-health-as-fact keeps the app from mistaking "up" for "ready." The cost is that
-you give up the easy fallbacks — the `?? {}`, the swallowed error, the "just
-show nothing." In exchange, when the view says a number, the number is real.
+health-as-fact keeps the app from mistaking "up" for "ready"; and a round trip
+that carries the backlog keeps a reader from being told the truth so slowly that
+it has stopped being true. The cost is that you give up the easy fallbacks — the
+`?? {}`, the swallowed error, the "just show nothing," and the unbounded buffer
+that makes a slow reader somebody else's problem. In exchange, when the view says
+a number, the number is real, and it is the number now.
