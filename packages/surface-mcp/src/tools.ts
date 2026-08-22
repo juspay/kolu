@@ -177,9 +177,13 @@ export function ok(data: unknown): ToolResult {
  *  a text block, and `detail` must not carry it either: an MCP host renders
  *  the image, so a second copy is a megabyte spent straight out of the model's
  *  context window for nothing — and the two copies would be a second place for
- *  the answer to be wrong. A `detail` that smuggles the payload back in is
- *  refused rather than quietly published, because the cost of getting this
- *  wrong is invisible at the call site and enormous on the wire.
+ *  the answer to be wrong. That rule is stated here rather than enforced: the
+ *  guard that used to sit in the body compared each `detail` value against the
+ *  base64 by identity, which caught only a caller that passed the very same
+ *  string reference — `detail.data = image.data.slice()` sailed straight
+ *  through — so it read as a check while stopping nothing. The prose is what
+ *  actually teaches this; a check that catches one spelling of the mistake
+ *  mostly teaches that the mistake is caught.
  *
  *  The structured arm goes through the SAME {@link structuredArm} the failure
  *  path uses — one normalization, so an image tool cannot publish a
@@ -188,13 +192,6 @@ export function okImage(
   image: { mimeType: string; data: string },
   detail: Record<string, unknown>,
 ): ToolResult {
-  for (const [key, value] of Object.entries(detail)) {
-    if (value === image.data) {
-      throw new Error(
-        `okImage: detail.${key} repeats the image payload. The bytes travel in the image block; a second copy in structuredContent doubles the wire and the context cost for no reader.`,
-      );
-    }
-  }
   return {
     content: [{ type: "image", data: image.data, mimeType: image.mimeType }],
     structuredContent: structuredArm(detail),

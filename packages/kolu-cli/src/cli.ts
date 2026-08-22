@@ -586,14 +586,18 @@ export const screenshotFlags = {
   // 5,000 rows and got 200 would be handed a picture that is not the answer to
   // its question.
   lines: opt(
-    Flag.integer("lines").pipe(
-      // The RULE is padi's, spelled once there: a flag parser cannot speak
-      // Effect Schema, but it must not hold a second opinion about what a
-      // legal row count is either.
+    // Two halves, each taken from the one place that owns it. POSITIVITY is
+    // this CLI's own rule, and `positiveLines` is where it is declared — a
+    // second inline spelling here is exactly what made `history --lines 0` and
+    // `screenshot --lines 0` print two different sentences about one flag
+    // name. The CEILING is padi's, spelled once there: a flag parser cannot
+    // speak Effect Schema, but it must not hold a second opinion about how
+    // many rows are legal either.
+    positiveLines("lines").pipe(
       Flag.filter(
         isScreenImageLines,
         (n) =>
-          `--lines takes a positive whole number of rows, at most ${SCREEN_IMAGE_MAX_ROWS}, got ${n}.`,
+          `--lines captures at most ${SCREEN_IMAGE_MAX_ROWS} rows, got ${n}.`,
       ),
       Flag.withDescription(
         `capture only the last N rendered rows (1-${SCREEN_IMAGE_MAX_ROWS}; default: the visible screen)`,

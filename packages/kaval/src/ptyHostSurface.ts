@@ -313,8 +313,7 @@ const ScreenCellsInputSchema = Schema.Struct({
       Schema.Struct({ kind: Schema.Literal("viewport") }),
       Schema.Struct({
         kind: Schema.Literal("tail"),
-        lines: Schema.Int.check(
-          Schema.isGreaterThan(0),
+        lines: PositiveInt.check(
           Schema.isLessThanOrEqualTo(SCREEN_CELLS_MAX_ROWS),
         ),
       }),
@@ -356,10 +355,7 @@ const SnapshotCellSchema = Schema.Struct({
   // 1 or 2 — the only widths `readGrid` emits. 0 is the trailing half of a
   // wide glyph, dropped at the read, so admitting it here would only let a
   // peer hand a renderer a zero-width cell to paint.
-  width: NonNegativeInt.check(
-    Schema.isGreaterThan(0),
-    Schema.isLessThanOrEqualTo(2),
-  ),
+  width: PositiveInt.check(Schema.isLessThanOrEqualTo(2)),
   fg: CellColorSchema,
   bg: CellColorSchema,
   bold: Schema.Boolean,
@@ -381,7 +377,10 @@ const SnapshotRowSchema = Schema.Struct({
  *  count is `lines.length` and not a field of its own, and why a line the
  *  mirror doesn't have comes back as an empty row rather than a hole. */
 const SnapshotGridSchema = Schema.Struct({
-  cols: NonNegativeInt,
+  // `PositiveInt`, the same rule {@link PtyGridSchema} states for a live PTY's
+  // grid: a zero-column screen is not a screen, and admitting one here let a
+  // peer hand the renderer a grid whose cells are all out of bounds.
+  cols: PositiveInt,
   lines: Schema.Array(SnapshotRowSchema),
 }) satisfies WireSchema<SnapshotGrid>;
 
