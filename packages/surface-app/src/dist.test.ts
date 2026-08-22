@@ -378,3 +378,182 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
     }
   });
 });
+
+/**
+ * The same socket with the bundle moved off `/assets/`, which is the whole of
+ * what `assetPrefix` buys — and the defect it pins is not in either half
+ * either.
+ *
+ * An app whose root URL space is somebody ELSE's cannot leave the bundle where
+ * the convention puts it. olai serves a person's own directory of files at `/`,
+ * so `/assets/notes.md` is a page of theirs; a `/assets/*` miss deliberately
+ * 404s rather than reaching the shell (invariant #1 — an asset miss must never
+ * be answered with HTML), so every file they keep in a folder called `assets`
+ * had no page at all. `FreshnessPaths` has taken the prefix as a serving input
+ * since the contract was written and the Vite half honours it through Vite's
+ * own `build.assetsDir`; the Bun half could not say it, so the existing input
+ * was unusable and the collision unfixable downstream.
+ *
+ * So the assertions come in pairs: the bundle answers under its new prefix with
+ * the freshness contract intact, and the space it vacated reaches the SHELL
+ * again — which is what makes `/assets/notes.md` a page the app can draw.
+ */
+describe("buildSurfaceClient — a bundle moved under a reserved prefix", () => {
+  const ASSET_PREFIX = "/_olai/assets/";
+
+  let work: string;
+  let clientDir: string;
+  let distDir: string;
+  let stand: StandInBun;
+
+  const build = () => {
+    writeFileSync(join(clientDir, "main.ts"), splitSource());
+    return buildSurfaceClient({
+      entrypoint: join(clientDir, "main.ts"),
+      distDir,
+      htmlTemplate: join(clientDir, "index.html"),
+      entryHtmlPlaceholder: `src="./main.ts"`,
+      commit: "abc1234",
+      assetPrefix: ASSET_PREFIX,
+      extraAssets: [
+        {
+          name: "styles",
+          ext: "css",
+          build: () =>
+            Buffer.from(
+              Array.from(
+                { length: 200 },
+                (_, i) => `.class-number-${i} { color: #ffffff; }`,
+              ).join("\n"),
+            ),
+          htmlPlaceholder: `href="./styles.css"`,
+        },
+      ],
+    });
+  };
+
+  const layer = () =>
+    freshStaticLayer({ root: distDir, assetPrefix: ASSET_PREFIX });
+  const shell = () => readFileSync(join(distDir, "index.html"), "utf8");
+
+  beforeEach(() => {
+    work = mkdtempSync(join(tmpdir(), "dist-prefix-"));
+    clientDir = join(work, "client");
+    distDir = join(work, "dist");
+    mkdirSync(clientDir);
+    writeFileSync(join(clientDir, "index.html"), TEMPLATE);
+    stand = installStandInBun();
+  });
+  afterEach(() => {
+    stand.restore();
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  it("writes the hashed dir where the prefix says, and nowhere else", async () => {
+    const { assetPrefix } = await build();
+    expect(assetPrefix).toBe(ASSET_PREFIX);
+    expect(existsSync(join(distDir, "_olai", "assets"))).toBe(true);
+    expect(existsSync(join(distDir, ASSET_DIR))).toBe(false);
+    // The shell is still the unhashed no-store one at the dist root: it is not
+    // an asset, and moving it would break the SPA fallback that serves `/`.
+    expect(existsSync(join(distDir, "index.html"))).toBe(true);
+  });
+
+  it("names every hashed href under the prefix — entry, extra asset, preloads", async () => {
+    const { jsHref, assetHrefs, preloadHrefs } = await build();
+    const html = shell();
+    for (const href of [jsHref, assetHrefs.styles!, ...preloadHrefs]) {
+      expect(href.startsWith(ASSET_PREFIX)).toBe(true);
+      expect(html).toContain(href);
+    }
+    expect(preloadHrefs.length).toBeGreaterThan(0);
+    // Not one `/assets/` reference left anywhere in the shell: a single missed
+    // rewrite is a 404 the app cannot recover from.
+    expect(html).not.toContain('"/assets/');
+  });
+
+  it("keeps the whole freshness contract under the new prefix", async () => {
+    const { assets, jsHref } = await build();
+    const app = layer();
+    const entry = await drive(app, jsHref, { "Accept-Encoding": "identity" });
+    expect(entry.status).toBe(200);
+    expect(entry.header("Cache-Control")).toBe(
+      "public, max-age=31536000, immutable",
+    );
+    // The siblings the emitter wrote are negotiated from the moved dir too.
+    let checked = 0;
+    for (const asset of assets) {
+      for (const encoding of Object.keys(asset.siblings)) {
+        const res = await drive(app, `${ASSET_PREFIX}${asset.file}`, {
+          "Accept-Encoding": encoding,
+        });
+        expect(res.header("Content-Encoding")).toBe(encoding);
+        expect(DECODE[encoding]!(res.bytes)).toEqual(
+          (
+            await drive(app, `${ASSET_PREFIX}${asset.file}`, {
+              "Accept-Encoding": "identity",
+            })
+          ).bytes,
+        );
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+    // A miss under the prefix still 404s rather than being answered with HTML.
+    const gone = await drive(app, `${ASSET_PREFIX}main-deadbeef.js`, {});
+    expect(gone.status).toBe(404);
+    expect(gone.header("Cache-Control")).toBe("no-store");
+  });
+
+  it("hands `/assets/*` back to the app — the collision this option exists for", async () => {
+    // The point of the whole feature, as one request asked of two dists.
+    //
+    // Built and served the DEFAULT way, a file of the app's own under
+    // `/assets/` is a 404 that cannot be recovered from downstream: the path is
+    // classified as an immutable asset, the bundle does not hold it, and an
+    // asset miss must never be answered with the HTML shell (invariant #1). It
+    // is asserted here rather than described, because it is the behaviour that
+    // makes the option necessary — and if it ever stops being true, this test
+    // should say so rather than a comment quietly going stale.
+    writeFileSync(join(clientDir, "main.ts"), splitSource());
+    const conventional = join(work, "dist-default");
+    await buildSurfaceClient({
+      entrypoint: join(clientDir, "main.ts"),
+      distDir: conventional,
+      htmlTemplate: join(clientDir, "index.html"),
+      entryHtmlPlaceholder: `src="./main.ts"`,
+      commit: "abc1234",
+    });
+    const shadowed = await drive(
+      freshStaticLayer({ root: conventional }),
+      "/assets/notes.md",
+      {},
+    );
+    expect(shadowed.status).toBe(404);
+
+    // Moved under a prefix of the app's own, the same path is an ordinary
+    // unmatched one: it reaches the no-store SPA shell, and the app's router
+    // gets to say what it means.
+    await build();
+    const res = await drive(layer(), "/assets/notes.md", {});
+    expect(res.status).toBe(200);
+    expect(res.header("Cache-Control")).toBe("no-store");
+    expect(res.text).toContain("<!doctype html>");
+    expect(res.header("Content-Type")).toContain("text/html");
+  });
+
+  it("refuses a prefix the build could never have written under", async () => {
+    // Fail fast where it is composed, not as a 404 in somebody's browser.
+    writeFileSync(join(clientDir, "main.ts"), splitSource());
+    await expect(
+      buildSurfaceClient({
+        entrypoint: join(clientDir, "main.ts"),
+        distDir,
+        htmlTemplate: join(clientDir, "index.html"),
+        entryHtmlPlaceholder: `src="./main.ts"`,
+        commit: "abc1234",
+        assetPrefix: "/_olai/assets",
+      }),
+    ).rejects.toThrow(/start and end/);
+  });
+});

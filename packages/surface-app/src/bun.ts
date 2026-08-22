@@ -3,7 +3,8 @@
  *
  * The freshness contract (`index.ts` invariant #1) is only correct for
  * *content-hashed* assets pinned `immutable` behind a *no-store* shell that
- * names them. Producing that layout — hashed `/assets/*` filenames, the build
+ * names them. Producing that layout — hashed asset filenames under one prefix,
+ * the build
  * commit published on the shell global (`SHELL_COMMIT_GLOBAL`, via
  * `injectShellCommit` — in the `no-store` shell, NEVER a `define` into the
  * hashed bundle; kolu#1319), and the shell rewritten to point at the hashed
@@ -51,12 +52,26 @@
  * Both were paid upstream the way the `serveSurfaceApp` listener sequence and
  * the RPC frame cap were: by REMOVING the choice where the right answer is
  * universal, so the consumer's build script gets shorter rather than wider.
+ *
+ * The ONE option about the dist's shape is `assetPrefix`, and it is here
+ * because the right answer is NOT universal: it is a fact about whose URL space
+ * the app is serving. Every rule above is about how the dist works, and the
+ * answer is the same for every app; where the hashed dir SITS is about what
+ * else lives at `/`. olai serves a person's own directory of files there, so
+ * `/assets/notes.md` is one of their pages, and a miss under the immutable
+ * prefix 404s by design rather than reaching the shell — the bundle's default
+ * home makes a whole folder of theirs unaddressable. `FreshnessPaths` has taken
+ * that prefix on the SERVING side since the freshness contract was written, and
+ * Vite-built clients set it through Vite's own `build.assetsDir`; this half is
+ * the one that had no way to say it, which made the existing input unusable.
+ * `assetDirOf` (`./index`) keeps it ONE setting: the request prefix is the
+ * dist-relative directory, so there is no second place for the two to disagree.
  */
 
 import { existsSync } from "node:fs";
 import { cp, mkdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { ASSET_DIR, DEFAULT_ASSET_PREFIX, injectShellHead } from "./index";
+import { assetDirOf, DEFAULT_ASSET_PREFIX, injectShellHead } from "./index";
 import { type ChunkGraph, staticImportChunks } from "./modulePreload";
 import {
   type AssetReport,
@@ -129,7 +144,7 @@ const bun = (): BunLike => {
 export type { AssetReport } from "./precompress";
 
 /** An extra content-hashed asset the app produces with its own toolchain (e.g.
- *  Tailwind CSS), to be emitted under `/assets/<name>-<hash>.<ext>` with the same
+ *  Tailwind CSS), to be emitted under `<assetPrefix><name>-<hash>.<ext>` with the
  *  `immutable` contract as the JS bundle. The app builds the bytes; the helper
  *  hashes, names, writes, and rewrites the shell to point at the hashed URL. */
 export interface SurfaceClientExtraAsset {
@@ -148,15 +163,17 @@ export interface SurfaceClientExtraAsset {
 export interface SurfaceClientBuildOptions {
   /** The client entrypoint, e.g. `<clientDir>/main.tsx`. */
   entrypoint: string;
-  /** The dist root to emit into. Hashed assets land under `<distDir>/assets/`;
-   *  the rewritten no-store shell lands at `<distDir>/index.html`. */
+  /** The dist root to emit into. Hashed assets land under `<distDir>/` +
+   *  `assetPrefix` (`assets/` by default); the rewritten no-store shell lands
+   *  at `<distDir>/index.html`. */
   distDir: string;
   /** The HTML shell template (e.g. `<clientDir>/index.html`) — rewritten to
    *  reference the hashed asset URLs and written to `<distDir>/index.html`. The
    *  shell stays unhashed at the root (`installFreshStatic` serves it `no-store`). */
   htmlTemplate: string;
   /** The exact substring in the template that references the JS entry in dev
-   *  (e.g. `src="./main.tsx"`), replaced with the hashed `/assets/<entry>-<hash>.js`. */
+   *  (e.g. `src="./main.tsx"`), replaced with the hashed
+   *  `<assetPrefix><entry>-<hash>.js`. */
   entryHtmlPlaceholder: string;
   /** The app's Bun bundler plugins (e.g. the Solid JSX transform). */
   plugins?: unknown[];
@@ -169,9 +186,18 @@ export interface SurfaceClientBuildOptions {
   /** Extra content-hashed assets (e.g. the Tailwind CSS bundle). */
   extraAssets?: SurfaceClientExtraAsset[];
   /** A directory copied verbatim into the dist root (icons, etc.). These sit
-   *  OUTSIDE `/assets/`, so they are referenced by stable paths and not pinned
-   *  immutable. */
+   *  OUTSIDE the hashed dir, so they are referenced by stable paths and not
+   *  pinned immutable. */
   publicDir?: string;
+  /** Where the hashed assets are served from, and so where they are written:
+   *  the same `FreshnessPaths.assetPrefix` this dist's server is given
+   *  (default `/assets/`). Say it here ONLY to move the bundle out of a URL
+   *  space that is not the app's to spend — an app serving somebody else's
+   *  directory at `/` needs `/assets/…` back, and a miss under this prefix
+   *  404s rather than reaching the shell, so a file of theirs under it has no
+   *  page at all. {@link assetDirOf} derives the dist-relative directory and is
+   *  the whole of the agreement between the two halves. */
+  assetPrefix?: string;
   /** Minify the JS bundle (default `true`). */
   minify?: boolean;
 }
@@ -182,6 +208,11 @@ export interface SurfaceClientBuildResult {
   jsHref: string;
   /** Hashed URLs of the extra assets, keyed by their `name`. */
   assetHrefs: Record<string, string>;
+  /** The prefix every href above sits under — what the SERVER for this dist has
+   *  to be given as `FreshnessPaths.assetPrefix`. Reported rather than left
+   *  implicit because the two halves are one setting: a caller that wires this
+   *  value through cannot pin a prefix its own build did not write under. */
+  assetPrefix: string;
   /** The hashed URLs this build named as `<link rel="modulepreload">` — the
    *  entry's static chunks, transitively, in load order. Empty when the entry
    *  did not split. Reported for the same reason `jsHref` is: a caller that also
@@ -197,7 +228,8 @@ export interface SurfaceClientBuildResult {
 }
 
 /** Build a surface-app client bundle that satisfies the freshness contract:
- *  content-hashed `/assets/*` (the prerequisite for `immutable` caching), the
+ *  content-hashed assets under `assetPrefix` (the prerequisite for `immutable`
+ *  caching), the
  *  build commit published on the shell global (`window.__SURFACE_APP_COMMIT__`
  *  in the `no-store` `index.html` — never inside a hashed asset; kolu#1319),
  *  the shell rewritten to name the hashed assets, and a `modulepreload` link for
@@ -215,18 +247,22 @@ export async function buildSurfaceClient(
 ): Promise<SurfaceClientBuildResult> {
   const Bun = bun();
   const distDir = resolve(opts.distDir);
-  const assetsDir = resolve(distDir, ASSET_DIR);
+  const assetPrefix = opts.assetPrefix ?? DEFAULT_ASSET_PREFIX;
+  // The prefix IS the directory (`assetDirOf`), which is what keeps a moved
+  // bundle one setting rather than two: there is no second place to say where
+  // the files went, so the shell's hrefs and the bytes on disk cannot part.
+  const assetsDir = resolve(distDir, assetDirOf(assetPrefix));
   /** A file in the hashed dir, as the shell must name it — for the entry, the
-   *  preloaded chunks and the extra assets alike, off the same
-   *  `DEFAULT_ASSET_PREFIX` the server pins `immutable` (`isImmutableAssetPath`),
-   *  so an href this build writes cannot land outside the prefix that build's
-   *  own server caches it under. */
-  const assetHref = (file: string) => `${DEFAULT_ASSET_PREFIX}${file}`;
+   *  preloaded chunks and the extra assets alike, off the same prefix the
+   *  server pins `immutable` (`isImmutableAssetPath`), so an href this build
+   *  writes cannot land outside the prefix that build's own server caches it
+   *  under. */
+  const assetHref = (file: string) => `${assetPrefix}${file}`;
   await mkdir(assetsDir, { recursive: true });
   const commit = opts.commit ?? resolveCommit(opts.commitEnvVar);
 
   // JS bundle. `naming` carries a `[hash]` token so the entry lands at
-  // `/assets/<name>-<hash>.js` — a content hash is the prerequisite for the
+  // `<assetPrefix><name>-<hash>.js` — a content hash is the prerequisite for the
   // server's `immutable` pin: the byte-identical bundle keeps its URL across
   // rebuilds, a changed one gets a new URL, so an installed client pins assets
   // for a year yet always converges after a deploy. NO commit define: the
@@ -237,7 +273,7 @@ export async function buildSurfaceClient(
   //
   // `splitting` is on and is not an option (module header): a dynamic `import()`
   // in the app's source is what asks for a chunk, and the same `[hash]` naming
-  // covers chunks, so a split-out chunk lands in the same immutable `/assets/`
+  // covers chunks, so a split-out chunk lands in the same immutable hashed
   // dir and is referenced from the entry by a relative URL that resolves inside
   // it. An app with no dynamic import gets the single file it always got.
   const jsResult = await Bun.build({
@@ -289,7 +325,7 @@ export async function buildSurfaceClient(
   );
 
   // Extra assets (e.g. Tailwind CSS): the app builds the bytes; we hash them on
-  // their own content, write `/assets/<name>-<hash>.<ext>`, and key the href by
+  // their own content, write `<assetPrefix><name>-<hash>.<ext>`, and key the href by
   // `name` so the shell rewrite and the return value agree. Same immutable
   // contract as the JS bundle — identical bytes keep their URL.
   const assetHrefs: Record<string, string> = {};
@@ -308,7 +344,7 @@ export async function buildSurfaceClient(
   }
 
   // index.html is the no-store SPA shell — it stays UNHASHED at the root and is
-  // rewritten to reference the hashed `/assets/*` URLs. The shell is always
+  // rewritten to reference the hashed asset URLs. The shell is always
   // re-fetched; the assets it names are pinned immutable — the whole contract.
   // Each placeholder MUST be present: a `replaceAll` that matches nothing is a
   // silent no-op, so a typo'd or stale template would build "successfully" yet
@@ -345,7 +381,7 @@ export async function buildSurfaceClient(
   await Bun.write(resolve(distDir, "index.html"), html);
 
   // Static public assets (icons, etc.) shipped verbatim to the dist root, OUTSIDE
-  // `/assets/` (referenced by stable paths, not pinned immutable).
+  // the hashed dir (referenced by stable paths, not pinned immutable).
   if (opts.publicDir) {
     const publicDir = resolve(opts.publicDir);
     if (!existsSync(publicDir))
@@ -364,5 +400,5 @@ export async function buildSurfaceClient(
   await pruneAssets(assetsDir, produced);
   const assets = await precompressAssets(assetsDir);
 
-  return { jsHref, assetHrefs, preloadHrefs, assets };
+  return { jsHref, assetHrefs, assetPrefix, preloadHrefs, assets };
 }

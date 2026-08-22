@@ -40,6 +40,7 @@ import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcServer } from "effect/unstable/rpc";
 import { Socket, SocketServer } from "effect/unstable/socket";
 import {
+  assetDirOf,
   ASSET_MISS_CACHE_CONTROL,
   cacheControlFor,
   DEFAULT_ASSET_PREFIX,
@@ -150,6 +151,14 @@ export function freshStaticLayer(
   // shell and this is a misconfiguration, not a degraded mode. Thrown from the
   // layer CONSTRUCTOR, not its build, so a misconfigured app dies where it is
   // composed rather than mid-boot.
+  //
+  // The prefix's own SHAPE is asserted by the same derivation the Bun build
+  // reads it through (`assetDirOf`) — called for the check, since the directory
+  // it returns is the builder's business and not this layer's. One reading, so
+  // a prefix a build refused cannot be one a server accepts: `/assetsX` without
+  // its trailing slash would silently pin `/assetsXtra/` immutable here while
+  // no build would ever have written there.
+  assetDirOf(assetPrefix);
   const shellPaths = opts.shellPaths ?? DEFAULT_SHELL_PATHS;
   if (shellPaths.some((p) => isImmutableAssetPath(p, opts))) {
     throw new Error(
