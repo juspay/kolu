@@ -26,6 +26,14 @@ transport stays with your app, and the run edge stays with your binary.
 `@kolu/surface-cli` subpath. It is a **pure function to values** — it starts
 nothing, reads no argv, and runs no program.
 
+It mounts four commands that are **not** verbs — `get`, `keys`, `watch`,
+`list` — and it cannot see what else you mount beside them, because it does not
+own the parent: a host subcommand of the same name is invisible here and the
+parser answers with whichever it meets first. The names are exported as
+`READER_NAMES` so you can assert against them; better still, mount the
+projection under a parent of its own (`app surface get load`), which claims no
+name at all.
+
 | Option | Meaning |
 | --- | --- |
 | `surface` | the `Surface<S>` being projected (`expose` is checked against its `spec` at build) |
@@ -214,6 +222,7 @@ print and return success, so they never reach it.)
 | Export | Role |
 | --- | --- |
 | `EXIT` | the matrix above, as data |
+| `READER_NAMES` | the four names this face mounts that are not verbs (`get` · `keys` · `watch` · `list`) — the fact a host needs to check its own subcommands against, since `surfaceCommands` cannot see them |
 | `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to an `InputProjection`: the command config, plus the `assemble(values, stdin)` that reads a parsed config back into the verb's encoded input. `stdin` is an **Effect**, described rather than read, so the descriptor is touched only on the `--json -` path and no caller has to ask first |
 | `runEdge(binary, error)` | → `{ stderr, failure }` — what a host's run edge should write and re-fail with, so the exit matrix is true of a real binary |
 | `SurfaceCliFailure` | the failure class carrying both the text and the code |

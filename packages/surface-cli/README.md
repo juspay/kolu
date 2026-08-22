@@ -23,7 +23,9 @@ export const cli = Command.make("example").pipe(Command.withSubcommands(verbs));
 ```
 
 `surfaceCommands` is a pure function to **values** — your binary mounts them and
-keeps the run edge. stdout is data (JSON, ndjson when streamed), stderr is prose,
+keeps the run edge. It claims four subcommand names beside your own (`get`,
+`keys`, `watch`, `list` — exported as `READER_NAMES`), so mount it under a
+parent of its own (`app surface …`) or check your names against them. stdout is data (JSON, ndjson when streamed), stderr is prose,
 and the exit code says which happened: `0` done · `1` the verb's declared
 refusal · `2` a usage error that never left the process · `3` nothing serving ·
 `130` interrupted.

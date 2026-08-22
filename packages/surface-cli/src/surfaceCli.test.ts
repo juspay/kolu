@@ -327,7 +327,14 @@ describe("the flag shapes a verb's input projects to", () => {
       "why=test",
     ]);
     expect(killed.code).toBe(EXIT.ok);
-    expect(JSON.parse(killed.stdout)).toEqual({ ok: true });
+    expect(JSON.parse(killed.stdout)).toMatchObject({
+      ok: true,
+      saw: {
+        signal: "TERM",
+        because: ["noisy", "slow"],
+        labels: { team: "infra", why: "test" },
+      },
+    });
   });
 
   it("refuses a value the enum does not admit, without dialling anything", async () => {
@@ -358,6 +365,55 @@ describe("the flag shapes a verb's input projects to", () => {
     const both = await run(["proc_kill", "7", "--json", '{"pid":7}']);
     expect(both.code).toBe(EXIT.usage);
     expect(both.stderr).toContain("--json");
+  });
+
+  it("keeps the boolean flag a TRISTATE — said, said-not, and not said are three payloads", async () => {
+    // `Flag.boolean` without a parser default is what makes this possible, and
+    // it is load-bearing: a verb cannot tell "the caller asked for false" from
+    // "the caller said nothing" if the projection invents one. Each case spends
+    // its own pid, since a kill succeeds at most once per pid.
+    const said = await run(["proc_kill", "101", "--force"]);
+    expect(said.code).toBe(EXIT.ok);
+    expect(JSON.parse(said.stdout)).toMatchObject({ saw: { force: true } });
+
+    const denied = await run(["proc_kill", "102", "--no-force"]);
+    expect(denied.code).toBe(EXIT.ok);
+    expect(JSON.parse(denied.stdout)).toMatchObject({ saw: { force: false } });
+
+    const silent = await run(["proc_kill", "103"]);
+    expect(silent.code).toBe(EXIT.ok);
+    const saw = (JSON.parse(silent.stdout) as { saw: Record<string, unknown> })
+      .saw;
+    expect(Object.hasOwn(saw, "force")).toBe(false);
+  });
+
+  it("takes the float, the plain string and the deep field's own JSON", async () => {
+    const killed = await run([
+      "proc_kill",
+      "104",
+      "--after",
+      "1.5",
+      "--reason",
+      "it stopped answering",
+      "--trace",
+      '{"id":"abc"}',
+    ]);
+    expect(killed.code).toBe(EXIT.ok);
+    expect(JSON.parse(killed.stdout)).toMatchObject({
+      saw: {
+        after: 1.5,
+        reason: "it stopped answering",
+        trace: { id: "abc" },
+      },
+    });
+  });
+
+  it("refuses a deep field whose value is not JSON, naming the flag", async () => {
+    const nope = await run(["proc_kill", "7", "--trace", "nope"], {
+      socket: deadSocket,
+    });
+    expect(nope.code).not.toBe(EXIT.ok);
+    expect(`${nope.stdout}${nope.stderr}`).toContain("trace");
   });
 
   it("takes a bespoke verb's scalar input as the bare positional", async () => {
@@ -563,6 +619,19 @@ describe("the whole-input escape hatch is reachable on every verb", () => {
     // be this face's own — with this face's own exit code, and naming the
     // alternative the parser could not know about.
     const bare = await run(["proc_kill"], { socket: deadSocket });
+    expect(bare.code).toBe(EXIT.usage);
+    expect(bare.stderr).toContain("pid");
+    expect(bare.stderr).toContain("--json");
+  });
+
+  it("names the missing required field through --json too, in the SAME words", async () => {
+    // Requiredness had two enforcers wording one mistake differently: the field
+    // path named the field, while the documented alternative got "this input
+    // does not match what the verb declares — {}" from the decode. The caller
+    // who takes the documented route got the worse diagnostic.
+    const bare = await run(["proc_kill", "--json", "{}"], {
+      socket: deadSocket,
+    });
     expect(bare.code).toBe(EXIT.usage);
     expect(bare.stderr).toContain("pid");
     expect(bare.stderr).toContain("--json");

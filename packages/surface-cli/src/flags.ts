@@ -78,7 +78,7 @@ type JsonSchema = Record<string, unknown>;
 type Param = Flag.Flag<any> | Argument.Argument<any>;
 
 /** The name of the whole-input escape hatch. A verb whose input declares a
- *  field spelled the same is refused at build (see {@link projectInput}) rather
+ *  field spelled the same is refused at build (see {@link flagsOf}) rather
  *  than shipping a command with two meanings for one flag. */
 export const JSON_FLAG = "json";
 
@@ -261,13 +261,7 @@ export function flagsOf(
   schema: WireSchemaAny | undefined,
   opts?: { readonly positional?: readonly string[] },
 ): InputProjection {
-  return projectInput(schema, opts?.positional ?? []);
-}
-
-function projectInput(
-  schema: WireSchemaAny | undefined,
-  positional: readonly string[],
-): InputProjection {
+  const positional = opts?.positional ?? [];
   const built = inputSchema(schema);
   const doc = built.schema as JsonSchema;
   const config: Record<string, Param> = {};
@@ -392,6 +386,25 @@ function projectInput(
       (name) => values[name] !== undefined,
     );
 
+  /** The missing REQUIRED fields of an assembled input, named — or `undefined`
+   *  when nothing is missing.
+   *
+   *  Run on whatever produced the input, both branches alike: a caller who takes
+   *  the documented alternative (`--json '{}'`) was told only "this input does
+   *  not match what the verb declares", while the same omission through the field
+   *  flags named the field. One rule, one enforcer, one wording. A non-record
+   *  input is left to the decode, which refuses it for what it is. */
+  const missingFrom = (input: unknown): string | undefined =>
+    typeof input !== "object" || input === null || Array.isArray(input)
+      ? undefined
+      : namesMissing(
+          [...required].filter(
+            (name) =>
+              (input as Record<string, unknown>)[name] === undefined &&
+              Object.hasOwn(properties, name),
+          ),
+        );
+
   return {
     config,
     assemble: (values, stdin) =>
@@ -400,12 +413,16 @@ function projectInput(
           return { ok: false, because: fromJson.why };
         const supplied = suppliedIn(values);
         if (fromJson.kind === "given") {
-          return supplied.length === 0
+          if (supplied.length > 0) {
+            return {
+              ok: false,
+              because: `--${JSON_FLAG} carries the whole input, so it cannot be combined with ${supplied.map((n) => `"${n}"`).join(", ")} — pass one or the other.`,
+            };
+          }
+          const short = missingFrom(fromJson.value);
+          return short === undefined
             ? { ok: true, input: fromJson.value }
-            : {
-                ok: false,
-                because: `--${JSON_FLAG} carries the whole input, so it cannot be combined with ${supplied.map((n) => `"${n}"`).join(", ")} — pass one or the other.`,
-              };
+            : { ok: false, because: short };
         }
         const input: Record<string, unknown> = {};
         for (const name of supplied) input[name] = values[name];
@@ -413,21 +430,21 @@ function projectInput(
           if (input[name] === undefined) input[name] = fallback;
         }
         // Requiredness, enforced HERE because this is the only layer that can
-        // see that `--json` was not the answer. The parser cannot: it would have
-        // to refuse before knowing.
-        const missing = [...required].filter(
-          (name) =>
-            input[name] === undefined && Object.hasOwn(properties, name),
-        );
-        if (missing.length > 0) {
-          return {
-            ok: false,
-            because: `this verb needs ${missing.map((n) => `"${n}"`).join(", ")} — pass ${missing.length === 1 ? "it" : "them"}, or the whole input with --${JSON_FLAG}.`,
-          };
-        }
-        return { ok: true, input };
+        // see BOTH inputs. The parser cannot: it would have to refuse before
+        // knowing whether `--json` was the answer.
+        const short = missingFrom(input);
+        return short === undefined
+          ? { ok: true, input }
+          : { ok: false, because: short };
       }),
   };
+}
+
+/** The sentence a missing-required refusal carries, or `undefined` for none.
+ *  One wording, whichever branch assembled the input. */
+function namesMissing(missing: readonly string[]): string | undefined {
+  if (missing.length === 0) return undefined;
+  return `this verb needs ${missing.map((n) => `"${n}"`).join(", ")} — pass ${missing.length === 1 ? "it" : "them"}, or the whole input with --${JSON_FLAG}.`;
 }
 
 /** One reading of `--json`. Three answers, because "absent" and "present but

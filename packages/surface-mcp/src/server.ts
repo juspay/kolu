@@ -366,7 +366,9 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   const dropConn = (conn: OwnedSurfaceConnection): void => {
     if (state.t !== "live" || state.conn !== conn) return;
     state = { t: "idle" };
-    conn.dispose();
+    // Fire and forget: the framework's `dispose` may be async (one shape for
+    // both faces), and this slot has already stopped pointing at the connection.
+    void conn.dispose();
   };
   // Teardown: move to the terminal state FIRST (so a still-pending dial finds
   // no slot to publish into and disposes its own result — see `dialOnce`), then
@@ -957,19 +959,6 @@ function readFirstFrameSnapshot(
   );
 }
 
-/** Hard upper bound on a one-shot collection-item read. The read is bounded by
- *  this deadline so a quiet producer can never hang it: a collection with no
- *  `keys` verb has no membership signal to resolve an absent key against at all,
- *  and one WITH a `keys` verb can still keep saying "still a member" while the
- *  item stream says nothing. Both bounds are always armed — see
- *  {@link readCollectionItemSnapshot}.
- *
- *  The NUMBER is the framework's, beside the reader it bounds: this adapter has
- *  no information about "how long may a local read wait" that the CLI face
- *  lacks, and the two spelled the same `5_000` independently until the constant
- *  existed. The local name stays because the sentence above is this face's. */
-const KEYSLESS_ITEM_READ_DEADLINE_MS = ITEM_READ_DEADLINE_MS;
-
 /** One-shot read of a collection-item URI, BOUNDED against `collectionHandlers.get`'s
  *  held-open-on-absent semantic (#1681): the item `get` yields nothing until the key
  *  is a member, so taking its first frame ALONE hangs forever on a not-yet-present
@@ -1014,7 +1003,15 @@ function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
       `${uri} (collection-item) yielded no snapshot frame — a PRESENT ` +
         "collection item opens with a current-value snapshot, so an empty open means " +
         "the bridge link dropped, not that the value is null.",
-      KEYSLESS_ITEM_READ_DEADLINE_MS,
+      // The hard upper bound, so a quiet producer can never hang this read: a
+      // collection with no `keys` verb has no membership signal to resolve an
+      // absent key against at all, and one WITH a `keys` verb can still keep
+      // saying "still a member" while the item stream says nothing. Both bounds
+      // are always armed. The NUMBER is the framework's, beside the reader it
+      // bounds — this adapter knows nothing about "how long may a local read
+      // wait" that the CLI face does not, and the two spelled the same `5_000`
+      // independently until the constant existed.
+      ITEM_READ_DEADLINE_MS,
     ),
     (frame): Effect.Effect<Snapshot | ReadMiss, unknown> => {
       if (frame.present)
@@ -1031,7 +1028,7 @@ function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
       return Effect.sync(() => {
         console.error(
           brand(
-            `${uri} — the read of "${item.key}" hit its ${KEYSLESS_ITEM_READ_DEADLINE_MS}ms deadline before the item produced a snapshot, so this not-present is UNCONFIRMED rather than a known absence`,
+            `${uri} — the read of "${item.key}" hit its ${ITEM_READ_DEADLINE_MS}ms deadline before the item produced a snapshot, so this not-present is UNCONFIRMED rather than a known absence`,
           ),
         );
         return { miss: "not-present" };

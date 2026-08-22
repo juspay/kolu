@@ -28,6 +28,7 @@ export {
 export {
   type EndpointSeam,
   type ProjectedCommand,
+  READER_NAMES,
   type ResolvedEndpoint,
   surfaceCommands,
   type SurfaceCliConnection,

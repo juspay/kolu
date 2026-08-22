@@ -93,19 +93,19 @@ import {
   toInputSchema,
   toolName,
 } from "@kolu/surface/verbs";
-import { Cause, Effect, Option, Schema, Stdio, Stream } from "effect";
+import type { Stdio } from "effect";
+import { Cause, Effect, Option, Schema, Stream } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import {
   classify,
-  EXIT,
   LinkDropped,
-  SurfaceCliFailure,
+  type SurfaceCliFailure,
   unreachable,
   unresolvable,
   usage,
 } from "./exit";
 import { flagsOf, type InputProjection, SurfaceCliBuildError } from "./flags";
-import { data, frame, out } from "./render";
+import { data, frame, present, readStdin } from "./io";
 
 /** A live connection this face owns for the length of ONE command.
  *
@@ -236,11 +236,18 @@ export interface ResolvedEndpoint {
   readonly open: () => Promise<SurfaceCliConnection> | SurfaceCliConnection;
 }
 
-/** The commands this face mounts that are NOT verbs. Declared once, because two
- *  readers of the fact exist and they must agree: the builders below mint them,
- *  and the verb-name collision check refuses a bespoke verb that would shadow
- *  one. */
-const READER_NAMES = ["get", "keys", "watch", "list"] as const;
+/** The commands this face mounts that are NOT verbs. Declared once, because the
+ *  readers of the fact must agree: the builders below mint them, and the
+ *  verb-name collision check refuses a bespoke verb that would shadow one.
+ *
+ *  EXPORTED because there is a third reader this function cannot be — the HOST.
+ *  `surfaceCommands` does not own the parent it is mounted under, so a host verb
+ *  of the same name is invisible here and answered by whichever the parser meets
+ *  first, which is precisely the failure the in-package check exists to prevent
+ *  one layer down. A host either asserts its own subcommand names against this,
+ *  or mounts the projection under a parent of its own (`olai surface …`), which
+ *  is the arrangement to prefer — it takes no names at all. */
+export const READER_NAMES = ["get", "keys", "watch", "list"] as const;
 
 /** A runtime-assembled command. The tree is built from a spec walk, so its type
  *  parameters carry nothing a caller could trust — the host mounts the values
@@ -268,11 +275,16 @@ export function surfaceCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
   opts: SurfaceCliOptions<S, F, R>,
 ): ReadonlyArray<ProjectedCommand<Stdio.Stdio | R>> {
   const entries = classifyExpose(opts.surface.spec, opts.expose, "surface-cli");
+  // Each table derived ONCE from the entries and handed to both its readers.
+  // `list` is this face's authoritative answer to "what can I address", and an
+  // authoritative answer computed separately from the thing it describes is one
+  // edit away from describing something else.
   const verbs = callableVerbs(opts, entries);
+  const readable = readables(entries);
   return [
     ...verbs.map((verb) => verbCommand(opts, verb)),
-    ...readerCommands(opts, entries),
-    listCommand(opts, verbs, entries),
+    ...readerCommands(opts, readable),
+    listCommand(opts, verbs, readable),
   ];
 }
 
@@ -425,13 +437,17 @@ function verbCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
     verb.name,
     mergeConfig(opts, verb.name, verb.projection.config),
     (values: Record<string, unknown>) => runVerb(opts, verb, values),
-  ).pipe(
-    Command.withDescription(
-      verb.mutates
-        ? (verb.description ?? `Call ${verb.name}.`)
-        : `${verb.description ?? `Call ${verb.name}.`} (read-only)`,
-    ),
-  ) as ProjectedCommand<Stdio.Stdio | R>;
+  ).pipe(Command.withDescription(blurb(verb))) as ProjectedCommand<
+    Stdio.Stdio | R
+  >;
+}
+
+/** A verb's `--help` line: its own description, or a plain sentence naming it,
+ *  with the read-only marker where it belongs. Spelled ONCE — the fallback used
+ *  to appear in both arms of one ternary, with only the suffix differing. */
+function blurb(verb: CallableVerb): string {
+  const said = verb.description ?? `Call ${verb.name}.`;
+  return verb.mutates ? said : `${said} (read-only)`;
 }
 
 /** Merge the endpoint flags into a command's own config, refusing a collision.
@@ -498,26 +514,9 @@ function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
     const output = yield* withConnection(opts, values, (client) =>
       verb.call(client, verb.reading === "decoded" ? decoded : encoded),
     );
-    yield* writeOutput(verb, output);
-  });
-}
-
-/** Write a verb's answer: the author's renderer on a terminal, JSON otherwise.
- *
- *  A pipe ALWAYS gets JSON, which is why there is no flag to force it: a script
- *  never has to remember one, and `--json` on a verb keeps its single meaning
- *  (the whole input). A human on a TTY who wants the JSON pipes it. */
-function writeOutput(
-  verb: CallableVerb,
-  output: unknown,
-): Effect.Effect<void, never, Stdio.Stdio> {
-  return Effect.gen(function* () {
-    const render = verb.annotation.render;
-    if (render === undefined) return yield* data(output);
-    const tty = yield* (yield* Stdio.Stdio).stdoutIsTerminal;
-    if (!tty) return yield* data(output);
-    const text = render(output);
-    yield* out(text.endsWith("\n") ? text : `${text}\n`);
+    // The author's renderer on a terminal, the JSON data through a pipe —
+    // `io.ts` owns that branch, so this file never asks what stdout is.
+    yield* present(output, verb.annotation.render);
   });
 }
 
@@ -617,9 +616,8 @@ const memberArgument = (label: string, names: readonly string[]) =>
 
 function readerCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
   opts: SurfaceCliOptions<S, F, R>,
-  entries: readonly ExposeEntry[],
+  table: Map<string, Readable>,
 ): Array<ProjectedCommand<Stdio.Stdio | R>> {
-  const table = readables(entries);
   if (table.size === 0) return [];
   const collections = [...table.values()].filter(
     (r) => r.kind === "collection",
@@ -1018,7 +1016,7 @@ interface ListTable {
 function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
   opts: SurfaceCliOptions<S, F, R>,
   verbs: readonly CallableVerb[],
-  entries: readonly ExposeEntry[],
+  readable: Map<string, Readable>,
 ): ProjectedCommand<Stdio.Stdio | R> {
   const table: ListTable = {
     verbs: verbs.map((verb) => ({
@@ -1031,9 +1029,9 @@ function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
         : { description: verb.description }),
       input: toInputSchema(verb.schema),
     })),
-    resources: [...readables(entries).values()].map((readable) => ({
-      name: readable.name,
-      kind: readable.kind,
+    resources: [...readable.values()].map((member) => ({
+      name: member.name,
+      kind: member.kind,
     })),
   };
   return Command.make(
@@ -1058,31 +1056,35 @@ function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
   ) as ProjectedCommand<Stdio.Stdio | R>;
 }
 
+/** `list` answers with the same discipline every verb does: its `--json` switch
+ *  forces the data frame, and otherwise it is the aligned table for a human and
+ *  the JSON through a pipe — the ONE branch, in `io.ts`, rather than a second
+ *  mechanism this command reinvents. */
 function runList(
   table: ListTable,
   asJson: boolean,
 ): Effect.Effect<void, never, Stdio.Stdio> {
-  return Effect.gen(function* () {
-    if (asJson) return yield* data(table);
-    // Text is for a HUMAN, so a pipe gets the JSON: `list | jq` must not have to
-    // remember the flag, for the same reason a verb's answer is JSON in a pipe.
-    const tty = yield* (yield* Stdio.Stdio).stdoutIsTerminal;
-    if (!tty) return yield* data(table);
-    const width = Math.max(
-      0,
-      ...table.verbs.map((verb) => verb.name.length),
-      ...table.resources.map((resource) => resource.name.length),
-    );
-    const lines = [
-      ...table.verbs.map((verb) =>
-        `${verb.name.padEnd(width)}  ${verb.mutates ? "writes" : "reads "}  ${verb.description ?? ""}`.trimEnd(),
-      ),
-      ...table.resources.map((resource) =>
-        `${resource.name.padEnd(width)}  ${resource.kind}`.trimEnd(),
-      ),
-    ];
-    yield* out(`${lines.join("\n")}\n`);
-  });
+  return asJson ? data(table) : present(table, alignedTable);
+}
+
+/** The table as a human reads it: one line per verb and per readable member,
+ *  names padded to a common width. A plain renderer, so it is the same kind of
+ *  thing a verb's `annotate.render` is. */
+function alignedTable(value: unknown): string {
+  const table = value as ListTable;
+  const width = Math.max(
+    0,
+    ...table.verbs.map((verb) => verb.name.length),
+    ...table.resources.map((resource) => resource.name.length),
+  );
+  return [
+    ...table.verbs.map((verb) =>
+      `${verb.name.padEnd(width)}  ${verb.mutates ? "writes" : "reads "}  ${verb.description ?? ""}`.trimEnd(),
+    ),
+    ...table.resources.map((resource) =>
+      `${resource.name.padEnd(width)}  ${resource.kind}`.trimEnd(),
+    ),
+  ].join("\n");
 }
 
 // ── The connection, for the length of one command ────────────────────────
@@ -1146,29 +1148,3 @@ function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
     ),
   );
 }
-
-/** The whole of stdin, as text — what `--json -` means.
- *
- *  Read through the `Stdio` service rather than off fd 0, for the reason
- *  `render.ts` writes through it: `Command.run` already requires it, so a
- *  handler that reads its own stdin stays inside the Effect that bounds it (a
- *  Ctrl-C mid-read interrupts the read) and a test can hand it a stream instead
- *  of a global descriptor.
- *
- *  A read that FAILS is not an empty payload. Collapsing the two reported "that
- *  is not JSON" for a descriptor that was never readable — blaming a payload
- *  nobody supplied — so the failure keeps its own words. */
-const readStdin: Effect.Effect<string, SurfaceCliFailure, Stdio.Stdio> =
-  Effect.gen(function* () {
-    const stdio = yield* Stdio.Stdio;
-    return yield* Effect.catch(
-      Stream.decodeText(stdio.stdin).pipe(Stream.mkString),
-      (cause) =>
-        Effect.fail(
-          new SurfaceCliFailure({
-            stderr: `could not read stdin for --json -: ${messageOf(cause)}\n`,
-            code: EXIT.usage,
-          }),
-        ),
-    );
-  });

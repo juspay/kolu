@@ -69,6 +69,10 @@ export class NoSuchPid extends Schema.TaggedError<NoSuchPid>(
   }
 }
 
+/** One input carrying EVERY flag shape the projection has a rule for, because a
+ *  rule with no fixture field is a rule no case can drive: the table in
+ *  `flags.ts`'s header and the fields below are meant to be read against each
+ *  other. */
 const KillArgs = Schema.Struct({
   pid: Pid,
   /** An optional field, so the projection's omit-when-absent rule is driven. */
@@ -77,6 +81,16 @@ const KillArgs = Schema.Struct({
    *  non-obvious flag shapes are driven. */
   because: Schema.optionalKey(Schema.Array(Schema.String)),
   labels: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  /** The boolean TRISTATE — `--force` / `--no-force` / neither must reach the
+   *  verb as three DIFFERENT payloads, which is the whole reason no parser
+   *  default is given. Same class of hazard as the variadic's `atLeast(1)`. */
+  force: Schema.optionalKey(Schema.Boolean),
+  /** The float arm, distinct from the integer `pid`. */
+  after: Schema.optionalKey(Schema.Finite),
+  /** The plain string arm — no enum, so not a choice flag. */
+  reason: Schema.optionalKey(Schema.String),
+  /** Not a scalar, so it takes the field's own JSON: `--trace '{"id":"x"}'`. */
+  trace: Schema.optionalKey(Schema.Struct({ id: Schema.String })),
 });
 
 export const surface = defineSurface({
@@ -113,7 +127,10 @@ export const surface = defineSurface({
     proc: {
       kill: {
         input: KillArgs,
-        output: Schema.Struct({ ok: Schema.Boolean }),
+        // It answers with WHAT IT SAW beside the verdict, so a case can pin the
+        // payload a flag shape produced — an assertion on "did it exit 0" would
+        // pass for a tristate that arrived as `false` when nobody said so.
+        output: Schema.Struct({ ok: Schema.Boolean, saw: KillArgs }),
         error: NoSuchPid,
       },
       /** No input at all — the `Schema.Void` arm of the bridge. */
@@ -157,6 +174,13 @@ const MOUNTS = new Map<string, string>([["root", "/"]]);
 const TABLE = new Map<number, typeof Proc.Type>([
   [7, { command: "vitest", cpuPct: 12.5, memPct: 3 }],
   [42, { command: "node", cpuPct: 0.5, memPct: 1 }],
+  // Spendable pids: a kill SUCCEEDS at most once per pid (it removes it), and
+  // the flag-shape cases each need a success to read `saw` off. One each, so no
+  // case depends on what another left behind.
+  [101, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [102, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [103, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [104, { command: "spendable", cpuPct: 0, memPct: 0 }],
 ]);
 
 /** The `{ group, handlers }` pair, plus the ctx a test mutates to make a
@@ -206,7 +230,7 @@ export function buildRuntime() {
           table.has(input.pid)
             ? Effect.sync(() => {
                 ctx.collections.processes.remove(input.pid);
-                return { ok: true };
+                return { ok: true, saw: input };
               })
             : Effect.fail(new NoSuchPid({ pid: input.pid })),
         count: () => Effect.succeed({ n: table.size }),

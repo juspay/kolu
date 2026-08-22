@@ -16,7 +16,7 @@ packages:
 # `catalog:` is WORKSPACE-LOCAL, so it cannot appear in the eight @kolu/surface*
 # packages: drishti and odu vendor those DIRECTORIES from a content-addressed pin
 # and install their `dependencies` from their own workspace, where kolu's catalog
-# does not exist. Those seven spell the literal version instead. Root
+# does not exist. Those eight spell the literal version instead. Root
 # `pnpm.overrides` (package.json) carries the same version a third time so
 # transitive resolution collapses to one copy here.
 #
