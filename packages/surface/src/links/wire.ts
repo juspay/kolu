@@ -304,7 +304,7 @@ export async function duplexWireLink(opts: {
   const keepAliveWentUnanswered = (error: RpcClientError): boolean =>
     error.reason._tag === "SocketOpenError" && error.reason.kind === "Timeout";
 
-  return openWireLink({
+  const link = await openWireLink({
     group: opts.group,
     protocol,
     // The classification is DATA (`death`); `reason` is only the sentence beside
@@ -332,4 +332,27 @@ export async function duplexWireLink(opts: {
         reason: `${opts.describe} link disposed; request not sent`,
       }),
   });
+
+  return {
+    dispatch: link.dispatch,
+    /** Close the protocol's scope, THEN sever the duplex this function was
+     *  handed.
+     *
+     *  The second half is not redundant, and the case it covers is the ordinary
+     *  one for a short-lived client: a link that is disposed having placed NO
+     *  request. Effect's socket protocol attaches the duplex when its run
+     *  starts, and the run starts with the first request — so on a
+     *  dial-then-dispose the scope closes over a protocol that never attached,
+     *  the `fromDuplex` release never fires, and the open descriptor keeps the
+     *  process alive with nothing left to do. (A CLI that dials, answers from a
+     *  hand-authored verb that touches no member, and exits, hung forever.)
+     *
+     *  Guarded and idempotent: when the protocol DID run, its own release has
+     *  already destroyed the duplex and this is a no-op. `dispose` on
+     *  `openWireLink` is itself idempotent, so calling this twice is safe. */
+    dispose: async () => {
+      await link.dispose();
+      if (!opts.duplex.destroyed) opts.duplex.destroy();
+    },
+  };
 }

@@ -29,7 +29,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { defineSurface } from "./define";
 import { unixSocketLink } from "./links/unix-socket";
-import type { WireLink } from "./links/wire";
+import { duplexWireLink, type WireLink } from "./links/wire";
 import {
   LIFETIME_TICK_TAG,
   lifetimeSurface,
@@ -215,6 +215,31 @@ describe("serveOverUnixSocket + unixSocketLink — real socket round-trip", () =
     const link = await connectLink(socketPath);
     expect(await double(link, 21)).toEqual({ y: 42 });
     await link.dispose();
+  });
+
+  it("severs the duplex when a link is disposed having placed NO request", async () => {
+    // The short-lived-client case, and the one that used to hang a process:
+    // Effect's socket protocol attaches the duplex when its RUN starts, and the
+    // run starts with the first request — so a dial-then-dispose closed a scope
+    // over a protocol that had never attached, `fromDuplex`'s release never
+    // fired, and the descriptor stayed open with nothing left to do. A CLI that
+    // dialled, answered from a hand-authored verb touching no member, and
+    // exited, never exited.
+    //
+    // Driven at the DUPLEX level because that is where the fact is observable:
+    // `unixSocketLink` keeps its socket to itself (rightly — it is the link's),
+    // so the only honest way to ask "is the descriptor gone?" is to be the one
+    // that opened it. `unixSocketLink` is this call with the dial folded in.
+    const socket = createConnection(socketPath);
+    await once(socket, "connect");
+    const link = await duplexWireLink({
+      group: surface.group,
+      duplex: socket,
+      describe: `unix socket ${socketPath}`,
+    });
+    expect(socket.destroyed).toBe(false);
+    await link.dispose();
+    expect(socket.destroyed).toBe(true);
   });
 
   it("accepts more than one independent client connection", async () => {

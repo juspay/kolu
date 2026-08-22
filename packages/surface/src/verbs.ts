@@ -111,7 +111,7 @@
  */
 
 import type { Effect } from "effect";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import type { WireSchemaAny } from "./define";
 
 // ── The verb record ──────────────────────────────────────────────────────
@@ -462,4 +462,63 @@ function enforceObject(schema: JsonSchema): {
   if (Object.keys(schema).length === 0)
     return { schema: emptyObjectSchema(), wrapped: false };
   return { schema: wrapSchema(schema), wrapped: true };
+}
+
+// ── The client a face holds ──────────────────────────────────────────────
+
+/** The structural shape of a served-surface client a PROJECTING FACE needs.
+ *  The concrete client is what `buildSurfaceFace` mints (a wire link's face, the
+ *  Solid client's `.rpc`, a `directDispatch`) — `.surface.<key>.<verb>(...)`,
+ *  where a streaming verb returns a `Stream` and a unary one an `Effect`. Both
+ *  are lazy: nothing dispatches until the face runs the value it was handed.
+ *
+ *  Declared here rather than reusing `SurfaceFace` (`@kolu/surface/client`)
+ *  because a face string-indexes then *calls* the leaves
+ *  (`client.surface[key].get(...)`), which `SurfaceFace`'s `unknown` leaves
+ *  forbid; and re-materializing the precise `SurfaceClientOf<S>` overflows TS's
+ *  union budget (the TS2590 dodge). Hence a callable-leaved structural shape:
+ *  permissive enough that a concrete `SurfaceClientOf<S>` assigns without a
+ *  cast, yet callable at the leaf.
+ *
+ *  It is HERE and not in either adapter because both adapters need exactly it,
+ *  and a second structural spelling of one shape is a place two faces can
+ *  disagree about what a client is. */
+export type SurfaceClientCallable = {
+  // biome-ignore lint/suspicious/noExplicitAny: the per-key call shape is the consumer's typed client; opaque here.
+  surface: Record<string, Record<string, (...args: any[]) => any>>;
+};
+
+// ── Text in, declared type out ───────────────────────────────────────────
+
+/** Land a TEXT token in a declared schema's type — the rule every schema-less
+ *  caller needs, because every schema-less caller hands scalars over as text.
+ *
+ *  Tries the token VERBATIM first: that covers `Schema.String`,
+ *  `Schema.Literal("foo")`, `Schema.Literals(["a","b"])` and any other
+ *  string-accepting schema. If the verbatim decode fails, falls back to
+ *  `JSON.parse` and re-decodes, which covers numeric (`Schema.Finite`,
+ *  `Schema.Int`) and boolean values whose text form is their JSON form (`"42"`
+ *  → `42`). A token that fails both paths is `Option.none`.
+ *
+ *  ONE rule, shared, because the two faces address the SAME items by it: the
+ *  `<id>` segment of `surface://collections/processes/42` and the argv token in
+ *  `surface get processes 42` must decode to the same key, or the two faces
+ *  address different items with the same spelling. What each face DOES with a
+ *  `none` differs — MCP treats it as an unaddressable URI, the CLI raises a
+ *  usage error naming the argument — so the answer is an `Option` and the
+ *  policy stays at the face. */
+export function decodeTextValue(
+  schema: WireSchemaAny,
+  text: string,
+): Option.Option<unknown> {
+  const decode = Schema.decodeUnknownOption(schema);
+  const direct = decode(text);
+  if (Option.isSome(direct)) return direct;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return Option.none(); // not JSON — undecodable for a non-string schema
+  }
+  return decode(parsed);
 }

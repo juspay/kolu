@@ -53,26 +53,20 @@ import { match } from "ts-pattern";
 import { COLLECTION_PREFIX, type ResourceEntry, resolveExpose } from "./expose";
 import { type PusherConnection, ResourcePusher } from "./pusher";
 import { brand, fail, failFrom, messageOf, ok, type ToolResult } from "./tools";
-import { inputSchema, type SurfaceVerb, unwrapArgs } from "@kolu/surface/verbs";
+import {
+  decodeTextValue,
+  inputSchema,
+  type SurfaceClientCallable,
+  type SurfaceVerb,
+  unwrapArgs,
+} from "@kolu/surface/verbs";
 
-/** The structural shape of a served-surface client the adapter needs. The
- *  concrete client is what `buildSurfaceFace` mints (`surfaceClientRef`, the
- *  Solid client's `.rpc`, a wire link's face) — `.surface.<key>.<verb>(...)`,
- *  where a streaming verb returns a `Stream` and a unary one an `Effect`. Both
- *  are lazy: nothing dispatches until this module runs the value it was handed,
- *  which it does once, at {@link runRequest}.
- *
- *  Declared locally rather than reusing `@kolu/surface`'s `SurfaceFace` because
- *  dispatch string-indexes then *calls* the leaves
- *  (`client.surface[key].get(...)`), which `SurfaceFace`'s `unknown` leaves
- *  forbid; and re-materializing the precise `SurfaceClientOf<S>` here overflows
- *  TS's union budget (the TS2590 dodge — cf. compose.test.ts). Hence a
- *  callable-leaved structural shape: permissive enough that a concrete
- *  `SurfaceClientOf<S>` assigns without a cast, yet callable at the leaf. */
-export type SurfaceClientCallable = {
-  // biome-ignore lint/suspicious/noExplicitAny: the per-key call shape is the consumer's typed client; opaque here.
-  surface: Record<string, Record<string, (...args: any[]) => any>>;
-};
+// The client shape a projecting face holds opaquely is the FRAMEWORK's
+// (`@kolu/surface/verbs`) — the CLI face holds exactly the same one. Re-exported
+// from this module because it is part of this module's published vocabulary:
+// `OwnedSurfaceConnection` below is that type, and a consumer reading the doc
+// has to be able to import the name it names.
+export type { SurfaceClientCallable };
 
 /** An *owned connection* the client factory hands over: the bridge case, where
  *  the factory opened a transport (`unixSocketLink` dials a socket) and the
@@ -818,28 +812,16 @@ function asStream(
 }
 
 /** Decode a collection item URI's string `<id>` segment into the collection's
- *  declared key type. Always tries the segment verbatim first — this covers
- *  `Schema.String`, `Schema.Literal("foo")`, `Schema.Literals(["a","b"])`, and
- *  any other string-accepting schema. If the verbatim decode fails, falls back
- *  to `JSON.parse(id)` and re-decodes — this covers numeric (`Schema.Finite`)
- *  and boolean keys whose URI encoding is their JSON form (`"42"` → `42`). A
- *  value that fails both paths returns `undefined` so the caller treats it as an
- *  unaddressable item rather than calling `.get` with a wrong-typed key.
+ *  declared key type — {@link decodeTextValue}'s rule ("a schema-less caller
+ *  hands scalars over as text"), at this face's policy: a token that lands in
+ *  neither the verbatim nor the JSON reading returns `undefined`, so the caller
+ *  treats it as an unaddressable item rather than calling `.get` with a
+ *  wrong-typed key.
  *
  *  The DECODED key is what comes back, which is what the face's collection
  *  payloads are built from (`{ key }` carries decoded keys — client.ts). */
 function decodeKey(keySchema: WireSchemaAny, id: string): unknown {
-  const decode = Schema.decodeUnknownOption(keySchema);
-  const direct = decode(id);
-  if (Option.isSome(direct)) return direct.value;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(id);
-  } catch {
-    return undefined; // not JSON — unaddressable for a non-string key
-  }
-  const decoded = decode(parsed);
-  return Option.isSome(decoded) ? decoded.value : undefined;
+  return Option.getOrUndefined(decodeTextValue(keySchema, id));
 }
 
 /** Open the streaming source for a subscribed URI (the pusher's `StreamFor`).
