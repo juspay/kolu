@@ -35,7 +35,20 @@ const decode = Schema.decodeUnknownSync(SurfaceErrorSchema);
 
 const SAMPLES = [
   new SurfaceTransportRetired({ reason: "stale tab (close code 4001)" }),
+  // The `death`-bearing spellings of the two dead-transport tags. They are
+  // SAMPLES rather than a bespoke round-trip test of their own, because this
+  // list's loops already assert more than one could: constructor identity, tag,
+  // message, byte-stable re-encode, and every predicate's verdict surviving the
+  // wire.
+  new SurfaceTransportRetired({
+    reason: "the server closed this socket with code 4001",
+    death: "retiredByServer",
+  }),
   new SurfaceStdioTransportClosed({ reason: "agent exited" }),
+  new SurfaceStdioTransportClosed({
+    reason: "padi on myhost: the peer stopped answering the keep-alive ping",
+    death: "keepAliveUnanswered",
+  }),
   new SurfaceRelayTransportLost({ reason: "upstream padi died mid-stream" }),
   new MapKeyNonCanonical({ wireKey: "Host1", canonicalKey: "host1" }),
   new MapKeyUnknown({ mapKey: "host9" }),
@@ -53,6 +66,8 @@ describe("surface error vocabulary", () => {
   it("carries the tag as the wire discriminant", () => {
     expect(SAMPLES.map((e) => e._tag)).toEqual([
       "SurfaceTransportRetired",
+      "SurfaceTransportRetired",
+      "SurfaceStdioTransportClosed",
       "SurfaceStdioTransportClosed",
       "SurfaceRelayTransportLost",
       "MapKeyNonCanonical",
@@ -108,17 +123,6 @@ describe("surface error vocabulary", () => {
     expect(JSON.stringify(encode(decoded))).toBe(JSON.stringify(preUpgrade));
   });
 
-  it("carries `death` across the relay hop when the producer set it", () => {
-    const dead = new SurfaceStdioTransportClosed({
-      reason: "padi on myhost: the peer stopped answering the keep-alive ping",
-      death: "keepAliveUnanswered",
-    });
-    const rehydrated = decode(JSON.parse(JSON.stringify(encode(dead))));
-    expect((rehydrated as SurfaceStdioTransportClosed).death).toBe(
-      "keepAliveUnanswered",
-    );
-  });
-
   it("refuses a `death` value outside the closed set", () => {
     // The field is a discriminant, not free text: an unknown arm is a decode
     // failure, never a fourth meaning smuggled in as a string.
@@ -143,7 +147,24 @@ describe("surface error predicates", () => {
   it("isDeadTransportError spans exactly the two PERMANENTLY dead transports", () => {
     expect(SAMPLES.filter(isDeadTransportError).map((e) => e._tag)).toEqual([
       "SurfaceTransportRetired",
+      "SurfaceTransportRetired",
       "SurfaceStdioTransportClosed",
+      "SurfaceStdioTransportClosed",
+    ]);
+  });
+
+  it("its union is UNIFORMLY branchable — both arms declare `death`", () => {
+    // The property the field's symmetry buys: a consumer that has narrowed with
+    // `isDeadTransportError` reads the discriminant directly, with no second
+    // per-tag guard. A union where only one arm declared `death` would not
+    // COMPILE here, which is the whole assertion — the values below are just
+    // what proves it also runs.
+    const deaths = SAMPLES.filter(isDeadTransportError).map((e) => e.death);
+    expect(deaths).toEqual([
+      undefined,
+      "retiredByServer",
+      undefined,
+      "keepAliveUnanswered",
     ]);
   });
 

@@ -76,13 +76,6 @@ export interface WireLink {
   dispose(): Promise<void>;
 }
 
-/** Why the TRANSPORT (never a member's declared error) failed a call — the
- *  input to a leg's error vocabulary. `disposed` is not an `RpcClientError`
- *  because no protocol produced it: the owner released the link. */
-export type WireTransportFailure =
-  | { readonly kind: "protocol"; readonly error: RpcClientError }
-  | { readonly kind: "disposed" };
-
 /** True for the transport failure channel Effect RPC unions into EVERY call
  *  (socket open/close/read/write, protocol decode defects) — as opposed to a
  *  member's DECLARED tagged error, which must reach the caller untouched. */
@@ -104,18 +97,26 @@ type FlatDispatch = (
 
 /** Build a wire link over `protocol`.
  *
- *  `transportError` is the leg's error vocabulary (D4): whenever the transport
- *  channel fails — including a call issued after {@link WireLink.dispose} — the
- *  raw `RpcClientError` is replaced by whatever this returns. The stdio/unix
- *  legs mint `SurfaceStdioTransportClosed`; the websocket leg mints
- *  `SurfaceTransportRetired` once its terminal-close classifier has fired and
- *  otherwise passes the `RpcClientError` through, because THAT is the shape the
- *  face's retry fence retries on. Returning the error unchanged is therefore a
- *  legitimate answer, not a no-op. */
+ *  `transportError` is the leg's READING of a transport death (D4): whenever the
+ *  transport channel fails, the raw `RpcClientError` is replaced by whatever this
+ *  returns. The stdio/unix legs mint `SurfaceStdioTransportClosed`; the websocket
+ *  leg mints `SurfaceTransportRetired` once its terminal-close classifier has
+ *  fired and otherwise passes the `RpcClientError` through, because THAT is the
+ *  shape the face's retry fence retries on. Returning the error unchanged is
+ *  therefore a legitimate answer, not a no-op.
+ *
+ *  `disposedError` is the OTHER channel, and it is split out because it is not a
+ *  reading of anything: a call issued after {@link WireLink.dispose} never
+ *  reached a protocol, so no transport reported. THIS function owns that fact —
+ *  it owns `dispose` — and stamps it, so a leg cannot re-derive "was it
+ *  disposed?" from a `kind` field and cannot get the answer different from the
+ *  bookkeeping that decided it. The leg supplies only the value, because the two
+ *  legs' vocabularies are different classes. */
 export async function openWireLink(opts: {
   readonly group: RpcGroup.RpcGroup<Rpc.Any>;
   readonly protocol: Layer.Layer<RpcClient.Protocol, never, never>;
-  readonly transportError: (failure: WireTransportFailure) => unknown;
+  readonly transportError: (error: RpcClientError) => unknown;
+  readonly disposedError: () => unknown;
 }): Promise<WireLink> {
   // The link's own scope. It outlives `openWireLink` by construction — the
   // protocol layer forks its dial/ping/pump fibers INTO it — which is why the
@@ -135,8 +136,6 @@ export async function openWireLink(opts: {
   );
 
   let disposed = false;
-  const disposedError = () =>
-    opts.transportError({ kind: "disposed" }) as unknown;
 
   /** Translate a call's cause into the leg's vocabulary. Three kinds arrive
    *  here and exactly one is ours:
@@ -155,18 +154,15 @@ export async function openWireLink(opts: {
     const failure = Cause.findError(cause);
     if (Result.isSuccess(failure)) {
       return isRpcClientError(failure.success)
-        ? Cause.fail(
-            opts.transportError({ kind: "protocol", error: failure.success }),
-          )
+        ? Cause.fail(opts.transportError(failure.success))
         : cause;
     }
     const defect = Cause.findDefect(cause);
     if (Result.isSuccess(defect) && Socket.isSocketError(defect.success)) {
       return Cause.fail(
-        opts.transportError({
-          kind: "protocol",
-          error: new RpcClientError({ reason: defect.success.reason }),
-        }),
+        opts.transportError(
+          new RpcClientError({ reason: defect.success.reason }),
+        ),
       );
     }
     return cause;
@@ -176,14 +172,14 @@ export async function openWireLink(opts: {
     unary: (tag: string, payload: unknown) =>
       Effect.suspend(
         (): Effect.Effect<unknown, unknown> =>
-          disposed ? Effect.fail(disposedError()) : client(tag, payload),
+          disposed ? Effect.fail(opts.disposedError()) : client(tag, payload),
       ).pipe(Effect.catchCause((cause) => Effect.failCause(rescue(cause)))),
     stream: (tag: string, payload: unknown) =>
       Stream.unwrap(
         Effect.suspend(
           (): Effect.Effect<Stream.Stream<unknown, unknown>> =>
             disposed
-              ? Effect.succeed(Stream.fail(disposedError()))
+              ? Effect.succeed(Stream.fail(opts.disposedError()))
               : Effect.succeed(client(tag, payload)),
         ),
       ).pipe(Stream.catchCause((cause) => Stream.failCause(rescue(cause)))),
@@ -315,26 +311,25 @@ export async function duplexWireLink(opts: {
     // it. What each death means about the peer belongs to the literal's own
     // docstring in `errors.ts`, so this framework mints no operator paragraph
     // and a consumer that owns the user-facing words can brand its own.
-    transportError: (failure) => {
-      if (failure.kind === "disposed")
-        return new SurfaceStdioTransportClosed({
-          death: "disposed",
-          reason: `${opts.describe} link disposed; request not sent`,
-        });
-      if (keepAliveWentUnanswered(failure.error))
-        return new SurfaceStdioTransportClosed({
-          death: "keepAliveUnanswered",
-          // `describe` is a noun phrase naming the TRANSPORT — `padi on myhost`,
-          // `unix socket /run/padi.sock`, `loopback` — and none of those is
-          // something a peer sits "on". So it takes the LABEL position that
-          // `readiness.ts` already puts the same string in, and the peer gets
-          // its own noun after the colon.
-          reason: `${opts.describe}: the peer stopped answering the keep-alive ping`,
-        });
-      return new SurfaceStdioTransportClosed({
-        death: "streamEnded",
-        reason: `${opts.describe} transport closed (${failure.error.message}); the peer process exited or its stream ended`,
-      });
-    },
+    transportError: (error) =>
+      keepAliveWentUnanswered(error)
+        ? new SurfaceStdioTransportClosed({
+            death: "keepAliveUnanswered",
+            // `describe` is a noun phrase naming the TRANSPORT — `padi on myhost`,
+            // `unix socket /run/padi.sock`, `loopback` — and none of those is
+            // something a peer sits "on". So it takes the LABEL position that
+            // `readiness.ts` already puts the same string in, and the peer gets
+            // its own noun after the colon.
+            reason: `${opts.describe}: the peer stopped answering the keep-alive ping`,
+          })
+        : new SurfaceStdioTransportClosed({
+            death: "streamEnded",
+            reason: `${opts.describe} transport closed (${error.message}); the peer process exited or its stream ended`,
+          }),
+    disposedError: () =>
+      new SurfaceStdioTransportClosed({
+        death: "disposed",
+        reason: `${opts.describe} link disposed; request not sent`,
+      }),
   });
 }

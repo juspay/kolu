@@ -37,14 +37,40 @@ import { Schema } from "effect";
 // re-serving parent will heal, so it is the one the fence retries forever.
 // See `isDeadTransportError` / `isSurfaceRelayTransportLost` below.
 
+/** WHICH death a {@link SurfaceTransportRetired} was — the same discriminant
+ *  {@link StdioTransportDeath} is, under the same field name, so the two tags
+ *  {@link isDeadTransportError} unions are UNIFORMLY branchable (a consumer
+ *  reads `death` off the narrowed union without a second per-tag guard). Both
+ *  arms are terminal for the wire; they differ only in what happened to it. */
+export const RetiredTransportDeath = Schema.Literals([
+  /** The SERVER retired this socket — a stale tab bound to a previous server
+   *  instance, closed with the app's terminal close code. The far end is alive
+   *  and answering; it is this socket it will not talk to. */
+  "retiredByServer",
+  /** The owner released the link; the request was never sent. Nothing is known
+   *  or claimed about the peer. Deliberately the SAME spelling
+   *  {@link StdioTransportDeath} uses — one fact, one word, whichever leg. */
+  "disposed",
+]);
+
+/** The decoded value of {@link RetiredTransportDeath}. */
+export type RetiredTransportDeath = typeof RetiredTransportDeath.Type;
+
 /** The browser socket was RETIRED by the server: a stale tab bound to a previous
  *  server instance was closed with `STALE_PROCESS_CLOSE_CODE` (4001). Terminal by
  *  construction — the retry schedule must STOP and every in-flight and future call
  *  must fail with this (D5/#5). Reconnecting would re-present the same stale `pid`
- *  and be closed again, forever. */
+ *  and be closed again, forever.
+ *
+ *  `death` carries WHICH terminal fact this was, on the same optional key and
+ *  under the same wire-skew rule as {@link SurfaceStdioTransportClosed.death}:
+ *  absent means "the producer did not classify", never a defaulted guess. */
 export class SurfaceTransportRetired extends Schema.TaggedError<SurfaceTransportRetired>(
   "@kolu/surface/SurfaceTransportRetired",
-)("SurfaceTransportRetired", { reason: Schema.String }) {
+)("SurfaceTransportRetired", {
+  reason: Schema.String,
+  death: Schema.optionalKey(RetiredTransportDeath),
+}) {
   override get message(): string {
     return `surface transport retired: ${this.reason}`;
   }
@@ -208,7 +234,14 @@ export function isSurfaceError(error: unknown): error is SurfaceError {
 
 /** Is `error` a PERMANENTLY dead transport — the retired browser socket or the
  *  closed stdio leg? These must never be retried: the transport is gone, and a
- *  retry loop over one is the reconnect storm #5 records. */
+ *  retry loop over one is the reconnect storm #5 records.
+ *
+ *  Both arms of this union carry `death` — {@link RetiredTransportDeath} on one,
+ *  {@link StdioTransportDeath} on the other — so a consumer that has narrowed to
+ *  this type can read the discriminant directly. That symmetry is the point: a
+ *  union where only one member declared the field would force every branching
+ *  consumer through a second, per-tag guard, and the one consumer that puts
+ *  words on a screen would inevitably read `reason` instead. */
 export function isDeadTransportError(
   error: unknown,
 ): error is SurfaceTransportRetired | SurfaceStdioTransportClosed {
