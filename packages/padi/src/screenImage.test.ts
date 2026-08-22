@@ -1,10 +1,11 @@
-/** padi's half of `screen.image`: the theme is resolved HERE, and the label is
- *  the caption a reader uses to tell one screenshot from another.
+/** padi's half of `screen.image`: the theme is resolved HERE.
  *
- *  Layout, palette and SVG are covered by `terminal-snapshot`'s own tests —
- *  what is padi-specific, and therefore tested here, is that the terminal's OWN
- *  theme reaches the picture and that the caption survives the fallback arm.
- *  The theme test drives `renderScreenImage` end to end (real fonts, real
+ *  Layout, palette and SVG are covered by `terminal-snapshot`'s own tests, and
+ *  the CAPTION is no longer padi's at all — it is `terminalCaption` in
+ *  `@kolu/terminal-vocab`, tested beside the projection it reads, because the
+ *  browser draws the same string on the same title bar. What is padi-specific,
+ *  and therefore tested here, is that the terminal's OWN theme reaches the
+ *  picture. That test drives `renderScreenImage` end to end (real fonts, real
  *  rasteriser) rather than rebuilding a scene beside it: a test that
  *  hand-assembles the pipeline it is meant to be checking stays green while the
  *  pipeline rots. */
@@ -13,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import type { SnapshotGrid } from "terminal-snapshot";
 import { SCREEN_CELLS_MAX_ROWS } from "kaval";
 import { SCREEN_IMAGE_MAX_ROWS } from "./surface.ts";
-import { renderScreenImage, screenshotLabel } from "./screenImage.ts";
+import { renderScreenImage } from "./screenImage.ts";
 
 const gridWith = (fg: number): SnapshotGrid => ({
   cols: 4,
@@ -35,46 +36,6 @@ const gridWith = (fg: number): SnapshotGrid => ({
       ],
     },
   ],
-});
-
-describe("screenshotLabel", () => {
-  it("names the repo and branch when the terminal is in a git worktree", () => {
-    expect(
-      screenshotLabel({
-        cwd: "/src/kolu",
-        git: {
-          repoRoot: "/src/kolu",
-          repoName: "kolu",
-          worktreePath: "/src/kolu",
-          branch: "main",
-          isWorktree: false,
-          mainRepoRoot: "/src/kolu",
-          remoteUrl: null,
-        },
-      }),
-    ).toBe("kolu (main)");
-  });
-
-  it("falls back to the directory name outside a repo", () => {
-    expect(screenshotLabel({ cwd: "/home/me/scratch", git: null })).toBe(
-      "scratch",
-    );
-  });
-
-  it("ignores a trailing slash rather than captioning the picture with an empty string", () => {
-    expect(screenshotLabel({ cwd: "/home/me/scratch/", git: null })).toBe(
-      "scratch",
-    );
-  });
-
-  // `~`, not `/`, since the caption became the SHARED `cwdBasename` projection:
-  // its documented no-last-segment fallback is `~`, which is what kolu's own
-  // dock has always shown for a terminal sitting at the filesystem root. The
-  // caption agreeing with the tile is the point — a screenshot that spelled
-  // root differently from the switcher beside it was the drift this closed.
-  it("keeps the root path readable rather than collapsing it to nothing", () => {
-    expect(screenshotLabel({ cwd: "/", git: null })).toBe("~");
-  });
 });
 
 describe("theme resolution reaches the picture", () => {

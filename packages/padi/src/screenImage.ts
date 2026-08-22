@@ -12,10 +12,6 @@
  *  copy-to-clipboard screenshot (`terminal-snapshot`), so the agent's PNG and
  *  the user's PNG are the same picture by construction. */
 
-import {
-  terminalKey,
-  type TerminalLocation,
-} from "@kolu/terminal-vocab/terminalKey";
 import { getThemeByName } from "terminal-themes";
 import type { PadiScreenImageOutput } from "./surface.ts";
 import type { SnapshotGrid } from "terminal-snapshot";
@@ -32,22 +28,6 @@ const FONT_SIZE = 15;
  *  screenshot stamps. An input to the scene rather than a fact the generic
  *  renderer holds. */
 const BRAND = "kolu";
-
-/** What the title bar says — THE `(group, label)` projection kolu shows on a
- *  tile, not a second spelling of it.
- *
- *  It used to re-derive the non-git arm by hand (`slice(lastIndexOf("/") + 1)`)
- *  because `terminalKey` lived in `kolu-common`, the domain-contract package
- *  padi must not depend on. That constraint was real; the duplicate was the
- *  wrong answer to it, and it had already drifted — this captioned a
- *  home-relative directory the way the shell does while the tile beside it
- *  showed `cwdBasename`'s `~`-aware form. The projection now lives in
- *  `@kolu/terminal-vocab`, the browser-safe leaf padi and the client BOTH
- *  already depend on, so the caption is shared code rather than a promise. */
-export function screenshotLabel(snapshot: TerminalLocation): string {
-  const { group, label } = terminalKey(snapshot);
-  return snapshot.git ? `${group} (${label})` : group;
-}
 
 export interface ScreenImageInput {
   readonly grid: SnapshotGrid;

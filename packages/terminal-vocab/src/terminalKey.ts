@@ -94,6 +94,32 @@ export function terminalKey(t: TerminalLocation): {
   return { group: cwdBasename(t.cwd), label: shortenCwd(t.cwd) };
 }
 
+/** The one-line CAPTION for a terminal — `"repo (branch)"` inside a git
+ *  worktree, the bare directory name outside one.
+ *
+ *  THE caption, not a caption: the PNG the browser copies to the clipboard,
+ *  the PNG padi renders for an agent, and the PDF the scrollback export prints
+ *  all title a terminal from here. Three sites composed this string by hand
+ *  before, and all three had already parted — two disagreed on the absent-
+ *  metadata fallback ("Terminal" vs "terminal"), and padi's re-derived the
+ *  basename. The exported PDF and the copied screenshot of ONE terminal were
+ *  captioned differently.
+ *
+ *  Composition kept: the git arm parenthesises `label`, the non-git arm does
+ *  not. Always parenthesising was rejected — outside a repo `label` is the
+ *  shortened cwd, so the caption would read "scratch (~/scratch)": the same
+ *  fact twice. Inside a repo the halves are genuinely different facts (which
+ *  repo, which branch), which is where the parentheses earn their place.
+ *
+ *  Takes a location, never an absence. "There is no terminal" is the CALLER's
+ *  state to name — the client's screenshot has one, padi has no such state —
+ *  and folding a UI default in here would put a placeholder string in the
+ *  vocabulary. */
+export function terminalCaption(t: TerminalLocation): string {
+  const { group, label } = terminalKey(t);
+  return t.git ? `${group} (${label})` : group;
+}
+
 /** Compute keys for every terminal in one pass.
  *
  *  Pure: same inputs produce the same outputs on every client, so the

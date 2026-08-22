@@ -27,7 +27,6 @@ import type { TerminalMetadata } from "@kolu/padi/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { toast } from "solid-sonner";
 import { DEFAULT_FONT_SIZE } from "kolu-common/config";
 import {
@@ -39,6 +38,7 @@ import {
 } from "terminal-snapshot";
 import { DEFAULT_THEME, FONT_FAMILY, type ITheme } from "terminal-themes";
 import type { UiAction } from "./runAction";
+import { terminalExportTitle } from "./terminal/terminalDisplay";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 
 /** The wordmark stamped in the title bar. A scene input rather than something
@@ -78,18 +78,6 @@ const loadBrandLogo: Effect.Effect<HTMLImageElement, Error> = Effect.suspend(
           ),
         ),
 );
-
-/** Compose terminal name + git branch for the title bar. Falls back to
- *  a bare "terminal" label when metadata isn't available.
- *
- *  Stays here rather than in the shared package: it reads kolu's own
- *  `TerminalMetadata`, which a generic scene builder has no business
- *  knowing. The scene takes the finished string as its `label`. */
-function titleLabel(meta: TerminalMetadata | undefined): string {
-  if (!meta) return "terminal";
-  const name = terminalKey(meta).group;
-  return meta.git?.branch ? `${name} (${meta.git.branch})` : name;
-}
 
 /** A scene's text anchor in canvas spelling.
  *
@@ -289,7 +277,7 @@ export function screenshotTerminal(
       // backends draw the same picture" true for the no-theme case too — an
       // empty theme here would have been filled from a different table.
       theme: xterm.options.theme ?? DEFAULT_THEME,
-      label: titleLabel(meta),
+      label: terminalExportTitle(meta),
       brand: BRAND,
       fontFamily,
       fontSize,

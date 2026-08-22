@@ -17,7 +17,7 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
-import { renderScreenImage, screenshotLabel } from "./screenImage.ts";
+import { renderScreenImage } from "./screenImage.ts";
 import { rmSync } from "node:fs";
 import { base64DecodedLength } from "@kolu/surface/frame-chunking";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
@@ -28,6 +28,7 @@ import {
 } from "@kolu/surface/server";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
+import { terminalCaption } from "@kolu/terminal-vocab/terminalKey";
 import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
 import { Effect } from "effect";
 import {
@@ -974,7 +975,7 @@ export function buildPadiSurfaceDeps(deps: {
             return renderScreenImage({
               grid,
               themeName: entry.meta.themeName,
-              label: screenshotLabel(entry.snapshot),
+              label: terminalCaption(entry.snapshot),
             });
           }),
       },

@@ -1,7 +1,12 @@
 import { type ActiveTerminal, LOCAL_LOCATION } from "@kolu/padi/surface";
+import { terminalCaption } from "@kolu/terminal-vocab/terminalKey";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
-import { assignColors, buildTerminalDisplayInfos } from "./terminalDisplay";
+import {
+  assignColors,
+  buildTerminalDisplayInfos,
+  terminalExportTitle,
+} from "./terminalDisplay";
 
 function makeMeta(overrides: Partial<ActiveTerminal> = {}): ActiveTerminal {
   return {
@@ -200,5 +205,34 @@ describe("buildTerminalDisplayInfos", () => {
     );
     expect(result.get("aaaa-1")?.key.suffix).toBe("#aaaa");
     expect(result.get("bbbb-2")?.key.suffix).toBe("#bbbb");
+  });
+});
+
+/** The title the two client-side exports (clipboard PNG, printed PDF) share.
+ *
+ *  The composition itself is `terminalCaption`'s and is pinned in
+ *  `@kolu/terminal-vocab`; what is pinned HERE is the agreement — that this
+ *  helper hands back exactly what padi's daemon-side screenshot captions the
+ *  same terminal with, so the browser PNG and the agent PNG cannot part — plus
+ *  the one arm the vocabulary deliberately refuses to own: metadata that has
+ *  not arrived. */
+describe("terminalExportTitle", () => {
+  it("is the SAME caption the daemon's screenshot uses", () => {
+    const meta = makeMeta({
+      git: makeGit({ repoName: "kolu", branch: "wip" }),
+    });
+    expect(terminalExportTitle(meta)).toBe(terminalCaption(meta));
+    expect(terminalExportTitle(meta)).toBe("kolu (wip)");
+
+    const outsideRepo = makeMeta({ cwd: "/home/user/scratch" });
+    expect(terminalExportTitle(outsideRepo)).toBe(terminalCaption(outsideRepo));
+    expect(terminalExportTitle(outsideRepo)).toBe("scratch");
+  });
+
+  it("names the absent record once, for both exports", () => {
+    // The PDF said "Terminal" and the screenshot said "terminal"; one terminal,
+    // two names. Lowercase kept — it shares a title bar with the lowercase
+    // `kolu` wordmark and stands in for repo/directory names, never title-cased.
+    expect(terminalExportTitle(undefined)).toBe("terminal");
   });
 });

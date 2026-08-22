@@ -7,7 +7,24 @@
  *  package as the thing it pins. */
 
 import { describe, expect, it } from "vitest";
-import { cwdBasename, shortenCwd, terminalKey } from "./terminalKey.ts";
+import {
+  cwdBasename,
+  shortenCwd,
+  terminalCaption,
+  terminalKey,
+} from "./terminalKey.ts";
+
+/** A worktree at `path` on `branch`. The projection reads two fields; the rest
+ *  are here because `GitInfo` is the wire shape every caller actually holds. */
+const git = (path: string, repoName: string, branch: string) => ({
+  repoRoot: path,
+  repoName,
+  worktreePath: path,
+  branch,
+  isWorktree: false,
+  mainRepoRoot: path,
+  remoteUrl: null,
+});
 
 describe("shortenCwd", () => {
   it.each([
@@ -50,15 +67,7 @@ describe("terminalKey", () => {
     expect(
       terminalKey({
         cwd: "/home/me/src/kolu",
-        git: {
-          repoRoot: "/home/me/src/kolu",
-          repoName: "kolu",
-          worktreePath: "/home/me/src/kolu",
-          branch: "main",
-          isWorktree: false,
-          mainRepoRoot: "/home/me/src/kolu",
-          remoteUrl: null,
-        },
+        git: git("/home/me/src/kolu", "kolu", "main"),
       }),
     ).toEqual({ group: "kolu", label: "main" });
   });
@@ -68,5 +77,47 @@ describe("terminalKey", () => {
       group: "scratch",
       label: "~/scratch",
     });
+  });
+});
+
+/** The caption every title bar reads — the browser's clipboard PNG, padi's
+ *  agent-facing PNG, and the printed scrollback. These cases came over from
+ *  `padi/src/screenImage.test.ts`, where they pinned padi's own copy of this
+ *  string; there is only one copy now, so they belong to it. */
+describe("terminalCaption", () => {
+  it("names the repo and branch when the terminal is in a git worktree", () => {
+    expect(
+      terminalCaption({
+        cwd: "/src/kolu",
+        git: git("/src/kolu", "kolu", "main"),
+      }),
+    ).toBe("kolu (main)");
+  });
+
+  it("falls back to the directory name outside a repo", () => {
+    expect(terminalCaption({ cwd: "/home/me/scratch", git: null })).toBe(
+      "scratch",
+    );
+  });
+
+  it("does not parenthesise the non-git arm — that would print the same fact twice", () => {
+    // `label` outside a repo is the shortened cwd, so "scratch (~/scratch)"
+    // says nothing the first word didn't.
+    expect(terminalCaption({ cwd: "/home/me/scratch", git: null })).not.toMatch(
+      /\(/,
+    );
+  });
+
+  it("ignores a trailing slash rather than captioning the picture with an empty string", () => {
+    expect(terminalCaption({ cwd: "/home/me/scratch/", git: null })).toBe(
+      "scratch",
+    );
+  });
+
+  it("keeps the root path readable rather than collapsing it to nothing", () => {
+    // `~`, `cwdBasename`'s documented no-last-segment fallback — the same thing
+    // kolu's dock has always shown for a terminal at the filesystem root. The
+    // caption agreeing with the tile beside it is the whole point.
+    expect(terminalCaption({ cwd: "/", git: null })).toBe("~");
   });
 });
