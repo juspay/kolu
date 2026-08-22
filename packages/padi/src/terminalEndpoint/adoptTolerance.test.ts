@@ -28,14 +28,13 @@ const logCalls = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn() }));
 
 vi.mock("../ptyHost/index.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ptyHost/index.ts")>();
-  const { Stream } = await import("effect");
+  const { emptySensorTaps } = await import("./sensorTaps.testutil.ts");
   // A surviving daemon that lists its PTYs and serves every per-terminal tap the
-  // adoption wires. The taps are EMPTY streams: adoption must not depend on any
-  // sensor emitting, and a tap that is merely absent would make `adoptTerminal`
-  // reap the very PTY under test (its wiring-failure arm), hiding the behaviour
-  // these tests exist to pin. `kill` records rather than performs, so a reap is
-  // visible as an assertion instead of a silent disappearance.
-  const emptyTap = () => Stream.empty;
+  // adoption wires. The taps are EMPTY (see `sensorTaps.testutil.ts`): a tap
+  // that is merely absent would make `adoptTerminal` reap the very PTY under
+  // test (its wiring-failure arm), hiding the behaviour these tests exist to
+  // pin. `kill` records rather than performs, so a reap is visible as an
+  // assertion instead of a silent disappearance.
   return {
     ...actual,
     ptyHostClient: {
@@ -47,11 +46,7 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
               killed.ids.push(id);
             }),
         },
-        cwd: { get: emptyTap },
-        title: { get: emptyTap },
-        commandRun: { get: emptyTap },
-        foreground: { get: emptyTap },
-        exit: { get: emptyTap },
+        ...emptySensorTaps(),
       },
     },
   };

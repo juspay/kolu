@@ -32,11 +32,11 @@ const killed = vi.hoisted(() => ({ ids: [] as string[] }));
 
 vi.mock("../ptyHost/index.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ptyHost/index.ts")>();
-  const { Stream } = await import("effect");
-  // Same surviving-daemon double as `adoptTolerance.test.ts`: empty per-terminal
-  // taps (adoption must not depend on a sensor emitting, and an ABSENT tap would
-  // make adoption reap the PTY under test), and a recording `kill`.
-  const emptyTap = () => Stream.empty;
+  const { emptySensorTaps } = await import("./sensorTaps.testutil.ts");
+  // Same surviving-daemon double as `adoptTolerance.test.ts`: the shared empty
+  // per-terminal taps (adoption must not depend on a sensor emitting, and an
+  // ABSENT tap would make adoption reap the PTY under test), and a recording
+  // `kill`.
   return {
     ...actual,
     ptyHostClient: {
@@ -48,11 +48,7 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
               killed.ids.push(id);
             }),
         },
-        cwd: { get: emptyTap },
-        title: { get: emptyTap },
-        commandRun: { get: emptyTap },
-        foreground: { get: emptyTap },
-        exit: { get: emptyTap },
+        ...emptySensorTaps(),
       },
     },
   };

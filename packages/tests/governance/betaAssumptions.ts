@@ -132,6 +132,17 @@ export const BETA_ASSUMPTION_SITES: readonly string[] = [
   // as the reattachingStream row above, deliberately: ONE measurement, two
   // consumers, so a re-verification cannot fix one and forget the other.
   "packages/surface/src/links/websocket.ts",
+  // The duplex leg's KEEP-ALIVE READING (juspay/kolu#2200). `duplexWireLink`
+  // classifies a `SocketOpenError{kind:"Timeout"}` as the pinger rather than a
+  // dial, and stakes an operator-facing diagnosis on it. The reading rests on
+  // the construction site — `fromDuplex` over an already-open duplex, handed no
+  // `openTimeout` — which is version-independent; what is NOT is the
+  // enumeration of producers behind it. A bump that adds a third producer to
+  // that shape, or gives `fromDuplex` a default `openTimeout`, inverts the
+  // predicate with nothing local failing. `stdioPingStall.test.ts` is what
+  // MEASURES it, so the re-verification is "run that test", not "read the code
+  // and hope".
+  "packages/surface/src/links/wire.ts",
   "packages/surface/src/mirrorRemoteSurface.ts",
   // The reactor's ENGINE seam (juspay/kolu#2101 G6). Three assumptions live here,
   // one per Atom behavior the bridge's correctness rests on: no implicit batching

@@ -1462,7 +1462,15 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   /** Release the PTY of a terminal `beginSleep` already flipped to sleeping: kill
    *  the now-detached PTY and scrub its scratch. The registry entry STAYS (as
    *  sleeping). A kill failure is logged, not thrown — the record is sleeping
-   *  regardless, and boot reconcile reaps any survivor (adopt-or-reap). */
+   *  regardless, and boot reconcile reaps any survivor (adopt-or-reap).
+   *
+   *  NOT fenced here, and does not need to be: `beginSleep` is the claim — it
+   *  flips the arm and returns `false` to a loser — and `sleepTerminal` cannot
+   *  reach this without winning it, so exactly one release runs per sleep. The
+   *  claim-before-yield rule `killTerminal` states is satisfied upstream. Said
+   *  here because this is the third async kill site in the file and the reader
+   *  who finds one fenced and two not must be able to tell F1's gap from this
+   *  satisfied one. */
   async releaseSleptPty(id: TerminalId): Promise<void> {
     try {
       await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));

@@ -25,14 +25,13 @@
  * is no clock to fake without faking the thing under test.
  */
 
-import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { defineSurface } from "../define";
+import { createLoopbackPair, greetLoopback, stallLoopback } from "../loopback";
 import { serveOverStdio } from "../peer-server";
 import { implementSurface } from "../server";
-import { awaitStdioReadiness, writeStdioReadiness } from "./readiness";
 import { stdioLink } from "./stdio";
 
 /** Effect's `makePinger` sends every 5s and dies on the first tick that finds
@@ -58,36 +57,26 @@ async function wiredThroughStalls() {
     },
   });
 
-  // Four ends and two relays, so each DIRECTION can be held independently — a
-  // starved peer neither reads nor writes, so the test holds both.
-  const clientWrite = new PassThrough();
-  const serverRead = new PassThrough();
-  const serverWrite = new PassThrough();
-  const clientRead = new PassThrough();
-  const upstream = new PassThrough();
-  const downstream = new PassThrough();
-  clientWrite.pipe(upstream).pipe(serverRead);
-  serverWrite.pipe(downstream).pipe(clientRead);
+  // The package's own loopback transport, not a hand-rolled one: one
+  // `PassThrough` per direction, which `stallLoopback` corks to hold each
+  // direction independently. `describe` is passed through the greeting because
+  // the readiness proof is where a link gets the name it puts in its errors.
+  const pair = createLoopbackPair();
 
   const serving = serveOverStdio({
     group: runtime.group,
     handlers: runtime.handlers,
-    transport: { read: serverRead, write: serverWrite },
+    transport: { read: pair.server.read, write: pair.server.write },
   });
 
   // The real banner, on the real wire — the gate `stdioLink` demands.
-  const proof = awaitStdioReadiness({
-    read: clientRead,
-    deadlineMs: 10_000,
-    describe: "padi on a starved host",
-  });
-  writeStdioReadiness(serverWrite, { verdict: "ready" });
+  const readiness = await greetLoopback(pair, "padi on a starved host");
 
   const link = await stdioLink({
     group: surface.group,
-    read: clientRead,
-    write: clientWrite,
-    readiness: await proof,
+    read: pair.client.read,
+    write: pair.client.write,
+    readiness,
   });
 
   const add = (a: number, b: number) =>
@@ -95,23 +84,11 @@ async function wiredThroughStalls() {
 
   return {
     add,
-    // `cork` is node:stream's own "hold what is written to me until I say so":
-    // the relay buffers instead of forwarding, and `uncork` flushes in order.
-    // Nothing is destroyed, no FIN is sent, no error is raised — the only fact
-    // injected is "the peer said nothing for a while", which is what a starved
-    // peer that has stopped draining its socket looks like from this end.
-    stall: () => {
-      upstream.cork();
-      downstream.cork();
-    },
-    resume: () => {
-      upstream.uncork();
-      downstream.uncork();
-    },
+    ...stallLoopback(pair),
     done: async () => {
       await link.dispose();
-      clientWrite.end();
-      serverWrite.end();
+      pair.client.write.end();
+      pair.server.write.end();
       await serving.catch(() => {});
       await runtime.close();
     },

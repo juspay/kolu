@@ -56,10 +56,8 @@ const killGate = vi.hoisted(() => ({
 
 vi.mock("../ptyHost/index.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ptyHost/index.ts")>();
-  const { Effect, Stream } = await import("effect");
-  // Empty sensor taps: the wiring must not depend on any sensor emitting, and
-  // a MISSING tap throws (a different case, pinned in `adoptTolerance.test.ts`).
-  const tap = () => () => Stream.empty;
+  const { Effect } = await import("effect");
+  const { emptySensorTaps } = await import("./sensorTaps.testutil.ts");
   return {
     ...actual,
     ptyHostClient: {
@@ -71,11 +69,7 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
               await killGate.value?.();
             }),
         },
-        cwd: { get: tap() },
-        title: { get: tap() },
-        commandRun: { get: tap() },
-        foreground: { get: tap() },
-        exit: { get: tap() },
+        ...emptySensorTaps(),
       },
     },
   };
@@ -152,6 +146,31 @@ describe("killTerminal idempotence", () => {
     expect(claimed).toHaveLength(1);
     expect(claimed[0]?.id).toBe(ID);
     expect(getTerminal(ID)).toBeUndefined();
+  });
+
+  it("the loser's `undefined` already means GONE, not gone eventually", async () => {
+    slowPtyHost();
+
+    // Observed AT each answer rather than after both settle, which is the
+    // contract `terminals.ts` advertises and the weaker post-settle check above
+    // does not reach. The winner is still parked on the pty-host round-trip when
+    // the loser is answered, so a caller acting on `undefined` — re-spawn, list
+    // refresh — must not find a registry entry that is still live.
+    const observed = await Promise.all(
+      [
+        localTerminalEndpoint.killTerminal(ID),
+        localTerminalEndpoint.killTerminal(ID),
+      ].map((call) =>
+        call.then((info) => ({
+          info,
+          stillRegistered: getTerminal(ID) !== undefined,
+        })),
+      ),
+    );
+
+    const loser = observed.find((answer) => answer.info === undefined);
+    expect(loser).toBeDefined();
+    expect(loser?.stillRegistered).toBe(false);
   });
 
   it("a CONCURRENT second kill does not fire a second pty-host kill at the pid", async () => {

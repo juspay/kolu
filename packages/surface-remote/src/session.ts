@@ -1144,9 +1144,12 @@ export function makeSession<
             // recognise this class of death, and it is the path a starved-but-alive
             // remote takes — so swallowing `err` here is exactly where the link's
             // "it stopped answering, it did not necessarily exit" would stop
-            // reaching the operator who needs it.
+            // reaching the operator who needs it. `err` is already narrowed to the
+            // two dead-transport tags and both declare `reason`, so this needs no
+            // `instanceof` ladder and skips the `message` getter's prefix; WHICH
+            // death it was rides `death` for anything that has to branch.
             forceCycle(
-              `liveness probe hit a dead transport (${err instanceof Error ? err.message : String(err)}) — force-cycling the link`,
+              `liveness probe hit a dead transport (${err.reason}) — force-cycling the link`,
             );
           })
           .finally(() => {
