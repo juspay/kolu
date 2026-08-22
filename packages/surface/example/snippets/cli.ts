@@ -11,6 +11,8 @@
  */
 
 // #region imports
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   buildSurfaceFace,
   type SurfaceClientCallable,
@@ -24,11 +26,9 @@ import {
   type SurfaceCliConnection,
   surfaceCommands,
 } from "@kolu/surface-cli";
+import { Cause, Effect } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 // #endregion imports
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Cause, Effect } from "effect";
 import { surface } from "./surface";
 
 // #region endpoint

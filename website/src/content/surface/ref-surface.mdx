@@ -1212,8 +1212,9 @@ re-derives the held-open-`get` hazard below.
 | `firstFrameOrThrow(stream, onEmptyMessage)` | `(Stream<T>, string) → Effect<T>` | the snapshot frame; FAILS on an empty stream — a missing snapshot is a dropped link, never a silent `undefined`. A recoverable failure, not a thrown defect, so a caller may `Effect.catch` it without swallowing bugs. The empty open fails as a **tagged `NoSnapshotFrame`**, never a bare `Error` — see below |
 | `firstFrameOfCollectionItem(item, keys, key, onEmptyItem, deadlineMs)` | `(Stream<T>, Stream<unknown> \| null, unknown, string, number) → Effect<CollectionItemFrame<T>>` | the BOUNDED one-shot read of a collection ITEM. A `get` for a not-yet-member key is held open and yields nothing forever (#1681), so this races the item's first frame against BOTH a live `keys`-absence watch and a hard deadline — always both, never one |
 | `CollectionItemFrame<T>` | `{present:true, value:T} \| {present:false, reason:"absent"\|"deadline"}` | a typed sum, so "present with an `undefined` value" and "absent" can never collapse into one nullable hole — and so a caller can log the UNCERTAIN `deadline` case distinctly from a known absence |
-| `NoSnapshotFrame` · `isNoSnapshotFrame(error)` | the empty-open failure both readers raise, and the ONE predicate to discriminate on |
-| `ITEM_READ_DEADLINE_MS` | the deadline a bounded item read uses when its caller has no reason of its own to pick one. Both projecting faces read it rather than spelling `5_000` each |
+| `NoSnapshotFrame` | `Data.TaggedError("NoSnapshotFrame")<{message}>` | the empty-open failure BOTH readers raise — tagged rather than a bare `Error`, so it can be told from the stream's own error channel |
+| `isNoSnapshotFrame(error)` | `(unknown) → error is NoSnapshotFrame` | the ONE predicate to discriminate on, so no consumer re-derives it from a message or an `instanceof` across a package boundary |
+| `ITEM_READ_DEADLINE_MS` | `5_000` | the deadline a bounded item read uses when its caller has no reason of its own to pick one. Both projecting faces read it rather than spelling the number each |
 
 **The empty open is TAGGED, and that is the whole point.** Both readers can fail
 two ways — the stream opened and closed without its snapshot, or the *stream's

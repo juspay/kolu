@@ -16,8 +16,16 @@ surface, the same allowlist, the same verb table, spelled for a terminal.
 ## 1. Install and import
 
 ```json
-{ "dependencies": { "@kolu/surface-cli": "workspace:*" } }
+{
+  "dependencies": {
+    "@kolu/surface-cli": "workspace:*",
+    "@effect/platform-node": "catalog:"
+  }
+}
 ```
+
+`@effect/platform-node` is for the **run edge** in step 5 (`NodeRuntime.runMain`),
+not for the projection — `surfaceCommands` itself is platform-blind.
 
 <Snippet src="packages/surface/example/snippets/cli.ts" region="imports" />
 
