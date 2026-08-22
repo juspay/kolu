@@ -1,18 +1,34 @@
 /**
- * `toInputSchema` — the Effect Schema → JSON-Schema glue. These pins are the
- * effect-version seam (the converter's option defaults and its representation
- * choices shift between betas exactly as zod's did): a regression here ships a
- * tool whose `inputSchema` an MCP client rejects.
+ * `@kolu/surface/verbs` — the projection vocabulary two faces share.
+ *
+ * The bulk of it pins `toInputSchema`, the Effect Schema → JSON-Schema glue.
+ * These pins are the effect-version seam (the converter's option defaults and
+ * its representation choices shift between betas exactly as zod's did): a
+ * regression here ships a verb whose advertised input an MCP client rejects —
+ * and now also one whose CLI flags are the wrong shape.
  *
  * The MCP `tools/list` JSON Schema is on the repo's byte-compatibility hit list,
  * so the five MEASURED divergences between Effect's converter and the zod one
  * this module was built on each get a named pin below, and the whole emitted
- * string gets a byte-level fixture at the end.
+ * string gets a byte-level fixture at the end. Those pins moved here VERBATIM
+ * from `@kolu/surface-mcp`'s `jsonschema.test.ts` when the bridge moved: the
+ * assertions are unchanged, which is what makes them proof that the move
+ * changed no behaviour.
+ *
+ * `toolName` and the wrapping rule get their own pins at the foot — they became
+ * public framework API with this move, and a public export the reference
+ * documents is one a test has to hold to.
  */
 
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { inputSchema, toInputSchema } from "./jsonschema";
+import {
+  inputSchema,
+  toInputSchema,
+  toolName,
+  unwrapArgs,
+  wrapValue,
+} from "./verbs";
 
 /** The `WireSchemaAny` bound `defineSurface` puts on every spec schema. Spelled
  *  here so a test schema can be handed to the converter without a cast at each
@@ -323,5 +339,49 @@ describe("toInputSchema", () => {
     expect(JSON.stringify(toInputSchema(wire(schema)))).toBe(
       '{"type":"object","properties":{"name":{"type":"string"},"strict":{"type":"boolean","default":true},"count":{"type":"number"},"whole":{"type":"integer"},"tags":{"type":"array","items":{"type":"string"}},"mode":{"type":"string","enum":["a","b"]},"note":{"type":"string"},"nested":{"type":"object","properties":{"x":{"type":"number"}},"required":["x"]}},"required":["name","count","whole","tags","mode","nested"]}',
     );
+  });
+});
+
+describe("toolName", () => {
+  it("joins a namespace and a verb with the one separator a dotless face has", () => {
+    expect(toolName("git", "commit")).toBe("git_commit");
+  });
+
+  it("rewrites ONLY the separator — a dotted namespace keeps its dots", () => {
+    // The name has to be reversible to one `(ns, verb)` pair. Rewriting every
+    // dot would collapse `a.b`·`c` and `a`·`b.c` onto one verb.
+    expect(toolName("a.b", "c")).toBe("a.b_c");
+    expect(toolName("a", "b.c")).toBe("a_b.c");
+  });
+});
+
+describe("the wrapping rule", () => {
+  it("unwraps exactly when the advertised input was wrapped", () => {
+    // `wrapped` is the static bit `inputSchema` reported for that input, never a
+    // guess about the value: a bare object input passes through untouched, and a
+    // wrapped scalar comes back out of `value`.
+    expect(unwrapArgs(false, { pid: 7 })).toEqual({ pid: 7 });
+    expect(unwrapArgs(true, { value: "abc" })).toBe("abc");
+  });
+
+  it("wraps a result JSON renders as a non-object, and only then", () => {
+    expect(wrapValue({ ok: true })).toEqual({ ok: true });
+    expect(wrapValue(42)).toEqual({ value: 42 });
+    expect(wrapValue(null)).toEqual({ value: null });
+    expect(wrapValue(["a", "b"])).toEqual({ value: ["a", "b"] });
+  });
+
+  it("advertises a scalar input under the SAME key `unwrapArgs` reads back", () => {
+    // The two halves of the rule, joined: whatever `inputSchema` names the
+    // wrapper property, `unwrapArgs` is the undo — nothing outside the module
+    // has to know the spelling for the round trip to hold.
+    const built = inputSchema(
+      Schema.String as unknown as Schema.Codec<unknown, unknown, never, never>,
+    );
+    expect(built.wrapped).toBe(true);
+    const [key] = Object.keys(
+      (built.schema as { properties: Record<string, unknown> }).properties,
+    );
+    expect(unwrapArgs(built.wrapped, { [key as string]: "abc" })).toBe("abc");
   });
 });

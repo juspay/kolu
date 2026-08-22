@@ -5,8 +5,9 @@
  * surface is small and default-deny: declare what an agent may touch via
  * `expose` (+ optional bespoke `tools`), hand it a live-surface `client`
  * factory, and `serveSurfaceAsMcp` builds the low-level MCP `Server` — the
- * subscribe/teardown lifecycle, the Effect Schema→JSON-Schema bridge, and the
- * resource/tool wiring are the package's.
+ * subscribe/teardown lifecycle and the resource/tool wiring are the package's;
+ * the verb record, the flat name and the Schema→JSON-Schema bridge are the
+ * framework's (`@kolu/surface/verbs`), shared with the CLI face.
  */
 
 // `ExposeMap` / `ToolExposure` are deliberately NOT re-exported here: the map
@@ -19,7 +20,6 @@ export {
   resolveExpose,
   type ToolEntry,
 } from "./expose";
-export { toInputSchema } from "./jsonschema";
 // `OwnedSurfaceConnection` IS this type at the adapter's client shape, and the
 // public doc links to it — so a consumer reading that doc has to be able to
 // import the name it names.
@@ -32,7 +32,6 @@ export {
   type SurfaceClientCallable,
 } from "./server";
 export {
-  type BespokeTool,
   // The adapter's own "name what broke" derivation. Exported because a bespoke
   // tool that folds a failure INTO its answer (rather than raising it) has to
   // reach the same one the request edge would have used — a hand-rolled
@@ -40,6 +39,16 @@ export {
   // own doc records as wrong for two shapes Effect actually delivers.
   messageOf,
   ToolFailure,
-  type ToolInputSchema,
   type ToolResult,
 } from "./tools";
+// The three neutral pieces of the projection now live in the FRAMEWORK
+// (`@kolu/surface/verbs`), where the CLI face reads the same ones — a verb
+// record, its flat name, and the Schema→JSON-Schema bridge were never
+// MCP-specific. Re-exported here under the names this package shipped them
+// with, so a consumer written against the adapter keeps compiling; new code
+// should import them from `@kolu/surface/verbs` directly.
+export {
+  type SurfaceVerb as BespokeTool,
+  type SurfaceVerbInputSchema as ToolInputSchema,
+  toInputSchema,
+} from "@kolu/surface/verbs";

@@ -1287,6 +1287,35 @@ one predicate); reach for it when a budget has more than one failure class.
 `@kolu/surface-remote`'s session is the consumer:
 `{ network: { ceiling: null, resets: ["remote"] }, remote: { ceiling: 5 } }`.
 
+### The projection vocabulary (`@kolu/surface/verbs`)
+
+A surface is served to more than one kind of caller, and a *projecting face* —
+[`@kolu/surface-mcp`](/surface/ref-surface-mcp) as MCP,
+`@kolu/surface-cli` as argv — needs three things
+that belong to neither transport. They live here so two faces read one contract
+by one grammar, exactly as [`expose`](#per-face-expose-kolusurfaceexpose) does
+for the allowlist.
+
+| Export | Purpose |
+| --- | --- |
+| `SurfaceVerb<I, O>` | a hand-authored, call-shaped verb — `input?` (an Effect Schema), `handler(args, client, signal)` returning an `Effect`, plus `description?` / `title?` / `mutates?`. The record an app hands to EVERY face verbatim |
+| `SurfaceVerbInputSchema<I>` | the bound on a verb's `input`: `Schema.Codec<I, unknown, never, never>` — context-free, because an argument that arrived as argv or as JSON has no environment to decode in |
+| `toolName(ns, verb)` | the flat name a procedure answers to on a face with no dots to spend — `<ns>_<verb>`. Only the SEPARATOR is rewritten, so `a.b`·`c` mints `a.b_c` and stays reversible to one pair |
+| `toInputSchema(schema?)` | the Effect Schema → JSON-Schema bridge (draft 2020-12), dereferenced, opened, numeric-normalised, top-level object enforced |
+| `inputSchema(schema?)` | as above **and** the `wrapped` bit: whether a non-object input had to travel under one property |
+| `wrapSchema` · `unwrapArgs` · `wrapValue` · `isRecord` | the wrapping rule both edges read, so the key a scalar travels under is spelled once |
+
+`mutates` defaults **conservatively**: absent means mutating, because a
+read-only hint can let an MCP host auto-run a verb unconfirmed. Mark a genuinely
+read-only verb `mutates: false`.
+
+<Aside type="note" title="The MCP adapter still exports the old names">
+  `SurfaceVerb` and `SurfaceVerbInputSchema` shipped from `@kolu/surface-mcp` as
+  `BespokeTool` and `ToolInputSchema`, and are re-exported there under those
+  names so existing consumers keep compiling. New code imports them from
+  `@kolu/surface/verbs`.
+</Aside>
+
 ## Liveness and health
 
 Liveness is on by construction. The reserved `system/live` member

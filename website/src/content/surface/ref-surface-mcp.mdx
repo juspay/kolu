@@ -10,7 +10,7 @@ import Snippet from "../../components/docs/Snippet.astro";
 
 Re-expose any `@kolu/surface` as an [MCP](https://modelcontextprotocol.io) server, so a coding agent drives it with
 structured tool calls. The adapter owns the generic parts — the
-`resources/subscribe` lifecycle, the [Effect Schema](https://effect.website) → JSON-Schema bridge, stdio discipline —
+`resources/subscribe` lifecycle, stdio discipline, and the framework's [Effect Schema](https://effect.website) → JSON-Schema bridge —
 and leaves the consumer in control of *what* is exposed.
 
 ## `serveSurfaceAsMcp`
@@ -224,11 +224,12 @@ cannot see through, so a default declared outside it never reaches the agent.
 
 | Export | Role |
 | --- | --- |
-| `toInputSchema(schema?)` | Effect Schema → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced |
+| `toInputSchema(schema?)` | Effect Schema → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced. A **re-export** of [`@kolu/surface/verbs`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) — the bridge is the framework's, shared with the CLI face |
 | `resolveExpose(spec, expose)` | the default-deny resolver → `{ resources, resourceTemplates, tools }` |
 | `ToolFailure<D>(message, detail)` | the refusal a handler fails with when the reason is machine-readable — `detail` becomes the result's `structuredContent`, normalized the same way a success is |
 | `messageOf(error)` | the adapter's own "name what broke" derivation — the one the request edge uses to word a failure. Reach for it in a bespoke tool that folds a caught failure into its own message instead of raising it, so both paths word the same error the same way; it handles the two shapes `e instanceof Error ? e.message : String(e)` gets wrong (a tagged error whose `message` is empty, a failure declared as a plain object) |
-| `BespokeTool` · `ToolInputSchema` · `ToolResult` · `ServeSurfaceAsMcpOptions` · `SurfaceClientCallable` | types |
+| `BespokeTool` · `ToolInputSchema` | types, **re-exported** from [`@kolu/surface/verbs`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) as `SurfaceVerb` / `SurfaceVerbInputSchema`. The verb record was never MCP-specific — an app hands the same table to `@kolu/surface-cli` — so new code imports the framework names |
+| `ToolResult` · `ServeSurfaceAsMcpOptions` · `SurfaceClientCallable` | types |
 
 `ExposeMap` and `ToolExposure` are **not** exported here — import them from
 [`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose),

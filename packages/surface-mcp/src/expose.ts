@@ -23,7 +23,7 @@ import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import { classifyExpose, type ExposeMap } from "@kolu/surface/expose";
 import { Option, Schema } from "effect";
 import { match, P } from "ts-pattern";
-import { inputSchema } from "./jsonschema";
+import { inputSchema, toolName } from "@kolu/surface/verbs";
 import { ADAPTER_NAME, brand } from "./tools";
 
 // ── Expose map types ────────────────────────────────────────────────────
@@ -115,12 +115,6 @@ export function streamUri(key: string): string {
 }
 export function eventUri(key: string): string {
   return `${EVENT_PREFIX}${encodeURIComponent(key)}`;
-}
-
-/** The tool name for a procedure — `<ns>_<verb>` (`.` is illegal in an MCP
- *  tool name). */
-export function toolName(ns: string, verb: string): string {
-  return `${ns}_${verb}`;
 }
 
 /** Reject an input-bearing stream/event exposed as a STATIC resource — the one gate
