@@ -26,6 +26,8 @@ import {
 } from "@kolu/surface-cli";
 import { Command, Flag } from "effect/unstable/cli";
 // #endregion imports
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Cause, Effect } from "effect";
 import { surface } from "./surface";
 
@@ -138,4 +140,13 @@ export const cli = Command.run(root, { version: "1.0.0" }).pipe(
     return Effect.fail(failure);
   }),
 );
+
+// The catch is only HALF of what a host owes; this is the other half. `runEdge`
+// re-fails with the ORIGINAL error for anything that is not this face's own — the
+// server's per-request refusal, say, which crosses the wire as a defect — and
+// such an error carries no "already reported" marker, so the runtime prints its
+// own second, differently-worded report. On stdout. In the middle of the data.
+NodeRuntime.runMain(cli.pipe(Effect.provide(NodeServices.layer)), {
+  disableErrorReporting: true,
+});
 // #endregion mount

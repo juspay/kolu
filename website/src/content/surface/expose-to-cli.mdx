@@ -89,6 +89,13 @@ few lines are what make the
 [exit matrix](/surface/ref-surface-cli#exit-codes) true of your binary rather
 than only of this package's own failures.
 
+And take **both** lines above, not just the catch. `runEdge` re-fails with your
+original error for anything that is not this face's own — the server's
+per-request refusal, say, which crosses the wire as a defect — and such an error
+carries no "already reported" marker, so without `disableErrorReporting` the
+runtime still prints its own second, differently-worded copy, on stdout. The
+catch and the flag are one recipe.
+
 <Aside type="note" title="Where the endpoint flags live is your decision — but pick ONE">
   As written above, `surfaceCommands` merges your endpoint flags into every
   command it generates, so `example proc_kill 4321 --socket /run/x.sock` parses.
