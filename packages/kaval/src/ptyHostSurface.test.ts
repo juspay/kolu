@@ -35,8 +35,12 @@ const encodeJson = (schema: AnySchema, value: unknown): string =>
   JSON.stringify(Schema.encodeUnknownSync(schema)(value));
 
 describe("PTY_HOST_CONTRACT_VERSION", () => {
-  it("the Effect-4 protocol epoch is the 7.0 breaking wire", () => {
-    expect(PTY_HOST_CONTRACT_VERSION).toBe("7.0");
+  it("the Effect-4 protocol epoch is the 7.x breaking wire", () => {
+    // The MAJOR is the epoch and is what this case is about; the MINOR moves
+    // with each additive member (7.1 added `terminal.getScreenCells`), so
+    // pinning the whole string here would make every additive change edit a
+    // test about the EPOCH.
+    expect(PTY_HOST_CONTRACT_VERSION.split(".")[0]).toBe("7");
     // Both directions are refused, which is what a MAJOR buys. Not because a 6.0
     // peer would mis-parse a payload — it cannot be spoken to at all — but so
     // that no in-epoch comparison ever waves a previous-epoch version string
@@ -298,6 +302,7 @@ describe("the declared error vocabulary (PLAN D4)", () => {
     );
     expect(declaring.sort()).toEqual([
       "terminal.getHistory",
+      "terminal.getScreenCells",
       "terminal.getScreenState",
       "terminal.getScreenText",
       "terminal.spawn",

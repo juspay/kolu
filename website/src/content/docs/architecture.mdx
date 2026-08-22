@@ -435,7 +435,11 @@ _out_. The map, grouped:
 - **Terminal machinery** — `xterm-kit` hides xterm.js's hazards (the pinned
   `_core` internals, in-place scrollback surgery, scroll-lock write buffering,
   mirror anchoring) behind a runtime-neutral core plus a `/solid` adapter, with
-  the client and kaval as two consumers from day one.
+  the client and kaval as two consumers from day one. `terminal-snapshot` is
+  the other two-consumer leaf: it turns a screen plus a theme into
+  backend-free drawing instructions, so the browser's copy-screenshot action
+  and the daemon's PNG (`kolu screenshot`, the `screen_image` MCP tool) draw
+  the same picture from one layout decision.
 - **Agent & forge integrations** — one leaf each for `claude-code`, `codex`,
   `grok`, `opencode`, plus the agent-agnostic `anyagent` contract; `github` behind
   the forge-agnostic `anyforge` kernel; and `git` for pure git operations.

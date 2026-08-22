@@ -39,6 +39,7 @@ immediately, and one you created in the browser is drivable from the shell.
 | `kolu wait` | block until output settles or matches, or until an agent's turn ends |
 | `kolu debrief` | wait until a worker's turn is over **and** its output is quiet, then print its screen |
 | `kolu snapshot` | read a terminal's screen as plain text (`--tail N` for what's on screen now) |
+| `kolu screenshot` | save that screen as a themed PNG instead — the colours, box drawing and highlights plain text throws away. Writes `kolu-screenshot.png`, or somewhere else with `-o` |
 | `kolu history` | the scrollback above the current screen |
 | `kolu kill` | end a terminal |
 | `kolu watch` | a live feed of terminal changes and output activity — or, with `--states`/`--held-for`/`--nag`, the supervision loop below |

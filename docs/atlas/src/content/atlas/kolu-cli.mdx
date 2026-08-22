@@ -1,10 +1,10 @@
 ---
 title: kolu CLI — web · tui · mcp, the binary's three faces
-description: The kolu binary grows subcommands — kolu web (the server), kolu tui (a tmux-like canvas), kolu mcp (the agent face) — the latter two pure padiSurface clients with no kolu-server, the graduation proof that padi serves a second frontend. Amended 2026-08-09 — kolu also subsumed the TUIs' scripting verbs.
+description: The kolu binary grows subcommands — kolu web (the server), kolu tui (a tmux-like canvas), kolu mcp (the agent face) — the latter two pure padiSurface clients with no kolu-server, the graduation proof that padi serves a second frontend. Amended 2026-08-09 — kolu also subsumed the TUIs' scripting verbs; amended 2026-08-22 — and grew `kolu screenshot` / `screen_image`, the screen as a picture.
 parents: [padi, feature]
 status: accepted
 maturity: seedling
-updated: 2026-08-09
+updated: 2026-08-22
 ---
 
 import Svg from "../../components/Svg.astro";
@@ -615,3 +615,40 @@ watchers (`watchTerminals` / `awaitAgentState`) graduating into the `dial`
 entry when the MCP face became their verbatim second consumer. Two faces
 rendering the same records from one implementation, rather than two copies held
 in lockstep by a JSDoc cross-reference.
+
+## Amendment — the screen as a picture (2026-08-22)
+
+A tenth verb landed: **`kolu screenshot <id> [--lines N] [-o FILE]`**, with
+`screen_image` as its MCP twin. Both read padi's new `screen.image`, which
+renders the terminal to a themed PNG.
+
+The gap it closes is that every read face above hands over **characters**, and
+characters are not what a terminal uses to mean things: colour is how a test run
+says pass-vs-fail and how a diff says added-vs-removed, box drawing is what
+makes a TUI a layout, a highlighted row is what says "this one is selected". An
+agent reading `screen.text` cannot see any of it. `screen.text` stays the
+default read — text is far cheaper in context and answers "did it finish?" on
+its own — and the picture is for when the answer is visual.
+
+Two placement decisions are the substance:
+
+- **kaval hands over cells, not an image** (`terminal.getScreenCells`, contract
+  7.1 · additive). Rendering needs a theme, and the theme is a per-terminal
+  *user* choice padi holds, so the PTY host is the one process that cannot
+  answer "what colour is palette 4". Keeping the render in padi also keeps a
+  wasm rasteriser and several megabytes of font out of the hot process.
+- **The layout is decided once**, in a new `terminal-snapshot` leaf: grid +
+  theme → flat drawing instructions, executed by two dumb backends (the
+  browser's canvas for copy-screenshot-to-clipboard, the daemon's SVG + resvg
+  for these two verbs). "The user's screenshot and the agent's screenshot are
+  the same picture" is then true by construction rather than by two code paths
+  being kept in agreement by prose.
+
+**This does not reopen the sixel question.** The
+[rejection of pixel-preview escape hatches](#user-facing-description) for the
+`kolu tui` canvas stands exactly as written: that decision is about *drawing
+pixels into a terminal*, which remains terminal-specific electricity against the
+raw-ANSI decision. `screen.image` returns PNG **bytes over the wire** to a face
+that already knows how to display an image — an MCP host, or a file on disk.
+Nothing here paints a pixel into a tty; `kolu screenshot` will not even put the
+bytes on stdout unless the caller types `-o -`.

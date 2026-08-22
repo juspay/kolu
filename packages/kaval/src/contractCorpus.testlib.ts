@@ -47,6 +47,7 @@ export const CONTRACT_COVERAGE = {
     "terminal.list",
     "terminal.getScreenState",
     "terminal.getScreenText",
+    "terminal.getScreenCells",
     "terminal.getHistory",
     "system.version",
     "system.heartbeat",
@@ -352,6 +353,23 @@ export function runContractCorpus(opts: {
         await new Promise((r) => setTimeout(r, 50));
       }
       expect(text).toContain("CORPUS-MARK-7");
+
+      // getScreenCells returns the SAME screen as attributed cells — the read
+      // a rendered screenshot is drawn from. The mark the text read just found
+      // must be findable in the cells too: they are two renderings of one
+      // slice, so a divergence here means the extent resolution drifted.
+      const grid = await Effect.runPromise(
+        client().surface.terminal.getScreenCells({
+          id,
+          extent: { kind: "viewport" },
+        }),
+      );
+      expect(grid.rows).toBeGreaterThan(0);
+      expect(grid.lines).toHaveLength(grid.rows);
+      const fromCells = grid.lines
+        .map((line) => line.cells.map((c) => c.chars).join(""))
+        .join("\n");
+      expect(fromCells).toContain("CORPUS-MARK-7");
 
       // getScreenState returns the serialized screen (a non-empty string here).
       const { data } = await Effect.runPromise(

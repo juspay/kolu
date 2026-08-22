@@ -39,7 +39,12 @@ export {
   // `e instanceof Error ? e.message : String(e)` is the spelling this function's
   // own doc records as wrong for two shapes Effect actually delivers.
   messageOf,
+  // The image-content constructor a bespoke tool reaches for from its
+  // `render` hook — the one in-tree face whose answer is pixels rather than
+  // prose (kolu's `screen_image`).
+  okImage,
   ToolFailure,
+  type ToolContent,
   type ToolInputSchema,
   type ToolResult,
 } from "./tools";
