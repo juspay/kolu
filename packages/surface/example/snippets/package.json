@@ -10,6 +10,7 @@
   "dependencies": {
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
+    "@kolu/surface-cli": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
     "@kolu/surface-map": "workspace:*",

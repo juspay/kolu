@@ -16,6 +16,7 @@ The packages, one line each:
 - **`@kolu/surface-daemon`** / **`-supervisor`** — the daemon spine (socket lifecycle, contract handshake, identity) and the side that supervises daemons (convergence, drain/recycle).
 - **`@kolu/surface-app`** — the app shell for browser apps run against your own server (delivery, identity, connection lifecycle).
 - **`@kolu/surface-mcp`** — any surface re-exposed as an MCP server.
+- **`@kolu/surface-cli`** — any surface projected as command-line verbs (the argv sibling of the MCP adapter: one expose map, one verb table, one set of names).
 
 ## How the runtime is shaped
 
@@ -35,6 +36,7 @@ The packages, one line each:
 - [surface-daemon](surface-daemon.html) — one spine for kaval and `odu serve`.
 - [surface-app](surface-app.html) — the app-shell electricity and its lifecycle (includes the connection plumbing that [surface-connection](archived-notes.html) graduated).
 - `@kolu/surface-mcp` — the MCP adapter ([archived plan](archived-notes.html)).
+- `@kolu/surface-cli` — the argv adapter (see [kolu.dev/surface/ref-surface-cli](https://kolu.dev/surface/ref-surface-cli)).
 - [remoteSurfaces](remote-surfaces.html) — the keyed map of re-served remote surfaces the host switch stands on.
 
 ## The design records

@@ -1,6 +1,6 @@
 ---
 paths:
-  - "packages/{surface,surface-app,surface-mcp,surface-daemon,surface-daemon-supervisor,surface-remote,surface-map}/**"
+  - "packages/{surface,surface-app,surface-cli,surface-mcp,surface-daemon,surface-daemon-supervisor,surface-remote,surface-map}/**"
 ---
 
 ## Surface public-API changes must update the Reference docs in the same PR
@@ -22,6 +22,7 @@ wires against — **must update the matching Reference page in the same PR.**
 | `@kolu/surface` | `website/src/content/surface/ref-surface.mdx` |
 | `@kolu/surface-app` | `website/src/content/surface/ref-surface-app.mdx` |
 | `@kolu/surface-mcp` | `website/src/content/surface/ref-surface-mcp.mdx` |
+| `@kolu/surface-cli` | `website/src/content/surface/ref-surface-cli.mdx` |
 | `@kolu/surface-daemon` | `website/src/content/surface/ref-surface-daemon.mdx` |
 | `@kolu/surface-daemon-supervisor` | `website/src/content/surface/ref-surface-supervisor.mdx` |
 | `@kolu/surface-remote` | `website/src/content/surface/ref-surface-remote.mdx` |

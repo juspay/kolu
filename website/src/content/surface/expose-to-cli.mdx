@@ -1,0 +1,126 @@
+---
+title: How to expose a surface to a terminal
+description: "Project a surface as command-line verbs so a person, a script, or a cron job can read its state and drive its procedures — from a shell, with no browser and no agent."
+order: 223
+section: Basics · How-to
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+A shell drives a surface through `@kolu/surface-cli`: your cells and collections
+become readable members, your procedures become callable verbs. It is the argv
+sibling of [exposing a surface to agents](/surface/expose-to-agents) — the same
+surface, the same allowlist, the same verb table, spelled for a terminal.
+
+## 1. Install and import
+
+```json
+{ "dependencies": { "@kolu/surface-cli": "workspace:*" } }
+```
+
+<Snippet src="packages/surface/example/snippets/cli.ts" region="imports" />
+
+## 2. Say where to dial
+
+This is the one thing a CLI needs that the MCP adapter does not: a command
+*reaches* a server, so something has to decide which one. That decision is
+yours — the resolution order (`--socket`, then an environment variable, then a
+dev file, then the per-user runtime socket) is your app's policy and nothing in
+the adapter could guess it.
+
+The seam is three parts, because resolving an endpoint, *naming* it and dialling
+it are three different moments: the name is needed exactly when the dial fails,
+which is when there is no connection left to ask.
+
+<Snippet src="packages/surface/example/snippets/cli.ts" region="endpoint" />
+
+<Aside type="note" title="dispose is required">
+  A CLI dials, does one thing, and exits — so the one failure that costs a user
+  something is a socket left open under a shell loop. An in-process host with
+  nothing to release passes `() => {}`, which is a decision made out loud rather
+  than an absence the adapter has to guess the meaning of.
+</Aside>
+
+## 3. Hand over the same verb table
+
+A hand-authored verb is a [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) —
+the *same record* you hand `serveSurfaceAsMcp` as its `tools`. One table, two
+faces, one set of names.
+
+<Snippet src="packages/surface/example/snippets/cli.ts" region="verbs" />
+
+## 4. Project it
+
+`expose` is default-deny and it is [the same map](/surface/ref-surface#per-face-expose-kolusurfaceexpose)
+the agent face and the wire faces take. `surfaceCommands` returns an array of
+commands — a value, not a program.
+
+<Snippet src="packages/surface/example/snippets/cli.ts" region="project" />
+
+CLI-only ergonomics ride in `annotate`, *beside* the verb table rather than
+inside it: a `positional` is a shell concern, and the verb record has to stay a
+value the MCP face can take verbatim.
+
+## 5. Mount them in your binary
+
+<Snippet src="packages/surface/example/snippets/cli.ts" region="mount" />
+
+Which faces your binary offers is your decision, so the adapter hands back
+values and runs nothing. Your `Command.run` is already the run edge; there is no
+`runSurfaceCli` to learn.
+
+<Aside type="caution" title="The endpoint flags live on the verbs, not on the parent">
+  `surfaceCommands` merges your endpoint flags into every command it generates,
+  so `example proc_kill 4321 --socket /run/x.sock` parses. Do **not** also add
+  them to the parent with `Command.withSharedFlags` — Effect CLI refuses a
+  parent/child flag of the same name outright (`DuplicateOption`), and your
+  binary would fail to start.
+</Aside>
+
+## What you get
+
+```sh
+example proc_kill 4321 --signal TERM     # a procedure, by its flat name
+example top                              # a hand-authored verb
+example get load                         # a cell's current value
+example get processes 4321               # one item of a collection
+example keys processes                   # the key set
+example watch processes                  # snapshot, then ndjson deltas
+example get load --follow                # the live subscription as ndjson
+example list                             # what this face offers
+```
+
+Every verb also takes `--json '{…}'` (or `--json -` to read it from stdin) as
+the alternative to the field flags — the whole input, as data, for the cases a
+shell would fight you over.
+
+## Read it from a script
+
+The two facts a script needs are the shape of the output and the exit code.
+
+- **stdout is data**: one JSON value for a read, one compact JSON line per frame
+  for anything streamed. Indented only when stdout is a terminal, so a pipe
+  always gets machine-shaped output and nothing has to be flagged.
+- **stderr is prose**, with one exception that proves the rule: a verb's
+  declared refusal is JSON on stderr, because it is data you can act on but is
+  not the verb's answer.
+- **the exit code says which happened** — see
+  [the matrix](/surface/ref-surface-cli#exit-codes).
+
+```sh
+if pid=$(example get processes 4321); then
+  echo "still running: $pid"
+elif [ $? -eq 3 ]; then
+  echo "nothing serving — is the daemon up?" >&2
+fi
+```
+
+## Where to go next
+
+- [`@kolu/surface-cli` reference](/surface/ref-surface-cli) — the API, the flag
+  rules, and the exit matrix.
+- [How to expose a surface to agents](/surface/expose-to-agents) — the same
+  surface, the other projection.
+- [How to consume a surface outside SolidJS](/surface/consume-outside-solid) —
+  when you want the member face itself rather than a generated command tree.

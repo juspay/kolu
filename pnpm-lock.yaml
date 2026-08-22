@@ -2017,6 +2017,9 @@ importers:
       '@kolu/surface-app':
         specifier: workspace:*
         version: link:../../../surface-app
+      '@kolu/surface-cli':
+        specifier: workspace:*
+        version: link:../../../surface-cli
       '@kolu/surface-daemon':
         specifier: workspace:*
         version: link:../../../surface-daemon

@@ -86,10 +86,18 @@
  * the reference page, the skill) points back rather than restating, because
  * four independently-worded copies of one rule are four places it can go stale.
  *
- * `serveSurfaceAsMcp` (`@kolu/surface-mcp`) takes the MAP itself, not a
- * {@link FaceExposure}: a tag set is lossy for it, since it needs the member
- * kind and `mutates` to resolve URIs and tool names. Same map, same grammar,
- * different step 2.
+ * The two PROJECTING faces take the MAP itself, not a {@link FaceExposure}: a
+ * tag set is lossy for them, since each needs the member kind and `mutates` to
+ * resolve its own names. `serveSurfaceAsMcp` (`@kolu/surface-mcp`) resolves a
+ * `surface://` URI or an MCP tool name; `surfaceCommands` (`@kolu/surface-cli`)
+ * resolves a command and its flags. Same map, same grammar, a different step 2
+ * each — which is the whole point of the split: a consumer gating its agent
+ * face, its terminal face and its browser face writes ONE kind of map, and the
+ * same key means the same thing on all three.
+ *
+ * A projecting face's map is ERGONOMICS, never security: it decides what the
+ * client OFFERS, while the serving face's {@link FaceExposure} decides what the
+ * server ANSWERS. Both gates exist, and only the second one is a gate.
  */
 
 import { Data, Effect, Stream } from "effect";

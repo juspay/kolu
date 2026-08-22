@@ -821,7 +821,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:2f364010748736ca1dee6acdd488391ef0d25ae138bcc4b453c4ef119ed9b2e4
+  content_hash: sha256:19262d1798bb09d3439a075b872e933f9c70272b7146b6757db53f6eb7fca053
 - kind: project-relative
   target: claude
   value: .claude/rules/surface.md
@@ -2770,7 +2770,7 @@ local_deployed_file_hashes:
   .claude/rules/solidjs.md: sha256:11e846469ab1433a9735b1a42818eb8f0fcba508b10df792e74b5a05426b2d3d
   .claude/rules/state.md: sha256:4f604dec0848e4d23aed72232107e3070c9b9a7fe44c62f68a230b227a136811
   .claude/rules/streaming.md: sha256:5e0fbac463a89ce4dee5d09e2cca2a1c47849d14f8aaca022350d2026731b161
-  .claude/rules/surface-reference.md: sha256:2f364010748736ca1dee6acdd488391ef0d25ae138bcc4b453c4ef119ed9b2e4
+  .claude/rules/surface-reference.md: sha256:19262d1798bb09d3439a075b872e933f9c70272b7146b6757db53f6eb7fca053
   .claude/rules/surface.md: sha256:50947e97303eccdab96b160878ad3cdebfe7f0222ed64c7ce401da65174738ec
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
   .claude/rules/website-docs.md: sha256:14a24f0b23adb7a5fe704ad56167d0f6a4de14eed88a2b35bc3de61a143374dc

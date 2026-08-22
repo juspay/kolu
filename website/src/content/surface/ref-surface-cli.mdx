@@ -1,0 +1,180 @@
+---
+title: "@kolu/surface-cli reference"
+description: "surfaceCommands and the argv projection: which members become commands, how an input becomes flags, and the exit contract a script branches on."
+order: 233
+section: Basics · Reference
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+Project any `@kolu/surface` as command-line verbs, so a person, a script, or a
+cron job drives it from a shell. The argv sibling of
+[`@kolu/surface-mcp`](/surface/ref-surface-mcp): the same surface, the same
+default-deny allowlist, the same hand-authored verb table, and the same flat
+names — so a verb cannot mean one thing to an agent and another to a terminal.
+
+The adapter owns only the generic parts: the argv grammar, the output and exit
+discipline, and the projection. The domain stays behind the surface, the
+transport stays with your app, and the run edge stays with your binary.
+
+## `surfaceCommands`
+
+<Snippet src="packages/surface/example/snippets/cli.ts" region="project" />
+
+`surfaceCommands(opts): ReadonlyArray<Command>`, imported from the root
+`@kolu/surface-cli` subpath. It is a **pure function to values** — it starts
+nothing, reads no argv, and runs no program.
+
+| Option | Meaning |
+| --- | --- |
+| `surface` | the `Surface<S>` being projected (`expose` is checked against its `spec` at build) |
+| `expose` | the default-deny allowlist — the same [`ExposeMap`](/surface/ref-surface#per-face-expose-kolusurfaceexpose) every other face takes |
+| `verbs?` | hand-authored [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs)s, by name — the same record `serveSurfaceAsMcp` takes as `tools` |
+| `endpoint` | the transport seam: `{ flags, describe, connect }` — see below |
+| `annotate?` | CLI-only ergonomics by verb name: `{ positional?, render? }` |
+| `info` | the **binary's** identity. `name` fronts every diagnostic, because a user reads `olai: no surface at …` and never the package's name |
+
+### The endpoint seam
+
+Three parts, because resolving an endpoint, naming it and dialling it are three
+different moments — the name is needed exactly when the dial fails.
+
+| Field | Meaning |
+| --- | --- |
+| `flags` | the flags every generated command carries (`--socket`, `--url`, `--host`) |
+| `describe(values)` | name the endpoint these values resolve to, for the diagnostic a failed dial writes |
+| `connect(values)` | dial it, returning `{ client, dispose }`. Rejecting is the honest answer for "nothing is serving there", and the rejection's own words reach the user |
+
+`dispose` is **required**. A CLI dials, does one thing and exits; the failure
+that costs a user something is a socket left open in a shell loop. An in-process
+host passes `() => {}`.
+
+<Aside type="caution" title="The endpoint flags ride each verb">
+  They are merged into every generated command's own config, not onto the
+  parent — this function does not own the parent, and a host that added them
+  there as well would collide outright (`DuplicateOption`) and fail to start.
+</Aside>
+
+## The projection
+
+| Surface member | argv |
+| --- | --- |
+| procedure `"<ns>.<verb>"` exposed as a tool | `<ns>_<verb> [--field …]` — the same flat name the MCP face uses, from the same `toolName` |
+| a bespoke `SurfaceVerb` | `<name> …`, by the same rule over its `input` |
+| cell | `get <member> [--follow]` |
+| stream · event | `get <member> [input] [--follow]` |
+| collection | `get <member> <key> [--follow]` · `keys <member> [--follow]` · `watch <member>` |
+| always | `list [--json]` — this face's `tools/list` |
+
+`--follow` turns a one-shot read into the subscription itself: one ndjson line
+per frame, until the stream ends or you interrupt it. Without it a read takes
+the **opening snapshot frame** and stops — which is what every snapshot-then-
+deltas member opens with. `watch` is a delta stream with no one-shot reading, so
+it takes no `--follow` and always streams.
+
+A one-shot read of a collection **item** is bounded against both membership and
+a deadline, so a key that is not there answers
+`{"present":false,"why":"absent"}` instead of hanging on a subscription that
+will never yield.
+
+`list` answers from the projection itself, so it dials nothing — it accepts the
+endpoint flags anyway, so a script looping over the verbs does not break on the
+one that would have refused them.
+
+## `flagsOf` — how an input becomes flags
+
+Driven by the verb's **advertised input schema**
+([`inputSchema`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs)),
+not by a second walk of the Effect AST — so a field that is a `--flag` here is
+the same field with the same type on the MCP face, and neither can drift from
+the other's idea of what the verb takes.
+
+| Property | argv |
+| --- | --- |
+| `string` | `--name <text>` (an `enum` becomes a choice, listed in `--help`) |
+| `integer` · `number` | `--name <n>` |
+| `boolean` | `--name` / `--no-name` — a **tristate** when the field is optional, so "I did not say" and "I said false" stay different |
+| array of scalars | `--name <v>`, repeated |
+| `Record<string, string>` | `--name k=v`, repeated |
+| anything deeper | `--name '<json>'` — the field's own JSON |
+| a non-object input | the bare `<value>` positional |
+
+A property carrying a `default` becomes a defaulted flag, so `--help` shows the
+value the server would have supplied.
+
+**Names are not transformed.** The flag is the field, spelled the same:
+`--filePath`, not `--file-path`. A transformation would be a second name for one
+thing, and it is not reversible for every field name. A field that cannot be
+spelled as a command-line name is refused when the tree is built, naming the
+field — never shipped as a command nobody can type.
+
+Every verb also takes `--json '{…}'` — the whole input, as data — or `--json -`
+to read it from stdin. It is an **alternative** to the field flags, never a
+supplement: passing both is a usage error naming them, rather than a silent
+precedence nobody can see.
+
+<Aside type="note" title="Input is validated locally, before the round trip">
+  The assembled input is decoded against the verb's own schema in your process,
+  so a typo is a local usage error from the same taxonomy the server would have
+  used — exit 2, and nothing was dialled.
+</Aside>
+
+## Output discipline
+
+- **stdout is data.** One JSON value for a one-shot read; one **compact** JSON
+  line per frame for anything streamed. Indented only when stdout is a terminal,
+  so a pipe always gets machine-shaped output — which is why there is no flag to
+  force it, and why `--json` on a verb keeps its single meaning (the input).
+- **stderr is prose**, with one deliberate exception: a verb's declared refusal
+  is JSON on stderr, because it is data you can act on that is nonetheless not
+  the verb's answer.
+- **A hung-up reader is a complete run.** `watch nodes | head -1` closes the
+  pipe under a live subscription; that is the reader getting what it asked for,
+  so it exits 0. Every other write failure is reported.
+- An `annotate.render` renders a verb's output as text **for a human**, applied
+  only when stdout is a terminal.
+
+## Exit codes
+
+`EXIT` is exported as data, so a host's docs and a driving script's tests can
+name the codes rather than re-spell the integers.
+
+| Code | Meaning |
+| --- | --- |
+| `0` | the verb did what it was asked |
+| `1` | the verb's **declared** error — its refusal, as JSON on stderr |
+| `2` | a usage error: the request never left the process |
+| `3` | nothing is serving the endpoint, or the transport died mid-call |
+| `130` | interrupted (Ctrl-C) |
+
+`1` and `2` are the split that matters: a refusal is an answer from the far
+side and a usage error never reached it, so a loop that retries on `1` must not
+retry on `2`. `3` is separate again because it is about the endpoint rather than
+the request — the one code that means "try a different `--socket`".
+
+A failure carries its own `Runtime.errorExitCode`, so the host's
+`NodeRuntime.runMain` teardown reads the number straight off it. Nothing in this
+package calls `process.exit`, and `130` is Effect's own: a Ctrl-C interrupts the
+fiber, the stream's finalizers unsubscribe, and the connection is released on
+the way out.
+
+## Other exports
+
+| Export | Role |
+| --- | --- |
+| `EXIT` | the matrix above, as data |
+| `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to a command config plus its assembler |
+| `reportOf(binary, error)` | the one line a host's run edge writes for a failed program |
+| `SurfaceCliFailure` | the failure class carrying both the text and the code |
+| `SurfaceCliBuildError` | a malformed projection, refused when the tree is built (a positional naming no field, a flag-name collision, a field that cannot be a flag) |
+| `SurfaceCliOptions` · `EndpointSeam` · `SurfaceCliConnection` · `VerbAnnotation` · `ProjectedCommand` | types |
+
+## Two gates, as with MCP
+
+The serving face's [`FaceExposure`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)
+decides what the **server answers**; this `ExposeMap` decides what the **CLI
+offers**. Same arrangement `serveSurfaceAsMcp` has with `restrictHandlers`, and
+the same reason: a client's table is ergonomics, never security.
+
+The step-by-step is in [How to expose a surface to a terminal](/surface/expose-to-cli).
