@@ -169,6 +169,7 @@ import {
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { WebSocketServer } from "ws";
 import { SURFACE_WS_PATH } from "./index";
+import { pickUpgradeHeaders } from "./pickUpgradeHeaders";
 import {
   acceptSurfaceSocket,
   type ServableSocket,
@@ -284,42 +285,6 @@ const checkUpgradeHeaders = <H extends string>(
     seen.add(lowercased);
   }
   return names;
-};
-
-/** {@link SurfaceAppConnection.headers} for one upgrade: the named headers this
- *  request carried, and nothing else.
- *
- *  Node hands a REPEATED header over already folded into one comma-joined
- *  string (`", "` — the separator this function reuses, so the two agree).
- *  `set-cookie` is its one array-shaped exception and is refused at the
- *  allowlist above, so the array arm here is what satisfies node's type rather
- *  than a shape a named header can actually arrive in: a consumer reading a
- *  header it named gets a string, always.
- *
- *  Prototype-free on BOTH sides, which is not tidiness: `constructor` and
- *  `__proto__` are valid field names, so a plain `{}` would answer
- *  `headers["constructor"]` with `Object`'s constructor for a header nobody
- *  sent, and `picked["__proto__"] = …` would hit the setter and store nothing
- *  at all. `Object.hasOwn` and a null-prototype target make both unrepresentable
- *  rather than unlikely. Frozen so this record cannot be written through after
- *  the fact — one object is handed to `services` and to every later event arm. */
-const pickUpgradeHeaders = <H extends string>(
-  request: IncomingMessage,
-  names: ReadonlyArray<H>,
-): Readonly<Partial<Record<H, string>>> => {
-  // The one cast is about the PROTOTYPE, not the keys: `H` reaches this record
-  // off the app's own allowlist, so nothing here ASSERTS that the keys are the
-  // names — the compiler holds it.
-  const picked = Object.create(null) as Partial<Record<H, string>>;
-  for (const asked of names) {
-    const lowercased = asked.toLowerCase();
-    if (!Object.hasOwn(request.headers, lowercased)) continue;
-    const value = request.headers[lowercased];
-    // `undefined` is "not sent" and stays absent; `""` is a value and is kept.
-    if (value === undefined) continue;
-    picked[asked] = Array.isArray(value) ? value.join(", ") : value;
-  }
-  return Object.freeze(picked);
 };
 
 /** Something the listener wants narrated. ONE sink, because every consumer has
