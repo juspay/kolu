@@ -163,7 +163,7 @@ export function parsePiTranscript(content: string): TranscriptEvent[] {
  *  the file whose id matches (pi's `--session <id>` accepts the same id the
  *  filename carries). Returns null when the directory is absent or holds no
  *  such session — the exporter shows "not found", never a fabricated path. */
-export function findTranscriptPath(
+function findTranscriptPath(
   sessionId: string,
   cwd: string,
 ): string | null {

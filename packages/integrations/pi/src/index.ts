@@ -26,7 +26,6 @@ export {
   sessionDirFor,
   sessionDirNameFor,
   subscribeSessionsTree,
-  TAIL_BYTES,
 } from "./core.ts";
 export {
   type PiInfo,
@@ -36,7 +35,6 @@ export {
 } from "./schemas.ts";
 export { createPiWatcher, type PiWatcher } from "./session-watcher.ts";
 export {
-  findTranscriptPath,
   loadPiTranscript,
   normalizePiToolInput,
   parsePiTranscript,
