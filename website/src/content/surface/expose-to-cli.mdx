@@ -85,24 +85,22 @@ Which faces your binary offers is your decision, so the adapter hands back
 values and runs nothing. Your `Command.run` is already the run edge; there is no
 `runSurfaceCli` to learn.
 
-**Do not skip the catch, and catch the CAUSE.** Every failure this face raises
-carries its own line and its own exit code, and marks itself already-reported so
-Effect's cause dump does not print on top of it — which means a host that
-re-fails without writing `runEdge`'s `stderr` exits with the right code and says
-*nothing at all*. A refusal from the CLI *library* (a rejected flag, an unknown
-subcommand) carries no code of ours until `runEdge` gives it one. And a **defect**
-is not a failure, so `Effect.catch` never sees one and the runtime reports it
-through the default logger — onto **stdout**, in the middle of your data. Those
-few lines are what make the
+**Do not skip `reportingRunEdge`.** Every failure this face raises carries its
+own line and its own exit code, and marks itself already-reported so Effect's
+cause dump does not print on top of it — which means a host that re-fails
+without writing that line exits with the right code and says *nothing at all*. A
+refusal from the CLI *library* (a rejected flag, an unknown subcommand) carries
+no code of ours until the edge gives it one. And a **defect** is not a failure,
+so `Effect.catch` never sees one and the runtime reports it through the default
+logger — onto **stdout**, in the middle of your data; the edge catches the
+**cause** for exactly that reason. That one line is what makes the
 [exit matrix](/surface/ref-surface-cli#exit-codes) true of your binary rather
 than only of this package's own failures.
 
-And take **both** lines above, not just the catch. `runEdge` re-fails with your
-original error for anything that is not this face's own — the server's
-per-request refusal, say, which crosses the wire as a defect — and such an error
-carries no "already reported" marker, so without `disableErrorReporting` the
-runtime still prints its own second, differently-worded copy, on stdout. The
-catch and the flag are one recipe.
+And take **both** lines above, not just the edge. `disableErrorReporting` stays
+yours because it is `runMain`'s own argument, and without it the runtime prints
+its own second, differently-worded copy of the line the edge already wrote, on
+stdout. The edge and the flag are one recipe.
 
 <Aside type="note" title="Where the endpoint flags live is your decision — but pick ONE">
   As written above, `surfaceCommands` merges your endpoint flags into every
@@ -150,23 +148,27 @@ An absent collection item is a **successful read** whose answer says so, not a
 failure — the read genuinely happened, and "not there" is what it found — so
 branch on the payload and keep the exit code for the things that are not answers.
 
-Branch on `why`, not on `present` alone: an absence is one of **two** answers,
-and only one of them is evidence. `"absent"` is a fact about the *item* —
-membership said it is not there. `"deadline"` is a fact about the *read* — it ran
-out of time, which a quiet producer or a collection with no key set can cause
-while the item is perfectly alive. A script that reaps on absence must act on the
-first and never on the second:
+A read that never found out is the other thing. A one-shot item read is bounded
+against a deadline as well as against membership, and a quiet producer or a
+collection with no key set to resolve against can run it out while the item is
+perfectly alive. That is a fact about the *read*, not about the item, so it is
+not an answer and does not arrive as one: it is exit `3`, the endpoint's arm,
+naming the member, the key and the budget. Your script therefore never has to
+tell "gone" from "could not tell" by reading a payload — the exit code has
+already done it:
 
 ```sh
 if ! proc=$(example get processes 4321); then
-  [ "$?" -eq 3 ] && echo "nothing serving — is the daemon up?" >&2
+  case "$?" in
+    3) echo "no answer — nothing serving, or the read ran out of time" >&2 ;;
+  esac
   exit 1
 fi
-case "$(jq -r '.why // "present"' <<<"$proc")" in
-  present)  echo "still running: $(jq -r .command <<<"$proc")" ;;
-  absent)   echo "4321 is gone" ;;
-  deadline) echo "could not tell in time — not treating 4321 as gone" >&2 ;;
-esac
+if [ "$(jq -r '.present // true' <<<"$proc")" = "false" ]; then
+  echo "4321 is gone"        # membership said so: safe to reap
+else
+  echo "still running: $(jq -r .command <<<"$proc")"
+fi
 ```
 
 ## Where to go next

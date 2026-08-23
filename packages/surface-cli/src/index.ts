@@ -18,7 +18,13 @@
  * ```
  */
 
-export { EXIT, runEdge, SurfaceCliFailure } from "./exit";
+export {
+  EXIT,
+  reportingRunEdge,
+  runEdge,
+  type RunEdgeReport,
+  SurfaceCliFailure,
+} from "./exit";
 export {
   type Assembled,
   flagsOf,

@@ -107,16 +107,24 @@ a deadline, so a key that is not there answers instead of hanging on a
 subscription that will never yield. Both bounds are always armed, and they answer
 **differently on purpose**:
 
-| answer | means | is it evidence? |
-| --- | --- | --- |
-| `{"present":true,…}` | the item's current value | — |
-| `{"present":false,"why":"absent"}` | membership says it is not a member | yes — the item is gone |
-| `{"present":false,"why":"deadline"}` | the read ran out of time | **no** — a fact about the read, not the item |
+| answer | exit | means | is it evidence? |
+| --- | --- | --- | --- |
+| `{"present":true,…}` | `0` | the item's current value | — |
+| `{"present":false,"why":"absent"}` | `0` | membership says it is not a member | yes — the item is gone |
+| a line on stderr naming the member, the key and the budget | `3` | the read ran out of time | **no** — a fact about the read, not the item |
 
-Both are exit **0**, because in both the read genuinely happened. A caller
-reaping on absence must act on `"absent"` alone: a quiet producer, or a
-collection with no key set to resolve against, produces `"deadline"` while the
-item is perfectly alive.
+The split is the point, and it is the exit code that carries it. `"absent"` is a
+completed read whose answer is "not there", so it is a data frame at exit `0`
+like any other answer. A **deadline** is not an answer at all: nothing said
+whether the item is there, and a quiet producer or a collection with no key set
+to resolve against reaches it while the item is perfectly alive. Reporting that
+on the code that means "the verb did what it was asked" would make "I could not
+find out" indistinguishable from success, so it takes the endpoint's arm —
+exit `3`, the same code as a dial that never landed, because in both nothing
+answered.
+
+A caller reaping on absence therefore acts on the payload it got at exit `0` and
+never has to guess: at exit `3` there is no payload to misread.
 
 `list` answers from the projection itself, so it dials nothing — it accepts the
 endpoint flags anyway, so a script looping over the verbs does not break on the
@@ -210,7 +218,7 @@ name the codes rather than re-spell the integers.
 | `0` | the verb did what it was asked |
 | `1` | the verb's **declared** error — its refusal, as JSON on stderr |
 | `2` | a usage error: the request never left the process |
-| `3` | nothing is serving the endpoint: the dial failed, the transport died mid-call, a read whose member opened and closed without its snapshot — or your own `resolve` refused, because "nothing to dial" is the same answer one step earlier |
+| `3` | nothing is serving the endpoint: the dial failed, the transport died mid-call, a read whose member opened and closed without its snapshot, a bounded item read that ran out of time without ever finding out — or your own `resolve` refused, because "nothing to dial" is the same answer one step earlier |
 | `130` | interrupted (Ctrl-C) |
 
 `1` and `2` are the split that matters: a refusal is an answer from the far
@@ -225,27 +233,39 @@ fiber, the stream's finalizers unsubscribe, and the connection is released on
 the way out.
 
 One arm of the matrix is not this package's to raise, which is what
-**`runEdge(binary, error)`** is for — hand it a failed program's error at your
-run edge, write the `stderr` it hands back, and fail with its `failure`:
+**`reportingRunEdge(binary)`** is for — pipe your program through it at the run
+edge, and pair it with `runMain`'s `disableErrorReporting: true`:
 
 ```ts
-Effect.catchCause((cause) => {
-  if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)  // Ctrl-C → 130
-  const { stderr, failure } = runEdge("example", Cause.squash(cause))
-  if (stderr !== "") process.stderr.write(stderr)
-  return Effect.fail(failure)
-})
+NodeRuntime.runMain(
+  Command.run(root, { version }).pipe(
+    reportingRunEdge("example"),
+    Effect.provide(NodeServices.layer),
+  ),
+  { disableErrorReporting: true },
+)
 ```
 
-The **cause**, not the failure, and the interrupt passed through — both matter.
-A *defect* is not a failure, so `Effect.catch` never sees one, and the runtime
-then reports it itself through the default logger, which writes to **stdout**:
-a log line in the middle of the data channel. That case is not exotic — the
-server's own per-request refusal crosses the wire as a defect whenever the
+Those two lines are one recipe, and the combinator exists because the three
+moves inside it are safety-critical and were being hand-written per binary. It
+catches the **cause**, not the failure: a *defect* is not a failure, so
+`Effect.catch` never sees one, and the runtime then reports it itself through
+the default logger, which writes to **stdout** — a log line in the middle of the
+data channel. That case is not exotic; the server's own per-request refusal
+crosses the wire as a defect whenever the
 [serving face](#two-gates-as-with-mcp) withholds a member this face's map
-offers. Pair it with `runMain`'s `disableErrorReporting: true`, since the line
-is already written and Effect's would be a second, differently-worded copy of
-it.
+offers, and it reaches you as exit `1` with the refusal as JSON, like any other
+declared error. An **interrupt** passes through untouched (Ctrl-C, whose `130`
+is the runtime's own teardown). And the arm's line is written before the
+re-fail, because every failure here marks itself already-reported — a host that
+re-fails without writing it exits with the right code and says nothing at all.
+The flag stays yours because it is `runMain`'s own argument; without it Effect
+prints a second, differently-worded copy of the line.
+
+`runEdge(binary, error)` is the decision underneath, exported for a host that
+owns its own catch: it answers `{ kind: "write", stderr, failure }` or
+`{ kind: "silent", failure }` — a **sum**, so "the library already printed this"
+is a state with a name rather than an empty string every host has to test for.
 
 It is what makes exit **2** true of a real binary: a refusal from the CLI
 *library* — a rejected flag, an unknown subcommand, a value outside a choice — is
@@ -261,10 +281,11 @@ print and return success, so they never reach it.)
 | `EXIT` | the matrix above, as data |
 | `READER_NAMES` | the four names this face mounts that are not verbs (`get` · `keys` · `watch` · `list`) — the fact a host needs to check its own subcommands against, since `surfaceCommands` cannot see them |
 | `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to an `InputProjection`: the command config, the `advertised` document it was built from (handed back so a caller that wants it does not walk the schema a second time), plus the `assemble(values, stdin)` that reads a parsed config back into the verb's encoded input. `stdin` is an **Effect**, described rather than read, so the descriptor is touched only on the `--json -` path and no caller has to ask first |
-| `runEdge(binary, error)` | → `{ stderr, failure }` — what a host's run edge should write and re-fail with, so the exit matrix is true of a real binary |
+| `reportingRunEdge(binary)` | the whole run edge as one combinator — pipe your program through it, so the exit matrix is true of a real binary |
+| `runEdge(binary, error)` | → `RunEdgeReport`: `{ kind: "write", stderr, failure }` or `{ kind: "silent", failure }` — the decision underneath, for a host that owns its own catch |
 | `SurfaceCliFailure` | the failure class carrying both the text and the code |
 | `SurfaceCliBuildError` | a malformed projection, refused when the tree is built (a positional naming no field, a flag-name collision, a field that cannot be a flag) |
-| `SurfaceCliOptions` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `Assembled` · `ProjectedCommand` | types |
+| `SurfaceCliOptions` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `Assembled` · `ProjectedCommand` · `RunEdgeReport` | types |
 
 This package re-exports nothing of the framework's: `messageOf` is
 [`@kolu/surface/errors`](/surface/ref-surface#the-tagged-error-vocabulary-kolusurfaceerrors)'s

@@ -10,16 +10,17 @@
  *
  * It is also the smallest honest example of what a host owes: mount the
  * projected commands, run them, and let the failure's own
- * `Runtime.errorExitCode` decide the code. That is the whole integration —
- * `runEdge` decides the line and the verdict, the runtime reads the number off
- * that verdict, and no command in this package ever calls `process.exit`.
+ * `Runtime.errorExitCode` decide the code. That is the whole integration — one
+ * `reportingRunEdge(binary)` in the pipe decides the line and the verdict, the
+ * runtime reads the number off that verdict, and no command in this package
+ * ever calls `process.exit`.
  */
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Cause, Effect } from "effect";
+import { Effect } from "effect";
 import { Command } from "effect/unstable/cli";
-import { runEdge } from "./exit";
+import { reportingRunEdge } from "./exit";
 import {
   fixtureRoot,
   fixtureRootWithParentFlags,
@@ -45,28 +46,18 @@ const root = ((mode) => {
 
 NodeRuntime.runMain(
   Command.run(root, { version: "0.0.0" }).pipe(
-    // `catchCause`, not `catch`: a DEFECT is not a failure, so `Effect.catch`
-    // never sees one — and the runtime then reports it itself, on the main fiber,
-    // through the default logger, which writes to STDOUT. That lands a log line
-    // in the middle of the data channel a script is reading, and the case is not
-    // exotic: the server's own per-request refusal (`SurfaceMemberNotExposed`,
-    // when the serving face withholds a member this face's map offers — the
-    // two-gates arrangement working as designed) crosses the wire as one.
-    //
-    // Catching the CAUSE puts every arm through the same door: `runEdge` words
-    // it, this writes it to stderr, and the runtime has nothing left to report.
-    // An INTERRUPT passes through untouched — that is Ctrl-C, and its 130 is the
-    // runtime's own teardown reading an interrupts-only cause.
-    Effect.catchCause((cause) => {
-      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
-      const { stderr, failure } = runEdge("demo", Cause.squash(cause));
-      if (stderr !== "") process.stderr.write(stderr);
-      return Effect.fail(failure);
-    }),
+    // The whole run edge, in the one line the package exports it as: catch the
+    // CAUSE (a defect is not a failure, and the runtime's own report of one goes
+    // to STDOUT, into the data channel a script is reading), pass an
+    // interrupts-only cause through untouched (Ctrl-C, whose 130 is the
+    // runtime's teardown), write the arm's own line, re-fail with the verdict.
+    // A host that hand-wrote those three moves was hand-writing the half of the
+    // exit contract that decides whether the matrix is true of the binary.
+    reportingRunEdge("demo"),
     Effect.provide(NodeServices.layer),
   ),
-  // The line above is already written, and it is the ONE this face promises.
-  // Effect's own report on top of it would be a second, differently-worded copy
-  // — on stdout.
+  // The other half of the same recipe, and the host's to pass because it is
+  // `runMain`'s argument: the line is already written, and Effect's own report
+  // on top of it would be a second, differently-worded copy — on stdout.
   { disableErrorReporting: true },
 );

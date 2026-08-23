@@ -22,11 +22,11 @@ import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
 import type { SurfaceVerb } from "@kolu/surface/verbs";
 import {
   type EndpointSeam,
-  runEdge,
+  reportingRunEdge,
   type SurfaceCliConnection,
   surfaceCommands,
 } from "@kolu/surface-cli";
-import { Cause, Effect } from "effect";
+import { Effect } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 // #endregion imports
 import { surface } from "./surface";
@@ -116,36 +116,31 @@ const commands = surfaceCommands({
 // The host binary mounts them beside its own faces and keeps the run edge —
 // `surfaceCommands` returns values and runs no program.
 //
-// The catch is not optional garnish: it is what makes the published exit matrix
-// true of a real binary. Every failure this face raises carries
+// `reportingRunEdge` is not optional garnish: it is what makes the published
+// exit matrix true of a real binary. Every failure this face raises carries
 // `Runtime.errorReported = false` (its line is its own, and Effect's pretty cause
-// dump on top would be noise), so a host that re-fails without writing
-// `runEdge`'s `stderr` exits with the right code and says NOTHING. And a refusal
-// from the CLI *library* — a rejected flag, an unknown subcommand — carries no
-// code of ours at all until `runEdge` gives it one.
+// dump on top would be noise), so a host that re-fails without writing that line
+// exits with the right code and says NOTHING. And a refusal from the CLI
+// *library* — a rejected flag, an unknown subcommand — carries no code of ours at
+// all until the edge gives it one.
 const root = Command.make("example").pipe(
   Command.withSubcommands([...commands]),
 );
 
 export const cli = Command.run(root, { version: "1.0.0" }).pipe(
-  // `catchCause`, not `catch`: a DEFECT is not a failure, so `catch` never sees
-  // one — and the runtime then reports it itself, through the default logger,
-  // which writes to STDOUT and drops a log line into the data channel. Catching
-  // the CAUSE puts every arm through one door. An INTERRUPT passes through
-  // untouched: that is Ctrl-C, and 130 is the runtime's own teardown.
-  Effect.catchCause((cause) => {
-    if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
-    const { stderr, failure } = runEdge("example", Cause.squash(cause));
-    if (stderr !== "") process.stderr.write(stderr);
-    return Effect.fail(failure);
-  }),
+  // The whole edge, in one line: it catches the CAUSE rather than the failure (a
+  // DEFECT is not a failure, so `Effect.catch` never sees one — and the runtime
+  // then reports it itself, through the default logger, which writes to STDOUT
+  // and drops a log line into the data channel), passes an INTERRUPT through
+  // untouched (that is Ctrl-C, and 130 is the runtime's own teardown), writes
+  // the arm's line, and re-fails with the verdict the code is read off.
+  reportingRunEdge("example"),
 );
 
-// The catch is only HALF of what a host owes; this is the other half. `runEdge`
-// re-fails with the ORIGINAL error for anything that is not this face's own — the
-// server's per-request refusal, say, which crosses the wire as a defect — and
-// such an error carries no "already reported" marker, so the runtime prints its
-// own second, differently-worded report. On stdout. In the middle of the data.
+// The edge is only HALF of the recipe; this is the other half, and it stays
+// yours because it is `runMain`'s own argument. The line is already written, and
+// without this the runtime prints its own second, differently-worded report of
+// the same failure. On stdout. In the middle of the data.
 NodeRuntime.runMain(cli.pipe(Effect.provide(NodeServices.layer)), {
   disableErrorReporting: true,
 });

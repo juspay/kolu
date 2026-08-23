@@ -49,9 +49,9 @@
  * reassembles later, plus `Runtime.errorExitCode` — the marker
  * `NodeRuntime.runMain`'s own teardown reads off the squashed cause. So there is
  * no exit-code ACCESSOR in this module and no exit-code table at the host's run
- * edge: the host hands the failure to {@link runEdge}, writes the line it
- * gets back and re-fails, and the runtime reads the code straight off the
- * error. Neither the line nor the code
+ * edge: the host pipes its program through {@link reportingRunEdge}, which
+ * words the failure, writes the line and re-fails, and the runtime reads the
+ * code straight off the error. Neither the line nor the code
  * can drift from the arm that means them, and no command calls `process.exit`.
  *
  * ## 130 is the one arm that is not a value here
@@ -74,7 +74,7 @@
 import { isTransportError } from "@kolu/surface/client";
 import { isDeadTransportError, messageOf } from "@kolu/surface/errors";
 import { isNoSnapshotFrame } from "@kolu/surface/first-frame";
-import { Data, Runtime } from "effect";
+import { Cause, Data, Effect, Runtime } from "effect";
 import { CliError } from "effect/unstable/cli";
 
 /** The published matrix, as data. Exported so a consumer (a host's docs, a
@@ -262,9 +262,26 @@ function isOwnFailure(value: unknown): value is SurfaceCliFailure {
   );
 }
 
-/** What a host's RUN EDGE should do with a failed program: write `stderr` (when
- *  it is non-empty), then fail with `failure`, whose exit-code marker the
- *  runtime's own teardown reads.
+/** What the run edge owes a failed program: the failure to re-fail with, and —
+ *  when there is one — the exact line to write before it.
+ *
+ *  A SUM and not a `stderr` that is sometimes `""`. The empty string stood for a
+ *  state with a real name ("the library already rendered this; print nothing"),
+ *  it collided with {@link SurfaceCliFailure.stderr}'s documented meaning
+ *  ("exactly what to write"), and every host had to hand-write the `!== ""` test
+ *  that told the two apart. */
+export type RunEdgeReport =
+  | {
+      readonly kind: "write";
+      readonly stderr: string;
+      readonly failure: unknown;
+    }
+  | { readonly kind: "silent"; readonly failure: unknown };
+
+/** What a host's RUN EDGE should do with a failed program: write the line when
+ *  the report carries one, then fail with `failure`, whose exit-code marker the
+ *  runtime's own teardown reads. {@link reportingRunEdge} is that whole recipe,
+ *  and is what a host should reach for; this is the decision underneath it.
  *
  *  This exists so the exit matrix above is TRUE of a real binary rather than
  *  true of the failures this package happens to raise. Two of the five arms are
@@ -286,7 +303,15 @@ function isOwnFailure(value: unknown): value is SurfaceCliFailure {
  *
  *  Everything else keeps its own verdict: a {@link SurfaceCliFailure} carries
  *  the exact line it means and the code that goes with it, and an arbitrary
- *  defect is reported in the same one-line shape rather than vanishing.
+ *  DEFECT rides out on the refusal arm — exit 1, as JSON — rather than as prose
+ *  on the code the matrix publishes as "the verb's declared error, as JSON on
+ *  stderr". That arm is not a hypothetical it borrows: the server's own
+ *  `SurfaceMemberNotExposed` crosses the wire as a defect whenever the serving
+ *  face withholds a member this face's map offers, and so does any throw out of
+ *  an `annotate.render`. Prose on exit 1 made `JSON.parse(stderr)` throw for the
+ *  one code that promises it will not, and left a loop that retries 1 and not 2
+ *  retrying a crash for ever. `{@link classify}` already answers "what is an
+ *  unclassified failure?" with the same arm; this is that answer at the edge.
  *
  *  ## Catch the CAUSE, not the failure — and why "stdout is data" depends on it
  *
@@ -305,14 +330,12 @@ function isOwnFailure(value: unknown): value is SurfaceCliFailure {
  *  interrupts-only cause), and the runtime's error REPORTING is disabled,
  *  because the line is already written here and Effect's would be a second,
  *  differently-worded copy of it — on stdout. */
-export function runEdge(
-  binary: string,
-  error: unknown,
-): { readonly stderr: string; readonly failure: unknown } {
+export function runEdge(binary: string, error: unknown): RunEdgeReport {
   // {@link isOwnFailure}, not a duck-test for a `stderr` string: a FOREIGN error
   // that happens to carry one would otherwise be printed raw and lose the arm
   // the matrix means for it.
-  if (isOwnFailure(error)) return { stderr: error.stderr, failure: error };
+  if (isOwnFailure(error))
+    return { kind: "write", stderr: error.stderr, failure: error };
   // Has the CLI LIBRARY already put this failure's text on screen? A typo'd
   // subcommand, a rejected flag, a value an enum does not admit — the library
   // renders the reason and the usage itself, so re-reporting it would print the
@@ -327,9 +350,53 @@ export function runEdge(
   // is exported; this takes it.
   if (CliError.isCliError(error)) {
     return {
-      stderr: "",
+      kind: "silent",
       failure: new SurfaceCliFailure({ stderr: "", code: EXIT.usage }),
     };
   }
-  return { stderr: line(binary, messageOf(error)), failure: error };
+  // The refusal arm, deliberately — see the header. A defect that reached here
+  // is still the far side (or this face) having something to say, and every path
+  // that ends on exit 1 must end as JSON.
+  const failure = refused(refusalLine(error));
+  return { kind: "write", stderr: failure.stderr, failure };
 }
+
+/** The WHOLE run edge, as one combinator: catch the cause, write the line the
+ *  arm means, re-fail with the verdict the runtime reads the code off.
+ *
+ *  ```ts
+ *  NodeRuntime.runMain(
+ *    Command.run(root, { version }).pipe(reportingRunEdge("olai"), Effect.provide(…)),
+ *    { disableErrorReporting: true },
+ *  )
+ *  ```
+ *
+ *  Exported because the three moves above are SAFETY-CRITICAL and were being
+ *  hand-written by every host: `catchCause` rather than `catch` (a defect is not
+ *  a failure, and the runtime's own report of one goes to STDOUT, in the middle
+ *  of the data channel a script is reading), the interrupts-only cause passed
+ *  through untouched (that is Ctrl-C, and its 130 is the runtime's own
+ *  teardown), and the line written before the re-fail (every failure here marks
+ *  itself already-reported, so a host that re-fails without writing it exits
+ *  with the right code and says NOTHING). A package that published only the
+ *  half returning a string left the other half to be re-derived per binary,
+ *  which is how "the matrix is true of a real binary" became a thing each host
+ *  could get wrong on its own.
+ *
+ *  `disableErrorReporting: true` stays the HOST's, and is the other half of the
+ *  one recipe: it is an argument to `runMain`, which is the host's call and not
+ *  this package's to make. Without it the runtime prints a second,
+ *  differently-worded copy of the line this already wrote. */
+export const reportingRunEdge =
+  (binary: string) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, unknown, R> =>
+    Effect.catchCause(effect, (cause) => {
+      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+      const report = runEdge(binary, Cause.squash(cause));
+      // Written to the descriptor rather than through `Stdio`: this is the edge
+      // OUTSIDE the command, where the services the handlers ran under are gone
+      // — and stderr is the one channel that must still work when everything
+      // else has failed.
+      if (report.kind === "write") process.stderr.write(report.stderr);
+      return Effect.fail(report.failure);
+    });

@@ -451,6 +451,23 @@ describe("reading members", () => {
     });
   });
 
+  it("does not report a read that RAN OUT OF TIME as a successful absence", async () => {
+    // `mounts` declares no `keys` verb, so a read of a key it does not hold
+    // has no membership signal to resolve against and is bounded by the timer
+    // alone: the item stream stays open saying nothing until the deadline.
+    // Nothing was found out — neither that the item is there nor that it is
+    // gone — so this must not answer on the code that means "the verb did what
+    // it was asked", where a reaper would read the absence as evidence.
+    const timedOut = await run(["get", "mounts", "not-a-mount"]);
+    expect(timedOut.code).toBe(EXIT.unreachable);
+    expect(timedOut.stdout).toBe("");
+    // The three facts a caller can act on: which member, which key, and how
+    // long it waited.
+    expect(timedOut.stderr).toContain("mounts");
+    expect(timedOut.stderr).toContain("not-a-mount");
+    expect(timedOut.stderr).toContain("5000");
+  }, 20_000);
+
   it("reads a stream's snapshot with its input as the argument", async () => {
     const log = await run(["get", "nodeLog", "node-1"]);
     expect(log.code).toBe(EXIT.ok);
@@ -846,6 +863,14 @@ describe("a member's own refusal is not an unreachable endpoint", () => {
     expect(refused.code).toBe(EXIT.failed);
     expect(refused.stdout).toBe("");
     expect(refused.stderr).not.toContain("no surface at");
+    // Exit 1 means "the declared error, as JSON on stderr" for EVERY path that
+    // reaches it. This one crosses the wire as a DEFECT (the serving face
+    // refuses a member the CLI's map offers), and it used to leave the run edge
+    // as prose on the same code — so a driver doing `JSON.parse(stderr)` on
+    // exit 1 threw, on the arm the matrix promises it will not.
+    expect(JSON.parse(refused.stderr)).toMatchObject({
+      message: expect.any(String),
+    });
 
     // And the two readings agree, which is the property that broke.
     const followed = await run(["get", "withheld", "--follow"]);

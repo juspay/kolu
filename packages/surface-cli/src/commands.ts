@@ -792,8 +792,8 @@ function runGet<S extends SurfaceSpec, F extends FlagRecord, R>(
     // opened like every other member.
     if (member.kind === "collection" && !follow) {
       const key = yield* collectionKey(opts, member, raw);
-      return yield* withConnection(opts, values, (client) =>
-        readCollectionItem(client, member, key),
+      return yield* withConnection(opts, values, (client, where) =>
+        readCollectionItem(opts.info.name, where, client, member, key),
       );
     }
 
@@ -1012,8 +1012,28 @@ const noSnapshot = (member: string): string =>
  *  read would HANG on a missing key. `firstFrameOfCollectionItem` races the item
  *  against membership and a deadline; the two absences are reported apart,
  *  because "it is not there" and "I could not tell in time" are different
- *  answers and only the first is evidence. */
+ *  answers and only the first is evidence.
+ *
+ *  So they land on DIFFERENT arms of the exit contract, and that is the whole
+ *  point of reading them apart:
+ *
+ *    - `"absent"` is a fact about the ITEM. Membership answered, and the answer
+ *      is "not a member" — a successful read whose value is an absence, so it is
+ *      a stdout frame at exit 0 like any other answer.
+ *    - `"deadline"` is a fact about the READ. Nothing answered inside the
+ *      budget: a collection that declares no `keys` verb has no membership
+ *      signal at all and is bounded by the timer alone, and a present item whose
+ *      snapshot is slow reaches it too. Reporting "I could not find out" on the
+ *      code that means "the verb did what it was asked" is the silent
+ *      degradation this repo treats as a defect — a reaper that branches on the
+ *      payload sees an absence, and one that branches on the code sees a
+ *      success. It is exit 3, naming the member, the key and the budget: the
+ *      endpoint did not answer, which is the same shape of fact a dead socket
+ *      is, and the one arm that tells a driver the request is worth another
+ *      endpoint or another try. */
 function readCollectionItem(
+  binary: string,
+  where: string,
   client: SurfaceClientCallable,
   member: Extract<Readable, { kind: "collection" }>,
   key: unknown,
@@ -1038,10 +1058,19 @@ function readCollectionItem(
       noSnapshot(member.name),
       ITEM_READ_DEADLINE_MS,
     ),
-    (found) =>
-      found.present
-        ? data(found.value)
-        : data({ member: member.name, key, present: false, why: found.reason }),
+    (found) => {
+      if (found.present) return data(found.value);
+      if (found.reason === "deadline") {
+        return Effect.fail(
+          unreachable(
+            binary,
+            where,
+            `"${member.name}" did not answer for key ${JSON.stringify(key)} within ${ITEM_READ_DEADLINE_MS}ms — the read did not complete, so whether the item is there is still unknown`,
+          ),
+        );
+      }
+      return data({ member: member.name, key, present: false, why: "absent" });
+    },
   );
 }
 
@@ -1189,9 +1218,18 @@ function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
    *  `classify` untouched — including one that is about the ENDPOINT rather than
    *  about the verb (a member that opened and closed with no snapshot frame),
    *  because the classifier owns the arms and is the only thing here that knows
-   *  `where`. */
+   *  `where`.
+   *
+   *  `where` is handed OVER as well, for the one read that has to word an
+   *  endpoint arm itself rather than let the classifier derive it: a bounded
+   *  item read that ran out of time knows the member, the key and the budget,
+   *  and no failure it could raise instead would carry those three facts to a
+   *  classifier that never saw them (see {@link readCollectionItem}). It is the
+   *  same string this function dials with, so the diagnostic names what the user
+   *  pointed at. */
   use: (
     client: SurfaceClientCallable,
+    where: string,
   ) => Effect.Effect<A, unknown, Stdio.Stdio>,
 ): Effect.Effect<A, unknown, Stdio.Stdio | R> {
   const resolved = Effect.catchCause(
@@ -1233,7 +1271,7 @@ function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
             ),
         ),
         (connection) =>
-          Effect.catch(use(connection.client), (error) =>
+          Effect.catch(use(connection.client, where), (error) =>
             Effect.fail(classify(opts.info.name, where, error)),
           ),
       ),
