@@ -55,7 +55,11 @@ import {
 import { Effect, Option, Schema, Stream } from "effect";
 import { match } from "ts-pattern";
 import { COLLECTION_PREFIX, type ResourceEntry, resolveExpose } from "./expose";
-import { type PusherConnection, ResourcePusher } from "./pusher";
+import {
+  disposeQuietly,
+  type PusherConnection,
+  ResourcePusher,
+} from "./pusher";
 import {
   type BespokeTool,
   brand,
@@ -280,7 +284,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     // is waiting on" answers both "was the server closed" and "did another dial
     // take the slot", so neither needs a cell of its own to fall out of sync.
     if (state.t !== "dialing") {
-      conn.dispose();
+      disposeQuietly(conn);
       throw new Error(
         "the server closed while this connection was being dialed",
       );
@@ -371,9 +375,10 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   const dropConn = (conn: OwnedSurfaceConnection): void => {
     if (state.t !== "live" || state.conn !== conn) return;
     state = { t: "idle" };
-    // Fire and forget: the framework's `dispose` may be async (one shape for
-    // both faces), and this slot has already stopped pointing at the connection.
-    void conn.dispose();
+    // Released QUIETLY: the framework's `dispose` may be async and may reject,
+    // and this slot has already stopped pointing at the connection — see
+    // `disposeQuietly`.
+    disposeQuietly(conn);
   };
   // Teardown: move to the terminal state FIRST (so a still-pending dial finds
   // no slot to publish into and disposes its own result — see `dialOnce`), then
@@ -382,7 +387,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   const disposeSharedConn = (): void => {
     const prev = state;
     state = { t: "closed" };
-    if (prev.t === "live") prev.conn.dispose();
+    if (prev.t === "live") disposeQuietly(prev.conn);
   };
   // The failure-reset policy in one place. Reset ONLY on a recognized TRANSPORT
   // death — an application error (a bad tool arg, an unknown key, a wrong

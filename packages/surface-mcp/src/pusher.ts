@@ -94,6 +94,36 @@ export type StreamFor<Client> = (
  *  that CAN reach its close must supply it. */
 export type PusherConnection<Client> = OwnedSurfaceConnection<Client>;
 
+/** Release a connection and SWALLOW whatever the release does about it — the
+ *  one way this face lets go of a socket, at every one of the five sites that
+ *  do.
+ *
+ *  `dispose` may be async (one shape for both faces, and the real one — a unix
+ *  socket link — is), so it can REJECT: a finalizer that fails while a daemon
+ *  restarts races a socket close every day of the week. A bare `conn.dispose()`
+ *  leaves that rejection unhandled, and Node's default for an unhandled
+ *  rejection is to TERMINATE the process — killing a long-lived MCP server at
+ *  exactly the moment this code is trying to be resilient about a transport
+ *  going away. `void conn.dispose()` silences the lint that would have pointed
+ *  at it and changes nothing about the rejection.
+ *
+ *  Ignoring is safe, and it is the only thing that is: every call site has
+ *  already stopped pointing at this connection (a lost dial race, a teardown, a
+ *  drop, the server closing), so a failed release has nothing left to tell
+ *  anyone — while a THROWN one would replace an answer the caller already has.
+ *  The socket is going away with the process either way. The CLI face states the
+ *  same reason at its own release (`withConnection`, `Effect.ignore`). */
+export function disposeQuietly(conn: {
+  readonly dispose: () => void | Promise<void>;
+}): void {
+  try {
+    void Promise.resolve(conn.dispose()).catch(() => {});
+  } catch {
+    // A `dispose` that throws SYNCHRONOUSLY never produces a promise to attach
+    // the handler above to, and is the same non-event for the same reason.
+  }
+}
+
 /** Lazily produce a live connection. Returns `null` when the source isn't live
  *  yet (subscribe-before-serve); the pusher retries. */
 export type ClientFactory<Client> = () =>
@@ -196,7 +226,7 @@ export class ResourcePusher<Client> {
     // (not a disposer looked up by client identity) is what makes this correct
     // when a factory hands back the same client object on both dials.
     if (this.conn !== null || this.stopped || this.subscribed.size === 0) {
-      conn.dispose();
+      disposeQuietly(conn);
       return;
     }
     this.conn = conn;
@@ -321,7 +351,7 @@ export class ResourcePusher<Client> {
     for (const fiber of fibers) fiber.interruptUnsafe();
     const conn = this.conn;
     this.conn = null;
-    conn?.dispose();
+    if (conn !== null) disposeQuietly(conn);
   }
 
   private scheduleRetry(): void {
