@@ -35,6 +35,7 @@ import type { Surface, SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import { isDeadTransportError } from "@kolu/surface/errors";
 import {
   firstFrameOfCollectionItem,
+  firstFrameOrThrow,
   ITEM_READ_DEADLINE_MS,
 } from "@kolu/surface/first-frame";
 import type { ExposeMap } from "@kolu/surface/expose";
@@ -945,23 +946,28 @@ function readSnapshot<Client extends SurfaceClientCallable>(
  *  real (the green-dot lie in MCP form, the snapshot-then-delta class). Fail
  *  loudly per caught-error-must-not-collapse-to-empty.
  *
- *  `Stream.runHead` takes the first element and then ENDS the stream, which
- *  releases the subscription through the stream's own finalizers — the Effect
- *  equivalent of the old `for await … return`. */
+ *  The read is the FRAMEWORK's {@link firstFrameOrThrow}, which is exactly this
+ *  pair: `Stream.runHead` (it takes the first element and then ENDS the stream,
+ *  releasing the subscription through the stream's own finalizers — the Effect
+ *  equivalent of the old `for await … return`) with this empty-open policy over
+ *  it. Hand-rolled here, it left the shared reader with one consumer while its
+ *  own doc claimed two, and reported the empty open as a bare `Error` that no
+ *  caller could tell from the source's own failure — which is the condition
+ *  `NoSnapshotFrame` was minted for, and the one the argv face reads its exit-3
+ *  arm off. The MESSAGE stays this face's: the URI and the kind are MCP's
+ *  words. */
 function readFirstFrameSnapshot(
   call: ResolvedCall,
   uri: string,
 ): Effect.Effect<Snapshot, unknown> {
-  return Effect.flatMap(Stream.runHead(call.open()), (head) =>
-    Option.isSome(head)
-      ? Effect.succeed({ value: head.value, mimeType: call.mimeType })
-      : Effect.fail(
-          new Error(
-            `${uri} (${call.kind}) yielded no snapshot frame — the surface ` +
-              "contract opens a cell/collection/stream with a current-value snapshot, so an " +
-              "empty open means the bridge link dropped, not that the value is null.",
-          ),
-        ),
+  return Effect.map(
+    firstFrameOrThrow(
+      call.open(),
+      `${uri} (${call.kind}) yielded no snapshot frame — the surface ` +
+        "contract opens a cell/collection/stream with a current-value snapshot, so an " +
+        "empty open means the bridge link dropped, not that the value is null.",
+    ),
+    (value) => ({ value, mimeType: call.mimeType }),
   );
 }
 
