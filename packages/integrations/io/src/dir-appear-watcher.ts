@@ -36,14 +36,22 @@ export function watchDirWhenReady(
   let ancestorStop: (() => void) | null = null;
 
   const attach = (): void => {
-    if (closed) return;
+    if (closed || own) return; // already attached (ancestor event re-entry)
+    let watcher: fs.FSWatcher;
     try {
-      own = fs.watch(dir, () => {
+      watcher = fs.watch(dir, () => {
         if (!closed) onChange();
       });
-    } catch {
-      return; // still absent (or unwatchable) — ancestor watch will retry us
+    } catch (err) {
+      // ENOENT is the expected "not there yet" — the ancestor watch retries
+      // us. Anything else (EMFILE/ENOSPC on inotify watches, EACCES) kills
+      // the watcher tree silently if swallowed, so it must hit the log.
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        log?.error({ err, dir }, "dir-appear watcher: fs.watch failed");
+      }
+      return;
     }
+    own = watcher;
     // Attached: the ancestor chain has served its purpose — retire it, then
     // kick so anything written into `dir` before the attach is not missed.
     ancestorStop?.();
@@ -60,6 +68,14 @@ export function watchDirWhenReady(
       log?.error({ dir }, "dir-appear watcher: no watchable ancestor");
     } else {
       ancestorStop = watchDirWhenReady(parent, attach, log);
+      // The ancestor wire-up above fired `attach` synchronously if the
+      // target appeared in the interim — if so, the just-returned stop
+      // handle belongs to an already-retired chain (attach() retired the
+      // PREVIOUS stop, not this one). Retire it now.
+      if (own && ancestorStop) {
+        ancestorStop();
+        ancestorStop = null;
+      }
     }
   }
 

@@ -11,8 +11,10 @@
  *
  * Runs in the unit suite (full checkout — `nix/workspace.nix` is present), not the nix
  * type-gate: it READS `workspace.nix` at runtime and asserts membership; it doesn't need
- * nix. Nested workspace members ride their TOP-LEVEL package dir (the fileset lists whole
- * `../packages/<name>` dirs), so a top-level check is exactly the fileset's granularity.
+ * nix. The fileset lists BOTH whole top-level `../packages/<name>` dirs AND each
+ * second-level `../packages/integrations/<name>` dir individually (kolu-pi hit exactly
+ * this: added under integrations/, never added to the fileset), so the walk is
+ * two levels deep — exactly the fileset's granularity.
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -33,7 +35,7 @@ function repoRoot(): string {
 }
 
 describe("workspace.nix `src` fileset — every workspace package with a typecheck script is included", () => {
-  it("no top-level packages/* with a `typecheck` script is omitted (the surface-map miss)", () => {
+  it("no packages/* or packages/integrations/* with a `typecheck` script is omitted (the surface-map + pi misses)", () => {
     const root = repoRoot();
     const workspaceNix = readFileSync(
       join(root, "nix", "workspace.nix"),
@@ -42,9 +44,11 @@ describe("workspace.nix `src` fileset — every workspace package with a typeche
     const pkgsDir = join(root, "packages");
 
     const missing: string[] = [];
-    for (const name of readdirSync(pkgsDir)) {
-      const pj = join(pkgsDir, name, "package.json");
-      if (!existsSync(pj)) continue;
+    /** A package dir that declares `typecheck` MUST appear as `../packages/<rel>`
+     *  in the fileset, or nix type-checks against a source tree missing it. */
+    const check = (rel: string): void => {
+      const pj = join(pkgsDir, rel, "package.json");
+      if (!existsSync(pj)) return;
       let hasTypecheck = false;
       try {
         const scripts = JSON.parse(readFileSync(pj, "utf8")).scripts;
@@ -52,10 +56,27 @@ describe("workspace.nix `src` fileset — every workspace package with a typeche
       } catch {
         // Not a readable package.json — skip (not a workspace member dir).
       }
-      // A top-level package that declares `typecheck` MUST appear as `../packages/<name>`
-      // in the fileset, or nix type-checks against a source tree missing it.
-      if (hasTypecheck && !workspaceNix.includes(`../packages/${name}`)) {
-        missing.push(name);
+      if (hasTypecheck && !workspaceNix.includes(`../packages/${rel}`)) {
+        missing.push(rel);
+      }
+    };
+
+    for (const name of readdirSync(pkgsDir)) {
+      check(name);
+      // Second-level members (packages/integrations/*) are listed
+      // individually by the fileset — each one needs its own entry.
+      const sub = join(pkgsDir, name);
+      if (!existsSync(sub) || !existsSync(join(sub, "package.json"))) {
+        // Not itself a package root: treat as a container dir (integrations/)
+        // and check one level deeper. A container dir without a package.json
+        // of its own whose children are packages is the only shape here.
+        let children: string[] = [];
+        try {
+          children = readdirSync(sub);
+        } catch {
+          continue; // not a directory
+        }
+        for (const child of children) check(`${name}/${child}`);
       }
     }
 

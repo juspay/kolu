@@ -38,6 +38,18 @@ import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 import { writeOpenCodeFixture } from "../support/agent-mock-opencode.ts";
 import { kavalSocketPath } from "../support/hooks.ts";
 import { clearMockDatabase } from "../support/mock-fs.ts";
+
+/** padi's command-run reconcile ladder is [0, 75, 300, 1000] ms. Waiting
+ *  past that forces any later match to come from externalChanges (the
+ *  per-agent sessions watcher), not from a delayed command-run tick.
+ *  Agent-agnostic — defined HERE (not in a single agent's step file) so
+ *  grok's and pi's features both use the shared definition. */
+When(
+  "{int} ms elapse past the command-run reconcile window",
+  async function (this: KoluWorld, ms: number) {
+    await new Promise((r) => setTimeout(r, ms));
+  },
+);
 import type { KoluWorld } from "../support/world.ts";
 import { buildTranscript, SESSION_ID } from "./claude_code_steps.ts";
 

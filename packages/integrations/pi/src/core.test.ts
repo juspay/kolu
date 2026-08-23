@@ -247,19 +247,39 @@ describe("derivePiState", () => {
     expect(r?.contextTokens).toBe(123);
   });
 
-  it("contextTokens is null for a zero-sum usage (no turn accounted yet)", () => {
+  it("a zero-sum usage is the answer for its turn (0), not a borrow from an older turn", () => {
     const r = derivePiState([
       header,
       user(),
-      assistant("stop", "m", { input: 0, cacheRead: 0, cacheWrite: 0 }),
+      assistant("stop", "m", { input: 5 }),
+      user(),
+      assistant("error", "m", { input: 0, cacheRead: 0, cacheWrite: 0 }),
     ]);
-    expect(r?.contextTokens).toBeNull();
+    expect(r?.contextTokens).toBe(0);
+    expect(r?.state).toBe("waiting");
   });
 
-  it("model falls back to the newest model_change when no assistant turn exists", () => {
-    const r = derivePiState([header, modelChange("gpt-5")]);
-    expect(r?.state).toBe("thinking");
-    expect(r?.model).toBe("gpt-5");
+  it("a prefix of only model_change entries publishes NOTHING (fresh pi at an idle prompt is not working — repo-verified: pi writes session → thinking_level_change → model_change at startup)", () => {
+    expect(
+      derivePiState([
+        header,
+        `{"type":"thinking_level_change","id":"t1","parentId":null,"timestamp":"t","thinkingLevel":"off"}`,
+        modelChange("gpt-5"),
+      ]),
+    ).toBeNull();
+    expect(derivePiState([header, modelChange("gpt-5")])).toBeNull();
+  });
+
+  it("a model_change after a completed turn updates the model but keeps the turn state (idle /model cycling is not work in flight)", () => {
+    const r = derivePiState([
+      header,
+      user(),
+      assistant("stop", "old-model", { input: 10 }),
+      modelChange("new-model"),
+    ]);
+    expect(r?.state).toBe("waiting");
+    expect(r?.model).toBe("new-model");
+    expect(r?.contextTokens).toBe(10);
   });
 
   it("summary comes from the newest session_info entry", () => {

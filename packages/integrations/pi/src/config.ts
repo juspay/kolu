@@ -1,20 +1,21 @@
-/** Configuration constants for the Pi integration.
- *  Leaf module — no imports from other package files. */
-
 import os from "node:os";
 import path from "node:path";
 
-/** Root of pi's per-user agent directory (`PI_CODING_AGENT_DIR` in pi's own
- *  vocabulary). Contains `sessions/`, auth, settings, and installed
- *  packages. Overridable via `KOLU_PI_DIR` so e2e fixtures and unit tests
- *  never scan the developer's real `~/.pi/agent`.
+/** Pi's per-user session storage directory. Default `~/.pi/agent/sessions`,
+ *  overridable wholesale via `KOLU_PI_DIR` — mostly for e2e tests that need
+ *  hermetic isolation from real user history.
  *
- *  A user who points pi at a custom `PI_CODING_AGENT_DIR` from their shell
- *  rc can point kolu the same way; kolu cannot read the terminal's env, so
- *  the default is the one pi documents (`~/.pi/agent`). */
-export const PI_DIR =
-  process.env.KOLU_PI_DIR ?? path.join(os.homedir(), ".pi", "agent");
+ *  This mirrors pi's own override axes: pi moves its session storage with
+ *  `PI_CODING_AGENT_SESSION_DIR` / `--session-dir` (see pi's
+ *  docs/environment-variables.md). A user who runs pi that way must point
+ *  kolu at the same sessions directory. Note `PI_CODING_AGENT_DIR` is pi's
+ *  CONFIG directory (`~/.pi/agent`) and does NOT move sessions — sessions
+ *  always default to `~/.pi/agent/sessions`. */
+export const SESSIONS_DIR = process.env.KOLU_PI_DIR
+  ? path.join(process.env.KOLU_PI_DIR, "sessions")
+  : path.join(os.homedir(), ".pi", "agent", "sessions");
 
-/** Per-cwd session roots live under this directory:
- *  `<SESSIONS_DIR>/--<cwd with "/"→"-">--/<timestamp>_<uuid>.jsonl`. */
-export const SESSIONS_DIR = path.join(PI_DIR, "sessions");
+/** The directory a synthetic session file is symlinked into — the top of
+ *  pi's per-user agent tree (transcripts never live here, so there are no
+ *  user sessions to clobber). */
+export const PI_DIR = path.dirname(SESSIONS_DIR);

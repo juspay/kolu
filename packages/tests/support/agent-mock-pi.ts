@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentLifecycleState } from "./agent-lifecycle.ts";
 
-const SESSION_ID = "00000000-0000-7000-8000-000000000000ca7";
+const SESSION_ID = "00000000-0000-7000-8000-0000000000ca";
 
 /** Encode a cwd to pi's session-directory key. DUPLICATED from kolu-pi's
  *  `sessionDirNameFor` on purpose: the fixture pins the REAL on-disk wire

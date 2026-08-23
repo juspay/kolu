@@ -253,6 +253,25 @@ describe("parseAgentCommand", () => {
     expect(parseAgentCommand("pi -v")).toBeNull();
     expect(parseAgentCommand("pi --version")).toBeNull();
     expect(parseAgentCommand("pi --help")).toBeNull();
+    // One-shot invocations must never be attributed as live sessions.
+    expect(parseAgentCommand("pi --export /tmp/out.html")).toBeNull();
+    expect(parseAgentCommand("pi --list-models anthropic")).toBeNull();
+    expect(parseAgentCommand('pi -p "summarize"')).toBeNull();
+    expect(parseAgentCommand('pi --print "summarize"')).toBeNull();
+    // Tool/management subcommands are not sessions either.
+    expect(
+      parseAgentCommand("pi auth print-api-key --provider openai"),
+    ).toBeNull();
+    expect(parseAgentCommand("pi config list")).toBeNull();
+    expect(parseAgentCommand("pi install npm:foo")).toBeNull();
+    expect(parseAgentCommand("pi update")).toBeNull();
+    // Value-flag contents are NOT subcommand words (arity-aware scan).
+    expect(parseAgentCommand("pi --name config")).toBe("pi --name config");
+    // Session-redirecting flags: kolu scans only its own sessions tree, so
+    // these invocations are unmatchable — recorded as not-a-session rather
+    // than bound to a stranger's conversation in the same cwd.
+    expect(parseAgentCommand("pi --session-dir /elsewhere")).toBeNull();
+    expect(parseAgentCommand("pi --no-session")).toBeNull();
     // …while a lowercase -v elsewhere stays untouched territory.
     expect(parseAgentCommand("pi")).toBe("pi");
   });

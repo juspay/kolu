@@ -11,8 +11,10 @@
  * branching without a new file). Types kolu reads:
  *
  *  - `message` — the conversation: roles `user`, `assistant`, `toolResult`
- *    (plus `bashExecution`, `custom`, `branchSummary`, `compactionSummary`
- *    — interactive artifacts, not model turns).
+ *    (plus `bashExecution`, `custom`, `summary` — interactive artifacts,
+ *    not model turns; compaction/branch-summaries arrive as their own
+ *    `compaction` / `branch_summary` entry TYPES, which the fold skips
+ *    for the same signal absence).
  *  - `model_change` — user switched models mid-session.
  *  - `session_info` — the user-facing display name (`--name` / `/name`).
  *
@@ -209,14 +211,22 @@ export function derivePiState(lines: string[]): {
   contextTokens: number | null;
   summary: string | null;
 } | null {
-  let stateAndModel: { state: PiInfo["state"]; model: string | null } | null =
-    null;
+  let state: PiInfo["state"] | null = null;
+  let model: string | null = null;
   let contextTokens: number | null = null;
   let summary: string | null = null;
 
   for (let i = lines.length - 1; i >= 0; i--) {
     const raw = lines[i];
     if (raw === undefined) continue;
+    // Once the turn signals are settled the walk only hunts a `session_info`
+    // name — a cheap substring pre-filter means an UNNAMED session (the
+    // common case) skips JSON.parse for the rest of the window entirely,
+    // and a named one parses only its candidates.
+    if (state !== null && contextTokens !== null) {
+      if (summary !== null) break;
+      if (!raw.includes('"session_info"')) continue;
+    }
     let entry: PiEntry;
     try {
       entry = JSON.parse(raw) as PiEntry;
@@ -225,8 +235,9 @@ export function derivePiState(lines: string[]): {
     }
 
     // The newest `session_info` name — a display property, independent of
-    // the walk's turn signals; keep scanning after it lands so the state
-    // read still reaches the newest turn entry.
+    // the walk's other signals. A tail miss does NOT mean unnamed (the name
+    // may simply have scrolled out of the window); the watcher merges a
+    // cached last-known name over null on publish.
     if (
       summary === null &&
       entry.type === "session_info" &&
@@ -236,9 +247,26 @@ export function derivePiState(lines: string[]): {
       summary = entry.name;
     }
 
+    // Model is a third signal, independent of state: `model_change` entries
+    // also appear at an IDLE prompt (startup, `/model` cycling), which must
+    // never read as work in flight. The newest model_change wins over the
+    // model recorded on older assistant entries; `thinking_level_change` is
+    // orthogonal display state, skipped entirely.
+    if (
+      model === null &&
+      entry.type === "model_change" &&
+      typeof entry.modelId === "string"
+    ) {
+      model = entry.modelId;
+    }
+
     // Newest assistant `usage` — read on EVERY entry (before the state gate)
     // so the turn's own assistant entry accounts, not one hop back. Mirrors
-    // claude-code's two-signal walk.
+    // claude-code's two-signal walk. The Three usage buckets (input /
+    // cacheRead / cacheWrite) are disjoint per pi's custom-provider docs, so
+    // summing never double-counts. A usage OBJECT is terminal evidence: an
+    // errored turn with all-zero usage is the answer (0), not a reason to
+    // borrow an older turn's number.
     if (
       contextTokens === null &&
       entry.type === "message" &&
@@ -246,49 +274,40 @@ export function derivePiState(lines: string[]): {
     ) {
       const usage = entry.message.usage;
       if (usage) {
-        const sum =
+        contextTokens =
           (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
-        if (sum > 0) contextTokens = sum;
       }
     }
 
-    if (stateAndModel === null) {
-      if (entry.type === "message") {
-        const role = entry.message?.role;
-        if (role === "assistant") {
-          const stopReason = entry.message?.stopReason;
-          stateAndModel = {
-            state:
-              stopReason === "toolUse"
-                ? "tool_use"
-                : stopReason !== undefined && TURN_ENDED.has(stopReason)
-                  ? "waiting"
-                  : "thinking",
-            model: entry.message?.model ?? null,
-          };
-        } else if (role === "user" || role === "toolResult") {
-          // A human prompt just landed, or a tool returned and the model is
-          // about to be re-invoked — pi persists assistant messages only on
-          // completion, so both read as work in flight.
-          stateAndModel = { state: "thinking", model: null };
-        }
-        // bashExecution / custom / summary roles: interactive artifacts —
-        // walk past to the genuine prior turn.
-      } else if (
-        entry.type === "model_change" &&
-        typeof entry.modelId === "string"
-      ) {
-        // Pre-first-turn model signal.
-        stateAndModel = { state: "thinking", model: entry.modelId };
+    if (state === null && entry.type === "message") {
+      const role = entry.message?.role;
+      if (role === "assistant") {
+        const stopReason = entry.message?.stopReason;
+        state =
+          stopReason === "toolUse"
+            ? "tool_use"
+            : stopReason !== undefined && TURN_ENDED.has(stopReason)
+              ? "waiting"
+              : "thinking";
+        // Freshly launched or model-switched pi: the tail has no assistant
+        // entry yet, `state` stays null, and nothing is published — the
+        // honest "no turn yet", mirroring codex's deriveCodexState. The
+        // first usage entry's model doubles as the base-model signal when no
+        // model_change is on file.
+        if (model === null) model = entry.message?.model ?? null;
+      } else if (role === "user" || role === "toolResult") {
+        // A human prompt just landed, or a tool returned and the model is
+        // about to be re-invoked — pi persists assistant messages only on
+        // completion, so both read as work in flight.
+        state = "thinking";
       }
+      // bashExecution / custom / summary roles: interactive artifacts —
+      // walk past to the genuine prior turn.
     }
-
-    if (stateAndModel !== null && contextTokens !== null && summary !== null)
-      break;
   }
 
-  if (stateAndModel === null) return null;
-  return { ...stateAndModel, contextTokens, summary };
+  if (state === null) return null;
+  return { state, model, contextTokens, summary };
 }
 
 // --- Tail reading ---
@@ -381,8 +400,16 @@ export function subscribeSessionsTree(
     let names: string[];
     try {
       names = fs.readdirSync(SESSIONS_DIR);
-    } catch {
-      names = []; // root gone again — prune everything below it
+    } catch (err) {
+      // ENOENT = the root genuinely went away — prune everything below it.
+      // Any other failure is transient (EMFILE/EACCES): keep the existing
+      // watch set, log loudly, and take another pass on the next root event
+      // rather than silently disarming the whole tree.
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        log?.error({ err, dir: SESSIONS_DIR }, "pi: sessions readdir failed");
+        return;
+      }
+      names = [];
     }
     const live = new Set(names.map((n) => path.join(SESSIONS_DIR, n)));
     for (const [dir, watcher] of childWatchers) {
@@ -398,7 +425,17 @@ export function subscribeSessionsTree(
     for (const dir of live) {
       if (childWatchers.has(dir)) continue;
       try {
-        childWatchers.set(dir, fs.watch(dir, fanOut));
+        // `rename` events only: membership changes (session files created
+        // or deleted) are renames on both inotify and FSEvents, while
+        // content appends (`change`) are exactly the per-session traffic
+        // the AgentAdapter contract forbids externalChanges from reporting
+        // — the candidate watcher already coalesces those.
+        childWatchers.set(
+          dir,
+          fs.watch(dir, (eventType) => {
+            if (eventType === "rename") fanOut();
+          }),
+        );
       } catch (err) {
         log?.error({ err, dir }, "pi: failed to watch sessions dir");
       }

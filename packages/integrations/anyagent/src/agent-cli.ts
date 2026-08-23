@@ -48,7 +48,36 @@ const EXIT_FLAGS: ReadonlySet<string> = new Set([
  *  agent-only spelling never leaks its exit status onto another agent's
  *  legitimately-boolean `-v` (e.g. a future agent whose `-v` is verbose). */
 const EXTRA_EXIT_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  ["pi", new Set(["-v"])],
+  // Pi's one-shot surface is wider than the other four agents': `-v` is its
+  // version spell (capital `-V` is a different, unknown switch), and
+  // `--export` / `--list-models` / `-p` (`--print`) are print-and-exit
+  // invocations that must never enter the recent-agents MRU.
+  ["pi", new Set(["-v", "--export", "--list-models", "-p", "--print"])],
+]);
+
+/** Tokens that make an invocation produce NO session kolu can bind to —
+ *  either flags that redirect or suppress pi's session storage
+ *  (`--session-dir <dir>` writes outside the scanned tree; `--no-session` is
+ *  ephemeral) or bare positional SUBCOMMAND words (`pi config list`).
+ *  Attributing these would either fabricate a session or — worse — bind the
+ *  terminal to a DIFFERENT session in the cwd (the #1495 wrong-conversation
+ *  class via the unmatchable direction). Checked arity-aware: value-flag
+ *  values (e.g. `pi --name config`) are never mistaken for subcommands. */
+const NON_SESSION_TOKENS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    "pi",
+    new Set([
+      "--session-dir",
+      "--no-session",
+      "auth",
+      "config",
+      "install",
+      "list",
+      "remove",
+      "uninstall",
+      "update",
+    ]),
+  ],
 ]);
 
 /** Whether a stable flag consumes the token that follows it as its value
@@ -343,6 +372,8 @@ function normalizeAgentInvocation(argv: string[]): string | null {
   const extraExit = EXTRA_EXIT_FLAGS.get(agent);
   if (args.some((t) => EXIT_FLAGS.has(t) || extraExit?.has(t))) return null;
 
+  const nonSession = NON_SESSION_TOKENS.get(agent);
+
   // Keep only allowlisted flags + their values. Anything else (unknown flags,
   // positional args) is dropped.
   const kept: string[] = [agent];
@@ -350,6 +381,7 @@ function normalizeAgentInvocation(argv: string[]): string | null {
     const t = args[i];
     if (t === undefined) break;
     if (t === "--") break; // stop at explicit end-of-flags
+    if (nonSession?.has(t)) return null; // subcommand / sessionless mode
     if (!t.startsWith("-")) continue; // drop positional
     const next = args[i + 1];
     const arity = allowed.get(t);

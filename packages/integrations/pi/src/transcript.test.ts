@@ -100,6 +100,68 @@ describe("parsePiTranscript", () => {
   });
 });
 
+describe("parsePiTranscript — tree semantics", () => {
+  const msg = (
+    id: string,
+    parentId: string | null,
+    role: string,
+    text: string,
+  ) =>
+    line({
+      type: "message",
+      id,
+      parentId,
+      timestamp: "t",
+      message:
+        role === "user"
+          ? { role, content: [{ type: "text", text }] }
+          : { role, content: [{ type: "text", text }], model: "m" },
+    });
+
+  it("renders only the ACTIVE branch: entries off the last entry's parentId chain are dropped", () => {
+    // File order interleaves an abandoned branch (b1→b2, dead-ends the
+    // line) with the live one: pi's /tree navigation re-pointed the leaf
+    // from b2 back to u1, and the visible conversation is u1→a1→a2.
+    const events = parsePiTranscript(
+      [
+        msg("u1", null, "user", "first prompt"),
+        msg("b1", "u1", "assistant", "branch attempt one"),
+        msg("b2", "b1", "assistant", "branch attempt two"),
+        msg("a1", "u1", "assistant", "real answer"),
+        msg("a2", "a1", "assistant", "follow-up"),
+      ].join("\n"),
+    );
+    const users = events.filter((e) => e.kind === "user");
+    const assistants = events.filter((e) => e.kind === "assistant");
+    expect(users).toHaveLength(1);
+    expect(
+      assistants.map((e) => (e.kind === "assistant" ? e.text : "")),
+    ).toEqual(["real answer", "follow-up"]);
+  });
+
+  it("entries without ids (older pi files) pass through unfiltered", () => {
+    const events = parsePiTranscript(
+      [
+        line({
+          type: "message",
+          timestamp: "t",
+          message: { role: "user", content: [{ type: "text", text: "hi" }] },
+        }),
+        line({
+          type: "message",
+          timestamp: "t",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "hello" }],
+            model: "m",
+          },
+        }),
+      ].join("\n"),
+    );
+    expect(events.map((e) => e.kind)).toEqual(["user", "assistant"]);
+  });
+});
+
 describe("normalizePiToolInput", () => {
   it("maps the built-ins to their typed kinds", () => {
     expect(normalizePiToolInput("read", { path: "/f" })).toEqual({

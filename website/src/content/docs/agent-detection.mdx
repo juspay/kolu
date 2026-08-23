@@ -315,8 +315,14 @@ session JSONL.
   started *inside* a running pi (its `/new`) is therefore indistinguishable
   from one started elsewhere in that directory, so the tile stays on the
   previous session until you exit the agent.
-- **A non-default agent directory** — pi honors `PI_CODING_AGENT_DIR`; point
-  kolu at the same place with `KOLU_PI_DIR`.
+- **A redirected session store** — pi moves its sessions with
+  `PI_CODING_AGENT_SESSION_DIR` / `--session-dir`; kolu scans only its own
+  sessions root (default `~/.pi/agent/sessions`, override with
+  `KOLU_PI_DIR=<dir>` where `<dir>/sessions` is the tree to scan), so a pi
+  launched with `--session-dir <elsewhere>` — or `--no-session` — isn't
+  detected. (Note: pi's `PI_CODING_AGENT_DIR` moves its CONFIG directory
+  only; sessions stay under `~/.pi/agent/sessions` and kolu sees them
+  normally.)
 
 ## Adding an agent
 

@@ -8,13 +8,17 @@
  *  / `custom` message roles — is state-derivation or extension material, not
  *  conversation, so it is skipped.
  *
- *  Entries form a tree (id/parentId) — the export renders the appended file
- *  ORDER, which is exactly the path pi itself replays as the active leaf
- *  history (pi re-orders by the tree only when the user navigates it, which
- *  an exporter cannot know about from a dead file). */
+ *  Entries form a tree (`id`/`parentId`) because pi supports in-file
+ *  branching (`/tree` navigation): abandoned branches stay in the file
+ *  interleaved with the live conversation. The export walks the parentId
+ *  chain back from the file's LAST entry — pi's own `buildContextEntries()`
+ *  does the same to reconstruct the active path — and emits only entries on
+ *  that chain, in file order. Abandoned branches, which a dead file cannot
+ *  present as anything but confusion, are dropped. */
 
 import fs from "node:fs";
 import path from "node:path";
+import type { Logger } from "kolu-shared";
 import {
   type Fetcher,
   parseIsoTimestamp,
@@ -25,6 +29,8 @@ import {
 import { parseSessionFileName, sessionDirFor } from "./core.ts";
 
 interface PiEntry {
+  id?: string;
+  parentId?: string | null;
   type?: string;
   timestamp?: string;
   message?: {
@@ -140,20 +146,51 @@ function eventsFromEntry(entry: PiEntry): TranscriptEvent[] {
   }
 }
 
-/** Parse a pi session JSONL file's contents into transcript events.
- *  Exported for unit testing. */
+/** Parse a pi session JSONL file's contents into transcript events,
+ *  following pi's tree semantics: entries carry `id`/`parentId` and form a
+ *  branching tree (see pi's docs/session-format.md — `/tree` navigation
+ *  re-points the leaf to an older entry). The live conversation is the path
+ *  from the file's last entry back to the root; entries off that path belong
+ *  to abandoned branches and are dropped. Entries without an `id` (older pi
+ *  versions) pass through, matching pre-tree pi files. Exported for tests. */
 export function parsePiTranscript(content: string): TranscriptEvent[] {
-  const events: TranscriptEvent[] = [];
+  const ordered: PiEntry[] = [];
   for (const line of content.split("\n")) {
     if (line.length === 0) continue;
-    let entry: PiEntry;
     try {
-      entry = JSON.parse(line) as PiEntry;
-    } catch {
       // Malformed line — skip. A truncated final write is the only
       // practical failure mode; one corrupt entry must not fail the export.
-      continue;
+      ordered.push(JSON.parse(line) as PiEntry);
+    } catch {
+      // skip
     }
+  }
+  const byId = new Map<string, PiEntry>();
+  for (const entry of ordered) {
+    if (typeof entry.id === "string") byId.set(entry.id, entry);
+  }
+  // Tree linkage exists at all? Older pi files carry ids but no parent
+  // chain — filter ONLY on a linkage witness so such files render whole.
+  const hasLinkage = ordered.some(
+    (e) => typeof e.parentId === "string" && byId.has(e.parentId),
+  );
+  const onActivePath = new Set<string>();
+  if (hasLinkage) {
+    let cur = [...ordered].reverse().find((e) => typeof e.id === "string");
+    while (cur && typeof cur.id === "string" && !onActivePath.has(cur.id)) {
+      onActivePath.add(cur.id);
+      cur =
+        typeof cur.parentId === "string" ? byId.get(cur.parentId) : undefined;
+    }
+  }
+  const events: TranscriptEvent[] = [];
+  for (const entry of ordered) {
+    if (
+      hasLinkage &&
+      typeof entry.id === "string" &&
+      !onActivePath.has(entry.id)
+    )
+      continue;
     events.push(...eventsFromEntry(entry));
   }
   return events;
@@ -166,12 +203,21 @@ export function parsePiTranscript(content: string): TranscriptEvent[] {
 function findTranscriptPath(
   sessionId: string,
   cwd: string,
+  log?: Logger,
 ): string | null {
   const dir = sessionDirFor(cwd);
   let names: string[];
   try {
     names = fs.readdirSync(dir);
-  } catch {
+  } catch (err) {
+    // ENOENT = the directory legitimately doesn't exist (pi never ran in
+    // that cwd) — "session not found" is the honest answer. Anything else
+    // (EMFILE/EACCES) collapsing to "not found" would lie to the user, so
+    // it throws and surfaces as a real export error.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log?.error({ err, dir }, "pi: transcript dir unreadable");
+      throw err;
+    }
     return null;
   }
   for (const name of names) {
@@ -185,11 +231,11 @@ function findTranscriptPath(
  *  the session file can't be located; throws only on a genuine read failure
  *  after the file was positively found (a race mid-export must not render as
  *  "session does not exist"). */
-export const loadPiTranscript: Fetcher = (input, _log) => {
+export const loadPiTranscript: Fetcher = (input, log) => {
   // Without a cwd there is no session directory to locate the id in —
   // the same "transcript not findable" null claude-code returns.
   if (input.cwd === null) return null;
-  const path = findTranscriptPath(input.sessionId, input.cwd);
+  const path = findTranscriptPath(input.sessionId, input.cwd, log);
   if (!path) return null;
   const raw = fs.readFileSync(path, "utf8");
   const transcript: Transcript = {

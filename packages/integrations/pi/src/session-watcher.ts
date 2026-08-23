@@ -37,17 +37,26 @@ export function createPiWatcher(
 ): PiWatcher {
   let destroyed = false;
   let lastInfo: PiInfo | null = null;
+  // Pi never un-names a session, only renames it — and a rename appends a
+  // fresh `session_info` entry when it happens, so the 256 KB fold window
+  // contains the newest name exactly WHEN it changes. What the window can
+  // lose is a name set long ago, deep in the file. Cache the last non-null
+  // name and merge it over a tail miss: a fold `null` then reads "unknown",
+  // never "gone" (which would silently blank the dock row's title).
+  let lastKnownSummary: string | null = null;
 
   function emitIfChanged(): void {
     if (destroyed) return;
     const derived = derivePiInfo(session, log);
     if (derived === null) return; // absent transcript / no turn entries yet
+    if (derived.summary !== null) lastKnownSummary = derived.summary;
+    const summary = derived.summary ?? lastKnownSummary;
     const info: PiInfo = {
       kind: "pi",
       state: derived.state,
       sessionId: session.id,
       model: derived.model,
-      summary: derived.summary,
+      summary,
       taskProgress: null,
       contextTokens: derived.contextTokens,
       startedAt: session.startedAt,
