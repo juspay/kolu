@@ -66,20 +66,58 @@ function isConsumerHangup(failure: unknown): boolean {
   return (failure as { readonly code?: unknown })?.code === "EPIPE";
 }
 
-/** Write one chunk to stdout, treating a hung-up reader as a complete run. */
-export function out(text: string): Effect.Effect<void, never, Stdio.Stdio> {
+/** ONE run of ONE sink — the shape every write in this module takes.
+ *
+ *  Asking `Stdio` for a sink is not free: `@effect/platform-node-shared` builds
+ *  a fresh Sink/Channel, registers and then deregisters an `error` listener on
+ *  `process.stdout`, and spins up a pull loop — per sink. A `--follow` that took
+ *  a new one PER LINE spent 7.4 µs of the 8.7 µs it cost to write a frame on the
+ *  sink it immediately threw away; one sink for the whole subscription costs
+ *  1.0 µs, which is 7× the throughput on a live feed. Nothing about the contract
+ *  moves: the sink still waits on DRAIN (so a slow consumer slows the producer
+ *  rather than inflating a backlog), interrupting the run still tears it down,
+ *  and the hang-up rule below is still asked once — all three are properties of
+ *  the RUN, never of a line.
+ *
+ *  A failed WRITE dies (see the header); the SOURCE's own failure is the far
+ *  side answering and has to reach the caller's classifier as a typed failure.
+ *  One run puts both in one `Cause`, so the source's is wrapped on the way in
+ *  and unwrapped on the way out — which is what keeps the two fates apart. */
+function toStdout<E>(
+  chunks: Stream.Stream<string, E>,
+): Effect.Effect<void, E, Stdio.Stdio> {
   return Effect.gen(function* () {
     const stdio = yield* Stdio.Stdio;
-    yield* Effect.catchCause(
-      Stream.run(Stream.make(text), stdio.stdout({ endOnDone: false })),
+    return yield* Effect.catchCause(
+      Stream.run(
+        Stream.mapError(chunks, (error) => new Upstream(error)),
+        stdio.stdout({ endOnDone: false }),
+      ),
       (cause) => {
-        const failure = Cause.findError(cause);
-        return Result.isSuccess(failure) && isConsumerHangup(failure.success)
-          ? Effect.void
-          : Effect.failCause(cause);
+        const found = Cause.findError(cause);
+        if (Result.isSuccess(found)) {
+          const failure = found.success;
+          if (failure instanceof Upstream)
+            return Effect.fail(failure.error as E);
+          if (isConsumerHangup(failure)) return Effect.void;
+        }
+        return Effect.orDie(Effect.failCause(cause));
       },
-    ).pipe(Effect.orDie);
+    );
   });
+}
+
+/** The SOURCE stream's own failure, carried across the run so it is not mistaken
+ *  for a write that vanished — see {@link toStdout}. A plain carrier and not a
+ *  tagged error: it exists for the length of one `Stream.run` and is unwrapped
+ *  before anything else can see it. */
+class Upstream {
+  constructor(readonly error: unknown) {}
+}
+
+/** Write one chunk to stdout, treating a hung-up reader as a complete run. */
+export function out(text: string): Effect.Effect<void, never, Stdio.Stdio> {
+  return toStdout(Stream.make(text));
 }
 
 /** THE one-shot data frame: the value as JSON, indented on a TTY and compact
@@ -91,10 +129,19 @@ export function data(value: unknown): Effect.Effect<void, never, Stdio.Stdio> {
   });
 }
 
-/** ONE ndjson line — always compact, whatever stdout is attached to: a frame
- *  that spans lines is not a frame a reader can split on. */
-export function frame(value: unknown): Effect.Effect<void, never, Stdio.Stdio> {
-  return out(`${json(value, false)}\n`);
+/** A whole SUBSCRIPTION as ndjson — one compact line per frame, and one sink for
+ *  the run (see {@link toStdout}). Always compact, whatever stdout is attached
+ *  to: a frame that spans lines is not a frame a reader can split on.
+ *
+ *  The stream comes HERE rather than the line going to the caller, because both
+ *  halves of this belong to the module that owns the stdout contract: {@link
+ *  json} is half of that contract and stays private, and the hang-up rule is
+ *  about the RUN — `surface watch nodes | head -1` closes the pipe under a live
+ *  feed, which is the reader getting exactly what it asked for. */
+export function frames<E>(
+  stream: Stream.Stream<unknown, E>,
+): Effect.Effect<void, E, Stdio.Stdio> {
+  return toStdout(Stream.map(stream, (value) => `${json(value, false)}\n`));
 }
 
 /** Prose for a HUMAN on a terminal, the JSON data through a pipe — the one

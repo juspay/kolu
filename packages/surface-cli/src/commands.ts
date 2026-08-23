@@ -108,7 +108,7 @@ import {
   JSON_FLAG,
   SurfaceCliBuildError,
 } from "./flags";
-import { data, frame, present, readStdin } from "./io";
+import { data, frames, present, readStdin } from "./io";
 
 /** A live connection this face owns for the length of ONE command.
  *
@@ -955,7 +955,9 @@ function readStream(
   follow: boolean,
   member: string,
 ): Effect.Effect<void, unknown, Stdio.Stdio> {
-  if (follow) return Stream.runForEach(stream, (value) => frame(value));
+  // ONE sink for the whole subscription, not one per line — `io.ts` owns that,
+  // and owns the hang-up rule that goes with it.
+  if (follow) return frames(stream);
   // NOTHING is caught here, and that is the fix this arm carries. An empty open
   // IS a dropped link — every snapshot-then-deltas member opens with its current
   // value — but `firstFrameOrThrow` already says so with a tag, and `classify`
