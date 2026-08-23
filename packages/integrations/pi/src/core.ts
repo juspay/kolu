@@ -31,6 +31,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { watchDirWhenReady } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { readTailLines } from "kolu-shared";
 import { SESSIONS_DIR } from "./config.ts";
@@ -337,29 +338,33 @@ export function derivePiInfo(
 // --- Sessions-tree watcher (externalChanges) ---
 
 /** Watch the two-level sessions tree and fire on any session-file event:
- *  `sessions/` itself (per-cwd directories appearing), plus one watch per
- *  existing per-cwd directory (files created inside them). A new per-cwd
- *  directory gets its child watch armed from the root event — the exact
- *  moment a first-ever pi run in that cwd becomes discoverable.
+ *  `sessions/` itself (per-cwd directories appearing or going away), plus one
+ *  watch per existing per-cwd directory (files created inside them). A new
+ *  per-cwd directory gets its child watch armed from the root event — the
+ *  exact moment a first-ever pi run in that cwd becomes discoverable.
  *
  *  Why the tree and not the transcript: a pi session file exists before any
- *  title event can name it (pi writes the header at launch; the preexec
- *  hint fires BEFORE that), so the only signal that a new session appeared
- *  is the filesystem — the same race claude's SESSIONS_DIR watcher covers
- *  for claude's pid-keyed files. Root-only fs.watch on Linux/macos is not
- *  recursive, hence the two levels.
+ *  title event can name it (the shell's preexec hint fires BEFORE pi writes
+ *  the file), so the filesystem is the only signal that a session appeared —
+ *  the same race claude's SESSIONS_DIR watcher covers for claude's pid-keyed
+ *  files. `fs.watch` is not recursive on Linux, hence the two levels.
+ *  `watchDirWhenReady` (kolu-io) carries the ancestor-wait so a missing
+ *  `~/.pi/agent` on a fresh machine re-arms all the way up instead of dying
+ *  at install time — `externalChanges.install` runs at most once per process,
+ *  so a failed install would blind detection for the daemon's lifetime.
  *
- *  Process-wide singleton, refcounted like claude's `subscribeSessionsDir`:
- *  the orchestrator's `externalChanges.install` contract is at-most-once,
- *  but a second subscriber (tests) must not double-arm watches. */
+ *  Process-wide: the orchestrator's `externalChanges.install` contract is
+ *  at-most-once; the returned unsubscribe tears the whole tree down. */
 export function subscribeSessionsTree(
   onChange: () => void,
   onError: (err: unknown) => void,
   log?: Logger,
 ): () => void {
-  const cleanups = new Map<string, () => void>();
+  const childWatchers = new Map<string, fs.FSWatcher>();
+  let closed = false;
 
   const fanOut = (): void => {
+    if (closed) return;
     try {
       onChange();
     } catch (err) {
@@ -367,83 +372,63 @@ export function subscribeSessionsTree(
     }
   };
 
-  function watchDir(dir: string): void {
-    if (cleanups.has(dir)) return;
-    let watcher: fs.FSWatcher;
-    try {
-      watcher = fs.watch(dir, () => {
-        if (dir === SESSIONS_DIR) {
-          // A per-cwd directory may have appeared — arm its child watch and
-          // fire (first session in a cwd the tree has never seen).
-          armChildDirs();
-        }
-        fanOut();
-      });
-    } catch (err) {
-      // SESSIONS_DIR legitimately doesn't exist until pi's first run; the
-      // parent watch (below) re-arms us when it appears. Any per-cwd dir
-      // already exists by the time we arm it — a failure there is a real
-      // fault and must surface.
-      if (dir !== SESSIONS_DIR) {
-        log?.error({ err, dir }, "pi: failed to watch sessions dir");
-      }
-      return;
-    }
-    cleanups.set(dir, () => watcher.close());
-  }
-
-  function armChildDirs(): void {
+  /** Reconcile child watches with the on-disk per-cwd dirs: arm a watch for
+   *  every present dir, retire watches whose dir went away (fs.watch stops
+   *  delivering for a deleted dir but keeps the handle, so without pruning a
+   *  recreated dir would stay watched by a dead handle and never re-arm). */
+  function syncChildDirs(): void {
+    if (closed) return;
     let names: string[];
     try {
       names = fs.readdirSync(SESSIONS_DIR);
     } catch {
-      return; // gone again (or never created) — the root watch reports life
+      names = []; // root gone again — prune everything below it
     }
-    for (const name of names) {
-      watchDir(path.join(SESSIONS_DIR, name));
+    const live = new Set(names.map((n) => path.join(SESSIONS_DIR, n)));
+    for (const [dir, watcher] of childWatchers) {
+      if (!live.has(dir)) {
+        try {
+          watcher.close();
+        } catch {
+          /* already-closing race */
+        }
+        childWatchers.delete(dir);
+      }
+    }
+    for (const dir of live) {
+      if (childWatchers.has(dir)) continue;
+      try {
+        childWatchers.set(dir, fs.watch(dir, fanOut));
+      } catch (err) {
+        log?.error({ err, dir }, "pi: failed to watch sessions dir");
+      }
     }
   }
 
-  // Wait-for-appearance on the root itself: watch the PARENT and re-try the
-  // root watch on each event until it attaches. Mirrors claude-code's
-  // `watchOrWaitForDir` ancestor-chain idea, one level deep (pi's parent
-  // hierarchy — ~/.pi or the KOLU_PI_DIR override — is also not guaranteed
-  // to exist, so the same fallback recurses up through it).
-  let rootRetry: fs.FSWatcher | null = null;
-  function armRoot(): void {
-    const before = cleanups.size;
-    watchDir(SESSIONS_DIR);
-    if (cleanups.size > before) {
-      rootRetry?.close();
-      rootRetry = null;
-      armChildDirs();
-      fanOut(); // kick: sessions may already exist under a just-appeared root
-    }
-  }
-  armRoot();
-  if (!cleanups.has(SESSIONS_DIR)) {
-    try {
-      rootRetry = fs.watch(path.dirname(SESSIONS_DIR), armRoot);
-    } catch (err) {
-      log?.error(
-        { err, dir: path.dirname(SESSIONS_DIR) },
-        "pi: sessions parent not watchable",
-      );
-    }
-  }
+  // Root events: child-dir membership changed (any create/delete in `sessions/`
+  // fires here on both inotify and FSEvents) — re-sync, then report.
+  const stopRoot = watchDirWhenReady(
+    SESSIONS_DIR,
+    () => {
+      syncChildDirs();
+      fanOut();
+    },
+    log,
+  );
 
   log?.info({ dir: SESSIONS_DIR }, "pi: sessions tree watcher installed");
 
   return () => {
-    for (const close of cleanups.values()) {
+    if (closed) return;
+    closed = true;
+    stopRoot();
+    for (const watcher of childWatchers.values()) {
       try {
-        close();
+        watcher.close();
       } catch {
         /* ignore teardown races */
       }
     }
-    cleanups.clear();
-    rootRetry?.close();
-    rootRetry = null;
+    childWatchers.clear();
   };
 }

@@ -14,6 +14,7 @@ const {
   piHomePresent,
   sessionDirFor,
   sessionDirNameFor,
+  subscribeSessionsTree,
 } = await import("./core.ts");
 
 afterAll(() => {
@@ -108,6 +109,70 @@ describe("piHomePresent", () => {
     expect(piHomePresent()).toBe(false);
     fs.mkdirSync(root, { recursive: true });
     expect(piHomePresent()).toBe(true);
+  });
+});
+
+// --- subscribeSessionsTree (externalChanges wake source) ---
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+describe("subscribeSessionsTree", () => {
+  it("fires when a per-cwd dir and its first session file appear after install", async () => {
+    const root = path.join(tmpHome, "sessions");
+    fs.rmSync(root, { recursive: true, force: true });
+    let fired = 0;
+    const stop = subscribeSessionsTree(
+      () => {
+        fired++;
+      },
+      () => {},
+    );
+    try {
+      // The per-cwd dir AND its file are created after install — the root
+      // watch must arm the child, and the file create must fan out.
+      const dir = sessionDirFor("/late/project");
+      fs.mkdirSync(dir, { recursive: true });
+      await sleep(300);
+      const before = fired;
+      fs.writeFileSync(
+        path.join(
+          dir,
+          "2026-08-23T10-00-00-000Z_11111111-2222-4333-8444-555555555555.jsonl",
+        ),
+        "{}",
+      );
+      await sleep(300);
+      expect(fired).toBeGreaterThan(before);
+    } finally {
+      stop();
+    }
+  });
+
+  it("keeps firing when a second session lands in an already-watched dir", async () => {
+    const dir = sessionDirFor("/watched/project");
+    fs.mkdirSync(dir, { recursive: true });
+    let fired = 0;
+    const stop = subscribeSessionsTree(
+      () => {
+        fired++;
+      },
+      () => {},
+    );
+    try {
+      await sleep(300); // let the child dir watch arm (attach kick fires once)
+      const before = fired;
+      fs.writeFileSync(
+        path.join(
+          dir,
+          "2026-08-23T11-00-00-000Z_66666666-7777-4888-8999-000000000000.jsonl",
+        ),
+        "{}",
+      );
+      await sleep(300);
+      expect(fired).toBeGreaterThan(before);
+    } finally {
+      stop();
+    }
   });
 });
 
