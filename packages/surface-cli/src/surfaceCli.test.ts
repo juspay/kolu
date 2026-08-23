@@ -23,11 +23,10 @@ import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { Effect, FileSystem, Layer, Path, Sink, Stdio, Terminal } from "effect";
 import { Command } from "effect/unstable/cli";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { fixtureRoot } from "./fixture.testlib";
 import type { UnixSocketListener } from "@kolu/surface/unix-socket";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { EXIT } from "./exit";
-import { serveFixture } from "./fixture.testlib";
+import { fixtureRoot, serveFixture } from "./fixture.testlib";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HOST = join(HERE, "host.fixture.ts");
@@ -36,12 +35,18 @@ const TSX = join(HERE, "..", "node_modules", ".bin", "tsx");
 let dir: string;
 let socketPath: string;
 let listener: UnixSocketListener;
+/** A path in the test dir that nothing is serving — what a case points at when
+ *  it must prove the request never LEFT the process. Pointing at the live socket
+ *  would prove nothing (a usage error and a successful dial look the same from
+ *  outside); pointing here makes exit 2 the only way to pass, because a dial
+ *  would have answered exit 3. */
+let deadSocket: string;
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "surface-cli-"));
   socketPath = join(dir, "fixture.sock");
   deadSocket = join(dir, "nobody-here.sock");
-  ({ listener } = await serveFixture(socketPath, silentLogger));
+  listener = await serveFixture(socketPath, silentLogger);
   expect(listener.outcome).toEqual({ kind: "listening" });
 });
 
@@ -49,13 +54,6 @@ afterAll(() => {
   listener?.close();
   rmSync(dir, { recursive: true, force: true });
 });
-
-/** A path in the test dir that nothing is serving — what a case points at
- *  when it must prove the request never LEFT the process. Pointing at the live
- *  socket would prove nothing (a usage error and a successful dial look the
- *  same from outside); pointing here makes exit 2 the only way to pass, because
- *  a dial would have answered exit 3. */
-let deadSocket: string;
 
 interface Run {
   readonly code: number;
@@ -176,10 +174,6 @@ function pipeThroughHead(args: readonly string[]): Promise<Run> {
       stderr += chunk;
     });
     child.on("error", reject);
-    // `sh`'s status is the LAST stage's (`head`), which always succeeds — so the
-    // CLI's own code is read out of `${PIPESTATUS}`-free POSIX sh by asking the
-    // pipeline to report it: the command below re-runs nothing, it simply keeps
-    // the CLI in the foreground of its own subshell.
     child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
   });
 }
@@ -377,12 +371,6 @@ describe("the flag shapes a verb's input projects to", () => {
     });
     expect(viaStdin.code).toBe(EXIT.ok);
     expect(JSON.parse(viaStdin.stdout)).toEqual({ said: "from stdin" });
-  });
-
-  it("refuses --json COMBINED with the field flags rather than silently preferring one", async () => {
-    const both = await run(["proc_kill", "7", "--json", '{"pid":7}']);
-    expect(both.code).toBe(EXIT.usage);
-    expect(both.stderr).toContain("--json");
   });
 
   it("keeps the boolean flag a TRISTATE — said, said-not, and not said are three payloads", async () => {
@@ -655,11 +643,14 @@ describe("the whole-input escape hatch is reachable on every verb", () => {
     expect(bare.stderr).toContain("--json");
   });
 
-  it("still says which fields collide when --json is combined with them", async () => {
+  it("refuses --json COMBINED with the field flags, and says which ones collide", async () => {
+    // Pointed at the DEAD socket: the refusal must be raised before anything is
+    // dialled, and a live socket could not tell the two apart.
     const both = await run(["proc_kill", "7", "--json", '{"pid":7}'], {
       socket: deadSocket,
     });
     expect(both.code).toBe(EXIT.usage);
+    expect(both.stderr).toContain("--json");
     // Once each — a positional used to be counted twice, as a position and as
     // a field.
     expect(both.stderr.match(/"pid"/g)).toHaveLength(1);

@@ -157,10 +157,15 @@ function scalarKind(
   return undefined;
 }
 
-/** The declared `enum` of a string node, when it has one — `Schema.Literals`
+/** The declared `enum` of a STRING node, when it has one — `Schema.Literals`
  *  arrives this way, and a choice flag lists the values in `--help` instead of
- *  letting a typo through to the server. */
+ *  letting a typo through to the server.
+ *
+ *  The `type === "string"` test is HERE and not at each caller: both callers
+ *  opened with it, and a choice IS a string node's enum — this function's own
+ *  guard already had to agree with them about what counts. */
 function stringChoices(node: JsonSchema): readonly string[] | undefined {
+  if (node.type !== "string") return undefined;
   const values = node.enum;
   if (!Array.isArray(values) || values.length === 0) return undefined;
   return values.every((v) => typeof v === "string")
@@ -202,7 +207,7 @@ function jsonFlag(name: string): Flag.Flag<any> {
 /** One property → one flag, by the table in the header. */
 // biome-ignore lint/suspicious/noExplicitAny: each branch's value type is the field's.
 function flagFor(name: string, node: JsonSchema): Flag.Flag<any> {
-  const choices = node.type === "string" ? stringChoices(node) : undefined;
+  const choices = stringChoices(node);
   if (choices !== undefined) return Flag.choice(name, choices);
   switch (scalarKind(node)) {
     case "string":
@@ -241,7 +246,7 @@ function flagFor(name: string, node: JsonSchema): Flag.Flag<any> {
  *  repetition stays a flag and `annotate.positional` naming one is refused. */
 // biome-ignore lint/suspicious/noExplicitAny: each branch's value type is the field's.
 function argumentFor(name: string, node: JsonSchema): Argument.Argument<any> {
-  const choices = node.type === "string" ? stringChoices(node) : undefined;
+  const choices = stringChoices(node);
   if (choices !== undefined) return Argument.choice(name, choices);
   switch (scalarKind(node)) {
     case "string":
@@ -366,11 +371,18 @@ export function flagsOf(
   // A field's DEFAULT, captured rather than handed to the parser — see the
   // header. Applied in the non-`--json` branch of `assemble`, so "the caller did
   // not say" survives as a state the assembler can still see.
-  const defaults = new Map<string, unknown>();
-  for (const name of fields) {
-    const fallback = (properties[name] as JsonSchema | undefined)?.default;
-    if (fallback !== undefined) defaults.set(name, fallback);
-  }
+  //
+  // The VALUES alone, never the documents they came from: `assemble` outlives
+  // this build by the whole life of the process, and a closure over `properties`
+  // would hold every advertised document open with it. It has exactly one
+  // reader, too — the help line reads its own default off the node `describe`
+  // already holds.
+  const defaults: ReadonlyArray<readonly [string, unknown]> = fields.flatMap(
+    (name) => {
+      const fallback = (properties[name] as JsonSchema | undefined)?.default;
+      return fallback === undefined ? [] : [[name, fallback] as const];
+    },
+  );
 
   // Positionals in the order the annotation gave them, then the flags. Effect
   // CLI reads positions in config order, so this order IS the argv order. Both
@@ -378,40 +390,27 @@ export function flagsOf(
   for (const name of positional) {
     const node = (properties[name] ?? {}) as JsonSchema;
     config[name] = optionalParam(
-      // `defaults.get(name)`, not `defaults` — the flag arm below always passed
-      // the value and this arm passed the whole Map, which is never `undefined`
-      // and which `JSON.stringify` renders `{}`. So EVERY positional advertised
-      // itself `(default: {})`: a help line whose whole job is to carry the two
-      // facts the parser no longer does, telling the reader they could omit an
-      // argument that is in fact required.
-      describe(
-        argumentFor(name, node),
-        node,
-        required.has(name),
-        defaults.get(name),
-      ),
+      describe(argumentFor(name, node), node, required.has(name)),
     );
   }
   for (const name of fields) {
     if (asPositional.has(name)) continue;
     const node = (properties[name] ?? {}) as JsonSchema;
     config[name] = optionalParam(
-      describe(
-        flagFor(name, node),
-        node,
-        required.has(name),
-        defaults.get(name),
-      ),
+      describe(flagFor(name, node), node, required.has(name)),
     );
   }
 
   /** Which fields did the CALLER actually name? Read off `undefined`, which is
    *  honest here precisely because nothing in this projection can produce one:
-   *  no parser default, and an absent repeated flag is `None` rather than `[]`. */
+   *  no parser default, and an absent repeated flag is `None` rather than `[]`.
+   *
+   *  Over `fields`, not over the positionals-then-flags rebuild of it: every
+   *  positional IS a field (refused at build otherwise), so the two are the same
+   *  SET, and the only place the order can be seen is the order the conflict
+   *  sentence lists the names in. */
   const suppliedIn = (values: Record<string, unknown>): string[] =>
-    [...positional, ...fields.filter((name) => !asPositional.has(name))].filter(
-      (name) => values[name] !== undefined,
-    );
+    fields.filter((name) => values[name] !== undefined);
 
   /** The missing REQUIRED fields of an assembled input, named — or `undefined`
    *  when nothing is missing.
@@ -420,15 +419,20 @@ export function flagsOf(
    *  the documented alternative (`--json '{}'`) was told only "this input does
    *  not match what the verb declares", while the same omission through the field
    *  flags named the field. One rule, one enforcer, one wording. A non-record
-   *  input is left to the decode, which refuses it for what it is. */
+   *  input is left to the decode, which refuses it for what it is.
+   *
+   *  It asks nothing of `properties`, and that is deliberate on both counts. The
+   *  `Object.hasOwn(properties, name)` this used to filter by could only ever
+   *  answer yes — the bridge's `pruneRequired` drops any `required` name whose
+   *  property the walk dropped, at every object node including the root — and
+   *  asking it held the whole advertised document alive in this closure, per
+   *  verb, for the life of the process. */
   const missingFrom = (input: unknown): string | undefined =>
     typeof input !== "object" || input === null || Array.isArray(input)
       ? undefined
       : namesMissing(
           [...required].filter(
-            (name) =>
-              (input as Record<string, unknown>)[name] === undefined &&
-              Object.hasOwn(properties, name),
+            (name) => (input as Record<string, unknown>)[name] === undefined,
           ),
         );
 
@@ -513,14 +517,23 @@ function readJsonFlag<E, R>(
  *
  *  Both matter because every param here is parser-optional (see the header): the
  *  library can no longer mark a required field, and it never sees the default at
- *  all — so a reader would learn neither from `--help` unless the line says so. */
+ *  all — so a reader would learn neither from `--help` unless the line says so.
+ *
+ *  The default is read off the NODE, which this function already holds, and is
+ *  not a parameter beside it. It WAS a parameter, and the positional arm passed
+ *  the whole `defaults` Map where the value belonged — a Map is never
+ *  `undefined` and `JSON.stringify` renders it `{}`, so EVERY positional
+ *  advertised itself `(default: {})`: the one line whose entire job is to carry
+ *  requiredness and defaults was telling the reader they could omit an argument
+ *  that is in fact required. A parameter for a fact the callee already has is a
+ *  way to get that fact wrong. */
 function describe<Kind extends Param.ParamKind, A>(
   param: Param.Param<Kind, A>,
   node: JsonSchema,
   isRequired: boolean,
-  fallback: unknown,
 ): Param.Param<Kind, A> {
   const written = node.description;
+  const fallback = node.default;
   const parts = [
     ...(typeof written === "string" && written !== "" ? [written] : []),
     ...(isRequired ? ["(required)"] : []),

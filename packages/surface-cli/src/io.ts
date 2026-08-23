@@ -58,7 +58,16 @@ import { Cause, Data, Effect, Result, Stdio, Stream } from "effect";
  *
  *  The `code` sits one level in, on the platform error's own `cause`, which is
  *  where Node's `EPIPE` lands after the sink wraps it; the direct reading is
- *  kept beside it for a platform that raises the errno flat. */
+ *  kept beside it for a platform that raises the errno flat.
+ *
+ *  KNOWN DIVERGENCE, recorded rather than worked around:
+ *  `packages/kolu-cli/src/verbs/shared.ts` carries its own copy of this
+ *  predicate that reads only the FLAT `code` — so it misses the nested reading,
+ *  which is the one Node actually produces. This is the better reading, and it
+ *  cannot be shared today: this package must not import an app package, and
+ *  `kolu-cli` is deliberately not migrated onto this projection in this PR. The
+ *  resolution is kolu-cli adopting THIS predicate when it mounts the projection.
+ *  An implicit pair of half-right EPIPE tests is worse than a recorded one. */
 function isConsumerHangup(failure: unknown): boolean {
   const nested = (failure as { readonly cause?: { readonly code?: unknown } })
     ?.cause?.code;

@@ -309,8 +309,10 @@ export function runEdge(
   binary: string,
   error: unknown,
 ): { readonly stderr: string; readonly failure: unknown } {
-  const carried = (error as { readonly stderr?: unknown })?.stderr;
-  if (typeof carried === "string") return { stderr: carried, failure: error };
+  // {@link isOwnFailure}, not a duck-test for a `stderr` string: a FOREIGN error
+  // that happens to carry one would otherwise be printed raw and lose the arm
+  // the matrix means for it.
+  if (isOwnFailure(error)) return { stderr: error.stderr, failure: error };
   // Has the CLI LIBRARY already put this failure's text on screen? A typo'd
   // subcommand, a rejected flag, a value an enum does not admit — the library
   // renders the reason and the usage itself, so re-reporting it would print the

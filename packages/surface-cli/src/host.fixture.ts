@@ -60,12 +60,8 @@ NodeRuntime.runMain(
     Effect.catchCause((cause) => {
       if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
       const { stderr, failure } = runEdge("demo", Cause.squash(cause));
-      return Effect.flatMap(
-        Effect.sync(() => {
-          if (stderr !== "") process.stderr.write(stderr);
-        }),
-        () => Effect.fail(failure),
-      );
+      if (stderr !== "") process.stderr.write(stderr);
+      return Effect.fail(failure);
     }),
     Effect.provide(NodeServices.layer),
   ),

@@ -31,9 +31,11 @@ import type { SurfaceVerb } from "@kolu/surface/verbs";
 import { Effect, Schema, Stream } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import {
+  type EndpointSeam,
   type ProjectedCommand,
   surfaceCommands,
   type SurfaceCliConnection,
+  type VerbAnnotation,
 } from "./commands";
 
 // ── The surface ──────────────────────────────────────────────────────────
@@ -43,7 +45,7 @@ const Load = Schema.Struct({
   five: Schema.Finite,
   fifteen: Schema.Finite,
 });
-export const ZERO: typeof Load.Type = { one: 0, five: 0, fifteen: 0 };
+const ZERO: typeof Load.Type = { one: 0, five: 0, fifteen: 0 };
 
 const Pid = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const Proc = Schema.Struct({
@@ -61,7 +63,7 @@ const Tick = Schema.Struct({ at: Schema.Int, every: Schema.Int });
 
 /** A DECLARED refusal — the exit-1 arm of the contract, as a real domain error
  *  rather than a fabricated one. */
-export class NoSuchPid extends Schema.TaggedError<NoSuchPid>(
+class NoSuchPid extends Schema.TaggedError<NoSuchPid>(
   "@kolu/surface-cli/test/NoSuchPid",
 )("NoSuchPid", { pid: Schema.Int }) {
   override get message(): string {
@@ -191,9 +193,8 @@ const TABLE = new Map<number, typeof Proc.Type>([
   [104, { command: "spendable", cpuPct: 0, memPct: 0 }],
 ]);
 
-/** The `{ group, handlers }` pair, plus the ctx a test mutates to make a
- *  `watch` produce a delta. */
-export function buildRuntime() {
+/** The `{ group, handlers }` pair this fixture is served from. */
+function buildRuntime() {
   const table = new Map(TABLE);
   return implementSurface(surface, {
     cells: {
@@ -255,7 +256,7 @@ export function buildRuntime() {
  *  ergonomics; the serving face's is the gate), and `withheld` is the member that
  *  proves it: the CLI offers it, the server refuses it, and the refusal has to
  *  read as the far side answering rather than as nothing being there. */
-export const SERVED = {
+const SERVED = {
   load: "resource",
   processes: "resource",
   mounts: "resource",
@@ -272,19 +273,15 @@ export const SERVED = {
 export async function serveFixture(
   socketPath: string,
   log: Logger,
-): Promise<{
-  listener: UnixSocketListener;
-  runtime: ReturnType<typeof buildRuntime>;
-}> {
+): Promise<UnixSocketListener> {
   const runtime = buildRuntime();
-  const listener = await serveOverUnixSocket({
+  return await serveOverUnixSocket({
     socketPath,
     group: runtime.group,
     handlers: runtime.handlers,
     expose: exposeFace(surface, SERVED),
     log,
   });
-  return { listener, runtime };
 }
 
 // ── Consuming it ─────────────────────────────────────────────────────────
@@ -313,22 +310,38 @@ export function resolveFixture(values: { readonly socket: string }) {
   });
 }
 
-/** The projected commands, as the fixture host mounts them. */
-export function fixtureCommands(): ReadonlyArray<ProjectedCommand> {
+/** The CLI-only ergonomics every root below mounts.
+ *
+ *  ONE const, because the three roots are meant to differ by exactly one thing —
+ *  the endpoint seam — and one of them silently carried NO annotations at all,
+ *  which is invisible as a block that simply is not written. */
+const ANNOTATE: Record<string, VerbAnnotation> = {
+  proc_kill: { positional: ["pid"] },
+  // The one `render` in the tree, so the TTY arm has a driver. Its shape is
+  // deliberately unlike the JSON: a test asserting one cannot pass by accident
+  // against the other.
+  proc_count: { render: (out) => `processes: ${(out as { n: number }).n}` },
+};
+
+/** The projection over ONE endpoint seam — everything the three roots below
+ *  share, so what is left at each of them is the one thing it is there to
+ *  prove. */
+function commandsWith<F extends Command.Command.FlagConfig, R>(
+  endpoint: EndpointSeam<F, R>,
+) {
   return surfaceCommands({
     surface,
     expose: EXPOSE,
     verbs: VERBS,
-    endpoint: { flags: endpointFlags, resolve: resolveFixture },
-    annotate: {
-      proc_kill: { positional: ["pid"] },
-      // The one `render` in the tree, so the TTY arm has a driver. Its shape is
-      // deliberately unlike the JSON: a test asserting one cannot pass by
-      // accident against the other.
-      proc_count: { render: (out) => `processes: ${(out as { n: number }).n}` },
-    },
+    endpoint,
+    annotate: ANNOTATE,
     info: { name: "demo" },
   });
+}
+
+/** The projected commands, as the fixture host mounts them. */
+export function fixtureCommands(): ReadonlyArray<ProjectedCommand> {
+  return commandsWith({ flags: endpointFlags, resolve: resolveFixture });
 }
 
 /** The whole binary's tree — a root with the projected verbs under it, the way
@@ -353,16 +366,8 @@ export function fixtureRootWithParentFlags() {
     Command.withSharedFlags(endpointFlags),
     Command.withDescription("the surface-cli fixture host (parent flags)"),
   );
-  const commands = surfaceCommands({
-    surface,
-    expose: EXPOSE,
-    verbs: VERBS,
-    endpoint: { resolve: () => Effect.flatMap(root, resolveFixture) },
-    annotate: {
-      proc_kill: { positional: ["pid"] },
-      proc_count: { render: (out) => `processes: ${(out as { n: number }).n}` },
-    },
-    info: { name: "demo" },
+  const commands = commandsWith({
+    resolve: () => Effect.flatMap(root, resolveFixture),
   });
   return root.pipe(Command.withSubcommands([...commands]));
 }
@@ -375,18 +380,12 @@ export function fixtureRootWithParentFlags() {
  *  the matrix means something else by. */
 export function fixtureRootWithUnresolvableEndpoint(how: "fail" | "throw") {
   const because = new Error("no $DEMO_SOCKET, and no runtime dir");
-  const commands = surfaceCommands({
-    surface,
-    expose: EXPOSE,
-    verbs: VERBS,
-    endpoint: {
-      flags: endpointFlags,
-      resolve: () => {
-        if (how === "throw") throw because;
-        return Effect.fail(because);
-      },
+  const commands = commandsWith({
+    flags: endpointFlags,
+    resolve: () => {
+      if (how === "throw") throw because;
+      return Effect.fail(because);
     },
-    info: { name: "demo" },
   });
   return Command.make("demo").pipe(
     Command.withDescription("the surface-cli fixture host (no endpoint)"),

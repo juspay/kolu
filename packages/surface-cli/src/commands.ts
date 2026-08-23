@@ -302,7 +302,8 @@ export function surfaceCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
 /** One callable verb, resolved: where it came from, what it takes, how it runs.
  *  Procedures and bespoke verbs differ in exactly two places — the dispatch, and
  *  whether the argument arrives encoded or decoded — so they are ONE shape with
- *  those two as fields rather than two parallel builders. */
+ *  the dispatch as a field and the reading DERIVED from `source`, rather than
+ *  two parallel builders. */
 interface CallableVerb {
   readonly name: string;
   readonly source: "procedure" | "bespoke";
@@ -312,12 +313,6 @@ interface CallableVerb {
   readonly schema: WireSchemaAny | undefined;
   readonly projection: InputProjection;
   readonly annotation: VerbAnnotation;
-  /** WHICH reading of the input this verb's dispatch wants. A procedure's client
-   *  ref decodes what it is handed, so it takes the ENCODED one; a bespoke
-   *  handler's `args` ARE the decoded value. The CLI has both by then, and this
-   *  says which to hand over — data beside the arm that knows it, rather than a
-   *  pair of positionals of which every implementation ignores one. */
-  readonly reading: "encoded" | "decoded";
   readonly call: (
     client: SurfaceClientCallable,
     input: unknown,
@@ -349,7 +344,6 @@ function callableVerbs<S extends SurfaceSpec, F extends FlagRecord, R>(
         flagsOf(schema, { positional: annotation.positional }),
       ),
       annotation,
-      reading: "encoded",
       call: (client, input) => {
         const proc = client.surface[entry.ns]?.[entry.verb];
         if (proc === undefined) {
@@ -380,7 +374,6 @@ function callableVerbs<S extends SurfaceSpec, F extends FlagRecord, R>(
         flagsOf(schema, { positional: annotation.positional }),
       ),
       annotation,
-      reading: "decoded",
       // A bespoke handler is `(args, client, signal) => Effect`, exactly as on
       // the MCP face. There is no signal to hand it: cancellation here IS fiber
       // interruption, and a handler that composes surface members inherits it.
@@ -541,7 +534,10 @@ function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
     }
 
     const output = yield* withConnection(opts, values, (client) =>
-      verb.call(client, verb.reading === "decoded" ? decoded : encoded),
+      // WHICH reading this verb's dispatch wants, off the one field that already
+      // says: a procedure's client ref decodes what it is handed, so it takes
+      // the ENCODED value, while a bespoke handler's `args` ARE the decoded one.
+      verb.call(client, verb.source === "bespoke" ? decoded : encoded),
     );
     // The author's renderer on a terminal, the JSON data through a pipe —
     // `io.ts` owns that branch, so this file never asks what stdout is.
@@ -643,6 +639,51 @@ const memberArgument = (label: string, names: readonly string[]) =>
     ),
   );
 
+/** `keys` and `watch` — ONE reader with four constants swapped, rather than two
+ *  functions and two command literals that differed only by a name, a sentence,
+ *  and whether `--follow` is read or forced.
+ *
+ *  `eligible` is asked in two places that must agree: it picks the members the
+ *  `<collection>` argument LISTS in `--help`, and it is the same question
+ *  {@link resolveMember} asks of the whole table when the argument is resolved.
+ *  Written twice, a command could offer a member it then refuses. */
+interface CollectionReader {
+  readonly name: "keys" | "watch";
+  readonly eligible: (
+    collection: Extract<Readable, { kind: "collection" }>,
+  ) => boolean;
+  /** What a refusal calls the set this reader can address. */
+  readonly wanted: string;
+  /** The member verb to open. */
+  readonly verb: string;
+  /** Does it ALWAYS stream? `watch` IS the subscription — there is no one-shot
+   *  reading of a delta stream — so it takes no `--follow` and forces it, while
+   *  `keys` has a current key set to answer with and reads the flag. */
+  readonly always: boolean;
+  readonly description: string;
+}
+
+const COLLECTION_READERS: readonly CollectionReader[] = [
+  {
+    name: "keys",
+    eligible: (collection) => collection.listable,
+    wanted: "collection with a key set",
+    verb: "keys",
+    always: false,
+    description:
+      "List a collection's current key set — with --follow, every key set as it changes.",
+  },
+  {
+    name: "watch",
+    eligible: (collection) => collection.watchable,
+    wanted: "watchable collection",
+    verb: "deltas",
+    always: true,
+    description:
+      "Follow a collection: the whole set as one snapshot frame, then one ndjson line per batch of changes.",
+  },
+];
+
 function readerCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
   opts: SurfaceCliOptions<S, F, R>,
   table: Map<string, Readable>,
@@ -675,44 +716,27 @@ function readerCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
     ) as ProjectedCommand<Stdio.Stdio | R>,
   );
 
-  const listable = collections.filter((c) => c.listable);
-  if (listable.length > 0) {
+  // Mounted only where the surface has something for them to address: a `keys`
+  // over no listable collection is a command whose every invocation is a usage
+  // error.
+  for (const reader of COLLECTION_READERS) {
+    const eligible = collections.filter(reader.eligible);
+    if (eligible.length === 0) continue;
     commands.push(
       Command.make(
-        "keys",
-        mergeConfig(opts, "keys", {
+        reader.name,
+        mergeConfig(opts, reader.name, {
           member: memberArgument(
             "collection",
-            listable.map((c) => c.name),
+            eligible.map((c) => c.name),
           ),
-          follow: followFlag,
+          ...(reader.always ? {} : { follow: followFlag }),
         }),
-        (values: Record<string, unknown>) => runKeys(opts, table, values),
-      ).pipe(
-        Command.withDescription(
-          "List a collection's current key set — with --follow, every key set as it changes.",
-        ),
-      ) as ProjectedCommand<Stdio.Stdio | R>,
-    );
-  }
-
-  const watchable = collections.filter((c) => c.watchable);
-  if (watchable.length > 0) {
-    commands.push(
-      Command.make(
-        "watch",
-        mergeConfig(opts, "watch", {
-          member: memberArgument(
-            "collection",
-            watchable.map((c) => c.name),
-          ),
-        }),
-        (values: Record<string, unknown>) => runWatch(opts, table, values),
-      ).pipe(
-        Command.withDescription(
-          "Follow a collection: the whole set as one snapshot frame, then one ndjson line per batch of changes.",
-        ),
-      ) as ProjectedCommand<Stdio.Stdio | R>,
+        (values: Record<string, unknown>) =>
+          runCollectionRead(opts, table, values, reader),
+      ).pipe(Command.withDescription(reader.description)) as ProjectedCommand<
+        Stdio.Stdio | R
+      >,
     );
   }
 
@@ -762,79 +786,20 @@ function runGet<S extends SurfaceSpec, F extends FlagRecord, R>(
     const follow = values.follow === true;
     const raw = values.arg as string | undefined;
 
-    if (member.kind === "cell") {
-      if (raw !== undefined) {
-        return yield* Effect.fail(
-          usage(
-            opts.info.name,
-            `"${member.name}" is a cell — it holds one value and takes no argument.`,
-          ),
-        );
-      }
+    // THE one exception to the shared tail below: a collection `get` for a key
+    // that is not a member yet is a held-open subscription that yields nothing
+    // (juspay/kolu#1681), so a one-shot read of one must be BOUNDED rather than
+    // opened like every other member.
+    if (member.kind === "collection" && !follow) {
+      const key = yield* collectionKey(opts, member, raw);
       return yield* withConnection(opts, values, (client) =>
-        readStream(
-          memberStream(client, member.name, "get", undefined),
-          follow,
-          member.name,
-        ),
+        readCollectionItem(client, member, key),
       );
     }
 
-    if (member.kind === "collection") {
-      if (raw === undefined) {
-        return yield* Effect.fail(
-          usage(
-            opts.info.name,
-            `"${member.name}" is a collection — name the key to read, or use \`keys ${member.name}\` for the key set.`,
-          ),
-        );
-      }
-      const landed = decodeTextValue(member.keySchema, raw);
-      if (Option.isNone(landed)) {
-        return yield* Effect.fail(
-          usage(
-            opts.info.name,
-            `"${raw}" is not a key of "${member.name}" — it does not match the collection's declared key type.`,
-          ),
-        );
-      }
-      // A collection payload is built from DECODED keys (`client.ts`) — the
-      // other half of the same landed token the stream arm takes encoded.
-      const key = landed.value.decoded;
-      return yield* withConnection(opts, values, (client) =>
-        follow
-          ? readStream(
-              memberStream(client, member.name, "get", { key }),
-              true,
-              member.name,
-            )
-          : readCollectionItem(client, member, key),
-      );
-    }
-
-    // An EVENT has no current value — it is occurrences over time, and its
-    // handler yields nothing until one happens. A one-shot read of it therefore
-    // waits forever, silently, which is the worst answer a command can give; so
-    // it is refused HERE, in this face's own words, rather than hanging.
-    if (member.kind === "event" && !follow) {
-      return yield* Effect.fail(
-        usage(
-          opts.info.name,
-          `"${member.name}" is an event — it has occurrences, not a current value, so there is nothing to read once. Use --follow to watch for them.`,
-        ),
-      );
-    }
-
-    // A stream or an event. Its input rides the same `[arg]` position, decoded
-    // against the member's OWN schema — the argv twin of the collection key,
-    // through the one text-to-schema rule both faces share. No cast: the two
-    // arms above narrowed `kind`, so this one HAS an `inputSchema`.
-    const input = yield* streamInput(
-      opts,
-      member.name,
-      member.inputSchema,
-      raw,
-    );
+    // Every other read is the same three lines with a different `get` argument,
+    // so the arms decide only WHAT to call it with and the tail is shared.
+    const input = yield* getArgument(opts, member, raw, follow);
     return yield* withConnection(opts, values, (client) =>
       readStream(
         memberStream(client, member.name, "get", input),
@@ -843,6 +808,83 @@ function runGet<S extends SurfaceSpec, F extends FlagRecord, R>(
       ),
     );
   });
+}
+
+/** What one member's `get` is called with — or the refusal, when the `[arg]`
+ *  position does not suit the member's kind.
+ *
+ *  Arms and not a `{arity, message}` table: each is a DIFFERENT sentence about a
+ *  different mistake, and a table would hold the same four facts spelled
+ *  sideways, one column of which is the sentence anyway. */
+function getArgument<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
+  member: Readable,
+  raw: string | undefined,
+  follow: boolean,
+): Effect.Effect<unknown, SurfaceCliFailure> {
+  if (member.kind === "cell") {
+    return raw === undefined
+      ? Effect.succeed(undefined)
+      : Effect.fail(
+          usage(
+            opts.info.name,
+            `"${member.name}" is a cell — it holds one value and takes no argument.`,
+          ),
+        );
+  }
+
+  // Reached only under `--follow` — the bounded one-shot read above took the
+  // other reading — but the KEY is the same key, decoded by the same rule.
+  if (member.kind === "collection") {
+    return Effect.map(collectionKey(opts, member, raw), (key) => ({ key }));
+  }
+
+  // An EVENT has no current value — it is occurrences over time, and its
+  // handler yields nothing until one happens. A one-shot read of it therefore
+  // waits forever, silently, which is the worst answer a command can give; so
+  // it is refused HERE, in this face's own words, rather than hanging.
+  if (member.kind === "event" && !follow) {
+    return Effect.fail(
+      usage(
+        opts.info.name,
+        `"${member.name}" is an event — it has occurrences, not a current value, so there is nothing to read once. Use --follow to watch for them.`,
+      ),
+    );
+  }
+
+  // A stream or an event. Its input rides the same `[arg]` position, decoded
+  // against the member's OWN schema — the argv twin of the collection key,
+  // through the one text-to-schema rule both faces share. No cast: the two arms
+  // above narrowed `kind`, so this one HAS an `inputSchema`.
+  return streamInput(opts, member.name, member.inputSchema, raw);
+}
+
+/** The `<key>` position, landed in the collection's declared key type — the
+ *  DECODED reading, because a collection payload is built from decoded keys
+ *  (`client.ts`), which is the other half of the same landed token the stream
+ *  arm takes encoded. */
+function collectionKey<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
+  member: Extract<Readable, { kind: "collection" }>,
+  raw: string | undefined,
+): Effect.Effect<unknown, SurfaceCliFailure> {
+  if (raw === undefined) {
+    return Effect.fail(
+      usage(
+        opts.info.name,
+        `"${member.name}" is a collection — name the key to read, or use \`keys ${member.name}\` for the key set.`,
+      ),
+    );
+  }
+  const landed = decodeTextValue(member.keySchema, raw);
+  return Option.isNone(landed)
+    ? Effect.fail(
+        usage(
+          opts.info.name,
+          `"${raw}" is not a key of "${member.name}" — it does not match the collection's declared key type.`,
+        ),
+      )
+    : Effect.succeed(landed.value.decoded);
 }
 
 /** What to call a stream's or event's `get` with: the decoded `[arg]`, or the
@@ -886,48 +928,26 @@ function streamInput<S extends SurfaceSpec, F extends FlagRecord, R>(
       );
 }
 
-function runKeys<S extends SurfaceSpec, F extends FlagRecord, R>(
+/** `keys` and `watch`, which are one read: resolve the `<collection>` against
+ *  this reader's own eligibility, open its member verb, write what comes back. */
+function runCollectionRead<S extends SurfaceSpec, F extends FlagRecord, R>(
   opts: SurfaceCliOptions<S, F, R>,
   table: Map<string, Readable>,
   values: Record<string, unknown>,
+  reader: CollectionReader,
 ): Effect.Effect<void, unknown, Stdio.Stdio | R> {
   return Effect.gen(function* () {
     const member = yield* resolveMember(
       opts,
       table,
       values,
-      (r) => r.kind === "collection" && r.listable,
-      "collection with a key set",
+      (r) => r.kind === "collection" && reader.eligible(r),
+      reader.wanted,
     );
     yield* withConnection(opts, values, (client) =>
       readStream(
-        memberStream(client, member.name, "keys", undefined),
-        values.follow === true,
-        member.name,
-      ),
-    );
-  });
-}
-
-function runWatch<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
-  table: Map<string, Readable>,
-  values: Record<string, unknown>,
-): Effect.Effect<void, unknown, Stdio.Stdio | R> {
-  return Effect.gen(function* () {
-    const member = yield* resolveMember(
-      opts,
-      table,
-      values,
-      (r) => r.kind === "collection" && r.watchable,
-      "watchable collection",
-    );
-    // `watch` IS the subscription — there is no one-shot reading of a delta
-    // stream, so it takes no `--follow` and always streams.
-    yield* withConnection(opts, values, (client) =>
-      readStream(
-        memberStream(client, member.name, "deltas", undefined),
-        true,
+        memberStream(client, member.name, reader.verb, undefined),
+        reader.always || values.follow === true,
         member.name,
       ),
     );
