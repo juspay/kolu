@@ -20,6 +20,7 @@
 
 export {
   EXIT,
+  isSurfaceCliFailure,
   reportingRunEdge,
   runEdge,
   type RunEdgeReport,

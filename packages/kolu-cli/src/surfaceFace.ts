@@ -44,9 +44,14 @@
  * parse layer: a failure's code is DATA it carries, so a driver branches on
  * the face it drove — the alternative the recording anticipated, one integer
  * meaning two things inside one FACE, is the shape this ruling refuses to
- * ship. The two arms left binary-wide are honest ones: the `-h`/`--version`
- * help-success arm, and the parse layer's own refusal (`main.ts`'s, exit 1 on
- * both faces).
+ * ship. The arms left binary-wide are honest ones: the `-h`/`--version`
+ * help-success arm, the parse layer's own refusal (`main.ts`'s, exit 1 on
+ * both faces), and the one a rider cannot fence its way out of — a defect
+ * that outruns the projection's arming (a throw inside an `annotate.render`,
+ * fired while the command tree materialises, before any verb exists) carries
+ * no face's tag, so `main.ts`'s edge arms it as the NATIVE crash line,
+ * `kolu: <message>` exit 1, whatever face issued it: the exit-1 = JSON
+ * promise is about REFUSALS, and a crash is neither.
  *
  * ## What mounting costs the TREE, and what it refuses to cost
  *

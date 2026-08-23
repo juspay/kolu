@@ -72,6 +72,7 @@ import { koluCli } from "./cli.ts";
 import {
   CliFailure,
   errorMessage,
+  koluLine,
   isContractArm,
   reportOf,
   UsageRefused,
@@ -158,9 +159,12 @@ const failureFor = (err: unknown): CliFailure | unknown =>
       // contract arm — untagged, it would ride through marker-free and the
       // runtime's own reporter would dump its cause ONTO STDOUT beside the
       // wrapped line, double-speaking the one place "stdout is data" holds.
+      // The envelope is `koluLine`, not `reportOf(err)`: identity and print
+      // must answer the SAME fact, and a duck-read of that payload is exactly
+      // what "identity by tag" refuses.
       new CliFailure({
         reason: errorMessage(err),
-        stderr: reportOf(err),
+        stderr: koluLine(errorMessage(err)),
         code: 1,
       });
 

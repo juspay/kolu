@@ -54,6 +54,17 @@
  *     failures (a missing required flag, an unknown option) resolve as the
  *     LIBRARY's brand before any face's handler runs, and `kolu` renders those
  *     exit `1` on every face — the parse stance an operator learns once.
+ *   - the one binary-wide fallback is the defect domain: a throw that outruns
+ *     EVERY face's arming (a defect inside an `annotate.render`, fired while
+ *     the command TREE is materialising, before any verb's own edge exists)
+ *     carries no face's tag, so the binary's edge
+ *     arms it as the NATIVE crash line — `kolu: <message>`, exit `1` —
+ *     whatever face issued it. A script doing `JSON.parse(stderr)` on exit 1
+ *     can therefore rely on egress being JSON for every REFUSAL, but a crash
+ *     outrunning the arm is prose; that is the contract a face inherits by
+ *     riding a binary that owns other faces, and no subtree wrap can change
+ *     it — the binary's edge is the last edge before the process, so the wrap
+ *     has to live there, where no face's name is left to arm with.
  *
  * Each arm carries the EXACT text it writes, not a fragment a formatter
  * reassembles later, plus `Runtime.errorExitCode` — the marker
@@ -242,7 +253,7 @@ export function classify(
   where: string,
   error: unknown,
 ): unknown {
-  if (isOwnFailure(error)) return error;
+  if (isSurfaceCliFailure(error)) return error;
   // An EMPTY OPEN: the link went away under an in-flight read, discovered by the
   // reader instead of by the dialler. Every snapshot-then-deltas member opens
   // with its current value, so a member that opened and closed saying nothing is
@@ -270,8 +281,13 @@ export function classify(
 
 /** Is this a failure this face already worded and gave a code to? Matched on the
  *  tag rather than by `instanceof`, so a value that crossed a module boundary is
- *  still recognised as its own verdict rather than re-classified as a refusal. */
-function isOwnFailure(value: unknown): value is SurfaceCliFailure {
+ *  still recognised as its own verdict rather than re-classified as a refusal.
+ *  EXPORTED: the tag string lives HERE, at its minting module — a host binary
+ *  whose run edge passes this face's arms through (kolu's `isContractArm`)
+ *  composes this predicate rather than re-spelling the literal. */
+export function isSurfaceCliFailure(
+  value: unknown,
+): value is SurfaceCliFailure {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -348,10 +364,10 @@ export type RunEdgeReport =
  *  because the line is already written here and Effect's would be a second,
  *  differently-worded copy of it — on stdout. */
 export function runEdge(error: unknown): RunEdgeReport {
-  // {@link isOwnFailure}, not a duck-test for a `stderr` string: a FOREIGN error
+  // {@link isSurfaceCliFailure}, not a duck-test for a `stderr` string: a FOREIGN error
   // that happens to carry one would otherwise be printed raw and lose the arm
   // the matrix means for it.
-  if (isOwnFailure(error))
+  if (isSurfaceCliFailure(error))
     return { kind: "write", stderr: error.stderr, failure: error };
   // Has the CLI LIBRARY already put this failure's text on screen? A typo'd
   // subcommand, a rejected flag, a value an enum does not admit — the library

@@ -202,12 +202,15 @@ export const watchOpenTool: BespokeTool = {
       // other id on this call is a full id off the wire, so a caller who never
       // asked `ignoreSelf` pays no round trip — and the module loading the
       // read pays for it only too (the tree-build fence at the file head).
+      // One bridge per crossing: the LAZY IMPORT inside `Effect.promise`
+      // (module acquisition), then the read's own `Effect` composed into this
+      // generator (execution) — a `runPromise` between them would allocate a
+      // second run edge inside a handler and drop the failure's typing.
       const live: readonly TerminalId[] =
         asked.ignoreSelf === true
-          ? yield* Effect.promise(() =>
-              import("@kolu/padi/read").then(({ readTerminalKeys }) =>
-                Effect.runPromise(readTerminalKeys(padi)),
-              ),
+          ? yield* Effect.flatMap(
+              Effect.promise(() => import("@kolu/padi/read")),
+              ({ readTerminalKeys }) => readTerminalKeys(padi),
             )
           : [];
       const parsed = resolveWatchOpenInput(asked, live);

@@ -20,10 +20,16 @@
  * matrix verbatim — `1` the daemon's typed refusal as verbatim JSON on stderr,
  * `2` the face's own usage error, `3` nothing serving the endpoint — and its
  * code-bearing class is `SurfaceCliFailure`, living in that package. The one
- * BINARY-wide stance is the parse domain: the CLI library's own refusals (a
- * missing required flag, an unknown subcommand) reach neither face's handler —
- * they are rendered by the library and exit `1` on every face, which is the
- * paragraph below's first bullet.
+ * BINARY-wide stances are the ones that take precedence over both faces'
+ * matrices. The parse domain: the CLI library's own refusals (a missing
+ * required flag, an unknown subcommand) reach neither face's handler — they
+ * are rendered by the library and exit `1` on every face. And the defect
+ * domain: a throw that outruns EVERY face's arming carries no face's tag, so
+ * `failureFor` in `main.ts` arms it as the native crash line — `kolu:
+ * <message>`, exit `1` — whatever face issued it; a surface-face caller
+ * parsing `stderr` as JSON on exit `1` can rely on that for every refusal,
+ * while a crash is prose, because the binary's edge is the last edge before
+ * the process and is the only edge left to word it.
  *
  * This is the contract `padi-tui` and `kaval-tui` each carried a copy of; the
  * verbs that graduated onto `kolu` bring it with them, so a driving loop that
@@ -59,11 +65,13 @@
  * {@link UsageRefused}), which used to sit in `cli.ts` and `main.ts`. ONE other
  * package's class rides this binary's teardown beside them —
  * `@kolu/surface-cli`'s `SurfaceCliFailure`, for the surface face, by the rule
- * two paragraphs up; `isContractArm` below names BOTH matrices' tags, because
- * identity at the run edge belongs where the collision is worded, never to a
- * duck-typed `.stderr` shape a foreign error may copy.
+ * two paragraphs up; `isContractArm` below COMPOSES the two packages' own
+ * predicates, because identity at the run edge belongs where the collision is
+ * worded, never to a duck-typed `.stderr` shape a foreign error may copy, and
+ * never to a tag literal re-spelled outside its minting module.
  */
 
+import { isSurfaceCliFailure, type SurfaceCliFailure } from "@kolu/surface-cli";
 import { Data, Runtime } from "effect";
 
 /** A kolu failure that carries its OWN stderr line and its OWN exit code — the
@@ -104,18 +112,21 @@ export const koluLine = (reason: string): string => `kolu: ${reason}\n`;
 
 /** Is this failure an arm of EITHER face's exit contract — its own line, its
  *  own exit code, the already-reported marker — so the run edge must not
- *  re-envelope it? Matched by TAG, never by payload shape: a foreign error
- *  that happens to carry a `stderr` string (an execa-style process rejection)
- *  is a defect to wrap. The same call, one package over, is `runEdge`'s
- *  `isOwnFailure`; the two must never disagree. */
+ *  re-envelope it? COMPOSITION, not a re-spelled union: each package answers
+ *  its own tags — this module's two below, `@kolu/surface-cli`'s one via its
+ *  exported predicate — so a tag literal lives once, at its minting module,
+ *  and a rename inside either package is a compile error here rather than a
+ *  silent collapse of that face's 2/3 codes to 1. Matched by TAG, never by
+ *  payload shape: a foreign error that happens to carry a `stderr` string
+ *  (an execa-style process rejection) is a defect to wrap. */
 export const isContractArm = (
   err: unknown,
-): err is CliFailure | ReservedFaceError => {
+): err is CliFailure | ReservedFaceError | SurfaceCliFailure => {
   const tag = (err as { readonly _tag?: unknown })?._tag;
   return (
     tag === "CliFailure" ||
     tag === "ReservedFaceError" ||
-    tag === "SurfaceCliFailure"
+    isSurfaceCliFailure(err)
   );
 };
 

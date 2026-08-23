@@ -1518,6 +1518,16 @@ function alignedTable(value: unknown): string {
 
 // ── The connection, for the length of one command ────────────────────────
 
+/** A teardown that must not have a last word. A socket close that rejects
+ *  has nothing to add to a command that already has — or just lost — its
+ *  answer, and an escaping rejection is either a DEFECT that replaces the
+ *  verdict (the release arm) or an unhandled promise rejection mid-Ctrl-C
+ *  (the arrive-late arm of the interruptible acquire). One concept, one
+ *  spelling; the socket is going away with the process either way. */
+const disposeQuietly = async (c: { dispose(): void | Promise<void> }) => {
+  await Promise.resolve(c.dispose()).catch(() => {});
+};
+
 /** Dial, run, release — in that order, whatever happens in the middle.
  *
  *  `acquireRelease` is what makes the release survive an INTERRUPTION: a Ctrl-C
@@ -1582,24 +1592,26 @@ function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
           // `open` is disposed by hand, here — on `signal.aborted`, because an
           // interrupted acquire is short-circuited BEFORE its `release` is
           // registered, never after.
+          // "Dispose quietly" is ONE concept, spelled HERE once: a teardown
+          // that fails has nothing to add to a command that already has (or
+          // just lost) its answer, and an escaping rejection is either a
+          // DEFECT that replaces the verdict (in the release arm, where the
+          // command succeeded) or an unhandled promise rejection mid-Ctrl-C
+          // (in the arrive-late arm). The socket is going away with the
+          // process either way.
           Effect.tryPromise({
             try: (signal) =>
-              Promise.resolve(open()).then((connection) => {
-                if (signal.aborted) void connection.dispose();
+              Promise.resolve(open()).then(async (connection) => {
+                if (signal.aborted) await disposeQuietly(connection);
                 return connection;
               }),
             catch: (cause) =>
               unreachable(opts.info.name, where, messageOf(cause)),
           }),
-          // IGNORED, deliberately: a teardown that fails has nothing to add to a
-          // command that already has its answer, and `Effect.promise` would turn
-          // a rejected `dispose` into a DEFECT that replaces the verdict — a
-          // successful capture reported as a crash because a socket close raced
-          // the process. The socket is going away with the process either way.
           (connection) =>
             Effect.ignore(
               Effect.tryPromise({
-                try: async () => await connection.dispose(),
+                try: async () => await disposeQuietly(connection),
                 catch: (cause) => cause,
               }),
             ),
