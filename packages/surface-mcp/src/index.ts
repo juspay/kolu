@@ -54,6 +54,15 @@ export {
 // so a consumer written against the adapter keeps compiling; new code should
 // import them from `@kolu/surface/verbs` directly.
 //
+// That consumer is NAMED, because `private: true` says nothing about it: **odu**
+// (github.com/juspay/odu) vendors these directories from an npins pin and
+// imports `BespokeTool` (`src/mcp/{runTool,runsTool,cancelTool}.ts`),
+// `SurfaceClientCallable` (`src/cli/mcp.ts`) and `toInputSchema`
+// (`src/mcp/argSchemas.test.ts`) from THIS module. `private` governs npm
+// publication, not this repo's consumer set — so dropping a re-export below
+// breaks odu at its next pin bump, which is the failure `.claude/rules/surface.md`'s
+// ODU-IMPACT ledger exists to catch before it ships.
+//
 // `BespokeTool` and `ToolInputSchema` come from `./tools` rather than from here:
 // the first is the framework record EXTENDED with this face's own `render`, and
 // the second is the framework bound under this package's name beside it.

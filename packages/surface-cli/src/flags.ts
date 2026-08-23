@@ -69,6 +69,7 @@ import type { WireSchemaAny } from "@kolu/surface/define";
 import { type AdvertisedInput, inputSchema } from "@kolu/surface/verbs";
 import { Effect, Option } from "effect";
 import { Argument, Flag, Param } from "effect/unstable/cli";
+import { match } from "ts-pattern";
 
 /** A JSON-Schema node, walked structurally. */
 type JsonSchema = Record<string, unknown>;
@@ -317,23 +318,36 @@ export function flagsOf(
       advertised: built,
       assemble: (values, stdin) =>
         Effect.map(readJsonFlag(values, stdin), (fromJson): Assembled => {
-          if (fromJson.kind === "bad")
-            return { ok: false, because: fromJson.why };
           const bare = values.value;
-          if (fromJson.kind === "given") {
-            return bare === undefined
-              ? { ok: true, input: fromJson.value }
-              : {
-                  ok: false,
-                  because: `--${JSON_FLAG} carries the whole input, so it cannot be combined with the <value> argument — pass one or the other.`,
-                };
-          }
-          return bare === undefined
-            ? {
+          return match(fromJson)
+            .with(
+              { kind: "bad" },
+              ({ why }): Assembled => ({
                 ok: false,
-                because: `this verb takes one value — pass it as the argument, or the whole input with --${JSON_FLAG}.`,
-              }
-            : { ok: true, input: bare };
+                because: why,
+              }),
+            )
+            .with(
+              { kind: "given" },
+              ({ value }): Assembled =>
+                bare === undefined
+                  ? { ok: true, input: value }
+                  : {
+                      ok: false,
+                      because: `--${JSON_FLAG} carries the whole input, so it cannot be combined with the <value> argument — pass one or the other.`,
+                    },
+            )
+            .with(
+              { kind: "absent" },
+              (): Assembled =>
+                bare === undefined
+                  ? {
+                      ok: false,
+                      because: `this verb takes one value — pass it as the argument, or the whole input with --${JSON_FLAG}.`,
+                    }
+                  : { ok: true, input: bare },
+            )
+            .exhaustive();
         }),
     };
   }
@@ -442,33 +456,42 @@ export function flagsOf(
     advertised: built,
     assemble: (values, stdin) =>
       Effect.map(readJsonFlag(values, stdin), (fromJson): Assembled => {
-        if (fromJson.kind === "bad")
-          return { ok: false, because: fromJson.why };
         const supplied = suppliedIn(values);
-        if (fromJson.kind === "given") {
-          if (supplied.length > 0) {
-            return {
+        return match(fromJson)
+          .with(
+            { kind: "bad" },
+            ({ why }): Assembled => ({
               ok: false,
-              because: `--${JSON_FLAG} carries the whole input, so it cannot be combined with ${supplied.map((n) => `"${n}"`).join(", ")} — pass one or the other.`,
-            };
-          }
-          const short = missingFrom(fromJson.value);
-          return short === undefined
-            ? { ok: true, input: fromJson.value }
-            : { ok: false, because: short };
-        }
-        const input: Record<string, unknown> = {};
-        for (const name of supplied) input[name] = values[name];
-        for (const [name, fallback] of defaults) {
-          if (input[name] === undefined) input[name] = fallback;
-        }
-        // Requiredness, enforced HERE because this is the only layer that can
-        // see BOTH inputs. The parser cannot: it would have to refuse before
-        // knowing whether `--json` was the answer.
-        const short = missingFrom(input);
-        return short === undefined
-          ? { ok: true, input }
-          : { ok: false, because: short };
+              because: why,
+            }),
+          )
+          .with({ kind: "given" }, ({ value }): Assembled => {
+            if (supplied.length > 0) {
+              return {
+                ok: false,
+                because: `--${JSON_FLAG} carries the whole input, so it cannot be combined with ${supplied.map((n) => `"${n}"`).join(", ")} — pass one or the other.`,
+              };
+            }
+            const short = missingFrom(value);
+            return short === undefined
+              ? { ok: true, input: value }
+              : { ok: false, because: short };
+          })
+          .with({ kind: "absent" }, (): Assembled => {
+            const input: Record<string, unknown> = {};
+            for (const name of supplied) input[name] = values[name];
+            for (const [name, fallback] of defaults) {
+              if (input[name] === undefined) input[name] = fallback;
+            }
+            // Requiredness, enforced HERE because this is the only layer that
+            // can see BOTH inputs. The parser cannot: it would have to refuse
+            // before knowing whether `--json` was the answer.
+            const short = missingFrom(input);
+            return short === undefined
+              ? { ok: true, input }
+              : { ok: false, because: short };
+          })
+          .exhaustive();
       }),
   };
 }

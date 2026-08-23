@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",
-    "effect": "4.0.0-rc.110"
+    "effect": "4.0.0-rc.110",
+    "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.0-rc.110",

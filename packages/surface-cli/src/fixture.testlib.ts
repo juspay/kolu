@@ -144,6 +144,13 @@ export const surface = defineSurface({
       },
       /** No input at all — the `Schema.Void` arm of the bridge. */
       count: { output: Schema.Struct({ n: Schema.Int }) },
+      /** DECLARED by the spec and named by NO expose map — what default-deny
+       *  means, with something real to withhold. The three `system/*` members
+       *  cannot play this part: `defineSurface` reserves them on the GROUP and
+       *  never puts them in `spec`, and the projection walks the spec, so a case
+       *  asserting `system_live` is absent from `--help` passes with the expose
+       *  map deleted outright. */
+      reap: { output: Schema.Struct({ swept: Schema.Int }) },
     },
   },
 });
@@ -246,6 +253,7 @@ function buildRuntime() {
               })
             : Effect.fail(new NoSuchPid({ pid: input.pid })),
         count: () => Effect.succeed({ n: table.size }),
+        reap: () => Effect.succeed({ swept: 0 }),
       },
     },
   });

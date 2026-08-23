@@ -14,7 +14,7 @@
  * data has, and which code comes back.
  */
 
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -61,6 +61,44 @@ interface Run {
   readonly stderr: string;
 }
 
+/** Read a spawned child to completion — both channels as text, plus the code a
+ *  shell would report for it.
+ *
+ *  ONE harness for all four spawns below, which differ only in what they spawn
+ *  and (for `follow`) in what they do to the child while it runs. Written out
+ *  per spawn, the exit-code normalisation below was in three of the four and
+ *  missing from the fourth, which is precisely the drift a fourth copy invites.
+ *
+ *  `watch` sees stdout as it accumulates, which is what lets a case act on the
+ *  running process — `follow` Ctrl-Cs it after the first ndjson line. */
+function collect(
+  child: ChildProcess,
+  watch?: (stdout: string) => void,
+): Promise<Run> {
+  return new Promise<Run>((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.setEncoding("utf8").on("data", (chunk) => {
+      stdout += chunk;
+      watch?.(stdout);
+    });
+    child.stderr?.setEncoding("utf8").on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code, signal) =>
+      // A child killed by a signal reports `code: null`; the shell's own
+      // rendering of that is 128 + the signal number, which is where 130 comes
+      // from for SIGINT. Normalising here keeps every case asserting ONE thing.
+      resolve({
+        code: code ?? (signal === "SIGINT" ? 130 : 1),
+        stdout,
+        stderr,
+      }),
+    );
+  });
+}
+
 /** Run the fixture host with `args`, against the live socket unless the case
  *  deliberately points elsewhere. */
 function run(
@@ -81,66 +119,29 @@ function run(
   const argv = opts?.flagFirst
     ? [...endpoint, ...args]
     : [...args, ...endpoint];
-  return new Promise<Run>((resolve, reject) => {
-    const child = spawn(TSX, [HOST, ...argv], {
-      stdio: ["pipe", "pipe", "pipe"],
-      env:
-        opts?.fixture === undefined
-          ? process.env
-          : { ...process.env, SURFACE_CLI_FIXTURE: opts.fixture },
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.setEncoding("utf8").on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (code, signal) =>
-      // A child killed by a signal reports `code: null`; the shell's own
-      // rendering of that is 128 + the signal number, which is where 130 comes
-      // from for SIGINT. Normalising here keeps every case asserting ONE thing.
-      resolve({
-        code: code ?? (signal === "SIGINT" ? 130 : 1),
-        stdout,
-        stderr,
-      }),
-    );
-    if (opts?.stdin !== undefined) child.stdin.end(opts.stdin);
-    else child.stdin.end();
+  const child = spawn(TSX, [HOST, ...argv], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env:
+      opts?.fixture === undefined
+        ? process.env
+        : { ...process.env, SURFACE_CLI_FIXTURE: opts.fixture },
   });
+  child.stdin?.end(opts?.stdin ?? "");
+  return collect(child);
 }
 
 /** Spawn, wait for the first ndjson line, then Ctrl-C it — the `--follow`
  *  lifecycle a user drives with a keyboard. */
 function follow(args: readonly string[]): Promise<Run> {
-  return new Promise<Run>((resolve, reject) => {
-    const child = spawn(TSX, [HOST, ...args, "--socket", socketPath], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    let interrupted = false;
-    child.stdout.setEncoding("utf8").on("data", (chunk) => {
-      stdout += chunk;
-      if (!interrupted && stdout.includes("\n")) {
-        interrupted = true;
-        child.kill("SIGINT");
-      }
-    });
-    child.stderr.setEncoding("utf8").on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (code, signal) =>
-      resolve({
-        code: code ?? (signal === "SIGINT" ? 130 : 1),
-        stdout,
-        stderr,
-      }),
-    );
+  const child = spawn(TSX, [HOST, ...args, "--socket", socketPath], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let interrupted = false;
+  return collect(child, (stdout) => {
+    if (!interrupted && stdout.includes("\n")) {
+      interrupted = true;
+      child.kill("SIGINT");
+    }
   });
 }
 
@@ -148,13 +149,13 @@ function follow(args: readonly string[]): Promise<Run> {
  *  takes one line and hangs up, which is the ordinary shape of `… | head` and
  *  the one an EPIPE arrives from. The exit code is the CLI's, not `head`'s. */
 function pipeThroughHead(args: readonly string[]): Promise<Run> {
-  return new Promise<Run>((resolve, reject) => {
-    // `bash` and `pipefail`, deliberately: a plain pipeline reports the LAST
-    // stage's status, which is `head`'s 0 whatever the CLI did — so the case
-    // would pass without measuring anything. With `pipefail` the status is the
-    // CLI's whenever the CLI is the one that failed, which is exactly the
-    // discrimination this case exists to make.
-    const child = spawn(
+  // `bash` and `pipefail`, deliberately: a plain pipeline reports the LAST
+  // stage's status, which is `head`'s 0 whatever the CLI did — so the case
+  // would pass without measuring anything. With `pipefail` the status is the
+  // CLI's whenever the CLI is the one that failed, which is exactly the
+  // discrimination this case exists to make.
+  return collect(
+    spawn(
       "bash",
       [
         "-c",
@@ -164,18 +165,8 @@ function pipeThroughHead(args: readonly string[]): Promise<Run> {
         ...args,
       ],
       { stdio: ["ignore", "pipe", "pipe"] },
-    );
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.setEncoding("utf8").on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
-  });
+    ),
+  );
 }
 
 /** Build a command tree with `fixtureCommands`' options overridden, and report
@@ -194,22 +185,12 @@ function buildTree(override: string): Promise<Run> {
       ${override}
     });
   `;
-  return new Promise<Run>((resolve, reject) => {
-    const child = spawn(TSX, ["--eval", script], {
+  return collect(
+    spawn(TSX, ["--eval", script], {
       cwd: join(HERE, ".."),
       stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8").on("data", (c) => {
-      stdout += c;
-    });
-    child.stderr.setEncoding("utf8").on("data", (c) => {
-      stderr += c;
-    });
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
-  });
+    }),
+  );
 }
 
 const lines = (text: string): unknown[] =>
@@ -239,9 +220,15 @@ describe("the command table", () => {
 
   it("does not mount a verb the expose map withholds", async () => {
     const help = await run(["--help"], { socket: deadSocket });
-    // `system.live` and its two siblings are on every surface's group and are
-    // named by no expose map — default-deny means they never reach argv.
-    expect(help.stdout).not.toContain("system_live");
+    // `proc.reap` is a REAL procedure of the fixture's spec that neither map
+    // names, beside `proc.kill` which one of them does — so the two are the same
+    // shape of member and the only difference between them is the map. (This
+    // case used to assert `system_live` was absent, which no expose map can
+    // decide: `defineSurface` reserves the `system/*` members on the GROUP and
+    // never puts them in `spec`, and the projection walks the spec — so it
+    // passed with `EXPOSE` deleted entirely.)
+    expect(help.stdout).toContain("proc_kill");
+    expect(help.stdout).not.toContain("proc_reap");
   });
 
   it("`list` answers the table this face offers, with each verb's own input", async () => {

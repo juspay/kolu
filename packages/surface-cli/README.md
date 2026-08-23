@@ -1,5 +1,7 @@
 # @kolu/surface-cli
 
+**Any `@kolu/surface`, projected as command-line verbs.**
+
 Project any [`@kolu/surface`](../surface) as command-line verbs, so a person, a
 script, or a cron job drives your surface from a shell. The argv sibling of
 [`@kolu/surface-mcp`](../surface-mcp): the same surface, the same default-deny
@@ -21,6 +23,16 @@ const verbs = surfaceCommands({
 
 export const cli = Command.make("example").pipe(Command.withSubcommands(verbs));
 ```
+
+## What it knows nothing about
+
+Only the generic part is this package's: the argv grammar, the output and exit
+discipline, and the projection itself. **The domain stays behind the surface, the
+transport stays with the app, and the run edge stays with the binary.** It knows
+no domain type, no socket, no HTTP, no Node runtime and no `process.exit` — the
+endpoint is a seam you fill (`{ flags?, resolve }`), so nothing here can guess or
+hard-code where your surface is served, and nothing here decides which faces your
+binary offers.
 
 `surfaceCommands` is a pure function to **values** — your binary mounts them and
 keeps the run edge. It claims four subcommand names beside your own (`get`,

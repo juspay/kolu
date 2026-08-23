@@ -95,6 +95,7 @@ import {
 import type { Stdio } from "effect";
 import { Cause, Effect, Option, Result, Schema, Stream } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
+import { match, P } from "ts-pattern";
 import {
   classify,
   type SurfaceCliFailure,
@@ -583,38 +584,37 @@ type Readable =
 function readables(entries: readonly ExposeEntry[]): Map<string, Readable> {
   const table = new Map<string, Readable>();
   for (const entry of entries) {
-    switch (entry.kind) {
-      case "procedure":
-        break;
-      case "cell":
-        table.set(entry.key, { kind: "cell", name: entry.key });
-        break;
-      case "collection": {
-        const spec = entry.spec as CollectionSpec<unknown, unknown, unknown>;
-        table.set(entry.key, {
+    // Matched exhaustively on the entry's kind, in the SAME spelling the MCP
+    // face's walk of the same union uses (`expose.ts`): a fifth `ExposeEntry`
+    // kind stops this compiling and gets a decision HERE, rather than being
+    // quietly mounted as a stream by a trailing `else`. Two faces reading one
+    // union by one grammar is the whole reason the union is shared.
+    const readable = match(entry)
+      .with({ kind: "procedure" }, () => undefined)
+      .with(
+        { kind: "cell" },
+        ({ key }): Readable => ({ kind: "cell", name: key }),
+      )
+      .with({ kind: "collection" }, ({ key, spec }): Readable => {
+        const collection = spec as CollectionSpec<unknown, unknown, unknown>;
+        return {
           kind: "collection",
-          name: entry.key,
-          keySchema: spec.keySchema,
-          watchable: collectionHasDeltas(spec),
-          listable: resolveCollectionVerbs(spec).includes("keys"),
-        });
-        break;
-      }
-      case "stream":
-      case "event":
-        table.set(entry.key, {
-          kind: entry.kind,
-          name: entry.key,
-          inputSchema: entry.spec.inputSchema,
-        });
-        break;
-      default:
-        // Exhaustiveness fence — the same one the MCP face's walk has, in the
-        // spelling this package can afford (no `ts-pattern` dependency): a fifth
-        // `ExposeEntry` kind stops this compiling and gets a decision HERE,
-        // rather than being quietly mounted as a stream by a trailing `else`.
-        entry satisfies never;
-    }
+          name: key,
+          keySchema: collection.keySchema,
+          watchable: collectionHasDeltas(collection),
+          listable: resolveCollectionVerbs(collection).includes("keys"),
+        };
+      })
+      .with(
+        { kind: P.union("stream", "event") },
+        ({ kind, key, spec }): Readable => ({
+          kind,
+          name: key,
+          inputSchema: spec.inputSchema,
+        }),
+      )
+      .exhaustive();
+    if (readable !== undefined) table.set(readable.name, readable);
   }
   return table;
 }
@@ -822,41 +822,48 @@ function getArgument<S extends SurfaceSpec, F extends FlagRecord, R>(
   raw: string | undefined,
   follow: boolean,
 ): Effect.Effect<unknown, SurfaceCliFailure> {
-  if (member.kind === "cell") {
-    return raw === undefined
-      ? Effect.succeed(undefined)
-      : Effect.fail(
-          usage(
-            opts.info.name,
-            `"${member.name}" is a cell — it holds one value and takes no argument.`,
+  return (
+    match(member)
+      .with({ kind: "cell" }, (cell) =>
+        raw === undefined
+          ? Effect.succeed(undefined)
+          : Effect.fail(
+              usage(
+                opts.info.name,
+                `"${cell.name}" is a cell — it holds one value and takes no argument.`,
+              ),
+            ),
+      )
+      // Reached only under `--follow` — the bounded one-shot read above took the
+      // other reading — but the KEY is the same key, decoded by the same rule.
+      .with({ kind: "collection" }, (collection) =>
+        Effect.map(collectionKey(opts, collection, raw), (key) => ({ key })),
+      )
+      // An EVENT has no current value — it is occurrences over time, and its
+      // handler yields nothing until one happens. A one-shot read of it
+      // therefore waits forever, silently, which is the worst answer a command
+      // can give; so it is refused HERE, in this face's own words, rather than
+      // hanging. Guarded on the FLAG, so the arm below still answers the same
+      // member under `--follow`.
+      .with(
+        { kind: "event" },
+        (_event) => !follow,
+        (event) =>
+          Effect.fail(
+            usage(
+              opts.info.name,
+              `"${event.name}" is an event — it has occurrences, not a current value, so there is nothing to read once. Use --follow to watch for them.`,
+            ),
           ),
-        );
-  }
-
-  // Reached only under `--follow` — the bounded one-shot read above took the
-  // other reading — but the KEY is the same key, decoded by the same rule.
-  if (member.kind === "collection") {
-    return Effect.map(collectionKey(opts, member, raw), (key) => ({ key }));
-  }
-
-  // An EVENT has no current value — it is occurrences over time, and its
-  // handler yields nothing until one happens. A one-shot read of it therefore
-  // waits forever, silently, which is the worst answer a command can give; so
-  // it is refused HERE, in this face's own words, rather than hanging.
-  if (member.kind === "event" && !follow) {
-    return Effect.fail(
-      usage(
-        opts.info.name,
-        `"${member.name}" is an event — it has occurrences, not a current value, so there is nothing to read once. Use --follow to watch for them.`,
-      ),
-    );
-  }
-
-  // A stream or an event. Its input rides the same `[arg]` position, decoded
-  // against the member's OWN schema — the argv twin of the collection key,
-  // through the one text-to-schema rule both faces share. No cast: the two arms
-  // above narrowed `kind`, so this one HAS an `inputSchema`.
-  return streamInput(opts, member.name, member.inputSchema, raw);
+      )
+      // A stream, or a followed event. Its input rides the same `[arg]`
+      // position, decoded against the member's OWN schema — the argv twin of the
+      // collection key, through the one text-to-schema rule both faces share.
+      .with({ kind: P.union("stream", "event") }, (io) =>
+        streamInput(opts, io.name, io.inputSchema, raw),
+      )
+      .exhaustive()
+  );
 }
 
 /** The `<key>` position, landed in the collection's declared key type — the
@@ -1158,21 +1165,16 @@ function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
     // the aligned table, and a human who wants the JSON in front of them pipes
     // it — the same price a verb's renderer already charges, now charged once.
     mergeConfig(opts, "list", {}),
-    // A THUNK, so the table is built by the one command that writes it.
-    () => runList(listTable(verbs, readable)),
+    // A THUNK, so the table is built by the one command that writes it — and
+    // written with exactly the discipline every verb has: the aligned table for
+    // a human on a terminal, the JSON through a pipe, decided by the ONE branch
+    // in `io.ts` rather than by a second mechanism this command reinvents.
+    () => present(listTable(verbs, readable), alignedTable),
   ).pipe(
     Command.withDescription(
       "List what this surface offers — every verb and every readable member. This face's tools/list, answered from the projection itself, so it dials nothing.",
     ),
   ) as ProjectedCommand<Stdio.Stdio | R>;
-}
-
-/** `list` answers with exactly the discipline every verb does: the aligned table
- *  for a human on a terminal, the JSON through a pipe — the ONE branch, in
- *  `io.ts`, rather than a second mechanism this command reinvents or a flag that
- *  would be a second meaning for a name a verb already spends. */
-function runList(table: ListTable): Effect.Effect<void, never, Stdio.Stdio> {
-  return present(table, alignedTable);
 }
 
 /** The table as a human reads it: one line per verb and per readable member,

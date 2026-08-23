@@ -1567,6 +1567,9 @@ importers:
       effect:
         specifier: 4.0.0-rc.110
         version: 4.0.0-rc.110
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
     devDependencies:
       '@effect/platform-node':
         specifier: 4.0.0-rc.110
