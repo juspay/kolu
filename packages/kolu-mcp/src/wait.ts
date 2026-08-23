@@ -161,8 +161,15 @@ export const waitOutputSettledTool: BespokeTool = {
   // so this LIFTS it rather than composing it. That is why `signal` survives on
   // `BespokeTool.handler` at all — it is forwarded to the scaffold, and the
   // request edge's own interruption is what aborts it.
+  //
+  // The `tryPromise` is the OPTIONS form on purpose: a zero-arg `async` fn
+  // mints no AbortSignal, and a fiber interrupt can then never reach the
+  // waiter — on the argv face, where `signal` arrives as `undefined`, a
+  // Ctrl-C against an unbounded wait would hang instead of the matrix's 130.
+  // `signal ?? fiberSignal`: the MCP edge's request signal when one was
+  // handed, the fiber's own interrupt handle in every other case.
   handler: (args, client, signal) =>
-    Effect.tryPromise(async () => {
+    Effect.tryPromise(async (fiberSignal) => {
       const { id, idleMs, screenTail, timeoutMs } =
         args as WaitOutputSettledArgs;
       const { awaitOutputSettled } = await import("@kolu/padi/dial");
@@ -171,7 +178,7 @@ export const waitOutputSettledTool: BespokeTool = {
         idleMs,
         captureScreen: screenTail !== undefined,
         timeoutMs,
-        signal,
+        signal: signal ?? fiberSignal,
       });
       return waitJson<{ fired: "idle"; elapsedMs: number; screen?: string }>(
         id,
@@ -214,9 +221,11 @@ export const waitAgentStateTool: BespokeTool = {
   // them into a home both faces reach, for defaults each face can just state.
   description:
     'Block until a terminal\'s detected agent state enters a target bucket (working / awaiting / waiting) — the precise agent-state done-signal. An agent ALREADY in a target bucket resolves immediately. To ask "is this worker\'s turn REALLY over, and what did it say?" in ONE race-free call — the `kolu debrief` protocol — pass until: ["awaiting","waiting"], settledMs: 15000, screenTail: 40; the three-call version (wait for the bucket, wait for quiet, read the screen) has a hole in each gap. Returns {result: "met", met: {agent, elapsedMs, screen?}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
-  // Lifted, not composed — same reason as `wait_outputSettled` above.
+  // Lifted, not composed — same reason as `wait_outputSettled` above,
+  // including the AbortSignal the one-form `tryPromise` would leave unmilled
+  // (a Ctrl-C on an unbounded argv wait would hang, never the matrix's 130).
   handler: (args, client, signal) =>
-    Effect.tryPromise(async () => {
+    Effect.tryPromise(async (fiberSignal) => {
       const { id, until, settledMs, screenTail, timeoutMs } =
         args as WaitAgentStateArgs;
       const { awaitAgentState } = await import("@kolu/padi/dial");
@@ -226,7 +235,7 @@ export const waitAgentStateTool: BespokeTool = {
         settledMs,
         captureScreen: screenTail !== undefined,
         timeoutMs,
-        signal,
+        signal: signal ?? fiberSignal,
       });
       return waitJson<{
         agent: AgentInfo;

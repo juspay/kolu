@@ -100,9 +100,12 @@ a read, ndjson lines for a `--follow`ed one. What **differs** is the exit-code c
 | `130` | interrupted |
 
 One carve-out a driver learns ONCE: a *parse-layer* refusal — a typo'd verb or
-a rejected flag — never reaches a face's handler, so the CLI library renders
-the usage and `kolu` answers `1` on BOTH faces; `2` above is the exit the
-face's own input validation writes when your spelling DID reach the daemon.
+a rejected flag — never reaches either face's handler, so the CLI library
+renders the usage and `kolu` answers `1` on BOTH faces. The surface matrix's
+`2` moves the other way: the request **never left this process** — the face
+itself rejected the input (a `--json` id with no valid JSON, a key no verb
+owns) before a single byte dialed. So among the surface face's own readers:
+`1` is a daemon answer, `2` is not.
 The full contract is [the surface-cli reference](/surface/ref-surface-cli#exit-codes).
 
 ### `kolu watch` as a doorbell that keeps ringing

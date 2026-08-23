@@ -187,17 +187,28 @@ describeDaemon(
     }, async () => {
       const padi = await startPadi();
 
-      // create is the one leg borrowed from the NATIVE tree — the id this
-      // whole story is about.
-      const created = await runKolu([
-        "--socket",
-        padi.socketPath,
-        "create",
-        "--toplevel",
+      // The terminal enters the world THROUGH the heaviest bespoke row on the
+      // table — create, with its placement gate — spelled exactly as a script
+      // spells it: the endpoint at the ROOT, the input as `--json`. The answer
+      // is the same JSON the MCP face answers, with the id in it.
+      const created = await runSurface(padi.socketPath, [
+        "lifecycle_create",
+        "--json",
+        JSON.stringify({
+          placement: { kind: "toplevel" },
+          // cwd is spelled: the verb is a REMOTE call to the daemon, not a
+          // shell inherit, and the keyed item's cwd below is the proof the
+          // input decoded and crossed.
+          cwd: process.cwd(),
+        }),
       ]);
       expect(created.code, created.stderr).toBe(0);
-      const id = created.stdout.trim();
-      expect(id).toMatch(/^[0-9a-f-]{36}$/);
+      const createdOut = JSON.parse(created.stdout) as { id?: unknown };
+      expect(
+        createdOut.id,
+        `lifecycle_create's stdout: ${created.stdout}`,
+      ).toMatch(/^[0-9a-f-]{36}$/);
+      const id = createdOut.id as string;
 
       // The resource plane names it back — a staggered keyed collection answers
       // the id through `keys`, and the id IS the key (the item value carries no
@@ -263,28 +274,95 @@ describeDaemon(
       expect(JSON.stringify(after), JSON.stringify(after)).not.toContain(id);
     });
 
-    it("the endpoint TRIO rides through: the same padi answers its own watch flags", {
+    it("`--state-root` spells the same padi on this face too — no --socket needed", {
       timeout: 120000,
     }, async () => {
-      // One more domain, one sentence: --state-root IS this daemon's socket,
-      // because that is `resolvePadiSocketPath(stateRoot)`. If the face wired
-      // a second meaning for the flag, this leg would dial silence.
+      // What the leg actually proves: the face's shared `--state-root` flag
+      // resolves this daemon's socket (that is `resolvePadiSocketPath`), on
+      // BOTH the call-through verbs (screen_text) and the no-dial `list`.
+      // `runSurface` always spells --socket, so this leg drives the binary
+      // raw — if the face wired the flag to nothing, every command here dials
+      // silence and misses the 130-arm entirely.
       const padi = await startPadi();
-      const created = await runKolu([
+      const listed = await runKolu([
         "--state-root",
         padi.stateRoot,
-        "create",
-        "--toplevel",
+        "surface",
+        "list",
+      ]);
+      expect(listed.code, listed.stderr).toBe(0);
+      expect(listed.stdout).toContain("screen_text");
+      const created = await runSurface(padi.socketPath, [
+        "lifecycle_create",
+        "--json",
+        JSON.stringify({ placement: { kind: "toplevel" } }),
       ]);
       expect(created.code, created.stderr).toBe(0);
-      const id = created.stdout.trim();
-      const screen = await runSurface(padi.socketPath, [
+      const { id } = JSON.parse(created.stdout) as { id: string };
+      const screen = await runKolu([
+        "--state-root",
+        padi.stateRoot,
+        "surface",
         "screen_text",
         id,
         "--tail",
         "5",
       ]);
       expect(screen.code, screen.stderr).toBe(0);
+    });
+
+    it("Ctrl-C during an UNBOUNDED wait answers 130 — the waiter's signal is live", {
+      timeout: 240000,
+    }, async () => {
+      // The matrix's promise is 130 at the speed the interrupt was typed. A
+      // `wait_*`/`watch_next` argv call with no `timeoutMs` was proof this
+      // held nowhere but on the MCP face, because the fiber's own AbortSignal
+      // reaches the lifted waiter only through the options-form `tryPromise`
+      // the `wait_*` handlers now use.
+      const padi = await startPadi();
+      const created = await runSurface(padi.socketPath, [
+        "lifecycle_create",
+        "--json",
+        JSON.stringify({ placement: { kind: "toplevel" } }),
+      ]);
+      expect(created.code, created.stderr).toBe(0);
+      const { id } = JSON.parse(created.stdout) as { id: string };
+      const child = spawn(
+        process.execPath,
+        [
+          "--import",
+          TSX_LOADER,
+          KOLU_MAIN,
+          "--socket",
+          padi.socketPath,
+          "surface",
+          "wait_outputSettled",
+          "--json",
+          // A window far longer than this leg can ever need; the wait must be
+          // the thing being interrupted, not the thing that finished.
+          JSON.stringify({ id, idleMs: 300000 }),
+        ],
+        { stdio: ["ignore", "pipe", "pipe"], env: daemonEnv() },
+      );
+      children.push(child);
+      let stdout = "";
+      let stderr = "";
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (c: string) => (stdout += c));
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (c: string) => (stderr += c));
+      const answered = new Promise<number>((resolve, reject) => {
+        child.on("error", reject);
+        child.on("close", (code) => resolve(code ?? -1));
+      });
+      // Cold tsx + dial + subscription: the wait is engaged by a few seconds
+      // in, and the terminal stays busy (a fresh shell prints) far longer
+      // than that.
+      setTimeout(() => child.kill("SIGINT"), 5000);
+      const begun = Date.now();
+      const code = await answered;
+      expect(code, stderr).toBe(130);
+      expect(Date.now() - begun, `stdout: ${stdout}`).toBeLessThan(30000);
     });
   },
 );

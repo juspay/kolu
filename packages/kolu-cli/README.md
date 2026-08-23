@@ -123,8 +123,10 @@ The one face outside this table is **`kolu surface`**: its matrix is
 **stderr** for a script to branch on; `2` a usage error; `3` the endpoint
 unreachable, the message naming it as spelled; `130` unchanged. One carve-out,
 binary-wide: a CLI-library refusal (a typo'd subcommand, a rejected flag) exits
-`1` on EVERY face, because it never reaches one — `2` is the face's own input
-validation answering a spelling that DID reach the daemon.
+`1` on EVERY face, because it never reaches one. And the direction a surface
+`2` promises is opposite that: the request **never left this process** — the
+face itself rejected the input before dialing; `1` is always a DAEMON answer
+on that face.
 
 ## Three breaking changes
 

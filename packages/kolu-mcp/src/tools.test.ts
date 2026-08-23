@@ -50,13 +50,20 @@ const VALUE_IMPORT = /^import\s+(?!type\b)[^;]*from\s+["']([^"']+)["']/gm;
 
 describe("the tool table's tree-load fence", () => {
   it("no table module holds a top-level VALUE import of transport machinery", () => {
-    // The module set is tools.ts's own import block: add a tool to the table
-    // without the fence and THIS test grows a scan target, automatically.
+    // The module set is tools.ts ITSELF — the leaf every `kolu --help`
+    // loads, so its own top-level imports are the FIRST thing the fence must
+    // guard — plus every relative module its import block names. Add a tool
+    // to the table without the fence and THIS test grows a scan target,
+    // automatically.
+    const toolsSource = readFileSync(join(SRC, "tools.ts"), "utf8");
     const toolModules = [
-      ...readFileSync(join(SRC, "tools.ts"), "utf8").matchAll(
-        /from\s+"(\.\/[^"]+)"/g,
-      ),
-    ].map((m) => m[1]!);
+      "tools.ts",
+      ...toolsSource
+        // `from "…"` in either quote style, plus bare side-effect imports
+        // (`import "./who.ts"`) — a scan that only sees one spelling is the
+        // fence saying "the one import that mattered was double-quoted".
+        .matchAll(/(?:from\s+)?["'](\.\/[^"']+)["']/g),
+    ].map((m) => (typeof m === "string" ? m : m[1]!));
     expect(
       toolModules.length,
       "tools.ts holds the whole table — a tool module imported nowhere is not mounted",

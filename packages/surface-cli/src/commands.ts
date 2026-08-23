@@ -664,8 +664,12 @@ function callableVerbs<S extends SurfaceSpec, F extends FlagRecord, R>(
       ),
       annotation,
       // A bespoke handler is `(args, client, signal) => Effect`, exactly as on
-      // the MCP face. There is no signal to hand it: cancellation here IS fiber
-      // interruption, and a handler that composes surface members inherits it.
+      // the MCP face. No transport signal exists on an argv face — cancellation
+      // here IS fiber interruption, and a handler that composes surface members
+      // inherits it directly, while one that LIFTS a Promise-shaped waiter
+      // (the `wait_*` / `watch_next` family) mints the equivalent AbortSignal
+      // inside its own two-arg `tryPromise`. Either way the handler owns what
+      // an interrupt aborts.
       call: (client, args) => verb.handler(args, client, undefined),
     });
   }
