@@ -48,12 +48,20 @@ export interface Cell<Name extends string, T> {
   readonly name: Name;
   readonly schema: DescriptorSchema<T>;
   readonly default: T;
+  /** The field that identifies an element of an array inside this cell's value —
+   *  see `CellSpec.arrayKey` in `./define.ts`, which is where it is DECLARED, and
+   *  `./solid/writeValue.ts`, which is the one seam that reads it. Carried on the
+   *  descriptor because the descriptor is what the client hook receives: it is how
+   *  the definition site's answer reaches the store write without the use site
+   *  being asked to repeat it. */
+  readonly arrayKey?: string;
 }
 
 export function cell<Name extends string, T>(opts: {
   name: Name;
   schema: DescriptorSchema<T>;
   default: T;
+  arrayKey?: string;
 }): Cell<Name, T> {
   return { kind: "cell", ...opts };
 }
@@ -63,12 +71,17 @@ export interface Collection<Name extends string, K, T> {
   readonly name: Name;
   readonly keySchema: DescriptorSchema<K>;
   readonly schema: DescriptorSchema<T>;
+  /** The field that identifies an element of an array inside ONE ENTRY'S value —
+   *  see `CollectionSpec.arrayKey` in `./define.ts`, which says which of a
+   *  collection's two delivery paths applies it, and {@link Cell.arrayKey}. */
+  readonly arrayKey?: string;
 }
 
 export function collection<Name extends string, K, T>(opts: {
   name: Name;
   keySchema: DescriptorSchema<K>;
   schema: DescriptorSchema<T>;
+  arrayKey?: string;
 }): Collection<Name, K, T> {
   return { kind: "collection", ...opts };
 }
@@ -78,12 +91,16 @@ export interface Stream<Name extends string, I, T> {
   readonly name: Name;
   readonly inputSchema: DescriptorSchema<I>;
   readonly outputSchema: DescriptorSchema<T>;
+  /** The field that identifies an element of an array inside this stream's frames
+   *  — see `StreamSpec.arrayKey` in `./define.ts` and {@link Cell.arrayKey}. */
+  readonly arrayKey?: string;
 }
 
 export function stream<Name extends string, I, T>(opts: {
   name: Name;
   inputSchema: DescriptorSchema<I>;
   outputSchema: DescriptorSchema<T>;
+  arrayKey?: string;
 }): Stream<Name, I, T> {
   return { kind: "stream", ...opts };
 }

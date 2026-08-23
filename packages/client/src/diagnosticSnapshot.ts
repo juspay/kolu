@@ -39,8 +39,10 @@ import {
   subscriptionLiveness,
 } from "@kolu/surface/subscriptions";
 import { shellCommit } from "@kolu/surface-app/lifecycle";
+import type { EntryState } from "@kolu/surface-map";
 import { encodeHostKey } from "kolu-common/hostKey";
-import { localDaemonStatus } from "./kaval/useDaemonStatus";
+import { match } from "ts-pattern";
+import { localDaemonStatus, type PadiEntry } from "./kaval/useDaemonStatus";
 import { serverProcessId } from "./rpc/rpc";
 import { hostKeys, padiMap, wire, wireDiagnostics } from "./wire";
 import { probeLog } from "./wireProbes";
@@ -79,10 +81,11 @@ export interface HostEntryRow {
   /** The canonical wire spelling of the host key. */
   readonly key: string;
   /** The folded entry state's arm — `connected` / `warming` / `failed` /
-   *  `not-a-member`. */
-  readonly kind: string;
+   *  `unobservable` / `not-a-member`. */
+  readonly kind: EntryState["kind"];
   /** The narration the client is showing for it: the live arms' connection
-   *  `phase`, or a failed arm's `reason`. */
+   *  `phase`, a failed arm's `reason`, or the last word an `unobservable` arm
+   *  heard before this browser went blind. */
   readonly detail: string;
   /** When this entry's own status subscription last delivered a frame — stamped
    *  client-side by the liveness registry (the map's per-key `entries[<key>]`
@@ -121,6 +124,10 @@ export interface DiagnosticSnapshot {
     readonly lastProbeAt: number | undefined;
     readonly lastProbeOk: boolean | undefined;
     readonly lastStaleAt: number | undefined;
+    /** When the SERVER retired this tab — the terminal fact of the wire's life:
+     *  it presented a `?pid=` from a process that is gone, and will never dial
+     *  again. `undefined` ⇒ still bound to the process that served this page. */
+    readonly retiredAt: number | undefined;
     readonly dials: readonly DialAttempt[];
   };
   readonly subscriptions: readonly SubscriptionRow[];
@@ -200,6 +207,7 @@ export function collectDiagnosticSnapshot(
       lastProbeAt: probes.lastProbeAt,
       lastProbeOk: probes.lastProbeOk,
       lastStaleAt: probes.lastStaleAt,
+      retiredAt: probes.retiredAt,
       dials,
     },
     subscriptions: liveness.map((record) => ({
@@ -232,16 +240,34 @@ export interface DiagnosticSnapshotInputs {
   };
 }
 
-/** The narration the client is currently showing for an entry — its live phase,
- *  or its failure reason. Spelled per arm rather than stringified whole: the
- *  whole state object would drown the table it belongs to. */
-function detailOf(state: {
-  kind: string;
-  connection?: { phase?: string };
-  reason?: string;
-}): string {
-  if (state.kind === "failed") return state.reason ?? UNKNOWN;
-  return state.connection?.phase ?? UNKNOWN;
+/** The narration the client is currently showing for an entry — its live phase, its
+ *  failure reason, or (blind) the last thing the publisher said. Spelled per arm rather
+ *  than stringified whole: the whole state object would drown the table it belongs to.
+ *
+ *  Typed as the real {@link PadiEntry} and matched `.exhaustive()`, NOT the structural
+ *  `{ kind: string; connection?; reason? }` it used to take. That shape compiled against
+ *  every arm and described none: a `failed` entry's reason lives at `failure.reason`, so
+ *  `state.reason` was ALWAYS `undefined` and every failed host in the snapshot read
+ *  `unknown` — a diagnostic whose one rule is "never fabricate" quietly withholding the
+ *  single most useful field. A structural parameter is how a stringly seam hides from the
+ *  union it is reading; naming the union is what makes the next arm a compile error here. */
+function detailOf(state: PadiEntry): string {
+  return (
+    match(state)
+      .with({ kind: "connected" }, { kind: "warming" }, (s) =>
+        s.connection === undefined ? UNKNOWN : s.connection.phase,
+      )
+      .with({ kind: "failed" }, (s) => s.failure.reason)
+      // The one row where this snapshot earns its keep: "the publisher said X, and we can
+      // no longer hear it" is precisely the state the pasted block is read to diagnose, so
+      // it is spelled out rather than folded into a live-looking phase.
+      .with(
+        { kind: "unobservable" },
+        (s) => `unobservable (last published: ${s.published})`,
+      )
+      .with({ kind: "not-a-member" }, () => UNKNOWN)
+      .exhaustive()
+  );
 }
 
 /** Wall clock as an ISO instant — the spelling a server log uses, so the two can
@@ -289,6 +315,7 @@ export function formatDiagnosticSnapshot(snap: DiagnosticSnapshot): string {
     }`,
   );
   lines.push(`last stale verdict: ${ago(snap.wire.lastStaleAt, now)}`);
+  lines.push(`server retired this tab: ${ago(snap.wire.retiredAt, now)}`);
   lines.push(`dials (${snap.wire.dials.length}, oldest first):`);
   if (snap.wire.dials.length === 0) lines.push("  (none recorded)");
   for (const dial of snap.wire.dials) {

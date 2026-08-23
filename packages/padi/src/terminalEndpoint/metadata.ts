@@ -47,6 +47,7 @@ import type {
   RestoreTarget,
   TerminalSnapshot,
 } from "@kolu/terminal-vocab/schema";
+import { Schema } from "effect";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { notifyDirty } from "../publisher.ts";
@@ -57,7 +58,6 @@ import {
   PersistedSnapshotSchema,
   type TerminalClientMetadata,
 } from "../vocab.ts";
-import { Schema } from "effect";
 
 // zod's `.parse` in Effect terms, bound once at module scope — these run on the
 // ~150 ms observation firehose, and `decodeUnknownSync` compiles the schema on
@@ -122,11 +122,12 @@ export function installSnapshot(terminalId: string): void {
 }
 
 /** Fan a terminal's REMOVAL out onto the `terminals` collection. The entry was
- *  already dropped by `unregisterTerminal` / `drainTerminals` before this runs, so
+ *  already dropped by `unregisterTerminal` / `claimActiveTerminal` / `drainTerminals`
+ *  before this runs, so
  *  `.remove` tells subscribers it is gone — and the same `.remove` recomputes the
  *  derived `urgency` cell (the removal changes what `$.terminals()` folds), so no
  *  urgency rider is needed here either. Called by the endpoint's `finalizeRemoval`
- *  (and `killAll`) on exit / kill / discard. */
+ *  (and `killTerminal` / `killAllTerminals`) on exit / kill / discard. */
 export function dropSnapshot(terminalId: string): void {
   padiSurfaceCtx.collections.terminals.remove(terminalId);
 }
@@ -138,15 +139,18 @@ export function dropSnapshot(terminalId: string): void {
  *  autosave (no {@link notifyDirty}): the ~150 ms agent-detail/foreground firehose is
  *  not itself restore-relevant, and the fold's watch loop pulses `notifyDirty` on the
  *  restore-relevant VALUE change. A no-op if `id` has no entry (a late commit after
- *  removal — sensors are torn down before the entry is removed, so this "never"
- *  fires; logged so a teardown bug is observable). */
+ *  removal — removal and sensor teardown are SYNCHRONOUSLY ADJACENT at every
+ *  removal site, so nothing can run between them and this "never" fires; logged
+ *  so a teardown bug is observable). */
 export function commitSnapshot(
   terminalId: string,
   observation: TerminalSnapshot,
 ): void {
   const entry = getTerminal(terminalId);
   if (!entry) {
-    // Sensors are torn down BEFORE the entry is removed, so a commit landing after
+    // Removal and sensor teardown are SYNCHRONOUSLY ADJACENT at every removal site
+    // (`killTerminal` claims-then-tears-down, `killAllTerminals` drains-then-tears-
+    // down, `handleExit`/the discards tear down first), so a commit landing after
     // removal "never" happens — if it does, a teardown-ordering bug let a producer
     // outlive its entry. Log at `warn` so it's visible in prod without debug logging.
     log.warn({ terminal: terminalId }, "observation commit after removal");

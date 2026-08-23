@@ -116,10 +116,14 @@ const WEB_SHELL_FILES = [
   "portForward/hostPorts",
   "portForward/resolveViewerHost",
   // ── the serving shell + true leaves (top-level) ──
-  // The web face's boot contract — the ONE flag artifact (cleye schema +
-  // derived `KoluBootFlags`), a LEAF importing only kolu-common/config so the
-  // kolu-cli parse deep-imports it without loading index.ts's runtime graph.
-  // Web-shell code (it names how the web face boots), not terminal domain.
+  // The web face's boot CONTRACT — the `KoluBootFlags` interface `bootKoluWeb` is
+  // written against, and nothing else. A LEAF with ZERO imports: the FLAG schema
+  // and its projection live in the command tree (`kolu-cli/src/webFlags.ts`),
+  // because how argv is parsed is the CLI's volatility and a flag declaration is
+  // a runtime call this package must not hold. kolu-cli deep-imports this as a
+  // TYPE (erased) and annotates its projection with it, so schema and contract
+  // still cannot drift. Web-shell code (it names how the web face boots), not
+  // terminal domain.
   "bootFlags",
   "hostname",
   // W10 host-membership persistence — the pool (the web shell's authority for map
@@ -151,6 +155,9 @@ const WEB_SHELL_FILES = [
   "pwaIdentity",
   "router",
   "state",
+  // The state-backup ring's server face (#1658) — web-shell store management,
+  // not terminal domain (the generic ring mechanics live in `kolu-shared`).
+  "stateBackups",
   "surface",
   "tls",
   // `kolu-rpc` — the harness CLIENT of this shell's own wire: one call by wire tag
@@ -634,6 +641,8 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
           removeHost: async () => {},
           reconnectHost: () => {},
           renewHostDaemon: () => Effect.void,
+          listStateBackups: () => ({ backups: [] }),
+          restoreStateBackup: async () => ({ hostFailures: [] }),
           // No viewer identity in a shape assertion — `null` is the answer for
           // every uncertain case anyway.
           viewerHost: async () => null,

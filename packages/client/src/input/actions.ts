@@ -136,7 +136,9 @@ const switchToActions = Object.fromEntries(
       label: `Switch to terminal ${i}`,
       keybind: { key: String(i), mod: true },
       handler: (ctx) => {
-        // Targets dock row order (recency-sorted) so `Cmd+i` activates
+        // Targets dock row order — structural (repo → branch → creation
+        // order, #2141), so these numbers are stable enough to learn — and
+        // `Cmd+i` activates
         // whatever the user sees at row `i` — same surface the
         // Alt-held numeric hints overlay on the dock rows.
         const target = ctx.dockOrderedIds()[i - 1];

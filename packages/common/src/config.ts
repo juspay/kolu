@@ -7,8 +7,11 @@
  * only typeless constants that don't depend on the surface domain.
  */
 
-/** Default server port. */
-export const DEFAULT_PORT = 7681;
+/** Default server port. Defined in `./defaultPort.ts` — a zero-import leaf — so
+ *  the kolu command tree can read it without dragging this module's terminal
+ *  vocabulary (see that file's header); re-exported here because this is the
+ *  door app-side consumers already know. */
+export { DEFAULT_PORT } from "./defaultPort.ts";
 
 // The stale-tab handshake constants (`SERVER_PROCESS_ID_PARAM` /
 // `STALE_PROCESS_CLOSE_CODE`) graduated to `@kolu/surface-app`'s framework-free

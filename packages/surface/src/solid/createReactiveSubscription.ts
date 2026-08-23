@@ -17,13 +17,18 @@
 import type { Stream } from "effect";
 import {
   type Accessor,
+  batch,
   createEffect,
   createSignal,
   on,
   onCleanup,
 } from "solid-js";
 import { createStore } from "solid-js/store";
-import { createUpdatedTracker, type Subscription } from "./createSubscription";
+import {
+  createUpdatedTracker,
+  type Subscription,
+  wireSubscriptionError,
+} from "./createSubscription";
 import { runStreamScoped } from "../runStream";
 import { writeWrappedValue } from "./writeValue";
 
@@ -31,10 +36,22 @@ export interface ReactiveSubscriptionOptions {
   onError?: (err: Error) => void;
 }
 
+/** `arrayKey` is the member's DECLARED array identity (see `./writeValue.ts`),
+ *  and it is spelled INLINE here rather than as a named type extending
+ *  {@link ReactiveSubscriptionOptions}, because the widening has exactly one call
+ *  site and a name for it would be a concept nothing else can use.
+ *
+ *  It stays OFF `ReactiveSubscriptionOptions` — the type `useStream` and
+ *  `BoundStream.use` expose to a call site — because the answer belongs to the
+ *  member's definition, not to whoever happens to be reading it; `useStream`
+ *  threads it from the descriptor, so no `.use()` caller can spell it, override
+ *  it, or disagree with another about it. A caller driving a RAW stream through
+ *  this primitive has no descriptor to inherit from and is itself the declaration
+ *  site, which is why it is spellable at this layer at all. */
 export function createReactiveSubscription<I, T>(
   inputFn: () => I | null,
   factory: (input: I) => Stream.Stream<T, unknown>,
-  options?: ReactiveSubscriptionOptions,
+  options?: ReactiveSubscriptionOptions & { arrayKey?: string },
 ): Subscription<T> {
   const [store, setStore] = createStore<{ v: T | undefined }>({ v: undefined });
   const [error, setError] = createSignal<Error | undefined>();
@@ -65,15 +82,19 @@ export function createReactiveSubscription<I, T>(
       // frame can never land in the fresh state reset above.
       onCleanup(
         runStreamScoped<T>(factory(input), {
-          onFrame: (item) => {
-            tracker.noteFrame(item);
-            writeWrappedValue(setStore, item);
-            if (pending()) setPending(false);
-            // No clear-on-frame branch: a failure is the fiber's EXIT, so no frame
-            // can follow one on the same subscription (see `createSubscription`).
-            // Here the error clears when the INPUT changes — the state reset above
-            // — which is this primitive's own recovery point.
-          },
+          // One tick per frame, matching `createStreamLifecycle`: the store write and
+          // the `pending` clear settle together, so no consumer observes a frame
+          // applied while the view still reads pending.
+          onFrame: (item) =>
+            batch(() => {
+              tracker.noteFrame(item);
+              writeWrappedValue(setStore, item, options?.arrayKey);
+              setPending(false);
+              // No clear-on-frame branch for the ERROR: a failure is the fiber's EXIT,
+              // so no frame can follow one on the same subscription (see
+              // `createSubscription`). Here the error clears when the INPUT changes —
+              // the state reset above — which is this primitive's own recovery point.
+            }),
           // Mirrors `createSubscription`'s typed-end handling: an interruption
           // (a superseding input, an unmount) reports nothing.
           onEnd: () => {
@@ -94,27 +115,17 @@ export function createReactiveSubscription<I, T>(
     pending,
     complete,
     updated: tracker.updated,
+    changed: tracker.changed,
   }) as Subscription<T>;
 
-  // Route `onError` through the SAME EDGE effect `createSubscription` uses
-  // (`createSubscription.ts`: the `on(() => sub.error(), …)` block), NOT inline at
-  // the failure site. Driving the callback off the `error()` LEVEL is what keeps
-  // the two error channels from disagreeing — the property `client.health()` relies
-  // on: whatever clears `error()` (here, an input change resetting the state)
-  // clears the callback's view with it, so a consumer wiring
+  // Route `onError` through the SAME EDGE effect every other subscription uses, by
+  // CALLING it rather than by restating it: driving the callback off the `error()`
+  // LEVEL is what keeps the two error channels from disagreeing — the property
+  // `client.health()` relies on. Whatever clears `error()` (here, an input change
+  // resetting the state) clears the callback's view with it, so a consumer wiring
   // `onError → signal → render` cannot latch on a failure the signal has already
   // dropped (the #1564 latch, the reactive path's copy of it).
-  if (options?.onError) {
-    const handler = options.onError;
-    createEffect(
-      on(
-        () => sub.error(),
-        (err) => {
-          if (err) handler(err);
-        },
-      ),
-    );
-  }
+  if (options?.onError) wireSubscriptionError(sub, options.onError);
 
   return sub;
 }

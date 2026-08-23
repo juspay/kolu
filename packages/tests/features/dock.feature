@@ -84,16 +84,29 @@ Feature: Dock
     When I start "sleep 5"
     Then the dock should show 1 foreground row containing "sleep"
 
-  Scenario: Cmd+1 activates the first dock row (recency-sorted)
-    # `Cmd+1..9` targets dock row order, not store insertion order.
-    # The background terminal is t0; running echo populates its buffer
-    # and lifts its recency above any new terminal. After creating a
-    # second terminal (now active), Cmd+1 returns focus to t0 since it
-    # leads the recency-sorted dock order.
+  Scenario: Cmd+1 activates the first dock row (creation order)
+    # `Cmd+1..9` targets dock row order, which is creation order — the
+    # background terminal t0 is first because it was made first, and a
+    # newer terminal appends below it rather than displacing it.
     Given I run "echo first-dock-row"
     And I create a terminal
     When I press shortcut "Mod+1"
     Then the active terminal should show "first-dock-row"
+
+  Scenario: A blocked agent joins the Needs-you strip without renumbering the dock
+    # The two halves of #2141 in one pass. A newer terminal goes
+    # `awaiting_user`, which under the old ordering floated it to the top of
+    # its section and quietly stole `Cmd+1` from the row that had held it all
+    # session. Now the blocked row is surfaced in the pinned strip and the list
+    # underneath does not move — so the shortcut still means what it meant a
+    # minute ago. Red before the change: Cmd+1 landed on the blocked terminal.
+    Given I run "echo first-dock-row"
+    And I create a terminal
+    When a Claude Code session is mocked with state "awaiting_user"
+    Then the dock needs-you strip should show 1 entry
+    When I press shortcut "Mod+1"
+    Then the active terminal should show "first-dock-row"
+    And there should be no page errors
 
   Scenario: Mod held reveals numeric shortcut hints on dock rows
     Given I create a terminal

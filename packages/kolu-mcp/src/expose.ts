@@ -16,16 +16,31 @@
  * SEE "the daemon restarted under me" instead of inferring it from weirdness
  * (the restart-discipline section's generation-visibility mandate).
  *
- * `screen.text` and `lifecycle.sendInput` are deliberately NOT exposed as raw
- * procedures here — each is served by a bespoke tool of the same wire name
- * (`screen_text` adds the tail mode the skills' "read the last N lines" call
- * needs; `lifecycle_sendInput` adds the named-key vocabulary with the
- * text-XOR-key submit discipline). The composite `wait_*` tools are likewise
- * bespoke (client-side scaffolding, not padiSurface procedures).
+ * `screen.text`, `lifecycle.sendInput`, `lifecycle.create` and `watch.open`
+ * are deliberately NOT exposed as raw procedures here — each is served by a
+ * bespoke tool of the same wire name (`screen_text` adds the tail mode the
+ * skills' "read the last N lines" call needs; `lifecycle_sendInput` adds the
+ * named-key vocabulary with the text-XOR-key submit discipline;
+ * `lifecycle_create` adds the worktree directory and the typed first command,
+ * so one call is `kolu create --toplevel --repo … --worktree … -- <cmd>`;
+ * `watch_open` resolves `ignoreSelf` from this process's containing terminal,
+ * which the daemon cannot). These are SUPERSESSIONS, not denials: the verb is
+ * still reachable under its own wire name, so it does not belong in
+ * {@link KOLU_MCP_DENIED} (whose members must all fail as `unknown tool`), and
+ * the boot-time name-collision gate in `@kolu/surface-mcp` is what guarantees
+ * the raw and bespoke spellings can never both register. The composite `wait_*`
+ * tools are likewise bespoke (client-side scaffolding, not padiSurface
+ * procedures).
+ *
+ * `lifecycle_create` carries the #1872 protection the raw row used to state:
+ * there is NO `command`/`env` spawn parameter, so a terminal created through
+ * this face always gets the rc-hooked shell with the daemon's own clean env.
+ * Its `run` is typed at that shell's first prompt, never an argv the daemon
+ * execs. See `create.ts`.
  */
 
 import type { PadiSurfaceSpec } from "@kolu/padi/surface";
-import type { ExposeMap } from "@kolu/surface-mcp";
+import type { ExposeMap } from "@kolu/surface/expose";
 
 export const KOLU_MCP_EXPOSE = {
   // ── Resources (subscribable) ─────────────────────────────────────────────
@@ -46,17 +61,19 @@ export const KOLU_MCP_EXPOSE = {
   "fs.readFile": { tool: { mutates: false } },
 
   // ── Mutating tools ───────────────────────────────────────────────────────
-  /** Spawn a terminal — takes only `cwd` + an optional `parentId` (plus display
-   *  chrome); returns the TerminalInfo whose `id` the driving agent captures.
-   *  There is deliberately NO `command` and NO `env` parameter (`PadiCreateInputSchema`
-   *  is `{ cwd?, parentId? }` — packages/padi/src/surface.ts): a terminal created
-   *  through a face always gets the rc-hooked shell with the daemon's own clean env,
-   *  so an agent literally cannot ask for a shell-less, caller-env-carrying terminal —
-   *  the exact shape that silently lost agent transcripts in #1872. The missing
-   *  `command`/`env` is the protection, not a gap; do not add it here. */
-  "lifecycle.create": { tool: { mutates: true } },
+  // `lifecycle.create` is superseded by the bespoke tool of the same wire name
+  // — see the module doc.
   /** Kill one terminal by id. */
   "lifecycle.kill": { tool: { mutates: true } },
+
+  // ── Standing settle-event subscriptions ──────────────────────────────────
+  // `watch.open` is superseded by the bespoke tool of the same wire name —
+  // it resolves `ignoreSelf` from KAVAL_TERMINAL_ID, which the daemon cannot.
+  /** Drop a subscription and its buffer. */
+  "watch.close": { tool: { mutates: true } },
+  // `watch.drain` is NOT exposed raw: it never blocks (by design — padi holds no
+  // handler open), so an agent handed only that verb would poll. The bespoke
+  // `watch_next` tool is the drain, and it parks on the pulse instead.
 } as const satisfies ExposeMap<PadiSurfaceSpec>;
 
 /** The NAMED denials — every member deliberately refused in v1, with the
@@ -80,6 +97,11 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
     member: "activity",
     reason:
       "padi's activity stream has NO current-value snapshot — createLiveActivitySource builds a fresh empty tracker per subscription and counts bytes only from subscribe-time, so a fresh subscriber (every MCP resources/read opens one) always starts empty. An MCP resource read of activity is therefore always [] and its subscribe delivers a bare change-nudge with no readable value — a resource that can't honor the read contract. `urgency` (a snapshot-bearing cell) answers who-needs-attention; the `terminals` records carry per-terminal agent state. A readable activity would need a snapshot-bearing source or an adapter that retains the streamed frame — a follow-up, not a v1 row.",
+  },
+  {
+    member: "watchStates",
+    reason:
+      "the agent-state watch reaches this face through the states/heldForMs/nagMs params on watch.open, which is the SAME engine with a queue in front of it. Exposing the raw stream as well would give an agent a second, UNBUFFERED spelling of one feature — and unbuffered is exactly wrong here: an MCP client is not holding a socket between calls, so every nag that fired while it was thinking would be lost, which is the failure mode the standing subscription exists to remove. A socket-holding face (kolu watch) is what the stream is for.",
   },
   {
     member: "lifecycle.killAll",
@@ -128,7 +150,7 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
   {
     member: "git.worktreeCreate",
     reason:
-      "write-side beyond terminal control — expandable later, on demand, one row at a time",
+      "write-side beyond terminal control — composed INSIDE the bespoke `lifecycle_create` (behind the CLI's directory gates), not exposed as a raw verb; further raw write verbs stay expandable later, on demand, one row at a time",
   },
   {
     member: "git.worktreeRemove",
@@ -170,6 +192,16 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
   {
     member: "transcript.exportHtml",
     reason: "a browser export flow — not an agent verb (expandable on demand)",
+  },
+  {
+    member: "watch.drain",
+    reason:
+      "served by the bespoke `watch_next` tool, which adds the blocking half — the raw verb never blocks (padi holds no handler open), so exposing it alone would teach agents to poll the very thing this feature exists to stop",
+  },
+  {
+    member: "watchPulse",
+    reason:
+      "input-bearing pulse stream — the doorbell `watch_next` consumes internally; the events themselves ride the drain, never the pulse",
   },
   {
     member: "subscribeRepoChange",

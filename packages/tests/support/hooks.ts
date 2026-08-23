@@ -41,6 +41,7 @@ import {
   retryPadiScenarioReset,
   retryTransient,
 } from "./scenarioSetupRetry.ts";
+import { retireWorldScrollFifo } from "./scrollFifo.ts";
 import type { KoluWorld } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
@@ -91,7 +92,7 @@ const claudeProjectsDir = mkSubDir("claude-projects");
 /** Per-worker temp roots for the Codex and OpenCode mock harnesses —
  *  see `codex_steps.ts` and `opencode_steps.ts`. Both providers key off
  *  `state.cwd`, so the fixture DB rows carry a cwd that the scenario
- *  also `cd`s into so `findSessionByDirectory` returns the mock row. */
+ *  also `cd`s into so `findSessionsByDirectory` returns the mock row. */
 const codexDir = mkSubDir("codex");
 const opencodeDbDir = mkSubDir("opencode");
 const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
@@ -790,6 +791,10 @@ async function startServerChild(koluServer: string): Promise<void> {
     const child = spawn(
       koluServer,
       [
+        // `web` is spelled explicitly: bare `kolu` lists its subcommands and
+        // exits non-zero now — it stopped being an alias for the server when
+        // the terminal verbs landed on the binary.
+        "web",
         "--allow-nix-shell-with-env-whitelist",
         envWhitelist,
         "--port",
@@ -1329,6 +1334,10 @@ Before(
 // VP9 webm + poster). A long clip at 3200×1800 takes well over Cucumber's 70s
 // default, so give it room.
 After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
+  // Always retire a prepared scroll-lock FIFO, including when the fire step
+  // never ran — `rm` of the dir alone leaves `cat` blocked on the unlinked
+  // inode (juspay/kolu#2178).
+  await retireWorldScrollFifo(this);
   // Screenshot on failure
   if (scenario.result?.status === Status.FAILED && this.page) {
     const dir = path.resolve(

@@ -21,13 +21,8 @@
  *  under the same skewed clock, in the same 8ch track. Returning a value no
  *  caller can render as a number is what makes that unspellable.
  *
- *  One deliberate exception: a twin of this ladder lives in
- *  `packages/vazhi/src/format.ts` — vazhi may not import the client bundle.
- *  Keep the THRESHOLDS in step. The negative arm is deliberately NOT shared,
- *  and the twin's comment says why: the policy is a function of whose clock
- *  stamped the input, and the two differ. Here a remote host stamps the event
- *  and this browser subtracts it, so the clocks are genuinely different and a
- *  negative is real skew. Vazhi measures its own forwards with its own clock. */
+ *  Here a remote host stamps the event and this browser subtracts it, so the
+ *  clocks are genuinely different and a negative is real skew. */
 import { DASH } from "kolu-common/surface";
 
 export type DeltaUnit = "s" | "m" | "h" | "d";

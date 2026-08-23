@@ -19,6 +19,7 @@ import type {
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
+import { stateBackupsDialog } from "./StateBackupsDialog";
 import {
   forwardFromPalette,
   forwardInputError,
@@ -533,6 +534,14 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           name: "Diagnostic info",
           description: "Runtime state — renderer, WS, terminals",
           onSelect: () => diagnosticDialog.openDialog(),
+        },
+        // The state-backup rings (#1658) — the palette flattens leaves, so
+        // typing "restore"/"backup" finds it without walking the group.
+        {
+          kind: "action",
+          name: "Restore state from backup",
+          description: "Browse the state-backup rings and restore a snapshot",
+          onSelect: () => stateBackupsDialog.openDialog(),
         },
         // Restart kaval — recycle the terminal daemon, capturing the session
         // first and offering it for restore on the fresh daemon (B3.2). The

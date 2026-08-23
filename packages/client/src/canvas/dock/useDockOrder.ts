@@ -37,16 +37,17 @@ export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   // visibility via `showSleeping`) and threaded in as arguments, keeping the
   // tree builder a testable pure projection.
   //
-  // Split across two memos so the ☾ toggle doesn't re-do the ranking: the
-  // O(n log n) rank+sort depends only on the tiles and staleness, so it's
-  // memoized on its own. Flipping `showSleeping` invalidates only the outer
-  // `buildDockTree` pass (an O(n) filter+group over the already-ranked rows),
-  // not the sort.
+  // Split across two memos so the ☾ toggle doesn't re-do the classification:
+  // that pass is O(n) over the tiles and staleness, and is memoized on its own.
+  // Flipping `showSleeping` invalidates only the outer `buildDockTree` grouping.
+  // (There is no sort on either side any more — #2141 made row order structural,
+  // so the cost this split protects is the classify pass, not a comparator.)
+  //
   // A row's PAINT is its attention class — the same value its motion and every
   // count read — so the dock reads it from the mirror rather than re-deriving a
   // colour from metadata that arrives on a different subscription. `classOf`
-  // deliberately does not read the live set: row order and colour move on agent
-  // transitions, not on the ~1 s byte tick.
+  // deliberately does not read the live set: a row's COLOUR moves on agent
+  // transitions, not on the ~1 s byte tick. Its POSITION moves on neither.
   const ranked = createMemo(() =>
     rankDockRows(
       tileStore.tileIds(),

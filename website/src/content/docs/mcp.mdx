@@ -29,7 +29,11 @@ many — a coordinator spawning and steering a fleet of worker agents, each in i
 own terminal, while you sit one layer up.
 
 It runs as a small `kolu mcp` process your agent starts over stdio. Nothing new
-to install if you already run kolu; no browser involved.
+to install if you already run kolu; no browser involved. If no padi is
+reachable when it starts — nothing listening on the resolved socket, or no
+daemon discoverable at all — `kolu mcp` **exits non-zero** before the MCP
+handshake, so a consumer can ask "is kolu usable on this host?" by spawning
+and checking the exit code rather than reimplementing socket discovery.
 
 ## Connect it to your agent
 
@@ -74,7 +78,21 @@ to install if you already run kolu; no browser involved.
    claude mcp add kolu-prod -- kolu mcp --host nix@prod
    ```
 
+   `kolu mcp` takes the same endpoint flags every verb does, so `--socket <path>`
+   and `--state-root <dir>` name a specific **local** daemon the same way — which
+   is how you point an agent at a development kolu instead of the running one.
+
 </Steps>
+
+None of that needs a flag when you are simply running kolu: `kolu mcp` finds this
+machine's kolu on its own. If you also have a development or test kolu up, it
+still picks your everyday one — the daemons differ by where they keep their
+state, and only one of them keeps it where a plain kolu looks. That matters most
+when the thing spawning `kolu mcp` is a **background service** rather than you at
+a shell: there is nobody there to point it at the right daemon, and it no longer
+needs one. If it still can't tell — several kolus are running and none of them is
+the everyday one — it says so and names what it looked for, rather than
+connecting to whichever it found first.
 
 ## Inside a kolu terminal
 
@@ -126,14 +144,30 @@ rhythm whether you do it by hand or your agent does it in code:
 
 ## What your agent can do
 
-The tools and live views below are what `kolu mcp` gives the agent. The name in
-the first column is what appears in your MCP host.
+The tools and live views below are what `kolu mcp` gives the agent, and the name
+in the first column is what your agent calls. Eight of them — `screen_text` and
+`screen_image`, `lifecycle_create` and `lifecycle_sendInput`, the two waits and
+the two watch tools — also carry a readable display name a host can show
+instead ("Send input to a terminal").
+
+Every **successful** answer comes back as **structured data**, so your agent acts
+on a field rather than re-reading prose — alongside text for every tool but
+`screen_image`, whose answer is the image itself (its structured arm carries the
+size and mime type, and the picture is not repeated as base64 prose). A refusal carries data
+when the tool has a machine-readable reason to give: `lifecycle_sendInput` labels
+its four refusals `text-and-key`, `key-refused`, `text-refused` or `no-input`,
+and `lifecycle_create` labels its directory refusals (`cwd-and-worktree`,
+`worktree-needs-repo`, `repo-without-worktree`, `blank-field`) and the
+partial-failure report `stopped-partway`, beside the sentence explaining each.
+Other failures arrive as their message alone — including a missing or malformed
+`placement`, which is refused by the tool's own schema before anything runs, so
+the sentence names both spellings and no terminal was created to clean up.
 
 ### Create and drive terminals
 
 | Tool | What it does |
 | --- | --- |
-| `lifecycle_create` | Open a new terminal — a command, a working directory, a split of another terminal — and return its `id`. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
+| `lifecycle_create` | Open a new terminal and return its `id`. **`placement` is required** — `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"…"}` to open it as a split inside that terminal; there is no default, and a call that omits it is refused with both spellings. Optionally: in a working directory (`cwd`) or a **fresh git worktree** (`repo` + `worktree`, cut at `<repo>/.worktrees/<name>`), labelled on the canvas (`intent`), typing a first command at its shell prompt (`run`). One call does what `kolu create --toplevel --repo … --worktree … -- <cmd>` does. A create that fails after the worktree or terminal already landed names the survivors as data (`stopped-partway`), so nothing orphaned goes unnameable. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
 | `lifecycle_sendInput` | Type into a terminal: text, **or** one named key or chord (`Enter`, `Escape`, `C-c`, arrows…) — never both in one call. |
 | `lifecycle_kill` | Close one terminal by `id`. |
 
@@ -144,11 +178,102 @@ the first column is what appears in your MCP host.
 | `wait_outputSettled` | Block until a terminal's output goes quiet — the turn ended, or it's waiting for input. |
 | `wait_agentState` | Block until the terminal's agent reaches a state you name (`working`, `awaiting`, `waiting`) — a precise done-signal, not a guess from silence. |
 
+Both take two extras that turn a three-call routine into one call, and both
+exist because the gaps between those calls are where a driving agent gets
+misled:
+
+- **`settledMs`** — also require the output to have been quiet that long. It's
+  an *and*, not a second wait: bytes still arriving keep the wait open, and an
+  agent that goes back to work re-enters it. This is what tells a genuinely
+  finished agent from one whose main loop ended while a background helper is
+  still running — the second reads as done within milliseconds otherwise.
+- **`screenTail: N`** — hand back the last N screen lines *on the signal
+  itself*, read while the wait is still watching. A separate read afterwards
+  can catch a screen that has already moved on.
+
+`wait_agentState` with `until: ["awaiting","waiting"]`, `settledMs: 15000` and
+`screenTail: 40` answers "is this worker's turn really over, and what did it
+say?" in one go — the same thing [`kolu debrief`](/agent-fleets) does from a
+shell.
+
+### Supervise several terminals at once
+
+The two waits above each watch **one** terminal, and only while the call is
+open — so an agent running several workers used to need a wait per worker, kept
+re-armed by hand, and anything that happened between two waits was invisible.
+These replace that with one subscription:
+
+| Tool | What it does |
+| --- | --- |
+| `watch_open` | Start watching — the whole fleet by default, or a named few. You choose the subscription's name. |
+| `watch_next` | Block until any watched terminal needs you, then hand over everything that has happened since you last asked. |
+| `watch_close` | Stop watching and discard the queue. |
+
+Anything that happens while your agent is **not** asking is kept for it, so the
+time between two calls is not a blind spot — and the queue lives in kolu's
+background service, so it survives your agent restarting. Reopen with the same
+name and you pick up where you left off. Each event says which terminal and why:
+it's **asking** for input, it **finished** its turn, or it's **gone**.
+
+`ids` is optional, and leaving it off is the better default: a subscription
+scoped to the lanes you remembered goes blind to the one you didn't.
+
+#### Terminals that keep asking until you deal with them
+
+A settle event fires **once**. An agent that finishes and then sits there for an
+hour is reported at the start of that hour and never again — so an orchestrator
+that was busy when the report landed loses the terminal entirely. Optional
+parameters on `watch_open` replace that with a level you cannot miss:
+
+| Parameter | What it does |
+| --- | --- |
+| `states` | which agent states to report — any of `working`, `awaiting`, `waiting`. Defaults to `awaiting` + `waiting`, the two that need somebody |
+| `heldForMs` | report a terminal only once it has *held* that state this long. An agent handed more work inside the window is never reported |
+| `nagMs` | re-report it every this many milliseconds for as long as it keeps holding |
+| `ignoreSelf` | mute the terminal this MCP server is running inside. Refused if the transport cannot identify the caller, and refused if the padi this server is connected to does not know that terminal (another machine's fleet, or a daemon restart that re-keyed them) — pass `ignoreIds` rather than guessing |
+| `ignoreIds` | mute these terminals. Fail-open: a stale id costs nothing, and every new terminal is still watched. Prefer this over `ids`. An `ids` list that is entirely muted is refused rather than hanging silent |
+
+```json
+{ "name": "campaign", "states": ["awaiting", "waiting"],
+  "heldForMs": 60000, "nagMs": 300000, "ignoreSelf": true }
+```
+
+A subscription opened this way reports **snapshot** (already in that state when
+you opened — handed over before anything that changed since), **transition** (it
+entered the state and held it), and **nag** (still holding, one interval later).
+Reopening after a restart leads with a fresh snapshot, so an agent that comes
+back finds what is standing rather than only what happens next.
+
+kolu asks each agent for its own state rather than watching its output: an idle
+agent that repaints its prompt every second is still idle, and `heldForMs` times
+the **state**, not the screen. The same knobs are
+[`kolu watch`'s flags](/terminal-ui) from a shell — one implementation, two
+faces.
+
+Two things to know before adopting them. A subscription answers **one** of the
+two questions, never both: one opened with these parameters reports states, so it
+does **not** report `gone` when a terminal disappears. That is not an oversight —
+this feed is a level, so a terminal that goes away simply stops being reported,
+and nothing is left waiting on it. An agent that specifically needs to hear about
+a terminal *dying* keeps a second subscription without the parameters, or reads
+the `terminals` live view. And reopening a name with **different** parameters
+starts its queue over: the events it held are answers to the question you just
+stopped asking, and the fresh snapshot is what replaces them. Reopening with the
+*same* parameters — the ordinary restart — keeps the queue, as it always has.
+
+A batch is handed over until your agent confirms it received it, so a reply lost
+to a timeout costs a repeat rather than a missed report. A queue holds the most
+recent 512 events; if your agent stays away long enough to overflow one, the next
+batch comes back with a count of what was dropped rather than quietly losing the
+tail. Restarting kolu's background service itself — an upgrade does it — clears
+subscriptions; the next call says so plainly instead of reporting silence.
+
 ### Read the screen and the code
 
 | Tool | What it does |
 | --- | --- |
 | `screen_text` | Read a terminal's rendered screen as text; ask for just the last N lines. |
+| `screen_image` | See the same screen as a picture — a themed PNG with the colours, box drawing and highlights text throws away. Ask for the last N rows (up to 200), or omit that for the visible screen. Reach for it when the answer is visual — a TUI's layout, a coloured diff, a pass/fail run; `screen_text` stays the cheaper everyday read, and your agent's host has to be able to show images. CJK and emoji render as empty boxes. |
 | `screen_history` | Read the older scrollback above the current screen. |
 | `git_getStatus` · `git_getDiff` | The git status and diff for a terminal's repo. |
 | `fs_listAll` · `fs_readFile` | List and read files in a terminal's project. |
@@ -163,6 +288,36 @@ the first column is what appears in your MCP host.
 
 These update live — an agent subscribed to `urgency` is notified the moment a
 worker terminal starts waiting on it.
+
+## It survives kolu restarting underneath it
+
+kolu's background service restarts routinely — an upgrade does it — and the
+restart deliberately keeps your terminals running, so nothing else notices.
+`kolu mcp` doesn't need restarting alongside it, and your agent doesn't need to
+reconnect: the moment the old connection drops, the next tool call opens a new
+one against the restarted service. Terminals your agent was driving are still
+there afterwards, and their ids still work.
+
+_That "the moment it drops" is specific to the default, local connection, which
+is told when the service goes away. Pointed at another machine with `--host`,
+`kolu mcp` does not yet carry the drop announcement, so it still finds out by
+making one call that fails — the retryable failure described below, just after
+an idle gap rather than only mid-call._
+
+If a restart happens to land in the middle of a call, that one call fails and
+says so — that it is the *connection* that dropped, that `kolu mcp` is still
+running, and that retrying will re-open it. Nothing is queued and nothing is
+re-sent behind your back.
+
+<Aside type="caution" title="A call that died mid-flight has an unknown outcome">
+  "The connection dropped" does not tell you whether the service had already
+  **done the thing** — the reply may simply not have made it back. Reads and the
+  `wait_*` tools are safe to retry regardless. For a *mutating* tool
+  (`lifecycle_create`, `lifecycle_kill`, `lifecycle_sendInput`), check before you
+  repeat it: read the `terminals` roster and see whether the terminal is already
+  there, already gone, or already has your input. Retrying a `lifecycle_create`
+  blind can leave you with two terminals.
+</Aside>
 
 ## What an agent can't touch
 
@@ -180,5 +335,5 @@ only your browser sets it.
 
 <CardGrid>
   <LinkCard title="Agent Fleets" href="/agent-fleets" description="one coordinator agent driving many workers — the pattern kolu's own development runs on" />
-  <LinkCard title="Quickstart" href="/quickstart" description="install kolu and open your first terminal" />
+  <LinkCard title="Get started" href="/start" description="try it on this machine, or from a Mac onto a Linux box" />
 </CardGrid>

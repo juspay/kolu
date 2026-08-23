@@ -1,0 +1,525 @@
+/**
+ * The merge law: **a row object in the store never comes to hold a different
+ * record.**
+ *
+ * That is what `reconcile`'s `key` decides, and it is where the defect lived.
+ * With Solid's default (`key: "id"`) every element of a payload that has no
+ * top-level `id` reads its key as `undefined`, so the diff treats them all as one
+ * key and RECYCLES the previous row objects positionally — mutating a new
+ * record's fields into the object that used to be a different record. A reader
+ * that goes by position never notices; a reader that goes by identity (a `<For>`
+ * keyed by reference, a per-row memo, a component holding a row across frames)
+ * sees a row whose identity and whose fields disagree.
+ *
+ * The identity assertions below FAIL on `reconcile(next)` and pass on
+ * `reconcile(next, { key: null })`. The value assertions pass on both — and are
+ * kept, and said to be kept, so nobody mistakes them for the reproduction: on
+ * Solid 1.9 the two spellings agree on VALUES (checked across 4,000 randomised
+ * shape × edit pairs while writing this). Pinning only values would be a vacuous
+ * suite for this change.
+ *
+ * The edits are the ones that MOVE records — mid-insert, mid-delete, reorder.
+ * End-appends and in-place field rewrites move nothing, so they recycle correctly
+ * even under a wrong key, which is exactly how a downstream e2e suite made of
+ * those two edits stayed green over a live view that was broken for every other
+ * kind of edit.
+ *
+ * The second half of the file is the same law from the other side: what a member
+ * that DECLARES its array key gets, and what it costs the member that doesn't.
+ * Guessing an identity is the defect; being told one is not, and the difference
+ * between them is a spec field with a call site.
+ */
+
+import { $TRACK, createComputed, createRoot } from "solid-js";
+import { createStore, unwrap } from "solid-js/store";
+import { describe, expect, it } from "vitest";
+import { writeWrappedValue } from "./writeValue";
+
+/** The reported shape: an ordered record whose identity is NOT a top-level `id`.
+ *  Nothing about it is unusual — it is what a payload looks like whenever the app
+ *  didn't happen to name a field `id`. */
+interface Located {
+  file: string;
+  line: number;
+  node: { id: string; title: string };
+}
+
+const rows = (ids: readonly string[]): Located[] =>
+  ids.map((id, i) => ({
+    file: "roadmap.jsonl",
+    line: i + 1,
+    node: { id, title: `title of ${id}` },
+  }));
+
+/** What a row LOOKED LIKE at the moment it was observed, paired with the object
+ *  it was. Recorded eagerly and never re-read, because the whole point is that a
+ *  recycled object is MUTATED IN PLACE by the next merge — reading `r.node.id`
+ *  later would report the id the row ended up with, not the one it had, and the
+ *  test would quietly assert nothing. */
+type Seen = { readonly ref: Located; readonly idAtTheTime: string };
+
+const observe = (rs: readonly Located[]): Seen[] =>
+  rs.map((r) => ({ ref: r, idAtTheTime: r.node.id }));
+
+/** Write a sequence of full snapshots through the real seam, recording — after
+ *  each write, before the next — the raw (unwrapped) rows and the record each one
+ *  held. Raw, because the law under test is about OBJECT IDENTITY, which a store
+ *  proxy would hide. */
+function merge(frames: readonly Located[][]): {
+  steps: Seen[][];
+  final: Located[];
+} {
+  return createRoot((dispose) => {
+    const [store, setStore] = createStore<{ v: Located[] | undefined }>({
+      v: undefined,
+    });
+    const steps: Seen[][] = [];
+    for (const frame of frames) {
+      writeWrappedValue(setStore, frame);
+      steps.push(observe((unwrap(store).v ?? []) as Located[]));
+    }
+    const final = ((unwrap(store).v ?? []) as Located[]).slice();
+    dispose();
+    return { steps, final };
+  });
+}
+
+/** Every object that survives a merge must still describe the record it described
+ *  before it. A surviving object holding a DIFFERENT record is the defect, in one
+ *  sentence — and it is a defect a consumer feels directly, because that object
+ *  is the row a component may have captured and may still be reading. */
+function assertNoRecycledIdentity(
+  before: readonly Seen[],
+  after: readonly Located[],
+): void {
+  const wasById = new Map(before.map((s) => [s.ref, s.idAtTheTime] as const));
+  for (const row of after) {
+    const previousId = wasById.get(row);
+    if (previousId === undefined) continue; // a fresh object — nothing to recycle
+    expect(row.node.id).toBe(previousId);
+  }
+}
+
+const ids = (rs: readonly Located[]): string[] => rs.map((r) => r.node.id);
+
+describe("the store merge never recycles a row object across records", () => {
+  it("MID-INSERT: no surviving object changes which record it holds", () => {
+    const { steps, final } = merge([
+      rows(["a", "b", "c"]),
+      rows(["a", "mid", "b", "c"]),
+    ]);
+    const before = steps[0];
+    if (before === undefined) throw new Error("no first frame");
+    // The failing assertion under the default key: `b`'s object survives at
+    // index 1 holding `mid`.
+    assertNoRecycledIdentity(before, final);
+    // …and the value is right either way, stated so the suite reads honestly.
+    expect(ids(final)).toEqual(["a", "mid", "b", "c"]);
+  });
+
+  it("MID-DELETE: the rows that remain are still their own objects' records", () => {
+    const { steps, final } = merge([
+      rows(["a", "b", "c", "d"]),
+      rows(["a", "c", "d"]),
+    ]);
+    const before = steps[0];
+    if (before === undefined) throw new Error("no first frame");
+    assertNoRecycledIdentity(before, final);
+    expect(ids(final)).toEqual(["a", "c", "d"]);
+  });
+
+  it("REORDER: a title never ends up on another record's object", () => {
+    const { steps, final } = merge([
+      rows(["a", "b", "c", "d"]),
+      rows(["d", "c", "b", "a"]),
+    ]);
+    const before = steps[0];
+    if (before === undefined) throw new Error("no first frame");
+    assertNoRecycledIdentity(before, final);
+    expect(ids(final)).toEqual(["d", "c", "b", "a"]);
+    for (const row of final) {
+      expect(row.node.title).toBe(`title of ${row.node.id}`);
+    }
+  });
+
+  it("holds across successive frames — a mid-insert then an end-append", () => {
+    // The "live until the first hard edit" case: whatever a bad merge leaves
+    // behind is what every later frame merges into.
+    const { steps, final } = merge([
+      rows(["a", "b", "c"]),
+      rows(["a", "mid", "b", "c"]),
+      rows(["a", "mid", "b", "c", "end"]),
+    ]);
+    for (let i = 1; i < steps.length; i++) {
+      const before = steps[i - 1];
+      const after = steps[i];
+      if (before === undefined || after === undefined) throw new Error("frame");
+      assertNoRecycledIdentity(
+        before,
+        after.map((s) => s.ref),
+      );
+    }
+    expect(ids(final)).toEqual(["a", "mid", "b", "c", "end"]);
+    expect(new Set(ids(final)).size).toBe(final.length);
+  });
+
+  it("a payload that DOES carry a top-level `id` is not keyed by it either", () => {
+    // A statement of the rule, not a regression. No member definition declares
+    // that a field named `id` is an identity, so the framework does not read it
+    // as one — the merge is positional whatever the payload happens to be called.
+    const before = [
+      { id: "1", label: "one" },
+      { id: "2", label: "two" },
+    ];
+    const after = [
+      { id: "0", label: "zero" },
+      { id: "1", label: "one" },
+      { id: "2", label: "two" },
+    ];
+    type Row = { id: string; label: string };
+    const got = createRoot((dispose) => {
+      const [store, setStore] = createStore<{ v: Row[] | undefined }>({
+        v: undefined,
+      });
+      writeWrappedValue(setStore, before);
+      // Eagerly, for the same reason as `observe` above: a recycled object is
+      // mutated in place, so its `id` must be read now, not after the next write.
+      const first = ((unwrap(store).v ?? []) as Row[]).map(
+        (r) => [r, r.id] as const,
+      );
+      writeWrappedValue(setStore, after);
+      const second = ((unwrap(store).v ?? []) as Row[]).slice();
+      dispose();
+      return { first: new Map(first), second };
+    });
+    for (const row of got.second) {
+      const previousId = got.first.get(row);
+      if (previousId !== undefined) expect(row.id).toBe(previousId);
+    }
+    expect(got.second.map((r) => r.id)).toEqual(["0", "1", "2"]);
+  });
+
+  it("a primitive value is assigned, not merged", () => {
+    createRoot((dispose) => {
+      const [store, setStore] = createStore<{ v: number | undefined }>({
+        v: undefined,
+      });
+      writeWrappedValue(setStore, 1);
+      expect(store.v).toBe(1);
+      writeWrappedValue(setStore, 2);
+      expect(store.v).toBe(2);
+      dispose();
+    });
+  });
+});
+
+/**
+ * The DECLARED half of the same law: when a member says what identifies an
+ * element of an array in its value, a frame that says the same thing must be a
+ * no-op — nothing replaced, nothing notified.
+ *
+ * These are the `@olai/format` shapes from the downstream audit, because they are
+ * what forced the declaration: one value carrying `rows` (identified by `key`) and
+ * `names` (carrying no such field at all). The counts below are the audit's §6
+ * replay, run through this seam: an identical frame notifies `rows[$TRACK]` and
+ * `rows[0].node.title` ONCE EACH with no declaration, and ZERO times with one.
+ */
+
+interface Row {
+  key: string;
+  node: { id: string; title: string };
+}
+interface Reading {
+  rows: Row[];
+  names: { id: string; title: string }[];
+}
+
+const readingOf = (keys: readonly string[]): Reading => ({
+  rows: keys.map((k) => ({ key: k, node: { id: k, title: `title of ${k}` } })),
+  names: keys.map((k) => ({ id: k, title: `title of ${k}` })),
+});
+
+/** The MEMBERSHIP read a keyed list makes: `$TRACK` is the store's own "which
+ *  elements are these" signal, and it is exactly what `<For>` / `mapArray`
+ *  subscribe to — so counting its notifications counts list rebuilds. Reached
+ *  through a cast because `$TRACK` is a symbol key the array TYPE has no member
+ *  for; the store proxy is what answers it. */
+const trackMembership = (arr: unknown): void => {
+  void (arr as Record<symbol, unknown> | undefined)?.[$TRACK];
+};
+
+/** Replay `frames` through the seam under `arrayKey`, counting how many times each
+ *  of two reads NOTIFIES after the first frame has been observed: the array's
+ *  membership (`$TRACK` — what a keyed `<For>`/`<Key>` re-diffs on) and one leaf
+ *  deep inside an element (what every per-row binding reads). */
+function replay(
+  frames: readonly Reading[],
+  arrayKey?: string,
+): { track: number; leaf: number } {
+  return createRoot((dispose) => {
+    const [store, setStore] = createStore<{ v: Reading | undefined }>({
+      v: undefined,
+    });
+    const first = frames[0];
+    if (first === undefined) throw new Error("no first frame");
+    writeWrappedValue(setStore, first, arrayKey);
+    let track = -1;
+    let leaf = -1;
+    // `createComputed`, not `createEffect`: it runs synchronously on write, so the
+    // counts are the store's own notifications and not a scheduler's coalescing.
+    createComputed(() => {
+      trackMembership(store.v?.rows);
+      track++;
+    });
+    createComputed(() => {
+      void store.v?.rows[0]?.node.title;
+      leaf++;
+    });
+    for (const frame of frames.slice(1))
+      writeWrappedValue(setStore, frame, arrayKey);
+    dispose();
+    return { track, leaf };
+  });
+}
+
+/** Write `frames` into one store under `arrayKey` and hand back the RAW rows and
+ *  names as they stood after EACH write — the one scaffold every identity test in
+ *  this half needs, since what they all ask is which objects survived from one
+ *  frame to the next. Raw (`unwrap`ed) for {@link merge}'s reason: the law is about
+ *  object identity, which a store proxy would hide. `.slice()` per step because
+ *  the store's array is mutated in place by the next write. */
+function steps(
+  frames: readonly Reading[],
+  arrayKey?: string,
+): { rows: Row[][]; names: Reading["names"][] } {
+  return createRoot((dispose) => {
+    const [store, setStore] = createStore<{ v: Reading | undefined }>({
+      v: undefined,
+    });
+    const rows: Row[][] = [];
+    const names: Reading["names"][] = [];
+    for (const frame of frames) {
+      writeWrappedValue(setStore, frame, arrayKey);
+      const held = unwrap(store).v as Reading;
+      rows.push([...held.rows]);
+      names.push([...held.names]);
+    }
+    dispose();
+    return { rows, names };
+  });
+}
+
+/** The rows of one step, by their key — for asserting that a REORDER moved the
+ *  objects it already had rather than minting new ones. */
+const byKey = (rs: readonly Row[]): Map<string, Row> =>
+  new Map(rs.map((r) => [r.key, r] as const));
+
+/** Which record each row held AT THE TIME, paired with the object — {@link observe}'s
+ *  law for the declared half: a surviving object must still describe the record it
+ *  described before, and reading it later would report the id it ended up with. */
+const heldIds = (rs: readonly Row[]): Map<Row, string> =>
+  new Map(rs.map((r) => [r, r.node.id] as const));
+
+describe("a DECLARED array key recycles by that key instead of replacing", () => {
+  const KEYS = ["a", "b", "c"];
+
+  it("UNDECLARED: an identical frame replaces every element and notifies", () => {
+    // The red line. This is Fact B of the audit, measured here rather than quoted:
+    // with no declaration the merge diffs arrays BY REFERENCE, nothing off the wire
+    // is `===` what came before, so membership and every leaf fire on a frame that
+    // said nothing new.
+    const { track, leaf } = replay([readingOf(KEYS), readingOf(KEYS)]);
+    expect(track).toBe(1);
+    expect(leaf).toBe(1);
+  });
+
+  it("DECLARED: an identical frame notifies nothing at all", () => {
+    const { track, leaf } = replay([readingOf(KEYS), readingOf(KEYS)], "key");
+    expect(track).toBe(0);
+    expect(leaf).toBe(0);
+  });
+
+  it("DECLARED: a row object survives a frame and still holds its own record", () => {
+    const { rows } = steps([readingOf(KEYS), readingOf(KEYS)], "key");
+    const [before, after] = rows;
+    if (before === undefined || after === undefined) throw new Error("frames");
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    expect(after[2]).toBe(before[2]);
+    expect(after.map((r) => r.node.id)).toEqual(KEYS);
+  });
+
+  it("DECLARED: a REORDER moves the objects rather than rewriting them", () => {
+    const { rows } = steps(
+      [readingOf(["a", "b", "c"]), readingOf(["c", "a", "b"])],
+      "key",
+    );
+    const [before, after] = rows;
+    if (before === undefined || after === undefined) throw new Error("frames");
+    const was = byKey(before);
+    expect(after.map((r) => r.key)).toEqual(["c", "a", "b"]);
+    // The same three objects, in a new order — the identity a keyed `<For>` follows.
+    expect(after[0]).toBe(was.get("c"));
+    expect(after[1]).toBe(was.get("a"));
+    expect(after[2]).toBe(was.get("b"));
+  });
+
+  it("DECLARED: a mid-insert keeps every surviving row on its own record", () => {
+    const { rows } = steps(
+      [readingOf(["a", "b", "c"]), readingOf(["a", "mid", "b", "c"])],
+      "key",
+    );
+    const [before, after] = rows;
+    if (before === undefined || after === undefined) throw new Error("frames");
+    const was = heldIds(before);
+    for (const row of after) {
+      const previousId = was.get(row);
+      if (previousId !== undefined) expect(row.node.id).toBe(previousId);
+    }
+    expect(after.map((r) => r.key)).toEqual(["a", "mid", "b", "c"]);
+  });
+
+  it("DECLARED: an array whose elements DON'T carry the key merges by position", () => {
+    // Not a fallback — the stated reach of the declaration. `names` carries no
+    // `key`, so this member declared no identity for it; Solid then merges those
+    // elements BY POSITION, which is what keeps an identical frame silent for them
+    // too. A consumer that needs `names` identity declares `id` instead (one key
+    // per member) or reads them by value.
+    const { names } = steps(
+      [readingOf(["a", "b"]), readingOf(["a", "b"])],
+      "key",
+    );
+    const [before, after] = names;
+    if (before === undefined || after === undefined) throw new Error("frames");
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    expect(after.map((n) => n.id)).toEqual(["a", "b"]);
+  });
+
+  it("a primitive value is still assigned, declaration or not", () => {
+    createRoot((dispose) => {
+      const [store, setStore] = createStore<{ v: number | undefined }>({
+        v: undefined,
+      });
+      writeWrappedValue(setStore, 1, "key");
+      expect(store.v).toBe(1);
+      writeWrappedValue(setStore, 2, "key");
+      expect(store.v).toBe(2);
+      dispose();
+    });
+  });
+});
+
+describe("the declared field is identity wherever it appears", () => {
+  // Not only inside arrays. Solid's diff applies the key at EVERY property, so a
+  // nested object carrying the field is merged while the field reads the same and
+  // replaced whole the moment it reads different. Pinned because it is the
+  // consequence a consumer meets by surprise: it decides whether a component
+  // holding that object across frames keeps it.
+  interface Held {
+    sel: { key: string; label: string };
+    n: number;
+  }
+
+  const write = (frames: readonly Held[]) =>
+    createRoot((dispose) => {
+      const [store, setStore] = createStore<{ v: Held | undefined }>({
+        v: undefined,
+      });
+      const seen: Held["sel"][] = [];
+      for (const frame of frames) {
+        writeWrappedValue(setStore, frame, "key");
+        seen.push((unwrap(store).v as Held).sel);
+      }
+      dispose();
+      return seen;
+    });
+
+  it("keeps the object while the field reads the same", () => {
+    const seen = write([
+      { sel: { key: "a", label: "A" }, n: 1 },
+      { sel: { key: "a", label: "A again" }, n: 1 },
+    ]);
+    expect(seen[1]).toBe(seen[0]);
+    expect(seen[1]?.label).toBe("A again");
+  });
+
+  it("replaces it whole the moment the field reads different", () => {
+    const seen = write([
+      { sel: { key: "a", label: "A" }, n: 1 },
+      { sel: { key: "b", label: "B" }, n: 1 },
+    ]);
+    expect(seen[1]).not.toBe(seen[0]);
+    expect(seen[1]?.label).toBe("B");
+  });
+});
+
+describe("the declared field must be required and non-nullable", () => {
+  /** Why it is a requirement and not a preference, pinned as behaviour: Solid
+   *  chooses keyed-vs-positional for a WHOLE array by reading `target[0][key]`
+   *  alone. An optional key field therefore lets ONE row — whichever happens to be
+   *  first in that frame — decide how every other row is merged, and the
+   *  declaration would mean something different frame to frame. A schema that
+   *  types the field required and non-nullable makes that unrepresentable, which
+   *  is the only place it CAN be made unrepresentable: the merge sees values, not
+   *  schemas, and the O(1) check cannot tell "an array this key does not describe"
+   *  (positional by design) from "an array whose first row is missing its key". */
+  interface Loose {
+    key?: string;
+    n: number;
+  }
+
+  const write = (frames: readonly Loose[][]): Loose[][] =>
+    createRoot((dispose) => {
+      const [store, setStore] = createStore<{ v: Loose[] | undefined }>({
+        v: undefined,
+      });
+      const seen: Loose[][] = [];
+      for (const frame of frames) {
+        writeWrappedValue(setStore, frame, "key");
+        seen.push([...((unwrap(store).v ?? []) as Loose[])]);
+      }
+      dispose();
+      return seen;
+    });
+
+  it("a frame whose FIRST row carries the key is merged by it", () => {
+    const seen = write([
+      [
+        { key: "a", n: 1 },
+        { key: "b", n: 2 },
+      ],
+      [
+        { key: "b", n: 2 },
+        { key: "a", n: 1 },
+      ],
+    ]);
+    const [before, after] = seen;
+    if (before === undefined || after === undefined) throw new Error("frames");
+    // Keyed: the objects MOVED.
+    expect(after[0]).toBe(before[1]);
+    expect(after[1]).toBe(before[0]);
+  });
+
+  it("a frame whose first row is MISSING it loses the keyed diff — but never mis-assigns", () => {
+    const seen = write([
+      [
+        { key: "a", n: 1 },
+        { key: "b", n: 2 },
+      ],
+      [{ n: 2 }, { key: "a", n: 1 }],
+    ]);
+    const [before, after] = seen;
+    if (before === undefined || after === undefined) throw new Error("frames");
+    // Row 0 answered for the whole array, so the reorder was NOT followed and no
+    // object moved. What did NOT happen is the thing that would matter: nothing was
+    // recycled onto a record it did not already hold. Under a declared key an
+    // object survives a position only when its key MATCHES the one already there —
+    // `undefined` vs `"a"` and `"a"` vs `"b"` both mismatch, so both were replaced.
+    // The cost of an optional key field is lost identity PRESERVATION, never wrong
+    // identity: the frame falls back to the undeclared behaviour for that array.
+    expect(after[0]).not.toBe(before[0]);
+    expect(after[1]).not.toBe(before[1]);
+    expect(after.map((r) => r.n)).toEqual([2, 1]);
+  });
+});

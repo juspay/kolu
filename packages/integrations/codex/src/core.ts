@@ -18,7 +18,7 @@
  *    function_call, function_call_output, message, reasoning).
  *
  * Division of labor:
- *  - **SQLite** — session discovery (`findSessionByDirectory` joins
+ *  - **SQLite** — session discovery (`findSessionsByDirectory` joins
  *    cwd→thread in O(indexed-row-count)) and mutable metadata (title,
  *    model). Cheap indexed reads.
  *  - **JSONL** — state derivation (thinking / tool_use / waiting) and
@@ -38,7 +38,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { classifyByAwaiting } from "anyagent";
 import type { Logger } from "kolu-shared";
-import { withDb as sharedWithDb } from "kolu-shared/sqlite";
+import { readDbList, withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { CODEX_DB_PATH } from "./config.ts";
 import type { CodexInfo } from "./schemas.ts";
 
@@ -59,6 +59,14 @@ function withDb<T>(
 }
 
 // --- Database session lookup ---
+
+/** Cap on the candidate list. The arbiter needs at most one distinct candidate
+ *  per terminal sharing the directory, and this query re-runs per terminal on
+ *  every reconcile — so an uncapped ORDER BY over a directory a user has run the
+ *  agent in for years would re-materialize that whole history each time. Ordered
+ *  most-recent-first, so the cap only ever drops sessions older than 64 others in
+ *  the same directory, which no plausible number of concurrent terminals reaches. */
+const MAX_CANDIDATES = 64;
 
 export interface CodexSession {
   /** Thread id (uuid v7). */
@@ -95,7 +103,7 @@ export function uuidV7TimestampMs(id: string): number | null {
 /** Columns our SELECTs depend on. If Codex renames or drops any of
  *  these, the queries would silently return zero rows, leaving the user
  *  with no Codex badge and no indication why. Keep this list in sync
- *  with `findSessionByDirectory` (id, rollout_path, cwd, source,
+ *  with `findSessionsByDirectory` (id, rollout_path, cwd, source,
  *  archived, updated_at_ms) and `getThreadMetadata` (title, model). */
 export const REQUIRED_THREAD_COLUMNS: readonly string[] = [
   "id",
@@ -137,6 +145,10 @@ export function openDb(log?: Logger): DatabaseSync | null {
   try {
     db = new DatabaseSync(CODEX_DB_PATH, { readOnly: true });
   } catch (err) {
+    // ENOENT is the answer "Codex has never run here". Anything else — a lock, a
+    // permission error, EMFILE — is a failure to LOOK, and must not read as
+    // absence: the ownership arbiter releases a terminal session on absence.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     log?.debug({ err, path: CODEX_DB_PATH }, "codex db unavailable");
     return null;
   }
@@ -173,8 +185,8 @@ export function openDb(log?: Logger): DatabaseSync | null {
 }
 
 /**
- * Find the most recently updated thread for a given directory.
- * Returns null if no threads exist for that directory or the DB is absent.
+ * Every live thread for a given directory, most recently updated FIRST.
+ * Empty if no threads exist for that directory or the DB is absent.
  *
  * Filters:
  *  - `cwd = ?` — exact match on the thread's starting directory.
@@ -184,28 +196,37 @@ export function openDb(log?: Logger): DatabaseSync | null {
  *    they have no foreground terminal to bind to.
  *  - `archived = 0` — excludes archived threads the user has dismissed.
  *
- * Order: `updated_at_ms DESC` to pick the active session when multiple
- * live threads share a cwd. Mirrors OpenCode's `time_updated DESC`
- * heuristic.
+ * Order: `updated_at_ms DESC` — the active session first. It is a
+ * PREFERENCE, not an answer: `cwd` is a property of the repository, not
+ * of a terminal, so two Codex harnesses in one repo match this same list.
+ * Answering with only the first row handed both of them the same thread
+ * and their dock rows converged (juspay/kolu#2057); the orchestrator's
+ * ownership arbiter walks the list and gives each terminal a thread of
+ * its own. Mirrors OpenCode's `time_updated DESC` ordering.
  */
-export function findSessionByDirectory(
+export function findSessionsByDirectory(
   directory: string,
   log?: Logger,
-): CodexSession | null {
-  return withDb(
-    (conn) => {
-      const row = conn
-        .prepare(
-          "SELECT id, rollout_path FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC LIMIT 1",
-        )
-        .get(directory) as { id: string; rollout_path: string } | undefined;
-      if (!row) return null;
-      return {
+): CodexSession[] | null {
+  // `readDb`, not `withDb`: the ownership arbiter reads an empty list as
+  // evidence that this terminal runs nothing and RELEASES its thread on it, so
+  // a caught error must not wear the same shape as "this directory has no
+  // threads". No database is that second fact — Codex is not installed or has
+  // never run here.
+  return readDbList(
+    openDb,
+    (conn) =>
+      (
+        conn
+          .prepare(
+            `SELECT id, rollout_path FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC LIMIT ${MAX_CANDIDATES}`,
+          )
+          .all(directory) as { id: string; rollout_path: string }[]
+      ).map((row) => ({
         id: row.id,
         rolloutPath: row.rollout_path,
         startedAt: uuidV7TimestampMs(row.id),
-      };
-    },
+      })),
     "codex threads query failed",
     { directory },
     log,

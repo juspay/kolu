@@ -414,9 +414,10 @@ _out_. The map, grouped:
   padi),
   `kolu-cli` (the `kolu` binary itself — the composition root that owns
   subcommand dispatch, the padi connect layer, and boots whichever face was
-  asked for), and `kolu-mcp` (the `kolu mcp` agent face — `padiSurface`
-  re-exposed to coding agents over MCP, a pure padi client with no kolu-server
-  behind it; `kolu tui` is reserved for a later face).
+  asked for, plus the terminal verbs `ls`/`create`/`send`/`wait`/`snapshot`/
+  `history`/`kill`/`watch`, each a pure padi client), and `kolu-mcp` (the
+  `kolu mcp` agent face — `padiSurface` re-exposed to coding agents over MCP,
+  also with no kolu-server behind it; `kolu tui` is reserved for a later face).
 - **Daemons** — [`padi`](/padi) (the per-host workspace daemon that owns the
   terminal domain and serves `padiSurface`) and [`kaval`](/kaval) (the standalone
   PTY daemon). Each ships a thin shell CLI — `padi-tui`, `kaval-tui`.
@@ -434,7 +435,11 @@ _out_. The map, grouped:
 - **Terminal machinery** — `xterm-kit` hides xterm.js's hazards (the pinned
   `_core` internals, in-place scrollback surgery, scroll-lock write buffering,
   mirror anchoring) behind a runtime-neutral core plus a `/solid` adapter, with
-  the client and kaval as two consumers from day one.
+  the client and kaval as two consumers from day one. `terminal-snapshot` is
+  the other two-consumer leaf: it turns a screen plus a theme into
+  backend-free drawing instructions, so the browser's copy-screenshot action
+  and the daemon's PNG (`kolu screenshot`, the `screen_image` MCP tool) draw
+  the same picture from one layout decision.
 - **Agent & forge integrations** — one leaf each for `claude-code`, `codex`,
   `grok`, `opencode`, `xyne`, plus the agent-agnostic `anyagent` contract;
   `github` behind the forge-agnostic `anyforge` kernel; and `git` for pure git
@@ -469,13 +474,12 @@ transitively references the baked source itself.
 
 ## Your `other` machines
 
-The same surface contract runs over ssh: it's how
-[`kaval-tui --host`](/kaval) drives a daemon on another machine with nothing
-pre-installed there, and how [`padi-tui --host`](/padi) reaches a remote padi from
-the shell. Pointing kolu's **browser** at a `padi` on a remote host — a host
+The same surface contract runs over ssh: it's how `kolu --host` — and the
+[`kaval-tui`](/kaval) / [`padi-tui`](/padi) previews beside it — drives a daemon
+on another machine with nothing pre-installed there. Pointing kolu's **browser** at a `padi` on a remote host — a host
 switcher, remote agents surfacing in your dock — ships as a first-class feature:
-see [Remote Hosts](/remote-hosts). That is separate from [Remote
-Access](/remote-access), which serves today's browser UI over private HTTPS.
+see [Add another machine](/remote-hosts). That is separate from [From
+another device](/remote-access), which serves today's browser UI over private HTTPS.
 
 ## Explore
 

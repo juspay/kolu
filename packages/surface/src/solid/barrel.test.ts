@@ -44,4 +44,12 @@ describe("@kolu/surface/solid barrel — the raw-live health minter is package-p
     expect(keys).toContain("gateStatus");
     expect(keys).toContain("createLiveSignal");
   });
+
+  it("exports useCollectionDeltas — the un-enrolled reach's way to the framework store", () => {
+    // The deliberately un-enrolled carve-out (#1591) takes `.unenrolledDeltas` and
+    // folds the raw frames itself. While this hook was barrel-private it had no way
+    // to reach the framework's own store, so a consumer hand-rolled a copying one
+    // beside it — the exact shape the batched path exists to retire.
+    expect(Object.keys(solidBarrel)).toContain("useCollectionDeltas");
+  });
 });

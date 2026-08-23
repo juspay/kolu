@@ -13,7 +13,7 @@
  *
  *  - **claude (pid path) — a GREEN regression guard.** Reproduce-first showed a
  *    command-rooted `claude` with a live session IS detected today: claude's
- *    `resolveSession` keys on `foregroundPid` + the on-disk session file, and
+ *    `resolveSessions` keys on `foregroundPid` + the on-disk session file, and
  *    for a command-rooted PTY the agent's pid IS the foreground pid. So the
  *    field's invisible claudes were Bug B (env leak → no session file), fixed by
  *    PR1 — not the two locks. This scenario pins that the pid path keeps working.

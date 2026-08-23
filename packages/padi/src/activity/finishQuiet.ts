@@ -178,11 +178,11 @@ export function createFinishQuiet(opts: {
     const next = new Set(waitingIdsOf(terminals));
 
     if (!bootstrapped) {
-      // Serve-time eager seed runs with an empty registry (surfaces before kaval
-      // adopt). Do not arm bootstrap on that empty map — wait until a real
-      // inventory observation so already-waiting agents still get sticky
-      // discovery, not a 5s debounce after the empty seed.
-      if (terminals.size === 0) return;
+      // The FIRST REAL inventory arms bootstrap, so already-waiting agents get
+      // sticky discovery rather than a 5s debounce. It is a real one because
+      // the producer says so: the serve-time empty seed (surfaces before kaval
+      // adopt) never reaches `project` at all — `servePadi`'s urgency cell
+      // gates that frame ONCE, for this fold and both watch sources.
       bootstrapped = true;
       for (const id of next) episode.set(id, "finished");
       if (next.size > 0) bump();

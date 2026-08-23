@@ -12,8 +12,10 @@ import { describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import {
   classifyKavalProbe,
-  KAVAL_SUPERVISION_SPEC,
   type KavalObservation,
+} from "./kavalObservation.ts";
+import {
+  KAVAL_SUPERVISION_SPEC,
   makeKavalSupervisor,
 } from "./kavalSupervision.ts";
 

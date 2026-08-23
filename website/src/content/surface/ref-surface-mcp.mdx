@@ -10,7 +10,7 @@ import Snippet from "../../components/docs/Snippet.astro";
 
 Re-expose any `@kolu/surface` as an [MCP](https://modelcontextprotocol.io) server, so a coding agent drives it with
 structured tool calls. The adapter owns the generic parts — the
-`resources/subscribe` lifecycle, the [Effect Schema](https://effect.website) → JSON-Schema bridge, stdio discipline —
+`resources/subscribe` lifecycle, stdio discipline, and the framework's [Effect Schema](https://effect.website) → JSON-Schema bridge —
 and leaves the consumer in control of *what* is exposed.
 
 ## `serveSurfaceAsMcp`
@@ -23,10 +23,11 @@ and leaves the consumer in control of *what* is exposed.
 | Option | Meaning |
 | --- | --- |
 | `surface` | the `Surface<S>` being projected (`expose` is checked against its `spec` at boot) |
-| `client` | a factory `() => client` for a live implementation — return `{ client, dispose }` when the adapter owns a dialled socket, or the bare client when there is nothing to dispose. Re-invoked on retry after a drop |
+| `client` | a factory `() => client` for a live implementation — return an `OwnedSurfaceConnection` (`{ client, dispose, onClose? }`) when the adapter owns a dialled socket, or the bare client when there is nothing to dispose. Re-invoked on retry after a drop |
 | `expose` | the default-deny allowlist (see below) |
 | `tools?` | hand-authored bespoke tools |
 | `serverInfo?` | MCP server identity |
+| `instructions?` | the server's own `initialize` instructions — where an embedding app teaches an agent its domain ("everything here is about nodes, not files"). The SDK answers `initialize` inside its own `Protocol`, so this option is the only route to the field |
 | `transport?` | defaults to `StdioServerTransport`; inject an in-memory half for tests |
 
 ## The projection
@@ -44,6 +45,21 @@ key is checked against the surface spec at boot.
 
 Resources are readable and subscribable; procedures become callable tools.
 
+Only the **separator** becomes `_`. A namespace that itself contains a dot keeps
+it: `procedures: { "a.b": { c } }` mints the tool `a.b_c`, not `a_b_c`. That is
+deliberate — the tool name has to be reversible to one `(ns, verb)` pair, and
+rewriting every dot would make `a.b`·`c` and `a`·`b.c` the same tool — but it is
+odd enough on a host's tool list to be worth knowing before you meet it.
+
+The `ExposeMap` shape itself is **not this package's** — it lives in
+[`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)
+and is imported from THERE (there is no re-export: one concept, one import
+path), because the wire faces (`serveSurfaceApp`, `serveOverUnixSocket`) take the
+same map for the same reason. What stays here is
+the *resolver*: only this adapter turns a map entry into a `surface://` URI or an
+MCP tool name. A consumer gating its MCP face and its browser face writes one
+kind of map, and the same key means the same thing on both.
+
 <Aside type="caution" title="mutates defaults to true">
   A procedure exposed as a tool is advertised **mutating unless you say
   otherwise** — `mutates` defaults to `true` when absent. A `readOnlyHint` can let
@@ -57,12 +73,158 @@ Resources are readable and subscribable; procedures become callable tools.
 - **Serve fresh** — `client` is `buildSurfaceFace(surface, directDispatch(runtime))` over an in-process `implementSurface`; the MCP server *is* the surface's backend.
 - **Bridge a live surface** — `client` dials an already-running served surface over a socket or ssh stdio; the MCP server is a *face* on an existing server (odu's `odu mcp` dials `.ci/odu.sock`).
 
+## `OwnedSurfaceConnection` — surviving a restart of the served daemon
+
+The bridge shape returns `{ client, dispose, onClose? }`. The adapter memoises
+**one** connection for reads and bespoke tools, so it needs to know when that
+connection dies — and there are two ways it can find out.
+
+| Field | Meaning |
+| --- | --- |
+| `client` | the live face the adapter dispatches over |
+| `dispose` | close the transport the factory opened; the adapter calls it on teardown and before every re-dial |
+| `onClose?` | subscribe to this transport dropping — fires at most once |
+
+Supply `onClose` whenever the dial can reach its transport's close. The adapter
+then discards the dead connection **the instant it is announced**, so the next
+request dials fresh. Omit it only where there is genuinely nothing to
+announce — the in-process `directDispatch` case has no transport at all.
+
+<Aside type="caution" title="Without onClose, a restart costs one request">
+  The fallback is discovery-by-failure: the adapter finds out the socket died by
+  **spending a request on it** (the reset in the read/tool catch path). The first
+  request after every restart of the served daemon then fails and every later one
+  succeeds — and the message names the *link* ("stdio transport closed … the peer
+  process exited"), which an agent reads on its own stdio channel as *the MCP
+  server died*. That misread cost a whole session in
+  [kolu#2082](https://github.com/juspay/kolu/issues/2082). An absent `onClose`
+  states "this connection carries no close announcement" — either because the
+  transport has none to give, or because the dial does not project one it could.
+  (`kolu mcp --host` is the second case today: the ssh layer observes its child's
+  exit, but `AgentDial` has no field to carry it. That is a gap in the dial's
+  face, not a limit of ssh — and it is the same shape of omission as #2082.)
+  Either way it is not a tuning knob.
+</Aside>
+
+A transport death that still slips through — the genuine race where the socket
+dies with a request already in flight — is re-framed before it reaches the host:
+it names the dropped **connection**, confirms the MCP server is still running,
+and says the next request re-dials. Nothing is ever replayed, because a retried
+mutation against a fresh daemon generation is the bug that fix would introduce.
+*That also bounds what the message can promise: a call cut off in flight has an
+**unknown** outcome, not an undone one — the served side may have acted and only
+the reply been lost. The adapter never decides that for the host.*
+
+The one case `onClose` creates rather than solves is a connection that is **born
+dead** — the transport announces its close during registration, synchronously or
+on a microtask. The adapter re-checks the slot by identity after each dial and
+re-dials rather than hand out a corpse, bounded, then fails loudly. *Re-dialing
+is legitimate exactly where re-requesting is not: a dial carries no caller
+intent, so repeating one replays nothing.*
+
 ## Bespoke tools and curation
 
-- `tools:` — hand-authored, call-shaped capabilities (spawn-and-wait, blocking polls). Each is `{ description, input: Schema.Struct(...), mutates, handler }`; the `handler(args, client, signal)` composes over the live client and still rides the JSON-Schema bridge and lifecycle. A scalar, array, or union input is advertised **wrapped** under `value` and unwrapped before decode.
-- **Failure framing**: a rejecting handler (or a failing procedure call — e.g. the bridged transport down mid-call) always returns an `isError` **tool result** carrying the message, never a JSON-RPC protocol error — so the agent sees a typed, retryable failure instead of its SDK throwing.
+- `tools:` — hand-authored, call-shaped capabilities (spawn-and-wait, blocking polls). Each is `{ description, title?, input: Schema.Struct(...), mutates, handler, render? }`; the `handler(args, client, signal)` composes over the live client and still rides the JSON-Schema bridge and lifecycle. A scalar, array, or union input is advertised **wrapped** under `value` and unwrapped before decode. `title` is MCP's display name — a host that has none renders `name`, the machine spelling. `title` and `description` are **bespoke-only** today: `ToolExposure` has no field for either, so a procedure-derived tool carries neither. `render?: (out) => ToolResult` overrides how the success value becomes content — declared per TOOL rather than sniffed per result, so a handler cannot change its own content type call-to-call and the dispatch never guesses from a value's shape. Its one purpose today is an answer that is a **picture** (see below).
+- **Failure framing**: a rejecting handler (or a failing procedure call — e.g. the bridged transport down mid-call) always returns an `isError` **tool result**, never a JSON-RPC protocol error — so the agent sees a typed, retryable failure instead of its SDK throwing.
 - **One tool namespace**: generated (`<ns>_<verb>`) and bespoke names are checked for collision in one pass at boot, each candidate tagged by origin so the error names both sources.
 - `projectSurface` (from `@kolu/surface/project`) is the cleanest curation: project the live surface into an observer-safe second surface — drop dangerous procedures, bound logs, derive verdicts — and serve *that*.
+
+## Tool results — the same answer twice
+
+Every **successful** result carries data in `structuredContent` — and, for every
+tool that answers in words, prose in `content` — so an agent acts on the value
+and never parses the sentence. Both arms are read off one serialization, so they
+cannot disagree — which is also
+what keeps a value that is an object in memory and a string on the wire (a
+`Date`) from publishing a `structuredContent` that is not an object. MCP types
+the structured arm as a JSON **object**, so a scalar, array or `null` answer
+travels under the same single `value` property a scalar *input* is wrapped in.
+
+The same **key**, decided independently on each side: the input from its declared
+schema, the result from the value on the wire. They agree for every scalar, array
+and `null`. They diverge in exactly one place, and it is worth knowing about: a
+**union** input has no top-level `type`, so it is advertised wrapped — the host
+sends `{ "value": { "a": 1 } }` — while the same object as an *answer* is already
+an object at runtime and travels bare, `{ "a": 1 }`. A caller therefore cannot
+recover, from a result alone, whether a `{ "value": 42 }` it received was the
+tool's own object or a wrapped scalar `42`. Wrapping every result instead would
+close that, at the price of changing the shape of every success this adapter has
+ever emitted.
+
+*This costs bytes, and the trade is deliberate.* Carrying the answer twice
+roughly **doubles the frame** of a large result — a full 10k-row terminal
+scrollback measures 1.2 MB before and 2.4 MB after — which is the price of MCP's
+own back-compat guidance that a server returning `structuredContent` should also
+return equivalent text. A tool that can return an unbounded payload should bound
+it at the tool, not by dropping an arm.
+
+A **refusal is an answer**, and it can carry the structured arm too. Fail with a
+`ToolFailure` and the message reaches the model while the detail reaches the
+caller:
+
+```ts
+import { ToolFailure } from "@kolu/surface-mcp";
+
+Effect.mapError(refusal, (f) =>
+  new ToolFailure(`set_done was refused (${f.kind}): ${f.message}`, {
+    kind: f.kind,
+    blocking: f.children,
+  }));
+```
+
+*The message is branded with the adapter's name on the way out* (`surface-mcp: …`),
+the same as any other failure it reports. The detail goes through the **same**
+JSON round-trip and object-wrapping the success arm does, so a refusal cannot
+publish a shape a success would have been refused for — a `Date` in a detail
+arrives as its ISO string, and a detail JSON renders as a non-object rides under
+`value` like any other non-object answer.
+
+`ToolFailure` is generic in its detail (`ToolFailure<D>`), so a consumer's own
+refusal union survives to the place it is asserted on instead of widening to
+`Record<string, unknown>` at construction. Two limits are deliberate: the
+discriminant is `instanceof` (sound because the package is private and every
+consumer resolves the one workspace copy), and a failure raised on the **far
+side** of a surface hop is not a `ToolFailure` — a handler that wants such a
+refusal structured catches it and re-raises it as one.
+
+Every other failure is **message-only** — no `structuredContent` at all — and
+deliberately so: structuring whatever an error happens to hold would publish a
+`Data.TaggedError`'s stack into the agent's data channel and dress an incidental
+`TypeError` up as a contract. What the adapter does do is describe such a failure
+honestly: a tagged error whose identity is `_tag` and whose `message` is empty
+reaches the host as its tag, and a non-`Error` failure value as its JSON.
+
+<Aside type="caution" title="structuredContent and outputSchema are coupled">
+  No tool advertises an `outputSchema`, and adding one is not free. An MCP client
+  validates `structuredContent` against a declared `outputSchema` whenever the
+  field is present — **including on an `isError` result**. A refusal's detail is
+  a different shape from the success it refused, so a success-only schema would
+  make every structured refusal throw inside the client instead of reaching the
+  agent. Whoever adds `outputSchema` owes the refusal shape a home in it first.
+</Aside>
+
+### When the answer is a picture
+
+A tool whose answer is **pixels** declares `render: okImage(...)` and returns an
+MCP **image** content block instead of prose. `okImage(image, detail)` puts the
+bytes in `content` exactly once and the facts *about* them in
+`structuredContent` — mime type, dimensions — through the same normalization
+every other result uses.
+
+The payload is deliberately **not** repeated as text or smuggled into `detail`:
+a host renders the image, so a second copy is a megabyte spent straight out of
+the model's context window for nothing, and two copies are a second place for the
+answer to be wrong. That rule is a **contract the caller keeps**, not a check —
+`okImage` does not inspect `detail` for the bytes. The guard that used to sit
+there compared each `detail` value against the base64 by identity, so
+`detail.data = image.data.slice()` sailed straight through: it read as a check
+while catching only one spelling of the mistake. The cost is invisible at the
+call site and enormous on the wire, which is why it is stated here rather than
+half-enforced there.
+
+`ToolContent` is the resulting union — `{ type: "text" }` or
+`{ type: "image", data, mimeType }`. kolu's `screen_image` (a terminal's screen
+as a themed PNG) is the in-tree consumer.
 
 ## The schema bridge
 
@@ -86,8 +248,18 @@ cannot see through, so a default declared outside it never reaches the agent.
 
 | Export | Role |
 | --- | --- |
-| `toInputSchema(schema?)` | Effect Schema → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced |
+| `toInputSchema(schema?)` | Effect Schema → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced. A **re-export** of [`@kolu/surface/verbs`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) — the bridge is the framework's, shared with the CLI face |
 | `resolveExpose(spec, expose)` | the default-deny resolver → `{ resources, resourceTemplates, tools }` |
-| `ExposeMap` · `BespokeTool` · `ToolInputSchema` · `ToolResult` · `ServeSurfaceAsMcpOptions` · `SurfaceClientCallable` | types |
+| `ToolFailure<D>(message, detail)` | the refusal a handler fails with when the reason is machine-readable — `detail` becomes the result's `structuredContent`, normalized the same way a success is |
+| `messageOf(error)` | the framework's "name what broke" derivation ([`@kolu/surface/errors`](/surface/ref-surface#the-tagged-error-vocabulary-kolusurfaceerrors)), **re-exported** here under the name this package shipped it with — the one the request edge uses to word a failure. Reach for it in a bespoke tool that folds a caught failure into its own message instead of raising it, so both paths word the same error the same way; it handles the two shapes `e instanceof Error ? e.message : String(e)` gets wrong (a tagged error whose `message` is empty, a failure declared as a plain object) |
+| `okImage(image, detail)` | wrap a tool result whose answer is an image — the bytes travel once, as an MCP image block; `detail` becomes the structured arm and must not repeat the payload (a documented contract, not a check — see above) |
+| `BespokeTool` | the framework's [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) — the record an app hands to EVERY face verbatim, so the same table also projects as argv through `@kolu/surface-cli` — **extended** with the one field only this face can act on, `render` |
+| `ToolInputSchema` | the framework's `SurfaceVerbInputSchema` under the name this package shipped it with |
+| `ToolResult` · `ToolContent` · `ServeSurfaceAsMcpOptions` | types |
+| `SurfaceClientCallable` · `OwnedSurfaceConnection` · `PusherConnection<Client>` | types, **re-exported** from [`@kolu/surface/client`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient) — the client shape a projecting face holds, and the connection it owns. `OwnedSurfaceConnection` is the framework shape at this adapter's client type; the CLI face aliases the very same one, so a host can write ONE connection factory that feeds both |
+
+`ExposeMap` and `ToolExposure` are **not** exported here — import them from
+[`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose),
+their one home.
 
 The step-by-step is in [How to expose a surface to agents](/surface/expose-to-agents).

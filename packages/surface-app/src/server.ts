@@ -6,10 +6,11 @@
  * `/sw.js` worker (self-destructing by default; the fetch-less notification
  * worker when `serviceWorker: "notify"`), and the SPA fallback. `pwaManifestLayer`
  * serves the desktop-app manifest. `surfaceAppLayer` merges both.
- * `buildInfoServer` is the buildInfo cell's server impl; `surfaceAppServer`
- * bundles it with the `identity.info` probe impl as the deps a consumer drops
- * into an `implementSurfaces` entry — surface-app is served as a SIBLING surface,
- * not merged into the app surface.
+ * `buildInfoServer` is the buildInfo cell's server impl; `surfaceAppServer` shapes
+ * it as the deps a consumer drops into an `implementSurfaces` entry — surface-app
+ * is served as a SIBLING surface, not merged into the app surface. The restart
+ * axis is NOT here: a process's identity is the framework's reserved
+ * `system/identity` member (`@kolu/surface/identity`), which every surface answers.
  *
  * These are `HttpRouter` LAYERS, not `app.use(...)` installers: registration
  * order carries no meaning any more. `HttpRouter` ranks routes by specificity
@@ -18,9 +19,9 @@
  * documented is gone by construction.
  */
 
-import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { rpcSerializationLayer } from "@kolu/surface/frame-limit";
+import { surfaceProcessId } from "@kolu/surface/identity";
 import {
   type CellConnector,
   type SurfaceHandlers,
@@ -39,14 +40,14 @@ import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcServer } from "effect/unstable/rpc";
 import { Socket, SocketServer } from "effect/unstable/socket";
 import {
+  assertAssetPrefix,
   ASSET_MISS_CACHE_CONTROL,
   cacheControlFor,
-  DEFAULT_ASSET_PREFIX,
   DEFAULT_SHELL_PATHS,
   type FreshnessPaths,
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
-  rejectStaleProcess,
+  PRECOMPRESSED_ENCODINGS,
   SERVER_PROCESS_ID_PARAM,
   SHELL_CACHE_CONTROL,
   STALE_PROCESS_CLOSE_CODE,
@@ -79,16 +80,6 @@ export interface ManifestOptions {
   icons?: { src: string; sizes: string; type: string; purpose?: string }[];
   [extra: string]: unknown;
 }
-
-/** The build-time precompressed siblings, in SERVER preference order — the same
- *  order (and the same suffixes) the Hono `serve-static` this replaced walked, so
- *  a client offering several encodings gets the same one it did. */
-const PRECOMPRESSED: readonly (readonly [encoding: string, suffix: string])[] =
-  [
-    ["br", ".br"],
-    ["zstd", ".zst"],
-    ["gzip", ".gz"],
-  ];
 
 /** Content types worth serving a precompressed sibling for. Ported VERBATIM from
  *  `@hono/node-server`'s `serve-static` (its `COMPRESSIBLE_CONTENT_TYPE_REGEX`),
@@ -149,7 +140,11 @@ export function freshStaticLayer(
   // payload win is the `/assets/*` bundle (~2.56 MB → ~571 kB), so scoping costs
   // nothing; a consumer that precompresses nothing serves byte-identical identity
   // responses either way.
-  const assetPrefix = opts.assetPrefix ?? DEFAULT_ASSET_PREFIX;
+  // Taking the prefix is where its shape is judged, by the same reading the
+  // Bun build takes it through (`assertAssetPrefix`) — so `/assetsX` without
+  // its trailing slash cannot silently pin `/assetsXtra/` immutable here while
+  // no build would ever have written there.
+  const assetPrefix = assertAssetPrefix(opts.assetPrefix);
   // That guarantee holds ONLY while `assetPrefix` is disjoint from the shell — a
   // caller-supplied `assetPrefix: "/"` (or `""`) would put `/index.html` under
   // negotiation too and re-open the exact kolu#1319 stale-stamp footgun.
@@ -160,7 +155,14 @@ export function freshStaticLayer(
   // layer CONSTRUCTOR, not its build, so a misconfigured app dies where it is
   // composed rather than mid-boot.
   const shellPaths = opts.shellPaths ?? DEFAULT_SHELL_PATHS;
-  if (shellPaths.some((p) => isImmutableAssetPath(p, opts))) {
+  // The freshness paths this layer classifies by, RESOLVED — the asserted
+  // prefix and the defaulted shell list, not `opts`. Every `isImmutableAssetPath`
+  // / `cacheControlFor` below reads this one value, so the string the check was
+  // run against is the string the handler answers with. Passing `opts` instead
+  // left the assert a statement standing beside the classifier rather than the
+  // reading it is written to be, and it would re-default the shell list per call.
+  const paths: FreshnessPaths = { assetPrefix, shellPaths };
+  if (shellPaths.some((p) => isImmutableAssetPath(p, paths))) {
     throw new Error(
       `freshStaticLayer: assetPrefix ${JSON.stringify(assetPrefix)} captures a shell path (${JSON.stringify(shellPaths)}); it must be a non-root sub-path disjoint from the shell, or a compressed index.html sibling could be served and pin returning browsers to a stale post-build stamp (kolu#1319).`,
     );
@@ -218,7 +220,7 @@ export function freshStaticLayer(
               .split(",")
               .map((token) => token.trim()),
           );
-          for (const [encoding, suffix] of PRECOMPRESSED) {
+          for (const [encoding, suffix] of PRECOMPRESSED_ENCODINGS) {
             if (!accepted.has(encoding)) continue;
             const sibling = yield* serveAt(request, target + suffix);
             if (sibling === undefined) continue;
@@ -244,7 +246,7 @@ export function freshStaticLayer(
         path: string,
         response: HttpServerResponse.HttpServerResponse,
       ): HttpServerResponse.HttpServerResponse => {
-        const directive = cacheControlFor(path, opts);
+        const directive = cacheControlFor(path, paths);
         return directive === null
           ? response
           : HttpServerResponse.setHeader(response, "cache-control", directive);
@@ -259,7 +261,7 @@ export function freshStaticLayer(
             headers: Headers.removeMany(request.headers, CONDITIONAL_HEADERS),
           });
           const hit = yield* serveAt(plain, path);
-          if (isImmutableAssetPath(path, opts)) {
+          if (isImmutableAssetPath(path, paths)) {
             // A hashed-asset miss 404s and that 404 is itself uncacheable — it must
             // NEVER fall through to the HTML shell, which under a `.js` URL is the
             // wrong MIME and would be pinned `immutable` for a year.
@@ -329,18 +331,35 @@ export function pwaManifestLayer(
   );
 }
 
-/** The greenfield convenience: manifest (if given) + fresh static serving
- *  (incl. `/sw.js`), in one layer. The granular layers are exported for apps that
- *  compose them by hand — kolu serves the manifest UNCONDITIONALLY (its dev proxy
- *  forwards `/manifest.webmanifest` to a server with no built client) and adds
- *  the static layer only when a dist exists, which is exactly why the two stay
- *  separable. */
+/** What the shell half of a surface app is: where the built bundle is, whether
+ *  the app installs, which `/sw.js` it serves, and the freshness paths. Named
+ *  here — where `surfaceAppLayer` lives — so `serveSurfaceApp` can EXTEND it
+ *  rather than re-spell it: a new shell option is then one edit, not three. */
+export interface SurfaceAppLayerOptions extends FreshnessPaths {
+  /** The built browser bundle, served fresh — ABSENT in dev, where a bundler
+   *  (Vite) serves the client on its own port and proxies the app's routes here.
+   *  A missing dist is NO static route, never a degraded one: an unmatched path
+   *  404s through the router's own `RouteNotFound`. */
+  readonly clientDist?: string;
+  /** The web app manifest, if this app installs. */
+  readonly manifest?: ManifestOptions;
+  /** Which `/sw.js` worker to serve (default `"retire"`). */
+  readonly serviceWorker?: ServiceWorkerMode;
+}
+
+/** The shell half of a surface app: the manifest (when the app installs) plus
+ *  fresh static serving (incl. `/sw.js`) of the built bundle (when there is
+ *  one), in one layer.
+ *
+ *  The two halves are mounted INDEPENDENTLY, and that is the point rather than a
+ *  detail: kolu serves its manifest unconditionally (its dev proxy forwards
+ *  `/manifest.webmanifest` to a server with no built client) and its statics only
+ *  in production. While this layer PAIRED them, kolu had to hand-compose
+ *  `pwaManifestLayer` + `freshStaticLayer` to say that — which is exactly the
+ *  hand-wiring `serveSurfaceApp` exists to end. The granular layers stay exported
+ *  for an app that mounts them at paths of its own. */
 export function surfaceAppLayer(
-  opts: {
-    clientDist: string;
-    manifest?: ManifestOptions;
-    serviceWorker?: ServiceWorkerMode;
-  } & FreshnessPaths,
+  opts: SurfaceAppLayerOptions,
 ): Layer.Layer<
   never,
   never,
@@ -349,12 +368,15 @@ export function surfaceAppLayer(
   | Path.Path
   | HttpPlatform.HttpPlatform
 > {
-  const statics = freshStaticLayer({
-    root: opts.clientDist,
-    assetPrefix: opts.assetPrefix,
-    shellPaths: opts.shellPaths,
-    serviceWorker: opts.serviceWorker,
-  });
+  const statics =
+    opts.clientDist === undefined
+      ? Layer.empty
+      : freshStaticLayer({
+          root: opts.clientDist,
+          assetPrefix: opts.assetPrefix,
+          shellPaths: opts.shellPaths,
+          serviceWorker: opts.serviceWorker,
+        });
   return opts.manifest === undefined
     ? statics
     : Layer.merge(pwaManifestLayer(opts.manifest), statics);
@@ -536,39 +558,21 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
   };
 }
 
-/** The `identity.info` probe's server implementation, as a composable
- *  fragment: it sits in `surfaceAppServer`'s `procedures` under the `identity`
- *  namespace. Mints one `processId` per process (so a reconnect to a *different*
- *  process reads as a restart) — the restart axis's turnkey counterpart to
- *  `buildInfoServer()`. Pass `processId` to override (e.g. a stable id in
- *  tests). Pairs with the surface's `identity.info` procedure and with the
- *  provider's `probe={() => surfaceAppProbe(client)}` (the scoped sibling client
- *  consumes the `surfaceApp` key).
- *
- *  The handler returns an `Effect` (PLAN D10 / S2 §5.4): a surface procedure impl
- *  is `({ input, ctx }) => Effect<O, E>` now, so the probe answers with
- *  `Effect.succeed`. It has no declared error channel — a `processId` read from a
- *  closure cannot fail. */
-export function serverIdentity(opts: { processId?: string } = {}): {
-  /** The id this process minted (or the injected override). This is the
-   *  read-back seam for a consumer that lets `serverIdentity` MINT the id
-   *  internally (no external source): it captures `const { processId } =
-   *  serverIdentity()` and feeds that to `rejectStaleProcess`, so the stale-tab
-   *  gate and the `identity.info` probe single-source one id. A consumer that
-   *  mints its own id externally (like kolu) single-sources by INJECTING it via
-   *  `opts.processId` and need not read this field back. */
-  processId: string;
-  identity: { info: () => Effect.Effect<{ processId: string }> };
-} {
-  const processId = opts.processId ?? randomUUID();
-  return { processId, identity: { info: () => Effect.succeed({ processId }) } };
-}
+// `serverIdentity()` is GONE, and with it surface-app's `identity.info` member.
+// It minted a SECOND per-process id beside the framework's, and every consumer
+// then owed the plumbing that kept the two in step: read the id back, hand it to
+// the gate, and hope the client was probing the same member the gate compared
+// against. `@kolu/surface`'s reserved `system/identity` answers `processId` now
+// (`surfaceProcessId()`), the client-side echo probes exactly that, and
+// `gateStaleSocket` compares against exactly that. One id, one member, no plumbing
+// — and an app (olai#61) that would otherwise have declared its own `identity.info`
+// because the reserved member reported only a start TIME does not have to.
 
-/** The whole surface-app server side in one call — the `buildInfo` cell impl
- *  AND the `identity.info` probe impl, shaped as the implementation DEPS bundle
- *  a consumer drops into an `implementSurfaces` entry (`{ surface:
- *  surfaceAppSurface, deps: surfaceAppServer() }`). No `channel` here —
- *  `implementSurfaces` supplies a key-namespaced channel per sibling surface.
+/** The whole surface-app server side in one call — the `buildInfo` cell impl,
+ *  shaped as the implementation DEPS bundle a consumer drops into an
+ *  `implementSurfaces` entry (`{ surface: surfaceAppSurface, deps:
+ *  surfaceAppServer() }`). No `channel` here — `implementSurfaces` supplies a
+ *  key-namespaced channel per sibling surface.
  *
  *  The buildInfo cell entry carries `.connect` (the async boot axis — kolu's
  *  `system.version`, the example's `bootId`; a deduped no-op for the sync
@@ -576,33 +580,25 @@ export function serverIdentity(opts: { processId?: string } = {}): {
  *  the cell ctx is built — so there is NO app-visible connect to call. The
  *  turnkey counterpart to `surfaceAppSurfaceWith` on the surface side. */
 export function surfaceAppServer<T extends BuildInfo = BuildInfo>(
-  opts: Parameters<typeof buildInfoServer<T>>[0] & { processId?: string } = {},
+  opts: Parameters<typeof buildInfoServer<T>>[0] = {},
 ): {
   cells: BuildInfoServerFragment<T>;
-  /** The minted (or injected) per-process id — the same one the `identity.info`
-   *  probe reports. This is the read-back seam for a consumer that lets
-   *  `surfaceAppServer` MINT the id internally (no external source): it captures
-   *  `const { processId } = surfaceAppServer(...)` and feeds that to
-   *  `rejectStaleProcess`, so the stale-tab gate and the probe single-source one
-   *  id (a second mint would never match). A consumer that mints its own id
-   *  externally (like kolu) single-sources by INJECTING it via `opts.processId`
-   *  and need not read this field back. */
-  processId: string;
-  procedures: {
-    identity: { info: () => Effect.Effect<{ processId: string }> };
-  };
 } {
-  const identity = serverIdentity({ processId: opts.processId });
-  return {
-    cells: buildInfoServer<T>(opts),
-    processId: identity.processId,
-    procedures: { identity: identity.identity },
-  };
+  return { cells: buildInfoServer<T>(opts) };
 }
 
 /** A server-side WebSocket the stale-tab gate acts on — the structural subset of
  *  the `ws` package's socket both kolu (single `/rpc/ws`) and drishti (per-host
- *  dispatch) upgrade. Kept structural so surface-app needn't depend on `ws`. */
+ *  dispatch) upgrade.
+ *
+ *  **Why structural, now that the package DOES depend on `ws`.** `./serve` needs
+ *  a real `WebSocketServer` — it owns the upgrade — so `ws` is a dependency of
+ *  the package. It is not a dependency of this module or of any browser-facing
+ *  entry point (`.`, `./solid`, `./connect`, `./client`, `./lifecycle`), and a
+ *  nominal `ws` type here would put it in their import graph. Structural also
+ *  keeps the seam open to a server socket that is not `ws`'s at all (Bun's,
+ *  Deno's), which is a real axis for a package two runtimes consume. The same
+ *  reason holds for {@link HeartbeatableSocket} and {@link ServableSocket}. */
 export interface GateableSocket {
   on: (event: "error", listener: (err: Error) => void) => unknown;
   close: (code: number, reason?: string) => void;
@@ -619,26 +615,32 @@ export interface GateableSocket {
  *      before the early return is the ordering a hand-rolled gate gets wrong —
  *      drishti's pre-extraction upgrade handler did, and only avoided the crash
  *      by luck of timing.
- *   2. **Decide via `rejectStaleProcess`**, reading the claimed `pid` off the
- *      request URL with `SERVER_PROCESS_ID_PARAM` — the param name stays internal
- *      here, single-sourced with the client echo in `./connect`.
+ *   2. **Decide**, reading the claimed `pid` off the request URL with
+ *      `SERVER_PROCESS_ID_PARAM` — the param name stays internal here,
+ *      single-sourced with the client echo in `./connect` — and comparing it
+ *      against {@link surfaceProcessId}. An absent `pid` (the first-ever connect,
+ *      before the client observed an identity) always passes.
  *   3. **On a stale tab, `close(STALE_PROCESS_CLOSE_CODE, …)`** and report `true`
  *      so the caller returns WITHOUT upgrading; `false` means proceed.
  *
- *  `liveProcessId` MUST be the id the `identity.info` probe reports
- *  (`surfaceAppServer().processId` / an externally-minted id injected into it),
- *  or the gate compares against an id the client never saw. The `error` listener
- *  is installed for ACCEPTED sockets too (it must, to survive the reject window),
- *  so it's also this socket's standing transport-error handler. `onError` thus
- *  defaults to a LOUD `console.error` (matching `buildInfoServer`) rather than a
- *  silent no-op — a swallowed transport error on an accepted socket is the exact
- *  footgun a shared helper should not bake in; pass your own logger to override,
- *  or an explicit no-op at the call site if you genuinely want silence. `onReject`
- *  logs the rejection. */
+ *  There is no `liveProcessId` parameter. There used to be, and it was the gate's
+ *  one real hazard: the id it compared against was whatever a consumer passed, so a
+ *  consumer that minted a second id — or passed the one its logs used — built a
+ *  gate that rejected every reconnect, or none, with nothing to notice it by. The
+ *  live id is this process's `surfaceProcessId()`, which is also exactly what the
+ *  reserved `system/identity` member answers and therefore exactly what the client
+ *  echoes back. The two sides cannot be pointed at different strings.
+ *
+ *  The `error` listener is installed for ACCEPTED sockets too (it must, to survive
+ *  the reject window), so it's also this socket's standing transport-error handler.
+ *  `onError` thus defaults to a LOUD `console.error` (matching `buildInfoServer`)
+ *  rather than a silent no-op — a swallowed transport error on an accepted socket
+ *  is the exact footgun a shared helper should not bake in; pass your own logger to
+ *  override, or an explicit no-op at the call site if you genuinely want silence.
+ *  `onReject` logs the rejection. */
 export function gateStaleSocket(
   ws: GateableSocket,
   requestUrl: URL,
-  liveProcessId: string,
   opts: {
     onError?: (err: Error) => void;
     onReject?: (claimedPid: string) => void;
@@ -654,7 +656,7 @@ export function gateStaleSocket(
         )),
   );
   const claimedPid = requestUrl.searchParams.get(SERVER_PROCESS_ID_PARAM);
-  if (claimedPid !== null && rejectStaleProcess(claimedPid, liveProcessId)) {
+  if (claimedPid !== null && claimedPid !== surfaceProcessId()) {
     // Close FIRST (the critical operation), then fire the observational
     // `onReject` — a throwing reporter must never leave the stale tab connected.
     ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
@@ -672,8 +674,8 @@ export function gateStaleSocket(
 export const DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS = 30_000;
 
 /** A server-side WebSocket the liveness heartbeat acts on — the structural subset
- *  of the `ws` package's socket the reaper pings and reaps. Kept structural (the
- *  `GateableSocket` twin) so surface-app needn't depend on `ws`. `pong` is the one
+ *  of the `ws` package's socket the reaper pings and reaps. Structural for the
+ *  reason spelled out on {@link GateableSocket}, its twin. `pong` is the one
  *  inbound event; `ping`/`terminate` are the outbound actions; `readyState`/`OPEN`
  *  gate the non-OPEN skip. */
 export interface HeartbeatableSocket {
@@ -786,22 +788,20 @@ export interface SurfaceSocketAcceptor {
  * no `startWsHeartbeat` call to forget) and the per-socket gate+enrol into one
  * call, so a socket cannot be dispatched without first being gated and enrolled.
  *
- * Structural-only (no `ws` dependency, like `gateStaleSocket`/`startWsHeartbeat`):
+ * Structural, like `gateStaleSocket`/`startWsHeartbeat` (see {@link GateableSocket}
+ * for why this module stays off `ws` even though `./serve` does not):
  * `accept`'s socket is `GateableSocket & HeartbeatableSocket`, which every real
  * `ws` socket satisfies. The pieces that stay at the call site are the genuinely
  * app-specific ones the seam can't generically own: the **origin gate**
  * (`gateWsOrigin`, which acts on the raw pre-upgrade socket/request — a different
  * phase) and the **dispatch** itself (`?host=` routing, an `__admin__` sentinel)
- * — supplied as the `onAccepted` closure. `liveProcessId` MUST be the id the
- * `identity.info` probe reports (`surfaceAppServer().processId`).
+ * — supplied as the `onAccepted` closure. The stale-tab gate needs no id from the
+ * caller: it compares against this process's own `surfaceProcessId()`.
  */
 export function acceptSurfaceSocket(opts: {
   /** The WS server whose accepted-socket population the reaper sweeps (a `ws`
    *  `WebSocketServer` IS this structurally). */
   server: { clients: Iterable<HeartbeatableSocket> };
-  /** The live server process id the stale-tab gate compares the echoed `pid`
-   *  against — `surfaceAppServer().processId` / the externally-minted id. */
-  liveProcessId: string;
   /** Heartbeat sweep cadence (defaults to `startWsHeartbeat`'s 30s). */
   intervalMs?: number;
   /** Standing transport-error handler installed on every accepted socket by the
@@ -823,7 +823,7 @@ export function acceptSurfaceSocket(opts: {
       // A rejected socket is closing — never enrol or dispatch it. The per-socket
       // callbacks carry `requestUrl` so a fleet server keeps its per-host context.
       if (
-        gateStaleSocket(ws, requestUrl, opts.liveProcessId, {
+        gateStaleSocket(ws, requestUrl, {
           onError: opts.onError && ((err) => opts.onError?.(err, requestUrl)),
           onReject:
             opts.onReject && ((pid) => opts.onReject?.(pid, requestUrl)),
@@ -847,8 +847,8 @@ export function acceptSurfaceSocket(opts: {
 
 /** An ACCEPTED server-side WebSocket the RPC serving seam drives — the structural
  *  subset of the `ws` package's socket (and of the browser `WebSocket`) that
- *  Effect's `Socket.fromWebSocket` touches. Structural, like `GateableSocket` and
- *  `HeartbeatableSocket`, so surface-app needn't depend on `ws`. */
+ *  Effect's `Socket.fromWebSocket` touches. Structural, like {@link GateableSocket}
+ *  and {@link HeartbeatableSocket}, and for the same reason. */
 export interface ServableSocket {
   readonly readyState: number;
   addEventListener(
@@ -950,9 +950,8 @@ function oneConnectionSocketServer(
           // The socket is ALREADY open (the app accepted it), so
           // `fromWebSocket`'s open-wait short-circuits.
           // The cast is structural: `ServableSocket` is exactly the slice of
-          // `WebSocket` this consumes, kept structural so surface-app needn't
-          // depend on `ws` (whose server socket is not nominally a DOM
-          // `WebSocket` either).
+          // `WebSocket` this consumes, and a `ws` server socket is not nominally
+          // a DOM `WebSocket` anyway.
           Effect.succeed(socket as unknown as WebSocket),
           (ws) =>
             Effect.sync(() => {
@@ -1016,7 +1015,10 @@ export interface SurfaceSocketServing {
 export function serveSurfaceSocket<Svc = never>(opts: {
   /** The served surface's flat `RpcGroup` — `runtime.group`. */
   group: RpcGroup.RpcGroup<Rpc.Any>;
-  /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
+  /** Every bound member handler keyed by wire tag — `runtime.handlers`, or the
+   *  record `restrictHandlers` returned. No `expose` option here: a hand-built
+   *  serve path gates itself once, alongside its runtime (see
+   *  `@kolu/surface/expose`, which owns that rule). */
   handlers: SurfaceHandlers;
   /** The accepted socket (gated and enrolled — see above). */
   socket: ServableSocket;

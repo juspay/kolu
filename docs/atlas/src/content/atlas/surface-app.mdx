@@ -4,7 +4,7 @@ description: A library for the class of @kolu/surface app that is really a deskt
 parents: [electricity, reference, surface]
 maturity: evergreen
 status: implemented
-updated: 2026-07-02
+updated: 2026-08-10
 ---
 
 import Pill from "../../components/Pill.astro";
@@ -96,8 +96,8 @@ So the desktop layer needs a _trusted_ HTTPS origin. The recommended paths:
 | `buildInfoServer()` · `surfaceAppServer()` | "The buildInfo cell's server impl (+ the `identity.info` probe impl) — the deps bundle for the surface-app sibling entry in `implementSurfaces`; commit auto-resolved." | <Pill variant="new">/server</Pill> | #2,5 |
 | `surfaceAppSurface` · `surfaceAppSurfaceWith` | "surface-app's complete standalone surface (buildInfo cell + `identity.info` probe) — served as a sibling via `implementSurfaces` / `surfaceClients` / `composeSurfaceContracts`." | <Pill variant="dx">/surface</Pill> | #2,5 |
 | `buildInfo` · `defineBuildInfo` | "The buildInfo cell definition — composed into the surface-app surface; extensible." | <Pill variant="dx">/surface</Pill> | #2,5 |
-| `useSurfaceApp()` · `SurfaceAppProvider` · `retireServiceWorker()` | "The headless model (status/presentingDown/stale/server/reload/setAttention) + SW retirement. You render the UI." | <Pill variant="hi">/solid</Pill> | #3,4,5 |
-| `surfaceApp()` vite plugin · `buildSurfaceClient()` · `resolveCommit()` | "Build the client fresh: content-hashed `/assets/*`, the commit injected onto the no-store shell as `window.__SURFACE_APP_COMMIT__` (read via `shellCommit()`, never a hashed-asset define), the no-store shell rewrite — Vite plugin or Bun helper. Resolve the commit once (env→git→dev)." | <Pill variant="md">/vite · /bun</Pill> | #1,2 |
+| `useSurfaceApp()` · `SurfaceAppProvider` · `SurfaceFaultBoundary` · `retireServiceWorker()` | "The headless model (status/presentingDown/stale/server/reload/setAttention) + the fault boundary (an uncaught render throw is caught, recorded, printed — the provider requires the `fault` LOOK) + SW retirement. You render the UI." | <Pill variant="hi">/solid</Pill> | #3,4,5 |
+| `surfaceApp()` vite plugin · `buildSurfaceClient()` · `resolveCommit()` | "Build the client fresh: content-hashed `/assets/*`, the commit injected onto the no-store shell as `window.__SURFACE_APP_COMMIT__` (read via `shellCommit()`, never a hashed-asset define), the no-store shell rewrite — Vite plugin or Bun helper. Resolve the commit once (env→git→dev). The Bun helper also emits the precompressed siblings `freshStaticLayer` negotiates, splits dynamic imports into hashed chunks, and preloads the entry's static chunks from the shell, so a consumer's dist is a dist the server can fully serve." | <Pill variant="md">/vite · /bun</Pill> | #1,2 |
 | `cacheControlFor` · `clientIsStale` · `SW_SOURCE` | "The pure, framework-free kernels." | <Pill variant="ok">utils/</Pill> | #1,2 |
 
 <Callout kind="warn" title="Historical: ‘The design’ + ‘The API’ below describe the merge-era seams — now removed">
@@ -156,6 +156,7 @@ The spike's failing — fairly called out in review — was making the _example_
 | restart probe | `serverIdentity` (procedure, `surfaceApp.info`) | into `defineSurface` |
 | surface merge | `surfaceAppSurface` / `surfaceAppSurfaceWith` + `composeSurfaces` | **one** merge of cell + probe into `defineSurface` |
 | server impl | `surfaceAppServer()` + `implementSurfaceApp()` | **one** call (owns `buildInfo.connect`) |
+| listener | `serveSurfaceApp` | **one** call (owns the gate → upgrade → stale-tab → heartbeat → serve order, the shell layers, the bind and the teardown) |
 | client model | `useSurfaceApp()` | under `<SurfaceAppProvider>` |
 | client build + commit | `surfaceApp()` Vite plugin · `buildSurfaceClient()` (Bun) · `resolveCommit()` | into the client build & server boot |
 | nix commit stamp | `nix/commit-stamp.nix` (`envVar` · `revFromSelf` · `exportLine`) | into the flake / derivation / server wrapper |
@@ -241,8 +242,9 @@ export const surface = defineSurface(
 ```tsx
 import { retireServiceWorker, SurfaceAppProvider, useSurfaceApp } from "@kolu/surface-app/solid";
 retireServiceWorker();
-// pass your control-plane client + this bundle's baked commit (the bundler define):
-<SurfaceAppProvider controlPlane={app} clientCommit={__SURFACE_APP_COMMIT__}> …your app… </SurfaceAppProvider>
+// pass your control-plane client + this bundle's baked commit (the bundler define),
+// and the REQUIRED `fault` LOOK — what an uncaught render throw is drawn with:
+<SurfaceAppProvider controlPlane={app} clientCommit={__SURFACE_APP_COMMIT__} fault={(text) => <Fault text={text} />}> …your app… </SurfaceAppProvider>
 // then render your own chrome from useSurfaceApp() — README has the snippets.
 ```
 
@@ -257,10 +259,13 @@ plugins: [solid(), surfaceApp()]   // injects __SURFACE_APP_COMMIT__ + ships its
 
 // Bun path — buildSurfaceClient owns hash-naming + the define + the no-store shell rewrite
 import { buildSurfaceClient } from "@kolu/surface-app/bun";
-await buildSurfaceClient({ entrypoint, distDir, htmlTemplate, entryHtmlPlaceholder, plugins, extraAssets, publicDir });
+const { assets } = await buildSurfaceClient({ entrypoint, distDir, htmlTemplate, entryHtmlPlaceholder, plugins, extraAssets, publicDir, assetPrefix });
+// `assets` — one row per file in the hashed dir: identity bytes and each sibling's bytes.
 ```
 
 Both stamp the same commit via `resolveCommit` (env → git → `"dev"`). The Bun consumer (drishti) *composes* `buildSurfaceClient` rather than hand-rolling `Bun.build` + hashing + shell rewrite — the content-hashed `/assets/*` layout (the prerequisite for `immutable`) is the library's job, not the app's. One resolver, one source of truth.
+
+The dist it writes is the *whole* dist `freshStaticLayer` serves, which it was not always: the static layer negotiated `br`/`zstd`/`gzip` siblings from the day it replaced Hono's `serve-static`, while the builder emitted none — so every consumer bolted on a post-step, each wrote `.br` and `.gz`, and none wrote the `.zst` the server could serve all along — so that arm of the negotiation never once ran in production. `buildSurfaceClient` now emits them from the same `PRECOMPRESSED_ENCODINGS` table the server negotiates from, prunes the previous build out of the hashed dir, skips a sibling that already sits beside an unchanged asset, and builds with `splitting` on so a dynamic `import()` becomes a hashed chunk instead of being silently inlined. Splitting's own cost is paid back in the same place: the entry's STATIC chunks (read off `Bun.build({ metafile: true })`, walked transitively, dynamic edges never followed) are named in the shell as `<link rel="modulepreload">`, so a shared chunk is fetched alongside the entry rather than one round trip after it. None of the three is an option — see the Reference page for why the knobs would only ever select "off". The ONE thing about the dist's shape an app may say is `assetPrefix`, and it earns its place by not being universal: it is a fact about whose URL space sits at `/`. olai serves a person's own directory of files there, so `/assets/notes.md` is one of their pages — and an asset miss 404s by design rather than reaching the shell, so the bundle's conventional home made a whole folder of theirs unaddressable. `FreshnessPaths` had taken the prefix on the SERVING side since the freshness contract was written and Vite honours it through `build.assetsDir`; the Bun half could not say it, which made the existing input unusable. `assetDirOf` keeps it one setting — the request prefix IS the dist-relative directory, so the shell's hrefs and the bytes on disk cannot part.
 
 ### Using it — kolu & drishti
 
@@ -277,7 +282,7 @@ const appLayer = surfaceAppLayer({ clientDist, manifest: { name: "drishti", them
 plugins: [solid(), surfaceApp()]
 // drishti — client: provider (this bundle's baked commit) + your own chrome from useSurfaceApp()
 retireServiceWorker();
-<SurfaceAppProvider controlPlane={adminClient} clientCommit={__SURFACE_APP_COMMIT__}> <Header>drishti <DrishtiStatus/></Header> </SurfaceAppProvider>
+<SurfaceAppProvider controlPlane={adminClient} clientCommit={__SURFACE_APP_COMMIT__} fault={(text) => <Fault text={text} />}> <Header>drishti <DrishtiStatus/></Header> </SurfaceAppProvider>
 ```
 
 **Zero hardcoded commits, defines, stores, or `/sw.js` routes** — every line composes a library fragment. kolu is identical but passes its pty-host source to `buildInfoServer` + the extended `defineBuildInfo`. To _see_ skew in dev, boot the server with `SURFACE_APP_COMMIT=<other>` — a real deploy-simulating override, not a sha baked into the client.
@@ -409,7 +414,7 @@ For this class a _caching_ worker is **definitionally** wrong, not an opinion �
 - **Batteries-included behaviour, headless UI.** Owns delivery, identity, commit stamping, SW retirement, install affordance, and the relationship-to-server model; apps render the chrome. The README ships the wiring.
 - **Interfaces where it varies** — build identity (default `{ commit }`; kolu extends).
 - **Settled questions.** Install needs no service worker; cert/TLS lives outside surface-app; the desktop layer is secure-context-gated with graceful degradation. The connection-lifecycle model ships in-library as `createServerLifecycle`; the client build ships as `surfaceApp()` (Vite) / `buildSurfaceClient()` (Bun); and surface-app ships its contribution as a **complete standalone surface** (`surfaceAppSurface` / `surfaceAppSurfaceWith`, with the `identity.info` probe) — served as a *sibling* via `@kolu/surface`'s `implementSurfaces` / `surfaceClients` / `composeSurfaceContracts`, not merged into the app's own surface. (The earlier merge approach — `composeSurfaces` + `implementSurfaceApp` — was dissolved; see [Composing surfaces](#composing-surfaces--multiple-surfaces-one-transport).) One follow-up remains deferred: whether `@kolu/dev-tls` is extracted as its own optional package.
-- **A living library, not a finished one.** The boundary is settled, but the _composition surface_ keeps tightening as more apps adopt it — each "compose, don't hand-wire" seam was added because drishti's adoption surfaced a place an app was still hand-rolling the library's job. The first cut (`buildSurfaceClient`, `nix/commit-stamp.nix`, and the now-removed merge seams `composeSurfaces` / `implementSurfaceApp`) is now superseded by the sibling model — surface-app is *just a sibling surface*, so the merge glue dissolved entirely. Expect the pattern to continue: a third consumer will find the next seam to lift upstream.
+- **A living library, not a finished one.** The boundary is settled, but the _composition surface_ keeps tightening as more apps adopt it — each "compose, don't hand-wire" seam was added because drishti's adoption surfaced a place an app was still hand-rolling the library's job. The first cut (`buildSurfaceClient`, `nix/commit-stamp.nix`, and the now-removed merge seams `composeSurfaces` / `implementSurfaceApp`) is now superseded by the sibling model — surface-app is *just a sibling surface*, so the merge glue dissolved entirely. The third consumer duly arrived and duly found one: olai hand-copied the _listener_ sequence out of this package's own example, as kolu and drishti already had — so `serveSurfaceApp` is that seam lifted upstream, owning the gate → upgrade → stale-tab → heartbeat → serve order together with the shell layers, the bind and the teardown, in one call (<PrLink pr={2137} />). kolu's own listener then adopted it, and adoption is what finished the interface: TLS, an HTTP middleware and an optional `clientDist` are options *because a real consumer asked*, never speculatively — and unpairing the manifest from the dist inside `surfaceAppLayer` dissolved kolu's whole reason for hand-composing shell layers rather than routing around it (<PrLink pr={2144} />). Expect the pattern to continue.
 
 ### Name
 

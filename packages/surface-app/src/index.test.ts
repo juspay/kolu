@@ -10,31 +10,165 @@
 import { describe, expect, it } from "vitest";
 import {
   ASSET_MISS_CACHE_CONTROL,
+  assertAssetPrefix,
+  assetDirOf,
   cacheControlFor,
   clientIsStale,
   injectShellCommit,
+  injectShellHead,
   isCleanRef,
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
-  rejectStaleProcess,
+  PRECOMPRESSED_ENCODINGS,
   SHELL_CACHE_CONTROL,
   SHELL_COMMIT_GLOBAL,
   shellCommitScript,
+  SURFACE_WS_PATH,
+  surfaceWsUrl,
   SW_MESSAGE_TYPE,
   SW_SOURCE,
+  thrownText,
 } from "./index";
 
-describe("rejectStaleProcess", () => {
-  it("passes the first-ever connect (no claimed pid)", () => {
-    expect(rejectStaleProcess(null, "live-1")).toBe(false);
+describe("thrownText", () => {
+  it("returns a V8-shaped stack as-is — the message is already its first line", () => {
+    const err = new Error("boom");
+    // Node/V8: `stack` starts with `Error: boom`. Prepending would double it.
+    expect(err.stack?.startsWith("Error: boom")).toBe(true);
+    expect(thrownText(err)).toBe(err.stack);
   });
-  it("passes a matching pid (transient drop, same process)", () => {
-    expect(rejectStaleProcess("live-1", "live-1")).toBe(false);
+
+  it("puts a lost message back on the front of a Safari-shaped stack", () => {
+    // Safari's `stack` carries frames only — printing it alone would name
+    // files but not the fault.
+    const err = new Error("undefined is not an object");
+    err.stack = "renderRow@app.js:12:3\nmain@app.js:1:1";
+    expect(thrownText(err)).toBe(
+      "Error: undefined is not an object\nrenderRow@app.js:12:3\nmain@app.js:1:1",
+    );
   });
-  it("rejects a mismatched pid (tab bound to a previous process)", () => {
-    expect(rejectStaleProcess("dead-0", "live-1")).toBe(true);
+
+  it("puts a SHORT lost message back even when it appears inside a frame", () => {
+    // The hole a substring test (`includes`) leaves open: a short message —
+    // "app", "12", "null", the shape short DOM/JSON/index errors arrive in —
+    // is routinely a substring of the first frame's function name, file stem,
+    // or line number. The rule is the first line BEING the current header,
+    // not containing the message somewhere.
+    for (const message of ["app", "12", "renderRow"]) {
+      const err = new Error(message);
+      err.stack = "renderRow@app.js:12:3";
+      expect(thrownText(err)).toBe(`Error: ${message}\nrenderRow@app.js:12:3`);
+    }
+  });
+
+  it("puts a reassigned message back when the new one is a SUBSTRING of the old header", () => {
+    // The same hole on the V8 side: shorten the message after the header
+    // materialized and the stale header *contains* (even starts with) the new
+    // one. "Carries" must mean the header IS `name: message`, on a line
+    // boundary — a bare prefix test waves "Error: foobar" through for "foo".
+    const shortened = new Error("foobar");
+    void shortened.stack;
+    shortened.message = "foo";
+    expect(shortened.stack?.startsWith("Error: foobar")).toBe(true);
+    expect(thrownText(shortened)).toBe(`Error: foo\n${shortened.stack}`);
+
+    const substring = new Error("the original reason");
+    void substring.stack;
+    substring.message = "original";
+    expect(thrownText(substring)).toBe(`Error: original\n${substring.stack}`);
+  });
+
+  it("never LOSES a multiline message — a header spanning lines can't match one line, so it errs toward saying it twice", () => {
+    // A multiline message can never equal the stack's first physical line, so
+    // the first-line rule treats it as lost and puts it back on the front.
+    // That is the safe direction — the current message is always at the top
+    // of the card, at worst repeated below — and this pins exactly the
+    // never-lost half without freezing the duplication as a contract.
+    const err = new Error("line one\nline two");
+    expect(err.stack?.startsWith("Error: line one\nline two")).toBe(true);
+    expect(thrownText(err).startsWith("Error: line one\nline two")).toBe(true);
+  });
+
+  it("puts a REASSIGNED message back too — a V8 stack keeps the one from construction", () => {
+    // `e.message = "the real reason"` after the stack has materialized (V8
+    // formats `.stack` lazily and caches the string on first read) leaves the
+    // stack opening with the OLD message. A test on the name prefix alone
+    // would wave that stale first line through; the rule is whether the first
+    // line carries the CURRENT message.
+    const err = new Error("original");
+    void err.stack; // materialize the header with the construction-time message
+    err.message = "the real reason";
+    expect(err.stack?.startsWith("Error: original")).toBe(true);
+    expect(thrownText(err)).toBe(`Error: the real reason\n${err.stack}`);
+  });
+
+  it("does not double a message-less Error's stack — every line 'carries' an empty message", () => {
+    const err = new Error();
+    // V8: `stack` opens with the bare name; the fallback name-prefix test
+    // keeps it as-is instead of prepending "Error: ".
+    expect(thrownText(err)).toBe(err.stack);
+  });
+
+  it("prints `name: message` for a stackless Error, keeping the subclass name", () => {
+    const err = new RangeError("day out of range");
+    err.stack = undefined;
+    expect(thrownText(err)).toBe("RangeError: day out of range");
+    err.stack = "";
+    expect(thrownText(err)).toBe("RangeError: day out of range");
+  });
+
+  it("routes a DOMException through the Error branch, name intact", () => {
+    // `DOMException` IS `instanceof Error` (Node and every current browser),
+    // and its `name` is the fault's vocabulary (`AbortError`, `DataError`, …).
+    const text = thrownText(new DOMException("boom", "DataError"));
+    expect(text.startsWith("DataError: boom")).toBe(true);
+  });
+
+  it("stringifies a non-Error throw — a render can throw anything", () => {
+    expect(thrownText("just a string")).toBe("just a string");
+    expect(thrownText(undefined)).toBe("undefined");
+    expect(thrownText(42)).toBe("42");
+  });
+
+  it("never prints an empty card: a value that says nothing is still a fault", () => {
+    expect(thrownText("")).toBe(
+      "the page threw a value that says nothing about itself",
+    );
   });
 });
+
+describe("surfaceWsUrl", () => {
+  it("maps the scheme and pins the surface path, whatever the base carried", () => {
+    // The scheme swap is the part that is easy to get wrong, and wrong only in
+    // deployment: a TLS-served app that dials `ws:` fails nowhere else.
+    expect(surfaceWsUrl("http://127.0.0.1:7681")).toBe(
+      `ws://127.0.0.1:7681${SURFACE_WS_PATH}`,
+    );
+    expect(surfaceWsUrl("https://kolu.example")).toBe(
+      `wss://kolu.example${SURFACE_WS_PATH}`,
+    );
+    // A base carrying its own path is REPLACED, not appended to — the surface
+    // speaks on exactly one path and the upgrade handler compares for equality.
+    expect(surfaceWsUrl("http://box:5173/some/page")).toBe(
+      `ws://box:5173${SURFACE_WS_PATH}`,
+    );
+  });
+
+  it("keeps a bracketed IPv6 authority intact", () => {
+    // The other half of the address story: what `hostAuthority` bracketed must
+    // survive the parse-and-reserialize round trip.
+    expect(surfaceWsUrl("http://[::1]:7714/")).toBe(
+      `ws://[::1]:7714${SURFACE_WS_PATH}`,
+    );
+  });
+});
+
+// The stale-tab DECISION is no longer a pure kernel here: `rejectStaleProcess`
+// took the "live" id as an argument, and that argument was the way to point the
+// gate at an id the wire never reports. The decision now lives inside
+// `gateStaleSocket`, which reads this process's own `surfaceProcessId()` — see
+// `server.test.ts`, where it is tested through the door it is now only reachable
+// by.
 
 describe("cacheControlFor", () => {
   it("pins content-hashed assets immutable", () => {
@@ -71,6 +205,58 @@ describe("cacheControlFor", () => {
     // The Vite default prefix is no longer special under an override.
     expect(cacheControlFor("/assets/x-hash.js", paths)).toBeNull();
     expect(cacheControlFor("/app.html", paths)).toBe("no-store");
+  });
+});
+
+describe("assetDirOf — the request prefix IS the dist-relative directory", () => {
+  it("defaults to the Vite convention when an app says nothing", () => {
+    expect(assetDirOf()).toBe("assets");
+    expect(assetDirOf(undefined)).toBe("assets");
+    expect(assertAssetPrefix()).toBe("/assets/");
+  });
+
+  it("derives the directory a moved bundle is written to and served from", () => {
+    // The whole of the agreement: a build emitting into <dist>/_olai/assets and
+    // a server pinned to /_olai/assets/ are ONE setting, so there is nowhere for
+    // the shell's hrefs and the bytes on disk to disagree.
+    expect(assetDirOf("/_olai/assets/")).toBe("_olai/assets");
+    expect(assetDirOf("/static/")).toBe("static");
+  });
+
+  it("agrees with isImmutableAssetPath about what sits under the prefix", () => {
+    const assetPrefix = "/_olai/assets/";
+    const dir = assetDirOf(assetPrefix);
+    expect(isImmutableAssetPath(`/${dir}/main-abc.js`, { assetPrefix })).toBe(
+      true,
+    );
+    // ...and the space the bundle vacated is the app's again.
+    expect(isImmutableAssetPath("/assets/notes.md", { assetPrefix })).toBe(
+      false,
+    );
+  });
+
+  it("hands the prefix back when it takes one — the check reads as taking the value", () => {
+    // `freshStaticLayer` wants the prefix, not the directory; a bare assertion
+    // standing beside the assignment is the shape this split exists to avoid.
+    expect(assertAssetPrefix("/_olai/assets/")).toBe("/_olai/assets/");
+  });
+
+  it("refuses a prefix without both slashes — startsWith would match a sibling dir", () => {
+    // `/assetsXtra/main.js`.startsWith("/assets") is true: an unterminated
+    // prefix pins a directory no build ever wrote to.
+    expect(() => assetDirOf("/assets")).toThrow(/start and end/);
+    expect(() => assetDirOf("assets/")).toThrow(/start and end/);
+    expect(() => assetDirOf("")).toThrow(/start and end/);
+  });
+
+  it("refuses the root, which would put the no-store shell under the immutable contract", () => {
+    expect(() => assetDirOf("/")).toThrow(/kolu#1319/);
+  });
+
+  it("refuses a prefix that could not be a directory under the dist", () => {
+    expect(() => assetDirOf("//assets/")).toThrow(/empty segment/);
+    expect(() => assetDirOf("/../assets/")).toThrow(/climb out/);
+    expect(() => assetDirOf("/assets/?v=1/")).toThrow(/query/);
   });
 });
 
@@ -139,6 +325,128 @@ describe("injectShellCommit", () => {
     expect(() => injectShellCommit('<html><head lang="en"', "x")).toThrow(
       /unterminated/,
     );
+  });
+});
+
+// The head prelude the Bun build writes — the same splice, with the modulepreload
+// links ahead of the commit script. Which chunks end up in that list is
+// `modulePreload.test.ts`'s question; this is the ORDER and the tags.
+const headShell = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+  </head>
+  <body><script type="module" src="/assets/main-D85Q74Rn.js"></script></body>
+</html>`;
+
+describe("injectShellHead", () => {
+  it("writes the preload links first and the commit script after, right after <head>", () => {
+    // Pinned as a LITERAL, in one string: `rel="modulepreload"` is the whole
+    // instruction to the browser, and the adjacency IS the order — a test that
+    // rebuilt the tags from the same helper, or checked the two halves
+    // separately, would agree with a typo or a swap.
+    const out = injectShellHead(headShell, {
+      preloadHrefs: ["/assets/shared-a1b2c3d4.js", "/assets/base-e5f6a7b8.js"],
+      commit: "0fab0cc",
+    });
+    expect(out).toContain(
+      '<head><link rel="modulepreload" href="/assets/shared-a1b2c3d4.js">' +
+        '<link rel="modulepreload" href="/assets/base-e5f6a7b8.js">' +
+        shellCommitScript("0fab0cc"),
+    );
+    // And so ahead of the entry the preloaded chunks belong to.
+    expect(out.indexOf("modulepreload")).toBeLessThan(
+      out.indexOf("/assets/main-D85Q74Rn.js"),
+    );
+  });
+
+  it("adds no preload tags when the entry split into nothing — just the identity", () => {
+    // The no-split app is most apps. It must come out with no empty `<link>`, no
+    // stray whitespace — nothing to explain.
+    const out = injectShellHead(headShell, {
+      preloadHrefs: [],
+      commit: "0fab0cc",
+    });
+    expect(out).not.toContain("modulepreload");
+    expect(out).toBe(
+      headShell.replace("<head>", `<head>${shellCommitScript("0fab0cc")}`),
+    );
+  });
+
+  it("names the preload cost too when there is no <head> to splice into", () => {
+    // The locator itself (the `<header>` trap, the unterminated tag) is pinned in
+    // `index.test.ts` through `injectShellCommit`, which is the same splice. What
+    // is only true here is what the error has to SAY now that the prelude carries
+    // two things: a template with no head loses the round trip as well as the
+    // identity, and a message naming one of them reads like the whole cost.
+    expect(() =>
+      injectShellHead("<html><body></body></html>", {
+        preloadHrefs: ["/assets/a-1.js"],
+        commit: "0fab0cc",
+      }),
+    ).toThrow(/no <head>.*round trip/);
+  });
+});
+
+describe("the modulepreload tags injectShellHead writes", () => {
+  const tags = (hrefs: readonly string[]) =>
+    injectShellHead(headShell, { preloadHrefs: hrefs, commit: "0fab0cc" })
+      .split("<head>")[1]!
+      .split("<script>")[0]!;
+  it("emits one tag per href, in order, as one string", () => {
+    // Pinned as a LITERAL: `rel="modulepreload"` is the whole instruction to the
+    // browser, and a test that rebuilt the tag from the same helper would agree
+    // with any typo in it.
+    expect(
+      tags(["/assets/shared-a1b2c3d4.js", "/assets/base-e5f6a7b8.js"]),
+    ).toBe(
+      '<link rel="modulepreload" href="/assets/shared-a1b2c3d4.js">' +
+        '<link rel="modulepreload" href="/assets/base-e5f6a7b8.js">',
+    );
+  });
+
+  it("emits nothing at all for no hrefs", () => {
+    expect(tags([])).toBe("");
+  });
+
+  it("refuses an href that is not a plain /path instead of ending the attribute early", () => {
+    // The sibling `shellCommitScript` ESCAPES its input because a commit message
+    // is arbitrary by nature; a build output name that carries a quote means
+    // something upstream is already wrong, so this one refuses.
+    expect(() => tags(['/assets/a".js'])).toThrow(/href/);
+    expect(() => tags(["https://cdn.example/a.js"])).toThrow(/plain \/path/);
+  });
+});
+
+describe("PRECOMPRESSED_ENCODINGS", () => {
+  // This table is the ONE place the negotiator (`./server`) and the emitter
+  // (`./precompress`) meet, which makes it the one place a whole encoding can
+  // go missing without anything else disagreeing: drop a row and both halves
+  // forget it together, so an emitter-equals-table assertion stays green while
+  // the encoding silently stops being served. That is exactly how `.zst` came
+  // to be absent from every consumer's dist while the server had supported it
+  // all along. So the rows are pinned as LITERALS here — a deletion has to
+  // survive a test that names the thing, not a test that compares two halves of
+  // the same mistake.
+  it("carries br/zstd/gzip against .br/.zst/.gz, in the server's preference order", () => {
+    expect(PRECOMPRESSED_ENCODINGS).toEqual([
+      ["br", ".br"],
+      ["zstd", ".zst"],
+      ["gzip", ".gz"],
+    ]);
+  });
+
+  it("keeps `zstd` → `.zst` — the row whose absence was the bug", () => {
+    // Named on its own so a diff that drops it reads as what it is, rather than
+    // as one line of a table rewrite.
+    expect(PRECOMPRESSED_ENCODINGS).toContainEqual(["zstd", ".zst"]);
+  });
+
+  it("names each encoding and each suffix once — a duplicate would shadow a row", () => {
+    const encodings = PRECOMPRESSED_ENCODINGS.map(([encoding]) => encoding);
+    const suffixes = PRECOMPRESSED_ENCODINGS.map(([, suffix]) => suffix);
+    expect(new Set(encodings).size).toBe(encodings.length);
+    expect(new Set(suffixes).size).toBe(suffixes.length);
   });
 });
 

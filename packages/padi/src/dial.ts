@@ -62,6 +62,11 @@ import {
 // compute a socket path.
 export {
   discoverPadiDaemons,
+  type LocalPadiSocket,
+  type LocalPadiFlags,
+  localPadiSocket,
+  type LocalPadiTarget,
+  localPadiTargetOf,
   type PadiDaemon,
   type PadiSocketResolution,
   padiSocketPath,
@@ -70,24 +75,71 @@ export {
   resolveRunningPadiSocket,
 } from "./stateRoot.ts";
 
-// The client-side terminal WATCH kit — `watchTerminals` + `awaitAgentState` +
-// `awaitOutputSettled` and the bucket vocabulary they predicate on — rides the
-// dial entry too: the same "a daemon's package owns the client kit its
-// consumers share" rule, and both consumers (padi-tui's `wait`/`watch`, the
-// kolu MCP face's `wait_agentState`/`wait_outputSettled`) already import this
-// entry to dial.
+// The client-side terminal WATCH kit — `watchTerminals` + the ONE
+// block-on-a-condition engine (`awaitTerminalCondition`, which takes the
+// condition as data and carries the `--settled` quiescence conjunct and the
+// `--snapshot` screen stamp), the two named waits that are spellings of it
+// (`awaitAgentState` · `awaitOutputSettled` — named because their met payloads
+// ARE the MCP tools' wire frames), plus `awaitWatchEvents` (the
+// standing-subscription drain, which differs in kind: it drains a padi-side
+// BUFFER, so the gaps between calls are not holes) and the bucket vocabulary
+// they predicate on — rides the dial entry too: the same "a daemon's package
+// owns the client kit its consumers share" rule, and every consumer (padi-tui's
+// `wait`/`watch`, the kolu MCP face's `wait_agentState`/`wait_outputSettled`,
+// `kolu wait`'s three `--until` forms) already imports this entry to dial.
+// The `match:` form has NO named wrapper — `kolu wait` is its one consumer and
+// calls the engine directly; see the note at the foot of `cliClient/watch.ts`.
+// The knob-presence predicate rides the dial for the same reason the bucket
+// vocabulary does: `kolu watch` has to ask "did this invocation name a
+// supervision knob" and must ask padi's ONE definition, not a second list of
+// three fields that agrees today.
+export { namesWatchKnobs } from "./attention/watchSpec.ts";
+
+// Self-identity, not watch knobs: the FACT the stamp carries, never a sentence
+// about it. What a refusal READS like is argv/tool-arg grammar and belongs at
+// the face that owns the spelling — the same rule `cliClient/render.ts` records
+// having been litigated once already over `--until`.
+export {
+  confirmInFleet,
+  CONTAINING_TERMINAL_ENV,
+  containingTerminalId,
+  type FleetTerminal,
+} from "./containingTerminal.ts";
+
+// WHICH terminals a subscription reports is ONE concept with ONE constructor
+// and ONE reader, so the dial carries three names for it rather than a kit of
+// parts each face re-assembles: the value, the constructor that is the only way
+// to make one (and where every never-match refusal lives), and the predicate
+// every event source asks.
+export {
+  scopeAdmits,
+  type WatchScope,
+  watchScopeOf,
+  // …and WHICH never-match shape a refusal is, so a face can append its own way
+  // out without re-spelling the union the constructor already declares.
+  type WatchScopeRefusal,
+} from "./attention/watchScope.ts";
+
 export {
   activeAgent,
-  agentMatchesUntil,
   type AgentStateOutcome,
+  isWaitState,
+  PADI_LINK_CLOSED,
   awaitAgentState,
   awaitOutputSettled,
+  awaitTerminalCondition,
+  awaitWatchEvents,
+  type ConditionMet,
   type OutputSettledOutcome,
+  type TerminalCondition,
+  type TerminalConditionOutcome,
+  type WatchEventsOutcome,
   WAIT_STATES,
   type WaitState,
   type WatchHandlers,
+  watchAgentStates,
   watchTerminals,
-} from "./watch.ts";
+} from "./cliClient/watch.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

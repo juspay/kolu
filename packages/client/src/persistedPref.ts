@@ -1,4 +1,5 @@
-/** Validated, persisted per-device preference — a thin policy layer over
+/** Validated, persisted preference — per device by default, or per browser tab
+ *  when the caller picks `sessionStorage` (see `storage` below) — a thin policy layer over
  *  `@solid-primitives/storage`'s `makePersisted` that adds the one thing the
  *  off-the-shelf primitive lacks: **validate-on-read with a typed fallback**.
  *
@@ -52,8 +53,11 @@ export interface PersistedPrefOptions<T> {
    *  toast, so notifications stay colocated with their trigger per
    *  `.claude/rules/toast-conventions.md`. */
   onInvalid?: (err: unknown, raw: string) => void;
-  /** Storage backend. Defaults to `localStorage` (via `makePersisted`).
-   *  Injected by tests with a synchronous in-memory fake. */
+  /** Storage backend — a first-class DURABILITY choice, not just a test seam:
+   *  `localStorage` (device-wide, the default via `makePersisted`) or
+   *  `sessionStorage` for a fact that is per BROWSER TAB and must not be
+   *  decided by another tab (the `activeHost` pref and the host-switch trail
+   *  that shadows it). Tests also inject a synchronous in-memory fake. */
   storage?: Storage;
 }
 
@@ -114,8 +118,73 @@ function parseBool(raw: string): boolean {
   throw new Error(`expected boolean pref "true"/"false", got: ${raw}`);
 }
 
+/** The tolerant-array `parse` every persisted LIST pref shares — the list twin of
+ *  {@link parseBool}. Throws only when the stored value is not an array (so the
+ *  caller's `fallback` takes over wholesale); a corrupt or duplicate ENTRY is a
+ *  branch, not a throw, so one bad row never costs the user the whole trail.
+ *  Spelled once here so `visitRecency` and `hostRecency` reuse it instead of
+ *  re-hand-rolling the parse (the {@link parseBool} precedent). */
+export function parseTolerantList<T>(
+  raw: string,
+  what: string,
+  accept: (item: unknown) => T | undefined,
+  identity: (item: T) => string,
+  cap: number,
+): T[] {
+  const data: unknown = JSON.parse(raw);
+  if (!Array.isArray(data)) throw new Error(`${what}: expected a JSON array`);
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of data) {
+    const ok = accept(item);
+    if (ok === undefined) continue;
+    const id = identity(ok);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(ok);
+  }
+  return out.slice(0, cap);
+}
+
+/** How far past `now` a persisted stamp may sit before it reads as corruption
+ *  rather than clock skew. Spelled once because BOTH recency trails' stamps end
+ *  up in the same comparison (a palette row's `visitedAt`): two copies of this
+ *  window is exactly how that one number space silently forks. */
+const MAX_STAMP_SKEW_MS = 365 * 24 * 60 * 60 * 1000;
+
+/** Whether a persisted timestamp is plausible — finite, not pre-epoch, and not
+ *  so far in the future it would dominate a recency ranking forever. The
+ *  accept-window every persisted TRAIL shares (`visitRecency`, `hostRecency`),
+ *  beside {@link parseTolerantList}, which owns the loop around it. */
+export function isSaneStamp(v: unknown, now: number): v is number {
+  if (typeof v !== "number" || !Number.isFinite(v)) return false;
+  return v >= 0 && v <= now + MAX_STAMP_SKEW_MS;
+}
+
+/** The next strictly-monotonic stamp for a trail: `at`, unless some surviving
+ *  entry already carries that instant or later, in which case one past the
+ *  newest of them. Keeps same-millisecond events ordered later-before-earlier,
+ *  which is the tie-break both trails rely on. `rest` is the trail MINUS the
+ *  entry being (re)stamped; `stampOf` reads each entry's clock.
+ *
+ *  Shared because the two trails' stamps meet in one `visitedAt` comparison — a
+ *  tie-break rule maintained in two places is one that can quietly disagree. */
+export function monotonicStamp<T>(
+  rest: readonly T[],
+  at: number,
+  stampOf: (entry: T) => number,
+): number {
+  const newest = rest.reduce(
+    (m, e) => Math.max(m, stampOf(e)),
+    Number.NEGATIVE_INFINITY,
+  );
+  return Number.isFinite(newest) && at <= newest ? newest + 1 : at;
+}
+
 /** The default `onInvalid` a {@link perHostPref} or {@link boolPref} installs when
- *  the caller supplies none: a `console.warn` naming the offending key and the
+ *  the caller supplies none — and the one a trail pref (`visitRecency`,
+ *  `hostRecency`) passes explicitly rather than hand-rolling a fourth copy of the
+ *  same message: a `console.warn` naming the offending key and the
  *  fallback it degraded to,
  *  so a corrupt value is a visible diagnostic rather than a silent reset (without it
  *  a bad value would collapse to the fallback with zero signal). `warn` — not `error`
@@ -126,7 +195,7 @@ function parseBool(raw: string): boolean {
  *  composed key `name` from the layer that already owns it, so a caller never recomposes
  *  the key to log it. Generic in `T` (not boolean-specific): "which key was corrupt" is
  *  a useful diagnostic for every per-host pref. */
-function defaultInvalidWarning<T>(
+export function defaultInvalidWarning<T>(
   name: string,
   fallback: T,
 ): (err: unknown, raw: string) => void {

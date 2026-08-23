@@ -5,6 +5,7 @@
     "@cucumber/cucumber": "^12.8.1",
     "@cucumber/gherkin": "38.0.0",
     "@cucumber/messages": "32.2.0",
+    "@kolu/daemon-test-gate": "workspace:*",
     "@kolu/padi": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
@@ -16,8 +17,7 @@
     "kolu-common": "workspace:*",
     "kolu-pty": "workspace:*",
     "playwright": "1.59.0",
-    "tsx": "^4.19.0",
-    "yaml": "2.8.3"
+    "tsx": "^4.19.0"
   },
   "scripts": {
     "test": "node --import tsx governance/runE2e.ts",

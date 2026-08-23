@@ -5,8 +5,10 @@
  * curation gate is **default-deny**.
  *
  * The surface has a `count` cell, a `ticks` stream, and two procedures: a
- * safe `bump` (exposed as a tool) and a DANGEROUS `nuke` (NOT exposed). We
- * also register one bespoke tool (`greet`). Then assert:
+ * safe `bump` (exposed as a tool) and a DANGEROUS `nuke` (NOT exposed). Beside
+ * them ride the bespoke tools — `greet` and one per failure/result shape the
+ * result framing has to answer for (see "the structured arm" below). Then
+ * assert:
  *
  *   - tools/list shows only `counter_bump` + `greet`, and NOT `admin_nuke`;
  *   - tools/call on the exposed procedure mutates the cell;
@@ -34,7 +36,12 @@ import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/typ
 import { Effect, Schema, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cellUri, streamUri } from "./expose";
-import { type SurfaceClientCallable, serveSurfaceAsMcp } from "./server";
+import {
+  type ServeSurfaceAsMcpOptions,
+  type SurfaceClientCallable,
+  serveSurfaceAsMcp,
+} from "./server";
+import { ToolFailure } from "./tools";
 
 /** The in-process client every case here drives the adapter with: the SAME
  *  nested member face a wire link mints (`buildSurfaceFace`), over the no-wire
@@ -132,6 +139,7 @@ async function connect(over: ReturnType<typeof buildSurface>) {
       greet: {
         input: Schema.Struct({ name: Schema.String }),
         description: "Say hello.",
+        title: "Greet somebody",
         handler: (args) =>
           Effect.sync(() => {
             const { name } = args as { name: string };
@@ -142,8 +150,57 @@ async function connect(over: ReturnType<typeof buildSurface>) {
         description: "Always fails — pins the isError framing.",
         handler: () => Effect.fail(new Error("boom: the handler rejected")),
       },
+      // One per failure/result SHAPE the structured arm has to answer for.
+      refuse: {
+        description: "Refuses with machine-readable detail.",
+        handler: () =>
+          Effect.fail(
+            new ToolFailure("`refuse` was refused (validation): 2 bad rows", {
+              kind: "validation",
+              rows: [3, 7],
+            }),
+          ),
+      },
+      tagged: {
+        description: "Fails with a tagged, message-less error.",
+        // The shape `Data.TaggedError` has: an `Error` whose identity is `_tag`
+        // and whose `message` is empty. Hand-built rather than imported so the
+        // test pins the SHAPE, not Effect's spelling of it.
+        handler: () =>
+          Effect.fail(
+            Object.assign(new Error(""), { _tag: "OutlineBroken" as const }),
+          ),
+      },
+      plainObject: {
+        description: "Fails with a non-Error value.",
+        handler: () => Effect.fail({ code: 17, why: "not an Error at all" }),
+      },
+      unstringifiable: {
+        description: "Fails with a non-Error value JSON cannot render.",
+        // `JSON.stringify` EVALUATES every own enumerable getter, so a property
+        // that throws on read throws from inside the description attempt —
+        // carrying a real reason that has nothing to do with serialization.
+        handler: () =>
+          Effect.fail({
+            stage: "commit",
+            get detail(): string {
+              throw new Error("network timeout while computing detail");
+            },
+          }),
+      },
+      scalarResult: {
+        description: "Succeeds with a bare number.",
+        handler: () => Effect.succeed(42),
+      },
+      dateResult: {
+        description:
+          "Succeeds with a value that is an object in memory and a string on the wire.",
+        handler: () => Effect.succeed(new Date("2026-08-11T00:00:00.000Z")),
+      },
     },
     serverInfo: { name: "test-surface", version: "0.0.0" },
+    instructions:
+      "Everything here is about the counter, not about files. Bump it, don't nuke it.",
     transport: serverTransport,
   });
 
@@ -175,7 +232,17 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     expect(names).toContain("greet");
     // The dangerous procedure is NOT a tool — default-deny proven.
     expect(names).not.toContain("admin_nuke");
-    expect(names).toEqual(["counter_bump", "explode", "greet"]);
+    expect(names).toEqual([
+      "counter_bump",
+      "dateResult",
+      "explode",
+      "greet",
+      "plainObject",
+      "refuse",
+      "scalarResult",
+      "tagged",
+      "unstringifiable",
+    ]);
   });
 
   it("a REJECTING handler returns an isError tool result, never a protocol error", async () => {
@@ -779,14 +846,45 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     return { surface, client: faceFor(surface, served) };
   }
 
+  type ConcurrencyOver = ReturnType<typeof concurrencySurface>;
+  type ConcurrencyOptions = ServeSurfaceAsMcpOptions<
+    ConcurrencyOver["surface"]["spec"]
+  >;
+
+  /** The spine every case in this block drives: one in-memory pair, one adapter
+   *  over the concurrency surface, one connected MCP client, torn down by the
+   *  shared `cleanup`. What the cases actually differ in is the CONNECTION
+   *  FACTORY they hand the adapter (and, for one of them, what is exposed), so
+   *  that is all a case supplies — the rest being open-coded eight times is how
+   *  a boilerplate change lands in seven places and misses the eighth. */
+  async function connectConcurrency(
+    over: ConcurrencyOver,
+    opts: Pick<ConcurrencyOptions, "client"> &
+      Partial<Pick<ConcurrencyOptions, "expose" | "tools">>,
+  ) {
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface: over.surface,
+      expose: { "ok.ping": { tool: { mutates: false } } },
+      ...opts,
+      serverInfo: { name: "t", version: "0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "c", version: "0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+    return { mcp, ...served };
+  }
+
   it("app-level tool errors do NOT dispose the shared connection; a transport death does", async () => {
     const over = concurrencySurface();
     let dials = 0;
     let disposes = 0;
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveSurfaceAsMcp({
-      surface: over.surface,
+    const { mcp } = await connectConcurrency(over, {
       client: () => {
         dials += 1;
         return {
@@ -811,15 +909,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
             ),
         },
       },
-      serverInfo: { name: "t", version: "0" },
-      transport: serverTransport,
     });
-    const mcp = new Client({ name: "c", version: "0" });
-    await mcp.connect(clientTransport);
-    cleanup.push(
-      () => mcp.close(),
-      () => close(),
-    );
 
     // First real call dials once.
     await mcp.callTool({ name: "ok_ping", arguments: {} });
@@ -840,16 +930,220 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     expect(disposes).toBe(1);
     await mcp.callTool({ name: "ok_ping", arguments: {} });
     expect(dials).toBe(2);
+
+    // And it says so in the layer the AGENT is standing in: the raw link error
+    // ("stdio transport closed … the peer process exited") reads as though this
+    // MCP server died, which is the misread that cost a whole session in #2082.
+    const text = (drop as { content?: { text: string }[] }).content?.[0]?.text;
+    expect(text).toContain("the connection to the served surface dropped");
+    expect(text).toContain("This MCP server is still running");
+    expect(text).toContain("retry");
+    // The underlying reason survives the re-frame — context added, never swallowed.
+    expect(text).toContain("pipe closed");
+  });
+
+  // ── #2082: a restart must cost ZERO requests ─────────────────────────────
+  //
+  // The bug: the shared connection was only ever dropped by a call FAILING on
+  // it, so a daemon restart was discovered by spending a request on the corpse.
+  // The first request after every restart failed and every later one succeeded
+  // — and the agent on the other end read that one failure as "the MCP server
+  // is dead" and stopped using MCP for the rest of its session.
+  it("a connection that ANNOUNCES its close is dropped eagerly — the next request costs nothing (#2082)", async () => {
+    const over = concurrencySurface();
+    let dials = 0;
+    const disposed: number[] = [];
+    // The live transport's close callbacks, per dial — firing one is this test's
+    // stand-in for "padi exited", which is exactly what padi's `onClose` reports.
+    const closers: Array<() => void> = [];
+    const { mcp } = await connectConcurrency(over, {
+      client: () => {
+        const n = (dials += 1);
+        return {
+          client: over.client,
+          dispose: () => {
+            disposed.push(n);
+          },
+          onClose: (cb: () => void) => closers.push(cb),
+        };
+      },
+    });
+
+    // One live connection, and the adapter subscribed to its close.
+    await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(dials).toBe(1);
+    expect(closers).toHaveLength(1);
+
+    // The daemon goes away while the adapter is IDLE — no request in flight, which
+    // is the ordinary restart (an upgrade at 18:17, the agent's next call at 23:15).
+    // THE eager-vs-lazy assertion: the corpse is discarded HERE, before any
+    // request touches it. Under the old lazy-only behaviour nothing happens until
+    // a call fails, so this line is what a lazy implementation cannot pass.
+    closers[0]?.();
+    expect(disposed).toEqual([1]); // discarded on the announcement, not on a failure
+
+    // THE REGRESSION: the very next request must SUCCEED against a fresh dial.
+    // Before the fix this call was spent proving the socket was dead.
+    const after = await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(after.isError).toBeFalsy();
+    expect(dials).toBe(2);
+  });
+
+  it("a connection born dead is re-dialed, not handed out — no request is spent on it (#2082)", async () => {
+    // The door the eager path opens: `onClose` may fire DURING registration (a
+    // transport that already died — padi replays it on a microtask, and the
+    // contract permits a plain synchronous `cb()`). The connection is then
+    // disposed before the awaiting caller resumes, and returning it anyway
+    // would spend that caller's request on a corpse — #2082's own symptom,
+    // walked back in through the fix. Re-dialing is safe where re-requesting is
+    // not: a dial carries no caller intent, so nothing is replayed.
+    const over = concurrencySurface();
+    let dials = 0;
+    const disposed: number[] = [];
+    const { mcp } = await connectConcurrency(over, {
+      client: () => {
+        const n = (dials += 1);
+        return {
+          client: over.client,
+          dispose: () => {
+            disposed.push(n);
+          },
+          // The FIRST dial is born dead and says so SYNCHRONOUSLY, the harshest
+          // shape the contract allows. Later dials are healthy.
+          onClose: (cb: () => void) => {
+            if (n === 1) cb();
+          },
+        };
+      },
+    });
+
+    const result = await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(result.isError).toBeFalsy(); // the request was NOT spent on the corpse
+    expect(dials).toBe(2); // dial #1 was born dead, so it was re-dialed
+    expect(disposed).toEqual([1]); // and the corpse was disposed, not leaked
+  });
+
+  it("a transport that is born dead every time fails loudly instead of spinning", async () => {
+    // The bound on the loop above. A daemon that cannot hold a connection at
+    // all must SAY so — never spin re-dialing, and never collapse to a quiet
+    // empty answer.
+    const over = concurrencySurface();
+    let dials = 0;
+    const { mcp } = await connectConcurrency(over, {
+      client: () => {
+        dials += 1;
+        return {
+          client: over.client,
+          dispose: () => {},
+          onClose: (cb: () => void) => cb(),
+        };
+      },
+    });
+
+    const result = (await mcp.callTool({
+      name: "ok_ping",
+      arguments: {},
+    })) as { isError?: boolean; content?: { text: string }[] };
+    expect(result.isError).toBe(true);
+    const text = result.content?.[0]?.text;
+    expect(text).toContain("not staying up long enough to carry a request");
+    // The link-failure policy applies HERE too, not only to a call that died
+    // mid-flight: an agent reading this on its own stdio channel must be told
+    // this server survives, or it draws #2082's exact inference.
+    expect(text).toContain("This MCP server is still running");
+    expect(text).toContain("retry once the served daemon is holding");
+    // …and the adapter names itself exactly ONCE. The message used to be
+    // prefixed at the throw and again at the tools/call edge.
+    expect(text).toContain("surface-mcp: ");
+    expect(text).not.toContain("surface-mcp: surface-mcp:");
+    expect(dials).toBe(3);
+  });
+
+  it("a request after close() opens no socket at all", async () => {
+    // The terminal state gates the dial's ENTRY, not just its middle. It used
+    // to be a boolean read only AFTER `opts.client()` had run, so a request
+    // landing after teardown really opened a unix socket / spawned an ssh child
+    // and disposed it on the next line.
+    const over = concurrencySurface();
+    let dials = 0;
+    const { mcp, server } = await connectConcurrency(over, {
+      client: () => {
+        dials += 1;
+        return { client: over.client, dispose: () => {} };
+      },
+    });
+
+    await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(dials).toBe(1);
+
+    // The adapter's own teardown hook — what the SDK runs when the MCP host
+    // closes the pipe. Driving it directly latches the terminal state while
+    // leaving the pipe open, so a request can still reach the handler and hit
+    // the gate (calling `close()` would take the transport down with it).
+    server.onclose?.();
+    const after = (await mcp.callTool({ name: "ok_ping", arguments: {} })) as {
+      isError?: boolean;
+      content?: { text: string }[];
+    };
+    expect(after.isError).toBe(true);
+    expect(after.content?.[0]?.text).toContain("the server is closed");
+    expect(dials).toBe(1); // no socket was opened just to be disposed
+  });
+
+  it("a late close announcement cannot dispose the successor connection (#2082)", async () => {
+    // The identity guard, now reachable from a second direction. `onClose` fires
+    // on the OLD connection's schedule, so it can land after something else has
+    // already re-dialed — and disposing the live successor there would break the
+    // very calls the eager drop exists to protect.
+    const over = concurrencySurface();
+    let dials = 0;
+    const disposed: number[] = [];
+    const closers: Array<() => void> = [];
+    const { mcp } = await connectConcurrency(over, {
+      client: () => {
+        const n = (dials += 1);
+        return {
+          client: over.client,
+          dispose: () => {
+            disposed.push(n);
+          },
+          onClose: (cb: () => void) => closers.push(cb),
+        };
+      },
+    });
+
+    await mcp.callTool({ name: "ok_ping", arguments: {} }); // conn #1
+    // #1 announces its death and is dropped EAGERLY — asserted before the next
+    // request, because a successor only exists to be protected if the
+    // predecessor really went away on the announcement rather than on a failure.
+    closers[0]?.();
+    expect(disposed).toEqual([1]);
+    await mcp.callTool({ name: "ok_ping", arguments: {} }); // conn #2 is now live
+    expect(dials).toBe(2);
+
+    // THE CLAIM: #1's announcement arriving AGAIN (a duplicate, or one delivered
+    // late on the dead transport's own schedule) must be inert — #2 is neither
+    // disposed…
+    closers[0]?.();
+    expect(disposed).toEqual([1]);
+    // …nor unslotted: the next request rides #2 rather than re-dialing, which is
+    // what proves the guard dropped the announcement instead of the connection.
+    const after = await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(after.isError).toBeFalsy();
+    expect(dials).toBe(2);
+
+    // And the successor is still ANNOUNCE-able in its own right: #2's close
+    // drops #2, so the guard rejected a stale identity rather than latching the
+    // slot shut after the first drop.
+    closers[1]?.();
+    expect(disposed).toEqual([1, 2]);
   });
 
   it("concurrent first calls share ONE dial (no double-dial leak)", async () => {
     const over = concurrencySurface();
     let dials = 0;
     let disposes = 0;
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveSurfaceAsMcp({
-      surface: over.surface,
+    const { mcp } = await connectConcurrency(over, {
       client: async () => {
         dials += 1;
         // A dial that takes a tick — both concurrent callers await it before
@@ -862,16 +1156,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
           },
         };
       },
-      expose: { "ok.ping": { tool: { mutates: false } } },
-      serverInfo: { name: "t", version: "0" },
-      transport: serverTransport,
     });
-    const mcp = new Client({ name: "c", version: "0" });
-    await mcp.connect(clientTransport);
-    cleanup.push(
-      () => mcp.close(),
-      () => close(),
-    );
 
     await Promise.all([
       mcp.callTool({ name: "ok_ping", arguments: {} }),
@@ -891,10 +1176,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     const dialGate = new Promise<void>((r) => {
       releaseDial = r;
     });
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveSurfaceAsMcp({
-      surface: over.surface,
+    const { mcp, close } = await connectConcurrency(over, {
       client: async () => {
         await dialGate; // hold the dial open until we release it
         return {
@@ -904,12 +1186,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
           },
         };
       },
-      expose: { "ok.ping": { tool: { mutates: false } } },
-      serverInfo: { name: "t", version: "0" },
-      transport: serverTransport,
     });
-    const mcp = new Client({ name: "c", version: "0" });
-    await mcp.connect(clientTransport);
 
     // Start a call so getConn's dial is in flight, then close before it lands.
     const inflight = mcp
@@ -922,7 +1199,404 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     await new Promise((r) => setTimeout(r, 5));
 
     // The late-landing connection was disposed exactly once — not orphaned.
+    // (The shared `cleanup` closes both ends; `close()` above is this test's
+    // ACTION, and re-running it there is inert.)
     expect(disposes).toBe(1);
-    await mcp.close();
+  });
+});
+
+/**
+ * The structured arm — MCP's `structuredContent`, on both the answer and the
+ * refusal, plus the two server-level fields a host reads before it calls
+ * anything (`instructions`, a tool's `title`).
+ *
+ * The contract these pin: an agent reads `structuredContent` and never has to
+ * parse the prose — INCLUDING when the answer is "no". That is the half MCP's
+ * spec has had since 2025-06-18 and this adapter used to drop on the floor,
+ * stringifying an object it already held.
+ */
+describe("serveSurfaceAsMcp — the structured arm", () => {
+  it("a successful object answer travels as data as well as prose", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({
+      name: "greet",
+      arguments: { name: "ada" },
+    });
+
+    expect(res.structuredContent).toEqual({ hello: "ada" });
+    // The SAME value twice — the text arm is not a different answer.
+    const text = (res.content as { text: string }[])[0]?.text ?? "null";
+    expect(JSON.parse(text)).toEqual(res.structuredContent);
+  });
+
+  it("a non-object answer rides under `value` — the wrapping the INPUT side already uses", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // A bespoke scalar, and a procedure whose output schema is a bare number:
+    // both are non-objects, and MCP types `structuredContent` as an object, so
+    // both wrap. An agent that learned `{ value: … }` for a scalar ARGUMENT
+    // meets the identical shape coming back.
+    const scalar = await mcp.callTool({ name: "scalarResult", arguments: {} });
+    expect(scalar.structuredContent).toEqual({ value: 42 });
+
+    const bumped = await mcp.callTool({ name: "counter_bump", arguments: {} });
+    expect(bumped.structuredContent).toEqual({ value: 1 });
+  });
+
+  it("an answer that is an object in memory and a string on the wire still travels", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // Regression pin. `typeof` describes the value in MEMORY; `toJSON` decides
+    // the one on the WIRE, and for a Date they disagree. Deciding the structured
+    // arm from the live value published a `structuredContent` that serializes as
+    // a string, which the SDK client rejects as a PROTOCOL error (-32602) —
+    // `mcp.callTool` THREW instead of returning, on the success path, where no
+    // `isError` framing can catch it. Both arms now read one serialization.
+    const res = await mcp.callTool({ name: "dateResult", arguments: {} });
+
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent).toEqual({
+      value: "2026-08-11T00:00:00.000Z",
+    });
+    const text = (res.content as { text: string }[])[0]?.text ?? "null";
+    expect(JSON.parse(text)).toBe("2026-08-11T00:00:00.000Z");
+  });
+
+  it("a ToolFailure refusal is isError AND carries its detail", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({ name: "refuse", arguments: {} });
+
+    // A refusal is an ANSWER: an `isError` tool result, never a protocol error
+    // (the SDK client would throw), and its reason arrives as data.
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({ kind: "validation", rows: [3, 7] });
+    // The prose still reads as prose, and still carries this adapter's brand.
+    expect((res.content as { text: string }[])[0]?.text).toBe(
+      "surface-mcp: `refuse` was refused (validation): 2 bad rows",
+    );
+  });
+
+  it("an ordinary Error stays message-only — structure is opt-in, never guessed", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({ name: "explode", arguments: {} });
+
+    expect(res.isError).toBe(true);
+    // Structuring whatever an error happens to hold would publish a stack trace
+    // into the agent's data channel and dress an incidental TypeError up as a
+    // contract. Absent, not empty: a host can tell "no detail" from "{}".
+    expect(res.structuredContent).toBeUndefined();
+    expect((res.content as { text: string }[])[0]?.text).toContain(
+      "boom: the handler rejected",
+    );
+  });
+
+  it("a tagged, message-less failure reaches the agent as its tag, not as a bare brand", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({ name: "tagged", arguments: {} });
+
+    // Regression pin: `e instanceof Error ? e.message : String(e)` rendered
+    // every `Data.TaggedError` — an Error whose identity is `_tag` and whose
+    // message is "" — as the brand and nothing else: `surface-mcp: `.
+    expect(res.isError).toBe(true);
+    expect((res.content as { text: string }[])[0]?.text).toBe(
+      "surface-mcp: OutlineBroken",
+    );
+  });
+
+  it("resources/read derives its sentence the SAME way — its own comment calls it the mirror of failFrom", async () => {
+    // The `tagged` case above, on the OTHER request edge. `@kolu/surface`'s
+    // whole declared-error vocabulary is `Schema.TaggedError`s, so a read that
+    // hits one is the everyday case here, not an exotic one — and while that
+    // edge spelled `e instanceof Error ? e.message : String(e)` inline it
+    // delivered the bare brand, `surface-mcp: `, to the agent.
+    const surface = defineSurface({
+      cells: { count: { schema: Schema.Finite, default: 0 } },
+    });
+    const brokenRead = {
+      surface: {
+        count: {
+          get: () =>
+            Stream.fail(
+              Object.assign(new Error(""), { _tag: "OutlineBroken" as const }),
+            ),
+        },
+      },
+    };
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface,
+      client: () => brokenRead as unknown as SurfaceClientCallable,
+      expose: { count: "resource" },
+      serverInfo: { name: "read-tagged-test", version: "0.0.0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    await expect(mcp.readResource({ uri: cellUri("count") })).rejects.toThrow(
+      /surface-mcp: OutlineBroken/,
+    );
+  });
+
+  it("a non-Error failure value is described, not stringified to [object Object]", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({ name: "plainObject", arguments: {} });
+
+    expect(res.isError).toBe(true);
+    const text = (res.content as { text: string }[])[0]?.text ?? "";
+    expect(text).not.toContain("[object Object]");
+    expect(text).toContain('"why":"not an Error at all"');
+    // Still message-only: a plain object is a failure whose author did not say
+    // it was machine-readable, and this adapter does not decide that for them.
+    expect(res.structuredContent).toBeUndefined();
+  });
+
+  it("a failure JSON cannot render keeps BOTH its shape and the reason it could not be rendered", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({ name: "unstringifiable", arguments: {} });
+
+    expect(res.isError).toBe(true);
+    const text = (res.content as { text: string }[])[0]?.text ?? "";
+    // The shape survives — the host still learns WHAT failed.
+    expect(text).toContain("stage, detail");
+    // And so does the real reason. Discarding it would swallow the most
+    // specific thing known about the failure inside the one function whose
+    // whole job is to find it — and a throwing getter, unlike a cycle, carries
+    // a cause that has nothing to do with serialization.
+    expect(text).toContain("network timeout while computing detail");
+    expect(text).not.toContain("[object Object]");
+  });
+
+  it("serves the host its `instructions` at initialize", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // `initialize` is answered inside the SDK's own `Protocol`, so a consumer
+    // cannot re-register it — the option is the only route to this field.
+    expect(mcp.getInstructions()).toBe(
+      "Everything here is about the counter, not about files. Bump it, don't nuke it.",
+    );
+  });
+
+  it("a bespoke tool's `title` reaches tools/list, and an untitled one has none", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const { tools } = await mcp.listTools();
+    const byName = new Map(tools.map((t) => [t.name, t]));
+
+    expect(byName.get("greet")?.title).toBe("Greet somebody");
+    // Absent when undeclared — a host then renders `name`, which is honest.
+    expect(byName.get("explode")?.title).toBeUndefined();
+    // A procedure-derived tool has no second string to draw a title from.
+    expect(byName.get("counter_bump")?.title).toBeUndefined();
+  });
+
+  it("a REFUSAL's detail is normalized exactly like a success — one wire form, both arms", async () => {
+    // Measured before the fix, over this same in-memory client:
+    //   - a detail whose JSON form is NOT an object reached the wire as
+    //     `"structuredContent": 42` — MCP types that field as an object, and
+    //     the success arm's `wrapValue` had guarded it for years;
+    //   - a detail JSON cannot render at all (a cycle) threw inside the
+    //     TRANSPORT's serializer, past every catch, so the request was never
+    //     answered at all.
+    // Both arms now read `wireForm` + `wrapValue`, so a refusal cannot publish a
+    // shape the success arm would have refused.
+    const surface = defineSurface({
+      cells: { count: { schema: Schema.Finite, default: 0 } },
+    });
+    const cyclicDetail: Record<string, unknown> = { kind: "cyclic" };
+    cyclicDetail.self = cyclicDetail;
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface,
+      client: () => ({ surface: {} }) as SurfaceClientCallable,
+      expose: {},
+      tools: {
+        dateDetail: {
+          handler: () =>
+            Effect.fail(
+              new ToolFailure("refused, with a Date in the detail", {
+                at: new Date("2026-08-11T00:00:00.000Z"),
+              }),
+            ),
+        },
+        scalarDetail: {
+          handler: () =>
+            Effect.fail(
+              new ToolFailure("refused, with a detail JSON turns into 42", {
+                toJSON: () => 42,
+              } as unknown as Record<string, unknown>),
+            ),
+        },
+        cyclicDetail: {
+          handler: () =>
+            Effect.fail(new ToolFailure("refused, with a cycle", cyclicDetail)),
+        },
+      },
+      serverInfo: { name: "refusal-shape-test", version: "0.0.0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // A live Date in a detail is an object in memory and a string on the wire —
+    // the same disagreement the success arm was fixed for.
+    const dated = await mcp.callTool({ name: "dateDetail", arguments: {} });
+    expect(dated.isError).toBe(true);
+    expect(dated.structuredContent).toEqual({
+      at: "2026-08-11T00:00:00.000Z",
+    });
+
+    // A detail JSON renders as a non-object rides under `value`, like any other
+    // non-object structured answer.
+    const scalar = await mcp.callTool({ name: "scalarDetail", arguments: {} });
+    expect(scalar.isError).toBe(true);
+    expect(scalar.structuredContent).toEqual({ value: 42 });
+
+    // A detail JSON cannot render is a LOUD failure of the call, not a silently
+    // unanswered request: the throw now happens in front of the SDK's
+    // request-handler boundary, which answers it.
+    await expect(
+      mcp.callTool({ name: "cyclicDetail", arguments: {} }),
+    ).rejects.toThrow(/[Cc]ircular/);
+  });
+
+  it("the two edges wrap by DIFFERENT predicates, and a union input shows it", async () => {
+    // The rule is one KEY, not one predicate, and the difference is observable —
+    // pinned so the next reader meets it as a decision rather than a surprise.
+    // The INPUT side decides from the declared schema: a union has no top-level
+    // `type`, so it is advertised WRAPPED. The RESULT side decides from the
+    // value on the wire, and there is no `outputSchema` to read a bit off — so
+    // the same value answers BARE.
+    const surface = defineSurface({
+      cells: { count: { schema: Schema.Finite, default: 0 } },
+    });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface,
+      client: () => ({ surface: {} }) as SurfaceClientCallable,
+      expose: {},
+      tools: {
+        echoUnion: {
+          input: Schema.Union([
+            Schema.Struct({ a: Schema.Finite }),
+            Schema.String,
+          ]),
+          handler: (args) => Effect.succeed(args),
+        },
+      },
+      serverInfo: { name: "union-wrap-test", version: "0.0.0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const { tools } = await mcp.listTools();
+    const echo = tools.find((t) => t.name === "echoUnion");
+    // Advertised wrapped — the host must send `{ value: … }`.
+    expect(Object.keys(echo?.inputSchema.properties ?? {})).toEqual(["value"]);
+
+    // …and the identical object answers BARE.
+    const res = await mcp.callTool({
+      name: "echoUnion",
+      arguments: { value: { a: 1 } },
+    });
+    expect(res.structuredContent).toEqual({ a: 1 });
+
+    // They agree for every scalar, array and null — only the object-valued
+    // union diverges.
+    const scalar = await mcp.callTool({
+      name: "echoUnion",
+      arguments: { value: "hi" },
+    });
+    expect(scalar.structuredContent).toEqual({ value: "hi" });
+  });
+
+  it("no tool advertises an outputSchema — the invariant the refusal arm depends on", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // The SDK's client validates `structuredContent` against a declared
+    // `outputSchema` whenever the field is present — INCLUDING on an isError
+    // result. A refusal's detail is a different shape from the success it
+    // refused, so declaring a success schema would make every structured
+    // refusal throw inside the client instead of reaching the agent. If this
+    // ever fails, `ToolFailure`'s detail needs a home in that schema FIRST.
+    const { tools } = await mcp.listTools();
+    expect(tools.filter((t) => t.outputSchema !== undefined)).toEqual([]);
   });
 });

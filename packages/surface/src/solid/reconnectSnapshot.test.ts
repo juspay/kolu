@@ -60,7 +60,7 @@ class FakeTransportDrop extends Error {
 }
 
 /** An app-DECLARED failure the fence must never retry. */
-class Denied extends Schema.TaggedErrorClass<Denied>("test/Denied")("Denied", {
+class Denied extends Schema.TaggedError<Denied>("test/Denied")("Denied", {
   why: Schema.String,
 }) {}
 

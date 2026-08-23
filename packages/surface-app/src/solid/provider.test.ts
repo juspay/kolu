@@ -18,6 +18,8 @@ import {
 } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import { fakeWire } from "../fakeSocket.testlib";
+import { thrownText } from "../index";
+import { resolveTree } from "./resolveTree.testlib";
 import {
   type ConnectionStatus,
   type ControlPlane,
@@ -51,6 +53,7 @@ function mountModel(opts: {
     controlPlane: fakeControlPlane(opts.serverCommit),
     clientCommit: opts.clientCommit,
     status: opts.status,
+    fault: () => null,
     get children() {
       captured = useSurfaceApp();
       return null;
@@ -96,6 +99,7 @@ describe("SurfaceAppProvider — updateReady", () => {
         clientCommit: "0784979",
         wire: w.wire,
         probe: () => Effect.succeed({ processId: "p1" }),
+        fault: () => null,
         get children() {
           captured = useSurfaceApp();
           return null;
@@ -118,29 +122,9 @@ describe("SurfaceAppProvider — updateReady", () => {
     });
   });
 
-  it("forwards `onProcessId` through the turnkey `{ wire, probe }` source", async () => {
-    const w = fakeWire();
-    const seen: string[] = [];
-    await createRoot(async (dispose) => {
-      createComponent(SurfaceAppProvider, {
-        controlPlane: fakeControlPlane("0784979"),
-        clientCommit: "0784979",
-        wire: w.wire,
-        probe: () => Effect.succeed({ processId: "p1" }),
-        onProcessId: (id: string) => seen.push(id),
-        get children() {
-          useSurfaceApp();
-          return null;
-        },
-      });
-      w.set("open");
-      await flushProbe();
-      // The provider derives the lifecycle internally, but still publishes the
-      // observed id outward so the turnkey caller can echo the `pid` param.
-      expect(seen).toEqual(["p1"]);
-      dispose();
-    });
-  });
+  // The `onProcessId` forward is GONE with the option: nothing outside
+  // `createSurfaceSocket` feeds the `pid` echo any more, so the provider has no
+  // observation to publish and a turnkey caller has nothing to wire.
 
   it("starts a heartbeat in the turnkey source — a half-open wire forces a reconnect", async () => {
     vi.useFakeTimers();
@@ -161,6 +145,7 @@ describe("SurfaceAppProvider — updateReady", () => {
           clientCommit: "0784979",
           wire: w.wire,
           probe,
+          fault: () => null,
           get children() {
             useSurfaceApp();
             return null;
@@ -254,5 +239,64 @@ describe("SurfaceAppProvider — presentingDown (the #1598 disconnect-overlay gr
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("SurfaceAppProvider — the required `fault` LOOK is WIRED", () => {
+  it("draws a throwing shell with the app's LOOK, handed the printed fault", () => {
+    // The prop being required is the type-level half; this is the runtime half:
+    // the provider must actually compose `SurfaceFaultBoundary` over its
+    // children, or the required LOOK is a prop that routes nowhere and a shell
+    // throw is still a white tab. (The boundary's error signal is written in
+    // the root's own batch, so the LOOK renders when it flushes — assert after
+    // `createRoot` returns; see `fault.test.ts`.)
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let seen: string | undefined;
+    const err = new Error("undefined is not an object");
+    err.stack = "renderShell@app.js:8:2";
+    const dispose = createRoot((d) => {
+      const el = createComponent(SurfaceAppProvider, {
+        controlPlane: fakeControlPlane("0784979"),
+        clientCommit: "0784979",
+        status: () => "live" as const,
+        fault: (text: string) => {
+          seen = text;
+          return null;
+        },
+        get children() {
+          throw err;
+          // biome-ignore lint/correctness/noUnreachable: the getter's type still wants a value
+          return null;
+        },
+      });
+      resolveTree(el);
+      return d;
+    });
+    // The PRINTED text — proving the boundary between provider and children is
+    // the real one, printer included. Asserted THROUGH `thrownText` (whose own
+    // litany is pinned in `index.test.ts`) rather than as a third literal; the
+    // Safari-shaped stack keeps printed ≠ `String(err)`, so a boundary that
+    // skipped the printer still fails here.
+    expect(seen).toBe(thrownText(err));
+    expect(seen).not.toBe(String(err));
+    dispose();
+    vi.restoreAllMocks();
+  });
+
+  it("omitting `fault` is unspellable — the TYPE requires it, like `retired`", () => {
+    // The type-level half of "required": this pin fails the TYPECHECK (not the
+    // run) if `fault` ever grows a `?` or a default. The thunk is never
+    // invoked — nothing here mounts a provider.
+    const spellWithoutFault = () =>
+      // @ts-expect-error — `fault` is required on SurfaceAppProviderProps
+      createComponent(SurfaceAppProvider, {
+        controlPlane: fakeControlPlane("0784979"),
+        clientCommit: "0784979",
+        status: () => "live" as const,
+        get children() {
+          return null;
+        },
+      });
+    expect(typeof spellWithoutFault).toBe("function");
   });
 });

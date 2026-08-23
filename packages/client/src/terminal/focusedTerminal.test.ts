@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   activeTileOf,
   type TerminalFocus,
-  type TerminalPlacement,
+  type LivePlacement,
 } from "./focusedTerminal";
 
 const TILE_A = "tile-a" as TerminalId;
@@ -25,7 +25,7 @@ describe("activeTileOf", () => {
   });
 
   it("uses the live parent for a one-hop split", () => {
-    const placementOf = (id: TerminalId): TerminalPlacement => {
+    const placementOf = (id: TerminalId): LivePlacement => {
       if (id === SUB) return { kind: "split", parentId: TILE_A };
       if (id === TILE_A) return { kind: "top-level" };
       return { kind: "missing" };
@@ -37,7 +37,7 @@ describe("activeTileOf", () => {
     const MID = "mid" as TerminalId;
     const GRAND = "grand" as TerminalId;
     const nestedFocus: TerminalFocus = { id: GRAND, tileHint: TILE_A };
-    const placementOf = (id: TerminalId): TerminalPlacement => {
+    const placementOf = (id: TerminalId): LivePlacement => {
       if (id === GRAND) return { kind: "split", parentId: MID };
       if (id === MID) return { kind: "split", parentId: TILE_A };
       if (id === TILE_A) return { kind: "top-level" };
@@ -47,8 +47,8 @@ describe("activeTileOf", () => {
   });
 
   it("lets streamed re-parenting override the write-time hint", () => {
-    let placement: TerminalPlacement = { kind: "missing" };
-    const placementOf = (id: TerminalId): TerminalPlacement => {
+    let placement: LivePlacement = { kind: "missing" };
+    const placementOf = (id: TerminalId): LivePlacement => {
       if (id === SUB) return placement;
       if (id === TILE_A || id === TILE_B) return { kind: "top-level" };
       return { kind: "missing" };

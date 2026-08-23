@@ -1,11 +1,11 @@
 ---
-title: Remote Access
+title: From another device
 description: "Reach kolu from another device with Tailscale Serve, and choose the right tunnel for the job."
 order: 50
 section: Use Kolu
 koluHero:
-  eyebrow: remote
-  headline: Reach {kolu} anywhere.
+  eyebrow: the window, elsewhere
+  headline: Reach {kolu} from another device.
 ---
 
 import Aside from "../../components/docs/Aside.astro";
@@ -13,6 +13,11 @@ import Card from "../../components/docs/Card.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
+
+This page is the HTTPS half of [From a Mac](/from-a-mac): reach the **running
+kolu app** from a phone or another laptop. It is not how you put a second
+machine's terminals on the canvas — that is [Add another
+machine](/remote-hosts).
 
 Tailscale Serve gives kolu a private HTTPS URL. That single move lets your phone
 or laptop reach the workspace and also unlocks the secure-context features used
@@ -42,7 +47,22 @@ workers.
    https://your-box.your-tailnet.ts.net/
    ```
 
-4. Open the printed URL on the other device and pin it there.
+4. Allow that origin on the kolu host.
+
+   Tailscale presents a browser origin kolu did not start with. Add the
+   **exact** URL (no trailing slash) to the service:
+
+   ```nix
+   services.kolu.allowedOrigins = [
+     "https://your-box.your-tailnet.ts.net"
+   ];
+   ```
+
+   Or, for a one-off `kolu web` / `nix run`, set `KOLU_ALLOWED_ORIGINS` to the
+   same origin. Without this, the page may load and then fail to talk to the
+   server. Details are on [Deployment](/deployment#allow-a-reverse-proxy-origin).
+
+5. Open the printed URL on the other device and pin it there.
 
    Use the full `https://<machine>.<tailnet>.ts.net` address.
 
@@ -82,8 +102,8 @@ secrets in machine names.
 </CardGrid>
 
 This page is about reaching the browser app. For shell-level remote terminals
-over ssh, use [`kaval-tui --host`](/kaval#reach-a-remote-kaval--over-ssh)
-instead. Once you reach kolu, [Remote Hosts](/remote-hosts) covers putting
+over ssh, use `kolu --host user@box` (`ls`, `create`, `send`, `snapshot`, …)
+instead. Once you reach kolu, [Add another machine](/remote-hosts) covers putting
 another machine's terminals on your canvas over ssh — how to add hosts, switch
 between them, and the ssh-session limitations (the macOS Keychain, `ssh-agent`,
 the clipboard).
@@ -99,8 +119,8 @@ tailscale serve off
 ## Related
 
 <CardGrid>
+  <LinkCard title="From a Mac" href="/from-a-mac" description="the usual setup: Linux box, Mac as the window" />
   <LinkCard title="Install as an App" href="/install-pwa" description="browser install paths, secure contexts, badges, and notifications" />
+  <LinkCard title="Add another machine" href="/remote-hosts" description="put a second machine's terminals on your canvas over ssh" />
   <LinkCard title="Troubleshooting" href="/troubleshooting" description="missing install buttons, notification permissions, and update checks" />
-  <LinkCard title="Kaval remote terminals" href="/kaval#reach-a-remote-kaval--over-ssh" description="drive a PTY daemon on another machine over ssh" />
-  <LinkCard title="Remote Hosts" href="/remote-hosts" description="put another machine's terminals on your canvas over ssh — enable, add hosts, switch, and the limitations" />
 </CardGrid>

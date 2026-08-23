@@ -22,24 +22,24 @@
  * Plus the RESTART legs (the "Across padi/kaval restarts" discipline):
  * kaval recycle (ids survive), padi restart mid-subscribe (the in-gap tool
  * call fails TYPED and queues nothing; the id survives the warm rebind; the
- * subscribed resource re-seeds with a fresh snapshot notification).
+ * subscribed resource re-seeds with a fresh snapshot notification) — and a
+ * restart across an IDLE gap, where the agent's FIRST request after the restart
+ * must simply work (juspay/kolu#2082: it used to be the one the adapter spent
+ * discovering the socket had died).
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { spawn } from "node:child_process";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { join } from "node:path";
+import { describeDaemon } from "@kolu/daemon-test-gate";
 import {
   assertPadiSurfaceCompatible,
-  connectPadi,
   padiClientOver,
   padiSocketPath,
   resolvePadiStateRoot,
   scopePadiSurface,
 } from "@kolu/padi/dial";
-import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
 import { padiDaemonGroup } from "@kolu/padi/surface";
 import { awaitStdioReadiness } from "@kolu/surface/links/readiness";
 import { stdioLink } from "@kolu/surface/links/stdio";
@@ -48,153 +48,43 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import { serveKoluMcp } from "kolu-mcp";
-import {
-  assertDaemonSpawnAllowed,
-  describeDaemon,
-} from "@kolu/daemon-test-gate";
 import { Effect } from "effect";
+import { serveKoluMcp } from "kolu-mcp";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
-import { classifyDialFailure } from "./connect.ts";
-import { guardedMcpDial } from "./mcp.ts";
+import { connectKoluCliLocal } from "./connect.ts";
+import {
+  daemonEnv as daemonEnvIn,
+  e2eRuntimeRoot,
+  KOLU_MAIN,
+  PADI_BIN,
+  type Padi,
+  reapPadi,
+  sleep,
+  spawnPadi,
+  TSX_LOADER,
+  waitForPadi,
+} from "./e2eDaemon.testlib.ts";
+import { guardedMcpDial, requireReachablePadi } from "./mcp.ts";
 
-const SRC = dirname(fileURLToPath(import.meta.url));
-const PADI_BIN = resolve(SRC, "../../padi/src/daemonBoot/bin.ts");
-const KOLU_MAIN = resolve(SRC, "main.ts");
-const TSX_LOADER = pathToFileURL(
-  createRequire(import.meta.url).resolve("tsx"),
-).href;
+// One temp runtime root for every padi in this file — the state-root digest is
+// what separates daemons. The spawn/dial/REAP discipline itself is
+// `./e2eDaemon.testlib.ts`'s: kill by exact pid, never inherit the production
+// `$PADI_SOCKET`, bind the daemons to this process. One copy, because a second
+// one drifts and the drift leaks either the user's daemon or a kaval per run.
+const RUNTIME = e2eRuntimeRoot("mcp-e2e");
+beforeAll(() => RUNTIME.enter());
+afterAll(() => RUNTIME.leave());
 
-// Isolate every padi in this file under ONE temp runtime root (the dial.test
-// precedent) — the state-root digest is what separates daemons.
-const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), "kolu-mcp-e2e-rt-"));
-const priorXdg = process.env.XDG_RUNTIME_DIR;
-beforeAll(() => {
-  process.env.XDG_RUNTIME_DIR = RUNTIME_ROOT;
-});
-afterAll(() => {
-  process.env.XDG_RUNTIME_DIR = priorXdg;
-});
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((r) => setTimeout(r, ms));
-
-interface Padi {
-  child: ChildProcess;
-  exited: Promise<number | null>;
-  stateRoot: string;
-  socketPath: string;
-}
+const daemonEnv = (extra: Record<string, string> = {}): NodeJS.ProcessEnv =>
+  daemonEnvIn(RUNTIME.root, extra);
 
 const spawned: Padi[] = [];
 
-/** The env a spawned daemon/face gets: EXPLICIT, never `...process.env` for
- *  the padi-selecting vars — this test process runs inside a kolu terminal
- *  whose `$PADI_SOCKET` names the PRODUCTION padi, and an inherited value
- *  would point a leg at the user's real daemon. */
-function daemonEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    XDG_RUNTIME_DIR: RUNTIME_ROOT,
-    KOLU_KAVAL_SPAWN: "detached",
-    // Bind the spawned daemons to THIS test process so a signal-killed run
-    // can't leak them (they poll the pid and die when it is gone).
-    KOLU_DAEMON_BIND_PID: String(process.pid),
-    ...extra,
-  };
-  delete env.INVOCATION_ID;
-  delete env.KOLU_KAVAL_BIN;
-  delete env.KOLU_KAVAL_SOCKET;
-  delete env.KOLU_STATE_DIR;
-  // NEVER inherit the production padi's socket into a leg.
-  if (extra.PADI_SOCKET === undefined) delete env.PADI_SOCKET;
-  return env;
-}
-
-function spawnPadi(stateRoot: string): Padi {
-  assertDaemonSpawnAllowed("a real padi daemon (node --import loader bin.ts)");
-  const child = spawn(
-    process.execPath,
-    [
-      "--import",
-      TSX_LOADER,
-      PADI_BIN,
-      "--state-root",
-      stateRoot,
-      // Inside the nix devshell padi refuses to spawn PTYs without the
-      // whitelist (else the devshell env leaks into shells).
-      "--allow-nix-shell-with-env-whitelist",
-      "default",
-    ],
-    { stdio: ["ignore", "ignore", "ignore"], env: daemonEnv() },
-  );
-  const exited = new Promise<number | null>((res) =>
-    child.on("exit", (code) => res(code)),
-  );
-  const padi: Padi = {
-    child,
-    exited,
-    stateRoot,
-    socketPath: padiSocketPath(resolvePadiStateRoot(stateRoot)),
-  };
-  spawned.push(padi);
-  return padi;
-}
-
-/** A dialed link over padi's WHOLE daemon group — one wire, both sibling faces
- *  built over its single tag-keyed dispatch by `padiClientOver`. */
-type PadiLink = Awaited<ReturnType<typeof unixSocketLink>>;
-
-/** Poll-connect until padi answers a control-core `hello`, or fail loudly. */
-async function waitForPadi(socketPath: string, ms = 20000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    let link: PadiLink | undefined;
-    try {
-      link = await unixSocketLink({ group: padiDaemonGroup, socketPath });
-      await Effect.runPromise(
-        padiClientOver(link.dispatch).control.surface.core.hello(),
-      );
-      return;
-    } catch {
-      await sleep(150);
-    } finally {
-      await link?.dispose();
-    }
-  }
-  throw new Error(`padi socket never came up: ${socketPath}`);
-}
-
 async function startPadi(stateRoot: string): Promise<Padi> {
-  const p = spawnPadi(stateRoot);
+  const p = spawnPadi({ runtimeRoot: RUNTIME.root, stateRoot });
+  spawned.push(p);
   await waitForPadi(p.socketPath);
   return p;
-}
-
-/** The pid a gate file records, or undefined. */
-function gatePid(gatePath: string): number | undefined {
-  try {
-    const pid = Number.parseInt(readFileSync(gatePath, "utf8").trim(), 10);
-    return Number.isFinite(pid) ? pid : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Reap a padi AND the detached kaval it spawned — EXACT pids only (the padi
- *  child handle; the pid kaval's own gate file records), never a pattern. */
-async function reap(p: Padi): Promise<void> {
-  p.child.kill("SIGTERM");
-  await p.exited;
-  const kavalSocket = padiKavalSocketPath(resolvePadiStateRoot(p.stateRoot));
-  const kavalPid = gatePid(join(dirname(kavalSocket), "kaval.pid"));
-  if (kavalPid !== undefined) {
-    try {
-      process.kill(kavalPid, "SIGKILL");
-    } catch {
-      // Already gone — nothing to reap.
-    }
-  }
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -207,7 +97,7 @@ afterEach(async () => {
     }
   }
   for (const p of spawned.splice(0)) {
-    if (p.child.exitCode === null) await reap(p);
+    if (p.child.exitCode === null) await reapPadi(p);
   }
 }, 30000);
 
@@ -234,6 +124,42 @@ async function readJson(mcp: Client, uri: string): Promise<unknown> {
   return JSON.parse((contents[0] as { text: string }).text);
 }
 
+/** The REAL local composition behind a connected MCP client — the same open
+ *  gate + mid-session dial `runKoluMcp` wires:
+ *  `requireReachablePadi(rawDial)` → `guardedMcpDial(rawDial)` →
+ *  `serveKoluMcp`, re-dialing the SAME digest-keyed path on every adapter
+ *  redial, with the Promise crossing where `runKoluMcp` puts it.
+ *
+ *  It drives the product's OWN dial rather than a re-composition of its parts:
+ *  `connectKoluCliLocal` now takes the endpoint (`kolu mcp --socket <path>` is
+ *  spellable), so the leg that used to rebuild `connectPadi` +
+ *  `koluCliConnectionOf` by hand can simply BE the product path — including
+ *  that projection, whose forgetting-to-carry-`onClose` failure is precisely
+ *  juspay/kolu#2082. A look-alike could drift from the product; this cannot. */
+async function serveMcpOverPadi(
+  socketPath: string,
+  clientName: string,
+): Promise<Client> {
+  const rawDial = connectKoluCliLocal({ kind: "socket", path: socketPath });
+  // #2148 open gate — same arm as runKoluMcp; a missing padi never reaches serve.
+  await Effect.runPromise(requireReachablePadi(rawDial));
+  const dial = guardedMcpDial(rawDial);
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  const { close } = await serveKoluMcp({
+    connect: () => Effect.runPromise(dial),
+    serverInfo: { name: "kolu-mcp", version: "0.0.0-e2e" },
+    transport: serverTransport,
+  });
+  const mcp = new Client({ name: clientName, version: "0.0.0" });
+  await mcp.connect(clientTransport);
+  cleanups.push(async () => {
+    await mcp.close();
+    await close();
+  });
+  return mcp;
+}
+
 // ── The round-trip each transport leg must prove ──────────────────────────
 
 const SENTINEL = "MCP2-PIN-OK";
@@ -241,7 +167,12 @@ const SENTINEL = "MCP2-PIN-OK";
 async function driveTerminalRoundTrip(mcp: Client): Promise<void> {
   // create — the returned TerminalInfo carries the id the driver captures.
   const created = toolJson(
-    await mcp.callTool({ name: "lifecycle_create", arguments: {} }),
+    await mcp.callTool({
+      name: "lifecycle_create",
+      // `placement` is REQUIRED on the wire and has no default — this pin wants
+      // one terminal of its own, and says so.
+      arguments: { placement: { kind: "toplevel" } },
+    }),
   ) as { id: string; pid: number };
   expect(created.id).toBeTruthy();
   const id = created.id;
@@ -420,37 +351,16 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
     const p = await startPadi(stateRoot);
     const socketPath = p.socketPath;
 
-    // The REAL local connect composition (guarded): re-dials the SAME
-    // digest-keyed path each invocation — the adapter's redial hook.
-    const dial = guardedMcpDial(
-      Effect.map(
-        Effect.mapError(connectPadi(socketPath), classifyDialFailure),
-        (conn) => ({
-          client: scopePadiSurface(conn.client),
-          dispose: conn.dispose,
-        }),
-      ),
-    );
-    // The adapter's face is a Promise thunk it owns the lifetime behind, so
-    // the crossing happens here exactly as it does in `runKoluMcp`.
-    const connect = () => Effect.runPromise(dial);
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveKoluMcp({
-      connect,
-      serverInfo: { name: "kolu-mcp", version: "0.0.0-e2e" },
-      transport: serverTransport,
-    });
-    const mcp = new Client({ name: "pin-client-restart", version: "0.0.0" });
-    await mcp.connect(clientTransport);
-    cleanups.push(async () => {
-      await mcp.close();
-      await close();
-    });
+    const mcp = await serveMcpOverPadi(socketPath, "pin-client-restart");
 
     // A terminal to survive the restarts.
     const created = toolJson(
-      await mcp.callTool({ name: "lifecycle_create", arguments: {} }),
+      await mcp.callTool({
+        name: "lifecycle_create",
+        // `placement` is REQUIRED on the wire and has no default — this pin wants
+        // one terminal of its own, and says so.
+        arguments: { placement: { kind: "toplevel" } },
+      }),
     ) as { id: string };
     const id = created.id;
 
@@ -523,7 +433,8 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
 
     // Respawn the SAME state-root: the warm path — kaval kept the PTYs, the
     // restarted padi re-binds them, the id stays valid.
-    const p2 = spawnPadi(stateRoot);
+    const p2 = spawnPadi({ runtimeRoot: RUNTIME.root, stateRoot });
+    spawned.push(p2);
     await waitForPadi(p2.socketPath);
 
     // The id survives the warm rebind, reachable through the SAME MCP face.
@@ -576,5 +487,58 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
       startedAt: number;
     };
     expect(identityAfter.startedAt).toBeGreaterThan(identityBefore.startedAt);
+  });
+
+  // ── Leg 4: a restart across an IDLE gap costs no request (#2082) ─────────
+  //
+  // Leg 3 restarts padi and calls DURING the gap, so the dying socket is
+  // discovered by a call that was going to fail anyway (padi is down). This leg
+  // is the shape the field hit: padi restarts while the agent is idle, comes
+  // back, and the agent's next call is its FIRST since the restart. That call
+  // used to fail — the adapter had no way to learn the socket died except by
+  // spending a request on it — with a message naming the stdio transport, which
+  // the agent read as "the MCP server exited". It stopped using MCP for the rest
+  // of the session; a single retry would have worked.
+  it("restart across an IDLE gap: the FIRST padi-backed request after it succeeds (#2082)", {
+    timeout: 180000,
+  }, async () => {
+    const stateRoot = makeStateRoot();
+    const p = await startPadi(stateRoot);
+    const socketPath = p.socketPath;
+
+    const mcp = await serveMcpOverPadi(socketPath, "pin-client-idle-restart");
+
+    // Establish the shared connection the restart will kill.
+    const before = (await readJson(mcp, "surface://cells/identity")) as {
+      startedAt: number;
+    };
+    expect(before.startedAt).toBeGreaterThan(0);
+
+    // Restart padi with NO MCP traffic in the gap — the routine upgrade.
+    p.child.kill("SIGTERM");
+    await p.exited;
+    const p2 = spawnPadi({ runtimeRoot: RUNTIME.root, stateRoot });
+    spawned.push(p2);
+    await waitForPadi(p2.socketPath);
+
+    // THE ASSERTION. Not "eventually succeeds", not "succeeds on retry" — the
+    // FIRST request after the restart, with no retry and no warm-up, must land.
+    const after = (await readJson(mcp, "surface://cells/identity")) as {
+      startedAt: number;
+    };
+    expect(after.startedAt).toBeGreaterThan(before.startedAt);
+
+    // The other half of fact #3 in the issue: the failure was POSITIONAL, so
+    // whichever padi-backed request went first ate it. Prove the tool path is
+    // equally unharmed — this call reaches padi and comes back with padi's OWN
+    // application answer (no such terminal), never a transport complaint.
+    const bogus = (await mcp.callTool({
+      name: "screen_text",
+      arguments: { id: "00000000-0000-4000-8000-000000000000" },
+    })) as { content?: { text: string }[] };
+    const text = bogus.content?.[0]?.text ?? "";
+    expect(text).toContain("not found");
+    expect(text).not.toContain("dropped");
+    expect(text).not.toContain("transport");
   });
 });

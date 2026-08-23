@@ -7,6 +7,7 @@
 <li><strong><code>@kolu/surface-daemon</code></strong> / <strong><code>-supervisor</code></strong> — the daemon spine (socket lifecycle, contract handshake, identity) and the side that supervises daemons (convergence, drain/recycle).</li>
 <li><strong><code>@kolu/surface-app</code></strong> — the app shell for browser apps run against your own server (delivery, identity, connection lifecycle).</li>
 <li><strong><code>@kolu/surface-mcp</code></strong> — any surface re-exposed as an MCP server.</li>
+<li><strong><code>@kolu/surface-cli</code></strong> — any surface projected as command-line verbs (the argv sibling of the MCP adapter: one expose map, one verb table, one set of names).</li>
 </ul>
 <h2 id="how-the-runtime-is-shaped">How the runtime is shaped</h2>
 <ul>
@@ -26,6 +27,7 @@
 <li><a href="surface-daemon.html">surface-daemon</a> — one spine for kaval and <code>odu serve</code>.</li>
 <li><a href="surface-app.html">surface-app</a> — the app-shell electricity and its lifecycle (includes the connection plumbing that <a href="archived-notes.html">surface-connection</a> graduated).</li>
 <li><code>@kolu/surface-mcp</code> — the MCP adapter (<a href="archived-notes.html">archived plan</a>).</li>
+<li><code>@kolu/surface-cli</code> — the argv adapter (see <a href="https://kolu.dev/surface/ref-surface-cli">kolu.dev/surface/ref-surface-cli</a>).</li>
 <li><a href="remote-surfaces.html">remoteSurfaces</a> — the keyed map of re-served remote surfaces the host switch stands on.</li>
 </ul>
 <h2 id="the-design-records">The design records</h2>

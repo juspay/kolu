@@ -11,7 +11,11 @@
  */
 
 import { padiSurface } from "@kolu/padi/surface";
-import { resolveExpose, serveSurfaceAsMcp } from "@kolu/surface-mcp";
+import {
+  resolveExpose,
+  serveSurfaceAsMcp,
+  type SurfaceClientCallable,
+} from "@kolu/surface-mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
@@ -51,27 +55,42 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
       "fs_readFile",
       "git_getDiff",
       "git_getStatus",
-      "lifecycle_create",
       "lifecycle_kill",
       "screen_history",
+      "watch_close",
     ]);
-    // The read/write split is the authz bit the host renders — pin it.
+    // The read/write split is the authz bit the host renders — pin it. The two
+    // watch verbs MUTATE: they create and destroy daemon-side state that
+    // outlives the call, which is exactly what a standing subscription is.
     const mutating = resolved.tools.filter((t) => t.mutates).map((t) => t.name);
-    expect(mutating.sort()).toEqual(["lifecycle_create", "lifecycle_kill"]);
+    expect(mutating.sort()).toEqual(["lifecycle_kill", "watch_close"]);
   });
 
-  it("the bespoke registry carries the four face-local tools", () => {
+  it("the bespoke registry carries the eight face-local tools", () => {
     expect(Object.keys(KOLU_MCP_TOOLS).sort()).toEqual([
+      "lifecycle_create",
       "lifecycle_sendInput",
+      "screen_image",
       "screen_text",
       "wait_agentState",
       "wait_outputSettled",
+      "watch_next",
+      "watch_open",
     ]);
-    // The wait tools + snapshot read are read-only; the send mutates.
+    // The wait/watch reads + snapshot read are read-only; create and the send
+    // mutate.
+    // `watch_next` DRAINS a queue, which is a daemon-side write — but it is
+    // declared read-only deliberately: what it mutates is the caller's OWN
+    // cursor, and marking it mutating would put a confirmation prompt in front
+    // of the one call a supervisor makes in a loop.
+    expect(KOLU_MCP_TOOLS.lifecycle_create?.mutates).toBe(true);
     expect(KOLU_MCP_TOOLS.lifecycle_sendInput?.mutates).toBe(true);
     expect(KOLU_MCP_TOOLS.screen_text?.mutates).toBe(false);
+    expect(KOLU_MCP_TOOLS.screen_image?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.wait_outputSettled?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.wait_agentState?.mutates).toBe(false);
+    expect(KOLU_MCP_TOOLS.watch_next?.mutates).toBe(false);
+    expect(KOLU_MCP_TOOLS.watch_open?.mutates).toBe(true);
   });
 });
 
@@ -94,6 +113,43 @@ describe("KOLU_MCP_DENIED — every denial is real, absent, and unreachable", ()
       );
     }
   });
+
+  it("no denied member is served under its own wire name by a bespoke tool", () => {
+    // DENIED means UNREACHABLE, and the wire-level case below proves it by
+    // calling every denial. A bespoke tool named for a denied member would
+    // answer that call and quietly turn the refusal into a service — so the
+    // list keeps its meaning by asserting the absence here rather than by
+    // skipping such members downstream. A verb that SHOULD be served under its
+    // own name is a supersession, not a denial: it belongs out of this list and
+    // in the module doc beside `screen.text` (see the next case).
+    for (const { member } of KOLU_MCP_DENIED) {
+      const wireName = member.replace(".", "_");
+      expect(
+        wireName in KOLU_MCP_TOOLS,
+        `denied member "${member}" is served by bespoke tool "${wireName}"`,
+      ).toBe(false);
+    }
+  });
+
+  it("each SUPERSEDED procedure is absent from the map and served by its same-named bespoke tool", () => {
+    // The third category, which until now was recorded only in a comment: a
+    // procedure the face serves through a bespoke tool of the SAME wire name,
+    // because the raw verb is the lesser one. Both halves have to hold — absent
+    // from the map (or `@kolu/surface-mcp`'s boot-time collision gate throws)
+    // and present in the registry (or the verb silently vanishes from the face).
+    for (const member of [
+      "screen.text",
+      "lifecycle.sendInput",
+      "lifecycle.create",
+      "watch.open",
+    ]) {
+      expect(member in KOLU_MCP_EXPOSE, `${member} is exposed raw`).toBe(false);
+      expect(
+        member.replace(".", "_") in KOLU_MCP_TOOLS,
+        `${member} has no bespoke tool`,
+      ).toBe(true);
+    }
+  });
 });
 
 describe("the served face — default deny at the wire", () => {
@@ -104,16 +160,25 @@ describe("the served face — default deny at the wire", () => {
   });
 
   /** Serve the REAL map + tools over an in-memory pair. The client factory
-   *  REJECTS — none of the asserted surfaces (tools/list, resources/list, an
-   *  unknown-tool call, an unknown-resource subscribe) may ever dial padi. */
-  async function servedFace(): Promise<Client> {
+   *  REJECTS by default — none of the asserted surfaces (tools/list,
+   *  resources/list, an unknown-tool call, an unknown-resource subscribe) may
+   *  ever dial padi.
+   *
+   *  A caller passes its own factory only to reach a tool body that refuses
+   *  BEFORE it touches the client: dispatch dials first, so the default factory
+   *  would answer with a link failure instead of the refusal under test. */
+  async function servedFace(
+    client?: () => SurfaceClientCallable,
+  ): Promise<Client> {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const { close } = await serveSurfaceAsMcp({
       surface: padiSurface,
-      client: () => {
-        throw new Error("this assertion must not dial padi");
-      },
+      client:
+        client ??
+        (() => {
+          throw new Error("this assertion must not dial padi");
+        }),
       expose: KOLU_MCP_EXPOSE,
       tools: KOLU_MCP_TOOLS,
       transport: serverTransport,
@@ -139,9 +204,13 @@ describe("the served face — default deny at the wire", () => {
       "lifecycle_kill",
       "lifecycle_sendInput",
       "screen_history",
+      "screen_image",
       "screen_text",
       "wait_agentState",
       "wait_outputSettled",
+      "watch_close",
+      "watch_next",
+      "watch_open",
     ]);
   });
 
@@ -181,5 +250,36 @@ describe("the served face — default deny at the wire", () => {
         "unknown tool",
       );
     }
+  });
+
+  it("a sendInput refusal reaches the agent as DATA, across the package seam", async () => {
+    // The promise the README, the changelog and docs/mcp.mdx all make is about
+    // what comes back OVER THE WIRE — and the path that delivers it spans two
+    // packages: this face raises `ToolFailure`, `@kolu/surface-mcp`'s `failFrom`
+    // discriminates it by NOMINAL `instanceof` across that boundary, `fail`
+    // normalizes the detail, and the SDK serializes the result. Every hop but
+    // this assertion is covered by a unit test on one side or the other; the
+    // seam itself — the one place a nominal check can silently stop matching —
+    // was covered nowhere.
+    //
+    // The refusal is raised before the handler touches the client, so a stub
+    // that is never called is enough to get past dispatch's dial.
+    const mcp = await servedFace(() => ({ surface: {} }));
+
+    const res = await mcp.callTool({
+      name: "lifecycle_sendInput",
+      arguments: {
+        id: "00000000-0000-4000-8000-000000000000",
+        text: "hi",
+        key: "Enter",
+      },
+    });
+
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({ kind: "text-and-key" });
+    // The prose still reads as prose, and still carries the adapter's brand.
+    expect(String((res.content as { text: string }[])[0]?.text)).toContain(
+      "can't be combined",
+    );
   });
 });

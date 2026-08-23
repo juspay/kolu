@@ -376,39 +376,58 @@ export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$
  *  and emits a later signal (WAL write for codex, TUI OSC 2 title). */
 export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; printf '\\033]633;E;%s\\033\\\\' "$1"; }`;
 
-/** Bash-specific preexec dispatch — uses a ready flag armed at the end of
- *  PROMPT_COMMAND to ensure the title only fires for user-typed commands,
- *  not PROMPT_COMMAND hooks themselves.
+/** Bash-specific preexec emission — rides `PS0`, NOT the `DEBUG` trap (#2119).
  *
- *  Why: bash's DEBUG trap fires for EVERY command including those inside
- *  PROMPT_COMMAND. Without a guard, hooks like __zoxide_hook, _direnv_hook,
- *  __fzf_history__ leak into OSC 2 and clutter the terminal title.
+ *  `PS0` is expanded (and its expansion printed to the terminal) after readline
+ *  accepts an interactive command and before that command runs — exactly the
+ *  preexec moment — so a `$(__kolu_ps0)` inside it emits the OSC marks with no
+ *  trap involved. The command line comes from `builtin history 1`, which
+ *  readline has already appended by PS0 time.
  *
- *  How: `__kolu_preexec_arm` is appended as the LAST entry in PROMPT_COMMAND,
- *  so the flag goes "ready" only between the end of PROMPT_COMMAND and the
- *  next user command. DEBUG dispatch checks the flag, emits once per user
- *  command, and clears it (so subsequent pipeline commands don't re-emit).
+ *  Why not the DEBUG trap (the previous design): the trap is a single global
+ *  slot that popular dotfiles FIGHT OVER. bash-preexec (what atuin / ble.sh /
+ *  oh-my-bash install) defers its own install to the first prompt and takes the
+ *  trap there; it chains whatever trap it displaced, but its dispatch gate is
+ *  closed for the FIRST command of the session — and an agent launch is
+ *  typically the first command (kolu's restore resume-writes always are), so
+ *  those terminals silently never earned a resumable restore target. Nothing in
+ *  the ecosystem contends for `PS0`, so there is no fight to lose and no
+ *  first-command window. It also structurally cannot fire for PROMPT_COMMAND
+ *  hooks or readline widgets (`__fzf_history__` etc.) — the leaks the old
+ *  trap needed a ready-flag guard against — because bash only expands `PS0`
+ *  for a command readline actually accepted.
  *
- *  Readline widget guard: fzf's Ctrl+R / Ctrl+T bindings, bash-completion
- *  helpers, and zoxide's cd wrappers run via DEBUG trap with BASH_COMMAND
- *  set to a `__xxx` function name — they are NOT user-typed commands. If
- *  dispatch clears the ready flag for them, the user's next *real* command
- *  fires with flag="" and gets silently dropped. Skip anything starting
- *  with `__` without clearing the flag, so the next real command still
- *  dispatches. The `__` prefix is the strong bash convention for internal
- *  widgets; user commands virtually never use it.
+ *  An earlier note here warned that PS0's `$(...)` runs in a subshell. That
+ *  killed the old ARMING design (a flag write in the subshell never reaches
+ *  the parent), but emission needs no parent-side write: the OSC bytes go to
+ *  the terminal, which is precisely where the subshell's stdout lands.
  *
- *  (We originally tried PS0 command substitution, but `$(...)` runs in a
- *  subshell, so the flag assignment never reached the parent shell.) */
-export const OSC2_PREEXEC_BASH_GUARD = [
-  `__kolu_preexec_ready=""`,
-  `__kolu_preexec_arm() { __kolu_preexec_ready="1"; }`,
-  `__kolu_preexec_dispatch() {`,
-  `  [ -z "$__kolu_preexec_ready" ] && return`,
-  `  case "$BASH_COMMAND" in __*) return ;; esac`,
-  `  __kolu_preexec_ready=""`,
-  `  __kolu_preexec "$BASH_COMMAND"`,
+ *  `__kolu_hist_sync` (PROMPT_COMMAND, parent shell) records the newest
+ *  history entry at each prompt; `__kolu_ps0` skips when `history 1` still
+ *  equals that baseline — i.e. readline appended nothing. That is the
+ *  HISTCONTROL guard: with `ignorespace` a space-prefixed command adds no
+ *  entry, and emitting would replay the PREVIOUS command as if just run.
+ *  (`ignoredups` re-runs of the same command are also skipped — the fold
+ *  dedups an identical consecutive mark anyway.) A shell with history off
+ *  entirely emits nothing, like a shell without the integration.
+ *
+ *  The `${h#*[[:digit:]][* ] }` strip is bash-preexec's proven idiom for
+ *  `history`'s "  123  cmd" / "  123* cmd" prefix. Requires bash >= 4.4 (PS0);
+ *  on an older bash the variable is inert and marks are simply absent — the
+ *  same documented best-effort bound as an unwrapped shell (fish). */
+export const PS0_PREEXEC_BASH = [
+  `__kolu_hist_last=""`,
+  `__kolu_hist_sync() { __kolu_hist_last=$(HISTTIMEFORMAT= builtin history 1); }`,
+  `__kolu_ps0() {`,
+  `  local h`,
+  `  h=$(HISTTIMEFORMAT= builtin history 1)`,
+  `  [ -n "$h" ] || return 0`,
+  `  [ "$h" = "$__kolu_hist_last" ] && return 0`,
+  `  __kolu_preexec "\${h#*[[:digit:]][* ] }"`,
   `}`,
+  // Append to any PS0 the user's dotfiles set (rare, but theirs) — ours is
+  // invisible output, so order doesn't matter; last keeps theirs verbatim.
+  `PS0="\${PS0-}"'$(__kolu_ps0)'`,
 ].join("\n");
 
 /** Shell function that resets OSC 2 title to CWD at the prompt.
@@ -454,6 +473,21 @@ export const AGENT_TOOLS_BAKE_ENV = "KOLU_AGENT_TOOLS_PATH";
  *  terminal's value is the one its OWN spawner stamped (the same self-ownership
  *  property `KAVAL_TERMINAL_ID` has). */
 export const TERMINAL_TOOLS_PATH_ENV = "KOLU_TERMINAL_TOOLS_PATH";
+
+/** The SELF-KNOWLEDGE stamp: which terminal a process is running inside.
+ *
+ *  Written by every spawner of a kolu PTY — padi's `ptyHost` (the authoritative
+ *  one: the id is a fact about the terminal, assigned there rather than
+ *  inherited) and `kaval-tui create` — and read by anything that has to answer
+ *  "which terminal am I in?" without being told (`kolu watch --ignore-self`, the
+ *  MCP face's `ignoreSelf`). The twin of the `KAVAL_SOCKET` stamp beside it, and
+ *  a member of `kaval-tui`'s rejected-`--env` set for the same reason: it is
+ *  STAMPED, never caller-set.
+ *
+ *  Named HERE, in the env-policy home, because a name only one side knows is not
+ *  encapsulated — a reader holding a constant while three writers hold the
+ *  literal renames half-way and fails silently. */
+export const CONTAINING_TERMINAL_ENV = "KAVAL_TERMINAL_ID";
 
 /**
  * The tool dirs a wrapper baked onto THIS process — the client CLIs every
@@ -642,14 +676,16 @@ const BASH_INIT: ShellInit = {
   hooks: [
     OSC7_FN,
     OSC2_PREEXEC_FN,
-    OSC2_PREEXEC_BASH_GUARD,
+    PS0_PREEXEC_BASH,
     OSC2_PRECMD_BASH,
-    // PROMPT_COMMAND order: our hooks first, user's after, arm last —
-    // so the DEBUG ready flag only goes "on" between prompt setup and
-    // the next user command (filters out PROMPT_COMMAND-internal hooks).
-    `PROMPT_COMMAND="__kolu_osc7;__kolu_title_precmd\${PROMPT_COMMAND:+;$PROMPT_COMMAND};__kolu_preexec_arm"`,
-    // DEBUG trap persists across commands, so install once at source time.
-    `trap '__kolu_preexec_dispatch' DEBUG`,
+    // PROMPT_COMMAND: our precmd hooks first, user's after. `__kolu_hist_sync`
+    // must run at EVERY prompt (it baselines what `history 1` held before the
+    // next command) but its position within the prompt chain is not
+    // order-sensitive — the baseline only changes when a command lands in
+    // history, never during the chain itself. No DEBUG trap and no arm flag:
+    // preexec emission rides PS0 (see PS0_PREEXEC_BASH, #2119), which a
+    // dotfile's bash-preexec/atuin cannot displace.
+    `PROMPT_COMMAND="__kolu_osc7;__kolu_title_precmd;__kolu_hist_sync\${PROMPT_COMMAND:+;$PROMPT_COMMAND}"`,
   ],
   plan: (rcContent, terminalId, rcDir) => {
     const name = `bashrc-${terminalId}`;

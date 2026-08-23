@@ -77,7 +77,7 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   },
   {
     path: "packages/kaval/src/contractCorpus.testlib.ts",
-    sites: 37,
+    sites: 38,
     why: "the pty-host contract corpus — one run per procedure and stream it asserts on, each inside a vitest `it` body, which IS the harness's Promise boundary; a `.testlib.ts` rather than a `.test.ts` only because vitest's `include` and default.nix's staleKey filter both key on the suffix, so it is scanned like the production tree it sits in and the count moves only when `CONTRACT_COVERAGE` does",
   },
   {
@@ -96,6 +96,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "`runScopedSync` — the kaval suite's one scoped-acquire read, synchronous ON PURPOSE: attach's publish-epoch coalescing is observable only when a burst of attaches shares a tick, so a Promise hop between two of them would erase the thing under test",
   },
   {
+    path: "packages/kolu-cli/src/e2eDaemon.testlib.ts",
+    sites: 1,
+    why: "the e2e daemon harness's readiness probe — poll-dial a REAL padi until its control-core `hello` answers. The loop is Promise+timeout shaped because what it waits on is a process coming up, not a value arriving, and every caller is a vitest `it`/`beforeAll` body: the harness's own Promise boundary, with no Effect caller to compose into. A `.testlib.ts` and not a `.test.ts` for the reason this scan cares about: the alternative is not fewer runs but the SAME probe copied into every e2e file that spawns a daemon — and the copy is the one that drifts, in a module whose whole job is reaping the user's real daemon by exact pid",
+  },
+  {
     path: "packages/kolu-cli/src/main.ts",
     sites: 1,
     why: "the product binary's process edge; `NodeRuntime.runMain` rather than a Promise because kolu-cli's exit-code map is LOCAL — every failure carries its own `Runtime.errorExitCode`, so the default teardown IS the map",
@@ -106,9 +111,19 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the MCP-SDK's connect callback — `serveSurfaceAsMcp` asks for `() => Promise<Connection>` and OWNS the connection it gets, re-invoking it on its own redial path, so the crossing cannot be composed away without changing kolu-mcp's face",
   },
   {
+    path: "packages/kolu-cli/src/verbs/stdoutPump.fixture.ts",
+    sites: 2,
+    why: "a CHILD PROCESS, not a module: `shared.flush.test.ts` spawns this file so the pump it drives writes to a real pipe(2) that a real `head` reads. It is that child's process edge, and there is no Effect caller on this side of the fork to compose into — the caller is `spawn`. Two runs because the queue and the drain are two lifetimes: one creates the queue the fixture then offers into, the other drains it through `shared.ts`'s `stdoutSink` for as long as the child lives. Deliberately the SHIPPED sink and not a hand-written write, because a fixture that writes to the fd itself passes whatever the verb does — which is how the previous version of this fixture came to pin nothing",
+  },
+  {
     path: "packages/padi-tui/src/main.ts",
     sites: 1,
     why: "padi-tui's process edge; a Promise rather than `NodeRuntime.runMain` because that turns SIGINT into fiber interruption, and this CLI's stop semantics are PER COMMAND — a `watch` the user stopped is a clean 0, a `wait` interrupted is a 130 that must still print which terminal was left waiting",
+  },
+  {
+    path: "packages/padi/src/cliClient/watch.ts",
+    sites: 2,
+    why: "both crossings are into `@kolu/surface/wait`'s `runWait`, and both are PROCEDURES. The scaffold is Promise+AbortSignal shaped BY DESIGN, so a watcher body is a non-Effect runtime with no Effect caller above it to compose into; a stream is consumed through this file's own `iterateUntilAborted` bridge, but a procedure has nowhere else to be run. One site is `awaitWatchEvents`' `watch.drain`. The other is `awaitTerminalCondition`'s `screen.text` — the `--snapshot` / `kolu debrief` stamp (kolu#2139), which cannot move outside the wait: it is read while the subscriptions that decide whether it is STILL the screen that settled are live, and it passes `{ signal: ctx.signal }` so a settled timeout is never held open by an unanswered reply",
   },
   {
     path: "packages/padi/src/daemonBoot/daemonMain.ts",
@@ -131,6 +146,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the port sampler's reactor-poll edge: the reactor's `read` dep is `() => Promise<T>` by design (a poll source owns its own cadence and is deliberately non-Effect — H1), and `scanSubtreePorts` is Effect-native now that osfacts-client returns Effects, so the two meet in the ONE default `scan` seam instead of at each use inside the read; it is a separate row from `servePadi.ts`'s because this sampler is driven OUTSIDE `derived.cell` (its samples re-enter each terminal's own producer through the sensor channel), so there is no padi surface cell to route it through",
   },
   {
+    path: "packages/padi/src/ptyHost/linkLoss.ts",
+    sites: 2,
+    why: "the link-loss healer's raw-timer edge (juspay/kolu#2182): the tick rides a chained unref'd `setTimeout` for the same written reasons as `kavalSupervision.ts`'s row (Effect's default Clock cannot express an unref'd sleep, and the endpoint's `onStatus` emit is synchronous, so nothing above the timer is an Effect caller to compose into), so BOTH of the tick's reads cross at that boundary — the residency precondition and, only if it says the daemon is serving, the re-converge attempt. Two runs, one cadence, and deliberately two rather than one composed Effect: the precondition decides whether the second one happens at all, and folding them would put a converge (which SPAWNS when nobody is home) inside the same run as the reading meant to forbid it",
+  },
+  {
     path: "packages/padi/src/servePadi.ts",
     sites: 1,
     why: "padi's ONE reactor-poll edge, named once for both poll cells: the reactor's `read` dep is `() => Promise<T>` by design (a poll source owns its own cadence and is deliberately non-Effect), and the host-inventory and memory samplers behind it are Effect-native, so this is where they meet — kolu-server carries the twin row for the same reason",
@@ -148,7 +168,7 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   {
     path: "packages/server/src/index.ts",
     sites: 2,
-    why: "the two edges of an orderly async boot (locked decision 1): the reactor's poll dep is `() => Promise<T>` — its ENGINE is Effect's Atom, but its FACE is deliberately synchronous and non-Effect; and building the composed HTTP layer into the node `request` callback kolu-server owns (owning the listener is what keeps the ws `upgrade` seam the only one) — a callback node hands no Effect context to",
+    why: "the two edges of an orderly async boot (locked decision 1): the reactor's poll dep is `() => Promise<T>` — its ENGINE is Effect's Atom, but its FACE is deliberately synchronous and non-Effect; and binding the listener, since `serveSurfaceApp` is a scoped `Effect` and `bootKoluWeb` is a plain async function with no Effect context to hand it (the node `request`-callback edge this file used to carry is GONE — the primitive owns that boundary now)",
   },
   {
     path: "packages/server/src/padi/newTerminalPolicy.ts",
@@ -177,8 +197,18 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   },
   {
     path: "packages/surface-app/example/src/server/main.ts",
+    sites: 2,
+    why: "boot and shutdown of the listener's ONE scope, in a top-level script: `serveSurfaceApp(...)` at module load, and `Scope.close` inside the SIGINT/SIGTERM handler — a node signal callback is a non-Effect runtime, so the close cannot compose into the boot. The `request`-callback edge this file used to carry is GONE: `serveSurfaceApp` owns that boundary now, which is the whole point of the primitive",
+  },
+  {
+    path: "packages/surface-app/src/connect.ts",
     sites: 1,
-    why: "the example server's node `request` callback — the same boundary `packages/server/src/index.ts` carries, spelled out for a reader who will copy it",
+    why: "THE `pid` echo's edge: the reserved `system/identity` round-trip is an Effect, but `wire.onStatus` is a plain callback with no Effect to compose into, and what the probe produces is a MUTABLE the URL thunk reads on the next dial — there is no continuation to hand it to. Held here, at the one seam that dials a surface app's wire, precisely so it is not one edge per consuming app: the old arrangement made every app open its own (`createServerLifecycle`'s `onProcessId`), and an app that didn't (olai#61) shipped a dead stale-tab handshake",
+  },
+  {
+    path: "packages/surface-app/src/httpDrive.testlib.ts",
+    sites: 1,
+    why: "the static-layer suite's ONE request edge: `drive` builds an `HttpRouter` app, hands it a raw request and reads the response body, and every caller is a vitest `it` body — the harness's own Promise boundary, with no Effect caller to compose into. It is a `.testlib.ts` and not a `.test.ts` for the reason this scan cares about: two suites need it (`server.test.ts` asserts headers and text, `dist.test.ts` compares COMPRESSED bodies byte for byte), so the alternative is not fewer runs but the SAME run copied into two files this scan excludes — a duplicate that would drift silently and be invisible here by construction. One row is the honest form of that",
   },
   {
     path: "packages/surface-app/src/server.ts",
@@ -188,7 +218,12 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   {
     path: "packages/surface-app/src/solid/index.ts",
     sites: 1,
-    why: "the server-lifecycle probe edge: `identity.info` is an Effect, but the lifecycle hangs off `wire.onStatus` (a plain callback) and `createHeartbeat` races a probe against a timer, so the crossing is real — held here once rather than at each of the three consumers, and deliberately NOT folded into `liveSignal`'s edge, which takes no caller-supplied probe target on purpose (#1564)",
+    why: "the server-lifecycle probe edge: the reserved `system/identity` round-trip is an Effect, but the lifecycle hangs off `wire.onStatus` (a plain callback) and `createHeartbeat` races a probe against a timer, so the crossing is real — held here once rather than at each of the three consumers, and deliberately NOT folded into `liveSignal`'s edge, which takes no caller-supplied probe target on purpose (#1564)",
+  },
+  {
+    path: "packages/surface-cli/src/host.fixture.ts",
+    sites: 1,
+    why: "the fixture binary's `main` — a SPAWNED process is the only place an exit code exists, so the suite asserts the published matrix against a real `runMain` instead of a simulated one. It is a `.fixture.ts` and not a `.test.ts` precisely because the test file is the PARENT that spawns it: the code under assertion is the child's edge, which by construction cannot run inside the runner's own process",
   },
   {
     path: "packages/surface-map/src/server.ts",
@@ -264,6 +299,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     path: "packages/surface/example/remote-process-monitor/src/server/serve.ts",
     sites: 1,
     why: "the bridge's kill forwarder: the parent's procedure body is an `Effect.promise` (an undeclared error channel must stay a loud defect), and the remote member it forwards to is Effect-native, so the two meet inside that one Promise",
+  },
+  {
+    path: "packages/surface/example/snippets/cli.ts",
+    sites: 1,
+    why: "the mount block the `@kolu/surface-cli` reference and the expose-to-a-terminal page embed: a reader copying this page copies its run edge, so the snippet has to show the WHOLE recipe — `reportingRunEdge` piped in and `disableErrorReporting: true` handed to `runMain` — because the half a shortened snippet would drop is the half that decides whether a failing binary says anything at all. Typechecked, never executed",
   },
   {
     path: "packages/surface/example/snippets/consume-cli.ts",

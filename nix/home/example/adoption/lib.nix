@@ -105,8 +105,11 @@ let
   # with NO payload, so there is nothing to quote and it needs no `python` escaping.
   daemonRestart = rpc { tag = "daemon/restart"; };
 
-  # "Open a terminal over the app's padiSurface lifecycle.create RPC and return
-  # its id" — the application-contract prologue every seed script shares. The root
+  # "Open a TOP-LEVEL terminal over the app's padiSurface lifecycle.create RPC and
+  # return its id" — the application-contract prologue every seed script shares. The
+  # `placement` is REQUIRED on that input and has no default (a create must say
+  # whether it is a tile of its own or a split of a named parent); a seed wants one
+  # independent terminal, so it says `toplevel`. The root
   # `terminal.*` namespace moved onto `padiSurface` in W1.R, served at the wire tag
   # `surface/padi/lifecycle/create`. Sets `id` on success; calls the
   # caller-provided `fail` on any error (so each script keeps its own FAIL-tag and
@@ -130,7 +133,7 @@ let
   openTerminal = ''
     id=""; rpcerr="(no attempt made)"
     for _ in $(seq 1 30); do
-      out=$(${rpc { tag = "surface/padi/lifecycle/create"; payload = ''{"mapKey":"local","input":{}}''; }} 2>&1) \
+      out=$(${rpc { tag = "surface/padi/lifecycle/create"; payload = ''{"mapKey":"local","input":{"placement":{"kind":"toplevel"}}}''; }} 2>&1) \
         && id=$(printf '%s' "$out" | ${jq} -r '.id') \
         && [ -n "$id" ] && [ "$id" != null ] && break
       rpcerr=$out; id=""

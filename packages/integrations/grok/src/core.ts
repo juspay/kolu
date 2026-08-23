@@ -60,7 +60,9 @@ export interface ActiveSessionEntry {
 /** Read and parse `active_sessions.json`. Returns [] when the file is
  *  missing or unreadable — the common case before the user has ever run
  *  Grok on this machine. */
-export function readActiveSessions(log?: Logger): ActiveSessionEntry[] {
+export function readActiveSessions(
+  log?: Logger,
+): ActiveSessionEntry[] | "unreadable" {
   try {
     const raw = fs.readFileSync(ACTIVE_SESSIONS_PATH, "utf8");
     const parsed: unknown = JSON.parse(raw);
@@ -93,6 +95,9 @@ export function readActiveSessions(log?: Logger): ActiveSessionEntry[] {
         { err, path: ACTIVE_SESSIONS_PATH },
         "grok active_sessions unreadable",
       );
+      // Not an empty map — a map we could not read. The ownership arbiter
+      // releases a terminal session on "no session", so the two must differ.
+      return "unreadable";
     }
     return [];
   }
@@ -215,7 +220,11 @@ export function resolveGrokSession(
 ): GrokSession | null {
   if (foregroundPid !== undefined) {
     sweepDeadBindings();
-    const active = readActiveSessions(log).find((e) => e.pid === foregroundPid);
+    const rows = readActiveSessions(log);
+    // Unreadable is not an empty map: fall through to the remembered binding
+    // rather than reporting this pid has no session.
+    if (rows === "unreadable") return sessionByPid.get(foregroundPid) ?? null;
+    const active = rows.find((e) => e.pid === foregroundPid);
     if (active) {
       // A present row is still authoritative — it re-binds, so a pid moved to a
       // different session follows the map rather than the memory.
@@ -231,7 +240,8 @@ export function resolveGrokSession(
     return sessionByPid.get(foregroundPid) ?? null;
   }
   // No pid sample yet: recency under cwd is the only signal.
-  return findLatestSessionByCwd(cwd, log);
+  const scan = scanSessionsByCwd(cwd, log);
+  return scan === "unreadable" ? null : scan;
 }
 
 function sessionFromIds(
@@ -250,12 +260,43 @@ function sessionFromIds(
   };
 }
 
-/** Pick the session directory under `sessions/<enc-cwd>/` with the
- *  newest `summary.updated_at` (or mtime). */
-export function findLatestSessionByCwd(
+/** Every session this terminal could be running, or NULL when the answer could
+ *  not be read at all.
+ *
+ *  The distinction is load-bearing for the ownership arbiter
+ *  (`padi/terminalWorkspace/sessionOwnership.ts`): an empty list is evidence
+ *  that this terminal runs no Grok, and RELEASES the session it holds so a
+ *  neighbour can take it — so a sessions directory kolu could not READ must not
+ *  wear that shape. A directory that is simply ABSENT is the other fact: Grok
+ *  has never run for this cwd, so there is genuinely nothing.
+ *
+ *  The pid path is unaffected: `active_sessions.json` either names the
+ *  foreground pid or it does not, and a pid kolu has never matched deliberately
+ *  resolves to nothing rather than guessing (see `resolveGrokSession`). */
+export function resolveGrokSessions(
+  foregroundPid: number | undefined,
   cwd: string,
   log?: Logger,
-): GrokSession | null {
+): GrokSession[] | null {
+  if (foregroundPid !== undefined) {
+    const session = resolveGrokSession(foregroundPid, cwd, log);
+    return session ? [session] : [];
+  }
+  const scan = scanSessionsByCwd(cwd, log);
+  if (scan === "unreadable") return null;
+  return scan ? [scan] : [];
+}
+
+/** Pick the session directory under `sessions/<enc-cwd>/` with the
+ *  newest `summary.updated_at` (or mtime). `null` when there is none —
+ *  including the ENOENT that means Grok has never run for this cwd —
+ *  and `"unreadable"` when the directory is there but could not be listed.
+ *  One scan answers both: the ENOENT test already lived here, and probing it
+ *  separately meant two syscalls and two copies of the same rule. */
+function scanSessionsByCwd(
+  cwd: string,
+  log?: Logger,
+): GrokSession | null | "unreadable" {
   const dir = path.join(SESSIONS_DIR, encodeCwd(cwd));
   let entries: fs.Dirent[];
   try {
@@ -263,6 +304,7 @@ export function findLatestSessionByCwd(
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.error({ err, dir }, "grok sessions dir unreadable");
+      return "unreadable";
     }
     return null;
   }

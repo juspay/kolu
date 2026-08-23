@@ -56,7 +56,7 @@ retirements:
           test: "cameraSwap pure core > switchInNeedsCenter: seed on first visit, re-center only when the tile is out of view"
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-b4cf7c5a1a21a208576f
+      - revision-5c101717367b90e5cc29
       - revision-9cb8d7f6e6a3a9b2c109
     sameCodePathEvidence:
       file: packages/tests/features/dock.feature
@@ -448,7 +448,7 @@ retirements:
           test: data-active across the dock's row states > lights the parent while focus is in the main pane
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-b4cf7c5a1a21a208576f
+      - revision-5c101717367b90e5cc29
     sameCodePathEvidence:
       file: packages/tests/features/dock.feature
       symbol: "Scenario: Cmd+1 activates the first dock row (recency-sorted)"
@@ -1996,3 +1996,55 @@ retirements:
       file: packages/tests/features/session-restore.feature
       symbol: "Scenario: A split terminal's agent resumes on session restore"
       test: Same restore+resume-invocation payoff; only the arrangement changed — the fixed 800 ms auto-save sleep (which had to cover BOTH agent detection and the 500 ms save debounce, and did not on aarch64-darwin) is replaced by a wait on padi's persisted session actually listing the split as resumable, counted with padi's own resumableTerminalIds fold.
+  - id: rename-b4cf7c5a1a21a208576f
+    revisionId: revision-b4cf7c5a1a21a208576f
+    action: renamed
+    status: landed
+    promise: Cmd+1 activates the first dock row
+    defectSurface: [dock, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-5c101717367b90e5cc29]
+    sameCodePathEvidence:
+      file: packages/tests/features/dock.feature
+      symbol: "Scenario: Cmd+1 activates the first dock row (creation order)"
+      test: Same scenario, same steps, same assertion — only the parenthetical changed, because the order it names stopped being recency and became creation order (#2141). The promise it guards is unchanged.
+  - id: revise-09da9a7d17d3edbe7b6e
+    revisionId: revision-09da9a7d17d3edbe7b6e
+    action: revised
+    status: landed
+    promise: The Code tab answers a non-git working directory honestly
+    defectSurface: [code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-355508eb66b45723f27b]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: 'Scenario: Shows "not a git repo" message outside a repo'
+      test: Same non-git fallback path, revised back to the promise it made before #2138. Reverting that PR removes the collapsed browse-root node, so the affordance this revision asserted no longer exists to assert; the survivor is the pre-#2138 scenario restored verbatim (same revisionId, so the inventory proves it is the identical body), asserting the explicit "not a git repository" message that once again IS the Code tab's honest answer outside a repo.
+  - id: revise-6bcdb13211ca884eeed5
+    revisionId: revision-6bcdb13211ca884eeed5
+    action: revised
+    status: landed
+    promise: The Code tab answers a non-git working directory honestly
+    defectSurface: [code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-355508eb66b45723f27b]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: 'Scenario: Shows "not a git repo" message outside a repo'
+      test: The plain-directory browse journey this revision exercised is removed with the feature it exercised — #2138 is reverted because its tree was not backed by the enumeration that terminal file-ref clicks and the file filter both read, so browsing outside a repo shipped a tree whose files could not be opened or found. No coverage is orphaned: the same defect surface (what the Code tab does outside a repo) is asserted by the restored pre-#2138 scenario, which is the honest promise the product makes again.
+  - id: revise-3fa69947078476d4aa03
+    revisionId: revision-3fa69947078476d4aa03
+    action: revised
+    status: landed
+    promise: Tree/content split survives switching to another terminal and back
+    defectSurface: [code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-047c80cf4d95746dd49b]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Tree/content split survives switching to another terminal and back"
+      test: Same split-fraction round-trip and the same non-git-fallback unmount it guards; only the fallback-mounted wait changed spelling back, because the fallback is the "not a git repository" message again rather than the collapsed browse-root node. The survivor is the pre-#2138 revision restored verbatim (same revisionId).

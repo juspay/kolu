@@ -1,0 +1,192 @@
+---
+title: From a Mac
+description: "Run kolu on a Linux box and open it from your Mac as an app — the Mac is the window, Linux is the computer."
+order: 15
+section: Start
+koluHero:
+  eyebrow: the headline setup
+  headline: Your Mac is the {window}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import Steps from "../../components/docs/Steps.astro";
+
+Your Mac is slow for agents, especially the filesystem. A headless box isn't,
+and it stays up. Keep the Mac as the window. Kolu runs on the box, and you
+open it from the Mac as a real app.
+
+This is not remoting into a Linux desktop. There is no Linux GUI. Kolu is a
+website the box serves; the Mac is a browser that you pin as an app.
+
+<figure class="doc-figure">
+  <svg viewBox="0 0 720 200" role="img" aria-labelledby="mac-linux-title">
+    <title id="mac-linux-title">Your Mac opens Kolu as an app over a private HTTPS URL. Kolu itself runs on a Linux box, and the agents run there.</title>
+    <defs>
+      <marker id="ml-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
+      </marker>
+    </defs>
+
+    <rect x="40" y="36" width="250" height="128" rx="10" class="ax-d-box"></rect>
+    <text x="165" y="88" text-anchor="middle" class="ax-d-label">your Mac</text>
+    <text x="165" y="112" text-anchor="middle" class="ax-d-sub">browser, then a pinned app</text>
+    <text x="165" y="132" text-anchor="middle" class="ax-d-sub2">the window</text>
+
+    <path d="M300,100 H420" class="ax-d-flow" marker-end="url(#ml-arrow)"></path>
+    <text x="360" y="88" text-anchor="middle" class="ax-d-tlabel">Tailscale HTTPS</text>
+
+    <rect x="430" y="36" width="250" height="128" rx="10" class="ax-d-daemon"></rect>
+    <text x="555" y="88" text-anchor="middle" class="ax-d-daemon-label">Linux box</text>
+    <text x="555" y="112" text-anchor="middle" class="ax-d-sub">kolu runs here</text>
+    <text x="555" y="132" text-anchor="middle" class="ax-d-sub2">the computer · the agents</text>
+  </svg>
+</figure>
+
+You need a headless Linux machine with [Nix](https://nixos.asia/en/install) —
+NixOS or Ubuntu, or any other Linux with Nix — a Mac, and a
+[Tailscale](https://tailscale.com) account on both.
+
+<Steps>
+
+1. Run kolu as a user service on the Linux box.
+
+   Same home-manager module on both. Then linger, so the user systemd starts
+   at boot on a box nobody is logged into. The full module, logs, and address
+   options are on [Deployment](/deployment#enable-the-service).
+
+   **NixOS.** Import the module in that user's home-manager config:
+
+   ```nix
+   { pkgs, kolu, ... }:
+   {
+     imports = [ kolu.homeManagerModules.default ];
+
+     services.kolu = {
+       enable = true;
+       package = kolu.packages.${pkgs.stdenv.hostPlatform.system}.default;
+     };
+   }
+   ```
+
+   Rebuild as usual (`nixos-rebuild switch`). On a headless box also set
+   `users.users.<you>.linger = true` in the **system** config so the user
+   systemd starts at boot.
+
+   **Ubuntu** (and other non-NixOS Linux). Install Nix with flakes if you do
+   not have it — the [NixOS Asia guide](https://nixos.asia/en/install). Then a
+   standalone home-manager flake; replace `you` and use `aarch64-linux` on ARM:
+
+   ```nix
+   {
+     description = "kolu on this box";
+
+     inputs = {
+       nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+       home-manager.url = "github:nix-community/home-manager";
+       home-manager.inputs.nixpkgs.follows = "nixpkgs";
+       kolu.url = "github:juspay/kolu";
+     };
+
+     outputs = { nixpkgs, home-manager, kolu, ... }:
+       let
+         system = "x86_64-linux";
+       in {
+         homeConfigurations.you = home-manager.lib.homeManagerConfiguration {
+           pkgs = nixpkgs.legacyPackages.${system};
+           modules = [
+             kolu.homeManagerModules.default
+             ({ pkgs, ... }: {
+               home.username = "you";
+               home.homeDirectory = "/home/you";
+               home.stateVersion = "24.11";
+               services.kolu = {
+                 enable = true;
+                 package = kolu.packages.${pkgs.stdenv.hostPlatform.system}.default;
+               };
+             })
+           ];
+         };
+       };
+   }
+   ```
+
+   From that directory:
+
+   ```sh
+   nix run home-manager -- switch --flake .#you
+   sudo loginctl enable-linger you
+   ```
+
+   Linger is what keeps the service up after SSH disconnects. If the switch
+   starts compiling from source, enable the
+   [binary cache](/deployment#first-run-compiling-enable-the-binary-cache)
+   first.
+
+   Either way, open
+   [http://127.0.0.1:7681](http://127.0.0.1:7681) **on the box** (or via ssh
+   port-forward). You should see an empty canvas. That is kolu running.
+
+2. Give it a private HTTPS URL with Tailscale Serve.
+
+   Install Tailscale on the Linux box and on the Mac, signed into the same
+   account. In the Tailscale admin console, turn on MagicDNS and HTTPS
+   Certificates. On the box:
+
+   ```sh
+   tailscale serve --bg 7681
+   ```
+
+   Tailscale prints a tailnet URL:
+
+   ```text
+   https://your-box.your-tailnet.ts.net/
+   ```
+
+   Keep kolu bound to `127.0.0.1`. Serve is the only exposed surface. The
+   longer tunnel notes are on [From another device](/remote-access).
+
+3. Allow that origin, then rebuild.
+
+   Tailscale presents a browser origin kolu did not start with. Add the
+   **exact** URL from the previous step:
+
+   ```nix
+   services.kolu.allowedOrigins = [
+     "https://your-box.your-tailnet.ts.net"
+   ];
+   ```
+
+   Apply again (`nixos-rebuild switch`, or `home-manager switch --flake .#you`
+   on Ubuntu). Without this, the page may load and then fail to talk to the
+   server.
+
+4. Open the printed URL in a browser on the Mac.
+
+   Use the full `https://<machine>.<tailnet>.ts.net` address — not the bare
+   machine name, and not the `100.x` address. Those stay plain HTTP and do not
+   unlock install prompts, badges, or notifications.
+
+5. Pin it as an app.
+
+   In Chrome, Edge, Brave, or Arc: Install. In Safari 17+: File → Add to Dock.
+   Browser-by-browser paths are on [Install as an App](/install-pwa).
+
+   Kolu is now in the macOS Apps launcher, in its own window. The agents still
+   run on the Linux box.
+
+</Steps>
+
+<Aside type="note" title="Already have kolu running on the box?">
+  Skip the service step. Point Tailscale Serve at whatever port it is on, add
+  that origin, and pick up from opening the URL on the Mac.
+</Aside>
+
+## Next
+
+<CardGrid>
+  <LinkCard title="First five minutes" href="/first-five-minutes" description="open a repo, name a worktree, launch an agent, read the dock" />
+  <LinkCard title="From another device" href="/remote-access" description="the same HTTPS path, including a phone, and the other tunnels" />
+  <LinkCard title="Add another machine" href="/remote-hosts" description="once kolu is up, put a second machine's terminals on the canvas over ssh" />
+</CardGrid>

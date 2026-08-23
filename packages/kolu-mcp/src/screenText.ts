@@ -33,6 +33,10 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
+// The tail slice is padi's — a pure fold over `screen.text`'s own reply shape,
+// shared with `kolu snapshot --tail`, which used to import it from THIS module
+// (a CLI verb reaching sideways into a face's adapter).
+import { tailLines } from "@kolu/padi/render";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import type { BespokeTool } from "@kolu/surface-mcp";
 import { Effect, Schema } from "effect";
@@ -48,22 +52,10 @@ export const ScreenTextArgsSchema = Schema.Struct({
 });
 export type ScreenTextArgs = typeof ScreenTextArgsSchema.Type;
 
-/** Slice the last `tail` NON-BLANK-TAIL lines of `text` — pure, unit-tested.
- *  The rendered buffer ends in a run of blank rows (the viewport below the
- *  cursor), which carry zero information and would otherwise BE the tail
- *  (`tail: 6` of a fresh shell returned six empty lines — caught by the
- *  evidence transcript). So every trailing whitespace-only line is dropped
- *  before the slice; blank lines BETWEEN content are kept verbatim. */
-export function tailLines(text: string, tail: number): string {
-  const lines = text.split("\n");
-  let end = lines.length;
-  while (end > 0 && (lines[end - 1] as string).trim() === "") end -= 1;
-  return lines.slice(Math.max(0, end - tail), end).join("\n");
-}
-
 export const screenTextTool: BespokeTool = {
   input: ScreenTextArgsSchema,
   mutates: false,
+  title: "Read a terminal's screen",
   description:
     "A terminal's rendered screen + scrollback as plain text — the snapshot face. Pass tail: N to read only the last N lines (the cheap settle-check read).",
   // No `signal`: a surface procedure ref carries no cancellation handle any

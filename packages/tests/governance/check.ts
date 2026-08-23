@@ -3,13 +3,17 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
+// Effect's own YAML parser rather than the `yaml` package — see the note on the
+// same import in `effectPin.ts`. The input here (coverage-ledger.yaml) is
+// machine-generated too, and both parsers were checked deep-equal over it.
+import { Yaml } from "effect/unstable/encoding";
 import {
   collectAwaitedFaceCalls,
   validateAwaitedFaceCalls,
 } from "./awaitedFace";
 import {
   collectBetaAssumptions,
+  collectEffectVersionRefs,
   validateBetaAssumptions,
 } from "./betaAssumptions";
 import { collectEffectPins, validateEffectPins } from "./effectPin";
@@ -61,7 +65,7 @@ const inventory = readInventory(
   readFileSync(inventoryPath, "utf8"),
   inventoryPath,
 );
-const ledger = parseYaml(readFileSync(ledgerPath, "utf8")) as CoverageLedger;
+const ledger = Yaml.parse(readFileSync(ledgerPath, "utf8")) as CoverageLedger;
 const current = readCurrentSuite(packageRoot, head);
 
 const currentIds = new Set(current.records.map((record) => record.revisionId));
@@ -208,8 +212,14 @@ const optionalShimSites = [...optionalShims.values()].reduce(
 const effectPins = collectEffectPins(repoRoot);
 const effectVersion = validateEffectPins(effectPins);
 const betaAssumptions = collectBetaAssumptions(repoRoot);
-validateBetaAssumptions(betaAssumptions, effectVersion);
+const effectVersionRefs = collectEffectVersionRefs(repoRoot);
+validateBetaAssumptions(
+  betaAssumptions,
+  effectVersion,
+  undefined,
+  effectVersionRefs,
+);
 
 console.log(
-  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped`,
+  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed)`,
 );

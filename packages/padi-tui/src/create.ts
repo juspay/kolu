@@ -1,6 +1,7 @@
 /**
- * `padi-tui create` — spawn a terminal on the host padi owns, optionally as a
- * split tile (`--parent`) or in a fresh git worktree (`--worktree <branch>`), and
+ * `padi-tui create` — spawn a terminal on the host padi owns at a STATED
+ * placement (a tile of its own, or a split of another), optionally in a fresh
+ * git worktree (`--worktree <branch>`), and
  * optionally launch an agent in it (`-- <argv>`). Every step is a thin wrapper
  * over a `padiSurface` procedure that has existed since W1 — `git.worktreeCreate`,
  * `lifecycle.create`, `lifecycle.sendInput` — composed exactly the way the canvas
@@ -8,9 +9,38 @@
  * byte-identical to one created from the browser (both land as canvas tiles).
  */
 
+import {
+  parsePlacementFlags,
+  type StatedPlacementFlags,
+} from "@kolu/padi/render";
+import type { TerminalPlacement } from "@kolu/padi/surface";
 import { shellJoin } from "@kolu/shell-quote";
 import { Effect } from "effect";
 import type { PadiTuiClient } from "./connect.ts";
+import { type CliFailure, failure } from "./exit.ts";
+
+/** `padi-tui create`'s PLACEMENT gate — the shared decision, wearing this face's
+ *  name and this face's failure type.
+ *
+ *  It lives HERE rather than inline in `cmdCreate` for one reason: `main.ts` calls
+ *  `cli(…)` at module scope, so importing it parses `process.argv` and nothing in
+ *  it can be reached by a test. The gate was the one load-bearing pure step on that
+ *  side of the line — `kolu create`'s equivalent is pinned through its own `run`,
+ *  and this one was pinned nowhere. A rule enforced on two faces needs its wiring
+ *  proven on both, not just its shared middle.
+ *
+ *  PURE, and it must stay pure: `cmdCreate` runs it BEFORE `connectTo`, so a bare
+ *  `padi-tui create` fails instantly instead of after `--host` has Nix-provisioned
+ *  a cold box for a command that was never going to run. */
+export function placementGate(flags: {
+  readonly toplevel: boolean;
+  readonly parent: string | undefined;
+}): Effect.Effect<StatedPlacementFlags, CliFailure> {
+  const read = parsePlacementFlags("padi-tui create", flags);
+  return read.kind === "refused"
+    ? Effect.fail(failure(read.message))
+    : Effect.succeed(read);
+}
 
 /** What `create` did — the new terminal's id, the worktree it materialized (if
  *  `--worktree`), and the agent command it launched (if `-- <argv>`). */
@@ -25,8 +55,9 @@ export interface CreateResult {
  *   1. `--worktree` materializes a fresh worktree ON THE HOST first — a worktree
  *      on the wrong machine is unspellable, since `git.worktreeCreate` runs
  *      host-side — and its path becomes the new terminal's cwd;
- *   2. `lifecycle.create` spawns the terminal (a child of `parentId` → a split
- *      tile; padi runs its own shell-init spawn policy, so this needs no argv);
+ *   2. `lifecycle.create` spawns the terminal at the STATED `placement` (a
+ *      `child-of` arm → a split tile; padi runs its own shell-init spawn policy,
+ *      so this needs no argv);
  *   3. if an agent argv was given (after `--`), `lifecycle.sendInput` writes
  *      `<argv>\r` so the shell runs it at its first prompt — the same
  *      initial-command path the canvas worktree flow uses.
@@ -34,7 +65,10 @@ export interface CreateResult {
 export function runCreate(
   client: PadiTuiClient,
   opts: {
-    parentId?: string;
+    /** WHERE ON THE CANVAS the terminal lands. REQUIRED, and the wire's own sum
+     *  rather than an optional `parentId`: this face is driven by scripts, which
+     *  is exactly the caller that never notices a placement it did not choose. */
+    placement: TerminalPlacement;
     worktree?: { repoPath: string; name: string };
     cwd?: string;
     argv: readonly string[];
@@ -53,8 +87,8 @@ export function runCreate(
     }
 
     const { id } = yield* client.surface.lifecycle.create({
+      placement: opts.placement,
       ...(cwd !== undefined ? { cwd } : {}),
-      ...(opts.parentId !== undefined ? { parentId: opts.parentId } : {}),
     });
 
     let ran: string | undefined;

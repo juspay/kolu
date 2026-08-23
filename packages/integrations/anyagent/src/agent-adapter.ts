@@ -3,12 +3,17 @@
  * implements. An adapter encapsulates four axes of volatility that vary
  * per agent CLI:
  *
- *  1. How a terminal maps to a session         → `resolveSession`
+ *  1. How a terminal maps to sessions           → `resolveSessions`
  *  2. Session-identity derivation               → `sessionKey`
  *  3. Per-session state watching + derivation   → `createWatcher`
  *  4. External signals that may change the match → `externalChanges`
  *     (optional — only agents whose session-match answer can change without
  *     a title event need this; see the field's JSDoc.)
+ *
+ * Which of the candidate sessions a terminal actually gets is NOT an adapter
+ * concern — a session belongs to at most one terminal, and that is a property of
+ * the whole terminal set, arbitrated once above every adapter (see
+ * `resolveSessions`).
  *
  * Info equality is deliberately NOT part of this interface — it's a property
  * of the AgentInfo union shape, exposed as the free function `agentInfoEqual`
@@ -20,7 +25,7 @@
 import type { Logger } from "@kolu/log";
 import type { TaskProgress } from "./schemas.ts";
 
-/** Snapshot of a terminal's observable state, passed to `resolveSession`.
+/** Snapshot of a terminal's observable state, passed to `resolveSessions`.
  *  Fields are the inputs every agent's session-matching logic can draw from;
  *  the adapter picks the ones it needs (claude-code uses `foregroundPid`,
  *  opencode uses `foregroundBasename` + `cwd`). */
@@ -88,17 +93,56 @@ export interface AgentAdapter<Session, Info extends AgentInfoShape> {
   /** Discriminator matching `Info["kind"]` (e.g. "claude-code", "opencode"). */
   readonly kind: Info["kind"];
 
-  /** Given a snapshot of terminal state, return the currently-matching
-   *  session for this agent kind, or null if no session applies. Pure and
-   *  cheap — may be called repeatedly on title events and external changes. */
-  resolveSession(state: AgentTerminalState, log: Logger): Session | null;
+  /** Given a snapshot of terminal state, return every session this terminal
+   *  could be running, BEST FIRST — the adapter's own preference order (for a
+   *  directory-keyed agent, most recently updated first). Empty when no session
+   *  applies. Pure and cheap — may be called repeatedly on title events and
+   *  external changes.
+   *
+   *  CANDIDATES, not an answer, because for a directory-keyed agent there
+   *  genuinely is no per-terminal answer: two Codex harnesses in one repository
+   *  share a cwd, so this function — which sees ONE terminal — cannot tell which
+   *  of that directory's threads is this terminal's without knowing what its
+   *  neighbours already hold. Returning the whole list lets the orchestrator's
+   *  arbiter (`padi/terminalWorkspace/sessionOwnership`) give each terminal a
+   *  session of its own; an adapter that answered with just its favourite handed
+   *  the SAME session to every terminal in the directory and their dock rows
+   *  converged (juspay/kolu#2057).
+   *
+   *  A pid-anchored agent (Claude Code, Grok with a live pid map) is already
+   *  exclusive by construction and simply returns zero or one candidate.
+   *
+   *  Return NULL — never an empty array — when the answer could not be READ at
+   *  all (the session store threw). The two are different facts and the
+   *  orchestrator acts on them differently: an empty list is evidence that this
+   *  terminal runs nothing, and RELEASES the session it holds so a neighbour can
+   *  take it, while null leaves the terminal exactly as it was until the next
+   *  reconcile. A store that is simply ABSENT is the first fact, not the second:
+   *  the agent has never run here, so there is genuinely nothing to offer. */
+  resolveSessions(
+    state: AgentTerminalState,
+    log: Logger,
+  ): readonly Session[] | null;
 
   /** Stable dedup key for a resolved session. The orchestrator compares
-   *  successive `sessionKey(resolveSession(...))` values to decide whether
-   *  to replace the running watcher. Must be deterministic and agent-specific
-   *  (two sessions from different agents don't need to differ — the kind
-   *  field already distinguishes adapters). */
+   *  successive keys to decide whether to replace the running watcher, and
+   *  records ownership against this key. Must be deterministic and
+   *  agent-specific (two sessions from different agents don't need to differ —
+   *  the kind field already distinguishes adapters). */
   sessionKey(session: Session): string;
+
+  /** Epoch-ms the session came into being, or null when the adapter cannot say.
+   *  Same meaning as the `startedAt` on `AgentInfoShape` — the age of the
+   *  conversation, which survives a resume — but read off the MATCH result,
+   *  because ownership is decided before any watcher exists.
+   *
+   *  The arbiter asks it one question: did this session appear AFTER the
+   *  terminal's current harness started? A directory-keyed agent writes its
+   *  session row only after the first exchange, so the first candidates kolu
+   *  sees in a directory are always earlier runs'. Without a creation time a
+   *  terminal keeps whichever leftover it grabbed and never moves onto its own
+   *  (juspay/kolu#2057). A null reads as "cannot judge", never as "old". */
+  sessionStartedAt(session: Session): number | null;
 
   /** Start a watcher for a matched session. `onChange` fires whenever the
    *  derived `Info` changes. The returned handle's `destroy()` must tear
@@ -112,7 +156,7 @@ export interface AgentAdapter<Session, Info extends AgentInfoShape> {
 
   /** Optional integration with external-change signals — filesystem events,
    *  DB WAL writes, or anything else that can change the answer of
-   *  `resolveSession` without a title event. If an agent's match depends
+   *  `resolveSessions` without a title event. If an agent's match depends
    *  only on title-event-triggered state (foreground process, cwd), omit
    *  this field; the orchestrator just skips the wiring.
    *
@@ -134,7 +178,7 @@ export interface AgentAdapter<Session, Info extends AgentInfoShape> {
      *  has used the agent here before, even if no terminal currently
      *  hosts it). Called on every reconcile; the first `true` across any
      *  terminal for this adapter triggers `install`. Must NOT require
-     *  `resolveSession` to have succeeded — for Codex, the foreground
+     *  `resolveSessions` to have matched — for Codex, the foreground
      *  process is `codex` before any DB row exists, and the WAL watcher
      *  is what catches the row's appearance. */
     isPresent(state: AgentTerminalState): boolean;

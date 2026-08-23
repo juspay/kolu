@@ -1,5 +1,5 @@
 /**
- * The three bespoke tools' ARG SCHEMAS, pinned at the only place they matter:
+ * The bespoke tools' ARG SCHEMAS, pinned at the only place they matter:
  * the JSON Schema an MCP host reads out of `tools/list`.
  *
  * These schemas exist to be *rendered*, not just decoded — the per-field blurb
@@ -32,15 +32,19 @@
  * assertion is a byte-level fixture over the exact serialized string.
  */
 
+import { PLACEMENT_REQUIRED } from "@kolu/padi/surface";
 import { toInputSchema } from "@kolu/surface-mcp";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { CreateArgsSchema } from "./create.ts";
 import { ScreenTextArgsSchema } from "./screenText.ts";
 import { SendInputArgsSchema } from "./sendInput.ts";
 import {
   WaitAgentStateArgsSchema,
   WaitOutputSettledArgsSchema,
 } from "./wait.ts";
+import { WatchNextArgsSchema } from "./watchNext.ts";
+import { WatchOpenArgsSchema } from "./watchOpen.ts";
 
 type JsonNode = Record<string, unknown>;
 
@@ -134,6 +138,56 @@ describe("lifecycle_sendInput args → the JSON Schema a host reads", () => {
   });
 });
 
+describe("lifecycle_create args → the JSON Schema a host reads", () => {
+  it("the directory fields carry their blurb ON the node, checks and all", () => {
+    const doc = toInputSchema(CreateArgsSchema);
+    const described = propertyDescriptions(doc);
+    // `worktree` is the one that would lose its blurb to `allOf`: it carries
+    // the wire's git-ref CHECK, so it is spelled annotate-first.
+    expect(described.worktree).toMatch(/<repo>\/\.worktrees\/<name>/);
+    expect(described.repo).toMatch(/Absolute path/);
+    expect(described.run).toMatch(/not a spawn argv/);
+    // …and the check really is there, beside the blurb rather than instead of
+    // it — an agent's name is validated before the tool dials padi.
+    expect(property(doc, "worktree").allOf).toBeDefined();
+  });
+
+  it("advertises `placement` as the ONE required field, both spellings and the rule", () => {
+    const doc = toInputSchema(CreateArgsSchema);
+    // The whole point, read off the JSON Schema an MCP host actually sends to a
+    // model: an agent that never chose a placement cannot produce a valid call,
+    // and the host itself will say so before a byte reaches padi.
+    expect(doc.required).toEqual(["placement"]);
+    // The blurb is the WIRE's own sentence (`PLACEMENT_REQUIRED`), not a second
+    // copy: what the agent reads in the schema and what it reads in the refusal
+    // are the same string.
+    const described = propertyDescriptions(doc);
+    expect(described.placement).toBe(PLACEMENT_REQUIRED);
+    expect(described.placement).toContain('{"kind":"toplevel"}');
+    expect(described.placement).toContain('"kind":"child-of"');
+    // Both arms survive the converter, so a host can offer the model the choice
+    // structurally rather than by reading English.
+    const arms = property(doc, "placement").anyOf as JsonNode[] | undefined;
+    expect(arms, "placement advertises its two arms").toHaveLength(2);
+  });
+
+  it("advertises the create verb's own fields, so the tool cannot drift from the wire", () => {
+    const props = toInputSchema(CreateArgsSchema).properties as JsonNode;
+    // Spread from `PadiCreateInputSchema` — the wire's placement/cwd/intent…
+    for (const field of ["placement", "cwd", "intent"]) {
+      expect(Object.hasOwn(props, field), `${field} is advertised`).toBe(true);
+    }
+    // …plus this face's three additions.
+    for (const field of ["repo", "worktree", "run"]) {
+      expect(Object.hasOwn(props, field), `${field} is advertised`).toBe(true);
+    }
+    // `parentId` is NOT a field of its own any more — it lives inside the
+    // placement sum's `child-of` arm, which is what makes "a parent" and "no
+    // parent" two statements rather than a value and its absence.
+    expect(Object.hasOwn(props, "parentId")).toBe(false);
+  });
+});
+
 describe("the wait tools' args → the JSON Schema a host reads", () => {
   it("every milliseconds field is a bounded INTEGER, never the NaN-tolerant union", () => {
     const settled = toInputSchema(WaitOutputSettledArgsSchema);
@@ -153,8 +207,85 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
       ]);
       expect(typeof node.description).toBe("string");
     }
-    // `idleMs` is the one required knob; `timeoutMs` is optional.
+    // `idleMs` is the one required knob; the rest are optional.
     expect(settled.required).toEqual(["id", "idleMs"]);
+  });
+
+  it("the kolu#2139 modifiers advertise as bounded integers with their blurb ON the node", () => {
+    // A wire-visible option is only as good as the sentence a host renders
+    // beside it — an agent picks `settledMs: 15000` from the blurb or not at
+    // all. Same annotate-then-check law as every other numeric here.
+    const agent = toInputSchema(WaitAgentStateArgsSchema);
+    const settledMs = property(agent, "settledMs");
+    expect(settledMs.type).toBe("integer");
+    expect(settledMs.allOf).toEqual([
+      { exclusiveMinimum: 0 },
+      { maximum: 2_147_483_647 },
+    ]);
+    expect(settledMs.description).toMatch(/CONJUNCT/);
+
+    // `screenTail` counts LINES, so it rides the line bound, not the timer
+    // ceiling — and it is on BOTH wait tools, because reading the screen after
+    // a done-signal is the second half of the same race on either.
+    for (const schema of [agent, toInputSchema(WaitOutputSettledArgsSchema)]) {
+      const tail = property(schema, "screenTail");
+      expect(tail.type).toBe("integer");
+      expect(tail.allOf).toEqual([{ exclusiveMinimum: 0 }]);
+      expect(tail.description).toMatch(/last N rendered lines/);
+    }
+
+    // Both stay OPTIONAL: every existing caller's request is still valid, and
+    // its met frame still has exactly the keys it always had.
+    expect(agent.required).toEqual(["id", "until"]);
+  });
+
+  // `settledMs` is deliberately NOT on `wait_outputSettled`: that condition IS a
+  // quiescence window, so a second one only ever means quiet-for-max(idleMs,
+  // settledMs) — a knob whose every setting `idleMs` already spells.
+  it("wait_outputSettled does NOT offer a redundant second quiescence window", () => {
+    const settled = toInputSchema(WaitOutputSettledArgsSchema);
+    expect(Object.keys(settled.properties ?? {})).not.toContain("settledMs");
+  });
+
+  it("watch_next's timeoutMs rides the SAME shared milliseconds field", () => {
+    // It re-derived this shape once, which left the package's third bespoke
+    // tool the only one doing the annotate-then-check dance unpinned by this
+    // file. It now reuses `MillisecondsSchema`, so it is covered here for free.
+    const node = property(toInputSchema(WatchNextArgsSchema), "timeoutMs");
+    expect(node.type).toBe("integer");
+    expect(node.anyOf).toBe(undefined);
+    expect(node.allOf).toEqual([
+      { exclusiveMinimum: 0 },
+      { maximum: 2_147_483_647 },
+    ]);
+    expect(typeof node.description).toBe("string");
+    // `after` is an acknowledgement watermark, so ZERO is legal where a
+    // duration's zero is not — and its blurb must be ON THE NODE, not buried in
+    // the `allOf` branch (reusing padi's already-checked `NonNegativeInt` put it
+    // there, which this assertion caught).
+    const after = property(toInputSchema(WatchNextArgsSchema), "after");
+    expect(after.type).toBe("integer");
+    expect(after.allOf).toEqual([{ minimum: 0 }]);
+    expect(typeof after.description).toBe("string");
+    // Same for the name: bounded, and its blurb readable by a host.
+    const name = property(toInputSchema(WatchNextArgsSchema), "name");
+    expect(name.type).toBe("string");
+    expect(name.allOf).toEqual([{ minLength: 1 }, { maxLength: 128 }]);
+    expect(typeof name.description).toBe("string");
+  });
+
+  it("watch_open advertises ignoreIds and ignoreSelf on the property node", () => {
+    const schema = toInputSchema(WatchOpenArgsSchema);
+    const ignoreIds = property(schema, "ignoreIds");
+    expect(ignoreIds.type).toBe("array");
+    expect(typeof ignoreIds.description).toBe("string");
+    expect(ignoreIds.description).toMatch(/Fail-open/);
+    const ignoreSelf = property(schema, "ignoreSelf");
+    expect(ignoreSelf.type).toBe("boolean");
+    expect(typeof ignoreSelf.description).toBe("string");
+    expect(ignoreSelf.description).toMatch(/KAVAL_TERMINAL_ID/);
+    // Both optional — existing callers stay valid.
+    expect(schema.required).toEqual(["name"]);
   });
 
   it("wait_agentState advertises the three buckets as a literal enum", () => {
@@ -170,6 +301,7 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
 
   it("no tool input is CLOSED — a host sending an extra key is not rejected", () => {
     for (const schema of [
+      CreateArgsSchema,
       ScreenTextArgsSchema,
       SendInputArgsSchema,
       WaitOutputSettledArgsSchema,

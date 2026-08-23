@@ -7692,20 +7692,6 @@
       "firstSeenSha": "435c55381b24cb325105fee82048c00226818d0e"
     },
     {
-      "revisionId": "revision-5ff5cea3e93fef1e1167",
-      "scenarioKey": "scenario-b9ba4e0547586de5e32b",
-      "feature": "features/xyne.feature",
-      "scenario": "Tile chrome lights up with the Xyne badge",
-      "kind": "scenario",
-      "tags": [
-        "@xyne-mock"
-      ],
-      "bodyHash": "7befbedb468f375044cc32075c4e5cbf3376ab0d75ccf74a057cf5335265b6e0",
-      "exampleRows": [],
-      "executions": 1,
-      "firstSeenSha": "43360bb46cc686419ce6836e3b51de1bcdbf0946"
-    },
-    {
       "revisionId": "revision-482ca3b4c149605f5bf9",
       "scenarioKey": "scenario-46ed574deb95daa9756a",
       "feature": "features/code-tab.feature",
@@ -7715,7 +7701,7 @@
       "bodyHash": "4bb8a5d6ba10ade60b6faa72d7f27ede0508d68642651be9506e8a36a5798268",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "07df0a15a4eff14563a884295ac3658847ffcd26"
+      "firstSeenSha": "cb4c7f3604d67223081622aa34f5af9f40c72311"
     },
     {
       "revisionId": "revision-726d78345beb5292ea6d",
@@ -7729,7 +7715,97 @@
       "bodyHash": "66413d57982645f983e8da330580951777d312a5b5832182d1b9dd71f7f9fedb",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "07df0a15a4eff14563a884295ac3658847ffcd26"
+      "firstSeenSha": "efb8d8ca34b373c1cde6797e94f170890f10e24e"
+    },
+    {
+      "revisionId": "revision-5a18f74ded3e6dc47798",
+      "scenarioKey": "scenario-3f40413f91f799740921",
+      "feature": "features/terminal-switcher.feature",
+      "scenario": "Mod+Shift+K then Enter jumps to the previous terminal, never the active one",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "de7630e50fb7e0ebe9e2da7e10aa002cb0bda3d8174e638dcb5de94fbd2630ee",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1af6b58408912601859086cb914a8b6b3e783842"
+    },
+    {
+      "revisionId": "revision-c578153351d95ca90637",
+      "scenarioKey": "scenario-2365426d45f568f52cff",
+      "feature": "features/dock.feature",
+      "scenario": "A blocked agent joins the Needs-you strip without renumbering the dock",
+      "kind": "scenario",
+      "tags": [
+        "@claude-mock"
+      ],
+      "bodyHash": "258365d8fb0fe67fd4e238f2127fc43860870aca5a88293b686ce18f997311a7",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1d660868a339ed61cb49db960b4a0393172df025"
+    },
+    {
+      "revisionId": "revision-5c101717367b90e5cc29",
+      "scenarioKey": "scenario-f2c8e4323a354851dfdd",
+      "feature": "features/dock.feature",
+      "scenario": "Cmd+1 activates the first dock row (creation order)",
+      "kind": "scenario",
+      "tags": [
+        "@claude-mock"
+      ],
+      "bodyHash": "d9fe80cb14ea0434416a1027868c7d39eb030b05fddba6df99d0f4d18e626456",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1d660868a339ed61cb49db960b4a0393172df025"
+    },
+    {
+      "revisionId": "revision-6bcdb13211ca884eeed5",
+      "scenarioKey": "scenario-daea9383ada5c2684778",
+      "feature": "features/code-tab.feature",
+      "scenario": "Browses a plain directory after opening the root",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "ae1367794e7058945c7cd6aa1996941f33c68d754ce88f2f11c6b2786ccfccb2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1be13ca552dbddf44e112ff6f368fea611dfbd0c"
+    },
+    {
+      "revisionId": "revision-09da9a7d17d3edbe7b6e",
+      "scenarioKey": "scenario-85575f68d2b4edd062ef",
+      "feature": "features/code-tab.feature",
+      "scenario": "Offers a collapsed browse root outside a git repo",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e3171f39712238b54acc03cdd720a4f4501105cf8d5f5d4fb57f55580bafe546",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1be13ca552dbddf44e112ff6f368fea611dfbd0c"
+    },
+    {
+      "revisionId": "revision-3fa69947078476d4aa03",
+      "scenarioKey": "scenario-3d36c2410d55421c5a7c",
+      "feature": "features/code-tab.feature",
+      "scenario": "Tree/content split survives switching to another terminal and back",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "571ca88702e1eb8a0428b45111294073d21c55ab74c19449ce6aa9b969354146",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1be13ca552dbddf44e112ff6f368fea611dfbd0c"
+    },
+    {
+      "revisionId": "revision-5ff5cea3e93fef1e1167",
+      "scenarioKey": "scenario-b9ba4e0547586de5e32b",
+      "feature": "features/xyne.feature",
+      "scenario": "Tile chrome lights up with the Xyne badge",
+      "kind": "scenario",
+      "tags": [
+        "@xyne-mock"
+      ],
+      "bodyHash": "7befbedb468f375044cc32075c4e5cbf3376ab0d75ccf74a057cf5335265b6e0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "47e7066f9ba9c8f4d3ddd02035d16b4f7f9e52f7"
     }
   ]
 }

@@ -1,40 +1,42 @@
 /**
- * Surface client bundle. One websocket link carries BOTH sibling surfaces;
- * `surfaceClients` splits it into a per-key client bundle. `clients.surfaceApp`
- * is the control-plane client (buildInfo + the `identity.info` probe);
- * `clients.demo` carries the live `serverStats` cell. `link.wire` is the
- * watchable transport — surface-app derives the connection lifecycle from it
- * plus the `identity.info` probe (passed to <SurfaceAppProvider> in App.tsx).
+ * The one connection: `connectSurfaces` — the turnkey seam for several sibling
+ * surfaces over ONE reconnecting wire.
  *
- * Two steps, in this order. `websocketLink` DIALS over the COMBINED group (both
- * siblings' members live in one flat tag namespace, `surface/<key>/<member>/<verb>`),
- * and is handed surface-app's own close-code vocabulary as `isTerminalClose` —
- * the one place a close CODE is known. Then `createLiveSignal` takes the WHOLE
- * `{ dispatch, wire }` the link minted together and adds the half-open watchdog,
- * probing the reserved `system/live` member on the `surfaceApp` sibling's slice
- * of that very dispatch. Pass the WHOLE handle to `surfaceClients`: one link,
- * one watchdog, per-key clients. This seam OWNS the watchdog, so `App.tsx`
- * passes `heartbeat={false}` to `<SurfaceAppProvider>` (its lifecycle observes
- * the same wire but doesn't double-watch it).
+ * `clients.surfaceApp` is the control-plane client (the `buildInfo` cell);
+ * `clients.demo` carries the live `serverStats` cell. `conn.link.wire` is the
+ * watchable transport the connection lifecycle is derived from in `App.tsx`.
+ *
+ * This used to hand-build the three pieces — `websocketLink` → `createLiveSignal`
+ * → `surfaceClients` — and that is exactly why it is worth reading now: the
+ * hand-built path dialled a wire with NO `pid` echo, so this example's own server
+ * gate (`acceptSurfaceSocket` in `server/main.ts`) could never reject anything,
+ * and the code people copy taught the omission. `connectSurfaces` owns the whole
+ * handshake: it probes the framework-reserved `system/identity` on every open,
+ * feeds the echo its URL thunk appends, and REQUIRES the `retired` policy below
+ * for the rejection that earns.
  */
 
-import { websocketLink } from "@kolu/surface/links/websocket";
-import { createLiveSignal, surfaceClients } from "@kolu/surface/solid";
-import { isStaleProcessClose } from "@kolu/surface-app/connect";
-import { composed, surfaces } from "../common/surface";
+import { surfaceWsUrl } from "@kolu/surface-app";
+import { connectSurfaces } from "@kolu/surface-app/solid";
+import { reloadForUpdate } from "@kolu/surface-app/lifecycle";
+import { surfaces } from "../common/surface";
 
-const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/rpc/ws`;
+// The dial URL, derived from the page's own origin by the ONE derivation both
+// legs share — `serveSurfaceApp` compares `pathname` for equality, so a
+// hand-typed URL with a trailing slash would simply be destroyed, and a
+// hand-spelled scheme swap breaks only once the app is served over TLS.
+const wsUrl = surfaceWsUrl(location.origin);
 
-export const link = await websocketLink({
-  group: composed.group,
-  url: () => wsUrl,
-  // The server retires a tab bound to a previous process with
-  // `STALE_PROCESS_CLOSE_CODE`; on that verdict the link STOPS retrying and
-  // fails every in-flight and future call with `SurfaceTransportRetired`, so a
-  // dead tab settles instead of re-presenting a stale pid forever.
-  isTerminalClose: isStaleProcessClose,
+export const conn = await connectSurfaces({
+  surfaces,
+  url: wsUrl,
+  // The server retired this tab: it is bound to a process that is gone, the link
+  // will never dial again, and every call on it now fails. There is no default
+  // for this and there cannot be one — the option exists so that a wire which
+  // compiles has an answer. This example takes the simplest honest one: land the
+  // deployed build. An app that would rather let the reader choose passes its own
+  // handler and takes the screen instead.
+  retired: reloadForUpdate,
 });
 
-const transport = createLiveSignal(link, { siblingKey: "surfaceApp" });
-
-export const clients = surfaceClients(transport, surfaces);
+export const clients = conn.clients;

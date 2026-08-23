@@ -1,29 +1,48 @@
 /**
- * @kolu/surface-app — pure, framework-free kernels of the freshness contract.
+ * @kolu/surface-app — pure, framework-free kernels: the freshness contract,
+ * the wire's shared vocabulary (paths, close codes, the dial URL), and the
+ * fault printer.
  *
  * These have no dependency on Hono, SolidJS, or surface; they are the bits the
  * `/server` and `/solid` entrypoints (and your app) build on, and the only bits
  * worth unit-testing in isolation. The freshness contract they encode is the
  * hard-won lesson of the four-times-relitigated stale-client bug — see
  * `docs/cache-bug.md` and the Atlas note `docs/atlas/src/content/atlas/surface-app.mdx`.
+ *
+ * ## This file imports NOTHING, and that is a contract
+ *
+ * A Vite config imports it (kolu's own `vite.config.ts:2` takes `ASSET_DIR` and
+ * `NOTIFICATION_SW_SOURCE` from here) and a Vite config is loaded by **Node's
+ * ESM loader**, not by a bundler — the same boundary `./vite`'s header describes
+ * for itself. Node cannot resolve this package's extensionless relative
+ * imports, so ONE `from "./anything"` here — a re-export included — takes down
+ * every consumer's dev server with `ERR_MODULE_NOT_FOUND`, and nothing in this
+ * package's own unit tests can see it because vitest resolves them fine. It is
+ * pinned by `nodeEsm.test.ts`, which READS this file and requires its relative
+ * specifiers to be none — stricter than "Node can resolve them", and the cheap
+ * twin of the `ci::dev-smoke` lane that caught it (that lane takes three minutes
+ * and reads as a timeout waiting for localhost; this fails in milliseconds).
  */
 
 /** Where the immutable, content-hashed assets live, and which paths are the
  *  never-cached SPA shell. Both are INPUTS (not baked-in) so a non-Vite build
  *  can override the convention. */
 export interface FreshnessPaths {
-  /** Prefix of content-hashed, `immutable` assets. Default: Vite's `/assets/`. */
+  /** Prefix of content-hashed, `immutable` assets. Default: Vite's `/assets/`.
+   *  It is the dist-relative directory too — see {@link assetDirOf}, which is
+   *  what a Bun build reads to emit under the same prefix its server pins. */
   assetPrefix?: string;
   /** Paths served as the `no-store` SPA shell. Default: `["/", "/index.html"]`. */
   shellPaths?: string[];
 }
 
-/** The content-hashed asset directory, relative to the dist root (`assets`) —
- *  the on-disk counterpart to the `/assets/` request prefix below. A Bun- or
- *  Vite-built client emits hashed bundles under `<dist>/${ASSET_DIR}/`; the
- *  server pins exactly that prefix `immutable`. Single-sourced here so the
- *  builder (`@kolu/surface-app/bun`) and the server can't disagree on where
- *  hashed assets live. */
+/** The DEFAULT content-hashed asset directory, relative to the dist root
+ *  (`assets`) — the on-disk counterpart to the `/assets/` request prefix below.
+ *  A Bun- or Vite-built client that says nothing emits hashed bundles under
+ *  `<dist>/${ASSET_DIR}/`; the server pins exactly that prefix `immutable`.
+ *  Single-sourced here so the builder (`@kolu/surface-app/bun`) and the server
+ *  can't disagree on where hashed assets live — and {@link assetDirOf} is the
+ *  same agreement for an app that moves them somewhere else. */
 export const ASSET_DIR = "assets";
 
 /** The default request prefix of the immutable, content-hashed assets (Vite's
@@ -33,6 +52,94 @@ export const ASSET_DIR = "assets";
  *  literal, keeping the "safe to precompress" set single-sourced with the
  *  immutable-asset taxonomy. */
 export const DEFAULT_ASSET_PREFIX = `/${ASSET_DIR}/`;
+
+/**
+ * A hashed-asset request prefix, checked — the ONE place its shape is judged,
+ * so a prefix a build refuses cannot be one a server accepts.
+ *
+ * WHY THE PREFIX IS SAYABLE AT ALL, since a knob here would otherwise be a
+ * defect: an app whose root URL space is somebody ELSE's — olai serves a
+ * person's own directory of files at `/`, so `/assets/notes.md` is a page a
+ * reader can address — cannot have the bundle answer first, and a `/assets/*`
+ * miss deliberately 404s rather than falling through to the shell (invariant
+ * #1: an asset miss must never be served HTML). Moving the bundle under a
+ * prefix of the app's own choosing is the only fix; `FreshnessPaths` has taken
+ * that prefix as an input since the freshness contract was written, and the
+ * Vite half honours it through Vite's own `build.assetsDir`. The Bun half is
+ * what had no way to say it.
+ *
+ * Asserted rather than normalised, on this file's fail-fast stance. A prefix
+ * that does not start and end with `/` makes `isImmutableAssetPath`'s
+ * `startsWith` match a sibling directory (`/assetsX/`) or nothing at all; a
+ * bare `/` puts the shell under the immutable contract (kolu#1319); an empty
+ * segment or a `..` names no directory under the dist. Each is a
+ * misconfiguration, not a degraded mode. Returns the prefix, so the check reads
+ * as part of taking the value rather than as a statement standing beside it.
+ */
+export function assertAssetPrefix(
+  assetPrefix: string = DEFAULT_ASSET_PREFIX,
+): string {
+  const wrong =
+    !assetPrefix.startsWith("/") || !assetPrefix.endsWith("/")
+      ? "must start and end with `/`"
+      : assetPrefix === "/"
+        ? "must not be the root, which would put the `no-store` shell under the immutable contract and pin returning browsers to a stale build (kolu#1319)"
+        : assetPrefix.includes("//")
+          ? "must not contain an empty segment"
+          : assetPrefix.split("/").includes("..")
+            ? "must not climb out of the dist with `..`"
+            : /[?#]/.test(assetPrefix)
+              ? "is a path prefix, so it carries no query and no fragment"
+              : null;
+  if (wrong !== null)
+    throw new Error(`assetPrefix ${JSON.stringify(assetPrefix)} ${wrong}.`);
+  return assetPrefix;
+}
+
+/**
+ * …and the dist-relative DIRECTORY that prefix names, which is the same string
+ * without its slashes.
+ *
+ * It is the same string because the static layer serves `<root>/<path>`: a
+ * file requested at `/_app/assets/main-abc.js` is
+ * `<dist>/_app/assets/main-abc.js` on disk and nowhere else. So a build that
+ * emits under one directory and a server pinned to another prefix are not two
+ * settings that disagree — they are one setting spelled twice, and this
+ * derivation is what stops the second spelling existing.
+ * `@kolu/surface-app/bun` reads it to choose its `outdir`, and it is the only
+ * caller that needs the directory at all.
+ */
+export const assetDirOf = (assetPrefix?: string): string =>
+  assertAssetPrefix(assetPrefix).slice(1, -1);
+
+/** A `Content-Encoding` token this package will serve a build-time sibling for. */
+export type PrecompressedEncoding = "br" | "zstd" | "gzip";
+/** The file suffix carrying one encoding's bytes beside the identity asset. */
+export type PrecompressedSuffix = ".br" | ".zst" | ".gz";
+
+/** The build-time precompressed siblings: the `Content-Encoding` token a client
+ *  offers, and the suffix that carries those bytes beside the identity asset.
+ *  ONE table, read by both halves of the socket — `./server`'s `freshStaticLayer`
+ *  walks it to negotiate, `./precompress` walks it to EMIT.
+ *
+ *  Order is the SERVER's preference when a client offers several (a browser
+ *  sending `br, zstd, gzip` gets brotli); it is not a ranking of the encodings.
+ *  The historical bug was about EXISTENCE, not order: the server has been able
+ *  to serve `zstd` since it replaced Hono's `serve-static`, while every
+ *  consumer's hand-rolled post-step wrote only `.br`/`.gz` — so `.zst` was never
+ *  on disk anywhere and that arm of the negotiation was dead code in production.
+ *  A table a builder cannot fail to read is what stops that recurring; the
+ *  literal ROWS are pinned in `index.test.ts`, because a table that quietly
+ *  loses a row would take the emitter down with it and no test would notice. */
+export const PRECOMPRESSED_ENCODINGS: readonly (readonly [
+  encoding: PrecompressedEncoding,
+  suffix: PrecompressedSuffix,
+])[] = [
+  ["br", ".br"],
+  ["zstd", ".zst"],
+  ["gzip", ".gz"],
+];
+
 /** The default `no-store` shell paths `FreshnessPaths.shellPaths` falls back to.
  *  Exported so the server can assert its `precompressed` route (scoped to
  *  `assetPrefix`) never overlaps the shell — the mechanical half of the kolu#1319
@@ -111,11 +218,65 @@ export function shellCommitScriptBody(commit: string): string {
 }
 
 /** Inject the shell-commit script into an HTML shell, right after `<head>` so
- *  it runs before the module bundle reads it. Pure — the Bun builder
- *  (`./bun`) applies it to the template it rewrites; the Vite path injects the
- *  same tag through `transformIndexHtml`. Throws when the template has no
- *  `<head>` rather than silently emitting a shell with no build identity. */
+ *  it runs before the module bundle reads it. Pure, and the path for a caller
+ *  templating its own shell (`./client`'s note names it); the Bun builder goes
+ *  through `injectShellHead` below, which writes this script and the preload
+ *  links in one splice. The Vite path injects the same tag through
+ *  `transformIndexHtml`. Throws when the template has no `<head>` rather than
+ *  silently emitting a shell with no build identity. */
 export function injectShellCommit(html: string, commit: string): string {
+  return injectShellHead(html, { preloadHrefs: [], commit });
+}
+
+/** The `<link rel="modulepreload">` tags, one per href, in order (no hrefs ⇒ the
+ *  empty string).
+ *
+ *  An href that is not a plain `/path` is REFUSED, not escaped: these are hashed
+ *  build outputs named from the app's own source filenames, so a quote in one
+ *  means something upstream is already wrong, and interpolating it would end the
+ *  attribute early and ship a silently broken shell. (`shellCommitScript`
+ *  escapes instead — a commit string is arbitrary by nature and it has no
+ *  standing to refuse one.) That the target is a JS module at all is settled
+ *  where the list is BUILT: `./modulePreload`'s walk refuses a static import
+ *  that is not one, so by the time an href reaches this function the assertion
+ *  `rel="modulepreload"` makes is already true. */
+function modulePreloadLinks(hrefs: readonly string[]): string {
+  return hrefs
+    .map((href) => {
+      if (!/^\/[\w./-]+$/.test(href))
+        throw new Error(
+          `@kolu/surface-app: refusing to write ${JSON.stringify(href)} into an href attribute — a preload URL must be a plain /path`,
+        );
+      return `<link rel="modulepreload" href="${href}">`;
+    })
+    .join("");
+}
+
+/** Everything this package puts in the shell's `<head>`, in the ONE order that
+ *  is correct: the preload links FIRST — the point of the tags is to start those
+ *  chunk fetches at the earliest byte the parser reaches, so nothing may push
+ *  them later — then the build identity. Written in a single splice, so the
+ *  order is stated here, once, instead of being the reverse of the order two
+ *  injector calls happen to appear in.
+ *
+ *  `preloadHrefs` is `SurfaceClientBuildResult.preloadHrefs` — only the build can
+ *  name those files (`./bun`). No preload hrefs ⇒ no preload tags: a shell whose
+ *  entry split into nothing carries no trace of this, rather than an empty
+ *  artifact in every shell that never splits. */
+export function injectShellHead(
+  html: string,
+  { preloadHrefs, commit }: { preloadHrefs: readonly string[]; commit: string },
+): string {
+  return insertAfterHead(
+    html,
+    modulePreloadLinks(preloadHrefs) + shellCommitScript(commit),
+  );
+}
+
+/** Insert `snippet` right after the shell's `<head>` open tag — the ONE place
+ *  anything is added to the head, so no injector can drift into its own idea of
+ *  where the head starts. */
+function insertAfterHead(html: string, snippet: string): string {
   // Require a real `head` start tag with a tag-name boundary — `<head>` or
   // `<head …>` but NOT `<header>`/`<headless>`. A loose `/<head[^>]*>/` would
   // match `<header>` and inject at the wrong spot, defeating the fail-loud
@@ -123,17 +284,17 @@ export function injectShellCommit(html: string, commit: string): string {
   const head = /<head(?:\s|>)/i.exec(html);
   if (!head) {
     throw new Error(
-      "injectShellCommit: the HTML template has no <head> — the shell would carry no build identity",
+      "@kolu/surface-app: the HTML template has no <head> — the shell would carry no build identity, and the entry's static chunks would cost an extra round trip on first paint",
     );
   }
   const close = html.indexOf(">", head.index);
   if (close === -1) {
     throw new Error(
-      "injectShellCommit: the HTML template has an unterminated <head> tag",
+      "@kolu/surface-app: the HTML template has an unterminated <head> tag",
     );
   }
   const at = close + 1;
-  return html.slice(0, at) + shellCommitScript(commit) + html.slice(at);
+  return html.slice(0, at) + snippet + html.slice(at);
 }
 
 /** The never-stale sentinel: the commit value that means "don't claim
@@ -339,14 +500,22 @@ async function focusApp(data) {
 `;
 
 // ── Stale-tab handshake (the restart axis's wire contract) ────────────────────
-// A surface app mints a fresh `processId` per boot (see `serverIdentity` in
-// `/server`). A tab open across a restart reconnects to the NEW process and
+// A serving process has one identity — `surfaceProcessId()` from
+// `@kolu/surface/identity`, which the framework-reserved `system/identity` member
+// answers with. A tab open across a restart reconnects to the NEW process and
 // replays its live subscriptions against state the fresh process never had. The
 // handshake closes that window at the connection boundary: the client echoes its
-// last-known id as a query param on every (re)connect; the server rejects a
-// mismatch before the transport upgrades. These three framework-free pieces are
-// the shared contract both ends (and both runtimes — Node and Bun) build on; the
-// per-runtime extraction and the close itself stay in the consumer.
+// last-known id as a query param on every (re)connect (fed by `./connect`, not by
+// app code); the server rejects a mismatch before the transport upgrades
+// (`gateStaleSocket` in `/server`, the one door). These two framework-free
+// constants are the shared vocabulary both ends — and both runtimes, Node and Bun —
+// build on.
+//
+// The pure `rejectStaleProcess(claimedPid, liveId)` that used to sit here is GONE.
+// Its second argument was the hazard it looked like a safeguard against: any id
+// could be passed as "live", including one the wire never reports, and a gate
+// comparing two unrelated strings rejects every reconnect or none. There is now one
+// process id and one door that reads it.
 
 /** WebSocket URL query param carrying the client's last-known server
  *  `processId`. The client echoes it on every (re)connect so the server can
@@ -360,19 +529,74 @@ export const SERVER_PROCESS_ID_PARAM = "pid";
  *  range (4000–4999, per RFC 6455 §7.4.2). */
 export const STALE_PROCESS_CLOSE_CODE = 4001;
 
-/** The pure stale-tab decision: does a reconnecting client's claimed processId
- *  belong to a previous instance? `true` → reject it (the caller closes with
- *  `STALE_PROCESS_CLOSE_CODE`); `false` → let the handshake proceed. An absent
- *  `claimedPid` (the first-ever connect, before the client observed an identity)
- *  always passes. A total function of two strings — no transport, no request
- *  object — so it's identically callable from a Node `IncomingMessage` host and a
- *  Bun Fetch-`Request` host; each extracts `claimedPid` with
- *  `SERVER_PROCESS_ID_PARAM` off its own request and applies the close itself.
- *  `liveId` MUST be the same id the `identity.info` probe reports (see
- *  `serverIdentity`), or the gate compares against an id the client never saw. */
-export function rejectStaleProcess(
-  claimedPid: string | null,
-  liveId: string,
-): boolean {
-  return claimedPid !== null && claimedPid !== liveId;
-}
+/** The path a surface app's ONE websocket lives at — the single source for both
+ *  legs. Every consumer used to spell this literal twice, at the server's
+ *  `upgrade` handler and at the client's dial URL, which is one fact kept in step
+ *  by hand. Both legs now read it here: `serveSurfaceApp` upgrades exactly here
+ *  and nowhere else, and kolu's browser wire, its `wireCall` CLI dialler, the e2e
+ *  harness's wire and this package's example all build their URL from it.
+ *
+ *  `serveSurfaceApp` compares `pathname` for EQUALITY, where a hand-written
+ *  consumer typically wrote `startsWith("/rpc/ws")` — a deliberate tightening
+ *  that a URL built from this constant can never trip, and a hand-typed one with
+ *  a trailing slash can. */
+export const SURFACE_WS_PATH = "/rpc/ws";
+
+/** The websocket URL a surface app is dialled at, derived from the http(s) base
+ *  it is served on. The ONE derivation of that fact: {@link SURFACE_WS_PATH}
+ *  unified the path, but the scheme swap stayed copied — kolu's browser wire, its
+ *  `wireCall` CLI dialler, the e2e harness's wire and this package's example each
+ *  spelled `https: → wss:` by hand, and that mapping is the part that is easy to
+ *  get wrong (get it wrong and a TLS-served app dials plaintext, which fails only
+ *  in deployment).
+ *
+ *  Browser-safe: `URL` and nothing else, so the page's own
+ *  `` `${location.protocol}//${location.host}` `` goes straight in. */
+export const surfaceWsUrl = (httpBaseUrl: string): string => {
+  const url = new URL(httpBaseUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = SURFACE_WS_PATH;
+  return url.toString();
+};
+
+/** What a thrown value is, said in text a person can put in a bug report — the
+ *  printer half of the fault surface (`SurfaceFaultBoundary` on `/solid` is the
+ *  catching half). It is the one part of that surface that is not markup, so it
+ *  is the part a Node test can pin: a fault card is only worth drawing if what
+ *  it draws IS the fault, and the fault arrives as `unknown` — a render can
+ *  throw a string, an `undefined`, a `DOMException`, anything.
+ *
+ *  The STACK when there is one, because the message alone ("undefined is not an
+ *  object") names no file, and the whole reason a fault card exists is that the
+ *  alternative was a dead tab with the truth in a console nobody opened. V8
+ *  prints the header `name: message` as the stack's first line, so that case
+ *  is not the message twice; a stack that has LOST the message gets it put
+ *  back on the front rather than dropped. "Lost" is decided by whether the
+ *  stack's first line IS the current header — EQUALITY, not a substring test:
+ *  a short message ("app", "12") is routinely a substring of a Safari frame,
+ *  and a shortened reassignment leaves a stale V8 header that contains the
+ *  new message, so anything looser waves real losses through. A message-less
+ *  Error falls back to the name-prefix test (its V8 header is the bare name);
+ *  a multiline message can never equal one line, so it is prepended — the
+ *  safe direction: at worst said twice, never dropped.
+ *
+ *  Never empty: a thrown value that says nothing about itself is still a
+ *  fault, and an empty card would read as a page that broke for no reason. */
+export const thrownText = (error: unknown): string => {
+  if (error instanceof Error) {
+    const named = `${error.name}: ${error.message}`;
+    if (!error.stack) return named;
+    const newline = error.stack.indexOf("\n");
+    const firstLine =
+      newline === -1 ? error.stack : error.stack.slice(0, newline);
+    const carriesMessage =
+      error.message === ""
+        ? firstLine.startsWith(error.name)
+        : firstLine === named;
+    return carriesMessage ? error.stack : `${named}\n${error.stack}`;
+  }
+  const said = String(error);
+  return said === ""
+    ? "the page threw a value that says nothing about itself"
+    : said;
+};

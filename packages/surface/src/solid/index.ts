@@ -35,6 +35,9 @@ export {
   type Dispose,
   type Subscription,
   type SubscriptionOptions,
+  // The three lifecycle signals a stream-backed view carries, apart from its value
+  // — what `useCollectionDeltas`'s `.stream` hands the un-enrolled reach.
+  type SubscriptionState,
   wireSubscriptionError,
 } from "./createSubscription";
 // The grace-windowed boolean view — delays a predicate's rising edge, instant on
@@ -76,6 +79,21 @@ export {
   type LiveSignalHandle,
   type SurfaceConnectionStatus,
 } from "./liveSignal";
+// The READOUT — the transport's four states folded WITH the health fact into the
+// five an indicator may report, so `live` is a claim about what reaches the page
+// rather than about a socket. The connect seams (`@kolu/surface-app`) hand back
+// `createSurfaceReadout`'s memoized accessor INSTEAD of a transport-only `status`;
+// a consumer that assembles its own wire (a hand-built `createLiveSignal` +
+// `surfaceClient`) folds the same two facts through the same function here.
+export {
+  createSurfaceReadout,
+  type DegradedReadout,
+  type SurfaceReadout,
+  surfaceReadout,
+  type SurfaceReadoutHandle,
+  type SurfaceReadoutStatus,
+  type TransportReadout,
+} from "./readout";
 // The browser wake-event seam (window focus / tab visible → an immediate heartbeat
 // re-probe). Exported so `@kolu/surface-app`'s `createServerLifecycle` wires the
 // same fast resume path over its own watchdog; a no-op off-DOM.
@@ -96,6 +114,9 @@ export {
   type BoundCell,
   type BoundCellOptions,
   type BoundCollection,
+  type BoundCollectionResult,
+  type BoundDeltasCollection,
+  type BoundDeltasCollectionResult,
   type BoundEvent,
   type BoundStream,
   buildSurfaceClient,
@@ -108,6 +129,8 @@ export {
   type OnClientError,
   type ReadOnlyBoundCollection,
   type ReadOnlyBoundCollectionResult,
+  type ReadOnlyBoundDeltasCollection,
+  type ReadOnlyBoundDeltasCollectionResult,
   resolveTransport,
   type SurfaceClient,
   type SurfaceClients,
@@ -122,10 +145,23 @@ export {
   type UseCellResult,
   useCell,
 } from "./useCell";
+// `useCollectionDeltas` is public alongside `useCollection` because the
+// deliberately UN-ENROLLED reach needs it. `.use()` is the default and enrols the
+// batched stream into `client.health()`; the #1591 carve-out — a whole-collection
+// view whose re-subscribe must not flicker the health gate — takes
+// `.unenrolledDeltas` instead, and then has to fold the raw frames itself. Without
+// this export that consumer had no way to reach the framework's own store and
+// hand-rolled a copying one beside it, which is the shape this hook exists to
+// retire. The hook takes a caller-provided `source`, so exporting it serves the
+// carve-out without touching the health story.
 export {
+  type CollectionFold,
+  type CollectionFoldOptions,
   type UseCollectionOptions,
+  type UseCollectionDeltasResult,
   type UseCollectionResult,
   useCollection,
+  useCollectionDeltas,
 } from "./useCollection";
 export { type UseEventOptions, useEvent } from "./useEvent";
 export { useStream } from "./useStream";

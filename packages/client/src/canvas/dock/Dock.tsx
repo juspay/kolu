@@ -67,7 +67,7 @@ import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
-import { cwdBasename } from "kolu-common/path";
+import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import {
   type Component,
   createMemo,
@@ -118,6 +118,7 @@ import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
+import { NeedsYouStrip } from "./NeedsYouStrip";
 import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
 import { createDockRowData } from "./dockRowData";
 import { PrPip } from "./PrPip";
@@ -369,6 +370,10 @@ const RailOrCards: Component<{
   onCreate: () => void;
   onOpenWorkspaceSearch: () => void;
 }> = (props) => {
+  // The DESKTOP landing verb for the needs-you strip: split-aware, and it
+  // composes canvas centering. The touch surfaces pass their own (see
+  // `NeedsYouStrip`), which are split-aware too.
+  const dockFocus = useDockFocus();
   // Pre-built `id → flat position` map. RepoSection used to compute
   // each row's flat index via `findIndex` over `flatShortcutRows`, costing
   // O(rows²) per render. The map is rebuilt only when the tree
@@ -382,6 +387,20 @@ const RailOrCards: Component<{
         mode={props.mode}
         onCreate={props.onCreate}
         onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
+      />
+      {/* Pinned ABOVE the scrollport, not inside it: a blocked agent you have
+       *  to scroll to find is the defect this replaces, not a milder form of
+       *  it. Renders nothing when nothing is blocked. */}
+      <NeedsYouStrip
+        entries={props.tree.needsYou}
+        density={props.mode === "rail" ? "icon" : "full"}
+        // `useDockFocus`, NOT `tileStore.activate` — the same landing verb the
+        // section-header asking capsule and `SubTerminalRow` use. The strip
+        // hands it the BLOCKED id, which for a split-blocked tile is a split
+        // id, and `activate` → `focusMainTerminal` cannot focus one (it throws
+        // on a split, and otherwise lands on the parent's main pane). This verb
+        // resolves a split to its tab and still centres the canvas.
+        onSelect={dockFocus}
       />
       <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none flex-1 min-h-0">
         <Show

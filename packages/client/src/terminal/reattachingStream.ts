@@ -214,7 +214,7 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  race is harmless: both roads end in channel 2, the same re-subscribe, and the
  *  budget below bounds the second one either way.
  *
- *  BETA-ASSUMPTION(beta.103): an in-flight stream survives a `SocketOpenError`
+ *  BETA-ASSUMPTION(rc.110): an in-flight stream survives a `SocketOpenError`
  *  re-dial UNFAILED — `RpcClient.makeProtocolSocket`'s `retryTransientErrors`
  *  arm returns early from its `tapCause` without broadcasting
  *  `ClientProtocolError`, which is the only thing that fails registered entries,

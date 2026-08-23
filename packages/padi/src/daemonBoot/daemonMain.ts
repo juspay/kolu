@@ -50,12 +50,14 @@ import {
   shutdownCleanup,
 } from "../koluRoot.ts";
 import { configureDaemonLog, log as padiLog } from "../log.ts";
+import { observeHeldKaval } from "../kavalObservation.ts";
 import { startKavalSupervision } from "../kavalSupervision.ts";
 import { setPadiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import {
   getLocalSocketPath,
   publishDaemonStatus,
   setAutoRecovered,
+  setLinkRestored,
   setPadiServeSocketPath,
 } from "../ptyHost/daemonStatus.ts";
 import {
@@ -82,6 +84,7 @@ import {
   NewerPadiStateProjectVersionError,
   openPadiStateStores,
 } from "../session/stateStore.ts";
+import { writeAgentToolsBakeRecord } from "../agentToolsBake.ts";
 import {
   padiKavalHome,
   padiRuntimeHome,
@@ -94,6 +97,7 @@ import { startInventoryReconciler } from "../terminalEndpoint/inventoryReconcile
 import {
   adoptSurvivingSession,
   parkSavedSession,
+  rewireSurvivingSession,
 } from "../terminalEndpoint/reattach.ts";
 import { resolveTerminalEndpoint } from "../terminalEndpoint/resolve.ts";
 import { snapshotSession } from "../terminals.ts";
@@ -243,6 +247,13 @@ function openStateStores(stateRoot: string, log: Logger): { opened: true } {
     throw new NewerPadiStateProjectVersionError(opened);
   }
   const stores = opened.stores;
+  // The slow re-snapshot tick (#1658): `openPadiStateStores` took the boot
+  // snapshot; a long-running daemon re-snapshots daily through the same
+  // dedupe/rotate path so its newest backup never ages past a day. Armed here
+  // (the daemon boot), not in `openPadiStateStores`, so test fixtures opening
+  // stores don't each arm a process-lifetime timer. `unref`'d — never holds
+  // the process open; disarming rides process exit.
+  stores.ring.startTicker();
   // Import BEFORE the injections below — the imported values must be in place before
   // anything reads a cell. (#1658's backup, inlined per the scope note.)
   importLegacyConfigOnce(stores, log);
@@ -474,7 +485,30 @@ function bootLocalEndpoint(params: {
       legacyHome: params.legacyKavalHome,
       onStatus: publishDaemonStatus,
       onAdopted: adoptSurvivingSession,
+      // #2182: a heal re-wires the taps of terminals padi already holds. It does
+      // NOT run the boot's session reconcile — that verb is written for an empty
+      // registry, and over a live one it rewinds chrome to the last autosave.
+      onHealed: rewireSurvivingSession,
       onNotAdopted: parkSavedSession,
+      // #2182/#2184. That padi repaired a link the user never touched is kolu's
+      // soul, not something `onStatus` can know — but WHICH repair it was decides
+      // which fact the client may state. An ADOPTED heal re-made the link to a
+      // daemon that never stopped serving, so the terminals and agents behind it
+      // are still running; the supervision arm's sentence below ("restarted it;
+      // your session is ready to restore") is false of it in every clause. The
+      // other verdicts landed on a fresh daemon with the session parked, which is
+      // exactly what that arm proves, so they share its signal.
+      // #2184's precondition, from the sensor the supervision arm below reads —
+      // so "is our kaval still there?" has ONE answer on this host, and the
+      // healer re-makes links while the probe arm owns daemons that died.
+      stillServing: Effect.map(
+        observeHeldKaval(params.stateRoot),
+        (observation) => observation.kind,
+      ),
+      onRecovered: (verdict) =>
+        verdict === "adopted"
+          ? setLinkRestored(encodeHostLocation(LOCAL_LOCATION))
+          : setAutoRecovered(encodeHostLocation(LOCAL_LOCATION)),
       onBootSettled: (signal) => {
         startInventoryReconciler(signal);
         // #2101 N1. Convergence was an event — a boot-time adopt-or-spawn — and
@@ -678,6 +712,10 @@ function padiDaemonProgram(
     // Manifests (digest → state-root) so a flag-less kaval-tui can label what it
     // discovers — written into both padi's and its kaval's runtime dirs.
     writeStateRootManifest(home.dir, stateRoot);
+    // The toolchain this daemon will stamp into terminals, recorded beside the
+    // manifest so a SAME-MACHINE supervisor of a newer build can see toolchain
+    // drift and recycle this daemon (juspay/kolu#2146; see agentToolsBake.ts).
+    writeAgentToolsBakeRecord(home.dir);
     // Beside the kaval this padi ACTUALLY holds — `getLocalSocketPath()` is the digest
     // socket normally, but the adopted LEGACY port socket after an upgrade adoption, so
     // discovery labels the real daemon and no empty digest dir is minted.

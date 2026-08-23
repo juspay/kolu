@@ -1,6 +1,7 @@
-/** Terminal display info — client-derived decorations (colors, sub-count)
- *  and the canonical identity key. Identity-and-presentation come from
- *  `terminalKey()` in `kolu-common`; this module only adds the decorations.
+/** Terminal display info — client-derived decorations (colors, sub-count,
+ *  the title an export carries) and the canonical identity key.
+ *  Identity-and-presentation come from `terminalKey()` / `terminalCaption()`
+ *  in `@kolu/terminal-vocab`; this module only adds the decorations.
  *
  *  Deliberately carries NO live `TerminalMetadata`. This value rides the
  *  `displayInfos` memo, which is invalidated only by git / cwd / membership
@@ -15,9 +16,10 @@ import type { TerminalMetadata } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import {
   computeTerminalKeys,
+  terminalCaption,
   type TerminalKey,
   terminalKey,
-} from "kolu-common/terminalKey";
+} from "@kolu/terminal-vocab/terminalKey";
 
 export type TerminalDisplayInfo = {
   /** Deterministic OKLCH hue per repo `group`. Always defined: `group`
@@ -51,6 +53,28 @@ export function pairDisplayRow(
   meta: TerminalMetadata | undefined,
 ): { info: TerminalDisplayInfo; meta: TerminalMetadata } | null {
   return info && meta ? { info, meta } : null;
+}
+
+/** The title a client-side EXPORT of one terminal carries — the PNG copied to
+ *  the clipboard and the PDF printed from the scrollback.
+ *
+ *  One helper because there is one terminal: the two exports composed this
+ *  string separately and had already parted, so the same terminal printed as
+ *  "Terminal" and copied as "terminal" whenever its metadata had not arrived.
+ *  The composition itself is NOT here — it is `terminalCaption`, in
+ *  `@kolu/terminal-vocab`, which padi's daemon-side PNG reads too. So the
+ *  browser's picture and the agent's picture caption a terminal identically by
+ *  construction, not by two files being kept in agreement.
+ *
+ *  What IS here is the only thing the client has and padi does not: metadata
+ *  that has not arrived yet. FALLBACK KEPT: the screenshot's lowercase
+ *  "terminal", not the PDF's "Terminal" — it sits in the same title bar as the
+ *  lowercase `kolu` wordmark, and every real caption it stands in for (a repo
+ *  name, a directory name) is lowercase-as-spelled rather than title-cased. */
+export function terminalExportTitle(
+  meta: TerminalMetadata | undefined,
+): string {
+  return meta ? terminalCaption(meta) : "terminal";
 }
 
 /** Stable 32-bit FNV-1a → hue in [0, 360) with full-hash precision.

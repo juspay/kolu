@@ -92,14 +92,23 @@ export type LiveSignal = Accessor<boolean>;
 
 /** The transport-level status of a reconnecting surface wire: `connecting`
  *  until the first `open`, `live` while open, `reconnecting` after a transient
- *  drop (the link re-dials), `down` after the SERVER retired the wire — a stale
+ *  drop (the link re-dials), `retired` after the SERVER retired the wire — a stale
  *  tab bound to a previous server instance (D5/#5), which never re-dials, so the
- *  page must reload to recover. */
+ *  page must reload to recover.
+ *
+ *  The terminal arm is named `retired`, not `down`. It used to be `down`, and that
+ *  name cost a downstream app the whole seam: "down" reads as a socket that is
+ *  currently away — the state `reconnecting` already covers — so an indicator built
+ *  on it said "reconnecting…" about a page that would never reconnect, and the app
+ *  reached past `status` for a lifecycle it did not otherwise need (olai#61). It
+ *  also collided with `@kolu/surface-app`'s `ConnectionStatus.down`, which means the
+ *  OPPOSITE (a transient drop). The wire has exactly one terminal state; it is now
+ *  spelled the same way the wire spells it. */
 export type SurfaceConnectionStatus =
   | "connecting"
   | "live"
   | "reconnecting"
-  | "down";
+  | "retired";
 
 export interface CreateLiveSignalOptions extends HeartbeatTuning {
   /** For a MULTI-surface combined dispatch, the sibling key whose
@@ -130,8 +139,16 @@ export interface LiveSignalHandle {
    *  `surfaceClients` read it off the handle themselves; do not pull it out and
    *  pass it alone. */
   live: LiveSignal;
-  /** The richer transport status the brand is derived from — render it for a
-   *  per-connection indicator so the watchdog's recovery is VISIBLE, not silent. */
+  /** The richer transport status the brand is derived from — and an INPUT to a
+   *  connection indicator, never the indicator itself. It is a fact about a
+   *  SOCKET, and a socket can be open and answering while a subscription riding
+   *  it is dead; painting this accessor alone is the green-light-over-a-dead-
+   *  collection lie one module over from the one this file closes. Fold it with
+   *  the client's health fact — `createSurfaceReadout(handle.status,
+   *  client.health)` (`./readout`) — and render THAT, so the watchdog's recovery
+   *  is visible and green means what reaches the page. (The `connectSurface` /
+   *  `connectSurfaces` seams do this fold for you and hand back the readout;
+   *  this is the hand-built path's version of the same step.) */
   status: Accessor<SurfaceConnectionStatus>;
   /** The dispatch this handle guards. `surfaceClient`/`surfaceClients` build the
    *  face over THIS dispatch (read off the handle) so the face and the watchdog's
@@ -165,13 +182,14 @@ const warnProbeThrew = (error: unknown) =>
  *  BEFORE the wire has ever opened is a cold start (`connecting`), while the same
  *  raw status AFTER a successful open is a drop the link is healing
  *  (`reconnecting`) — the distinction a first-paint gate needs and the raw wire
- *  status cannot carry. `retired` is terminal and maps to `down` regardless. */
+ *  status cannot carry. `retired` is terminal and passes through under its own
+ *  name, so a reader can tell "will never reconnect" from "reconnecting". */
 function projectStatus(
   wire: WireStatus,
   everOpened: boolean,
 ): SurfaceConnectionStatus {
   if (wire === "open") return "live";
-  if (wire === "retired") return "down";
+  if (wire === "retired") return "retired";
   return everOpened ? "reconnecting" : "connecting";
 }
 

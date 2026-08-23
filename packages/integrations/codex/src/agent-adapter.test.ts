@@ -2,11 +2,11 @@ import type { AgentTerminalState } from "anyagent";
 import type { Logger } from "kolu-shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const findSessionMock = vi.fn();
+const findSessionsMock = vi.fn();
 
 vi.mock("./core.ts", () => ({
-  findSessionByDirectory: (dir: string, log?: Logger) =>
-    findSessionMock(dir, log),
+  findSessionsByDirectory: (dir: string, log?: Logger) =>
+    findSessionsMock(dir, log),
 }));
 vi.mock("./session-watcher.ts", () => ({ createCodexWatcher: vi.fn() }));
 vi.mock("./wal-watcher.ts", () => ({ subscribeCodexDb: vi.fn() }));
@@ -30,32 +30,58 @@ function makeState(over: Partial<AgentTerminalState>): AgentTerminalState {
   };
 }
 
-describe("codexAdapter.resolveSession", () => {
+describe("codexAdapter.resolveSessions", () => {
   beforeEach(() => {
-    findSessionMock.mockReset();
+    findSessionsMock.mockReset();
   });
 
   it("matches when the kernel basename is 'codex' (native install)", () => {
-    findSessionMock.mockReturnValue({ id: "t1", rolloutPath: "/tmp/r.jsonl" });
+    findSessionsMock.mockReturnValue([
+      { id: "t1", rolloutPath: "/tmp/r.jsonl" },
+    ]);
     const state = makeState({ readForegroundBasename: () => "codex" });
-    expect(codexAdapter.resolveSession(state, noopLog)).toEqual({
-      id: "t1",
-      rolloutPath: "/tmp/r.jsonl",
-    });
-    expect(findSessionMock).toHaveBeenCalledWith("/repo", noopLog);
+    expect(codexAdapter.resolveSessions(state, noopLog)).toEqual([
+      { id: "t1", rolloutPath: "/tmp/r.jsonl" },
+    ]);
+    expect(findSessionsMock).toHaveBeenCalledWith("/repo", noopLog);
   });
 
   it("matches when only lastAgentCommandName is 'codex' (npm shim #673)", () => {
-    findSessionMock.mockReturnValue({ id: "t2", rolloutPath: "/tmp/r.jsonl" });
+    findSessionsMock.mockReturnValue([
+      { id: "t2", rolloutPath: "/tmp/r.jsonl" },
+    ]);
     const state = makeState({
       readForegroundBasename: () => "node",
       lastAgentCommandName: "codex",
     });
-    expect(codexAdapter.resolveSession(state, noopLog)).toEqual({
-      id: "t2",
-      rolloutPath: "/tmp/r.jsonl",
-    });
-    expect(findSessionMock).toHaveBeenCalledWith("/repo", noopLog);
+    expect(codexAdapter.resolveSessions(state, noopLog)).toEqual([
+      { id: "t2", rolloutPath: "/tmp/r.jsonl" },
+    ]);
+    expect(findSessionsMock).toHaveBeenCalledWith("/repo", noopLog);
+  });
+
+  it("hands back EVERY thread in the directory, not just the newest", () => {
+    // Two harnesses in one repo: the adapter cannot tell which thread is this
+    // terminal's, so it offers both and the orchestrator's ownership arbiter
+    // gives each terminal one of its own (juspay/kolu#2057).
+    findSessionsMock.mockReturnValue([
+      { id: "newer", rolloutPath: "/tmp/b.jsonl" },
+      { id: "older", rolloutPath: "/tmp/a.jsonl" },
+    ]);
+    const state = makeState({ readForegroundBasename: () => "codex" });
+    expect(
+      codexAdapter.resolveSessions(state, noopLog)?.map((s) => s.id),
+    ).toEqual(["newer", "older"]);
+  });
+
+  it("passes a null through — an unreadable DB is not an empty directory", () => {
+    // `findSessionsByDirectory` answers null when the query THREW, and the
+    // orchestrator must be able to tell that from "this directory has no
+    // threads": the latter releases the terminal's session, the former must
+    // change nothing.
+    findSessionsMock.mockReturnValue(null);
+    const state = makeState({ readForegroundBasename: () => "codex" });
+    expect(codexAdapter.resolveSessions(state, noopLog)).toBeNull();
   });
 
   it("skips lookup when neither signal names codex", () => {
@@ -63,8 +89,8 @@ describe("codexAdapter.resolveSession", () => {
       readForegroundBasename: () => "node",
       lastAgentCommandName: null,
     });
-    expect(codexAdapter.resolveSession(state, noopLog)).toBeNull();
-    expect(findSessionMock).not.toHaveBeenCalled();
+    expect(codexAdapter.resolveSessions(state, noopLog)).toEqual([]);
+    expect(findSessionsMock).not.toHaveBeenCalled();
   });
 
   it("skips lookup when lastAgentCommandName names a different agent", () => {
@@ -72,7 +98,7 @@ describe("codexAdapter.resolveSession", () => {
       readForegroundBasename: () => "bash",
       lastAgentCommandName: "opencode",
     });
-    expect(codexAdapter.resolveSession(state, noopLog)).toBeNull();
-    expect(findSessionMock).not.toHaveBeenCalled();
+    expect(codexAdapter.resolveSessions(state, noopLog)).toEqual([]);
+    expect(findSessionsMock).not.toHaveBeenCalled();
   });
 });

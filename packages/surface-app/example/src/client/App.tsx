@@ -6,22 +6,34 @@
  * chrome and drishti's; only the pixels differ.
  */
 
-import { shellCommit } from "@kolu/surface-app/lifecycle";
-import {
-  type ConnectionStatus,
-  SurfaceAppProvider,
-  surfaceAppProbe,
-  useSurfaceApp,
-} from "@kolu/surface-app/solid";
+import { reloadForUpdate, shellCommit } from "@kolu/surface-app/lifecycle";
+import { SurfaceAppProvider, useSurfaceApp } from "@kolu/surface-app/solid";
+import { probeSurfaceIdentity } from "@kolu/surface/identity";
+import type { SurfaceReadoutStatus } from "@kolu/surface/solid";
 import { createSignal, Show } from "solid-js";
 import { buildInfo, type ExampleBuildInfo } from "../common/surface";
-import { clients, link } from "./wire";
+import { clients, conn } from "./wire";
 
-const STATUS_LABEL: Record<ConnectionStatus, string> = {
+/** The wording, which is the APP's — the framework decides which of the five
+ *  states is true, never what it is called. A `Record`, so a state with no
+ *  sentence of its own is a type error here rather than a silent fallback. */
+const STATUS_LABEL: Record<SurfaceReadoutStatus, string> = {
+  connecting: "connecting…",
   live: "live",
+  degraded: "partly live",
   reconnecting: "reconnecting…",
-  restarted: "server restarted",
-  down: "down",
+  retired: "server restarted",
+};
+
+/** This app's green claim, spelled out: `live` means the cells on this page are
+ *  arriving, not that a socket is open. When they aren't, the readout says WHICH
+ *  ones — a non-empty list by type, so this sentence can't come out with a hole
+ *  in it. */
+const statusDetail = (): string => {
+  const now = conn.readout();
+  return now.status === "degraded"
+    ? `connected, but nothing is arriving on ${now.stopped.join(", ")}`
+    : STATUS_LABEL[now.status];
 };
 
 function Shell() {
@@ -51,8 +63,17 @@ function Shell() {
   return (
     <>
       <header class="rail">
-        <span class={`dot ${pwa.status() === "live" ? "ok" : "warn"}`} />
-        <span class="muted">{STATUS_LABEL[pwa.status()]}</span>
+        {/* The dot reads the READOUT, not the transport: `connectSurfaces` folds
+            the wire's state together with every sibling's subscription health, so
+            green here is a claim about what reaches THIS PAGE. Painting it from a
+            transport status alone is how a stopped `serverStats` would render as
+            a frozen panel under a green light. */}
+        <span
+          class={`dot ${conn.readout().status === "live" ? "ok" : "warn"}`}
+        />
+        <span class="muted" title={statusDetail()}>
+          {STATUS_LABEL[conn.readout().status]}
+        </span>
         <span class="sep">·</span>
         <span>
           SRV <b class="srv">{pwa.server()?.commit || "…"}</b>
@@ -142,24 +163,40 @@ export default function App() {
       controlPlane={clients.surfaceApp}
       clientCommit={shellCommit()}
       buildInfo={buildInfo}
-      wire={link.wire}
+      wire={conn.link.wire}
       // `wire.ts`'s `createLiveSignal` already wires the half-open watchdog over
       // this wire (minting the branded `{ live }` the clients require), so
       // the lifecycle opts ITS watchdog out — one watchdog on the wire, not two.
       // (The lifecycle mints no brand, so this is ownership coordination only.)
       heartbeat={false}
-      // The probe rides the SCOPED `surfaceApp` client: its dispatch splices the
-      // sibling key into every tag, so `surface.identity.info` resolves at the
-      // wire tag `surface/surfaceApp/identity/info`. The key is consumed by the
-      // scope and does NOT reappear in the member path. `.rpc` is the STRUCTURAL
-      // member face (per-member types live in the bound hooks), so the caller
-      // pins the probe call shape here. It hands back an `Effect` — the provider
-      // runs it at its own edge, so an app never opens one.
-      probe={() => surfaceAppProbe(clients.surfaceApp)}
+      // The FRAMEWORK-RESERVED identity round-trip — no app-declared member. It
+      // rides the SCOPED `surfaceApp` client, whose dispatch splices the sibling
+      // key into every tag, so it resolves at `surface/surfaceApp/system/identity`.
+      // It hands back an `Effect` — the provider runs it at its own edge, so an app
+      // never opens one. Its `processId` is the same id the stale-tab gate compares
+      // against, because both read `surfaceProcessId()`.
+      probe={() => probeSurfaceIdentity(clients.surfaceApp.rpc)}
       // Turnkey `{ ws, probe }` mode: `onError` covers BOTH the buildInfo
       // stream and a failed identity probe (a broken probe would otherwise
       // leave the connection status stuck silently).
       onError={(err) => console.error("surface-app error:", err)}
+      // What an uncaught render throw looks like — REQUIRED, like `retired` on
+      // the connect seam: the provider wraps the shell in
+      // `SurfaceFaultBoundary`, which catches/records/prints; the app supplies
+      // only this markup, handed the printed text verbatim.
+      fault={(text) => (
+        <main class="body">
+          <h1>This page broke</h1>
+          <p class="lead">
+            The client itself threw while drawing — the text below is what a bug
+            report is made of.
+          </p>
+          <pre>{text}</pre>
+          <button type="button" class="reload" onClick={reloadForUpdate}>
+            Reload
+          </button>
+        </main>
+      )}
     >
       <Shell />
     </SurfaceAppProvider>

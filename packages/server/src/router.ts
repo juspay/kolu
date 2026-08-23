@@ -24,7 +24,13 @@ import type { SurfaceHandlers } from "@kolu/surface/server";
 import { Context, Effect } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { koluRootGroup } from "kolu-common/contract";
-import type { HostRef, ViewerHost } from "kolu-common/contract";
+import type {
+  HostRef,
+  ServerBackupsList,
+  ServerBackupsRestore,
+  ServerBackupsRestoreResult,
+  ViewerHost,
+} from "kolu-common/contract";
 import type { HostKey } from "kolu-common/hostKey";
 import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
@@ -36,10 +42,11 @@ import type { ServedFragment } from "./surface.ts";
  *
  *  It is a service, not an argument, because Effect RPC has no per-request context
  *  bag: the transport mount provides it per CONNECTION. `index.ts` builds a
- *  `Layer.succeed(CurrentViewer)({…})` from the upgrade request's peer address and
- *  `x-forwarded-for` header, and hands that layer to `serveSurfaceSocket` — so each
- *  websocket's RPC serving stack carries its own viewer facts and a broadcast
- *  surface cell (which could not differ per viewer) is not needed.
+ *  `Layer.succeed(CurrentViewer)({…})` from the connection facts `serveSurfaceApp`
+ *  hands its `services` factory — the direct peer, and the `x-forwarded-for` it
+ *  named in `upgradeHeaders` — so each websocket's RPC serving stack carries its
+ *  own viewer facts and a broadcast surface cell (which could not differ per
+ *  viewer) is not needed.
  *
  *  BOTH facts, deliberately: behind a reverse proxy the TCP peer is the PROXY and
  *  the viewer's own address is in the header. Reading only the peer is why this
@@ -92,6 +99,16 @@ export interface BuildAppRouterDeps {
     peerAddress: string | undefined;
     forwardedFor: string | undefined;
   }) => Promise<HostKey | null>;
+  /** Enumerate kolu-server's state-backup ring (#1658) — `stateBackups.ts`'s
+   *  list, injected like every other domain seam. */
+  listStateBackups: () => ServerBackupsList;
+  /** Restore one ring snapshot in-process (validate → cell writes → pool
+   *  convergence) — `stateBackups.ts`'s restore with the boot's seams bound.
+   *  Answers the hosts that would not converge; every anomaly that happens
+   *  before anything is applied still throws. */
+  restoreStateBackup: (
+    input: ServerBackupsRestore,
+  ) => Promise<ServerBackupsRestoreResult>;
 }
 
 /** Bind the root procedures. Called from `index.ts`'s async boot (and from the
@@ -115,6 +132,16 @@ export function buildAppRouter(deps: BuildAppRouterDeps): ServedFragment {
     // folds a remote host into the name.
     "server/info": () =>
       Effect.sync(() => ({ identity: pwaIdentityForHostname(serverHostname) })),
+    // The state-backup ring (#1658) — kolu-server's own store. An anomaly that
+    // happens BEFORE anything is applied is an undeclared throw (a defect the
+    // caller's toast surfaces); a partially-converged host pool is not an
+    // anomaly but an ANSWER, and rides the success channel.
+    "server/backups/list": () => Effect.sync(() => deps.listStateBackups()),
+    "server/backups/restore": (input: ServerBackupsRestore) =>
+      Effect.promise(async () => {
+        log.info({ file: input.file }, "server state restore requested");
+        return await deps.restoreStateBackup(input);
+      }),
     "daemon/restart": () =>
       Effect.gen(function* () {
         log.info({}, "padi restart requested — draining the bound padi");

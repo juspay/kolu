@@ -47,7 +47,7 @@ import { runAction } from "../runAction";
 import {
   activeTileOf,
   type TerminalFocus,
-  type TerminalPlacement,
+  type LivePlacement,
 } from "../terminal/focusedTerminal";
 import { useVisitRecency } from "../terminal/visitRecency";
 import { padiRpcOf } from "../wire";
@@ -91,7 +91,7 @@ export interface HostViewState {
 
 export function createViewState(
   host: HostKey,
-  placementOf: (id: TerminalId) => TerminalPlacement,
+  placementOf: (id: TerminalId) => LivePlacement,
 ): HostViewState {
   const [focus, setFocus] = createSignal<TerminalFocus | null>(null);
   const focusedTerminalId = createMemo(() => focus()?.id ?? null);

@@ -90,6 +90,15 @@ export type {
   AttentionClass,
   Urgency,
 } from "@kolu/terminal-vocab/agentProjection";
+// The attention TRANSITION decision (which terminals just entered the attention
+// class) rides the same door for the same reason — padi is its other consumer,
+// so the browser's alert and a supervisor agent's nudge fire on one definition.
+export type {
+  AttentionFrame,
+  AttentionTransition,
+  AttentionTransitions,
+} from "@kolu/terminal-vocab/attentionTransitions";
+export { createAttentionTransitions } from "@kolu/terminal-vocab/attentionTransitions";
 // The renderer-agnostic agent-state projection (bucket · urgency · needs-you
 // rank) is OWNED by `@kolu/terminal-vocab/agentProjection` — the ONE source
 // padi-tui and downstream dashboards (drishti) already share. The kolu client reaches it through the
@@ -837,9 +846,9 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 //     seal) — so koluSurface has NO collections and NO events, and the terminal
 //     RECORD rides padi's `terminals` collection, not here.
 //   - `surfaceAppSurface_kolu` — surface-app's COMPLETE surface (the
-//     build-identity `buildInfo` cell — `commit` + `version` — plus the
-//     `identity.info` restart probe). Served under the `surfaceApp` key. Its wire
-//     path is `surface.surfaceApp.{buildInfo,identity}`. The `expectedKaval` axis
+//     build-identity `buildInfo` cell — `commit` + `version`). Served under the
+//     `surfaceApp` key; its wire path is `surface.surfaceApp.buildInfo`. The restart
+//     axis is the RESERVED `surface.surfaceApp.system.identity` every surface carries. The `expectedKaval` axis
 //     it once extended `buildInfo` with moved to padi's `status` cell (W1.R7).
 //
 // The GENERIC `@kolu/terminal-vocab` surface is no longer served here: kolu's
@@ -1011,6 +1020,15 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       // reactive bridge's law). The map republishes on every move; a move that
       // leaves the rendered list identical never reaches a client.
       equals: sameForwards,
+      // A row IS its `key` — the forward map's own identity for the target (see
+      // {@link KoluForwardSchema}), and the handle its cancel button carries. So
+      // the client's store merges these rows BY it rather than replacing them:
+      // `ForwardRows`' `<For>` keys by reference, and without the declaration a
+      // frame moving ONE forward rebuilt the DOM of ALL of them — dropping the
+      // "Copied" tick on a row somebody had just copied, and any hover or focus
+      // sitting on another. `equals` above stops the frames that say nothing;
+      // this decides what a frame that DOES say something is allowed to disturb.
+      arrayKey: "key",
       verbs: ["get"],
       client: { onError: { kind: "toast", label: "Port forwards" } },
     },

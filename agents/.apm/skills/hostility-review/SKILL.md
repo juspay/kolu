@@ -37,6 +37,8 @@ This loop splits them. Five moves; the mechanics live in `/kolu`.
 
 5. **Ratchet and scope.** Every named cheat joins the ledger (the next run
    starts smarter) and graduates, where possible, into a permanent check —
-   yesterday's judgment is tomorrow's red build. Effort follows worth:
+   yesterday's judgment is tomorrow's red build. The graduated check is the
+   weakest predicate that still catches the named cheat — a broader one makes
+   tomorrow's red build a false one (arXiv:2301.12987). Effort follows worth:
    framework surface, then production semantics, then app tests — a guard
    of a guard is rarely worth a wave.

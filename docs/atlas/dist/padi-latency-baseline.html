@@ -138,7 +138,8 @@ breached, padi’s carve-out permits a raw-byte relay on the padi→kolu-server 
 the browser dials, which owns the dial and the reconnect — over the padi host
 map’s own wire group. padi is a keyed map, so every member call is folded into the
 map’s <code>{ mapKey, input }</code> envelope for the local host key, exactly as the e2e
-harness does. Then, for each terminal: <code>lifecycle.create({})</code> a bare shell,
+harness does. Then, for each terminal: <code>lifecycle.create({placement: {kind: &quot;toplevel&quot;}})</code> a bare shell — placement is required and the probe
+measures one unparented terminal at a time —
 subscribe to <code>terminalAttach</code>, and ping single keystrokes <strong>serially</strong> — send one,
 wait for its echo, record, repeat. Serial by design: only one keystroke is ever
 in flight, so an echo can never be attributed to the wrong key. Attach frames are

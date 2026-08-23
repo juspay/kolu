@@ -2,11 +2,11 @@ import type { AgentTerminalState } from "anyagent";
 import type { Logger } from "kolu-shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const findSessionMock = vi.fn();
+const findSessionsMock = vi.fn();
 
 vi.mock("./core.ts", () => ({
-  findSessionByDirectory: (dir: string, log?: Logger) =>
-    findSessionMock(dir, log),
+  findSessionsByDirectory: (dir: string, log?: Logger) =>
+    findSessionsMock(dir, log),
 }));
 vi.mock("./session-watcher.ts", () => ({ createOpenCodeWatcher: vi.fn() }));
 
@@ -29,30 +29,51 @@ function makeState(over: Partial<AgentTerminalState>): AgentTerminalState {
   };
 }
 
-describe("opencodeAdapter.resolveSession", () => {
+describe("opencodeAdapter.resolveSessions", () => {
   beforeEach(() => {
-    findSessionMock.mockReset();
+    findSessionsMock.mockReset();
   });
 
   it("matches when the kernel basename is 'opencode' (native install)", () => {
-    findSessionMock.mockReturnValue({ id: "s1" });
+    findSessionsMock.mockReturnValue([{ id: "s1" }]);
     const state = makeState({ readForegroundBasename: () => "opencode" });
-    expect(opencodeAdapter.resolveSession(state, noopLog)).toEqual({
-      id: "s1",
-    });
-    expect(findSessionMock).toHaveBeenCalledWith("/repo", noopLog);
+    expect(opencodeAdapter.resolveSessions(state, noopLog)).toEqual([
+      { id: "s1" },
+    ]);
+    expect(findSessionsMock).toHaveBeenCalledWith("/repo", noopLog);
   });
 
   it("matches when only lastAgentCommandName is 'opencode' (npm shim)", () => {
-    findSessionMock.mockReturnValue({ id: "s2" });
+    findSessionsMock.mockReturnValue([{ id: "s2" }]);
     const state = makeState({
       readForegroundBasename: () => "node",
       lastAgentCommandName: "opencode",
     });
-    expect(opencodeAdapter.resolveSession(state, noopLog)).toEqual({
-      id: "s2",
-    });
-    expect(findSessionMock).toHaveBeenCalledWith("/repo", noopLog);
+    expect(opencodeAdapter.resolveSessions(state, noopLog)).toEqual([
+      { id: "s2" },
+    ]);
+    expect(findSessionsMock).toHaveBeenCalledWith("/repo", noopLog);
+  });
+
+  it("hands back EVERY session in the directory, not just the newest", () => {
+    // Two harnesses in one repo: the adapter cannot tell which session is this
+    // terminal's, so it offers both and the orchestrator's ownership arbiter
+    // gives each terminal one of its own (juspay/kolu#2057). A `LIMIT 1` here
+    // would not mirror the rows — the arbiter refuses to lend — but it would
+    // leave the second OpenCode terminal's row permanently blank.
+    findSessionsMock.mockReturnValue([{ id: "newer" }, { id: "older" }]);
+    const state = makeState({ readForegroundBasename: () => "opencode" });
+    expect(
+      opencodeAdapter.resolveSessions(state, noopLog)?.map((s) => s.id),
+    ).toEqual(["newer", "older"]);
+  });
+
+  it("passes a null through — an unreadable DB is not an empty directory", () => {
+    // Null means the query threw; the orchestrator must be able to tell that
+    // from "this directory has no sessions", which releases the terminal's own.
+    findSessionsMock.mockReturnValue(null);
+    const state = makeState({ readForegroundBasename: () => "opencode" });
+    expect(opencodeAdapter.resolveSessions(state, noopLog)).toBeNull();
   });
 
   it("skips lookup when neither signal names opencode", () => {
@@ -60,7 +81,7 @@ describe("opencodeAdapter.resolveSession", () => {
       readForegroundBasename: () => "node",
       lastAgentCommandName: null,
     });
-    expect(opencodeAdapter.resolveSession(state, noopLog)).toBeNull();
-    expect(findSessionMock).not.toHaveBeenCalled();
+    expect(opencodeAdapter.resolveSessions(state, noopLog)).toEqual([]);
+    expect(findSessionsMock).not.toHaveBeenCalled();
   });
 });

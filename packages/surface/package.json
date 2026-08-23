@@ -14,12 +14,14 @@
     "./client": "./src/client.ts",
     "./define": "./src/define.ts",
     "./errors": "./src/errors.ts",
+    "./expose": "./src/expose.ts",
     "./failure-ledger": "./src/failureLedger.ts",
     "./heartbeat": "./src/heartbeat.ts",
     "./link": "./src/link.ts",
     "./identity": "./src/identity.ts",
     "./liveness": "./src/liveness.ts",
     "./first-frame": "./src/firstFrame.ts",
+    "./frame-chunking": "./src/frameChunking.ts",
     "./frame-limit": "./src/frameLimit.ts",
     "./wait": "./src/wait.ts",
     "./loopback": "./src/loopback.ts",
@@ -43,7 +45,8 @@
     "./links/direct": "./src/links/direct.ts",
     "./links/unix-socket": "./src/links/unix-socket.ts",
     "./peer-server": "./src/peer-server.ts",
-    "./unix-socket": "./src/unix-socket.ts"
+    "./unix-socket": "./src/unix-socket.ts",
+    "./verbs": "./src/verbs.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -59,12 +62,12 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
-    "@effect/platform-browser": "4.0.0-beta.103",
-    "@effect/platform-node": "4.0.0-beta.103",
+    "@effect/platform-browser": "4.0.0-rc.110",
+    "@effect/platform-node": "4.0.0-rc.110",
     "@kolu/log": "workspace:*",
     "@solid-primitives/rootless": "^1.5.3",
     "@solid-primitives/scheduled": "^1.5.3",
-    "effect": "4.0.0-beta.103",
+    "effect": "4.0.0-rc.110",
     "solid-js": "^1.9.0"
   }
 }

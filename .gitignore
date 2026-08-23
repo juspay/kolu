@@ -28,8 +28,6 @@ packages/client/public/fonts
 # /be review gauntlet: per-worktree scratch (reviewer comment artifacts)
 .be-review-comments/
 .gauntlet/
-# /self-improve skill: per-worktree scratch (mined transcript signals)
-.self-improve/
 .be-review-state/
 bridge-data.js
 

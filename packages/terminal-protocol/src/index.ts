@@ -14,6 +14,9 @@
  *  - `bracketedPaste`  — the `?2004` paste delimiters.
  *  - `keyInput`        — named-key → bytes table + the Ctrl `& 0x1f` fold, the
  *    one home for every producer of key-press bytes (client + key bar + CLI).
+ *  - `sendPolicy`      — WHAT a named send writes: text-XOR-keys, the
+ *    unknown-key refusal, and the auto bracketed-paste rule, one layer up from
+ *    the two tables above and shared by `kolu send` and the MCP send tool.
  *  - `snapshotReset`   — the reciprocal reset for modes a replayed
  *    `@xterm/addon-serialize` snapshot can switch on.
  *
@@ -49,4 +52,12 @@ export {
   isTerminalQueryResponse,
   type TerminalResponseStripper,
 } from "./responseFilter.ts";
+export {
+  type SendContent,
+  type SendEncoding,
+  encodeSend,
+  type SendPlan,
+  sendShapeRefusal,
+  type SendVocabulary,
+} from "./sendPolicy.ts";
 export { SNAPSHOT_TTY_RESET } from "./snapshotReset.ts";

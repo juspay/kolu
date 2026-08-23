@@ -1,7 +1,9 @@
 /** Byte-count formatting + the Chromium JS-heap probe — the single source of
- *  truth for memory display across the client. Shared by the Diagnostic Info
- *  dialog (the full `used / total (limit)` breakdown) and the chrome-bar rail
- *  (the compact whole-MB readouts), so the granularity rules live in one place. */
+ *  truth for BYTE display across the client, memory and on-disk alike. Shared by
+ *  the Diagnostic Info dialog (the full `used / total (limit)` breakdown), the
+ *  chrome-bar rail (the compact whole-MB readouts) and the State Backups dialog
+ *  (snapshot sizes), so the granularity rules live in one place rather than one
+ *  formatter per surface with its own thresholds. */
 
 import { BYTES_PER_MB, bytesToWholeMB } from "kolu-common/surface";
 

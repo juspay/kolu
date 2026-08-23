@@ -328,7 +328,7 @@ export async function websocketLink(
   // closed/retired edge stays exactly as observable as before — and it reads the
   // `retired` flag the socket's own `close` listener has already set.
   //
-  // BETA-ASSUMPTION(beta.103): `onDisconnect` runs on EVERY attempt end, including
+  // BETA-ASSUMPTION(rc.110): `onDisconnect` runs on EVERY attempt end, including
   // the ones whose failure `retryTransientErrors` then swallows — Effect RPC applies
   // `Effect.ensuring(hooks.onDisconnect)` to the whole attempt, OUTSIDE the `tapCause`
   // that returns early for a `SocketOpenError`. Two things below rest on it and on
@@ -376,23 +376,34 @@ export async function websocketLink(
   const link = await openWireLink({
     group: opts.group,
     protocol,
-    transportError: (failure) =>
+    transportError: (error) =>
       retired
         ? new SurfaceTransportRetired({
-            reason:
-              failure.kind === "disposed"
-                ? "the link was disposed after the server retired this socket"
-                : `the server closed this socket with code ${retiredCode} (${failure.error.message})`,
+            death: "retiredByServer",
+            // The close CODE is the whole fact, and the failing call's own
+            // `RpcClientError` message is not part of it. Interpolating that
+            // message rendered `SocketOpenError`'s fixed `timeout waiting for
+            // "open"` whenever a ping timeout coincided with retirement — the
+            // one sentence `stdioPingStall.test.ts` exists to keep off an
+            // operator's screen, pasted under a verdict that had nothing to do
+            // with it. `death` carries WHICH terminal fact this was; the code
+            // says which retirement.
+            reason: `the server closed this socket with code ${retiredCode}`,
           })
-        : failure.kind === "disposed"
-          ? new SurfaceTransportRetired({
-              reason: "the link was disposed; request not sent",
-            })
-          : // NOT retired: hand the transport failure through unchanged. It is
-            // the `RpcClientError` the face's per-subscription retry fence
-            // (D3/#12) retries on — translating it here would silently make
-            // every reconnect permanent.
-            failure.error,
+        : // NOT retired: hand the transport failure through unchanged. It is
+          // the `RpcClientError` the face's per-subscription retry fence
+          // (D3/#12) retries on — translating it here would silently make
+          // every reconnect permanent. Its ping timeout is a RETRYABLE orphan,
+          // not a terminal fact, so it is a different fact from the duplex
+          // leg's and correctly wears a different tag.
+          error,
+    disposedError: () =>
+      new SurfaceTransportRetired({
+        death: "disposed",
+        reason: retired
+          ? "the link was disposed after the server retired this socket"
+          : "the link was disposed; request not sent",
+      }),
   });
 
   // ── The epoch wrap: a re-dial cycle FAILS what it orphaned (kolu#2101 J1) ──

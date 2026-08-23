@@ -21,28 +21,30 @@
  *
  * ## Why the value is what it is
  *
- * `RPC_MAX_FRAME_BYTES` is set to Effect's own beta.103 default, 16 MiB, and
+ * `RPC_MAX_FRAME_BYTES` is set to Effect's own rc.110 default, 16 MiB, and
  * that equality is the POINT rather than a coincidence: passing it explicitly
  * at every site means a future bump that changes the default cannot move
  * kolu's wire silently. The number stops being Effect's and starts being ours.
  *
  * Raising it was considered and rejected. A cap only converts "one huge frame"
  * into "one huger frame" — the fix for payloads that scale with user content is
- * to stop letting any single frame scale with user content at all (see
- * `@kolu/padi`'s `UPLOAD_CHUNK_BYTES`, derived FROM this constant). The cap is
- * the backstop, not the budget.
+ * to stop letting any single frame scale with user content at all. That is the
+ * sender's half of this module, and it lives next door in `./frameChunking.ts`,
+ * derived FROM this constant. The cap is the backstop, not the budget.
  *
  * ## The measurement behind the marker
  *
- * BETA-ASSUMPTION(beta.103): an ndjson frame over `maxBufferSize` closes the socket with code 1009 rather than failing the single oversized call.
+ * BETA-ASSUMPTION(rc.110): an ndjson frame over `maxBufferSize` closes the socket with code 1009 rather than failing the single oversized call.
  *
- * Measured against `effect@4.0.0-beta.103`:
+ * Measured against `effect@4.0.0-rc.110`:
  *   - `dist/unstable/rpc/RpcSerialization.js` — `defaultMaxBufferSize = 16 * 1024 * 1024`,
  *     `isBufferSizeExceeded(size, max) => max !== "unbounded" && size > max`
  *     (strictly greater, so a frame EXACTLY at the cap is accepted).
  *   - `dist/unstable/rpc/RpcServer.js` — the inbound decode's catch turns a
  *     `MaxBufferSizeExceeded` into `writeRaw(new Socket.CloseEvent(1009, …))`.
- *     It is the only `1009` in the whole `effect` dist.
+ *     It is the only `1009` CLOSE CODE in the whole `effect` dist (the one
+ *     other textual hit is a substring inside a numeric table in
+ *     `httpapi/internal/httpApiSwagger.js`, not a close code).
  *   - `dist/unstable/rpc/RpcClient.js` — the CLIENT leg has no 1009 path: the
  *     same overflow surfaces as an `RpcClientDefect`. The close-the-socket
  *     semantics are therefore asymmetric, client→server only.
@@ -52,11 +54,36 @@
  * the client-side refusal both need re-deriving, which is what the marker
  * forces.
  *
- * The cap counts UTF-16 code units of the decoded frame text, not UTF-8 bytes
- * (`buffer` is a JS string and the check is `nlIndex - position`). For the
- * base64 and ASCII-JSON payloads that get anywhere near the cap the two are
- * equal, and where they differ a code unit is never MORE than a UTF-8 byte, so
- * treating the cap as a byte budget is conservative in the safe direction.
+ * ## The budget is BYTES — and it is what a transport cap must enforce
+ *
+ * This is the whole argument, kept HERE because this file owns the number; every
+ * other site (`@kolu/surface-app/serve`'s `maxPayload`, the surface-app Reference
+ * page, padi's chunk margins) states the claim and points back.
+ *
+ * `exceedsFrameLimit(bytes)` is the framework's PUBLISHED sender-side predicate,
+ * and every sender in this repo budgets against it in BYTES — the terminal's
+ * paste delivery, and the whole `./frameChunking.ts` derivation it rides
+ * (`frameBytesFor(base64Chars)`). So a transport-level payload cap — `ws`'s
+ * `maxPayload`, which counts the UTF-8 bytes of the frame — is set to
+ * `RPC_MAX_FRAME_BYTES` and to nothing else: it then refuses exactly the frames
+ * the published predicate refuses, and no others.
+ *
+ * The decoder's own cap counts UTF-16 code units of the decoded frame text, not
+ * UTF-8 bytes (`buffer` is a JS string and the check is `nlIndex - position`).
+ * For the base64 and ASCII-JSON payloads that get anywhere near the cap the two
+ * are equal; for non-ASCII text the code-unit cap is LAXER — `"あ".repeat(10e6)`
+ * is 10 M code units (under the decoder's cap) and 30 MB (over the byte budget,
+ * and `exceedsFrameLimit(30_000_000)` is `true`). That laxness is an
+ * implementation detail of the decoder, NOT a promise anyone may rely on:
+ *
+ *   - a transport cap set BELOW `RPC_MAX_FRAME_BYTES` breaks the published budget
+ *     — a frame every sender was told was fine dies at the raw transport instead
+ *     of on the handled path (olai shipped exactly this at 8 MiB);
+ *   - a transport cap set ABOVE it would accept frames senders were told to
+ *     refuse — moving the disagreement in the permissive direction rather than
+ *     removing it.
+ *
+ * One budget, in bytes, and no consumer option to move it.
  */
 
 import { RpcSerialization } from "effect/unstable/rpc";

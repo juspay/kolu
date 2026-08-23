@@ -47,7 +47,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-host-map",
-    text: "Set KOLU_PADI_HOST=localhost,you@box to work across machines — a host strip appears in the top bar; click a host to switch the whole canvas to it live (no reload), each tab carrying that machine's whole attention summary",
+    text: `Set KOLU_PADI_HOST=localhost,you@box to work across machines — a host strip appears in the top bar; click a host to switch the whole canvas to it live (no reload), each tab carrying that machine's whole attention summary, and ${formatKeybind(ACTIONS.openHostSwitcher.keybind)} then Enter hops back to the machine you came from`,
     doc: "remote-hosts",
   },
   {
@@ -178,6 +178,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "canvas",
   },
   {
+    id: "amb-dock-numbers",
+    text: `${formatKeybind(ACTIONS.switchTo1.keybind)}…9 jump straight to dock rows 1-9 — the dock is ordered by repo → branch → when you made it and never reshuffles itself, so those numbers stay put and are worth learning`,
+    doc: "dock",
+  },
+  {
     id: "amb-dock-sleeping",
     text: "The dock's Filters row has two chips: the activity window (hides stale terminals) and a ☾ chip that hides sleeping ones — click ☾ when you want the dock to show only what's awake",
     doc: "dock",
@@ -205,5 +210,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-code-tab-show-ignored",
     text: "The eye toggle in the Code tab's All-files toolbar reveals gitignored files as dimmed rows — a fully-ignored folder arrives as one collapsed entry, and expanding it reads that level from disk, so you can walk into node_modules a click at a time",
     doc: "code-tab",
+  },
+  {
+    id: "amb-state-backups",
+    text: `Your state is snapshotted at every boot — if a saved session or setting ever gets eaten, ${formatKeybind(ACTIONS.commandPalette.keybind)} → Restore state from backup brings it back`,
+    doc: "troubleshooting",
   },
 ];

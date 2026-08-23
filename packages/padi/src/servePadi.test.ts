@@ -62,6 +62,8 @@ import {
   PersistedSnapshotSchema,
   type SavedActiveTerminal,
   type SavedSession,
+  type TerminalPlacement,
+  TOPLEVEL_PLACEMENT,
 } from "./vocab.ts";
 
 // The parked-forfeit path drives `cleanupTerminalScratch`, which reads the
@@ -723,7 +725,7 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
       stateRoot: "/tmp/padi-test-state-root",
     });
     const create = deps.procedures?.lifecycle?.create as
-      | ((a: { input: Record<string, never> }) => unknown)
+      | ((a: { input: { placement: TerminalPlacement } }) => unknown)
       | undefined;
     const forfeit = deps.procedures?.session?.forfeit as
       | ((a: { input: Record<string, never> }) => unknown)
@@ -758,7 +760,7 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
     expect(getTerminal(PARKED_ID)?.meta.state).toBe("parked");
 
     const { create } = serve();
-    await runHandler(create({ input: {} }));
+    await runHandler(create({ input: { placement: TOPLEVEL_PLACEMENT } }));
 
     // The parked entry SURVIVES — creating a terminal is no longer a forfeit.
     expect(getTerminal(PARKED_ID)?.meta.state).toBe("parked");
@@ -803,7 +805,9 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
       stateRoot: "/tmp/padi-test-state-root",
     });
     const create = deps.procedures?.lifecycle?.create as
-      | ((a: { input: { themeName?: string; parentId?: string } }) => unknown)
+      | ((a: {
+          input: { placement: TerminalPlacement; themeName?: string };
+        }) => unknown)
       | undefined;
     if (!create) throw new Error("padi deps must serve lifecycle.create");
     return create;
@@ -855,11 +859,15 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
    *  the one the feature exists to feed. */
   async function createdTheme(
     create: ReturnType<typeof serve>,
-    input: { themeName?: string; parentId?: string } = {},
+    input: { themeName?: string; placement?: TerminalPlacement } = {},
   ): Promise<string | undefined> {
     const seeded = new Set([...terminalEntries()].map(([id]) => id));
     born = [];
-    await runHandler(create({ input }));
+    // Placement is REQUIRED on the wire, so the helper's default is an explicit
+    // top-level — the arm every theme case except the split one is about.
+    await runHandler(
+      create({ input: { placement: TOPLEVEL_PLACEMENT, ...input } }),
+    );
     // Keyed by id, last write wins: a birth publishes TWICE by design (the
     // snapshot install, then the lifecycle-state publish), and both carry the
     // composed record — so the count that matters is distinct terminals.
@@ -938,7 +946,9 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
     newTerminalPolicyStore.set({ kind: "shuffle", mode: "dark" });
     setActiveTerminalId(seedActive(ACTIVE_ID, PEER_THEME));
     await expect(
-      createdTheme(serve(), { parentId: ACTIVE_ID }),
+      createdTheme(serve(), {
+        placement: { kind: "child-of", parentId: ACTIVE_ID },
+      }),
     ).resolves.toBeUndefined();
     expect(shufflePeerBgs()).toEqual([
       getThemeByName(PEER_THEME).background as string,

@@ -97,8 +97,65 @@ export function announceAutoRecovery(
   commit: (at: number) => void,
   notify: () => void,
 ): void {
-  const at = status?.autoRecoveredAt;
-  if (status?.state !== "connected") return;
+  announceStamp(
+    status?.state,
+    status?.autoRecoveredAt,
+    lastAnnouncedAt,
+    commit,
+    notify,
+  );
+}
+
+/** The #2184 third of this family: "the link to this host's kaval died
+ *  mid-session and padi re-made it — the daemon never went away, and everything
+ *  running behind it still is."
+ *
+ *  Same rail and same dedupe law as the two above (a sticky server stamp,
+ *  replayed to every fresh subscription, announced only when strictly newer than
+ *  the greatest already announced, persisted per host — the #1365 rule). And its
+ *  OWN mark, for the argument {@link announceAutoRecovery} already makes one fact
+ *  over: one mark for both would let a link restore suppress an auto-recovery, or
+ *  the reverse, and these are three independent things that can happen to a host
+ *  in any order.
+ *
+ *  Why it is not the auto-recovery line: that sentence says kaval was
+ *  unresponsive, kolu restarted it, and the session is waiting to be restored.
+ *  Of an ADOPTED heal all three are false — the daemon was healthy the whole
+ *  time, it kept its pid, and the terminals never stopped. Telling a user their
+ *  running session needs restoring is worse than saying nothing, which is why
+ *  padi stamps the two verdicts apart and this announces the one it means. */
+export function announceLinkRestored(
+  status: Pick<DaemonStatus, "state" | "linkRestoredAt"> | undefined,
+  lastAnnouncedAt: number,
+  commit: (at: number) => void,
+  notify: () => void,
+): void {
+  announceStamp(
+    status?.state,
+    status?.linkRestoredAt,
+    lastAnnouncedAt,
+    commit,
+    notify,
+  );
+}
+
+/** The dedupe law all the repair rails obey, written once (the #1365 rule): a
+ *  sticky server stamp on a `connected` status, announced only when strictly
+ *  newer than the greatest already announced, COMMITTED before notifying so a
+ *  replay of the same snapshot is silent.
+ *
+ *  One implementation, independent marks: which mark a rail compares against is
+ *  its caller's, so no fact can suppress another. `reattachToAnnounce` is not
+ *  built on this — it carries a payload and a second `adopted > 0` gate, which is
+ *  a different decision rather than the same one with a different field. */
+function announceStamp(
+  state: DaemonState | undefined,
+  at: number | undefined,
+  lastAnnouncedAt: number,
+  commit: (at: number) => void,
+  notify: () => void,
+): void {
+  if (state !== "connected") return;
   if (typeof at !== "number" || at <= lastAnnouncedAt) return;
   commit(at);
   notify();

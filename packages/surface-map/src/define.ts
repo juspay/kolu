@@ -214,14 +214,77 @@ export type EntryStatus<Failure = unknown, Conn = unknown> =
   // for why the tail rides the record instead).
   | ({ kind: "failed"; membershipId: MembershipId } & FailureRecord<Failure>);
 
-/** The total state of an entry lens — the published {@link EntryStatus} when the key IS a
+/** "We cannot see the publisher" — the CLIENT-ONLY arm `floorOnLiveness` mints when OUR
+ *  link to the map's publisher is dead, replacing the live claim it can no longer hear
+ *  (#1568) with an honest statement about US.
+ *
+ *  It exists because the floor's demotion was LOSSY. Flooring a `connected` entry to
+ *  `warming` collapsed two facts with OPPOSITE consequences into one value: "the publisher
+ *  says this host is coming up" (a real, self-healing campaign, worth timing) and "we cannot
+ *  see the publisher at all" (we know nothing, and may claim nothing). A consumer that merely
+ *  SPINS is fine either way — {@link isSettling} is that consumer's one call. A consumer that
+ *  TIMES the entry (a deadline, an escalation, a "failed to start" verdict) is not: kolu#2129
+ *  is the recorded failure, where a backgrounded tab's dropped socket demoted a healthy local
+ *  host to `warming` and a 30s boot deadline then certified a twelve-hour-old daemon dead.
+ *  A separate arm makes that mistake a COMPILE ERROR at every `.exhaustive()` rather than a
+ *  rule each future consumer must remember — the reason it is an ARM and not an optional flag
+ *  on `warming`, which anyone could ignore without the build noticing.
+ *
+ *  Named for OUR epistemic state, not the host's condition. "Unreachable" would assert
+ *  something about the host — repeating the very conflation, since the host is very often
+ *  perfectly healthy and it is our socket that died (and kolu's host vocabulary already
+ *  spends the word "unreachable" on a genuinely `failed` host).
+ *
+ *  It is NEVER paintable as connected/green: the arm carries no `clockOffset`, so the clock
+ *  lens has nothing to reproject, and no `connection`, so a frozen live word cannot keep
+ *  narrating work that is no longer live. `membershipId` rides through untouched — the floor
+ *  is about liveness, not identity, so this is still the SAME membership, keyed the same way
+ *  (PR3). `published` carries what the publisher's last frame actually said, so a consumer
+ *  that wants the last-known shape has it WITHOUT the framework pretending the claim still
+ *  holds; there is no `failed` inhabitant because {@link EntryStatus}'s `failed` arm passes
+ *  the floor untouched (its record is a post-mortem, not a liveness claim).
+ *
+ *  It has no wire schema, and that is deliberate rather than an omission: it is a projection
+ *  of the CONSUMER's own transport, meaningless to anyone else, so a floored value can never
+ *  be republished — {@link entryStatusSchema} has no arm to encode it into. */
+export type UnobservableEntry = {
+  kind: "unobservable";
+  membershipId: MembershipId;
+  /** The last thing the publisher SAID, before we lost the ability to hear it. */
+  published: "warming" | "connected";
+};
+
+/** What a client can honestly say about a MEMBER entry: the publisher's own
+ *  {@link EntryStatus}, or {@link UnobservableEntry} when our link to that publisher is dead.
+ *  This — not `EntryStatus` — is what the client's `entries` collection carries, because
+ *  every value it hands out has already been through `floorOnLiveness`. `EntryStatus` stays
+ *  the PUBLISHED (wire) type, unchanged and un-widened, so the floor's blast radius stops at
+ *  the client. */
+export type ObservedEntryStatus<Failure = unknown, Conn = unknown> =
+  | EntryStatus<Failure, Conn>
+  | UnobservableEntry;
+
+/** The total state of an entry lens — the {@link ObservedEntryStatus} when the key IS a
  *  member, plus the explicit `not-a-member` value the client fold returns when it is not. It
  *  lives HERE (the contract module, solid-free), not in the client, so a NODE consumer that
  *  re-exports it type-only through `index.ts` never drags the Solid/DOM client into its
  *  typecheck (surface-remote would otherwise fail on onWake's `window`/`document`). */
 export type EntryState<Failure = unknown, Conn = unknown> =
-  | EntryStatus<Failure, Conn>
+  | ObservedEntryStatus<Failure, Conn>
   | { kind: "not-a-member" };
+
+/** "Should I show a spinner?" — the ONE call for the consumer that only wants to spin, so
+ *  splitting {@link UnobservableEntry} off `warming` costs it nothing (a `kind === "warming"`
+ *  test would have quietly stopped spinning over a dead link).
+ *
+ *  True for exactly the two unsettled arms — an observed campaign (`warming`) and a blind one
+ *  (`unobservable`). Deliberately NOT a re-collapse of the distinction: it answers the
+ *  question both arms genuinely share, and it is a `boolean`, so it can never be fed to
+ *  anything that TIMES the entry — those consumers must still narrow the union themselves,
+ *  which is the whole point. */
+export function isSettling(state: EntryState): boolean {
+  return state.kind === "warming" || state.kind === "unobservable";
+}
 
 /** The wire schema for {@link EntryStatus}, built from the map's OWN domain
  *  `failure` schema. Backs both the `entries` collection's `get` success and the

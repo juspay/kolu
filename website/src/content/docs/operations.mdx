@@ -33,6 +33,46 @@ they are what a careless stop or a careless test run damages.
 everything else. The production launcher supplies both; a bare `padi` with
 neither set refuses to start rather than guess.
 
+**Two logs, and they answer different questions.** The daemons write their own
+files because nothing else owns their output — they are spawned detached. The
+**server** writes to its stdout, and whoever launched it owns that: systemd
+sends it to the journal, and a bare `kolu web` sends it to your terminal, where
+it is lost when the terminal closes.
+
+| Log | Where | What only it can tell you |
+| --- | --- | --- |
+| the server's | its stdout — the journal under systemd | **why a host's daemon was stopped or replaced**: which policy fired, and the evidence behind it |
+| `padi.log.N` | the padi state root, on that host | what one host's daemon did — sessions, terminals, its own view of kaval |
+| `padi.stderr.log` | beside it | crashes pino cannot see: native stderr, uncaught stacks |
+
+The first row is the one people go looking for after a surprise. **The decision
+to stop or replace a padi is the server's, not padi's** — padi's own log records
+only that it was asked to stop, so a restart you did not expect is explained in
+the server's log or nowhere.
+
+<Aside type="tip" title="Running `kolu web` by hand? Capture its output">
+  Under systemd this is already handled. Started from a shell, the server's log
+  exists only in that terminal — so if you are leaving one running, send it
+  somewhere it will survive:
+
+  ```sh
+  kolu web > ~/kolu-server.log 2>&1
+  ```
+
+  Without that, a daemon restart you want to explain later has no record to read.
+</Aside>
+
+The daemon logs are numbered: they roll by size, so the current lines are in
+`padi.log.1` and older rounds in `.2` and up. The un-numbered `padi.log` is an
+artifact of the daemon's start-up check and stays empty — not where the lines go.
+
+Each `config.json` also keeps its own **backup ring**: a `backups/` directory
+beside the file holding the ten most recent boot-time (and daily) snapshots,
+byte-identical restarts skipped. They exist for the day a bug persists a
+bad-but-valid value over good state — restore one from **Debug → Restore state
+from backup** in the command palette, or copy it over `config.json` by hand.
+See [Troubleshooting](/troubleshooting) for the in-app flow.
+
 **The padi state root is an identity.** Its absolute path is hashed to a short
 digest, and that digest names every socket and pid gate the daemons use. Two
 kolus with different padi state roots cannot see each other's daemons at all —
@@ -156,7 +196,7 @@ Three environment settings make a `nix run` instance its own thing:
 ```sh
 export KOLU_STATE_DIR="$HOME/tmp/kolu-test/state"     # server config store (default: ~/.config/kolu)
 export KOLU_PADI_STATE_DIR="$HOME/tmp/kolu-test/padi" # padi state root: sessions, gates, sockets
-nix run github:juspay/kolu -- --port 8681             # production listens on 7681
+nix run github:juspay/kolu -- web --port 8681             # production listens on 7681
 ```
 
 The launcher honours both variables when they are already set, and falls back to

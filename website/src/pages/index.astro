@@ -11,57 +11,18 @@ const posts = (await getCollection('blog')).sort(
 );
 const latest = posts[0];
 
-const docCards = [
+const doors = [
   {
-    title: 'Quickstart',
+    title: 'Try it on this machine',
     href: '/quickstart',
-    eyebrow: 'start',
-    copy: 'Run kolu with Nix, open the local workspace, and create the first terminal.',
+    eyebrow: 'this machine',
+    copy: 'One Nix command. Open a local URL. See the canvas in a minute.',
   },
   {
-    title: 'First five minutes',
-    href: '/first-five-minutes',
-    eyebrow: 'workflow',
-    copy: 'Open a repo, name a worktree, launch an agent, and read the dock.',
-  },
-  {
-    title: 'Remote hosts',
-    href: '/remote-hosts',
-    eyebrow: 'ssh',
-    copy: 'Put another machine on the canvas over ssh, and switch hosts live with ⌘⇧H.',
-  },
-  {
-    title: 'Remote access',
-    href: '/remote-access',
-    eyebrow: 'https',
-    copy: 'The other direction: reach the kolu app itself from your phone over a private Tailscale URL.',
-  },
-];
-
-const systemNodes = [
-  {
-    name: 'kolu',
-    role: 'browser workspace',
-    copy: 'the canvas, dock, code browser, PWA shell — real xterm.js tiles, and everything you look at.',
-    logo: href('/favicon.svg'),
-    href: href('/quickstart'),
-    accent: 'primary',
-  },
-  {
-    name: 'padi',
-    role: 'workspace daemon',
-    copy: 'the per-host memory: sessions, terminal records, restore, git and agent awareness.',
-    logo: href('/padi-logo.svg'),
-    href: href('/padi'),
-    accent: 'bottom',
-  },
-  {
-    name: 'kaval',
-    role: 'PTY daemon',
-    copy: 'the shell owner: live PTYs, screen snapshots, input, attach, and raw terminal survival.',
-    logo: href('/kaval-logo.svg'),
-    href: href('/kaval'),
-    accent: 'top',
+    title: 'Mac window, Linux computer',
+    href: '/from-a-mac',
+    eyebrow: 'the usual setup',
+    copy: 'Kolu runs on a Linux box. You open it from your Mac as an app.',
   },
 ];
 ---
@@ -87,23 +48,24 @@ const systemNodes = [
       </p>
 
       <h1 class="display hero-title">
-        Many agents.<br />Many <span>machines</span>.<br />One terminal.<span class="cursor" aria-hidden="true"></span>
+        Keep the <span>Mac</span>.<br />Run agents on Linux.<span class="cursor" aria-hidden="true"></span>
       </h1>
 
       <p class="hero-kicker mono">
-        Not a chat-UI wrapper.<br />Not an editor fork.<br />The IDE was built for typing — and your agents don't type.
+        Not a chat-UI wrapper.<br />Not an editor fork.<br />The window onto a headless box.
       </p>
 
       <p class="hero-body">
-        Real terminals on an infinite canvas — and the canvas isn't stuck on one
-        box. Point kolu at another machine over <span class="mono">ssh</span> and the whole
-        workspace moves there: your shells run on it, you browse and diff its files,
-        and closing the laptop doesn't kill any of it. <span class="mono">claude</span>, <span class="mono">codex</span>, <span class="mono">opencode</span>, <span class="mono">grok</span>, <span class="mono">xyne</span> — anything
-        you run in a shell runs in kolu, on any machine you can reach.
+        Your Mac is slow for agents, especially the filesystem. A headless box
+        isn't, and it stays up. Keep the Mac as the window: a real app in the
+        macOS launcher, talking to kolu running on the box. Real terminals on
+        an infinite canvas —
+        <span class="mono">claude</span>, <span class="mono">codex</span>, <span class="mono">opencode</span>, <span class="mono">grok</span>, <span class="mono">xyne</span>, or
+        anything you run in a shell.
       </p>
 
       <div class="hero-actions">
-        <a href={href('/quickstart')} class="hero-primary">
+        <a href={href('/start')} class="hero-primary">
           Get started <span aria-hidden="true">→</span>
         </a>
         <a href="https://github.com/juspay/kolu" rel="noopener" class="hero-secondary">
@@ -146,17 +108,18 @@ const systemNodes = [
 
   <section class="home-band">
     <div class="section-head">
-      <p class="eyebrow">docs</p>
-      <h2 class="display-sm">Start in the guide.</h2>
+      <p class="eyebrow">start</p>
+      <h2 class="display-sm">Two ways in.</h2>
       <p>
-        The durable setup and workflow material now lives in the docs, where it
-        has sidebar navigation, search, code copy, and next-page flow.
+        Try it on the machine in front of you, or run it on Linux and open it
+        from a Mac as an app. That second path is the one the product is built
+        around.
       </p>
     </div>
 
     <div class="doc-card-grid">
       {
-        docCards.map((card) => (
+        doors.map((card) => (
           <a href={href(card.href)} class="doc-entry-card">
             <span class="doc-entry-eyebrow">{card.eyebrow}</span>
             <strong>{card.title}</strong>
@@ -170,45 +133,55 @@ const systemNodes = [
   <section class="home-band">
     <div class="system-shell">
       <div class="system-intro">
-        <p class="eyebrow">the system</p>
-        <h2 class="display-sm">Three programs. One set per machine.</h2>
+        <p class="eyebrow">the shape</p>
+        <h2 class="display-sm">Mac is the window. Linux is the computer.</h2>
         <p>
-          Kolu is what you use. Padi remembers the workspace on a host. Kaval
-          owns the shells there. That split is why the tab, web server, and PTYs
-          can fail or restart on different clocks — and why adding a remote
-          machine isn't a special case. It gets its own padi and kaval,
-          provisioned with Nix over ssh: the same stack, one floor down.
+          There is no Linux desktop to remote into. Kolu is a website the
+          headless box serves. You open that URL on the Mac and pin it as an
+          app.
         </p>
-        <a href={href('/architecture')} class="system-link">
-          See the architecture <span aria-hidden="true">→</span>
-        </a>
-        <a href={href('/surface')} class="system-link">
-          The <code>@kolu/surface</code> framework underneath <span aria-hidden="true">→</span>
+        <a href={href('/from-a-mac')} class="system-link">
+          The five-step setup <span aria-hidden="true">→</span>
         </a>
       </div>
 
-      <ol class="system-flow" aria-label="Kolu system programs">
-        {
-          systemNodes.map((node, index) => (
-            <li class={`system-node system-node-${node.accent}`}>
-              <a href={node.href} class="system-node-link">
-                <span class="system-logo-wrap">
-                  <img src={node.logo} alt="" class="system-logo" />
-                </span>
-                <span class="system-copy">
-                  <span class="system-name">{node.name}</span>
-                  <span class="system-role">{node.role}</span>
-                  <span class="system-desc">{node.copy}</span>
-                </span>
-              </a>
-              {index < systemNodes.length - 1 && (
-                <span class="system-arrow" aria-hidden="true">→</span>
-              )}
-            </li>
-          ))
-        }
+      <ol class="system-flow" aria-label="Mac window, Linux computer">
+        <li class="system-node system-node-primary">
+          <a href={href('/from-a-mac')} class="system-node-link">
+            <span class="system-logo-wrap">
+              <img src={href('/favicon.svg')} alt="" class="system-logo" />
+            </span>
+            <span class="system-copy">
+              <span class="system-name">your Mac</span>
+              <span class="system-role">the window</span>
+              <span class="system-desc">
+                a browser, then a pinned app in the macOS launcher. Nothing
+                runs here except the view.
+              </span>
+            </span>
+          </a>
+          <span class="system-arrow" aria-hidden="true">→</span>
+        </li>
+        <li class="system-node system-node-bottom">
+          <a href={href('/from-a-mac')} class="system-node-link">
+            <span class="system-logo-wrap">
+              <img src={href('/favicon.svg')} alt="" class="system-logo" />
+            </span>
+            <span class="system-copy">
+              <span class="system-name">Linux box</span>
+              <span class="system-role">the computer</span>
+              <span class="system-desc">
+                kolu runs here. The terminals and the agents live on this
+                machine, and it stays up.
+              </span>
+            </span>
+          </a>
+        </li>
       </ol>
     </div>
+    <p class="builders-line">
+      Building on the stack? <a href={href('/architecture')}>Architecture</a> · <a href={href('/surface')}>Surface</a>
+    </p>
   </section>
 
   {
@@ -274,10 +247,7 @@ const systemNodes = [
   .hero-title {
     margin-top: 1.25rem;
     color: var(--color-ink);
-    /* Three lines, so the cap sits below the old two-line 5rem: at
-       line-height .95 this keeps the headline block about the height it
-       was before the third line arrived. */
-    font-size: clamp(2.6rem, 2rem + 3vw, 4.2rem);
+    font-size: clamp(2.8rem, 2.1rem + 3.4vw, 4.6rem);
   }
   .hero-title span {
     color: var(--color-kolu-primary);
@@ -408,11 +378,11 @@ const systemNodes = [
   }
   .doc-card-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.85rem;
   }
   .doc-entry-card {
-    min-height: 12rem;
+    min-height: 11rem;
     display: flex;
     flex-direction: column;
     border: 1px solid var(--color-rule);
@@ -477,8 +447,21 @@ const systemNodes = [
     margin: 0;
     padding: 0;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.9rem;
+  }
+  .builders-line {
+    margin-top: 1.6rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--color-ink-muted);
+  }
+  .builders-line a {
+    color: var(--color-ink-dim);
+    text-decoration: none;
+  }
+  .builders-line a:hover {
+    color: var(--color-kolu-primary);
   }
   .system-node {
     position: relative;
@@ -637,11 +620,6 @@ const systemNodes = [
       left: 1.5rem;
       bottom: -1.18rem;
       transform: rotate(90deg);
-    }
-  }
-  @media (min-width: 761px) and (max-width: 1050px) {
-    .doc-card-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 </style>

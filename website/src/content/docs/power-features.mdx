@@ -18,8 +18,9 @@ tools that keep that legible.
 
 <CardGrid>
   <Card title="Multi-agent dock">
-    An agent blocked on you floats to the top of its repo, washes violet, and
-    shows how long it has been waiting. A finished background agent can fire a
+    An agent blocked on you appears in the dock's pinned Needs-you strip —
+    without its row moving — washes violet, and shows how long it has been
+    waiting. A finished background agent can fire a
     toast and
     [native notification](/troubleshooting#i-am-not-getting-desktop-notifications)
     that jumps straight to the terminal.
@@ -118,10 +119,12 @@ resolves `<p>` against that tile's repository.
 </Aside>
 
 <Aside type="note" title="Drive it from the shell">
-  Every terminal kolu opens is reachable from [`kaval-tui`](/kaval): list,
-  snapshot, attach, send a prompt, or kill. It is the same PTY daemon,
-  [`kaval`](/kaval), exposed as a CLI locally or
-  [over ssh](/kaval#reach-a-remote-kaval--over-ssh).
+  Every terminal kolu opens is reachable from the `kolu` command itself:
+  `kolu ls`, `create`, `send`, `wait`, `snapshot`, `history`, `kill`, `watch` —
+  locally, or against another machine with `--host`. That is the loop the
+  [agent fleets](/agent-fleets) pattern runs on. The daemons underneath are
+  [`padi`](/padi) and [`kaval`](/kaval), each still shipping its own preview
+  CLI.
 </Aside>
 
 <CardGrid>

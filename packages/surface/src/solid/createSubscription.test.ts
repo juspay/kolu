@@ -1,7 +1,9 @@
 import * as assert from "node:assert";
 import { Effect, Stream } from "effect";
-import { createEffect, createRoot } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
+import { controllableStream } from "./controllableStream.testlib";
+import { createReactiveSubscription } from "./createReactiveSubscription";
 import {
   createSubscription,
   createUpdatedTracker,
@@ -48,40 +50,6 @@ async function* fromArray<T>(items: T[], delayMs = 0): AsyncGenerator<T> {
   }
 }
 
-/** Create a controllable stream: push items manually, close when done. */
-function controllableStream<T>() {
-  const queue: T[] = [];
-  let resolve: (() => void) | null = null;
-  let done = false;
-
-  function push(item: T) {
-    queue.push(item);
-    resolve?.();
-  }
-
-  function close() {
-    done = true;
-    resolve?.();
-  }
-
-  async function* iterate(): AsyncGenerator<T> {
-    while (true) {
-      const head = queue.shift();
-      if (head !== undefined) {
-        yield head;
-        continue;
-      }
-      if (done) return;
-      await new Promise<void>((r) => {
-        resolve = r;
-      });
-      resolve = null;
-    }
-  }
-
-  return { push, close, iterate };
-}
-
 /** Drain macrotasks so stream frames are processed. Frames now arrive on an
  *  Effect FIBER (`runStreamScoped`), so a bare `await Promise.resolve()` micro-flush
  *  is not enough — two full macrotask turns cover the fiber's own scheduling plus
@@ -98,7 +66,7 @@ describe("createSubscription", () => {
     it("starts with undefined and pending=true", () => {
       createRoot((dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
 
         expect(sub()).toBe(undefined);
         expect(sub.pending()).toBe(true);
@@ -114,7 +82,7 @@ describe("createSubscription", () => {
         (resolve) => {
           createRoot(async (dispose) => {
             const stream = controllableStream<number>();
-            const sub = createSubscription(streamOf(stream.iterate()));
+            const sub = createSubscription(stream.source);
 
             stream.push(42);
             await flush();
@@ -134,7 +102,7 @@ describe("createSubscription", () => {
       const result = await new Promise<number[]>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<number>();
-          const sub = createSubscription(streamOf(stream.iterate()));
+          const sub = createSubscription(stream.source);
 
           const values: number[] = [];
           stream.push(1);
@@ -207,7 +175,7 @@ describe("createSubscription", () => {
       const result = await new Promise<{ a: number; b: number }>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<{ a: number; b: number }>();
-          const sub = createSubscription(streamOf(stream.iterate()));
+          const sub = createSubscription(stream.source);
 
           stream.push({ a: 1, b: 2 });
           await flush();
@@ -224,7 +192,7 @@ describe("createSubscription", () => {
       const result = await new Promise<{ tracked: boolean }>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<{ a: number; b: number }>();
-          const sub = createSubscription(streamOf(stream.iterate()));
+          const sub = createSubscription(stream.source);
 
           stream.push({ a: 1, b: 2 });
           await flush();
@@ -269,7 +237,7 @@ describe("createSubscription", () => {
       const result = await new Promise<number[]>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<number>();
-          const sub = createSubscription(streamOf(stream.iterate()), {
+          const sub = createSubscription(stream.source, {
             reduce: (acc: number[], item: number) => [...acc, item],
             initial: [] as number[],
           });
@@ -308,7 +276,7 @@ describe("createSubscription", () => {
     it("uses initial value before first item", () => {
       createRoot((dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()), {
+        const sub = createSubscription(stream.source, {
           reduce: (acc: number[], item: number) => [...acc, item],
           initial: [0],
         });
@@ -447,7 +415,7 @@ describe("createSubscription", () => {
         createRoot(async (dispose) => {
           const controller = new AbortController();
           const stream = controllableStream<number>();
-          const sub = createSubscription(streamOf(stream.iterate()), {
+          const sub = createSubscription(stream.source, {
             signal: controller.signal,
           });
 
@@ -477,7 +445,7 @@ describe("createSubscription", () => {
         const stream = controllableStream<number>();
 
         createRoot(async (dispose) => {
-          sub = createSubscription(streamOf(stream.iterate()));
+          sub = createSubscription(stream.source);
 
           stream.push(1);
           await flush();
@@ -508,7 +476,7 @@ describe("createSubscription", () => {
       }>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<number>();
-          const sub = createSubscription(streamOf(stream.iterate()), {
+          const sub = createSubscription(stream.source, {
             onComplete: () => completions.push(1),
           });
 
@@ -542,7 +510,7 @@ describe("createSubscription", () => {
         createRoot(async (dispose) => {
           const controller = new AbortController();
           const stream = controllableStream<number>();
-          const sub = createSubscription(streamOf(stream.iterate()), {
+          const sub = createSubscription(stream.source, {
             signal: controller.signal,
             onComplete: () => completions.push(1),
           });
@@ -569,7 +537,7 @@ describe("createSubscription", () => {
         (resolve) => {
           createRoot(async (dispose) => {
             const stream = controllableStream<number>();
-            const sub = createSubscription(streamOf(stream.iterate()));
+            const sub = createSubscription(stream.source);
 
             const before = sub.pending();
 
@@ -640,7 +608,7 @@ describe("createSubscription", () => {
     it("a first frame is a value, not a change — it never fires", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
         const changes: Array<{ prev: number; next: number }> = [];
         sub.updated?.((c) => changes.push(c));
 
@@ -655,7 +623,7 @@ describe("createSubscription", () => {
     it("a differing frame fires once with prev = the last-seen value", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
         const changes: Array<{ prev: number; next: number }> = [];
         sub.updated?.((c) => changes.push(c));
 
@@ -676,7 +644,7 @@ describe("createSubscription", () => {
     it("an equal reconnect snapshot (fresh object, same content) never fires", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<{ ids: number[] }>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
         const changes: Array<unknown> = [];
         sub.updated?.((c) => changes.push(c));
 
@@ -706,7 +674,7 @@ describe("createSubscription", () => {
       // must compare Dates by instant and, in general, never yield a false-positive.
       await createRoot(async (dispose) => {
         const stream = controllableStream<{ at: Date }>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
         const seen: Array<{ prev: { at: Date }; next: { at: Date } }> = [];
         sub.updated?.((c) => seen.push(c));
 
@@ -844,7 +812,7 @@ describe("createSubscription", () => {
     it("a handler added mid-stream sees only changes from that point on", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
 
         stream.push(1);
         await flush();
@@ -864,7 +832,7 @@ describe("createSubscription", () => {
     it("dispose stops a handler firing", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
         const changes: number[] = [];
         const off = sub.updated?.((c) => changes.push(c.next));
 
@@ -885,7 +853,7 @@ describe("createSubscription", () => {
       try {
         await createRoot(async (dispose) => {
           const stream = controllableStream<number>();
-          const sub = createSubscription(streamOf(stream.iterate()));
+          const sub = createSubscription(stream.source);
           const good: number[] = [];
           // A misbehaving consumer subscribes first, then a well-behaved one.
           sub.updated?.(() => {
@@ -912,7 +880,7 @@ describe("createSubscription", () => {
     it("with no handler registered, the baseline still advances (a late subscriber sees only changes from then on)", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(streamOf(stream.iterate()));
+        const sub = createSubscription(stream.source);
         // No handler yet — the hot path advances lastSeen in O(1) without compares.
         stream.push(1);
         await flush();
@@ -925,6 +893,202 @@ describe("createSubscription", () => {
         stream.push(7); // a genuine change from the advanced baseline
         await flush();
         expect(changes).toEqual([{ prev: 2, next: 7 }]);
+        dispose();
+      });
+    });
+  });
+
+  describe("changed() — the same law, without the snapshot", () => {
+    /** A frame big enough that cloning it is the cost under discussion, and shaped
+     *  like the page the downstream report measured: one array of rows, each with a
+     *  nested node. Nothing about the assertions depends on the size — it is here so
+     *  the test reads as the case it comes from. */
+    const pageOf = (n: number, mark: string) => ({
+      rows: Array.from({ length: n }, (_, i) => ({
+        key: `r${i}`,
+        node: { id: `r${i}`, title: `${mark} ${i}` },
+      })),
+    });
+
+    it("fires once per CHANGED frame, and never on the first one", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<number>();
+        const sub = createSubscription(stream.source);
+        let count = 0;
+        sub.changed?.(() => count++);
+
+        stream.push(1);
+        await flush();
+        expect(count).toBe(0); // a first frame is a value, not a change
+        stream.push(2);
+        await flush();
+        stream.push(3);
+        await flush();
+        expect(count).toBe(2);
+        dispose();
+      });
+    });
+
+    it("does NOT clone the frame — the whole reason this channel exists", async () => {
+      // The measured cost being removed: with only a payload-free subscriber, a
+      // changed frame must cost zero `structuredClone`s. The spy is on the global,
+      // so it counts every clone the tracker performs, not a proxy for one.
+      const spy = vi.spyOn(globalThis, "structuredClone");
+      try {
+        await createRoot(async (dispose) => {
+          const stream = controllableStream<ReturnType<typeof pageOf>>();
+          const sub = createSubscription(stream.source);
+          let count = 0;
+          sub.changed?.(() => count++);
+
+          stream.push(pageOf(200, "a"));
+          await flush();
+          stream.push(pageOf(200, "b"));
+          await flush();
+          expect(count).toBe(1); // it did fire — this is not a vacuous zero
+          expect(spy).not.toHaveBeenCalled();
+          dispose();
+        });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("a payload subscriber still pays for its snapshot — the contrast", async () => {
+      // Stated as the other half of the same fact: the clone is the price of the
+      // payload, so `updated` still pays it (two per firing change), and a frame
+      // watched by BOTH channels pays it once, for the one that reads it.
+      const spy = vi.spyOn(globalThis, "structuredClone");
+      try {
+        await createRoot(async (dispose) => {
+          const stream = controllableStream<ReturnType<typeof pageOf>>();
+          const sub = createSubscription(stream.source);
+          const changes: unknown[] = [];
+          let count = 0;
+          sub.updated?.((c) => changes.push(c));
+          sub.changed?.(() => count++);
+
+          stream.push(pageOf(5, "a"));
+          await flush();
+          stream.push(pageOf(5, "b"));
+          await flush();
+          expect(changes).toHaveLength(1);
+          expect(count).toBe(1);
+          expect(spy).toHaveBeenCalledTimes(2); // prev + next, once
+          dispose();
+        });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("an equal reconnect snapshot is silent here too", async () => {
+      // The clause a raw frame COUNTER would get wrong: the retry fence turns a
+      // transport drop into a fresh full snapshot, byte-new and value-identical.
+      // Counting arrivals would call that news; the law says it is not.
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<{ ids: number[] }>();
+        const sub = createSubscription(stream.source);
+        let count = 0;
+        sub.changed?.(() => count++);
+
+        stream.push({ ids: [1, 2] });
+        await flush();
+        stream.push({ ids: [1, 2] }); // the reconnect replay
+        await flush();
+        expect(count).toBe(0);
+        stream.push({ ids: [1, 2, 3] }); // a genuine change
+        await flush();
+        expect(count).toBe(1);
+        dispose();
+      });
+    });
+
+    it("unsubscribing stops it, and drops back to the no-compare hot path", async () => {
+      const spy = vi.spyOn(globalThis, "structuredClone");
+      try {
+        await createRoot(async (dispose) => {
+          const stream = controllableStream<number>();
+          const sub = createSubscription(stream.source);
+          let count = 0;
+          const off = sub.changed?.(() => count++);
+
+          stream.push(1);
+          await flush();
+          stream.push(2);
+          await flush();
+          expect(count).toBe(1);
+          off?.();
+          stream.push(3);
+          await flush();
+          expect(count).toBe(1);
+          expect(spy).not.toHaveBeenCalled();
+          dispose();
+        });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("a throwing handler does not abort the fan-out or fail the stream", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await createRoot(async (dispose) => {
+          const stream = controllableStream<number>();
+          const sub = createSubscription(stream.source);
+          const good: number[] = [];
+          sub.changed?.(() => {
+            throw new Error("boom");
+          });
+          sub.changed?.(() => good.push(1));
+
+          stream.push(1);
+          await flush();
+          stream.push(2);
+          await flush();
+          stream.push(3);
+          await flush();
+          expect(good).toEqual([1, 1]);
+          expect(sub.error()).toBeUndefined();
+          dispose();
+        });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("the reactive twin carries it too, and a fresh input re-arms the first-frame rule", async () => {
+      await createRoot(async (dispose) => {
+        const [which, setWhich] = createSignal(1);
+        const streams = new Map<
+          number,
+          ReturnType<typeof controllableStream<number>>
+        >();
+        const sub = createReactiveSubscription(which, (input: number) => {
+          const s = controllableStream<number>();
+          streams.set(input, s);
+          return s.source;
+        });
+        let count = 0;
+        sub.changed?.(() => count++);
+        await flush();
+
+        streams.get(1)?.push(10);
+        await flush();
+        streams.get(1)?.push(11);
+        await flush();
+        expect(count).toBe(1);
+
+        setWhich(2);
+        await flush();
+        // A fresh subscription: its first frame is a value, not a change — even
+        // though it differs from what the previous input last said.
+        streams.get(2)?.push(99);
+        await flush();
+        expect(count).toBe(1);
+        streams.get(2)?.push(100);
+        await flush();
+        expect(count).toBe(2);
         dispose();
       });
     });

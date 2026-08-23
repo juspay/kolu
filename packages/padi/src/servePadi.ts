@@ -17,43 +17,58 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
+import { renderScreenImage } from "./screenImage.ts";
 import { rmSync } from "node:fs";
-import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
+import { base64DecodedLength } from "@kolu/surface/frame-chunking";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import {
   type ImplementSurfaceDeps,
   inMemoryStore,
   streamFromAbortableSource,
 } from "@kolu/surface/server";
-import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
-import { Effect } from "effect";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
-import {
-  isPadiDeclaredError,
-  KavalContractSkew,
-  ScratchWriteRejected,
-} from "./errors.ts";
+import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
+import { terminalCaption } from "@kolu/terminal-vocab/terminalKey";
+import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
+import { Effect } from "effect";
 import {
   currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,
   SNAPSHOT_SCROLLBACK,
 } from "kaval";
-import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
-import { cancelPendingAutosave } from "./session/autosaveGate.ts";
-import {
-  requirePadiActivityFeedStore,
-  requirePadiSessionStore,
-} from "./session/confStores.ts";
+import { createFinishQuiet } from "./activity/finishQuiet.ts";
+import { EMPTY_URGENCY } from "./activity/urgency.ts";
+import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import { createEdgeMemory } from "./attention/edgeMemory.ts";
+import { createFleetGate } from "./attention/fleetGate.ts";
+import { createEventSeq } from "./attention/eventSeq.ts";
+import { createSettleEvents } from "./attention/settleEvents.ts";
+import { createStateWatchHub } from "./attention/stateWatch.ts";
+import { createWatchRegistry } from "./attention/watchRegistry.ts";
+import { stateWatchSource } from "./attention/stateWatchStream.ts";
+import { specOf, watchFilterOf, watchSpecOf } from "./attention/watchSpec.ts";
+import { watchScopeOf } from "./attention/watchScope.ts";
 import type {
   EndpointGrid,
   TerminalAttachFrame,
   TerminalEndpoint,
 } from "./endpoint.ts";
+import {
+  isPadiDeclaredError,
+  KavalContractSkew,
+  ScratchWriteRejected,
+} from "./errors.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
-import { createFinishQuiet, type FinishQuiet } from "./activity/finishQuiet.ts";
-import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import {
+  HOST_INVENTORY_SAMPLE_INTERVAL_MS,
+  samplePadiHostInventory,
+} from "./hostInventory.ts";
+import {
+  MEMORY_SAMPLE_INTERVAL_MS,
+  samplePadiMemory,
+} from "./memorySampler.ts";
 import {
   newTerminalPolicyStore,
   resolveNewTerminalTheme,
@@ -65,6 +80,12 @@ import {
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
+import { pulseSource } from "./pulseSource.ts";
+import { cancelPendingAutosave } from "./session/autosaveGate.ts";
+import {
+  requirePadiActivityFeedStore,
+  requirePadiSessionStore,
+} from "./session/confStores.ts";
 import { resumableTerminalIds } from "./session/resumable.ts";
 import {
   forfeitSession,
@@ -72,11 +93,16 @@ import {
   restoreSession,
 } from "./session/sessionRestore.ts";
 import {
+  listPadiStateBackups,
+  restorePadiStateBackup,
+} from "./session/stateBackups.ts";
+import {
   DEFAULT_PADI_VERSION,
   PADI_SURFACE_VERSION,
   type PadiIdentity,
   type PadiStatus,
   type PadiTerminal,
+  type PadiWatchStatesInput,
   type padiSurface,
 } from "./surface.ts";
 import {
@@ -92,14 +118,6 @@ import {
   discardLocalSleeping,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
-import {
-  HOST_INVENTORY_SAMPLE_INTERVAL_MS,
-  samplePadiHostInventory,
-} from "./hostInventory.ts";
-import {
-  MEMORY_SAMPLE_INTERVAL_MS,
-  samplePadiMemory,
-} from "./memorySampler.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { appendTerminalFile, saveTerminalFile } from "./terminalScratch.ts";
@@ -116,8 +134,9 @@ import {
   setTerminalTheme,
   sleepTerminal,
 } from "./terminals.ts";
+import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { exportTranscriptHtml } from "./transcript/transcript.ts";
-import { base64DecodedLength, rejectionFor } from "./upload.ts";
+import { rejectionFor } from "./upload.ts";
 
 // Baked scrollback-backfill invariant, asserted at daemon startup (fail fast, no
 // degrade): a client's own scrollback must hold the ENTIRE reachable history —
@@ -221,12 +240,29 @@ async function* attachFrames(
   for await (const frame of deltas) yield frame;
 }
 
-/** Prior standing finish-quiet handle — disposed when deps are rebuilt (tests). */
-let standingFinishQuiet: FinishQuiet | undefined;
-function disposeStandingFinishQuiet(): void {
-  standingFinishQuiet?.dispose();
-  standingFinishQuiet = undefined;
-}
+/** The way OUT of a never-match scope, in the WIRE's own grammar. The
+ *  constructor states the invariant ("this watch can never match anything") and
+ *  stops there — deliberately, so each face can say the remedy in the grammar
+ *  its caller actually types. padi's own two entries are that face here, and
+ *  they differ in exactly ONE word: a live stream narrows with `id`, a standing
+ *  subscription with `ids`. Written out twice, the two sentences had already
+ *  drifted by more than that word. */
+const scopeRefused = (message: string, idField: "id" | "ids"): Error =>
+  new Error(
+    `${message} Omit \`${idField}\` to watch the whole fleet, or drop it from \`ignoreIds\`.`,
+  );
+
+/** The DAEMON-LIFETIME teardown for everything `buildPadiSurfaceDeps` stands up
+ *  and keeps running past its own return: the finish-quiet tracker (its kaval
+ *  activity subscription) and the attention flow (the settle-event source, the
+ *  standing subscription registry, and the two sinks wired between them).
+ *
+ *  ONE handle, because it is one lifetime — a `servePadi` rebuild in tests must
+ *  dispose the prior set rather than stack a second one on the same daemon, and
+ *  two singletons with two dispose functions guarding the same moment is two
+ *  chances to forget one. Nothing READS the pieces through here: every consumer
+ *  is a closure inside the same function body, holding the value lexically. */
+let disposeStanding: (() => void) | undefined;
 
 /** Assemble the FULL `padiSurface` server deps (minus `channel`). Every member
  *  gets a functional read/procedure/source handler AND a live write path (the padi
@@ -256,13 +292,76 @@ export function buildPadiSurfaceDeps(deps: {
 }): PadiDeps {
   const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
   const fsGit = padiFsGitDeps(endpoint, log);
+  // Dispose the PRIOR daemon-lifetime set (finish tracker + attention flow) so a
+  // servePadi test rebuild doesn't stack resubscribe loops or two sets of sinks.
+  disposeStanding?.();
+  disposeStanding = undefined;
   // EF2 — daemon-lifetime finish tracker + standing kaval activity sub. Dual-edge
   // with terminals via `finish.project` (quiet-exit re-folds without an
-  // agent-state change). Dispose any prior handle so servePadi test rebuilds
-  // don't stack resubscribe loops.
-  disposeStandingFinishQuiet();
+  // agent-state change).
   const finish = createFinishQuiet({ log });
-  standingFinishQuiet = finish;
+
+  // SETTLE EVENTS → the standing subscriptions. One event source — "a terminal
+  // just started needing someone", derived from the SAME urgency level the Dock
+  // and the browser's alerts read — feeding the named, buffered queues an
+  // MCP-only supervisor drains. Disposed alongside the finish tracker (one
+  // `disposeStanding`) so a servePadi rebuild in tests cannot stack two sets of
+  // listeners on one daemon.
+  //
+  // ONE counter behind both sources. A standing subscription's acknowledgement
+  // watermark is a single number, so a settle edge and a state nag have to be
+  // stamped from the same sequence or a fresh subscription seeded from one
+  // source's watermark would replay (or permanently discard) the other's.
+  const watchSeq = createEventSeq();
+  // ONE lane-attribution memory behind both sources too. Both fold the same
+  // terminals map for the same two fields, and a departed terminal's parent is
+  // knowable only from the frame that still had it — so it is remembered once,
+  // by the producer below, and read by both.
+  const watchEdges = createEdgeMemory();
+  // Has a REAL fleet been seen yet? The serve-time empty seed is gated on this,
+  // once, in the `urgency` cell below — see `fleetGate.ts` for what the frame
+  // would otherwise cost each consumer. Per-serve rather than module-scoped, so
+  // a servePadi rebuild in tests starts unseeded exactly as a fresh daemon does.
+  const fleetGate = createFleetGate();
+  const settleEvents = createSettleEvents({
+    log,
+    seq: watchSeq,
+    edges: watchEdges,
+  });
+  // The agent-STATE watch — `--states`/`--held-for`/`--nag`, implemented once
+  // and served to both faces: the `watchStates` stream below is `kolu watch`'s
+  // subscription, and a `watch.open` that names any of the three knobs is an MCP
+  // orchestrator's. It reads the adapter's own agent state, never output bytes.
+  const stateWatch = createStateWatchHub({
+    log,
+    seq: watchSeq,
+    edges: watchEdges,
+  });
+  const watchRegistry = createWatchRegistry({
+    log,
+    // The daemon's CURRENT watch sequence — where a fresh subscription starts
+    // acknowledged, and the ceiling an acknowledgement is sanity-checked against
+    // (a cursor from a previous padi generation would otherwise set a watermark
+    // no future event could climb past).
+    daemonSeq: () => watchSeq.last(),
+    // The composition root joins the two halves the registry keeps apart: the
+    // three knobs the caller named, and the scope the SUBSCRIPTION owns. The
+    // queue never mints a spec, so the state watch's scoping is the only
+    // scoping there is for a state feed.
+    subscribeStates: (filter, scope, emit) =>
+      stateWatch.subscribe(specOf(filter, scope), emit),
+  });
+  const unsubscribeSettle = settleEvents.onFrame((events) =>
+    watchRegistry.acceptSettle(events),
+  );
+  disposeStanding = () => {
+    unsubscribeSettle();
+    watchRegistry.dispose();
+    stateWatch.dispose();
+    settleEvents.dispose();
+    watchEdges.dispose();
+    finish.dispose();
+  };
 
   // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
   // moment a daemon's status changes — so a fresh daemon's readout reflects its
@@ -361,7 +460,42 @@ export function buildPadiSurfaceDeps(deps: {
       // and the finish generation (quiet-exit promote re-folds without an
       // agent-state change). Spec `equals` (`urgencyEqual`) is the ONE wire
       // dedup point. No `store`/`equals` here — the graph is the one writer.
-      urgency: derived.cell(($) => finish.project($.terminals())),
+      urgency: derived.cell(($) => {
+        const terminals = $.terminals();
+        // THE SERVE-TIME EMPTY SEED, gated ONCE at the only thing that produces
+        // it. This cell runs at serve time, BEFORE the endpoint has booted and
+        // adopted kaval's terminals, so its first frame is an information-free
+        // empty registry, and every consumer downstream treats a frame as
+        // evidence. The gate (and the half that is easy to lose — it OPENS once
+        // and stays open, so a later empty fleet is a real "everything exited")
+        // is `fleetGate.ts`, where it is pinned. The frame stops HERE, and
+        // everything downstream may trust what it is fed.
+        if (!fleetGate.admit(terminals)) {
+          return EMPTY_URGENCY;
+        }
+        const next = finish.project(terminals);
+        // The settle EDGE, taken where the LEVEL is computed — one fold, one
+        // arrival time, so a supervisor's nudge and the Dock's paint can never
+        // describe different worlds. Observing from inside a derivation is the
+        // latitude the reactor's DUAL EDGE note already grants this exact cell
+        // (`finish.project` writes the episode map and bumps its generation
+        // here), and it is safe for a second reason of its own: the transition is
+        // computed against the PREVIOUS frame, so a redundant recompute yields no
+        // candidates and emits nothing.
+        // The lane attribution of this frame, remembered ONCE, before either
+        // source reads it — including the terminals that just left, whose
+        // records are already gone.
+        watchEdges.observe(terminals);
+        settleEvents.observe(next, terminals);
+        // The agent-state LEVEL, taken from the same fold for the same reason:
+        // one observation, one arrival time. It reads the terminals collection
+        // rather than the urgency projection because it reports the agent's own
+        // bucket (`waiting` the moment the adapter says so), not the EF2
+        // byte-quiet verdict layered on top — that conjunction is what
+        // `--held-for` replaces with an honest clock.
+        stateWatch.observe(terminals);
+        return next;
+      }),
       // The saved session — backed by padi's OWN state-root Conf, set by padi's
       // daemonMain at boot (`setPadiSessionStore`, see `confStores.ts`), read here
       // via `requirePadiSessionStore`. The
@@ -487,6 +621,31 @@ export function buildPadiSurfaceDeps(deps: {
       // `terminalAttach` bytes. The fs/git change-pulses are pure reuse of
       // `padiFsGitDeps(...).streams`.
       activity: createLiveActivitySource(log),
+      // The standing-subscription doorbell — pulse-then-requery, the same shape
+      // as the fs/git change pulses. It carries only a counter: the buffer behind
+      // `watch.drain` is the authority, so a pulse lost to a dropped stream costs
+      // the caller a wait, never an event.
+      watchPulse: {
+        source: (input: { name: string }) =>
+          pulseSource(
+            (onEvent) => watchRegistry.onPulse(input.name, onEvent),
+            log,
+            `watchPulse[${input.name}]`,
+          ),
+      },
+      // The live agent-state feed — the same engine a filtered `watch.open`
+      // rides, minus the queue. A socket-holding face needs no buffer: the
+      // subscription IS the delivery, and its first frame is the snapshot.
+      watchStates: {
+        source: (input: PadiWatchStatesInput) => {
+          // The never-match scope is refused HERE, at the entry that owns the
+          // sentence — `watchSpecOf` hands the refusal back as a value, so the
+          // stream edge is the one place a throw happens.
+          const spec = watchSpecOf(input);
+          if (spec.kind === "error") throw scopeRefused(spec.message, "id");
+          return stateWatchSource(stateWatch, spec.value, log);
+        },
+      },
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on
@@ -532,18 +691,89 @@ export function buildPadiSurfaceDeps(deps: {
     },
 
     procedures: {
+      // Standing settle-event subscriptions. All three verbs are INSTANT — the
+      // waiting happens on the caller's side, parked on `watchPulse`, so no
+      // handler is held open for the minutes or hours a supervisor may idle
+      // between a worker's turns.
+      watch: {
+        open: ({ input }) =>
+          handle(() => {
+            // `open` answers `reattached` itself — the registry is the only thing
+            // that can know it without a race, and it seeds a fresh
+            // subscription's watermark from the `daemonSeq` it was built with.
+            // `watchFilterOf` returns a filter only when the caller named one of
+            // the three knobs — the presence of a knob IS the choice of source,
+            // so there is no mode flag here to contradict them.
+            const filter = watchFilterOf(input);
+            // The scope is built ONCE, by the only constructor there is, and a
+            // never-match one is refused here — where the subscription's NAME is
+            // in hand to say which one. The registry is a queue and never mints
+            // one, so there is no second policy to disagree with this.
+            const scope = watchScopeOf({
+              ...(input.ids === undefined ? {} : { ids: input.ids }),
+              ...(input.ignoreIds === undefined
+                ? {}
+                : { mute: input.ignoreIds }),
+            });
+            if (scope.kind === "error") {
+              // The NAME is prefixed here and only here: this is the entry that
+              // has one in hand, and a caller with several standing
+              // subscriptions must be told which one it just refused.
+              const refused = scopeRefused(scope.message, "ids");
+              throw new Error(
+                `standing subscription "${input.name}": ${refused.message}`,
+              );
+            }
+            const { sub, reattached } = watchRegistry.open(input.name, {
+              scope: scope.value,
+              ...(filter === undefined ? {} : { filter }),
+            });
+            log.info(
+              {
+                name: input.name,
+                reattached,
+                scope: input.ids === undefined ? "all" : input.ids.length,
+                // The filter IS the knobs, so it is spread rather than
+                // re-listed — a fourth knob is logged by existing. `states` is
+                // a Set, which a log serializer renders as `{}`, so that one
+                // field is spelled as the array it is on the wire.
+                ...(filter === undefined
+                  ? {}
+                  : { ...filter, states: [...filter.states] }),
+              },
+              reattached
+                ? "watch subscription re-attached"
+                : "watch subscription opened",
+            );
+            return {
+              name: sub.name,
+              acknowledged: sub.acknowledged,
+              reattached,
+            };
+          }),
+        drain: ({ input }) =>
+          handle(() => watchRegistry.drain(input.name, input.after)),
+        close: ({ input }) =>
+          handle(() => {
+            watchRegistry.close(input.name);
+            return {};
+          }),
+      },
       lifecycle: {
         create: ({ input }) =>
           handle(() => {
-            // A sub-terminal must hang off a LIVE parent (F3) — the same
+            // The caller STATED where this terminal goes (`placement`) — the
+            // schema refused the request otherwise, so there is nothing to
+            // default here and no `undefined` arm to read. A sub-terminal must
+            // hang off a LIVE parent (F3) — the same
             // live-PTY narrow every per-terminal handler uses. `PadiCreateInput`
             // omits `lastActivityAt`: a fresh terminal seeds `lastActivityAt: 0`
             // (via `createAuthoredActive` → `seedMemory`), and the fold stamps recency
             // later — the client can't supply it. (Only `session.restore` threads a
             // saved `lastActivityAt` through, via `respawnActive`, not this path.)
-            if (input.parentId !== undefined)
-              requireActiveTerminal(input.parentId);
-            const info = createTerminal(input.cwd, input.parentId, {
+            if (input.placement.kind === "child-of")
+              requireActiveTerminal(input.placement.parentId);
+            const info = createTerminal(input.placement, input.cwd, {
               // An explicit theme always wins; absent one, the pushed policy
               // decides — HERE, so the MCP and CLI faces obey the user's
               // new-terminal theme setting exactly as the browser does (#2045).
@@ -553,7 +783,7 @@ export function buildPadiSurfaceDeps(deps: {
               // colour nobody can see.
               themeName:
                 input.themeName ??
-                (input.parentId === undefined
+                (input.placement.kind === "toplevel"
                   ? resolveNewTerminalTheme()
                   : undefined),
               canvasLayout: input.canvasLayout,
@@ -728,6 +958,26 @@ export function buildPadiSurfaceDeps(deps: {
               input.epoch,
             ),
           ),
+        image: ({ input }) =>
+          handle(async () => {
+            const entry = requireActiveTerminal(input.id);
+            // The cells come from kaval RAW — "palette 4", not a colour. This
+            // is the hop that knows which theme this terminal wears, so it is
+            // the hop that resolves them.
+            // The one place the wire input becomes a bound: an absent `lines`
+            // means the viewport, and it is said HERE rather than carried down
+            // as an absence every layer has to re-read.
+            const grid = await entry.handle.getScreenCells(
+              input.lines === undefined
+                ? { kind: "viewport" }
+                : { kind: "tail", lines: input.lines },
+            );
+            return renderScreenImage({
+              grid,
+              themeName: entry.meta.themeName,
+              label: terminalCaption(entry.snapshot),
+            });
+          }),
       },
 
       // fs reads off the SAME shared endpoint `serveFsGit` wraps (its procedure
@@ -895,7 +1145,22 @@ export function buildPadiSurfaceDeps(deps: {
       session: {
         restore: ({ input }) => handle(() => restoreSession(input)),
         import: ({ input }) => handle(() => importSession(input)),
-        forfeit: () => handle(() => forfeitSession()),
+        // Takes the state-root because it SNAPSHOTS before it destroys — the
+        // same ring `backups.*` below rings, so a stray "Start fresh" is
+        // recoverable from the snapshot list. A failed snapshot throws out of
+        // here (undeclared, so it lands as an error toast) and the session stands.
+        forfeit: () => handle(() => forfeitSession(stateRoot)),
+      },
+
+      // The state-backup ring (#1658) — this padi's own ring, under ITS
+      // state-root (a remote host's ring lives on that box; the map client is
+      // how a browser reaches it). Failures are undeclared throws — defects
+      // surfaced as toasts — because none of them is an expected outcome a
+      // client branches on.
+      backups: {
+        list: () => handle(() => listPadiStateBackups(stateRoot)),
+        restore: ({ input }) =>
+          handle(() => restorePadiStateBackup(stateRoot, input)),
       },
     },
   };

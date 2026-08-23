@@ -107,7 +107,8 @@ watching its write-ahead log. Those file-change watches are backed by a low-rate
 stat reconciliation, so if the OS drops the change notification for a fast turn's
 final write, the state self-heals within about a second instead of stranding on
 its last reading. In a normal shell terminal that's enough: the shell
-prints a marker naming each command as it runs, and the agent's process becomes
+prints a marker naming each command as it runs — part of kolu's
+[shell integration](/shell-integration) — and the agent's process becomes
 the foreground. When an agent is launched **as the terminal's root process** — no
 shell wrapping it, e.g. `kaval-tui create -- codex` — there is no shell to print
 that marker, so kolu instead **remembers the exact command the terminal was
@@ -116,6 +117,25 @@ foreground as busy, since the agent *is* the root). kolu never scrapes a running
 process's argv from `/proc`; it uses only the shell's marks and the command it was
 handed at spawn. Adding a new agent is one small adapter and one line of
 registration; nothing server-wide changes.
+
+<Aside type="note" title="One conversation belongs to one terminal">
+  Claude Code and Grok stamp a process id kolu can match a terminal against, so a
+  terminal's conversation is never in doubt. Codex and OpenCode don't — the only
+  thing on disk tying a conversation to a terminal is its <strong>working
+  directory</strong>, which two harnesses in one repository share. kolu therefore
+  treats "most recently updated in this directory" as a <em>shortlist</em> rather
+  than an answer, and hands each terminal a conversation no other terminal already
+  has. These agents write their conversation to disk only after the first
+  exchange, so for the first moments the only thing in that directory is the
+  <em>previous</em> run — a terminal shows it because there is nothing else to
+  show, then moves onto its own the instant that one appears. From then on it
+  <strong>keeps</strong> it: a second Codex starting in the same repo, or one you
+  ran outside kolu, can no longer take over the rows around it. The cost of having
+  no process id to go on: once a terminal has a conversation of its own, starting
+  a fresh one <em>inside</em> that same running Codex or OpenCode (its
+  <code>/new</code>) looks exactly like someone else starting one, so the tile
+  stays on the previous conversation until you exit the agent.
+</Aside>
 
 <Aside type="note" title="Some states can't come from the transcript alone">
   A "waiting on you" prompt (a multiple-choice question, a permission gate) often
@@ -165,10 +185,11 @@ for the framework's prompt chrome and buckets it as _awaiting you_.
 ## Codex
 
 When the foreground process is `codex`, kolu queries Codex's threads SQLite
-database (the highest-numbered `~/.codex/state_<N>.sqlite`) for the most recently
-updated thread whose working directory matches the terminal, and tails that
-thread's rollout JSONL for state and context-token count. Live updates ride a
-watch on the SQLite write-ahead log.
+database (the highest-numbered `~/.codex/state_<N>.sqlite`) for the live threads
+whose working directory matches the terminal — most recently updated first — takes
+the best one no other terminal already holds, and tails that thread's rollout JSONL
+for state and context-token count. Live updates ride a watch on the SQLite
+write-ahead log.
 
 | State | Indicator | Meaning |
 | --- | --- | --- |
@@ -186,14 +207,20 @@ The context count is Codex's own `last_token_usage.input_tokens` — the number 
 - **Column-schema changes** — if an upstream release renames a depended-on column,
   detection returns no match; set `KOLU_CODEX_DB` to pin a known-good database
   while a fix ships.
-- **Same-directory disambiguation** — with multiple Codex threads in one directory,
-  kolu picks the most recently updated.
+- **Which thread is which** — Codex records no process id, only a thread creation
+  time, so with several threads in one directory kolu can guarantee that no two
+  terminals show the same one and that a terminal ends up on a thread created
+  after its own harness started — not which of several such threads is really its
+  own. A thread started *inside* a running Codex (`/new`) is therefore
+  indistinguishable from one started elsewhere in that directory, so the tile
+  stays on the previous thread until you exit the agent.
 
 ## Grok
 
 When the foreground process is `grok`, kolu prefers the entry in
 `~/.grok/active_sessions.json` whose pid matches the terminal; with no pid to go
-on it takes the most recently updated session under `~/.grok/sessions/`. That
+on it takes the most recently updated session under `~/.grok/sessions/` that no
+other terminal already holds. That
 file is only ever used to **find** a session, never to decide one has ended —
 Grok rewrites the whole list from each session's own point of view, so a session
 starting or ending erases the entries of every other Grok running at that moment.
@@ -216,9 +243,10 @@ is a stable first-class count. **Transcript export** reads `chat_history.jsonl`
 ## OpenCode
 
 When the foreground process is `opencode`, kolu queries OpenCode's SQLite database
-directly at `~/.local/share/opencode/opencode.db` for the most recently updated
-session whose directory matches the terminal. The database's write-ahead log
-drives live updates.
+directly at `~/.local/share/opencode/opencode.db` for the live sessions whose
+directory matches the terminal — most recently updated first — and takes the best
+one no other terminal already holds. The database's write-ahead log drives live
+updates.
 
 | State | Indicator | Meaning |
 | --- | --- | --- |
@@ -239,7 +267,13 @@ shows the running token count OpenCode pre-sums itself.
 
 **What it can't detect (yet):**
 
-- **Same-directory disambiguation** — most recently updated session wins.
+- **Which session is which** — OpenCode records no process id, only the time its
+  first message was written, so with several sessions in one directory kolu can
+  guarantee that no two terminals show the same one and that a terminal ends up
+  on a session begun after its own harness started — not which of several such
+  sessions is really its own. A session started *inside* a running OpenCode is
+  therefore indistinguishable from one started elsewhere in that directory, so
+  the tile stays on the previous session until you exit the agent.
 - **Non-default database location** — set `KOLU_OPENCODE_DB` to override the path.
 
 ## Xyne

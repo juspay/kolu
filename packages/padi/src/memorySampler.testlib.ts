@@ -19,8 +19,33 @@ import { join } from "node:path";
 import { shellQuoteArg } from "@kolu/shell-quote";
 import { vi } from "vitest";
 
+/** How long the fake osfacts may take to actually be RUNNING.
+ *
+ *  Starting it is a real process launch — `node_modules`-free `/bin/sh`, but a
+ *  launch — and vitest's `waitFor` default of 1s measures the box rather than
+ *  the sampler. Nothing in this package runs beside it (`fileParallelism:
+ *  false`, and `test-daemon` passes `--workspace-concurrency=1`), but the CI
+ *  lane runs sibling pipeline recipes on the same host, so a launch competes
+ *  with whatever nix build or e2e run is live there. On the darwin lane the
+ *  file's ten cases take 1.6–2.6s in total when healthy; one loaded run missed
+ *  the 1s launch window and reddened `ci::daemon@aarch64-darwin`
+ *  (juspay/kolu#2176). A spawn that has not happened in 30s is a real hang;
+ *  anything short of that is the machine being busy. */
+const SPAWN_BUDGET_MS = 30_000;
+
+/** What a case using a PAUSED fixture must pass as its own timeout.
+ *
+ *  `awaitStarted()`'s budget is only real if the enclosing case outlives it,
+ *  and this package sets no `testTimeout`, so vitest's 5s default would kill
+ *  the case first — capping the wait at 5s and reporting a hang exactly where
+ *  the budget above exists to say "the box is busy". Deriving the case timeout
+ *  from the budget keeps the two from drifting apart again; the headroom is
+ *  because equal-length timers race. */
+export const PAUSED_FIXTURE_TIMEOUT_MS = SPAWN_BUDGET_MS + 5_000;
+
 export interface OsfactsMemoryFixture {
-  readonly hasStarted: () => boolean;
+  /** Resolve once the fake osfacts has started and is holding at the pause. */
+  readonly awaitStarted: () => Promise<void>;
   readonly readArgs: () => string;
   readonly release: () => void;
 }
@@ -28,6 +53,11 @@ export interface OsfactsMemoryFixture {
 export interface OsfactsMemoryFixtureSpec {
   readonly rows: readonly string[];
   readonly version?: number;
+  /** Hold the fake osfacts at a barrier until `release()`, so a case can mutate
+   *  state mid-read. A case that sets this MUST pass
+   *  {@link PAUSED_FIXTURE_TIMEOUT_MS} as its own timeout — it is the only
+   *  shape that waits on a spawn, and vitest's 5s default would otherwise kill
+   *  the case before `awaitStarted()`'s budget is up. */
   readonly paused?: boolean;
 }
 
@@ -60,17 +90,27 @@ function installOsfactsMemoryFixture(
   process.env.KOLU_OSFACTS_BIN = bin;
   const release = () => writeFileSync(releaseFile, "");
   return {
-    hasStarted: () => existsSync(startedFile),
+    awaitStarted: () =>
+      vi.waitFor(
+        () => {
+          if (!existsSync(startedFile))
+            throw new Error("osfacts fixture has not started");
+        },
+        { timeout: SPAWN_BUDGET_MS, interval: 25 },
+      ),
     readArgs: () => readFileSync(argsFile, "utf8").trim(),
     release,
     restore: async () => {
       try {
         if (existsSync(startedFile) && !existsSync(finishedFile)) {
           release();
-          await vi.waitFor(() => {
-            if (!existsSync(finishedFile))
-              throw new Error("osfacts still running");
-          });
+          await vi.waitFor(
+            () => {
+              if (!existsSync(finishedFile))
+                throw new Error("osfacts still running");
+            },
+            { timeout: SPAWN_BUDGET_MS, interval: 25 },
+          );
         }
       } finally {
         if (previous === undefined) delete process.env.KOLU_OSFACTS_BIN;

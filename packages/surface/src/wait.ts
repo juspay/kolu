@@ -50,6 +50,26 @@ export function isValidTimerMs(ms: number): boolean {
   return Number.isFinite(ms) && ms > 0 && ms <= MAX_TIMER_MS;
 }
 
+/** "That window is outside the timer's range", in the ONE wording every face
+ *  says it in.
+ *
+ *  The rule ({@link isValidTimerMs}) and the ceiling ({@link MAX_TIMER_MS}) were
+ *  already single-sourced; the SENTENCE was not, and it had drifted three ways —
+ *  which is the same defect one layer up, and the one `kolu wait`/`debrief`
+ *  already deduped once between themselves.
+ *
+ *  `effect` names what an out-of-range value would do to THAT flag ("fires a
+ *  false timeout", "reports a false settle"), which is the only part that
+ *  legitimately differs; `got` is what the user actually typed, rendered by the
+ *  caller because only it knows whether that was `60000` or `"99999h"`. */
+export function timerRangeMessage(
+  flag: string,
+  effect: string,
+  got: string,
+): string {
+  return `--${flag} must be between 1 and ${MAX_TIMER_MS} milliseconds (~24.8 days) — a larger value overflows the timer and ${effect} almost immediately, got ${got}.`;
+}
+
 /** The met payload's constraint: any object WITHOUT its own `kind`. The
  *  outcome union spreads `Met` flat into the `met` arm (`{ kind: "met" } &
  *  Met` — what keeps kaval-tui's met frame byte-identical), so a payload

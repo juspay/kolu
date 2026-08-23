@@ -13,11 +13,14 @@
  *   padi-tui wait <id> --until <buckets>    block until that terminal's agent
  *                                           reaches a bucket (working/awaiting/
  *                                           waiting), then exit — the done-signal
- *   padi-tui create [--parent <id>] [--worktree <branch>] [--repo <path>] [-- argv]
- *                                           spawn a terminal (a split tile with
- *                                           --parent, in a fresh worktree with
- *                                           --worktree), optionally launching an
- *                                           agent (`-- claude`); print its id
+ *   padi-tui create (--toplevel | --parent <id>) [--worktree <branch>]
+ *                   [--repo <path>] [-- argv]
+ *                                           spawn a terminal — placement is
+ *                                           REQUIRED (a tile of its own, or a
+ *                                           split of --parent; no default), in a
+ *                                           fresh worktree with --worktree,
+ *                                           optionally launching an agent
+ *                                           (`-- claude`); print its id
  *
  * Discovery (flags go AFTER the subcommand): with no flag, padi-tui honors
  * $PADI_SOCKET — stamped into every terminal padi spawns — so inside a kolu
@@ -49,10 +52,16 @@
 import { NodeSink } from "@effect/platform-node";
 import {
   awaitAgentState,
-  resolveRunningPadiSocket,
+  isWaitState,
+  WAIT_STATES,
+  type WaitState,
   watchTerminals,
 } from "@kolu/padi/dial";
-import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
+import {
+  PADI_SURFACE_VERSION,
+  type TerminalPlacement,
+  TOPLEVEL_PLACEMENT,
+} from "@kolu/padi/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { cli, command } from "cleye";
 import {
@@ -72,7 +81,7 @@ import {
   type Connection,
   type PadiTuiClient,
 } from "./connect.ts";
-import { runCreate } from "./create.ts";
+import { placementGate, runCreate } from "./create.ts";
 import {
   CliFailure,
   exitCodeOf,
@@ -83,7 +92,8 @@ import {
   WaitTimedOut,
 } from "./exit.ts";
 import { connectPadiTuiViaHost } from "./hostConnect.ts";
-import { readTerminalKeys, settledSnapshot } from "./read.ts";
+import { resolveSocketPath } from "./socketTarget.ts";
+import { readTerminalKeys, settledSnapshot } from "@kolu/padi/read";
 import {
   formatStatus,
   formatStatusJson,
@@ -94,10 +104,40 @@ import {
   formatWatchJson,
   formatWatchRemoval,
   formatWatchRemovalJson,
-  parseUntilStates,
   resolveTerminalId,
   shortId,
-} from "./render.ts";
+} from "@kolu/padi/render";
+
+/** Parse this TUI's `--until` — a comma list of bucket names — into the set of
+ *  target buckets, or a loud error. Whitespace is trimmed, case folded, and
+ *  duplicates collapse; an empty list or any token outside `WAIT_STATES` is
+ *  rejected (fail-fast — no silent drop of an unrecognized state).
+ *
+ *  LOCAL, and that is the boundary rather than an oversight: `watch.ts`'s header
+ *  in padi states it — "the CLI-flag grammar (`--until`'s comma parse and its
+ *  error strings) stays in the face; only the surface-shaped vocabulary and the
+ *  watch/wait machinery live here". It briefly lived in `@kolu/padi/render`,
+ *  where its `--until:`-prefixed message was argv grammar inside a formatter.
+ *  What padi owns is {@link isWaitState}: whether a token names a bucket. */
+function parseUntilStates(
+  raw: string,
+):
+  | { kind: "ok"; targets: Set<WaitState> }
+  | { kind: "error"; message: string } {
+  const tokens = raw
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0);
+  const unknown = tokens.filter((t) => !isWaitState(t));
+  if (tokens.length === 0 || unknown.length > 0) {
+    const offending = unknown.length > 0 ? unknown.join(", ") : "(none given)";
+    return {
+      kind: "error",
+      message: `--until: unknown state(s) ${offending} — use a comma list of: ${WAIT_STATES.join(", ")} (e.g. --until awaiting,waiting).`,
+    };
+  }
+  return { kind: "ok", targets: new Set(tokens as WaitState[]) };
+}
 
 // Declared on each subcommand — cleye binds flags only AFTER the subcommand (it
 // does not inherit a parent flag), so `--socket` goes after the command:
@@ -190,14 +230,24 @@ const argv = cli({
       parameters: ["[command...]"],
       help: {
         description:
-          "Spawn a terminal on the host and print its id; padi owns it and it appears on the canvas. `--parent <id>` makes it a split tile of another terminal; `--worktree <branch>` creates a fresh git worktree (off `--repo`, default the cwd) and opens the terminal there; anything after `--` is run in the new terminal — e.g. `padi-tui create --worktree feat -- claude` spawns a worktree'd Claude Code in one command.",
+          "Spawn a terminal on the host and print its id; padi owns it and it appears on the canvas. Placement is REQUIRED — pass exactly one of `--toplevel` (a tile of its own) or `--parent <id>` (a split inside that terminal); there is no default. `--worktree <branch>` creates a fresh git worktree (off `--repo`, default the cwd) and opens the terminal there; anything after `--` is run in the new terminal — e.g. `padi-tui create --toplevel --worktree feat -- claude` spawns a worktree'd Claude Code in one command.",
       },
       flags: {
         ...endpointFlags,
+        toplevel: {
+          type: Boolean,
+          description:
+            "open the new terminal as a TILE OF ITS OWN on the canvas (mutually exclusive with --parent)",
+          // `default: false` so the flag is a plain boolean, not a tristate —
+          // "absent" and "false" are the same statement here (you did not claim
+          // top level), and the REQUIRED-ness is enforced by the pair gate in
+          // `cmdCreate`, which is where the rule can be spelled with its reason.
+          default: false,
+        },
         parent: {
           type: String,
           description:
-            "make the new terminal a SPLIT TILE of this terminal (a short id from `status` or a unique prefix)",
+            "make the new terminal a SPLIT TILE of this terminal (a short id from `status` or a unique prefix); mutually exclusive with --toplevel",
         },
         worktree: {
           type: String,
@@ -312,43 +362,6 @@ const shutdownRequest: Effect.Effect<ShutdownRequest, never, Scope.Scope> =
  *  drift. Both guards stay; only the string is shared. */
 const WORKTREE_OVER_HOST_NEEDS_REPO =
   "--worktree over --host needs --repo <path on the host>: the worktree is cut on the REMOTE machine, so it can't default to your local directory. Pass --repo with an absolute path on the host.";
-
-/** The socket to dial. The selection policy (`--socket` wins; else `--state-root`;
- *  else $PADI_SOCKET; else discover) plus the candidate labels live in the shared
- *  `resolveRunningPadiSocket` (the dial kit), so here padi-tui only renders the
- *  `many` ambiguity as its own pick-one failure. */
-function resolveSocketPath(flags: {
-  socket: string | undefined;
-  stateRoot: string | undefined;
-}): Effect.Effect<string, CliFailure> {
-  if (flags.socket !== undefined && flags.stateRoot !== undefined) {
-    return Effect.fail(
-      failure(
-        "--socket and --state-root are mutually exclusive: --socket is a literal socket path, --state-root derives one. Pass just one.",
-      ),
-    );
-  }
-  return Effect.suspend(() => {
-    const resolved = resolveRunningPadiSocket({
-      socket: flags.socket,
-      stateRoot: flags.stateRoot,
-    });
-    if (resolved.kind === "many") {
-      return Effect.fail(
-        failure(
-          `more than one padi daemon is running:\n  ${resolved.candidates
-            .map(
-              (d) => `${d.socket}    (${d.stateRoot ?? "unknown state-root"})`,
-            )
-            .join(
-              "\n  ",
-            )}\nPass --socket <path> or --state-root <dir> to pick one.`,
-        ),
-      );
-    }
-    return Effect.succeed(resolved.socket);
-  });
-}
 
 /** The one daemon a command targets: a REMOTE padi over ssh (`--host`) or a LOCAL
  *  one at a resolved socket path. Each arm carries exactly what its connect needs,
@@ -657,6 +670,7 @@ function cmdWait(
 function cmdCreate(
   endpoint: Endpoint,
   flags: {
+    toplevel: boolean;
     parent: string | undefined;
     worktree: string | undefined;
     repo: string | undefined;
@@ -665,14 +679,29 @@ function cmdCreate(
   command: readonly string[],
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
+    // The placement gate is PURE and runs before the dial, so a bare
+    // `padi-tui create` fails instantly rather than after `--host` has
+    // Nix-provisioned a cold box for a command that was never going to run. The
+    // DECISION is `@kolu/padi/render`'s, shared with `kolu create` so the two
+    // faces cannot drift; only the command name and the failure type are ours,
+    // and both live in `create.ts` where a test can reach them — nothing in this
+    // module can be imported without `cli(…)` parsing `process.argv`.
+    const stated = yield* placementGate(flags);
+
     const created = yield* Effect.scoped(
       Effect.gen(function* () {
         const conn = yield* connectTo(endpoint);
         // Resolve --parent prefix against the live terminals (a short id or prefix).
-        const parentId =
-          flags.parent === undefined
-            ? undefined
-            : yield* resolveArg(conn.client, flags.parent);
+        // The ARM was decided above; only the id inside it needs the live roster,
+        // and it is read off that arm rather than re-derived from the raw flags —
+        // one decision, read once.
+        const placement: TerminalPlacement =
+          stated.kind === "toplevel"
+            ? TOPLEVEL_PLACEMENT
+            : {
+                kind: "child-of",
+                parentId: yield* resolveArg(conn.client, stated.parentQuery),
+              };
 
         // WHERE the new terminal opens depends on whether this daemon shares our
         // filesystem — the one co-location fact `conn.localCwd` carries. A LOCAL padi
@@ -694,7 +723,7 @@ function cmdCreate(
         }
 
         const result = yield* runCreate(conn.client, {
-          parentId,
+          placement,
           worktree,
           // A plain LOCAL create opens where you are (the tmux convention); a REMOTE
           // one has `conn.localCwd` undefined so padi defaults to the host's home.
@@ -702,18 +731,24 @@ function cmdCreate(
           cwd: conn.localCwd,
           argv: command,
         });
-        return { result, parentId };
+        return { result, placement };
       }),
     );
 
-    const { result, parentId } = created;
+    const { result, placement } = created;
     if (flags.json) {
       return yield* writeOut(`${JSON.stringify(result, null, 2)}\n`);
     }
-    // stdout is just the id (scriptable — `id=$(padi-tui create)`); the rest to stderr.
+    // stdout is just the id (scriptable — `id=$(padi-tui create --toplevel)`);
+    // the rest to stderr.
     yield* writeOut(`${result.id}\n`);
     const bits = [`— created ${shortId(result.id)}`];
-    if (parentId !== undefined) bits.push(`split of ${shortId(parentId)}`);
+    // Placement is always reported: top level is a decision now, not a silence.
+    bits.push(
+      placement.kind === "child-of"
+        ? `split of ${shortId(placement.parentId)}`
+        : "top-level",
+    );
     if (result.worktree !== undefined) {
       bits.push(
         `worktree ${result.worktree.branch} at ${result.worktree.path}`,
@@ -818,6 +853,7 @@ function program(): Effect.Effect<void, unknown> {
       return yield* cmdCreate(
         endpoint,
         {
+          toplevel: argv.flags.toplevel,
           parent: argv.flags.parent,
           worktree: argv.flags.worktree,
           repo: argv.flags.repo,

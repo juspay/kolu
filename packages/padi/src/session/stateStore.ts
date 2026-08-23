@@ -19,6 +19,11 @@ import { join } from "node:path";
 import Conf from "conf";
 import { confStore } from "@kolu/surface/server";
 import type { CellStore } from "@kolu/surface/server";
+import { log } from "../log.ts";
+import {
+  openStateBackupRing,
+  type StateBackupRing,
+} from "kolu-shared/state-backup";
 import type { PairedDaemon } from "./pairedDaemon.ts";
 import type { ActivityFeed, SavedSession } from "../vocab.ts";
 
@@ -45,6 +50,11 @@ export interface PadiStateStores {
   /** The raw store — the state-root Conf, exposed so the one-shot import can seed
    *  keys directly (and so a boot can inspect emptiness before importing). */
   conf: PadiConf;
+  /** THIS state root's backup ring — the binding `openPadiStateStores` took its
+   *  boot snapshot through, returned so the daemon boot arms the daily ticker
+   *  on the SAME ring object instead of deriving a second one from
+   *  `conf.path` (the ring's module doc: a consumer holds one binding). */
+  ring: StateBackupRing;
 }
 
 /** The padi state-root `Conf` type — narrowed to the read/write surface the
@@ -136,12 +146,42 @@ function newerProjectVersionOnDisk(
   };
 }
 
+/** padi's state file under a state-root — the ONE derivation of that fact. This
+ *  module owns padi's on-disk layout (it constructs the `Conf`), so
+ *  `openPadiStateStores` and the backup ring's face both read it HERE rather
+ *  than each re-spelling `join(stateRoot, "config.json")`: a second spelling
+ *  would silently ring a different directory than the boot snapshot writes, and
+ *  nothing would fail loudly. */
+export function padiConfigPath(stateRoot: string): string {
+  return join(stateRoot, "config.json");
+}
+
+/** THIS state-root's backup ring, for a consumer that has a `stateRoot` but not
+ *  the boot-opened binding on {@link PadiStateStores} — the `backups.*` face and
+ *  the session FORFEIT, each of which is handed a bare state-root by
+ *  `servePadi`. It lives HERE, beside `padiConfigPath`, for the same reason that
+ *  path does: a second `openStateBackupRing(padiConfigPath(root), log)` spelling
+ *  elsewhere would silently ring a different directory than the boot snapshot
+ *  writes, and nothing would fail loudly. Opening a ring is cheap (a path plus a
+ *  logger — no file handle, no `Conf`), so an ad-hoc consumer opens one per act
+ *  rather than reaching for the boot stores. */
+export function padiStateBackupRing(stateRoot: string): StateBackupRing {
+  return openStateBackupRing(padiConfigPath(stateRoot), log);
+}
+
 /** Open padi's state-root `Conf` (`<stateRoot>/config.json`) and return the three
  *  cell stores it backs. The stores are `confStore` adapters over the one `Conf`,
  *  exactly as kolu-server built them — so the cells behave byte-identically, only
  *  the file moved. */
 export function openPadiStateStores(stateRoot: string): PadiStateStoreOpen {
-  const configPath = join(stateRoot, "config.json");
+  const configPath = padiConfigPath(stateRoot);
+  // Snapshot the pre-existing file into the backup ring BEFORE anything —
+  // including the rollback preflight and the Conf construction below — can
+  // write it (juspay/kolu#1658: history is the safety net for a bug that
+  // persists a bad-but-valid value; the migration `.bak`s are one-shot and
+  // cover only the legacy cutover). Fail-soft by design — see `stateBackup.ts`.
+  const ring = openStateBackupRing(configPath, log);
+  ring.snapshot();
   const newer = newerProjectVersionOnDisk(configPath);
   if (newer !== null) return newer;
 
@@ -169,6 +209,7 @@ export function openPadiStateStores(stateRoot: string): PadiStateStoreOpen {
         "lastPairedDaemon",
       ),
       conf,
+      ring,
     },
   };
 }

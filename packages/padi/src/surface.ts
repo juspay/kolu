@@ -55,6 +55,7 @@
  * coordinator restructures that next).
  */
 
+import { MAX_TIMER_MS } from "@kolu/surface/wait";
 import {
   composeSurfaceContracts,
   defineSurface,
@@ -102,6 +103,7 @@ import {
   ScratchWriteRejected,
   TerminalNotFound,
   TerminalParentCycle,
+  WatchSubscriptionNotFound,
   TranscriptNoAgent,
   TranscriptNotFound,
   WorktreeCreateErrorSchema,
@@ -111,6 +113,15 @@ import {
   NewTerminalPolicySchema,
   newTerminalPolicyEqual,
 } from "./newTerminalPolicy.ts";
+// The bucket VOCABULARY, straight from the leaf that owns the fold it is
+// defined from — not through `terminalVocab.ts`, which type-imports this module
+// back. A value import along that edge would make the pair a runtime cycle, and
+// the layering `terminalVocab.ts`'s header states would be one an import graph
+// refutes.
+import {
+  WAIT_STATES,
+  WATCH_DEFAULT_STATES,
+} from "@kolu/terminal-vocab/agentProjection";
 import {
   ExportTranscriptHtmlInputSchema,
   ExportTranscriptHtmlOutputSchema,
@@ -126,11 +137,13 @@ import {
   PadiProcessMemorySchema,
   ParkedDiscriminantSchema,
   PersistedSnapshotSchema,
+  PLACEMENT_REQUIRED,
   PtyHostIdentitySchema,
   SavedSessionSchema,
   SleepingTerminalSchema,
   TerminalInfoSchema,
   TerminalOnExitOutputSchema,
+  TerminalPlacementSchema,
 } from "./vocab.ts";
 
 // The terminal VOCABULARY (schemas · records · pure helpers) now lives HERE, in
@@ -369,8 +382,48 @@ export * from "./vocab.ts";
  *  surface, and an older binder against a 5.1 padi is build-mismatched and drains
  *  it first, so no parser meets a frame of the other shape. `session.import` is
  *  UNTOUCHED: it restores a blob the client just handed over and seeds no view, so
- *  giving it an answer nothing reads would be shape for its own sake. */
-export const PADI_SURFACE_VERSION = "5.1";
+ *  giving it an answer nothing reads would be shape for its own sake.
+ *
+ *  5.2 (additive · minor): a NEW `backups` procedure namespace — `backups.list`
+ *  (enumerate the state-backup ring #1658 introduced, with a per-snapshot
+ *  session summary) and `backups.restore` (restore a snapshot's session
+ *  host-side, riding the same import machinery as `session.import` — and
+ *  OUTPUT-LESS for the same reason `session.import` is: it restores a blob the
+ *  user just picked and seeds no view from the call, so an answer nothing reads
+ *  would be shape for its own sake). Purely additive, so the plainest minor
+ *  there is, and the minor
+ *  suffices for the usual reason — a newer binder against a 5.1 padi fails
+ *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming
+ *  its surface, so a 5.2 client never calls `backups.*` on a padi that lacks
+ *  the ring.
+ *
+ *  5.3 (additive · minor): the agent-STATE watch. A new `watchStates` stream
+ *  ({@link PadiWatchStatesInputSchema} → batches of
+ *  {@link PadiStateEventSchema}), three new optional params on `watch.open`
+ *  ({@link PadiWatchFilterFields}), and `watch.drain`'s `events` widened from
+ *  the settle shape to {@link PadiWatchEventSchema} — the union of both event
+ *  vocabularies. The widened OUTPUT is why this is a version bump and not a
+ *  silent add: a 5.2 consumer's decoder would refuse a `snapshot`/`transition`/
+ *  `nag` frame, and only the minor rule keeps it from ever meeting one (a newer
+ *  binder against a 5.2 padi drains it before consuming its surface, and an
+ *  older binder against a 5.3 padi is build-mismatched and drains it first). It
+ *  can also never meet one by accident: a 5.2 caller cannot spell the params
+ *  that put a state event in a queue.
+ *
+ *  5.4 (additive · minor): `screen.image` — the terminal as a rendered PNG
+ *  ({@link PadiScreenImageInputSchema} → {@link PadiScreenImageOutputSchema}),
+ *  serving the `screen_image` MCP tool and `kolu screenshot`.
+ *
+ *  A NEW PROCEDURE is exactly the shape the minor rule exists for, and the
+ *  reasoning is the CLI/MCP face's, not the browser's. `connectPadi` gates on
+ *  {@link isContractVersionCompatible}, and those faces are gate-only — they
+ *  never drain (#1313). Left at 5.3, a fresh `kolu screenshot` would ADOPT a
+ *  surviving 5.3 padi that does not serve the member and die on a missing
+ *  procedure; the minor makes convergence drain-and-respawn it first, which is
+ *  the honest recycle. This is the same call kaval's own 7.1 note makes for
+ *  `getScreenCells`, and the same one 4.4 (`listIgnored`), 4.6
+ *  (`listDirectory`) and 5.2 (backups) made before it. */
+export const PADI_SURFACE_VERSION = "5.4";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -732,17 +785,37 @@ function sameIds<T>(a: readonly T[], b: readonly T[]): boolean {
 // authored facts (`lastActivityAt`, `lastAgentCommand`, `restoreTarget`) that padi
 // earns from its own observation, so they are not duplicates to fold away.
 
-/** Create input — the BASE `CreateTerminalInputSchema` (client chrome) plus `cwd` /
- *  `parentId`. It derives from the base DIRECTLY rather than subtracting the three
+/** Create input — the BASE `CreateTerminalInputSchema` (client chrome) plus the
+ *  REQUIRED `placement` and an optional `cwd`. It derives from the base DIRECTLY
+ *  rather than subtracting the three
  *  server-derived authored facts, so the exclusion is structural, not a maintained
  *  omit list: a future field added to `RestoreOnlyMetadataSchema` can never leak to
  *  the wire by someone forgetting to extend an omit. A fresh terminal has no truth
  *  about `lastActivityAt` / `lastAgentCommand` / `restoreTarget` (the fold derives
  *  them from its own observation); `session.restore` threads them from the saved blob
- *  through `restoreSpawn`'s distinct `restoreOnly` arm, never this input. */
+ *  through `restoreSpawn`'s distinct `restoreOnly` arm, never this input.
+ *
+ *  `placement` is the one REQUIRED key, and the only one on this input that is not
+ *  chrome: it says whether the new terminal is a tile of its own or a split inside
+ *  another ({@link TerminalPlacementSchema}). `annotateKey` puts the SAME sentence on
+ *  the absent-key issue that the sum itself carries for a malformed one, so the two
+ *  ways of not naming a placement — omit the key, or name a third arm — both answer
+ *  with the rule and both spellings rather than Effect's bare "Missing key".
+ *
+ *  A `child-of` with no `parentId` deliberately does NOT get that sentence: it fails
+ *  as a missing key at `["placement"]["parentId"]`, and that is the more useful
+ *  answer. That caller HAS chosen an arm and knows the vocabulary — re-reciting the
+ *  whole rule at them would bury the one thing they need, which is that the parent id
+ *  is the field that went astray. Pinned as such in `createPlacement.test.ts`.
+ *
+ *  The refusal is therefore the SCHEMA's, not a handler guard: a create with no
+ *  placement never reaches padi's registry, and no TypeScript caller can compile
+ *  one. */
 export const PadiCreateInputSchema = Schema.Struct({
+  placement: TerminalPlacementSchema.pipe(
+    Schema.annotateKey({ messageMissingKey: PLACEMENT_REQUIRED }),
+  ),
   cwd: Schema.optionalKey(Schema.String),
-  parentId: Schema.optionalKey(TerminalIdSchema),
   ...CreateTerminalInputSchema.fields,
 });
 
@@ -853,6 +926,326 @@ export const PadiSendInputSchema = Schema.Struct({
   data: Schema.String,
 });
 
+// ── Standing settle-event subscriptions (`watch.*`) ───────────────────────
+//
+// A supervisor that is itself a kolu terminal needs none of this: padi delivers
+// into its mailbox along the `parentId` edge. These verbs are for a supervisor
+// that has NO terminal — a coding agent holding only an MCP connection — which
+// the edge therefore cannot reach.
+//
+// The shape is padi's existing PULSE-THEN-REQUERY idiom (`subscribeRepoChange`):
+// instant request/response verbs carry the data, and a stream carries only a
+// doorbell. It is deliberately not a blocking `next` procedure — the buffer is
+// authoritative and server-side, so a MISSED pulse costs a wait, never an event.
+
+/** A settle edge on the wire — "this terminal just started needing someone".
+ *
+ *  THE one declaration of the shape: padi's own server-internal source aliases
+ *  `PadiSettleEvent` rather than re-spelling the fields (`attention/settleEvents.ts`),
+ *  so a reader tracing one event from emission to the MCP reply never changes
+ *  vocabulary halfway through and the two halves cannot drift in a direction that
+ *  still type-checks.
+ *
+ *  Thin on purpose: the recipient reads the terminal's screen itself, so it acts
+ *  on CURRENT output rather than a copy that aged in the queue, and one delivery
+ *  can't flood a supervisor's context with another agent's transcript. */
+export const PadiSettleEventSchema = Schema.Struct({
+  /** Monotonic per-daemon sequence — the cursor a standing subscription drains
+   *  against, so "what have I not seen" is a number comparison and never a
+   *  guess. */
+  seq: PositiveInt,
+  id: TerminalIdSchema,
+  /** `asking` — the agent is blocked on a person (`awaiting_user`), reported
+   *  immediately and UNGATED by the quiet window, because an agent that says it
+   *  is blocked is definitionally not mid-output. `finished` — its turn ended AND
+   *  its output then went quiet for padi's effective-finish window; that
+   *  conjunction is what keeps a background sub-agent's churn from reading as
+   *  "done". `gone` — the terminal left (it exited, was killed, or its id was
+   *  retired by a kaval recycle). It rides this SAME channel deliberately: a
+   *  supervisor waiting on a worker that no longer exists must be TOLD, not left
+   *  waiting for a settle that can never come — otherwise a scoped subscription
+   *  simply goes quiet after a recycle, and silence reads exactly like a calm
+   *  workspace. */
+  kind: Schema.Literals(["asking", "finished", "gone"]),
+  /** ms epoch, stamped once per observed FRAME (not per event), so every edge one
+   *  fold produced describes the same instant. */
+  at: PositiveInt,
+  /** Who spawned this terminal — lane attribution for the subscriber. Absent for a
+   *  root terminal (nobody spawned it). For a DEPARTURE it is the edge REMEMBERED
+   *  from the last frame that still had one, because by then there is no record to
+   *  read. */
+  parentId: Schema.optionalKey(TerminalIdSchema),
+  /** The terminal's freeform intent annotation, when set — the one piece of "what
+   *  was this lane doing" a recipient can't cheaply re-derive. */
+  intent: Schema.optionalKey(Schema.String),
+});
+export type PadiSettleEvent = typeof PadiSettleEventSchema.Type;
+
+// ── The agent-STATE watch (`states` · `heldForMs` · `nagMs`) ────────────────
+//
+// The second event source behind the same standing subscriptions, and the whole
+// of `kolu watch`'s supervision face. A settle event is an edge the DAEMON
+// decides for you — "this terminal just started needing someone", with EF2's
+// byte-quiet conjunct baked in. A state event answers the question the
+// SUBSCRIBER asked instead: which agent buckets do I care about, how long must
+// one HOLD before I hear about it, and how often should I be told AGAIN while it
+// keeps holding.
+//
+// It reads the ADAPTER, never the bytes. `agentBucket` folds the state the
+// agent's own adapter published; a quiet screen is not an idle agent — a grok
+// sitting at an empty prompt repaints about once a second, which starved a
+// byte-quiet gate forever (#2177). So `heldForMs` debounces the STATE, and no
+// part of this feed consults output.
+//
+// The three knobs are ONE implementation (`attention/stateWatch.ts`) served to
+// both faces: `kolu watch --states/--held-for/--nag` subscribes the
+// {@link padiSurface} `watchStates` stream, an MCP orchestrator passes the same
+// three as `watch.open` params. Neither face filters anything client-side.
+
+/** The agent buckets a state watch may target — padi's own {@link WAIT_STATES}
+ *  (the `agentBucket` fold's vocabulary minus `other`, which no real agent
+ *  reaches), so this wire and `kolu wait --until` speak one word list rather
+ *  than two that agree by luck. */
+const WatchStateSchema = Schema.Literals(WAIT_STATES);
+
+/** What a subscription that names NO states means — re-exported from the
+ *  vocabulary leaf, where it sits beside the buckets it is drawn from and where
+ *  a face's `--help` can read it without importing the wire. */
+export { WATCH_DEFAULT_STATES };
+
+/** The three knobs, declared ONCE and spread into both faces' inputs, so a CLI
+ *  flag and an MCP param cannot mean different things.
+ *
+ *  ANNOTATE FIRST, CHECK SECOND on every field — `watch.open` is exposed to MCP
+ *  as a RAW procedure, so these annotations are the only blurb an agent ever
+ *  sees for them, and annotating an already-checked schema buries the text in an
+ *  `allOf` branch no host reads (the trap `kolu-mcp`'s `MillisecondsSchema`
+ *  documents). */
+export const PadiWatchFilterFields = {
+  states: Schema.optionalKey(
+    Schema.Array(WatchStateSchema)
+      .annotate({
+        description: `Agent states to report, any-of: ${WAIT_STATES.join(", ")}. Omit for the default ${WATCH_DEFAULT_STATES.join(",")} — the two that need a person. These are the agent's OWN reported state, not a guess from its output.`,
+      })
+      .check(Schema.isNonEmpty()),
+  ),
+  heldForMs: Schema.optionalKey(
+    Schema.Number.annotate({
+      description:
+        "Report a terminal only once it has HELD that state this long (milliseconds). Omit (or 0) to report the instant it enters. This is the debounce: an agent that ends its turn and is handed more work inside the window is never reported at all.",
+      // Bounded by the shared `setTimeout` ceiling: these arm real timers in the
+      // daemon, and a value past it overflows to "fire immediately, forever".
+      // Zero is a legal HOLD — report the transition the instant it happens.
+    }).check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(0),
+      Schema.isLessThanOrEqualTo(MAX_TIMER_MS),
+    ),
+  ),
+  nagMs: Schema.optionalKey(
+    Schema.Number.annotate({
+      description:
+        "RE-report a terminal every this many milliseconds for as long as it keeps holding a matching state (milliseconds). Omit to be told once. This is what makes an ignored terminal come back instead of vanishing after one line.",
+      // Zero is NOT a legal interval — a nag every 0 ms is a spin, so the
+      // schema refuses it rather than a guard downstream.
+    }).check(
+      Schema.isInt(),
+      Schema.isGreaterThan(0),
+      Schema.isLessThanOrEqualTo(MAX_TIMER_MS),
+    ),
+  ),
+} as const;
+
+/** Terminals to MUTE — the fail-open complement of `ids`. Declared ONCE and
+ *  spread into both faces, so a CLI `--ignore` and an MCP `ignoreIds` cannot
+ *  mean different things. Not a supervision knob: naming only this does not
+ *  switch the feed. An empty list is the identity (mute nobody), so unlike
+ *  `ids` it is not refused when empty. */
+export const PadiWatchIgnoreFields = {
+  ignoreIds: Schema.optionalKey(
+    Schema.Array(TerminalIdSchema).annotate({
+      description:
+        "Terminals to mute. Fail-open: a stale or unknown id costs nothing, and every NEW terminal is still watched. Contrast `ids`, which fails closed — a list you forget to update goes blind to a lane nobody added.",
+    }),
+  ),
+} as const;
+
+/** Why a subscriber is being told about a terminal — the three kinds, as an
+ *  ARRAY beside the schema that spells them.
+ *
+ *  A literal union is unenumerable at runtime, so a face that lays the feed out
+ *  in columns had to measure a hand-picked exemplar string and hope it stayed
+ *  the longest. Enumerated here, the widest kind is derived, and a fourth kind
+ *  added to this line reaches every reader that asks. */
+export const WATCH_STATE_EVENT_KINDS = [
+  "snapshot",
+  "transition",
+  "nag",
+] as const;
+
+/** One agent-state event on the wire.
+ *
+ *  Thin for the same reason {@link PadiSettleEventSchema} is: the recipient reads
+ *  the terminal's screen itself, so it acts on CURRENT output rather than a copy
+ *  that aged in a queue. What it adds over a settle event is the LEVEL it is
+ *  reporting — which state, and since when — because "waiting for 40 minutes"
+ *  and "waiting for 3 seconds" are different facts and a consumer must not have
+ *  to subtract two events to tell them apart. */
+export const PadiStateEventSchema = Schema.Struct({
+  /** Monotonic per-daemon sequence, shared with {@link PadiSettleEventSchema} —
+   *  one counter behind one queue, so a subscription's acknowledgement means the
+   *  same thing whichever source filled it. */
+  seq: PositiveInt,
+  id: TerminalIdSchema,
+  /** `snapshot` — this terminal was ALREADY matching when you (re)opened, and
+   *  is reported first so a late joiner sees standing neglect instead of only
+   *  future changes. `transition` — it entered a matching state and has now held
+   *  it for `heldForMs`. `nag` — it is STILL holding, `nagMs` after the last
+   *  time you were told. A consumer that treats all three alike is correct; the
+   *  discriminator is there so one that wants to ring a bell only on `transition`
+   *  can. */
+  kind: Schema.Literals(WATCH_STATE_EVENT_KINDS),
+  /** The bucket it is holding. */
+  state: WatchStateSchema,
+  /** ms epoch — when THIS daemon first observed it enter `state`. Subtract from
+   *  `at` for how long it has held. It is a daemon-lifetime observation, so a
+   *  padi restart re-dates every terminal's hold; the first snapshot after a
+   *  restart is therefore the honest one to reconcile against. */
+  since: PositiveInt,
+  /** ms epoch, stamped once per emitted BATCH so every event in one frame
+   *  describes the same instant. */
+  at: PositiveInt,
+  /** Who spawned this terminal — lane attribution. Absent for a root terminal. */
+  parentId: Schema.optionalKey(TerminalIdSchema),
+  /** The terminal's freeform intent annotation, when set. */
+  intent: Schema.optionalKey(Schema.String),
+});
+export type PadiStateEvent = typeof PadiStateEventSchema.Type;
+
+/** Everything a standing subscription can hand over. ONE queue, discriminated by
+ *  `kind`: a subscription is fed by exactly one source (the settle detector, or
+ *  the state watch when it named any of the three knobs), and the six `kind`
+ *  literals are disjoint, so a consumer branches on that one field and never has
+ *  to ask which source it opened. */
+export const PadiWatchEventSchema = Schema.Union([
+  PadiSettleEventSchema,
+  PadiStateEventSchema,
+]);
+export type PadiWatchEvent = typeof PadiWatchEventSchema.Type;
+
+/** A subscription NAME — caller-chosen and stable across restarts, which is the
+ *  point: re-opening the same name after the agent, the MCP process, or kaval
+ *  restarted reattaches to the same queue instead of minting an empty one. */
+/** The cap on a subscription name. Exported as the BOUND rather than as the
+ *  checked schema: an MCP arg schema must annotate BEFORE it checks (or the
+ *  blurb is buried in an `allOf` branch no host reads — see `kolu-mcp`'s
+ *  `MillisecondsSchema`), so a face reuses this NUMBER and spells its own
+ *  annotate-first schema over it. */
+export const WATCH_NAME_MAX_LENGTH = 128;
+
+const WatchNameSchema = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(WATCH_NAME_MAX_LENGTH),
+);
+
+/** The knob set itself, as data — DERIVED from the one declaration above so a
+ *  fourth knob is spelled once. Every "did the caller name a knob" question in
+ *  the daemon and at both faces is asked of this (`namesWatchKnobs`), rather
+ *  than by re-listing the three fields at each site and hoping every site is
+ *  found again. */
+export const WATCH_FILTER_KEYS = Object.keys(
+  PadiWatchFilterFields,
+) as readonly (keyof typeof PadiWatchFilterFields)[];
+
+export const PadiWatchOpenInputSchema = Schema.Struct({
+  name: WatchNameSchema,
+  /** Terminals to watch. OMIT to watch every terminal on the host — the
+   *  restart-proof choice, since it names no id that a respawn could invalidate.
+   *  An empty array is REFUSED at the SCHEMA rather than treated as "all": a
+   *  subscription that can never match would look identical to a quiet workspace,
+   *  so the wire makes it unspellable instead of leaving it to a runtime guard. */
+  ids: Schema.optionalKey(
+    Schema.Array(TerminalIdSchema)
+      .annotate({
+        description:
+          "Terminals to watch. OMIT to watch the WHOLE fleet — the restart-proof choice, and the one that cannot go blind to a lane nobody remembered to add.",
+      })
+      .check(Schema.isNonEmpty()),
+  ),
+  // Naming ANY of the three turns this subscription into an agent-STATE watch:
+  // it is fed by `stateWatch` (snapshot · transition · nag) instead of the settle
+  // detector (asking · finished · gone). Naming NONE leaves it exactly as it was.
+  // One decision, made by the presence of a knob, so there is no mode flag to
+  // contradict the knobs.
+  ...PadiWatchFilterFields,
+  ...PadiWatchIgnoreFields,
+});
+export type PadiWatchOpenInput = typeof PadiWatchOpenInputSchema.Type;
+
+export const PadiWatchOpenOutputSchema = Schema.Struct({
+  name: Schema.String,
+  /** The highest `seq` this subscription has already ACKNOWLEDGED — the daemon's
+   *  current sequence for a fresh one (so it reports what happens NEXT rather
+   *  than replaying history the supervisor already acted on), and the PRESERVED
+   *  watermark for a re-attach (so a supervisor can see that its place really was
+   *  kept). Informational: the value you echo back as a drain's `after` is the
+   *  DRAIN's `ackAfter`, never this one. */
+  acknowledged: NonNegativeInt,
+  /** True when this name already existed and its buffer was preserved. */
+  reattached: Schema.Boolean,
+});
+
+export const PadiWatchNameInputSchema = Schema.Struct({
+  name: WatchNameSchema,
+});
+
+/** `watch.drain` input — the name plus the ACKNOWLEDGEMENT. */
+export const PadiWatchDrainInputSchema = Schema.Struct({
+  name: WatchNameSchema,
+  /** The highest `seq` you have actually PROCESSED. Everything at or below it is
+   *  forgotten; everything above stays queued and is handed over again. Omit on
+   *  a first call. This is what makes a drain safe to lose: a reply that never
+   *  reached you was never acknowledged, so the next call still carries it. */
+  after: Schema.optionalKey(NonNegativeInt),
+});
+
+export const PadiWatchDrainOutputSchema = Schema.Struct({
+  events: Schema.Array(PadiWatchEventSchema),
+  /** Events lost to buffer overflow before this drain. NONZERO means the delta is
+   *  incomplete and the caller should reconcile against the `terminals`
+   *  collection — reported rather than silently truncated, because a silent
+   *  truncation reads exactly like a quiet workspace. */
+  dropped: NonNegativeInt,
+  /** Send this back VERBATIM as the next drain's `after` — the name says where
+   *  it goes, so no doc has to teach the mapping. It is the high-water mark of
+   *  this batch, or the standing watermark when the batch is empty (echoing that
+   *  back is then a no-op). Until you do, these events stay queued — so a reply
+   *  lost in flight costs a repeat rather than an event. */
+  ackAfter: NonNegativeInt,
+});
+
+/** `watchStates` — the LIVE agent-state feed, for a face that holds a socket
+ *  open rather than a buffered queue (`kolu watch`).
+ *
+ *  The same three knobs as a standing subscription, plus the CLI's one optional
+ *  id. Deliberately `id` and not `ids`: supervision must never be scoped by
+ *  enumeration — a watcher narrowed to two repos went blind to a third — so the
+ *  fleet is the default and the single id is a debugging tail, never a list to
+ *  keep in sync. (A buffered orchestrator that genuinely holds a roster still has
+ *  `watch.open`'s `ids`.) */
+export const PadiWatchStatesInputSchema = Schema.Struct({
+  ...PadiWatchFilterFields,
+  ...PadiWatchIgnoreFields,
+  id: Schema.optionalKey(TerminalIdSchema),
+});
+export type PadiWatchStatesInput = typeof PadiWatchStatesInputSchema.Type;
+
+/** The doorbell frame — no event data, just a distinguisher, exactly like
+ *  `subscribeRepoChange`. The caller requeries with `watch.drain`. */
+export const PadiWatchPulseSchema = Schema.Struct({
+  seq: NonNegativeInt,
+});
+
 export const PadiSetThemeInputSchema = Schema.Struct({
   id: TerminalIdSchema,
   themeName: Schema.String.check(Schema.isMinLength(1)),
@@ -897,6 +1290,112 @@ export const PadiScreenTextInputSchema = Schema.Struct({
   endLine: Schema.optionalKey(NonNegativeInt),
 });
 
+/** The most rows one `screen.image` will ever render.
+ *
+ *  A hard ceiling, not a default: the render cost and the pixel height both
+ *  grow linearly with rows, and kolu retains 50,000 lines of scrollback, so an
+ *  unbounded request is a way to ask the daemon for a 900,000-pixel-tall PNG.
+ *
+ *  The two ways to exceed it are answered DIFFERENTLY, because the questions
+ *  differ. An explicit `lines` above the cap is REJECTED at the wire rather
+ *  than truncated — a caller that asked for 5,000 rows and silently got 200
+ *  would be shown a picture that is not the answer to its question. A
+ *  `viewport` capture of a terminal taller than the cap (a very tall window)
+ *  is TRIMMED to the last `SCREEN_IMAGE_MAX_ROWS` rows, because "show me the
+ *  screen" is still answerable and its bottom is the part that matters — and
+ *  the reply's own `rows` says how much was captured, so the trim is stated
+ *  rather than hidden.
+ *
+ *  ROWS ONLY, on purpose. The other axis is not a caller's to name — there is
+ *  no `cols` in this input, and a terminal's width is whatever its owner
+ *  resized it to — so the width of a capture is bounded where the cells are
+ *  READ, by kaval's area cap (`SCREEN_CELLS_MAX_CELLS`, `rows * cols`): a
+ *  terminal both very tall and very wide comes back at fewer columns, leftmost
+ *  kept. The reply's `cols` states that the same way `rows` states this trim.
+ *  There is nothing to refuse on that axis and so nothing to check here.
+ *
+ *  This is kaval's `SCREEN_CELLS_MAX_ROWS` spelled a second time, and the
+ *  duplication is deliberate — the same call `vocab.ts` makes for
+ *  `PtyHostIdentitySchema` and `DaemonLifetimeInfoSchema`. This module is
+ *  BROWSER-SAFE and the client value-imports it (`LOCAL_LOCATION`), while
+ *  kaval's only entry is a barrel that re-exports `createPtyHost` — a
+ *  `node-pty` child. Importing the constant from there to save a literal
+ *  would put the PTY daemon in the browser's module graph, resting on a
+ *  bundler's tree-shaking to take it back out again.
+ *
+ *  Two spellings CAN drift, and the drift is real: it would let a padi-legal
+ *  `lines` die as a kaval decode error, collapsing the refuse-vs-trim split
+ *  that is deliberate above. So the equality is PINNED by a test on the node
+ *  side of the seal (`screenImage.test.ts`), where importing kaval costs
+ *  nothing. A pinned duplicate beats an import that crosses a layer. */
+export const SCREEN_IMAGE_MAX_ROWS = 200;
+
+/** What a legal `lines` is: a whole count of rows, at least one, at most
+ *  {@link SCREEN_IMAGE_MAX_ROWS} — as CHECKS, so a face can spread them onto
+ *  its own base node.
+ *
+ *  Exported in this shape rather than as a finished schema because the MCP
+ *  face must annotate a check-FREE base and add every check after (an
+ *  annotation lands on the last check otherwise, where no host looks for a
+ *  property description — `screenText.ts` states that law at length). Sharing
+ *  the rule and honouring the law are both possible; sharing only the constant
+ *  and re-spelling `integer ∧ > 0 ∧ ≤ MAX` per face is what left three copies
+ *  of one decision. */
+export const SCREEN_IMAGE_LINES_CHECKS = [
+  Schema.isInt(),
+  Schema.isGreaterThan(0),
+  Schema.isLessThanOrEqualTo(SCREEN_IMAGE_MAX_ROWS),
+] as const;
+
+/** The same rule as a ready-made schema, for a face with nothing to annotate —
+ *  which today is only this module's own `screen.image` input. Module-private
+ *  rather than exported: a face that has something to annotate must spread
+ *  {@link SCREEN_IMAGE_LINES_CHECKS} onto its own base node instead (the
+ *  annotate-first law `screenText.ts` states at length), so an export here
+ *  would be an invitation to get that wrong. */
+const ScreenImageLinesSchema = Schema.Number.check(
+  ...SCREEN_IMAGE_LINES_CHECKS,
+);
+
+/** The same rule for a face that parses FLAGS rather than schemas — the CLI's
+ *  `Flag.filter` cannot speak Effect Schema, and must not therefore hold a
+ *  second opinion about what a legal row count is. */
+export const isScreenImageLines = (n: number): boolean =>
+  Number.isInteger(n) && n > 0 && n <= SCREEN_IMAGE_MAX_ROWS;
+
+/** `screen.image` — the terminal as a picture.
+ *
+ *  `lines` bounds the capture to the last N rendered rows; OMIT it for the
+ *  viewport (the live grid's own height — what the terminal is showing right
+ *  now, and the read a driving agent almost always wants). There is
+ *  deliberately no whole-scrollback arm: see {@link SCREEN_IMAGE_MAX_ROWS}. */
+export const PadiScreenImageInputSchema = Schema.Struct({
+  id: TerminalIdSchema,
+  lines: Schema.optionalKey(ScreenImageLinesSchema),
+});
+
+/** What `screen.image` returns: the PNG as base64, with the grid it was
+ *  rendered from.
+ *
+ *  `mimeType` is spelled rather than assumed because this value is handed
+ *  straight to an MCP host as image content, which requires one — and a
+ *  hardcoded string at the far end would be a second place for the format to
+ *  be declared. `cols`/`rows` ride along so a caller can report what it
+ *  captured without decoding the image to find out. */
+export const PadiScreenImageOutputSchema = Schema.Struct({
+  mimeType: Schema.Literal("image/png"),
+  /** Base64-encoded PNG bytes. */
+  data: Schema.String,
+  cols: NonNegativeInt,
+  rows: NonNegativeInt,
+});
+
+/** The decoded reply, derived from the schema rather than re-declared beside
+ *  it — the convention this surface follows everywhere else. Both readers (the
+ *  renderer that produces it and the MCP face that renders it) name THIS, so a
+ *  field renamed in the schema is a type error rather than a runtime hole. */
+export type PadiScreenImageOutput = typeof PadiScreenImageOutputSchema.Type;
+
 /** `screen.history` — the client's scrollback-backfill read. `before` is the
  *  caller's absolute mirror-line cursor (the attach snapshot's `topLine`, then
  *  each reply's `topLine`); the host serves up to `max` older rows above it. */
@@ -937,7 +1436,7 @@ export const PadiScreenHistoryOutputSchema = Schema.Union([
  *  scale with the dropped file: a 26 MB drop became a ~35 MB frame, and the
  *  ndjson decoder answers an oversized frame by CLOSING THE SOCKET (1009),
  *  taking every other subscription on that tab's multiplexed wire with it. So
- *  the file arrives as a sequence of `UPLOAD_CHUNK_BYTES`-bounded calls: the
+ *  the file arrives as a sequence of `FRAME_CHUNK_BYTES`-bounded calls: the
  *  first omits `appendTo` and creates the file, each subsequent one passes back
  *  the path it was given and appends. No single frame scales with user data. */
 export const PadiScratchWriteInputSchema = Schema.Struct({
@@ -1060,6 +1559,52 @@ export const PadiSessionImportInputSchema = Schema.Struct({
     Schema.withDecodingDefaultKey(Effect.succeed(true)),
   ),
   optOutIds: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
+/** One snapshot in padi's state-backup ring (#1658), with the summary the
+ *  restore dialog ranks by — after a corruption incident the NEWEST snapshots
+ *  are often the corrupt ones, so "14 terminals" vs `empty` is how a user spots
+ *  the good one. `summary` is a union, not a nullable count: "the snapshot
+ *  holds no session" and "the snapshot did not parse" are different facts, and
+ *  flattening them to one `null` would hide exactly the distinction the dialog
+ *  exists to show. */
+export const PadiStateBackupSchema = Schema.Struct({
+  /** Bare file name under the ring dir — the stable handle `backups.restore`
+   *  names. */
+  file: Schema.String,
+  /** Snapshot mtime in epoch ms ON PADI'S OWN CLOCK — a consumer on another
+   *  host reprojects through that entry's `clock.toLocal` before rendering a
+   *  relative time (the `PadiIdentity.startedAt` discipline). */
+  savedAtMs: Schema.Number,
+  sizeBytes: Schema.Int,
+  summary: Schema.Union([
+    Schema.Struct({
+      kind: Schema.Literal("session"),
+      terminals: Schema.Int,
+    }),
+    /** The snapshot parsed but holds no session (fresh install / cleared). */
+    Schema.Struct({ kind: Schema.Literal("empty") }),
+    /** The snapshot's JSON did not parse — listed honestly, refused on restore. */
+    Schema.Struct({ kind: Schema.Literal("unreadable") }),
+  ]),
+});
+export type PadiStateBackup = typeof PadiStateBackupSchema.Type;
+
+/** `backups.list` — enumerate the state-backup ring, newest first. */
+export const PadiBackupsListOutputSchema = Schema.Struct({
+  backups: Schema.Array(PadiStateBackupSchema),
+});
+
+/** `backups.restore` — restore the SESSION held by one ring snapshot, riding
+ *  the same host-side machinery as `session.import` (backfill → decode →
+ *  respawn), with the same host-owned resume intent. The current state file is
+ *  pushed into the ring first, so a restore is itself undoable. */
+export const PadiBackupsRestoreInputSchema = Schema.Struct({
+  file: Schema.String,
+  // The SAME resume-intent pair `session.restore` declares — composed by field
+  // spread (the repo's `.merge` successor, see vocab.ts's note) rather than a
+  // third hand-copy of the decoding-default policy.
+  ...PadiSessionRestoreInputSchema.fields,
 });
 
 // ── The surface ───────────────────────────────────────────────────────────
@@ -1213,6 +1758,33 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       inputSchema: Schema.Struct({}),
       outputSchema: Schema.Array(TerminalIdSchema),
     },
+    /** The live agent-state feed — one BATCH of {@link PadiStateEventSchema} per
+     *  frame. Snapshot-then-deltas by construction: the FIRST frame is the
+     *  currently-matching set (possibly empty), every later frame is the
+     *  transitions and nags that happened since. A re-subscribe therefore
+     *  re-delivers a fresh snapshot, which is exactly what a late joiner — or a
+     *  reconnecting one — needs to see standing neglect.
+     *
+     *  A BATCH and not a single event because a batch is the fold's own unit: one
+     *  observation of the terminals collection produces N events that describe the
+     *  same instant, and splitting them would ask a consumer to reconstitute a
+     *  grouping the wire threw away. It also means "nothing is currently matching"
+     *  is a frame the consumer receives (an empty first batch) rather than a
+     *  silence it has to time out on. DELTA/fail-through: a replayed batch would
+     *  be a re-report of an event the consumer already acted on. */
+    watchStates: {
+      inputSchema: PadiWatchStatesInputSchema,
+      outputSchema: Schema.Array(PadiStateEventSchema),
+    },
+    /** The standing-subscription doorbell — pulses when the named subscription
+     *  gains settle events. Value-bearing pulse-then-requery, the same shape as
+     *  `subscribeRepoChange`: no event data rides the pulse, the caller requeries
+     *  with `watch.drain`. Losing a pulse therefore costs a wait, never an event —
+     *  the buffer behind `drain` is the authority. */
+    watchPulse: {
+      inputSchema: PadiWatchNameInputSchema,
+      outputSchema: PadiWatchPulseSchema,
+    },
     /** Live change-pulses for a repo's working tree + git dir. Value-bearing
      *  pulse-then-requery: a `{seq}` distinguisher, no fs/git data on the pulse. */
     subscribeRepoChange: {
@@ -1277,11 +1849,42 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     },
   },
   procedures: {
+    /** Standing settle-event subscriptions — open · drain · close. See the
+     *  schema block above for why these are instant verbs beside a pulse stream
+     *  rather than one blocking `next`. */
+    watch: {
+      open: {
+        input: PadiWatchOpenInputSchema,
+        output: PadiWatchOpenOutputSchema,
+      },
+      /** Hand over everything queued, acknowledging `after` first. Never blocks:
+       *  a caller that wants to WAIT parks on `watchPulse` and re-drains. */
+      drain: {
+        input: PadiWatchDrainInputSchema,
+        output: PadiWatchDrainOutputSchema,
+        error: WatchSubscriptionNotFound,
+      },
+      /** Drop a subscription and its buffer. RAISES the same declared
+       *  `WatchSubscriptionNotFound` a drain does, rather than answering
+       *  `{closed: false}`: "there was no such subscription" is exactly the
+       *  answer that error class exists to keep distinguishable from "there was
+       *  nothing to report", and a boolean handed to an agent reads as the
+       *  latter. */
+      close: {
+        input: PadiWatchNameInputSchema,
+        output: Schema.Struct({}),
+        error: WatchSubscriptionNotFound,
+      },
+    },
     /** Terminal lifecycle — create · kill · killAll · sleep · wake ·
      *  discardSleeping · resize · sendInput · recycleKaval. */
     lifecycle: {
-      // A SPLIT names its parent, and that parent must be a LIVE terminal — so
-      // `create` carries the same declared not-found as the per-terminal verbs.
+      // Every create STATES its placement (`PadiCreateInputSchema`) — a tile of
+      // its own, or a split of a named parent. The `child-of` arm's parent must
+      // be a LIVE terminal, so `create` carries the same declared not-found as
+      // the per-terminal verbs. A create that states NO placement is refused a
+      // layer earlier, by the input schema itself, and never reaches this error
+      // channel.
       create: {
         input: PadiCreateInputSchema,
         output: TerminalInfoSchema,
@@ -1374,6 +1977,18 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       history: {
         input: PadiScreenHistoryInputSchema,
         output: PadiScreenHistoryOutputSchema,
+        error: TerminalNotFound,
+      },
+      /** The screen as a rendered PNG — the read a face that can SHOW an
+       *  image makes (the `screen_image` MCP tool, `kolu screenshot`), where
+       *  `screen.text` is the read a face that can only show text makes.
+       *
+       *  Rendering lives on THIS side of the wire, not in kaval: the theme is
+       *  a per-terminal choice padi holds, so padi is the only place that
+       *  knows what colour "palette 4" is. */
+      image: {
+        input: PadiScreenImageInputSchema,
+        output: PadiScreenImageOutputSchema,
         error: TerminalNotFound,
       },
     },
@@ -1487,6 +2102,17 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
        *  `lifecycle.create` (which no longer forfeits). Takes no input. */
       forfeit: { input: Schema.Struct({}) },
     },
+    /** The state-backup ring (#1658) — list this host's snapshots and restore a
+     *  session from one. Executes host-side, on the padi that owns the ring
+     *  (a remote host's backups live on that box; the map client is the reach). */
+    backups: {
+      list: { output: PadiBackupsListOutputSchema },
+      // Output-less, like `session.import` and for the same reason (the 5.1
+      // ledger note): the client restores a blob it just picked and seeds no
+      // view from the call, so an active-marker answer would be shape nothing
+      // reads.
+      restore: { input: PadiBackupsRestoreInputSchema },
+    },
   },
 });
 
@@ -1504,7 +2130,8 @@ export type PadiTerminalKey = PadiSF["collections"]["terminals"]["Key"];
  *   - `delta` — FAIL-THROUGH: a mid-chain disconnect MUST terminate the
  *     downstream browser stream, so a scrollback/liveness snapshot is only ever
  *     the first frame of a FRESH stream (never a replayed snapshot spliced into
- *     a live stream as bytes). Only `activity` and `terminalAttach`. */
+ *     a live stream as bytes). Only `activity`, `terminalAttach` and
+ *     `watchStates`. */
 export type ForwardingPolicy = "value" | "delta";
 
 /** The forwarding policy of every `padiSurface` member, keyed by its top-level
@@ -1528,8 +2155,14 @@ export const PADI_FORWARDING_POLICY = {
   // collections
   terminals: "value",
   daemonStatus: "value",
-  // streams — `activity` + `terminalAttach` are the ONLY delta members
+  // streams — `activity`, `terminalAttach` and `watchStates` are the delta
+  // members: each one's first frame is a fresh snapshot the consumer builds on,
+  // so a rebind must terminate the downstream stream rather than replay a value.
   activity: "delta",
+  watchStates: "delta",
+  // A doorbell carries no accumulated state — each pulse stands alone and the
+  // caller requeries, so it forwards as a value like the other pulse streams.
+  watchPulse: "value",
   subscribeRepoChange: "value",
   subscribeFileChange: "value",
   terminalAttach: "delta",
@@ -1544,9 +2177,11 @@ export const PADI_FORWARDING_POLICY = {
   scratch: "value",
   preview: "value",
   transcript: "value",
+  watch: "value",
   // `session` is a cell (get/set) AND a procedure namespace (restore/import),
   // merged onto one wire node — this single entry annotates the merged member.
   session: "value",
+  backups: "value",
 } as const satisfies Record<string, ForwardingPolicy>;
 
 /** Every top-level member key `padiSurface` declares — the union of cell,

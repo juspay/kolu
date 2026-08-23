@@ -59,18 +59,33 @@ The package graduated to a **process**: `package = process = restart-hash`.
   nothing, stated rather than guessed. The **bake** name (what a wrapper tells a
   daemon) and the **stamp** name (what a daemon tells a terminal) are deliberately
   two variables: nothing writes the bake into a terminal, so a kolu launched
-  inside one cannot inherit a foreign build's tools.
+  inside one cannot inherit a foreign build's tools. Because the bake is frozen
+  at daemon spawn while padi outlives kolu upgrades — and the tools bundle is
+  invisible to the `PADI_BUILD_ID` derivation above — padi **records** its bake
+  at boot (`agent-tools-bake`, beside the `state-root` manifest) and every
+  same-machine supervisor (kolu-server's binder, the `padi --stdio` front)
+  drains a resident whose record names a different toolchain than its own
+  build's, so a kolu-CLI-only upgrade still reaches new terminals
+  (`./src/agentToolsBake.ts`, juspay/kolu#2146).
 - **Identity IS the state-root** (`./stateRoot`). Binding requires an explicit
   root (`--state-root` or `KOLU_PADI_STATE_DIR`) — there is no silent default
   (#1334). Production nix wrappers supply `$HOME/.local/state/padi` (not
   `$XDG_STATE_HOME`); dev/test pass a private dir. That folder holds padi's
   `session` / `activityFeed` / `lastPairedDaemon` in its OWN `Conf` (`./stateStore`,
-  a twin of kolu-server's — `preferences` stays kolu-server's). The socket + gate
+  a twin of kolu-server's — `preferences` stays kolu-server's), snapshotted into a
+  rotated `backups/` ring at every open and daily (#1658, `kolu-shared`'s
+  `stateBackup`; browsed/restored via the `backups.list` / `backups.restore`
+  surface members, 5.2). The socket + gate
   live in the **boot-wiped runtime dir** keyed by a **digest** of the state-root
   (`$XDG_RUNTIME_DIR/padi-<digest>/`, `kaval-<digest>/`), so a stale gate can never
   outlive a reboot and two padis at distinct state-roots never touch each other's
   kaval (the #1313 property). A `state-root` manifest maps the digest back, so a
-  flag-less `kaval-tui` keeps labelling what it discovers. The state-root is also
+  flag-less `kaval-tui` keeps labelling what it discovers — and so a flag-less
+  client can pick the **primary** padi out of several live ones: the one whose
+  manifest names the state root the client's own environment resolves to
+  (`$KOLU_PADI_STATE_DIR`, else the production formula). Extras are keyed to
+  explicit roots, so that is a read-back of recorded identity, not a guess
+  between equals (`primaryPadiAmong`, #2154). The state-root is also
   padi's **anchor** (#2010): delete it — `git worktree remove` on a dev
   workspace — and the daemon reaps itself (the spine's `anchor-gone` self-exit,
   kaval alike via its manifest) instead of leaking forever, and the kolu-server
@@ -198,6 +213,177 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   log, transcript, and upload modules compose and serve that contract. Padi is
   the native authority; kolu-server binds or mirrors it rather than supplying a
   backing shim.
+
+- **The `dial` entry's wait kit** — `awaitTerminalCondition` is the ONE
+  block-on-a-terminal-condition engine every face rides. It takes the condition
+  as data (`idle` · `match` · `agent`) plus two orthogonal modifiers: a
+  `settledMs` **conjunct** (met only once output has also been quiet that long,
+  with a condition that stops holding re-entering the wait) and a `captureScreen`
+  **stamp** (the met carries the terminal's rendered screen, read while the
+  wait's own subscriptions are live and discarded-and-retaken if the met
+  CANDIDATE moved under the read — narrower than "a byte arrived", which has no
+  fixed point). They live here rather than in a driving
+  loop because the races they close are between a caller's separate
+  *invocations* — `kolu wait --settled/--snapshot` and `kolu debrief` are that
+  engine's argv face
+  ([kolu#2139](https://github.com/juspay/kolu/issues/2139)). Two named waits
+  remain — `awaitAgentState` (padi-tui's `cmdWait`, the MCP face's
+  `wait_agentState`) and `awaitOutputSettled` (`wait_outputSettled`) — because
+  their met payloads ARE those tools' wire frames; they are spellings of the
+  engine, each carrying its own `closed` retry advice. The MCP face's
+  `settledMs`/`screenTail` options are forwarded *through* those two rather than
+  around them, so each wire frame keeps exactly one owner
+  ([kolu#2152](https://github.com/juspay/kolu/issues/2152)) —
+  `awaitOutputSettled` deliberately takes only the capture, since a second
+  quiescence window over an `idle` condition just means quiet-for-max. The
+  `match:` form has no wrapper: `kolu wait` is its only consumer and calls the
+  engine directly.
+
+  The three condition FORMS are not braided through the engine body: each has
+  its own runner (`conditionForm`), so the branch on which form this is happens
+  once and the shared spine — the attach feed, the conjunct's window, the
+  met-candidate cell — is lent to it rather than re-decided per wiring point.
+
+- **`@kolu/padi/render`** and **`@kolu/padi/read`** — the CLI faces' shared
+  view + data layers. `render` is pure formatting (the roster table's
+  `ID · STATE · REPO·BRANCH · PR · AGENT · FOREGROUND` columns, the PR/checks
+  and agent-status folds, plus `shortId` and `resolveTerminalId` — the
+  id-prefix resolution every `<id>` argument accepts, which is a pure fold over
+  an id list and so belongs on this side of the line) with no I/O. It also owns
+  `parsePlacementFlags`, the `--toplevel` / `--parent` decision BOTH CLI faces
+  run: same reason as the roster table, one rule up from formatting — two faces
+  that must answer a create identically may not each hand-roll the answer. `read`
+  is
+  the one-shot reads off the `terminals` collection — `readTerminalKeys` (the
+  live id list `resolveTerminalId` folds) and `settledSnapshot` — as Effects,
+  so a Ctrl+C tears their subscriptions down.
+  Both **graduated out of `padi-tui`** when `kolu`'s terminal verbs became
+  their second consumer, the same move and the same reason as the LIVE side
+  (`watchTerminals`/`awaitAgentState`) graduating into the `dial` entry when
+  kolu's MCP face became *its* verbatim second consumer: one padi-shaped
+  vocabulary with two faces reading it, not two copies held in lockstep by
+  JSDoc cross-reference. They stay here rather than in `@kolu/surface` because
+  they speak **padi's** records — the generic wait scaffold went the other way.
+  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, `tail.ts`
+  (the tail-mode screen slice, a zero-import leaf `render.ts` re-exports so the
+  wait kit can reuse it without dragging `columnify` into every dial consumer),
+  and the `watch.ts` wait kit the `dial` entry re-exports — the same
+  one-cluster-one-directory shape as `terminalEndpoint/` and
+  `terminalWorkspace/`. The pure `terminalVocab.ts` they all fold over sits one
+  level UP, at the package root: the SERVER speaks it too (supervision-edge
+  delivery narrows a supervisor with `activeAgent` before writing into its
+  mailbox), and a daemon module reaching into a `cliClient/` directory would
+  point the arrow backwards. The **subpaths above are unchanged**: the directory
+  is padi's internal layout, not its public one.
+
+## `screen.image` — padi is where the picture gets made
+
+Beside `screen.text` (characters) padi serves `screen.image`: the terminal
+rendered to a themed PNG, the read a face that can SHOW an image makes — the
+`screen_image` MCP tool and `kolu screenshot`. `lines` bounds it to the last N
+rendered rows, capped at `SCREEN_IMAGE_MAX_ROWS` (200) and **refused** above
+that rather than clamped; omitted, it is the viewport, which only the daemon
+can resolve because only the daemon knows how tall the PTY currently is.
+
+The rendering lives on THIS side of the wire on purpose. kaval hands over
+attributed CELLS (`terminal.getScreenCells`, contract 7.1) — characters plus
+"palette 4", "rgb 0x78c8ff", "default" — and stops there, because turning
+`palette 4` into a colour needs a theme, and the theme is a **per-terminal user
+choice padi holds**. So padi is the only process that can answer, and the PTY
+host stays free of a wasm rasteriser and several megabytes of font
+(`./src/screenImage.ts`).
+
+Layout is not decided here either: `terminal-snapshot` turns grid + theme into
+flat drawing instructions, and padi merely rasterises them
+(`terminal-snapshot/png`). The browser's copy-screenshot-to-clipboard paints
+the same instructions onto a canvas — so the agent's PNG and the user's PNG are
+the same picture by construction. The fonts come from the Nix closure
+(`KOLU_SNAPSHOT_FONTS_DIR`) and are **required**: a missing font dir fails the
+call, because a screenshot in a substitute font would look plausible and be
+wrong. CJK and emoji are outside that font set and render as tofu.
+
+## Settle events — the standing subscriptions
+
+padi already computed WHO needs attention: the `urgency` cell's `awaitingIds` (an
+agent blocked on a person) and `finishedIds` (a turn that ended *and* whose output
+then went quiet — the [effective-finish](../../docs/atlas/src/content/atlas/effective-finish.mdx)
+conjunction, which is what keeps a background sub-agent's churn from reading as
+"done"). What `src/attention/` adds is the derivative: the cell is a LEVEL, and a
+subscriber needs an EDGE.
+
+That edge is shared, not re-derived — `@kolu/terminal-vocab/attentionTransitions`
+is the same decision kolu's browser fires its sound and OS popup on, so a person
+at the canvas and a subscribing agent are told about the same events by one
+definition.
+
+It feeds **standing subscriptions** (`watch.open` / `drain` / `close` + the
+`watchPulse` doorbell). The `wait_*` tools are edge-triggered on a live call, so
+anything between two waits is unobservable — which is how a worker's report
+reached nobody when its watcher had returned and had not been re-armed. These are
+level-triggered with memory: events accumulate whether or not anyone is asking, so
+the gap between drains is not a hole.
+
+Events buffer in padi, which outlives both a `kolu mcp` process and kaval, and a
+subscription is keyed by a caller-chosen NAME so those restarts reattach rather
+than start empty. (padi's OWN restart clears them — they are process memory. A
+drain against a name it no longer holds raises the declared
+`WatchSubscriptionNotFound` rather than answering an empty batch, because "not
+subscribed" and "nothing happened" are the two states a supervisor must never
+confuse — and `close` raises the same error rather than answering `false`, for the
+same reason.) A drain is **acknowledged** (send its `ackAfter` back as the next
+`after`), not destructive, so a reply lost in flight costs a repeat rather than a
+report; overflow is *reported* (a `dropped` count), never silently truncated — and
+a drop that lands *after* a reported batch is not covered by that batch's
+acknowledgement, so it rides the next report rather than being erased.
+
+A terminal LEAVING is an event too (`kind: "gone"`): a supervisor waiting on a
+worker that no longer exists must be told, not left waiting. A kaval recycle
+retires every active terminal id, so this is the signal that a lane's id is stale
+rather than merely quiet.
+
+## The agent-state watch — the other source
+
+`src/attention/` holds **two** event sources, and a subscriber picks one. The
+settle detector above answers a question padi decides for you: *who just started
+needing someone*, with the effective-finish quiet conjunct baked in. The agent-
+state watch (`stateWatch.ts`) answers the question the SUBSCRIBER asks: *which
+agent buckets do I care about* (`states`), *how long must one hold before I hear
+about it* (`heldForMs`), and *how often should I be told again while it keeps
+holding* (`nagMs`). Those three knobs are the whole of `kolu watch --states /
+--held-for / --nag` and of the same-named `watch.open` params — one engine, two
+faces. `--ignore` / `ignoreIds` (and `--ignore-self` / `ignoreSelf`, resolved at
+the face from `$KAVAL_TERMINAL_ID`) mute known terminals fail-open: a stale id
+costs nothing, and a new terminal is always watched. Contrast `ids`, which fails
+closed.
+
+It reads the ADAPTER, never the bytes: the level is `agentBucket(agent.state)`,
+what the agent's own adapter published, so a quiet screen is not taken for an
+idle agent (an idle grok repaints about once a second, which starved a byte-quiet
+gate forever). `heldForMs` debounces the STATE.
+
+Its events are `snapshot` (already matching when you subscribed — the standing
+set, handed over before anything that changed since), `transition` (entered a
+state and held it), and `nag` (still holding, one interval later). The nag is the
+level trigger, and the difference between a doorbell you can miss and one that
+keeps ringing.
+
+**A subscription is fed by exactly one source**, chosen by whether it named any
+of the three knobs — never merged, because the two answer different questions in
+different vocabularies. It follows that the state feed carries no `gone`: a
+level-triggered subscriber is not blocked on anything, so a terminal that leaves
+simply stops being reported. It follows too that re-opening a name with a
+DIFFERENT filter empties its queue — those buffered answers belong to a question
+the caller has stopped asking, and the new attachment's snapshot is the standing
+truth that replaces them.
+
+Both sources stamp from ONE daemon sequence (`eventSeq.ts`), because a
+subscription's acknowledgement watermark is a single number and has to mean the
+same thing whichever source filled its buffer.
+
+The live face is the `watchStates` stream member — the same engine with no queue
+in front of it, for a consumer (`kolu watch`) that holds a socket rather than
+coming back for a drain. Its first frame is the snapshot, which is what makes the
+framework's transparent re-subscribe re-lead with fresh truth.
 
 ## What padi knows nothing about
 

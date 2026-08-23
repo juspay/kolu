@@ -32,6 +32,10 @@ import {
   unknownSharedFileMessage,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
 import {
+  listPadiStateBackups,
+  restorePadiStateBackup,
+} from "../session/stateBackups.ts";
+import {
   openPadiStateStores,
   PADI_STATE_SCHEMA_VERSION,
   requirePadiStateStores,
@@ -100,6 +104,75 @@ async function provePidFirstTolerant(
       return { kind: "pid-first-tolerant", pid: knownPid };
     },
   });
+}
+
+/** Prove the backup ring's version+1 disposition (#1658): a ring member is a
+ *  byte-copy of `config.json` — version field included — so plant one whose
+ *  copy carries version+1 AND a payload of a shape this build cannot decode,
+ *  then observe every typed outcome the registry entry claims:
+ *   - INERT TO BOOT: `openPadiStateStores` still answers `ready` (only the
+ *     LIVE config's version gates the rollback preflight — a future member in
+ *     the ring gates nothing);
+ *   - LISTED, never collapsing: `backups.list` summarizes it;
+ *   - RESTORE REFUSES: the undecodable payload throws before any store is
+ *     touched, and the planted member's bytes survive untouched. */
+async function proveBackupRingDisposition(): Promise<ExecutedVersionDispositionProof> {
+  const ring = SHARED_ARTIFACTS.find(
+    (artifact) => artifact.id === "padi-state-backup-ring",
+  );
+  if (ring === undefined) {
+    throw new Error("padi-state-backup-ring missing from artifact registry");
+  }
+  const stateRoot = mkdtempSync(join(tmpdir(), "uw-ring-disposition-"));
+  try {
+    // A real current-version store, so the boot observation below is honest.
+    requirePadiStateStores(stateRoot);
+    const [major] = PADI_STATE_SCHEMA_VERSION.split(".").map(Number);
+    const newerVersion = `${major! + 1}.0.0`;
+    const memberName = "config.2099-01-01T00-00-00-000Z.json";
+    const memberPath = join(stateRoot, "backups", memberName);
+    let plantedBytes = "";
+    return await executeVersionDispositionProof({
+      artifact: ring,
+      newerVersion,
+      plant: () => {
+        mkdirSync(join(stateRoot, "backups"), { recursive: true });
+        plantedBytes = JSON.stringify({
+          session: {
+            terminals: [{ futureShape: true }],
+            activeTerminalId: null,
+            savedAt: 1,
+          },
+          __internal__: { migrations: { version: newerVersion } },
+        });
+        writeFileSync(memberPath, plantedBytes);
+      },
+      readPlantedVersion: () => {
+        const member = JSON.parse(readFileSync(memberPath, "utf8")) as {
+          __internal__?: { migrations?: { version?: unknown } };
+        };
+        return member.__internal__?.migrations?.version;
+      },
+      observeDisposition: async () => {
+        // Inert to boot — the future member gates nothing.
+        expect(openPadiStateStores(stateRoot).kind).toBe("ready");
+        // Listed and summarized — a future member never collapses the list.
+        const listed = listPadiStateBackups(stateRoot).backups.find(
+          (backup) => backup.file === memberName,
+        );
+        expect(listed?.summary).toEqual({ kind: "session", terminals: 1 });
+        // Restore REFUSES the undecodable payload, loudly and typed…
+        await expect(
+          restorePadiStateBackup(stateRoot, { file: memberName }),
+        ).rejects.toThrow();
+        // …and the member itself survives byte-for-byte.
+        expect(readFileSync(memberPath, "utf8")).toBe(plantedBytes);
+        return { kind: "inert-to-boot-restore-refuses" };
+      },
+    });
+  } finally {
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
 }
 
 describe("shared-artifact watchdog (upgrade-window)", () => {
@@ -174,8 +247,14 @@ describe("shared-artifact watchdog (upgrade-window)", () => {
         );
       }
 
+      const ringProof = await proveBackupRingDisposition();
+
       expect(
-        watchdog.coverageGaps(suiteFiles, [configProof, ...gateProofs]),
+        watchdog.coverageGaps(suiteFiles, [
+          configProof,
+          ...gateProofs,
+          ringProof,
+        ]),
       ).toEqual([]);
     } finally {
       rmSync(stateRoot, { recursive: true, force: true });

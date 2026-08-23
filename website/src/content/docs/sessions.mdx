@@ -40,6 +40,18 @@ lose, because it isn't lost.
   card lists every saved terminal as its own row and offers to resume every agent
   the host knows how to resume; turning **Resume agent sessions** off wakes bare
   shells instead.
+- **Start fresh** on the restore card is the one way to throw a saved session
+  away, and it takes two deliberate clicks: the first opens a confirmation
+  naming what goes, and only the second discards. A snapshot is taken before
+  anything is cleared, so a session you discarded on purpose — or by accident —
+  is still recoverable from **Debug → Restore state from backup**.
+- Behind all of this sits a **backup ring**: at every boot, once a day while
+  running, and before **Start fresh** discards anything, the saved-session file
+  is snapshotted into a rotated history — so even a bug that *overwrites* the
+  saved session with a bad value is recoverable. **Debug → Restore state from
+  backup** in the command palette brings a snapshot's terminals back, agents
+  resumed. See
+  [Troubleshooting](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong).
 
 ## Sleep a terminal
 
@@ -61,9 +73,12 @@ for all of them.
 Wake respawns the terminal in the same directory and resumes the agent on the
 **exact conversation it was running** — resumed by id (`claude --resume <id>`,
 `codex resume <id>`, `opencode --session <id>`, `xyne --session <id>`, and the
-Grok equivalent), not merely the most-recent conversation in that folder. When
-a terminal slept before kolu captured its session id, wake falls back to the
-agent's own most-recent resume (`xyne --continue` and friends). The one exception is
+Grok equivalent), not merely the most-recent conversation in that folder. The
+launch line it replays — flags included — is the one kolu's
+[shell integration](/shell-integration) captured when you started the agent.
+When a terminal slept before kolu captured its session id, wake falls back to
+the agent's own most-recent resume (`xyne --continue` and friends). The one
+exception is
 deliberate: if you'd **quit** the agent to a bare shell before sleeping, waking
 lands you at that shell rather than silently relaunching something you'd closed.
 

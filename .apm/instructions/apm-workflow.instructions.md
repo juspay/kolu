@@ -14,7 +14,7 @@ APM is not a global CLI — it runs via `uvx` through justfile recipes in `agent
 
 `.claude/skills/<name>/` and `.claude/rules/<name>.md` are generated from one of two source trees — grep **both** before assuming something isn't apm-managed:
 
-- **Root `.apm/`** — this repo's own package: skills like `atlas`, `test`, `dev-server`, `evidence`, `release`, `self-improve`; instructions like this file, under `.apm/instructions/`.
+- **Root `.apm/`** — this repo's own package: skills like `atlas`, `test`, `dev-server`, `evidence`, `release`; instructions like this file, under `.apm/instructions/`.
 - **`agents/.apm/`** — the reusable `agents/` package (a local `path:` dependency in the root `apm.yml`): the skills `be`, `be-review`, `kolu`, `lens-debate`, `agent-debate`, `perfection-review`, `surface`, `architecture-first-principles`.
 
 So editing e.g. the **kolu** skill means editing `agents/.apm/skills/kolu/SKILL.md`, **not** root `.apm/skills/`.

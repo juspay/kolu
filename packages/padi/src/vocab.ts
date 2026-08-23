@@ -26,6 +26,7 @@ import {
   ProcessRssSchema,
   RestoreTargetSchema,
   seedMemory,
+  type TerminalId,
   TerminalIdSchema,
   type TerminalSnapshot,
   TerminalSnapshotSchema,
@@ -388,6 +389,71 @@ export const TerminalMetadataSchema = Schema.Union([
   SleepingTerminalSchema,
 ]);
 
+/** The ONE sentence a create that failed to state its placement gets back.
+ *
+ *  It names BOTH spellings, because the whole failure mode is a caller who did
+ *  not know there was a choice to make — "invalid input" would send them
+ *  looking for a typo. Authored once and reused by every face that speaks this
+ *  JSON: the wire schema annotates the field with it (so a decode refusal at
+ *  padi says it), and `lifecycle_create`'s MCP tool inherits that same field, so
+ *  an agent gets the identical sentence. The two CLI faces state the same rule in
+ *  THEIR vocabulary (`--toplevel` / `--parent <id>`) — different spelling, same
+ *  rule — and they agree by construction rather than by convention: both run
+ *  `@kolu/padi/render`'s one `parsePlacementFlags`, whose branches and sentences
+ *  are pinned in `cliClient/placementFlags.test.ts`. */
+export const PLACEMENT_REQUIRED =
+  'a create must state its `placement` — there is no default. Spell it `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"<terminal id>"}` to open it as a split inside that terminal. The canvas and the Dock read this edge as who-works-for-whom, so a guessed default would silently flatten the hierarchy.';
+
+/**
+ * WHERE a new terminal lands — a closed sum, not an optional parent id.
+ *
+ * `{ kind: "toplevel" }` is a tile of its own on the canvas. `{ kind:
+ * "child-of", parentId }` is a split INSIDE that terminal's tile. Every create
+ * names one; there is no third state and no default, for the same reason
+ * {@link HostLocationSchema} has none: the absence of a fact is not a fact.
+ *
+ * Placement is semantically LOAD-BEARING, which is what earns it the sum. The
+ * canvas paints a `child-of` terminal inside its parent's tile and a `toplevel`
+ * one beside it; the Dock reads the same edge as *who works for whom*
+ * (`SubTerminalRow`, `descendantsByRoot`). So a create that omits it is not
+ * asking for a sensible fallback — it is declining to say something only the
+ * caller knows, and the old `parentId?: optionalKey` answered that silence with
+ * `toplevel`. That default is how an orchestrator spawned two days of reviewer
+ * agents as top-level tiles when every one of them was a split: nothing failed,
+ * nothing logged, the hierarchy just went flat. A required sum makes that
+ * silence unspellable — at the wire (decode), in TypeScript (a missing property
+ * is a compile error), and at `kolu create` (a refusal naming the rule).
+ */
+export const TerminalPlacementSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("toplevel") }),
+  Schema.Struct({
+    kind: Schema.Literal("child-of"),
+    parentId: TerminalIdSchema,
+  }),
+]).annotate({ message: PLACEMENT_REQUIRED });
+
+export type TerminalPlacement = typeof TerminalPlacementSchema.Type;
+
+/** The top-level arm as a shared frozen singleton — the mirror of
+ *  {@link LOCAL_LOCATION}. A placement is never mutated after the create reads
+ *  it, so one value serves every top-level create instead of re-spelling the
+ *  literal at each call site; frozen so an accidental in-place write throws
+ *  rather than silently re-pointing every other caller's placement. */
+export const TOPLEVEL_PLACEMENT: TerminalPlacement = Object.freeze({
+  kind: "toplevel",
+} as const);
+
+/** Narrow a placement to the parent edge the registry stores.
+ *
+ *  The EDGE of the system states an intent (the sum above); the terminal RECORD
+ *  stores `parentId: TerminalId | undefined`, because that is what the canvas
+ *  tree walks. This is the ONE place the two meet, so "no parent" can only be
+ *  produced by someone who wrote `toplevel` — never by a dropped field. */
+export const parentIdOf = (
+  placement: TerminalPlacement,
+): TerminalId | undefined =>
+  placement.kind === "child-of" ? placement.parentId : undefined;
+
 /** The BASE create input — the client-owned chrome every ORDINARY create carries,
  *  and the exact shape the wire `lifecycle.create` accepts (`PadiCreateInputSchema`
  *  derives from this directly). Seeded onto the new terminal's `meta` before the first
@@ -623,13 +689,13 @@ export const DaemonLifetimeInfoSchema = Schema.Union([
 //
 // The anti-field spelling is `Schema.optionalKey(Schema.Never)` — the Effect
 // twin of zod's `z.never().optional()`. VERIFIED against
-// effect@4.0.0-beta.103, not assumed (review #11 asked for exactly this): a
+// effect@4.0.0-rc.110, not assumed (review #11 asked for exactly this): a
 // MISSING key decodes fine, and a PRESENT value — including an explicit
 // `undefined` — is REJECTED, which is what makes the field unspellable on the
-// arms that must not carry it. `daemonStatus.antiFields.test.ts` pins both
+// arms that must not carry it. `vocabByteCompat.test.ts` pins both
 // directions per arm so the guard cannot rot into a no-op.
 //
-// BETA-ASSUMPTION(beta.103): `Schema.optionalKey(Schema.Never)` accepts a MISSING key and rejects any PRESENT value.
+// BETA-ASSUMPTION(rc.110): `Schema.optionalKey(Schema.Never)` accepts a MISSING key and rejects any PRESENT value.
 //   Both halves are decoder behavior, not type-level — a bump that accepts an
 //   explicit `undefined` makes the field spellable again and the arms stop
 //   being disjoint on the wire, with nothing in the types to say so.
@@ -655,6 +721,24 @@ export const KavalSkewVersionsSchema = Schema.Struct({
   requiredVersion: Schema.String,
 });
 export type KavalSkewVersions = typeof KavalSkewVersionsSchema.Type;
+
+/** Every field only a `connected` daemon status can carry, declared ABSENT —
+ *  ONE list, spread into each non-connected arm below.
+ *
+ *  The arms must stay disjoint on the wire (see the `Schema.Never` note above),
+ *  and that obligation grows by one line per arm every time the `connected` arm
+ *  learns a new fact — with nothing to check that each arm remembered. Written
+ *  once, a new connected-only fact is one edit here. */
+const CONNECTED_ONLY_ABSENT = {
+  identity: Schema.optionalKey(Schema.Never),
+  contractVersion: Schema.optionalKey(Schema.Never),
+  startedAt: Schema.optionalKey(Schema.Never),
+  adopted: Schema.optionalKey(Schema.Never),
+  adoptedAt: Schema.optionalKey(Schema.Never),
+  autoRecoveredAt: Schema.optionalKey(Schema.Never),
+  linkRestoredAt: Schema.optionalKey(Schema.Never),
+  lifetime: Schema.optionalKey(Schema.Never),
+};
 
 /** The live state of one host's pty-host daemon (kaval), as the supervisor's
  *  endpoint reports it — the honest-state surface that makes "the daemon is
@@ -687,14 +771,31 @@ export const DaemonStatusSchema = Schema.Union([
      *  was re-adopted (juspay/kolu#1365); the client keeps the greatest announced
      *  `adoptedAt` in localStorage and only toasts a strictly newer one. */
     adoptedAt: Schema.optionalKey(Schema.Number),
-    /** #2101 N1: the ms-epoch padi stamped when a probe PROVED that an automatic
-     *  recycle of an unresponsive kaval worked — set only on the `connected`
-     *  status that followed a supervisor-driven repair, never on a boot or on the
-     *  button's recycle (the user who pressed it does not need to be told). Drives
-     *  the client's one-shot "kaval was unresponsive — restarted" toast, deduped
-     *  against a persisted high-water mark exactly as `adoptedAt` is. Absent
-     *  everywhere else, which is the honest reading: nothing was auto-repaired. */
+    /** #2101 N1: the ms-epoch padi stamped when an automatic repair REPLACED an
+     *  unresponsive kaval — never on a boot, and never on the button's recycle
+     *  (the user who pressed it does not need to be told). Drives the client's
+     *  one-shot "kaval was unresponsive — restarted" toast, deduped against a
+     *  persisted high-water mark exactly as `adoptedAt` is.
+     *
+     *  TWO stampers now, and the shared word is "replaced", not "probed"
+     *  (juspay/kolu#2184): the supervision arm stamps it once a probe has PROVED
+     *  the replacement serves, and the link-loss healer stamps it when its own
+     *  re-converge came back with no survivors — a fresh daemon and a parked
+     *  session, which is the same news for the reader even though no probe
+     *  proved it. What both exclude is the healer's ordinary outcome, an ADOPTED
+     *  daemon that never stopped running; that is {@link linkRestoredAt}, whose
+     *  sentence is the opposite one. Absent everywhere else, which is the honest
+     *  reading: nothing was replaced. */
     autoRecoveredAt: Schema.optionalKey(Schema.Number),
+    /** #2184: the ms-epoch padi stamped when the self-healing re-converge
+     *  re-ADOPTED the resident kaval after the held link died mid-session — the
+     *  daemon was healthy throughout, nothing was restarted, and every terminal
+     *  and agent kept running. A SEPARATE fact from {@link autoRecoveredAt},
+     *  which means the opposite (the daemon was recycled and the session parked
+     *  for restore); the heal stamps whichever its `ConvergeVerdict` proved.
+     *  Deduped against its own persisted high-water mark exactly as `adoptedAt`
+     *  is. Absent everywhere else: no link was lost and re-made. */
+    linkRestoredAt: Schema.optionalKey(Schema.Number),
     /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
      *  — surfaced for the kaval dialog to show where this daemon listens (the
      *  path `kaval-tui` auto-discovers). kolu's soul (a server fact the client
@@ -722,13 +823,7 @@ export const DaemonStatusSchema = Schema.Union([
     // ({@link KavalSkewVersionsSchema}) shared with `recycleKaval`'s declared
     // error data. `.shape` → `.fields` — the same read-off-the-schema promise.
     ...KavalSkewVersionsSchema.fields,
-    identity: Schema.optionalKey(Schema.Never),
-    contractVersion: Schema.optionalKey(Schema.Never),
-    startedAt: Schema.optionalKey(Schema.Never),
-    adopted: Schema.optionalKey(Schema.Never),
-    adoptedAt: Schema.optionalKey(Schema.Never),
-    autoRecoveredAt: Schema.optionalKey(Schema.Never),
-    lifetime: Schema.optionalKey(Schema.Never),
+    ...CONNECTED_ONLY_ABSENT,
     socketPath: Schema.optionalKey(Schema.String),
   }),
   Schema.Struct({
@@ -737,13 +832,7 @@ export const DaemonStatusSchema = Schema.Union([
     // obligation here, not a silently-dropped wire member. The `identity` arm
     // below stays kolu's (it is the soul).
     state: Schema.Literals(NON_CONNECTED_ENDPOINT_STATES),
-    identity: Schema.optionalKey(Schema.Never),
-    contractVersion: Schema.optionalKey(Schema.Never),
-    startedAt: Schema.optionalKey(Schema.Never),
-    adopted: Schema.optionalKey(Schema.Never),
-    adoptedAt: Schema.optionalKey(Schema.Never),
-    autoRecoveredAt: Schema.optionalKey(Schema.Never),
-    lifetime: Schema.optionalKey(Schema.Never),
+    ...CONNECTED_ONLY_ABSENT,
     daemonVersion: Schema.optionalKey(Schema.Never),
     requiredVersion: Schema.optionalKey(Schema.Never),
     /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)

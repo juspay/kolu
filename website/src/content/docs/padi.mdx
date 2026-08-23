@@ -95,6 +95,32 @@ restarting and leaves the card and the button — a hot restart loop is not a
 repair. The kaval-down card is for the genuinely unrepairable now, not for every
 case.
 
+The line between padi and its kaval can drop while the daemon behind it is
+perfectly healthy — still running, still holding every terminal, still able to
+answer. From the outside that looks exactly like a stuck kaval, and it is the
+opposite: nothing is broken, and there is only a connection to re-make. padi
+re-makes it by itself, about a second after it drops, and keeps trying — backing
+off to once every half-minute — for as long as it takes. It only ever re-makes a
+line to a daemon it has just checked is still answering, so the ordinary outcome
+is that it takes that daemon back *over*: your terminals and the agents inside
+them keep running throughout, there is nothing to restore, and kolu says so once
+before the card clears itself.
+
+Two narrower cases end somewhere else, and kolu tells you which one you got
+rather than showing you the same line for all three. If the daemon exits in the
+moment between that check and the re-connect, the re-connect starts a fresh one;
+and if a re-connected daemon turns out to hold terminals kolu cannot account
+for, kolu replaces it deliberately rather than leave terminals it cannot see. In
+both, the message is the restart one — *"kaval was unresponsive — kolu restarted
+it; your session is ready to restore"* — and your session comes back through the
+restore card.
+
+A daemon that is genuinely gone is a different fact and gets the different
+answer. Re-making a line to a daemon that is not there would mean starting a new
+one, which is a restart — so padi leaves that to the ten-second check above, and
+to its three-strike limit, which is what keeps a kaval that dies as fast as it
+starts from being restarted forever.
+
 kaval watches itself from the other side of the same wire: it asks its **own**
 address a trivial question on the same cadence, and three unanswered self-checks
 in a row make it exit non-zero rather than sit there accepting connections it
@@ -131,6 +157,14 @@ face.
 
 ## The thin shell face — `padi-tui`
 
+<Aside type="note" title="These verbs now live on `kolu` too">
+  The `kolu` command has grown the same terminal verbs — `kolu ls` · `create` ·
+  `send` · `wait` · `snapshot` · `history` · `kill` · `watch` — as a pure padi
+  client, so one command drives a workspace instead of two. `padi-tui` still
+  works and is documented here; new scripts should reach for `kolu`. The loop
+  is on the [agent fleets](/agent-fleets) page.
+</Aside>
+
 `padi-tui` reads the same workspace surface kolu uses. Where `kaval-tui` shows
 what's running in each PTY, padi-tui shows what each terminal is in: repo, PR,
 checks, foreground command, live byte activity, and agent state. That is the
@@ -140,7 +174,7 @@ state behind the [multi-agent dock](/power-features).
 padi-tui status
 padi-tui watch
 padi-tui wait a3f10000 --until awaiting,waiting
-padi-tui create -- claude
+padi-tui create --toplevel -- claude
 ```
 
 ```text
@@ -158,16 +192,18 @@ face agents connect to — taken from padi's own build. On a **remote** host the
 arrive in the closure kolu provisions, so an agent working there has the whole
 loop available with nothing installed on the box, and can never end up holding a
 tool from a different build than the daemon it is talking to. Elsewhere it autodiscovers the running
-padi; `--socket <path>` or `--state-root <dir>` point it at a different local
-daemon, and `--host <ssh>` reaches a padi on **another machine** — the twin of
+padi — and when several are running (your everyday padi plus a dev or test one),
+it picks the one keyed to the state root your environment names rather than
+asking you to choose; `--socket <path>` or `--state-root <dir>` point it at a
+different local daemon, and `--host <ssh>` reaches a padi on **another machine** — the twin of
 [`kaval-tui --host`](/kaval#reach-a-remote-kaval--over-ssh): it provisions the
 daemon with Nix, runs `padi --stdio` over ssh, and runs every verb unchanged
 against the remote (`padi-tui status --host nix@prod`). Read verbs are safe and
 `create` lands a real terminal on the host (which survives the link); a tui is a
 dial, so it never drains or converges the remote padi. `--host` is mutually
 exclusive with `--socket` / `--state-root`. Pointing kolu's **browser** at a
-remote padi is a separate path that already ships — see [Remote
-Hosts](/remote-hosts) for adding a machine to the canvas.
+remote padi is a separate path that already ships — see [Add another
+machine](/remote-hosts) for adding a machine to the canvas.
 
 `wait <id> --until awaiting,waiting` blocks until a terminal's agent finishes its
 turn — a done-signal read from real padi state, not guessed from terminal
@@ -182,7 +218,7 @@ notes live in the [padi atlas note](https://kolu.dev/atlas/padi.html).
 | `padi-tui status` · `--json` | Print a one-shot workspace snapshot: terminals, repos, agent state, foreground process, and recency. |
 | `padi-tui watch` · `--json` | Follow the workspace live, including state changes and activity indicators. |
 | `padi-tui wait <id> --until awaiting,waiting` · `--timeout <ms>` · `--json` | Block until an agent turn ends using padi's real agent-state fold, not a guess from terminal silence. |
-| `padi-tui create -- claude` · `--parent <id>` · `--worktree <branch>` · `--repo <path>` · `--json` | Create a kolu terminal from the shell: a new tile, a split under any existing terminal (`--parent` — including a split of a split; the canvas flattens descendants into the root tile's tab strip, the Dock keeps the true tree), or a worktree'd agent — all appearing live on the canvas. |
+| `padi-tui create (--toplevel \| --parent <id>) -- claude` · `--worktree <branch>` · `--repo <path>` · `--json` | Create a kolu terminal from the shell, appearing live on the canvas. Placement is **required** and has no default: `--toplevel` for a tile of its own, or `--parent <id>` for a split under any existing terminal (including a split of a split; the canvas flattens descendants into the root tile's tab strip, the Dock keeps the true tree). Add `--worktree` for a worktree'd agent. |
 
 ## Why it is not inside kolu-server
 

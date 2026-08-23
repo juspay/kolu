@@ -37,6 +37,7 @@ import type { UnaryEffect } from "@kolu/surface/client";
 import type { WatchableWire } from "@kolu/surface/link";
 import type { WireDiagnostics } from "@kolu/surface/links/websocket";
 import type { SurfaceClient, SurfaceFace } from "@kolu/surface/solid";
+import { surfaceWsUrl } from "@kolu/surface-app";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
@@ -77,10 +78,12 @@ import { hostLabel } from "./host/hostChipTone.ts";
 import { persistedPref } from "./persistedPref.ts";
 import { rootProcedures } from "./rpc/rootProcedures.ts";
 import { runAction } from "./runAction.ts";
-import { recordProbeSettled } from "./wireProbes.ts";
+import { recordProbeSettled, recordWireRetired } from "./wireProbes.ts";
 
-const { protocol, host } = window.location;
-const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
+// The dial URL, derived once from the page's own origin — `surfaceWsUrl` owns
+// both halves (the `https:` → `wss:` swap and the surface path), so no leg of
+// kolu spells either by hand.
+const wsBaseUrl = surfaceWsUrl(window.location.origin);
 
 /** The ONE kolu client-error interpreter (SR11, fork-A) — the single place kolu's
  *  app-owned {@link ClientErrorPolicy} arms are rendered. Registered at BOTH seams
@@ -202,13 +205,22 @@ const conn = await connectSurfaces({
   // a genuinely live wire from one merely reporting `open` — could not be copied
   // into a bug report. Recorded in a leaf module the diagnostic snapshot reads.
   heartbeat: { onProbeSettled: recordProbeSettled },
+  // REQUIRED: what happens when the server retires this tab. kolu's user-facing
+  // recovery already rides the same wire's terminal status — `rpc.ts`'s lifecycle
+  // reads it as a definitive `restarted` and the transport overlay offers the
+  // reload — so what this adds is the RECORD: a wall-clock stamp in the leaf
+  // module the diagnostic snapshot reads, which is what a bug report needs and
+  // what neither the overlay nor the console carried. There is deliberately no
+  // second reload path here; two things reloading the page is worse than one.
+  retired: recordWireRetired,
 });
-const { link, echo } = conn;
+const { link } = conn;
 
-/** Stash the latest observed server `processId` for the next reconnect's `pid`
- *  echo — fed by `rpc.ts`'s lifecycle `onProcessId`. It's null until the first
- *  probe, so the very first connect omits the param. */
-export const rememberServerProcessId = echo.remember;
+// The `pid` echo is no longer wired from here (nor exported for `rpc.ts` to
+// feed). `connectSurfaces` probes the framework-reserved `system/identity` on
+// every open and feeds the echo its URL thunk appends, so the stale-tab handshake
+// holds without any app step — which is what it takes for it to hold in EVERY app
+// rather than in the apps that remembered (olai#61 is what forgetting looks like).
 
 /** The watchable wire under every client here — status observability plus the
  *  imperative `forceReconnect()`. Handed to `rpc.ts`'s `createServerLifecycle`
@@ -270,10 +282,11 @@ const clients = conn.clients;
 export const app = clients.kolu;
 
 /** surface-app's surface client — the build-identity `buildInfo` cell (read via
- *  `surfaceApp.cells.buildInfo.use({ authority: "server" })`) and the
- *  `identity.info` restart probe (`surfaceApp.rpc.surface.identity.info({})` —
- *  the `surfaceApp` key is consumed by the scope, so it does NOT reappear in the
- *  path). Handed to `<SurfaceAppProvider controlPlane=...>` + `createServerLifecycle`. */
+ *  `surfaceApp.cells.buildInfo.use({ authority: "server" })`) and, through its
+ *  tag-scoped face, the FRAMEWORK-RESERVED `system/identity` restart probe
+ *  (`probeSurfaceIdentity(surfaceApp.rpc)` — the `surfaceApp` key is consumed by
+ *  the scope, so it does NOT reappear in the path). Handed to
+ *  `<SurfaceAppProvider controlPlane=...>` + `createServerLifecycle`. */
 export const surfaceApp = clients.surfaceApp;
 
 // ── The padi MAP — a keyed map of remote surfaces: ONE entry surface (`padiSurface`)
@@ -336,8 +349,7 @@ export const client = rootProcedures(conn.transport.dispatch);
  *  `SurfaceFace` is deliberately un-typed per member (D2: precision lives in the
  *  bound `.cells`/`.procedures` faces, and a second precise mapped type over the
  *  same spec is the union blowup D2 exists to avoid), so a consumer reaching a
- *  member through it narrows by hand — the same shape `surfaceAppProbe` uses for
- *  its `identity.info` probe. A missing member means the face was built from a
+ *  member through it narrows by hand. A missing member means the face was built from a
  *  different surface than the caller thinks: a framework/wiring bug, so it
  *  throws at wire-up rather than answering `undefined` at call time. */
 function unaryMember<I, O>(
@@ -445,7 +457,18 @@ const hostScoped = createRoot(() => {
       // Spelled EXHAUSTIVELY, not `.otherwise()`: a future arm that DOES carry a live
       // word must state its policy here rather than silently answering "no connection".
       // This is the read that narrated the wrong thing for a year.
-      .with({ kind: "failed" }, { kind: "not-a-member" }, () => undefined)
+      //
+      // `unobservable` answers `undefined` for the strongest reason of the three: the arm
+      // carries no `connection` field AT ALL, because our link to the publisher is dead and
+      // a frozen `probing`/`provisioning` word would keep narrating work that stopped being
+      // live. The floor used to express this by clearing a field on a `warming` value; the
+      // arm expresses it by not having one.
+      .with(
+        { kind: "failed" },
+        { kind: "unobservable" },
+        { kind: "not-a-member" },
+        () => undefined,
+      )
       .exhaustive();
   // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
   // owner rather than a bare import-time module-const sub — the sharing-by-convention
@@ -604,10 +627,10 @@ export const activePadiStreams = hostScoped.streams;
 /** The ACTIVE host's link-health value (`phase` + `log` tail), or `undefined` before its
  *  first frame. Drives the connect overlay's probing/provisioning narration. Already floored on
  *  the map's transport liveness at the ONE floor — `active.state()` runs through surface-map's
- *  `floorOnLiveness`, which drops the fine `connection` word (as well as demoting the dot) when
- *  our link to the publisher is dead/half-open, so a frozen `probing`/`provisioning` phase stops
- *  asserting a live phase (#1568). No client-side re-floor: the word inherits the SAME liveness
- *  decision as the dot by construction, so the two can never disagree. */
+ *  `floorOnLiveness`, which moves the entry to the word-less `unobservable` arm when our link to
+ *  the publisher is dead/half-open, so a frozen `probing`/`provisioning` phase stops asserting a
+ *  live phase (#1568). No client-side re-floor: the word inherits the SAME liveness decision as
+ *  the dot by construction, so the two can never disagree. */
 export const connectionInfo = (): ConnectionInfo | undefined =>
   hostScoped.connection();
 

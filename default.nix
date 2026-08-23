@@ -149,6 +149,14 @@ let
   # and the dev shell cannot drift.
   osfactsBakeArg = ''--set KOLU_OSFACTS_BIN "${koluEnv.KOLU_OSFACTS_BIN}"'';
 
+  # The terminal-snapshot PNG rasteriser's font directory (nix/packages/fonts/
+  # snapshot.nix). Read from koluEnv for the same reason as osfactsBakeArg: the
+  # wrapper and the dev shell must name ONE store path. pngFonts.ts throws when this
+  # is unset, so the bake is the runtime hop that makes the build-time value
+  # (koluEnv is spread into the build derivation's env below) reach a spawned
+  # daemon, which inherits nothing from the shell that built it.
+  snapshotFontsBakeArg = ''--set KOLU_SNAPSHOT_FONTS_DIR "${koluEnv.KOLU_SNAPSHOT_FONTS_DIR}"'';
+
   # ── Daemon identity: DERIVED from the workspace dependency graph (#2094) ──
   #
   # A daemon's staleKey used to be a hand-listed fileset here, mirrored by an
@@ -248,6 +256,18 @@ let
         # rides the contract bump, while a browser-only /solid or /backfill
         # change must not fire kaval's PTY-costing currency nudge.
         "@kolu/xterm-kit"
+        # `terminal-snapshot` — the grid→picture leaf. kaval consumes ONE
+        # function from it (`readGrid`, a pure buffer read); the scene builder,
+        # the SVG writer and the wasm rasteriser behind `terminal-snapshot/png`
+        # never run in this process (the kaval wrapper below bakes no
+        # KOLU_SNAPSHOT_FONTS_DIR, and says why). The kaval-relevant surface is
+        # the SHAPE `readGrid` emits, and that shape is `SnapshotGridSchema` in
+        # kaval/src — hashed via PTY_HOST_CONTRACT_VERSION, so a wire-relevant
+        # change rides the contract bump. A chrome-geometry or palette edit —
+        # or a `themes.json` regeneration, which reaches here through
+        # `terminal-themes` — must not fire kaval's PTY-costing currency nudge.
+        # Same argument as @kolu/xterm-kit above.
+        "terminal-snapshot"
         # `@kolu/shell-quote` — the POSIX-quote source of truth. kaval seeds a
         # command-rooted PTY's `lastCommand` with `shellJoin` (#1872), and the
         # seed's DIALECT is carried on the `commandRun` frame's `shellJoin`
@@ -389,7 +409,7 @@ let
       runHook preInstall
 
       # Strip build-only packages and artifacts BEFORE copying to $out.
-      rm -rf packages/client/src packages/client/node_modules packages/vazhi
+      rm -rf packages/client/src packages/client/node_modules
       pushd node_modules/.pnpm
       # NOTE: esbuild is kept because @kolu/artifact-sdk bundles the in-iframe
       # SDK script at runtime.
@@ -400,7 +420,7 @@ let
              vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
              @babel* babel-plugin-* \
              concurrently@* rxjs@* happy-dom@* \
-             es-toolkit@* ink@* ink-text-input@* react-reconciler@* yoga-layout@* \
+             es-toolkit@* \
              es-abstract@* caniuse-lite@* browserslist@* update-browserslist-db@* \
              @types+* type-fest@* csstype@* \
              core-js-compat@* regexpu-core@* regjsparser@* terser@*
@@ -539,6 +559,7 @@ let
       --set KOLU_CLIENT_DIST "${koluClientDist}" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${osfactsBakeArg} \
+      ${snapshotFontsBakeArg} \
       --set KOLU_COMMIT_HASH "${commitHash}" \
       ${kavalIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
@@ -645,7 +666,7 @@ let
     # run `kaval-tui` and `kolu mcp` but not the `padi-tui wait` loop.
     for b in kolu kaval-tui padi-tui; do
       case "$b" in
-        kolu) why="a local terminal could not run 'kolu mcp'. An inner-wrapper --set that clobbers this one is the known cause." ;;
+        kolu) why="a local terminal could not run 'kolu mcp' OR any terminal verb ('kolu ls' / 'send' / 'wait' / 'snapshot' / ...) — kolu is the ONE terminal CLI, so losing it here costs an agent every way it has of driving its siblings. An inner-wrapper --set that clobbers this one is the known cause." ;;
         kaval-tui) why="a local terminal could not attach to its siblings." ;;
         padi-tui) why="a local terminal could not run the 'padi-tui wait' done-signal loop." ;;
       esac
@@ -692,6 +713,13 @@ let
     # `kaval-…` subdir and arms the V8 heap-snapshot flags (incl.
     # --heapsnapshot-near-heap-limit), so the next near-OOM dumps a snapshot that
     # names the leak in the real workload. Unset = passthrough, zero overhead.
+    #
+    # NOT baked here: KOLU_SNAPSHOT_FONTS_DIR. kaval consumes terminal-snapshot's
+    # BROWSER half only (readGrid — a pure buffer read); the wasm rasteriser and
+    # its ~9MB of outline faces sit behind the `terminal-snapshot/png` export,
+    # which nothing in kaval imports. Baking it would hang the font closure on
+    # every PTY daemon for no reader, and pngFonts.ts throws by name the moment that
+    # stops being true — so the omission fails loudly rather than silently.
     makeWrapper ${runtimeNode}/bin/node $out/bin/kaval \
       --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/kaval/src/bin.ts" \
@@ -741,6 +769,7 @@ let
       ${kavalIdentity.bakeArgs} \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${osfactsBakeArg} \
+      ${snapshotFontsBakeArg} \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh ]} \
       --run '${exportPadiStateDirRun}' \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}
@@ -934,7 +963,7 @@ let
       # agent loses. Each was falsified separately.
       for b in kolu kaval-tui padi-tui; do
         case "$b" in
-          kolu) why="an agent in a terminal on a remote host could not run 'kolu mcp'. An inner-wrapper --set that clobbers this one is the known cause." ;;
+          kolu) why="an agent in a terminal on a remote host could not run 'kolu mcp' OR any terminal verb ('kolu ls' / 'send' / 'wait' / 'snapshot' / ...) — kolu is the ONE terminal CLI, so losing it here costs a remote agent every way it has of driving its siblings. An inner-wrapper --set that clobbers this one is the known cause." ;;
           kaval-tui) why="a terminal on a remote host could not attach to its siblings." ;;
           padi-tui) why="a terminal on a remote host could not run the 'padi-tui wait' done-signal loop." ;;
         esac
@@ -952,18 +981,6 @@ let
     meta.mainProgram = "padi";
   };
 
-  # vazhi — the standalone port-forward TUI over `@kolu/port-forward` (Atlas:
-  # port-forwarding). Its derivation lives next to its source (it has its OWN
-  # flake.nix for a later move to its own repo, and that flake wants one
-  # definition, not a copy of this one); the root composer just threads the
-  # shared `src` + `pnpmDeps` in and re-exports it so `nix run .#vazhi` works
-  # from the repo root. It stays in THIS flake — unlike the examples, vazhi is
-  # a Kolu app, one of the two consumers `@kolu/port-forward` exists for.
-  # Unlike kaval-tui / padi-tui it does NOT wrap the full `kolu` build: vazhi
-  # imports one dependency-free library, so the vite bundle and the node-pty
-  # rebuild would be pure cost.
-  vazhi = import ./packages/vazhi { inherit pkgs src pnpmDeps; };
-
   # osfacts — scoped process/socket fact sampler (Atlas: os-facts-tool, OSF1).
   # The tool graduated to its own repo (juspay/osfacts) at OSF5; npins pins it
   # and its default.nix still takes `{ pkgs }`, so kolu builds the pinned source
@@ -972,5 +989,5 @@ let
   osfacts = import sources.osfacts { inherit pkgs; };
 in
 {
-  inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui kolu-rpc padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
+  inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui kolu-rpc padi padi-agent padi-tui koluEnv pnpmDeps typecheck osfacts;
 }

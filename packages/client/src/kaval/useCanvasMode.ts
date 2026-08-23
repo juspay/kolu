@@ -5,9 +5,9 @@
  *
  *  The pure decision (type + arm order + payloads) lives in the dependency-free
  *  `resolveCanvasMode`; this module gathers the live facts AND owns the boot
- *  deadline (#1763): it reads the per-host episode anchor, feeds the ONE resolve an
- *  `{ exceeded }` verdict, and writes the frame's tag back — all in one memo
- *  evaluation (see `bootDeadline.ts`). It reads the ACTIVE entry's connection state
+ *  deadline (#1763): it reads the per-host episode anchor, feeds the ONE resolve the
+ *  observer's `{ transportLive, exceeded }` pair, and writes the frame's tag back — all
+ *  in one memo evaluation (see `bootDeadline.ts`). It reads the ACTIVE entry's connection state
  *  (`padiMap.entry(activeHost()).state()`) to pick the discriminated {@link CanvasFacts}
  *  arm — the kaval-derived facts are gathered ONLY when the entry is `connected`
  *  (off any other host they'd be stale), which the discriminated union makes
@@ -32,6 +32,7 @@ import {
   bootDeadlineExceeded,
   pruneBootAnchors,
   recordBootFrame,
+  watchedBootIdentity,
 } from "./bootDeadline";
 import { getMonotonicNow } from "../time/clock";
 import {
@@ -57,6 +58,19 @@ export function canvasMode(deps: {
   terminalCount: () => number;
   recordsAwaited: () => number;
 }): CanvasMode {
+  // THIS browser's link to kolu-server, read ONCE. Two decisions below turn on it — the
+  // #2129 observability floor and the connect-log's `link-down` reason — and they ask the
+  // same question ("can we see the server?"), so they must not answer it from two
+  // accessors. The source is the map's OWN watchdog liveness: the very value
+  // `floorOnLiveness` is handed, so "the entry is connected" and "the link is live" cannot
+  // disagree by construction. NOT `daemonTransportLive()` (`app.health().live` = transport
+  // ∧ every readiness cell's `liveWhen` predicate): a future readiness cell on koluSurface
+  // would drop it over a perfectly live socket and silently disable the boot deadline
+  // entirely — the #1763 no-escape class, re-opened from an unrelated module.
+  // `daemonChannelLive()` (transport ∧ entry-connected) cannot serve either: it is false on
+  // every not-yet-connected arm by construction, so it cannot tell a host that is genuinely
+  // warming from a browser that has lost the server.
+  const linkLive = padiMap.live();
   // Facts every arm carries — the loading guard reads only these, before the
   // entry-state switch ever consults an arm.
   const liveness = {
@@ -68,7 +82,7 @@ export function canvasMode(deps: {
   // the connect-overlay routing reads it too (no cross-channel skew). ONE read yields BOTH the
   // phase and the output tail: they are two fields of one cell frame, and the boot-stalled
   // card's connector arm shows them together. Fed ONLY into the not-yet-connected arms
-  // (warming/not-a-member): the `connected` arm carries neither, so a stale/lagging cell can
+  // (warming/unobservable/not-a-member): the `connected` arm carries neither, so a stale/lagging cell can
   // never route the overlay over a connected host (A'). `connectionInfo()` is floored on the
   // map's transport liveness (C'), so a stale cell already demotes before it reaches here.
   // NARROW the phase to the framework's `ConnectPhase` (the narrated subset) at THIS boundary:
@@ -81,7 +95,7 @@ export function canvasMode(deps: {
     phase !== undefined && isConnectPhase(phase) ? phase : undefined;
   // The tail, TOTAL, plus — separately — WHY it is empty when the cell handed us no frame
   // at all. This is the one site that holds both halves of that question: the cell read
-  // above and `padiMap.live()`, the very liveness the map's floor applies. Two different
+  // above and `linkLive`, the very liveness the map's floor applies. Two different
   // situations produce a missing cell — the floor DROPPED the live word because our link
   // to the publisher is dead, or no frame has landed yet — and only the first is a link
   // problem. Deciding it here means the boot-stalled card renders a reason it was TOLD;
@@ -89,7 +103,7 @@ export function canvasMode(deps: {
   // which was true only via a four-file chain no type expressed.
   const connectLog = info?.log ?? NO_LOG_LINES;
   const connectLogAbsence: LogAbsence | undefined =
-    info === undefined && !padiMap.live() ? "link-down" : undefined;
+    info === undefined && !linkLive ? "link-down" : undefined;
   // The active entry's connection state is the discriminant. A non-`connected`
   // host's re-served daemonStatus is frozen stale, so the kaval-derived facts are
   // gathered ONLY on the `connected` arm.
@@ -114,6 +128,21 @@ export function canvasMode(deps: {
       facts = {
         ...liveness,
         entry: "not-a-member",
+        connectPhase,
+        connectLog,
+        connectLogAbsence,
+      };
+      break;
+    // BLIND — the map's floor moved the entry off its published arm because THIS browser
+    // cannot reach the publisher (#1568/#2129). It reaches the resolver as its own fact, not
+    // as a `warming` one, so the boot deadline can't mistake our outage for the host's slow
+    // start. `connectPhase` is structurally `undefined` here (the arm carries no `connection`
+    // for `connectionInfo()` to read), and that same absence is what makes `connectLogAbsence`
+    // read `link-down` — so the overlay narrates the real reason rather than an empty tail.
+    case "unobservable":
+      facts = {
+        ...liveness,
+        entry: "unobservable",
         connectPhase,
         connectLog,
         connectLogAbsence,
@@ -153,8 +182,20 @@ export function canvasMode(deps: {
   // cell off the frame's own tag (the connector-owned `provisioning` leg). Both are pure client-
   // monotonic — no server `sinceMs` (frame-stamped + wall-clock). A user Retry connection resets
   // this host's deadline explicitly via `resetBootDeadline` (in the card), not read here.
-  const exceeded = bootDeadlineExceeded(hostEnc, nowMs);
-  const { mode, tag } = resolveCanvasMode(facts, { exceeded });
+  // The observer's pair is floored on BOTH sides by the ONE `linkLive` read above (#2129):
+  // here, so no verdict is REACHED across the interval between frames (a frozen tab runs
+  // none), and in `resolveCanvasMode`, so no anchor ARMS or ADVANCES across frames observed
+  // while blind. Neither covers the other's case — see `bootDeadlineExceeded`.
+  const exceeded = bootDeadlineExceeded(hostEnc, nowMs, linkLive);
+  // Both halves of the sample-and-hold travel together: the verdict, and the boot that earned
+  // it. The resolver reads the second only while blind — where the demotion the outage itself
+  // causes has already rewritten the live facts, so they can no longer name the boot they
+  // describe. See `resolveCanvasMode`'s exempt arm.
+  const { mode, tag } = resolveCanvasMode(facts, {
+    transportLive: linkLive,
+    exceeded,
+    earnedBoot: watchedBootIdentity(hostEnc),
+  });
   recordBootFrame(hostEnc, tag, nowMs);
   return mode;
 }

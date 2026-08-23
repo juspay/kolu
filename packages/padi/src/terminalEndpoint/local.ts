@@ -22,6 +22,7 @@
  * `terminal-workspace` surface over the link, so there is one fs/git impl.
  */
 
+import type { SnapshotGrid } from "terminal-snapshot";
 import type { WireSchema } from "@kolu/surface/define";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type {
@@ -41,6 +42,7 @@ import { trackRecentAgent, trackRecentRepo } from "../activity/activity.ts";
 import type {
   EndpointGrid,
   PtySpawnOpts,
+  ScreenCellsExtent,
   TerminalAttachment,
   TerminalEndpoint,
   TerminalHandle,
@@ -57,6 +59,7 @@ import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
 import {
   type ActiveTerminalProcess,
+  claimActiveTerminal,
   drainTerminals,
   getActiveTerminal,
   getTerminal,
@@ -68,7 +71,10 @@ import {
   terminalNotFound,
   unregisterTerminal,
 } from "../terminal-registry.ts";
-import { cleanupTerminalScratch } from "../terminalScratch.ts";
+import {
+  cleanupTerminalScratch,
+  removeTerminalScratch,
+} from "../terminalScratch.ts";
 import { createTerminalWorkspaceEndpoint } from "../terminalWorkspace/endpoint.ts";
 import {
   type FoldCtx,
@@ -124,6 +130,13 @@ const decodeAuthoredActive = Schema.decodeUnknownSync(AuthoredActiveSchema);
 const decodeAuthoredSleeping = Schema.decodeUnknownSync(AuthoredSleepingSchema);
 const decodeAuthoredParked = Schema.decodeUnknownSync(AuthoredParkedSchema);
 const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
+// The TOLERANT read boundary for an adopted survivor's saved record (#2122) —
+// `decodeUnknownResult` is a BRANCH, never a throw. `SavedActiveTerminalSchema`
+// is the whole record (persisted snapshot + authored fields + id), so a success
+// here makes the two projections below (`adoptedAuthored` /`adoptedSnapshot`,
+// both `decodeUnknownSync` over strict subsets of these same fields) total by
+// construction — exactly how `seedHandlelessTerminal` gates its own sub-decodes.
+const decodeSavedActive = Schema.decodeUnknownResult(SavedActiveTerminalSchema);
 
 /** Birth a terminal's two halves together — register the entry (whose required
  *  `snapshot` field carries the value) and fan that snapshot out to the
@@ -303,6 +316,17 @@ export class PtyHostTerminalProxy implements TerminalHandle {
       }),
     );
     return text;
+  }
+
+  async getScreenCells(extent: ScreenCellsExtent): Promise<SnapshotGrid> {
+    await this.ready;
+    // Straight through: the bound is already the host's own closed union, so
+    // this layer has nothing to decode and nothing to get wrong. `viewport`
+    // resolves host-side against the live grid, because the caller cannot know
+    // how tall the PTY currently is.
+    return runEndpointEdge(
+      this.client.surface.terminal.getScreenCells({ id: this.id, extent }),
+    );
   }
 
   async getHistory(
@@ -797,6 +821,80 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     return entry.info;
   }
 
+  /** Re-install the sensor set of a terminal padi ALREADY HOLDS, against the
+   *  taps of the daemon it has just re-connected to (juspay/kolu#2182).
+   *
+   *  This is the HEAL's verb, and the whole reason it is not `adoptTerminal`:
+   *  adoption is a BOOT verb, written for an empty registry and a saved session
+   *  that is the only record of what was running. Mid-session neither premise
+   *  holds — the registry never emptied, and it, not the saved session, is the
+   *  truth. Running adoption over it re-registers the saved record (rewinding any
+   *  chrome newer than the last autosave, which `saveSession` then persists),
+   *  wipes a terminal born inside the autosave debounce entirely, re-stamps
+   *  `adoptedAt` so the client announces a boot adoption that never happened, and
+   *  treats a wiring failure as an orphaned PTY to kill. All four are damage to
+   *  a session that was never lost, done in the name of repairing it.
+   *
+   *  What actually died with the link is the taps: they are bridged ONCE, per
+   *  terminal, and have no re-subscribe loop of their own (see
+   *  {@link installSnapshotSensors}). Re-installing them is therefore the entire
+   *  job, and installation is idempotent — it replaces any set the terminal
+   *  already has rather than stranding it.
+   *
+   *  Returns false for an id padi does not hold, which is not this verb's case to
+   *  handle: a PTY that appeared while the link was down is the inventory
+   *  reconciler's to discover, and inventing a registry entry from a live PTY is
+   *  adoption again by another name.
+   *
+   *  A wiring failure here does NOT kill the PTY. The boot's reap exists because
+   *  a half-wired survivor at boot is an orphan nothing else will ever claim; a
+   *  half-wired terminal mid-session is a terminal the user is looking at, whose
+   *  entry is intact and whose next heal will try again. Killing it would be the
+   *  destruction this whole arm exists to prevent. */
+  rewireSurvivingSensors(
+    id: TerminalId,
+    liveEntry: PtyHostListEntry,
+  ): RewireOutcome {
+    const entry = getTerminal(id);
+    if (!entry) return "unknown";
+    const tlog = log.child({ terminal: id });
+    try {
+      this.installSnapshotSensors(
+        id,
+        liveEntry.pid,
+        liveEntry.cwd,
+        liveEntry.commandRooted ?? false,
+      );
+    } catch (err) {
+      // Distinct from `unknown` because the CALLER must distinguish them: an id
+      // we do not hold is somebody else's job, while a terminal we hold and
+      // could not wire is one kolu has gone blind to — and the heal has to
+      // report that rather than announce a restored link over it.
+      tlog.error(
+        { err, pid: liveEntry.pid },
+        "sensor re-wiring failed after a link heal — the terminal is LIVE and keeps running; the heal reports incomplete and retries",
+      );
+      return "failed";
+    }
+    tlog.info({ pid: liveEntry.pid }, "re-wired a surviving PTY's sensors");
+    return "rewired";
+  }
+
+  /** The daemon no longer lists a terminal we hold: it exited while the link was
+   *  down. Its own exit tap died with that link, so this is the last chance to
+   *  observe the exit at all — see {@link dropVanishedTerminal}. Runs the ordinary
+   *  exit teardown, with a code that says the truth: we never saw one. */
+  noteVanishedWhileBlind(id: TerminalId): void {
+    if (!getTerminal(id)) return;
+    log
+      .child({ terminal: id })
+      .info(
+        {},
+        "terminal exited while the link was down — dropping it now that the daemon no longer lists it",
+      );
+    this.handleExit(id, EXIT_CODE_UNOBSERVED);
+  }
+
   /** Adopt a SURVIVING PTY (B3.3): the kaval daemon outlived a kolu-server
    *  restart, so its PTY for `id` is already alive at `liveEntry.pid`.
    *  Re-establish kolu's side WITHOUT spawning — install the caller-built
@@ -804,10 +902,15 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  live-snapshot defaults via `orphanSnapshot`; either way the live fields
    *  pr/agent/foreground are re-derived by the sensors, the freshness guarantee),
    *  register the terminal under the `authored` half, release the handle at the
-   *  live pid, and re-run the sensor set
-   *  against the surviving taps. The sibling of `spawnPty`/`spawnAndWire` minus
-   *  the spawn RPC: both converge on `startSnapshotSensors`, and a wiring failure
-   *  reaps the orphaned PTY through the shared `killHalfWiredPty`. */
+   *  live pid, and re-run the sensor set against the surviving taps. The sibling
+   *  of `spawnPty`/`spawnAndWire` minus the spawn RPC: both converge on
+   *  `installSnapshotSensors`, and a wiring failure reaps the orphaned PTY through
+   *  the shared `killHalfWiredPty`.
+   *
+   *  A BOOT verb. It writes the registry from the caller's `authored` record, so
+   *  running it over a registry that is already populated rewinds whatever the
+   *  saved record does not know — see {@link rewireSurvivingSensors}, which is
+   *  what a mid-session heal runs instead. */
   adoptTerminal(
     id: TerminalId,
     authored: AuthoredActiveTerminal,
@@ -817,7 +920,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const tlog = log.child({ terminal: id });
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
     // Both halves ride ONE entry — snapshot is a required field
-    // (`startSnapshotSensors` reads `getTerminal(id)!.snapshot` as `record.meta`).
+    // (`installSnapshotSensors` reads `getTerminal(id)!.snapshot` as `record.meta`).
     const entry: ActiveTerminalProcess = {
       info: { id, pid: liveEntry.pid },
       meta: authored,
@@ -834,7 +937,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // from the surviving (replayed) taps. That re-observation must NOT bump recency
       // (the saved value is the truth) — the recency baseline is seeded from the saved
       // restore target, so a re-resolve of the SAME session matches it and is silent.
-      this.startSnapshotSensors(
+      this.installSnapshotSensors(
         id,
         liveEntry.pid,
         liveEntry.cwd,
@@ -843,9 +946,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     } catch (err) {
       // Sensor wiring failed against the survivor — the same reap policy as a
       // failed fresh spawn (the F2 receptacle): tear down partials, kill the
-      // now-orphaned PTY, unwind the entry. Adoption overwrites no prior record
-      // (a survivor is registered fresh at boot), so there is nothing to
-      // restore — `prior` is undefined and the unwind is a plain unregister.
+      // now-orphaned PTY, unwind the entry. `prior` is undefined because THIS
+      // verb only ever runs at boot, over an empty registry, where a half-wired
+      // survivor is an orphan nothing else will claim. That is a precondition of
+      // the reap, not an incidental fact: a mid-session caller would be killing a
+      // terminal the user is looking at. The heal deliberately does not come here
+      // — it re-wires through `rewireSurvivingSensors`, which never kills.
       this.killHalfWiredPty(
         id,
         entry,
@@ -941,12 +1047,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // we leak an orphaned PTY with no server-side record.
     try {
       // The recency baseline is seeded from the durable restore target inside
-      // `startSnapshotSensors`: a fresh spawn has no target (null baseline) so its
+      // `installSnapshotSensors`: a fresh spawn has no target (null baseline) so its
       // first agent bumps; a RESUMING wake's `exact` target makes the re-resolved
       // session match the baseline and stay silent — no `initialLive` flag needed.
       // A padi spawn is always a shell terminal (the kolu face has no command
       // param — #1872's protection), so the sensors read it shell-rooted.
-      this.startSnapshotSensors(id, res.pid, res.cwd, false);
+      this.installSnapshotSensors(id, res.pid, res.cwd, false);
     } catch (err) {
       this.killHalfWiredPty(
         id,
@@ -1023,8 +1129,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     this.unwindSpawnShadow(id, entry, prior);
   }
 
-  /** Start the per-terminal snapshot PRODUCER against the pty-host's tap streams
-   *  and FOLD its observation stream into the registry entry — the local R9.0 seam.
+  /** INSTALL a terminal's snapshot sensor set, REPLACING any set it already has —
+   *  idempotent by requirement, because a mid-session heal re-runs the boot's
+   *  adopt (#2182). Start the per-terminal snapshot PRODUCER against the pty-host's
+   *  tap streams and FOLD its observation stream into the registry entry — the
+   *  local R9.0 seam.
    *  The producer runs HERE, in kolu-server, so it's always the current build's code
    *  (the freshness guarantee). kolu seeds `current` from the entry's durable
    *  observation + memory and folds each emitted observation: the five snapshot
@@ -1036,12 +1145,26 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  the session autosave — each effect arm gated by ITS OWN delta so the ~150 ms
    *  agent-detail / foreground firehose reaches NONE of disk, the authored
    *  collection, or (beyond a single snapshot publish) the wire. */
-  private startSnapshotSensors(
+  private installSnapshotSensors(
     id: TerminalId,
     pid: number,
     cwd: string,
     commandRooted: boolean,
   ): void {
+    // Installing a sensor set REPLACES any set this terminal already has, rather
+    // than overwriting the `lifecycles` entry and stranding the old one (#2182).
+    // The tail of this function is a bare `lifecycles.set`, and the only thing
+    // that ever aborts a set is `teardownSensors` reading that same map — so
+    // before mid-session re-adoption existed, a second install would have left
+    // the first set's `abort` and `stopAwareness` permanently unreachable: two
+    // awareness loops folding into two accumulators, both writing one terminal's
+    // snapshot, neither stoppable by a later kill or exit. Adoption used to be
+    // once-per-process by construction; a link that heals mid-session (the
+    // healer's re-converge re-runs the boot's adopt) makes it repeatable, so the
+    // install has to be idempotent rather than merely unrepeated. Idempotent by
+    // the same call the kill path uses — a no-op when there is no prior set, and
+    // an abort that ends the old taps WITHOUT tripping `handleExit`.
+    this.teardownSensors(id);
     const abort = new AbortController();
     const { signal } = abort;
     const signals: SensorSignals = {
@@ -1232,21 +1355,34 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     lc.stopAwareness();
   }
 
-  /** Fully remove a terminal from existence — the two-store teardown tail as one
-   *  receptacle: drop the registry entry AND its snapshot store value (the IFF
-   *  lockstep), then arm the autosave. `dropSnapshot` fans the removal onto padi's
-   *  `terminals` collection (its keys stream IS the client's terminal list), so no
-   *  separate list emit is needed. handleExit / killTerminal / discardSleeping / a
-   *  failed fresh `spawnPty` all converge here, so an R9 snapshot-backing change (or
-   *  any change to the notification set) touches ONE place instead of four call
-   *  sites. Each site's differing PREAMBLE (`terminalExit` publish,
-   *  `cleanupTerminalScratch`, the kill RPC, the identity gate) stays at the call
-   *  site; only this identical tail is encapsulated.
+  /** Fully remove a terminal from existence — drop the registry entry AND its
+   *  snapshot store value (the IFF lockstep), then arm the autosave.
+   *  `dropSnapshot` fans the removal onto padi's `terminals` collection (its keys
+   *  stream IS the client's terminal list), so no separate list emit is needed.
+   *  EVERY non-racing removal converges here — handleExit, the discards, a failed
+   *  fresh `spawnPty` — so an R9 snapshot-backing change (or any change to the
+   *  notification set) touches ONE place rather than each site. Only the removal
+   *  itself is encapsulated; each site keeps its own surrounding steps.
+   *
+   *  Every caller reaches it SYNCHRONOUSLY, having already decided the entry is
+   *  theirs to drop, so it needs no claim of its own and returns nothing —
+   *  there is no "did I win" for a caller to forget to check. The one path that
+   *  DOES race (`killTerminal`) claims through `claimActiveTerminal`, which
+   *  removes and returns the entry in one step, and then runs this receptacle's
+   *  two publish steps itself.
    *
    *  The SEED counterpart is `registerAndInstall` (register the entry + fan its
    *  snapshot out), so birth and removal read as symmetric receptacles. */
   private finalizeRemoval(id: TerminalId): void {
     unregisterTerminal(id);
+    this.publishRemoval(id);
+  }
+
+  /** The publish half of a removal — fan it onto the `terminals` collection and
+   *  arm the autosave. Split out from `finalizeRemoval` because `killTerminal`'s
+   *  removal is the CLAIM (`claimActiveTerminal`), which has already dropped the
+   *  entry: it still owes these two, and must not owe them to a second remove. */
+  private publishRemoval(id: TerminalId): void {
     dropSnapshot(id);
     notifyDirty();
   }
@@ -1264,28 +1400,42 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   async killTerminal(id: TerminalId): Promise<TerminalInfo | undefined> {
-    // Kill requires an ACTIVE terminal — the symmetric mirror of `discardSleeping`
-    // (which requires sleeping). A sleeping id is "not found" here so a raw `kill`
-    // RPC or a multi-client race can't run a dead-PTY kill against a record sleep
-    // already released; sleeping terminals exit via `discardSleeping`. The clients
-    // already route sleeping → discard, so this only fences off misuse.
-    const entry = getActiveTerminal(id);
+    // CLAIM FIRST, and the claim IS the guard: `claimActiveTerminal` removes the
+    // entry and hands it back in one step, so there is no earlier read left to go
+    // stale. That answers two questions at once —
+    //  - WRONG ARM: a sleeping/parked id is "not found" here, the symmetric mirror
+    //    of `discardSleeping` (which requires sleeping). Sleeping terminals exit
+    //    via `discardSleeping`, so a raw `kill` RPC or a multi-client race can't
+    //    run a dead-PTY kill against a record whose sleep already released it;
+    //  - RACE: of N overlapping kills exactly one holds the entry. The losers
+    //    return HERE, before logging `killing` and before touching the sensors —
+    //    which is what makes the production symptom (two `killing` lines 124ms
+    //    apart on one split close) impossible rather than merely harmless.
+    // Both fences are written up in `killIdempotence.test.ts`.
+    const entry = claimActiveTerminal(id);
     if (!entry) return undefined;
     const tlog = log.child({ terminal: id });
     tlog.info({ pid: entry.info.pid }, "killing");
-    // Stop the sensor layer FIRST — this aborts the `exit` tap, so the
-    // pty-host's exit (which fires on an intentional kill too, since pty-host
-    // makes no kill/exit distinction) can't reach `handleExit` and
+    // Stop the sensor layer BEFORE anything can re-publish: this aborts the
+    // `exit` tap, so the pty-host's exit (which fires on an intentional kill too,
+    // since pty-host makes no kill/exit distinction) can't reach `handleExit` and
     // double-publish `terminalExit`. The kill RPC's response drives client
-    // cleanup instead.
+    // cleanup instead. Synchronously ADJACENT to the claim above — nothing runs
+    // between them — which is the property `commitSnapshot` relies on.
     this.teardownSensors(id);
+    // The claim already dropped the entry; this is the rest of what
+    // `finalizeRemoval` would have done (fan the removal out, arm the autosave).
+    this.publishRemoval(id);
     try {
       await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
     } catch (err) {
-      tlog.error({ err }, "pty-host kill failed; unregistering anyway");
+      tlog.error({ err }, "pty-host kill failed; already unregistered");
     }
+    // AFTER the kill: the PTY is gone by now, so nothing can re-create the
+    // scratch dir we are deleting. Unlike `releaseSleptPty`'s tail this needs no
+    // re-check across the await — the claim REMOVED the id, so a terminal
+    // spawned in this window is a different id with a different scratch dir.
     cleanupTerminalScratch(id);
-    this.finalizeRemoval(id);
     return entry.info;
   }
 
@@ -1338,8 +1488,21 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   /** Release the PTY of a terminal `beginSleep` already flipped to sleeping: kill
    *  the now-detached PTY and scrub its scratch. The registry entry STAYS (as
    *  sleeping). A kill failure is logged, not thrown — the record is sleeping
-   *  regardless, and boot reconcile reaps any survivor (adopt-or-reap). */
+   *  regardless, and boot reconcile reaps any survivor (adopt-or-reap).
+   *
+   *  A second RELEASE is fenced upstream: `beginSleep` is that claim (it flips the
+   *  arm and answers `false` to a loser), and `sleepTerminal` cannot reach here
+   *  without winning it. What that claim does NOT fence is RE-ACTIVATION, because
+   *  sleep deliberately keeps the id in the registry: a `wake(id)` landing while
+   *  this kill is in flight re-registers the SAME id as a LIVE terminal on a fresh
+   *  PTY. So the tail carries the sleeping entry across the await as a VALUE and
+   *  re-checks identity — `spawnViaClient` / `unwindSpawnShadow`'s idiom — because
+   *  `cleanupTerminalScratch` is `rmSync(dirFor(id))` and takes no account of who
+   *  owns the dir today: run blind, it deletes a LIVE terminal's pasted images and
+   *  dropped files, and the agent reading a path kolu handed it gets ENOENT.
+   *  Pinned in `sleepWakeRace.test.ts`. */
   async releaseSleptPty(id: TerminalId): Promise<void> {
+    const slept = getTerminal(id);
     try {
       await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
     } catch (err) {
@@ -1349,6 +1512,16 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           { err },
           "pty-host kill failed while sleeping; record is sleeping regardless",
         );
+    }
+    if (getTerminal(id) !== slept) {
+      // The id was re-activated (or discarded and re-created) under us. The dir
+      // belongs to whoever holds the slot now — leave it alone.
+      log
+        .child({ terminal: id })
+        .info(
+          "slept terminal was re-activated mid-release; keeping its scratch",
+        );
+      return;
     }
     cleanupTerminalScratch(id);
   }
@@ -1431,21 +1604,63 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   async killAllTerminals(): Promise<void> {
-    const ids = listTerminals().map((info) => info.id);
-    log.info({ count: ids.length }, "killing all terminals");
-    for (const id of ids) this.teardownSensors(id);
+    // CLAIM first, for the reason `killTerminal` claims first — this method is
+    // the same shape and owes the same fence. `drainTerminals` is the registry's
+    // snapshot-and-clear, i.e. the claim-all; on the FAR side of the await every
+    // entry is still live, so an overlapping `lifecycle.kill` would claim a
+    // terminal `killAll` has already asked the pty-host to end and aim a second
+    // signal at that pid (and a terminal SPAWNED in that window would be swept
+    // away though `killAll` never covered its PTY).
+    const entries = drainTerminals();
+    log.info({ count: entries.length }, "killing all terminals");
+    // Sensors down, THEN the snapshots — all SYNCHRONOUS, so the registry and the
+    // `terminals` collection move in the IFF lockstep `finalizeRemoval` exists to
+    // keep. Splitting them across the await was a real regression: for the whole
+    // killAll round-trip the registry was empty while the collection still held
+    // every key, so a client listed rows whose per-terminal RPCs all throw.
+    // Sensors go FIRST for the reason `killTerminal` gives — nothing may
+    // re-publish after the entry is gone.
+    for (const entry of entries) this.teardownSensors(entry.info.id);
+    // `dropSnapshot` fans each removal onto padi's `terminals` collection, so the
+    // client's terminal list (its keys stream) empties with the registry.
+    for (const entry of entries) dropSnapshot(entry.info.id);
     try {
       await runEndpointEdge(ptyHostClient.surface.terminal.killAll({}));
     } catch (err) {
-      log.error({ err }, "pty-host killAll failed; draining anyway");
+      log.error({ err }, "pty-host killAll failed; already drained");
     }
-    const entries = drainTerminals();
-    for (const entry of entries) {
-      cleanupTerminalScratch(entry.info.id);
-      // `dropSnapshot` fans each removal onto padi's `terminals` collection, so
-      // the client's terminal list (its keys stream) empties as the drain runs.
-      dropSnapshot(entry.info.id);
-    }
+    // AFTER the kill, as in `killTerminal`: the PTY must not be able to re-create
+    // the scratch dir being deleted. This is the ONE step with a reason to sit on
+    // the far side. CONCURRENT and non-blocking — a shutdown with N terminals ran
+    // N sequential `rmSync`s on the daemon's event loop, each a recursive
+    // directory walk, right at the moment the daemon owes its clients an answer.
+    await Promise.all(
+      entries.map((entry) => removeTerminalScratch(entry.info.id)),
+    );
+    // No `notifyDirty()` here — and that is load-bearing for ONE of the two
+    // callers, not a blanket property of this method. Stated per caller, because
+    // a justification that is only sometimes true is worse than none:
+    //
+    //  - `ptyHost/restartLocal.ts` — RIGHT to fire nothing. That path captures
+    //    the session BEFORE the drain; a `terminals:dirty` here would arm a
+    //    fresh autosave timer that lands ~500ms later with an empty snapshot and
+    //    clobbers the capture (`session.ts`, the F1 receptacle).
+    //  - `servePadi.ts`'s `killAll` RPC (the client's "Close All") — NOT covered
+    //    by that argument, and there is a real gap behind it. It holds no freeze
+    //    lease and took no prior capture, so the emptied registry never runs the
+    //    ordinary `persist` — the very path `session/autosaveGate.ts` documents
+    //    as the one that clears the blob when "the user closed them". At the next
+    //    orderly shutdown `persistFinal` PRESERVES on an empty snapshot (a rule
+    //    whose own docstring assumes an autosave already saw the session empty),
+    //    so the pre-close session can be offered back by the restore card.
+    //
+    // PRE-EXISTING (the base commit fires nothing here either) and deliberately
+    // NOT fixed in this PR, whose scope is the two link/kill defects. It is left
+    // named rather than blessed: two reviewers reached opposite fixes — arm it
+    // unconditionally and let the freeze guard no-op it for the restart caller,
+    // versus keep it silent because that guard may not cover the timer — and
+    // settling that is a session-persistence change that deserves its own change
+    // and its own repro, not a tail-end edit on this one.
   }
 
   async attach(
@@ -1708,22 +1923,83 @@ export function seedParkedTerminal(record: SavedActiveTerminal): boolean {
   });
 }
 
+/** What re-wiring one terminal settled on. Three-valued because the caller owes
+ *  each a different answer: `unknown` is not ours to touch, `failed` is one kolu
+ *  has gone blind to (so the heal must report incomplete and retry), and only
+ *  `rewired` is done. */
+export type RewireOutcome = "rewired" | "unknown" | "failed";
+
+/** The exit code recorded for a terminal that exited while padi could not see it
+ *  — outside the 0-255 an OS can report, so it cannot be mistaken for one the
+ *  process actually returned. */
+const EXIT_CODE_UNOBSERVED = -1;
+
+/** Re-wire ONE already-held terminal's sensors after a link heal — the heal's
+ *  counterpart to {@link adoptLocalTerminal}, and deliberately not a variant of
+ *  it: no saved record is read, so nothing the user has changed since the last
+ *  autosave can be rewound. Takes the live PTY only, because the registry entry
+ *  it re-wires is already the truth. False when padi does not hold the id. */
+export function rewireLocalSurvivor(
+  liveEntry: PtyHostListEntry,
+): RewireOutcome {
+  const idParsed = decodeTerminalId(liveEntry.id);
+  if (Result.isFailure(idParsed)) return "unknown";
+  return localEndpointImpl.rewireSurvivingSensors(idParsed.success, liveEntry);
+}
+
+/** Treat a terminal padi holds as EXITED because the daemon no longer lists it
+ *  (juspay/kolu#2182). The one caller is the link heal, and it is the only place
+ *  the fact is still observable: the terminal's own exit tap died with the link,
+ *  and the inventory reconciler's exited arm is a deliberate no-op precisely
+ *  because it trusts that tap. Routes through the SAME teardown every other exit
+ *  takes rather than a second removal path. */
+export function dropVanishedTerminal(id: TerminalId): void {
+  localEndpointImpl.noteVanishedWhileBlind(id);
+}
+
 /** Adopt a surviving local PTY at boot (B3.3) that HAS a saved record — its
  *  persisted chrome rides through whole (`adoptedAuthored`/`adoptedSnapshot`), with the live daemon
  *  snapshot the authority for `cwd`/`foreground`. Exposed as a standalone entry
  *  rather than on the shared `TerminalEndpoint` interface because adoption
  *  is local-only today — P3's remote-host adoption is an additive sibling, not
- *  a retrofit of the shared interface. */
+ *  a retrofit of the shared interface.
+ *
+ *  TOLERANT of a record this build cannot decode (#2122): returns `false` instead
+ *  of throwing, leaving the caller to adopt the still-live PTY as an ORPHAN. The
+ *  record is what a build with a WIDER vocabulary wrote — the reported case was a
+ *  rollback under a session holding an `AgentKind` the running build's enum does
+ *  not carry — and the old throwing decode made that one record fatal to the whole
+ *  boot: `adoptSurvivingSession` propagated it, and the fail-closed arm in
+ *  `ensureLocalEndpoint` answered by RECYCLING the adopted daemon, killing every
+ *  live terminal on the host (including the ones that decoded perfectly). One
+ *  unreadable record may cost THAT terminal its saved chrome and nothing more —
+ *  the same `persisted-schema-stays-tolerant` rule `seedHandlelessTerminal`
+ *  already applies to the sleeping / parked seeds.
+ *
+ *  The id is validated here too rather than cast: `reconcile` joins saved records
+ *  to live PTYs on a raw string, so a saved id that is not a `TerminalId` reached
+ *  the registry as a cast — the one hole the orphan path had already closed. */
 export function adoptLocalTerminal(
   record: SavedActiveTerminal,
   liveEntry: PtyHostListEntry,
-): void {
+): boolean {
+  const idParsed = decodeTerminalId(record.id);
+  const recordParsed = decodeSavedActive(record);
+  if (Result.isFailure(idParsed) || Result.isFailure(recordParsed)) {
+    log.warn(
+      { id: record.id },
+      "saved record did not decode — adopting the surviving PTY as an orphan instead (it keeps its shell, not its saved chrome)",
+    );
+    return false;
+  }
+  const parsed = recordParsed.success;
   localEndpointImpl.adoptTerminal(
-    record.id as TerminalId,
-    adoptedAuthored(record),
-    adoptedSnapshot(record, liveEntry),
+    idParsed.success,
+    adoptedAuthored(parsed),
+    adoptedSnapshot(parsed, liveEntry),
     liveEntry,
   );
+  return true;
 }
 
 /** Adopt a surviving local PTY at boot (B3.3) that has NO saved record (F1) — a

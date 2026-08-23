@@ -13,7 +13,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { servedGroup } from "./surface.ts";
-import { parseArgs, rpcFor, wireGroup, wsUrlFor } from "./wireCall.ts";
+import { parseArgs, rpcFor, wireGroup } from "./wireCall.ts";
 
 const BASE = "http://127.0.0.1:7681";
 
@@ -65,14 +65,9 @@ describe("parseArgs", () => {
   });
 });
 
-describe("wsUrlFor", () => {
-  it("derives the /rpc/ws path the browser dials, per scheme", () => {
-    expect(wsUrlFor(BASE)).toBe("ws://127.0.0.1:7681/rpc/ws");
-    expect(wsUrlFor("https://kolu.example:443/")).toBe(
-      "wss://kolu.example/rpc/ws",
-    );
-  });
-});
+// The dial URL is `surfaceWsUrl` (`@kolu/surface-app`) now — one derivation for
+// the browser wire, this CLI, the e2e harness and the example — and it is tested
+// where it lives (`packages/surface-app/src/index.test.ts`).
 
 describe("the caller's group", () => {
   // `wireGroup` is ASSEMBLED from the three sources `surface.ts` merges, not imported

@@ -1,6 +1,6 @@
 /**
  * Process-wide subscription on `active_sessions.json` — the external-
- * change signal that can make `resolveSession` flip without a title
+ * change signal that can make `resolveGrokSession` flip without a title
  * event (Grok writes the pid map when a TUI starts, before any phase
  * event lands).
  *
@@ -120,7 +120,7 @@ export function subscribeActiveSessions(
     });
   } catch (err) {
     // The home dir itself is unwatchable — surface it; the pid-match path
-    // (resolveSession reads active_sessions.json fresh) still works.
+    // (resolveGrokSession reads active_sessions.json fresh) still works.
     onError(err);
     return;
   }

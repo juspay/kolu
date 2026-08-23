@@ -21,8 +21,9 @@ canvas.
 padi-tui status [--json]                a one-shot snapshot of every terminal
 padi-tui watch [<id>] [--json]          follow live until Ctrl+C (● = live byte activity)
 padi-tui wait <id> --until <buckets>    block until that terminal's agent reaches a state, then exit
-padi-tui create [--parent <id>] [--worktree <branch>] [--repo <path>] [-- argv]
+padi-tui create (--toplevel | --parent <id>) [--worktree <branch>] [--repo <path>] [-- argv]
                                         spawn a terminal / split tile / worktree'd agent, print its id
+                                        (placement is REQUIRED — there is no default)
 ```
 
 ## Discovery — usually no flag
@@ -58,7 +59,7 @@ verb runs unchanged against the remote:
 padi-tui status --host nix@prod              # snapshot the terminals on prod
 padi-tui watch --host nix@prod               # …follow them live
 padi-tui wait "$id" --host nix@prod --until awaiting,waiting
-padi-tui create --host nix@prod -- claude    # spawn a REAL terminal on prod
+padi-tui create --toplevel --host nix@prod -- claude   # spawn a REAL terminal on prod
 ```
 
 padi runs **as the SSH user**, so you reach the padi owned by that user (its
@@ -81,7 +82,7 @@ vocabulary matches the Dock), then exits. `--until` is a comma list;
 `--until awaiting,waiting` means "the agent's turn ended".
 
 ```sh
-id=$(padi-tui create -- claude)              # spawn a Claude Code agent
+id=$(padi-tui create --toplevel -- claude)   # spawn a Claude Code agent
 kaval-tui send "$id" "explain this repo"     # the text
 kaval-tui wait "$id" --until idle:300         # observe the TUI settle
 kaval-tui send "$id" --key Enter              # submit
@@ -111,14 +112,22 @@ padi-tui wait "$id" --until awaiting,waiting   # 2. …and finished its turn
 ## create — a terminal, a split tile, a worktree'd agent
 
 `create` spawns a terminal on the host; padi owns it and it appears on the
-canvas. stdout is just the new id (`id=$(padi-tui create)`); the rest is on
-stderr.
+canvas. stdout is just the new id (`id=$(padi-tui create --toplevel)`); the rest
+is on stderr.
+
+**Placement is required.** Pass exactly one of `--toplevel` (a tile of its own)
+or `--parent <id>` (a split inside that terminal) — neither and both are
+refusals, and there is no default. A terminal's parent edge is not decoration:
+the canvas nests a split inside its parent's tile and the Dock reads the same
+edge as *who works for whom*, so a guessed placement silently flattens the
+hierarchy. A script that used to say `padi-tui create` means
+`padi-tui create --toplevel`.
 
 ```sh
-padi-tui create                          # a shell in the current directory
+padi-tui create --toplevel               # a shell in the current directory
 padi-tui create --parent a1b2c3d4        # a SPLIT TILE of another terminal
-padi-tui create -- claude                # …and launch an agent in it
-padi-tui create --worktree feat -- claude  # a fresh git worktree + a Claude Code in one command
+padi-tui create --toplevel -- claude     # …and launch an agent in it
+padi-tui create --toplevel --worktree feat -- claude  # a fresh git worktree + a Claude Code in one command
 ```
 
 `--worktree <branch>` runs `git.worktreeCreate` on the host (off `--repo`,

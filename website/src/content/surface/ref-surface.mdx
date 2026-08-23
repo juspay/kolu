@@ -46,6 +46,59 @@ custom retry plumbing) stays outside the surface as a raw `Rpc` in the host's ow
 group. For why these four and not one, see
 [Why surfaces](/surface/why-surfaces).
 
+### Declaring array identity — `arrayKey`
+
+A `CellSpec`, a `StreamSpec` or a `CollectionSpec` may declare
+**`arrayKey?: string`** — the field that identifies an element of an array
+**inside** that member's value (for a collection, inside one entry's value).
+
+It exists because `solid-js/store`'s `reconcile` cannot be told this anywhere
+else, and a framework merging arbitrary app payloads must not guess it (see
+[how a push reconciles](#consuming-in-solidjs)). Undeclared, a frame replaces
+every array element it merges, so a frame that repeats itself still notifies every
+reader of every array. Declared, an array whose elements carry the field is diffed
+by it: a repeated frame notifies nothing, and a reorder moves the objects rather
+than rewriting them.
+
+```ts
+streams: {
+  page: { inputSchema: PageRequest, outputSchema: PageReading, arrayKey: "key" },
+}
+```
+
+**Name a field the schema types required and non-nullable.** The merge decides
+keyed-versus-positional for a whole array from its *first* element's value, so an
+optional field lets whichever row happens to be first decide for every other row
+in that frame. It cannot corrupt anything — an object survives a position only
+when its key matches the one already standing there, so a mismatch replaces
+rather than recycles — but it silently drops that frame back to the undeclared
+behaviour. The schema is where that is made unrepresentable; the merge sees
+values, not schemas.
+
+Three things it is not:
+
+- **Not a `CollectionSpec.keySchema`.** That is the dictionary key a collection's
+  entries are filed under, on the wire and in the store; `arrayKey` names a field
+  inside one value. A collection declares both, and which of its two deliveries
+  applies the `arrayKey` is decided **per call site**: the per-key path
+  (`.use({ keys })`, and any collection whose verbs omit `deltas`) merges an
+  entry's value through the same seam a cell's goes through, so it honours the
+  declaration; the batched `deltas` path replaces each named leaf whole rather
+  than merging — a `fold` consumer may be holding that very object — so there is
+  no merge there for a key to govern.
+- **Not per-array.** One field per member, because `reconcile` takes one, and it
+  reaches every array in the value at every depth. Arrays whose elements do not
+  carry the field are merged by POSITION — the declared reach of the key, not a
+  fallback around it; that too is silent on a repeated frame. Name the field that
+  identifies the arrays whose identity a consumer actually follows, and read the
+  rest by value. It is also identity **wherever it appears**, not only inside
+  arrays: a nested object that happens to carry the field is merged in place
+  while the field reads the same, and replaced whole the moment it reads
+  different.
+- **Not a use-site option.** It is declared on the spec and travels on the
+  member's descriptor, so no `.use()` call site can spell it, override it, or
+  disagree with another call site about it.
+
 ### The wire shape — one flat tag namespace
 
 The `Surface<S>` value carries four fields:
@@ -78,7 +131,7 @@ trust. Per-member precision lives in the spec-derived `SurfaceRpcsFor<S>` and it
 ### Declared errors — tagged classes, narrowed by `_tag`
 
 A procedure may declare an **error channel** — `ProcedureSpec.error`, one Effect
-Schema, normally a `Schema.Union` of `Schema.TaggedErrorClass`es. A declaring
+Schema, normally a `Schema.Union` of `Schema.TaggedError`s. A declaring
 handler *fails* with an instance of a declared class; the caller receives it
 decoded, `_tag` and data intact, and narrows on the `_tag`. A typed domain error
 can no longer flatten to an opaque transport failure at a generic hop — through a
@@ -254,14 +307,28 @@ end) and a handler nobody advertises are both boot crashes.
 
 `opts.identity` is the server's declared build triple — what the reserved
 `system/identity` member serves as its `identified` arm (the framework stamps
-`startedAt`). Omit it and the surface is served `anonymous`.
+`startedAt` and `processId`). Omit it and the surface is served `anonymous`,
+stamped with the same two.
 
 Dependency shapes, per member:
 
 - `cells: { <k>: { store, patch?, connect? } }` — `store` is a `CellStore<T>`. `connect` is a **`CellConnector<T>`**: `(cell) => Effect<void, unknown, Scope>`. It is an owned source of the runtime — a failure reaches `done`, and `close()` **interrupts** it, which releases whatever it acquired (`Effect.acquireRelease` / `addFinalizer` / `forkScoped`). There is no abort signal to thread and no disposer to return: cancellation is interruption, so an interrupted connector is end-of-life by construction and can never masquerade as a fault.
 
   Two rules for writing one. **Install synchronously** — the runtime forks the connector and Effect runs a `sync` step on the forking stack, so an `acquireRelease` whose acquire subscribes is live the instant `implementSurface` returns. And **do not fork the publish**: routing a frame through a fiber or a queue moves it behind an event published in the same tick, which is the delivery order `kill.feature` pins. Fork what must be concurrent, never the publish.
-- `collections: { <k>: { readAll, upsert, remove } }` — persistence only; the surface wraps publish.
+- `collections: { <k>: { readAll, upsert, remove, readOne?, holders? } }` — persistence only; the surface wraps publish.
+
+  `holders?: CollectionHolders<K>` — that is `(key: K) => Effect<unknown, never, Scope>` — is the **last-reader** seam. The wire already says when a reader OPENS a key — a per-key `get` IS a subscription, and `readOne` is where the server hears one arrive — but nothing said when the last reader LET GO, so a server that had to know inferred it from opens and aged the answer out. This publishes the fact it was inferring: a reader HOLDS `key` for the lifetime of the scope `holders` runs in, which is the `get` stream's own scope. Fiber interruption is the release — the scope closes when the tab navigates, the socket drops, the runtime tears down, or a one-shot reader takes its frame and leaves.
+
+  | Fact | Behaviour |
+  | --- | --- |
+  | Pull order | **hold → channel subscribe → `readOne` snapshot**, and that is contract, not accident: a `readOne` that ACTS on the hold (reading a body only a held path is read for) must find the hold already in place. Pinned by test. |
+  | Release | Acquired in the returned stream's scope — the same scope the channel subscription rides — so an interruption ANYWHERE, including between the hold and the subscribe or mid-snapshot, releases exactly once. A subscription nobody runs holds nothing: the stream is lazy. |
+  | Multiplicity | Every `get` is its own stream, own scope, own hold. Two readers, two holds; the first to leave takes only its own. The framework REPORTS lifetimes and does not count — the refcount is the consumer's. |
+  | Failure | The error channel is `never`, so failure is unspellable. A defect propagates as a defect and kills that ONE subscription loudly — fail-fast, no degrade-to-unheld path. |
+  | Scope | `get` only. `keys` and `deltas` are collection-wide streams; "who holds this key" has no meaning there, and folding a collection-wide hold in would be a second axis on the same knob. |
+  | Absent | The exact expression served today — not a wrapped equivalent. Zero overhead, zero behaviour delta, for every collection that never asked. |
+
+  Nothing crosses the wire: there is no verb, no member, no schema. A release verb a reader had to CALL would be a promise a closed tab cannot keep — the readers this is about are exactly the ones that vanish — so the transport is what is asked, because the transport is what notices.
 - `streams: { <k>: { source } }` — `source(input)` returns an Effect `Stream`; cancellation is fiber **interruption**, so there is no `AbortSignal` to thread and none to forget. Or a declarative poll form `{ read, install, isEqual }`. Supplying both is a type error.
 - `procedures: { <ns>: { <verb>: ({ input, ctx }) => Effect } }` — mutate through `ctx.cells.X.set(…)`, `ctx.collections.X.upsert(k, v)`, `ctx.events.X.publish(input, payload)` so the apply-and-publish chain stays single. A procedure that declares an `error` schema **fails** the Effect with an instance of a declared tagged class (`Effect.fail(new KavalBusy({ … }))`); an undeclared throw stays a defect, so reach for `Effect.promise` over `Effect.tryPromise` where no error is declared.
 
@@ -345,7 +412,7 @@ is depending on it) and `.peek()` (untracked).
 | `everyMsOr(ms, subscribe)`  | `(number, (tick) => () => void) → (tick: () => void) => SourceCleanup` | the interval+edge cadence fuse: `everyMs`'s interval PLUS an edge `subscribe(tick)` (any change source — a reconnect/state feed, a config-changed hook), for a poll whose value can move faster than its coarse interval. Re-reads on the tick AND the instant `subscribe` fires; both the interval and the subscription tear down on cleanup — the one home for the fuse, previously re-spelled as app-local twins |
 | `source({ read, install, label })` | `PollSourceOptions<T> → PollSource<T>` | the poll source. `label` names it in a loop-guard error — diagnostics only (there is no field that can silence the guard), and REQUIRED, because "name your poll sources" as a convention is a rule held by memory: the next fused cell is added by someone who has not read it, and the guard then fires anonymously on exactly the source nobody expected to loop. **The guard**: each read runs inside an `AsyncLocalStorage` context keyed to its source, so a change edge firing UNDER that context was caused by the read it is about to re-trigger; three consecutive self-caused ticks crash naming the source. A read that ANNOUNCES on the edge that triggers it is an unbounded cycle the reactor executes forever — it froze a production kolu (HTTP dead, `SIGTERM` ignored). Timer, I/O and other cells microtask bursts carry a different context and can never count, however fast or value-equal |
 | `assertCellConverges({ build, kick?, settleMs? })` | `→ Promise<{reads, loop}>` | the authoring-time twin, from `@kolu/surface/assert-cell-converges`: drive a poll source, `kick` the act that would start a cycle, and assert it settles. Generalized from the incident regression, because the defect lived in the JOIN between a read and the edge it was fused with — a place neither module own unit tests can see |
-| `viewerAddressOf({ peerAddress, forwardedFor, hostAddresses })` | `@kolu/surface/viewer-identity` | which machine a viewer is actually at, for an app behind a reverse proxy — the trust gate WHOLE, so the order it rests on is enforced here rather than by each consumer re-reading prose: a header on an untrusted connection is ignored entirely, and on a trusted one the LAST forwarded entry wins. Takes the header in either shape a node request carries (string or repeated-header array). Beside it: `viewerIsOnHost`, `normalizeAddress`, `isTrustedLocalPeer`. Pure and total — DNS and interface enumeration stay with the consumer |
+| `viewerAddressOf({ peerAddress, forwardedFor, hostAddresses })` | `@kolu/surface/viewer-identity` | which machine a viewer is actually at, for an app behind a reverse proxy — the trust gate WHOLE, so the order it rests on is enforced here rather than by each consumer re-reading prose: a header on an untrusted connection is ignored entirely, and on a trusted one the LAST forwarded entry wins. Takes the header as a string or as a list a caller already split — node itself folds a repeated header into one string. Beside it: `viewerIsOnHost`, `normalizeAddress`, `isTrustedLocalPeer`. Pure and total — DNS and interface enumeration stay with the consumer |
 | `scan(src, initial, step)`  | `(Source<F>, S, (state, frame) => S) → ScanNode<S>` | fold a source's occurrences into a level; each emission steps once. A step returning the prev reference (`===`) means "no change" — the level holds and nothing publishes                                        |
 | `computed(fn)`              | `(() => T) → GraphNode<T>`                           | a derived value reading OTHER graph nodes — a private intermediate several wire members can share without any becoming a wire member. Glitch-free by the engine's version-checked lazy pull; nothing to dispose  |
 | `batch(fn)`                 | `(() => T) → T`                                     | group several graph writes into ONE frame so derivations recompute once — the one knob an app reaches for to coalesce a multi-member burst of ctx writes. Every write the bridge itself makes already opens one (the engine has no implicit batch), so this only ever nests |
@@ -421,10 +488,10 @@ below).
 
 | Member | Hook | Returns |
 | --- | --- | --- |
-| cell (mutable) | `.cells.X.use({ authority, initial, applyPatch, onError, coalesceMs })` | a `UseCellResult` `{ value, pending, error, set, patch, sub }` — `value` is the accessor, `sub` is the `Subscription` (its `.updated(...)` is the change channel); mutate with `.set(v)` / `.patch(p)` |
+| cell (mutable) | `.cells.X.use({ authority, initial, applyPatch, onError, coalesceMs })` | a `UseCellResult` `{ value, pending, error, set, patch, sub }` — `value` is the accessor, `sub` is the `Subscription` (its `.updated(...)` / `.changed(...)` is the change channel); mutate with `.set(v)` / `.patch(p)` |
 | cell (read-only, `verbs: ["get"]`) | `.cells.X.use({ onError? })` | a `ReadOnlyUseCellResult` `{ value, pending, error, sub }` — NO `set` / `patch`, and the options accept ONLY `onError` (no `authority: "local"` branch — a get-only cell carries no wire mutation verb) |
-| collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)` |
-| stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` DIRECTLY — an accessor plus `.pending()`, `.error()`, `.complete()`, and `.updated(...)` |
+| collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)`. A `deltas`-declaring collection's WHOLE-collection `.use()` also carries `.fold({ init, step })` — see [the frame socket](#the-frame-socket--fold-on-a-deltas-collection) |
+| stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` DIRECTLY — an accessor plus `.pending()`, `.error()`, `.complete()`, `.updated(...)` and `.changed(...)` |
 | event | `.events.X.use(inputFn, handler, { onError?, signal? })` | nothing (no current value) |
 | procedure | `.procedures.<ns>.<verb>(input)` | a `ProcedureEffect<O, E>` — `Effect<O, E \| SurfaceCallFailure>`, the declared union in a channel the compiler tracks |
 
@@ -458,7 +525,33 @@ never needs it.
 
 A cell's `authority` is `"server"` (default — every push reconciles) or
 `"local"` (the local store wins after the first server yield). An `inputFn`
-that returns `null` pauses a stream or event. `surfaceClients(transport, map)`
+that returns `null` pauses a stream or event.
+
+**How a push reconciles: by the member's DECLARED key, else positionally — never
+by an inferred one.** An undeclared merge into a bound store passes Solid's
+`reconcile(..., { key: null })`. Solid's own default is `key: "id"`, which reads a
+field called `id` as an element's IDENTITY and RECYCLES the previous row objects
+for the records it thinks matched — so on a payload whose elements have no
+top-level `id` (every element's key reads `undefined`, and they all "match") the
+object that held one record comes to hold another. A reader that goes by position
+never notices; a `<For>` keyed by reference, a per-row memo, or a component
+holding a row across frames sees a row whose identity and whose fields disagree. A
+framework merging arbitrary app payloads has no basis for inferring identity from a
+field name, so it does not: undeclared, an element is replaced rather than
+recycled.
+
+That safety has a price, and the member is what pays it or opts out of it:
+replacement is total, so a frame that merely REPEATS what the store holds still
+replaces every element and notifies every reader of every array under it — a keyed
+`<For>` tears its DOM down on every frame, and every per-row binding re-runs for
+every row for a one-character change in one row. A cell or stream that declares
+[`arrayKey`](#declaring-array-identity--arraykey) is merged by that field instead:
+a repeated frame notifies nothing, and a reorder MOVES the objects a keyed view is
+following. A `deltas` collection's keyed dictionary is not merged here at all — its
+hook owns a store and writes the keys a frame NAMES, replacing each leaf whole so
+an entry a `fold` consumer is holding never mutates under it; a collection's
+PER-KEY delivery does come through this merge, and honours the same declaration.
+`surfaceClients(transport, map)`
 splits one combined transport into a sibling client per surface — each built over
 a **tag-scoped** dispatch, so the face mints standalone tags and the wrapper
 splices the sibling key in, landing on exactly the tags `implementSurfaces` bound.
@@ -466,7 +559,7 @@ splices the sibling key in, landing on exactly the tags `implementSurfaces` boun
 
 A `Subscription<T>` (`@kolu/surface/solid`) is a SolidJS `Accessor<T | undefined>`
 with `.pending()`, `.error()`, `.complete()` (latches once the stream ends
-normally; the value is then frozen), and `.updated(handler)`. **Where it sits
+normally; the value is then frozen), `.updated(handler)` and `.changed(handler)`. **Where it sits
 differs by member:** `streams.X.use(...)` returns the `Subscription` DIRECTLY (call
 it for the value). A **mutable** `cells.X.use(...)` returns a `UseCellResult` — `{ value,
 pending, error, set, patch, sub }` — whose `.value` is the accessor and whose `.sub` is
@@ -475,7 +568,11 @@ the `Subscription`, so the change channel is `cells.X.use(...).sub.updated(...)`
 `ReadOnlyUseCellResult` — `{ value, pending, error, sub }` with NO `set` / `patch` — and
 its `.use()` accepts only `onError` (no `authority: "local"` option, since a get-only cell
 has no wire mutation verb to reconcile against).
-Collection subscriptions depend on the selected delivery path. `.updated()` is the
+Collection subscriptions depend on the selected delivery path — and one thing
+differs beyond `error()`/`pending()`/`keys()`: under BATCHED delivery the per-key
+handle `byKey(id)` returns is assembled from the one stream's signals, so it carries
+no `.updated()`. A consumer that wants "what changed" there asks `fold` instead,
+which hands over the wire's whole frame rather than one key's before/after. `.updated()` is the
 change half of an FRP `Dynamic`:
 subscribe to `{ prev, next }` change pairs (`CellChange<T>`) under the
 **change-iff-fired** law — a first frame is a value, not a change and never
@@ -484,6 +581,17 @@ a frame that differs fires exactly once, with `prev` the last-seen value. It
 returns a `Dispose`. Optional for the same reason as `complete` — a
 hand-assembled `Subscription`-shaped value may omit it; every subscription this
 package's factories mint provides it.
+
+`.changed(handler)` is the same law without the payload — same moments, same
+`Dispose`, no `{ prev, next }`. The difference is not stylistic: `.updated()` must
+hand its handlers a SNAPSHOT, because the store adopts a frame and mutates it on
+the next write, so a retained pair would change out from under the consumer. That
+snapshot is two `structuredClone`s of a whole frame, and it is the price of the
+payload. A consumer that only wants to know THAT something arrived — a frame
+counter, a re-ask trigger, an invalidation — was paying two deep clones of a page
+per keystroke for an integer; subscribing here, the clones do not happen at all.
+Reach for `.updated()` when you read `prev`/`next`, `.changed()` when you don't.
+Neither is a raw arrival count: an equal reconnect snapshot is silent on both.
 
 <Aside type="caution" title="Wire links must carry a watchdog">
   `surfaceClient` throws if handed a bare wire dispatch — a `websocketLink` /
@@ -494,6 +602,64 @@ package's factories mint provides it.
   link factory brands what it returns, so a new wire link inherits the guard by
   construction.
 </Aside>
+
+### The frame socket — `fold` on a `deltas` collection
+
+A collection that declares the `deltas` verb is served by ONE coalesced
+snapshot-then-delta stream, and the client applies each frame to a keyed store by
+writing exactly the keys the frame names. That store is the right answer for a
+consumer whose accumulator IS a keyed map. For a consumer whose accumulator is
+something else — an index, a patched document set, a running total — the frame
+itself is the answer, so the whole-collection `.use()` of a `deltas` collection
+carries one more member:
+
+```ts
+const view = client.collections.entries.use();
+
+const index = view.fold({
+  // A full-set frame: the wire's first frame, every reconnect snapshot, and the
+  // seeding a fold registered mid-stream is given. Entries are the client store's
+  // own values, in its arrival order — the same objects `byKey` reads.
+  init: (entries) => buildIndex(entries),
+  // One coalesced delta frame — the wire's own `{ upserts, removes }`, unchanged.
+  step: (held, { upserts, removes }) => patch(held, { upserts, removes }),
+});
+
+index(); // Accessor<A | undefined>
+```
+
+`init` and `step` are the consumer's, and `A` is inferred from them — the framework
+never sees inside the accumulator.
+
+| Fact | Behaviour |
+| --- | --- |
+| Snapshot | RE-INITIALIZES every registered fold (`acc = init(entries)`), after the store applies it. First-connect and reconnect are the same event to a fold; it never classifies a frame. |
+| Registering mid-stream | Seeded SYNCHRONOUSLY from the held store, so arriving late is indistinguishable from a reconnect. Registered while `pending()`, the accessor reads `undefined` until the real snapshot lands. |
+| What `init` is handed | The CLIENT STORE's own values, in its arrival order — the same objects `byKey` reads — for every full-set frame, wire snapshot included. Never the wire's entries directly: the store's snapshot write is VALUE-diffed, so an entry a reconnect re-serialized unchanged keeps the object already held and the fresh copy is dropped. Seeding from the wire would hand a fold objects the store refused, and make what `init` receives depend on WHEN the fold registered. |
+| `undefined` | Means exactly one thing: there is no valid accumulator. That is the state before the first snapshot, and the state a throwing `init` / `step` returns the fold to until the next snapshot re-seeds it. |
+| Removes of unknown keys | Delivered VERBATIM. The server's tick coalescer resolves an upsert-then-remove within one producer tick to a bare remove, so `step` MUST be total over a remove of a key it never saw. The framework does not filter it — that would be swallowing part of the frame. |
+| Ordering | assert keys → apply to the store → notify the folds → clear `pending`, all in one tick. A `step` that reads `byKey` sees state consistent with the frame it holds. |
+| Aliasing | `step` receives the wire's decoded frame objects and `init` receives the store's held ones; the store adopts a value by REPLACEMENT and neither side ever mutates one, so a fold may retain either without cloning. A fold that keeps what `init` gave it holds the very objects `byKey` serves, not a second copy of them. |
+| Errors | The batched stream's error is collection-wide and terminal. Fold accessors keep their last value, frozen — exactly `byKey`'s behaviour — and the failure surfaces through the shared `error()` / `onError` / health enrolment. A throwing `init` / `step` is a different matter: it is contained to its own fold and reported loudly (never killing the stream, the store, or another fold), and it INVALIDATES that fold's accumulator — later deltas have no valid base to land on, so the accessor returns to `undefined` rather than reading live while frozen forever. |
+| Teardown | `fold()` must be called under a reactive owner; the registration is dropped by that owner's `onCleanup`. Called ownerless it THROWS, rather than minting an accumulator nothing can drop. |
+
+**Where `fold` is spellable is the gate.** It is typed only on the
+whole-collection `.use()` of a collection whose `verbs` declare `deltas` — the same
+verb gate `unenrolledDeltas` rides. A collection without the verb has no frames; so
+does a NARROWED `.use({ keys })`, which is served by the per-key `keys`+`get` path
+even on a `deltas` collection. In both, `fold` is a type error rather than an
+`undefined` at runtime.
+
+`useCollectionDeltas` — the hook `.use()` drives for a `deltas` collection — is
+exported from `@kolu/surface/solid` for the deliberately un-enrolled reach: a
+consumer that takes `.unenrolledDeltas` (the [#1591](https://github.com/juspay/kolu/issues/1591)
+health carve-out) hands the raw stream to it as `source` and gets the same store
+and the same `fold`, instead of hand-rolling a second one. Its result carries one
+member the bound `.use()` does not: `.stream`, the single batched stream's own
+`error()` / `pending()` / `complete()`. That reach has no `client.health()` fact to
+join its feed to, so a dead feed surfaces there or nowhere; under the enrolled
+`.use()` the health fact owns that, and a parallel accessor would be one more thing
+to remember to read.
 
 ## The dispatch seam — `@kolu/surface/link`
 
@@ -616,10 +782,14 @@ different surfaces.
 no dispatch. It is two cross-piped `PassThrough` ends you feed *into* one:
 `pair.client` to `stdioLink`, `pair.server` to `serveOverStdio`. The framing is
 the same ndjson the real stdio and socket legs carry, so a loopback round-trip is
-genuine end-to-end evidence without a subprocess. `greetLoopback(pair)` (same
-module) performs the readiness handshake below over that pair — the server half
-writes the banner, the client half reads it — and hands back the proof
-`stdioLink` needs.
+genuine end-to-end evidence without a subprocess. `greetLoopback(pair, describe?)`
+(same module) performs the readiness handshake below over that pair — the server
+half writes the banner, the client half reads it — and hands back the proof
+`stdioLink` needs; `describe` defaults to `"loopback"` and is the name the link
+puts in its transport errors. `stallLoopback(pair)` returns `{ stall, resume }`,
+which cork and uncork BOTH directions: nothing is destroyed and no FIN is sent,
+so it injects only "the peer said nothing for a while" — the shape a starved but
+living peer has from the far end.
 
 ### The stdio readiness gate — `@kolu/surface/links/readiness`
 
@@ -627,9 +797,22 @@ writes the banner, the client half reads it — and hands back the proof
 to obtain one is to read a peer's `ready` banner off the very stream you are
 about to attach to. Building an RPC protocol starts Effect RPC's pinger; a peer
 from a **previous protocol epoch** accepts the pipe and then says nothing, so the
-pinger kills the link ~10s later with a transport error indistinguishable from an
-unreachable host — which a reconnecting consumer retries forever. The gate makes
-that blind attach unrepresentable rather than merely discouraged.
+pinger kills the link ~10s later — and a consumer that reconnects on that
+retries a peer that will never speak, forever. The gate makes that blind attach
+unrepresentable rather than merely discouraged.
+
+The death itself now says which death it was, as data. **Both** tags
+`isDeadTransportError` unions carry a `death` field, under the same name so the
+union is uniformly branchable: `SurfaceStdioTransportClosed` takes a
+`StdioTransportDeath` — `"keepAliveUnanswered"`, `"streamEnded"` or
+`"disposed"` — and `SurfaceTransportRetired` a `RetiredTransportDeath` —
+`"retiredByServer"` or `"disposed"`. A consumer that puts words on a screen
+branches on the field rather than reading `reason`; a duplex leg reports an
+unanswered keep-alive as itself and explicitly declines to claim the peer
+exited. The distinction is diagnostic, not behavioural: the link is dead either
+way, and `neverReconnect` still halts on the first failure. Each field is an
+**optional key**, so a payload from a peer built before it existed still decodes
+— absent means "the producer did not classify", never a defaulted guess.
 
 | Export                                             | What it does                                                                    |
 | -------------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -667,10 +850,11 @@ Matching serve-side entry points, all taking the same `{ group, handlers }` pair
 (`@kolu/surface/unix-socket`), and `serveSurfaceSocket`
 (`@kolu/surface-app/server`) for browsers.
 
-`serveOverUnixSocket` takes one more argument the others do not:
+`serveOverUnixSocket` takes two arguments the others do not — `log`, and the
+optional [per-face `expose`](#per-face-expose-kolusurfaceexpose):
 
 ```ts
-serveOverUnixSocket({ socketPath, group, handlers, log })
+serveOverUnixSocket({ socketPath, group, handlers, log, expose? })
   : Promise<UnixSocketListener>
 ```
 
@@ -691,6 +875,119 @@ listening socket went comatose after a suspend/resume wrote not one error line
 for the rest of its life. BIND-TIME verdicts are *not* logged here — they are
 `UnixSocketListener.outcome` values, and the app-flavored advice for each
 ("pass `--pty-host-socket`") belongs to the caller.
+
+The same module exports `isPrivateOwnedDir(dir): boolean` — the three-check
+privacy predicate `serveOverUnixSocket` uses on the socket's parent (`lstat`,
+never `stat`; a directory; current-uid owned with no group/other bits). It is
+public so a consumer that did not create the directory can make the **same**
+judgement; olai's vault lock is the first. A failed `lstat` throws (ENOENT,
+EACCES) rather than collapsing to "not private". Returns `true` on platforms
+without uid semantics.
+
+### Per-face `expose` (`@kolu/surface/expose`)
+
+One surface is usually served by several faces at once, and they do not carry
+the same trust — a local CLI on a `0700` socket is not an anonymous tab someone
+left open. A face therefore takes its **own** default-deny allowlist, in the
+same `ExposeMap` shape [`@kolu/surface-mcp`](/surface/ref-surface-mcp) takes.
+
+Three steps, and the middle one is the point:
+
+```ts
+import { exposeFace } from "@kolu/surface/expose";
+
+// Bind the map to the surface it describes — where the surface is in scope, so
+// `S` is inferred and a typo'd key is a TYPE error, not a boot crash.
+// `notes` is a collection, `admin` a procedure NAMESPACE — a dotted key always
+// names a procedure, never a primitive's write verb (which has no spelling).
+const browser = exposeFace(surface, { notes: "resource" });
+const cli = exposeFace(surface, { notes: "resource", "admin.wipe": "tool" });
+
+// Hand each face its own.
+serveSurfaceApp({ group, handlers, host, port, allowedOrigins, clientDist, expose: browser });
+serveOverUnixSocket({ socketPath, group, handlers, log, expose: cli });
+```
+
+Membership is the allowlist. Omit `expose` and the face serves the whole
+surface, which is what every face did before this existed; pass one and every
+member it does not name is refused **on that face** while another face may still
+serve it.
+
+| Export | Role |
+| --- | --- |
+| `ExposeMap<S>` · `ToolExposure` | the map shape — the ONE home for it. `@kolu/surface-mcp` imports it from here rather than re-exporting or declaring its own |
+| `exposureMutates(exposure)` | does this exposure declare a MUTATING procedure? Conservative: anything that does not explicitly say `mutates: false` is mutating. One derivation rather than one per face, because it is a **safety** default — a read-only hint can let a host auto-execute a call unconfirmed, and a rule spelled twice can be relaxed in one place and noticed in neither |
+| `classifyExpose(spec, map, face?)` | **the** key grammar — what each key names, with the member spec it resolved carried on the entry. Every face reads a map through this one function, `serveSurfaceAsMcp` included, which is what makes "the same key means the same thing on every face" true rather than aspirational. `face` is the optional brand a non-framework face stamps on the refusal, at the throw — `@kolu/surface-mcp` passes its adapter name |
+| `exposeFace(surface, map)` | map + standalone surface → `FaceExposure`: the tag set one **wire** face serves, plus the `universe` of tags the surface it was built from advertises |
+| `exposeFaces(surfaces, maps)` | the sibling-bundle twin: one map per sibling, keyed the way the bundle is, over the **standalone** sibling surfaces. A fold of `exposeFace`'s step over `composeSurfaceContracts` — the same composition `implementSurfaces` binds against, so the scoped tags the gate names and the ones the runtime serves come from one walk. A sibling with no map is fully denied; a map for a sibling that does not EXIST is an `ExposeMapError` |
+| `restrictHandlers(group, handlers, exposure?)` | apply it — the filter the two faces above call for you. **Total** over an absent exposure: no policy returns the handlers unchanged (the same record, not a copy), so the "omit `expose` = ungated" rule has one implementation. Also where the reserved members are granted, and where the handler record is proved to be exactly the group's |
+| `SurfaceMemberNotExposed` · `ExposeMapError` | the per-request refusal, and every boot-time refusal this module raises — a map that names nothing on its surface, and an exposure that does not describe the group being served. `face` carries which door the consumer came through. `SurfaceMemberNotExposed` is matchable **server-side**; over the wire it arrives as an unstructured defect, so a client reads its message text |
+
+| Key | Grants |
+| --- | --- |
+| `"<ns>.<verb>"` → a `ToolExposure` (`"tool"` / `{ tool: { mutates } }`) | that one procedure — split at whichever dot the spec's own procedures resolve at, **uniquely**: a member name may itself contain a `.` (only `/` is refused), so a key two procedures both answer to is refused as ambiguous rather than granted to the first. A malformed `ToolExposure` is refused here too, so the erased call path gets the same `ExposeMapError` the typed one gets at compile time. A wire face reads only the membership — `mutates` describes how an MCP host should *present* a call, not whether this face may make it. "A dot" means the ASCII full stop: a lookalike (`a．b`, `a․b`) reads as a primitive key and refuses as one |
+| `"<member>"` → `"resource"` | the **read** verbs that primitive declares (`get` / `keys` / `deltas` — `@kolu/surface/define`'s `READ_VERBS`, which lives beside the verb vocabulary it partitions), never its writes (`set` / `patch` / `upsert` / `delete` / `test__set`) — the tab reads the cell, the socket writes it. A primitive that must be **writable** on a gated face therefore has no spelling today: `"resource"` is the read word and there is no second one yet (see the note at the end of this section) |
+
+The three reserved `system/*` members are **always** reachable on a gated face
+(per sibling, in a bundle) and are not spellable in a map: a client's heartbeat
+rides `system/live`, its stale-tab handshake `system/identity`, and its clock
+offset `system/clockNow`. Gating those off would not restrict the face, it would
+break the link. That carve-out belongs to `restrictHandlers`, which asks
+`isReservedSurfaceTag` (`@kolu/surface/define`) of each tag as it applies the
+policy — so it holds for **any** `FaceExposure`, including one a consumer
+assembled itself, rather than only the ones the two constructors built.
+
+A denied member **answers** — it does not vanish. Every tag stays bound, and the
+denied ones are replaced with a handler that raises `SurfaceMemberNotExposed`
+(`surface: "<tag>" is not exposed on this face`) as a per-request **defect**, in
+the shape its `Rpc` promised (a dying `Stream` for a streaming member). The class
+is matchable in-process; a *client* sees only the message text, because a defect
+crosses the wire unstructured. It is a
+defect and not a typed failure because there is no declared arm to fail into —
+a primitive's `Rpc` has no error channel and a procedure's defaults to
+`Schema.Never` — and because `surfaceRpcServerLayer` runs with
+`disableFatalDefects`, one member's refusal never touches a sibling
+subscription on the same connection.
+
+Every key resolves against the surface's OWN members. A spec table is a plain
+object literal, so it inherits `Object.prototype`: `toString`, `constructor`,
+`valueOf` and their siblings name nothing and refuse like any other absent key,
+while a member a surface really *names* `toString` stays exposable on every face.
+
+Everything is checked before anything is served, and nothing a map can get wrong
+is a no-op. `exposeFace` throws an `ExposeMapError` on a key that names nothing,
+a key **two** of the spec's procedures answer to, a procedure exposed as
+`"resource"`, a primitive exposed as a tool, a malformed `ToolExposure` (the
+`{ tool: … }` wrapper forgotten), and a key that resolves but grants **nothing** —
+a write-only primitive, whose `"resource"` offers only read verbs the member does
+not declare. `exposeFaces` adds one: a map keyed by a sibling the bundle does not
+have (an omitted sibling is a deliberate full denial; a *misspelled* one is a
+policy nobody reads). `restrictHandlers` throws the
+same class if the exposure's `universe` — the tags the surface it was built from
+advertises — is not *exactly* the set the group being served carries: a
+**different** surface and a merely **partial** one (a bundle exposed with a
+sibling left out, which would silently deny that sibling's `system/live`
+heartbeat) are both caught, in both directions. It also throws if the exposure
+grants a tag the surface does not serve (reachable only on a hand-assembled
+`FaceExposure`, and otherwise ignored in silence), and if the handler
+record is not exactly the group's, the same proof `implementSurface` owes when it
+builds one. None of them degrade to a quieter face, because a gate that matches
+nothing denies everything and still binds — the one failure mode that looks like
+success from outside. On `serveOverUnixSocket` this is the one thing that
+**rejects**: every *transport* verdict comes back as an `outcome` a host can
+survive, but there is no listener worth having on the far side of a gate that
+never took effect.
+
+<Aside type="note" title="A hand-built serve path gates itself">
+  `serveSurfaceApp` and `serveOverUnixSocket` take `expose` directly; every other
+  serve path calls `restrictHandlers` itself and serves the result. The rule, and
+  why, live in one place — the module header of
+  [`@kolu/surface/expose`](https://github.com/juspay/kolu/blob/master/packages/surface/src/expose.ts).
+</Aside>
+
+A member that must be **writable** on a gated face has no spelling today — a
+known gap, tracked with the feature itself
+([#2169](https://github.com/juspay/kolu/issues/2169)).
 
 ### `surfaceRpcServerLayer` — a member's defect is not the wire's
 
@@ -767,6 +1064,17 @@ returning a lazy `Stream` — running it *is* the subscription, and interrupting
 the fiber tears the wire subscription down. In both cases the argument is decoded
 **eagerly**, at the call site, exactly where zod's `.parse`-at-input used to
 throw; only the dispatch is deferred.
+
+Two shapes a *projecting face* holds live here, beside the builder that mints
+them. `SurfaceClientCallable` is the callable-leaved loosening of `SurfaceFace`
+a face holds opaquely — permissive enough that a concrete `SurfaceClientOf<S>`
+assigns without a cast, yet callable at the leaf, which `SurfaceFace`'s
+`unknown` leaves forbid. `OwnedSurfaceConnection<Client>` is that client plus
+the release the face is responsible for (`dispose`, and the transport's optional
+`onClose`) — **one** shape whether the span is one CLI command or an MCP
+subscription's lifetime, so a host can write one connection factory that feeds
+both faces. `@kolu/surface-mcp`'s `PusherConnection` / `OwnedSurfaceConnection`
+and `@kolu/surface-cli`'s `SurfaceCliConnection` are aliases of it.
 
 The per-subscription **retry fence** lives here too, not in a link: a link that
 retried inside itself could not tell one subscriber's supersession from
@@ -856,7 +1164,7 @@ example.
 ### The tagged-error vocabulary (`@kolu/surface/errors`)
 
 Every error that has to be **recognised on the far side of a wire hop** lives in
-one module all three tiers import, as a `Schema.TaggedErrorClass`. That single
+one module all three tiers import, as a `Schema.TaggedError`. That single
 home is the requirement, not tidiness: a re-serving parent decodes an error from
 upstream and re-encodes it downstream, and only a schema both ends were built
 from survives serialize → deserialize → re-serialize with its `_tag` and data
@@ -864,8 +1172,8 @@ intact.
 
 | Class | Meaning | Retryable |
 | --- | --- | --- |
-| `SurfaceTransportRetired` | the server retired this browser socket (a stale tab, close `4001`) | never — terminal by construction |
-| `SurfaceStdioTransportClosed` | a stdio / unix-socket leg closed; the owner re-dials for a **new** link | never |
+| `SurfaceTransportRetired` | the server retired this browser socket (a stale tab, close `4001`). Carries `death: RetiredTransportDeath` — see [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | never — terminal by construction |
+| `SurfaceStdioTransportClosed` | a stdio / unix-socket leg closed; the owner re-dials for a **new** link. Carries `death: StdioTransportDeath` — see [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | never |
 | `SurfaceRelayTransportLost` | a re-serve relay's **middle-hop** upstream drop the parent will heal | **yes** — the one retryable framework error |
 | `MapKeyNonCanonical` · `MapKeyUnknown` · `MapEntryFailed` | the keyed-map rejections (see [`@kolu/surface-map`](/surface/ref-surface-map)) | never |
 
@@ -881,6 +1189,15 @@ procedure on `ProcedureSpec.error` and travel on that procedure's own error
 channel. And a defect is still a defect: an undeclared throw stays an
 `Effect.die` and is not modelled here.
 
+`messageOf(error)` sits at the foot of the same module for that reason: it is
+what a face falls back to when the value it caught is **not** one of the
+declared errors — a defect, a scaffold's throw, a plain object someone failed
+with. One derivation, so every projecting face words one failure the same way,
+and it handles the two shapes `e instanceof Error ? e.message : String(e)` gets
+wrong: a tagged error whose `message` is empty (its identity is in `_tag`), and
+a failure declared as a plain object (`[object Object]`). A value JSON cannot
+render is named by its constructor and its keys, carrying the reason it refused.
+
 ### One-shot snapshot reads (`@kolu/surface/first-frame`)
 
 Every member verb hands back a lazy `Stream`, and a one-shot read is "take the
@@ -892,9 +1209,29 @@ re-derives the held-open-`get` hazard below.
 | Export | Signature | Purpose |
 | --- | --- | --- |
 | `firstFrameOrUndefined(stream)` | `(Stream<T>) → Effect<T \| undefined>` | the snapshot frame, or `undefined` when the stream ends empty (a benign "no value yet") |
-| `firstFrameOrThrow(stream, onEmptyMessage)` | `(Stream<T>, string) → Effect<T>` | the snapshot frame; FAILS on an empty stream — a missing snapshot is a dropped link, never a silent `undefined`. A recoverable failure, not a thrown defect, so a caller may `Effect.catch` it without swallowing bugs |
+| `firstFrameOrThrow(stream, onEmptyMessage)` | `(Stream<T>, string) → Effect<T>` | the snapshot frame; FAILS on an empty stream — a missing snapshot is a dropped link, never a silent `undefined`. A recoverable failure, not a thrown defect, so a caller may `Effect.catch` it without swallowing bugs. The empty open fails as a **tagged `NoSnapshotFrame`**, never a bare `Error` — see below |
 | `firstFrameOfCollectionItem(item, keys, key, onEmptyItem, deadlineMs)` | `(Stream<T>, Stream<unknown> \| null, unknown, string, number) → Effect<CollectionItemFrame<T>>` | the BOUNDED one-shot read of a collection ITEM. A `get` for a not-yet-member key is held open and yields nothing forever (#1681), so this races the item's first frame against BOTH a live `keys`-absence watch and a hard deadline — always both, never one |
 | `CollectionItemFrame<T>` | `{present:true, value:T} \| {present:false, reason:"absent"\|"deadline"}` | a typed sum, so "present with an `undefined` value" and "absent" can never collapse into one nullable hole — and so a caller can log the UNCERTAIN `deadline` case distinctly from a known absence |
+| `NoSnapshotFrame` | `Data.TaggedError("NoSnapshotFrame")<{message}>` | the empty-open failure BOTH readers raise — tagged rather than a bare `Error`, so it can be told from the stream's own error channel |
+| `isNoSnapshotFrame(error)` | `(unknown) → error is NoSnapshotFrame` | the ONE predicate to discriminate on, so no consumer re-derives it from a message or an `instanceof` across a package boundary |
+| `ITEM_READ_DEADLINE_MS` | `5_000` | the deadline a bounded item read uses when its caller has no reason of its own to pick one. Both projecting faces read it rather than spelling the number each |
+
+**The empty open is TAGGED, and that is the whole point.** Both readers can fail
+two ways — the stream opened and closed without its snapshot, or the *stream's
+own error channel* failed — and those mean opposite things: the first says the
+link went away and nothing answered, the second says the far side answered and
+the answer was no. A reader that catches the whole failure channel and re-words
+it collapses them. `@kolu/surface-cli` did exactly that, and a member's declared
+refusal came back on the exit code that means "nothing is serving here" — while
+the same refusal on the *streaming* path reported correctly, so one member gave
+two answers depending on a flag. So discriminate with `isNoSnapshotFrame` and let
+everything else through:
+
+```ts
+Effect.catch(firstFrameOrThrow(stream, "…opened and closed with no snapshot"), (error) =>
+  isNoSnapshotFrame(error) ? Effect.fail(myLinkDropped(error.message)) : Effect.fail(error),
+)
+```
 
 All three are Effects, and there is no `signal` to pass, because cancellation
 already *is* interruption. That matters because a one-shot read is almost always
@@ -991,6 +1328,57 @@ one predicate); reach for it when a budget has more than one failure class.
 `@kolu/surface-remote`'s session is the consumer:
 `{ network: { ceiling: null, resets: ["remote"] }, remote: { ceiling: 5 } }`.
 
+### The projection vocabulary (`@kolu/surface/verbs`)
+
+A surface is served to more than one kind of caller, and a *projecting face* —
+[`@kolu/surface-mcp`](/surface/ref-surface-mcp) as MCP,
+[`@kolu/surface-cli`](/surface/ref-surface-cli) as argv — needs a handful of
+things that belong to neither transport. They live here so two faces read one
+contract by one grammar, exactly as [`expose`](#per-face-expose-kolusurfaceexpose)
+does for the allowlist.
+
+| Export | Purpose |
+| --- | --- |
+| `SurfaceVerb<I, O>` | a hand-authored, call-shaped verb — `input?` (an Effect Schema), `handler(args, client, signal)` returning an `Effect`, plus `description?` / `title?` / `mutates?`. The record an app hands to EVERY face verbatim |
+| `SurfaceVerbInputSchema<I>` | the bound on a verb's `input`: `Schema.Codec<I, unknown, never, never>` — context-free, because an argument that arrived as argv or as JSON has no environment to decode in |
+| `toolName(ns, verb)` | the flat name a procedure answers to on a face with no dots to spend — `<ns>_<verb>`. Only the SEPARATOR is rewritten, so `a.b`·`c` mints `a.b_c` and stays reversible to one pair |
+| `toInputSchema(schema?)` | the Effect Schema → JSON-Schema bridge (draft 2020-12), dereferenced, opened, numeric-normalised, top-level object enforced |
+| `inputSchema(schema?)` | → `AdvertisedInput`: the document plus the `wrapped` bit (did a non-object input have to travel under one property?). A **union** on that bit — the wrapped arm carries that value's own `inner` node, handed over so a face never NAMES the wrapper property, and the unwrapped arm has no such field to test for |
+| `unwrapArgs` · `wrapValue` | the two halves of the wrapping rule a face performs; the key a scalar travels under stays private to the module |
+| `decodeTextValue(schema, text)` | land a text token in a declared type — verbatim first, then its JSON reading — answering with BOTH: `decoded` for a face that addresses by value, `encoded` for one that hands a member's own ref something to decode |
+| `admitsNoArgument(schema)` | does this member's declared input admit *no argument at all*? The question every face asks before offering a member that carries none — MCP before publishing a static `surface://` resource, the CLI before letting `get <member>` stand with no `[arg]`. One predicate, because each face turns a `false` into its own refusal and two spellings is how they come to disagree about which members are addressable |
+
+`mutates` defaults **conservatively**: absent means mutating, because a
+read-only hint can let an MCP host auto-run a verb unconfirmed. Mark a genuinely
+read-only verb `mutates: false`. For a *procedure*, that default is
+[`exposureMutates(exposure)`](#per-face-expose-kolusurfaceexpose) — one
+derivation both faces read, because a safety default spelled once per face is
+one that can be relaxed on one face.
+
+The Schema → JSON-Schema bridge (`toInputSchema` · `inputSchema` ·
+`unwrapArgs` · `wrapValue`) has a **module of its own** behind this subpath,
+which re-exports it: it is the one piece of this vocabulary with a version seam
+(the converter's option defaults shift between effect betas, with a byte fixture
+standing over them), and a file that holds the volatility says which half moves.
+Nothing about how you import it changes — one concept, one import path.
+
+Two things that a face reads are deliberately **not** here, so nothing has to
+import the projection vocabulary to reach them:
+[`SurfaceClientCallable`](#the-face-and-its-retry-fence-kolusurfaceclient) — the
+callable-leaved client shape a face holds opaquely, and the connection it owns —
+is `@kolu/surface/client`'s, beside the `buildSurfaceFace` that mints one; and
+[`messageOf`](#the-tagged-error-vocabulary-kolusurfaceerrors) is
+`@kolu/surface/errors`'s, because "what did this failure say" is failure
+vocabulary and words a stdin read and a run-edge defect that have nothing to do
+with verbs. There is no re-export of either: one concept, one import path.
+
+<Aside type="note" title="The MCP adapter still exports the old names">
+  `SurfaceVerb` and `SurfaceVerbInputSchema` shipped from `@kolu/surface-mcp` as
+  `BespokeTool` and `ToolInputSchema`, and are re-exported there under those
+  names so existing consumers keep compiling. New code imports them from
+  `@kolu/surface/verbs`.
+</Aside>
+
 ## Liveness and health
 
 Liveness is on by construction. The reserved `system/live` member
@@ -1000,7 +1388,19 @@ own probe. `probeSurfaceLive(client)` is the one-liner that calls it (it walks
 `.surface.system.live` structurally); the socket and ssh seams default their
 watchdog to it. `probeSurfaceIdentity(client)` is its `system/identity` twin,
 returning the `identified | anonymous` union `implementSurface`'s `identity`
-option declares.
+option declares — both arms carrying `startedAt` (the UPTIME axis) and
+`processId` (the RESTART axis).
+
+`surfaceProcessId()` (`@kolu/surface/identity`) is that `processId`: a nonce minted
+once per process, on first read. It is what the reserved member answers with, what
+a surface app's client echoes back as `?pid=` on every reconnect, and what
+`gateStaleSocket` compares a reconnecting claim against — one value, read from one
+place, so a stale-tab handshake cannot come to compare two unrelated strings.
+There is deliberately no way to inject one: a process has one identity, and
+anything that wants to stamp a log line with it reads it from here. It is
+DISTINCT from `startedAt` on purpose — two processes can start in the same
+millisecond, and a timestamp read as an identity is a near-miss waiting to
+happen.
 
 `monotonicNow()` (`@kolu/surface/time`) is the shared monotonic-clock primitive
 both the heartbeat's suspension check and a consumer's own dead-man ceiling clock
@@ -1013,6 +1413,40 @@ downstream watchdog reaches into the other for the clock; both import it from he
 conjunction of transport-live and every readiness predicate; a subscription
 error stays in `subs` and is never folded into `live`. This is what lets the
 UI stay honest — see [Reactive honesty](/surface/reactive-honesty).
+
+### The readout
+
+The fact answers *what is true*; the **readout** (`@kolu/surface/solid`) is the
+one verdict the framework does own, because it is the one an app kept getting
+wrong: what a connection indicator may say. It folds the transport's four states
+together with the fact into five, and `connectSurface` / `connectSurfaces` hand it
+back in place of a transport-only `status`.
+
+| Export | Type | Meaning |
+| --- | --- | --- |
+| `SurfaceReadoutStatus` | `"connecting" \| "live" \| "degraded" \| "reconnecting" \| "retired"` | the five states. Type your wording table `Record<SurfaceReadoutStatus, …>` and a new state is a type error in your file, not a silent default |
+| `SurfaceReadout` | `TransportReadout \| DegradedReadout` | `{ status, needsReload }`, plus `stopped` on the degraded arm |
+| `surfaceReadout(status, health)` | `→ SurfaceReadout` | the pure fold — unit-test your look table against every state without a wire |
+| `createSurfaceReadout(status, health)` | `→ { readout, dispose }` | the memoized accessor over the two reactive facts, in a root of its own (the connect seams call this and fold `dispose` into theirs) |
+
+- **`live` is the conjunction.** The socket is live, the fact agrees, and nothing
+  enrolled is erroring. A socket that is open and answering under a dead
+  subscription reads `degraded`, not `live` — that gap is where the
+  green-light-over-an-empty-collection bug lives.
+- **`degraded` names what stopped**: `stopped` carries the erroring subscriptions'
+  own names (`documents.keys`, `terminals[3]`, and across siblings
+  `surfaceApp/buildInfo`), non-empty by type, so an indicator can always say what
+  is missing rather than that "something" is.
+- **Pending does not degrade.** A subscription waiting for its first frame is what
+  every page load looks like. This is a universal default and not app policy —
+  unlike `gateStatus`, the *gate's* verdict, where a pending first frame
+  legitimately blocks the body.
+- **`needsReload`** is true for `retired` and nothing else: the one state a reload,
+  and only a reload, recovers. Read it rather than keeping a list of which states
+  are terminal — a list read `down` as transient once, and drew "reconnecting…"
+  over a page that never would.
+- **The app owns the look.** Which words, which colours, whether the names go in a
+  tooltip or a strip. The framework owns which state is true.
 
 ## Recognizing a transport-loss end (for reconnect retry)
 
@@ -1058,9 +1492,53 @@ Two consequences a member author owns:
 - `1009` must stay OUT of any `isTerminalClose` set — it is recoverable, and
   halting the retry schedule on it would strand the tab with no subscriptions.
 
-The close-on-exceed semantics carry a `BETA-ASSUMPTION(beta.103)` marker
+The close-on-exceed semantics carry a `BETA-ASSUMPTION(rc.110)` marker
 (governed by `packages/tests/governance/betaAssumptions.ts`), so an Effect bump
 must re-measure them before it can land.
+
+### Fitting under it (`@kolu/surface/frame-chunking`)
+
+The sender's half of the cap. An app that ever puts bytes on the wire — a drop,
+a paste, an attachment — has to cut them so no single frame scales with the
+file, and that arithmetic has more terms than it looks like it has. It lives
+here, once, so nobody derives it a third time: **give it an encoded payload and
+the budget derived from the cap, get legal frames.** (Encoding is the caller's —
+`chunkBase64` splits a base64 *string*, and `base64CharsFor` sizes one before
+you build it.)
+
+| Export | Type | Meaning |
+| --- | --- | --- |
+| `FRAME_CHUNK_BYTES` | `number` | 3 MiB. Raw bytes one frame carries. A multiple of 3, so the base64 division is exact. |
+| `FRAME_CHUNK_BASE64_CHARS` | `number` | 4 MiB. `FRAME_CHUNK_BYTES` after the 4/3 expansion — a multiple of 4 by construction. |
+| `FRAME_ENVELOPE_BYTES` | `number` | 64 KiB. What everything on the frame other than the payload is budgeted at. |
+| `FRAME_PAYLOAD_BUDGET` | `number` | `RPC_MAX_FRAME_BYTES − FRAME_ENVELOPE_BYTES`. |
+| `chunkBase64(data, chunkChars?)` | `(string, number?) → readonly [string, ...string[]]` | Splits a base64 string on 4-character boundaries. Always at least one piece, so an empty input still performs exactly one write. Throws if `chunkChars` is not a multiple of 4. |
+| `base64CharsFor(rawBytes)` | `(number) → number` | `ceil(R / 3) * 4`. |
+| `base64DecodedLength(data)` | `(string) → number` | Decoded size without decoding — for a size gate that must not materialize a buffer. |
+| `frameBytesFor(base64Chars)` | `(number) → number` | What a frame carrying that payload costs, envelope included. Hand it to `exceedsFrameLimit` for a pre-send refusal. |
+
+Three things the derivation turns on, each of which a re-derivation gets wrong:
+
+- **Two expansions, and only two.** base64 is 4/3; the JSON envelope is a bounded
+  constant. There is no third — base64's alphabet contains no character JSON
+  escapes, so the payload does not grow again inside the JSON string.
+- **The chunk is a multiple of 3.** That is what puts every boundary on a
+  4-character group, and a group is the unit base64 decodes independently. Split
+  off it and the pieces reassemble as a string while decoding to garbage. (A
+  round 4 MiB is *not* divisible by 3; 3 MiB is, and 3 MiB of bytes is exactly
+  4 MiB of base64.)
+- **The chunk does not fill the budget.** ~3.9x headroom, so the number survives
+  a bump that adds envelope fields — while a 50 MB file still costs 17 round
+  trips.
+
+The margin is a test (`frameChunking.test.ts`), not a paragraph: it measures the
+chunk against the imported cap, so a bump that moved the cap fails there rather
+than rotting a comment.
+
+**What stays with the app.** This module pays the arithmetic, not the gate. A
+size policy cap, an extension allowlist, the wording of a refusal, where the
+bytes land on disk — those are the consuming app's (kolu's own live in
+`@kolu/padi/upload`). Chunking is wire physics; what you'll accept is not.
 
 ## Cross-cutting invariants
 

@@ -8,13 +8,15 @@ export interface TlsOptions {
 
 /**
  * Resolve TLS options from CLI flags.
- * Returns null when TLS is not requested.
+ * Returns `undefined` when TLS is not requested — the same spelling for "absent"
+ * that `serveSurfaceApp`'s optional `tls` takes, so the boot hands the result
+ * straight through instead of translating one flavour of nothing into another.
  */
 export async function resolveTlsOptions(flags: {
   tls: boolean;
   tlsCert?: string;
   tlsKey?: string;
-}): Promise<TlsOptions | null> {
+}): Promise<TlsOptions | undefined> {
   if ((flags.tlsCert && !flags.tlsKey) || (!flags.tlsCert && flags.tlsKey)) {
     log.fatal("--tls-cert and --tls-key must be used together");
     process.exit(1);
@@ -57,5 +59,5 @@ export async function resolveTlsOptions(flags: {
     return { key: pems.private, cert: pems.cert };
   }
 
-  return null;
+  return undefined;
 }

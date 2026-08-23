@@ -94,7 +94,24 @@ export type TerminalProcess =
 
 const terminals = new Map<TerminalId, TerminalProcess>();
 
-/** Insert/replace a terminal entry in the registry. */
+/** Insert/replace a terminal entry in the registry.
+ *
+ *  **CALL ORDER IS THE CLIENT'S ROW ORDER.** The registry is a `Map`, so a new
+ *  id appends to the tail and clients render that sequence directly
+ *  ({@link listTerminals}). Since juspay/kolu#2141 the dock takes it verbatim —
+ *  no re-sorting — so this is what decides where every dock row sits and which
+ *  terminal each `Cmd+1..9` reaches.
+ *
+ *  So any path that REBUILDS the registry from a saved session must walk that
+ *  session in saved order: `adoptSurvivingSession` dispatches `reconcile`'s
+ *  ordered plan, `restoreSession` walks its saved list. Rebuilding in two
+ *  passes — every active, then every sleeper — is what used to move each ☾ tile
+ *  to the tail of its repo section on a padi restart, silently renumbering the
+ *  shortcuts. Re-registering an EXISTING id keeps its slot (`Map.set` on a
+ *  present key does not move it), which is why sleep/wake is position-safe.
+ *
+ *  Stated here, on the write side, because this is the function a new rebuild
+ *  path calls; the read side only reports the consequence. */
 export function registerTerminal(id: TerminalId, entry: TerminalProcess): void {
   terminals.set(id, entry);
 }
@@ -102,6 +119,34 @@ export function registerTerminal(id: TerminalId, entry: TerminalProcess): void {
 /** Remove a terminal by id. Returns true if the entry was present. */
 export function unregisterTerminal(id: TerminalId): boolean {
   return terminals.delete(id);
+}
+
+/** CLAIM a terminal for termination — remove it from the registry and hand the
+ *  removed ACTIVE entry back, in ONE step. Returns `undefined` when `id` is not
+ *  an active terminal, which now covers three cases with one answer: absent,
+ *  DORMANT (sleeping/parked — those exit via `discardSleeping`/`discardParked`,
+ *  never through a dead-PTY kill), and ALREADY CLAIMED by an overlapping caller.
+ *
+ *  This is THE door to termination, and it is remove-and-return precisely so a
+ *  terminator has no separate read to go stale. `killTerminal` used to read the
+ *  entry, log, tear the sensors down, and only then remove it — so two kills
+ *  overlapping inside the pty-host round-trip both passed the read, both logged
+ *  `killing`, both tore down, and both aimed a signal at a pid the other was
+ *  already retiring (production, 124ms apart, on one split close). With the
+ *  claim AS the guard the loser has nothing to observe and returns before it can
+ *  act on anything; a future teardown that yields cannot re-express the defect,
+ *  because there is no read to go stale between the guard and the mutation.
+ *
+ *  The single-entry dual of {@link drainTerminals}'s snapshot-and-clear. Removal
+ *  is confined to this file's three doors (this, `unregisterTerminal`,
+ *  `drainTerminals`), pinned by `terminalEndpoint/registryMutationConfinement.test.ts`. */
+export function claimActiveTerminal(
+  id: TerminalId,
+): ActiveTerminalProcess | undefined {
+  const entry = terminals.get(id);
+  if (!entry?.handle) return undefined;
+  terminals.delete(id);
+  return entry;
 }
 
 /** Snapshot + clear. Used by `killAllTerminals` where the caller needs

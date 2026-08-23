@@ -60,6 +60,7 @@ let
   rawMembers = {
     "@kolu/surface" = ../packages/surface;
     "@kolu/surface-map" = ../packages/surface-map;
+    "@kolu/surface-cli" = ../packages/surface-cli;
     "@kolu/surface-mcp" = ../packages/surface-mcp;
     "@kolu/surface-remote" = ../packages/surface-remote;
     "@kolu/surface-app" = ../packages/surface-app;
@@ -86,6 +87,7 @@ let
     "kolu-xyne" = ../packages/integrations/xyne;
     "nonempty" = ../packages/nonempty;
     "kolu-shared" = ../packages/shared;
+    "terminal-snapshot" = ../packages/terminal-snapshot;
     "terminal-themes" = ../packages/terminal-themes;
     "@kolu/theme" = ../packages/theme;
     "memorable-names" = ../packages/memorable-names;
@@ -105,7 +107,6 @@ let
     # this store path to `mkDaemonIdentity` as a `pinnedSources` entry
     # (juspay/kolu#2094) rather than dropping it.
     "osfacts-client" = sources.osfacts + "/client-ts";
-    "vazhi" = ../packages/vazhi;
     "kolu-server" = ../packages/server;
     "kolu-client" = ../packages/client;
     "kolu-transcript-core" = ../packages/transcript-core;
@@ -113,6 +114,7 @@ let
     "@kolu/artifact-sdk" = ../packages/artifact-sdk;
     "@kolu/serve-dir" = ../packages/serve-dir;
     "@kolu/heap-diag" = ../packages/heap-diag;
+    "@kolu/detect" = ../packages/detect;
     "@kolu/html-escape" = ../packages/html-escape;
     "@kolu/shell-quote" = ../packages/shell-quote;
     "@kolu/url-shape" = ../packages/url-shape;
@@ -176,7 +178,7 @@ let
     pnpm = pkgs.pnpm-build;
     # Platform-independent. `just ci::pnpm-hash-fresh` forces this fetcher to
     # re-execute so a changed lockfile cannot ride a stale binary-cache result.
-    hash = "sha256-gItoZPYOspuMCJltEAN4j3DhjCS+loDTe6QL+YTX7fM=";
+    hash = "sha256-0Ytw8DAOufMlkLeqQTaUxXaL+cZ/puFhOWW9HB0w0bQ=";
     fetcherVersion = 3;
   };
 in

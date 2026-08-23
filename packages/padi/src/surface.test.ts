@@ -90,7 +90,7 @@ describe("padiSurface contract", () => {
     // reading a restore's active tile off the `session` cell's next snapshot. That
     // was a race the client cannot win: the snapshot publishes behind a
     // synchronous disk write while the restored terminals publish as they spawn.
-    expect(PADI_SURFACE_VERSION).toBe("5.1");
+    expect(PADI_SURFACE_VERSION).toBe("5.4");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -108,9 +108,14 @@ describe("padiSurface contract", () => {
     // binder that expects a future additive minor refuses a padi still reporting
     // 5.1, so convergence drains-and-respawns it BEFORE the new client touches a
     // member padi does not serve.
-    expect(isContractVersionCompatible("5.1", "5.2")).toBe(false);
-    // A newer additive minor still serves a 5.1 consumer.
-    expect(isContractVersionCompatible("5.2", "5.1")).toBe(true);
+    expect(isContractVersionCompatible("5.2", "5.3")).toBe(false);
+    // A newer additive minor still serves a 5.2 consumer.
+    expect(isContractVersionCompatible("5.3", "5.2")).toBe(true);
+    // 5.4 is `screen.image`: a binder expecting it refuses a 5.3 padi that
+    // cannot serve it, which is the whole point of the bump — a gate-only
+    // CLI/MCP face would otherwise adopt that padi and die on the member.
+    expect(isContractVersionCompatible("5.3", "5.4")).toBe(false);
+    expect(isContractVersionCompatible("5.4", "5.3")).toBe(true);
     // A major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("6.0", "5.0")).toBe(false);
     expect(isContractVersionCompatible("5.0", "6.0")).toBe(false);
@@ -135,12 +140,15 @@ describe("padiSurface contract", () => {
     ]);
     expect(Object.keys(spec.streams ?? {})).toEqual([
       "activity",
+      "watchStates",
+      "watchPulse",
       "subscribeRepoChange",
       "subscribeFileChange",
       "terminalAttach",
     ]);
     expect(Object.keys(spec.events ?? {})).toEqual(["terminalExit"]);
     expect(Object.keys(spec.procedures ?? {})).toEqual([
+      "watch",
       "lifecycle",
       "chrome",
       "screen",
@@ -150,6 +158,7 @@ describe("padiSurface contract", () => {
       "preview",
       "transcript",
       "session",
+      "backups",
     ]);
   });
 
@@ -179,6 +188,7 @@ describe("padiSurface contract", () => {
       "state",
       "text",
       "history",
+      "image",
     ]);
     expect(Object.keys(procs.fs ?? {})).toEqual([
       "listAll",
@@ -269,16 +279,20 @@ describe("padiSurface contract", () => {
     expect(annotated).toEqual(members);
   });
 
-  it("value = hold-open vs delta = fail-through — only activity + terminalAttach are delta", () => {
+  it("value = hold-open vs delta = fail-through — the three streams whose first frame is a fresh snapshot", () => {
     const delta = Object.entries(PADI_FORWARDING_POLICY)
       .filter(([, policy]) => policy === "delta")
       .map(([key]) => key)
       .sort();
-    expect(delta).toEqual(["activity", "terminalAttach"]);
-    // The delta members are exactly the two the note names; everything else
+    expect(delta).toEqual(["activity", "terminalAttach", "watchStates"]);
+    // The delta members are exactly the three the note names; everything else
     // (cells, collections, pulses, procedures, the terminalExit event) is value.
     expect(PADI_FORWARDING_POLICY.activity).toBe("delta");
     expect(PADI_FORWARDING_POLICY.terminalAttach).toBe("delta");
+    // A supervision batch is an EVENT list, not a level: replaying one on a
+    // rebind would re-report a nag the consumer already acted on, and its
+    // subscribe-time snapshot is only ever a fresh stream's first frame.
+    expect(PADI_FORWARDING_POLICY.watchStates).toBe("delta");
     expect(PADI_FORWARDING_POLICY.subscribeRepoChange).toBe("value");
     expect(PADI_FORWARDING_POLICY.subscribeFileChange).toBe("value");
     expect(PADI_FORWARDING_POLICY.terminals).toBe("value");
@@ -513,10 +527,19 @@ describe("the declared error vocabulary (PLAN D4)", () => {
         "lifecycle.wake",
         "preview.read",
         "screen.history",
+        "screen.image",
         "screen.state",
         "screen.text",
         "scratch.write",
         "transcript.exportHtml",
+        // `watch.drain` and `watch.close` both refuse an unopened name, with the
+        // SAME declared error: `open` creates what it names, so it is the only
+        // watch verb with no refusal to declare. "No such subscription" is
+        // declared rather than answered with an empty batch (or a `false`)
+        // precisely so a supervisor cannot read a typo'd name as a quiet
+        // workspace, or as "there was nothing to close".
+        "watch.close",
+        "watch.drain",
       ].sort(),
     );
   });
@@ -539,7 +562,7 @@ describe("the declared error vocabulary (PLAN D4)", () => {
       new KavalContractSkew({ daemonVersion: "6.0", requiredVersion: "7.0" }),
     ];
     for (const original of cases) {
-      // The class IS the schema — a `Schema.TaggedErrorClass` is both. The cast
+      // The class IS the schema — a `Schema.TaggedError` is both. The cast
       // erases only the per-class type parameter, which this loop deliberately
       // does not name (the point is that EVERY member behaves the same way).
       const schema = original.constructor as unknown as Schema.Codec<

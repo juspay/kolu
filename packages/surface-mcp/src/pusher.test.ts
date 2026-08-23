@@ -59,6 +59,14 @@ function makeSource() {
   };
 }
 
+/** The plain live connection most cases dial: one client, a disposer nobody
+ *  looks at, no close announcement. A case that asserts on DISPOSAL or on the
+ *  announcement builds its own connection instead. */
+const liveConn = (): { client: { id: number }; dispose: () => void } => ({
+  client: { id: 1 },
+  dispose: () => {},
+});
+
 const URI = "surface://cells/count";
 
 let unhandled: unknown[] = [];
@@ -83,7 +91,7 @@ describe("ResourcePusher", () => {
     const notified: string[] = [];
     const pusher = new ResourcePusher<{ id: number }>({
       notify: (uri) => notified.push(uri),
-      client: () => ({ id: 1 }),
+      client: liveConn,
       stream: () => source.stream,
       debounceMs: 50,
     });
@@ -107,7 +115,7 @@ describe("ResourcePusher", () => {
     const source = makeSource();
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
-      client: () => ({ id: 1 }),
+      client: liveConn,
       stream: () => source.stream,
     });
 
@@ -119,20 +127,24 @@ describe("ResourcePusher", () => {
     expect(pusher.attached).toBe(false);
   });
 
-  it("disposes the client on detach (bridge case)", async () => {
+  it("disposes the connection on detach (bridge case)", async () => {
     const source = makeSource();
-    const disposed: Array<{ id: number }> = [];
+    const disposed: number[] = [];
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
-      client: () => ({ id: 7 }),
+      client: () => ({
+        client: { id: 7 },
+        dispose: () => {
+          disposed.push(7);
+        },
+      }),
       stream: () => source.stream,
-      dispose: (c) => disposed.push(c),
     });
 
     pusher.subscribe(URI);
     await vi.advanceTimersByTimeAsync(0);
     pusher.unsubscribe(URI);
-    expect(disposed).toEqual([{ id: 7 }]);
+    expect(disposed).toEqual([7]);
   });
 
   it("an interrupted subscription reports nothing and reschedules nothing", async () => {
@@ -143,7 +155,7 @@ describe("ResourcePusher", () => {
     const errors: unknown[] = [];
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
-      client: () => ({ id: 1 }),
+      client: liveConn,
       // A subscription that would run forever if nobody interrupted it.
       stream: () => Stream.never,
       onError: (e) => errors.push(e),
@@ -173,7 +185,7 @@ describe("ResourcePusher", () => {
     let released = 0;
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
-      client: () => ({ id: 1 }),
+      client: liveConn,
       stream: () =>
         Stream.ensuring(
           Stream.never,
@@ -200,7 +212,7 @@ describe("ResourcePusher", () => {
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
       // Returns null until `live` flips — subscribe-before-serve.
-      client: () => (live ? { id: 1 } : null),
+      client: () => (live ? liveConn() : null),
       stream: () => source.stream,
       retryMs: 100,
     });
@@ -242,7 +254,7 @@ describe("ResourcePusher", () => {
       client: () => {
         dials += 1;
         if (dials === 1) return Promise.reject(new Error("ECONNREFUSED"));
-        return { id: 1 };
+        return liveConn();
       },
       stream: () => source.stream,
       onError: (e) => errors.push(e),
@@ -270,7 +282,7 @@ describe("ResourcePusher", () => {
     const errors: unknown[] = [];
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
-      client: () => ({ id: 1 }),
+      client: liveConn,
       // The client is live (attach succeeds), but the subscription fails the
       // first time — a pre-first-frame error the attach retry does NOT cover.
       stream: () => {
@@ -296,19 +308,19 @@ describe("ResourcePusher", () => {
     pusher.stop();
   });
 
-  it("unsubscribing mid-dial disposes the freshly-opened client (F6)", async () => {
+  it("unsubscribing mid-dial disposes the freshly-opened connection (F6)", async () => {
     const source = makeSource();
-    const disposed: Array<{ id: number }> = [];
-    let resolveDial: ((c: { id: number }) => void) | null = null;
+    const disposed: number[] = [];
+    type Conn = { client: { id: number }; dispose: () => void };
+    let resolveDial: ((c: Conn) => void) | null = null;
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
       // A slow dial we resolve manually — lets us unsubscribe WHILE dialing.
       client: () =>
-        new Promise<{ id: number }>((resolve) => {
+        new Promise<Conn>((resolve) => {
           resolveDial = resolve;
         }),
       stream: () => source.stream,
-      dispose: (c) => disposed.push(c),
     });
 
     pusher.subscribe(URI);
@@ -319,11 +331,118 @@ describe("ResourcePusher", () => {
     pusher.unsubscribe(URI);
 
     // The dial now resolves — but there's no subscriber, so the pusher must
-    // dispose the freshly-opened client rather than store an idle attachment.
-    const resolve = resolveDial as ((c: { id: number }) => void) | null;
-    resolve?.({ id: 99 });
+    // dispose the freshly-opened connection rather than store an idle
+    // attachment.
+    const resolve = resolveDial as ((c: Conn) => void) | null;
+    resolve?.({
+      client: { id: 99 },
+      dispose: () => {
+        disposed.push(99);
+      },
+    });
     await vi.advanceTimersByTimeAsync(0);
     expect(pusher.attached).toBe(false);
-    expect(disposed).toEqual([{ id: 99 }]);
+    expect(disposed).toEqual([99]);
+  });
+
+  it("two concurrent dials sharing ONE client object both get disposed (no leak)", async () => {
+    // The leak the WeakMap-of-disposers shape had. A factory that hands back
+    // the SAME client object on every dial (an in-process face does, and
+    // `server.test.ts`'s own `concurrencySurface` does) filed both dials'
+    // disposers under one key, so the second `set` overwrote the first and the
+    // loser's socket was never closed. Keying on the whole CONNECTION — one
+    // object per dial — is what makes both disposals reachable.
+    const source = makeSource();
+    const sharedClient = { id: 1 };
+    const disposed: number[] = [];
+    /** Releases each in-flight dial, in dial order. */
+    const gates: Array<() => void> = [];
+    let dials = 0;
+    const pusher = new ResourcePusher<{ id: number }>({
+      notify: () => {},
+      client: () => {
+        const n = (dials += 1);
+        return new Promise((resolve) => {
+          gates.push(() =>
+            resolve({
+              client: sharedClient,
+              dispose: () => {
+                disposed.push(n);
+              },
+            }),
+          );
+        });
+      },
+      stream: () => source.stream,
+    });
+
+    // Two subscribes while nothing is attached ⇒ two dials in flight.
+    pusher.subscribe(URI);
+    pusher.subscribe("surface://cells/other");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(dials).toBe(2);
+
+    // Both land. The first wins the attachment; the second has no owner and
+    // must dispose ITS OWN connection, not the winner's.
+    gates[0]?.();
+    await vi.advanceTimersByTimeAsync(0);
+    gates[1]?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pusher.attached).toBe(true);
+    expect(disposed).toEqual([2]); // the loser closed its socket
+
+    // Tearing the winner down closes the other one — nothing is left open.
+    pusher.stop();
+    expect(disposed).toEqual([2, 1]);
+  });
+
+  it("an ANNOUNCED close drops the attachment eagerly and re-attaches (#2082)", async () => {
+    // The pusher's half of the eager drop. Before this it learned a dead
+    // transport only by its STREAM failing, which meant a restart cost a
+    // subscriber a failed stream plus a full retry window of stale state,
+    // while it cost a reading agent nothing. One volatility, one answer.
+    const source = makeSource();
+    let dials = 0;
+    const disposed: number[] = [];
+    const closers: Array<() => void> = [];
+    const pusher = new ResourcePusher<{ id: number }>({
+      notify: () => {},
+      client: () => {
+        const n = (dials += 1);
+        return {
+          client: { id: n },
+          dispose: () => {
+            disposed.push(n);
+          },
+          onClose: (cb: () => void) => closers.push(cb),
+        };
+      },
+      stream: () => source.stream,
+      retryMs: 100,
+    });
+
+    pusher.subscribe(URI);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pusher.attached).toBe(true);
+    expect(closers).toHaveLength(1);
+
+    // The served daemon exits while the subscription is idle.
+    closers[0]?.();
+    expect(pusher.attached).toBe(false);
+    expect(disposed).toEqual([1]); // dropped on the announcement, not a failure
+
+    // The bounded retry re-attaches to the fresh generation.
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pusher.attached).toBe(true);
+    expect(dials).toBe(2);
+
+    // A LATE duplicate announcement from the dead predecessor is inert — it
+    // must not tear down the successor a retry already attached.
+    closers[0]?.();
+    expect(pusher.attached).toBe(true);
+    expect(disposed).toEqual([1]);
+
+    pusher.stop();
   });
 });

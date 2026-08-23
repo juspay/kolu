@@ -23,7 +23,7 @@ You can still pin manually:
 - iOS: Share → Add to Home Screen.
 
 For the one-click prompt plus app badge, open the `https://...ts.net` URL from
-[Remote Access](/remote-access).
+[From another device](/remote-access).
 
 ## I am not getting desktop notifications
 
@@ -35,7 +35,7 @@ instead and no banner fires. The multi-agent notification flow is part of
 Past that, check these in order:
 
 1. **Secure context.** Notifications ride a service worker, which needs HTTPS or
-   `localhost`; [Remote Access](/remote-access) gives kolu a private HTTPS URL.
+   `localhost`; [From another device](/remote-access) gives kolu a private HTTPS URL.
 2. **Browser permission.** Re-enable notifications from the address-bar lock icon
    if the browser prompt was dismissed.
 3. **OS permission.** On macOS, the browser and the pinned app can have separate
@@ -57,7 +57,7 @@ above is the likely explanation.
 Yes. Locally over `localhost`, everything works, including one-click install,
 because loopback is a secure-context exemption. Tailscale matters when you want
 to reach kolu from another device and keep the install/badge/notification path;
-see [Remote Access](/remote-access).
+see [From another device](/remote-access).
 
 ## Which agents does kolu support?
 
@@ -96,7 +96,7 @@ Three checks, in order:
 Run the same command again:
 
 ```sh
-nix --refresh run github:juspay/kolu
+nix --refresh run github:juspay/kolu -- web
 ```
 
 The `--refresh` flag busts Nix's flake cache so you pull the latest commit; it is
@@ -122,6 +122,29 @@ Open the palette with <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> and run **Tutorial**
 (alias: "Welcome"). It reopens the welcome overlay while you are working. The
 same palette opens the first terminal flow in
 [First Five Minutes](/first-five-minutes).
+
+## kolu lost my session (or my settings look wrong)
+
+kolu keeps a short history of its own state: at every boot — and once a day
+while running — the server's config store and each host's padi session file are
+copied into a rotated `backups/` ring beside the file (ten deep, unchanged
+files skipped). **Start fresh** on the restore card copies the session file too,
+before it discards anything, so a session thrown away on purpose comes back the
+same way one lost to a bug does. If a bad write ever eats your saved session or
+settings, or you discarded one you wanted, open
+the palette with <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> → **Debug → Restore state
+from backup**, pick the store — the server's own, or any host's padi — and pick
+a snapshot. Each row says what it holds ("14 terminals", "preferences · 3
+hosts"), so the good snapshot is easy to spot even when the newest ones carry
+the corruption. Restoring a padi snapshot re-spawns its terminals beside your
+current ones (agents resumed, nothing killed); restoring the server store
+applies live with no restart. Every restore snapshots the current state first,
+so a restore is itself undoable.
+
+If a snapshot cannot be taken — a full disk, a state directory gone read-only —
+**Start fresh** refuses rather than discarding a session it could not copy
+first. Fix what is wrong with the disk and try again; the session is still
+there.
 
 ## Something looks stuck, and I want to report it
 
@@ -188,7 +211,8 @@ diagnostics](/deployment#capture-memory-diagnostics).
 ## Still stuck?
 
 <CardGrid>
-  <LinkCard title="Remote Access" href="/remote-access" description="private HTTPS, install prompts, and Tailscale Serve" />
+  <LinkCard title="From another device" href="/remote-access" description="private HTTPS, install prompts, and Tailscale Serve" />
+  <LinkCard title="From a Mac" href="/from-a-mac" description="the usual setup: Linux box, Mac as the window" />
   <LinkCard title="Install as an App" href="/install-pwa" description="browser-specific PWA install paths" />
   <LinkCard title="Deployment" href="/deployment" description="home-manager service, logs, origins, and heap diagnostics" />
   <LinkCard title="Operations" href="/operations" description="stopping the daemons, rolling back, and testing beside production" />

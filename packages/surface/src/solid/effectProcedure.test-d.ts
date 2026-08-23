@@ -174,7 +174,7 @@ expectTypeOf<
 
 // ── 3. Declared-error channel precision ──────────────────────────────────
 
-class Skew extends Schema.TaggedErrorClass<Skew>("test/Skew")("Skew", {
+class Skew extends Schema.TaggedError<Skew>("test/Skew")("Skew", {
   daemonVersion: Schema.String,
   requiredVersion: Schema.String,
 }) {}

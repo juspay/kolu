@@ -44,7 +44,53 @@ key to `"resource"` (cells, collections, streams, events) or a tool (procedures)
   it, the agent will treat a harmless query as something to confirm.
 </Aside>
 
-## 4. Curate a dangerous surface (optional)
+The map is not the MCP adapter's own shape — it is
+[`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)'s,
+and `serveSurfaceApp` / `serveOverUnixSocket` take the same one. So the agent
+face and the browser face are curated in the same vocabulary and can be curated
+*differently*: a verb the agent may call is not thereby reachable from a tab
+someone left open.
+
+## 4. Teach the agent your domain
+
+An expose map says what an agent *may* touch; it says nothing about what any of
+it means. Pass `instructions` and the agent reads it at `initialize`, before it
+calls anything:
+
+```ts
+await serveSurfaceAsMcp({
+  surface,
+  client: () => client,
+  expose: EXPOSE,
+  instructions:
+    "Everything here is about NODES, not files. There is no file access — a " +
+    "node is the smallest thing you can name, and that is deliberate.",
+});
+```
+
+## 5. Refuse with data, not a sentence
+
+A tool that says "no" is answering, and the answer should be as machine-readable
+as a success. Fail with a `ToolFailure` and the agent gets both halves — prose to
+read, detail to act on:
+
+```ts
+import { ToolFailure } from "@kolu/surface-mcp";
+
+throw new ToolFailure(
+  "text and key can't be combined in one send — send the text, wait, then submit",
+  { kind: "text-and-key" },
+);
+```
+
+The agent receives an `isError` result whose `structuredContent` is that object —
+through the same JSON round-trip a success takes, so a refusal cannot publish a
+shape a success would have been refused for — and a driver branches on `kind`
+instead of matching English. Any other failure
+comes back as its message alone — structure is something you declare, never
+something the adapter guesses from an error's fields.
+
+## 6. Curate a dangerous surface (optional)
 
 If the surface has procedures no agent should reach, do not rely on omission
 alone — project a safe view with `projectSurface` (from `@kolu/surface/project`): drop
@@ -52,7 +98,7 @@ the dangerous procedures, bound the logs, derive read-only verdicts, and expose
 *that* second surface. It is the difference between hiding a control and not
 wiring it at all.
 
-## 5. Point the agent at it
+## 7. Point the agent at it
 
 The server speaks stdio by default. Register it in the agent's `.mcp.json` and
 the tools and resources appear in its next session. For the full option list and

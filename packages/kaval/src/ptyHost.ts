@@ -35,9 +35,14 @@ import {
   snapToWrapHead,
 } from "@kolu/xterm-kit";
 import { Effect, type Scope, Stream } from "effect";
+import { readGrid, type SnapshotGrid } from "terminal-snapshot";
 import * as pty from "node-pty";
 import { FanOut, type SubscriberOverflow } from "./fanOut.ts";
-import { type PtyGrid, PtyNotFound } from "./ptyHostSurface.ts";
+import {
+  boundScreenCells,
+  type PtyGrid,
+  PtyNotFound,
+} from "./ptyHostSurface.ts";
 
 /** Default terminal grid dimensions (matches xterm/VT100 standard). */
 const DEFAULT_COLS = 80;
@@ -98,16 +103,16 @@ export const HEADLESS_TERM_ID = "xterm-headless(kolu)";
 /** Opaque PTY identifier. */
 export type PtyId = string;
 
-/** Extract plain text from an xterm buffer within a line range.
+/** Extract plain text from an xterm buffer within a line range, clamped to
+ *  what the buffer actually holds.
  *
- *  `tailLines` is a convenience for "the last N rendered lines": it pins
- *  `startLine` to `buffer.length - tailLines` (clamped at 0), the only place
- *  the live buffer length is known. Screen-scrape detectors that inspect only
- *  the screen bottom pass it so a long scrollback (the configured 50k lines)
- *  isn't allocated, joined, and shipped every poll just to be discarded. This
- *  positional leaf is the single translation target for {@link ScreenExtent};
- *  callers above pick exactly one bound, so `startLine` and `tailLines` never
- *  arrive together. */
+ *  A pure range read and nothing else. It used to take a `tailLines` shortcut
+ *  as well — "the last N rendered lines", resolved against the live buffer
+ *  length — from when this was the single translation target for
+ *  {@link ScreenExtent}. {@link resolveScreenExtent} is that target now, and it
+ *  resolves a tail (and a viewport) into exactly this `[start, end)` before
+ *  calling here, so the parameter had no production caller left: two ways to
+ *  say one bound, one of them reachable only from a test. */
 export function getScreenText(
   buffer: {
     length: number;
@@ -117,17 +122,54 @@ export function getScreenText(
   },
   startLine?: number,
   endLine?: number,
-  tailLines?: number,
 ): string {
   const end = Math.min(buffer.length, endLine ?? buffer.length);
-  const tailStart =
-    tailLines === undefined ? startLine : end - Math.max(0, tailLines);
-  const start = Math.max(0, tailStart ?? 0);
+  const start = Math.max(0, startLine ?? 0);
   const lines: string[] = [];
   for (let i = start; i < end; i++) {
     lines.push(buffer.getLine(i)?.translateToString(true) ?? "");
   }
   return lines.join("\n");
+}
+
+/** Resolve a {@link ScreenExtent} to the absolute half-open line range
+ *  `[start, end)` it names, clamped to what the buffer actually holds.
+ *
+ *  ONE resolution shared by every screen read — the plain-text one and the
+ *  attributed-cell one. They are two renderings of the SAME slice, and the
+ *  only way "the text and the picture show the same thing" can be true by
+ *  construction rather than by two switch statements agreeing is for both to
+ *  ask this function where the slice is.
+ *
+ *  `rows` is the live grid height, which only the host knows — it is what
+ *  `viewport` resolves against. */
+export function resolveScreenExtent(
+  bufferLength: number,
+  rows: number,
+  extent: ScreenExtent = { kind: "full" },
+): { start: number; end: number } {
+  switch (extent.kind) {
+    case "full":
+      return { start: 0, end: bufferLength };
+    case "range": {
+      const end = Math.min(bufferLength, extent.endLine ?? bufferLength);
+      return { start: Math.max(0, extent.startLine ?? 0), end };
+    }
+    case "tail":
+      return {
+        start: Math.max(0, bufferLength - Math.max(0, extent.lines)),
+        end: bufferLength,
+      };
+    case "viewport":
+      // The visible screen = a tail of the live grid's own height. The last
+      // `rows` lines are exactly the viewport in BOTH buffers: the normal
+      // buffer's bottom screenful, and the whole alt buffer (whose length IS
+      // rows) that a full-screen TUI draws into.
+      return {
+        start: Math.max(0, bufferLength - Math.max(0, rows)),
+        end: bufferLength,
+      };
+  }
 }
 
 /** Which slice of the rendered buffer a screen-text read returns — the single
@@ -170,6 +212,11 @@ export interface PtyHandle {
    *  slice (range / tail / viewport); omit it for the full buffer (scrollback +
    *  viewport). See {@link ScreenExtent}. */
   getScreenText(extent?: ScreenExtent): string;
+  /* Deliberately NO `getScreenCells` twin of the read above. The attributed
+   * read has exactly one consumer — the wire handler in `inProcessPtyHost`,
+   * which holds the host and the id already — so a facade member for it was a
+   * method nothing called, carrying a full docstring that read as API. The
+   * host's {@link PtyHost.getScreenCells} is the one entry point. */
 }
 
 /** What a caller hands the host to spawn a PTY. Env/shell prep is the
@@ -520,6 +567,18 @@ export interface PtyHost {
    *  to one slice (range / tail / viewport); omit it for the full buffer. See
    *  {@link ScreenExtent}. */
   getScreenText(id: PtyId, extent?: ScreenExtent): string;
+  /** Attributed cells for the screen slice a picture is drawn from — the same
+   *  slice {@link getScreenText} returns, as characters plus the colours and
+   *  bold/italic/inverse the VT stream asked for. `undefined` if the PTY is
+   *  gone: a gone terminal has no screen, it does not have a blank one. Omit
+   *  `extent` for the viewport, which is what a screenshot means.
+   *
+   *  Deliberately stops at "what the escape sequences said" and does not
+   *  resolve a colour to a pixel: `palette 4` becomes a theme colour only once
+   *  someone knows WHICH theme, and this mirror doesn't — kolu's themes are a
+   *  per-terminal user choice held by padi. Handing out raw attributes is what
+   *  keeps the PTY host out of the rendering business entirely. */
+  getScreenCells(id: PtyId, extent?: ScreenExtent): SnapshotGrid | undefined;
   /** Serialize the older-history chunk of up to `max` rows sitting immediately
    *  ABOVE absolute mirror line `before` — the backfill read the client pages as
    *  it scrolls up. An omitted `before` starts from the top of the current screen
@@ -1230,23 +1289,59 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     const entry = entries.get(id);
     if (!entry) return "";
     const buffer = entry.headless.buffer.active;
-    // One bound axis, one switch — no silent precedence to pick between bounds.
-    const bound: ScreenExtent = extent ?? { kind: "full" };
-    switch (bound.kind) {
-      case "full":
-        return getScreenText(buffer);
-      case "range":
-        return getScreenText(buffer, bound.startLine, bound.endLine);
-      case "tail":
-        return getScreenText(buffer, undefined, undefined, bound.lines);
-      case "viewport":
-        // The visible screen = a tail of the live grid's height, the only place
-        // the real `rows` is known. The last `rows` lines of `buffer.active` are
-        // exactly the viewport in both buffers: the normal buffer's bottom
-        // screenful, and the whole alt buffer (whose length IS rows) a
-        // full-screen TUI draws into.
-        return getScreenText(buffer, undefined, undefined, entry.headless.rows);
-    }
+    const { start, end } = resolveScreenExtent(
+      buffer.length,
+      entry.headless.rows,
+      extent,
+    );
+    return getScreenText(buffer, start, end);
+  }
+
+  /** The same slice as {@link getScreenTextFor}, read as attributed cells.
+   *
+   *  Shares {@link resolveScreenExtent} with the text read rather than
+   *  re-switching on the extent — the two are the same slice rendered two
+   *  ways, and a second switch is a second place for "what does viewport
+   *  mean" to drift.
+   *
+   *  A gone PTY answers `undefined`, NOT an empty grid: `{ cols: 0, lines: [] }`
+   *  would be one value carrying two meanings — "this screen is blank" and
+   *  "there is no such terminal" — and every embedder would have to remember to
+   *  compensate the way the wire handler does.
+   *
+   *  The default extent is the VIEWPORT rather than the text read's whole
+   *  buffer: this read is what a picture is drawn from, and 50,000 attributed
+   *  rows is never the ask. */
+  function getScreenCellsFor(
+    id: PtyId,
+    extent: ScreenExtent = { kind: "viewport" },
+  ): SnapshotGrid | undefined {
+    const entry = entries.get(id);
+    if (!entry) return undefined;
+    const buffer = entry.headless.buffer.active;
+    const { start, end } = resolveScreenExtent(
+      buffer.length,
+      entry.headless.rows,
+      extent,
+    );
+    // The ceiling is enforced HERE, where the grid is built — not by the
+    // caller, and not by the schema alone.
+    //
+    // The schema bounds `tail.lines`, which is the only extent a caller can
+    // put a number in. `viewport` carries no number: it resolves to the live
+    // grid's own height, and a terminal resized to 200x2000 makes that a
+    // 2000-row read of ATTRIBUTED cells — roughly two orders of magnitude more
+    // bytes than the same screen as text, and past the 16 MiB frame limit the
+    // socket closes on. Nor is the WIDTH ever a caller's number: `resize` takes
+    // whatever the ioctl accepts, so a wide-enough terminal is the same
+    // ambush on the other axis. padi trims too, but it trims AFTER this hop, so
+    // its cap cannot save a frame that was too large to arrive.
+    //
+    // {@link boundScreenCells} owns which rows and columns survive that (bottom
+    // rows, leftmost columns) and why; the grid it produces reports both, so
+    // the trim is stated rather than hidden.
+    const { rows, cols } = boundScreenCells(end - start, entry.headless.cols);
+    return readGrid(buffer, cols, end - rows, rows);
   }
 
   function getHistory(
@@ -1446,6 +1541,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     getTitle: (id) => entries.get(id)?.title,
     getScreenState,
     getScreenText: getScreenTextFor,
+    getScreenCells: getScreenCellsFor,
     getHistory,
     handle,
     dispose: () => {

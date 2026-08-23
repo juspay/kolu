@@ -9,17 +9,24 @@
  * on the wire must not wedge the link), and every shape of transport death —
  * each of which must FAIL a call with `SurfaceStdioTransportClosed` rather than
  * hang it or crash the process.
+ *
+ * The wiring itself — pair, server, banner, link, teardown — is the shared
+ * `loopbackWired.testlib` harness, so this file and `stdioPingStall.test.ts`
+ * cannot drift about what the honest sequence is.
  */
 
 import { PassThrough } from "node:stream";
-import { Effect, Fiber, Schema, Stream } from "effect";
+import { Effect, Fiber, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { defineSurface } from "../define";
 import { SurfaceStdioTransportClosed } from "../errors";
 import { isHalfOpenDispatch } from "../link";
 import { createLoopbackPair, greetLoopback } from "../loopback";
 import { serveOverStdio } from "../peer-server";
-import { implementSurface } from "../server";
+import {
+  buildLoopbackRuntime,
+  loopbackSurface,
+  wiredLoopback,
+} from "./loopbackWired.testlib";
 import {
   awaitStdioReadiness,
   type StdioReadinessProof,
@@ -40,81 +47,9 @@ function greetSelf(read: PassThrough): Promise<StdioReadinessProof> {
   return proof;
 }
 
-const surface = defineSurface({
-  procedures: {
-    math: {
-      add: {
-        input: Schema.Struct({ a: Schema.Number, b: Schema.Number }),
-        output: Schema.Number,
-      },
-    },
-  },
-  streams: {
-    counter: {
-      inputSchema: Schema.Struct({ to: Schema.Number }),
-      outputSchema: Schema.Struct({ n: Schema.Number }),
-    },
-  },
-});
-
-/** `to: 0` means "emit one frame, then never end" — the probe for "the server
- *  stops producing when the consumer goes away", with an observable finalizer. */
-function buildRuntime(onFinalize?: () => void) {
-  return implementSurface(surface, {
-    procedures: {
-      math: { add: ({ input }) => Effect.succeed(input.a + input.b) },
-    },
-    streams: {
-      counter: {
-        source: (input) => {
-          const frames: Stream.Stream<{ n: number }> =
-            input.to === 0
-              ? Stream.concat(Stream.make({ n: 0 }), Stream.never)
-              : Stream.map(Stream.range(0, input.to - 1), (n) => ({ n }));
-          return onFinalize === undefined
-            ? frames
-            : Stream.ensuring(
-                frames,
-                Effect.sync(() => onFinalize()),
-              );
-        },
-      },
-    },
-  });
-}
-
-async function wired(onFinalize?: () => void) {
-  const runtime = buildRuntime(onFinalize);
-  const pair = createLoopbackPair();
-  const serving = serveOverStdio({
-    group: runtime.group,
-    handlers: runtime.handlers,
-    transport: pair.server,
-  });
-  const readiness = await greetLoopback(pair);
-  const link = await stdioLink({
-    group: surface.group,
-    read: pair.client.read,
-    write: pair.client.write,
-    readiness,
-  });
-  return {
-    link,
-    pair,
-    serving,
-    done: async () => {
-      await link.dispose();
-      pair.client.write.end();
-      pair.server.write.end();
-      await serving;
-      await runtime.close();
-    },
-  };
-}
-
 describe("stdio link over loopback", () => {
   it("round-trips a unary procedure", async () => {
-    const { link, done } = await wired();
+    const { link, done } = await wiredLoopback();
     await expect(
       Effect.runPromise(
         link.dispatch.unary("surface/math/add", { a: 2, b: 3 }),
@@ -124,13 +59,13 @@ describe("stdio link over loopback", () => {
   });
 
   it("brands its dispatch half-openable — the face must refuse it without a watchdog (#1564)", async () => {
-    const { link, done } = await wired();
+    const { link, done } = await wiredLoopback();
     expect(isHalfOpenDispatch(link.dispatch)).toBe(true);
     await done();
   });
 
   it("streams a member's frames across the wire", async () => {
-    const { link, done } = await wired();
+    const { link, done } = await wiredLoopback();
     const frames = await Effect.runPromise(
       Stream.runCollect(
         link.dispatch.stream("surface/counter/get", { to: 4 }) as Stream.Stream<
@@ -145,8 +80,10 @@ describe("stdio link over loopback", () => {
 
   it("propagates interruption: the consumer stops pulling, the server's stream finalizes", async () => {
     let finalized = false;
-    const { link, done } = await wired(() => {
-      finalized = true;
+    const { link, done } = await wiredLoopback({
+      onFinalize: () => {
+        finalized = true;
+      },
     });
     const seen: number[] = [];
     const fiber = Effect.runFork(
@@ -170,7 +107,7 @@ describe("stdio link over loopback", () => {
   });
 
   it("does not wedge when the agent corrupts stdout (lesson #4)", async () => {
-    const runtime = buildRuntime();
+    const runtime = buildLoopbackRuntime();
     const pair = createLoopbackPair();
     const serving = serveOverStdio({
       group: runtime.group,
@@ -185,7 +122,7 @@ describe("stdio link over loopback", () => {
     pair.server.write.write("«this looks like a pino log line»\n");
 
     const link = await stdioLink({
-      group: surface.group,
+      group: loopbackSurface.group,
       read: pair.client.read,
       write: pair.client.write,
       readiness,
@@ -212,7 +149,7 @@ describe("stdio link over loopback", () => {
     // agent subprocess exited) must FAIL a fresh RPC, not hang. A pump that
     // re-issued a call against such a dead link used to await a response that
     // never arrived and never errored, so the reconnect loop never advanced.
-    const { link, pair, serving } = await wired();
+    const { link, pair, serving } = await wiredLoopback();
     await expect(
       Effect.runPromise(
         link.dispatch.unary("surface/math/add", { a: 1, b: 1 }),
@@ -235,7 +172,7 @@ describe("stdio link over loopback", () => {
     // must reject with the single owned, greppable transport error — never an
     // anonymous abort from some queue's internals, which a mirror consumer
     // cannot classify and therefore floats.
-    const { link, pair, serving } = await wired();
+    const { link, pair, serving } = await wiredLoopback();
     const parked = Effect.runPromiseExit(
       Stream.runCollect(
         link.dispatch.stream("surface/counter/get", { to: 0 }) as Stream.Stream<
@@ -265,7 +202,7 @@ describe("stdio link over loopback", () => {
     const read = new PassThrough(); // inbound — never fed; the link stays open
     const write = new PassThrough(); // outbound — isolated
     const link = await stdioLink({
-      group: surface.group,
+      group: loopbackSurface.group,
       read,
       write,
       readiness: await greetSelf(read),
@@ -289,7 +226,7 @@ describe("stdio link over loopback", () => {
     const write = new PassThrough();
     write.destroy(); // silent: no 'error' event ever fires
     const link = await stdioLink({
-      group: surface.group,
+      group: loopbackSurface.group,
       read,
       write,
       readiness: await greetSelf(read),
@@ -303,7 +240,7 @@ describe("stdio link over loopback", () => {
   });
 
   it("fails a call issued after dispose(), rather than parking it on a dead protocol", async () => {
-    const { link, pair, serving } = await wired();
+    const { link, pair, serving } = await wiredLoopback();
     await link.dispose();
     const failure = await Effect.runPromise(
       Effect.flip(link.dispatch.unary("surface/math/add", { a: 1, b: 1 })),

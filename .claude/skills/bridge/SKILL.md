@@ -79,7 +79,7 @@ the citation is the rule's evidence; do not re-litigate a cited rule.
   master.]
 - A dispatch has landed only when observed at the recipient — never because the
   send succeeded.
-- Interim (#1872): command-rooted agents (`padi-tui create … -- <agent>`) are
+- Interim (#1872): command-rooted agents (`kolu create --toplevel … -- <agent>`) are
   Dock-visible and state-tracked since PR2. Launching an agent from the
   coordinator's OWN shell still requires `unset CLAUDE_CODE_CHILD_SESSION
   CLAUDECODE CLAUDE_CODE_SESSION_ID` first. Detail + deletion point: /kolu

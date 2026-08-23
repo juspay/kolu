@@ -75,6 +75,8 @@ import {
   type ProcedureOutputSchema,
   type ProcedureSpec,
   type ProcedureSpecError,
+  READ_VERBS,
+  reservedSurfaceTags,
   resolveCellVerbs,
   resolveCollectionVerbs,
   type StreamSpec,
@@ -168,8 +170,10 @@ export type SurfaceHandler = (payload: any) => SurfaceHandlerResult;
  *  guard fire falsely and make a lookup return a function nobody bound). */
 export type SurfaceHandlers = Record<string, SurfaceHandler>;
 
-/** A fresh, null-prototype handler record. */
-function emptyHandlers(): SurfaceHandlers {
+/** A fresh, null-prototype handler record. Exported for the one other builder of
+ *  a handler record — `@kolu/surface/expose`'s `restrictHandlers` — so the
+ *  null-prototype reason above has one statement and one implementation. */
+export function emptyHandlers(): SurfaceHandlers {
   return Object.create(null) as SurfaceHandlers;
 }
 
@@ -179,8 +183,10 @@ function emptyHandlers(): SurfaceHandlers {
  *  nobody bound would 404 at the far end, and a handler bound at a tag the group
  *  does not carry is dead code that silently never runs. Both are boot crashes.
  *  This is the runtime half of D1's route-set identity (the type-level half is
- *  `SurfaceTags<S>`). */
-function assertHandlersMatchGroup(
+ *  `SurfaceTags<S>`). Exported because every consumer that REBUILDS a handler
+ *  record owes the same proof — `@kolu/surface/expose`'s `restrictHandlers`
+ *  asks it of the record it is handed, before it filters anything. */
+export function assertHandlersMatchGroup(
   group: RpcGroup.RpcGroup<Rpc.Any>,
   handlers: SurfaceHandlers,
   label: string,
@@ -325,6 +331,65 @@ function pullOnly<T>(
   };
 }
 
+/**
+ * How far a subscription's delivery may run AHEAD of the consumer reading it,
+ * in values — and the reason it is a number rather than "as many as there are".
+ *
+ * A subscription's frames are acknowledged: `RpcServer` sends one `Chunk` frame
+ * per stream chunk and, where the transport ACKs (every websocket client does),
+ * waits for the ack before the next (`RpcServer.streamEffect`'s
+ * `Stream.runForEachArray` and its latch). So the SHAPE of the chunks the
+ * producer emits decides how much of a backlog one round trip carries — and
+ * `Stream.fromAsyncIterable` wraps every value in a chunk of its own
+ * (`Channel.fromAsyncIterableArray`'s `Arr.of`), which makes every subscription
+ * STOP-AND-WAIT: exactly one publish per round trip, whatever has piled up.
+ * Buffered, the pull is `Queue.takeAll` and a chunk is everything published
+ * since the last one went out.
+ *
+ * WHY IT IS BOUNDED, and this is the half that a first attempt at this got
+ * wrong (#2199, reverted in #2201). The AsyncIterable bridge pulled only when
+ * the consumer pulled, so a stalled consumer backed up into the CHANNEL's own
+ * per-subscriber buffer and that channel's declared policy — `highWaterMark`
+ * with `drop-oldest` or `abort` (`inMemoryChannel`) — decided what happened.
+ * An unbounded buffer here silently retires that policy: the channel never
+ * fills, `onOverflow` never fires, and a bounded channel's whole contract stops
+ * meaning anything. `suspend` restores it — the buffer's own pump parks when
+ * full, the backlog goes back to sitting in the channel, and the channel's
+ * bound is once again the one that decides.
+ *
+ * WHY THIS NUMBER, and what actually holds it. It has to be big enough that an
+ * ordinary burst rides in one chunk — a chat answer streaming at forty tokens a
+ * second over a 200ms link leaves about eight behind each round trip (olai's
+ * `transcript-stream-quadratic`, which is what found the defect) — so 512 is
+ * some sixty bursts, comfortably more than one round trip's worth and nowhere
+ * near a backlog anybody is reading.
+ *
+ * WHAT KEEPS IT FROM USURPING THE PRODUCER'S OWN BOUND is `suspend`, not the
+ * number. A finite capacity with a suspending strategy means the pump PARKS
+ * when it is full, so a consumer that has genuinely stopped reading leaves the
+ * backlog where it was — in the channel, for whatever policy that channel
+ * declared. That is true of any finite capacity; the number only decides how
+ * much rides in one chunk before the parking starts. It is deliberately NOT
+ * derived from `inMemoryChannel`'s mark, which has no default at all
+ * (`highWaterMark` is optional and unbounded when absent) — the 4,096 that gets
+ * quoted around this is `@kolu/surface-remote`'s own
+ * `RESERVE_CHANNEL_HIGH_WATER_MARK`, one consumer's setting rather than a floor
+ * this file may lean on.
+ *
+ * WHICH TESTS HOLD WHICH HALF, since it is not the same file for both. The
+ * BATCHING is {@link ./streamBatching.test.ts}: a consumer coming back after a
+ * burst is handed the burst, and values published one at a time still arrive
+ * one at a time. The BACK-PRESSURE is `@kolu/surface-remote`'s
+ * `reServeSurface.test.ts`, and what it is a tripwire for is precisely an
+ * ALWAYS-ON DRAIN — a bridge that pulls the channel dry whether or not anyone
+ * is consuming, which is what #2199 shipped and what that test caught. It is
+ * NOT a proof of any arithmetic about this constant: its consumer parks on the
+ * snapshot, before `concat` reaches the buffered half, so an unbounded
+ * `Stream.buffer` would pass it too. The bound is real by construction of
+ * `suspend`; the test is real about the drain.
+ */
+const STREAM_AHEAD = 512;
+
 /** Open ONE subscription on `bus` as a scoped resource and expose it as a
  *  `Stream`. The ONE place a surface's pub/sub face meets Effect's:
  *
@@ -343,7 +408,13 @@ function pullOnly<T>(
  *  A channel-level failure (a bounded channel's overflow abort) is a DEFECT, not
  *  a member failure: no surface member declares an error channel for its
  *  snapshot/delta stream, so an undeclared fault must crash loudly rather than
- *  masquerade as an end-of-stream the consumer would read as "no more data". */
+ *  masquerade as an end-of-stream the consumer would read as "no more data".
+ *
+ *  IT IS BUFFERED, which is a decision about ROUND TRIPS and is argued where
+ *  its bound is ({@link STREAM_AHEAD}): a chunk carries everything published
+ *  since the last one went out rather than one publish per round trip, and the
+ *  buffer suspends rather than growing, so the channel's own bound is still the
+ *  one that decides what happens to a backlog nobody is reading. */
 function channelSubscription<T>(
   bus: Channel<T>,
 ): Effect.Effect<Stream.Stream<T>, never, Scope.Scope> {
@@ -367,6 +438,13 @@ function channelSubscription<T>(
           pullOnly(iterator, controller.signal),
           (err) => err,
         ),
+      ).pipe(
+        // The framework's own operator rather than a queue of ours: it forks a
+        // pump that drains upstream into a queue and pulls with
+        // `Queue.takeAll`, which is precisely "a chunk is everything published
+        // since the last one went out" — and `suspend` is what keeps the
+        // BACK-PRESSURE the AsyncIterable bridge had (see {@link STREAM_AHEAD}).
+        Stream.buffer({ capacity: STREAM_AHEAD, strategy: "suspend" }),
       ),
   );
 }
@@ -407,6 +485,22 @@ export function streamFromAbortableSource<T>(
             ),
             (err) => err,
           ),
+        ).pipe(
+          // THE SAME BUFFER, for the same reason and with the same bound
+          // ({@link STREAM_AHEAD}). A producer bridged here is exactly the
+          // shape that suffers: a PTY tap emits at the rate a program writes,
+          // which is token-rate for anything a person is watching, and one
+          // value per chunk is one frame per round trip whatever the link.
+          //
+          // It is safe for PTY OUTPUT specifically because that output is a
+          // sequence, not a state: the consumer appends what arrives, so N
+          // values in one chunk render exactly as N chunks of one did — there
+          // is no coalescing of meaning here, only of frames. And `suspend`
+          // keeps this bridge as back-pressuring as it was: a producer faster
+          // than its reader parks the pump rather than growing a buffer, so
+          // whatever bound the producer already had is still the one that
+          // decides.
+          Stream.buffer({ capacity: STREAM_AHEAD, strategy: "suspend" }),
         ),
     ),
   );
@@ -609,6 +703,42 @@ export function cellHandlers<Name extends string, T, P = T>(
 
 // ── Collection handlers ────────────────────────────────────────────────
 
+/** A reader HOLDS `key` for the lifetime of the scope this runs in — the per-key
+ *  `get` stream's own scope.
+ *
+ *  The wire already says when a reader OPENS a key: a per-key `get` IS a
+ *  subscription, and {@link CollectionHandlerDeps.readOne} is where the server hears
+ *  one arrive. What no member says is when the last reader LETS GO — and that fact
+ *  is the framework's, not the app's: a handler answers with a `Stream`, the
+ *  stream's scope IS the subscription, and the scope closes when the tab navigates,
+ *  the socket drops, the runtime tears down, or a one-shot reader takes its frame
+ *  and leaves. Fiber interruption is the unsubscribe. Without this seam a server
+ *  that has to know whether anybody is still showing a key infers it from opens and
+ *  ages the answer out — a bound with no honest number in it.
+ *
+ *  NOT A MEMBER OF THE SPEC, and that is the decision worth stating. A release verb
+ *  a reader had to CALL would be a promise a closed tab cannot keep: the readers
+ *  this is about are exactly the ones that vanish. The transport is what notices, so
+ *  the transport is what is asked, and nothing new crosses the wire.
+ *
+ *  Runs BEFORE the channel subscribe and BEFORE `readOne`, and that pull order is
+ *  load-bearing rather than incidental — a `readOne` that ACTS on the hold (reading
+ *  a body only a held path is read for) must find the hold already in place. Pinned
+ *  by test, not by this paragraph.
+ *
+ *  Two readers of one key are two calls, two holds, two releases; an interrupted
+ *  reader releases only its own. The framework REPORTS lifetimes and does not count:
+ *  what a hold is worth, and what happens when the count reaches zero, belongs to
+ *  whoever asked for one.
+ *
+ *  `get` only. `keys` and `deltas` are collection-wide streams — "who holds this
+ *  key" has no meaning there. Typed `never` in the error channel: a hold cannot
+ *  fail, and a defect in one crashes that subscription loudly rather than serving it
+ *  unheld. Absent, the `get` stream is the exact expression served today. */
+export type CollectionHolders<K> = (
+  key: K,
+) => Effect.Effect<unknown, never, Scope.Scope>;
+
 export interface CollectionHandlerDeps<K, T> {
   /** Read all current entries. Snapshot is yielded as the first frame of
    *  `keys` and `get(key)`. */
@@ -622,12 +752,41 @@ export interface CollectionHandlerDeps<K, T> {
   remove: (key: K) => void;
   /** Bus for per-key value updates. Subscribers watch `(channel, key)`. */
   perKeyBus: (key: K) => Channel<T>;
-  /** Bus for the live key set (broadcasts `K[]` snapshots on add/remove). */
+  /** Bus for the live key set (broadcasts `K[]` snapshots on add/remove,
+   *  coalesced to one tick-final snapshot per producer tick). */
   keysBus: Channel<K[]>;
   /** Bus for the coalesced batched delta stream — one `{upserts, removes}` per
    *  producer tick. Present only when the collection exposes the `deltas` verb
    *  (opt-in); `walkSurface` wires it and the per-tick coalescing together. */
   deltasBus?: Channel<CollectionDelta<K, T>>;
+  /** The LAST-READER seam — see {@link CollectionHolders}. */
+  holders?: CollectionHolders<K>;
+}
+
+/** Run `run` at most once per producer tick — the shared latch under BOTH
+ *  collection coalescers below, which agree on the time shape (one
+ *  `queueMicrotask` flush after the synchronous producer loop) and on nothing
+ *  else: the `deltas` one carries a last-op-wins `pending` map, the `keys` one
+ *  carries the previously published set.
+ *
+ *  The latch is released BEFORE `run`, not after, and that ordering is
+ *  load-bearing rather than incidental: a mutation fired RE-ENTRANTLY from
+ *  inside the flush — a subscriber that writes back on publish — must schedule
+ *  the NEXT tick instead of being swallowed as a lost update. Its cost, stated
+ *  because it is the other side of the same choice: a `run` that reliably
+ *  causes its own re-schedule spins forever. Nothing in this repo does, and the
+ *  alternative silently drops writes — which is worse than a loop that
+ *  announces itself. */
+function oncePerTick(run: () => void): () => void {
+  let scheduled = false;
+  return () => {
+    if (scheduled) return;
+    scheduled = true;
+    queueMicrotask(() => {
+      scheduled = false;
+      run();
+    });
+  };
 }
 
 /** Per-tick coalescer for a collection's batched `deltas` stream. A `pending`
@@ -643,23 +802,17 @@ function createTickCoalescer<K, V>(
   bus: Channel<CollectionDelta<K, V>>,
 ): { upsert: (k: K, v: V) => void; remove: (k: K) => void } {
   const pending = new Map<K, { value: V } | "remove">();
-  let flushScheduled = false;
-  const scheduleFlush = () => {
-    if (flushScheduled) return;
-    flushScheduled = true;
-    queueMicrotask(() => {
-      flushScheduled = false;
-      if (pending.size === 0) return;
-      const upserts: [K, V][] = [];
-      const removes: K[] = [];
-      for (const [k, op] of pending) {
-        if (op === "remove") removes.push(k);
-        else upserts.push([k, op.value]);
-      }
-      pending.clear();
-      bus.publish({ kind: "delta", upserts, removes });
-    });
-  };
+  const scheduleFlush = oncePerTick(() => {
+    if (pending.size === 0) return;
+    const upserts: [K, V][] = [];
+    const removes: K[] = [];
+    for (const [k, op] of pending) {
+      if (op === "remove") removes.push(k);
+      else upserts.push([k, op.value]);
+    }
+    pending.clear();
+    bus.publish({ kind: "delta", upserts, removes });
+  });
   return {
     upsert: (k, v) => {
       pending.set(k, { value: v });
@@ -670,6 +823,72 @@ function createTickCoalescer<K, V>(
       scheduleFlush();
     },
   };
+}
+
+/** Per-tick coalescer for a collection's `keys` membership stream. Same time
+ *  shape as {@link createTickCoalescer} (see {@link oncePerTick}), but for the
+ *  FULL-SNAPSHOT stream: a producer that changes membership M times in one
+ *  tick publishes ONE `K[]` frame — the live set read once at flush — instead
+ *  of M frames of ~N keys each (the O(M·N) bulk-add storm; a 2000-key bulk add
+ *  used to publish ~2M key elements and run the backing `readAll()` 2000
+ *  times). Every `keys` frame is a complete snapshot that consumers fold
+ *  idempotently (see the `keys` handler doc), so collapsing a tick's
+ *  INTERMEDIATE sets into the tick-final one changes no consumer's converged
+ *  state.
+ *
+ *  It does change WHICH intermediate states are observable, and that is worth
+ *  stating rather than discovering: a key added and removed inside ONE tick is
+ *  never announced, and a key removed and re-added inside one tick is never
+ *  seen to leave. No consumer of a `walkSurface` collection depends on that —
+ *  `mirrorCollection` reconciles against whatever set arrives, and a per-key
+ *  reactive root keyed on departure exists only in `@kolu/surface-map`, which
+ *  serves its own `keysBus` and is deliberately NOT coalesced (its
+ *  `MapRegistry` contract requires every membership transition to be
+ *  observable). Do not "unify" the two.
+ *
+ *  `readKeys` is a THUNK read at FLUSH time, not capture time, so the frame
+ *  carries the backing store's own key order (the "server order" consumers
+ *  render) exactly as the eager publish did — and reading the store rather
+ *  than the framework's own `broadcastKeys` set is what keeps the published
+ *  array literally the live one, the same source the connect snapshot reads.
+ *
+ *  The published set is compared against the last one and a REPEAT is dropped,
+ *  which is what keeps the stream's promise honest under coalescing: a tick
+ *  whose edges cancel out (add then remove the same new key) has a real edge
+ *  behind its schedule but no membership change to report, and re-publishing
+ *  an identical array would be exactly the redundant full-snapshot the
+ *  `broadcastKeys` guards exist to prevent — one tick further out. The compare
+ *  is free on top of an array this already built.
+ *
+ *  The flush runs consumer code (`readKeys` reaches the dep's `readAll`) on a
+ *  DETACHED microtask, where a throw would otherwise become an unhandled
+ *  rejection with no caller to blame — before coalescing it unwound into
+ *  whoever called `upsert`. It is contained and named, the same rule the
+ *  subscriber fan-out follows. */
+function createKeysetCoalescer<K>(
+  bus: Channel<K[]>,
+  collection: string,
+  readKeys: () => K[],
+): () => void {
+  let last: K[] | undefined;
+  return oncePerTick(() => {
+    containThrow(
+      `collection "${collection}"'s keys snapshot`,
+      () => {
+        const next = readKeys();
+        if (
+          last !== undefined &&
+          last.length === next.length &&
+          last.every((k, i) => k === next[i])
+        ) {
+          return;
+        }
+        last = next;
+        bus.publish(next);
+      },
+      "the collection's other streams and future writes keep flowing; this tick's membership frame is lost",
+    );
+  });
 }
 
 export interface CollectionHandlers<K, T> {
@@ -705,9 +924,21 @@ export interface CollectionHandlers<K, T> {
 function subscribeBeforeSnapshot<S, F>(
   bus: Channel<F>,
   snapshot: () => S[],
+  /** A scoped resource to acquire BEFORE either — the per-key `get`'s
+   *  {@link CollectionHandlerDeps.holders} is the one caller. Sequenced INSIDE this
+   *  function's own `unwrap` rather than wrapped around it, so the order every
+   *  consumer of it depends on — acquire → subscribe → snapshot — is the literal
+   *  order of one expression instead of an emergent property of how two `unwrap`s
+   *  nest, and a held stream pays one channel layer rather than two. `suspend` keeps
+   *  the CALL lazy too: a subscription nobody runs never asks for the resource. */
+  acquireFirst?: () => Effect.Effect<unknown, never, Scope.Scope>,
 ): Stream.Stream<S | F> {
+  const subscribed =
+    acquireFirst === undefined
+      ? channelSubscription(bus)
+      : Effect.andThen(Effect.suspend(acquireFirst), channelSubscription(bus));
   return Stream.unwrap(
-    Effect.map(channelSubscription(bus), (frames) =>
+    Effect.map(subscribed, (frames) =>
       Stream.concat(Stream.fromIterable(snapshot()), frames),
     ),
   );
@@ -761,11 +992,22 @@ export function collectionHandlers<Name extends string, K, T>(
     // subscription to an empty collection holds open — so the consumer shows its
     // honest empty/absent state, not a corpse. Callers that need a bounded first
     // read interrupt their own fiber (a timeout, a race).
-    get: (input) =>
-      subscribeBeforeSnapshot(deps.perKeyBus(input.key), () => {
-        const v = readOne(input.key);
-        return v === undefined ? [] : [v];
-      }),
+    //
+    // A collection that declared {@link CollectionHolders} is told this
+    // subscription's LIFETIME: the hold is sequenced ahead of the subscribe inside
+    // `subscribeBeforeSnapshot`'s own scope, so hold → subscribe → `readOne` is one
+    // expression's order and one scope's release.
+    get: (input) => {
+      const holders = deps.holders;
+      return subscribeBeforeSnapshot(
+        deps.perKeyBus(input.key),
+        () => {
+          const v = readOne(input.key);
+          return v === undefined ? [] : [v];
+        },
+        holders === undefined ? undefined : () => holders(input.key),
+      );
+    },
     upsert: (input) =>
       Effect.sync(() => {
         deps.upsert(input.key, input.value);
@@ -1543,6 +1785,8 @@ export type CollectionImplDeps<
   readOne?: (key: Decoded<S["keySchema"]>) => Decoded<S["schema"]> | undefined;
   upsert: (key: Decoded<S["keySchema"]>, value: Decoded<S["schema"]>) => void;
   remove: (key: Decoded<S["keySchema"]>) => void;
+  /** The LAST-READER seam, threaded through verbatim — see {@link CollectionHolders}. */
+  holders?: CollectionHolders<Decoded<S["keySchema"]>>;
   /** OPT-IN incremental `$`-sibling read (a PURE optimization behind
    *  `readAll()` semantics). By default a compute reading `$.<coll>()`
    *  re-runs `readAll()` on every access — correct for a registry
@@ -1713,7 +1957,7 @@ export type SurfaceCtx<S extends SurfaceSpec> = {
  *  The handler returns an `Effect`:
  *
  *    - its DECLARED failures are the `error` schema's decoded type (normally a
- *      union of `Schema.TaggedErrorClass`es — see `./errors` for the framework's
+ *      union of `Schema.TaggedError`es — see `./errors` for the framework's
  *      own vocabulary). `Effect.fail(new MyError({...}))` reaches the caller with
  *      its `_tag` and data intact, narrowed by a `_tag` check;
  *    - an UNDECLARED throw stays a DEFECT (`Effect.die`) — the crash-loudly
@@ -2280,7 +2524,9 @@ function walkSurface<const S extends SurfaceSpec>(
     // rather than a silent double-writer. The derived value still reaches the
     // wire through the `connect` seam below; `get` is its only exposed verb.
     if (isDerivedCellDeps(cellDeps)) {
-      const writeVerbs = resolveCellVerbs(cellSpec).filter((v) => v !== "get");
+      const writeVerbs = resolveCellVerbs(cellSpec).filter(
+        (v) => !READ_VERBS.includes(v),
+      );
       if (writeVerbs.length > 0) {
         throw new Error(
           `implementSurface: derived cell "${key}" is wire-read-only (its derivation is the one writer) but declares write verb(s) [${writeVerbs.join(", ")}] — declare verbs: ["get"] (test__set included).`,
@@ -2509,6 +2755,7 @@ function walkSurface<const S extends SurfaceSpec>(
       | {
           readAll: () => Map<unknown, unknown>;
           readOne?: (k: unknown) => unknown;
+          holders?: CollectionHolders<unknown>;
           // Authored collections carry write seams; a graph-owned
           // `derived.collection` does not (the walk narrows the ctx to throw and
           // drives the publishers from the reconciler's `connect`), so both are
@@ -2536,7 +2783,7 @@ function walkSurface<const S extends SurfaceSpec>(
     // `keys`/`get`/`deltas`.
     if (derivedColl) {
       const writeVerbs = resolveCollectionVerbs(collSpec).filter(
-        (v) => v === "upsert" || v === "delete" || v === "test__set",
+        (v) => !READ_VERBS.includes(v),
       );
       if (writeVerbs.length > 0) {
         throw new Error(
@@ -2595,15 +2842,22 @@ function walkSurface<const S extends SurfaceSpec>(
     //
     // `keysBus` fires on MEMBERSHIP change only — the contract its dep doc states
     // ("broadcasts K[] snapshots on add/remove"). BOTH mirror paths enforce that
-    // symmetrically against `broadcastKeys`: `wrappedUpsert` publishes only when a
-    // key is NEW to the set, and `wrappedRemove` only when the key was actually IN
-    // it. A value-only upsert (existing key, new value) leaves the key SET
-    // identical, and a remove of a non-member (a repeat/no-op drop) leaves it
+    // symmetrically against `broadcastKeys`: `wrappedUpsert` schedules a broadcast
+    // only when a key is NEW to the set, and `wrappedRemove` only when the key was
+    // actually IN it. A value-only upsert (existing key, new value) leaves the key
+    // SET identical, and a remove of a non-member (a repeat/no-op drop) leaves it
     // identical too, so in either case re-publishing the whole key array would be a
     // redundant full-snapshot the `keys` subscribers fold to the same set (and a
     // spurious re-render). Value updates travel the per-key `get` stream
     // (`perKeyBus`) and the batched `deltas` stream (`coalescer`), both of which DO
     // fire on every upsert.
+    //
+    // The broadcast itself is COALESCED PER TICK (`createKeysetCoalescer`): a
+    // same-tick burst of membership edges flushes as one tick-final snapshot on
+    // the next microtask, so a bulk add of M keys costs one frame and one
+    // `readAll()`, not M of each — and a tick whose edges cancel out publishes
+    // nothing at all, so the guards below and the coalescer enforce the same
+    // "membership-change only" promise at two time scales.
     //
     // "New key" must mean new to SUBSCRIBERS, NOT new to the store. A registry-
     // PROJECTION collection (kolu's `awareness` / `authored` / `daemonStatus`) has
@@ -2651,12 +2905,15 @@ function walkSurface<const S extends SurfaceSpec>(
       siblingView ? () => siblingView : () => collDeps.readAll(),
     );
     const broadcastKeys = new Set<unknown>(initialEntries.keys());
+    const scheduleKeysBroadcast = createKeysetCoalescer(keysBus, key, () =>
+      Array.from(collDeps.readAll().keys()),
+    );
     const wrappedUpsert = (k: unknown, v: unknown) => {
       depUpsert(k, v);
       siblingView?.set(k, v); // materialized view — the SINGLE write path (opt-in)
       if (!broadcastKeys.has(k)) {
         broadcastKeys.add(k);
-        keysBus.publish(Array.from(collDeps.readAll().keys()));
+        scheduleKeysBroadcast();
       }
       perKeyBus(k).publish(v);
       coalescer?.upsert(k, v);
@@ -2666,7 +2923,7 @@ function walkSurface<const S extends SurfaceSpec>(
       depRemove(k);
       siblingView?.delete(k); // materialized view — the SINGLE write path (opt-in)
       if (broadcastKeys.delete(k)) {
-        keysBus.publish(Array.from(collDeps.readAll().keys()));
+        scheduleKeysBroadcast();
       }
       coalescer?.remove(k);
       siblingChange[key]?.(); // version poke — a removal changes what a $-reader folds
@@ -2727,6 +2984,7 @@ function walkSurface<const S extends SurfaceSpec>(
       {
         readAll: collDeps.readAll,
         readOne: collDeps.readOne,
+        holders: collDeps.holders,
         upsert: wrappedUpsert,
         remove: wrappedRemove,
         perKeyBus: perKeyBus as (k: unknown) => Channel<unknown>,
@@ -3091,18 +3349,6 @@ function mergeSurfaceSpecs(a: SurfaceSpec, b: SurfaceSpec): SurfaceSpec {
   return merged as SurfaceSpec;
 }
 
-/** The three framework-RESERVED wire tags every surface carries, for the given
- *  tag prefix. They are the ONE legitimate overlap between two composed
- *  runtimes: every surface claims them, so a composition must resolve them by
- *  policy (base-authoritative) rather than treat them as a collision. */
-function reservedTags(tagPrefix: string): ReadonlySet<string> {
-  return new Set([
-    surfaceTag(tagPrefix, LIVENESS_NAMESPACE, LIVENESS_VERB),
-    surfaceTag(tagPrefix, IDENTITY_NAMESPACE, IDENTITY_VERB),
-    surfaceTag(tagPrefix, CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB),
-  ]);
-}
-
 /** Compose a LOCAL runtime onto a RE-SERVED one, into one served surface (SR5 —
  *  parent-owned additions stay causally separate from mirroring). The BASE is a
  *  re-served surface (`reServeSurface`, a mirror of a remote agent); `ext` is a
@@ -3159,7 +3405,7 @@ export function extendSurface<
   // Merge the two handler records. Extension first, then base — so the reserved
   // `system/*` tags (present in BOTH) resolve base-authoritative, and any other
   // double-claim is a loud throw rather than a silent last-writer-wins overwrite.
-  const reserved = reservedTags(combined.tagPrefix);
+  const reserved = reservedSurfaceTags(combined.tagPrefix);
   const handlers = emptyHandlers();
   for (const [tag, handler] of Object.entries(ext.handlers)) {
     handlers[tag] = handler;

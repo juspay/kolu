@@ -357,6 +357,56 @@ export interface SurfaceFace {
   readonly surface: Record<string, Record<string, unknown>>;
 }
 
+/** The structural shape of a served-surface client a PROJECTING FACE needs.
+ *  The concrete client is what {@link buildSurfaceFace} mints (a wire link's
+ *  face, the Solid client's `.rpc`, a `directDispatch`) —
+ *  `.surface.<key>.<verb>(...)`, where a streaming verb returns a `Stream` and a
+ *  unary one an `Effect`. Both are lazy: nothing dispatches until the face runs
+ *  the value it was handed.
+ *
+ *  A loosening of {@link SurfaceFace} rather than a reuse of it, because a face
+ *  string-indexes then *calls* the leaves (`client.surface[key].get(...)`),
+ *  which `SurfaceFace`'s `unknown` leaves forbid; and re-materializing the
+ *  precise `SurfaceClientOf<S>` overflows TS's union budget (the TS2590 dodge).
+ *  Hence a callable-leaved structural shape: permissive enough that a concrete
+ *  `SurfaceClientOf<S>` assigns without a cast, yet callable at the leaf.
+ *
+ *  It lives HERE, beside the `SurfaceFace` it loosens and the builder that MINTS
+ *  the value it describes, rather than in whichever face read it first — and it
+ *  is the framework's rather than either adapter's because both adapters need
+ *  exactly it, and a second structural spelling of one shape is a place two
+ *  faces can disagree about what a client is. */
+export type SurfaceClientCallable = {
+  // biome-ignore lint/suspicious/noExplicitAny: the per-key call shape is the consumer's typed client; opaque here.
+  surface: Record<string, Record<string, (...args: any[]) => any>>;
+};
+
+/** A live connection a projecting face OWNS for some span — the client plus the
+ *  release the face is responsible for.
+ *
+ *  Both faces hold exactly this; they differ only in the SPAN (one command for a
+ *  CLI, a subscription's lifetime for MCP) and in whether they can use
+ *  `onClose`. One shape, so a host can write ONE factory that feeds both faces —
+ *  which is the thing the shared verb table and the shared expose map exist to
+ *  make possible, and which two independent spellings whose `dispose` return
+ *  types had silently diverged had already taken away. */
+export interface OwnedSurfaceConnection<Client = SurfaceClientCallable> {
+  client: Client;
+  /** Release whatever the factory opened. May be async: a socket close is a
+   *  promise on one face and a no-op on the other. */
+  dispose: () => void | Promise<void>;
+  /** Subscribe to this connection's transport dropping — the served daemon
+   *  exited, or its socket closed. Fires at most once.
+   *
+   *  OPTIONAL because it is a property of the TRANSPORT, not of the factory: an
+   *  in-process dispatch has no transport to drop, so it has no honest value to
+   *  supply — and a face that never redials (a CLI dials, does one thing and
+   *  exits) has no use for one. It is NOT a knob: a factory that CAN reach its
+   *  close must supply it, and what an absent hook costs the MCP face is spelled
+   *  out on that face's own alias. */
+  onClose?: (cb: () => void) => void;
+}
+
 /** Decode an ENCODED argument at the face edge, or pass a DECODED one through.
  *  `undefined` schema ⇒ the member declares no payload (`Schema.Void`), so the
  *  dispatch payload is `undefined`. */

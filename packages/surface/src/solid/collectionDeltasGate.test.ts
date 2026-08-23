@@ -18,13 +18,10 @@ import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { type CollectionDeltasMsg, defineSurface } from "../define";
 import type { SurfaceDispatch } from "../link";
+import { controllableStream } from "./controllableStream.testlib";
+import { settle } from "./deltasHarness.testlib";
 import { surfaceClient } from "./surfaceClient";
 import { useCollectionDeltas } from "./useCollection";
-
-const settle = async (): Promise<void> => {
-  await new Promise((r) => setTimeout(r, 0));
-  await new Promise((r) => setTimeout(r, 0));
-};
 
 const surface = defineSurface({
   collections: {
@@ -76,44 +73,12 @@ function answersAnyTagDispatch(): SurfaceDispatch {
   };
 }
 
-/** A controllable snapshot-then-delta source: each `push` feeds one frame to the
- *  single batched stream `useCollectionDeltas` folds, so the test can observe the
- *  `byKey` contract step by step. The stream never completes (mirrors a live
- *  stream); the createRoot dispose interrupts its fiber and tears it down. */
-function pushableFrames<T>() {
-  const queue: T[] = [];
-  let wake: (() => void) | null = null;
-  const iterable: AsyncIterable<T> = {
-    [Symbol.asyncIterator]() {
-      return {
-        async next(): Promise<IteratorResult<T>> {
-          while (queue.length === 0) {
-            await new Promise<void>((r) => {
-              wake = r;
-            });
-          }
-          return { value: queue.shift() as T, done: false };
-        },
-      };
-    },
-  };
-  return {
-    // `useCollectionDeltas` now takes the STREAM itself (lazy), not a thunk that
-    // resolves an async iterable.
-    source: Stream.fromAsyncIterable<T, unknown>(iterable, (e) => e),
-    push(frame: T) {
-      queue.push(frame);
-      wake?.();
-      wake = null;
-    },
-  };
-}
-
 describe("collection deltas — byKey contract over the single batched stream", () => {
   it("byKey reads value/absent/removed like the per-key path, with collection-wide error()/pending()", async () => {
     type V = { v: number };
     await createRoot(async (dispose) => {
-      const { source, push } = pushableFrames<CollectionDeltasMsg<string, V>>();
+      const { source, push } =
+        controllableStream<CollectionDeltasMsg<string, V>>();
       const view = useCollectionDeltas<"batched", string, V>(
         // biome-ignore lint/suspicious/noExplicitAny: descriptor is a runtime type-discriminator only
         (surface.descriptors.collections as any).batched,
@@ -172,64 +137,6 @@ describe("collection deltas — opt-in gate reads the spec, not the transport", 
     });
   });
 });
-
-/** A controllable async-iterable source, for driving a REAL upstream fault through the
- *  exact `createSubscription` catch path a live stream error takes (as opposed to just
- *  asserting on a thrown-or-not registration call): `push` delivers a frame to any
- *  pending `next()` (or queues it for the next call); `fail` rejects the next `next()`
- *  (or the currently-pending one) with the given error. Mirrors a real stream in that an
- *  errored iterator never restarts — `createSubscription`'s consumption loop exits for
- *  good once `next()` rejects once. */
-function controllableStream<T>() {
-  const queue: T[] = [];
-  let waiter: {
-    resolve: (r: IteratorResult<T>) => void;
-    reject: (e: unknown) => void;
-  } | null = null;
-  let pendingFailure: { e: unknown } | undefined;
-
-  const iterable: AsyncIterable<T> = {
-    [Symbol.asyncIterator]() {
-      return {
-        next(): Promise<IteratorResult<T>> {
-          if (pendingFailure) {
-            const { e } = pendingFailure;
-            pendingFailure = undefined;
-            return Promise.reject(e);
-          }
-          if (queue.length > 0) {
-            return Promise.resolve({ value: queue.shift() as T, done: false });
-          }
-          return new Promise<IteratorResult<T>>((resolve, reject) => {
-            waiter = { resolve, reject };
-          });
-        },
-      };
-    },
-  };
-
-  return {
-    source: Stream.fromAsyncIterable<T, unknown>(iterable, (e) => e),
-    push(v: T) {
-      if (waiter) {
-        const w = waiter;
-        waiter = null;
-        w.resolve({ value: v, done: false });
-      } else {
-        queue.push(v);
-      }
-    },
-    fail(e: unknown) {
-      if (waiter) {
-        const w = waiter;
-        waiter = null;
-        w.reject(e);
-      } else {
-        pendingFailure = { e };
-      }
-    },
-  };
-}
 
 /** A `plain`-collection DISPATCH whose `keys` stream and each per-key `get` stream
  *  are independently controllable — lets a test drive a real collection-level error

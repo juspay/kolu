@@ -82,6 +82,16 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     why: "Padi's serving socket; the binder dials it and must name a contract skew.",
   },
   {
+    id: "padi-agent-tools-bake",
+    pathShape: "$XDG_RUNTIME_DIR/padi-<digest>/agent-tools-bake",
+    role: "manifest",
+    coveredByTest: "padi/agentToolsBakeRecord.test.ts",
+    versionField: null,
+    diskBasenames: ["agent-tools-bake"],
+    diskBasenamePatterns: [],
+    why: "The toolchain bake the running daemon stamps into terminals, recorded so a same-machine supervisor of a newer build can see toolchain drift and recycle the daemon (#2146). Absent (an older daemon) → no drift verdict; the build-mismatch drain covers that window because the build introducing the record changed padi's source closure.",
+  },
+  {
     id: "padi-state-root-config",
     pathShape: "<stateRoot>/config.json",
     role: "config",
@@ -91,6 +101,22 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     diskBasenames: ["config.json"],
     diskBasenamePatterns: [],
     why: "Padi's persistent store: session + activityFeed + lastPairedDaemon. Survives deploys; old shape must restore or refuse by name.",
+  },
+  {
+    id: "padi-state-backup-ring",
+    pathShape: "<stateRoot>/backups/config.<fs-safe UTC stamp>.json",
+    role: "config",
+    coveredByTest: "padi/sharedArtifacts.watchdog.test.ts",
+    versionField:
+      "__internal__.migrations.version (each member is a byte-copy of config.json)",
+    versionDisposition: "inert-to-boot-restore-refuses",
+    diskBasenames: [],
+    // The ring's member-name grammar (kolu-shared/state-backup): base derived
+    // from the state file, fs-safe UTC stamp, optional same-millisecond bump.
+    diskBasenamePatterns: [
+      /(^|\/)backups\/config\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(?:-\d+)?\.json$/,
+    ],
+    why: "The #1658 backup ring: boot-time (and daily) snapshots of config.json under backups/. Never read by any boot path (a version+1 member gates nothing); read only by the explicit backups.list/restore RPCs, whose restore decodes the payload fail-fast and refuses what does not decode.",
   },
   {
     id: "padi-session-blob",

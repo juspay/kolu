@@ -12,7 +12,6 @@
 
 import Dialog from "@corvu/dialog";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { encodeHostKey } from "kolu-common/hostKey";
 import {
   type Accessor,
   type Component,
@@ -32,6 +31,8 @@ import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
 import { notePointerMove, type PointerPos } from "./palette/pointerHoverGate";
 import {
+  type CurrentSelection,
+  defaultSelectionIndex,
   filterAndRankPaletteItems,
   itemKind,
   type ResultKind,
@@ -42,7 +43,7 @@ import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
 import RepoMonogram from "./ui/RepoMonogram";
 import { useViewState } from "./useViewState";
-import { activeHost } from "./wire";
+import { encActiveHost } from "./wire";
 
 /** Top-level sections, in render order. Items tagged with a section are
  *  grouped under a sticky header at the root level; untagged items
@@ -274,7 +275,6 @@ const CommandPalette: Component<{
     for (const g of p.slice(valid.length)) g.onCancel?.();
     setPath(valid);
     setQuery("");
-    setSelectedIndex(0);
   });
 
   /** Items at the current navigation level (may include hints).
@@ -318,6 +318,15 @@ const CommandPalette: Component<{
     if (last?.kind === "value") return { kind: "value", leaf: last };
     return { kind: "filter" };
   });
+
+  /** The query AS A FILTER — `""` throughout value mode, where the input holds
+   *  a value the user is composing rather than a narrowing term. Named once so
+   *  the default-highlight effect can key on "did the filter move?" directly,
+   *  instead of re-deriving that distinction from a positional comparison of
+   *  its own dependency tuple. */
+  const filterQuery = createMemo(() =>
+    mode().kind === "filter" ? query() : "",
+  );
 
   /** Validation error for the current value-input query. `null` outside
    *  value mode or when the value passes. */
@@ -410,6 +419,17 @@ const CommandPalette: Component<{
     return out;
   }
 
+  /** Where the user already is. Read by the empty-root Recent exclusion below
+   *  and by the default-highlight rule under it, which are the same idea
+   *  (never offer "go where you already are") applied at two levels — so both
+   *  take this one value rather than two shapes of it. The host key comes off
+   *  `encActiveHost`, the ONE memo every surface that keys on the active host
+   *  reads, not a re-derived `encodeHostKey(activeHost())` thunk. */
+  const currentSelection = (): CurrentSelection => ({
+    hostKey: encActiveHost(),
+    terminalId: view.activeId(),
+  });
+
   /** Interactive rows at the current level (filter is bypassed in
    *  value mode). Filter mode produces `PaletteCommand[]`;
    *  value mode produces `PaletteLabel[]`.
@@ -443,15 +463,13 @@ const CommandPalette: Component<{
       ...cmd,
       sectionOrder: sectionIndex(cmd.section) * 1000 + i,
     }));
-    const activeId = view.activeId();
-    const excludeFromRecent =
-      atRoot && activeId !== null
-        ? { hostKey: encodeHostKey(activeHost()), terminalId: activeId }
-        : null;
+    // No `atRoot ?` gate on `current`: the ranker already returns early for a
+    // drilled-in level, so re-stating that condition here would only teach the
+    // call site the callee's own gating.
     return filterAndRankPaletteItems(stamped, {
       query: q,
       atRoot,
-      excludeFromRecent,
+      current: currentSelection(),
     });
   });
 
@@ -566,7 +584,6 @@ const CommandPalette: Component<{
     setPath((p) => [...p, cmd]);
     if (cmd.kind === "value") setQuery(cmd.prefill());
     else setQuery("");
-    setSelectedIndex(0);
     // Drill-ins always re-focus the input — Enter / click on a drillable
     // row may have left focus on the row's div (click steals focus from
     // the input, Enter on a div option doesn't restore it), so the user
@@ -597,7 +614,6 @@ const CommandPalette: Component<{
     for (const g of p.slice(depth)) g.onCancel?.();
     setPath(p.slice(0, depth));
     setQuery("");
-    setSelectedIndex(0);
   }
 
   /** From Terminals browse, drill into a named host group (breadcrumb or
@@ -616,7 +632,6 @@ const CommandPalette: Component<{
     if (!hostGroup) return;
     setPath([terminals, hostGroup]);
     setQuery("");
-    setSelectedIndex(0);
     requestAnimationFrame(() => inputRef.focus());
   }
 
@@ -638,7 +653,6 @@ const CommandPalette: Component<{
     }
     setPath(built);
     setQuery("");
-    setSelectedIndex(0);
     const leaf = built.at(-1);
     requestAnimationFrame(() =>
       leaf?.kind === "value" ? inputRef.select() : inputRef.focus(),
@@ -750,7 +764,6 @@ const CommandPalette: Component<{
       ([isOpen, pathKey]) => {
         if (isOpen) {
           setQuery("");
-          setSelectedIndex(0);
           setAmbientTip(peekAmbientTipText());
           setMouseActive(false);
           lastPointerPos = null;
@@ -760,6 +773,8 @@ const CommandPalette: Component<{
           if (names.length > 0) {
             // Exact path only — no prefix fallback (a missing host must not
             // open the broader Terminals list as if the deep-link succeeded).
+            // A rejected path leaves the root list showing; the highlight
+            // effect below lands on whichever path this run settles at.
             if (!applyInitialPath(names)) {
               requestAnimationFrame(() =>
                 requestAnimationFrame(() => inputRef.focus()),
@@ -792,19 +807,45 @@ const CommandPalette: Component<{
     ),
   );
 
-  // Reset selection when the user types (defer: skip initial run).
-  // Intentionally tracks `query`, not `filtered` — filtered returns a new array
-  // reference on every recomputation, so tracking it would reset the index whenever
-  // upstream data (commands memo) recomputes in the background.
+  // THE default-highlight rule, applied reactively: whenever the SCOPE changes
+  // (open, drill-in, drill-out, path repair, deep-link, typed query) the list is
+  // freshly painted and the highlight re-lands. One rule, zero call sites — a
+  // future `setPath` cannot forget to follow it up, and reading `filtered()`
+  // here is guaranteed post-write rather than relying on read-after-write
+  // ordering at eight hand-held sites.
+  //
+  // Registered AFTER the open/close lifecycle effect above so it observes the
+  // FINAL `path` of an `applyInitialPath` run, not the intermediate one.
+  //
+  // `currentSelection` is a dep, not just a read: `on()` runs its callback
+  // untracked, and the "current" row CAN move while the palette stays open —
+  // Ctrl+Tab reaches the global dispatcher as well as this component, and the
+  // host-membership reconcile can bounce the canvas to local on its own. Both
+  // re-derive `filtered()` (the Recent band drops a different row), so a
+  // highlight left behind would point at a row that shifted under it, and Enter
+  // would run the wrong one. Tracking the fact re-lands the highlight instead.
+  //
+  // Still NOT keyed on `filtered` itself — that returns a new array reference on
+  // every recomputation, so tracking it would reset the index whenever upstream
+  // data (the commands memo) recomputes in the background.
   createEffect(
     on(
-      query,
-      () => {
-        // Skip in value mode: query is a value, not a filter.
-        if (mode().kind === "value") return;
-        setSelectedIndex(0);
+      [path, filterQuery, () => props.open, currentSelection],
+      ([, , open]) => {
+        if (!open) return;
+        // A value leaf's children are passive labels, not a switcher: nothing
+        // there has a recency or a "current" row, so the highlight starts at the
+        // top. Keying on `filterQuery` (which is "" throughout value mode) is
+        // what keeps a keystroke from re-landing it off the label you picked,
+        // while a SCOPE change still does.
+        if (mode().kind === "value") {
+          setSelectedIndex(0);
+          return;
+        }
+        setSelectedIndex(
+          defaultSelectionIndex(filtered(), currentSelection(), query()),
+        );
       },
-      { defer: true },
     ),
   );
 
@@ -844,9 +885,10 @@ const CommandPalette: Component<{
 
   // Auto-scroll the highlighted row into view. One effect outside <For>:
   // the per-row JSX sets data-selected on the matching row; this effect
-  // queries it. Filter changes already reset selectedIndex to 0 (see the
-  // selection-reset effect above), so the top item is structurally in
-  // view — no need to re-scroll on `filtered()` changes.
+  // queries it. Tracks `selectedIndex` and `props.open`, which together cover
+  // every way a fresh list lands its highlight (the effect above) — including
+  // an open whose default row is not the first one — so there is no need to
+  // re-scroll on `filtered()` reference churn.
   createEffect(() => {
     selectedIndex();
     if (!props.open) return;

@@ -35,38 +35,52 @@ export type DaemonScan =
    *  copy names the real reason. */
   | { kind: "failed"; cause: EntryFailedCause }
   /** The active host is not a padi-map member — no bound padi to scan at all. */
-  | { kind: "no-host" };
+  | { kind: "no-host" }
+  /** THIS browser cannot reach kolu, so the entry carries no current word about the host
+   *  (`@kolu/surface-map`'s `unobservable`). Its own arm rather than a reuse of `connecting`:
+   *  that arm's copy says "padi is connecting", which is a claim about a dial campaign we are
+   *  not in a position to observe. The two look alike on screen and are opposite in what they
+   *  assert — which is the whole reason the entry union stopped spelling them the same way. */
+  | { kind: "unobservable" };
 
 /** Fold the host's typed entry state (+ whether a real inventory frame has landed) into
- *  the honest {@link DaemonScan} cause. TOTAL over the four `EntryState` kinds via
+ *  the honest {@link DaemonScan} cause. TOTAL over every `EntryState` kind via
  *  `.exhaustive()`, so a future entry kind can't silently fall through to a misleading
  *  reason. `bindLive` is the canonical bind-liveness fact (browser transport ∧ the active
  *  entry's own connection, `daemonChannelLive`). It refines the `connected` arm into three
  *  HONEST causes — never one guessed "too old": a dead bind is `connecting` (the transport
  *  dropped, reading stale), a live bind with no frame is `no-frame` (old / first frame
- *  pending), and only a live bind WITH a frame is `live`. The `failed`/`warming` causes
- *  stand on the entry's own kind. */
+ *  pending), and only a live bind WITH a frame is `live`. The
+ *  `failed`/`warming`/`unobservable` causes stand on the entry's own kind. */
 export function daemonScanCause(
   entry: PadiEntry,
   { bindLive, framePresent }: { bindLive: boolean; framePresent: boolean },
 ): DaemonScan {
-  return match(entry)
-    .with({ kind: "connected" }, () => {
-      // A `connected` entry whose bind is not live means the browser↔server transport
-      // dropped (connected ⟹ the entry leg is up, so `bindLive` tracks the transport) —
-      // the reading is stale and re-establishing, honestly `connecting`, NOT "too old".
-      if (!bindLive) return { kind: "connecting" } as const;
-      // Live bind, but no self-padi frame yet: old padi or first-frame pending.
-      if (!framePresent) return { kind: "no-frame" } as const;
-      return { kind: "live" } as const;
-    })
-    .with({ kind: "warming" }, () => ({ kind: "connecting" }) as const)
-    .with(
-      { kind: "failed" },
-      (e) => ({ kind: "failed", cause: e.failure.cause }) as const,
-    )
-    .with({ kind: "not-a-member" }, () => ({ kind: "no-host" }) as const)
-    .exhaustive();
+  return (
+    match(entry)
+      .with({ kind: "connected" }, () => {
+        // A `connected` entry whose bind is not live means the browser↔server transport
+        // dropped (connected ⟹ the entry leg is up, so `bindLive` tracks the transport) —
+        // the reading is stale and re-establishing, honestly `connecting`, NOT "too old".
+        if (!bindLive) return { kind: "connecting" } as const;
+        // Live bind, but no self-padi frame yet: old padi or first-frame pending.
+        if (!framePresent) return { kind: "no-frame" } as const;
+        return { kind: "live" } as const;
+      })
+      .with({ kind: "warming" }, () => ({ kind: "connecting" }) as const)
+      // Blind: pass the entry's own arm straight through rather than folding it into
+      // `connecting`. The `connected`-arm refinement above already spends `connecting` on a
+      // dropped browser↔server transport — but there it is a REFINEMENT of a published
+      // `connected`, i.e. "padi told us it was up and our reading is stale". Here we have no
+      // published word at all, and saying "padi is connecting" would invent one.
+      .with({ kind: "unobservable" }, () => ({ kind: "unobservable" }) as const)
+      .with(
+        { kind: "failed" },
+        (e) => ({ kind: "failed", cause: e.failure.cause }) as const,
+      )
+      .with({ kind: "not-a-member" }, () => ({ kind: "no-host" }) as const)
+      .exhaustive()
+  );
 }
 
 /** The honest "scan unavailable" line for a NON-live {@link DaemonScan} — a total fold, so
@@ -93,6 +107,10 @@ export function scanUnavailableText(
     .with(
       { kind: "no-host" },
       () => "Daemon scan unavailable — no padi is bound to this host.",
+    )
+    .with(
+      { kind: "unobservable" },
+      () => "Daemon scan unavailable — this tab can't reach kolu right now.",
     )
     .exhaustive();
 }

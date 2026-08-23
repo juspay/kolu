@@ -249,7 +249,7 @@ describe("viewerAddressOf", () => {
   });
 });
 
-describe("the forwarded header, in either shape a node request carries it", () => {
+describe("the forwarded header, in either shape a caller can hand it", () => {
   it("takes a single header", () => {
     expect(
       viewerAddressOf({
@@ -261,12 +261,13 @@ describe("the forwarded header, in either shape a node request carries it", () =
   });
 
   it("reads a REPEATED header in arrival order", () => {
-    // Node hands a repeated header over as an array, and a proxy chain
-    // legitimately produces one. Reading it in order is what keeps "the last
-    // entry is the closest hop" true whichever shape it arrived in — reversing
-    // or picking the first would silently invert the trust rule. The consumer
-    // does not join it first: that normalisation is inside the gate, so no
-    // entry point can get it wrong on its way here.
+    // A caller may already have the hops as a list. Reading it in order is
+    // what keeps "the last entry is the closest hop" true whichever shape it
+    // arrived in — reversing or picking the first would silently invert the
+    // trust rule. The consumer does not join it first: that normalisation is
+    // inside the gate, so no entry point can get it wrong on its way here.
+    // (Node itself does not produce this array for `x-forwarded-for` — it
+    // folds a repeated header into one string.)
     expect(
       viewerAddressOf({
         peerAddress: HOST_OWN,

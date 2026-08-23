@@ -18,37 +18,43 @@
  * and every test reaps the padi AND the detached kaval it spawned.
  */
 
-import { Effect } from "effect";
 import { type ChildProcess, spawn } from "node:child_process";
-import type { TerminalAttachFrame } from "./endpoint.ts";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+  PADI_DIAL_RT_PREFIX,
+  PADI_DIAL_SR_PREFIX,
+} from "@kolu/daemon-test-gate";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { awaitStdioReadiness } from "@kolu/surface/links/readiness";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
+import { isHolderLive } from "@kolu/surface-daemon";
 import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
-import { Stream } from "effect";
-import {
-  assertDaemonSpawnAllowed,
-  describeDaemon,
-} from "@kolu/daemon-test-gate";
+import { Effect, Stream } from "effect";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { probeKavalStatus } from "./hostInventory.ts";
 import {
   assertPadiSurfaceCompatible,
   type PadiDaemonClient,
   padiClientOver,
 } from "./dial.ts";
+import type { TerminalAttachFrame } from "./endpoint.ts";
+import { probeKavalStatus } from "./hostInventory.ts";
 import {
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
 } from "./stateRoot.ts";
-import { PADI_SURFACE_VERSION, padiDaemonGroup } from "./surface.ts";
+import {
+  PADI_SURFACE_VERSION,
+  padiDaemonGroup,
+  TOPLEVEL_PLACEMENT,
+} from "./surface.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 // Kept in step with the `padi` bin `package.json` declares — #2000 moved the
@@ -63,13 +69,14 @@ const TSX_LOADER = pathToFileURL(
 // Isolate every padi in this file under ONE temp runtime root, so a distinct
 // state-root (→ distinct digest) is the ONLY thing separating two padis — the
 // exact #1313 property under test. Saved + restored so the change is file-local.
-const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), "padi-dial-rt-"));
+const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), PADI_DIAL_RT_PREFIX));
 const priorXdg = process.env.XDG_RUNTIME_DIR;
 beforeAll(() => {
   process.env.XDG_RUNTIME_DIR = RUNTIME_ROOT;
 });
 afterAll(() => {
   process.env.XDG_RUNTIME_DIR = priorXdg;
+  rmSync(RUNTIME_ROOT, { recursive: true, force: true });
 });
 
 const sleep = (ms: number): Promise<void> =>
@@ -221,7 +228,7 @@ afterEach(async () => {
 });
 
 const makeStateRoot = (): string =>
-  mkdtempSync(join(tmpdir(), "padi-dial-sr-"));
+  mkdtempSync(join(tmpdir(), PADI_DIAL_SR_PREFIX));
 
 /** A `padi --stdio` FRONT child: its piped stdio IS the wire (the ssh transport,
  *  minus ssh), fronting a durable padi daemon it spawned at `stateRoot`. Distinct
@@ -372,6 +379,7 @@ describeDaemon("padi the process — dial acceptance", () => {
 
     const { id } = await Effect.runPromise(
       conn.client.padi.surface.lifecycle.create({
+        placement: TOPLEVEL_PLACEMENT,
         cwd: makeStateRoot(),
       }),
     );
@@ -429,6 +437,7 @@ describeDaemon("padi the process — dial acceptance", () => {
 
     const { id } = await Effect.runPromise(
       connA.client.padi.surface.lifecycle.create({
+        placement: TOPLEVEL_PLACEMENT,
         cwd: makeStateRoot(),
       }),
     );
@@ -540,6 +549,68 @@ describeDaemon("padi the process — dial acceptance", () => {
         sentinel.kill("SIGKILL");
       } catch {
         // Already gone.
+      }
+    }
+  }, 60000);
+
+  it("reaps a SIGSTOP'd kaval after the bound run pid dies — TERM is not enough (#2178)", async () => {
+    // The in-process poll + SIGTERM handler live on kaval's event loop. A
+    // comatose kaval (SIGSTOP here; fd exhaustion in the field) can neither
+    // poll the bind pid nor honour SIGTERM — TERM left all five petit
+    // orphans up; KILL reaped them. The sibling watchdog must still fell it.
+    const sentinel = spawn(
+      process.execPath,
+      ["-e", "setTimeout(() => {}, 600000)"],
+      { stdio: "ignore" },
+    );
+    if (sentinel.pid === undefined) throw new Error("sentinel failed to start");
+    let kavalPid: number | undefined;
+    try {
+      const stateRoot = makeStateRoot();
+      const p = spawnPadi(stateRoot, sentinel.pid);
+      await waitForPadi(p.socketPath);
+      const kavalGate = join(dirname(p.kavalSocket), "kaval.pid");
+      await waitUntil(
+        () => gatePid(kavalGate) !== undefined,
+        15000,
+        "kaval never came up under the bound padi",
+      );
+      kavalPid = gatePid(kavalGate);
+      if (kavalPid === undefined) throw new Error("no kaval pid to wedge");
+      expect(isHolderLive(kavalPid)).toBe(true);
+
+      process.kill(kavalPid, "SIGSTOP");
+      // Reproduce the field: SIGTERM is a no-op while the process is stopped.
+      process.kill(kavalPid, "SIGTERM");
+      await sleep(400);
+      expect(
+        isHolderLive(kavalPid),
+        "SIGTERM must not reap a stopped kaval",
+      ).toBe(true);
+
+      sentinel.kill("SIGKILL");
+      await waitUntil(
+        () => kavalPid !== undefined && !isHolderLive(kavalPid),
+        15000,
+        "wedged kaval survived the bound run pid dying — #2178, SIGKILL never landed",
+      );
+    } finally {
+      try {
+        sentinel.kill("SIGKILL");
+      } catch {
+        // Already gone.
+      }
+      if (kavalPid !== undefined) {
+        try {
+          process.kill(kavalPid, "SIGCONT");
+        } catch {
+          // Already reaped — the happy path.
+        }
+        try {
+          process.kill(kavalPid, "SIGKILL");
+        } catch {
+          // Already gone.
+        }
       }
     }
   }, 60000);
@@ -666,6 +737,7 @@ describeDaemon(
 
       const { id } = await Effect.runPromise(
         client.padi.surface.lifecycle.create({
+          placement: TOPLEVEL_PLACEMENT,
           cwd: makeStateRoot(),
         }),
       );
@@ -715,6 +787,7 @@ describeDaemon(
       const { client: client1 } = await stdioClient(front1);
       const { id } = await Effect.runPromise(
         client1.padi.surface.lifecycle.create({
+          placement: TOPLEVEL_PLACEMENT,
           cwd: makeStateRoot(),
         }),
       );

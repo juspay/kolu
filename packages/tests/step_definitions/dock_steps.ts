@@ -16,6 +16,7 @@ const QUIET_FOREGROUND_SELECTOR = '[data-testid="dock-quiet-foreground"]';
 const CHROME_DOCK_TOGGLE_SELECTOR = '[data-testid="dock-toggle"]';
 const DOCK_WINDOW_TRIGGER_SELECTOR = '[data-testid="dock-window-trigger"]';
 const HIDDEN_FOOTER_SELECTOR = '[data-testid="dock-hidden-footer"]';
+const NEEDS_YOU_ENTRY_SELECTOR = '[data-testid="dock-needs-you-entry"]';
 
 Then("the dock should be visible", async function (this: KoluWorld) {
   await this.page
@@ -71,6 +72,18 @@ Then(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
       { selector: WORKING_ROW_SELECTOR, count: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the dock needs-you strip should show {int} entry/entries",
+  async function (this: KoluWorld, expected: number) {
+    await this.page.waitForFunction(
+      ({ selector, count }) =>
+        document.querySelectorAll(selector).length === count,
+      { selector: NEEDS_YOU_ENTRY_SELECTOR, count: expected },
       { timeout: POLL_TIMEOUT },
     );
   },

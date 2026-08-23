@@ -23,7 +23,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 | **kolu** (`client`+`server`) | one browser ⇄ one Node server, ONE ws | single-tier; two sibling surfaces; uses `surface`+`surface-app` only (**not** `-remote`) |
 | **drishti** (`srid/drishti`) | browser ⇄ Node ⇄ ssh agent mirror | the canonical twin; 3 workspaces (common/agent/app) |
 | **odu** (`juspay/odu`) | CI runner: stdio lanes → unix-socket fan-in → CLI/MCP | serve+consume+mirror over every transport at once; `surface-mcp` projection |
-| **padi-tui / kaval-tui** | one-shot CLI/TUI, no browser | transport-blind `{client,dispose}`; unix-socket local, ssh remote; **no `.use()` hooks** |
+| **kolu-cli** (`kolu ls/create/send/wait/…`) | one-shot CLI verbs, no browser | the primary CLI consumer: a PURE padi client — transport-blind `{client,dispose}`, unix-socket local, ssh remote (`--host`); **no `.use()` hooks**. `padi-tui`/`kaval-tui` are the same shape, retiring |
 
 ## The spine (real import paths)
 
@@ -34,7 +34,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 
 ## Links (transport, swappable)
 
-`websocketLink(ws)` (`/links/websocket`) · `stdioLink` (`/links/stdio`) · `unixSocketLink({socketPath})` (`/links/unix-socket`) · `directLink(router)` (`/links/direct`, in-process identity, for tests). Serve side: `serveOverStdio` (`/peer-server`), `serveOverUnixSocket` (`/unix-socket`), and `@kolu/surface-app`'s `acceptSurfaceSocket` + `serveSurfaceSocket` (an Effect `RpcServer` hand-wired behind the accepted `ws`, so the stale-tab gate and the reaper stay in front of dispatch) for browsers. CLIs keep ONE transport-blind `Connection = {client, dispose}` so every command is written once across local vs ssh.
+`websocketLink(ws)` (`/links/websocket`) · `stdioLink` (`/links/stdio`) · `unixSocketLink({socketPath})` (`/links/unix-socket`) · `directLink(router)` (`/links/direct`, in-process identity, for tests). Serve side: `serveOverStdio` (`/peer-server`), `serveOverUnixSocket` (`/unix-socket`), and for browsers **`serveSurfaceApp`** (`@kolu/surface-app/serve`) — **don't hand-roll a listener**: it owns the whole order (origin gate → upgrade → stale-tab check → heartbeat enrolment → serve) plus the shell layers, the bind and the scope-registered teardown, and it reads the inbound frame cap from `RPC_MAX_FRAME_BYTES` so a consumer cannot undercut the wire. TLS (`tls`), an HTTP `middleware`, an app's own `routes` and a dist-less dev shell (`clientDist` is optional) are all options — kolu's own listener rides it. Reach past it to the granular `acceptSurfaceSocket` + `serveSurfaceSocket` only when the app picks WHICH runtime serves each upgrade — `?host=` per-host dispatch (drishti), the one decision the accept seam leaves at the call site. CLIs keep ONE transport-blind `Connection = {client, dispose}` so every command is written once across local vs ssh. `serveSurfaceApp` and `serveOverUnixSocket` take an optional per-face `expose` (`@kolu/surface/expose`: `exposeFace(surface, map)` / `exposeFaces` for a bundle, the same `ExposeMap` `serveSurfaceAsMcp` takes and the same `classifyExpose` grammar), so a verb can be reachable over the unix socket and not to browsers. WHICH faces take a map, which gate themselves, and what a key grants are stated once — in that module's header. Read it there rather than from memory.
 
 ## Mirror a remote surface (drishti / pulam-web / odu)
 

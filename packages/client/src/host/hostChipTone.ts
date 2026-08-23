@@ -40,7 +40,7 @@ export function hostDisplayName(
 }
 
 /** One glance fold of entry state — strip + detail + labels co-defined so a
- *  fifth kind cannot update one projection and leave another lying. */
+ *  further kind cannot update one projection and leave another lying. */
 export type HostGlance = {
   /** Exception-only strip pip class, or null when healthy (paint nothing). */
   stripDot: string | null;
@@ -58,7 +58,7 @@ export type HostGlance = {
 
 const STRIKE = " line-through decoration-red-400/80 decoration-1";
 
-/** Exhaustive kind→glance table. A fifth kind is a compile error here. */
+/** Exhaustive kind→glance table. A further kind is a compile error here. */
 const GLANCE: Record<
   EntryState["kind"],
   Omit<HostGlance, "title"> & {
@@ -89,6 +89,26 @@ const GLANCE: Record<
     title: (s) =>
       s.kind === "failed" ? `failed: ${s.failure.reason}` : "failed",
     labelDecoration: STRIKE,
+  },
+  // BLIND — this browser cannot reach kolu, so the map floored the entry off whatever it
+  // last published (`@kolu/surface-map`'s `unobservable`). Everything here is chosen to make
+  // NO claim about the host: a muted (never amber) pip, because amber is this vocabulary's
+  // word for "coming up" and we do not know that; `down: false` and no strike, because red +
+  // strike means "unreachable" and the host is very often perfectly fine — it is our socket
+  // that died; and a `short` of "unknown", the one word that says we did not look rather than
+  // that we looked and saw nothing. It PULSES, because the situation is transient and about to
+  // resolve one way or the other. The title names the last thing we heard, which is the single
+  // most useful fact a user staring at a stale tab can be given.
+  unobservable: {
+    stripDot: "bg-fg-3/40 animate-pulse motion-reduce:animate-none",
+    detailDot: "bg-fg-3/40",
+    down: false,
+    short: "unknown",
+    title: (s) =>
+      s.kind === "unobservable"
+        ? `status unknown — kolu is unreachable from this tab (last seen: ${s.published})`
+        : "status unknown",
+    labelDecoration: "",
   },
   "not-a-member": {
     stripDot: "bg-fg-3/40",
@@ -162,9 +182,12 @@ export function kavalChainOf(presence: KavalPresence): KavalChain {
  * The policy, and the reasons for each half:
  *
  *  - The kaval verdict is composed **only onto a `connected` entry.** On
- *    `warming`/`failed`/`not-a-member` the entry's own tone is already the whole
- *    truth, and the kaval verdict reaching us through THAT entry is by definition
- *    stale — a host we cannot reach cannot tell us about its daemon.
+ *    `warming`/`failed`/`unobservable`/`not-a-member` the entry's own tone is already the
+ *    whole truth, and the kaval verdict reaching us through THAT entry is by definition
+ *    stale — a host we cannot reach cannot tell us about its daemon. `unobservable` is the
+ *    starkest case and the one that makes the rule obviously right rather than merely
+ *    conservative: the channel that would carry a kaval verdict is the very channel that
+ *    is down.
  *  - `serving` and `unknown` leave the entry's own row untouched. "We know it is
  *    fine" and "we know nothing" must not be spelled the same way, and the way to
  *    spell "we know nothing" is to make no additional claim, not to invent one.

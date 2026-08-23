@@ -5,24 +5,65 @@
  * surface is small and default-deny: declare what an agent may touch via
  * `expose` (+ optional bespoke `tools`), hand it a live-surface `client`
  * factory, and `serveSurfaceAsMcp` builds the low-level MCP `Server` — the
- * subscribe/teardown lifecycle, the Effect Schema→JSON-Schema bridge, and the
- * resource/tool wiring are the package's.
+ * subscribe/teardown lifecycle and the resource/tool wiring are the package's;
+ * the verb record, the flat name and the Schema→JSON-Schema bridge are the
+ * framework's (`@kolu/surface/verbs`), shared with the CLI face.
  */
 
+// `ExposeMap` / `ToolExposure` are deliberately NOT re-exported here: the map
+// shape is the framework's shared vocabulary and has ONE home,
+// `@kolu/surface/expose`, which every face imports it from.
+export type { BespokeTool, ToolInputSchema } from "./tools";
 export {
-  type ExposeMap,
   type ResolvedExpose,
   type ResourceEntry,
   type ResourceTemplateEntry,
   resolveExpose,
   type ToolEntry,
-  type ToolExposure,
 } from "./expose";
-export { toInputSchema } from "./jsonschema";
+// `OwnedSurfaceConnection` IS this type at the adapter's client shape, and the
+// public doc links to it — so a consumer reading that doc has to be able to
+// import the name it names.
+export type { PusherConnection } from "./pusher";
 export {
   type ClientOrConnection,
+  type OwnedSurfaceConnection,
   type ServeSurfaceAsMcpOptions,
   serveSurfaceAsMcp,
   type SurfaceClientCallable,
 } from "./server";
-export type { BespokeTool, ToolInputSchema, ToolResult } from "./tools";
+export {
+  // The adapter's own "name what broke" derivation. Exported because a bespoke
+  // tool that folds a failure INTO its answer (rather than raising it) has to
+  // reach the same one the request edge would have used — a hand-rolled
+  // `e instanceof Error ? e.message : String(e)` is the spelling this function's
+  // own doc records as wrong for two shapes Effect actually delivers.
+  messageOf,
+  // The image-content constructor a bespoke tool reaches for from its
+  // `render` hook — the one in-tree face whose answer is pixels rather than
+  // prose (kolu's `screen_image`).
+  okImage,
+  ToolFailure,
+  type ToolContent,
+  type ToolResult,
+} from "./tools";
+// The neutral pieces of the projection now live in the FRAMEWORK
+// (`@kolu/surface/verbs`), where the CLI face reads the same ones — the verb
+// record, its flat name, and the Schema→JSON-Schema bridge were never
+// MCP-specific. Re-exported here under the names this package shipped them with,
+// so a consumer written against the adapter keeps compiling; new code should
+// import them from `@kolu/surface/verbs` directly.
+//
+// That consumer is NAMED, because `private: true` says nothing about it: **odu**
+// (github.com/juspay/odu) vendors these directories from an npins pin and
+// imports `BespokeTool` (`src/mcp/{runTool,runsTool,cancelTool}.ts`),
+// `SurfaceClientCallable` (`src/cli/mcp.ts`) and `toInputSchema`
+// (`src/mcp/argSchemas.test.ts`) from THIS module. `private` governs npm
+// publication, not this repo's consumer set — so dropping a re-export below
+// breaks odu at its next pin bump, which is the failure `.claude/rules/surface.md`'s
+// ODU-IMPACT ledger exists to catch before it ships.
+//
+// `BespokeTool` and `ToolInputSchema` come from `./tools` rather than from here:
+// the first is the framework record EXTENDED with this face's own `render`, and
+// the second is the framework bound under this package's name beside it.
+export { toInputSchema } from "@kolu/surface/verbs";

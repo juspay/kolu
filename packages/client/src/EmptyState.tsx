@@ -3,9 +3,10 @@
 import type { SavedSession, SavedTerminal } from "@kolu/padi/surface";
 import type { PwaInstall } from "@kolu/solid-pwa-install";
 import { resumableCommand } from "kolu-common/surface";
-import { terminalKey } from "kolu-common/terminalKey";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { showsWelcome } from "./capabilities";
+import ForfeitSessionButton from "./ForfeitSessionButton";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import { assignColors } from "./terminal/terminalDisplay";
@@ -376,19 +377,18 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                 </Show>
               </button>
               {/* Explicit forfeit — the deliberate "discard my previous
-                  session" path. Kept visually secondary to Restore (a bare
-                  text button, no fill) so it never competes with the primary
+                  session" path, and the only irreversible act on this card, so
+                  it carries its own inline confirmation and a hit area no wider
+                  than its label (see `ForfeitSessionButton`). Kept visually
+                  secondary to Restore so it never competes with the primary
                   action. Only rendered when the parent wires `onForfeit`. */}
               <Show when={props.onForfeit}>
-                <button
-                  type="button"
-                  data-testid="forfeit-session"
-                  disabled={props.isRestoring}
-                  class="mt-2 w-full px-3 py-1.5 text-xs text-fg-3 hover:text-fg-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  onClick={() => props.onForfeit?.()}
-                >
-                  Start fresh
-                </button>
+                <div class="mt-2">
+                  <ForfeitSessionButton
+                    inFlight={props.isRestoring ?? false}
+                    onConfirm={() => props.onForfeit?.()}
+                  />
+                </div>
               </Show>
             </div>
           )}

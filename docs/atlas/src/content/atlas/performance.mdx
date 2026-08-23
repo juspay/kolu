@@ -189,7 +189,7 @@ remaining slivers inside them are noted in the lever sections as *"remaining
 within …"*.
 
 - **Reactivity keystone** <Pill variant="dx">N</Pill> <PrLink pr={1425} /> — the `terminalIds` memo keeps a stable reference when the top-level id order is unchanged (`sameTerminalIdOrder` `equals` gate), so the accessor stops *notifying* downstream on non-display metadata writes; proven by a re-run-count regression test.<Footnote>`displayInfos` keeps its own field-level subscriptions to `git` / `cwd` / `parentId` via the surface store's `reconcile` writes, so PR / agent / foreground churn never reached it even before this gate; a real `git` / `cwd` / `parentId` change still re-runs it, correctly — that path is left intact, by design.</Footnote>
-- <span id="banked-attention-deps" />**Attention: class reads don't wake on the byte tick** <Pill variant="dx">N</Pill> <PrLink pr={2019} /> — the dock's rank-and-paint memo (an O(n log n) sort plus a regroup) reads a terminal's attention CLASS, which moves on agent transitions. The LIVE set beside it churns on kaval's ~1 s byte-motion window — every time any terminal prints a line. Keeping those in **separate per-host memos** is what stops a `tail -f` from re-sorting the whole dock once a second for no visible change.<Footnote>Proven the same way the keystone was: a re-run-count test (`attentionMarks.test.ts`) drives three consecutive live-set writes and asserts the class read stays at **1** run, then moves to **2** on a real class change — and it was verified to go RED (`[2,3,4]`) under a deliberate one-line coarsening before being kept. The mechanism underneath is Solid's per-property store write: a `liveIds`-only merge never replaces the `byClass` node, so a third test pins that referential identity directly — the thing that would silently break if `writeHostMarks` ever rebuilt the record wholesale.</Footnote> The tempting simplification — one memo over the whole frame — is exactly the regression, which is why the test exists rather than a comment.
+- <span id="banked-attention-deps" />**Attention: class reads don't wake on the byte tick** <Pill variant="dx">N</Pill> <PrLink pr={2019} /> — the dock's rank-and-paint memo (a regroup — the O(n log n) sorts went away with <PrLink pr={2141} />, which made dock order structural) reads a terminal's attention CLASS, which moves on agent transitions. The LIVE set beside it churns on kaval's ~1 s byte-motion window — every time any terminal prints a line. Keeping those in **separate per-host memos** is what stops a `tail -f` from re-sorting the whole dock once a second for no visible change.<Footnote>Proven the same way the keystone was: a re-run-count test (`attentionMarks.test.ts`) drives three consecutive live-set writes and asserts the class read stays at **1** run, then moves to **2** on a real class change — and it was verified to go RED (`[2,3,4]`) under a deliberate one-line coarsening before being kept. The mechanism underneath is Solid's per-property store write: a `liveIds`-only merge never replaces the `byClass` node, so a third test pins that referential identity directly — the thing that would silently break if `writeHostMarks` ever rebuilt the record wholesale.</Footnote> The tempting simplification — one memo over the whole frame — is exactly the regression, which is why the test exists rather than a comment.
 - <span id="banked-attention-index" />**Attention: the frame is indexed once, not rescanned per terminal** <Pill variant="dx">N</Pill> <PrLink pr={2019} /> — three readers ran a per-terminal linear walk of a host's four class lists (each element read a store-proxy `get`, so it registered a dependency too), and the host-tab active count was an un-memoized fold read from five reactive computations per chip — doubled again by the hidden width-measuring row. Now a per-host class `Map` + live `Set` + a count memo, built inside the root that already owns the subscriptions. The pure folds stay exported and unchanged as the definition the tests pin; the indexes are an index over the same answer, never a second rule, and a host with no root yet falls back to the fold rather than answering wrongly.
 - <span id="banked-children-index" />**Parent→children resolved in one walk** <Pill variant="dx">N</Pill> <PrLink pr={2019} /> — `getSubTerminalIds` was `keys().filter(…)`, a full scan of every terminal *per call*, and `buildTerminalDisplayInfos` calls it once per top-level terminal: O(T²) collection reads per display rebuild, on every metadata update. One `childrenByParent` memo now serves both it and that display pass, whose own comment had flagged this exact shape for the relation.<Footnote>Complexity-by-construction, not a captured profile — the honest label. At 3–20 terminals it sits under the perception floor the callout below describes; the reason to take it anyway was that the fix removed a quadratic walk rather than adding a cache.</Footnote>
 - **Markdown toggle keep-alive** <Pill variant="dx">N</Pill> <PrLink pr={1446} /> — `FileView` keeps both Source ⇄ Rendered modes alive, so toggling a `.md` preview is a visibility flip, not a remount + full re-sanitize (the marked→DOMPurify→Shiki→`innerHTML` pipeline runs 0× per toggle, was 1×).<Footnote>A per-slot `heldFile` snapshot keeps reload-on-edit intact with no `render(file)` API change. The companion *"stabilize the markdown image resolver reference"* claim was [refuted as a measured no-op](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md).</Footnote>
@@ -359,18 +359,21 @@ LCP over Tailscale (see [coverage gaps](#from-static-reads-to-live-traces)).
 </Finding>
 
 <Finding sev="medium" title="Publish per-key collection deltas, not the full key set — C (payload) + N (client work)">
-Every upsert/remove publishes the **entire** key array via
-`keysBus.publish(Array.from(...))` — a fresh object each time — which crosses the
-wire and triggers client `mapArray` reconciliation (`surface/server.ts:1218-1223`,
-`useCollection.ts:60-65`). Publishing discriminated `{added:[k]}/{changed:[k]}/{removed:[k]}`
-deltas (full set only on init) **shrinks the per-event payload/allocation (C)**
-and lets `useCollection` apply the change instead of re-reconciling the whole key
-set (N). The batched machinery already exists (`deltasBus` + `createTickCoalescer`,
-`useCollectionDeltas`) but the `useTerminalMetadata` call sites pass explicit
-`keys`, which forces the per-key path regardless of the `deltas` verb — so
-realizing this is a call-site change, not a one-line verb flip. **Measure:**
-`keysBus` publish frequency and payload sizes during terminal spawn/metadata
-churn.
+Every membership change used to publish the **entire** key array via
+`keysBus.publish(Array.from(readAll().keys()))` — a fresh array *and* a full
+backing-store fold per changed key, so a bulk add of M keys cost O(M·N) key
+elements on the bus and M `readAll()` composes. **The server half is fixed**:
+`createKeysetCoalescer` (`surface/server.ts`, beside `createTickCoalescer`) now
+flushes one tick-final snapshot per producer tick — a same-tick M-key burst costs
+one frame and one `readAll()`, pinned by the "ONE keys frame and ONE readAll"
+membership test. Frames are still complete snapshots, so the wire contract is
+unchanged. **Still open (N, client work):** each frame triggers full client
+`mapArray` reconciliation (`useCollection.ts`), and discriminated
+`{added}/{removed}` delivery would shrink it further; the batched machinery
+already exists (`deltasBus` + `createTickCoalescer`, `useCollectionDeltas`) but
+the `useTerminalMetadata` call sites pass explicit `keys`, which forces the
+per-key path regardless of the `deltas` verb — so realizing the client half is a
+call-site change, not a one-line verb flip.
 </Finding>
 
 - <span id="c-metadata" />**Full metadata object per live-field update** (`terminalEndpoint/metadata.ts:96-136`) — `publishAuthored` upserts a full `{...entry.meta}` clone on every field change. Upstream dedup gates (`prResultEqual`, `agentInfoEqual`) already cap the *number* of publishes to PR-poll 30s / screen-scrape 1s, so the remaining lever is *payload size* (C): splitting live vs persisted deltas. Lower priority. <Pill variant="lo">low</Pill>

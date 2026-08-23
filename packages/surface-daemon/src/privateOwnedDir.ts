@@ -13,8 +13,9 @@
  *
  * Shared by `acquirePidGate` and `daemonHome` so the predicate cannot drift
  * inside this package. Exported so kaval discovery reuses the same body (no
- * parallel kaval copy). `@kolu/surface/unix-socket` still has its own private
- * copy for the transport layer — collapsing that is a separate surface API move.
+ * parallel kaval copy). `@kolu/surface/unix-socket` now exports the transport
+ * layer's original (a failed `lstat` throws; this copy treats that as refuse)
+ * for out-of-tree consumers that must judge a directory they did not create.
  */
 
 import { lstatSync } from "node:fs";

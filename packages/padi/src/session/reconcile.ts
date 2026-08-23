@@ -35,7 +35,11 @@
  */
 
 import type { PtyHostListEntry } from "kaval";
-import type { SavedActiveTerminal, SavedSession } from "../vocab.ts";
+import type {
+  SavedActiveTerminal,
+  SavedSession,
+  SavedSleepingTerminal,
+} from "../vocab.ts";
 
 /** A saved terminal whose PTY is still alive, paired with that live PTY. The
  *  join lives here (not the caller), so adoption never re-derives it: the
@@ -46,9 +50,28 @@ export interface AdoptPair {
   live: PtyHostListEntry;
 }
 
+/** One step of {@link ReconcileResult.plan}, in SAVED ORDER.
+ *
+ *  Order is the point. The registry is a `Map` and its insertion order IS the
+ *  client's row order (`terminal-registry.ts:registerTerminal`), so the sequence
+ *  a rebuild path calls in decides where every dock row sits — and, since #2141
+ *  made dock order structural, which terminal each `Cmd+1..9` reaches. The
+ *  caller used to receive an unordered partition, index `adopt` back into a
+ *  `Map`, and re-walk `saved.terminals` itself to interleave the sleepers; that
+ *  is this module's join and this module's ordering, re-derived one file over,
+ *  where nothing said it mattered. Handing over the ordered plan makes the walk
+ *  a dispatch. */
+export type ReconcileStep =
+  | { kind: "adopt"; record: SavedActiveTerminal; live: PtyHostListEntry }
+  | { kind: "seedSleeping"; record: SavedSleepingTerminal };
+
 export interface ReconcileResult {
-  /** Saved terminals whose PTY is still alive, each paired with its live PTY. */
-  adopt: AdoptPair[];
+  /** What to do with each saved record that survives, IN SAVED ORDER — adopt an
+   *  active whose PTY lived, seed a sleeping one dormant. A saved terminal with
+   *  no live PTY is an exited shell and is simply absent, exactly as before.
+   *  True orphans are NOT here: they have no saved position, and the caller
+   *  appends them after (they are the newest things on the host). */
+  plan: ReconcileStep[];
   /** Live daemon PTYs with no saved record — adopt from the live snapshot
    *  (`orphanSnapshot`), never reap. See the module doc (F1). */
   adoptOrphans: PtyHostListEntry[];
@@ -77,17 +100,25 @@ export function reconcile(
       .filter((terminal) => terminal.state === "sleeping")
       .map((terminal) => terminal.id),
   );
-  const adopt: AdoptPair[] = [];
+  const plan: ReconcileStep[] = [];
   for (const record of savedTerminals) {
-    // Only an ACTIVE saved terminal can be ADOPTED — a sleeping record released
-    // its PTY at sleep, so it is seeded dormant (never paired with a live entry).
-    // The narrow also makes `record` the active arm for the whole-record adopt.
+    // A SLEEPING record released its PTY at sleep, so it is seeded dormant and
+    // never paired with a live entry — but it holds a POSITION, which is why it
+    // belongs in this walk rather than in a second pass afterwards. Seeding
+    // every sleeper after every adopted active is what used to move each ☾ tile
+    // to the tail of its repo section on a padi restart.
+    if (record.state === "sleeping") {
+      plan.push({ kind: "seedSleeping", record });
+      continue;
+    }
+    // Only an ACTIVE saved terminal can be ADOPTED. The narrow also makes
+    // `record` the active arm for the whole-record adopt.
     if (record.state !== "active") continue;
     const liveEntry = liveById.get(record.id);
-    if (liveEntry) adopt.push({ record, live: liveEntry });
+    if (liveEntry) plan.push({ kind: "adopt", record, live: liveEntry });
   }
   return {
-    adopt,
+    plan,
     adoptOrphans: live.filter((entry) => !savedIds.has(entry.id)),
     // A sleeping record's id is a saved id, so its surviving PTY is excluded from
     // adoptOrphans above; surface it here so the caller reaps it.

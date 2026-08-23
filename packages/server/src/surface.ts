@@ -76,12 +76,7 @@ import {
   surfaces,
 } from "kolu-common/surface";
 import { padiHostMap } from "kolu-common/surfacesWithPadi";
-import {
-  serverCommit,
-  serverProcessId,
-  serverStartedAt,
-  serverVersion,
-} from "./hostname.ts";
+import { serverCommit, serverStartedAt, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import {
   MEMORY_SAMPLE_INTERVAL_MS,
@@ -317,6 +312,17 @@ export interface KoluSurfaceDeps {
 // slot (an override-knob) is unnecessary and absent. `t`/`servedContract` (module-level
 // above) are pure contract builders that fire no connects, so `router.ts`'s app-router
 // assembly against `t` keeps working unchanged.
+/** The Conf-backed STORE cells' server-internal writers. Named for the AXIS
+ *  ("an in-process write to a store cell"), not for the one feature that first
+ *  wanted it: `ctx.cells.<key>.set` is the framework's sanctioned in-process
+ *  write path for a store cell (dedupe + `onWrite` + publish ride along), and
+ *  only the two STORE cells are handed out, so the graph-owned derived members
+ *  stay unreachable. The state-backup restore (#1658) is the first consumer. */
+export interface StoreCellWriters {
+  setPreferences: (value: Preferences) => void;
+  setViewerMode: (value: ViewerMode) => void;
+}
+
 /** Serve kolu-server's OWN two sibling surfaces (kolu + surfaceApp) on the shared
  *  `@kolu/padi` publisher, wire the runtime's deliberately-fatal `done`, and return the
  *  built router + kolu ctx. `index.ts`'s boot splices the RE-SERVED `padi` sibling into
@@ -493,7 +499,7 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
 
   // The two SIBLING surfaces kolu-server OWNS, multiplexed over one transport
   // (kolu#1197): kolu's own primitives under the `kolu` key, and surface-app's
-  // COMPLETE surface (the buildInfo cell + the `identity.info` restart probe) under
+  // COMPLETE surface (the buildInfo cell) under
   // `surfaceApp`. They are NOT merged — `implementSurfaces` keys each surface,
   // serving them at `/surface/kolu/…` and `/surface/surfaceApp/…`. The third
   // sibling, `padi`, is NOT implemented here: `index.ts`'s async boot RE-SERVES it
@@ -528,20 +534,20 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
     },
     {
       // ── surface-app's server deps (sibling under `surfaceApp`) ───────────
-      // The build-identity cell's server fragment (skew axis) PLUS the
-      // `identity.info` restart probe pinned to kolu's boot UUID. `commit` is
+      // The build-identity cell's server fragment (the SKEW axis). `commit` is
       // kolu's single source (`serverCommit` ← `KOLU_COMMIT_HASH`); `version`
       // lands as a `Partial<KoluBuildInfo>` patch over the library-seeded
       // `{ commit }`. Per-key deps are typed against the surface's own spec, so
       // this needs no cast.
+      //
+      // The RESTART axis is not wired here any more: surface-app's `identity.info`
+      // probe is gone, and the framework's reserved `system/identity` — served on
+      // every sibling, stamped with `surfaceProcessId()` — answers it. That is the
+      // same id `serverProcessId` reads and the same one the stale-tab gate
+      // compares against, so there is nothing left to pin them together with.
       surfaceApp: surfaceAppServer<KoluBuildInfo>({
         buildInfo: async () => ({ version: serverVersion }),
         commit: serverCommit,
-        // surface-app's identity probe (restart axis) —
-        // `surface.surfaceApp.identity.info`. Pin it to the existing boot UUID
-        // (`serverProcessId`) so the value is stable within a process and
-        // changes on restart. Composed, not hand-written.
-        processId: serverProcessId,
         // `version` is a build constant — this read can't fail — but keep the
         // fragment's error sink for the cell's contract.
         onError: (err) =>
@@ -588,11 +594,21 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   // re-served padi MAP fragment and the root procedures through
   // {@link assembleServedHandlers}; a tag carries its own route, so there is nothing
   // to splice or re-prefix. padi is async (an `await`ed binding), so it cannot be
-  // composed here. Every member is the reactor graph's own writer now (the poll cells'
-  // reads + the push cells' `scan`s over the shared `onState` source), so NO ctx is
-  // returned — the caller only merges the fragment.
+  // composed here. Every DERIVED member is the reactor graph's own writer (the poll
+  // cells' reads + the push cells' `scan`s over the shared `onState` source), so the
+  // full ctx is not returned — but the two Conf-backed STORE cells additionally hand
+  // out their server-internal writers, narrowly, for the state-backup restore
+  // (#1658): `ctx.cells.<key>.set` is the framework's sanctioned in-process write
+  // path for a store cell (dedupe + `onWrite` + publish ride along), and returning
+  // just these two keeps the graph-owned members unreachable.
   return {
     group: koluSurfaces.group,
     handlers: koluSurfaces.handlers,
-  } satisfies ServedFragment;
+    storeCellWriters: {
+      setPreferences: (value) =>
+        koluSurfaces.ctx.kolu.cells.preferences.set(value),
+      setViewerMode: (value) =>
+        koluSurfaces.ctx.kolu.cells.viewerMode.set(value),
+    },
+  } satisfies ServedFragment & { storeCellWriters: StoreCellWriters };
 }

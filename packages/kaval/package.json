@@ -27,11 +27,13 @@
     "@xterm/headless": "^6.0.0",
     "effect": "catalog:",
     "node-pty": "github:juspay/node-pty#feat/foreground-pid-dist",
-    "osfacts-client": "workspace:*"
+    "osfacts-client": "workspace:*",
+    "terminal-snapshot": "workspace:*"
   },
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",
     "@kolu/log": "workspace:*",
+    "kolu-pty": "workspace:*",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",
