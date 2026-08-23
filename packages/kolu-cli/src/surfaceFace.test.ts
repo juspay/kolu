@@ -30,12 +30,16 @@
  */
 
 import { NodeServices } from "@effect/platform-node";
+import { padiSurface } from "@kolu/padi/surface";
 import { classifyExpose } from "@kolu/surface/expose";
 import { toolName } from "@kolu/surface/verbs";
-import { padiSurface } from "@kolu/padi/surface";
 import { isConsumerHangup } from "@kolu/surface-cli";
-import { KOLU_MCP_EXPOSE, KOLU_MCP_TOOLS } from "kolu-mcp";
 import { Cause, Effect, Exit, Runtime } from "effect";
+// The pin reads the table by the SAME addresses the production face does —
+// the SDK-free subpaths, not the barrel: an accidental regression of the
+// tools.ts home into the serve.ts path lands here, not in production.
+import { KOLU_MCP_EXPOSE } from "kolu-mcp/expose";
+import { KOLU_MCP_TOOLS } from "kolu-mcp/tools";
 import { describe, expect, it } from "vitest";
 import { runKoluCliWith } from "./cli.ts";
 import { KOLU_SURFACE_POSITIONALS } from "./surfaceFace.ts";

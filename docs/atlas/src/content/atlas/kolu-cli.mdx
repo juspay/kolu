@@ -684,11 +684,15 @@ Two consequences the next reader should not have to re-derive:
 
 - **Exit codes are per-face, by ruling.** The `kolu surface` verbs answer
   `@kolu/surface-cli`'s matrix verbatim (`1` the verb's typed refusal as
-  verbatim ndjson on stderr — no `kolu surface:` prefix — · `2` a usage error ·
+  verbatim JSON on stderr — no `kolu surface:` prefix — · `2` a usage error ·
   `3` nothing serving the endpoint · `130` interrupted); the native verbs keep
-  kolu-cli's own (`1` usage/link · `2` wait timed out · `3` terminal exited). A
-  driver picks the matrix by picking the face — `packages/surface-cli/src/exit.ts`'s
-  header records the ruling where the collision was first written down.
+  kolu-cli's own (`1` usage/link · `2` wait timed out · `3` terminal exited).
+  The ONE binary-wide stance is the parse domain: a CLI-library refusal (a
+  missing flag, an unknown subcommand) reaches neither face's handler and exits
+  `1` on BOTH faces — the surface matrix's `2` only covers input that reached
+  the daemon. A driver picks the matrix by picking the face —
+  `packages/surface-cli/src/exit.ts`'s header records the ruling where the
+  collision was first written down.
 - **The tree stays cheap.** Effect CLI's tree is static, so every `kolu
   --help` holds this face — and what it loads is schema-level only:
   `KOLU_MCP_TOOLS` lives in `packages/kolu-mcp/src/tools.ts`, an SDK-free leaf

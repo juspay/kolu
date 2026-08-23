@@ -1,5 +1,5 @@
 /**
- * `kolu`'s EXIT CONTRACT, as values.
+ * `kolu`'s EXIT CONTRACT, as values — the NATIVE faces' half of it.
  *
  * The codes are a user-visible contract — driving loops branch on them ("the
  * agent I was waiting for died" vs "it never settled" vs "my command was
@@ -12,6 +12,18 @@
  *   2    `wait` ran out of time — the condition never landed
  *   3    `wait`'s terminal exited before reaching the condition
  *   130  interrupted (Ctrl+C / SIGTERM / SIGHUP)
+ *
+ * This table is the answer of the NATIVE faces (`create`, `watch`, `ls`, …) —
+ * NOT of `kolu surface`: one binary now carries TWO matrices, per the ruling in
+ * `packages/surface-cli/src/exit.ts` (the "settled, per FACE" section) and
+ * `surfaceFace.ts`'s header. The surface face answers `@kolu/surface-cli`'s
+ * matrix verbatim — `1` the daemon's typed refusal as verbatim JSON on stderr,
+ * `2` the face's own usage error, `3` nothing serving the endpoint — and its
+ * code-bearing class is `SurfaceCliFailure`, living in that package. The one
+ * BINARY-wide stance is the parse domain: the CLI library's own refusals (a
+ * missing required flag, an unknown subcommand) reach neither face's handler —
+ * they are rendered by the library and exit `1` on every face, which is the
+ * paragraph below's first bullet.
  *
  * This is the contract `padi-tui` and `kaval-tui` each carried a copy of; the
  * verbs that graduated onto `kolu` bring it with them, so a driving loop that
@@ -41,12 +53,15 @@
  * asserting nothing about the product. Every line starts `kolu: `, including
  * the interrupted one — see {@link waitInterrupted}.
  *
- * ## Every exit-code-bearing class is in here
+ * ## Every exit-code-bearing class this package owns is in here
  *
  * Including the two the faces raise ({@link ReservedFaceError},
- * {@link UsageRefused}), which used to sit in `cli.ts` and `main.ts`. A module
- * whose whole reason to exist is that nothing can see the codes apart cannot
- * hold two thirds of them.
+ * {@link UsageRefused}), which used to sit in `cli.ts` and `main.ts`. ONE other
+ * package's class rides this binary's teardown beside them —
+ * `@kolu/surface-cli`'s `SurfaceCliFailure`, for the surface face, by the rule
+ * two paragraphs up; `isContractArm` below names BOTH matrices' tags, because
+ * identity at the run edge belongs where the collision is worded, never to a
+ * duck-typed `.stderr` shape a foreign error may copy.
  */
 
 import { Data, Runtime } from "effect";
@@ -68,6 +83,11 @@ import { Data, Runtime } from "effect";
  *  is read off the error by the runtime's own teardown (`getErrorExitCode` walks
  *  the prototype chain), never by this package. */
 export class CliFailure extends Data.TaggedError("CliFailure")<{
+  /** The sentence MINUS its envelope — the refusal as data. The surface face's
+   *  endpoint resolve re-arms this under its own `kolu surface:` prefix, so the
+   *  reason must exist as a field and never be recovered by unspelling the
+   *  rendered line. */
+  readonly reason: string;
   readonly stderr: string;
   readonly code: number;
 }> {
@@ -76,6 +96,28 @@ export class CliFailure extends Data.TaggedError("CliFailure")<{
   }
   readonly [Runtime.errorReported] = false;
 }
+
+/** The rendered stderr envelope for an unreified reason — the ONE writer of
+ *  `kolu: <reason>\n`. A DIFFERENT envelope is a different face's law, owned
+ *  beside that face (`mcp.ts`'s `mcpFaceLine`), never hand-spelled twice. */
+export const koluLine = (reason: string): string => `kolu: ${reason}\n`;
+
+/** Is this failure an arm of EITHER face's exit contract — its own line, its
+ *  own exit code, the already-reported marker — so the run edge must not
+ *  re-envelope it? Matched by TAG, never by payload shape: a foreign error
+ *  that happens to carry a `stderr` string (an execa-style process rejection)
+ *  is a defect to wrap. The same call, one package over, is `runEdge`'s
+ *  `isOwnFailure`; the two must never disagree. */
+export const isContractArm = (
+  err: unknown,
+): err is CliFailure | ReservedFaceError => {
+  const tag = (err as { readonly _tag?: unknown })?._tag;
+  return (
+    tag === "CliFailure" ||
+    tag === "ReservedFaceError" ||
+    tag === "SurfaceCliFailure"
+  );
+};
 
 /** A face the plan RESERVES but has not shipped (`kolu tui`).
  *
@@ -105,7 +147,7 @@ export class UsageRefused {
  *  Exit 1 — a usage error or a dropped link, which is one thing to a driver
  *  however it was reached. */
 export const failure = (message: string): CliFailure =>
-  new CliFailure({ stderr: `kolu: ${message}\n`, code: 1 });
+  new CliFailure({ reason: message, stderr: koluLine(message), code: 1 });
 
 /** A flag the user SPELLED but left EMPTY — `--worktree "$NAME"` with `$NAME`
  *  unset, the ordinary shell accident. ONE predicate, so every gate in this
@@ -153,11 +195,10 @@ export const waitTimedOut = (facts: {
   readonly terminal: string;
   readonly elapsedMs: number;
   readonly describe: string;
-}): CliFailure =>
-  new CliFailure({
-    stderr: `kolu: timed out after ${facts.elapsedMs}ms waiting for ${facts.terminal} to reach ${facts.describe}.\n`,
-    code: 2,
-  });
+}): CliFailure => {
+  const reason = `timed out after ${facts.elapsedMs}ms waiting for ${facts.terminal} to reach ${facts.describe}.`;
+  return new CliFailure({ reason, stderr: koluLine(reason), code: 2 });
+};
 
 /** The watched terminal exited before the condition landed — the wait can never
  *  land now. Its own code (3) so a driver tells "the agent I was driving died"
@@ -165,11 +206,10 @@ export const waitTimedOut = (facts: {
 export const waitTerminalGone = (facts: {
   readonly terminal: string;
   readonly describe: string;
-}): CliFailure =>
-  new CliFailure({
-    stderr: `kolu: ${facts.terminal} exited before reaching ${facts.describe} — its terminal is gone.\n`,
-    code: 3,
-  });
+}): CliFailure => {
+  const reason = `${facts.terminal} exited before reaching ${facts.describe} — its terminal is gone.`;
+  return new CliFailure({ reason, stderr: koluLine(reason), code: 3 });
+};
 
 /** A Ctrl+C (or an external stop) during a `wait` — the conventional 130, and it
  *  wears the `kolu: ` prefix like every other arm.
@@ -182,11 +222,10 @@ export const waitTerminalGone = (facts: {
  *  the fact the user can act on. */
 export const waitInterrupted = (facts: {
   readonly terminal: string;
-}): CliFailure =>
-  new CliFailure({
-    stderr: `kolu: interrupted; ${facts.terminal} left running\n`,
-    code: 130,
-  });
+}): CliFailure => {
+  const reason = `interrupted; ${facts.terminal} left running`;
+  return new CliFailure({ reason, stderr: koluLine(reason), code: 130 });
+};
 
 /** The message inside an arbitrary thrown thing — the raw half of
  *  {@link reportOf}, and the one place this package decides what an unknown

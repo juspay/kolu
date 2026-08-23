@@ -63,10 +63,10 @@
 
 import { padiSurface } from "@kolu/padi/surface";
 import { type ResolvedEndpoint, surfaceCommands } from "@kolu/surface-cli";
-import { KOLU_MCP_EXPOSE } from "kolu-mcp/expose";
-import { KOLU_MCP_TOOLS } from "kolu-mcp/tools";
 import { Effect } from "effect";
 import { Command } from "effect/unstable/cli";
+import { KOLU_MCP_EXPOSE } from "kolu-mcp/expose";
+import { KOLU_MCP_TOOLS } from "kolu-mcp/tools";
 import type { koluRoot } from "./cli.ts";
 import type { KoluCliConnection } from "./connect.ts";
 import {
@@ -119,20 +119,15 @@ const dialOf = (
 /** The face's answer to "name exactly one padi": the root's shared flags make
  *  the flag-to-endpoint rule the BINARY's (`endpointOf` is the one spelling of
  *  it), and this face's only work on it is carrying the sentence under ITS OWN
- *  prefix: the refusal arrives as this binary's `CliFailure`, whose sentence
- *  lives in `.stderr` written for its own channel ("kolu: …\n") — here it is
- *  the REASON inside the face's arm ("kolu surface: no endpoint to dial — …"),
- *  so the channel encoding is unspelled, and this is the ONE place that
- *  unspelling lives (the sentence arrives only here, and only this face
- *  re-arms it). */
+ *  prefix: the refusal arrives as this binary's `CliFailure`, whose REASON is
+ *  data (`.reason`) — here it is the reason inside the face's arm ("kolu
+ *  surface: no endpoint to dial — …"), handed over as data rather than
+ *  recovered from the rendered line. */
 const surfaceEndpointOf = (
   flags: EndpointFlagValues,
 ): Effect.Effect<ResolvedEndpoint, Error> =>
   Effect.map(
-    Effect.mapError(
-      endpointOf(flags),
-      (err) => new Error(err.stderr.replace(/^kolu: /, "").replace(/\n$/, "")),
-    ),
+    Effect.mapError(endpointOf(flags), (err) => new Error(err.reason)),
     (endpoint) => ({
       where: whereOf(endpoint),
       open: () => Effect.runPromise(dialOf(endpoint)),

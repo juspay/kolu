@@ -24,7 +24,9 @@
     "./endpoint": "./src/endpoint.ts",
     "./log": "./src/log.ts",
     "./transcript": "./src/transcript/transcriptSchema.ts",
-    "./upload": "./src/upload.ts"
+    "./upload": "./src/upload.ts",
+    "./containingTerminal": "./src/containingTerminal.ts",
+    "./watchScope": "./src/attention/watchScope.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

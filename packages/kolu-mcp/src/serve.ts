@@ -32,9 +32,9 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { KOLU_MCP_EXPOSE } from "./expose.ts";
 // The tool table's home: `tools.ts`, NOT serve.ts — it is also `kolu
 // surface`'s verb table, and must stay loadable without the MCP SDK (see that
-// module's header). Re-exported from here under the name the package shipped.
+// module's header). This module CONSUMES it; the barrel and the
+// `kolu-mcp/tools` subpath re-export it from its home.
 import { KOLU_MCP_TOOLS } from "./tools.ts";
-export { KOLU_MCP_TOOLS };
 
 /** A live, padi-scoped connection the injected factory produces — the adapter's
  *  own {@link OwnedSurfaceConnection} with the client narrowed to padi's face.

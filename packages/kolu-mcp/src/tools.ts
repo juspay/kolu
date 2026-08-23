@@ -1,7 +1,8 @@
 /**
  * The kolu MCP face's bespoke TOOL TABLE — the worktree-capable create, the
- * named-key send, the tail-mode snapshot, the two composite wait done-signals,
- * and the standing-subscription open (resolves ignoreSelf) and drain.
+ * named-key send, the tail-mode snapshot (screen_text), the themed PNG read
+ * (screen_image), the two composite wait done-signals, and the
+ * standing-subscription open (resolves ignoreSelf) and drain.
  *
  * Its own leaf, NOT part of `serve.ts`, because this record is read by TWO
  * faces and only one of them is MCP's: `@kolu/surface-cli`'s projection takes

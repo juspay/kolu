@@ -1573,8 +1573,21 @@ function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
     Effect.scoped(
       Effect.flatMap(
         Effect.acquireRelease(
+          // `interruptible: true`: the acquire must DIE ON a consumer's
+          // Ctrl-C — a host whose `open` is an ssh provision can sit in it for
+          // minutes, and a masked `tryPromise` would hold the interrupt for
+          // the whole dial (the matrix promises 130 at the speed the user
+          // typed it). The trade: delivery and finalizer-registration stop
+          // being one masked atom, so the arriving half of an INTERRUPTED
+          // `open` is disposed by hand, here — on `signal.aborted`, because an
+          // interrupted acquire is short-circuited BEFORE its `release` is
+          // registered, never after.
           Effect.tryPromise({
-            try: async () => await open(),
+            try: (signal) =>
+              Promise.resolve(open()).then((connection) => {
+                if (signal.aborted) void connection.dispose();
+                return connection;
+              }),
             catch: (cause) =>
               unreachable(opts.info.name, where, messageOf(cause)),
           }),
@@ -1590,6 +1603,7 @@ function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
                 catch: (cause) => cause,
               }),
             ),
+          { interruptible: true },
         ),
         (connection) =>
           Effect.catch(use(connection.client, where), (error) =>

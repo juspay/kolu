@@ -773,11 +773,15 @@ standing.</p>
 <ul>
 <li><strong>Exit codes are per-face, by ruling.</strong> The <code>kolu surface</code> verbs answer
 <code>@kolu/surface-cli</code>’s matrix verbatim (<code>1</code> the verb’s typed refusal as
-verbatim ndjson on stderr — no <code>kolu surface:</code> prefix — · <code>2</code> a usage error ·
+verbatim JSON on stderr — no <code>kolu surface:</code> prefix — · <code>2</code> a usage error ·
 <code>3</code> nothing serving the endpoint · <code>130</code> interrupted); the native verbs keep
-kolu-cli’s own (<code>1</code> usage/link · <code>2</code> wait timed out · <code>3</code> terminal exited). A
-driver picks the matrix by picking the face — <code>packages/surface-cli/src/exit.ts</code>’s
-header records the ruling where the collision was first written down.</li>
+kolu-cli’s own (<code>1</code> usage/link · <code>2</code> wait timed out · <code>3</code> terminal exited).
+The ONE binary-wide stance is the parse domain: a CLI-library refusal (a
+missing flag, an unknown subcommand) reaches neither face’s handler and exits
+<code>1</code> on BOTH faces — the surface matrix’s <code>2</code> only covers input that reached
+the daemon. A driver picks the matrix by picking the face —
+<code>packages/surface-cli/src/exit.ts</code>’s header records the ruling where the
+collision was first written down.</li>
 <li><strong>The tree stays cheap.</strong> Effect CLI’s tree is static, so every <code>kolu --help</code> holds this face — and what it loads is schema-level only:
 <code>KOLU_MCP_TOOLS</code> lives in <code>packages/kolu-mcp/src/tools.ts</code>, an SDK-free leaf
 (<code>serve.ts</code> re-exports it, so the package’s barrel API is unchanged) reading

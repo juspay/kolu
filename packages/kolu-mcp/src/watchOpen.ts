@@ -20,18 +20,21 @@
  */
 
 import {
-  confirmInFleet,
   CONTAINING_TERMINAL_ENV,
+  confirmInFleet,
   containingTerminalId,
-  type PadiSurfaceClient,
-  type WatchScopeRefusal,
-  watchScopeOf,
-} from "@kolu/padi/dial";
+} from "@kolu/padi/containingTerminal";
+// Every top-level VALUE import here is schema-level — this module is on the
+// static tree-build path of every `kolu` invocation (the surface face mounts
+// the table). The two pure concept modules have homes of their own under padi
+// subpaths; the one transport-shaped reach — `readTerminalKeys`, whose closure
+// carries the mirror — arrives dynamically inside the handler instead.
+import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import {
   type PadiWatchOpenInput,
   PadiWatchOpenInputSchema,
 } from "@kolu/padi/surface";
-import { readTerminalKeys } from "@kolu/padi/read";
+import { type WatchScopeRefusal, watchScopeOf } from "@kolu/padi/watchScope";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
@@ -197,9 +200,16 @@ export const watchOpenTool: BespokeTool = {
       // machine's fleet, in which case the stamp names a terminal nobody there
       // has heard of and the mute would mute nobody and return success. Every
       // other id on this call is a full id off the wire, so a caller who never
-      // asked `ignoreSelf` pays no round trip.
-      const live =
-        asked.ignoreSelf === true ? yield* readTerminalKeys(padi) : [];
+      // asked `ignoreSelf` pays no round trip — and the module loading the
+      // read pays for it only too (the tree-build fence at the file head).
+      const live: readonly TerminalId[] =
+        asked.ignoreSelf === true
+          ? yield* Effect.promise(() =>
+              import("@kolu/padi/read").then(({ readTerminalKeys }) =>
+                Effect.runPromise(readTerminalKeys(padi)),
+              ),
+            )
+          : [];
       const parsed = resolveWatchOpenInput(asked, live);
       // On the ERROR channel, not thrown: a throw inside a generator is a
       // DEFECT, and `failFrom` reads a `ToolFailure`'s own detail off the

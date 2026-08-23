@@ -69,7 +69,13 @@ import { Cause, Effect } from "effect";
 import { Command } from "effect/unstable/cli";
 import { serverVersion } from "kolu-server/src/hostname.ts";
 import { koluCli } from "./cli.ts";
-import { CliFailure, reportOf, UsageRefused } from "./exit.ts";
+import {
+  CliFailure,
+  errorMessage,
+  isContractArm,
+  reportOf,
+  UsageRefused,
+} from "./exit.ts";
 
 /** The brand every `effect/unstable/cli` error carries.
  *
@@ -145,9 +151,18 @@ const program = Command.run(koluCli, { version: serverVersion });
  *  edge prints exactly one line, on stderr, and nothing else says it again.
  *  The dump was never part of the contract: exit 1 was, and stays. */
 const failureFor = (err: unknown): CliFailure | unknown =>
-  typeof (err as { readonly stderr?: unknown })?.stderr === "string"
+  isContractArm(err)
     ? err
-    : new CliFailure({ stderr: reportOf(err), code: 1 });
+    : // Identity is BY TAG, never by the `.stderr` payload: a foreign rejection
+      // carrying one (an execa-style process error) is a defect to wrap, not a
+      // contract arm — untagged, it would ride through marker-free and the
+      // runtime's own reporter would dump its cause ONTO STDOUT beside the
+      // wrapped line, double-speaking the one place "stdout is data" holds.
+      new CliFailure({
+        reason: errorMessage(err),
+        stderr: reportOf(err),
+        code: 1,
+      });
 
 NodeRuntime.runMain(
   program.pipe(

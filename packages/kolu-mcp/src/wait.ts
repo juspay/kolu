@@ -32,12 +32,11 @@
  * outcome the agent can retry.
  */
 
-import {
-  awaitAgentState,
-  awaitOutputSettled,
-  type PadiSurfaceClient,
-  WAIT_STATES,
-} from "@kolu/padi/dial";
+// The dial kit arrives dynamically, INSIDE the handlers: this module is on the
+// static tree-build path of every `kolu` invocation (the surface face mounts
+// the table), so the waiters' socket/mirror closure may only load at call
+// time. WAIT_STATES has a schema home of its own and belongs here statically.
+import type { PadiSurfaceClient } from "@kolu/padi/dial";
 // The tail slice is padi's — the same fold `screen_text`'s `tail` and `kolu
 // wait --snapshot` use, so "the last N lines" means one thing on every face.
 import { tailLines } from "@kolu/padi/render";
@@ -48,6 +47,7 @@ import {
   waitOutcomeJson,
 } from "@kolu/surface/wait";
 import type { BespokeTool } from "@kolu/surface-mcp/tools";
+import { WAIT_STATES } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
@@ -165,6 +165,7 @@ export const waitOutputSettledTool: BespokeTool = {
     Effect.tryPromise(async () => {
       const { id, idleMs, screenTail, timeoutMs } =
         args as WaitOutputSettledArgs;
+      const { awaitOutputSettled } = await import("@kolu/padi/dial");
       const outcome = await awaitOutputSettled(client as PadiSurfaceClient, {
         id,
         idleMs,
@@ -218,6 +219,7 @@ export const waitAgentStateTool: BespokeTool = {
     Effect.tryPromise(async () => {
       const { id, until, settledMs, screenTail, timeoutMs } =
         args as WaitAgentStateArgs;
+      const { awaitAgentState } = await import("@kolu/padi/dial");
       const outcome = await awaitAgentState(client as PadiSurfaceClient, {
         id,
         targets: new Set(until),

@@ -78,8 +78,8 @@ agent](/mcp) as command-line verbs, projected by
 [`@kolu/surface-cli`](/surface/expose-to-cli): `screen_text` is a verb,
 `lifecycle_create` is a verb, and `list` prints the whole verb table — which
 dials nothing, so a dead endpoint still lists. Beside the tools ride the
-introspection verbs `keys` / `get` / `watch` / `verbs` over the same live views
-(`terminals`, `urgency`, …).
+member readers `get` / `keys` over the same live views (`terminals`,
+`urgency`, …), each with a `--follow` form that streams the answer as ndjson.
 
 ```sh
 kolu surface screen_text "$id" --tail 20
@@ -87,7 +87,7 @@ kolu surface screen_text "$id" --tail 20
 
 The shared endpoint flags apply unchanged — `--socket`, `--state-root`,
 `--host`, on either side of the verb. And stdout stays data: one JSON value for
-a read, ndjson for a `watch`. What **differs** is the exit-code contract — for
+a read, ndjson lines for a `--follow`ed one. What **differs** is the exit-code contract — for
 `kolu surface` the matrix is `@kolu/surface-cli`'s, not the native verbs'
 `1/2/3` above:
 
@@ -99,6 +99,10 @@ a read, ndjson for a `watch`. What **differs** is the exit-code contract — for
 | `3` | the endpoint couldn't be reached — the message names it as spelled |
 | `130` | interrupted |
 
+One carve-out a driver learns ONCE: a *parse-layer* refusal — a typo'd verb or
+a rejected flag — never reaches a face's handler, so the CLI library renders
+the usage and `kolu` answers `1` on BOTH faces; `2` above is the exit the
+face's own input validation writes when your spelling DID reach the daemon.
 The full contract is [the surface-cli reference](/surface/ref-surface-cli#exit-codes).
 
 ### `kolu watch` as a doorbell that keeps ringing

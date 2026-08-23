@@ -14,8 +14,8 @@
 
 import { padiSurface } from "@kolu/padi/surface";
 import {
-  serveSurfaceAsMcp,
   type SurfaceClientCallable,
+  serveSurfaceAsMcp,
   ToolFailure,
 } from "@kolu/surface-mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -24,7 +24,7 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { refuseBlankFields, resolveCreateDirectory } from "./create.ts";
 import { KOLU_MCP_EXPOSE } from "./expose.ts";
-import { KOLU_MCP_TOOLS } from "./serve.ts";
+import { KOLU_MCP_TOOLS } from "./tools.ts";
 
 const ID = "00000000-0000-4000-8000-000000000000";
 const PARENT_ID = "11111111-1111-4111-8111-111111111111";
