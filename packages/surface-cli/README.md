@@ -42,6 +42,27 @@ and the exit code says which happened: `0` done · `1` the verb's declared
 refusal · `2` a usage error that never left the process · `3` nothing serving ·
 `130` interrupted.
 
+Two flags are this face's own, one per direction: `--input '{…}'` (or `--input -`)
+carries the whole input where the field flags would, and `--json` asks for the
+whole answer where a host's renderer would have summarised it. **The flag is the
+only thing that decides the answer's shape** — what stdout happens to be attached
+to decides nothing.
+
+## The help page
+
+Pass `help` — a purpose line, the verbs grouped by what they do, an example each
+— and `surfaceHelp(opts)` builds the page for `Command.withDescription`, while
+`surfaceCommands` unlists the verbs so the page is the listing rather than one of
+two. The layout is this package's; the wording is yours. A group naming a command
+this surface has none of is refused when the tree is built.
+
+## A transport that cannot push
+
+`endpoint.streaming: false` says the far side answers questions and pushes
+nothing — a request/response door. `watch` is then not mounted and `--follow` is
+not declared, rather than parsing and always failing. Every other reader still
+works: each takes the opening snapshot frame and interrupts the rest.
+
 Part of the kolu monorepo — `"@kolu/surface-cli": "workspace:*"`.
 
 ## Docs

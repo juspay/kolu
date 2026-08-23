@@ -3,7 +3,7 @@
  * and the one read of stdin this face makes.
  *
  * Both halves are here because both are the same seam and the same reason for
- * it (below): `--json -` reads its payload through the service every handler
+ * it (below): `--input -` reads its payload through the service every handler
  * already requires, exactly as every write goes out through it.
  *
  * ## The output discipline
@@ -15,9 +15,11 @@
  *     2)` is for a human reading a terminal; a pipe is read by a program that
  *     does not care and by a `wc -c` that does. ndjson is compact either way —
  *     a "line" with newlines in it is not a line.
- *   - **A human on a terminal may get PROSE**, and a pipe never does — see
- *     {@link present}. The branch lives HERE, once, so no caller has to ask what
- *     stdout is attached to and changing the rule does not edit the projection.
+ *   - **A caller who did not ask for JSON may get PROSE** — see {@link present}.
+ *     `--json` is what decides, and what stdout happens to be attached to
+ *     decides nothing: the same command prints the same thing on a terminal, in
+ *     a pipe and in a CI log. The branch lives HERE, once, so no caller has to
+ *     ask, and changing the rule does not edit the projection.
  *   - **stderr is PROSE**, and it is the run EDGE's, not this module's: a
  *     failure carries the exact text it wants written (`exit.ts`) and the host
  *     writes it once, outside the command. A second stderr writer here would be
@@ -29,7 +31,7 @@
  *
  * `Command.run` already requires `Stdio` (it is where argv comes from), so the
  * service is present at every handler and costs nothing to reach. It hands back
- * a `Sink`, which is the part that matters: a large payload (`--json` over a
+ * a `Sink`, which is the part that matters: a large payload (`--input` over a
  * busy host, a long scrollback, a live feed into `| less`) must FLUSH before the
  * process exits, or the tail is silently truncated — the sink waits on drain, so
  * a slow consumer slows the producer instead of inflating a backlog. And a
@@ -172,25 +174,28 @@ export function frames<E>(
   return toStdout(Stream.map(stream, (value) => `${json(value, false)}\n`));
 }
 
-/** Prose for a HUMAN on a terminal, the JSON data through a pipe — the one
- *  place "a pipe always gets JSON" is decided, so no caller has to ask what
- *  stdout is attached to.
+/** The author's PROSE, or the JSON answer whole — decided by the caller's
+ *  `--json` and by nothing else.
  *
- *  That is why there is no flag to force JSON: a script never has to remember
- *  one, `--json` on a verb keeps its single meaning (the whole input), and a
- *  human who wants the JSON pipes it. A caller with no renderer to offer passes
- *  none and always gets the data frame. */
+ *  It used to be decided by `stdoutIsTerminal`: prose to a terminal, data
+ *  through a pipe. That made the output shape a fact about what the process
+ *  happened to be attached to rather than about what was asked for — the same
+ *  command printed two different things under `| tee`, under `script(1)`, and in
+ *  a CI log, and neither shape could be asked for on purpose. The flag decides
+ *  now (human, 2026-08-23), which is one rule a person can hold and a script can
+ *  rely on. A caller with no renderer to offer passes none and always gets the
+ *  data frame, `--json` or not — there is no summary to withhold.
+ *
+ *  What a TERMINAL still decides is inside {@link data} and is only ever
+ *  INDENTATION: how a JSON answer is spaced, never which answer it is. */
 export function present(
   value: unknown,
   render?: (value: unknown) => string,
+  asJson = false,
 ): Effect.Effect<void, never, Stdio.Stdio> {
-  return Effect.gen(function* () {
-    if (render === undefined) return yield* data(value);
-    const tty = yield* (yield* Stdio.Stdio).stdoutIsTerminal;
-    if (!tty) return yield* data(value);
-    const text = render(value);
-    yield* out(text.endsWith("\n") ? text : `${text}\n`);
-  });
+  if (render === undefined || asJson) return data(value);
+  const text = render(value);
+  return out(text.endsWith("\n") ? text : `${text}\n`);
 }
 
 /** The serialization every writer here shares. `undefined` (a void procedure's
@@ -205,7 +210,7 @@ function json(value: unknown, indent: boolean): string {
 
 // ── The one read ─────────────────────────────────────────────────────────
 
-/** The whole of stdin, as text — what `--json -` means.
+/** The whole of stdin, as text — what `--input -` means.
  *
  *  Read through the `Stdio` service rather than off fd 0, for the same reason
  *  everything above WRITES through it: `Command.run` already requires it, so a

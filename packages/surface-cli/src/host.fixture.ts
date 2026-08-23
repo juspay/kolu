@@ -23,6 +23,8 @@ import { Command } from "effect/unstable/cli";
 import { reportingRunEdge } from "./exit";
 import {
   fixtureRoot,
+  fixtureRootOneShot,
+  fixtureRootWithHelp,
   fixtureRootWithParentFlags,
   fixtureRootWithUnresolvableEndpoint,
 } from "./fixture.testlib";
@@ -35,7 +37,11 @@ import {
 //   parent-flags     declared once on the PARENT, read back in `resolve`
 //   resolve-fails    a resolution that refuses, as a typed failure
 //   resolve-throws   the same refusal as a bare throw out of the seam
+//   one-shot         a transport that cannot push: no `watch`, no `--follow`
+//   helped           a host that wrote a help page, so the verbs are unlisted
 const root = ((mode) => {
+  if (mode === "one-shot") return fixtureRootOneShot();
+  if (mode === "helped") return fixtureRootWithHelp();
   if (mode === "parent-flags") return fixtureRootWithParentFlags();
   if (mode === "resolve-fails")
     return fixtureRootWithUnresolvableEndpoint("fail");

@@ -35,8 +35,10 @@ import {
   type ProjectedCommand,
   surfaceCommands,
   type SurfaceCliConnection,
+  surfaceHelp,
   type VerbAnnotation,
 } from "./commands";
+import type { SurfaceCliHelp } from "./help";
 
 // ── The surface ──────────────────────────────────────────────────────────
 
@@ -331,11 +333,11 @@ const ANNOTATE: Record<string, VerbAnnotation> = {
   proc_count: { render: (out) => `processes: ${(out as { n: number }).n}` },
 };
 
-/** The projection over ONE endpoint seam — everything the three roots below
- *  share, so what is left at each of them is the one thing it is there to
- *  prove. */
+/** The projection over ONE endpoint seam — everything the roots below share, so
+ *  what is left at each of them is the one thing it is there to prove. */
 function commandsWith<F extends Command.Command.FlagConfig, R>(
   endpoint: EndpointSeam<F, R>,
+  help?: SurfaceCliHelp,
 ) {
   return surfaceCommands({
     surface,
@@ -343,9 +345,30 @@ function commandsWith<F extends Command.Command.FlagConfig, R>(
     verbs: VERBS,
     endpoint,
     annotate: ANNOTATE,
+    help,
     info: { name: "demo" },
   });
 }
+
+/** The fixture's HELP WORDING — the app's half of the page, which is the half
+ *  the framework cannot write. Deliberately incomplete: `echo` is in no group,
+ *  so the trailing catch-all group is exercised by the same fixture that
+ *  exercises the ones an author did write. */
+export const HELP: SurfaceCliHelp = {
+  command: "surface",
+  purpose: "Drive the demo surface from a shell.",
+  groups: [
+    { title: "Read", verbs: ["get", "keys", "watch", "list"] },
+    { title: "Write", verbs: ["proc_kill"] },
+    { title: "Ask", verbs: ["proc_count"] },
+  ],
+  examples: {
+    get: "get processes 1",
+    proc_kill: "proc_kill 4241 --signal HUP",
+  },
+  flags: [{ spelling: "--socket <path>", description: "the socket to dial" }],
+  answer: "Answers go to stdout; anything else goes to stderr.",
+};
 
 /** The projected commands, as the fixture host mounts them. */
 export function fixtureCommands(): ReadonlyArray<ProjectedCommand> {
@@ -378,6 +401,48 @@ export function fixtureRootWithParentFlags() {
     resolve: () => Effect.flatMap(root, resolveFixture),
   });
   return root.pipe(Command.withSubcommands([...commands]));
+}
+
+/** The SAME projection over a transport that CANNOT PUSH — `streaming: false`.
+ *
+ *  What it proves is a subtraction: no `watch` command is mounted and no
+ *  `--follow` is declared, so a caller finds out from `--help` rather than from
+ *  a subscription that ends after one frame. The seam still dials the same live
+ *  socket, because the point is the PROJECTION's shape and not the link's — a
+ *  fixture that also broke the link could not tell a missing command from a dead
+ *  endpoint. */
+export function fixtureRootOneShot() {
+  return Command.make("demo").pipe(
+    Command.withDescription("the surface-cli fixture host (one-shot endpoint)"),
+    Command.withSubcommands([
+      ...commandsWith({
+        flags: endpointFlags,
+        resolve: resolveFixture,
+        streaming: false,
+      }),
+    ]),
+  );
+}
+
+/** The same projection WITH a help page — the parent's description is the page,
+ *  and the verbs are unlisted because the page has already listed them. */
+export function fixtureRootWithHelp() {
+  return Command.make("demo").pipe(
+    Command.withDescription(
+      surfaceHelp({
+        surface,
+        expose: EXPOSE,
+        verbs: VERBS,
+        endpoint: { flags: endpointFlags, resolve: resolveFixture },
+        annotate: ANNOTATE,
+        help: HELP,
+        info: { name: "demo" },
+      }),
+    ),
+    Command.withSubcommands([
+      ...commandsWith({ flags: endpointFlags, resolve: resolveFixture }, HELP),
+    ]),
+  );
 }
 
 /** A projection whose endpoint RESOLUTION refuses — the arm an app with a

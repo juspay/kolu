@@ -39,18 +39,27 @@
  *
  * | spec member | argv |
  * | --- | --- |
- * | procedure `ns.verb` exposed `"tool"` | `<toolName(ns,verb)> [--field …] [--json '{…}' \| -]` |
+ * | procedure `ns.verb` exposed `"tool"` | `<toolName(ns,verb)> [--field …] [--input '{…}' \| -] [--json]` |
  * | a bespoke `SurfaceVerb` | `<name> …`, by the same rule over its `input` |
  * | cell exposed `"resource"` | `get <member> [--follow]` |
  * | stream / event exposed `"resource"` | `get <member> [input] [--follow]` |
  * | collection exposed `"resource"` | `get <member> <key> [--follow]` · `keys <member> [--follow]` · `watch <member>` |
- * | always | `list` — this face's `tools/list`. It takes **no `--json` of its own**: the aligned table on a terminal, JSON through a pipe, exactly like a verb with a renderer — so `--json` means ONE thing across the whole mounted set, the input |
+ * | always | `list` — this face's `tools/list`, answered from the projection rather than from a server |
  *
  * `--follow` turns a one-shot read into the subscription itself, one ndjson line
  * per frame, until the stream ends or the fiber is interrupted. Without it a
  * read takes the opening SNAPSHOT frame and stops — which is what every
  * snapshot-then-deltas member opens with, and `Stream.runHead`'s interruption IS
  * the unsubscribe. `watch` has no one-shot reading, so it takes no `--follow`.
+ * A host whose transport cannot push declares `endpoint.streaming: false`, and
+ * then neither exists at all — see {@link EndpointSeam.streaming}.
+ *
+ * ## Two flags, two directions, one name each
+ *
+ * `--input` carries the whole INPUT as JSON where the field flags would
+ * (`./flags.ts`); `--json` asks for the whole ANSWER as JSON where a renderer
+ * would have summarised it ({@link JSON_FLAG}). The flag is the only thing that
+ * decides the answer's shape — what stdout is attached to decides nothing.
  *
  * ## Two gates, as with MCP
  *
@@ -105,10 +114,16 @@ import {
 } from "./exit";
 import {
   flagsOf,
+  INPUT_FLAG,
   type InputProjection,
-  JSON_FLAG,
   SurfaceCliBuildError,
 } from "./flags";
+import {
+  type HelpFlag,
+  type HelpRow,
+  helpText,
+  type SurfaceCliHelp,
+} from "./help";
 import { data, frames, present, readStdin } from "./io";
 
 /** A live connection this face owns for the length of ONE command.
@@ -139,10 +154,13 @@ export interface VerbAnnotation {
    *  rather than `capture --title "a thought"`. Refused at build if it names a
    *  field the input does not declare, or one that cannot be a position. */
   readonly positional?: readonly string[];
-  /** Render the verb's output as text FOR A HUMAN. Applied only when stdout is a
-   *  terminal; a pipe always receives JSON, so a script never has to remember a
-   *  flag to get parseable output and `--json` on a verb keeps its one meaning
-   *  (the whole input). */
+  /** Render the verb's output as text FOR A HUMAN — one line a person can act
+   *  on, in place of the answer's JSON.
+   *
+   *  Applied unless the caller passed `--json`, and that is the WHOLE rule: it
+   *  used to depend on whether stdout was a terminal, so the same command
+   *  answered differently under `| tee` than in front of a person, and neither
+   *  shape could be asked for. See {@link JSON_FLAG}. */
   readonly render?: (output: unknown) => string;
 }
 
@@ -162,6 +180,13 @@ export interface SurfaceCliOptions<
   readonly endpoint: EndpointSeam<F, R>;
   /** CLI-only ergonomics, by verb name. */
   readonly annotate?: Record<string, VerbAnnotation>;
+  /** The WORDING of the help page — a purpose line, the verbs grouped by what
+   *  they do, an example each. Passing it does two things: {@link surfaceHelp}
+   *  can build the page, and the projected commands stop appearing in the
+   *  parent's own alphabetical SUBCOMMANDS block, because the page has already
+   *  listed them (see `surfaceCommands`). Omit it and nothing changes — the
+   *  renderer's flat listing is what a host gets today. */
+  readonly help?: SurfaceCliHelp;
   /** The BINARY's identity — its `name`, which fronts every diagnostic this
    *  face writes, because a user reads `olai: no surface at …` and never the
    *  package's name. Required, not defaulted to something that would be wrong.
@@ -233,6 +258,26 @@ export interface EndpointSeam<F extends FlagRecord = FlagRecord, R = never> {
   readonly resolve: (
     values: FlagValues<F>,
   ) => Effect.Effect<ResolvedEndpoint, unknown, R>;
+  /** Can this transport carry a SUBSCRIPTION at all? Default `true`, which is
+   *  every duplex link the framework ships (a socket, a websocket, a direct
+   *  in-process client).
+   *
+   *  `false` says the far side answers questions and pushes nothing, and the
+   *  projection then does not mount `watch` and does not declare `--follow` on
+   *  `get` or `keys`. That is the whole of it, and it is a BUILD-time fact
+   *  rather than a runtime refusal on purpose: a flag that parses and then
+   *  always fails is a flag whose `--help` is untrue, and `--help` is the only
+   *  place a caller finds out what a face can do. A one-shot read still works —
+   *  every reader here takes the opening snapshot frame and interrupts the rest,
+   *  so a link that answers once answers all of them.
+   *
+   *  The live consumer is a request/response door: olai's `olai surface` speaks
+   *  MCP over HTTP to the same `/mcp` a bridged agent uses, and that endpoint
+   *  answers one POST with one frame and pushes nothing (it says so itself, with
+   *  a 405 on the SSE half). Mounting `watch` over it would offer a
+   *  subscription that ends after its first frame — which reads as a stream that
+   *  went quiet rather than as a door that has none. */
+  readonly streaming?: boolean;
 }
 
 /** One resolved endpoint: what to call it, and how to open it.
@@ -279,6 +324,33 @@ export type ProjectedCommand<R = Stdio.Stdio> = Command.Command<
   R
 >;
 
+/** The name of the OUTPUT flag — "give me the whole JSON answer, not the
+ *  summary".
+ *
+ *  It is `--json` because that is what a person reaches for, and it could only
+ *  be `--json` once the whole-INPUT escape hatch stopped being (`./flags.ts`'s
+ *  {@link INPUT_FLAG}, which carries the argument for the rename). One name, one
+ *  meaning, across every command this face mounts.
+ *
+ *  IT IS THE ONLY THING THAT DECIDES, and that is the change it carries. A
+ *  renderer used to apply on a terminal and not through a pipe — `present`
+ *  asked `stdoutIsTerminal` — which made the output shape a fact about what the
+ *  process happened to be attached to: `capture … | tee` and `capture …` printed
+ *  different things, a script's output changed under `script(1)`, and there was
+ *  no way to ask for either one on purpose. Now the flag decides and nothing
+ *  else does (human, 2026-08-23). What stdout being a terminal still decides is
+ *  INDENTATION and nothing more — how a JSON answer is spaced, never which
+ *  answer it is. */
+export const JSON_FLAG = "json";
+
+/** `--json`, spelled once for every command that has a summary to replace. */
+const jsonFlag = Flag.boolean(JSON_FLAG).pipe(
+  Flag.withDescription(
+    "print the full JSON answer instead of the one-line summary",
+  ),
+  Flag.withDefault(false),
+);
+
 /** Every command this face mounts, in the order a `--help` should list them:
  *  the verbs (alphabetical), then the readers, then `list`. */
 export function surfaceCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
@@ -291,11 +363,181 @@ export function surfaceCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
   // edit away from describing something else.
   const verbs = callableVerbs(opts, entries);
   const readable = readables(entries);
-  return [
+  const mounted = [
     ...verbs.map((verb) => verbCommand(opts, verb)),
     ...readerCommands(opts, readable),
     listCommand(opts, verbs, readable),
   ];
+  // A host that wrote a help page has ALREADY listed its verbs, in groups, with
+  // an example each ({@link surfaceHelp}). Leaving them in the parent's own
+  // SUBCOMMANDS block as well prints the same set twice on one page — once
+  // organised and once alphabetically — and the flat copy is the one that reads
+  // like the truth because the renderer wrote it. So the page is the listing, or
+  // the renderer's is; never both. Each command is still reachable and still
+  // answers `<verb> --help` with its own flags: `unlisted` hides a subcommand
+  // from the PARENT's listing and from completions, and nothing else.
+  return opts.help === undefined ? mounted : mounted.map(hide);
+}
+
+/** `Command.unlisted`, with the projection's loose types carried across it. */
+const hide = <R>(command: ProjectedCommand<R>): ProjectedCommand<R> =>
+  Command.unlisted(command) as ProjectedCommand<R>;
+
+/**
+ * The parent command's DESCRIPTION — the help page a person reads.
+ *
+ * Pure over the same options `surfaceCommands` takes, and derived from the same
+ * two tables, so the page cannot describe a verb the projection does not mount:
+ * a group naming a name nothing answers to is refused at BUILD, where the author
+ * is, rather than shipping a help page that lies. The layout is `./help.ts`; the
+ * wording is the host's ({@link SurfaceCliHelp}).
+ *
+ * A SECOND CALL rather than a second return value from `surfaceCommands`,
+ * because the two land in different places: the commands are mounted with
+ * `Command.withSubcommands` and this is piped through `Command.withDescription`.
+ * Handing back a pair would make every host that wants no help page destructure
+ * one.
+ */
+export function surfaceHelp<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R> & { readonly help: SurfaceCliHelp },
+): string {
+  const entries = classifyExpose(opts.surface.spec, opts.expose, "surface-cli");
+  const verbs = callableVerbs(opts, entries);
+  const readable = readables(entries);
+  const rows = new Map<string, HelpRow>();
+  const prefix = `${opts.info.name} ${opts.help.command}`;
+  const exampleFor = (name: string): string | undefined => {
+    const said = opts.help.examples?.[name];
+    return said === undefined ? undefined : `${prefix} ${said}`;
+  };
+  for (const verb of verbs) {
+    rows.set(verb.name, {
+      name: verb.name,
+      usage: verbUsage(verb),
+      description: blurb(verb),
+      example: exampleFor(verb.name),
+    });
+  }
+  for (const reader of readerRows(opts, readable)) {
+    rows.set(reader.name, { ...reader, example: exampleFor(reader.name) });
+  }
+
+  const named = new Map<string, string>();
+  const groups = opts.help.groups.map((group) => {
+    const missing = group.verbs.filter((name) => !rows.has(name));
+    if (missing.length > 0) {
+      throw new SurfaceCliBuildError(
+        `surface-cli: the help group "${group.title}" names ${missing.map((n) => `"${n}"`).join(", ")}, which this surface mounts no command for — this face offers ${[...rows.keys()].map((n) => `"${n}"`).join(", ")}.`,
+      );
+    }
+    for (const name of group.verbs) {
+      const prior = named.get(name);
+      if (prior !== undefined) {
+        throw new SurfaceCliBuildError(
+          `surface-cli: the help groups "${prior}" and "${group.title}" both name "${name}" — a command belongs in one group.`,
+        );
+      }
+      named.set(name, group.title);
+    }
+    return {
+      title: group.title,
+      rows: group.verbs.flatMap((name) => {
+        const row = rows.get(name);
+        return row === undefined ? [] : [row];
+      }),
+    };
+  });
+  // Anything the projection mounts and no group claimed. NOT dropped and not a
+  // build error: a verb added to the table is a command with no code written for
+  // it, so making the help refuse until somebody files it would put that cost
+  // back — while a silent omission is a command nobody discovers. It gets a
+  // group, visibly, and the author moves it when they get to it.
+  const rest = [...rows.values()].filter((row) => !named.has(row.name));
+
+  return helpText({
+    purpose: opts.help.purpose,
+    usage: `${prefix} <verb> [flags]`,
+    groups:
+      rest.length === 0 ? groups : [...groups, { title: "Other", rows: rest }],
+    flags: [...(opts.help.flags ?? []), ...OWN_FLAGS],
+    answer: opts.help.answer,
+  });
+}
+
+/** The two flags this FACE puts on its commands, worded by the face that owns
+ *  them — the host words its own endpoint flags, which is why they are a field
+ *  on {@link SurfaceCliHelp} and these are not. */
+const OWN_FLAGS: ReadonlyArray<HelpFlag> = [
+  {
+    spelling: `--${JSON_FLAG}`,
+    description: "print the full JSON answer instead of the one-line summary",
+  },
+  {
+    spelling: `--${INPUT_FLAG} <json>`,
+    description:
+      "the whole input as one JSON object (`-` reads it from stdin), instead of the field flags",
+  },
+];
+
+/** How a verb is typed: its name, its positions, and whether anything else can
+ *  follow. The verb's OWN `--help` lists the flags with their types — a summary
+ *  page that reproduced them would be the flat dump this page exists not to be. */
+function verbUsage(verb: CallableVerb): string {
+  const positions = (verb.annotation.positional ?? []).map(
+    (field) => `<${field}>`,
+  );
+  const fields = Object.keys(verb.projection.config).filter(
+    (name) =>
+      name !== INPUT_FLAG && !(verb.annotation.positional ?? []).includes(name),
+  );
+  return [
+    verb.name,
+    ...positions,
+    ...(fields.length > 0 ? ["[flags]"] : []),
+  ].join(" ");
+}
+
+/** The reader commands as help rows — the SAME set {@link readerCommands}
+ *  mounts, decided by the same two questions (is anything readable, can the
+ *  endpoint push), so the page cannot offer a `watch` the projection withheld. */
+function readerRows<S extends SurfaceSpec, F extends FlagRecord, R>(
+  opts: SurfaceCliOptions<S, F, R>,
+  table: Map<string, Readable>,
+): ReadonlyArray<Omit<HelpRow, "example">> {
+  const rows: Array<Omit<HelpRow, "example">> = [
+    {
+      name: "list",
+      usage: "list",
+      description: "List every verb and readable member this face offers.",
+    },
+  ];
+  if (table.size === 0) return rows;
+  const streams = opts.endpoint.streaming !== false;
+  const collections = [...table.values()].filter(
+    (r) => r.kind === "collection",
+  );
+  rows.unshift({
+    name: "get",
+    usage: streams ? "get <member> [key] [--follow]" : "get <member> [key]",
+    description: streams
+      ? "Read one exposed member — its current value, or (with --follow) its live subscription as ndjson."
+      : "Read one exposed member's current value.",
+  });
+  for (const reader of COLLECTION_READERS) {
+    if (reader.always && !streams) continue;
+    if (collections.filter(reader.eligible).length === 0) continue;
+    rows.splice(rows.length - 1, 0, {
+      name: reader.name,
+      usage:
+        reader.always || !streams
+          ? `${reader.name} <collection>`
+          : `${reader.name} <collection> [--follow]`,
+      description: streams
+        ? reader.description
+        : (reader.oneShot ?? reader.description),
+    });
+  }
+  return rows;
 }
 
 // ── The verb half ────────────────────────────────────────────────────────
@@ -438,7 +680,7 @@ function verbCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
 ): ProjectedCommand<Stdio.Stdio | R> {
   return Command.make(
     verb.name,
-    mergeConfig(opts, verb.name, verb.projection.config),
+    mergeConfig(opts, verb.name, verb.projection.config, true),
     (values: Record<string, unknown>) => runVerb(opts, verb, values),
   ).pipe(Command.withDescription(blurb(verb))) as ProjectedCommand<
     Stdio.Stdio | R
@@ -468,15 +710,24 @@ function mergeConfig<S extends SurfaceSpec, F extends FlagRecord, R>(
   opts: SurfaceCliOptions<S, F, R>,
   name: string,
   own: Command.Command.Config,
+  /** Does this command have a SUMMARY that `--json` could replace? Verbs do
+   *  (a `render` annotation) and so does `list` (its aligned table); a reader
+   *  does not — it writes the data frame and nothing else — so it takes no
+   *  `--json`, rather than one whose help line would promise a switch between
+   *  two things it does not have. */
+  summarised = false,
 ): Command.Command.Config {
   const endpoint = opts.endpoint.flags ?? {};
-  const clash = Object.keys(endpoint).filter((key) => Object.hasOwn(own, key));
+  const added: Command.Command.Config = summarised
+    ? { ...endpoint, [JSON_FLAG]: jsonFlag }
+    : endpoint;
+  const clash = Object.keys(added).filter((key) => Object.hasOwn(own, key));
   if (clash.length > 0) {
     throw new SurfaceCliBuildError(
-      `surface-cli: "${name}" declares ${clash.map((c) => `"${c}"`).join(", ")}, which the endpoint flags also declare. Rename the endpoint flag, or the input field.`,
+      `surface-cli: "${name}" declares ${clash.map((c) => `"${c}"`).join(", ")}, which the endpoint flags or --${JSON_FLAG} also declare. Rename the endpoint flag, or the input field.`,
     );
   }
-  return { ...own, ...endpoint };
+  return { ...own, ...added };
 }
 
 function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
@@ -486,7 +737,7 @@ function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
 ): Effect.Effect<void, unknown, Stdio.Stdio | R> {
   return Effect.gen(function* () {
     // Stdin is DESCRIBED here and read only by the one path that wants it
-    // (`--json -`), inside `assemble` — not off fd 0 synchronously, and not on a
+    // (`--input -`), inside `assemble` — not off fd 0 synchronously, and not on a
     // pre-flight question this caller could forget to ask. A verb that did not
     // ask never touches the descriptor, so nothing hangs waiting on a terminal
     // nobody typed into.
@@ -502,7 +753,7 @@ function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
         Effect.fail(
           usage(
             opts.info.name,
-            `could not read stdin for --${JSON_FLAG} -: ${unreadable.why}`,
+            `could not read stdin for --${INPUT_FLAG} -: ${unreadable.why}`,
           ),
         ),
     );
@@ -540,9 +791,10 @@ function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
       // the ENCODED value, while a bespoke handler's `args` ARE the decoded one.
       verb.call(client, verb.source === "bespoke" ? decoded : encoded),
     );
-    // The author's renderer on a terminal, the JSON data through a pipe —
-    // `io.ts` owns that branch, so this file never asks what stdout is.
-    yield* present(output, verb.annotation.render);
+    // The author's renderer, unless `--json` asked for the answer whole —
+    // `io.ts` owns that branch, and NOTHING here asks what stdout is attached
+    // to (see {@link JSON_FLAG}).
+    yield* present(output, verb.annotation.render, values[JSON_FLAG] === true);
   });
 }
 
@@ -661,6 +913,11 @@ interface CollectionReader {
    *  `keys` has a current key set to answer with and reads the flag. */
   readonly always: boolean;
   readonly description: string;
+  /** The same sentence where the door pushes nothing, so `--follow` is not
+   *  declared and must not be named. Absent on a reader that is not mounted
+   *  there at all — `watch` IS the subscription, and there is no one-shot
+   *  wording for it to have. */
+  readonly oneShot?: string;
 }
 
 const COLLECTION_READERS: readonly CollectionReader[] = [
@@ -672,6 +929,7 @@ const COLLECTION_READERS: readonly CollectionReader[] = [
     always: false,
     description:
       "List a collection's current key set — with --follow, every key set as it changes.",
+    oneShot: "List a collection's current key set.",
   },
   {
     name: "watch",
@@ -689,6 +947,10 @@ function readerCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
   table: Map<string, Readable>,
 ): Array<ProjectedCommand<Stdio.Stdio | R>> {
   if (table.size === 0) return [];
+  // Whether the far side can push AT ALL — the one fact that decides which
+  // readers exist. Absent means yes, because every link the framework ships is
+  // duplex; see {@link EndpointSeam.streaming}.
+  const streams = opts.endpoint.streaming !== false;
   const collections = [...table.values()].filter(
     (r) => r.kind === "collection",
   );
@@ -706,12 +968,14 @@ function readerCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
           Argument.optional,
           Argument.map(Option.getOrUndefined),
         ),
-        follow: followFlag,
+        ...(streams ? { follow: followFlag } : {}),
       }),
       (values: Record<string, unknown>) => runGet(opts, table, values),
     ).pipe(
       Command.withDescription(
-        "Read one exposed member — its current value, or (with --follow) its live subscription as ndjson.",
+        streams
+          ? "Read one exposed member — its current value, or (with --follow) its live subscription as ndjson."
+          : "Read one exposed member's current value.",
       ),
     ) as ProjectedCommand<Stdio.Stdio | R>,
   );
@@ -720,6 +984,10 @@ function readerCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
   // over no listable collection is a command whose every invocation is a usage
   // error.
   for (const reader of COLLECTION_READERS) {
+    // A reader that IS a subscription has nothing to offer a door that pushes
+    // nothing, so it is not mounted at all — the same rule, one line up, as the
+    // `--follow` flag it would have forced.
+    if (reader.always && !streams) continue;
     const eligible = collections.filter(reader.eligible);
     if (eligible.length === 0) continue;
     commands.push(
@@ -730,13 +998,15 @@ function readerCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
             "collection",
             eligible.map((c) => c.name),
           ),
-          ...(reader.always ? {} : { follow: followFlag }),
+          ...(reader.always || !streams ? {} : { follow: followFlag }),
         }),
         (values: Record<string, unknown>) =>
           runCollectionRead(opts, table, values, reader),
-      ).pipe(Command.withDescription(reader.description)) as ProjectedCommand<
-        Stdio.Stdio | R
-      >,
+      ).pipe(
+        Command.withDescription(
+          streams ? reader.description : (reader.oneShot ?? reader.description),
+        ),
+      ) as ProjectedCommand<Stdio.Stdio | R>,
     );
   }
 
@@ -1156,20 +1426,23 @@ function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
     // help line says so, so the flag is accepted rather than quietly promising
     // something it does not do.
     //
-    // And it takes NO `--json` of its own. It had one — a switch forcing the
-    // data frame — which made `--json` mean two things across one mounted set:
-    // the whole INPUT on every verb, an OUTPUT FORMAT here. `list` needs no
-    // second mechanism, because it already has the one every verb with a
-    // renderer has: text for a human on a terminal, JSON through a pipe. So
-    // `list | jq` is JSON without a flag to remember, `list` on a terminal is
-    // the aligned table, and a human who wants the JSON in front of them pipes
-    // it — the same price a verb's renderer already charges, now charged once.
-    mergeConfig(opts, "list", {}),
-    // A THUNK, so the table is built by the one command that writes it — and
-    // written with exactly the discipline every verb has: the aligned table for
-    // a human on a terminal, the JSON through a pipe, decided by the ONE branch
-    // in `io.ts` rather than by a second mechanism this command reinvents.
-    () => present(listTable(verbs, readable), alignedTable),
+    // And it takes `--json`, which it once had and lost. It lost it because the
+    // name meant the whole INPUT on every verb and an OUTPUT FORMAT here — two
+    // meanings across one mounted set, so the second was withdrawn rather than
+    // left to be guessed at. The input hatch is `--input` now (`./flags.ts`),
+    // which gives the name back to the answer: `--json` is one thing on `list`,
+    // on every verb with a renderer, and on any command this face grows.
+    mergeConfig(opts, "list", {}, true),
+    // A THUNK OVER THE PARSED VALUES, so the table is built by the one command
+    // that writes it and the flag it was asked with reaches the same `present`
+    // every verb goes through — the aligned table by default, the JSON when
+    // `--json` says so, and no question anywhere about what stdout is.
+    (values: Record<string, unknown>) =>
+      present(
+        listTable(verbs, readable),
+        alignedTable,
+        values[JSON_FLAG] === true,
+      ),
   ).pipe(
     Command.withDescription(
       "List what this surface offers — every verb and every readable member. This face's tools/list, answered from the projection itself, so it dials nothing.",

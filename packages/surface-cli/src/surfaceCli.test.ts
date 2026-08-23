@@ -172,6 +172,30 @@ function pipeThroughHead(args: readonly string[]): Promise<Run> {
 /** Build a command tree with `fixtureCommands`' options overridden, and report
  *  whether the BUILD refused. A malformed tree is an author's mistake with no
  *  CLI to read the refusal off, so the proof is a process that fails to start. */
+/** The same, for the HELP page — which is where a group's wording is checked,
+ *  because that is where a group is read. Same shape of proof: an author's
+ *  mistake has no CLI to be reported on, so the process must refuse to start. */
+function buildHelp(help: string): Promise<Run> {
+  const script = `
+    import { surfaceHelp } from "./src/commands.ts";
+    import { EXPOSE, endpointFlags, HELP, resolveFixture, surface, VERBS } from "./src/fixture.testlib.ts";
+    surfaceHelp({
+      surface,
+      expose: EXPOSE,
+      verbs: VERBS,
+      endpoint: { flags: endpointFlags, resolve: resolveFixture },
+      info: { name: "demo" },
+      help: ${help},
+    });
+  `;
+  return collect(
+    spawn(TSX, ["--eval", script], {
+      cwd: join(HERE, ".."),
+      stdio: ["ignore", "pipe", "pipe"],
+    }),
+  );
+}
+
 function buildTree(override: string): Promise<Run> {
   const script = `
     import { surfaceCommands } from "./src/commands.ts";
@@ -232,11 +256,11 @@ describe("the command table", () => {
   });
 
   it("`list` answers the table this face offers, with each verb's own input", async () => {
-    // No flag: `list` through a pipe IS the JSON, because a spawned child's
-    // stdout is not a terminal — the same rule a verb's renderer follows, which
-    // is why `list` needs no `--json` of its own and `--json` keeps its one
-    // meaning across the mounted set.
-    const listed = await run(["list"]);
+    // `--json` asks for the DATA. Without it `list` writes its aligned table,
+    // whatever stdout is attached to — the flag is the only thing that decides
+    // (which is why the same name had to stop meaning the whole input; that is
+    // `--input` now).
+    const listed = await run(["list", "--json"]);
     expect(listed.code).toBe(EXIT.ok);
     const table = JSON.parse(listed.stdout) as {
       verbs: {
@@ -294,6 +318,9 @@ describe("the flag shapes a verb's input projects to", () => {
       "--signal",
       "--because",
       "--labels",
+      // BOTH directions, on one verb: the whole input as JSON, and the whole
+      // answer as JSON. Two names because they are two things.
+      "--input",
       "--json",
       "--socket",
     ]) {
@@ -349,11 +376,11 @@ describe("the flag shapes a verb's input projects to", () => {
   it("takes the whole input as JSON, and from stdin with `-`", async () => {
     // The count itself is whatever earlier cases left behind — what is pinned
     // is that the EMPTY object reached the verb as its whole input.
-    const viaFlag = await run(["proc_count", "--json", "{}"]);
+    const viaFlag = await run(["proc_count", "--input", "{}", "--json"]);
     expect(viaFlag.code).toBe(EXIT.ok);
     expect(JSON.parse(viaFlag.stdout)).toMatchObject({ n: expect.any(Number) });
 
-    const viaStdin = await run(["echo", "--json", "-"], {
+    const viaStdin = await run(["echo", "--input", "-"], {
       stdin: JSON.stringify("from stdin"),
     });
     expect(viaStdin.code).toBe(EXIT.ok);
@@ -507,7 +534,10 @@ describe("where the endpoint flags live is the HOST's decision", () => {
     // that also declared them on the parent (`Command.withSharedFlags`, which
     // is what `kolu-cli` does, deliberately) collided outright and failed to
     // start; so this mounting was unreachable, and with it the parse it buys.
-    const before = await run(["proc_count"], {
+    // `--json` because what is pinned here is WHERE the endpoint flag parses,
+    // and the answer has to be machine-readable to say so; the fixture's verb
+    // carries a renderer, which is the default now.
+    const before = await run(["proc_count", "--json"], {
       fixture: "parent-flags",
       flagFirst: true,
     });
@@ -516,7 +546,9 @@ describe("where the endpoint flags live is the HOST's decision", () => {
   });
 
   it("still parses the flag AFTER the verb, so neither spelling is lost", async () => {
-    const after = await run(["proc_count"], { fixture: "parent-flags" });
+    const after = await run(["proc_count", "--json"], {
+      fixture: "parent-flags",
+    });
     expect(after.code).toBe(EXIT.ok);
     expect(JSON.parse(after.stdout)).toMatchObject({ n: expect.any(Number) });
   });
@@ -569,7 +601,7 @@ describe("the exit matrix", () => {
   });
 
   it("2 — a usage error, raised before anything is dialled", async () => {
-    const bad = await run(["proc_kill", "7", "--json", "{not json"], {
+    const bad = await run(["proc_kill", "7", "--input", "{not json"], {
       socket: deadSocket,
     });
     expect(bad.code).toBe(EXIT.usage);
@@ -596,12 +628,16 @@ describe("the exit matrix", () => {
  * would take away again.
  */
 describe("the whole-input escape hatch is reachable on every verb", () => {
-  it("takes --json on a verb whose input declares a REQUIRED field", async () => {
+  // The hatch is spelled `--input` here and was spelled `--json` when these
+  // cases were written. Nothing about WHAT they pin moved: the name did, because
+  // `--json` now asks for the whole ANSWER (`JSON_FLAG`), and one name cannot
+  // mean the input on the way in and the output on the way out.
+  it("takes --input on a verb whose input declares a REQUIRED field", async () => {
     // The parser used to demand the field flags first — a required field became
     // a required argv param, enforced before the assembler could see that
-    // `--json` was the answer. So the documented alternative was a dead branch
+    // `--input` was the answer. So the documented alternative was a dead branch
     // on every verb with a required field, which is most of them.
-    const refused = await run(["proc_kill", "--json", '{"pid":4241}']);
+    const refused = await run(["proc_kill", "--input", '{"pid":4241}']);
     expect(refused.code).toBe(EXIT.failed);
     expect(JSON.parse(refused.stderr)).toMatchObject({
       _tag: "NoSuchPid",
@@ -609,12 +645,12 @@ describe("the whole-input escape hatch is reachable on every verb", () => {
     });
   });
 
-  it("takes --json - on the same verb, reading the payload from stdin", async () => {
+  it("takes --input - on the same verb, reading the payload from stdin", async () => {
     // Proven by the verb's own refusal carrying the pid back out: nothing else
     // in the pipeline could have invented 4242, so the stdin payload reached the
     // far side intact — and the assertion does not care what earlier cases left
     // in the table.
-    const refused = await run(["proc_kill", "--json", "-"], {
+    const refused = await run(["proc_kill", "--input", "-"], {
       stdin: JSON.stringify({ pid: 4242 }),
     });
     expect(refused.code).toBe(EXIT.failed);
@@ -631,30 +667,30 @@ describe("the whole-input escape hatch is reachable on every verb", () => {
     const bare = await run(["proc_kill"], { socket: deadSocket });
     expect(bare.code).toBe(EXIT.usage);
     expect(bare.stderr).toContain("pid");
-    expect(bare.stderr).toContain("--json");
+    expect(bare.stderr).toContain("--input");
   });
 
-  it("names the missing required field through --json too, in the SAME words", async () => {
+  it("names the missing required field through --input too, in the SAME words", async () => {
     // Requiredness had two enforcers wording one mistake differently: the field
     // path named the field, while the documented alternative got "this input
     // does not match what the verb declares — {}" from the decode. The caller
     // who takes the documented route got the worse diagnostic.
-    const bare = await run(["proc_kill", "--json", "{}"], {
+    const bare = await run(["proc_kill", "--input", "{}"], {
       socket: deadSocket,
     });
     expect(bare.code).toBe(EXIT.usage);
     expect(bare.stderr).toContain("pid");
-    expect(bare.stderr).toContain("--json");
+    expect(bare.stderr).toContain("--input");
   });
 
-  it("refuses --json COMBINED with the field flags, and says which ones collide", async () => {
+  it("refuses --input COMBINED with the field flags, and says which ones collide", async () => {
     // Pointed at the DEAD socket: the refusal must be raised before anything is
     // dialled, and a live socket could not tell the two apart.
-    const both = await run(["proc_kill", "7", "--json", '{"pid":7}'], {
+    const both = await run(["proc_kill", "7", "--input", '{"pid":7}'], {
       socket: deadSocket,
     });
     expect(both.code).toBe(EXIT.usage);
-    expect(both.stderr).toContain("--json");
+    expect(both.stderr).toContain("--input");
     // Once each — a positional used to be counted twice, as a position and as
     // a field.
     expect(both.stderr.match(/"pid"/g)).toHaveLength(1);
@@ -662,10 +698,10 @@ describe("the whole-input escape hatch is reachable on every verb", () => {
 
   it("is not refused because of a field the caller never typed", async () => {
     // An optional array flag parsed to `[]` rather than to absent, so every
-    // `--json` on this verb was refused as "combined with because" — citing a
+    // `--input` on this verb was refused as "combined with because" — citing a
     // flag nobody passed — and every call sent `because: []` where the schema's
     // `optionalKey` means the key is not there at all.
-    const answered = await run(["proc_kill", "--json", '{"pid":4243}']);
+    const answered = await run(["proc_kill", "--input", '{"pid":4243}']);
     expect(answered.code).not.toBe(EXIT.usage);
     expect(answered.stderr).not.toContain("because");
   });
@@ -674,12 +710,12 @@ describe("the whole-input escape hatch is reachable on every verb", () => {
     // The payload arrives through the `Stdio` service the handler already
     // requires, not off fd 0 synchronously inside the assembly — so a read that
     // produces nothing is answered, on exit 2, rather than swallowed.
-    const empty = await run(["proc_kill", "--json", "-"], {
+    const empty = await run(["proc_kill", "--input", "-"], {
       socket: deadSocket,
       stdin: "",
     });
     expect(empty.code).toBe(EXIT.usage);
-    expect(empty.stderr).toMatch(/--json|stdin/);
+    expect(empty.stderr).toMatch(/--input|stdin/);
   });
 });
 
@@ -810,27 +846,60 @@ describe("a verb's renderer, on a terminal", () => {
       }),
     );
 
-  it("renders text on a TTY and JSON through a pipe — from one run edge", async () => {
+  it("renders the SAME thing on a TTY and through a pipe — the flag decides, not the descriptor", async () => {
+    // THE RULE THIS PINS IS THE ABSENCE OF A RULE. The renderer used to apply
+    // on a terminal and not through a pipe, so `proc_count` and
+    // `proc_count | tee` answered with different things and neither could be
+    // asked for on purpose: a script that wanted the summary could not have it,
+    // a human who wanted the data had to pipe it somewhere, and the same command
+    // in a CI log said something else again. Ruled out (human, 2026-08-23).
+    //
+    // The fixture's renderer answers in a shape the JSON never has, so neither
+    // half of this can pass by accident against the other branch.
     const argv = ["proc_count", "--socket", socketPath];
-    const onTty = await runWithStdout(argv, true);
-    // The fixture's renderer answers in a shape the JSON never has, so this
-    // cannot pass by accident against the other branch.
-    expect(onTty).toMatch(/^processes: \d+\n$/);
+    expect(await runWithStdout(argv, true)).toMatch(/^processes: \d+\n$/);
+    expect(await runWithStdout(argv, false)).toMatch(/^processes: \d+\n$/);
 
-    const piped = await runWithStdout(argv, false);
-    expect(JSON.parse(piped)).toMatchObject({ n: expect.any(Number) });
+    // …and `--json` is the one thing that moves it, on both.
+    const asked = [...argv, "--json"];
+    expect(JSON.parse(await runWithStdout(asked, true))).toMatchObject({
+      n: expect.any(Number),
+    });
+    expect(JSON.parse(await runWithStdout(asked, false))).toMatchObject({
+      n: expect.any(Number),
+    });
   });
 });
 
-describe("`--json` means ONE thing across the mounted command set", () => {
-  it("`list` has no `--json` of its own — it is the input flag, everywhere", async () => {
-    // `list` used to take a `--json` SWITCH forcing its data frame, so one flag
-    // name meant the whole input on every verb and an output format here. It
-    // needs no second mechanism: through a pipe it is already JSON.
+describe("each flag means ONE thing across the mounted command set", () => {
+  it("`--json` is the ANSWER, on `list` and on every verb alike", async () => {
+    // `list` once had a `--json` switch forcing its data frame and lost it,
+    // because the name also carried the whole INPUT on every verb — one name,
+    // two directions. The input hatch is `--input` now, which gives the name
+    // back: `--json` asks for the answer whole, wherever it is typed, and takes
+    // no value anywhere.
     const help = await run(["list", "--help"], { socket: deadSocket });
-    expect(help.stdout).not.toContain("--json");
+    expect(help.stdout).toContain("--json");
 
-    const refused = await run(["list", "--json", "{}"], { socket: deadSocket });
+    const table = await run(["list", "--json"], { socket: deadSocket });
+    expect(table.code).toBe(EXIT.ok);
+    expect(JSON.parse(table.stdout)).toMatchObject({
+      verbs: expect.any(Array),
+    });
+
+    // It is a SWITCH, so a value after it is the next token — here a verb name
+    // that `list` takes no argument for.
+    const valued = await run(["list", "--json", "{}"], { socket: deadSocket });
+    expect(valued.code).toBe(EXIT.usage);
+  });
+
+  it("`--input` is the INPUT, and `list` — which sends none — takes none", async () => {
+    const help = await run(["list", "--help"], { socket: deadSocket });
+    expect(help.stdout).not.toContain("--input");
+
+    const refused = await run(["list", "--input", "{}"], {
+      socket: deadSocket,
+    });
     expect(refused.code).toBe(EXIT.usage);
   });
 });
@@ -882,5 +951,142 @@ describe("a help line carries the two facts the parser no longer does", () => {
     expect(help.code).toBe(EXIT.ok);
     expect(help.stdout).toContain("(required)");
     expect(help.stdout).not.toContain("(default:");
+  });
+});
+
+describe("a transport that cannot push is projected without the verbs it cannot serve", () => {
+  /** The `one-shot` fixture: the SAME live socket, projected with
+   *  `endpoint.streaming: false` — so what changes between it and every other
+   *  case in this file is the projection alone, never the link. */
+  const oneShot = (args: readonly string[]): Promise<Run> =>
+    run(args, { fixture: "one-shot" });
+
+  it("mounts no `watch`, because `watch` IS the subscription", async () => {
+    // Not "mounts one that refuses": a caller finds out what a face can do from
+    // `--help`, and a command that parses and then always fails is a command
+    // whose help is untrue. The same face over a duplex link mounts it — the
+    // default fixture's own `watch` case, above, is the control.
+    const help = await oneShot(["--help"]);
+    expect(help.code).toBe(EXIT.ok);
+    expect(help.stdout).not.toContain("watch");
+
+    const asked = await oneShot(["watch", "processes"]);
+    expect(asked.code).toBe(EXIT.usage);
+  });
+
+  it("declares no `--follow` on the readers it does mount", async () => {
+    for (const verb of ["get", "keys"]) {
+      const help = await oneShot([verb, "--help"]);
+      expect(help.code).toBe(EXIT.ok);
+      expect(help.stdout).not.toContain("--follow");
+    }
+  });
+
+  it("still reads — the one-shot arm takes the opening frame and stops", async () => {
+    // The subtraction is only of the streaming verbs. A door that answers once
+    // answers every reader here, because every one of them is a first-frame read
+    // with the rest interrupted.
+    const load = await oneShot(["get", "load"]);
+    expect(load.code).toBe(EXIT.ok);
+    expect(JSON.parse(load.stdout)).toMatchObject({ one: expect.any(Number) });
+
+    const keys = await oneShot(["keys", "processes"]);
+    expect(keys.code).toBe(EXIT.ok);
+    expect(JSON.parse(keys.stdout)).toEqual(expect.any(Array));
+  });
+});
+
+describe("the help page a host writes is the page a person reads", () => {
+  const helped = (args: readonly string[]): Promise<Run> =>
+    run(args, { fixture: "helped", socket: deadSocket });
+
+  it("prints the purpose, the groups, an example and the flags — in that order", async () => {
+    const help = await helped(["--help"]);
+    expect(help.code).toBe(EXIT.ok);
+    // The whole page, pinned as one string: the layout IS the deliverable here,
+    // and a set of `toContain`s would pass on a page whose lines came out in any
+    // order at all.
+    expect(help.stdout).toContain(
+      [
+        "Drive the demo surface from a shell.",
+        "",
+        "Usage",
+        "  demo surface <verb> [flags]",
+        "",
+        "Read",
+        // A usage wider than the column takes its sentence on the next line
+        // rather than pushing every other line of the page right — which is what
+        // makes this golden a test of the LAYOUT and not of the longest name.
+        "  get <member> [key] [--follow]",
+        "                              Read one exposed member — its current value, or (with --follow) its live subscription as ndjson.",
+        "                              $ demo surface get processes 1",
+        "  keys <collection> [--follow]",
+        "                              List a collection's current key set — with --follow, every key set as it changes.",
+        "  watch <collection>          Follow a collection: the whole set as one snapshot frame, then one ndjson line per batch of changes.",
+        "  list                        List every verb and readable member this face offers.",
+        "",
+        "Write",
+        "  proc_kill <pid> [flags]     Call proc_kill.",
+        "                              $ demo surface proc_kill 4241 --signal HUP",
+        "",
+        "Ask",
+        // The read-only marker a verb's own blurb carries, on the page as well as
+        // in the agent's tool listing — one sentence, both faces.
+        "  proc_count                  Call proc_count. (read-only)",
+      ].join("\n"),
+    );
+  });
+
+  it("names the host's own endpoint flag beside this face's two", async () => {
+    const help = await helped(["--help"]);
+    expect(help.stdout).toContain("--socket <path>");
+    expect(help.stdout).toContain("--json");
+    expect(help.stdout).toContain("--input <json>");
+    expect(help.stdout).toContain(
+      "Answers go to stdout; anything else goes to stderr.",
+    );
+  });
+
+  it("gives a verb no group claimed a group of its own, rather than dropping it", async () => {
+    // `echo` is in no group in the fixture's wording. A verb added to a table is
+    // a command with no code written for it, so a help page that REFUSED until
+    // somebody filed it would put that cost straight back — and one that
+    // silently omitted it would ship a command nobody can find.
+    const help = await helped(["--help"]);
+    expect(help.stdout).toContain("Other");
+    expect(help.stdout).toContain("echo");
+  });
+
+  it("does not ALSO print the renderer's flat listing of the same verbs", async () => {
+    // Two listings on one page — one grouped, one alphabetical — and the flat
+    // one reads like the truth because the renderer wrote it. So the page is the
+    // listing, or the renderer's is; never both.
+    const help = await helped(["--help"]);
+    expect(help.stdout).not.toContain("SUBCOMMANDS");
+
+    // …and every command is still there, still with its own help.
+    const verb = await helped(["proc_kill", "--help"]);
+    expect(verb.code).toBe(EXIT.ok);
+    expect(verb.stdout).toContain("--signal");
+  });
+
+  it("refuses at BUILD a group that names a command this surface has none of", async () => {
+    // An author's mistake, with no CLI to read the refusal off — so the proof is
+    // a process that will not start. The stale group is the failure mode: a help
+    // page is the doc, and a doc describing a verb that is gone is worse than no
+    // doc.
+    const built = await buildHelp(
+      `{ ...HELP, groups: [{ title: "Read", verbs: ["proc_reticulate"] }] }`,
+    );
+    expect(built.code).not.toBe(0);
+    expect(built.stderr).toContain("proc_reticulate");
+  });
+
+  it("refuses at BUILD a command named by two groups", async () => {
+    const built = await buildHelp(
+      `{ ...HELP, groups: [{ title: "Read", verbs: ["list"] }, { title: "Write", verbs: ["list"] }] }`,
+    );
+    expect(built.code).not.toBe(0);
+    expect(built.stderr).toContain('"list"');
   });
 });
