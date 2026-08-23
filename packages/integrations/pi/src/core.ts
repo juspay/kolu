@@ -260,10 +260,11 @@ export function derivePiState(lines: string[]): {
     // `model_change` is also written at an idle prompt (startup, `/model`
     // cycling), which must never read as work in flight, and an in-flight
     // thinking tail still deserves the badge — so both sources are read on
-    // EVERY entry, not only while `state` is unset. Walking newest-first,
-    // a `model_change` wins (it is the user's latest explicit choice); an
-    // assistant entry's own `model` is the fallback for sessions with no
-    // switch on file. `thinking_level_change` is orthogonal display state,
+    // EVERY entry, not only while `state` is unset. The winner is strict
+    // newest-first across both sources: a `model_change` newer than the
+    // latest turn record wins (the user's explicit switch); otherwise the
+    // newest assistant entry's own `model` carries the run between
+    // switches. `thinking_level_change` is orthogonal display state,
     // skipped entirely.
     if (model === null) {
       if (entry.type === "model_change" && typeof entry.modelId === "string") {
