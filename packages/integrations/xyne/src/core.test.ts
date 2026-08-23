@@ -19,8 +19,14 @@ const XYNE_TMP = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-xyne-core-"));
 process.env.KOLU_XYNE_DIR = XYNE_TMP;
 void beforeAll; // keep the import used (no hook needed; top-level awaits serialise)
 
-const { deriveXyneInfo, encodeCwd, readLatestModel, resolveXyneSession } =
-  await import("./core.ts");
+const {
+  deriveXyneInfo,
+  encodeCwd,
+  readLatestModel,
+  resolveXyneSession,
+  resolveXyneSessions,
+  xyneSessionStartedAt,
+} = await import("./core.ts");
 
 const CWD = "/home/u/proj";
 const ID_A = "019fca61-be8e-75b0-b72f-b68984e0d3c0";
@@ -245,5 +251,65 @@ describe("readLatestModel", () => {
       cwd: "/nomodel",
     });
     expect(readLatestModel(transcriptPath)).toBeNull();
+  });
+});
+
+describe("resolveXyneSessions (the adapter's plural contract)", () => {
+  it("returns an EMPTY list when the cwd's dir does not exist", () => {
+    expect(resolveXyneSessions("/never/existed-ccb96261")).toEqual([]);
+  });
+
+  it("returns an EMPTY list when the dir holds only sidecars", () => {
+    const { dir, transcriptPath } = writeSession({
+      id: ID_A,
+      tsName: "2026-08-04T01-27-11-247Z",
+      cwd: "/only/sidecars-plural",
+      title: "t",
+    });
+    fs.rmSync(transcriptPath);
+    expect(fs.readdirSync(dir).length).toBeGreaterThan(0);
+    expect(resolveXyneSessions("/only/sidecars-plural")).toEqual([]);
+  });
+
+  it("yields exactly one candidate wrapped in a list", () => {
+    writeSession({
+      id: ID_A,
+      tsName: "2026-08-04T01-27-11-247Z",
+      cwd: "/plural/match",
+    });
+    const out = resolveXyneSessions("/plural/match");
+    expect(out).toHaveLength(1);
+    expect(out?.[0]?.id).toBe(ID_A);
+  });
+});
+
+describe("xyneSessionStartedAt", () => {
+  it("parses the filename timestamp prefix into epoch-ms", () => {
+    const session = resolveXyneSession("/starter");
+    const { transcriptPath } = writeSession({
+      id: ID_A,
+      tsName: "2026-08-04T01-27-11-247Z",
+      cwd: "/starter",
+    });
+    void session;
+    expect(
+      xyneSessionStartedAt({
+        id: ID_A,
+        cwd: "/starter",
+        transcriptPath,
+        summaryPath: "",
+      }),
+    ).toBe(Date.parse("2026-08-04T01:27:11.247Z"));
+  });
+
+  it("returns null for a name that doesn't carry the timestamp", () => {
+    expect(
+      xyneSessionStartedAt({
+        id: ID_A,
+        cwd: "/x",
+        transcriptPath: "/anywhere/whatever.jsonl",
+        summaryPath: "",
+      }),
+    ).toBeNull();
   });
 });

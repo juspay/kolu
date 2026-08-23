@@ -203,30 +203,61 @@ export interface XyneSession {
  *  live pid→session map, so the newest transcript for the cwd is the best
  *  available identity — the same session `xyne --continue` would reopen.
  *  Deterministic: filename sort is time-ordered by construction (the
- *  `<timestamp>_<id>` prefix), ties broken by the id. */
-export function resolveXyneSession(
+ *  `<timestamp>_<id>` prefix), ties broken by the id.
+ *
+ *  Contract from `AgentAdapter.resolveSessions`: an empty list is evidence
+ *  the terminal runs nothing (a cwd whose per-cwd dir is absent or holds
+ *  only sidecars has never hosted an Xyne session here), while NULL means
+ *  the store could not be READ at all — the orchestrator releases a held
+ *  session on the first and leaves everything alone on the second. Xyne
+ *  yields zero or one candidate: the newest transcript for the cwd. */
+export function resolveXyneSessions(
   cwd: string,
   log?: Logger,
-): XyneSession | null {
+): readonly XyneSession[] | null {
   const dir = path.join(SESSIONS_DIR, encodeCwd(cwd));
   let names: string[];
   try {
     names = fs.readdirSync(dir);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.error({ err, dir }, "xyne sessions dir unreadable");
-    }
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    log?.error({ err, dir }, "xyne sessions dir unreadable");
     return null;
   }
   const newest = newestTranscript(names);
-  if (!newest) return null;
+  if (!newest) return [];
   const transcriptPath = path.join(dir, newest.name);
-  return {
-    id: newest.id,
-    cwd,
-    transcriptPath,
-    summaryPath: transcriptPath.replace(/\.jsonl$/, "_summary.json"),
-  };
+  return [
+    {
+      id: newest.id,
+      cwd,
+      transcriptPath,
+      summaryPath: transcriptPath.replace(/\.jsonl$/, "_summary.json"),
+    },
+  ];
+}
+
+/** Singular convenience over `resolveXyneSessions` — folds both the
+ *  empty-list and unreadable-store cases into null for callers that
+ *  only ask "is there a session here" (the session watcher, unit
+ *  tests). */
+export function resolveXyneSession(
+  cwd: string,
+  log?: Logger,
+): XyneSession | null {
+  return resolveXyneSessions(cwd, log)?.[0] ?? null;
+}
+
+/** Epoch-ms an Xyne session began, parsed from the transcript filename's
+ *  timestamp prefix (`2026-08-04T01-27-11-247Z` — dashes where ISO wants
+ *  colons). Returns null for a name that doesn't parse, never zero or a
+ *  synthesized value: an unknown birth stays unknown. */
+export function xyneSessionStartedAt(session: XyneSession): number | null {
+  const base = path.basename(session.transcriptPath);
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z_/.exec(base);
+  if (!m) return null;
+  const ms = Date.parse(`${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 /** Assemble a full XyneInfo for a matched session. State is honest

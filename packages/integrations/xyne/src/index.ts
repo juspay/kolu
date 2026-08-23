@@ -20,8 +20,10 @@ export {
   readSummary,
   readTranscriptHeader,
   resolveXyneSession,
+  resolveXyneSessions,
   type XyneSession,
   type XyneTranscriptHeader,
+  xyneSessionStartedAt,
   xyneSessionsPresent,
 } from "./core.ts";
 export {
