@@ -4,7 +4,8 @@
  *
  * A surface is served to more than one kind of caller. `@kolu/surface-mcp`
  * projects it as MCP tools and resources; `@kolu/surface-cli` projects it as
- * argv. Both need the SAME things, and none of them is about either transport:
+ * argv. Both need the SAME things, and none of the five below is about either
+ * transport:
  *
  *   - {@link SurfaceVerb} — a hand-authored, call-shaped capability whose
  *     handler composes over a live surface client. It was called `BespokeTool`
@@ -33,6 +34,14 @@
  * for the expose map: two faces reading one contract by two grammars is the
  * drift a shared home exists to prevent. The adapters keep what only they know
  * — a `surface://` URI, an argv grammar, a result framing.
+ *
+ * Two of the re-exports below are NOT in that set, and are here on purpose:
+ * {@link unwrapArgs} and {@link wrapValue} are called by the MCP face alone
+ * (`wrapValue`'s own doc says the result half is MCP's). They stay because all
+ * three moves — advertise, unwrap, wrap — read the private `WRAP_KEY`, so
+ * giving one face a home of its own for two of them would mean EXPORTING the
+ * key, which is the one thing the wrapping rule exists to keep private. The
+ * rule is one rule; where it is called from is the caller's business.
  *
  * Two things that ARRIVED here and are not projection vocabulary have moved on
  * to their generative homes, so nothing has to import this module to reach
