@@ -95,6 +95,17 @@ const KillArgs = Schema.Struct({
   reason: Schema.optionalKey(Schema.String),
   /** Not a scalar, so it takes the field's own JSON: `--trace '{"id":"x"}'`. */
   trace: Schema.optionalKey(Schema.Struct({ id: Schema.String })),
+  /** `<scalar> | null` — the shape a surface uses for a field that can be
+   *  CLEARED, and the one that used to fall through to the JSON flag: a plain
+   *  line of text wanted `--note '"like this"'`. */
+  note: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /** The same, one type over, because the typed parsers refuse the word
+   *  `null` before the mapping could see it — so a nullable NUMBER is a
+   *  different code path from a nullable string and needs its own case. */
+  every: Schema.optionalKey(Schema.NullOr(Schema.Int)),
+  /** A nullable ENUM keeps its choice list and gains the word, so `--help`
+   *  lists every value the flag takes. */
+  mode: Schema.optionalKey(Schema.NullOr(Schema.Literals(["fast", "slow"]))),
 });
 
 export const surface = defineSurface({
@@ -205,6 +216,15 @@ const TABLE = new Map<number, typeof Proc.Type>([
   [102, { command: "spendable", cpuPct: 0, memPct: 0 }],
   [103, { command: "spendable", cpuPct: 0, memPct: 0 }],
   [104, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  // …and one each for the nullable-flag cases, which read `saw` the same way.
+  [105, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [106, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [107, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [108, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [109, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [110, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [111, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [112, { command: "spendable", cpuPct: 0, memPct: 0 }],
 ]);
 
 /** The `{ group, handlers }` pair this fixture is served from. */

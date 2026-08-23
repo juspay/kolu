@@ -627,6 +627,104 @@ describe("the exit matrix", () => {
  * than by which module it lived in, because that is the thing a regression here
  * would take away again.
  */
+describe("a field that can be CLEARED takes text, or the word", () => {
+  // A nullable field is a UNION, and a union falls to the JSON flag — so on a
+  // surface where "or clear it with null" is the ordinary way to spell a
+  // removable field, the most-used write verbs each wanted a shell-quoted JSON
+  // string for a plain line of text (`--note '"the brass ones"'`), and the
+  // refusal for getting it wrong read as a complaint about the value rather
+  // than as a fact about the flag. Found driving olai's own `set_desc`.
+
+  it("takes the plain text a reader would type", async () => {
+    // Proven by what the verb SAW, not by the exit code: the whole failure this
+    // fixes is a value arriving in the wrong shape.
+    const killed = await run([
+      "proc_kill",
+      "105",
+      "--note",
+      "the brass ones",
+      "--json",
+    ]);
+    expect(killed.code).toBe(EXIT.ok);
+    expect(JSON.parse(killed.stdout)).toMatchObject({
+      saw: { pid: 105, note: "the brass ones" },
+    });
+  });
+
+  it("takes the word `null` as the clearing it is", async () => {
+    const cleared = await run(["proc_kill", "106", "--note", "null", "--json"]);
+    expect(cleared.code).toBe(EXIT.ok);
+    // `null` the VALUE, not the four letters — which is the whole distinction,
+    // and the one a `toMatchObject` on a string would have missed.
+    expect(JSON.parse(cleared.stdout).saw.note).toBeNull();
+  });
+
+  it("does the same for a nullable NUMBER, whose parser would have refused the word", async () => {
+    const every = await run(["proc_kill", "107", "--every", "7", "--json"]);
+    expect(JSON.parse(every.stdout).saw.every).toBe(7);
+
+    const none = await run(["proc_kill", "108", "--every", "null", "--json"]);
+    expect(JSON.parse(none.stdout).saw.every).toBeNull();
+
+    // …and a value that is neither is refused, in words naming BOTH ways in.
+    const bad = await run(["proc_kill", "4305", "--every", "soon"], {
+      socket: deadSocket,
+    });
+    expect(bad.code).toBe(EXIT.usage);
+    expect(bad.stderr + bad.stdout).toContain("null");
+  });
+
+  it("lists the word beside the choices, for a nullable enum", async () => {
+    const help = await run(["proc_kill", "--help"], { socket: deadSocket });
+    expect(help.stdout).toContain("fast");
+    expect(help.stdout).toContain("slow");
+    // The help line says what the word does, and where a literal "null" goes —
+    // a magic word a reader is not told about is one they find out about by
+    // having it not work.
+    expect(help.stdout).toContain("clears it");
+    expect(help.stdout).toContain("--input");
+
+    const chosen = await run(["proc_kill", "110", "--mode", "fast", "--json"]);
+    expect(JSON.parse(chosen.stdout).saw.mode).toBe("fast");
+    const unchosen = await run([
+      "proc_kill",
+      "111",
+      "--mode",
+      "null",
+      "--json",
+    ]);
+    expect(JSON.parse(unchosen.stdout).saw.mode).toBeNull();
+  });
+
+  it("leaves the literal four letters reachable, through --input", async () => {
+    // The ambiguity, priced and paid: a note whose text IS "null" cannot be
+    // written with the flag, and the escape hatch has no ambiguity at all. It is
+    // the one case the flag gives up, and it is named on the flag's own line.
+    const literal = await run([
+      "proc_kill",
+      "--input",
+      JSON.stringify({ pid: 112, note: "null" }),
+      "--json",
+    ]);
+    expect(literal.code).toBe(EXIT.ok);
+    expect(JSON.parse(literal.stdout).saw.note).toBe("null");
+  });
+
+  it("leaves a union that is NOT one scalar plus null on the JSON flag", async () => {
+    // `trace` is a nullable-free object, so it keeps the field's-own-JSON
+    // spelling it always had: the new arm is exactly `<scalar> | null` and
+    // nothing wider, because nothing wider has one obvious spelling to take.
+    const traced = await run([
+      "proc_kill",
+      "109",
+      "--trace",
+      '{"id":"x"}',
+      "--json",
+    ]);
+    expect(JSON.parse(traced.stdout).saw.trace).toEqual({ id: "x" });
+  });
+});
+
 describe("the whole-input escape hatch is reachable on every verb", () => {
   // The hatch is spelled `--input` here and was spelled `--json` when these
   // cases were written. Nothing about WHAT they pin moved: the name did, because

@@ -214,9 +214,98 @@ function jsonFlag(name: string): Flag.Flag<any> {
   );
 }
 
+/** The word a nullable field is CLEARED with.
+ *
+ *  A magic word, and the ambiguity it costs is real and bounded: a string field
+ *  whose value is literally `null` cannot be written with this flag. That case
+ *  goes through `--${INPUT_FLAG}`, which takes the field's own JSON and has no
+ *  ambiguity at all — and the help line on every nullable flag says so, because
+ *  a reader has to be told before they hit it rather than after.
+ *
+ *  What it buys is the other 99%: `--desc "the brass ones"` instead of
+ *  `--desc '"the brass ones"'`. A nullable field is a UNION, and a union used to
+ *  fall to {@link jsonFlag} — so on a surface where "or clear it with null" is
+ *  the ordinary way to spell a removable field, the most-used write verbs each
+ *  wanted a shell-quoted JSON string for a plain line of text. That is a
+ *  grammar nobody types correctly the first time, and the error it produces
+ *  (`Expected string | null`) reads as a bug in the caller's value rather than
+ *  as a fact about the flag. */
+export const NULL_WORD = "null";
+
+/** The scalar inside `<scalar> | null`, or nothing for anything else.
+ *
+ *  EXACTLY that shape: two members, one of them `null`, the other a scalar.
+ *  A three-way union, a union of two scalars, a nullable object — none of them
+ *  is this, and each keeps the JSON flag it had, because none of them has one
+ *  obvious spelling to take. */
+function nullableScalar(node: JsonSchema): JsonSchema | undefined {
+  const anyOf = node.anyOf;
+  if (!Array.isArray(anyOf) || anyOf.length !== 2) return undefined;
+  const parts = anyOf.filter(
+    (part): part is JsonSchema => typeof part === "object" && part !== null,
+  );
+  if (parts.length !== 2) return undefined;
+  const nulls = parts.filter((part) => part.type === "null");
+  const rest = parts.filter((part) => part.type !== "null");
+  const only = rest[0];
+  if (nulls.length !== 1 || rest.length !== 1 || only === undefined) {
+    return undefined;
+  }
+  return scalarKind(only) === undefined ? undefined : only;
+}
+
+/** `<scalar> | null` as one flag: the scalar's own spelling, plus the word.
+ *
+ *  A STRING flag underneath even for a number or a boolean, because the typed
+ *  parsers refuse {@link NULL_WORD} before anything here could read it — so the
+ *  parse is done once, in one place, with one sentence for both ways it can go
+ *  wrong. An ENUM keeps its choice list and gains the word, so `--help` lists
+ *  every value the flag takes including that one. */
+// biome-ignore lint/suspicious/noExplicitAny: the parsed value's type is the field's.
+function nullableFlag(name: string, node: JsonSchema): Flag.Flag<any> {
+  const choices = stringChoices(node);
+  if (choices !== undefined) {
+    return Flag.choice(name, [...choices, NULL_WORD]).pipe(
+      Flag.mapTryCatch(
+        (chosen: string) => (chosen === NULL_WORD ? null : chosen),
+        () => `--${name} did not take that value.`,
+      ),
+    );
+  }
+  const kind = scalarKind(node);
+  return Flag.string(name).pipe(
+    Flag.mapTryCatch(
+      (text: string) => scalarOf(text, kind),
+      () =>
+        `--${name} takes ${kind === undefined ? "a value" : `a ${kind}`} or the word ${NULL_WORD} to clear it.`,
+    ),
+  );
+}
+
+/** One text token as the scalar it claims to be, or {@link NULL_WORD} as
+ *  `null`. Throws for anything else — {@link nullableFlag} words the refusal,
+ *  because it knows the flag's name and this does not. */
+function scalarOf(text: string, kind: ReturnType<typeof scalarKind>): unknown {
+  if (text === NULL_WORD) return null;
+  if (kind === "string") return text;
+  if (kind === "boolean") {
+    if (text === "true") return true;
+    if (text === "false") return false;
+    throw new Error(text);
+  }
+  const n = Number(text);
+  if (!Number.isFinite(n)) throw new Error(text);
+  if (kind === "integer" && !Number.isInteger(n)) throw new Error(text);
+  return n;
+}
+
 /** One property → one flag, by the table in the header. */
 // biome-ignore lint/suspicious/noExplicitAny: each branch's value type is the field's.
 function flagFor(name: string, node: JsonSchema): Flag.Flag<any> {
+  // Asked FIRST, because a nullable scalar is a union and every check below it
+  // would send one to {@link jsonFlag}.
+  const nullable = nullableScalar(node);
+  if (nullable !== undefined) return nullableFlag(name, nullable);
   const choices = stringChoices(node);
   if (choices !== undefined) return Flag.choice(name, choices);
   switch (scalarKind(node)) {
@@ -570,6 +659,13 @@ function describe<Kind extends Param.ParamKind, A>(
   const parts = [
     ...(typeof written === "string" && written !== "" ? [written] : []),
     ...(isRequired ? ["(required)"] : []),
+    // Said on the LINE, not only in a doc: a magic word a reader is not told
+    // about is a magic word they find out about by having it not work.
+    ...(nullableScalar(node) === undefined
+      ? []
+      : [
+          `(${NULL_WORD} clears it; a literal "${NULL_WORD}" goes through --${INPUT_FLAG})`,
+        ]),
     ...(fallback === undefined
       ? []
       : [`(default: ${JSON.stringify(fallback)})`]),

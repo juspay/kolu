@@ -162,6 +162,7 @@ the other's idea of what the verb takes.
 | `boolean` | `--name` / `--no-name` — a **tristate**, so "I did not say" and "I said false" stay different |
 | array of scalars | `--name <v>`, repeated |
 | `Record<string, string>` | `--name k=v`, repeated |
+| `<scalar> \| null` | `--name <value>`, plus the word `null` to clear it |
 | anything deeper | `--name '<json>'` — the field's own JSON |
 | a non-object input | the bare `<value>` positional |
 
@@ -177,6 +178,17 @@ caller never typed indistinguishable from one they did.
 
 Both facts reach `--help` in the line rather than in the shape: a required field
 says `(required)`, a defaulted one says `(default: …)`.
+
+**A field that can be CLEARED takes the value, or the word.** A removable field
+is usually spelled `<scalar> | null`, which is a union — so it used to fall to
+the JSON flag, and a plain line of text wanted `--desc '"the brass ones"'` on
+the four or five verbs a person types most. Now it takes the scalar's own
+spelling, and the bare word `null` clears it. That is a magic word, and the
+ambiguity is bounded and named on the flag's own help line: a string whose value
+is literally `null` goes through `--input`, which takes the field's JSON and has
+no ambiguity at all. A nullable ENUM keeps its choice list and gains the word, so
+`--help` lists everything the flag takes. Only exactly `<scalar> | null` moves —
+a wider union has no one obvious spelling and keeps the JSON flag.
 
 **Names are not transformed.** The flag is the field, spelled the same:
 `--filePath`, not `--file-path`. A transformation would be a second name for one
