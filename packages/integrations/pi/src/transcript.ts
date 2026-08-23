@@ -18,6 +18,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { match } from "ts-pattern";
 import type { Logger } from "kolu-shared";
 import {
   type Fetcher,
@@ -71,22 +72,32 @@ export function normalizePiToolInput(
       : {};
   const str = (k: string): string =>
     typeof o[k] === "string" ? (o[k] as string) : "";
-  switch (toolName) {
-    case "read":
-      return { kind: "read", filePath: str("path") || str("filePath") };
-    case "bash":
-      return { kind: "bash", command: str("command") };
-    case "write":
-      return { kind: "write", filePath: str("path"), content: str("content") };
-    case "edit":
-      return {
+  return match(toolName)
+    .with(
+      "read",
+      (): ToolInput => ({
+        kind: "read",
+        filePath: str("path") || str("filePath"),
+      }),
+    )
+    .with("bash", (): ToolInput => ({ kind: "bash", command: str("command") }))
+    .with(
+      "write",
+      (): ToolInput => ({
+        kind: "write",
+        filePath: str("path"),
+        content: str("content"),
+      }),
+    )
+    .with(
+      "edit",
+      (): ToolInput => ({
         kind: "edit",
         filePath: str("path"),
         edits: [{ oldText: str("oldText"), newText: str("newText") }],
-      };
-    default:
-      return { kind: "unknown", toolName, raw: args };
-  }
+      }),
+    )
+    .otherwise((): ToolInput => ({ kind: "unknown", toolName, raw: args }));
 }
 
 function eventsFromEntry(entry: PiEntry): TranscriptEvent[] {
@@ -95,55 +106,55 @@ function eventsFromEntry(entry: PiEntry): TranscriptEvent[] {
   if (!msg) return [];
   const ts = parseIsoTimestamp(entry.timestamp);
 
-  switch (msg.role) {
-    case "user": {
-      const text = contentToText(msg.content);
-      return text ? [{ kind: "user", text, ts }] : [];
-    }
-    case "assistant": {
-      if (!Array.isArray(msg.content)) return [];
-      const events: TranscriptEvent[] = [];
-      const texts: string[] = [];
-      for (const block of msg.content) {
-        if (!block || typeof block !== "object") continue;
-        const b = block as Record<string, unknown>;
-        if (b.type === "thinking" && typeof b.thinking === "string") {
-          events.push({ kind: "reasoning", text: b.thinking, ts });
-        } else if (b.type === "text" && typeof b.text === "string") {
-          texts.push(b.text);
-        } else if (b.type === "toolCall" && typeof b.name === "string") {
-          events.push({
-            kind: "tool_call",
-            id: typeof b.id === "string" ? b.id : null,
-            toolName: b.name,
-            inputs: normalizePiToolInput(b.name, b.arguments),
-            ts,
-          });
-        }
-      }
-      if (texts.length > 0) {
+  const userResult = (): TranscriptEvent[] => {
+    const text = contentToText(msg.content);
+    return text ? [{ kind: "user", text, ts }] : [];
+  };
+  const assistantResult = (): TranscriptEvent[] => {
+    if (!Array.isArray(msg.content)) return [];
+    const events: TranscriptEvent[] = [];
+    const texts: string[] = [];
+    for (const block of msg.content) {
+      if (!block || typeof block !== "object") continue;
+      const b = block as Record<string, unknown>;
+      if (b.type === "thinking" && typeof b.thinking === "string") {
+        events.push({ kind: "reasoning", text: b.thinking, ts });
+      } else if (b.type === "text" && typeof b.text === "string") {
+        texts.push(b.text);
+      } else if (b.type === "toolCall" && typeof b.name === "string") {
         events.push({
-          kind: "assistant",
-          text: texts.join("\n"),
-          model: typeof msg.model === "string" ? msg.model : null,
+          kind: "tool_call",
+          id: typeof b.id === "string" ? b.id : null,
+          toolName: b.name,
+          inputs: normalizePiToolInput(b.name, b.arguments),
           ts,
         });
       }
-      return events;
     }
-    case "toolResult":
-      return [
-        {
-          kind: "tool_result",
-          id: msg.toolCallId ?? null,
-          output: contentToText(msg.content),
-          isError: msg.isError === true,
-          ts,
-        },
-      ];
-    default:
-      return [];
-  }
+    if (texts.length > 0) {
+      events.push({
+        kind: "assistant",
+        text: texts.join("\n"),
+        model: typeof msg.model === "string" ? msg.model : null,
+        ts,
+      });
+    }
+    return events;
+  };
+  const toolResultResult = (): TranscriptEvent[] => [
+    {
+      kind: "tool_result",
+      id: msg.toolCallId ?? null,
+      output: contentToText(msg.content),
+      isError: msg.isError === true,
+      ts,
+    },
+  ];
+  return match(msg.role)
+    .with("user", userResult)
+    .with("assistant", assistantResult)
+    .with("toolResult", toolResultResult)
+    .otherwise(() => []);
 }
 
 /** Parse a pi session JSONL file's contents into transcript events,

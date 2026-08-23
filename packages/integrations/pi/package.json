@@ -20,7 +20,8 @@
     "effect": "catalog:",
     "kolu-io": "workspace:*",
     "kolu-shared": "workspace:*",
-    "kolu-transcript-core": "workspace:*"
+    "kolu-transcript-core": "workspace:*",
+    "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

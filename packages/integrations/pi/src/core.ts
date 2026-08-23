@@ -479,5 +479,6 @@ export function subscribeSessionsTree(
       }
     }
     childWatchers.clear();
+    log?.info({ dir: SESSIONS_DIR }, "pi: sessions tree watcher retired");
   };
 }
