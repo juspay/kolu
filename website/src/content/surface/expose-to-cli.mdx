@@ -1,0 +1,181 @@
+---
+title: How to expose a surface to a terminal
+description: "Project a surface as command-line verbs so a person, a script, or a cron job can read its state and drive its procedures — from a shell, with no browser and no agent."
+order: 223
+section: Basics · How-to
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+A shell drives a surface through `@kolu/surface-cli`: your cells and collections
+become readable members, your procedures become callable verbs. It is the argv
+sibling of [exposing a surface to agents](/surface/expose-to-agents) — the same
+surface, the same allowlist, the same verb table, spelled for a terminal.
+
+## 1. Install and import
+
+```json
+{
+  "dependencies": {
+    "@kolu/surface-cli": "workspace:*",
+    "@effect/platform-node": "catalog:"
+  }
+}
+```
+
+`@effect/platform-node` is for the **run edge** in step 5 (`NodeRuntime.runMain`),
+not for the projection — `surfaceCommands` itself is platform-blind.
+
+<Snippet src="packages/surface/example/snippets/cli.ts" region="imports" />
+
+## 2. Say where to dial
+
+This is the one thing a CLI needs that the MCP adapter does not: a command
+*reaches* a server, so something has to decide which one. That decision is
+yours — the resolution order (`--socket`, then an environment variable, then a
+dev file, then the per-user runtime socket) is your app's policy and nothing in
+the adapter could guess it.
+
+The seam is **one** step, and its shape is the point: `resolve` reads the flags
+once and answers with the endpoint's *name* beside the thunk that opens it. The
+name is needed exactly when the dial fails — which is when there is no connection
+left to ask — and a `describe` beside a `connect` would walk your resolution
+order twice and could name one endpoint while dialling another.
+
+It returns an **Effect**, so an order that can come up empty has somewhere to say
+so: fail it and the user gets exit `3` ("no endpoint to dial"), the same arm as a
+failed dial, instead of a crash. And `values` is typed from your own flag record,
+so renaming a flag is a compile error rather than an `undefined` your app dials.
+
+<Snippet src="packages/surface/example/snippets/cli.ts" region="endpoint" />
+
+<Aside type="note" title="dispose is required">
+  A CLI dials, does one thing, and exits — so the one failure that costs a user
+  something is a socket left open under a shell loop. An in-process host with
+  nothing to release passes `() => {}`, which is a decision made out loud rather
+  than an absence the adapter has to guess the meaning of.
+</Aside>
+
+## 3. Hand over the same verb table
+
+A hand-authored verb is a [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) —
+the *same record* you hand `serveSurfaceAsMcp` as its `tools`. One table, two
+faces, one set of names.
+
+<Snippet src="packages/surface/example/snippets/cli.ts" region="verbs" />
+
+## 4. Project it
+
+`expose` is default-deny and it is [the same map](/surface/ref-surface#per-face-expose-kolusurfaceexpose)
+the agent face and the wire faces take. `surfaceCommands` returns an array of
+commands — a value, not a program.
+
+<Snippet src="packages/surface/example/snippets/cli.ts" region="project" />
+
+CLI-only ergonomics ride in `annotate`, *beside* the verb table rather than
+inside it: a `positional` is a shell concern, and the verb record has to stay a
+value the MCP face can take verbatim.
+
+## 5. Mount them in your binary
+
+<Snippet src="packages/surface/example/snippets/cli.ts" region="mount" />
+
+Which faces your binary offers is your decision, so the adapter hands back
+values and runs nothing. Your `Command.run` is already the run edge; there is no
+`runSurfaceCli` to learn.
+
+**Do not skip `reportingRunEdge`.** Every failure this face raises carries its
+own line and its own exit code, and marks itself already-reported so Effect's
+cause dump does not print on top of it — which means a host that re-fails
+without writing that line exits with the right code and says *nothing at all*. A
+refusal from the CLI *library* (a rejected flag, an unknown subcommand) carries
+no code of ours until the edge gives it one. And a **defect** is not a failure,
+so `Effect.catch` never sees one and the runtime reports it through the default
+logger — onto **stdout**, in the middle of your data; the edge catches the
+**cause** for exactly that reason. That one line is what makes the
+[exit matrix](/surface/ref-surface-cli#exit-codes) true of your binary rather
+than only of this package's own failures.
+
+And take **both** lines above, not just the edge. `disableErrorReporting` stays
+yours because it is `runMain`'s own argument, and without it the runtime prints
+its own second, differently-worded copy of the line the edge already wrote, on
+stdout. The edge and the flag are one recipe.
+
+<Aside type="note" title="Where the endpoint flags live is your decision — but pick ONE">
+  As written above, `surfaceCommands` merges your endpoint flags into every
+  command it generates, so `example proc_kill 4321 --socket /run/x.sock` parses.
+  If you would rather they sat on your own root — so `example --socket X
+  proc_kill 4321` parses too, which a flag declared on a subcommand cannot do —
+  declare them there with `Command.withSharedFlags`, **omit** `flags` from the
+  seam, and read them back in `resolve` (`Effect.flatMap(root, …)`): this face
+  then adds none. What you must not do is both at once — Effect CLI refuses a
+  parent/child flag of the same name outright (`DuplicateOption`), and your
+  binary would fail to start.
+</Aside>
+
+## What you get
+
+```sh
+example proc_kill 4321 --signal TERM     # a procedure, by its flat name
+example top                              # a hand-authored verb
+example get load                         # a cell's current value
+example get processes 4321               # one item of a collection
+example keys processes                   # the key set
+example watch processes                  # snapshot, then ndjson deltas
+example get load --follow                # the live subscription as ndjson
+example list                             # what this face offers
+```
+
+Every verb also takes `--json '{…}'` (or `--json -` to read it from stdin) as
+the alternative to the field flags — the whole input, as data, for the cases a
+shell would fight you over.
+
+## Read it from a script
+
+The two facts a script needs are the shape of the output and the exit code.
+
+- **stdout is data**: one JSON value for a read, one compact JSON line per frame
+  for anything streamed. Indented only when stdout is a terminal, so a pipe
+  always gets machine-shaped output and nothing has to be flagged.
+- **stderr is prose**, with one exception that proves the rule: a verb's
+  declared refusal is JSON on stderr, because it is data you can act on but is
+  not the verb's answer.
+- **the exit code says which happened** — see
+  [the matrix](/surface/ref-surface-cli#exit-codes).
+
+An absent collection item is a **successful read** whose answer says so, not a
+failure — the read genuinely happened, and "not there" is what it found — so
+branch on the payload and keep the exit code for the things that are not answers.
+
+A read that never found out is the other thing. A one-shot item read is bounded
+against a deadline as well as against membership, and a quiet producer or a
+collection with no key set to resolve against can run it out while the item is
+perfectly alive. That is a fact about the *read*, not about the item, so it is
+not an answer and does not arrive as one: it is exit `3`, the endpoint's arm,
+naming the member, the key and the budget. Your script therefore never has to
+tell "gone" from "could not tell" by reading a payload — the exit code has
+already done it:
+
+```sh
+if ! proc=$(example get processes 4321); then
+  case "$?" in
+    3) echo "no answer — nothing serving, or the read ran out of time" >&2 ;;
+  esac
+  exit 1
+fi
+if [ "$(jq -r '.present // true' <<<"$proc")" = "false" ]; then
+  echo "4321 is gone"        # membership said so: safe to reap
+else
+  echo "still running: $(jq -r .command <<<"$proc")"
+fi
+```
+
+## Where to go next
+
+- [`@kolu/surface-cli` reference](/surface/ref-surface-cli) — the API, the flag
+  rules, and the exit matrix.
+- [How to expose a surface to agents](/surface/expose-to-agents) — the same
+  surface, the other projection.
+- [How to consume a surface outside SolidJS](/surface/consume-outside-solid) —
+  when you want the member face itself rather than a generated command tree.

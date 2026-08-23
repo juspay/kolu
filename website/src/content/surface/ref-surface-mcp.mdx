@@ -10,7 +10,7 @@ import Snippet from "../../components/docs/Snippet.astro";
 
 Re-expose any `@kolu/surface` as an [MCP](https://modelcontextprotocol.io) server, so a coding agent drives it with
 structured tool calls. The adapter owns the generic parts — the
-`resources/subscribe` lifecycle, the [Effect Schema](https://effect.website) → JSON-Schema bridge, stdio discipline —
+`resources/subscribe` lifecycle, stdio discipline, and the framework's [Effect Schema](https://effect.website) → JSON-Schema bridge —
 and leaves the consumer in control of *what* is exposed.
 
 ## `serveSurfaceAsMcp`
@@ -248,12 +248,15 @@ cannot see through, so a default declared outside it never reaches the agent.
 
 | Export | Role |
 | --- | --- |
-| `toInputSchema(schema?)` | Effect Schema → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced |
+| `toInputSchema(schema?)` | Effect Schema → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced. A **re-export** of [`@kolu/surface/verbs`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) — the bridge is the framework's, shared with the CLI face |
 | `resolveExpose(spec, expose)` | the default-deny resolver → `{ resources, resourceTemplates, tools }` |
 | `ToolFailure<D>(message, detail)` | the refusal a handler fails with when the reason is machine-readable — `detail` becomes the result's `structuredContent`, normalized the same way a success is |
-| `messageOf(error)` | the adapter's own "name what broke" derivation — the one the request edge uses to word a failure. Reach for it in a bespoke tool that folds a caught failure into its own message instead of raising it, so both paths word the same error the same way; it handles the two shapes `e instanceof Error ? e.message : String(e)` gets wrong (a tagged error whose `message` is empty, a failure declared as a plain object) |
+| `messageOf(error)` | the framework's "name what broke" derivation ([`@kolu/surface/errors`](/surface/ref-surface#the-tagged-error-vocabulary-kolusurfaceerrors)), **re-exported** here under the name this package shipped it with — the one the request edge uses to word a failure. Reach for it in a bespoke tool that folds a caught failure into its own message instead of raising it, so both paths word the same error the same way; it handles the two shapes `e instanceof Error ? e.message : String(e)` gets wrong (a tagged error whose `message` is empty, a failure declared as a plain object) |
 | `okImage(image, detail)` | wrap a tool result whose answer is an image — the bytes travel once, as an MCP image block; `detail` becomes the structured arm and must not repeat the payload (a documented contract, not a check — see above) |
-| `BespokeTool` · `ToolInputSchema` · `ToolResult` · `ToolContent` · `ServeSurfaceAsMcpOptions` · `SurfaceClientCallable` | types |
+| `BespokeTool` | the framework's [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) — the record an app hands to EVERY face verbatim, so the same table also projects as argv through `@kolu/surface-cli` — **extended** with the one field only this face can act on, `render` |
+| `ToolInputSchema` | the framework's `SurfaceVerbInputSchema` under the name this package shipped it with |
+| `ToolResult` · `ToolContent` · `ServeSurfaceAsMcpOptions` | types |
+| `SurfaceClientCallable` · `OwnedSurfaceConnection` · `PusherConnection<Client>` | types, **re-exported** from [`@kolu/surface/client`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient) — the client shape a projecting face holds, and the connection it owns. `OwnedSurfaceConnection` is the framework shape at this adapter's client type; the CLI face aliases the very same one, so a host can write ONE connection factory that feeds both |
 
 `ExposeMap` and `ToolExposure` are **not** exported here — import them from
 [`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose),

@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import {
   isDeadTransportError,
   isSurfaceError,
+  messageOf,
   isSurfaceRelayTransportLost,
   isSurfaceStdioTransportClosed,
   isSurfaceTransportRetired,
@@ -199,5 +200,62 @@ describe("surface error predicates", () => {
         isSurfaceRelayTransportLost(original),
       );
     }
+  });
+});
+
+/**
+ * `messageOf` — what an ARBITRARY failure says.
+ *
+ * Not one of the declared errors above, and pinned for the opposite reason: it
+ * is the fallback every projecting face folds an UNdeclared failure through, so
+ * the sentence a user reads on a dropped socket, a rejected dial, a bespoke
+ * handler's throw and a run-edge defect all come out of this one function. The
+ * three cases below are exactly the three `e instanceof Error ? e.message :
+ * String(e)` gets wrong, which is why this function exists at all.
+ */
+describe("messageOf", () => {
+  it("prefers a tagged error's _tag over its empty message", () => {
+    // A `Data.TaggedError`'s `message` is `""` and its identity lives in `_tag`.
+    // The obvious spelling reaches the user as a bare prefix and nothing else.
+    class Refused extends Schema.TaggedError<Refused>(
+      "@kolu/surface/test/Refused",
+    )("Refused", { pid: Schema.Number }) {}
+    expect(messageOf(new Refused({ pid: 7 }))).toBe("Refused");
+    // A message, where there is one, still wins.
+    expect(messageOf(new Error("the socket went away"))).toBe(
+      "the socket went away",
+    );
+    // No message and no tag: the class name is the most specific thing left.
+    expect(messageOf(new RangeError())).toBe("RangeError");
+  });
+
+  it("names a plain-object failure by its JSON, never [object Object]", () => {
+    // A failure DECLARED as a plain object is not an `Error` at all, and
+    // `String(e)` renders it `[object Object]` — the exact loss this replaces.
+    expect(messageOf({ code: "E", detail: "no such node" })).toBe(
+      '{"code":"E","detail":"no such node"}',
+    );
+    expect(messageOf("plain")).toBe("plain");
+    expect(messageOf(undefined)).toBe("undefined");
+  });
+
+  it("keeps an unstringifiable value's own reason beside its shape", () => {
+    // `JSON.stringify` EVALUATES every own enumerable getter, so a property that
+    // throws throws from here — carrying a real and unrelated reason. Discarding
+    // it would swallow the most specific thing known about the failure inside
+    // the one function whose whole job is to find that.
+    const thrower = {
+      id: 1,
+      get detail(): string {
+        throw new Error("network timeout while computing detail");
+      },
+    };
+    const said = messageOf(thrower);
+    expect(said).toContain("id, detail");
+    expect(said).toContain("network timeout while computing detail");
+    // A cycle cannot travel either, but the SHAPE still can.
+    const cyclic: Record<string, unknown> = { a: 1 };
+    cyclic.self = cyclic;
+    expect(messageOf(cyclic)).toContain("Object { a, self }");
   });
 });

@@ -961,7 +961,9 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
         const n = (dials += 1);
         return {
           client: over.client,
-          dispose: () => disposed.push(n),
+          dispose: () => {
+            disposed.push(n);
+          },
           onClose: (cb: () => void) => closers.push(cb),
         };
       },
@@ -1003,7 +1005,9 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
         const n = (dials += 1);
         return {
           client: over.client,
-          dispose: () => disposed.push(n),
+          dispose: () => {
+            disposed.push(n);
+          },
           // The FIRST dial is born dead and says so SYNCHRONOUSLY, the harshest
           // shape the contract allows. Later dials are healthy.
           onClose: (cb: () => void) => {
@@ -1100,7 +1104,9 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
         const n = (dials += 1);
         return {
           client: over.client,
-          dispose: () => disposed.push(n),
+          dispose: () => {
+            disposed.push(n);
+          },
           onClose: (cb: () => void) => closers.push(cb),
         };
       },

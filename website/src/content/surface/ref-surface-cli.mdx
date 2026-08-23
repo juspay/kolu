@@ -1,0 +1,306 @@
+---
+title: "@kolu/surface-cli reference"
+description: "surfaceCommands and the argv projection: which members become commands, how an input becomes flags, and the exit contract a script branches on."
+order: 233
+section: Basics · Reference
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+Project any `@kolu/surface` as command-line verbs, so a person, a script, or a
+cron job drives it from a shell. The argv sibling of
+[`@kolu/surface-mcp`](/surface/ref-surface-mcp): the same surface, the same
+default-deny allowlist, the same hand-authored verb table, and the same flat
+names — so a verb cannot mean one thing to an agent and another to a terminal.
+
+The adapter owns only the generic parts: the argv grammar, the output and exit
+discipline, and the projection. The domain stays behind the surface, the
+transport stays with your app, and the run edge stays with your binary.
+
+## `surfaceCommands`
+
+<Snippet src="packages/surface/example/snippets/cli.ts" region="project" />
+
+`surfaceCommands(opts): ReadonlyArray<Command>`, imported from the root
+`@kolu/surface-cli` subpath. It is a **pure function to values** — it starts
+nothing, reads no argv, and runs no program.
+
+It mounts four commands that are **not** verbs — `get`, `keys`, `watch`,
+`list` — and it cannot see what else you mount beside them, because it does not
+own the parent: a host subcommand of the same name is invisible here and the
+parser answers with whichever it meets first. The names are exported as
+`READER_NAMES` so you can assert against them; better still, mount the
+projection under a parent of its own (`app surface get load`), which claims no
+name at all.
+
+| Option | Meaning |
+| --- | --- |
+| `surface` | the `Surface<S>` being projected (`expose` is checked against its `spec` at build) |
+| `expose` | the default-deny allowlist — the same [`ExposeMap`](/surface/ref-surface#per-face-expose-kolusurfaceexpose) every other face takes |
+| `verbs?` | hand-authored [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs)s, by name — the same record `serveSurfaceAsMcp` takes as `tools` |
+| `endpoint` | the transport seam: `{ flags?, resolve }` — see below |
+| `annotate?` | CLI-only ergonomics by verb name: `{ positional?, render? }` |
+| `info` | the **binary's** identity: `name`, which fronts every diagnostic, because a user reads `olai: no surface at …` and never the package's name |
+
+### The endpoint seam
+
+**One** step, not two: `resolve` reads the flags once and answers with the
+endpoint's *name* beside the thunk that opens it. The name is needed exactly when
+the dial **fails** — when there is no connection left to ask — and a separate
+`describe(values)` beside a `connect(values)` is two readings of one decision
+with nothing holding them together.
+
+| Field | Meaning |
+| --- | --- |
+| `flags?` | the flags every generated command carries (`--socket`, `--url`, `--host`). **Optional**: omit it when your binary declares them on its own parent instead — see below |
+| `resolve(values)` | → `Effect<{ where, open }>`. `values` is **typed from `flags`**, so renaming a flag is a compile error here rather than an `undefined` your app dials. `where` names the endpoint in the app's own words; `open()` dials it, returning `{ client, dispose }`. `open` rejecting is the honest answer for "nothing is serving there", and the rejection's own words reach the user beside `where` |
+
+`client` is a [`SurfaceClientCallable`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient) —
+what `buildSurfaceFace(surface, link.dispatch)` mints. `dispose` is
+**required**: a CLI dials, does one thing and exits, and the failure that costs a
+user something is a socket left open in a shell loop. An in-process host passes
+`() => {}`. A `dispose` that rejects is ignored rather than allowed to replace
+the command's own verdict.
+
+`resolve` returns an **Effect**, which is what makes both of the next two
+things possible. A resolution order that can come up empty ("no `$APP_SOCKET`,
+no runtime dir, nothing to dial") **fails** it, and that failure — or a throw out
+of it — is exit `3`, the same arm as a failed dial, rather than a defect exiting
+on the runtime's default. And a host whose flags sit on its own parent reads them
+from the parent's context here.
+
+<Aside type="note" title="Where the endpoint flags live is YOUR decision">
+  Declare them in `endpoint.flags` and they are merged into every generated
+  command's own config, so `app proc_kill 4321 --socket /run/x.sock` parses.
+  Declare them on your own parent instead (`Command.withSharedFlags`, so
+  `app --socket X proc_kill 4321` parses too — a flag declared on a subcommand
+  only parses *after* that subcommand's name), **omit** `flags` here, and read
+  them back in `resolve`: this face then adds none and nothing collides. What it
+  must not be is both at once — Effect CLI refuses a parent/child flag of the
+  same name outright (`DuplicateOption`).
+</Aside>
+
+## The projection
+
+| Surface member | argv |
+| --- | --- |
+| procedure `"<ns>.<verb>"` exposed as a tool | `<ns>_<verb> [--field …]` — the same flat name the MCP face uses, from the same `toolName` |
+| a bespoke `SurfaceVerb` | `<name> …`, by the same rule over its `input` |
+| cell | `get <member> [--follow]` |
+| stream · event | `get <member> [input] [--follow]` |
+| collection | `get <member> <key> [--follow]` · `keys <member> [--follow]` (only when it declares `keys`) · `watch <member>` (only when it declares `deltas`) |
+| always | `list` — this face's `tools/list`. It takes **no `--json` of its own**: the aligned table on a terminal, JSON through a pipe, exactly like a verb with a renderer — so `--json` means ONE thing across the whole mounted set, the input |
+
+`--follow` turns a one-shot read into the subscription itself: one ndjson line
+per frame, until the stream ends or you interrupt it. Without it a read takes
+the **opening snapshot frame** and stops — which is what every snapshot-then-
+deltas member opens with. `watch` is a delta stream with no one-shot reading, so
+it takes no `--follow` and always streams.
+
+An **event** is the one member with no snapshot to take: it is occurrences over
+time, so a one-shot `get` of it would wait for ever. It is refused (exit 2)
+naming `--follow`, which is the only honest reading of an event.
+
+A one-shot read of a collection **item** is bounded against both membership and
+a deadline, so a key that is not there answers instead of hanging on a
+subscription that will never yield. Both bounds are always armed, and they answer
+**differently on purpose**:
+
+| answer | exit | means | is it evidence? |
+| --- | --- | --- | --- |
+| `{"present":true,…}` | `0` | the item's current value | — |
+| `{"present":false,"why":"absent"}` | `0` | membership says it is not a member | yes — the item is gone |
+| a line on stderr naming the member, the key and the budget | `3` | the read ran out of time | **no** — a fact about the read, not the item |
+
+The split is the point, and it is the exit code that carries it. `"absent"` is a
+completed read whose answer is "not there", so it is a data frame at exit `0`
+like any other answer. A **deadline** is not an answer at all: nothing said
+whether the item is there, and a quiet producer or a collection with no key set
+to resolve against reaches it while the item is perfectly alive. Reporting that
+on the code that means "the verb did what it was asked" would make "I could not
+find out" indistinguishable from success, so it takes the endpoint's arm —
+exit `3`, the same code as a dial that never landed, because in both nothing
+answered.
+
+A caller reaping on absence therefore acts on the payload it got at exit `0` and
+never has to guess: at exit `3` there is no payload to misread.
+
+`list` answers from the projection itself, so it dials nothing — it accepts the
+endpoint flags anyway, so a script looping over the verbs does not break on the
+one that would have refused them. It builds its table when it RUNS, off the same
+advertised document the flag table was built from, so no other invocation pays
+for it and the two cannot describe different verbs.
+
+Each verb's `input` is that document **in the reading this face takes**. For an
+object input it is the document the MCP face publishes too. For a scalar, array
+or union input the wire carries the value under one property, and MCP publishes
+that wrapper — but argv binds the bare value to a `<value>` positional and has
+no `--value` flag, so `list` reports the *inner* node: the shape you can
+actually type.
+
+## `flagsOf` — how an input becomes flags
+
+Driven by the verb's **advertised input schema**
+([`inputSchema`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs)),
+not by a second walk of the Effect AST — so a field that is a `--flag` here is
+the same field with the same type on the MCP face, and neither can drift from
+the other's idea of what the verb takes.
+
+| Property | argv |
+| --- | --- |
+| `string` | `--name <text>` (an `enum` becomes a choice, listed in `--help`) |
+| `integer` · `number` | `--name <n>` |
+| `boolean` | `--name` / `--no-name` — a **tristate**, so "I did not say" and "I said false" stay different |
+| array of scalars | `--name <v>`, repeated |
+| `Record<string, string>` | `--name k=v`, repeated |
+| anything deeper | `--name '<json>'` — the field's own JSON |
+| a non-object input | the bare `<value>` positional |
+
+Every param is **optional to the parser**, and that is load-bearing rather than
+lax: `--json` carries the whole input *as an alternative to the field flags*, so
+a required field projected as a parser-required param would make the escape hatch
+unspellable — the command would be refused before the assembler could see that
+`--json` was the answer. Requiredness is enforced one layer up instead, where
+both inputs are in view: a missing required field is named by this face, on
+**exit 2**, and only when `--json` is absent. A `default` is likewise applied at
+assembly rather than by the parser, because `Flag.withDefault` makes a field the
+caller never typed indistinguishable from one they did.
+
+Both facts reach `--help` in the line rather than in the shape: a required field
+says `(required)`, a defaulted one says `(default: …)`.
+
+**Names are not transformed.** The flag is the field, spelled the same:
+`--filePath`, not `--file-path`. A transformation would be a second name for one
+thing, and it is not reversible for every field name. A field that cannot be
+spelled as a command-line name is refused when the tree is built, naming the
+field — never shipped as a command nobody can type.
+
+Every verb also takes `--json '{…}'` — the whole input, as data — or `--json -`
+to read it from stdin. It is an **alternative** to the field flags, never a
+supplement: passing both is a usage error naming them, rather than a silent
+precedence nobody can see.
+
+<Aside type="note" title="Input is validated locally, before the round trip">
+  The assembled input is decoded against the verb's own schema in your process,
+  so a typo is a local usage error from the same taxonomy the server would have
+  used — exit 2, and nothing was dialled.
+</Aside>
+
+## Output discipline
+
+- **stdout is data.** One JSON value for a one-shot read; one **compact** JSON
+  line per frame for anything streamed. Indented only when stdout is a terminal,
+  so a pipe always gets machine-shaped output — which is why there is no flag to
+  force it, and why `--json` on a verb keeps its single meaning (the input).
+  *The one exception is not this package's:* a refusal from the CLI **library**
+  (a rejected flag, an unknown subcommand, a value outside a choice) is rendered
+  by Effect CLI itself, which prints the usage document on **stdout** and the
+  reason on stderr before `runEdge` maps it to exit 2. This face's own usage
+  errors never do that — they are one line on stderr and an empty stdout — so a
+  script that captures stdout should branch on the exit code before reading it.
+- **stderr is prose**, with one deliberate exception: a verb's declared refusal
+  is JSON on stderr, because it is data you can act on that is nonetheless not
+  the verb's answer.
+- **A hung-up reader is a complete run.** `watch nodes | head -1` closes the
+  pipe under a live subscription; that is the reader getting what it asked for,
+  so it exits 0. Every other write failure is reported.
+- An `annotate.render` renders a verb's output as text **for a human**, applied
+  only when stdout is a terminal.
+
+## Exit codes
+
+`EXIT` is exported as data, so a host's docs and a driving script's tests can
+name the codes rather than re-spell the integers.
+
+| Code | Meaning |
+| --- | --- |
+| `0` | the verb did what it was asked |
+| `1` | the verb's **declared** error — its refusal, as JSON on stderr |
+| `2` | a usage error: the request never left the process |
+| `3` | nothing is serving the endpoint: the dial failed, the transport died mid-call, a read whose member opened and closed without its snapshot, a bounded item read that ran out of time without ever finding out — or your own `resolve` refused, because "nothing to dial" is the same answer one step earlier |
+| `130` | interrupted (Ctrl-C) |
+
+`1` and `2` are the split that matters: a refusal is an answer from the far
+side and a usage error never reached it, so a loop that retries on `1` must not
+retry on `2`. `3` is separate again because it is about the endpoint rather than
+the request — the one code that means "try a different `--socket`".
+
+A failure carries its own `Runtime.errorExitCode`, so the host's
+`NodeRuntime.runMain` teardown reads the number straight off it. Nothing in this
+package calls `process.exit`, and `130` is Effect's own: a Ctrl-C interrupts the
+fiber, the stream's finalizers unsubscribe, and the connection is released on
+the way out.
+
+One arm of the matrix is not this package's to raise, which is what
+**`reportingRunEdge`** is for — pipe your program through it at the run
+edge, and pair it with `runMain`'s `disableErrorReporting: true`:
+
+```ts
+NodeRuntime.runMain(
+  Command.run(root, { version }).pipe(
+    reportingRunEdge,
+    Effect.provide(NodeServices.layer),
+  ),
+  { disableErrorReporting: true },
+)
+```
+
+Those two lines are one recipe, and the combinator exists because the three
+moves inside it are safety-critical and were being hand-written per binary. It
+catches the **cause**, not the failure: a *defect* is not a failure, so
+`Effect.catch` never sees one, and the runtime then reports it itself through
+the default logger, which writes to **stdout** — a log line in the middle of the
+data channel. That case is not exotic; the server's own per-request refusal
+crosses the wire as a defect whenever the
+[serving face](#two-gates-as-with-mcp) withholds a member this face's map
+offers, and it reaches you as exit `1` with the refusal as JSON, like any other
+declared error. An **interrupt** passes through untouched (Ctrl-C, whose `130`
+is the runtime's own teardown). And the arm's line is written before the
+re-fail, because every failure here marks itself already-reported — a host that
+re-fails without writing it exits with the right code and says nothing at all.
+The flag stays yours because it is `runMain`'s own argument; without it Effect
+prints a second, differently-worded copy of the line.
+
+`runEdge(error)` is the decision underneath, exported for a host that
+owns its own catch: it answers `{ kind: "write", stderr, failure }` or
+`{ kind: "silent", failure }` — a **sum**, so "the library already printed this"
+is a state with a name rather than an empty string every host has to test for.
+
+It is what makes exit **2** true of a real binary: a refusal from the CLI
+*library* — a rejected flag, an unknown subcommand, a value outside a choice — is
+a usage error by every reading of the matrix, but it arrives already rendered and
+carrying no code of ours, so left alone it takes whatever your catch-all does
+with it. (`--help` and `--version` are action flags in the pinned `effect`: they
+print and return success, so they never reach it.)
+
+## Other exports
+
+| Export | Role |
+| --- | --- |
+| `EXIT` | the matrix above, as data |
+| `READER_NAMES` | the four names this face mounts that are not verbs (`get` · `keys` · `watch` · `list`) — the fact a host needs to check its own subcommands against, since `surfaceCommands` cannot see them |
+| `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to an `InputProjection`: the command config, the `advertised` document it was built from (handed back so a caller that wants it does not walk the schema a second time), plus the `assemble(values, stdin)` that reads a parsed config back into the verb's encoded input. `stdin` is an **Effect**, described rather than read, so the descriptor is touched only on the `--json -` path and no caller has to ask first |
+| `reportingRunEdge` | the whole run edge as one combinator — pipe your program through it, so the exit matrix is true of a real binary |
+| `runEdge(error)` | → `RunEdgeReport`: `{ kind: "write", stderr, failure }` or `{ kind: "silent", failure }` — the decision underneath, for a host that owns its own catch |
+| `SurfaceCliFailure` | the failure class carrying both the text and the code |
+| `SurfaceCliBuildError` | a malformed projection, refused when the tree is built (a positional naming no field, a flag-name collision, a field that cannot be a flag) |
+| `SurfaceCliOptions` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `Assembled` · `ProjectedCommand` · `RunEdgeReport` | types |
+
+This package re-exports nothing of the framework's: `messageOf` is
+[`@kolu/surface/errors`](/surface/ref-surface#the-tagged-error-vocabulary-kolusurfaceerrors)'s
+and `SurfaceClientCallable` — the client shape `resolve`'s `open` must return —
+is [`@kolu/surface/client`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient)'s.
+One concept, one import path; a face that published the framework's rules under
+its own name would be a second place to look for them. `SurfaceCliConnection` is
+an alias of that module's `OwnedSurfaceConnection`, which is the same shape the
+MCP face holds — so one connection factory can feed both faces.
+
+## Two gates, as with MCP
+
+The serving face's [`FaceExposure`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)
+decides what the **server answers**; this `ExposeMap` decides what the **CLI
+offers**. Same arrangement `serveSurfaceAsMcp` has with `restrictHandlers`, and
+the same reason: a client's table is ergonomics, never security.
+
+The step-by-step is in [How to expose a surface to a terminal](/surface/expose-to-cli).

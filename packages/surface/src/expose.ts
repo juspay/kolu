@@ -86,10 +86,18 @@
  * the reference page, the skill) points back rather than restating, because
  * four independently-worded copies of one rule are four places it can go stale.
  *
- * `serveSurfaceAsMcp` (`@kolu/surface-mcp`) takes the MAP itself, not a
- * {@link FaceExposure}: a tag set is lossy for it, since it needs the member
- * kind and `mutates` to resolve URIs and tool names. Same map, same grammar,
- * different step 2.
+ * The two PROJECTING faces take the MAP itself, not a {@link FaceExposure}: a
+ * tag set is lossy for them, since each needs the member kind and `mutates` to
+ * resolve its own names. `serveSurfaceAsMcp` (`@kolu/surface-mcp`) resolves a
+ * `surface://` URI or an MCP tool name; `surfaceCommands` (`@kolu/surface-cli`)
+ * resolves a command and its flags. Same map, same grammar, a different step 2
+ * each — which is the whole point of the split: a consumer gating its agent
+ * face, its terminal face and its browser face writes ONE kind of map, and the
+ * same key means the same thing on all three.
+ *
+ * A projecting face's map is ERGONOMICS, never security: it decides what the
+ * client OFFERS, while the serving face's {@link FaceExposure} decides what the
+ * server ANSWERS. Both gates exist, and only the second one is a gate.
  */
 
 import { Data, Effect, Stream } from "effect";
@@ -145,14 +153,29 @@ type CollectionName<S extends SurfaceSpec> =
  *  procedure the map names is callable on that face, whatever the value says.
  *  Nothing below this line is interpreted by `@kolu/surface`.
  *
- *  The MCP half is `mutates`, a presentation HINT for a host — the write
- *  capability it surfaces as `readOnlyHint`/`destructiveHint`. It defaults
- *  CONSERVATIVELY in `@kolu/surface-mcp`: both the bare `"tool"` shorthand and
- *  `{ tool: {} }` (no explicit flag) are treated as MUTATING, so an unannotated
- *  procedure is never advertised as auto-approvable read-only. Mark a genuinely
- *  read-only procedure with `{ tool: { mutates: false } }`. It describes how a
- *  host should PRESENT a call, never whether a face may make it. */
+ *  The PROJECTING half is `mutates`, a presentation HINT for a host — the write
+ *  capability MCP surfaces as `readOnlyHint`/`destructiveHint` and a CLI's
+ *  `list` reports as `writes`/`reads`. It defaults CONSERVATIVELY (see
+ *  {@link exposureMutates}): both the bare `"tool"` shorthand and `{ tool: {} }`
+ *  (no explicit flag) are treated as MUTATING, so an unannotated procedure is
+ *  never advertised as auto-approvable read-only. Mark a genuinely read-only
+ *  procedure with `{ tool: { mutates: false } }`. It describes how a host should
+ *  PRESENT a call, never whether a face may make it. */
 export type ToolExposure = "tool" | { tool: { mutates?: boolean } };
+
+/** Does this exposure declare a MUTATING procedure?
+ *
+ *  CONSERVATIVE by construction: an exposure that does not explicitly say
+ *  `mutates: false` is mutating. A read-only hint can let a host auto-execute a
+ *  call unconfirmed, so an unannotated procedure must fail SAFE — the
+ *  inverted-default defect, in one derivation rather than in one per face.
+ *
+ *  It is the FRAMEWORK's and not each face's precisely because it is a safety
+ *  default: both faces spelled it character for character, each with its own
+ *  paragraph explaining the same reasoning, which is two places for one rule to
+ *  be relaxed in and only one of them to be noticed. */
+export const exposureMutates = (exposure: ToolExposure): boolean =>
+  typeof exposure === "object" ? (exposure.tool.mutates ?? true) : true;
 
 /** The default-deny allowlist. Keys are the spec's own primitives and
  *  procedures; omission means *not exposed*. A primitive maps to `"resource"`;

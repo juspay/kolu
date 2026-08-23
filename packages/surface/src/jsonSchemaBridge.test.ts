@@ -1,18 +1,31 @@
 /**
- * `toInputSchema` — the Effect Schema → JSON-Schema glue. These pins are the
- * effect-version seam (the converter's option defaults and its representation
- * choices shift between betas exactly as zod's did): a regression here ships a
- * tool whose `inputSchema` an MCP client rejects.
+ * The Effect Schema → JSON-Schema bridge (`./jsonSchemaBridge`), and the
+ * wrapping rule that rides with it.
+ *
+ * These pins are the effect-version seam (the converter's option defaults and
+ * its representation choices shift between betas exactly as zod's did): a
+ * regression here ships a verb whose advertised input an MCP client rejects —
+ * and now also one whose CLI flags are the wrong shape.
  *
  * The MCP `tools/list` JSON Schema is on the repo's byte-compatibility hit list,
  * so the five MEASURED divergences between Effect's converter and the zod one
  * this module was built on each get a named pin below, and the whole emitted
- * string gets a byte-level fixture at the end.
+ * string gets a byte-level fixture at the end. Those pins moved here VERBATIM
+ * from `@kolu/surface-mcp`'s `jsonschema.test.ts` when the bridge moved, and
+ * again unchanged when the bridge got a module of its own beside the volatility
+ * it holds: the assertions are what make each move proof that behaviour did not
+ * change with them.
  */
 
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { inputSchema, toInputSchema } from "./jsonschema";
+import {
+  type AdvertisedInput,
+  inputSchema,
+  toInputSchema,
+  unwrapArgs,
+  wrapValue,
+} from "./jsonSchemaBridge";
 
 /** The `WireSchemaAny` bound `defineSurface` puts on every spec schema. Spelled
  *  here so a test schema can be handed to the converter without a cast at each
@@ -192,6 +205,59 @@ describe("toInputSchema", () => {
     }
   });
 
+  it("emits no $ref for a recursion through an ARRAY's items", () => {
+    // The most ordinary recursive shape there is — a tree whose children are an
+    // array — and the one position `walkProperties`' drop rule cannot reach:
+    // the self-reference sits under `items`, not under a `properties` key. The
+    // un-inlinable `$ref` used to be put BACK there while the definitions pool
+    // was stripped, so the advertised document carried a pointer to a
+    // `#/$defs/…` that is not in it: the exact shape this pass exists to
+    // remove, and the one a wide client matrix rejects outright.
+    interface Tree {
+      readonly label: string;
+      readonly kids: readonly Tree[];
+    }
+    const Node: Schema.Codec<Tree> = Schema.Struct({
+      label: Schema.String,
+      kids: Schema.Array(Schema.suspend((): Schema.Codec<Tree> => Node)),
+    }).annotate({ identifier: "TreeNode" }) as unknown as Schema.Codec<Tree>;
+
+    const out = toInputSchema(wire(Node));
+    expect(JSON.stringify(out)).not.toContain("$ref");
+    // The keyword survives as an accept-anything rather than the property being
+    // dropped: `kids` is still an array, its members are simply unconstrained.
+    const props = out.properties as Record<string, unknown>;
+    expect(props.kids).toMatchObject({ type: "array", items: {} });
+    expect(props.label).toMatchObject({ type: "string" });
+  });
+
+  it("emits no $ref for a recursive `anyOf` member", () => {
+    // A union arm is the other non-`properties` position, and dropping one
+    // would change what the union admits — so the arm degrades in place.
+    interface Branch {
+      readonly label: string;
+      readonly next: Branch | null;
+    }
+    const Node: Schema.Codec<Branch> = Schema.Struct({
+      label: Schema.String,
+      next: Schema.Union([
+        Schema.Null,
+        Schema.suspend((): Schema.Codec<Branch> => Node),
+      ]),
+    }).annotate({
+      identifier: "BranchNode",
+    }) as unknown as Schema.Codec<Branch>;
+
+    const out = toInputSchema(wire(Node));
+    expect(JSON.stringify(out)).not.toContain("$ref");
+    // Both arms are still there — the recursive one as an accept-anything.
+    const next = (out.properties as Record<string, unknown>).next as
+      | Record<string, unknown>
+      | undefined;
+    expect(Array.isArray(next?.anyOf)).toBe(true);
+    expect((next?.anyOf as unknown[]).length).toBe(2);
+  });
+
   it("an opaque declaration degrades to an accept-anything {} rather than throwing", () => {
     class Opaque {
       constructor(readonly x: number) {}
@@ -323,5 +389,63 @@ describe("toInputSchema", () => {
     expect(JSON.stringify(toInputSchema(wire(schema)))).toBe(
       '{"type":"object","properties":{"name":{"type":"string"},"strict":{"type":"boolean","default":true},"count":{"type":"number"},"whole":{"type":"integer"},"tags":{"type":"array","items":{"type":"string"}},"mode":{"type":"string","enum":["a","b"]},"note":{"type":"string"},"nested":{"type":"object","properties":{"x":{"type":"number"}},"required":["x"]}},"required":["name","count","whole","tags","mode","nested"]}',
     );
+  });
+});
+describe("the wrapping rule", () => {
+  it("unwraps exactly when the advertised input was wrapped", () => {
+    // `wrapped` is the static bit `inputSchema` reported for that input, never a
+    // guess about the value: a bare object input passes through untouched, and a
+    // wrapped scalar comes back out of `value`.
+    expect(unwrapArgs(false, { pid: 7 })).toEqual({ pid: 7 });
+    expect(unwrapArgs(true, { value: "abc" })).toBe("abc");
+  });
+
+  it("wraps a result JSON renders as a non-object, and only then", () => {
+    expect(wrapValue({ ok: true })).toEqual({ ok: true });
+    expect(wrapValue(42)).toEqual({ value: 42 });
+    expect(wrapValue(null)).toEqual({ value: null });
+    expect(wrapValue(["a", "b"])).toEqual({ value: ["a", "b"] });
+  });
+
+  it("advertises a scalar input under the SAME key `unwrapArgs` reads back", () => {
+    // The two halves of the rule, joined: whatever `inputSchema` names the
+    // wrapper property, `unwrapArgs` is the undo — nothing outside the module
+    // has to know the spelling for the round trip to hold.
+    const built = inputSchema(
+      Schema.String as unknown as Schema.Codec<unknown, unknown, never, never>,
+    );
+    expect(built.wrapped).toBe(true);
+    const [key] = Object.keys(
+      (built.schema as { properties: Record<string, unknown> }).properties,
+    );
+    expect(unwrapArgs(built.wrapped, { [key as string]: "abc" })).toBe("abc");
+  });
+});
+
+describe("AdvertisedInput.inner", () => {
+  /** The whole reason `WRAP_KEY` can stay private: a face binds the wrapped
+   *  value to a flag or a positional off this node, so it never has to NAME the
+   *  property the wire carries the value under. */
+  it("hands over the wrapped value's OWN node, so a face never names the wrapper key", () => {
+    const built: AdvertisedInput = inputSchema(wire(Schema.String));
+    expect(built.wrapped).toBe(true);
+    // Reached by NARROWING, which is the shape's point: `inner` exists on the
+    // wrapped arm and nowhere else, so a face cannot read it without having
+    // asked. The assertion above is what keeps this branch from being skipped.
+    if (built.wrapped) expect(built.inner).toEqual({ type: "string" });
+  });
+
+  it("carries no `inner` at all when `wrapped` is false", () => {
+    // `inner` and `wrapped` are ONE fact, and now the TYPE says so — there is no
+    // `{wrapped:false, inner}` to construct. What is left to pin at runtime is
+    // that the unwrapped arm really is the field-less one, so a consumer reading
+    // the value as data (a JSON dump of `list`, say) sees no hole either.
+    expect(
+      Object.hasOwn(
+        inputSchema(wire(Schema.Struct({ a: Schema.Finite }))),
+        "inner",
+      ),
+    ).toBe(false);
+    expect(Object.hasOwn(inputSchema(), "inner")).toBe(false);
   });
 });

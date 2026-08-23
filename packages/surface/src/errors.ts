@@ -278,3 +278,65 @@ export function isSurfaceRelayTransportLost(
 ): error is SurfaceRelayTransportLost {
   return error instanceof SurfaceRelayTransportLost;
 }
+
+// ── What an ARBITRARY failure says ───────────────────────────────────────
+//
+// Not a declared error at all, which is why it sits at the foot of this module
+// rather than in the union above: this is the derivation every face falls back
+// to when the value it caught is not one of the framework's own — a defect, a
+// scaffold's throw, a plain object someone failed with. It lives HERE because
+// "what did this failure SAY" is failure vocabulary, and this module is where
+// this stack keeps that; every projecting face folds a caught failure into its
+// own answer through it, so all of them word one failure the same way.
+
+/** The best sentence an arbitrary thrown value has in it — the one place this
+ *  stack decides what an unknown failure SAYS, so a face that folds a caught
+ *  failure into its own answer words it exactly as its request edge would.
+ *
+ *  `e instanceof Error ? e.message : String(e)` was ALMOST right and wrong for
+ *  the two shapes Effect actually delivers here:
+ *
+ *    - a `Data.TaggedError` is an `Error` whose `message` is `""` — its identity
+ *      lives in `_tag` — so it reached consumers as a bare prefix;
+ *    - a failure declared as a plain object is not an `Error` at all, and
+ *      `String(e)` renders it `[object Object]`.
+ *
+ *  Both are exactly the failures worth reading, so each falls back to the next
+ *  most specific thing the value KNOWS about itself — never to a placeholder.
+ *
+ *  (`@kolu/surface-mcp` re-exports it under the name it shipped.) */
+export function messageOf(e: unknown): string {
+  if (e instanceof Error) {
+    if (e.message !== "") return e.message;
+    const tag = (e as { _tag?: unknown })._tag;
+    return typeof tag === "string" && tag !== "" ? tag : e.name;
+  }
+  if (typeof e === "object" && e !== null) {
+    // `String(e)` is NOT the answer for an object — it is the `[object Object]`
+    // this function exists to stop — so name the value the way a value can
+    // always be named: its constructor and the fields it actually has.
+    try {
+      return JSON.stringify(e) ?? describeObject(e);
+    } catch (unstringifiable) {
+      // NOT only a cycle. `stringify` also refuses a `BigInt` anywhere in the
+      // tree, and it EVALUATES every own enumerable getter — so a property that
+      // throws on read throws from here, carrying a real and unrelated reason
+      // ("network timeout while computing x"). Discarding it would swallow the
+      // most specific thing known about the failure inside the one function
+      // whose whole job is to find that. It rides along with the shape.
+      return `${describeObject(e)} (unstringifiable: ${messageOf(unstringifiable)})`;
+    }
+  }
+  return String(e);
+}
+
+/** Name an object JSON cannot render: its constructor and its own keys. Never
+ *  `[object Object]` — the point is that the reader learns WHAT failed even when
+ *  it cannot learn the whole value.
+ *
+ *  `||`, not `??`: an anonymous class expression HAS a constructor and its
+ *  `.name` is `""`, which would render a nameless `{ a, b }`. */
+function describeObject(e: object): string {
+  const name = e.constructor?.name || "Object";
+  return `${name} { ${Object.keys(e).join(", ")} }`;
+}

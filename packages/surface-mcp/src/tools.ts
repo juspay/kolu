@@ -4,10 +4,15 @@
  *   - An **exposed procedure** (`expose: { "node.rerun": { tool: ... } }`):
  *     dispatch calls `client.surface[ns][verb](args)` and wraps the result.
  *   - A **bespoke tool** (`tools: { run: { input, handler } }`): a
- *     hand-authored MCP tool whose handler composes over the live client.
- *     Genuinely call-shaped capabilities (spawn-and-await, path-guarded
- *     reads) ride here, sharing the package's Schema→JSON-Schema + result
- *     framing spine — they just supply an Effect Schema input and a function.
+ *     hand-authored, call-shaped verb whose handler composes over the live
+ *     client. Genuinely call-shaped capabilities (spawn-and-await, path-guarded
+ *     reads) ride here, sharing the framework's Schema→JSON-Schema bridge and
+ *     this package's result framing — they just supply an Effect Schema input
+ *     and a function. The record itself is the framework's `SurfaceVerb`
+ *     (`@kolu/surface/verbs`) — an app hands the SAME one to the CLI face —
+ *     which {@link BespokeTool} extends with the single field only this face can
+ *     act on: `render`, because a `ToolResult` is content blocks and no other
+ *     face has those.
  *
  * Both wrap their return as a `ToolResult` — the model's prose in `content`,
  * the caller's data in `structuredContent` — and surface a thrown error as
@@ -15,10 +20,12 @@
  * being a {@link ToolFailure}; anything else reaches the host as its message.
  *
  * The RESULT-FRAMING SPINE is all of it, not just the happy path: {@link ok},
- * {@link fail}, {@link failFrom}, {@link messageOf} and {@link brand} live here
- * together, so the coercion from an arbitrary thrown value to a sentence sits
- * beside the shape it is coerced into. Both request edges (`tools/call` and
- * `resources/read`) call in; neither owns a second copy.
+ * {@link fail}, {@link failFrom} and {@link brand} live here together, so the
+ * coercion from an arbitrary thrown value to a framed answer sits beside the
+ * shape it is coerced into. Both request edges (`tools/call` and
+ * `resources/read`) call in; neither owns a second copy. The SENTENCE inside
+ * that coercion is the framework's `messageOf` (`@kolu/surface/errors`), because
+ * the CLI face folds failures into answers too — re-exported here.
  *
  * **On cancellation (D10).** Effect RPC carries no `signal`, so a surface member
  * call is cancelled by interrupting the fiber running it — and EVERY request this
@@ -37,46 +44,36 @@
  * parameter and let interruption do the work.
  */
 
-import type { Effect, Schema } from "effect";
-import { wrapValue } from "./wrapping";
+import { messageOf } from "@kolu/surface/errors";
+import type { SurfaceVerb, SurfaceVerbInputSchema } from "@kolu/surface/verbs";
+import { wrapValue } from "@kolu/surface/verbs";
 
-/** A bespoke tool's input schema: any context-free Effect Schema whose DECODED
- *  type is the handler's `args`. The same bound `@kolu/surface`'s `WireSchema<T>`
- *  puts on every spec schema — `RD`/`RE` pinned to `never`, because decoding an
- *  MCP tool argument has no Effect environment to draw services from. */
-export type ToolInputSchema<I> = Schema.Codec<I, unknown, never, never>;
+// "What did this failure SAY" is the FRAMEWORK's derivation, and it lives with
+// the rest of the failure vocabulary (`@kolu/surface/errors`) rather than with
+// the verbs: both projecting faces fold a caught failure into an answer, and a
+// second copy is a place they can disagree about the sentence.
+// Re-exported from this package's root under the name it shipped with, and used
+// by {@link failFrom} below exactly as when it lived here.
+export { messageOf };
 
-/** A hand-authored MCP tool. `input` (optional) validates and shapes the
- *  args; `handler` DESCRIBES the work against the live surface `client` and the
- *  adapter runs it at the one request edge; `description` is the tool's
- *  `tools/list` blurb and `title` its display name — MCP's two distinct
- *  metadata fields, the first written for the model choosing the tool, the
- *  second for the human reading a host's tool list. `title` is optional and a
- *  host that has none falls back to `name`, which is the machine spelling
- *  (`lifecycle_sendInput`) rather than a phrase.
+/** A bespoke tool's input schema — the FRAMEWORK's bound
+ *  (`SurfaceVerbInputSchema`, `@kolu/surface/verbs`) under the name this package
+ *  shipped it with: any context-free Effect Schema whose DECODED type is the
+ *  handler's `args`. */
+export type ToolInputSchema<I> = SurfaceVerbInputSchema<I>;
+
+/** A hand-authored MCP tool: the FRAMEWORK's {@link SurfaceVerb} — the record an
+ *  app hands to every projecting face verbatim — plus the one field only this
+ *  face can act on.
  *
- *  `mutates` flags the tool for host authz (`readOnlyHint`/`destructiveHint`).
- *  It is OPTIONAL but defaults CONSERVATIVELY: an absent `mutates` is treated as
- *  MUTATING (`destructiveHint: true`), because `readOnlyHint: true` can let an MCP
- *  host auto-execute a tool unconfirmed — so an unannotated tool must fail SAFE
- *  (assume it writes), never silently advertise as a harmless read. Declare
- *  `mutates: false` ONLY for a genuinely read-only tool (a conscious, reviewable
- *  opt-in into the auto-approvable hint). */
-export interface BespokeTool<I = unknown, O = unknown> {
-  input?: ToolInputSchema<I>;
-  mutates?: boolean;
-  description?: string;
-  title?: string;
-  handler: (
-    args: I,
-    // The surface client is consumer-typed; the adapter holds it opaquely.
-    // biome-ignore lint/suspicious/noExplicitAny: client shape is the consumer's, opaque here.
-    client: any,
-    /** The MCP request's own signal, for a handler that must hand one to a
-     *  scaffold speaking `AbortSignal`. Ignore it otherwise — see the module
-     *  doc: the handler's effect is already run under this signal. */
-    signal: AbortSignal | undefined,
-  ) => Effect.Effect<O, unknown>;
+ *  The shared half (`input`, `handler`, `description`, `title`, `mutates`, and
+ *  the conservative default `mutates` carries) is documented on `SurfaceVerb`
+ *  and is NOT restated here: an app hands the same table to
+ *  `@kolu/surface-cli`, and two copies of that doc is two places it can go
+ *  stale. What is added below is MCP's, because a `ToolResult` is content blocks
+ *  and no other face has those. */
+export interface BespokeTool<I = unknown, O = unknown>
+  extends SurfaceVerb<I, O> {
   /** How this tool's success value becomes MCP content. Defaults to {@link ok}
    *  — JSON for the model, the same value structured for the caller.
    *
@@ -304,59 +301,4 @@ export function failFrom(e: unknown): ToolResult {
   // the host as the bare brand, which is the very regression below.
   const message = brand(messageOf(e));
   return e instanceof ToolFailure ? fail(message, e.detail) : fail(message);
-}
-
-/** The best sentence an arbitrary failure value has in it.
- *
- *  `e instanceof Error ? e.message : String(e)` was ALMOST right and wrong for
- *  the two shapes Effect actually delivers here:
- *
- *    - a `Data.TaggedError` is an `Error` whose `message` is `""` — its identity
- *      lives in `_tag` — so it reached agents as the bare brand, `surface-mcp: `;
- *    - a failure declared as a plain object is not an `Error` at all, and
- *      `String(e)` renders it `[object Object]`.
- *
- *  Both are exactly the failures worth reading, so each falls back to the next
- *  most specific thing the value KNOWS about itself — never to a placeholder.
- *
- *  ONE derivation, and it lives beside {@link failFrom} rather than at a request
- *  edge, because BOTH edges need it: `tools/call` frames a failure as an
- *  `isError` result, `resources/read` frames it as a thrown branded `Error`, and
- *  the sentence in each is the same computation. */
-export function messageOf(e: unknown): string {
-  if (e instanceof Error) {
-    if (e.message !== "") return e.message;
-    const tag = (e as { _tag?: unknown })._tag;
-    return typeof tag === "string" && tag !== "" ? tag : e.name;
-  }
-  if (typeof e === "object" && e !== null) {
-    // `String(e)` is NOT the answer for an object — it is the `[object Object]`
-    // this function exists to stop — so name the value the way a value can
-    // always be named: its constructor and the fields it actually has.
-    try {
-      return JSON.stringify(e) ?? describeObject(e);
-    } catch (unstringifiable) {
-      // NOT only a cycle, which is what this catch used to claim. `stringify`
-      // also refuses a `BigInt` anywhere in the tree, and it EVALUATES every
-      // own enumerable getter — so a property that throws on read throws from
-      // here, carrying a real and unrelated reason ("network timeout while
-      // computing x"). Discarding it would swallow the most specific thing
-      // known about the failure inside the one function whose whole job is to
-      // find that. It rides along with the shape.
-      return `${describeObject(e)} (unstringifiable: ${messageOf(unstringifiable)})`;
-    }
-  }
-  return String(e);
-}
-
-/** Name an object JSON cannot render: its constructor and its own keys. Never
- *  `[object Object]` — the point is that the host learns WHAT failed even when
- *  it cannot learn the whole value.
- *
- *  `||`, not `??`: an anonymous class expression HAS a constructor and its
- *  `.name` is `""`, which would render a nameless `{ a, b }`. Same guard
- *  {@link messageOf} puts on `_tag`. */
-function describeObject(e: object): string {
-  const name = e.constructor?.name || "Object";
-  return `${name} { ${Object.keys(e).join(", ")} }`;
 }

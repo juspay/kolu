@@ -32,6 +32,7 @@
  * keeps this class runnable from the SDK's synchronous request handlers.
  */
 
+import type { OwnedSurfaceConnection } from "@kolu/surface/client";
 import { Cause, Effect, type Exit, type Fiber, Stream } from "effect";
 
 /** Opens the streaming `get` for a subscribable URI on a given client. The
@@ -53,44 +54,74 @@ export type StreamFor<Client> = (
  *  it streams over, the disposer that closes whatever the factory opened, and —
  *  where the transport can say so — its close announcement.
  *
+ *  It IS the framework's {@link OwnedSurfaceConnection} at this pusher's client
+ *  type, not a re-declaration of its three fields. "A client plus the release
+ *  the face is responsible for" is one shape and BOTH projecting faces hold it —
+ *  the CLI face for the length of one command, this one for a subscription's
+ *  lifetime — so a host can write one factory that feeds either. Two structural
+ *  spellings had already drifted (one `dispose` returned `void`, the other
+ *  `void | Promise<void>`), which is exactly how a value that crosses every
+ *  boundary by width-subtyping alone comes apart: juspay/kolu#2082's own failure
+ *  mode, one level up.
+ *
  *  ONE shape from the dial to the adapter: `@kolu/surface-mcp`'s
  *  `OwnedSurfaceConnection` IS this type at the adapter's client, and kolu-mcp's
- *  `KoluMcpConnection` extends that. Re-declaring the fields anywhere along the
- *  chain would let a field added at one hop go silently missing at the next,
- *  because the value crosses each boundary by structural width-subtyping alone —
- *  which is juspay/kolu#2082's own failure mode.
+ *  `KoluMcpConnection` extends that.
  *
  *  Kept WHOLE: the pusher keys its attachment on this object's identity, which
  *  is what makes the `onClose` guard and the disposer correct together. A bare
  *  client plus a disposer in a side table keyed by the client leaks whenever a
  *  factory returns the same client object twice — two concurrent dials overwrite
- *  each other's entry and the loser's socket is never closed. */
-export interface PusherConnection<Client> {
-  client: Client;
-  dispose: () => void;
-  /** Subscribe to this connection's transport dropping — the served daemon
-   *  exited, or its socket closed. Fires at most once.
-   *
-   *  **This is what keeps a restart from costing a request** (juspay/kolu#2082).
-   *  Without it a consumer only learns the transport died by SPENDING a request
-   *  on the corpse: the held connection is reset when a call fails, so the first
-   *  call after a daemon restart always fails and every later one succeeds. An
-   *  MCP host reads that one failure as "the MCP server is dead" and stops using
-   *  MCP for the rest of the session — a whole session lost to a routine
-   *  upgrade. With the hook, the dead connection is discarded the INSTANT the
-   *  socket closes and the next request dials fresh, so nothing is spent.
-   *
-   *  OPTIONAL because it is a property of the TRANSPORT, not of the factory: an
-   *  in-process dispatch has no transport to drop, so it has no honest value to
-   *  supply.
-   *
-   *  A dial that HAS the close signal but no field to carry it is a GAP IN THE
-   *  DIAL'S FACE, not a mode to live in — the one open case is stated where it
-   *  will be closed, at `kolu-cli/src/hostConnect.ts`.
-   *
-   *  An absent hook degrades to the consumer's lazy reset when a call fails; it
-   *  is NOT a knob, and a factory that CAN reach its close must supply it. */
-  onClose?: (cb: () => void) => void;
+ *  each other's entry and the loser's socket is never closed.
+ *
+ *  ## What an absent `onClose` costs THIS face
+ *
+ *  The hook is optional on the base because it is a property of the TRANSPORT
+ *  (an in-process dispatch has none to drop, and the CLI face never redials).
+ *  For this face it is **what keeps a restart from costing a request**
+ *  (juspay/kolu#2082). Without it a consumer only learns the transport died by
+ *  SPENDING a request on the corpse: the held connection is reset when a call
+ *  fails, so the first call after a daemon restart always fails and every later
+ *  one succeeds. An MCP host reads that one failure as "the MCP server is dead"
+ *  and stops using MCP for the rest of the session — a whole session lost to a
+ *  routine upgrade. With the hook, the dead connection is discarded the INSTANT
+ *  the socket closes and the next request dials fresh, so nothing is spent.
+ *
+ *  A dial that HAS the close signal but no field to carry it is a GAP IN THE
+ *  DIAL'S FACE, not a mode to live in — the one open case is stated where it
+ *  will be closed, at `kolu-cli/src/hostConnect.ts`. An absent hook degrades to
+ *  the consumer's lazy reset when a call fails; it is NOT a knob, and a factory
+ *  that CAN reach its close must supply it. */
+export type PusherConnection<Client> = OwnedSurfaceConnection<Client>;
+
+/** Release a connection and SWALLOW whatever the release does about it — the
+ *  one way this face lets go of a socket, at every one of the five sites that
+ *  do.
+ *
+ *  `dispose` may be async (one shape for both faces, and the real one — a unix
+ *  socket link — is), so it can REJECT: a finalizer that fails while a daemon
+ *  restarts races a socket close every day of the week. A bare `conn.dispose()`
+ *  leaves that rejection unhandled, and Node's default for an unhandled
+ *  rejection is to TERMINATE the process — killing a long-lived MCP server at
+ *  exactly the moment this code is trying to be resilient about a transport
+ *  going away. `void conn.dispose()` silences the lint that would have pointed
+ *  at it and changes nothing about the rejection.
+ *
+ *  Ignoring is safe, and it is the only thing that is: every call site has
+ *  already stopped pointing at this connection (a lost dial race, a teardown, a
+ *  drop, the server closing), so a failed release has nothing left to tell
+ *  anyone — while a THROWN one would replace an answer the caller already has.
+ *  The socket is going away with the process either way. The CLI face states the
+ *  same reason at its own release (`withConnection`, `Effect.ignore`). */
+export function disposeQuietly(conn: {
+  readonly dispose: () => void | Promise<void>;
+}): void {
+  try {
+    void Promise.resolve(conn.dispose()).catch(() => {});
+  } catch {
+    // A `dispose` that throws SYNCHRONOUSLY never produces a promise to attach
+    // the handler above to, and is the same non-event for the same reason.
+  }
 }
 
 /** Lazily produce a live connection. Returns `null` when the source isn't live
@@ -195,7 +226,7 @@ export class ResourcePusher<Client> {
     // (not a disposer looked up by client identity) is what makes this correct
     // when a factory hands back the same client object on both dials.
     if (this.conn !== null || this.stopped || this.subscribed.size === 0) {
-      conn.dispose();
+      disposeQuietly(conn);
       return;
     }
     this.conn = conn;
@@ -320,7 +351,7 @@ export class ResourcePusher<Client> {
     for (const fiber of fibers) fiber.interruptUnsafe();
     const conn = this.conn;
     this.conn = null;
-    conn?.dispose();
+    if (conn !== null) disposeQuietly(conn);
   }
 
   private scheduleRetry(): void {

@@ -45,7 +45,8 @@
     "./links/direct": "./src/links/direct.ts",
     "./links/unix-socket": "./src/links/unix-socket.ts",
     "./peer-server": "./src/peer-server.ts",
-    "./unix-socket": "./src/unix-socket.ts"
+    "./unix-socket": "./src/unix-socket.ts",
+    "./verbs": "./src/verbs.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

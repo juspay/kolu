@@ -221,6 +221,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the server-lifecycle probe edge: the reserved `system/identity` round-trip is an Effect, but the lifecycle hangs off `wire.onStatus` (a plain callback) and `createHeartbeat` races a probe against a timer, so the crossing is real — held here once rather than at each of the three consumers, and deliberately NOT folded into `liveSignal`'s edge, which takes no caller-supplied probe target on purpose (#1564)",
   },
   {
+    path: "packages/surface-cli/src/host.fixture.ts",
+    sites: 1,
+    why: "the fixture binary's `main` — a SPAWNED process is the only place an exit code exists, so the suite asserts the published matrix against a real `runMain` instead of a simulated one. It is a `.fixture.ts` and not a `.test.ts` precisely because the test file is the PARENT that spawns it: the code under assertion is the child's edge, which by construction cannot run inside the runner's own process",
+  },
+  {
     path: "packages/surface-map/src/server.ts",
     sites: 1,
     why: "`decodeCanonicalWireKeyUnsafe` — the documented sync-decode edge: a pure suspend over an already-gated key, inside a handler's snapshot read",
@@ -294,6 +299,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     path: "packages/surface/example/remote-process-monitor/src/server/serve.ts",
     sites: 1,
     why: "the bridge's kill forwarder: the parent's procedure body is an `Effect.promise` (an undeclared error channel must stay a loud defect), and the remote member it forwards to is Effect-native, so the two meet inside that one Promise",
+  },
+  {
+    path: "packages/surface/example/snippets/cli.ts",
+    sites: 1,
+    why: "the mount block the `@kolu/surface-cli` reference and the expose-to-a-terminal page embed: a reader copying this page copies its run edge, so the snippet has to show the WHOLE recipe — `reportingRunEdge` piped in and `disableErrorReporting: true` handed to `runMain` — because the half a shortened snippet would drop is the half that decides whether a failing binary says anything at all. Typechecked, never executed",
   },
   {
     path: "packages/surface/example/snippets/consume-cli.ts",

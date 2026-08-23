@@ -60,6 +60,7 @@ let
   rawMembers = {
     "@kolu/surface" = ../packages/surface;
     "@kolu/surface-map" = ../packages/surface-map;
+    "@kolu/surface-cli" = ../packages/surface-cli;
     "@kolu/surface-mcp" = ../packages/surface-mcp;
     "@kolu/surface-remote" = ../packages/surface-remote;
     "@kolu/surface-app" = ../packages/surface-app;

@@ -42,7 +42,7 @@
  * {@link firstFrameOfCollectionItem} has always been an Effect.
  */
 
-import { Effect, Option, Stream } from "effect";
+import { Data, Effect, Option, Stream } from "effect";
 
 /** The first frame `stream` yields, or `undefined` if it ends empty.
  *
@@ -69,7 +69,37 @@ export function firstFrameOrThrow<T>(
   return Effect.flatMap(Stream.runHead(stream), (head) =>
     Option.isSome(head)
       ? Effect.succeed(head.value)
-      : Effect.fail(new Error(onEmptyMessage)),
+      : Effect.fail(new NoSnapshotFrame({ message: onEmptyMessage })),
+  );
+}
+
+/** The empty-open failure {@link firstFrameOrThrow} raises — a member that
+ *  opened and closed WITHOUT its snapshot.
+ *
+ *  TAGGED, not a bare `Error`, because a reader has to tell it from the stream's
+ *  OWN error channel and the two mean opposite things: this one says the link
+ *  went away mid-read (nothing answered), while a declared member error says the
+ *  far side answered and the answer was no. A reader that caught this function's
+ *  whole failure channel and re-worded it billed every declared refusal as an
+ *  unreachable endpoint — `@kolu/surface-cli` did exactly that, so a one-shot
+ *  `get` reported a refusal on the exit code that means "try a different
+ *  socket", while the same refusal under `--follow` reported it correctly.
+ *
+ *  `Data.TaggedError`, not `Schema.TaggedError`: it never crosses a wire. It is
+ *  raised by a reader, on the reading side, about the read. */
+export class NoSnapshotFrame extends Data.TaggedError("NoSnapshotFrame")<{
+  readonly message: string;
+}> {}
+
+/** Is this failure {@link firstFrameOrThrow}'s empty open, rather than the
+ *  stream's own error? The one predicate a reader discriminates on, so no
+ *  consumer re-derives it from a message or from `instanceof` across a package
+ *  boundary. */
+export function isNoSnapshotFrame(error: unknown): error is NoSnapshotFrame {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { readonly _tag?: unknown })._tag === "NoSnapshotFrame"
   );
 }
 
@@ -87,6 +117,19 @@ export function firstFrameOrThrow<T>(
 export type CollectionItemFrame<T> =
   | { readonly present: true; readonly value: T }
   | { readonly present: false; readonly reason: "absent" | "deadline" };
+
+/** The deadline a one-shot collection-item read is bounded by when its caller
+ *  has no reason of its own to pick one.
+ *
+ *  It lives HERE, beside the reader it bounds, because every projecting face
+ *  needs the same number for the same reason and none of them knows anything
+ *  the others don't: "how long may a local read wait before it must say it
+ *  cannot tell" is a property of the held-open-on-absent semantic this module
+ *  guards, not of MCP or of argv. Both faces spelled it `5_000` independently
+ *  before this constant existed. It stays a PARAMETER on
+ *  {@link firstFrameOfCollectionItem} for a caller that genuinely has a
+ *  different budget — a request already carrying a shorter deadline of its own. */
+export const ITEM_READ_DEADLINE_MS = 5_000;
 
 /** What one arm of the bounded race settles with.
  *
@@ -163,7 +206,7 @@ export function firstFrameOfCollectionItem<T>(
           : {
               present: false,
               reason: "failed",
-              error: new Error(onEmptyItem),
+              error: new NoSnapshotFrame({ message: onEmptyItem }),
             },
     ),
     failed,

@@ -13,16 +13,16 @@ packages:
 # Effect 4 (release candidate). Every @effect/* package must resolve to the SAME version as
 # `effect` itself, so these are exact pins (no `^`) for kolu-private members.
 #
-# `catalog:` is WORKSPACE-LOCAL, so it cannot appear in the seven @kolu/surface*
+# `catalog:` is WORKSPACE-LOCAL, so it cannot appear in the eight @kolu/surface*
 # packages: drishti and odu vendor those DIRECTORIES from a content-addressed pin
 # and install their `dependencies` from their own workspace, where kolu's catalog
-# does not exist. Those seven spell the literal version instead. Root
+# does not exist. Those eight spell the literal version instead. Root
 # `pnpm.overrides` (package.json) carries the same version a third time so
 # transitive resolution collapses to one copy here.
 #
 # Bumping the stack therefore means editing all three places together:
 #   1. this catalog, 2. `pnpm.overrides` in package.json,
-#   3. the literal specs in packages/surface{,-map,-app,-remote,-daemon,-daemon-supervisor,-mcp}/package.json
+#   3. the literal specs in packages/surface{,-map,-app,-remote,-daemon,-daemon-supervisor,-mcp,-cli}/package.json
 catalog:
   effect: 4.0.0-rc.110
   "@effect/platform-node": 4.0.0-rc.110

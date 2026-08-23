@@ -20,10 +20,13 @@
  */
 
 import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
-import { classifyExpose, type ExposeMap } from "@kolu/surface/expose";
-import { Option, Schema } from "effect";
+import {
+  classifyExpose,
+  type ExposeMap,
+  exposureMutates,
+} from "@kolu/surface/expose";
 import { match, P } from "ts-pattern";
-import { inputSchema } from "./jsonschema";
+import { admitsNoArgument, inputSchema, toolName } from "@kolu/surface/verbs";
 import { ADAPTER_NAME, brand } from "./tools";
 
 // ── Expose map types ────────────────────────────────────────────────────
@@ -117,12 +120,6 @@ export function eventUri(key: string): string {
   return `${EVENT_PREFIX}${encodeURIComponent(key)}`;
 }
 
-/** The tool name for a procedure — `<ns>_<verb>` (`.` is illegal in an MCP
- *  tool name). */
-export function toolName(ns: string, verb: string): string {
-  return `${ns}_${verb}`;
-}
-
 /** Reject an input-bearing stream/event exposed as a STATIC resource — the one gate
  *  both the stream and event arms take. A `surface://<kind>s/<key>` URI carries no
  *  input, so the adapter reads/subscribes via `.get(undefined)`; a spec whose
@@ -135,10 +132,11 @@ function assertExposableAsResource(
   key: string,
   inputSchema: WireSchemaAny,
 ): void {
-  // The Effect successor of zod's `.safeParse(undefined).success`: decode the
-  // no-argument value and ask whether the schema admits it. `Schema.Void` (what
-  // a no-input member declares) does; a struct does not.
-  if (Option.isNone(Schema.decodeUnknownOption(inputSchema)(undefined))) {
+  // The FRAMEWORK's predicate, not a second spelling of it: the CLI face asks
+  // the same question before letting `get <member>` stand with no `[arg]`, and
+  // two hand-written decodes held in agreement by a comment is how one face
+  // comes to refuse at boot what the other accepts and hangs on.
+  if (!admitsNoArgument(inputSchema)) {
     throw new Error(
       brand(
         `${kind} "${key}" requires an input, so it can't be exposed as a static resource ` +
@@ -184,23 +182,16 @@ export function resolveExpose<S extends SurfaceSpec>(
       .with({ kind: "procedure" }, ({ ns, verb, exposure, spec: procSpec }) => {
         // The spec `classifyExpose` resolved travels ON the entry, so the input
         // schema is read from the same lookup that proved the procedure exists —
-        // never a second one this face could disagree with.
-        //
-        // Conservative default: an exposure that does NOT explicitly say
-        // `mutates: false` is treated as MUTATING. `readOnlyHint: true` can let an
-        // MCP host auto-execute a tool unconfirmed, so an absent `mutates` must fail
-        // SAFE (assume it writes), never silently advertise an unannotated tool as a
-        // harmless read — the inverted-default defect. The bare `"tool"` shorthand
-        // (no object to carry a flag) is likewise mutating; mark a genuinely
-        // read-only procedure with `{ tool: { mutates: false } }`.
-        const mutates =
-          typeof exposure === "object" ? (exposure.tool.mutates ?? true) : true;
+        // never a second one this face could disagree with. The conservative
+        // `mutates` default is the framework's `exposureMutates`, for the same
+        // reason: the CLI face reads the same flag off the same map, and a
+        // safety default spelled twice is one that can be relaxed in one place.
         const built = inputSchema(procSpec.input);
         tools.push({
           name: toolName(ns, verb),
           ns,
           verb,
-          mutates,
+          mutates: exposureMutates(exposure),
           inputSchema: built.schema,
           hasInput: procSpec.input !== undefined,
           wrapped: built.wrapped,
