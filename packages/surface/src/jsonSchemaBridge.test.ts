@@ -205,6 +205,59 @@ describe("toInputSchema", () => {
     }
   });
 
+  it("emits no $ref for a recursion through an ARRAY's items", () => {
+    // The most ordinary recursive shape there is — a tree whose children are an
+    // array — and the one position `walkProperties`' drop rule cannot reach:
+    // the self-reference sits under `items`, not under a `properties` key. The
+    // un-inlinable `$ref` used to be put BACK there while the definitions pool
+    // was stripped, so the advertised document carried a pointer to a
+    // `#/$defs/…` that is not in it: the exact shape this pass exists to
+    // remove, and the one a wide client matrix rejects outright.
+    interface Tree {
+      readonly label: string;
+      readonly kids: readonly Tree[];
+    }
+    const Node: Schema.Codec<Tree> = Schema.Struct({
+      label: Schema.String,
+      kids: Schema.Array(Schema.suspend((): Schema.Codec<Tree> => Node)),
+    }).annotate({ identifier: "TreeNode" }) as unknown as Schema.Codec<Tree>;
+
+    const out = toInputSchema(wire(Node));
+    expect(JSON.stringify(out)).not.toContain("$ref");
+    // The keyword survives as an accept-anything rather than the property being
+    // dropped: `kids` is still an array, its members are simply unconstrained.
+    const props = out.properties as Record<string, unknown>;
+    expect(props.kids).toMatchObject({ type: "array", items: {} });
+    expect(props.label).toMatchObject({ type: "string" });
+  });
+
+  it("emits no $ref for a recursive `anyOf` member", () => {
+    // A union arm is the other non-`properties` position, and dropping one
+    // would change what the union admits — so the arm degrades in place.
+    interface Branch {
+      readonly label: string;
+      readonly next: Branch | null;
+    }
+    const Node: Schema.Codec<Branch> = Schema.Struct({
+      label: Schema.String,
+      next: Schema.Union([
+        Schema.Null,
+        Schema.suspend((): Schema.Codec<Branch> => Node),
+      ]),
+    }).annotate({
+      identifier: "BranchNode",
+    }) as unknown as Schema.Codec<Branch>;
+
+    const out = toInputSchema(wire(Node));
+    expect(JSON.stringify(out)).not.toContain("$ref");
+    // Both arms are still there — the recursive one as an accept-anything.
+    const next = (out.properties as Record<string, unknown>).next as
+      | Record<string, unknown>
+      | undefined;
+    expect(Array.isArray(next?.anyOf)).toBe(true);
+    expect((next?.anyOf as unknown[]).length).toBe(2);
+  });
+
   it("an opaque declaration degrades to an accept-anything {} rather than throwing", () => {
     class Opaque {
       constructor(readonly x: number) {}
@@ -376,16 +429,23 @@ describe("AdvertisedInput.inner", () => {
   it("hands over the wrapped value's OWN node, so a face never names the wrapper key", () => {
     const built: AdvertisedInput = inputSchema(wire(Schema.String));
     expect(built.wrapped).toBe(true);
-    expect(built.inner).toEqual({ type: "string" });
+    // Reached by NARROWING, which is the shape's point: `inner` exists on the
+    // wrapped arm and nowhere else, so a face cannot read it without having
+    // asked. The assertion above is what keeps this branch from being skipped.
+    if (built.wrapped) expect(built.inner).toEqual({ type: "string" });
   });
 
-  it("is absent exactly when `wrapped` is false", () => {
-    // `inner` and `wrapped` are ONE fact in two fields, and the doc says so —
-    // a face that read `inner` without branching on `wrapped` would otherwise
-    // find `undefined` and have no way to tell which case it was in.
+  it("carries no `inner` at all when `wrapped` is false", () => {
+    // `inner` and `wrapped` are ONE fact, and now the TYPE says so — there is no
+    // `{wrapped:false, inner}` to construct. What is left to pin at runtime is
+    // that the unwrapped arm really is the field-less one, so a consumer reading
+    // the value as data (a JSON dump of `list`, say) sees no hole either.
     expect(
-      inputSchema(wire(Schema.Struct({ a: Schema.Finite }))).inner,
-    ).toBeUndefined();
-    expect(inputSchema().inner).toBeUndefined();
+      Object.hasOwn(
+        inputSchema(wire(Schema.Struct({ a: Schema.Finite }))),
+        "inner",
+      ),
+    ).toBe(false);
+    expect(Object.hasOwn(inputSchema(), "inner")).toBe(false);
   });
 });

@@ -304,10 +304,11 @@ export function flagsOf(
       );
     }
     // The wrapped value's OWN node, from the bridge — this face never names the
-    // property the wire carries it under, which is why that key is private.
-    const inner = built.inner ?? {};
+    // property the wire carries it under, which is why that key is private. No
+    // fallback: `inner` is on the WRAPPED arm of `AdvertisedInput` and nowhere
+    // else, so inside this branch there is nothing to fall back from.
     config.value = optionalParam(
-      argumentFor("value", inner).pipe(
+      argumentFor("value", built.inner).pipe(
         Argument.withDescription("the verb's input"),
       ),
     );

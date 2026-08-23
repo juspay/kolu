@@ -66,8 +66,12 @@
  *     Bedrock, Codex, Claude Desktop) even though it is valid 2020-12 — the MCP
  *     TS SDK hit exactly this. Effect refs both REUSED and RECURSIVE schemas
  *     (any `identifier` annotation lands in `definitions`), and a recursive one
- *     cannot be inlined finitely, so the property carrying it is dropped rather
- *     than crashing the verb.
+ *     cannot be inlined finitely, so the PROPERTY carrying it is dropped rather
+ *     than crashing the verb, and a self-reference anywhere else — a tree whose
+ *     children are an array, a recursive `anyOf` arm — degrades to an
+ *     accept-anything `{}`. What must never happen is the one thing this pass
+ *     exists to prevent: shipping a `$ref` into a document whose pool has been
+ *     stripped.
  *   - a top-level `{ type: "object" }` enforcement, wrapping a non-object input
  *     so every verb's advertised input is the object shape a face can name
  *     field by field.
@@ -194,13 +198,23 @@ export function toInputSchema(schema?: WireSchemaAny): Record<string, unknown> {
  *  NAME the wrapper property: `@kolu/surface-cli` binds a wrapped input to a
  *  positional whose type it reads off this node, and the key the value travels
  *  under stays private to this module — which is the whole reason the key is
- *  private. Absent exactly when `wrapped` is false: the two are one fact, and
- *  the shape says so rather than leaving a face to test the flag first. */
-export interface AdvertisedInput {
-  readonly schema: Record<string, unknown>;
-  readonly wrapped: boolean;
-  readonly inner?: Record<string, unknown>;
-}
+ *  private.
+ *
+ *  A UNION on `wrapped`, so "present exactly when `wrapped` is true" is what the
+ *  type SAYS rather than what its doc comment claims. As a product with an
+ *  optional field it admitted two states the domain has never had
+ *  (`{wrapped:true, inner:undefined}` and `{wrapped:false, inner:{…}}`), and
+ *  both consumers paid for them in a `??` fallback over a case that cannot
+ *  happen — one of them inside the `if (wrapped)` branch that had already ruled
+ *  it out. Narrowing on `wrapped` now hands a face exactly the fields that arm
+ *  has. */
+export type AdvertisedInput =
+  | { readonly schema: Record<string, unknown>; readonly wrapped: false }
+  | {
+      readonly schema: Record<string, unknown>;
+      readonly wrapped: true;
+      readonly inner: Record<string, unknown>;
+    };
 
 /** As {@link toInputSchema}, but with the facts above beside the document. */
 export function inputSchema(schema?: WireSchemaAny): AdvertisedInput {
@@ -230,11 +244,25 @@ function isNoArgSchema(schema: WireSchemaAny): boolean {
   return tag === "Void" || tag === "Undefined";
 }
 
+/** What an un-inlinable `$ref` becomes OUTSIDE a `properties` map: the empty
+ *  schema, which in JSON Schema accepts anything.
+ *
+ *  The same degradation {@link enforceObject} already uses for a declaration
+ *  Effect cannot represent, and it is the only honest one here. The pool is
+ *  stripped from the emitted document, so the alternatives are a pointer to a
+ *  definition that is not there (invalid, and rejected across the client
+ *  matrix), or dropping the keyword and silently changing what the parent means.
+ *  Accepting anything loses a CONSTRAINT and keeps the document true. */
+const ACCEPT_ANYTHING: JsonSchema = {};
+
 /** Inline every local `$ref` against the document's own `definitions` pool,
- *  then strip the pool. Returns a fresh tree; the input is not mutated. A
- *  `$ref` that cannot be inlined finitely (a recursive schema, which Effect
- *  always emits as a self-referencing definition) is dropped by the parent
- *  walker — see `walkProperties`. */
+ *  then strip the pool. Returns a fresh tree; the input is not mutated.
+ *
+ *  A `$ref` that cannot be inlined finitely (a recursive schema, which Effect
+ *  always emits as a self-referencing definition) is dropped WHOLE where it is a
+ *  property — see `walkProperties`, the one position where dropping is the right
+ *  move — and degrades to {@link ACCEPT_ANYTHING} everywhere else. No `$ref`
+ *  survives either way, which is the one property this pass owes its callers. */
 function dereference(doc: JsonSchemaDocument): JsonSchema {
   const defs = collectDefs(doc);
 
@@ -256,10 +284,13 @@ function dereference(doc: JsonSchemaDocument): JsonSchema {
       return node as unknown as JsonSchema;
     }
     if (Array.isArray(node)) {
-      // Arrays appear under keywords like `prefixItems`/`anyOf`; a dropped
-      // member would shift the contract, so keep array structure and let a
-      // dropped member surface as the original node (best-effort).
-      return node.map((m) => walk(m, seen) ?? m) as unknown as JsonSchema;
+      // Arrays appear under keywords like `prefixItems`/`anyOf`; dropping a
+      // MEMBER would shift the contract (an `anyOf`'s arms are positional to a
+      // reader, and `prefixItems` literally is), so the structure is kept and an
+      // un-inlinable member degrades to {@link ACCEPT_ANYTHING} in place.
+      return node.map(
+        (m) => walk(m, seen) ?? ACCEPT_ANYTHING,
+      ) as unknown as JsonSchema;
     }
 
     const obj = node as JsonSchema;
@@ -283,10 +314,17 @@ function dereference(doc: JsonSchemaDocument): JsonSchema {
         continue;
       }
       const child = walk(value, seen);
-      // A non-`properties` child that drops (e.g. `items: { $ref: … }` naming a
-      // recursive definition) would otherwise leave a hole; keep the original so
-      // the parent stays structurally valid rather than silently losing a keyword.
-      out[key] = child ?? value;
+      // A non-`properties` child that drops (`items: { $ref: … }` naming a
+      // recursive definition — the ordinary shape of a tree whose children are
+      // an ARRAY) must not leave a hole, and must not be put BACK: the original
+      // is the un-inlinable `$ref` itself, and the pool it points at is stripped
+      // from the document a line later, so keeping it shipped a pointer to a
+      // `#/$defs/…` that is not there — the exact shape this whole pass exists
+      // to remove, and one a wide client matrix rejects outright. It degrades to
+      // {@link ACCEPT_ANYTHING} instead: the keyword survives, the parent stays
+      // structurally valid, and what is lost is a constraint rather than the
+      // document's validity.
+      out[key] = child ?? ACCEPT_ANYTHING;
     }
     // Prune at EVERY object node, not just the root: a dropped recursive
     // property can sit under a nested object too, leaving its `required`

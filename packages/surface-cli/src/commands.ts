@@ -1125,7 +1125,7 @@ function listTable(
         ...(verb.description === undefined
           ? {}
           : { description: verb.description }),
-        input: advertised.inner ?? advertised.schema,
+        input: advertised.wrapped ? advertised.inner : advertised.schema,
       };
     }),
     resources: [...readable.values()].map((member) => ({
