@@ -1529,7 +1529,12 @@ function alignedTable(value: unknown): string {
  *  (the arrive-late arm of the interruptible acquire). One concept, one
  *  spelling; the socket is going away with the process either way. */
 const disposeQuietly = async (c: { dispose(): void | Promise<void> }) => {
-  await Promise.resolve(c.dispose()).catch(() => {});
+  // The (synchronous) call is DEFERRED under `.then`: a `dispose` that THROWS
+  // before returning must read exactly like one that rejects — the `.catch`
+  // owns both, never the caller's framing.
+  await Promise.resolve()
+    .then(() => c.dispose())
+    .catch(() => {});
 };
 
 /** Dial, run, release — in that order, whatever happens in the middle.
@@ -1600,9 +1605,23 @@ function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
           // that fails has nothing to add to a command that already has (or
           // just lost) its answer, and an escaping rejection is either a
           // DEFECT that replaces the verdict (in the release arm, where the
-          // command succeeded) or an unhandled promise rejection mid-Ctrl-C
-          // (in the arrive-late arm). The socket is going away with the
-          // process either way.
+          // command succeeded) or an unhandled rejection mid-Ctrl-C (in the
+          // arrive-late arm). The socket is going away with the process either
+          // way.
+          //
+          // The check's bound is honest, not absolute: `signal.aborted` does
+          // not close the microseconds-wide race where the interrupt lands
+          // BETWEEN this deferred check running and `acquireRelease` registering
+          // the finalizer — a connection could escape both arms for that gap.
+          // This is a ONE-SHOT command-line binary: the interrupt finds the
+          // process already in its exit path (130), the kernel reaps whatever
+          // the gap could ever leak within the process's remaining microseconds,
+          // and no host of this library runs longer than one command.
+          // Threading the signal into the seam's `open` itself is refused
+          // instead — it would smuggle Effect's interruption semantics into
+          // every host's dial — so the residual cost is a gap bounded at one
+          // OS FD for the process's remaining microseconds, bought to keep
+          // `open`'s shape channel-agnostic.
           Effect.tryPromise({
             try: (signal) =>
               Promise.resolve(open()).then(async (connection) => {

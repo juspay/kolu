@@ -327,6 +327,10 @@ describeDaemon(
       ]);
       expect(created.code, created.stderr).toBe(0);
       const { id } = JSON.parse(created.stdout) as { id: string };
+      // The raw spawn below is gated the SAME way `runKolu`'s is: a venue
+      // that forbids spawning the real binary must fail HERE, not silently
+      // run this one leg.
+      assertDaemonSpawnAllowed("a real `kolu` process, mid-wait");
       const child = spawn(
         process.execPath,
         [
