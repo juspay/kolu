@@ -43,6 +43,7 @@ import { type GitInfo, GitInfoSchema } from "kolu-git/schemas";
 import { GhUnavailableSchema, reasonForGhCode } from "kolu-github/schemas";
 import { GrokInfoSchema } from "kolu-grok/schemas";
 import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
+import { PiInfoSchema } from "kolu-pi/schemas";
 import { match, P } from "ts-pattern";
 
 // ── Terminal identity ─────────────────────────────────────────────────
@@ -92,6 +93,7 @@ export const AgentInfoSchema = Schema.Union([
   CodexInfoSchema,
   OpenCodeInfoSchema,
   GrokInfoSchema,
+  PiInfoSchema,
 ]);
 
 // ── PR resolution — closed forge union + wire result ──────────────────

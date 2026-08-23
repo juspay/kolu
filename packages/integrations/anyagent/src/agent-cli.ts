@@ -42,6 +42,15 @@ const EXIT_FLAGS: ReadonlySet<string> = new Set([
   "-h",
 ]);
 
+/** Exit-immediately flags an agent spells DIFFERENTLY from the shared set
+ *  (pi's version flag is lowercase `-v`; the shared `-V` is a different
+ *  switch for it). Keyed by the same basename as `STABLE_FLAGS` so an
+ *  agent-only spelling never leaks its exit status onto another agent's
+ *  legitimately-boolean `-v` (e.g. a future agent whose `-v` is verbose). */
+const EXTRA_EXIT_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["pi", new Set(["-v"])],
+]);
+
 /** Whether a stable flag consumes the token that follows it as its value
  *  (`--model sonnet` → `"value"`) or is a standalone boolean switch
  *  (`--dangerously-skip-permissions` → `"boolean"`). Co-located with each
@@ -115,6 +124,16 @@ const STABLE_FLAGS: ReadonlyMap<
   ["gemini", new Map<string, FlagArity>([])],
   ["cursor-agent", new Map<string, FlagArity>([])],
   [
+    "pi",
+    new Map<string, FlagArity>([
+      ["--model", "value"],
+      ["--provider", "value"],
+      ["--thinking", "value"],
+      ["--name", "value"],
+      ["-n", "value"],
+    ]),
+  ],
+  [
     "grok",
     new Map<string, FlagArity>([
       ["--model", "value"],
@@ -139,7 +158,7 @@ function basename(s: string): string {
   return slash === -1 ? s : s.slice(slash + 1);
 }
 
-type ResumableAgent = "claude" | "codex" | "opencode" | "grok";
+type ResumableAgent = "claude" | "codex" | "opencode" | "grok" | "pi";
 
 /** Canonical UUID shape (claude + codex session ids). */
 const UUID_RE =
@@ -204,6 +223,14 @@ const AGENT_RESUME: Record<
     byId: (id) => `--resume ${id}`,
     idPattern: UUID_RE,
   },
+  // Pi: `-c` / `--continue` for most-recent in the cwd; `--session` accepts a
+  // file path OR a (partial) id — we always splice the full UUID so the shape
+  // gate stays meaningful, and pi resolves it to the exact session file.
+  pi: {
+    last: "-c",
+    byId: (id) => `--session ${id}`,
+    idPattern: UUID_RE,
+  },
 };
 
 /** Maps the agent binary basename to the discriminator used by
@@ -218,6 +245,7 @@ const BASENAME_TO_KIND: Record<string, AgentKind> = {
   codex: "codex",
   opencode: "opencode",
   grok: "grok",
+  pi: "pi",
 };
 
 /**
@@ -310,8 +338,10 @@ function normalizeAgentInvocation(argv: string[]): string | null {
   // Not a known agent invocation — the head basename isn't in the allowlist.
   if (allowed === undefined) return null;
 
-  // Exit-immediately flags → not an agent session.
-  if (args.some((t) => EXIT_FLAGS.has(t))) return null;
+  // Exit-immediately flags → not an agent session (shared set plus any
+  // agent-specific spellings, e.g. pi's lowercase `-v`).
+  const extraExit = EXTRA_EXIT_FLAGS.get(agent);
+  if (args.some((t) => EXIT_FLAGS.has(t) || extraExit?.has(t))) return null;
 
   // Keep only allowlisted flags + their values. Anything else (unknown flags,
   // positional args) is dropped.

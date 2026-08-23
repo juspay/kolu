@@ -16,6 +16,7 @@ import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
 import { loadGrokTranscript } from "kolu-grok";
 import { loadOpenCodeTranscript } from "kolu-opencode";
+import { loadPiTranscript } from "kolu-pi";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
 import { TranscriptNoAgent, TranscriptNotFound } from "../errors.ts";
@@ -92,6 +93,17 @@ export async function exportTranscriptHtml(
     )
     .with({ kind: "grok" }, (a) =>
       loadGrokTranscript({
+        sessionId: a.sessionId,
+        title: a.summary,
+        repoName,
+        cwd,
+        model: a.model,
+        contextTokens: a.contextTokens,
+        pr,
+      }),
+    )
+    .with({ kind: "pi" }, (a) =>
+      loadPiTranscript({
         sessionId: a.sessionId,
         title: a.summary,
         repoName,

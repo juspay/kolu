@@ -1,6 +1,6 @@
 ---
 title: Agent Detection
-description: "How kolu reads the live state of Claude Code, Codex, Grok, and OpenCode from each terminal — the shared state vocabulary shown on the dock and tile, and what each agent can and can't report."
+description: "How kolu reads the live state of Claude Code, Codex, Grok, OpenCode, and Pi from each terminal — the shared state vocabulary shown on the dock and tile, and what each agent can and can't report."
 order: 80
 section: Agents
 koluHero:
@@ -16,7 +16,8 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 kolu watches the **foreground process** of every terminal. When that process is a
 coding agent it recognizes — [Claude Code](https://docs.anthropic.com/en/docs/claude-code),
 [Codex](https://github.com/openai/codex), [Grok Build](https://x.ai/news/grok-build-cli),
-or [OpenCode](https://github.com/anomalyco/opencode) — it reads that agent's own
+[OpenCode](https://github.com/anomalyco/opencode), or
+[Pi](https://github.com/earendil-works/pi-mono) — it reads that agent's own
 on-disk session to derive whether it's thinking, running a tool, waiting on you,
 or done. That state paints the tile chrome, the dock row, and the minimap, so a
 glance across a workspace of twenty terminals tells you **who needs you**.
@@ -119,7 +120,7 @@ registration; nothing server-wide changes.
 
 <Aside type="note" title="One conversation belongs to one terminal">
   Claude Code and Grok stamp a process id kolu can match a terminal against, so a
-  terminal's conversation is never in doubt. Codex and OpenCode don't — the only
+  terminal's conversation is never in doubt. Codex, OpenCode, and Pi don't — the only
   thing on disk tying a conversation to a terminal is its <strong>working
   directory</strong>, which two harnesses in one repository share. kolu therefore
   treats "most recently updated in this directory" as a <em>shortlist</em> rather
@@ -274,6 +275,48 @@ shows the running token count OpenCode pre-sums itself.
   therefore indistinguishable from one started elsewhere in that directory, so
   the tile stays on the previous session until you exit the agent.
 - **Non-default database location** — set `KOLU_OPENCODE_DB` to override the path.
+
+## Pi
+
+When the foreground process is `pi`, kolu scans the session directory for the
+terminal's working directory — `~/.pi/agent/sessions/--<directory>--/` — offers
+every session there as a candidate, most recently updated first, and binds the
+one no other terminal already holds. State then comes from tailing that
+session's JSONL transcript. A watch over the sessions tree covers the race at
+launch: the shell's marker names `pi` before pi has written its file, so it is
+the tree event — not another prompt — that lights the tile the moment the file
+lands.
+
+| State | Indicator | Meaning |
+| --- | --- | --- |
+| Thinking | pulsing accent dot | newest entry is a prompt or a tool result — pi persists an assistant message only when it completes, so a mid-turn tail always reads as work in flight |
+| Tool use | spinning amber | newest assistant message ended `stopReason: "toolUse"` |
+| Waiting | dim dot | newest assistant message ended its turn (`stop` / `length` / `error` / `aborted`) |
+
+**Resume** uses `pi -c` (most recent in the directory) or `pi --session <uuid>`
+(an exact conversation). Launch-shape flags such as `--model` / `--provider` /
+`--thinking` / `--name` are kept on the **recent agents** list and on sleep/wake
+resume. **Context tokens** come from the newest assistant message's usage
+(`input + cacheRead + cacheWrite` — pi's buckets are disjoint, so the sum is
+the full context the model saw, never a double count). The **title** is the
+session's `/name` when the user set one. **Transcript export** reads the same
+session JSONL.
+
+**What it can't detect:**
+
+- **Awaiting you** — pi's permission gates and questions are TUI dialogs that
+  never land in the session file, so there is no on-disk signal to fold from.
+- **Task-progress checklist** — pi has no todo primitive to read.
+- **Which session is which** — like Codex and OpenCode, pi records no process
+  id (its session id lives only in the file's name), so with several sessions
+  in one directory kolu can guarantee that no two terminals show the same one
+  and that a terminal ends up on a session created after its own harness
+  started — not which of several such sessions is really its own. A session
+  started *inside* a running pi (its `/new`) is therefore indistinguishable
+  from one started elsewhere in that directory, so the tile stays on the
+  previous session until you exit the agent.
+- **A non-default agent directory** — pi honors `PI_CODING_AGENT_DIR`; point
+  kolu at the same place with `KOLU_PI_DIR`.
 
 ## Adding an agent
 

@@ -208,6 +208,7 @@ describe("parseAgentCommand", () => {
       "gemini",
       "cursor-agent",
       "grok",
+      "pi",
     ]) {
       expect(parseAgentCommand(agent)).toBe(agent);
     }
@@ -232,6 +233,28 @@ describe("parseAgentCommand", () => {
     expect(
       parseAgentCommand("grok --no-alt-screen -m grok-4.5 'ship it'"),
     ).toBe("grok --no-alt-screen -m grok-4.5");
+  });
+
+  it("preserves pi stable flags and strips positionals", () => {
+    expect(parseAgentCommand("pi --model anthropic/claude fix the bug")).toBe(
+      "pi --model anthropic/claude",
+    );
+    expect(parseAgentCommand("pi --provider google --thinking high")).toBe(
+      "pi --provider google --thinking high",
+    );
+    expect(parseAgentCommand("pi -n 'my task' fix it")).toBe("pi -n 'my task'");
+    // Unknown one-shot flags (`--no-tools`, `--session-dir`) drop safely.
+    expect(parseAgentCommand("pi --no-tools --model kimi-k3 run")).toBe(
+      "pi --model kimi-k3",
+    );
+  });
+
+  it("treats pi's lowercase -v as a version flag (not a session)", () => {
+    expect(parseAgentCommand("pi -v")).toBeNull();
+    expect(parseAgentCommand("pi --version")).toBeNull();
+    expect(parseAgentCommand("pi --help")).toBeNull();
+    // …while a lowercase -v elsewhere stays untouched territory.
+    expect(parseAgentCommand("pi")).toBe("pi");
   });
 
   // Regression (living-clue): a BOOLEAN stable flag must never consume the
@@ -411,6 +434,8 @@ describe("resumeAgentCommand", () => {
     ],
     ["grok", "grok -c"],
     ["grok -m grok-4.5", "grok -c -m grok-4.5"],
+    ["pi", "pi -c"],
+    ["pi --model kimi-k3", "pi -c --model kimi-k3"],
   ])("resume form of %j → %j", (normalized, expected) => {
     expect(resumeAgentCommand(normalized)).toBe(expected);
   });
@@ -471,6 +496,7 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   const CODEX_ID = "7f9f9a2e-1b3c-4c7a-9b0e-1d2e3f4a5b6c";
   const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
   const GROK_ID = "019f4782-7854-7592-8d87-3ba3a205a0a1";
+  const PI_ID = "01a0302a-b94b-7b18-a3c3-b3f83dfe6fe8";
 
   it.each([
     [
@@ -508,6 +534,12 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
       "grok -m grok-4.5",
       { kind: "grok", sessionId: GROK_ID },
       `grok --resume ${GROK_ID} -m grok-4.5`,
+    ],
+    ["pi", { kind: "pi", sessionId: PI_ID }, `pi --session ${PI_ID}`],
+    [
+      "pi --model kimi-k3",
+      { kind: "pi", sessionId: PI_ID },
+      `pi --session ${PI_ID} --model kimi-k3`,
     ],
   ] as const)("resumes the exact conversation: %j + %j → %j", (normalized, session, expected) => {
     expect(resumeAgentCommand(normalized, session)).toBe(expected);
