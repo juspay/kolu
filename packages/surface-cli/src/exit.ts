@@ -330,7 +330,7 @@ export type RunEdgeReport =
  *  interrupts-only cause), and the runtime's error REPORTING is disabled,
  *  because the line is already written here and Effect's would be a second,
  *  differently-worded copy of it — on stdout. */
-export function runEdge(binary: string, error: unknown): RunEdgeReport {
+export function runEdge(error: unknown): RunEdgeReport {
   // {@link isOwnFailure}, not a duck-test for a `stderr` string: a FOREIGN error
   // that happens to carry one would otherwise be printed raw and lose the arm
   // the matrix means for it.
@@ -366,10 +366,17 @@ export function runEdge(binary: string, error: unknown): RunEdgeReport {
  *
  *  ```ts
  *  NodeRuntime.runMain(
- *    Command.run(root, { version }).pipe(reportingRunEdge("olai"), Effect.provide(…)),
+ *    Command.run(root, { version }).pipe(reportingRunEdge, Effect.provide(…)),
  *    { disableErrorReporting: true },
  *  )
  *  ```
+ *
+ *  It takes no binary NAME, and that is a fact about the arms rather than an
+ *  omission: every line this edge writes is one an arm already worded (a
+ *  {@link SurfaceCliFailure} carries the binary's name in its own text) or a
+ *  refusal's JSON, which carries no prose prefix at all on any path — a `demo: `
+ *  in front of it would stop it being JSON. The name belongs where the sentence
+ *  is built, which is `info.name` at the projection.
  *
  *  Exported because the three moves above are SAFETY-CRITICAL and were being
  *  hand-written by every host: `catchCause` rather than `catch` (a defect is not
@@ -387,16 +394,16 @@ export function runEdge(binary: string, error: unknown): RunEdgeReport {
  *  one recipe: it is an argument to `runMain`, which is the host's call and not
  *  this package's to make. Without it the runtime prints a second,
  *  differently-worded copy of the line this already wrote. */
-export const reportingRunEdge =
-  (binary: string) =>
-  <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, unknown, R> =>
-    Effect.catchCause(effect, (cause) => {
-      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
-      const report = runEdge(binary, Cause.squash(cause));
-      // Written to the descriptor rather than through `Stdio`: this is the edge
-      // OUTSIDE the command, where the services the handlers ran under are gone
-      // — and stderr is the one channel that must still work when everything
-      // else has failed.
-      if (report.kind === "write") process.stderr.write(report.stderr);
-      return Effect.fail(report.failure);
-    });
+export const reportingRunEdge = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+): Effect.Effect<A, unknown, R> =>
+  Effect.catchCause(effect, (cause) => {
+    if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+    const report = runEdge(Cause.squash(cause));
+    // Written to the descriptor rather than through `Stdio`: this is the edge
+    // OUTSIDE the command, where the services the handlers ran under are gone —
+    // and stderr is the one channel that must still work when everything else
+    // has failed.
+    if (report.kind === "write") process.stderr.write(report.stderr);
+    return Effect.fail(report.failure);
+  });

@@ -134,7 +134,7 @@ export const cli = Command.run(root, { version: "1.0.0" }).pipe(
   // and drops a log line into the data channel), passes an INTERRUPT through
   // untouched (that is Ctrl-C, and 130 is the runtime's own teardown), writes
   // the arm's line, and re-fails with the verdict the code is read off.
-  reportingRunEdge("example"),
+  reportingRunEdge,
 );
 
 // The edge is only HALF of the recipe; this is the other half, and it stays

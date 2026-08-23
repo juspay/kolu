@@ -233,13 +233,13 @@ fiber, the stream's finalizers unsubscribe, and the connection is released on
 the way out.
 
 One arm of the matrix is not this package's to raise, which is what
-**`reportingRunEdge(binary)`** is for — pipe your program through it at the run
+**`reportingRunEdge`** is for — pipe your program through it at the run
 edge, and pair it with `runMain`'s `disableErrorReporting: true`:
 
 ```ts
 NodeRuntime.runMain(
   Command.run(root, { version }).pipe(
-    reportingRunEdge("example"),
+    reportingRunEdge,
     Effect.provide(NodeServices.layer),
   ),
   { disableErrorReporting: true },
@@ -262,7 +262,7 @@ re-fails without writing it exits with the right code and says nothing at all.
 The flag stays yours because it is `runMain`'s own argument; without it Effect
 prints a second, differently-worded copy of the line.
 
-`runEdge(binary, error)` is the decision underneath, exported for a host that
+`runEdge(error)` is the decision underneath, exported for a host that
 owns its own catch: it answers `{ kind: "write", stderr, failure }` or
 `{ kind: "silent", failure }` — a **sum**, so "the library already printed this"
 is a state with a name rather than an empty string every host has to test for.
@@ -281,8 +281,8 @@ print and return success, so they never reach it.)
 | `EXIT` | the matrix above, as data |
 | `READER_NAMES` | the four names this face mounts that are not verbs (`get` · `keys` · `watch` · `list`) — the fact a host needs to check its own subcommands against, since `surfaceCommands` cannot see them |
 | `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to an `InputProjection`: the command config, the `advertised` document it was built from (handed back so a caller that wants it does not walk the schema a second time), plus the `assemble(values, stdin)` that reads a parsed config back into the verb's encoded input. `stdin` is an **Effect**, described rather than read, so the descriptor is touched only on the `--json -` path and no caller has to ask first |
-| `reportingRunEdge(binary)` | the whole run edge as one combinator — pipe your program through it, so the exit matrix is true of a real binary |
-| `runEdge(binary, error)` | → `RunEdgeReport`: `{ kind: "write", stderr, failure }` or `{ kind: "silent", failure }` — the decision underneath, for a host that owns its own catch |
+| `reportingRunEdge` | the whole run edge as one combinator — pipe your program through it, so the exit matrix is true of a real binary |
+| `runEdge(error)` | → `RunEdgeReport`: `{ kind: "write", stderr, failure }` or `{ kind: "silent", failure }` — the decision underneath, for a host that owns its own catch |
 | `SurfaceCliFailure` | the failure class carrying both the text and the code |
 | `SurfaceCliBuildError` | a malformed projection, refused when the tree is built (a positional naming no field, a flag-name collision, a field that cannot be a flag) |
 | `SurfaceCliOptions` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `Assembled` · `ProjectedCommand` · `RunEdgeReport` | types |

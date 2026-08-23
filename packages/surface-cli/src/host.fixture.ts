@@ -11,7 +11,7 @@
  * It is also the smallest honest example of what a host owes: mount the
  * projected commands, run them, and let the failure's own
  * `Runtime.errorExitCode` decide the code. That is the whole integration — one
- * `reportingRunEdge(binary)` in the pipe decides the line and the verdict, the
+ * `reportingRunEdge` in the pipe decides the line and the verdict, the
  * runtime reads the number off that verdict, and no command in this package
  * ever calls `process.exit`.
  */
@@ -53,7 +53,7 @@ NodeRuntime.runMain(
     // runtime's teardown), write the arm's own line, re-fail with the verdict.
     // A host that hand-wrote those three moves was hand-writing the half of the
     // exit contract that decides whether the matrix is true of the binary.
-    reportingRunEdge("demo"),
+    reportingRunEdge,
     Effect.provide(NodeServices.layer),
   ),
   // The other half of the same recipe, and the host's to pass because it is
