@@ -109,10 +109,17 @@ export class SurfaceCliFailure extends Data.TaggedError("SurfaceCliFailure")<{
   readonly stderr: string;
   readonly code: number;
 }> {
-  get [Runtime.errorExitCode](): number {
+  // `override` on both members, and it is NOT decoration this repo could drop.
+  // Effect's `YieldableError` declares them, so a consumer compiling these
+  // sources under `noImplicitOverride` — which kolu does not set and olai does —
+  // gets TS4114 on each and cannot build at all. Raw TypeScript is what these
+  // packages ship (no build step), so a consumer's strictness reaches this file
+  // directly, and the keyword is the whole of what it costs to stay buildable
+  // under a stricter one than ours.
+  override get [Runtime.errorExitCode](): number {
     return this.code;
   }
-  readonly [Runtime.errorReported] = false;
+  override readonly [Runtime.errorReported] = false;
 }
 
 /** One diagnostic line on stderr in the binary's own voice — the shape every

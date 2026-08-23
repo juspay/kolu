@@ -28,16 +28,25 @@ export {
 export {
   type Assembled,
   flagsOf,
+  INPUT_FLAG,
   type InputProjection,
   SurfaceCliBuildError,
 } from "./flags";
+export type {
+  HelpFlag,
+  HelpGroup,
+  HelpRow,
+  SurfaceCliHelp,
+} from "./help";
 export {
   type EndpointSeam,
+  JSON_FLAG,
   type ProjectedCommand,
   READER_NAMES,
   type ResolvedEndpoint,
   surfaceCommands,
   type SurfaceCliConnection,
   type SurfaceCliOptions,
+  surfaceHelp,
   type VerbAnnotation,
 } from "./commands";

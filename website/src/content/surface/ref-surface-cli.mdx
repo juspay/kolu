@@ -90,13 +90,21 @@ from the parent's context here.
 | cell | `get <member> [--follow]` |
 | stream · event | `get <member> [input] [--follow]` |
 | collection | `get <member> <key> [--follow]` · `keys <member> [--follow]` (only when it declares `keys`) · `watch <member>` (only when it declares `deltas`) |
-| always | `list` — this face's `tools/list`. It takes **no `--json` of its own**: the aligned table on a terminal, JSON through a pipe, exactly like a verb with a renderer — so `--json` means ONE thing across the whole mounted set, the input |
+| always | `list` — this face's `tools/list`, answered from the projection itself, so it dials nothing. Its aligned table is a summary like any other, so `--json` asks for the data |
 
 `--follow` turns a one-shot read into the subscription itself: one ndjson line
 per frame, until the stream ends or you interrupt it. Without it a read takes
 the **opening snapshot frame** and stops — which is what every snapshot-then-
 deltas member opens with. `watch` is a delta stream with no one-shot reading, so
 it takes no `--follow` and always streams.
+
+A host whose transport **cannot push** declares `endpoint.streaming: false`, and
+then `watch` is not mounted and `--follow` is not declared anywhere. That is a
+subtraction at build rather than a refusal at run time: a caller finds out what a
+face can do from `--help`, and a flag that parses and then always fails is a flag
+whose help is untrue. Every other reader still works, because each of them takes
+the opening snapshot frame and interrupts the rest — a door that answers once
+answers all of them.
 
 An **event** is the one member with no snapshot to take: it is occurrences over
 time, so a one-shot `get` of it would wait for ever. It is refused (exit 2)
@@ -154,21 +162,33 @@ the other's idea of what the verb takes.
 | `boolean` | `--name` / `--no-name` — a **tristate**, so "I did not say" and "I said false" stay different |
 | array of scalars | `--name <v>`, repeated |
 | `Record<string, string>` | `--name k=v`, repeated |
+| `<scalar> \| null` | `--name <value>`, plus the word `null` to clear it |
 | anything deeper | `--name '<json>'` — the field's own JSON |
 | a non-object input | the bare `<value>` positional |
 
 Every param is **optional to the parser**, and that is load-bearing rather than
-lax: `--json` carries the whole input *as an alternative to the field flags*, so
+lax: `--input` carries the whole input *as an alternative to the field flags*, so
 a required field projected as a parser-required param would make the escape hatch
 unspellable — the command would be refused before the assembler could see that
-`--json` was the answer. Requiredness is enforced one layer up instead, where
+`--input` was the answer. Requiredness is enforced one layer up instead, where
 both inputs are in view: a missing required field is named by this face, on
-**exit 2**, and only when `--json` is absent. A `default` is likewise applied at
+**exit 2**, and only when `--input` is absent. A `default` is likewise applied at
 assembly rather than by the parser, because `Flag.withDefault` makes a field the
 caller never typed indistinguishable from one they did.
 
 Both facts reach `--help` in the line rather than in the shape: a required field
 says `(required)`, a defaulted one says `(default: …)`.
+
+**A field that can be CLEARED takes the value, or the word.** A removable field
+is usually spelled `<scalar> | null`, which is a union — so it used to fall to
+the JSON flag, and a plain line of text wanted `--desc '"the brass ones"'` on
+the four or five verbs a person types most. Now it takes the scalar's own
+spelling, and the bare word `null` clears it. That is a magic word, and the
+ambiguity is bounded and named on the flag's own help line: a string whose value
+is literally `null` goes through `--input`, which takes the field's JSON and has
+no ambiguity at all. A nullable ENUM keeps its choice list and gains the word, so
+`--help` lists everything the flag takes. Only exactly `<scalar> | null` moves —
+a wider union has no one obvious spelling and keeps the JSON flag.
 
 **Names are not transformed.** The flag is the field, spelled the same:
 `--filePath`, not `--file-path`. A transformation would be a second name for one
@@ -176,10 +196,15 @@ thing, and it is not reversible for every field name. A field that cannot be
 spelled as a command-line name is refused when the tree is built, naming the
 field — never shipped as a command nobody can type.
 
-Every verb also takes `--json '{…}'` — the whole input, as data — or `--json -`
+Every verb also takes `--input '{…}'` — the whole input, as data — or `--input -`
 to read it from stdin. It is an **alternative** to the field flags, never a
 supplement: passing both is a usage error naming them, rather than a silent
 precedence nobody can see.
+
+It was spelled `--json` and was renamed, because that name is now the **answer's**:
+`--json` on any command asks for its full JSON output instead of the summary a
+renderer would print. One name cannot mean the input on the way in and the output
+on the way out.
 
 <Aside type="note" title="Input is validated locally, before the round trip">
   The assembled input is decoded against the verb's own schema in your process,
@@ -191,8 +216,8 @@ precedence nobody can see.
 
 - **stdout is data.** One JSON value for a one-shot read; one **compact** JSON
   line per frame for anything streamed. Indented only when stdout is a terminal,
-  so a pipe always gets machine-shaped output — which is why there is no flag to
-  force it, and why `--json` on a verb keeps its single meaning (the input).
+  which decides the SPACING of a JSON answer and nothing else — never which
+  answer it is.
   *The one exception is not this package's:* a refusal from the CLI **library**
   (a rejected flag, an unknown subcommand, a value outside a choice) is rendered
   by Effect CLI itself, which prints the usage document on **stdout** and the
@@ -206,7 +231,10 @@ precedence nobody can see.
   pipe under a live subscription; that is the reader getting what it asked for,
   so it exits 0. Every other write failure is reported.
 - An `annotate.render` renders a verb's output as text **for a human**, applied
-  only when stdout is a terminal.
+  unless the caller passed `--json`. **The flag is the only thing that decides.**
+  It used to be the descriptor — prose to a terminal, data through a pipe — so
+  one command answered with two different things depending on what it happened to
+  be attached to, and neither could be asked for on purpose.
 
 ## Exit codes
 
@@ -280,7 +308,9 @@ print and return success, so they never reach it.)
 | --- | --- |
 | `EXIT` | the matrix above, as data |
 | `READER_NAMES` | the four names this face mounts that are not verbs (`get` · `keys` · `watch` · `list`) — the fact a host needs to check its own subcommands against, since `surfaceCommands` cannot see them |
-| `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to an `InputProjection`: the command config, the `advertised` document it was built from (handed back so a caller that wants it does not walk the schema a second time), plus the `assemble(values, stdin)` that reads a parsed config back into the verb's encoded input. `stdin` is an **Effect**, described rather than read, so the descriptor is touched only on the `--json -` path and no caller has to ask first |
+| `surfaceHelp(opts)` | the parent command's DESCRIPTION — the help page a person reads. Pure over the same options, so it cannot describe a verb the projection does not mount: a group naming a command nothing answers to is refused at build. Pipe it through `Command.withDescription`; passing `help` to `surfaceCommands` then unlists the verbs, so the page is the listing rather than one of two |
+| `JSON_FLAG` · `INPUT_FLAG` | the two flag names, as data: the whole ANSWER as JSON, and the whole INPUT as JSON |
+| `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to an `InputProjection`: the command config, the `advertised` document it was built from (handed back so a caller that wants it does not walk the schema a second time), plus the `assemble(values, stdin)` that reads a parsed config back into the verb's encoded input. `stdin` is an **Effect**, described rather than read, so the descriptor is touched only on the `--input -` path and no caller has to ask first |
 | `reportingRunEdge` | the whole run edge as one combinator — pipe your program through it, so the exit matrix is true of a real binary |
 | `runEdge(error)` | → `RunEdgeReport`: `{ kind: "write", stderr, failure }` or `{ kind: "silent", failure }` — the decision underneath, for a host that owns its own catch |
 | `SurfaceCliFailure` | the failure class carrying both the text and the code |

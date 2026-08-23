@@ -1,6 +1,6 @@
 /**
  * The ARGV GRAMMAR — one verb's declared input, projected onto flags,
- * positionals, and the `--json` escape hatch.
+ * positionals, and the `--input` escape hatch.
  *
  * The projection is driven by the verb's **advertised input schema**
  * (`inputSchema`, `@kolu/surface/verbs`), not by a second walk of the Effect
@@ -34,32 +34,32 @@
  *
  * ## Every param is OPTIONAL to the PARSER, and that is load-bearing
  *
- * `--json` carries the WHOLE input as an alternative to the field flags. A
+ * `--input` carries the WHOLE input as an alternative to the field flags. A
  * required field projected as a parser-required param makes that unspellable:
  * Effect CLI refuses the command before {@link InputProjection.assemble} — the
- * only code that can see `--json` was given — ever runs, so the escape hatch is
+ * only code that can see `--input` was given — ever runs, so the escape hatch is
  * a dead branch on every verb that declares a required field, which is most of
  * them. So requiredness is enforced ONE layer up, where both inputs are in view:
  * `assemble` names a missing required field itself, in this face's own words and
- * on this face's own exit code, and only when `--json` is absent.
+ * on this face's own exit code, and only when `--input` is absent.
  *
  * What that costs, and what is done about it: the LIBRARY can no longer render
  * "Missing required flag: --pid", and `--help` can no longer mark the param
  * required from its own shape. Both are paid back in the same place they were
  * spent — the refusal is worded here (naming the verb, the field, and the
- * `--json` alternative), and a required field's help line says `(required)`.
+ * `--input` alternative), and a required field's help line says `(required)`.
  *
  * A property carrying a `default` is likewise NOT given to the parser as a
  * default: `Flag.withDefault` makes a field the caller never typed
- * indistinguishable from one they did, which turned "`--json` cannot be combined
+ * indistinguishable from one they did, which turned "`--input` cannot be combined
  * with the field flags" into a refusal citing a flag nobody passed. The default
- * is applied HERE, in the non-`--json` branch, and shown in the help line.
+ * is applied HERE, in the non-`--input` branch, and shown in the help line.
  *
  * ## Names are NOT transformed
  *
  * The flag is the field, spelled the same: `--filePath`, not `--file-path`. A
  * transformation would be a second name for one thing — the user would have to
- * know both to read a `--json` payload beside a flag — and it is not reversible
+ * know both to read an `--input` payload beside a flag — and it is not reversible
  * for every field name. A field whose name cannot be a flag at all is refused
  * at BUILD time, naming the field, rather than producing a command nobody can
  * type.
@@ -83,8 +83,17 @@ type AnyParam = Param.Param<Param.ParamKind, any>;
 
 /** The name of the whole-input escape hatch. A verb whose input declares a
  *  field spelled the same is refused at build (see {@link flagsOf}) rather
- *  than shipping a command with two meanings for one flag. */
-export const JSON_FLAG = "json";
+ *  than shipping a command with two meanings for one flag.
+ *
+ *  IT WAS `--json`, and the rename is the same rule applied one level up. A
+ *  verb now takes `--json` to ask for its full JSON ANSWER rather than the
+ *  one-line summary a renderer would print (`./commands.ts`'s `JSON_FLAG`), and
+ *  a flag that means "the whole input" on the way in and "the whole output" on
+ *  the way out is a flag with two meanings — the very thing the paragraph above
+ *  refuses a verb's own field for. One of the two had to be spelled otherwise,
+ *  and the input is the one whose name was never about JSON: what it carries is
+ *  the INPUT, and JSON is only how it is written. */
+export const INPUT_FLAG = "input";
 
 /** One assembly's answer: the verb's ENCODED input, or the sentence to refuse
  *  with. A SENTENCE and never a thrown value, because every way this can go
@@ -114,7 +123,7 @@ export interface InputProjection {
   /** Read the parsed config back into the verb's ENCODED input.
    *
    *  `stdin` is DESCRIBED, not read: it is an Effect, and it is yielded only on
-   *  the `--json -` path — so a verb that did not ask never touches the
+   *  the `--input -` path — so a verb that did not ask never touches the
    *  descriptor and nothing hangs waiting on a terminal nobody typed into. An
    *  Effect is not a thunk; it is a description, so `assemble` stays a pure
    *  function from values to a value while "read it only if it was asked for"
@@ -205,9 +214,98 @@ function jsonFlag(name: string): Flag.Flag<any> {
   );
 }
 
+/** The word a nullable field is CLEARED with.
+ *
+ *  A magic word, and the ambiguity it costs is real and bounded: a string field
+ *  whose value is literally `null` cannot be written with this flag. That case
+ *  goes through `--${INPUT_FLAG}`, which takes the field's own JSON and has no
+ *  ambiguity at all — and the help line on every nullable flag says so, because
+ *  a reader has to be told before they hit it rather than after.
+ *
+ *  What it buys is the other 99%: `--desc "the brass ones"` instead of
+ *  `--desc '"the brass ones"'`. A nullable field is a UNION, and a union used to
+ *  fall to {@link jsonFlag} — so on a surface where "or clear it with null" is
+ *  the ordinary way to spell a removable field, the most-used write verbs each
+ *  wanted a shell-quoted JSON string for a plain line of text. That is a
+ *  grammar nobody types correctly the first time, and the error it produces
+ *  (`Expected string | null`) reads as a bug in the caller's value rather than
+ *  as a fact about the flag. */
+export const NULL_WORD = "null";
+
+/** The scalar inside `<scalar> | null`, or nothing for anything else.
+ *
+ *  EXACTLY that shape: two members, one of them `null`, the other a scalar.
+ *  A three-way union, a union of two scalars, a nullable object — none of them
+ *  is this, and each keeps the JSON flag it had, because none of them has one
+ *  obvious spelling to take. */
+function nullableScalar(node: JsonSchema): JsonSchema | undefined {
+  const anyOf = node.anyOf;
+  if (!Array.isArray(anyOf) || anyOf.length !== 2) return undefined;
+  const parts = anyOf.filter(
+    (part): part is JsonSchema => typeof part === "object" && part !== null,
+  );
+  if (parts.length !== 2) return undefined;
+  const nulls = parts.filter((part) => part.type === "null");
+  const rest = parts.filter((part) => part.type !== "null");
+  const only = rest[0];
+  if (nulls.length !== 1 || rest.length !== 1 || only === undefined) {
+    return undefined;
+  }
+  return scalarKind(only) === undefined ? undefined : only;
+}
+
+/** `<scalar> | null` as one flag: the scalar's own spelling, plus the word.
+ *
+ *  A STRING flag underneath even for a number or a boolean, because the typed
+ *  parsers refuse {@link NULL_WORD} before anything here could read it — so the
+ *  parse is done once, in one place, with one sentence for both ways it can go
+ *  wrong. An ENUM keeps its choice list and gains the word, so `--help` lists
+ *  every value the flag takes including that one. */
+// biome-ignore lint/suspicious/noExplicitAny: the parsed value's type is the field's.
+function nullableFlag(name: string, node: JsonSchema): Flag.Flag<any> {
+  const choices = stringChoices(node);
+  if (choices !== undefined) {
+    return Flag.choice(name, [...choices, NULL_WORD]).pipe(
+      Flag.mapTryCatch(
+        (chosen: string) => (chosen === NULL_WORD ? null : chosen),
+        () => `--${name} did not take that value.`,
+      ),
+    );
+  }
+  const kind = scalarKind(node);
+  return Flag.string(name).pipe(
+    Flag.mapTryCatch(
+      (text: string) => scalarOf(text, kind),
+      () =>
+        `--${name} takes ${kind === undefined ? "a value" : `a ${kind}`} or the word ${NULL_WORD} to clear it.`,
+    ),
+  );
+}
+
+/** One text token as the scalar it claims to be, or {@link NULL_WORD} as
+ *  `null`. Throws for anything else — {@link nullableFlag} words the refusal,
+ *  because it knows the flag's name and this does not. */
+function scalarOf(text: string, kind: ReturnType<typeof scalarKind>): unknown {
+  if (text === NULL_WORD) return null;
+  if (kind === "string") return text;
+  if (kind === "boolean") {
+    if (text === "true") return true;
+    if (text === "false") return false;
+    throw new Error(text);
+  }
+  const n = Number(text);
+  if (!Number.isFinite(n)) throw new Error(text);
+  if (kind === "integer" && !Number.isInteger(n)) throw new Error(text);
+  return n;
+}
+
 /** One property → one flag, by the table in the header. */
 // biome-ignore lint/suspicious/noExplicitAny: each branch's value type is the field's.
 function flagFor(name: string, node: JsonSchema): Flag.Flag<any> {
+  // Asked FIRST, because a nullable scalar is a union and every check below it
+  // would send one to {@link jsonFlag}.
+  const nullable = nullableScalar(node);
+  if (nullable !== undefined) return nullableFlag(name, nullable);
   const choices = stringChoices(node);
   if (choices !== undefined) return Flag.choice(name, choices);
   switch (scalarKind(node)) {
@@ -231,7 +329,7 @@ function flagFor(name: string, node: JsonSchema): Flag.Flag<any> {
       // `[]` when the flag never appears, so the enclosing `Flag.optional` sees
       // `Some([])` and the field reaches the server as an explicit empty array —
       // where `Schema.optionalKey` means absent — while `assemble` counts it as
-      // supplied and refuses a `--json` beside a flag nobody typed. With
+      // supplied and refuses an `--input` beside a flag nobody typed. With
       // `atLeast(1)` an absent flag is genuinely absent, and one occurrence is
       // still enough.
       return flagFor(name, itemNode).pipe(Flag.atLeast(1));
@@ -263,7 +361,7 @@ function argumentFor(name: string, node: JsonSchema): Argument.Argument<any> {
       );
     default:
       throw new SurfaceCliBuildError(
-        `"${name}" is not a scalar, so it cannot be a positional argument. Leave it a flag, or pass the whole input with --${JSON_FLAG}.`,
+        `"${name}" is not a scalar, so it cannot be a positional argument. Leave it a flag, or pass the whole input with --${INPUT_FLAG}.`,
       );
   }
 }
@@ -290,8 +388,8 @@ export function flagsOf(
   // The escape hatch is on EVERY verb, including one with no input at all: a
   // caller scripting against the surface should never have to know whether this
   // particular verb happens to take fields.
-  config[JSON_FLAG] = optionalParam(
-    Flag.string(JSON_FLAG).pipe(
+  config[INPUT_FLAG] = optionalParam(
+    Flag.string(INPUT_FLAG).pipe(
       Flag.withDescription(
         "the whole input as JSON (`-` reads it from stdin) — the alternative to the field flags, never a supplement to them",
       ),
@@ -334,7 +432,7 @@ export function flagsOf(
                   ? { ok: true, input: value }
                   : {
                       ok: false,
-                      because: `--${JSON_FLAG} carries the whole input, so it cannot be combined with the <value> argument — pass one or the other.`,
+                      because: `--${INPUT_FLAG} carries the whole input, so it cannot be combined with the <value> argument — pass one or the other.`,
                     },
             )
             .with(
@@ -343,7 +441,7 @@ export function flagsOf(
                 bare === undefined
                   ? {
                       ok: false,
-                      because: `this verb takes one value — pass it as the argument, or the whole input with --${JSON_FLAG}.`,
+                      because: `this verb takes one value — pass it as the argument, or the whole input with --${INPUT_FLAG}.`,
                     }
                   : { ok: true, input: bare },
             )
@@ -371,9 +469,9 @@ export function flagsOf(
 
   const fields = Object.keys(properties);
   for (const name of fields) {
-    if (name === JSON_FLAG) {
+    if (name === INPUT_FLAG) {
       throw new SurfaceCliBuildError(
-        `this verb's input declares a field named "${JSON_FLAG}", which collides with the whole-input escape hatch --${JSON_FLAG}. Rename the field.`,
+        `this verb's input declares a field named "${INPUT_FLAG}", which collides with the whole-input escape hatch --${INPUT_FLAG}. Rename the field.`,
       );
     }
     if (!NAMEABLE.test(name)) {
@@ -384,7 +482,7 @@ export function flagsOf(
   }
 
   // A field's DEFAULT, captured rather than handed to the parser — see the
-  // header. Applied in the non-`--json` branch of `assemble`, so "the caller did
+  // header. Applied in the non-`--input` branch of `assemble`, so "the caller did
   // not say" survives as a state the assembler can still see.
   //
   // The VALUES alone, never the documents they came from: `assemble` outlives
@@ -431,7 +529,7 @@ export function flagsOf(
    *  when nothing is missing.
    *
    *  Run on whatever produced the input, both branches alike: a caller who takes
-   *  the documented alternative (`--json '{}'`) was told only "this input does
+   *  the documented alternative (`--input '{}'`) was told only "this input does
    *  not match what the verb declares", while the same omission through the field
    *  flags named the field. One rule, one enforcer, one wording. A non-record
    *  input is left to the decode, which refuses it for what it is.
@@ -469,7 +567,7 @@ export function flagsOf(
             if (supplied.length > 0) {
               return {
                 ok: false,
-                because: `--${JSON_FLAG} carries the whole input, so it cannot be combined with ${supplied.map((n) => `"${n}"`).join(", ")} — pass one or the other.`,
+                because: `--${INPUT_FLAG} carries the whole input, so it cannot be combined with ${supplied.map((n) => `"${n}"`).join(", ")} — pass one or the other.`,
               };
             }
             const short = missingFrom(value);
@@ -485,7 +583,7 @@ export function flagsOf(
             }
             // Requiredness, enforced HERE because this is the only layer that
             // can see BOTH inputs. The parser cannot: it would have to refuse
-            // before knowing whether `--json` was the answer.
+            // before knowing whether `--input` was the answer.
             const short = missingFrom(input);
             return short === undefined
               ? { ok: true, input }
@@ -500,17 +598,17 @@ export function flagsOf(
  *  One wording, whichever branch assembled the input. */
 function namesMissing(missing: readonly string[]): string | undefined {
   if (missing.length === 0) return undefined;
-  return `this verb needs ${missing.map((n) => `"${n}"`).join(", ")} — pass ${missing.length === 1 ? "it" : "them"}, or the whole input with --${JSON_FLAG}.`;
+  return `this verb needs ${missing.map((n) => `"${n}"`).join(", ")} — pass ${missing.length === 1 ? "it" : "them"}, or the whole input with --${INPUT_FLAG}.`;
 }
 
-/** One reading of `--json`. Three answers, because "absent" and "present but
+/** One reading of `--input`. Three answers, because "absent" and "present but
  *  unreadable" must not collapse into one. */
 type JsonFlag =
   | { kind: "absent" }
   | { kind: "given"; value: unknown }
   | { kind: "bad"; why: string };
 
-/** Read `--json`, resolving `-` by RUNNING the stdin description — and only
+/** Read `--input`, resolving `-` by RUNNING the stdin description — and only
  *  then. The descriptor is touched on this one path and no other, which is what
  *  makes "a verb that did not ask never waits on a terminal" a property of the
  *  code rather than of a caller remembering to ask first. */
@@ -518,7 +616,7 @@ function readJsonFlag<E, R>(
   values: Record<string, unknown>,
   stdin: Effect.Effect<string, E, R>,
 ): Effect.Effect<JsonFlag, E, R> {
-  const raw = values[JSON_FLAG];
+  const raw = values[INPUT_FLAG];
   if (raw === undefined) return Effect.succeed({ kind: "absent" });
   const fromStdin = raw === "-";
   return Effect.map(
@@ -529,7 +627,7 @@ function readJsonFlag<E, R>(
       } catch (err) {
         return {
           kind: "bad",
-          why: `--${JSON_FLAG} takes the whole input as JSON${fromStdin ? " on stdin" : ""}, and that is not JSON: ${err instanceof Error ? err.message : String(err)}`,
+          why: `--${INPUT_FLAG} takes the whole input as JSON${fromStdin ? " on stdin" : ""}, and that is not JSON: ${err instanceof Error ? err.message : String(err)}`,
         };
       }
     },
@@ -561,6 +659,13 @@ function describe<Kind extends Param.ParamKind, A>(
   const parts = [
     ...(typeof written === "string" && written !== "" ? [written] : []),
     ...(isRequired ? ["(required)"] : []),
+    // Said on the LINE, not only in a doc: a magic word a reader is not told
+    // about is a magic word they find out about by having it not work.
+    ...(nullableScalar(node) === undefined
+      ? []
+      : [
+          `(${NULL_WORD} clears it; a literal "${NULL_WORD}" goes through --${INPUT_FLAG})`,
+        ]),
     ...(fallback === undefined
       ? []
       : [`(default: ${JSON.stringify(fallback)})`]),
