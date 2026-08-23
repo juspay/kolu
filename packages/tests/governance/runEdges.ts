@@ -111,6 +111,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the MCP-SDK's connect callback — `serveSurfaceAsMcp` asks for `() => Promise<Connection>` and OWNS the connection it gets, re-invoking it on its own redial path, so the crossing cannot be composed away without changing kolu-mcp's face",
   },
   {
+    path: "packages/kolu-cli/src/surfaceFace.ts",
+    sites: 1,
+    why: "the kindred of `mcp.ts`'s entry one seam over: `@kolu/surface-cli`'s `ResolvedEndpoint.open` is `() => Promise<Connection>` and the FRAMEWORK owns its invocation (a dial per subscription inside `surfaceCommands`), exactly the connect-callback shape `mcp.ts` lists — the `endpoint.resolve` Effect ends at the value the face hands over, and `dialOf`'s own Effect cannot compose into a repo caller that does not exist",
+  },
+  {
     path: "packages/kolu-cli/src/verbs/stdoutPump.fixture.ts",
     sites: 2,
     why: "a CHILD PROCESS, not a module: `shared.flush.test.ts` spawns this file so the pump it drives writes to a real pipe(2) that a real `head` reads. It is that child's process edge, and there is no Effect caller on this side of the fork to compose into — the caller is `spawn`. Two runs because the queue and the drain are two lifetimes: one creates the queue the fixture then offers into, the other drains it through `shared.ts`'s `stdoutSink` for as long as the child lives. Deliberately the SHIPPED sink and not a hand-written write, because a fixture that writes to the fd itself passes whatever the verb does — which is how the previous version of this fixture came to pin nothing",

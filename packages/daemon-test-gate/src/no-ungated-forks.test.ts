@@ -453,7 +453,12 @@ function parseFile(file: string): AstNode {
   }) as unknown as AstNode;
 }
 
-test("advisory hygiene: every real-spawn test site is describeDaemon-gated or statement-order-leashed, per call-site (a backstop, not a dominance proof — F4)", () => {
+test("advisory hygiene: every real-spawn test site is describeDaemon-gated or statement-order-leashed, per call-site (a backstop, not a dominance proof — F4)", {
+  // A whole-repo AST walk — its cost tracks checkout count and parse-cache
+  // warmth, not this test's logic. ~4.7s warm; a fresh CI snapshot's cold
+  // transform cache blows the 5s default, as e0f1457's linux lane did.
+  timeout: 60000,
+}, () => {
   const offenders: string[] = [];
   for (const file of allTestFiles()) {
     let ast: AstNode;
