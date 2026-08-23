@@ -10,7 +10,7 @@
  * kolu surface get terminals --follow      # snapshot, then ndjson deltas
  * kolu surface screen_text 3f9c --tail 40  # a rendered screen, as text
  * kolu surface lifecycle_kill 3f9c
- * kolu surface lifecycle_create --json '{"placement":{"kind":"toplevel"},"run":"claude"}'
+ * kolu surface lifecycle_create --input '{"placement":{"kind":"toplevel"},"run":"claude"}'
  * ```
  *
  * ## Parity is the whole point
@@ -67,7 +67,11 @@
  */
 
 import { padiSurface } from "@kolu/padi/surface";
-import { type ResolvedEndpoint, surfaceCommands } from "@kolu/surface-cli";
+import {
+  type ResolvedEndpoint,
+  surfaceCommands,
+  surfaceHelp,
+} from "@kolu/surface-cli";
 import { Effect } from "effect";
 import { Command } from "effect/unstable/cli";
 import { KOLU_MCP_EXPOSE } from "kolu-mcp/expose";
@@ -162,6 +166,81 @@ export const KOLU_SURFACE_POSITIONALS = {
   git_getDiff: { positional: ["repoPath", "filePath"] },
 } as const;
 
+/** What `--help` on the face reads. The auto-listing is table-of-contents
+ *  material for a book nobody wrote: fifteen verbs whose agent-facing
+ *  descriptions run to paragraphs (the `watch_next` contract alone is a
+ *  screenful of prose). This page is the reading a HUMAN gives it: what the
+ *  face is for, the verbs grouped by what a supervisor DOES with them, one
+ *  example each, the endpoint flags, and where the answer goes. Each row
+ *  shows the verb's `title` (the agent's short sentence) — the full
+ *  description still answers `kolu surface <verb> --help`.
+ *
+ *  Grouped by JOB, not by surface member kind — a driver thinks in "watch
+ *  the fleet" / "wait for the turn", not in "collection" versus "cell". */
+export const KOLU_SURFACE_HELP = {
+  command: "surface",
+  purpose:
+    "Drive kolu's terminals, screens, and worktrees from a shell — the agent API of `kolu mcp`, as plain argv verbs.",
+  groups: [
+    {
+      title: "Drive a terminal",
+      verbs: ["lifecycle_create", "lifecycle_sendInput", "lifecycle_kill"],
+    },
+    {
+      title: "Look at the screen",
+      verbs: ["screen_text", "screen_image", "screen_history"],
+    },
+    {
+      title: "Wait for it",
+      verbs: ["wait_outputSettled", "wait_agentState"],
+    },
+    {
+      title: "Watch the fleet",
+      verbs: ["watch_open", "watch_next", "watch_close"],
+    },
+    {
+      title: "Reach into the worktree",
+      verbs: ["fs_listAll", "fs_readFile", "git_getStatus", "git_getDiff"],
+    },
+  ],
+  examples: {
+    lifecycle_create: `lifecycle_create --input '{"placement":{"kind":"toplevel"},"run":"claude"}'`,
+    lifecycle_sendInput: "lifecycle_sendInput <id> --text 'nix build'",
+    lifecycle_kill: "lifecycle_kill <id>",
+    screen_text: "screen_text <id> --tail 20",
+    screen_image: "screen_image <id> --lines 40",
+    screen_history: "screen_history <id> --max 100",
+    wait_outputSettled: "wait_outputSettled <id> --idleMs 8000 --screenTail 20",
+    wait_agentState: `wait_agentState <id> --until awaiting --until waiting --settledMs 15000`,
+    watch_open: "watch_open --name work",
+    watch_next: "watch_next work",
+    watch_close: "watch_close work",
+    fs_listAll: "fs_listAll /path/to/repo",
+    fs_readFile: "fs_readFile /path/to/repo src/index.ts",
+    git_getStatus: "git_getStatus /path/to/repo --mode branch",
+    git_getDiff: "git_getDiff /path/to/repo src/index.ts --mode branch",
+  },
+  flags: [
+    {
+      spelling: "--socket <path>",
+      description:
+        "the padi socket to answer from — the default resolves the running service's",
+    },
+    {
+      spelling: "--state-root <dir>",
+      description:
+        "a padi STATE ROOT, whose socket this face dials — how a second daemon answers the same verbs",
+    },
+    {
+      spelling: "--host <name>",
+      description:
+        "a REMOTE host from the selector strip — the verbs answer over ssh",
+    },
+  ],
+  answer:
+    "One JSON value on stdout for a call, ndjson lines for a --follow'ed read — stdout is always data, prose is on stderr, and every refusal is the surface matrix's typed JSON with its own code: 1 the daemon refused, 2 the input never left this process, 3 nothing serving the endpoint, 130 interrupted. That is @kolu/surface-cli's matrix, NOT the native verbs' 1/2/3.",
+} satisfies import("@kolu/surface-cli").SurfaceCliHelp;
+
 /** The parent face. Its verb table *is* the MCP face's: `padiSurface` is
  *  handed over as a VALUE — the projection reads spec + schemas off it without
  *  a socket in sight — together with the one expose map the agent face
@@ -171,21 +250,28 @@ export const KOLU_SURFACE_POSITIONALS = {
  *  `resolve`'s effect reads the parent context for them. `typeof koluRoot` is
  *  an `import type` — a circular import of VALUES (cli.ts imports this module)
  *  — so the typing costs the graph nothing. */
-export const koluSurfaceFace = (root: typeof koluRoot) =>
-  Command.make("surface").pipe(
-    Command.withDescription(
-      "Drive this padi's surface as plain argv verbs — the shell sibling of `kolu mcp` (the same exposed map, the same verb table). `kolu surface list` names what a padi offers; every verb's exit code is the surface face's (1 the refusal, 2 usage, 3 the endpoint, 130 interrupted) — NOT the native verbs' matrix.",
-    ),
-    Command.withSubcommands(
-      surfaceCommands({
-        surface: padiSurface,
-        expose: KOLU_MCP_EXPOSE,
-        verbs: KOLU_MCP_TOOLS,
-        endpoint: {
-          resolve: () => Effect.flatMap(root, surfaceEndpointOf),
-        },
-        annotate: KOLU_SURFACE_POSITIONALS,
-        info: { name: "kolu surface" },
-      }),
-    ),
+export const koluSurfaceFace = (root: typeof koluRoot) => {
+  const projection = {
+    surface: padiSurface,
+    expose: KOLU_MCP_EXPOSE,
+    verbs: KOLU_MCP_TOOLS,
+    endpoint: {
+      resolve: () => Effect.flatMap(root, surfaceEndpointOf),
+    },
+    annotate: KOLU_SURFACE_POSITIONALS,
+    help: KOLU_SURFACE_HELP,
+    // The BINARY brand, not the face — the help page composes
+    // `${name} ${help.command} <verb>` for its example spellings, and every
+    // failure envelope lines up behind the same `kolu: ` brand as the native
+    // faces'.
+    info: { name: "kolu" },
+  } as const;
+  return Command.make("surface").pipe(
+    // The page is the listing: `surfaceHelp` is computed from the same
+    // projection `surfaceCommands` mounts, so the group names a verb answers
+    // to are checked AT TREE BUILD, and the verbs themselves are unlisted
+    // (the page, or the renderer's flat copy — never both).
+    Command.withDescription(surfaceHelp(projection)),
+    Command.withSubcommands(surfaceCommands(projection)),
   );
+};

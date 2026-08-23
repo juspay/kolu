@@ -42,7 +42,7 @@ import { KOLU_MCP_EXPOSE } from "kolu-mcp/expose";
 import { KOLU_MCP_TOOLS } from "kolu-mcp/tools";
 import { describe, expect, it } from "vitest";
 import { runKoluCliWith } from "./cli.ts";
-import { KOLU_SURFACE_POSITIONALS } from "./surfaceFace.ts";
+import { KOLU_SURFACE_POSITIONALS, KOLU_SURFACE_HELP } from "./surfaceFace.ts";
 
 /** Run the real command tree against an argv, to an `Exit`. */
 const run = (argv: string[]) =>
@@ -79,7 +79,7 @@ describe("the surface face's exit matrix, in-process", () => {
     expect(err._tag).toBe("SurfaceCliFailure");
     expect(err[Runtime.errorExitCode]).toBe(3);
     expect(err.stderr).toBe(
-      "kolu surface: no surface at /definitely/dead.sock — connect ENOENT /definitely/dead.sock\n",
+      "kolu: no surface at /definitely/dead.sock — connect ENOENT /definitely/dead.sock\n",
     );
   });
 
@@ -105,7 +105,7 @@ describe("the surface face's exit matrix, in-process", () => {
     const err = await surfaceFailureOf([
       "surface",
       "screen_text",
-      "--json",
+      "--input",
       '{"id":"not-a-uuid"}',
     ]);
     expect(err._tag).toBe("SurfaceCliFailure");
@@ -140,6 +140,31 @@ describe("the positional annotation is honest about the table it annotates", () 
       ...Object.keys(KOLU_MCP_TOOLS),
     ]);
     for (const name of Object.keys(KOLU_SURFACE_POSITIONALS)) {
+      expect(offered.has(name)).toBe(true);
+    }
+  });
+
+  it("the help page's groups name exactly the mounted verbs — none in `Other`, none phantom", () => {
+    // The library drops an unGROUPED verb into a trailing "Other" section
+    // and refuses a group naming a verb that does NOT exist — but both checks
+    // are the LIBRARY's, run per tree-build; a rename (or a new verb) leaves
+    // this app-authored page reflecting the old table until somebody mounts
+    // the branch. Asking containment through the projection's own grammar
+    // makes the page's completeness mechanical, like the positional pin's.
+    const fromProcedures = classifyExpose(
+      padiSurface.spec,
+      KOLU_MCP_EXPOSE,
+      "surface-cli",
+    )
+      .filter((e) => e.kind === "procedure")
+      .map((e) => toolName(e.ns, e.verb));
+    const offered = new Set([
+      ...fromProcedures,
+      ...Object.keys(KOLU_MCP_TOOLS),
+    ]);
+    const grouped = KOLU_SURFACE_HELP.groups.flatMap((g) => g.verbs);
+    expect(new Set(grouped)).toEqual(offered);
+    for (const name of Object.keys(KOLU_SURFACE_HELP.examples ?? {})) {
       expect(offered.has(name)).toBe(true);
     }
   });

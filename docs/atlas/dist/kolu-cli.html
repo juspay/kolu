@@ -754,7 +754,7 @@ the note stands.</em></p>
 <p><code>kolu surface …</code> landed: the same <code>padiSurface</code> the MCP face serves, projected
 as plain argv verbs through <code>@kolu/surface-cli</code> — <code>kolu surface list</code>,
 <code>kolu surface get terminals --follow</code>, <code>kolu surface screen_text 3f9c --tail 40</code>,
-<code>kolu surface lifecycle_create --json &#39;{…}&#39;</code>. The expose map and the tool table
+<code>kolu surface lifecycle_create --input &#39;{…}&#39;</code>. The expose map and the tool table
 are the MCP face’s own (<code>KOLU_MCP_EXPOSE</code> · <code>KOLU_MCP_TOOLS</code>), named once in
 <code>packages/kolu-mcp/src/{expose,tools}.ts</code> and handed to BOTH faces verbatim, so
 an agent over MCP and an agent over a shell drive the same verbs by the same
@@ -790,7 +790,12 @@ collision was first written down.</li>
 mounts it without the barrel’s SDK chain — the leaf is the address the
 statically-built command tree reads) reading
 <code>@kolu/surface-mcp/tools</code>, the shard whose “agent definitions must not cost
-the transport” contract this face is the first-party proof of.</li>
+the transport” contract this face is the first-party proof of. The face also
+carries a WRITTEN help page (<code>KOLU_SURFACE_HELP</code> in <code>surfaceFace.ts</code> —
+passed as <code>help:</code> so the verbs unlist and the page is the listing), because
+the flat auto-dump renders fifteen paragraph-long agent descriptions as
+eight screens of prose nobody asked for.
+the transport“ contract this face is the first-party proof of.</li>
 </ul></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./agent-spawn-first-class.html" data-astro-cid-aziudkuj>Agent spawn is a face verb — fixing #1872 (Dock detection + transcript loss)</a></li><li data-astro-cid-aziudkuj><a href="./padi.html" data-astro-cid-aziudkuj>padi — the per-host terminal-workspace daemon</a></li><li data-astro-cid-aziudkuj><a href="./orchestrator-repo.html" data-astro-cid-aziudkuj>The orchestrator repo — our agent setup, cloneable by anyone</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
   (function () {
     var fns = Array.prototype.slice.call(

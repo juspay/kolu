@@ -122,7 +122,12 @@ describeDaemon(
       timeout: 60000,
     }, async () => {
       const padi = await startPadi();
-      const table = (await surfaceJson(padi.socketPath, ["list"])) as {
+      // `--json` asks for the DATA form of `list` — the default is the
+      // table a person reads.
+      const table = (await surfaceJson(padi.socketPath, [
+        "list",
+        "--json",
+      ])) as {
         verbs: { name: string; source: string; mutates: boolean }[];
         resources: { name: string }[];
       };
@@ -189,11 +194,11 @@ describeDaemon(
 
       // The terminal enters the world THROUGH the heaviest bespoke row on the
       // table — create, with its placement gate — spelled exactly as a script
-      // spells it: the endpoint at the ROOT, the input as `--json`. The answer
-      // is the same JSON the MCP face answers, with the id in it.
+      // spells it: the endpoint at the ROOT, the input as `--input`, and the
+      // answer is the same JSON the MCP face answers, with the id in it.
       const created = await runSurface(padi.socketPath, [
         "lifecycle_create",
-        "--json",
+        "--input",
         JSON.stringify({
           placement: { kind: "toplevel" },
           // cwd is spelled: the verb is a REMOTE call to the daemon, not a
@@ -294,7 +299,7 @@ describeDaemon(
       expect(listed.stdout).toContain("screen_text");
       const created = await runSurface(padi.socketPath, [
         "lifecycle_create",
-        "--json",
+        "--input",
         JSON.stringify({ placement: { kind: "toplevel" } }),
       ]);
       expect(created.code, created.stderr).toBe(0);
@@ -322,7 +327,7 @@ describeDaemon(
       const padi = await startPadi();
       const created = await runSurface(padi.socketPath, [
         "lifecycle_create",
-        "--json",
+        "--input",
         JSON.stringify({ placement: { kind: "toplevel" } }),
       ]);
       expect(created.code, created.stderr).toBe(0);
@@ -341,7 +346,7 @@ describeDaemon(
           padi.socketPath,
           "surface",
           "wait_outputSettled",
-          "--json",
+          "--input",
           // A window far longer than this leg can ever need; the wait must be
           // the thing being interrupted, not the thing that finished.
           JSON.stringify({ id, idleMs: 300000 }),

@@ -663,7 +663,7 @@ the note stands.*
 `kolu surface …` landed: the same `padiSurface` the MCP face serves, projected
 as plain argv verbs through `@kolu/surface-cli` — `kolu surface list`,
 `kolu surface get terminals --follow`, `kolu surface screen_text 3f9c --tail 40`,
-`kolu surface lifecycle_create --json '{…}'`. The expose map and the tool table
+`kolu surface lifecycle_create --input '{…}'`. The expose map and the tool table
 are the MCP face's own (`KOLU_MCP_EXPOSE` · `KOLU_MCP_TOOLS`), named once in
 `packages/kolu-mcp/src/{expose,tools}.ts` and handed to BOTH faces verbatim, so
 an agent over MCP and an agent over a shell drive the same verbs by the same
@@ -702,4 +702,9 @@ Two consequences the next reader should not have to re-derive:
   mounts it without the barrel's SDK chain — the leaf is the address the
   statically-built command tree reads) reading
   `@kolu/surface-mcp/tools`, the shard whose "agent definitions must not cost
+  the transport" contract this face is the first-party proof of. The face also
+  carries a WRITTEN help page (`KOLU_SURFACE_HELP` in `surfaceFace.ts` —
+  passed as `help:` so the verbs unlist and the page is the listing), because
+  the flat auto-dump renders fifteen paragraph-long agent descriptions as
+  eight screens of prose nobody asked for.
   the transport" contract this face is the first-party proof of.
