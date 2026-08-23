@@ -272,6 +272,18 @@ describe("parseAgentCommand", () => {
     // than bound to a stranger's conversation in the same cwd.
     expect(parseAgentCommand("pi --session-dir /elsewhere")).toBeNull();
     expect(parseAgentCommand("pi --no-session")).toBeNull();
+    // Subcommand words kill ONLY in argv position 0; pi takes any later
+    // occurrence as prompt text (verified against pi 0.84.2: `pi --provider
+    // google list` runs interactively with `list` as the prompt).
+    expect(parseAgentCommand("pi --provider google list")).toBe(
+      "pi --provider google",
+    );
+    expect(parseAgentCommand("pi --model kimi-k3 config the knobs")).toBe(
+      "pi --model kimi-k3",
+    );
+    expect(
+      parseAgentCommand("pi --thinking high remove the dead function"),
+    ).toBe("pi --thinking high");
     // …while a lowercase -v elsewhere stays untouched territory.
     expect(parseAgentCommand("pi")).toBe("pi");
   });

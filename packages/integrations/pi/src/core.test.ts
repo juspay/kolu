@@ -212,13 +212,57 @@ describe("derivePiState", () => {
     );
   });
 
-  it("trailing toolResult → thinking (model about to be re-invoked)", () => {
+  it("trailing toolResult → thinking (model about to be re-invoked), model still published from the in-flight turn's own assistant entry", () => {
     const r = derivePiState([header, user(), assistant("toolUse"), toolResult]);
     expect(r?.state).toBe("thinking");
-    // Model comes from the SAME entry the state derived from (claude's rule):
-    // a toolResult tail carries no model, so the badge briefly none — never
-    // a stale earlier value pinned across the re-invoke.
-    expect(r?.model).toBeNull();
+    // Model is decoupled from the state gate: a thinking tail still shows
+    // the turn's model (no flickering badge mid-tool-loop).
+    expect(r?.model).toBe("m");
+  });
+
+  it("cleared session name: a session_info WITHOUT a name is an explicit clear (fold sentinel \"\"), not 'unknown'", () => {
+    const r = derivePiState([
+      header,
+      user(),
+      '{"type":"session_info","id":"si","parentId":"u","timestamp":"t"}',
+      assistant("stop"),
+    ]);
+    expect(r?.summary).toBe("");
+  });
+
+  it("a rename AFTER the newest completed turn is captured (post-resolution lines still parse session_info candidates)", () => {
+    const r = derivePiState([
+      header,
+      user(),
+      sessionInfo("renamed"),
+      assistant("stop"),
+    ]);
+    expect(r?.summary).toBe("renamed");
+    expect(r?.state).toBe("waiting");
+  });
+
+  it("model badge on a thinking tail: a PRE-turn model_change is superseded by the turn's own assistant entry (newest-first order decides), a MID-loop switch wins", () => {
+    // Switch happened before the prompt: the assistant record is newer.
+    expect(
+      derivePiState([
+        header,
+        modelChange("chosen-model"),
+        user(),
+        assistant("toolUse", "in-turn-model"),
+        toolResult,
+      ])?.model,
+    ).toBe("in-turn-model");
+    // Mid-tool-loop switch: pi will use the new model for the next
+    // re-invoke — that is the newer truth.
+    expect(
+      derivePiState([
+        header,
+        user(),
+        assistant("toolUse", "in-turn-model"),
+        toolResult,
+        modelChange("chosen-model"),
+      ])?.model,
+    ).toBe("chosen-model");
   });
 
   it("walks past interactive artifacts to the genuine prior turn", () => {

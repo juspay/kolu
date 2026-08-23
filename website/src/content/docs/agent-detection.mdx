@@ -318,11 +318,14 @@ session JSONL.
 - **A redirected session store** — pi moves its sessions with
   `PI_CODING_AGENT_SESSION_DIR` / `--session-dir`; kolu scans only its own
   sessions root (default `~/.pi/agent/sessions`, override with
-  `KOLU_PI_DIR=<dir>` where `<dir>/sessions` is the tree to scan), so a pi
-  launched with `--session-dir <elsewhere>` — or `--no-session` — isn't
-  detected. (Note: pi's `PI_CODING_AGENT_DIR` moves its CONFIG directory
-  only; sessions stay under `~/.pi/agent/sessions` and kolu sees them
-  normally.)
+  `KOLU_PI_DIR=<dir>` where `<dir>/sessions` is the tree to scan). A pi
+  launched with `--session-dir <elsewhere>` — or `--no-session` — is still
+  SEEN (the process name lights the tile), but its session lands outside the
+  scanned tree, so the tile may sit on another, older session in that
+  directory rather than the one actually running; it also never enters
+  **Recent agents** and won't be restored on wake. (Note: pi's
+  `PI_CODING_AGENT_DIR` moves its CONFIG directory only; sessions stay under
+  `~/.pi/agent/sessions` and kolu sees them normally.)
 
 ## Adding an agent
 

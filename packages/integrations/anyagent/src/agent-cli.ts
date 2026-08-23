@@ -55,20 +55,29 @@ const EXTRA_EXIT_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["pi", new Set(["-v", "--export", "--list-models", "-p", "--print"])],
 ]);
 
-/** Tokens that make an invocation produce NO session kolu can bind to —
- *  either flags that redirect or suppress pi's session storage
- *  (`--session-dir <dir>` writes outside the scanned tree; `--no-session` is
- *  ephemeral) or bare positional SUBCOMMAND words (`pi config list`).
- *  Attributing these would either fabricate a session or — worse — bind the
- *  terminal to a DIFFERENT session in the cwd (the #1495 wrong-conversation
- *  class via the unmatchable direction). Checked arity-aware: value-flag
- *  values (e.g. `pi --name config`) are never mistaken for subcommands. */
-const NON_SESSION_TOKENS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+/** Flags that make an invocation produce NO session kolu can bind to:
+ *  `--session-dir <dir>` writes outside the scanned tree; `--no-session` is
+ *  ephemeral. Attributing either would bind the terminal to a DIFFERENT
+ *  session in the cwd (the #1495 wrong-conversation class via the
+ *  unmatchable direction). Valid in ANY argv position, hence checked
+ *  position-independent. */
+const NON_SESSION_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["pi", new Set(["--session-dir", "--no-session"])],
+]);
+
+/** BARE positional subcommand words — but only in argv position 0: pi
+ *  dispatches a subcommand from its FIRST argument alone, and any later
+ *  occurrence is prompt text for an interactive session (verified against
+ *  pi 0.84.2: `pi list` lists packages and exits; `pi --provider google
+ *  list` takes the interactive path with `list` as the prompt). The
+ *  arity-aware scan keeps value-flag values (`pi --name config`) immune. */
+const NON_SESSION_SUBCOMMANDS: ReadonlyMap<
+  string,
+  ReadonlySet<string>
+> = new Map([
   [
     "pi",
     new Set([
-      "--session-dir",
-      "--no-session",
       "auth",
       "config",
       "install",
@@ -372,7 +381,8 @@ function normalizeAgentInvocation(argv: string[]): string | null {
   const extraExit = EXTRA_EXIT_FLAGS.get(agent);
   if (args.some((t) => EXIT_FLAGS.has(t) || extraExit?.has(t))) return null;
 
-  const nonSession = NON_SESSION_TOKENS.get(agent);
+  const nonSessionFlags = NON_SESSION_FLAGS.get(agent);
+  const nonSessionSubcommands = NON_SESSION_SUBCOMMANDS.get(agent);
 
   // Keep only allowlisted flags + their values. Anything else (unknown flags,
   // positional args) is dropped.
@@ -381,7 +391,11 @@ function normalizeAgentInvocation(argv: string[]): string | null {
     const t = args[i];
     if (t === undefined) break;
     if (t === "--") break; // stop at explicit end-of-flags
-    if (nonSession?.has(t)) return null; // subcommand / sessionless mode
+    if (nonSessionFlags?.has(t)) return null; // session-redirecting flag
+    // A subcommand word kills the invocation ONLY as the first argument —
+    // later occurrences are prompt text (pi's own grammar).
+    if (i === 0 && !t.startsWith("-") && nonSessionSubcommands?.has(t))
+      return null;
     if (!t.startsWith("-")) continue; // drop positional
     const next = args[i + 1];
     const arity = allowed.get(t);

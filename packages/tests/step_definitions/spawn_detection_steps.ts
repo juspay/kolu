@@ -38,6 +38,8 @@ import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 import { writeOpenCodeFixture } from "../support/agent-mock-opencode.ts";
 import { kavalSocketPath } from "../support/hooks.ts";
 import { clearMockDatabase } from "../support/mock-fs.ts";
+import type { KoluWorld } from "../support/world.ts";
+import { buildTranscript, SESSION_ID } from "./claude_code_steps.ts";
 
 /** padi's command-run reconcile ladder is [0, 75, 300, 1000] ms. Waiting
  *  past that forces any later match to come from externalChanges (the
@@ -50,8 +52,6 @@ When(
     await new Promise((r) => setTimeout(r, ms));
   },
 );
-import type { KoluWorld } from "../support/world.ts";
-import { buildTranscript, SESSION_ID } from "./claude_code_steps.ts";
 
 const fakeBin = (envVar: string): string => {
   const bin = process.env[envVar];

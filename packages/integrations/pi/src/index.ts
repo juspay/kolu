@@ -15,7 +15,7 @@
 
 export type { Logger } from "kolu-shared";
 export { piAdapter } from "./agent-adapter.ts";
-export { PI_DIR, SESSIONS_DIR } from "./config.ts";
+export { SESSIONS_DIR } from "./config.ts";
 export {
   derivePiInfo,
   derivePiState,

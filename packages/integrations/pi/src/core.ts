@@ -219,13 +219,19 @@ export function derivePiState(lines: string[]): {
   for (let i = lines.length - 1; i >= 0; i--) {
     const raw = lines[i];
     if (raw === undefined) continue;
-    // Once the turn signals are settled the walk only hunts a `session_info`
-    // name — a cheap substring pre-filter means an UNNAMED session (the
-    // common case) skips JSON.parse for the rest of the window entirely,
-    // and a named one parses only its candidates.
+    // Once the turn signals are settled the walk only hunts the display
+    // signals (session name, model) — a cheap substring pre-filter means an
+    // UNNAMED session on a known model (the common case) skips JSON.parse
+    // for the rest of the window entirely, and the rare candidate lines get
+    // fully parsed.
     if (state !== null && contextTokens !== null) {
-      if (summary !== null) break;
-      if (!raw.includes('"session_info"')) continue;
+      const wantName = summary === null;
+      const wantModel = model === null;
+      if (!wantName && !wantModel) break;
+      const isCandidate =
+        (wantName && raw.includes('"session_info"')) ||
+        (wantModel && raw.includes('"model_change"'));
+      if (!isCandidate) continue;
     }
     let entry: PiEntry;
     try {
@@ -234,30 +240,41 @@ export function derivePiState(lines: string[]): {
       continue; // partial trailing write / malformed line — skip
     }
 
-    // The newest `session_info` name — a display property, independent of
-    // the walk's other signals. A tail miss does NOT mean unnamed (the name
-    // may simply have scrolled out of the window); the watcher merges a
-    // cached last-known name over null on publish.
-    if (
-      summary === null &&
-      entry.type === "session_info" &&
-      typeof entry.name === "string" &&
-      entry.name.length > 0
-    ) {
-      summary = entry.name;
+    // The newest `session_info` — a display property, independent of the
+    // walk's other signals. Three truths, not two: no entry in the window
+    // (`null` = "unknown — the name may simply have scrolled out", and the
+    // watcher merges its last-known name over this), a name (published), or
+    // an entry WITHOUT a name (pi's `/name`-clear writes exactly this —
+    // extensions.md's `session_info_changed: event.name … or undefined if
+    // cleared`); that is an explicit CLEAR, encoded as `""` for the watcher
+    // to map to `null` AND drop its cache — never paint a deleted name
+    // back on.
+    if (summary === null && entry.type === "session_info") {
+      summary =
+        typeof entry.name === "string" && entry.name.length > 0
+          ? entry.name
+          : "";
     }
 
-    // Model is a third signal, independent of state: `model_change` entries
-    // also appear at an IDLE prompt (startup, `/model` cycling), which must
-    // never read as work in flight. The newest model_change wins over the
-    // model recorded on older assistant entries; `thinking_level_change` is
-    // orthogonal display state, skipped entirely.
-    if (
-      model === null &&
-      entry.type === "model_change" &&
-      typeof entry.modelId === "string"
-    ) {
-      model = entry.modelId;
+    // Model is a third signal, INDEPENDENT of the state gate: a
+    // `model_change` is also written at an idle prompt (startup, `/model`
+    // cycling), which must never read as work in flight, and an in-flight
+    // thinking tail still deserves the badge — so both sources are read on
+    // EVERY entry, not only while `state` is unset. Walking newest-first,
+    // a `model_change` wins (it is the user's latest explicit choice); an
+    // assistant entry's own `model` is the fallback for sessions with no
+    // switch on file. `thinking_level_change` is orthogonal display state,
+    // skipped entirely.
+    if (model === null) {
+      if (entry.type === "model_change" && typeof entry.modelId === "string") {
+        model = entry.modelId;
+      } else if (
+        entry.type === "message" &&
+        entry.message?.role === "assistant" &&
+        typeof entry.message.model === "string"
+      ) {
+        model = entry.message.model;
+      }
     }
 
     // Newest assistant `usage` — read on EVERY entry (before the state gate)
@@ -289,12 +306,6 @@ export function derivePiState(lines: string[]): {
             : stopReason !== undefined && TURN_ENDED.has(stopReason)
               ? "waiting"
               : "thinking";
-        // Freshly launched or model-switched pi: the tail has no assistant
-        // entry yet, `state` stays null, and nothing is published — the
-        // honest "no turn yet", mirroring codex's deriveCodexState. The
-        // first usage entry's model doubles as the base-model signal when no
-        // model_change is on file.
-        if (model === null) model = entry.message?.model ?? null;
       } else if (role === "user" || role === "toolResult") {
         // A human prompt just landed, or a tool returned and the model is
         // about to be re-invoked — pi persists assistant messages only on

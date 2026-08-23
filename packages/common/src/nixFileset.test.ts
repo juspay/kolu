@@ -56,8 +56,14 @@ describe("workspace.nix `src` fileset — every workspace package with a typeche
       } catch {
         // Not a readable package.json — skip (not a workspace member dir).
       }
-      if (hasTypecheck && !workspaceNix.includes(`../packages/${rel}`)) {
-        missing.push(rel);
+      // Whole-value match against the attribute lines of the form
+      // `"<name>" = ../packages/<rel>;` — a bare substring check passes on
+      // prefix siblings (`integrations/git` ⊆ `integrations/github`).
+      if (hasTypecheck) {
+        const present = workspaceNix
+          .split("\n")
+          .some((line) => line.includes(`= ../packages/${rel};`));
+        if (!present) missing.push(rel);
       }
     };
 
