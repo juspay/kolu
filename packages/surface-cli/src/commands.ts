@@ -414,7 +414,7 @@ export function surfaceHelp<S extends SurfaceSpec, F extends FlagRecord, R>(
     rows.set(verb.name, {
       name: verb.name,
       usage: verbUsage(verb),
-      description: blurb(verb),
+      description: summary(verb),
       example: exampleFor(verb.name),
     });
   }
@@ -478,6 +478,52 @@ const OWN_FLAGS: ReadonlyArray<HelpFlag> = [
       "the whole input as one JSON object (`-` reads it from stdin), instead of the field flags",
   },
 ];
+
+/**
+ * ONE LINE about a verb, for a page that has one line per verb.
+ *
+ * NOT its `description`, and that is the whole of this function. A description
+ * is written for an AGENT — it is the prose a tool listing carries, and an app
+ * that has thought about its agents has descriptions that run to paragraphs,
+ * because that is what an agent reads before choosing a tool. Printing one of
+ * those per row does not make a help page; it makes a wall, and the page this
+ * module exists to replace was more readable.
+ *
+ * So the summary is the verb's `title` — MCP's own display name, the short
+ * phrase a host shows in a tool list, which is exactly this shape of thing and
+ * is already written. A verb with no title falls back to its description's
+ * FIRST SENTENCE, and one with neither to a plain line naming it. The read-only
+ * marker rides along either way, because that is a fact about the verb rather
+ * than about the wording.
+ *
+ * A host that wants different words on the page writes a different `title`, and
+ * both faces get it. There is deliberately no per-verb override in
+ * {@link SurfaceCliHelp}: a second place to word a verb is a second place for it
+ * to go stale, which is the argument this package makes everywhere else.
+ */
+function summary(verb: CallableVerb): string {
+  const said = verb.title ?? sentence(verb.description) ?? `Call ${verb.name}.`;
+  return verb.mutates ? said : `${said} (read-only)`;
+}
+
+/** The first sentence of a description, or nothing for a description that has
+ *  none. Cut at the first sentence end followed by a space, or at the first
+ *  blank line — and given up on entirely past a length no help row should carry,
+ *  because a "sentence" that long is prose that was never one. */
+function sentence(said: string | undefined): string | undefined {
+  if (said === undefined || said === "") return undefined;
+  const paragraph = said.split("\n")[0] ?? said;
+  const stop = paragraph.search(/[.!?](\s|$)/u);
+  const first = stop === -1 ? paragraph : paragraph.slice(0, stop + 1);
+  return first.length > SUMMARY_LIMIT
+    ? `${first.slice(0, SUMMARY_LIMIT - 1).trimEnd()}…`
+    : first;
+}
+
+/** How long a summary may be before it is cut. Not a wrapping width — the row
+ *  is one line by construction — but the point past which a "first sentence" is
+ *  no longer a summary of anything. */
+const SUMMARY_LIMIT = 96;
 
 /** How a verb is typed: its name, its positions, and whether anything else can
  *  follow. The verb's OWN `--help` lists the flags with their types — a summary

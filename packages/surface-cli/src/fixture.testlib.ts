@@ -176,7 +176,12 @@ export const EXPOSE = {
  *  bare scalar, so it also drives the `wrapped` (positional) arm. */
 export const VERBS: Record<string, SurfaceVerb> = {
   echo: {
-    description: "Echo one line back — a hand-authored verb over the client.",
+    // A TITLE and a long DESCRIPTION, because the help page has to choose
+    // between them: an app that has thought about its agents writes paragraphs
+    // here, and a page that printed one per row would be a wall.
+    title: "Echo a line",
+    description:
+      "Echo one line back — a hand-authored verb over the client. IT TAKES A BARE SCALAR, so it also drives the wrapped-input arm of the bridge, which is the one shape that binds to a positional rather than to a flag. There is a great deal more that could be said about it, and an agent reading a tool listing is exactly who it would be said to.",
     mutates: false,
     input: Schema.String,
     handler: (args, _client: SurfaceClientCallable) =>

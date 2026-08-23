@@ -1070,6 +1070,33 @@ describe("the help page a host writes is the page a person reads", () => {
     expect(verb.stdout).toContain("--signal");
   });
 
+  it("shows a verb's TITLE, not the paragraphs its description carries", async () => {
+    // A description is written for an AGENT — it is what a tool listing carries
+    // before something chooses a tool — so an app that has thought about its
+    // agents has descriptions that run to paragraphs. One per row is not a help
+    // page, it is a wall, and the flat listing this page replaces was more
+    // readable than that. So the row shows the verb's `title`: MCP's own display
+    // name, already written, already short.
+    const help = await helped(["--help"]);
+    expect(help.stdout).toContain("Echo a line");
+    expect(help.stdout).not.toContain("IT TAKES A BARE SCALAR");
+
+    // …and the description is still there, in full, where a reader asks for
+    // that one verb.
+    const verb = await helped(["echo", "--help"]);
+    expect(verb.stdout).toContain("IT TAKES A BARE SCALAR");
+  }, 30_000);
+
+  it("falls back to the first SENTENCE for a verb with no title", async () => {
+    // `proc_kill` has neither, so it gets the plain line naming it; the readers
+    // have their own one-liners. What is pinned here is that a page never
+    // carries a second paragraph on a row.
+    const help = await helped(["--help"]);
+    const rows = help.stdout.split("\n");
+    const write = rows.findIndex((line) => line.trim() === "Write");
+    expect(rows[write + 1]).toContain("Call proc_kill.");
+  }, 30_000);
+
   it("refuses at BUILD a group that names a command this surface has none of", async () => {
     // An author's mistake, with no CLI to read the refusal off — so the proof is
     // a process that will not start. The stale group is the failure mode: a help
