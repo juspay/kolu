@@ -75,6 +75,7 @@ import { isTransportError } from "@kolu/surface/client";
 import { isDeadTransportError, messageOf } from "@kolu/surface/errors";
 import { isNoSnapshotFrame } from "@kolu/surface/first-frame";
 import { Data, Runtime } from "effect";
+import { CliError } from "effect/unstable/cli";
 
 /** The published matrix, as data. Exported so a consumer (a host's docs, a
  *  driving script's test) can name the codes rather than re-spell the integers,
@@ -261,21 +262,6 @@ function isOwnFailure(value: unknown): value is SurfaceCliFailure {
   );
 }
 
-/** The brand every `effect/unstable/cli` error carries.
- *
- *  Matched on the BRAND rather than on `_tag`: the library sets `_tag` to the
- *  short name (`ShowHelp`, `DuplicateOption`, …) and stamps this key alongside
- *  it, so a `_tag.startsWith("~effect/cli/")` test — the obvious-looking one —
- *  silently matches nothing and double-prints every diagnostic. */
-const CLI_ERROR_BRAND = "~effect/cli/CliError";
-
-/** Has the CLI LIBRARY already put this failure's text on screen? A typo'd
- *  subcommand, a rejected flag, a value an enum does not admit — the library
- *  renders the reason and the usage itself, so re-reporting it would print the
- *  diagnostic twice. */
-const alreadyRendered = (error: unknown): boolean =>
-  typeof error === "object" && error !== null && CLI_ERROR_BRAND in error;
-
 /** What a host's RUN EDGE should do with a failed program: write `stderr` (when
  *  it is non-empty), then fail with `failure`, whose exit-code marker the
  *  runtime's own teardown reads.
@@ -325,7 +311,19 @@ export function runEdge(
 ): { readonly stderr: string; readonly failure: unknown } {
   const carried = (error as { readonly stderr?: unknown })?.stderr;
   if (typeof carried === "string") return { stderr: carried, failure: error };
-  if (alreadyRendered(error)) {
+  // Has the CLI LIBRARY already put this failure's text on screen? A typo'd
+  // subcommand, a rejected flag, a value an enum does not admit — the library
+  // renders the reason and the usage itself, so re-reporting it would print the
+  // diagnostic twice.
+  //
+  // `CliError.isCliError` and not a local test. The library brands every one of
+  // its errors with a private TypeId and sets `_tag` to the short name
+  // (`ShowHelp`, `DuplicateOption`, …), so the obvious-looking
+  // `_tag.startsWith("~effect/cli/")` matches nothing and double-prints every
+  // diagnostic — and a copy of the TypeId STRING here is a copy of a private
+  // constant that could be renamed without a compile error anywhere. The guard
+  // is exported; this takes it.
+  if (CliError.isCliError(error)) {
     return {
       stderr: "",
       failure: new SurfaceCliFailure({ stderr: "", code: EXIT.usage }),

@@ -172,16 +172,22 @@ export interface SurfaceCliOptions<
   readonly info: { readonly name: string };
 }
 
-/** A host's flag table, keyed as `Command.make`'s config wants it. */
-// biome-ignore lint/suspicious/noExplicitAny: the host's flag types are the host's.
-type FlagRecord = Record<string, Flag.Flag<any>>;
-
-/** The parsed value one flag produces. The pinned `effect/unstable/cli` ships no
- *  extractor of its own (`Flag<A>` is the whole public shape), so it is spelled
- *  here — once — rather than at each host. */
-type FlagValues<F extends FlagRecord> = {
-  readonly [K in keyof F]: F[K] extends Flag.Flag<infer A> ? A : never;
-};
+/** A host's flag table, and the values a parse of it produces — the LIBRARY's
+ *  own pair, under local names because this file spells them on nearly every
+ *  signature.
+ *
+ *  `Command.make` derives a handler's parameter from its config with exactly
+ *  `Config.Infer`, and `Command.withSharedFlags` derives the shared half the
+ *  same way. The hand-rolled pair here — `Record<string, Flag.Flag<any>>` and a
+ *  mapped type over `Flag<infer A>` — rejected NESTED flag configs
+ *  (`{ endpoint: { socket, url } }`), which is an ordinary `Command.make`
+ *  idiom: a host whose endpoint flags are grouped could not use
+ *  {@link EndpointSeam} at all, and `resolve`'s parameter silently diverged
+ *  from what the parser hands a handler. Since `resolve`'s whole safety story is
+ *  "renaming a flag is a compile error here", it is derived from the type the
+ *  parser derives from. */
+type FlagRecord = Command.Command.FlagConfig;
+type FlagValues<F extends FlagRecord> = Command.Command.Config.Infer<F>;
 
 /** Where to dial, and how — the one seam this adapter is blind behind.
  *

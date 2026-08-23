@@ -68,14 +68,17 @@
 import type { WireSchemaAny } from "@kolu/surface/define";
 import { type AdvertisedInput, inputSchema } from "@kolu/surface/verbs";
 import { Effect, Option } from "effect";
-import { Argument, Flag } from "effect/unstable/cli";
+import { Argument, Flag, Param } from "effect/unstable/cli";
 
 /** A JSON-Schema node, walked structurally. */
 type JsonSchema = Record<string, unknown>;
 
-/** Anything `Command.make`'s config record accepts at a key. */
+/** Anything `Command.make`'s config record accepts at a key — which is what
+ *  the library's own `Param` IS: the kind-generic shape a `Flag` and an
+ *  `Argument` are the two kinds of. Naming it that way is what lets the two
+ *  rules below that do not care which kind they hold be written once. */
 // biome-ignore lint/suspicious/noExplicitAny: a runtime-built config is loose by construction — see `surfaceCommands`.
-type Param = Flag.Flag<any> | Argument.Argument<any>;
+type AnyParam = Param.Param<Param.ParamKind, any>;
 
 /** The name of the whole-input escape hatch. A verb whose input declares a
  *  field spelled the same is refused at build (see {@link flagsOf}) rather
@@ -94,7 +97,7 @@ export type Assembled =
  *  assembler that reads a parsed config back into one encoded input value. */
 export interface InputProjection {
   /** Flags and positionals, keyed as `Command.make`'s config wants them. */
-  readonly config: Record<string, Param>;
+  readonly config: Record<string, AnyParam>;
   /** The advertised document this projection was built FROM, handed back rather
    *  than left behind: every caller that wants it has already built the
    *  projection, and running the bridge again over the same schema is the same
@@ -276,12 +279,12 @@ export function flagsOf(
   const positional = opts?.positional ?? [];
   const built = inputSchema(schema);
   const doc = built.schema as JsonSchema;
-  const config: Record<string, Param> = {};
+  const config: Record<string, AnyParam> = {};
 
   // The escape hatch is on EVERY verb, including one with no input at all: a
   // caller scripting against the surface should never have to know whether this
   // particular verb happens to take fields.
-  config[JSON_FLAG] = optionalFlag(
+  config[JSON_FLAG] = optionalParam(
     Flag.string(JSON_FLAG).pipe(
       Flag.withDescription(
         "the whole input as JSON (`-` reads it from stdin) — the alternative to the field flags, never a supplement to them",
@@ -298,7 +301,7 @@ export function flagsOf(
     // The wrapped value's OWN node, from the bridge — this face never names the
     // property the wire carries it under, which is why that key is private.
     const inner = built.inner ?? {};
-    config.value = optionalArgument(
+    config.value = optionalParam(
       argumentFor("value", inner).pipe(
         Argument.withDescription("the verb's input"),
       ),
@@ -374,7 +377,7 @@ export function flagsOf(
   // arms are OPTIONAL to the parser; requiredness is `assemble`'s (see header).
   for (const name of positional) {
     const node = (properties[name] ?? {}) as JsonSchema;
-    config[name] = optionalArgument(
+    config[name] = optionalParam(
       // `defaults.get(name)`, not `defaults` — the flag arm below always passed
       // the value and this arm passed the whole Map, which is never `undefined`
       // and which `JSON.stringify` renders `{}`. So EVERY positional advertised
@@ -392,7 +395,7 @@ export function flagsOf(
   for (const name of fields) {
     if (asPositional.has(name)) continue;
     const node = (properties[name] ?? {}) as JsonSchema;
-    config[name] = optionalFlag(
+    config[name] = optionalParam(
       describe(
         flagFor(name, node),
         node,
@@ -511,12 +514,12 @@ function readJsonFlag<E, R>(
  *  Both matter because every param here is parser-optional (see the header): the
  *  library can no longer mark a required field, and it never sees the default at
  *  all — so a reader would learn neither from `--help` unless the line says so. */
-function describe<P extends Param>(
-  param: P,
+function describe<Kind extends Param.ParamKind, A>(
+  param: Param.Param<Kind, A>,
   node: JsonSchema,
   isRequired: boolean,
   fallback: unknown,
-): P {
+): Param.Param<Kind, A> {
   const written = node.description;
   const parts = [
     ...(typeof written === "string" && written !== "" ? [written] : []),
@@ -526,30 +529,24 @@ function describe<P extends Param>(
       : [`(default: ${JSON.stringify(fallback)})`]),
   ];
   if (parts.length === 0) return param;
-  const text = parts.join(" ");
-  return (
-    param.kind === "flag"
-      ? // biome-ignore lint/suspicious/noExplicitAny: the param's value type is the field's.
-        Flag.withDescription(param as Flag.Flag<any>, text)
-      : // biome-ignore lint/suspicious/noExplicitAny: the param's value type is the field's.
-        Argument.withDescription(param as Argument.Argument<any>, text)
-  ) as P;
+  // `Param.withDescription`, which is what `Flag`'s and `Argument`'s both
+  // delegate to: branching on `param.kind` to pick between them bought two
+  // `any` suppressions and an unchecked `as P` to say what the kind-generic
+  // combinator says for free.
+  return Param.withDescription(param, parts.join(" "));
 }
 
-/** An omittable flag, projected to `undefined` rather than `Option`.
+/** An omittable flag or positional, projected to `undefined` rather than
+ *  `Option`.
  *
  *  `Option` is the PARSER's vocabulary; the assembler's is "the caller did not
  *  say", and an assembled input must OMIT such a field rather than carry an
  *  explicit `undefined` (which a `Schema.optionalKey` field encodes
- *  differently). Spelled once here so no branch above can forget the narrowing. */
-// biome-ignore lint/suspicious/noExplicitAny: the flag's value type is the field's.
-const optionalFlag = (flag: Flag.Flag<any>): Flag.Flag<any> =>
-  flag.pipe(Flag.optional, Flag.map(Option.getOrUndefined));
-
-/** The same projection for an omittable POSITIONAL. */
-const optionalArgument = (
-  // biome-ignore lint/suspicious/noExplicitAny: the argument's value type is the field's.
-  arg: Argument.Argument<any>,
-  // biome-ignore lint/suspicious/noExplicitAny: the argument's value type is the field's.
-): Argument.Argument<any> =>
-  arg.pipe(Argument.optional, Argument.map(Option.getOrUndefined));
+ *  differently). Spelled once here so no branch above can forget the narrowing —
+ *  which is what the docstring above already claimed while the rule was written
+ *  twice, once per kind. `Param.optional` and `Param.map` are kind-generic and
+ *  are what `Flag`'s and `Argument`'s pairs both delegate to. */
+const optionalParam = <Kind extends Param.ParamKind, A>(
+  param: Param.Param<Kind, A>,
+): Param.Param<Kind, A | undefined> =>
+  param.pipe(Param.optional, Param.map(Option.getOrUndefined));
