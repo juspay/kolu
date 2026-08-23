@@ -47,7 +47,7 @@
  */
 
 import { messageOf } from "@kolu/surface/errors";
-import { Cause, Data, Effect, Result, Stdio, Stream } from "effect";
+import { Cause, Data, Effect, Stdio, Stream } from "effect";
 
 /** Did the consumer hang up (`… | head -1`), or did the write genuinely fail?
  *
@@ -91,7 +91,21 @@ function isConsumerHangup(failure: unknown): boolean {
  *  A failed WRITE dies (see the header); the SOURCE's own failure is the far
  *  side answering and has to reach the caller's classifier as a typed failure.
  *  One run puts both in one `Cause`, so the source's is wrapped on the way in
- *  and unwrapped on the way out — which is what keeps the two fates apart. */
+ *  and unwrapped on the way out.
+ *
+ *  The wrap is necessary and not sufficient: a `--follow` whose reader hangs up
+ *  can end with BOTH — the sink's `EPIPE` and the member's own refusal — in that
+ *  one cause, so the whole cause is asked in PRIORITY ORDER rather than by
+ *  taking the first failure it happens to hold. Reading the first one made the
+ *  arm a function of cause ORDER: `EPIPE` first meant exit 0 and the verb's
+ *  declared error gone from both channels.
+ *
+ *  The order is the rule, and it is unconditional. The SOURCE's failure wins: a
+ *  reader that hung up got exactly what it asked for and has nothing further
+ *  coming, while a verb that refused has an answer the caller must still see —
+ *  so the run reports the refusal and the hang-up is what it always was, not a
+ *  failure. Only when nothing but the hang-up is in the cause is the run
+ *  complete at exit 0. */
 function toStdout<E>(
   chunks: Stream.Stream<string, E>,
 ): Effect.Effect<void, E, Stdio.Stdio> {
@@ -103,13 +117,18 @@ function toStdout<E>(
         stdio.stdout({ endOnDone: false }),
       ),
       (cause) => {
-        const found = Cause.findError(cause);
-        if (Result.isSuccess(found)) {
-          const failure = found.success;
-          if (failure instanceof Upstream)
-            return Effect.fail(failure.error as E);
-          if (isConsumerHangup(failure)) return Effect.void;
-        }
+        // EVERY failure in the cause, not the first one: one run can end with
+        // the sink's hang-up AND the source's refusal, and which of the two
+        // `Cause.findError` returns is a fact about how the causes were
+        // combined, not about the run.
+        const failures = cause.reasons
+          .filter(Cause.isFailReason)
+          .map((reason) => reason.error);
+        const upstream = failures.find(
+          (failure): failure is Upstream => failure instanceof Upstream,
+        );
+        if (upstream !== undefined) return Effect.fail(upstream.error as E);
+        if (failures.some(isConsumerHangup)) return Effect.void;
         return Effect.orDie(Effect.failCause(cause));
       },
     );
