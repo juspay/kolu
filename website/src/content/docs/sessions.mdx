@@ -72,10 +72,13 @@ for all of them.
 
 Wake respawns the terminal in the same directory and resumes the agent on the
 **exact conversation it was running** — resumed by id (`claude --resume <id>`,
-`codex resume <id>`, `opencode --session <id>`, and the Grok equivalent), not
-merely the most-recent conversation in that folder. The launch line it replays
-— flags included — is the one kolu's [shell integration](/shell-integration)
-captured when you started the agent. The one exception is
+`codex resume <id>`, `opencode --session <id>`, `xyne --session <id>`, and the
+Grok equivalent), not merely the most-recent conversation in that folder. The
+launch line it replays — flags included — is the one kolu's
+[shell integration](/shell-integration) captured when you started the agent.
+When a terminal slept before kolu captured its session id, wake falls back to
+the agent's own most-recent resume (`xyne --continue` and friends). The one
+exception is
 deliberate: if you'd **quit** the agent to a bare shell before sleeping, waking
 lands you at that shell rather than silently relaunching something you'd closed.
 

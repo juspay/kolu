@@ -38,6 +38,7 @@
     "effect": "catalog:",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
+    "kolu-xyne": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
     "kolu-grok": "workspace:*",

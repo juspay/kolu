@@ -115,6 +115,13 @@ const STABLE_FLAGS: ReadonlyMap<
   ["gemini", new Map<string, FlagArity>([])],
   ["cursor-agent", new Map<string, FlagArity>([])],
   [
+    "xyne",
+    new Map<string, FlagArity>([
+      ["--debug", "boolean"],
+      ["--port", "value"],
+    ]),
+  ],
+  [
     "grok",
     new Map<string, FlagArity>([
       ["--model", "value"],
@@ -139,7 +146,7 @@ function basename(s: string): string {
   return slash === -1 ? s : s.slice(slash + 1);
 }
 
-type ResumableAgent = "claude" | "codex" | "opencode" | "grok";
+type ResumableAgent = "claude" | "codex" | "opencode" | "grok" | "xyne";
 
 /** Canonical UUID shape (claude + codex session ids). */
 const UUID_RE =
@@ -204,6 +211,13 @@ const AGENT_RESUME: Record<
     byId: (id) => `--resume ${id}`,
     idPattern: UUID_RE,
   },
+  // Xyne: `--continue` for most-recent in cwd; `--session <uuid>` for exact
+  // (both forms accepted upstream — cli-parser takes space-separated too).
+  xyne: {
+    last: "--continue",
+    byId: (id) => `--session ${id}`,
+    idPattern: UUID_RE,
+  },
 };
 
 /** Maps the agent binary basename to the discriminator used by
@@ -218,6 +232,7 @@ const BASENAME_TO_KIND: Record<string, AgentKind> = {
   codex: "codex",
   opencode: "opencode",
   grok: "grok",
+  xyne: "xyne",
 };
 
 /**

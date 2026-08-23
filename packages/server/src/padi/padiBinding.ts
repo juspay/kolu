@@ -207,7 +207,7 @@ export function daemonEnv(
     env.KAVAL_COMMIT_HASH = kavalIdentity.navigableCommit;
   }
   // Agent-detection dir/db OVERRIDES that padi's sensors read from their own env (via
-  // the `@kolu/integrations-*` agent packages — codex/claude-code/grok/opencode) to
+  // the `kolu-*` agent packages — codex/claude-code/grok/opencode/xyne) to
   // LOCATE agent session state. Unset in production, where they default to `~/.codex`,
   // `~/.claude`, … — set by the e2e harness to point detection at its fixtures. They
   // used to reach padi INCIDENTALLY via the survivable-spawn driver's old
@@ -231,6 +231,7 @@ export const AGENT_DIR_ENV_KEYS = [
   "KOLU_CODEX_DIR",
   "KOLU_CODEX_DB",
   "KOLU_GROK_DIR",
+  "KOLU_XYNE_DIR",
   "KOLU_OPENCODE_DB",
 ] as const;
 
