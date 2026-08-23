@@ -41,7 +41,7 @@ name at all.
 | `verbs?` | hand-authored [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs)s, by name — the same record `serveSurfaceAsMcp` takes as `tools` |
 | `endpoint` | the transport seam: `{ flags?, resolve }` — see below |
 | `annotate?` | CLI-only ergonomics by verb name: `{ positional?, render? }` |
-| `info` | the **binary's** identity: `name`, which fronts every diagnostic, because a user reads `olai: no surface at …` and never the package's name |
+| `info` | the **binary's** identity: `name`, which fronts every **prose** diagnostic — the usage and unreachable sentences — because a user reads `olai: no surface at …` and never the package's name. The refusal body is verbatim JSON with **no** prefix: an `olai: ` in front of it would stop it being JSON |
 
 ### The endpoint seam
 
@@ -229,7 +229,10 @@ on the way out.
   the verb's answer.
 - **A hung-up reader is a complete run.** `watch nodes | head -1` closes the
   pipe under a live subscription; that is the reader getting what it asked for,
-  so it exits 0. Every other write failure is reported.
+  so it exits 0. Every other write failure is reported. The predicate this arm
+  decides on is exported as `isConsumerHangup` (below), for a host whose own
+  writes sit outside this projection and answer the same question of a sink
+  failure.
 - An `annotate.render` renders a verb's output as text **for a human**, applied
   unless the caller passed `--json`. **The flag is the only thing that decides.**
   It used to be the descriptor — prose to a terminal, data through a pipe — so
@@ -313,6 +316,7 @@ print and return success, so they never reach it.)
 | `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to an `InputProjection`: the command config, the `advertised` document it was built from (handed back so a caller that wants it does not walk the schema a second time), plus the `assemble(values, stdin)` that reads a parsed config back into the verb's encoded input. `stdin` is an **Effect**, described rather than read, so the descriptor is touched only on the `--input -` path and no caller has to ask first |
 | `reportingRunEdge` | the whole run edge as one combinator — pipe your program through it, so the exit matrix is true of a real binary |
 | `runEdge(error)` | → `RunEdgeReport`: `{ kind: "write", stderr, failure }` or `{ kind: "silent", failure }` — the decision underneath, for a host that owns its own catch |
+| `isConsumerHangup(failure)` | did the consumer hang up (`… \| head -1`) or did the write genuinely fail — the predicate behind the complete-run discipline above. Reads the errno BOTH flat (`{code:"EPIPE"}`) and nested (`{cause:{code:"EPIPE"}}`, the shape a wrapped sink failure actually raises), so a host's own stdout writes ask the one question once |
 | `SurfaceCliFailure` | the failure class carrying both the text and the code |
 | `SurfaceCliBuildError` | a malformed projection, refused when the tree is built (a positional naming no field, a flag-name collision, a field that cannot be a flag) |
 | `SurfaceCliOptions` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `Assembled` · `ProjectedCommand` · `RunEdgeReport` | types |

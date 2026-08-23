@@ -32,7 +32,7 @@ import {
   PadiWatchOpenInputSchema,
 } from "@kolu/padi/surface";
 import { readTerminalKeys } from "@kolu/padi/read";
-import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp";
+import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import { match } from "ts-pattern";

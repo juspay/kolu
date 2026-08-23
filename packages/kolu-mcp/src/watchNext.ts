@@ -43,7 +43,7 @@ import { awaitWatchEvents, type PadiSurfaceClient } from "@kolu/padi/dial";
 import { type PadiWatchEvent, WATCH_NAME_MAX_LENGTH } from "@kolu/padi/surface";
 import { waitOutcomeJson } from "@kolu/surface/wait";
 import { MillisecondsSchema } from "./wait.ts";
-import type { BespokeTool } from "@kolu/surface-mcp";
+import type { BespokeTool } from "@kolu/surface-mcp/tools";
 import { Effect, Schema } from "effect";
 
 export const WatchNextArgsSchema = Schema.Struct({

@@ -38,7 +38,7 @@ import type { PadiSurfaceClient } from "@kolu/padi/dial";
 // (a CLI verb reaching sideways into a face's adapter).
 import { tailLines } from "@kolu/padi/render";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
-import type { BespokeTool } from "@kolu/surface-mcp";
+import type { BespokeTool } from "@kolu/surface-mcp/tools";
 import { Effect, Schema } from "effect";
 
 export const ScreenTextArgsSchema = Schema.Struct({

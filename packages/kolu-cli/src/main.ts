@@ -35,14 +35,22 @@
  * ## The one arm that does NOT come through here: 130
  *
  * `runMain` turns SIGINT/SIGTERM into fiber interruption, and an interrupt is
- * not a typed failure: the `Effect.catch` below never sees it, and neither would
- * a `catchCause` anywhere under it (Effect latches the interrupt cause and
- * re-raises it over every continuation popped after it). The code is still the
- * contract's — `Runtime.defaultTeardown` answers an interrupts-only cause with
- * 130 — but the LINE that rides it has to be written before the cause unwinds,
- * from a finalizer, which is what `verbs/wait.ts`'s `withInterruptReport` does.
- * So: every arm's line is written here EXCEPT the interrupted one, and that is a
- * property of Effect's interruption, not a second reporting policy.
+ * not a typed failure: the catchCause below PASSES IT THROUGH untouched (the
+ * runtime's own teardown answers an interrupts-only cause with 130), and no
+ * constructor here can be the thing that happens instead — but the LINE that
+ * rides it has to be written before the cause unwinds, from a finalizer, which
+ * is what `verbs/wait.ts`'s `withInterruptReport` does. So: every arm's line
+ * is written here EXCEPT the interrupted one, and that is a property of
+ * Effect's interruption, not a second reporting policy.
+ *
+ * ## And the arm `catch` never saw: a defect
+ *
+ * The catch is `catchCause`, not `catch`, on purpose: a DEFECT is not a
+ * failure, and a defect reaching `runMain`'s own reporting gets its pretty
+ * dump written onto STDOUT — the data channel every face of this binary
+ * prints on (`kolu ls --json`, `kolu snapshot`, `kolu surface get …`), where
+ * the dump is a corrupted pipe, not a report. A defect is folded into the
+ * one-line shape below (exit 1, as before) — see {@link failureFor}.
  */
 
 // SUBPATH imports, never the `@effect/platform-node` barrel. The barrel
@@ -57,11 +65,11 @@
 // `links/wire.ts`).
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { Command } from "effect/unstable/cli";
 import { serverVersion } from "kolu-server/src/hostname.ts";
 import { koluCli } from "./cli.ts";
-import { reportOf, UsageRefused } from "./exit.ts";
+import { CliFailure, reportOf, UsageRefused } from "./exit.ts";
 
 /** The brand every `effect/unstable/cli` error carries.
  *
@@ -119,17 +127,46 @@ const askedForText = (): boolean => {
 
 const program = Command.run(koluCli, { version: serverVersion });
 
+/** What the edge re-fails a non-library failure with.
+ *
+ *  A failure this binary raised KEEPS its identity: an arm of either face's
+ *  contract (kolu-cli's `CliFailure`, the surface face's `SurfaceCliFailure`)
+ *  carries its own exact line and its own exit code, so it re-fails as-is and
+ *  the teardown reads the code off it. A failure that is NO arm — a defect a
+ *  command let escape — gets neither fidelity: it gets the ONE-LINE shape of
+ *  `reportOf`, written HERE (not by the runtime's reporter), and exit 1.
+ *
+ *  The wrap is what makes "stdout is data" true of a crash. Left alone, a
+ *  defect reached `runMain`'s own reporting (`tapCause` + `Effect.logError`),
+ *  whose default logger writes the pretty dump ONTO STDOUT — the channel every
+ *  face of this binary prints data on (`kolu ls --json`, `kolu snapshot`,
+ *  `kolu surface get …`), so a crashing verb corrupted the very pipe a driver
+ *  was reading. The wrapped envelope marks itself already-reported, so the run
+ *  edge prints exactly one line, on stderr, and nothing else says it again.
+ *  The dump was never part of the contract: exit 1 was, and stays. */
+const failureFor = (err: unknown): CliFailure | unknown =>
+  typeof (err as { readonly stderr?: unknown })?.stderr === "string"
+    ? err
+    : new CliFailure({ stderr: reportOf(err), code: 1 });
+
 NodeRuntime.runMain(
   program.pipe(
-    Effect.catch((err) => {
+    Effect.catchCause((cause) => {
+      // A Ctrl-C is the 130 the contract publishes, the runtime's own teardown
+      // reading an interrupts-only cause — never a typed failure of ours, so
+      // hand the cause straight back, untouched.
+      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+      const err = Cause.squash(cause);
       if (!alreadyRendered(err)) {
-        // A failure this program raised: print its ONE line, then let the
-        // teardown read the code off the error itself.
+        const out = failureFor(err);
+        // A failure this program raised (or a defect that escaped it — see the
+        // header): print its ONE line, then let the teardown read the code off
+        // the failure itself.
         return Effect.flatMap(
           Effect.sync(() => {
-            process.stderr.write(reportOf(err));
+            process.stderr.write(reportOf(out));
           }),
-          () => Effect.fail(err),
+          () => Effect.fail(out),
         );
       }
       // Already on screen. Requested text is a successful run; anything else is

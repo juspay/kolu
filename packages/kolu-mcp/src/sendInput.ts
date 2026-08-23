@@ -34,7 +34,7 @@ import {
   sendShapeRefusal,
 } from "@kolu/terminal-protocol";
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp";
+import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import { Effect, Schema } from "effect";
 
 export const SendInputArgsSchema = Schema.Struct({

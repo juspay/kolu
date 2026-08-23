@@ -47,7 +47,7 @@ import {
   type WaitOutcome,
   waitOutcomeJson,
 } from "@kolu/surface/wait";
-import type { BespokeTool } from "@kolu/surface-mcp";
+import type { BespokeTool } from "@kolu/surface-mcp/tools";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";

@@ -29,21 +29,31 @@
  * a refusal's JSON BODY contains ({@link refusalLine}) is here for the same
  * reason — it is the exit-1 arm's payload, not a thing the projection knows.
  *
- * ## Another binary's matrix disagrees, and one day that will have to be settled
+ * ## Another binary's matrix disagrees — settled, per FACE
  *
  * `packages/kolu-cli` publishes its own: `1 = usage error or dropped link`,
  * `2 = wait timed out`, `3 = terminal exited`. Against this face's `2` is a
  * usage error and `3` is an unreachable endpoint — so `2` means two different
- * things across the two binaries, and `kolu`'s `UsageRefused` maps to `1` where
- * `runEdge` maps the same CLI-library refusal to `2`.
+ * things across the two binaries, and the parse layer disagrees in lockstep:
+ * `kolu`'s `UsageRefused` maps a CLI-library refusal to `1` where `runEdge`
+ * maps the same refusal to `2`.
  *
- * That is recorded, not worked around. Nothing mounts both faces today
- * (`kolu-cli` is deliberately not migrated onto this projection, and the
- * Phase-2 host is a different binary with no matrix of its own), and the day one
- * binary does mount both is the day ONE of the two matrices has to give. That is
- * a decision for that change — an override on this seam would only let the
- * collision ship quietly, with the same integer meaning two things inside one
- * binary and no one place to read the truth off.
+ * The day one binary mounted both faces has arrived: `kolu` fronts this
+ * projection as `kolu surface` (`packages/kolu-cli/src/surfaceFace.ts`) beside
+ * its native verbs. The ruling is the one this section recorded ahead of it:
+ * NO override on this seam — an override would only let the collision ship
+ * quietly, the same integer meaning two things inside one binary and no one
+ * place to read the truth off. So the matrices stay per-face, and a driver
+ * picks the matrix by picking the face:
+ *
+ *   - the surface face's verbs answer THIS matrix verbatim — each failure
+ *     carries its own code, and the binary's run edge passes identity through
+ *     rather than re-classifying;
+ *   - the native verbs keep theirs;
+ *   - the one binary-wide stance is the parse domain: Effect CLI's own
+ *     failures (a missing required flag, an unknown option) resolve as the
+ *     LIBRARY's brand before any face's handler runs, and `kolu` renders those
+ *     exit `1` on every face — the parse stance an operator learns once.
  *
  * Each arm carries the EXACT text it writes, not a fragment a formatter
  * reassembles later, plus `Runtime.errorExitCode` — the marker

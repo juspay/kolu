@@ -24,20 +24,17 @@
 import { padiSurface } from "@kolu/padi/surface";
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import {
-  type BespokeTool,
   type OwnedSurfaceConnection,
   serveSurfaceAsMcp,
 } from "@kolu/surface-mcp";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { createTool } from "./create.ts";
 import { KOLU_MCP_EXPOSE } from "./expose.ts";
-import { screenImageTool } from "./screenImage.ts";
-import { screenTextTool } from "./screenText.ts";
-import { sendInputTool } from "./sendInput.ts";
-import { waitAgentStateTool, waitOutputSettledTool } from "./wait.ts";
-import { watchOpenTool } from "./watchOpen.ts";
-import { watchNextTool } from "./watchNext.ts";
+// The tool table's home: `tools.ts`, NOT serve.ts — it is also `kolu
+// surface`'s verb table, and must stay loadable without the MCP SDK (see that
+// module's header). Re-exported from here under the name the package shipped.
+import { KOLU_MCP_TOOLS } from "./tools.ts";
+export { KOLU_MCP_TOOLS };
 
 /** A live, padi-scoped connection the injected factory produces — the adapter's
  *  own {@link OwnedSurfaceConnection} with the client narrowed to padi's face.
@@ -57,21 +54,6 @@ import { watchNextTool } from "./watchNext.ts";
 export interface KoluMcpConnection extends OwnedSurfaceConnection {
   client: PadiSurfaceClient;
 }
-
-/** The face's bespoke tools, named once so the serve call and the tests read
- *  one registry: the worktree-capable create, the named-key send, the
- *  tail-mode snapshot, the two composite wait done-signals, and the
- *  standing-subscription open (resolves ignoreSelf) and drain. */
-export const KOLU_MCP_TOOLS: Record<string, BespokeTool> = {
-  lifecycle_create: createTool,
-  lifecycle_sendInput: sendInputTool,
-  screen_text: screenTextTool,
-  screen_image: screenImageTool,
-  wait_outputSettled: waitOutputSettledTool,
-  wait_agentState: waitAgentStateTool,
-  watch_open: watchOpenTool,
-  watch_next: watchNextTool,
-};
 
 export interface ServeKoluMcpOptions {
   /** Produce a connected padi client. Re-invoked after a transport drop —
