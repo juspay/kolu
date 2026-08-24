@@ -52,6 +52,7 @@
     "kolu-github": "workspace:*",
     "kolu-grok": "workspace:*",
     "kolu-opencode": "workspace:*",
+    "kolu-pi": "workspace:*",
     "kolu-pty": "workspace:*",
     "kolu-shared": "workspace:*",
     "kolu-transcript-core": "workspace:*",

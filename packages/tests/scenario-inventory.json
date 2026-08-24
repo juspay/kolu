@@ -7514,6 +7514,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "1be13ca552dbddf44e112ff6f368fea611dfbd0c"
+    },
+    {
+      "revisionId": "revision-998932d093494c48c5be",
+      "scenarioKey": "scenario-4649e6f85c0f1692f701",
+      "feature": "features/pi.feature",
+      "scenario": "Tile chrome lights up for a Pi session and follows a live state transition",
+      "kind": "scenario",
+      "tags": ["@pi-mock"],
+      "bodyHash": "7f22f3a9c87df96f19596a2f1e805d3727ea863b9516b28cea18de53fa4172b6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d9fb92798bbf064993b4fea99b5c94acb64d127f"
+    },
+    {
+      "revisionId": "revision-a8b89c6517938e034ee6",
+      "scenarioKey": "scenario-603d2f47e09b445324f2",
+      "feature": "features/pi.feature",
+      "scenario": "Tile chrome lights up when the session file lands after the reconcile ladder",
+      "kind": "scenario",
+      "tags": ["@pi-mock"],
+      "bodyHash": "618b6a120a71baac5af0f2750386ee9b214a1529eda36a610a4713e26eeb8662",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d9fb92798bbf064993b4fea99b5c94acb64d127f"
     }
   ]
 }

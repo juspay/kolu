@@ -178,8 +178,10 @@ const AGENT_DIR_VARS = [
   "KOLU_CLAUDE_PROJECTS_DIR",
   "KOLU_CODEX_DIR",
   "KOLU_GROK_DIR",
+  "KOLU_PI_DIR",
 ] as const;
 const grokDir = RECORDING ? undefined : mkSubDir("grok");
+const piDir = RECORDING ? undefined : mkSubDir("pi");
 const serverModeEnv: Record<
   (typeof AGENT_DIR_VARS)[number],
   string | undefined
@@ -189,12 +191,14 @@ const serverModeEnv: Record<
       KOLU_CLAUDE_PROJECTS_DIR: undefined,
       KOLU_CODEX_DIR: undefined,
       KOLU_GROK_DIR: undefined,
+      KOLU_PI_DIR: undefined,
     }
   : {
       KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
       KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
       KOLU_CODEX_DIR: codexDir,
       KOLU_GROK_DIR: grokDir,
+      KOLU_PI_DIR: piDir,
       HOME: fixtureHome,
     };
 for (const name of AGENT_DIR_VARS) {
@@ -229,7 +233,7 @@ process.env.KOLU_OPENCODE_DB = opencodeDbPath;
 const fakeBinDir = mkSubDir("bin");
 const bashPath = execSync("command -v bash", { encoding: "utf8" }).trim();
 const fakeBins: Record<string, string> = {};
-for (const name of ["codex", "opencode", "grok", "claude", "node"]) {
+for (const name of ["codex", "opencode", "grok", "claude", "node", "pi"]) {
   const target = path.join(fakeBinDir, name);
   fs.copyFileSync(bashPath, target);
   fs.chmodSync(target, 0o755);
@@ -238,6 +242,7 @@ for (const name of ["codex", "opencode", "grok", "claude", "node"]) {
 process.env.KOLU_FAKE_CODEX_BIN = fakeBins.codex;
 process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
 process.env.KOLU_FAKE_GROK_BIN = fakeBins.grok;
+process.env.KOLU_FAKE_PI_BIN = fakeBins.pi;
 // The `claude` and `node` stubs are ROOT processes for the command-rooted spawn
 // repro (`spawn_detection_steps.ts`), run as the PTY's argv[0] with no shell,
 // exactly as `kaval-tui create -- <agent> …` does. `claude` (comm="claude")

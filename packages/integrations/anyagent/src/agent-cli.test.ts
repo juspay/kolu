@@ -10,8 +10,8 @@ import {
   resumeAgentCommand,
   resumeFormFor,
 } from "./agent-cli.ts";
-import { resumableCommand } from "./schemas.ts";
 import type { RestoreTarget } from "./schemas.ts";
+import { resumableCommand } from "./schemas.ts";
 
 describe("parseAgentCommand", () => {
   // Table from juspay/kolu#452
@@ -208,6 +208,7 @@ describe("parseAgentCommand", () => {
       "gemini",
       "cursor-agent",
       "grok",
+      "pi",
     ]) {
       expect(parseAgentCommand(agent)).toBe(agent);
     }
@@ -232,6 +233,59 @@ describe("parseAgentCommand", () => {
     expect(
       parseAgentCommand("grok --no-alt-screen -m grok-4.5 'ship it'"),
     ).toBe("grok --no-alt-screen -m grok-4.5");
+  });
+
+  it("preserves pi stable flags and strips positionals", () => {
+    expect(parseAgentCommand("pi --model anthropic/claude fix the bug")).toBe(
+      "pi --model anthropic/claude",
+    );
+    expect(parseAgentCommand("pi --provider google --thinking high")).toBe(
+      "pi --provider google --thinking high",
+    );
+    expect(parseAgentCommand("pi -n 'my task' fix it")).toBe("pi -n 'my task'");
+    // Unknown one-shot flags (`--no-tools`, `--session-dir`) drop safely.
+    expect(parseAgentCommand("pi --no-tools --model kimi-k3 run")).toBe(
+      "pi --model kimi-k3",
+    );
+  });
+
+  it("treats pi's lowercase -v as a version flag (not a session)", () => {
+    expect(parseAgentCommand("pi -v")).toBeNull();
+    expect(parseAgentCommand("pi --version")).toBeNull();
+    expect(parseAgentCommand("pi --help")).toBeNull();
+    // One-shot invocations must never be attributed as live sessions.
+    expect(parseAgentCommand("pi --export /tmp/out.html")).toBeNull();
+    expect(parseAgentCommand("pi --list-models anthropic")).toBeNull();
+    expect(parseAgentCommand('pi -p "summarize"')).toBeNull();
+    expect(parseAgentCommand('pi --print "summarize"')).toBeNull();
+    // Tool/management subcommands are not sessions either.
+    expect(
+      parseAgentCommand("pi auth print-api-key --provider openai"),
+    ).toBeNull();
+    expect(parseAgentCommand("pi config list")).toBeNull();
+    expect(parseAgentCommand("pi install npm:foo")).toBeNull();
+    expect(parseAgentCommand("pi update")).toBeNull();
+    // Value-flag contents are NOT subcommand words (arity-aware scan).
+    expect(parseAgentCommand("pi --name config")).toBe("pi --name config");
+    // Session-redirecting flags: kolu scans only its own sessions tree, so
+    // these invocations are unmatchable — recorded as not-a-session rather
+    // than bound to a stranger's conversation in the same cwd.
+    expect(parseAgentCommand("pi --session-dir /elsewhere")).toBeNull();
+    expect(parseAgentCommand("pi --no-session")).toBeNull();
+    // Subcommand words kill ONLY in argv position 0; pi takes any later
+    // occurrence as prompt text (verified against pi 0.84.2: `pi --provider
+    // google list` runs interactively with `list` as the prompt).
+    expect(parseAgentCommand("pi --provider google list")).toBe(
+      "pi --provider google",
+    );
+    expect(parseAgentCommand("pi --model kimi-k3 config the knobs")).toBe(
+      "pi --model kimi-k3",
+    );
+    expect(
+      parseAgentCommand("pi --thinking high remove the dead function"),
+    ).toBe("pi --thinking high");
+    // …while a lowercase -v elsewhere stays untouched territory.
+    expect(parseAgentCommand("pi")).toBe("pi");
   });
 
   // Regression (living-clue): a BOOLEAN stable flag must never consume the
@@ -411,6 +465,8 @@ describe("resumeAgentCommand", () => {
     ],
     ["grok", "grok -c"],
     ["grok -m grok-4.5", "grok -c -m grok-4.5"],
+    ["pi", "pi -c"],
+    ["pi --model kimi-k3", "pi -c --model kimi-k3"],
   ])("resume form of %j → %j", (normalized, expected) => {
     expect(resumeAgentCommand(normalized)).toBe(expected);
   });
@@ -471,6 +527,7 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   const CODEX_ID = "7f9f9a2e-1b3c-4c7a-9b0e-1d2e3f4a5b6c";
   const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
   const GROK_ID = "019f4782-7854-7592-8d87-3ba3a205a0a1";
+  const PI_ID = "01a0302a-b94b-7b18-a3c3-b3f83dfe6fe8";
 
   it.each([
     [
@@ -508,6 +565,12 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
       "grok -m grok-4.5",
       { kind: "grok", sessionId: GROK_ID },
       `grok --resume ${GROK_ID} -m grok-4.5`,
+    ],
+    ["pi", { kind: "pi", sessionId: PI_ID }, `pi --session ${PI_ID}`],
+    [
+      "pi --model kimi-k3",
+      { kind: "pi", sessionId: PI_ID },
+      `pi --session ${PI_ID} --model kimi-k3`,
     ],
   ] as const)("resumes the exact conversation: %j + %j → %j", (normalized, session, expected) => {
     expect(resumeAgentCommand(normalized, session)).toBe(expected);
@@ -553,6 +616,63 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
     ],
   ] as const)("refuses to resume on a malformed same-agent id (returns null): %j + %j", (normalized, session) => {
     expect(resumeAgentCommand(normalized, session)).toBeNull();
+  });
+
+  // pi's exact-resume prefers the transcript PATH (pi's own `--session`
+  // accepts it, and it bypasses the session-store lookup that a moved store
+  // — e.g. a harness's per-run `PI_CODING_AGENT_DIR` — breaks for ids).
+  const PI_PATH =
+    "/tmp/pi-agent-XXXXXX/sessions/--home-u-code-kolu--/2026-08-24T00-00-00-000Z_01a0302a-b94b-7b18-a3c3-b3f83dfe6fe8.jsonl";
+  it("pi prefers the transcript path over the id when the producer carries it", () => {
+    expect(
+      resumeAgentCommand("pi", {
+        kind: "pi",
+        sessionId: PI_ID,
+        sessionPath: PI_PATH,
+      }),
+    ).toBe(`pi --session ${PI_PATH}`);
+    expect(
+      resumeAgentCommand("pi --model kimi-k3", {
+        kind: "pi",
+        sessionId: PI_ID,
+        sessionPath: PI_PATH,
+      }),
+    ).toBe(`pi --session ${PI_PATH} --model kimi-k3`);
+  });
+
+  it("pi splices a path with shell-active characters only via quoting", () => {
+    // Only inert path characters pass the gate; the splice quotes the token.
+    expect(
+      resumeAgentCommand("pi", {
+        kind: "pi",
+        sessionId: PI_ID,
+        sessionPath: "/tmp/pi agent x/$(pwn).jsonl",
+      }),
+    ).toBeNull();
+    expect(
+      resumeAgentCommand("pi", {
+        kind: "pi",
+        sessionId: PI_ID,
+        sessionPath: "relative/file.jsonl",
+      }),
+    ).toBeNull();
+    expect(
+      resumeAgentCommand("pi", {
+        kind: "pi",
+        sessionId: PI_ID,
+        sessionPath: "/tmp/no-suffix",
+      }),
+    ).toBeNull();
+  });
+
+  it("a quoted path with spaces + parens passes the gate and the splice", () => {
+    expect(
+      resumeAgentCommand("pi", {
+        kind: "pi",
+        sessionId: PI_ID,
+        sessionPath: "/w/work dir/x (1)/2026-01-01T00-00-00-000Z_a.jsonl",
+      }),
+    ).toBe("pi --session '/w/work dir/x (1)/2026-01-01T00-00-00-000Z_a.jsonl'");
   });
 
   // No ref at all → unchanged most-recent behavior (back-compat with callers

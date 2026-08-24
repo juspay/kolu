@@ -28,6 +28,7 @@
     "kolu-github": "workspace:*",
     "kolu-grok": "workspace:*",
     "kolu-opencode": "workspace:*",
+    "kolu-pi": "workspace:*",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {

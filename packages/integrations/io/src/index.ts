@@ -23,3 +23,5 @@ export {
   type CoalesceSchedule,
   type CoalesceScheduleOpts,
 } from "./coalesce-schedule.ts";
+
+export { watchDirWhenReady } from "./dir-appear-watcher.ts";

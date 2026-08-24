@@ -94,6 +94,11 @@ export type PipGlyphDef = {
 // Real brand marks — do not hand-draw approximations. Attribution per path.
 // claude / opencode / openai(codex): simple-icons (CC0).
 // grok: lobehub icon set (xAI/grok is NOT in simple-icons).
+// pi: geometric π letterform — pi ships no flat vector mark (its assets are
+// the "clankolas" mascot), and the agent IS named for the constant, so the
+// glyph is the literal sign rather than an approximation of one. The SAME
+// path renders the client chrome's PiIcon (packages/client/src/ui/Icons.tsx) —
+// one shape, two render contexts.
 
 function fillMark(viewBox: string, d: string): PipGlyphDef {
   return { viewBox, paint: "fill", paths: [d] };
@@ -121,6 +126,13 @@ const GLYPH_CODEX = fillMark(
 const GLYPH_OPENCODE = fillMark(
   "0 0 24 24",
   "M22 24H2V0h20zM17 4.8H7v14.4h10z",
+);
+
+/** Pi letterform — geometric π, uniform strokes, filled like the brands so
+ *  spin weight matches at 16px (see the attribution note above). */
+const GLYPH_PI = fillMark(
+  "0 0 24 24",
+  "M5 6h14v2.5H16V18h-2.5V8.5h-3V18H8V8.5H5V6z",
 );
 
 /** Shell — filled `#` prompt.
@@ -156,6 +168,8 @@ export function agentGlyph(kind: AgentKind): PipGlyphDef {
       return GLYPH_OPENCODE;
     case "grok":
       return GLYPH_GROK;
+    case "pi":
+      return GLYPH_PI;
     default:
       kind satisfies never;
       return GLYPH_SHELL;
