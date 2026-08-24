@@ -293,8 +293,11 @@ lands.
 | Tool use | spinning amber | newest assistant message ended `stopReason: "toolUse"` |
 | Waiting | dim dot | newest assistant message ended its turn (`stop` / `length` / `error` / `aborted`) |
 
-**Resume** uses `pi -c` (most recent in the directory) or `pi --session <uuid>`
-(an exact conversation). Launch-shape flags such as `--model` / `--provider` /
+**Resume** uses `pi -c` (most recent in the directory) or `pi --session`
+with the transcript's **absolute path** when known (an exact conversation —
+pi accepts both the id and the path; the path is spliced because an id alone
+can no longer be found once the session store was moved by a redirect
+above). Launch-shape flags such as `--model` / `--provider` /
 `--thinking` / `--name` are kept on the **recent agents** list and on sleep/wake
 resume. **Context tokens** come from the newest assistant message's usage
 (`input + cacheRead + cacheWrite` — pi's buckets are disjoint, so the sum is
@@ -315,17 +318,39 @@ session JSONL.
   started *inside* a running pi (its `/new`) is therefore indistinguishable
   from one started elsewhere in that directory, so the tile stays on the
   previous session until you exit the agent.
-- **A redirected session store** — pi moves its sessions with
-  `PI_CODING_AGENT_SESSION_DIR` / `--session-dir`; kolu scans only its own
-  sessions root (default `~/.pi/agent/sessions`, override with
-  `KOLU_PI_DIR=<dir>` where `<dir>/sessions` is the tree to scan). A pi
-  launched with `--session-dir <elsewhere>` — or `--no-session` — is still
-  SEEN (the process name lights the tile), but its session lands outside the
-  scanned tree, so the tile may sit on another, older session in that
-  directory rather than the one actually running; it also never enters
-  **Recent agents** and won't be restored on wake. (Note: pi's
-  `PI_CODING_AGENT_DIR` moves its CONFIG directory only; sessions stay under
-  `~/.pi/agent/sessions` and kolu sees them normally.)
+- **An ephemeral session** — a pi launched with `--no-session` writes
+  nothing to disk, so there is no session to bind to (it never enters
+  **Recent agents** and can't be restored on wake).
+
+
+### Pi's session-store locations
+
+kolu follows **pi's own precedence** for where sessions live, per terminal —
+it reads the foreground pi process's own arguments and environment, so each
+of these is honoured exactly as pi honours it:
+
+| Override | Where sessions land |
+| --- | --- |
+| `pi --session-dir <dir>` | `<dir>` |
+| `PI_CODING_AGENT_SESSION_DIR=<dir>` | `<dir>` |
+| `sessionDir` in `<agent dir>/settings.json` | `<dir>` |
+| `PI_CODING_AGENT_DIR=<dir>` | `<dir>/sessions` — the config dir moves, sessions with it |
+| _(none)_ | `~/.pi/agent/sessions` |
+
+Only the default bottom row uses per-directory subfolders (`--<directory>--`);
+an explicit override in the first three rows holds the session files flat,
+attributed by each file's header — kolu maps on disk exactly as pi does.
+
+Detection follows the redirect: a pi launched by an agent harness that sets
+`PI_CODING_AGENT_DIR` per run (to a scratch dir, for config isolation) is
+detected in that run's real session store, not in `~/.pi`. Session-file
+updates in any of these stores wake the tile the same way the default tree
+does. The one case where the details can't be read is a host that hides
+process environments from kolu itself (e.g. `/proc` mounted `hidepid`) —
+then the default tree is scanned, and only a pi with a *default* store is
+found. kolu's own scan root can be forced with `KOLU_PI_DIR=<dir>` (where
+`<dir>/sessions` is the tree to scan) — the escape hatch for tests and
+unusual setups, never a replacement for the per-terminal resolution above.
 
 ## Adding an agent
 

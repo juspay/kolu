@@ -9,6 +9,15 @@
  *  watching the nearest existing ANCESTOR and descending as each level
  *  appears is event-driven and needs none.
  *
+ *  A non-ENOENT attach failure (EMFILE/ENOSPC on inotify watches, EACCES) is
+ *  LOUD and final for this subscription: it hits the error log once, the
+ *  chain gives up, and the consumer's event flow stays dark until it
+ *  re-subscribes or the process restarts. Deliberately no retry — the
+ *  install contract of its consumer (`AgentAdapter.externalChanges`) is
+ *  at-most-once, so a transient inotify exhaustion is a long blind window
+ *  either way; the surfaced error, not a hidden poll, is the fix signal
+ *  (raise `fs.inotify.max_user_watches`).
+ *
  *  Semantics:
  *   - If `dir` exists, watch attaches synchronously and `onChange` fires once
  *     immediately (a reconcile kick: entries may have landed between the
