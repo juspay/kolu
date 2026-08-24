@@ -42,6 +42,53 @@ const EXIT_FLAGS: ReadonlySet<string> = new Set([
   "-h",
 ]);
 
+/** Exit-immediately flags an agent spells DIFFERENTLY from the shared set
+ *  (pi's version flag is lowercase `-v`; the shared `-V` is a different
+ *  switch for it). Keyed by the same basename as `STABLE_FLAGS` so an
+ *  agent-only spelling never leaks its exit status onto another agent's
+ *  legitimately-boolean `-v` (e.g. a future agent whose `-v` is verbose). */
+const EXTRA_EXIT_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  // Pi's one-shot surface is wider than the other four agents': `-v` is its
+  // version spell (capital `-V` is a different, unknown switch), and
+  // `--export` / `--list-models` / `-p` (`--print`) are print-and-exit
+  // invocations that must never enter the recent-agents MRU.
+  ["pi", new Set(["-v", "--export", "--list-models", "-p", "--print"])],
+]);
+
+/** Flags that make an invocation produce NO session kolu can bind to:
+ *  `--session-dir <dir>` writes outside the scanned tree; `--no-session` is
+ *  ephemeral. Attributing either would bind the terminal to a DIFFERENT
+ *  session in the cwd (the #1495 wrong-conversation class via the
+ *  unmatchable direction). Valid in ANY argv position, hence checked
+ *  position-independent. */
+const NON_SESSION_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["pi", new Set(["--session-dir", "--no-session"])],
+]);
+
+/** BARE positional subcommand words — but only in argv position 0: pi
+ *  dispatches a subcommand from its FIRST argument alone, and any later
+ *  occurrence is prompt text for an interactive session (verified against
+ *  pi 0.84.2: `pi list` lists packages and exits; `pi --provider google
+ *  list` takes the interactive path with `list` as the prompt). The
+ *  arity-aware scan keeps value-flag values (`pi --name config`) immune. */
+const NON_SESSION_SUBCOMMANDS: ReadonlyMap<
+  string,
+  ReadonlySet<string>
+> = new Map([
+  [
+    "pi",
+    new Set([
+      "auth",
+      "config",
+      "install",
+      "list",
+      "remove",
+      "uninstall",
+      "update",
+    ]),
+  ],
+]);
+
 /** Whether a stable flag consumes the token that follows it as its value
  *  (`--model sonnet` → `"value"`) or is a standalone boolean switch
  *  (`--dangerously-skip-permissions` → `"boolean"`). Co-located with each
@@ -115,6 +162,16 @@ const STABLE_FLAGS: ReadonlyMap<
   ["gemini", new Map<string, FlagArity>([])],
   ["cursor-agent", new Map<string, FlagArity>([])],
   [
+    "pi",
+    new Map<string, FlagArity>([
+      ["--model", "value"],
+      ["--provider", "value"],
+      ["--thinking", "value"],
+      ["--name", "value"],
+      ["-n", "value"],
+    ]),
+  ],
+  [
     "grok",
     new Map<string, FlagArity>([
       ["--model", "value"],
@@ -139,11 +196,19 @@ function basename(s: string): string {
   return slash === -1 ? s : s.slice(slash + 1);
 }
 
-type ResumableAgent = "claude" | "codex" | "opencode" | "grok";
+type ResumableAgent = "claude" | "codex" | "opencode" | "grok" | "pi";
 
 /** Canonical UUID shape (claude + codex session ids). */
 const UUID_RE =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/** pi's resume ref — the id, or the absolute PATH to its session file (pi's
+ *  `--session <path|id>`). The path arm admits only shell-inert writing-system
+ *  characters (no control, no quotes, no `$`/";"/backtick/metachars) as a
+ *  second wall — the splice itself always goes through `shellJoin`, which is
+ *  the lock. */
+const PI_RESUME_REF_RE =
+  /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\/[\w .,@=+(){}#%/~-]*\.jsonl)$/;
 
 /**
  * The whole per-agent resume policy — one entry per resume-capable agent, so
@@ -204,6 +269,17 @@ const AGENT_RESUME: Record<
     byId: (id) => `--resume ${id}`,
     idPattern: UUID_RE,
   },
+  // Pi: `-c` / `--continue` for most-recent in the cwd; `--session` accepts an
+  // id, a partial id, or the session FILE PATH. The splice prefers the PATH:
+  // pi's id lookup searches only its OWN current store resolution (default
+  // tree or the current flag/env override), so a session whose store MOVED
+  // (a harness's per-run `PI_CODING_AGENT_DIR`) is unfindable by id from a
+  // fresh invocation, while the absolute path opens unconditionally.
+  pi: {
+    last: "-c",
+    byId: (id) => `--session ${id}`,
+    idPattern: PI_RESUME_REF_RE,
+  },
 };
 
 /** Maps the agent binary basename to the discriminator used by
@@ -218,6 +294,7 @@ const BASENAME_TO_KIND: Record<string, AgentKind> = {
   codex: "codex",
   opencode: "opencode",
   grok: "grok",
+  pi: "pi",
 };
 
 /**
@@ -310,8 +387,13 @@ function normalizeAgentInvocation(argv: string[]): string | null {
   // Not a known agent invocation — the head basename isn't in the allowlist.
   if (allowed === undefined) return null;
 
-  // Exit-immediately flags → not an agent session.
-  if (args.some((t) => EXIT_FLAGS.has(t))) return null;
+  // Exit-immediately flags → not an agent session (shared set plus any
+  // agent-specific spellings, e.g. pi's lowercase `-v`).
+  const extraExit = EXTRA_EXIT_FLAGS.get(agent);
+  if (args.some((t) => EXIT_FLAGS.has(t) || extraExit?.has(t))) return null;
+
+  const nonSessionFlags = NON_SESSION_FLAGS.get(agent);
+  const nonSessionSubcommands = NON_SESSION_SUBCOMMANDS.get(agent);
 
   // Keep only allowlisted flags + their values. Anything else (unknown flags,
   // positional args) is dropped.
@@ -320,6 +402,11 @@ function normalizeAgentInvocation(argv: string[]): string | null {
     const t = args[i];
     if (t === undefined) break;
     if (t === "--") break; // stop at explicit end-of-flags
+    if (nonSessionFlags?.has(t)) return null; // session-redirecting flag
+    // A subcommand word kills the invocation ONLY as the first argument —
+    // later occurrences are prompt text (pi's own grammar).
+    if (i === 0 && !t.startsWith("-") && nonSessionSubcommands?.has(t))
+      return null;
     if (!t.startsWith("-")) continue; // drop positional
     const next = args[i + 1];
     const arity = allowed.get(t);
@@ -397,13 +484,14 @@ export function resumeAgentCommand(
 
   let marker: string;
   if (isSameAgentRef) {
-    // Same-agent ref: resume the EXACT conversation iff the id passes its
-    // shell-inert shape gate. `shellJoin([id])` quotes the id as a single token —
-    // a no-op for a gate-passing id, but it keeps the "data, not shell text"
-    // intent explicit. A malformed id is a broken claim → refuse to resume
+    // Same-agent ref: resume the EXACT conversation iff the ref passes its
+    // shell-inert shape gate. `shellJoin([ref])` quotes the ref as a single token —
+    // a no-op for a gate-passing ref, but it keeps the "data, not shell text"
+    // intent explicit. A malformed ref is a broken claim → refuse to resume
     // (return null) rather than fall back to the most-recent (wrong) conversation.
-    if (!policy.idPattern.test(session.sessionId)) return null;
-    marker = policy.byId(shellJoin([session.sessionId]));
+    const ref = session.sessionPath ?? session.sessionId;
+    if (!policy.idPattern.test(ref)) return null;
+    marker = policy.byId(shellJoin([ref]));
   } else {
     // No ref, or a ref for a different agent: most-recent fallback (no id to aim).
     marker = policy.last;

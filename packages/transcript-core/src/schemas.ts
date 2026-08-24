@@ -17,6 +17,7 @@ export const AGENT_KINDS = [
   "opencode",
   "codex",
   "grok",
+  "pi",
 ] as const;
 export type AgentKindLiteral = (typeof AGENT_KINDS)[number];
 

@@ -58,6 +58,7 @@ import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { githubForgeAdapter } from "kolu-github";
 import { opencodeAdapter } from "kolu-opencode";
+import { piAdapter } from "kolu-pi";
 import type { ForegroundSample } from "kaval";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type { Logger } from "pino";
@@ -1159,6 +1160,7 @@ export function startSensors(
   const stopCodex = startAgent(codexAdapter);
   const stopOpenCode = startAgent(opencodeAdapter);
   const stopGrok = startAgent(grokAdapter);
+  const stopPi = startAgent(piAdapter);
   const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
   const stopPorts = startPortSensor(terminalId, signals, emit, log);
   return () => {
@@ -1170,6 +1172,7 @@ export function startSensors(
     stopCodex();
     stopOpenCode();
     stopGrok();
+    stopPi();
     stopProcess();
     stopPorts();
   };

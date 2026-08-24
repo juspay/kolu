@@ -98,7 +98,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-export-session",
-    text: `${formatKeybind(ACTIONS.commandPalette.keybind)} → "Export agent session as HTML" saves the active Claude/OpenCode/Codex transcript as a chat log, a full transcript, or both`,
+    text: `${formatKeybind(ACTIONS.commandPalette.keybind)} → "Export agent session as HTML" saves the active Claude/Codex/OpenCode/Grok/Pi transcript as a chat log, a full transcript, or both`,
     doc: "power-features",
   },
   {

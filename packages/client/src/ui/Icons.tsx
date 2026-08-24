@@ -127,6 +127,21 @@ export const GrokIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Pi mark — a geometric π glyph (the agent is named for the constant).
+ *  Uniform strokes, filled, `currentColor` — reads at 12–16px beside the
+ *  other agent icons. Pi ships no flat vector mark of its own (its assets
+ *  are the "clankolas" mascot), so the letterform IS the sign. */
+export const PiIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3 h-3"}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    <path d="M5 6h14v2.5H16V18h-2.5V8.5h-3V18H8V8.5H5V6z" />
+  </svg>
+);
+
 /** Local diff: pencil icon — uncommitted working-tree edits. */
 export const DiffLocalIcon: Component<{ class?: string }> = (props) => (
   <svg
