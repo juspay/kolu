@@ -37,7 +37,7 @@ export const PiInfoSchema = Schema.Struct({
    *  store moved (a harness's per-run `PI_CODING_AGENT_DIR`, or a
    *  `--session-dir`); the path opens regardless. Optional — older producers
    *  carry no path. */
-  sessionPath: Schema.optional(Schema.String),
+  sessionPath: Schema.optionalKey(Schema.String),
   /** Model identifier from the newest assistant message's `message.model`
    *  (e.g. "claude-sonnet-4-5"), or the latest `model_change` entry when the
    *  session has no assistant turn yet. Null until either lands. */

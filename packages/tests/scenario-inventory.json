@@ -115,9 +115,7 @@
       "feature": "features/canvas.feature",
       "scenario": "Canvas is not rendered on mobile",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "dfd99216a7b00c385b4e19d9edef59433d5405fafa51a4e9efc7042193da6b25",
       "exampleRows": [],
       "executions": 1,
@@ -225,9 +223,7 @@
       "feature": "features/canvas.feature",
       "scenario": "Clicking a minimap tile rect activates that terminal and pans the canvas",
       "kind": "scenario",
-      "tags": [
-        "@skip"
-      ],
+      "tags": ["@skip"],
       "bodyHash": "a3cc3b34ec21e2783794f6e5a1f8ec161ac7246ed1a6c121f9ed48ba4d2aa97e",
       "exampleRows": [],
       "executions": 1,
@@ -671,9 +667,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "A backgrounded Bash command is not a running-in-background state",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "273d558d4712479af8ab8a82701f28aa1e64451cb0e2c0ff7101969d4bf4f65d",
       "exampleRows": [],
       "executions": 1,
@@ -685,9 +679,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "A running /fork promotes the idle main to running-in-background",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "aca58de59b7e7ffaf5e964e43468a54fa1b257494d4d28c955512a55c69071f8",
       "exampleRows": [],
       "executions": 1,
@@ -699,9 +691,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "A tool-permission prompt on screen promotes tool_use to awaiting (screen scrape, #905)",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "ec310d849e8f1de81c7d011a3a8715ce32810116e771f477fbd656a280b2c57a",
       "exampleRows": [],
       "executions": 1,
@@ -713,9 +703,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "A trailing /compact summary reads as idle, not stuck working",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "f95cdd418c7ca33e1553b478baa4a1ef0abf289e91cbb59a5784726ecc9614ff",
       "exampleRows": [],
       "executions": 1,
@@ -727,9 +715,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "A v2.1.173 AskUserQuestion footer (with the notes hint) still promotes to awaiting",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "16e5d78040bee63ef068f59813156d98940c7149d7b359796f4899709e622e80",
       "exampleRows": [],
       "executions": 1,
@@ -741,9 +727,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "A workflow launch with a Run ID but no journal does not spin forever",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "a97f7ad73f396fdcd25a9b1910216a2adc8c7594f05f3d11d704974bafd7a53a",
       "exampleRows": [],
       "executions": 1,
@@ -755,9 +739,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "An AskUserQuestion prompt on screen promotes thinking to awaiting (screen scrape, #905)",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "f0075b54dab47d5314ff84c54154ba4d6666ff02db5e90ed9ad76656670b502a",
       "exampleRows": [],
       "executions": 1,
@@ -769,9 +751,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "An orphaned workflow (stale journal) settles to idle, not running",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "a967f8052752685ca900640b59e99f4db9aa19cef777ff6fedcda74a9b7d54ef",
       "exampleRows": [],
       "executions": 1,
@@ -783,9 +763,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "Claude Code indicator disappears when session ends",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "1a85ae2d9a437628bbdb532734e09e112edbbc456032a5e71398faf1d2557652",
       "exampleRows": [],
       "executions": 1,
@@ -797,9 +775,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "Claude Code state cycles waiting → thinking → waiting",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "cea7dfb8542563b363a0474cf39e837cce124f12ab8ffb5a7b48831ae00c051f",
       "exampleRows": [],
       "executions": 1,
@@ -811,9 +787,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "Claude Code state updates from thinking to waiting",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "d4ddecd676041ad9cb22b269631df9f2a6c3297c959ae857dae124373aa6cb60",
       "exampleRows": [],
       "executions": 1,
@@ -825,9 +799,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "Interrupted (Esc) turn reads as waiting, not running",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "4d6fa60aa2580bcb34690edfa0252652a0a3b96ce1521bcb262a0e67646fd646",
       "exampleRows": [],
       "executions": 1,
@@ -839,9 +811,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "Interrupting a tool call reads as waiting, not running",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "769c347b6a8788859c5f3090e0d1f5eeac0c6fcb6cb961242145c939e7abc12f",
       "exampleRows": [],
       "executions": 1,
@@ -853,9 +823,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "Previous-session JSONL in the project dir doesn't confuse detection",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "3d87b40d89bb884d17901dfaf942539cc529e1458d514d4c62026eeefea0ec97",
       "exampleRows": [],
       "executions": 1,
@@ -867,9 +835,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "Tile chrome shows Claude Code thinking state",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "d8f053f35f2d53565570cdb1b6d65ad6dba2651288c12c382c01a5d8adb3ec7c",
       "exampleRows": [],
       "executions": 1,
@@ -881,9 +847,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "Tile chrome shows running-in-background state with workflow fan-out",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "649b0d4a881508ab7b1482aedbef899e1d6471f21540cc5801beefa77bad8d31",
       "exampleRows": [],
       "executions": 1,
@@ -895,9 +859,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "Tile chrome shows task progress when Claude has tasks",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "222cb902b3121b94561935e1e5ddfd5876c538fdc1df9eb9aaa633024cc3304e",
       "exampleRows": [],
       "executions": 1,
@@ -909,9 +871,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "Tile title leads with the dock's agent-state pip",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "605a484df491d5dc87feab27d6cb430cd3481763efb592183cab9386232f5750",
       "exampleRows": [],
       "executions": 1,
@@ -923,9 +883,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "Visiting an unread agent clears its pill ping",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "00f8128ef5172e3ddc4f7f14a0710c22fbaf4ed3500072057aac49ee93e8874e",
       "exampleRows": [],
       "executions": 1,
@@ -937,9 +895,7 @@
       "feature": "features/claude-code.feature",
       "scenario": "Workspace switcher pings the branch on unread completion",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "be11d414757c8a2b3573915643e91e263185dfc3cb5f8d5897d1de78332aa001",
       "exampleRows": [],
       "executions": 1,
@@ -2279,9 +2235,7 @@
       "feature": "features/codex.feature",
       "scenario": "Context tokens do not double-count cached input tokens",
       "kind": "scenario",
-      "tags": [
-        "@codex-mock"
-      ],
+      "tags": ["@codex-mock"],
       "bodyHash": "d1136b89568c9981d493de170109849775d14daeb8e04c5c2d502476bdb64e67",
       "exampleRows": [],
       "executions": 1,
@@ -2293,9 +2247,7 @@
       "feature": "features/codex.feature",
       "scenario": "Context tokens reflect input_tokens from the rollout",
       "kind": "scenario",
-      "tags": [
-        "@codex-mock"
-      ],
+      "tags": ["@codex-mock"],
       "bodyHash": "e90115757b8363ec408d162357f6dba66a637360c248d599991e3fd2e0b71c38",
       "exampleRows": [],
       "executions": 1,
@@ -2307,9 +2259,7 @@
       "feature": "features/codex.feature",
       "scenario": "npm-shimmed Codex is detected via the OSC 633;E preexec hint",
       "kind": "scenario",
-      "tags": [
-        "@codex-mock"
-      ],
+      "tags": ["@codex-mock"],
       "bodyHash": "cbe384ede4a5bc9daca9bbedb22ad77b9930b05c14fe55db5b82246480b659bc",
       "exampleRows": [],
       "executions": 1,
@@ -2321,9 +2271,7 @@
       "feature": "features/codex.feature",
       "scenario": "Tile chrome shows Codex thinking state",
       "kind": "scenario",
-      "tags": [
-        "@codex-mock"
-      ],
+      "tags": ["@codex-mock"],
       "bodyHash": "296d6020dfccd8d7fef161803b37dbd01f105399e3c2e7ae2606da51c18ae20e",
       "exampleRows": [],
       "executions": 1,
@@ -2335,9 +2283,7 @@
       "feature": "features/codex.feature",
       "scenario": "Tile chrome shows Codex tool-use state",
       "kind": "scenario",
-      "tags": [
-        "@codex-mock"
-      ],
+      "tags": ["@codex-mock"],
       "bodyHash": "1b0b5ef85fe840c124f4776c3ab6c03c6ed0404dbff79e954550be9e6d80ee40",
       "exampleRows": [],
       "executions": 1,
@@ -2349,9 +2295,7 @@
       "feature": "features/codex.feature",
       "scenario": "Tile chrome shows Codex waiting state",
       "kind": "scenario",
-      "tags": [
-        "@codex-mock"
-      ],
+      "tags": ["@codex-mock"],
       "bodyHash": "7dbee2546a6a9400354dd9c1e5fbfd3a06057dd4ed1eed4ee7f95cdfc11754ea",
       "exampleRows": [],
       "executions": 1,
@@ -2615,9 +2559,7 @@
       "feature": "features/command-palette.feature",
       "scenario": "Tips suppressed on mobile",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "b80eb592d36965d0a3b886178a58220577b2cf183ca20458cbc8befda6c8ad6c",
       "exampleRows": [],
       "executions": 1,
@@ -2641,9 +2583,7 @@
       "feature": "features/compact-layout.feature",
       "scenario": "A roomy touch viewport mounts the two-pane compact layout",
       "kind": "scenario",
-      "tags": [
-        "@compact"
-      ],
+      "tags": ["@compact"],
       "bodyHash": "a39432da51f981ba1b6e7209d5f04f297a31242b8e24661791dca2c752ffa786",
       "exampleRows": [],
       "executions": 1,
@@ -2655,9 +2595,7 @@
       "feature": "features/compact-layout.feature",
       "scenario": "An empty compact workspace offers a tappable create path",
       "kind": "scenario",
-      "tags": [
-        "@compact"
-      ],
+      "tags": ["@compact"],
       "bodyHash": "fea783810302cd4e223a4ce602dbdd65647b7a57abca8d995f0c69c85fbc531c",
       "exampleRows": [],
       "executions": 1,
@@ -2669,9 +2607,7 @@
       "feature": "features/compact-layout.feature",
       "scenario": "Tapping a rail row switches the active terminal",
       "kind": "scenario",
-      "tags": [
-        "@compact"
-      ],
+      "tags": ["@compact"],
       "bodyHash": "ff3dc64c962447716db37513855e3ddd3ef29aa40da7519a2185879209c98463",
       "exampleRows": [],
       "executions": 1,
@@ -2743,9 +2679,7 @@
       "feature": "features/deep-links.feature",
       "scenario": "A #/settings link opens settings on a phone, drawer and all",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "882edf7f5069b38c330f74648535caf2ff016292790c138e2fc563e664dd3d8c",
       "exampleRows": [],
       "executions": 1,
@@ -2865,9 +2799,7 @@
       "feature": "features/dock.feature",
       "scenario": "A cancelled dock resize drag reverts to the pre-drag width",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "f6ea499a8f7a42320966ed85c630231221a6b423ca8d3109d4fbd6b4461ae53c",
       "exampleRows": [],
       "executions": 1,
@@ -2879,9 +2811,7 @@
       "feature": "features/dock.feature",
       "scenario": "Active terminal carries a visible indicator on its dock row",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "3df5f94487718e2919d25c35ae70e2472748f061ab8d5365d303c6c3b2b7b8e8",
       "exampleRows": [],
       "executions": 1,
@@ -2893,9 +2823,7 @@
       "feature": "features/dock.feature",
       "scenario": "Activity-window footer switches layout reactively on collapse",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "ce86bbdb2497e345d982b65af5c7556a5d50b377d92a437ec5887b853912ec68",
       "exampleRows": [],
       "executions": 1,
@@ -2907,9 +2835,7 @@
       "feature": "features/dock.feature",
       "scenario": "Chrome-bar dock-toggle button toggles the dock",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "06763fdf1d02e53a80dee8828c0d2217db9171d052bdb126308a55383b658203",
       "exampleRows": [],
       "executions": 1,
@@ -2921,9 +2847,7 @@
       "feature": "features/dock.feature",
       "scenario": "Cmd+1 activates the first dock row (recency-sorted)",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "56396ab22fe1de5122bda7fe3e8f0cf4d3066b6f3b8743944d167c0e3bb8e04d",
       "exampleRows": [],
       "executions": 1,
@@ -2935,9 +2859,7 @@
       "feature": "features/dock.feature",
       "scenario": "Cmd+Shift+B toggles the dock between rail and cards",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "0a64dc4ce9738d9b84f5a957021d51373cc563857c42d6ffc0c673a5103e8888",
       "exampleRows": [],
       "executions": 1,
@@ -2949,9 +2871,7 @@
       "feature": "features/dock.feature",
       "scenario": "Dock activity-window selector defaults to All and shares with the minimap",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "4252533552579bbde183014609abcbb8c51cd789958dcab1d470062981ac819b",
       "exampleRows": [],
       "executions": 1,
@@ -2963,9 +2883,7 @@
       "feature": "features/dock.feature",
       "scenario": "Dock collapses to rail and expands back to cards",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "722714d564c431edfa500a2c0025561e09220e7bb63baae393d6b9ad83054a39",
       "exampleRows": [],
       "executions": 1,
@@ -2977,9 +2895,7 @@
       "feature": "features/dock.feature",
       "scenario": "Dock defaults to cards mode on first open",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "ed06c77bc3858dc39f482e1b72894e0d50702d6fed8cda7d1b0985fbd68e694b",
       "exampleRows": [],
       "executions": 1,
@@ -2991,9 +2907,7 @@
       "feature": "features/dock.feature",
       "scenario": "Dock stays visible in maximized-tile mode as a sidebar",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "824c9977741863e93d5d76df0cc541842229fa837a49b02c844403cc05ceaeac",
       "exampleRows": [],
       "executions": 1,
@@ -3005,9 +2919,7 @@
       "feature": "features/dock.feature",
       "scenario": "Dock surfaces a just-finished (waiting) Claude session as a quiet row, not a card",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "01416dc3f17a467c61605db45f20a58326028d4e69f390b000011e2eed4dc263",
       "exampleRows": [],
       "executions": 1,
@@ -3019,9 +2931,7 @@
       "feature": "features/dock.feature",
       "scenario": "Dock surfaces an awaiting-input Claude session as a full card",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "22bcce6505f4ede6dd63c931a47422539b2df6da70bf2d77ebbcc9f946784930",
       "exampleRows": [],
       "executions": 1,
@@ -3033,9 +2943,7 @@
       "feature": "features/dock.feature",
       "scenario": "Dock surfaces working Claude session as a compact pill",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "b8d7712aaf9b126edd08eaf9e013ab4386c34ecb51b5a91b8c382ef68211ee84",
       "exampleRows": [],
       "executions": 1,
@@ -3047,9 +2955,7 @@
       "feature": "features/dock.feature",
       "scenario": "Foreground process surfaces on non-agent dock rows",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "62d878c524b933a9ae43e60f017b40cbb404933c4f8c56f9b9e1e7560329044d",
       "exampleRows": [],
       "executions": 1,
@@ -3061,9 +2967,7 @@
       "feature": "features/dock.feature",
       "scenario": "Mod held reveals numeric shortcut hints on dock rows",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "469578ffb72feec2bcc69b82028316b6fbf61cad54c1ce2023f14e7632e36633",
       "exampleRows": [],
       "executions": 1,
@@ -3075,9 +2979,7 @@
       "feature": "features/dock.feature",
       "scenario": "Repo sections carry a colour spine and a sticky tinted header",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "0582302afebdc251c69554b99d9a288cc5f5eec55b38da5135769fea3292bf9f",
       "exampleRows": [],
       "executions": 1,
@@ -3089,9 +2991,7 @@
       "feature": "features/dock.feature",
       "scenario": "The maximized dock reserves canvas room so its handle stays reachable",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "701fb9c2b3b734777f2c672ee777b6d2335fbe876eaf3ba1ec11f517d79e58d4",
       "exampleRows": [],
       "executions": 1,
@@ -3103,9 +3003,7 @@
       "feature": "features/dock.feature",
       "scenario": "The resize handle exists only in the maximized cards sidebar; drag widens and persists, double-click resets",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "2c50d0ee14ce8fbb486ed07137b7618102489d7d2385118b7a587859b9d1ecbd",
       "exampleRows": [],
       "executions": 1,
@@ -3165,9 +3063,7 @@
       "feature": "features/file-ref-link.feature",
       "scenario": "A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable)",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "d1b5fdeaa9fea58811eee7837229b073ae64c2ba4d57fdcc9c218a9bd30e1267",
       "exampleRows": [],
       "executions": 1,
@@ -3335,9 +3231,7 @@
       "feature": "features/file-ref-link.feature",
       "scenario": "Tapping a file-ref on touch follows the link instead of summoning the keyboard",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "5e0de1b00e49e5b07ec59e44b261a6ac6850cd7bbe4bb75c472cea1eb9d85f35",
       "exampleRows": [],
       "executions": 1,
@@ -3409,9 +3303,7 @@
       "feature": "features/git-context.feature",
       "scenario": "Git context updates when .git appears in cwd without an OSC 7 re-emit",
       "kind": "scenario",
-      "tags": [
-        "@skip-darwin"
-      ],
+      "tags": ["@skip-darwin"],
       "bodyHash": "b795ca4b75077efc6dbf6461fca9418d80fdcd9987791f28d0bb8e883e16ab0b",
       "exampleRows": [],
       "executions": 1,
@@ -3483,9 +3375,7 @@
       "feature": "features/grok.feature",
       "scenario": "Tile chrome follows a live events.jsonl state transition",
       "kind": "scenario",
-      "tags": [
-        "@grok-mock"
-      ],
+      "tags": ["@grok-mock"],
       "bodyHash": "54c2bfcbf9c16c8e8e21fda8aecb9682df852dc85d9e4a4c9ae78bec3dfa01ce",
       "exampleRows": [],
       "executions": 1,
@@ -3497,9 +3387,7 @@
       "feature": "features/grok.feature",
       "scenario": "Tile chrome lights up when active_sessions is written late",
       "kind": "scenario",
-      "tags": [
-        "@grok-mock"
-      ],
+      "tags": ["@grok-mock"],
       "bodyHash": "8f475261c87d0fcf32f68cf71a668243c419841c94b4e7ce7eddd4e7d869a2bf",
       "exampleRows": [],
       "executions": 1,
@@ -3511,9 +3399,7 @@
       "feature": "features/grok.feature",
       "scenario": "Tile chrome shows Grok awaiting-user state",
       "kind": "scenario",
-      "tags": [
-        "@grok-mock"
-      ],
+      "tags": ["@grok-mock"],
       "bodyHash": "fe168d93033976e4b82f411da70ce42db400b7409d755ff619218ee328da8300",
       "exampleRows": [],
       "executions": 1,
@@ -3525,9 +3411,7 @@
       "feature": "features/grok.feature",
       "scenario": "Tile chrome shows Grok thinking state",
       "kind": "scenario",
-      "tags": [
-        "@grok-mock"
-      ],
+      "tags": ["@grok-mock"],
       "bodyHash": "8842b6c2a0b768dca6957e51e874df1e8c9088e285f3734ac9376f87f544c2af",
       "exampleRows": [],
       "executions": 1,
@@ -3539,9 +3423,7 @@
       "feature": "features/grok.feature",
       "scenario": "Tile chrome shows Grok tool-use state",
       "kind": "scenario",
-      "tags": [
-        "@grok-mock"
-      ],
+      "tags": ["@grok-mock"],
       "bodyHash": "eac031fd290ca2f12a74a31f275f443c1af6e11bccd1483aeaa99007d3e3fd66",
       "exampleRows": [],
       "executions": 1,
@@ -3553,9 +3435,7 @@
       "feature": "features/grok.feature",
       "scenario": "Tile chrome shows Grok waiting state",
       "kind": "scenario",
-      "tags": [
-        "@grok-mock"
-      ],
+      "tags": ["@grok-mock"],
       "bodyHash": "36d3f9d688aab2dc1e310b2d9a7f496711c24d6fb236d6d4c3cf3a33b6af5057",
       "exampleRows": [],
       "executions": 1,
@@ -3591,9 +3471,7 @@
       "feature": "features/kaval-daemon.feature",
       "scenario": "Killing kaval mid-session shows the honest degraded canvas",
       "kind": "scenario",
-      "tags": [
-        "@kaval-restart"
-      ],
+      "tags": ["@kaval-restart"],
       "bodyHash": "7cdda546413394302fe3ce4ed4c6fa421435d4b0b3953c2a1520315a17c68f19",
       "exampleRows": [],
       "executions": 1,
@@ -3605,9 +3483,7 @@
       "feature": "features/kaval-daemon.feature",
       "scenario": "Recycling kaval with a split does not spuriously re-parent it and keeps it visible",
       "kind": "scenario",
-      "tags": [
-        "@kaval-restart"
-      ],
+      "tags": ["@kaval-restart"],
       "bodyHash": "78f5fdf482fe5cb2a01401cae3f5f40bcc7220db683c6421cb80e7515dd91793",
       "exampleRows": [],
       "executions": 1,
@@ -3619,9 +3495,7 @@
       "feature": "features/kaval-daemon.feature",
       "scenario": "Restarting a DEGRADED kaval spawns a fresh daemon, keeps padi up, and preserves the session",
       "kind": "scenario",
-      "tags": [
-        "@kaval-restart"
-      ],
+      "tags": ["@kaval-restart"],
       "bodyHash": "238bbb7409c7475d9dcbf5ddaff898464a46a34a80ad9d63341bed8dab4af166",
       "exampleRows": [],
       "executions": 1,
@@ -3633,9 +3507,7 @@
       "feature": "features/kaval-daemon.feature",
       "scenario": "Restarting a LIVE kaval recycles it (fresh pid), keeps padi up, and preserves the session",
       "kind": "scenario",
-      "tags": [
-        "@kaval-restart"
-      ],
+      "tags": ["@kaval-restart"],
       "bodyHash": "1c43a551e7b809e09f1b382f8bcfb7832c78559777e752ff506e490c06b4e56a",
       "exampleRows": [],
       "executions": 1,
@@ -3863,9 +3735,7 @@
       "feature": "features/mobile-code-browse.feature",
       "scenario": "Inspector toggle in the chrome sheet opens the right panel as a drawer",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "2c4bea6da4eea59238cfb044cdb54d3343ce2c7eb8a082475ae676851a427b97",
       "exampleRows": [],
       "executions": 1,
@@ -3877,9 +3747,7 @@
       "feature": "features/mobile-dock-drawer.feature",
       "scenario": "Clicking the dock handle (mouse path) opens the drawer without errors",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "84800756b6dd68a21ad6e4e73a3b5cf6ca99420f36f2b6c56171bf8736b67fef",
       "exampleRows": [],
       "executions": 1,
@@ -3891,9 +3759,7 @@
       "feature": "features/mobile-dock-drawer.feature",
       "scenario": "Dismissing the dock via the backdrop does not summon the soft keyboard",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "50020480616942c290f9e2d6a5b7f708181acd3e632e761ea8c67c00c21de749",
       "exampleRows": [],
       "executions": 1,
@@ -3905,9 +3771,7 @@
       "feature": "features/mobile-dock-drawer.feature",
       "scenario": "Left-edge handle opens the dock drawer",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "34774b9a2d2b0753474077ea339ead87bec458c6f1ba8326ab6f6a95fb8b603c",
       "exampleRows": [],
       "executions": 1,
@@ -3919,9 +3783,7 @@
       "feature": "features/mobile-dock-drawer.feature",
       "scenario": "Selecting a row switches active terminal and closes the drawer",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "e25be81eea6048ca0a796c3d5ae31d1ae191e0f0356e4f3605f6857601cd1baf",
       "exampleRows": [],
       "executions": 1,
@@ -3933,9 +3795,7 @@
       "feature": "features/mobile-dock-drawer.feature",
       "scenario": "Selecting a split lands in that pane and closes the drawer",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "31a9d1b954ff05bab71a9fad2e5a6829018d116fbf96024c5df60bdd6b3a13ca",
       "exampleRows": [],
       "executions": 1,
@@ -3947,9 +3807,7 @@
       "feature": "features/mobile-dock-drawer.feature",
       "scenario": "Tapping the backdrop dismisses the dock drawer",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "75b30b3c2a8297d6c7afb4dd00e33b6720c10a1d5559b7e041d58473b6703751",
       "exampleRows": [],
       "executions": 1,
@@ -3961,9 +3819,7 @@
       "feature": "features/mobile-drawer.feature",
       "scenario": "Clicking the pull handle (mouse path) opens the drawer without errors",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "9741881277218723b24c037dd04d3f7ba13288035d0cc6a51cfa2e10beb23023",
       "exampleRows": [],
       "executions": 1,
@@ -3975,9 +3831,7 @@
       "feature": "features/mobile-drawer.feature",
       "scenario": "Dragging down on the pull handle opens the drawer",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "2256a5955ad4488a2e713fbce7c4edd8e71e6e231e8a5a5ce7807869639ad5bf",
       "exampleRows": [],
       "executions": 1,
@@ -3989,9 +3843,7 @@
       "feature": "features/mobile-drawer.feature",
       "scenario": "Dragging the sheet up past the dismiss threshold closes it",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "001357bda04768b7db05e78d58f46bf6ad08139bc531df73d322c12e3c7fd995",
       "exampleRows": [],
       "executions": 1,
@@ -4003,9 +3855,7 @@
       "feature": "features/mobile-drawer.feature",
       "scenario": "Palette button in drawer opens the command palette",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "a7b67ad696dbc69355812b1fe285eda6f0a7c40eed1afada585a8f8c2414c7a1",
       "exampleRows": [],
       "executions": 1,
@@ -4017,9 +3867,7 @@
       "feature": "features/mobile-drawer.feature",
       "scenario": "Pull-handle opens the chrome drawer",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "3376736dbd77d12bb3a3b2c1dcc2284f1d301daa3f92edfbe91acb98f394de97",
       "exampleRows": [],
       "executions": 1,
@@ -4031,9 +3879,7 @@
       "feature": "features/mobile-drawer.feature",
       "scenario": "Tapping the backdrop dismisses the drawer",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "e597e4155b6179ef072b57adf9968bc0ee818c9ddde44a3511090096e5a33222",
       "exampleRows": [],
       "executions": 1,
@@ -4045,9 +3891,7 @@
       "feature": "features/mobile-hosts.feature",
       "scenario": "Tapping the already-active local chip is a no-op without errors",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "3f631fdd6f72815d5870f9efe17f1e53bce2fb464874ad611bfdb62ec944b2ab",
       "exampleRows": [],
       "executions": 1,
@@ -4059,9 +3903,7 @@
       "feature": "features/mobile-hosts.feature",
       "scenario": "The add-host affordance opens an in-sheet add section",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "7e91e3f59aaf3f925853e2dbc7c87107210149aa0bb47e865da5e82dcdddb4b9",
       "exampleRows": [],
       "executions": 1,
@@ -4073,9 +3915,7 @@
       "feature": "features/mobile-hosts.feature",
       "scenario": "The host row renders in the pull-down sheet with the local chip",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "d34d86d961d638453a4d33acb9ecd33e9aadc9de757c8f0d8bc381fa6a56b9eb",
       "exampleRows": [],
       "executions": 1,
@@ -4087,9 +3927,7 @@
       "feature": "features/mobile-hosts.feature",
       "scenario": "The host row stays reachable when the canvas isn't a workspace",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "d146048ce14ab5cf2fb6641f922d8d8080df5fb18099e8a1deb29d1d6ac3e18c",
       "exampleRows": [],
       "executions": 1,
@@ -4101,9 +3939,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "A canceled gesture clears state so a trailing pointerup does not focus",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "f2e7abba86f78806f0e60948cb12c8e0877482240d0592cac32affeb8137e285",
       "exampleRows": [],
       "executions": 1,
@@ -4115,9 +3951,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "An armed sticky modifier is consumed one-shot by the next key-bar key",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "846a1e773352d92760d22d50e9d3ea5b9d1956c924d2625b9b33f271a01ba493",
       "exampleRows": [],
       "executions": 1,
@@ -4129,9 +3963,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "App root tracks visualViewport.height so the keyboard doesn't overlap the terminal",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "1ca5f978153e9b9891a4265ed35766050e84357bbc5bf0625fcb5eea6107de6d",
       "exampleRows": [],
       "executions": 1,
@@ -4143,9 +3975,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Catching up via the scroll-to-bottom FAB does not summon the soft keyboard",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "6b3fb22d8ec5bb91a59c3a5c630c9c8f038e532a9e2b88468b111329dfc31308",
       "exampleRows": [],
       "executions": 1,
@@ -4157,9 +3987,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Closing a dialog does not summon the soft keyboard",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "a67a316115096758e7a4c8ec21b0e15dbd4867f30a7688fe1e66cab7fea52481",
       "exampleRows": [],
       "executions": 1,
@@ -4171,9 +3999,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Key-bar keys route to the focused split, not the parent tile",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "47a29f27caef37c06eb85b1f58a7838601e36880d500e43e5bd2add38230d539",
       "exampleRows": [],
       "executions": 1,
@@ -4185,9 +4011,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Soft key bar is visible on mobile",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "72c91f3c66b268bc3e106dc84ab2dff14c49fdc88c3fea6e0fd412f2f93ca60c",
       "exampleRows": [],
       "executions": 1,
@@ -4199,9 +4023,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Sticky Ctrl folds into the next character typed on the soft keyboard",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "be09ff59e092baa9a81a188c7cba5210469ee528b519fa47aa38e4d578a78b07",
       "exampleRows": [],
       "executions": 1,
@@ -4213,9 +4035,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Switching terminals does not summon the soft keyboard",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "bb63e2a33a09868afb6b5d278fe06eb4ceeaeec07179140d5a4996ab25c4b71e",
       "exampleRows": [],
       "executions": 1,
@@ -4227,9 +4047,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Tapping ↑ then ⏎ recalls and resubmits the previous command",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "b6f3190d667f3b2e70036f95ce3a3c463fc3566e405607c51bad93aec2de8c9a",
       "exampleRows": [],
       "executions": 1,
@@ -4241,9 +4059,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Tapping Ctrl-C interrupts a running command",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "c3cac88cb75e96e75bb56d2b679546b395822d9570e6adaf044d259326890af7",
       "exampleRows": [],
       "executions": 1,
@@ -4255,9 +4071,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Tapping the slash key sends slashes to the active terminal",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "4815e5eee9b08c8ef1e4ded2d6b2f3bca6170f43370cd58514238af13b13af20",
       "exampleRows": [],
       "executions": 1,
@@ -4269,9 +4083,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Tapping the terminal focuses xterm without a contenteditable focus shuffle",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "490abe53b998e6a80d1a8fe65b344b400f077137d19eb53bcea1687b4f3120a8",
       "exampleRows": [],
       "executions": 1,
@@ -4283,9 +4095,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "The soft key bar lays its keys out in two rows without horizontal scroll",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "29ecd9aa265bd9d86d48f21614d00b584349d4e91eab8184488ee0259f7d8f65",
       "exampleRows": [],
       "executions": 1,
@@ -4297,9 +4107,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Touch-scrolling the terminal does not summon the soft keyboard",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "1543637aacd441ad13cc2f5caf462dd5a0c4d5352941063c505fc9ea747cfbf2",
       "exampleRows": [],
       "executions": 1,
@@ -4311,9 +4119,7 @@
       "feature": "features/mobile-sub-terminal.feature",
       "scenario": "Active pane is distinguished in a split on mobile",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "81aeccd910a62dbcc53e180dee0127eb0e5f2440e50b45bb0f394384ede992fd",
       "exampleRows": [],
       "executions": 1,
@@ -4325,9 +4131,7 @@
       "feature": "features/mobile-sub-terminal.feature",
       "scenario": "Create sub-terminal via command palette on mobile",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "222fb7114db2b42c1ad1fe6899165c8a5e4690ec668839a640489a902f95e0ff",
       "exampleRows": [],
       "executions": 1,
@@ -4339,9 +4143,7 @@
       "feature": "features/mobile-sub-terminal.feature",
       "scenario": "Sub-terminal output persists across mobile tile swipe",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "b99445f83a5da1755f189172cf9e875e90d8684dea0eacd2fbd5fcb26981011e",
       "exampleRows": [],
       "executions": 1,
@@ -4353,9 +4155,7 @@
       "feature": "features/mobile-swipe.feature",
       "scenario": "Mobile renders one fullscreen tile",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "20e0b8c7d60f70172bd039cfc83605f7073cba9c79f5d854e9e3e153a2e26c39",
       "exampleRows": [],
       "executions": 1,
@@ -4367,9 +4167,7 @@
       "feature": "features/mobile-swipe.feature",
       "scenario": "Swipe left cycles to a different terminal",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "9785fa5fb1734fa74c0fe590cc73d99e4b5aabe354c4e4260a235fb230104fb4",
       "exampleRows": [],
       "executions": 1,
@@ -4381,9 +4179,7 @@
       "feature": "features/mobile-swipe.feature",
       "scenario": "Swipe right also cycles",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "3e7fb1619f68fcc2a14dd45ca5c97ea9d3307f430dcc357f275426778b9f0649",
       "exampleRows": [],
       "executions": 1,
@@ -4395,9 +4191,7 @@
       "feature": "features/mobile-swipe.feature",
       "scenario": "Swiping on the soft key bar does not cycle terminals",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "20dd28c7a3b313fda2734c60213002485261c4f994e9b110eb4f1a76e18cd40c",
       "exampleRows": [],
       "executions": 1,
@@ -4409,9 +4203,7 @@
       "feature": "features/mobile-terminal-scroll.feature",
       "scenario": "Touch-swiping down inside the terminal scrolls the scrollback up",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "15ae618ebff8374269dcb36c1fd95080f7eefc6a6414429450bb36a25faae6b6",
       "exampleRows": [],
       "executions": 1,
@@ -4423,9 +4215,7 @@
       "feature": "features/opencode.feature",
       "scenario": "Context tokens persist through a subsequent user prompt",
       "kind": "scenario",
-      "tags": [
-        "@opencode-mock"
-      ],
+      "tags": ["@opencode-mock"],
       "bodyHash": "585d7877a22e1850730cea0a8e8400e520b4a46fe640127622722c52f1fda92c",
       "exampleRows": [],
       "executions": 1,
@@ -4437,9 +4227,7 @@
       "feature": "features/opencode.feature",
       "scenario": "npm-shimmed OpenCode is detected via the OSC 633;E preexec hint",
       "kind": "scenario",
-      "tags": [
-        "@opencode-mock"
-      ],
+      "tags": ["@opencode-mock"],
       "bodyHash": "d606559f7f0ac51b71099b6405642a36797d291c5565fd0dfdecab9972a60a9a",
       "exampleRows": [],
       "executions": 1,
@@ -4451,9 +4239,7 @@
       "feature": "features/opencode.feature",
       "scenario": "OpenCode state updates from thinking to waiting",
       "kind": "scenario",
-      "tags": [
-        "@opencode-mock"
-      ],
+      "tags": ["@opencode-mock"],
       "bodyHash": "e60c54c71601d22a6f3b1324ac3011081247c4990fb1a9ea68a835f5370a6e39",
       "exampleRows": [],
       "executions": 1,
@@ -4465,9 +4251,7 @@
       "feature": "features/opencode.feature",
       "scenario": "Tile chrome shows OpenCode task progress",
       "kind": "scenario",
-      "tags": [
-        "@opencode-mock"
-      ],
+      "tags": ["@opencode-mock"],
       "bodyHash": "0d12a0fddfa40a79fbafbf2c5c4b100bbf2b5284478944b2d691076f42cbe022",
       "exampleRows": [],
       "executions": 1,
@@ -4479,9 +4263,7 @@
       "feature": "features/opencode.feature",
       "scenario": "Tile chrome shows OpenCode thinking state",
       "kind": "scenario",
-      "tags": [
-        "@opencode-mock"
-      ],
+      "tags": ["@opencode-mock"],
       "bodyHash": "dfe3096864e8a484631b776fbb3baaf2705ba44bf4d2c4b8dd5448c6efb4e487",
       "exampleRows": [],
       "executions": 1,
@@ -4493,9 +4275,7 @@
       "feature": "features/opencode.feature",
       "scenario": "Tile chrome shows OpenCode tool-use state",
       "kind": "scenario",
-      "tags": [
-        "@opencode-mock"
-      ],
+      "tags": ["@opencode-mock"],
       "bodyHash": "f409f6d17c90b48d1b8d20f29fd048b34aec2d98c2f0f0fca0628164f02506a4",
       "exampleRows": [],
       "executions": 1,
@@ -4507,9 +4287,7 @@
       "feature": "features/opencode.feature",
       "scenario": "Tile chrome shows OpenCode waiting state",
       "kind": "scenario",
-      "tags": [
-        "@opencode-mock"
-      ],
+      "tags": ["@opencode-mock"],
       "bodyHash": "f80cd91b861778ebab21262d123c3893067ea3de2edc13eba932f385b3472b76",
       "exampleRows": [],
       "executions": 1,
@@ -4833,9 +4611,7 @@
       "feature": "features/recordings.feature",
       "scenario": "hero-demo",
       "kind": "scenario",
-      "tags": [
-        "@recording"
-      ],
+      "tags": ["@recording"],
       "bodyHash": "b2bff90c84e0efde525ee53f28817eecc4698c811d5cb72f5d931f6c3dc1b325",
       "exampleRows": [],
       "executions": 1,
@@ -5387,9 +5163,7 @@
       "feature": "features/sleeping-terminals.feature",
       "scenario": "A daemon restart mid-sleep converges with no orphan tile",
       "kind": "scenario",
-      "tags": [
-        "@kaval-restart"
-      ],
+      "tags": ["@kaval-restart"],
       "bodyHash": "fb37b356339610dd69735b58cbabbb2252f85d92814b823db9f442e9708d1004",
       "exampleRows": [],
       "executions": 1,
@@ -5437,10 +5211,7 @@
       "feature": "features/sleeping-terminals.feature",
       "scenario": "A slept agent terminal survives a daemon restart and still wakes-to-resume",
       "kind": "scenario",
-      "tags": [
-        "@codex-mock",
-        "@kaval-restart"
-      ],
+      "tags": ["@codex-mock", "@kaval-restart"],
       "bodyHash": "e63bf8b7438d33bfa9b7506958b061e3adabdc5f451cf8cb551ab762dfcd45bf",
       "exampleRows": [],
       "executions": 1,
@@ -5488,9 +5259,7 @@
       "feature": "features/sleeping-terminals.feature",
       "scenario": "Waking a sleeping agent terminal resumes the SAME conversation",
       "kind": "scenario",
-      "tags": [
-        "@codex-mock"
-      ],
+      "tags": ["@codex-mock"],
       "bodyHash": "5baf38127a471ce59ab318d2ddcb4b61805d9f6ef8b89e780e4f53dfb670e6e1",
       "exampleRows": [],
       "executions": 1,
@@ -5538,9 +5307,7 @@
       "feature": "features/spawn-detection.feature",
       "scenario": "A command-rooted claude with a live session is detected (pid path)",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "3832d61f7f0442c44241cc3e95c65020f618b3de3e83987b5c710a84a316a1c4",
       "exampleRows": [],
       "executions": 1,
@@ -5552,9 +5319,7 @@
       "feature": "features/spawn-detection.feature",
       "scenario": "A command-rooted opencode npm shim is detected via its command (hint path)",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "24b7bcd56ac250e4bb9d7a0343eae68fe453509d02dea1d472aaf0f09f589933",
       "exampleRows": [],
       "executions": 1,
@@ -5650,9 +5415,7 @@
       "feature": "features/sub-terminal.feature",
       "scenario": "Kill parent with splits shows confirmation and closes all",
       "kind": "scenario",
-      "tags": [
-        "@skip"
-      ],
+      "tags": ["@skip"],
       "bodyHash": "1dae1761f1aa56764f822b03a048191e7e2959837747001c89ff895333c5457f",
       "exampleRows": [],
       "executions": 1,
@@ -5880,9 +5643,7 @@
       "feature": "features/terminal-resize.feature",
       "scenario": "Resizing the active mobile terminal does not resize hidden terminals",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "bc3f62fa207837a4bf993df601d10298f842e64cd7ba639b34c6cecceee6aca4",
       "exampleRows": [],
       "executions": 1,
@@ -6026,9 +5787,7 @@
       "feature": "features/terminal-switcher.feature",
       "scenario": "Dock is not rendered on mobile",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "f2d88eda325bd47f5375e989e8441b72a5526c14265bf2534eee6254982b459e",
       "exampleRows": [],
       "executions": 1,
@@ -6628,9 +6387,7 @@
       "feature": "features/worktree.feature",
       "scenario": "Closing a split terminal in a worktree does not prompt for removal",
       "kind": "scenario",
-      "tags": [
-        "@skip"
-      ],
+      "tags": ["@skip"],
       "bodyHash": "f76808db14d780c4eda5f7fe095027870c77f22c470ee079b1d2ed90db206853",
       "exampleRows": [],
       "executions": 1,
@@ -6702,9 +6459,7 @@
       "feature": "features/worktree.feature",
       "scenario": "Worktree terminal with splits shows confirmation and removes all",
       "kind": "scenario",
-      "tags": [
-        "@skip"
-      ],
+      "tags": ["@skip"],
       "bodyHash": "d9dea9b277387b66309cf8f4be9abbb14994fbbcc46478d028ac7ee2b0d4afe2",
       "exampleRows": [],
       "executions": 1,
@@ -6818,9 +6573,7 @@
       "feature": "features/dock.feature",
       "scenario": "Foreground process surfaces on non-agent dock rows",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "383f6e5cd6dfe28d0ce5d2d2742aec8ca860cc3e1387533b03308e14d41981b3",
       "exampleRows": [],
       "executions": 1,
@@ -6844,9 +6597,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Sticky Ctrl folds into the next character typed on the soft keyboard",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "2f2dc431c8c9f0ab995f5cd20fd6df463d55e20b0686c30339e7616264274e64",
       "exampleRows": [],
       "executions": 1,
@@ -6858,9 +6609,7 @@
       "feature": "features/mobile-soft-keyboard.feature",
       "scenario": "Tapping Ctrl-C interrupts a running command",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "1b638e3d5f51ea6c88548609d97e901ec44cd67cdba3ca08d8357ff8c35a8c68",
       "exampleRows": [],
       "executions": 1,
@@ -6944,9 +6693,7 @@
       "feature": "features/kaval-daemon.feature",
       "scenario": "Recycling kaval with a split does not spuriously re-parent it and keeps it visible",
       "kind": "scenario",
-      "tags": [
-        "@kaval-restart"
-      ],
+      "tags": ["@kaval-restart"],
       "bodyHash": "967064e5d0b5579c3d8bceee1a0c4c7ae1662f1997494d2523494cdf2494d54d",
       "exampleRows": [],
       "executions": 1,
@@ -7306,9 +7053,7 @@
       "feature": "features/file-ref-link.feature",
       "scenario": "A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable)",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "7b2be350c0330ddb4eb6132fa514ae601651c5145bf02e9b9b1dadf88a9af50f",
       "exampleRows": [],
       "executions": 1,
@@ -7428,9 +7173,7 @@
       "feature": "features/file-ref-link.feature",
       "scenario": "Tapping a file-ref on touch follows the link instead of summoning the keyboard",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "fba9a7d72e7d05120a38251d8b44baea0b9620baedaf0e0c91e3e1239fcd8f33",
       "exampleRows": [],
       "executions": 1,
@@ -7502,9 +7245,7 @@
       "feature": "features/file-ref-link.feature",
       "scenario": "A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable)",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "44dd2ede5845bc42ef939251e629c8dcc0b2c753a11498e2837c572490dddd40",
       "exampleRows": [],
       "executions": 1,
@@ -7516,9 +7257,7 @@
       "feature": "features/file-ref-link.feature",
       "scenario": "A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable)",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "8832834cad58059d036a5376ee7d427090fd97e77ec8c4ea1cb29ebd74a557eb",
       "exampleRows": [],
       "executions": 1,
@@ -7578,10 +7317,7 @@
       "feature": "features/session-restore.feature",
       "scenario": "A split terminal's agent resumes on session restore",
       "kind": "scenario",
-      "tags": [
-        "@codex-mock",
-        "@kaval-restart"
-      ],
+      "tags": ["@codex-mock", "@kaval-restart"],
       "bodyHash": "431b2dd44541bba53bd39c95c5abfaf7f38d13aff511ef4e6246abf00ea3afa5",
       "exampleRows": [],
       "executions": 1,
@@ -7593,10 +7329,7 @@
       "feature": "features/session-restore.feature",
       "scenario": "A split terminal's agent resumes on session restore",
       "kind": "scenario",
-      "tags": [
-        "@codex-mock",
-        "@kaval-restart"
-      ],
+      "tags": ["@codex-mock", "@kaval-restart"],
       "bodyHash": "c72204ebf3b00d5937bbc987d78e1abbef728f7859f04d916d83d46b7a554102",
       "exampleRows": [],
       "executions": 1,
@@ -7620,9 +7353,7 @@
       "feature": "features/right-panel.feature",
       "scenario": "Inspector Work chips read correctly in the mobile drawer",
       "kind": "scenario",
-      "tags": [
-        "@mobile"
-      ],
+      "tags": ["@mobile"],
       "bodyHash": "4279b4333f44cd93be360e955756b980eda8133e606d100db9d4d31cf34c658e",
       "exampleRows": [],
       "executions": 1,
@@ -7646,10 +7377,7 @@
       "feature": "features/session-restore.feature",
       "scenario": "A split terminal's agent resumes on session restore",
       "kind": "scenario",
-      "tags": [
-        "@codex-mock",
-        "@kaval-restart"
-      ],
+      "tags": ["@codex-mock", "@kaval-restart"],
       "bodyHash": "7f38112bd517a07bebd79931a14040ed66ad7a318fa7adcdba609e69a9d2b60a",
       "exampleRows": [],
       "executions": 1,
@@ -7709,9 +7437,7 @@
       "feature": "features/grok.feature",
       "scenario": "Tile chrome keeps following Grok after a concurrent grok clobbers active_sessions",
       "kind": "scenario",
-      "tags": [
-        "@grok-mock"
-      ],
+      "tags": ["@grok-mock"],
       "bodyHash": "66413d57982645f983e8da330580951777d312a5b5832182d1b9dd71f7f9fedb",
       "exampleRows": [],
       "executions": 1,
@@ -7735,9 +7461,7 @@
       "feature": "features/dock.feature",
       "scenario": "A blocked agent joins the Needs-you strip without renumbering the dock",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "258365d8fb0fe67fd4e238f2127fc43860870aca5a88293b686ce18f997311a7",
       "exampleRows": [],
       "executions": 1,
@@ -7749,9 +7473,7 @@
       "feature": "features/dock.feature",
       "scenario": "Cmd+1 activates the first dock row (creation order)",
       "kind": "scenario",
-      "tags": [
-        "@claude-mock"
-      ],
+      "tags": ["@claude-mock"],
       "bodyHash": "d9fe80cb14ea0434416a1027868c7d39eb030b05fddba6df99d0f4d18e626456",
       "exampleRows": [],
       "executions": 1,
@@ -7799,9 +7521,7 @@
       "feature": "features/pi.feature",
       "scenario": "Tile chrome lights up for a Pi session and follows a live state transition",
       "kind": "scenario",
-      "tags": [
-        "@pi-mock"
-      ],
+      "tags": ["@pi-mock"],
       "bodyHash": "7f22f3a9c87df96f19596a2f1e805d3727ea863b9516b28cea18de53fa4172b6",
       "exampleRows": [],
       "executions": 1,
@@ -7813,9 +7533,7 @@
       "feature": "features/pi.feature",
       "scenario": "Tile chrome lights up when the session file lands after the reconcile ladder",
       "kind": "scenario",
-      "tags": [
-        "@pi-mock"
-      ],
+      "tags": ["@pi-mock"],
       "bodyHash": "618b6a120a71baac5af0f2750386ee9b214a1529eda36a610a4713e26eeb8662",
       "exampleRows": [],
       "executions": 1,

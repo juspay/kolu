@@ -51,7 +51,7 @@ export const AgentIdentitySchema = Schema.Struct({
    *  found once the store moved, e.g. a harness's per-run `PI_CODING_AGENT_
    *  DIR`). Optional: agents whose resume ref IS the id (claude/codex/…)
    *  never set it; the splice prefers it when present. */
-  sessionPath: Schema.optional(Schema.String),
+  sessionPath: Schema.optionalKey(Schema.String),
 });
 export type AgentIdentity = typeof AgentIdentitySchema.Type;
 
