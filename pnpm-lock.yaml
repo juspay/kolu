@@ -657,6 +657,9 @@ importers:
         specifier: ^5.9.0
         version: 5.9.0
     devDependencies:
+      '@kolu/daemon-test-gate':
+        specifier: workspace:*
+        version: link:../../daemon-test-gate
       '@kolu/log':
         specifier: workspace:*
         version: link:../../log

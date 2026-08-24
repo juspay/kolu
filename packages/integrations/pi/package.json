@@ -24,6 +24,7 @@
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
+    "@kolu/daemon-test-gate": "workspace:*",
     "@kolu/log": "workspace:*",
     "@types/node": "^22.0.0",
     "typescript": "^7.0.2",

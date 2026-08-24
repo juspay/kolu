@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { describeDaemon } from "@kolu/daemon-test-gate";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -241,7 +242,11 @@ describe("loadPiTranscript", () => {
     expect(t?.events[0]).toMatchObject({ kind: "user", text: "hi" });
   });
 
-  it("finds a session in a REDIRECTED store the adapter registered (`PI_CODING_AGENT_SESSION_DIR` case)", () => {
+  // describeDaemon-gated: the stand-in foreground pi is a real forked child
+  // (the adapter must read a LIVE process's exec-time env), so this whole
+  // case runs only where forks are allowed.
+  describeDaemon("adapter-registered redirected store", () => {
+    it("the exporter finds the session in the redirected store", () => {
     const cwd = "/work/redirected-project";
     const id = "dddddddd-0000-4000-8000-00000000000d";
     const customRoot = path.join(tmpHome, "custom-sessions");
@@ -299,6 +304,7 @@ describe("loadPiTranscript", () => {
         pr: null,
       })?.sessionId,
     ).toBe(id);
+    });
   });
 
   it("nulls when the caller cannot supply a cwd", () => {
