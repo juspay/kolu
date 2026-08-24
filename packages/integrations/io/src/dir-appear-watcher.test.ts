@@ -10,20 +10,34 @@ import { watchDirWhenReady } from "./dir-appear-watcher.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Negative-path drain (unsubscribe silenced further events). Longer than
- *  a single inotify tick; not the positive-path wait — see `waitFor`. */
+ *  a single inotify tick; not the positive-path wait — see `waitForWatch`. */
 const settle = () => sleep(300);
 
-// FS-event delivery latency is backend-dependent (FSEvents on a loaded
-// darwin box routinely exceeds a fixed 300ms window) — park on the
-// CONDITION, not a sleep calendar. Same helper as pi's subscribeSessionsTree.
-async function waitFor(
+/** Wait for an fs.watch-driven predicate, re-nudging between attempts.
+ *  FSEvents on darwin coalesces and can drop a one-shot create — a single
+ *  wait budget races that latency (watchGitHead / #320). */
+async function waitForWatch(
   cond: () => boolean,
-  timeoutMs = process.platform === "darwin" ? 15_000 : 5_000,
+  nudge: () => void,
+  perAttemptMs = process.platform === "darwin" ? 2_000 : 1_000,
+  attempts = 6,
 ) {
-  const deadline = Date.now() + timeoutMs;
-  while (!cond() && Date.now() < deadline) await sleep(50);
-  expect(cond()).toBe(true);
+  for (let i = 0; i < attempts; i++) {
+    const deadline = Date.now() + perAttemptMs;
+    while (!cond() && Date.now() < deadline) await sleep(50);
+    if (cond()) return;
+    if (i === attempts - 1) {
+      expect(cond()).toBe(true);
+      return;
+    }
+    nudge();
+  }
 }
+
+const retouch = (file: string) => {
+  const content = fs.readFileSync(file);
+  fs.writeFileSync(file, content);
+};
 
 let tmp: string;
 let stops: Array<() => void>;
@@ -41,7 +55,7 @@ afterEach(() => {
 
 describe("watchDirWhenReady", () => {
   it("fires once on attach (reconcile kick), then on events in the dir", {
-    timeout: 20_000,
+    timeout: 25_000,
   }, async () => {
     const dir = path.join(tmp, "present");
     fs.mkdirSync(dir);
@@ -50,12 +64,16 @@ describe("watchDirWhenReady", () => {
 
     expect(events.length).toBe(1); // the attach kick, synchronous
 
-    fs.writeFileSync(path.join(dir, "a"), "x");
-    await waitFor(() => events.length >= 2);
+    const file = path.join(dir, "a");
+    fs.writeFileSync(file, "x");
+    await waitForWatch(
+      () => events.length >= 2,
+      () => retouch(file),
+    );
   });
 
   it("waits up the ancestor chain and attaches when the dir appears", {
-    timeout: 20_000,
+    timeout: 25_000,
   }, async () => {
     const nested = path.join(tmp, "a", "b", "c");
     const events: number[] = [];
@@ -68,10 +86,18 @@ describe("watchDirWhenReady", () => {
     expect(events.length).toBe(0);
 
     fs.mkdirSync(nested);
-    await waitFor(() => events.length === 1); // attach kick
+    const nudge = path.join(tmp, "a", "b", ".nudge");
+    await waitForWatch(
+      () => events.length === 1, // attach kick
+      () => fs.writeFileSync(nudge, ""),
+    );
 
-    fs.writeFileSync(path.join(nested, "f"), "x");
-    await waitFor(() => events.length >= 2);
+    const file = path.join(nested, "f");
+    fs.writeFileSync(file, "x");
+    await waitForWatch(
+      () => events.length >= 2,
+      () => retouch(file),
+    );
   });
 
   it("unsubscribe is idempotent and silences further events", async () => {
