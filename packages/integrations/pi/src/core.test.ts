@@ -162,15 +162,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // FS-event delivery latency is backend-dependent (FSEvents on a loaded
 // darwin box routinely exceeds a fixed 300ms window) — park on the
 // CONDITION, not a sleep calendar.
-async function waitFor(
-  cond: () => boolean,
-  timeoutMs = process.platform === "darwin" ? 15_000 : 5_000,
-) {
-  const deadline = Date.now() + timeoutMs;
-  while (!cond() && Date.now() < deadline) await sleep(50);
-  expect(cond()).toBe(true);
-}
-
 /** Wait for an fs.watch-driven predicate, re-touching `file` between
  *  attempts. FSEvents on darwin coalesces and can drop a one-shot create
  *  — a single `waitFor` budget races that latency (the watchGitHead
