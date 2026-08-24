@@ -247,6 +247,10 @@ describe("loadPiTranscript", () => {
   // case runs only where forks are allowed.
   describeDaemon("adapter-registered redirected store", () => {
     it("the exporter finds the session in the redirected store", () => {
+      // The redirect lives in the CHILD's env — Linux's /proc exposes a
+      // process's env, macOS's ps does not (OS policy), so this scenario is
+      // only realizable on Linux.
+      if (process.platform !== "linux") return;
       const cwd = "/work/redirected-project";
       const id = "dddddddd-0000-4000-8000-00000000000d";
       const customRoot = path.join(tmpHome, "custom-sessions");

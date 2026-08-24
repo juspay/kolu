@@ -160,7 +160,13 @@ describe("readProcessSnapshot", () => {
         const snap = readProcessSnapshot(child.pid!);
         expect(snap).not.toBeNull();
         expect(snap?.argv.length).toBeGreaterThan(0);
-        expect(snap?.env.KOLU_PI_SNAPSHOT_MARKER).toBe("present");
+        if (process.platform === "linux") {
+          expect(snap?.env.KOLU_PI_SNAPSHOT_MARKER).toBe("present");
+        } else {
+          // Darwin: macOS redacts even same-user environment maps from ps
+          // — env is {} by OS policy (documented in session-root.ts).
+          expect(snap?.env.KOLU_PI_SNAPSHOT_MARKER).toBeUndefined();
+        }
       } finally {
         child.kill();
       }

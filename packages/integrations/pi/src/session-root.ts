@@ -165,10 +165,10 @@ export interface ProcessSnapshot {
 
 /** The foreground process's argv + environment — the one place a pi
  *  invocation's `--session-dir` / `PI_CODING_AGENT_SESSION_DIR` /
- *  `PI_CODING_AGENT_DIR` genuinely live. Linux reads `/proc/<pid>`; Darwin
- *  asks `ps` (the env comes ahead of the command in `ps -E` output; values
- *  containing spaces tokenize imperfectly — a documented imprecision that
- *  can only ever cost an override, never fabricate one). Any failure —
+ *  `PI_CODING_AGENT_DIR` genuinely live. Linux reads `/proc/<pid>` (argv
+ *  AND env); Darwin reads the argv from `ps` but the env map comes back
+ *  EMPTY — modern macOS redacts even same-user envs (see the Darwin branch
+ *  below), so a config-env redirect is unrecoverable there. Any failure —
  *  exited process (routine), hidden proc (a `hidepid` host), an
  *  unsupported platform — yields null and the caller resolves the default
  *  root; those are genuinely unknowable overrides, not errors to surface. */
@@ -192,23 +192,21 @@ export function readProcessSnapshot(
       return { argv, env };
     }
     if (process.platform === "darwin") {
+      // Modern macOS (>=10.13) redacts even a SAME-USER process's
+      // environment from ps: `-E` is accepted but prints the command line
+      // only (verified live on a macOS 15 host — the env row simply does
+      // not appear), so the env map is {} here by OS policy. A
+      // PI_CODING_AGENT_* store redirect is a permanent Darwin blind spot —
+      // flags (`--session-dir`) and the default-root settings.json still
+      // resolve. argv stays the full command line.
       const out = execFileSync(
         "ps",
-        ["-E", "-ww", "-p", String(pid), "-o", "command="],
+        ["-ww", "-p", String(pid), "-o", "command="],
         { encoding: "utf8" },
       ).trim();
-      const tokens = out.split(/\s+/).filter((s) => s.length > 0);
-      const env: Record<string, string> = {};
-      let i = 0;
-      for (; i < tokens.length; i++) {
-        const token = tokens[i]!;
-        const eq = token.indexOf("=");
-        if (eq <= 0) break; // first non KEY=VALUE token — the argv starts
-        env[token.slice(0, eq)] = token.slice(eq + 1);
-      }
-      const argv = tokens.slice(i);
+      const argv = out.split(/\s+/).filter((s) => s.length > 0);
       if (argv.length === 0) return null;
-      return { argv, env };
+      return { argv, env: {} };
     }
     return null;
   } catch (err) {

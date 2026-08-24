@@ -345,10 +345,14 @@ Detection follows the redirect: a pi launched by an agent harness that sets
 `PI_CODING_AGENT_DIR` per run (to a scratch dir, for config isolation) is
 detected in that run's real session store, not in `~/.pi`. Session-file
 updates in any of these stores wake the tile the same way the default tree
-does. The one case where the details can't be read is a host that hides
-process environments from kolu itself (e.g. `/proc` mounted `hidepid`) —
-then the default tree is scanned, and only a pi with a *default* store is
-found. kolu's own scan root can be forced with `KOLU_PI_DIR=<dir>` (where
+does. Two blind spots where a process's env can't be read: a host that
+hides process environments from kolu itself (e.g. `/proc` mounted
+`hidepid`), and **every macOS host** — `ps` has redacted even same-user
+process environments since macOS 10.13, so a `PI_CODING_AGENT_SESSION_DIR`
+redirect is unrecoverable there (`--session-dir` flags and the default-root
+`settings.json` still resolve). In either case the default tree is scanned,
+and only a pi with a *default* store is found. kolu's own scan root can be
+forced with `KOLU_PI_DIR=<dir>` (where
 `<dir>/sessions` is the tree to scan) — the escape hatch for tests and
 unusual setups, never a replacement for the per-terminal resolution above.
 
