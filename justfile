@@ -533,8 +533,26 @@ test: install
     # reliable, so it keeps 8. Past the cap the slowest-scenario tail dominates
     # anyway (PAR=12 measured *slower* than PAR=8 on a 24-core host). See
     # docs/ci-e2e-macos-ralph-report.md.
-    cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-    cap=8; [ "$(uname)" = Darwin ] && cap=6
+    # Capacity probe. Ask for THIS PROCESS's CPUs, not the machine's:
+    # `getconf _NPROCESSORS_ONLN` reads /sys/devices/system/cpu/online and
+    # ignores sched_getaffinity, so a venue that is a pinned slice of a bigger
+    # host still sized itself for the whole host. `nproc` honours the affinity
+    # mask. macOS has neither affinity nor `nproc`; `hw.physicalcpu` is its
+    # answer, and it is the same number the old probe returned there.
+    #
+    # No fallback. The old `|| echo 4` turned a failed probe into par=2 — a
+    # suite that took four times as long with nothing in the log saying why.
+    # A capacity we cannot measure is a crash, not a guess.
+    if [ "$(uname)" = Darwin ]; then
+        cores="$(sysctl -n hw.physicalcpu)"
+        cap=6
+    else
+        cores="$(nproc)"
+        cap=8
+    fi
+    case "$cores" in
+        ''|*[!0-9]*|0) echo "e2e: could not measure this venue's CPU capacity" >&2; exit 1 ;;
+    esac
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans
@@ -547,6 +565,11 @@ test: install
     # so the lock is stolen rather than waited on. After max-wait we proceed
     # unlocked — degraded mode is exactly today's behavior, never a deadlock.
     # KOLU_E2E_LOCK=0 opts out (e.g. deliberate side-by-side local runs).
+    #
+    # Its reach ends at the container boundary: /tmp belongs to one container,
+    # so two suites on two pool slots that share a machine each mkdir their own
+    # lock and neither ever waits. Serialising THOSE is `ci/pool-hosts`'s job,
+    # one venue per machine — this lock only referees suites that can see it.
     if [ "${KOLU_E2E_LOCK:-1}" != 0 ]; then
         # `lock` is what cleanup() rms — assign it ONLY after mkdir succeeds.
         # A waiter that set lock=path then died on `sleep 15` used to delete
@@ -581,10 +604,20 @@ test: install
     # one. In particular, never sample the one-minute load average here: it
     # trails the Nix build that runs before Cucumber and made an idle 10-core
     # venue start just one worker.
+    #
+    # "Exclusively" is a claim about the pool, not a law: two pool slots that
+    # are containers on ONE machine both read that machine's whole CPU and both
+    # size for it, and the suite lock above cannot referee them because /tmp is
+    # per container. `ci/pool-hosts` is what keeps the claim true — it collapses
+    # co-located slots to a single venue. Measured on one i9-14900K: 129 s for
+    # this node with the machine to itself, 8-17 min for suites that shared it.
     par=$(( (cores + 2) / 3 ))
     if (( par < 1 )); then par=1; fi
     if (( par > cap )); then par=$cap; fi
-    echo "e2e: workers=$par (cores=$cores cap=$cap)"
+    # `host` is load-bearing evidence, not decoration: odu truncates a node
+    # log's TAIL, so the Cucumber summary is usually gone and this line — in
+    # the head — is the only surviving record of where a run actually ran.
+    echo "e2e: workers=$par (cores=$cores cap=$cap) host=$(hostname)"
     # No `pnpm install` here: the `install` dep (and, in CI, the ci::install
     # node) already installed the whole workspace, packages/tests included. A
     # second `pnpm install` re-links the shared workspace `node_modules/.bin`,
