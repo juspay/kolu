@@ -20,6 +20,7 @@
 
 export {
   EXIT,
+  isSurfaceCliFailure,
   reportingRunEdge,
   runEdge,
   type RunEdgeReport,
@@ -38,6 +39,11 @@ export type {
   HelpRow,
   SurfaceCliHelp,
 } from "./help";
+// The one reading of "the reader hung up" every stdout-data binary asks of a
+// sink failure — exported for a host whose OWN writes (outside this projection,
+// e.g. kolu-cli's native verbs) answer it too. See io.ts for why it reads the
+// nested `cause.code` as well as the flat one.
+export { isConsumerHangup } from "./io";
 export {
   type EndpointSeam,
   JSON_FLAG,

@@ -20,19 +20,22 @@
  */
 
 import {
-  confirmInFleet,
   CONTAINING_TERMINAL_ENV,
+  confirmInFleet,
   containingTerminalId,
-  type PadiSurfaceClient,
-  type WatchScopeRefusal,
-  watchScopeOf,
-} from "@kolu/padi/dial";
+} from "@kolu/padi/containingTerminal";
+// Every top-level VALUE import here is schema-level — this module is on the
+// static tree-build path of every `kolu` invocation (the surface face mounts
+// the table). The two pure concept modules have homes of their own under padi
+// subpaths; the one transport-shaped reach — `readTerminalKeys`, whose closure
+// carries the mirror — arrives dynamically inside the handler instead.
+import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import {
   type PadiWatchOpenInput,
   PadiWatchOpenInputSchema,
 } from "@kolu/padi/surface";
-import { readTerminalKeys } from "@kolu/padi/read";
-import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp";
+import { type WatchScopeRefusal, watchScopeOf } from "@kolu/padi/watchScope";
+import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import { match } from "ts-pattern";
@@ -197,9 +200,19 @@ export const watchOpenTool: BespokeTool = {
       // machine's fleet, in which case the stamp names a terminal nobody there
       // has heard of and the mute would mute nobody and return success. Every
       // other id on this call is a full id off the wire, so a caller who never
-      // asked `ignoreSelf` pays no round trip.
-      const live =
-        asked.ignoreSelf === true ? yield* readTerminalKeys(padi) : [];
+      // asked `ignoreSelf` pays no round trip — and the module loading the
+      // read pays for it only too (the tree-build fence at the file head).
+      // One bridge per crossing: the LAZY IMPORT inside `Effect.promise`
+      // (module acquisition), then the read's own `Effect` composed into this
+      // generator (execution) — a `runPromise` between them would allocate a
+      // second run edge inside a handler and drop the failure's typing.
+      const live: readonly TerminalId[] =
+        asked.ignoreSelf === true
+          ? yield* Effect.flatMap(
+              Effect.promise(() => import("@kolu/padi/read")),
+              ({ readTerminalKeys }) => readTerminalKeys(padi),
+            )
+          : [];
       const parsed = resolveWatchOpenInput(asked, live);
       // On the ERROR channel, not thrown: a throw inside a generator is a
       // DEFECT, and `failFrom` reads a `ToolFailure`'s own detail off the

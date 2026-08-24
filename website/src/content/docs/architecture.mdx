@@ -415,7 +415,9 @@ _out_. The map, grouped:
   `kolu-cli` (the `kolu` binary itself — the composition root that owns
   subcommand dispatch, the padi connect layer, and boots whichever face was
   asked for, plus the terminal verbs `ls`/`create`/`send`/`wait`/`snapshot`/
-  `history`/`kill`/`watch`, each a pure padi client), and `kolu-mcp` (the
+  `history`/`kill`/`watch`, each a pure padi client, and the `kolu surface`
+  face — `surfaceFace.ts` mounts `@kolu/surface-cli`'s projection of the same
+  agent API as argv verbs), and `kolu-mcp` (the
   `kolu mcp` agent face — `padiSurface` re-exposed to coding agents over MCP,
   also with no kolu-server behind it; `kolu tui` is reserved for a later face).
 - **Daemons** — [`padi`](/padi) (the per-host workspace daemon that owns the

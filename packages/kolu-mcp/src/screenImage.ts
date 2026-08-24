@@ -28,8 +28,8 @@ import {
   SCREEN_IMAGE_LINES_CHECKS,
   SCREEN_IMAGE_MAX_ROWS,
 } from "@kolu/padi/surface";
-import type { BespokeTool } from "@kolu/surface-mcp";
-import { okImage } from "@kolu/surface-mcp";
+import type { BespokeTool } from "@kolu/surface-mcp/tools";
+import { okImage } from "@kolu/surface-mcp/tools";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
 

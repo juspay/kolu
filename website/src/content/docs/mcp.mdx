@@ -33,7 +33,9 @@ to install if you already run kolu; no browser involved. If no padi is
 reachable when it starts — nothing listening on the resolved socket, or no
 daemon discoverable at all — `kolu mcp` **exits non-zero** before the MCP
 handshake, so a consumer can ask "is kolu usable on this host?" by spawning
-and checking the exit code rather than reimplementing socket discovery.
+and checking the exit code rather than reimplementing socket discovery. The
+same tool table is also spelled as shell verbs — [`kolu surface`](/terminal-ui)
+projects it to argv for a script, exactly as `kolu mcp` serves it to an agent.
 
 ## Connect it to your agent
 

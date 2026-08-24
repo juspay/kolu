@@ -71,6 +71,50 @@ on stderr), **ids accept any unique prefix** (`kolu send 3f9c …`), and the
 a wait timed out, `3` the terminal exited first, `130` interrupted. Read verbs
 take `--json`.
 
+### `kolu surface` — the same API as shell verbs
+
+`kolu surface <verb> …` spells the [same tool table `kolu mcp` serves a coding
+agent](/mcp) as command-line verbs, projected by
+[`@kolu/surface-cli`](/surface/expose-to-cli): `screen_text` is a verb,
+`lifecycle_create` is a verb, and `list` prints the whole verb table — which
+dials nothing, so a dead endpoint still lists. `kolu surface --help` is a
+page written for a person rather than an alphabetical dump of every agent's
+paragraph — the verbs grouped by what a supervisor does with them, one
+example each. A verb's whole input can ride one flag too: `--input '{…}'`
+(or `--input -` from stdin), which the heaviest verb (`lifecycle_create` with
+its placement) usually wants; `--json` is strictly an OUTPUT answer, on every
+verb including `list` itself. Beside the tools ride the member readers
+`get` / `keys` over the same live views (`terminals`, `urgency`, …), each
+with a `--follow` form that streams the answer as ndjson.
+
+```sh
+kolu surface screen_text "$id" --tail 20
+kolu surface lifecycle_create --input '{"placement":{"kind":"toplevel"},"run":"claude"}'
+```
+
+The shared endpoint flags apply unchanged — `--socket`, `--state-root`,
+`--host`, on either side of the verb. And stdout stays data: one JSON value for
+a read, ndjson lines for a `--follow`ed one. What **differs** is the exit-code contract — for
+`kolu surface` the matrix is `@kolu/surface-cli`'s, not the native verbs'
+`1/2/3` above:
+
+| code | what it means |
+| --- | --- |
+| `0` | the verb answered |
+| `1` | the daemon's refusal — typed JSON on **stderr** with no prefix, so a script branches on the code instead of parsing prose |
+| `2` | usage: the input didn't match what the verb declares |
+| `3` | the endpoint couldn't be reached — the message names it as spelled |
+| `130` | interrupted |
+
+One carve-out a driver learns ONCE: a *parse-layer* refusal — a typo'd verb or
+a rejected flag — never reaches either face's handler, so the CLI library
+renders the usage and `kolu` answers `1` on BOTH faces. The surface matrix's
+`2` moves the other way: the request **never left this process** — the face
+itself rejected the input (an `--input` blob with no valid JSON, a key no verb
+owns) before a single byte dialed. So among the surface face's own readers:
+`1` is a daemon answer, `2` is not.
+The full contract is [the surface-cli reference](/surface/ref-surface-cli#exit-codes).
+
 ### `kolu watch` as a doorbell that keeps ringing
 
 An agent terminal finishes and sits at an empty prompt. Nobody notices for

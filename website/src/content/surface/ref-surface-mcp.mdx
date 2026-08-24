@@ -258,6 +258,18 @@ cannot see through, so a default declared outside it never reaches the agent.
 | `ToolResult` · `ToolContent` · `ServeSurfaceAsMcpOptions` | types |
 | `SurfaceClientCallable` · `OwnedSurfaceConnection` · `PusherConnection<Client>` | types, **re-exported** from [`@kolu/surface/client`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient) — the client shape a projecting face holds, and the connection it owns. `OwnedSurfaceConnection` is the framework shape at this adapter's client type; the CLI face aliases the very same one, so a host can write ONE connection factory that feeds both |
 
+**`@kolu/surface-mcp/tools` is a subpath of its own** — the `BespokeTool` /
+`ToolInputSchema` / `ToolFailure` / `okImage` / `messageOf` spine the root
+barrel re-exports — and importing it costs **zero MCP SDK imports**: the verb
+record and Schema vocabulary, no server class, no transport. That is the
+contract *an agent's tool table must not cost the transport*: a binary whose
+command tree is static hands its one table to both faces — MCP via the root
+barrel, shell argv via [`@kolu/surface-cli`](/surface/ref-surface-cli) —
+without every `--help` paying to load a server it never boots. kolu is the
+first-party proof: `kolu-mcp` owns its `KOLU_MCP_TOOLS` in a leaf that imports
+only this subpath, and the `kolu surface` argv face statically holds that leaf
+on every `kolu --help`.
+
 `ExposeMap` and `ToolExposure` are **not** exported here — import them from
 [`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose),
 their one home.

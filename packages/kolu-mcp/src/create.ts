@@ -74,7 +74,11 @@
 
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import { PadiCreateInputSchema, PLACEMENT_REQUIRED } from "@kolu/padi/surface";
-import { type BespokeTool, messageOf, ToolFailure } from "@kolu/surface-mcp";
+import {
+  type BespokeTool,
+  messageOf,
+  ToolFailure,
+} from "@kolu/surface-mcp/tools";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import { isValidWorktreeName, WORKTREE_NAME_MESSAGE } from "kolu-git/schemas";

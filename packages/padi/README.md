@@ -275,6 +275,16 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   mailbox), and a daemon module reaching into a `cliClient/` directory would
   point the arrow backwards. The **subpaths above are unchanged**: the directory
   is padi's internal layout, not its public one.
+- **`@kolu/padi/containingTerminal`** and **`@kolu/padi/watchScope`** — the two
+  PURE concept modules a static consumer imports when the `dial` entry is too
+  heavy: the self-stamp sum (`containingTerminalId` + `confirmInFleet` +
+  `CONTAINING_TERMINAL_ENV`) and the watch-scope constructor (`watchScopeOf` +
+  `scopeAdmits` + the never-match refusal types). Both import nothing beyond
+  `kolu-pty`'s env-name constant and `@kolu/terminal-vocab` schemas, so a
+  command tree can hold a face's verb table statically without a socket ever
+  reaching its parse path — `kolu-mcp`'s tool modules are the first-party
+  consumer (the `dial` entry re-exports the very same names for a face that
+  dials anyway).
 
 ## `screen.image` — padi is where the picture gets made
 

@@ -21,10 +21,12 @@
     "./daemonMain": "./src/daemonBoot/daemonMain.ts",
     "./stateRoot": "./src/stateRoot.ts",
     "./buildId": "./src/daemonBoot/buildId.ts",
+    "./containingTerminal": "./src/containingTerminal.ts",
     "./endpoint": "./src/endpoint.ts",
     "./log": "./src/log.ts",
     "./transcript": "./src/transcript/transcriptSchema.ts",
-    "./upload": "./src/upload.ts"
+    "./upload": "./src/upload.ts",
+    "./watchScope": "./src/attention/watchScope.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

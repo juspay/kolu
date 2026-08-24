@@ -62,15 +62,14 @@ import { Cause, Data, Effect, Stdio, Stream } from "effect";
  *  where Node's `EPIPE` lands after the sink wraps it; the direct reading is
  *  kept beside it for a platform that raises the errno flat.
  *
- *  KNOWN DIVERGENCE, recorded rather than worked around:
- *  `packages/kolu-cli/src/verbs/shared.ts` carries its own copy of this
- *  predicate that reads only the FLAT `code` — so it misses the nested reading,
- *  which is the one Node actually produces. This is the better reading, and it
- *  cannot be shared today: this package must not import an app package, and
- *  `kolu-cli` is deliberately not migrated onto this projection in this PR. The
- *  resolution is kolu-cli adopting THIS predicate when it mounts the projection.
- *  An implicit pair of half-right EPIPE tests is worse than a recorded one. */
-function isConsumerHangup(failure: unknown): boolean {
+ *  EXPORTED and re-exported at the package root: it used to be one of two
+ *  half-right spellings — `packages/kolu-cli/src/verbs/shared.ts` carried its
+ *  own, reading only the FLAT `code`, the recorded divergence this paragraph
+ *  then documented — and the mount of this projection INTO kolu-cli (`kolu
+ *  surface`) is where the two spellings became one, as the recording said they
+ *  would. Nothing here is surface-face-specific: any binary whose stdout is a
+ *  data channel asks this same question of a sink's failure. */
+export function isConsumerHangup(failure: unknown): boolean {
   const nested = (failure as { readonly cause?: { readonly code?: unknown } })
     ?.cause?.code;
   if (nested === "EPIPE") return true;

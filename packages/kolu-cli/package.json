@@ -14,6 +14,7 @@
     "@kolu/padi": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
+    "@kolu/surface-cli": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
     "@kolu/surface-remote": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
