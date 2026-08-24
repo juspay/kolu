@@ -149,8 +149,7 @@ describe("readProcessSnapshot", () => {
     // than mutating this process's own env. (describeDaemon-gated: the child
     // is a real fork, so this case runs only where forks are allowed.)
     it("returns the launch env and argv", () => {
-      if (process.platform !== "linux" && process.platform !== "darwin")
-        return;
+      if (process.platform !== "linux" && process.platform !== "darwin") return;
       const child = spawn(
         process.execPath,
         ["-e", "setTimeout(()=>{}, 30_000)"],

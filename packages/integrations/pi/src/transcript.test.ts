@@ -247,63 +247,63 @@ describe("loadPiTranscript", () => {
   // case runs only where forks are allowed.
   describeDaemon("adapter-registered redirected store", () => {
     it("the exporter finds the session in the redirected store", () => {
-    const cwd = "/work/redirected-project";
-    const id = "dddddddd-0000-4000-8000-00000000000d";
-    const customRoot = path.join(tmpHome, "custom-sessions");
-    fs.mkdirSync(customRoot, { recursive: true });
-    // A redirected store lays its session files FLAT, attributed by header cwd.
-    fs.writeFileSync(
-      path.join(customRoot, `2026-08-24T00-00-00-000Z_${id}.jsonl`),
-      line({
-        type: "session",
-        id,
-        timestamp: "2026-08-24T00:00:00.000Z",
-        cwd,
-      }) +
-        "\n" +
+      const cwd = "/work/redirected-project";
+      const id = "dddddddd-0000-4000-8000-00000000000d";
+      const customRoot = path.join(tmpHome, "custom-sessions");
+      fs.mkdirSync(customRoot, { recursive: true });
+      // A redirected store lays its session files FLAT, attributed by header cwd.
+      fs.writeFileSync(
+        path.join(customRoot, `2026-08-24T00-00-00-000Z_${id}.jsonl`),
         line({
-          type: "message",
-          id: "u1",
-          timestamp: "2026-08-24T00:00:01.000Z",
-          message: { role: "user", content: [{ type: "text", text: "hi" }] },
-        }) +
-        "\n",
-    );
-    // Drive the adapter's resolution the way the sensors do: a live "pi"
-    // foreground process carrying pi's own override env — /proc exposes the
-    // exec-time env, so the stand-in must be a spawned child, not this
-    // process with a mutated process.env.
-    const child = spawn(
-      process.execPath,
-      ["-e", "setTimeout(()=>{}, 30_000)"],
-      { env: { ...process.env, PI_CODING_AGENT_SESSION_DIR: customRoot } },
-    );
-    try {
-      const offered = piAdapter.resolveSessions(
-        {
-          foregroundPid: child.pid,
+          type: "session",
+          id,
+          timestamp: "2026-08-24T00:00:00.000Z",
           cwd,
-          readForegroundBasename: () => "pi",
-          lastAgentCommandName: "pi",
-        },
-        log,
+        }) +
+          "\n" +
+          line({
+            type: "message",
+            id: "u1",
+            timestamp: "2026-08-24T00:00:01.000Z",
+            message: { role: "user", content: [{ type: "text", text: "hi" }] },
+          }) +
+          "\n",
       );
-      expect(offered?.map((s) => s.id)).toEqual([id]);
-    } finally {
-      child.kill();
-    }
-    // Exporter finds it via the registered root (default tree holds nothing).
-    expect(
-      loadPiTranscript({
-        sessionId: id,
-        title: null,
-        repoName: null,
-        cwd,
-        model: null,
-        contextTokens: null,
-        pr: null,
-      })?.sessionId,
-    ).toBe(id);
+      // Drive the adapter's resolution the way the sensors do: a live "pi"
+      // foreground process carrying pi's own override env — /proc exposes the
+      // exec-time env, so the stand-in must be a spawned child, not this
+      // process with a mutated process.env.
+      const child = spawn(
+        process.execPath,
+        ["-e", "setTimeout(()=>{}, 30_000)"],
+        { env: { ...process.env, PI_CODING_AGENT_SESSION_DIR: customRoot } },
+      );
+      try {
+        const offered = piAdapter.resolveSessions(
+          {
+            foregroundPid: child.pid,
+            cwd,
+            readForegroundBasename: () => "pi",
+            lastAgentCommandName: "pi",
+          },
+          log,
+        );
+        expect(offered?.map((s) => s.id)).toEqual([id]);
+      } finally {
+        child.kill();
+      }
+      // Exporter finds it via the registered root (default tree holds nothing).
+      expect(
+        loadPiTranscript({
+          sessionId: id,
+          title: null,
+          repoName: null,
+          cwd,
+          model: null,
+          contextTokens: null,
+          pr: null,
+        })?.sessionId,
+      ).toBe(id);
     });
   });
 
