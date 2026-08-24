@@ -10,8 +10,8 @@ import {
   resumeAgentCommand,
   resumeFormFor,
 } from "./agent-cli.ts";
-import { resumableCommand } from "./schemas.ts";
 import type { RestoreTarget } from "./schemas.ts";
+import { resumableCommand } from "./schemas.ts";
 
 describe("parseAgentCommand", () => {
   // Table from juspay/kolu#452
@@ -616,6 +616,63 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
     ],
   ] as const)("refuses to resume on a malformed same-agent id (returns null): %j + %j", (normalized, session) => {
     expect(resumeAgentCommand(normalized, session)).toBeNull();
+  });
+
+  // pi's exact-resume prefers the transcript PATH (pi's own `--session`
+  // accepts it, and it bypasses the session-store lookup that a moved store
+  // — e.g. a harness's per-run `PI_CODING_AGENT_DIR` — breaks for ids).
+  const PI_PATH =
+    "/tmp/pi-agent-XXXXXX/sessions/--home-u-code-kolu--/2026-08-24T00-00-00-000Z_01a0302a-b94b-7b18-a3c3-b3f83dfe6fe8.jsonl";
+  it("pi prefers the transcript path over the id when the producer carries it", () => {
+    expect(
+      resumeAgentCommand("pi", {
+        kind: "pi",
+        sessionId: PI_ID,
+        sessionPath: PI_PATH,
+      }),
+    ).toBe(`pi --session ${PI_PATH}`);
+    expect(
+      resumeAgentCommand("pi --model kimi-k3", {
+        kind: "pi",
+        sessionId: PI_ID,
+        sessionPath: PI_PATH,
+      }),
+    ).toBe(`pi --session ${PI_PATH} --model kimi-k3`);
+  });
+
+  it("pi splices a path with shell-active characters only via quoting", () => {
+    // Only inert path characters pass the gate; the splice quotes the token.
+    expect(
+      resumeAgentCommand("pi", {
+        kind: "pi",
+        sessionId: PI_ID,
+        sessionPath: "/tmp/pi agent x/$(pwn).jsonl",
+      }),
+    ).toBeNull();
+    expect(
+      resumeAgentCommand("pi", {
+        kind: "pi",
+        sessionId: PI_ID,
+        sessionPath: "relative/file.jsonl",
+      }),
+    ).toBeNull();
+    expect(
+      resumeAgentCommand("pi", {
+        kind: "pi",
+        sessionId: PI_ID,
+        sessionPath: "/tmp/no-suffix",
+      }),
+    ).toBeNull();
+  });
+
+  it("a quoted path with spaces + parens passes the gate and the splice", () => {
+    expect(
+      resumeAgentCommand("pi", {
+        kind: "pi",
+        sessionId: PI_ID,
+        sessionPath: "/w/work dir/x (1)/2026-01-01T00-00-00-000Z_a.jsonl",
+      }),
+    ).toBe("pi --session '/w/work dir/x (1)/2026-01-01T00-00-00-000Z_a.jsonl'");
   });
 
   // No ref at all → unchanged most-recent behavior (back-compat with callers

@@ -31,6 +31,13 @@ export const PiInfoSchema = Schema.Struct({
   /** Session UUID from the transcript filename (`<timestamp>_<uuid>.jsonl`,
    *  the same identifier pi's own session listing derives). */
   sessionId: Schema.String,
+  /** Absolute path of the session's transcript file — the resume ref pi
+   *  accepts VERBATIM (`pi --session <path>`), bypassing pi's session-store
+   *  resolution entirely: an id alone is unfindable from a fresh pi once the
+   *  store moved (a harness's per-run `PI_CODING_AGENT_DIR`, or a
+   *  `--session-dir`); the path opens regardless. Optional — older producers
+   *  carry no path. */
+  sessionPath: Schema.optional(Schema.String),
   /** Model identifier from the newest assistant message's `message.model`
    *  (e.g. "claude-sonnet-4-5"), or the latest `model_change` entry when the
    *  session has no assistant turn yet. Null until either lands. */

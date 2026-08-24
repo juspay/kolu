@@ -45,6 +45,13 @@ export type AgentKind = typeof AgentKindSchema.Type;
 export const AgentIdentitySchema = Schema.Struct({
   kind: AgentKindSchema,
   sessionId: Schema.String,
+  /** An agent-specific ALTERNATIVE resume ref the CLIs that accept one can
+   *  splice verbatim (pi's `--session` takes the transcript PATH, which
+   *  bypasses its session-store lookup entirely — the id alone cannot be
+   *  found once the store moved, e.g. a harness's per-run `PI_CODING_AGENT_
+   *  DIR`). Optional: agents whose resume ref IS the id (claude/codex/…)
+   *  never set it; the splice prefers it when present. */
+  sessionPath: Schema.optional(Schema.String),
 });
 export type AgentIdentity = typeof AgentIdentitySchema.Type;
 

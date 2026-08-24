@@ -15,15 +15,15 @@
  * truth for "apply an observation to the snapshot state."
  */
 
-import { exactRestoreTarget } from "anyagent/cli";
-import { match, P } from "ts-pattern";
 import type {
   AgentIdentity,
-  TerminalEvent,
-  TerminalState,
-  TerminalSnapshot,
   RestoreTarget,
+  TerminalEvent,
+  TerminalSnapshot,
+  TerminalState,
 } from "@kolu/terminal-vocab/schema";
+import { exactRestoreTarget } from "anyagent/cli";
+import { match, P } from "ts-pattern";
 
 /** How often a same-identity OUTPUT tick may re-stamp recency. The agent-detail
  *  firehose ticks ~1×/s while an agent works; stamping every tick would restore
@@ -163,6 +163,14 @@ export function restoreTargetOf(aw: TerminalState): RestoreTarget {
     exactRestoreTarget(command, {
       kind: agent.kind,
       sessionId: agent.sessionId,
+      // Pi's robust resume ref: the transcript PATH opens regardless of where
+      // pi's session store has been moved (an id alone is only findable by pi's
+      // OWN current store resolution — a harness's per-run PI_CODING_AGENT_DIR
+      // defeats it). Only pi's producer fills it; other agents' ids are their
+      // resume refs.
+      ...(agent.kind === "pi" && agent.sessionPath !== undefined
+        ? { sessionPath: agent.sessionPath }
+        : {}),
     }) ?? { kind: "none" }
   );
 }

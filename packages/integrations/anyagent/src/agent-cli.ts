@@ -202,6 +202,14 @@ type ResumableAgent = "claude" | "codex" | "opencode" | "grok" | "pi";
 const UUID_RE =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+/** pi's resume ref — the id, or the absolute PATH to its session file (pi's
+ *  `--session <path|id>`). The path arm admits only shell-inert writing-system
+ *  characters (no control, no quotes, no `$`/";"/backtick/metachars) as a
+ *  second wall — the splice itself always goes through `shellJoin`, which is
+ *  the lock. */
+const PI_RESUME_REF_RE =
+  /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\/[\w .,@=+(){}#%/~-]*\.jsonl)$/;
+
 /**
  * The whole per-agent resume policy — one entry per resume-capable agent, so
  * "how does agent X resume (and is its id safe to splice)?" is one thing in one
@@ -261,13 +269,16 @@ const AGENT_RESUME: Record<
     byId: (id) => `--resume ${id}`,
     idPattern: UUID_RE,
   },
-  // Pi: `-c` / `--continue` for most-recent in the cwd; `--session` accepts a
-  // file path OR a (partial) id — we always splice the full UUID so the shape
-  // gate stays meaningful, and pi resolves it to the exact session file.
+  // Pi: `-c` / `--continue` for most-recent in the cwd; `--session` accepts an
+  // id, a partial id, or the session FILE PATH. The splice prefers the PATH:
+  // pi's id lookup searches only its OWN current store resolution (default
+  // tree or the current flag/env override), so a session whose store MOVED
+  // (a harness's per-run `PI_CODING_AGENT_DIR`) is unfindable by id from a
+  // fresh invocation, while the absolute path opens unconditionally.
   pi: {
     last: "-c",
     byId: (id) => `--session ${id}`,
-    idPattern: UUID_RE,
+    idPattern: PI_RESUME_REF_RE,
   },
 };
 
@@ -473,13 +484,14 @@ export function resumeAgentCommand(
 
   let marker: string;
   if (isSameAgentRef) {
-    // Same-agent ref: resume the EXACT conversation iff the id passes its
-    // shell-inert shape gate. `shellJoin([id])` quotes the id as a single token —
-    // a no-op for a gate-passing id, but it keeps the "data, not shell text"
-    // intent explicit. A malformed id is a broken claim → refuse to resume
+    // Same-agent ref: resume the EXACT conversation iff the ref passes its
+    // shell-inert shape gate. `shellJoin([ref])` quotes the ref as a single token —
+    // a no-op for a gate-passing ref, but it keeps the "data, not shell text"
+    // intent explicit. A malformed ref is a broken claim → refuse to resume
     // (return null) rather than fall back to the most-recent (wrong) conversation.
-    if (!policy.idPattern.test(session.sessionId)) return null;
-    marker = policy.byId(shellJoin([session.sessionId]));
+    const ref = session.sessionPath ?? session.sessionId;
+    if (!policy.idPattern.test(ref)) return null;
+    marker = policy.byId(shellJoin([ref]));
   } else {
     // No ref, or a ref for a different agent: most-recent fallback (no id to aim).
     marker = policy.last;
