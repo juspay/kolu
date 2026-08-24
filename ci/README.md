@@ -61,6 +61,16 @@ just ci::pool-status
 just ci::pool-ensure
 ```
 
+A pool entry is a promise that one run gets one machine to itself, and the e2e
+lane spends that promise: it sizes Cucumber workers from the CPU it can see and
+leaves external load out of the arithmetic. Two things break the promise
+silently — a destroyed box whose name stays in `hosts.json`, and two slots that
+`pu create` happened to place on the same machine, which read the same CPU,
+size for it twice over, and cannot see each other's suite lock because `/tmp`
+is per container. `ci/pool-hosts` dials every advertised host the way odu does,
+fingerprints the machine behind it, and keeps `hosts.json` down to one entry
+per real machine. `pool-status` reports; `pool-ensure` rewrites.
+
 ## Pipeline nodes
 
 The [`default` recipe](./mod.just) is the executable inventory of required

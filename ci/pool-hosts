@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Keep the linux venue pool in hosts.json down to one entry per real machine.
+#
+# odu leases one host per run from the `x86_64-linux` array in hosts.json, and
+# the e2e lane spends that lease: it sizes Cucumber workers from the CPU it can
+# see, on the understanding that nothing else is using them. Two things break
+# that quietly.
+#
+#   * A NAME THAT NO LONGER ANSWERS. Nothing removes an entry when its box goes
+#     away or stops being reachable, so every run pays a failed lease probe for
+#     it and `odu hosts` reports a pool much bigger than the one that can take
+#     work.
+#
+#   * TWO ENTRIES ON ONE MACHINE. Boxes are containers, and two of them can sit
+#     on the same physical host. Neither is CPU-limited, so both read that
+#     host's full core count and both size a full suite for it — two runs, twice
+#     the browsers, one CPU. The suite lock in the root justfile cannot referee
+#     them: it lives in /tmp, and each container has its own.
+#
+# `xyne-boxes list` already knows which machine each box sits on, so that is
+# where the co-location answer comes from rather than a fingerprint of our own.
+# Reachability is a separate question and needs a real dial, because odu reaches
+# a box by its bare name and a box can exist without that name resolving here.
+#
+# Usage:
+#   ci/pool-hosts            # report; non-zero if hosts.json overstates the pool
+#   ci/pool-hosts --write    # rewrite hosts.json's x86_64-linux array
+#
+# bash 3.2 compatible on purpose: macOS ships that, and a darwin box can be the
+# one driving CI. No associative arrays, no mapfile — the same care ci/flake-build
+# takes for the same reason.
+
+set -uo pipefail
+
+write=0
+case "${1:-}" in
+  --write) write=1 ;;
+  "") ;;
+  *) echo "ci/pool-hosts: unknown argument '$1' (expected --write)" >&2; exit 2 ;;
+esac
+
+hosts_json="${ODU_HOSTS:-$HOME/.config/odu/hosts.json}"
+[ -f "$hosts_json" ] || { echo "ci/pool-hosts: no hosts file at $hosts_json" >&2; exit 1; }
+
+platform=x86_64-linux
+advertised=()
+while IFS= read -r host; do
+  [ -n "$host" ] && advertised+=("$host")
+done < <(jq -r --arg p "$platform" '.[$p][]? // empty' "$hosts_json")
+[ "${#advertised[@]}" -gt 0 ] || {
+  echo "ci/pool-hosts: $hosts_json advertises no $platform hosts" >&2
+  exit 1
+}
+
+# "<name> <machine>" per line. The header row and the proxychains preamble both
+# fail the two-column-with-a-known-header test, so filter on the header instead
+# of trying to skip a fixed number of lines.
+inventory="$(xyne-boxes list 2>/dev/null | awk 'seen && NF == 2 {print $1, $2} /^NAME[[:space:]]+LOCATION/ {seen = 1}')"
+[ -n "$inventory" ] || {
+  echo "ci/pool-hosts: 'xyne-boxes list' returned no boxes — cannot tell which machine hosts what" >&2
+  exit 1
+}
+
+machine_of() { printf '%s\n' "$inventory" | awk -v n="$1" '$1 == n {print $2; exit}'; }
+answers() { ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new "$1" true 2>/dev/null; }
+
+claimed=""   # "<machine> <host>" per line — the venues already spoken for
+keep=()
+notes=()
+
+for host in "${advertised[@]}"; do
+  machine="$(machine_of "$host")"
+  if [ -z "$machine" ]; then
+    notes+=("✗ $host  no such box — nothing to lease")
+    continue
+  fi
+  if ! answers "$host"; then
+    notes+=("✗ $host  on $machine, but does not answer ssh here — odu cannot reach it")
+    continue
+  fi
+  owner="$(printf '%s\n' "$claimed" | awk -v m="$machine" '$1 == m {print $2; exit}')"
+  if [ -n "$owner" ]; then
+    notes+=("⊘ $host  shares $machine with $owner — one machine is one venue")
+    continue
+  fi
+  claimed="$claimed
+$machine $host"
+  keep+=("$host")
+  notes+=("✓ $host  on $machine")
+done
+
+for note in "${notes[@]}"; do echo "  $note"; done
+
+[ "${#keep[@]}" -gt 0 ] || {
+  echo "ci/pool-hosts: no advertised $platform host can take work — run 'just ci::pool-ensure'" >&2
+  exit 1
+}
+
+reconciled="$(printf '%s\n' "${keep[@]}" | jq -R . | jq -sc .)"
+current="$(jq -c --arg p "$platform" '.[$p]' "$hosts_json")"
+echo "pool ($platform): ${#keep[@]} of ${#advertised[@]} entries are usable, distinct machines"
+
+[ "$reconciled" = "$current" ] && exit 0
+
+if [ "$write" -eq 0 ]; then
+  echo "ci/pool-hosts: $hosts_json advertises $current; only $reconciled can take work." >&2
+  echo "ci/pool-hosts: run 'just ci::pool-ensure' to rebuild the pool and rewrite it." >&2
+  exit 1
+fi
+
+tmp="$(mktemp)"
+jq --arg p "$platform" --argjson hosts "$reconciled" '.[$p] = $hosts' "$hosts_json" > "$tmp"
+mv "$tmp" "$hosts_json"
+echo "ci/pool-hosts: rewrote $hosts_json $platform: $current -> $reconciled"

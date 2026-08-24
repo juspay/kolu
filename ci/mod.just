@@ -412,9 +412,20 @@ protect *args:
 
 # Bring the pool up to strength: (re)create any missing/unhealthy slot, leave
 # healthy (warm) slots untouched. Size with KOLU_CI_POOL (default 8).
+#
+# Then reconcile hosts.json with what came back. Creating boxes is only half
+# the job: `pu create` places containers wherever there is room, so a new slot
+# can land on a machine that already hosts one, and a slot that never came
+# back stays advertised forever. odu believes hosts.json, so hosts.json has to
+# be true — see ci/pool-hosts.
 pool-ensure:
     bash .apm/skills/ci/pu/pool.sh
+    bash ci/pool-hosts --write
 
-# Report pool health without changing anything.
+# Report pool health without changing anything. `pool-hosts` (no --write) is
+# the half that answers "can these entries actually take work, and are they
+# really separate machines" — it exits non-zero when hosts.json overstates the
+# pool, so this recipe fails loud on a decayed pool instead of printing ✓s.
 pool-status:
     bash .apm/skills/ci/pu/pool.sh status
+    bash ci/pool-hosts
