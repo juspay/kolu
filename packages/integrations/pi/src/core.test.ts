@@ -100,6 +100,49 @@ describe("findSessionsByDirectory", () => {
       fs.chmodSync(dir, 0o700);
     }
   });
+
+  it("a REDIRECTED store is FLAT + header-cwd-filtered (pi's own layout)", () => {
+    const customRoot = path.join(tmpHome, "redirected-sessions");
+    fs.mkdirSync(customRoot, { recursive: true });
+    const file = (name: string, cwd: string) => {
+      fs.writeFileSync(
+        path.join(customRoot, name),
+        `${JSON.stringify({
+          type: "session",
+          id: "x",
+          timestamp: "2026-08-24T00:00:00.000Z",
+          cwd,
+        })}\n`,
+      );
+    };
+    file(
+      "2026-08-24T00-00-00-000Z_cccccccc-0000-4000-8000-00000000000c.jsonl",
+      "/redir/project",
+    );
+    // Another cwd's session sits side by side — must NOT attribute.
+    file(
+      "2026-08-24T00-00-01-000Z_eeeeeeee-0000-4000-8000-00000000000e.jsonl",
+      "/OTHER/project",
+    );
+    const store = { root: customRoot, layout: "flat" as const };
+    expect(
+      findSessionsByDirectory("/redir/project", store)?.map((s) => s.id),
+    ).toEqual(["cccccccc-0000-4000-8000-00000000000c"]);
+    expect(
+      findSessionsByDirectory("/OTHER/project", store)?.map((s) => s.id),
+    ).toEqual(["eeeeeeee-0000-4000-8000-00000000000e"]);
+    // An unparseable header simply does not attribute.
+    fs.writeFileSync(
+      path.join(
+        customRoot,
+        "2026-08-24T00-00-02-000Z_f0000000-0000-4000-8000-00000000000f.jsonl",
+      ),
+      "not-json\n",
+    );
+    expect(
+      findSessionsByDirectory("/redir/project", store)?.map((s) => s.id),
+    ).toEqual(["cccccccc-0000-4000-8000-00000000000c"]);
+  });
 });
 
 describe("piHomePresent", () => {
@@ -122,6 +165,7 @@ describe("subscribeSessionsTree", () => {
     fs.rmSync(root, { recursive: true, force: true });
     let fired = 0;
     const stop = subscribeSessionsTree(
+      { root, layout: "tree" },
       () => {
         fired++;
       },
@@ -148,11 +192,41 @@ describe("subscribeSessionsTree", () => {
     }
   });
 
+  it("a FLAT store fires on a session file creating directly under its root", async () => {
+    const root = path.join(tmpHome, "flat-store");
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.mkdirSync(root, { recursive: true });
+    let fired = 0;
+    const stop = subscribeSessionsTree(
+      { root, layout: "flat" },
+      () => {
+        fired++;
+      },
+      () => {},
+    );
+    try {
+      await sleep(300); // the attach reconcile kick
+      const before = fired;
+      fs.writeFileSync(
+        path.join(
+          root,
+          "2026-08-24T00-10-00-000Z_99999999-0000-4000-8000-000000000009.jsonl",
+        ),
+        "{}",
+      );
+      await sleep(300);
+      expect(fired).toBeGreaterThan(before);
+    } finally {
+      stop();
+    }
+  });
+
   it("keeps firing when a second session lands in an already-watched dir", async () => {
     const dir = sessionDirFor("/watched/project");
     fs.mkdirSync(dir, { recursive: true });
     let fired = 0;
     const stop = subscribeSessionsTree(
+      { root: path.join(tmpHome, "sessions"), layout: "tree" },
       () => {
         fired++;
       },

@@ -53,8 +53,32 @@ export function sessionDirNameFor(cwd: string): string {
   return `--${cwd.replace(/^\//, "").replace(/\//g, "-")}--`;
 }
 
-export function sessionDirFor(cwd: string): string {
-  return path.join(SESSIONS_DIR, sessionDirNameFor(cwd));
+/** A pi session STORE: where the files live and in which of pi's two
+ *  layouts — the default root keeps them under per-cwd keys (`tree`), a
+ *  REDIRECTED store (`--session-dir` / `PI_CODING_AGENT_SESSION_DIR` /
+ *  settings.json `sessionDir`) holds the session files FLAT, filtered by
+ *  the header `cwd` field instead (pi 0.84.2: `SessionManager.list` does
+ *  `listSessionsFromDir(dir)` + a header-cwd filter when a custom dir is
+ *  passed, and writes land flat in it — verified against a live pi). */
+export interface SessionStore {
+  root: string;
+  layout: "tree" | "flat";
+}
+
+/** The default store: config's root, tree layout. */
+export function defaultSessionStore(): SessionStore {
+  return { root: SESSIONS_DIR, layout: "tree" };
+}
+
+/** The session directory for a cwd under a given store root. `root`
+ *  defaults to kolu's DEFAULT root (config `SESSIONS_DIR`) — per-terminal
+ *  redirects (pi's `--session-dir` / `PI_CODING_AGENT_SESSION_DIR` chain,
+ *  resolved in `session-root.ts`) pass theirs through the adapter. */
+export function sessionDirFor(
+  cwd: string,
+  root: string = SESSIONS_DIR,
+): string {
+  return path.join(root, sessionDirNameFor(cwd));
 }
 
 /** `<timestamp>_<uuid>.jsonl`. The timestamp is the file's creation instant,
@@ -100,7 +124,42 @@ export interface PiSession {
  *  first, so the cap only ever drops sessions older than 64 others. */
 const MAX_CANDIDATES = 64;
 
+/** Read a session file's first line and parse its `cwd` field — the flat
+ *  store's attribution key (pi's own `buildSessionInfo` does the same). A
+ *  malformed/absent header contributes nothing. Private to the flat scan. */
+function readSessionHeaderCwd(file: string): string | null {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(file, "r");
+    const buf = Buffer.alloc(8192);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    const line = buf.slice(0, n).toString("utf8").split("\n", 1)[0];
+    if (!line) return null;
+    const header: unknown = JSON.parse(line);
+    if (
+      typeof header === "object" &&
+      header !== null &&
+      "cwd" in header &&
+      typeof (header as { cwd: unknown }).cwd === "string"
+    ) {
+      return (header as { cwd: string }).cwd;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
 /** Every pi session in a terminal's cwd, most recently modified FIRST.
+ *
+ *  `store` is the session store to scan — the default (`SESSIONS_DIR`,
+ *  `tree` layout) or a per-terminal redirect the adapter resolved from the
+ *  foreground pi process (`session-root.ts`). cwd keying differs by layout:
+ *  a `tree` store is keyed by directory NAME (`sessionDirNameFor`); a
+ *  `flat` store holds all cwds' files side by side and is filtered by the
+ *  header `cwd` field — pi's own two layouts (`SessionManager.list`).
  *
  *  Three-valued, per the `AgentAdapter.resolveSessions` contract: `[]` is
  *  evidence the terminal runs nothing (an absent sessions directory is the
@@ -108,9 +167,11 @@ const MAX_CANDIDATES = 64;
  *  store could not be read" (the arbiter must not release a session on it). */
 export function findSessionsByDirectory(
   cwd: string,
+  store: SessionStore = defaultSessionStore(),
   log?: Logger,
 ): PiSession[] | null {
-  const dir = sessionDirFor(cwd);
+  const dir =
+    store.layout === "tree" ? sessionDirFor(cwd, store.root) : store.root;
   let names: string[];
   try {
     names = fs.readdirSync(dir);
@@ -121,20 +182,40 @@ export function findSessionsByDirectory(
     }
     return [];
   }
+  // Flat stores attribute files by their header cwd; when the header's value
+  // isn't spelled like the terminal's spelling (a symlink), compare against
+  // BOTH — computed lazily so a tree store never pays for it.
+  let realCwd: string | null | undefined;
+  const cwdMatches = (headerCwd: string): boolean => {
+    if (headerCwd === cwd) return true;
+    if (realCwd === undefined) {
+      try {
+        realCwd = fs.realpathSync(cwd);
+      } catch {
+        realCwd = null;
+      }
+    }
+    return realCwd !== null && headerCwd === realCwd;
+  };
   const candidates: { session: PiSession; mtimeMs: number }[] = [];
   for (const name of names) {
     const parsed = parseSessionFileName(name);
     if (!parsed) continue;
+    const file = path.join(dir, name);
+    if (store.layout === "flat") {
+      const headerCwd = readSessionHeaderCwd(file);
+      if (headerCwd === null || !cwdMatches(headerCwd)) continue;
+    }
     let mtimeMs: number;
     try {
-      mtimeMs = fs.statSync(path.join(dir, name)).mtimeMs;
+      mtimeMs = fs.statSync(file).mtimeMs;
     } catch {
       continue; // vanished between readdir and stat — skip
     }
     candidates.push({
       session: {
         id: parsed.id,
-        transcriptPath: path.join(dir, name),
+        transcriptPath: file,
         startedAt: parsed.startedAt,
       },
       mtimeMs,
@@ -368,30 +449,35 @@ export function derivePiInfo(
 
 // --- Sessions-tree watcher (externalChanges) ---
 
-/** Watch the two-level sessions tree and fire on any session-file event:
- *  `sessions/` itself (per-cwd directories appearing or going away), plus one
- *  watch per existing per-cwd directory (files created inside them). A new
- *  per-cwd directory gets its child watch armed from the root event — the
- *  exact moment a first-ever pi run in that cwd becomes discoverable.
+/** Watch a session STORE and fire on any session-file event. `tree`
+ *  layout: two levels — the root (per-cwd directories appearing or going
+ *  away), plus one watch per existing per-cwd directory (files created
+ *  inside them); a new per-cwd directory gets its child watch armed from
+ *  the root event. `flat` layout: the root alone — the session files land
+ *  directly in it, so root renames ARE the signal (fs.watch is not
+ *  recursive on Linux, hence the two levels for a tree).
  *
- *  Why the tree and not the transcript: a pi session file exists before any
- *  title event can name it (the shell's preexec hint fires BEFORE pi writes
- *  the file), so the filesystem is the only signal that a session appeared —
- *  the same race claude's SESSIONS_DIR watcher covers for claude's pid-keyed
- *  files. `fs.watch` is not recursive on Linux, hence the two levels.
- *  `watchDirWhenReady` (kolu-io) carries the ancestor-wait so a missing
- *  `~/.pi/agent` on a fresh machine re-arms all the way up instead of dying
- *  at install time — `externalChanges.install` runs at most once per process,
- *  so a failed install would blind detection for the daemon's lifetime.
+ *  Why a store watch and not the transcript: a pi session file exists
+ *  before any title event can name it (the shell's preexec hint fires
+ *  BEFORE pi writes the file), so the filesystem is the only signal that a
+ *  session appeared — the same race claude's SESSIONS_DIR watcher covers
+ *  for claude's pid-keyed files. `watchDirWhenReady` (kolu-io) carries the
+ *  ancestor-wait so a store that doesn't exist yet re-arms all the way up
+ *  instead of dying at install time — `externalChanges.install` runs at
+ *  most once per process, so a failed install would blind detection for the
+ *  daemon's lifetime.
  *
  *  Process-wide: the orchestrator's `externalChanges.install` contract is
- *  at-most-once; the returned unsubscribe tears the whole tree down. */
+ *  at-most-once; the returned unsubscribe tears the whole watch set down. */
 export function subscribeSessionsTree(
+  store: SessionStore,
   onChange: () => void,
   onError: (err: unknown) => void,
   log?: Logger,
 ): () => void {
   const childWatchers = new Map<string, fs.FSWatcher>();
+  const sessionsDir = store.root;
+  const flat = store.layout === "flat";
   let closed = false;
 
   const fanOut = (): void => {
@@ -408,22 +494,22 @@ export function subscribeSessionsTree(
    *  delivering for a deleted dir but keeps the handle, so without pruning a
    *  recreated dir would stay watched by a dead handle and never re-arm). */
   function syncChildDirs(): void {
-    if (closed) return;
+    if (closed || flat) return;
     let names: string[];
     try {
-      names = fs.readdirSync(SESSIONS_DIR);
+      names = fs.readdirSync(sessionsDir);
     } catch (err) {
       // ENOENT = the root genuinely went away — prune everything below it.
       // Any other failure is transient (EMFILE/EACCES): keep the existing
       // watch set, log loudly, and take another pass on the next root event
       // rather than silently disarming the whole tree.
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        log?.error({ err, dir: SESSIONS_DIR }, "pi: sessions readdir failed");
+        log?.error({ err, dir: sessionsDir }, "pi: sessions readdir failed");
         return;
       }
       names = [];
     }
-    const live = new Set(names.map((n) => path.join(SESSIONS_DIR, n)));
+    const live = new Set(names.map((n) => path.join(sessionsDir, n)));
     for (const [dir, watcher] of childWatchers) {
       if (!live.has(dir)) {
         try {
@@ -454,10 +540,11 @@ export function subscribeSessionsTree(
     }
   }
 
-  // Root events: child-dir membership changed (any create/delete in `sessions/`
-  // fires here on both inotify and FSEvents) — re-sync, then report.
+  // Root events: child-dir membership changed (any create/delete in the
+  // root fires here on both inotify and FSEvents) — re-sync, then report.
+  // For the FLAT layout the file creates themselves land here directly.
   const stopRoot = watchDirWhenReady(
-    SESSIONS_DIR,
+    sessionsDir,
     () => {
       syncChildDirs();
       fanOut();
@@ -465,7 +552,7 @@ export function subscribeSessionsTree(
     log,
   );
 
-  log?.info({ dir: SESSIONS_DIR }, "pi: sessions tree watcher installed");
+  log?.info({ dir: sessionsDir }, "pi: sessions tree watcher installed");
 
   return () => {
     if (closed) return;
@@ -479,6 +566,6 @@ export function subscribeSessionsTree(
       }
     }
     childWatchers.clear();
-    log?.info({ dir: SESSIONS_DIR }, "pi: sessions tree watcher retired");
+    log?.info({ dir: sessionsDir }, "pi: sessions tree watcher retired");
   };
 }
