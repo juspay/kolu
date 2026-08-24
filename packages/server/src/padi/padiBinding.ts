@@ -68,8 +68,8 @@ import {
 } from "@kolu/surface-daemon";
 import {
   buildLabel,
-  type ConvergenceProbe,
   type ConvergenceOutcome,
+  type ConvergenceProbe,
   converge,
   createEndpoint,
   type DaemonDriver,
@@ -79,7 +79,6 @@ import {
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
-import type { PadiConvergence } from "kolu-common/surface";
 import {
   type ClosedInfo,
   ConnectError,
@@ -90,6 +89,7 @@ import {
 } from "@kolu/surface-remote";
 import { Effect } from "effect";
 import { assertDaemonSpawnAllowed } from "kaval";
+import type { PadiConvergence } from "kolu-common/surface";
 import { AGENT_TOOLS_BAKE_ENV, composeSpawnEnv } from "kolu-pty";
 import {
   bakedOsFactsBin,
@@ -232,6 +232,7 @@ export const AGENT_DIR_ENV_KEYS = [
   "KOLU_CODEX_DB",
   "KOLU_GROK_DIR",
   "KOLU_OPENCODE_DB",
+  "KOLU_PI_DIR",
 ] as const;
 
 /** Resolve how to launch padi: the built wrapper in production (`KOLU_PADI_BIN`),
