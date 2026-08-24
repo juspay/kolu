@@ -159,6 +159,15 @@ describe("piHomePresent", () => {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// FS-event delivery latency is backend-dependent (FSEvents on a loaded
+// darwin box routinely exceeds a fixed 300ms window) — park on the
+// CONDITION, not a sleep calendar.
+async function waitFor(cond: () => boolean, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!cond() && Date.now() < deadline) await sleep(50);
+  expect(cond()).toBe(true);
+}
+
 describe("subscribeSessionsTree", () => {
   it("fires when a per-cwd dir and its first session file appear after install", async () => {
     const root = path.join(tmpHome, "sessions");
@@ -176,8 +185,6 @@ describe("subscribeSessionsTree", () => {
       // watch must arm the child, and the file create must fan out.
       const dir = sessionDirFor("/late/project");
       fs.mkdirSync(dir, { recursive: true });
-      await sleep(300);
-      const before = fired;
       fs.writeFileSync(
         path.join(
           dir,
@@ -185,8 +192,7 @@ describe("subscribeSessionsTree", () => {
         ),
         "{}",
       );
-      await sleep(300);
-      expect(fired).toBeGreaterThan(before);
+      await waitFor(() => fired > 0);
     } finally {
       stop();
     }
@@ -205,7 +211,6 @@ describe("subscribeSessionsTree", () => {
       () => {},
     );
     try {
-      await sleep(300); // the attach reconcile kick
       const before = fired;
       fs.writeFileSync(
         path.join(
@@ -214,8 +219,7 @@ describe("subscribeSessionsTree", () => {
         ),
         "{}",
       );
-      await sleep(300);
-      expect(fired).toBeGreaterThan(before);
+      await waitFor(() => fired > before);
     } finally {
       stop();
     }
@@ -233,7 +237,6 @@ describe("subscribeSessionsTree", () => {
       () => {},
     );
     try {
-      await sleep(300); // let the child dir watch arm (attach kick fires once)
       const before = fired;
       fs.writeFileSync(
         path.join(
@@ -242,8 +245,7 @@ describe("subscribeSessionsTree", () => {
         ),
         "{}",
       );
-      await sleep(300);
-      expect(fired).toBeGreaterThan(before);
+      await waitFor(() => fired > before);
     } finally {
       stop();
     }
