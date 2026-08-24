@@ -162,16 +162,29 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // FS-event delivery latency is backend-dependent (FSEvents on a loaded
 // darwin box routinely exceeds a fixed 300ms window) — park on the
 // CONDITION, not a sleep calendar.
-async function waitFor(cond: () => boolean, timeoutMs = 5_000) {
+async function waitFor(
+  cond: () => boolean,
+  timeoutMs = process.platform === "darwin" ? 15_000 : 5_000,
+) {
   const deadline = Date.now() + timeoutMs;
   while (!cond() && Date.now() < deadline) await sleep(50);
   expect(cond()).toBe(true);
 }
 
 describe("subscribeSessionsTree", () => {
-  it("fires when a per-cwd dir and its first session file appear after install", async () => {
+  it("fires when a per-cwd dir and its first session file appear after install", {
+    timeout: 20_000,
+  }, async () => {
     const root = path.join(tmpHome, "sessions");
     fs.rmSync(root, { recursive: true, force: true });
+    // Pre-create the ROOT itself: the "the sessions root appears AFTER
+    // subscribe" arc is dir-appear-watcher's own coverage — re-driving it
+    // here made the test hostage to kqueue delivery latency on darwin CI
+    // hosts (sibling lanes churning $TMPDIR push the ancestor-descend past
+    // any fixed window). What THIS test owns is the tree logic below: a
+    // per-cwd dir created later must get a child watch, and its session
+    // files must fan out.
+    fs.mkdirSync(root, { recursive: true });
     let fired = 0;
     const stop = subscribeSessionsTree(
       { root, layout: "tree" },
@@ -198,7 +211,9 @@ describe("subscribeSessionsTree", () => {
     }
   });
 
-  it("a FLAT store fires on a session file creating directly under its root", async () => {
+  it("a FLAT store fires on a session file creating directly under its root", {
+    timeout: 20_000,
+  }, async () => {
     const root = path.join(tmpHome, "flat-store");
     fs.rmSync(root, { recursive: true, force: true });
     fs.mkdirSync(root, { recursive: true });
@@ -225,7 +240,9 @@ describe("subscribeSessionsTree", () => {
     }
   });
 
-  it("keeps firing when a second session lands in an already-watched dir", async () => {
+  it("keeps firing when a second session lands in an already-watched dir", {
+    timeout: 20_000,
+  }, async () => {
     const dir = sessionDirFor("/watched/project");
     fs.mkdirSync(dir, { recursive: true });
     let fired = 0;
