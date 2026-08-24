@@ -1,13 +1,18 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { afterAll, describe, expect, it } from "vitest";
+
+const log = silentLogger;
 
 // Point pi home at a temp dir BEFORE importing modules that capture paths.
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-pi-tr-test-"));
 process.env.KOLU_PI_DIR = tmpHome;
 
 const { sessionDirFor } = await import("./core.ts");
+const { piAdapter } = await import("./agent-adapter.ts");
 const { normalizePiToolInput, parsePiTranscript, loadPiTranscript } =
   await import("./transcript.ts");
 
@@ -234,6 +239,66 @@ describe("loadPiTranscript", () => {
     expect(t?.agentKind).toBe("pi");
     expect(t?.sessionId).toBe(id);
     expect(t?.events[0]).toMatchObject({ kind: "user", text: "hi" });
+  });
+
+  it("finds a session in a REDIRECTED store the adapter registered (`PI_CODING_AGENT_SESSION_DIR` case)", () => {
+    const cwd = "/work/redirected-project";
+    const id = "dddddddd-0000-4000-8000-00000000000d";
+    const customRoot = path.join(tmpHome, "custom-sessions");
+    fs.mkdirSync(customRoot, { recursive: true });
+    // A redirected store lays its session files FLAT, attributed by header cwd.
+    fs.writeFileSync(
+      path.join(customRoot, `2026-08-24T00-00-00-000Z_${id}.jsonl`),
+      line({
+        type: "session",
+        id,
+        timestamp: "2026-08-24T00:00:00.000Z",
+        cwd,
+      }) +
+        "\n" +
+        line({
+          type: "message",
+          id: "u1",
+          timestamp: "2026-08-24T00:00:01.000Z",
+          message: { role: "user", content: [{ type: "text", text: "hi" }] },
+        }) +
+        "\n",
+    );
+    // Drive the adapter's resolution the way the sensors do: a live "pi"
+    // foreground process carrying pi's own override env — /proc exposes the
+    // exec-time env, so the stand-in must be a spawned child, not this
+    // process with a mutated process.env.
+    const child = spawn(
+      process.execPath,
+      ["-e", "setTimeout(()=>{}, 30_000)"],
+      { env: { ...process.env, PI_CODING_AGENT_SESSION_DIR: customRoot } },
+    );
+    try {
+      const offered = piAdapter.resolveSessions(
+        {
+          foregroundPid: child.pid,
+          cwd,
+          readForegroundBasename: () => "pi",
+          lastAgentCommandName: "pi",
+        },
+        log,
+      );
+      expect(offered?.map((s) => s.id)).toEqual([id]);
+    } finally {
+      child.kill();
+    }
+    // Exporter finds it via the registered root (default tree holds nothing).
+    expect(
+      loadPiTranscript({
+        sessionId: id,
+        title: null,
+        repoName: null,
+        cwd,
+        model: null,
+        contextTokens: null,
+        pr: null,
+      })?.sessionId,
+    ).toBe(id);
   });
 
   it("nulls when the caller cannot supply a cwd", () => {

@@ -17,8 +17,6 @@
  *  present as anything but confusion, are dropped. */
 
 import fs from "node:fs";
-import path from "node:path";
-import { match } from "ts-pattern";
 import type { Logger } from "kolu-shared";
 import {
   type Fetcher,
@@ -27,7 +25,9 @@ import {
   type Transcript,
   type TranscriptEvent,
 } from "kolu-transcript-core";
-import { parseSessionFileName, sessionDirFor } from "./core.ts";
+import { match } from "ts-pattern";
+import { knownSessionStores } from "./agent-adapter.ts";
+import { defaultSessionStore, findSessionsByDirectory } from "./core.ts";
 
 interface PiEntry {
   id?: string;
@@ -207,34 +207,37 @@ export function parsePiTranscript(content: string): TranscriptEvent[] {
   return events;
 }
 
-/** Resolve the transcript path by scanning the cwd's session directory for
- *  the file whose id matches (pi's `--session <id>` accepts the same id the
- *  filename carries). Returns null when the directory is absent or holds no
- *  such session — the exporter shows "not found", never a fabricated path. */
+/** Resolve the transcript path by scanning the cwd's session directories
+ *  for the file whose id matches (pi's `--session <id>` accepts the same id
+ *  the filename carries). Searches the DEFAULT store first, then every
+ *  redirected store the adapter has seen a terminal resolve
+ *  (`knownSessionStores`) — an exported session is usually one kolu detected,
+ *  so its (possibly redirected) store is in that set. Returns null when no
+ *  candidate store holds the id — the exporter shows "not found", never a
+ *  fabricated path. */
 function findTranscriptPath(
   sessionId: string,
   cwd: string,
   log?: Logger,
 ): string | null {
-  const dir = sessionDirFor(cwd);
-  let names: string[];
-  try {
-    names = fs.readdirSync(dir);
-  } catch (err) {
-    // ENOENT = the directory legitimately doesn't exist (pi never ran in
-    // that cwd) — "session not found" is the honest answer. Anything else
-    // (EMFILE/EACCES) collapsing to "not found" would lie to the user, so
-    // it throws and surfaces as a real export error.
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.error({ err, dir }, "pi: transcript dir unreadable");
-      throw err;
+  const stores = new Map(
+    [defaultSessionStore(), ...knownSessionStores()].map((s) => [s.root, s]),
+  );
+  // An UNREADABLE store is a real fault and must not collapse to "not
+  // found" — remember the first one and throw it if NOTHING else locates
+  // the session (a stale registered store — a wiped redirect — must not mask
+  // an id genuinely held by a later candidate).
+  let firstFault: Error | null = null;
+  for (const store of stores.values()) {
+    const sessions = findSessionsByDirectory(cwd, store, log);
+    if (sessions === null) {
+      firstFault ??= new Error(`pi: session store unreadable: ${store.root}`);
+      continue;
     }
-    return null;
+    const hit = sessions.find((s) => s.id === sessionId);
+    if (hit) return hit.transcriptPath;
   }
-  for (const name of names) {
-    const parsed = parseSessionFileName(name);
-    if (parsed?.id === sessionId) return path.join(dir, name);
-  }
+  if (firstFault) throw firstFault;
   return null;
 }
 
