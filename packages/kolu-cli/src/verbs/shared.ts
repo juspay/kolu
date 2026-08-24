@@ -17,6 +17,10 @@ import {
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import { readTerminalKeys } from "@kolu/padi/read";
 import { resolveTerminalId, shortId } from "@kolu/padi/render";
+// The ONE reading of "the reader hung up" — `@kolu/surface-cli`'s own, imported
+// (not re-spelled) since this binary mounted the projection: see the export
+// block below for why it is this package's.
+import { isConsumerHangup } from "@kolu/surface-cli";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Data, Effect, type Sink, Stream } from "effect";
 // The SUBPATH, not the `@effect/platform-node` barrel — see `main.ts`'s import
@@ -154,14 +158,20 @@ export class StdoutWriteFailed extends Data.TaggedError("StdoutWriteFailed")<{
  *  asked for and left; anything else is a real failure that must be said out
  *  loud rather than folded into the same silent success.
  *
- *  EXPORTED, and so is {@link stdoutSink} and {@link stdoutLost} beside it: a
- *  one-shot block and a live feed differ in SHAPE, not in what can go wrong with
- *  a descriptor, so `watch.ts` plugs the same three values into a streaming
- *  consumption. It used to say exactly that in a comment while writing them out
- *  a second time — and a comment asserting two things are the same is a
- *  convention, not a constraint. */
-export const isConsumerHangup = (cause: unknown): boolean =>
-  (cause as { readonly code?: unknown })?.code === "EPIPE";
+ *  THE predicate is `@kolu/surface-cli`'s `io.ts`, re-exported here — it reads
+ *  the errno on the platform error's `cause` as well as flat, which is the one
+ *  Node actually produces. It used to be spelled locally, reading only the
+ *  flat `code`: two half-right EPIPE tests is the recorded divergence
+ *  `@kolu/surface-cli` documented until this face mounted the projection, and
+ *  one question ("is stdout's data channel gone?") has one answer now.
+ *
+ *  EXPORTED further, and so are {@link stdoutSink} and {@link stdoutLost}
+ *  beside it: a one-shot block and a live feed differ in SHAPE, not in what
+ *  can go wrong with a descriptor, so `watch.ts` plugs the same values into a
+ *  streaming consumption. It used to say exactly that in a comment while
+ *  writing them out a second time — and a comment asserting two things are
+ *  the same is a convention, not a constraint. */
+export { isConsumerHangup };
 
 /** Backpressure-aware stdout, as a SINK.
  *

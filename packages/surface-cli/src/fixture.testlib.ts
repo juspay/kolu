@@ -20,7 +20,7 @@ import {
   type SurfaceClientCallable,
 } from "@kolu/surface/client";
 import { defineSurface } from "@kolu/surface/define";
-import { exposeFace, type ExposeMap } from "@kolu/surface/expose";
+import { type ExposeMap, exposeFace } from "@kolu/surface/expose";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import {
@@ -487,6 +487,30 @@ export function fixtureRootWithUnresolvableEndpoint(how: "fail" | "throw") {
   });
   return Command.make("demo").pipe(
     Command.withDescription("the surface-cli fixture host (no endpoint)"),
+    Command.withSubcommands([...commands]),
+  );
+}
+
+/** A projection whose endpoint RESOLVES but whose `open` never completes —
+ *  the ssh-provision shape a real host can sit inside for minutes. It exists
+ *  to measure one thing: a Ctrl-C during the dial must exit 130 at the speed
+ *  the user typed it, not after the dial, so the acquire is interruptible
+ *  (`commands.ts`'s `withConnection`) rather than masked-waiting on the
+ *  promise. `list` is the cheapest verb to drive it with — the dial precedes
+ *  even the listing path's data. */
+export function fixtureRootWithHungOpen() {
+  const commands = commandsWith({
+    flags: endpointFlags,
+    resolve: (values: { readonly socket: string }) =>
+      Effect.succeed({
+        where: values.socket,
+        open: () => new Promise(() => {}),
+      }),
+  });
+  return Command.make("demo").pipe(
+    Command.withDescription(
+      "the surface-cli fixture host (a dial that never lands)",
+    ),
     Command.withSubcommands([...commands]),
   );
 }

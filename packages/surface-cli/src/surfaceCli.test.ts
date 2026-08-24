@@ -20,10 +20,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
+import type { UnixSocketListener } from "@kolu/surface/unix-socket";
 import { Effect, FileSystem, Layer, Path, Sink, Stdio, Terminal } from "effect";
 import { Command } from "effect/unstable/cli";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import type { UnixSocketListener } from "@kolu/surface/unix-socket";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { EXIT } from "./exit";
 import { fixtureRoot, serveFixture } from "./fixture.testlib";
@@ -617,6 +617,27 @@ describe("the exit matrix", () => {
   it("130 — Ctrl-C during a --follow", async () => {
     const followed = await follow(["get", "load", "--follow"]);
     expect(followed.code).toBe(EXIT.interrupted);
+  });
+
+  it("130 — Ctrl-C DURING THE DIAL: a connection that never arrives does not hold the interrupt hostage", {
+    timeout: 30000,
+  }, async () => {
+    // The ssh-provision shape: `open` may sit in flight for minutes, and the
+    // matrix promises 130 at the speed the user typed it — a masked acquire
+    // would read this leg as a hang past the case's own timeout instead.
+    // `get` dials before it does anything else; `list` deliberately never does.
+    const child = spawn(TSX, [HOST, "get", "load", "--socket", socketPath], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, SURFACE_CLI_FIXTURE: "open-hangs" },
+    });
+    const begun = Date.now();
+    const answered = collect(child);
+    setTimeout(() => child.kill("SIGINT"), 2000);
+    const result = await answered;
+    expect(result.code).toBe(EXIT.interrupted);
+    // Wide on purpose — a loaded CI box holds process shutdown for seconds:
+    // the claim is the dial did NOT wait for itself, not a latency ceiling.
+    expect(Date.now() - begun).toBeLessThan(15000);
   });
 });
 

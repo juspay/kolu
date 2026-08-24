@@ -25,6 +25,7 @@ import {
   fixtureRoot,
   fixtureRootOneShot,
   fixtureRootWithHelp,
+  fixtureRootWithHungOpen,
   fixtureRootWithParentFlags,
   fixtureRootWithUnresolvableEndpoint,
 } from "./fixture.testlib";
@@ -39,6 +40,8 @@ import {
 //   resolve-throws   the same refusal as a bare throw out of the seam
 //   one-shot         a transport that cannot push: no `watch`, no `--follow`
 //   helped           a host that wrote a help page, so the verbs are unlisted
+//   open-hangs       resolution answers, but `open` never completes (the
+//                    ssh-provision shape — a Ctrl-C during it must still be 130)
 const root = ((mode) => {
   if (mode === "one-shot") return fixtureRootOneShot();
   if (mode === "helped") return fixtureRootWithHelp();
@@ -47,6 +50,7 @@ const root = ((mode) => {
     return fixtureRootWithUnresolvableEndpoint("fail");
   if (mode === "resolve-throws")
     return fixtureRootWithUnresolvableEndpoint("throw");
+  if (mode === "open-hangs") return fixtureRootWithHungOpen();
   return fixtureRoot();
 })(process.env.SURFACE_CLI_FIXTURE);
 

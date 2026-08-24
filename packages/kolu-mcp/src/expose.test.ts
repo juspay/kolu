@@ -13,14 +13,14 @@
 import { padiSurface } from "@kolu/padi/surface";
 import {
   resolveExpose,
-  serveSurfaceAsMcp,
   type SurfaceClientCallable,
+  serveSurfaceAsMcp,
 } from "@kolu/surface-mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { KOLU_MCP_DENIED, KOLU_MCP_EXPOSE } from "./expose.ts";
-import { KOLU_MCP_TOOLS } from "./serve.ts";
+import { KOLU_MCP_TOOLS } from "./tools.ts";
 
 /** Every member path the spec declares: top-level primitive keys plus
  *  `<ns>.<verb>` for procedures — the universe a denial must name into. */

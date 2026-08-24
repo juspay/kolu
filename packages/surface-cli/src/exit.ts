@@ -29,21 +29,42 @@
  * a refusal's JSON BODY contains ({@link refusalLine}) is here for the same
  * reason — it is the exit-1 arm's payload, not a thing the projection knows.
  *
- * ## Another binary's matrix disagrees, and one day that will have to be settled
+ * ## Another binary's matrix disagrees — settled, per FACE
  *
  * `packages/kolu-cli` publishes its own: `1 = usage error or dropped link`,
  * `2 = wait timed out`, `3 = terminal exited`. Against this face's `2` is a
  * usage error and `3` is an unreachable endpoint — so `2` means two different
- * things across the two binaries, and `kolu`'s `UsageRefused` maps to `1` where
- * `runEdge` maps the same CLI-library refusal to `2`.
+ * things across the two binaries, and the parse layer disagrees in lockstep:
+ * `kolu`'s `UsageRefused` maps a CLI-library refusal to `1` where `runEdge`
+ * maps the same refusal to `2`.
  *
- * That is recorded, not worked around. Nothing mounts both faces today
- * (`kolu-cli` is deliberately not migrated onto this projection, and the
- * Phase-2 host is a different binary with no matrix of its own), and the day one
- * binary does mount both is the day ONE of the two matrices has to give. That is
- * a decision for that change — an override on this seam would only let the
- * collision ship quietly, with the same integer meaning two things inside one
- * binary and no one place to read the truth off.
+ * The day one binary mounted both faces has arrived: `kolu` fronts this
+ * projection as `kolu surface` (`packages/kolu-cli/src/surfaceFace.ts`) beside
+ * its native verbs. The ruling is the one this section recorded ahead of it:
+ * NO override on this seam — an override would only let the collision ship
+ * quietly, the same integer meaning two things inside one binary and no one
+ * place to read the truth off. So the matrices stay per-face, and a driver
+ * picks the matrix by picking the face:
+ *
+ *   - the surface face's verbs answer THIS matrix verbatim — each failure
+ *     carries its own code, and the binary's run edge passes identity through
+ *     rather than re-classifying;
+ *   - the native verbs keep theirs;
+ *   - the one binary-wide stance is the parse domain: Effect CLI's own
+ *     failures (a missing required flag, an unknown option) resolve as the
+ *     LIBRARY's brand before any face's handler runs, and `kolu` renders those
+ *     exit `1` on every face — the parse stance an operator learns once.
+ *   - the one binary-wide fallback is the defect domain: a throw that outruns
+ *     EVERY face's arming (a defect inside an `annotate.render`, fired while
+ *     the command TREE is materialising, before any verb's own edge exists)
+ *     carries no face's tag, so the binary's edge
+ *     arms it as the NATIVE crash line — `kolu: <message>`, exit `1` —
+ *     whatever face issued it. A script doing `JSON.parse(stderr)` on exit 1
+ *     can therefore rely on egress being JSON for every REFUSAL, but a crash
+ *     outrunning the arm is prose; that is the contract a face inherits by
+ *     riding a binary that owns other faces, and no subtree wrap can change
+ *     it — the binary's edge is the last edge before the process, so the wrap
+ *     has to live there, where no face's name is left to arm with.
  *
  * Each arm carries the EXACT text it writes, not a fragment a formatter
  * reassembles later, plus `Runtime.errorExitCode` — the marker
@@ -232,7 +253,7 @@ export function classify(
   where: string,
   error: unknown,
 ): unknown {
-  if (isOwnFailure(error)) return error;
+  if (isSurfaceCliFailure(error)) return error;
   // An EMPTY OPEN: the link went away under an in-flight read, discovered by the
   // reader instead of by the dialler. Every snapshot-then-deltas member opens
   // with its current value, so a member that opened and closed saying nothing is
@@ -260,8 +281,13 @@ export function classify(
 
 /** Is this a failure this face already worded and gave a code to? Matched on the
  *  tag rather than by `instanceof`, so a value that crossed a module boundary is
- *  still recognised as its own verdict rather than re-classified as a refusal. */
-function isOwnFailure(value: unknown): value is SurfaceCliFailure {
+ *  still recognised as its own verdict rather than re-classified as a refusal.
+ *  EXPORTED: the tag string lives HERE, at its minting module — a host binary
+ *  whose run edge passes this face's arms through (kolu's `isContractArm`)
+ *  composes this predicate rather than re-spelling the literal. */
+export function isSurfaceCliFailure(
+  value: unknown,
+): value is SurfaceCliFailure {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -338,10 +364,10 @@ export type RunEdgeReport =
  *  because the line is already written here and Effect's would be a second,
  *  differently-worded copy of it — on stdout. */
 export function runEdge(error: unknown): RunEdgeReport {
-  // {@link isOwnFailure}, not a duck-test for a `stderr` string: a FOREIGN error
+  // {@link isSurfaceCliFailure}, not a duck-test for a `stderr` string: a FOREIGN error
   // that happens to carry one would otherwise be printed raw and lose the arm
   // the matrix means for it.
-  if (isOwnFailure(error))
+  if (isSurfaceCliFailure(error))
     return { kind: "write", stderr: error.stderr, failure: error };
   // Has the CLI LIBRARY already put this failure's text on screen? A typo'd
   // subcommand, a rejected flag, a value an enum does not admit — the library

@@ -664,8 +664,12 @@ function callableVerbs<S extends SurfaceSpec, F extends FlagRecord, R>(
       ),
       annotation,
       // A bespoke handler is `(args, client, signal) => Effect`, exactly as on
-      // the MCP face. There is no signal to hand it: cancellation here IS fiber
-      // interruption, and a handler that composes surface members inherits it.
+      // the MCP face. No transport signal exists on an argv face — cancellation
+      // here IS fiber interruption, and a handler that composes surface members
+      // inherits it directly, while one that LIFTS a Promise-shaped waiter
+      // (the `wait_*` / `watch_next` family) mints the equivalent AbortSignal
+      // inside its own two-arg `tryPromise`. Either way the handler owns what
+      // an interrupt aborts.
       call: (client, args) => verb.handler(args, client, undefined),
     });
   }
@@ -1518,6 +1522,21 @@ function alignedTable(value: unknown): string {
 
 // ── The connection, for the length of one command ────────────────────────
 
+/** A teardown that must not have a last word. A socket close that rejects
+ *  has nothing to add to a command that already has — or just lost — its
+ *  answer, and an escaping rejection is either a DEFECT that replaces the
+ *  verdict (the release arm) or an unhandled promise rejection mid-Ctrl-C
+ *  (the arrive-late arm of the interruptible acquire). One concept, one
+ *  spelling; the socket is going away with the process either way. */
+const disposeQuietly = async (c: { dispose(): void | Promise<void> }) => {
+  // The (synchronous) call is DEFERRED under `.then`: a `dispose` that THROWS
+  // before returning must read exactly like one that rejects — the `.catch`
+  // owns both, never the caller's framing.
+  await Promise.resolve()
+    .then(() => c.dispose())
+    .catch(() => {});
+};
+
 /** Dial, run, release — in that order, whatever happens in the middle.
  *
  *  `acquireRelease` is what makes the release survive an INTERRUPTION: a Ctrl-C
@@ -1573,23 +1592,53 @@ function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
     Effect.scoped(
       Effect.flatMap(
         Effect.acquireRelease(
+          // `interruptible: true`: the acquire must DIE ON a consumer's
+          // Ctrl-C — a host whose `open` is an ssh provision can sit in it for
+          // minutes, and a masked `tryPromise` would hold the interrupt for
+          // the whole dial (the matrix promises 130 at the speed the user
+          // typed it). The trade: delivery and finalizer-registration stop
+          // being one masked atom, so the arriving half of an INTERRUPTED
+          // `open` is disposed by hand, here — on `signal.aborted`, because an
+          // interrupted acquire is short-circuited BEFORE its `release` is
+          // registered, never after.
+          // "Dispose quietly" is ONE concept, spelled HERE once: a teardown
+          // that fails has nothing to add to a command that already has (or
+          // just lost) its answer, and an escaping rejection is either a
+          // DEFECT that replaces the verdict (in the release arm, where the
+          // command succeeded) or an unhandled rejection mid-Ctrl-C (in the
+          // arrive-late arm). The socket is going away with the process either
+          // way.
+          //
+          // The check's bound is honest, not absolute: `signal.aborted` does
+          // not close the microseconds-wide race where the interrupt lands
+          // BETWEEN this deferred check running and `acquireRelease` registering
+          // the finalizer — a connection could escape both arms for that gap.
+          // This is a ONE-SHOT command-line binary: the interrupt finds the
+          // process already in its exit path (130), the kernel reaps whatever
+          // the gap could ever leak within the process's remaining microseconds,
+          // and no host of this library runs longer than one command.
+          // Threading the signal into the seam's `open` itself is refused
+          // instead — it would smuggle Effect's interruption semantics into
+          // every host's dial — so the residual cost is a gap bounded at one
+          // OS FD for the process's remaining microseconds, bought to keep
+          // `open`'s shape channel-agnostic.
           Effect.tryPromise({
-            try: async () => await open(),
+            try: (signal) =>
+              Promise.resolve(open()).then(async (connection) => {
+                if (signal.aborted) await disposeQuietly(connection);
+                return connection;
+              }),
             catch: (cause) =>
               unreachable(opts.info.name, where, messageOf(cause)),
           }),
-          // IGNORED, deliberately: a teardown that fails has nothing to add to a
-          // command that already has its answer, and `Effect.promise` would turn
-          // a rejected `dispose` into a DEFECT that replaces the verdict — a
-          // successful capture reported as a crash because a socket close raced
-          // the process. The socket is going away with the process either way.
           (connection) =>
             Effect.ignore(
               Effect.tryPromise({
-                try: async () => await connection.dispose(),
+                try: async () => await disposeQuietly(connection),
                 catch: (cause) => cause,
               }),
             ),
+          { interruptible: true },
         ),
         (connection) =>
           Effect.catch(use(connection.client, where), (error) =>

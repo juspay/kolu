@@ -78,6 +78,11 @@ import { reservedFace } from "./exit.ts";
 // is parsed is the CLI's volatility, and a flag declaration is a runtime call
 // the web server package has no business holding.
 import { bootFlagsOf, webFlags } from "./webFlags.ts";
+// The surface face — the ONE static import that names a face: Effect CLI's
+// tree must hold its subcommands on every invocation, and `surfaceFace.ts`'s
+// header is the record of what that costs (schema-level only) and what it
+// refuses to cost (no socket, no MCP SDK).
+import { koluSurfaceFace } from "./surfaceFace.ts";
 
 /** The root. It carries no handler of its own — a bare `kolu` has nothing to do
  *  but show what it can do, which is exactly what Effect CLI does for a
@@ -759,7 +764,7 @@ const watch = Command.make(
 );
 
 /** The whole binary. Verbs first — they are what a user reaches for — then the
- *  two server-ish faces and the reserved one. */
+ *  two server-ish faces, the padi projection, and the reserved one. */
 export const koluCli = koluRoot.pipe(
   Command.withSubcommands([
     ls,
@@ -774,6 +779,7 @@ export const koluCli = koluRoot.pipe(
     watch,
     web,
     mcp,
+    koluSurfaceFace(koluRoot),
     tui,
   ]),
 );

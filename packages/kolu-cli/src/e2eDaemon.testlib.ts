@@ -28,6 +28,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { assertDaemonSpawnAllowed } from "@kolu/daemon-test-gate";
 import {
   padiClientOver,
   padiSocketPath,
@@ -35,7 +36,6 @@ import {
 } from "@kolu/padi/dial";
 import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
 import { padiDaemonGroup } from "@kolu/padi/surface";
-import { assertDaemonSpawnAllowed } from "@kolu/daemon-test-gate";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { Effect } from "effect";
 
@@ -118,7 +118,11 @@ export function e2eRuntimeRoot(tag: string): {
       process.env.XDG_RUNTIME_DIR = root;
     },
     leave() {
-      process.env.XDG_RUNTIME_DIR = prior;
+      // DELETE restores an absent var — assigning the captured `undefined`
+      // stamps the literal string "undefined" into every process spawned from
+      // this worker afterwards.
+      if (prior === undefined) delete process.env.XDG_RUNTIME_DIR;
+      else process.env.XDG_RUNTIME_DIR = prior;
     },
   };
 }
