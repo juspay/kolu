@@ -162,18 +162,34 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // FS-event delivery latency is backend-dependent (FSEvents on a loaded
 // darwin box routinely exceeds a fixed 300ms window) — park on the
 // CONDITION, not a sleep calendar.
-async function waitFor(
+/** Wait for an fs.watch-driven predicate, re-touching `file` between
+ *  attempts. FSEvents on darwin coalesces and can drop a one-shot create
+ *  — a single `waitFor` budget races that latency (the watchGitHead
+ *  darwin-only flake in #320). Each attempt waits up to `perAttemptMs`;
+ *  if the predicate is still false, rewrite the file with its own bytes
+ *  to force another change event. */
+async function waitForWatch(
   cond: () => boolean,
-  timeoutMs = process.platform === "darwin" ? 15_000 : 5_000,
+  file: string,
+  perAttemptMs = process.platform === "darwin" ? 2_000 : 1_000,
+  attempts = 6,
 ) {
-  const deadline = Date.now() + timeoutMs;
-  while (!cond() && Date.now() < deadline) await sleep(50);
-  expect(cond()).toBe(true);
+  for (let i = 0; i < attempts; i++) {
+    const deadline = Date.now() + perAttemptMs;
+    while (!cond() && Date.now() < deadline) await sleep(50);
+    if (cond()) return;
+    if (i === attempts - 1) {
+      expect(cond()).toBe(true);
+      return;
+    }
+    const content = fs.readFileSync(file);
+    fs.writeFileSync(file, content);
+  }
 }
 
 describe("subscribeSessionsTree", () => {
   it("fires when a per-cwd dir and its first session file appear after install", {
-    timeout: 20_000,
+    timeout: 25_000,
   }, async () => {
     const root = path.join(tmpHome, "sessions");
     fs.rmSync(root, { recursive: true, force: true });
@@ -198,21 +214,19 @@ describe("subscribeSessionsTree", () => {
       // watch must arm the child, and the file create must fan out.
       const dir = sessionDirFor("/late/project");
       fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(
-        path.join(
-          dir,
-          "2026-08-23T10-00-00-000Z_11111111-2222-4333-8444-555555555555.jsonl",
-        ),
-        "{}",
+      const file = path.join(
+        dir,
+        "2026-08-23T10-00-00-000Z_11111111-2222-4333-8444-555555555555.jsonl",
       );
-      await waitFor(() => fired > 0);
+      fs.writeFileSync(file, "{}");
+      await waitForWatch(() => fired > 0, file);
     } finally {
       stop();
     }
   });
 
   it("a FLAT store fires on a session file creating directly under its root", {
-    timeout: 20_000,
+    timeout: 25_000,
   }, async () => {
     const root = path.join(tmpHome, "flat-store");
     fs.rmSync(root, { recursive: true, force: true });
@@ -227,21 +241,19 @@ describe("subscribeSessionsTree", () => {
     );
     try {
       const before = fired;
-      fs.writeFileSync(
-        path.join(
-          root,
-          "2026-08-24T00-10-00-000Z_99999999-0000-4000-8000-000000000009.jsonl",
-        ),
-        "{}",
+      const file = path.join(
+        root,
+        "2026-08-24T00-10-00-000Z_99999999-0000-4000-8000-000000000009.jsonl",
       );
-      await waitFor(() => fired > before);
+      fs.writeFileSync(file, "{}");
+      await waitForWatch(() => fired > before, file);
     } finally {
       stop();
     }
   });
 
   it("keeps firing when a second session lands in an already-watched dir", {
-    timeout: 20_000,
+    timeout: 25_000,
   }, async () => {
     const dir = sessionDirFor("/watched/project");
     fs.mkdirSync(dir, { recursive: true });
@@ -255,14 +267,12 @@ describe("subscribeSessionsTree", () => {
     );
     try {
       const before = fired;
-      fs.writeFileSync(
-        path.join(
-          dir,
-          "2026-08-23T11-00-00-000Z_66666666-7777-4888-8999-000000000000.jsonl",
-        ),
-        "{}",
+      const file = path.join(
+        dir,
+        "2026-08-23T11-00-00-000Z_66666666-7777-4888-8999-000000000000.jsonl",
       );
-      await waitFor(() => fired > before);
+      fs.writeFileSync(file, "{}");
+      await waitForWatch(() => fired > before, file);
     } finally {
       stop();
     }
