@@ -36,11 +36,11 @@ arrived as a PTY host with a compile step.
 
 |  | `@kolu/padi` | `@kolu/padi-client` |
 | --- | --- | --- |
-| workspace packages | 34 | 22 |
+| workspace packages | 34 | 21 |
 | npm packages | 38 | 12 |
 | native modules | `node-pty`, `@parcel/watcher` | `@parcel/watcher` |
 
-The twelve workspace packages it drops are the daemon and TUI tier: `kaval`,
+The thirteen workspace packages it drops are the daemon and TUI tier: `kaval`,
 `terminal-snapshot`, `terminal-themes`, `@kolu/xterm-kit`, `@kolu/serve-dir`,
 `@kolu/surface-remote`, `@kolu/surface-map` and the rest — and with them
 `node-pty`, the whole `@xterm/*` suite, `@resvg/resvg-wasm`, `pino`, `conf`,

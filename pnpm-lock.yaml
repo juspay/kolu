@@ -1748,9 +1748,6 @@ importers:
       effect:
         specifier: 4.0.0-rc.110
         version: 4.0.0-rc.110
-      osfacts-client:
-        specifier: workspace:*
-        version: link:../../osfacts-client
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -1767,6 +1764,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      osfacts-client:
+        specifier: workspace:*
+        version: link:../../osfacts-client
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

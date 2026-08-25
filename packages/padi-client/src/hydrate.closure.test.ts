@@ -122,18 +122,17 @@ const DECLARED_ALLOWED = new Set([
   "kolu-transcript-core",
   "memorable-names",
   "nonempty",
-  "osfacts-client",
 ]);
 
 /** The packages this package's own code actually REACHES from its published
  *  entries — necessarily a subset of `DECLARED_ALLOWED`, and the assertion below
  *  proves it rather than assuming it.
  *
- *  The seven names it drops are the honest cost of hydration being per-manifest:
- *  `@kolu/log`, `kolu-io`, `kolu-shared`, `kolu-pty`, `memorable-names`,
- *  `nonempty` and `osfacts-client` sit in manifests this closure copies, but no
+ *  The six names it drops are the honest cost of hydration being per-manifest:
+ *  `@kolu/log`, `kolu-io`, `kolu-shared`, `kolu-pty`, `memorable-names` and
+ *  `nonempty` sit in manifests this closure copies, but no
  *  import path from a published entry reaches them. A consumer still copies
- *  seven directories for code it never loads — which is the same shape as the
+ *  six directories for code it never loads — which is the same shape as the
  *  residual named below, several tiers down, and is why the gap is spelled out
  *  here instead of being folded into one lenient list. */
 const IMPORTED_ALLOWED = new Set([
@@ -204,10 +203,19 @@ const HYDRATE_CLOSURE = declaredDependencyClosure({
  * than let a reader assume this list is irreducible:
  *
  *  - `effect`, `@effect/platform-{node,browser}`, `ts-pattern`, `solid-js`,
- *    `@solid-primitives/{rootless,scheduled}`, `osfacts-client` — the framework
- *    tier, already installed by every `@kolu/surface` consumer (drishti, odu).
- *    (`osfacts-client` is a workspace MEMBER here — grafted from its npins pin —
- *    so it appears in ALLOWED above rather than in this list.)
+ *    `@solid-primitives/{rootless,scheduled}` — the framework tier, already
+ *    installed by every `@kolu/surface` consumer (drishti, odu).
+ *
+ *    `osfacts-client` USED to sit here, and the way it did is the reason this
+ *    file now says what it says. It is grafted into kolu's tree from an npins
+ *    pin and gitignored, so it is a workspace member HERE and absent from the
+ *    archive a consumer vendors. This guard called it a member — true in kolu,
+ *    false everywhere the guard exists to speak for — and stayed green while
+ *    olai's hydrate failed on it (juspay/kolu#2216, found by the first
+ *    out-of-repo consumer). It is out of the closure entirely now:
+ *    `@kolu/surface-daemon-supervisor` declared it a runtime dependency while
+ *    every non-test use in that package is `import type`, so it rides
+ *    devDependencies and no consumer needs it at all.
  *  - `string-argv` — `anyagent`'s command parse, a pure leaf.
  *  - `@parcel/watcher` (NATIVE), `simple-git`, `p-limit` — `kolu-git`'s, and
  *    `@anthropic-ai/claude-agent-sdk` — `kolu-claude-code`'s. These are the one
@@ -237,10 +245,11 @@ const EXPECTED_EXTERNALS = [
 
 describe("@kolu/padi-client hydrates without the daemon", () => {
   it("reaches only allowlisted packages from its published entries, on declared runtime edges", () => {
-    const { violations, reachedPackages } = walkRuntimeDepEdges({
-      repoRoot: REPO_ROOT,
-      entries: publishedEntries(),
-    });
+    const { violations, reachedPackages, reachedSpecifiers } =
+      walkRuntimeDepEdges({
+        repoRoot: REPO_ROOT,
+        entries: publishedEntries(),
+      });
 
     expect(
       violations,
@@ -259,6 +268,38 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
         `package — the arrow points out), or every consumer of padi's contract ` +
         `now has to hydrate these too; say which in IMPORTED_ALLOWED above.`,
     ).toEqual([]);
+
+    // ── The DOORS, not just the packages ────────────────────
+    //
+    // A package-level check answers "may we depend on this at all". It cannot
+    // answer "through which ENTRY", and for a repo that ships raw TypeScript
+    // the entry is what a consumer's `tsc` actually compiles. Reaching
+    // `@kolu/surface-daemon/control-core` costs a consumer one schema module;
+    // reaching bare `@kolu/surface-daemon` costs it the barrel, which
+    // value-re-exports `daemonMain`. Both read as "@kolu/surface-daemon" to the
+    // check above — which is how a module this package documents BROWSER-SAFE
+    // came to pull a daemon's signal handling into an out-of-repo consumer's
+    // program, found by that consumer and not by this guard (juspay/kolu#2216).
+    //
+    // So the doors are pinned. A new one is a deliberate act with a line to
+    // write, and the two BARE barrels below are named as the cost they are.
+    const daemonBarrels = reachedSpecifiers.filter(
+      (spec) =>
+        spec === "@kolu/surface-daemon" ||
+        spec === "@kolu/surface-daemon-supervisor",
+    );
+    expect(
+      daemonBarrels,
+      "the two bare daemon barrels are the KNOWN cost, recorded so the number " +
+        "cannot grow quietly: `@kolu/surface-daemon` is reached by `vocab.ts` " +
+        "for one type (`DaemonLifetimeInfo`), and " +
+        "`@kolu/surface-daemon-supervisor` by `dial.ts` for `dialSocket` and " +
+        "the skew error. Both barrels value-re-export the daemon runtime, so " +
+        "every consumer of `connectPadi` compiles it. Closing this needs leaf " +
+        "entries on those packages — a drishti-gated change, so it is named " +
+        "here rather than smuggled. If this list SHRINKS, delete the entry; if " +
+        "it GROWS, a new barrel just became every consumer's problem.",
+    ).toEqual(["@kolu/surface-daemon", "@kolu/surface-daemon-supervisor"]);
 
     // The containment this file's whole premise rests on: what the code reaches
     // is a subset of what the manifests cost. Asserted, not assumed — an entry

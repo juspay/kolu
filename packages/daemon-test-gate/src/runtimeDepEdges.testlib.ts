@@ -307,7 +307,18 @@ export type DepEdgeViolation = {
  * Walk the runtime import closure from `entries` and check every edge against
  * the importing package's manifest. Returns the violations (empty = the
  * manifests honestly describe the daemon's loadable closure, so nix's derived
- * staleKey is sound) plus the packages reached, for messages.
+ * staleKey is sound), the packages reached, and the cross-package SPECIFIERS
+ * crossed to reach them.
+ *
+ * The specifiers are not a nicety. A package answers "may I depend on this at
+ * all"; a specifier answers "through which DOOR" — and for a repo that ships raw
+ * TypeScript, the door is what a consumer's `tsc` compiles. Reaching
+ * `@kolu/surface-daemon/control-core` costs a consumer one schema module;
+ * reaching bare `@kolu/surface-daemon` costs it the barrel, which re-exports the
+ * daemon main loop. Both read as "`@kolu/surface-daemon`" to a package-level
+ * check, which is exactly how a module documented BROWSER-SAFE came to pull a
+ * daemon's signal handling into an out-of-repo consumer's program
+ * (juspay/kolu#2216, found by that consumer rather than by this walk).
  */
 export function walkRuntimeDepEdges(opts: {
   repoRoot: string;
@@ -317,7 +328,11 @@ export function walkRuntimeDepEdges(opts: {
    *  name. Walked like workspace members; see the pinned-member note above for
    *  the one rule that differs (protocol) and the ambiguity that throws. */
   pinnedMembers?: Record<string, string>;
-}): { violations: DepEdgeViolation[]; reachedPackages: string[] } {
+}): {
+  violations: DepEdgeViolation[];
+  reachedPackages: string[];
+  reachedSpecifiers: string[];
+} {
   const { repoRoot, entries, pinnedMembers = {} } = opts;
 
   const members = membersByName(repoRoot);
@@ -349,6 +364,9 @@ export function walkRuntimeDepEdges(opts: {
 
   const violations: DepEdgeViolation[] = [];
   const reached = new Set<string>();
+  // Every cross-package specifier the walk crossed — the DOOR, not just the
+  // package. See the header on why the two are different questions.
+  const crossed = new Set<string>();
   const visited = new Set<string>();
   const stack = [...entries];
   while (stack.length > 0) {
@@ -369,6 +387,7 @@ export function walkRuntimeDepEdges(opts: {
       const pkgName = packageNameOf(spec);
       const memberDir = members.get(pkgName);
       if (pkgName !== ownerName) {
+        crossed.add(spec);
         const declared = owner.dependencies?.[pkgName];
         if (declared === undefined) {
           violations.push({
@@ -414,6 +433,7 @@ export function walkRuntimeDepEdges(opts: {
       `${a.file} ${a.spec}`.localeCompare(`${b.file} ${b.spec}`),
     ),
     reachedPackages: [...reached].sort(),
+    reachedSpecifiers: [...crossed].sort(),
   };
 }
 
