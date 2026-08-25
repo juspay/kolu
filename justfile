@@ -651,9 +651,24 @@ record name="": install
     wrapper="$PWD/scripts/kolu-source-wrapper.sh"
     name_filter=""
     [ -n "{{ name }}" ] && name_filter="--name {{ name }}"
+    # Bake the agent source ref (SURFACE_AGENT_FLAKE_REF) so the from-source
+    # server can provision the kolu-bot remote host — the same bake `just dev`
+    # does; hooks.ts forwards the var to the server child.
+    {{ agent_bake }}
     cd packages/tests
     {{ nix_shell_e2e }} pnpm install
+    # The hero-demo recording needs the `kolu-bot` remote host seeded at server
+    # boot so it is already connecting while the fleet builds off-camera.
+    # KOLU_E2E_PADI_HOST_SEED is the pool-seed forwarding knob (a bare
+    # KOLU_PADI_HOST is stripped by the server-child env allowlist, and the
+    # W3.1 KOLU_E2E_PADI_HOST would retarget the harness's own padi verbs at
+    # kolu-bot — see hooks.ts).
+    # KOLU_REMOTE_PADI_STATE_DIR keeps the recording's kolu-bot padi in its own
+    # state-root — the production kolu on this machine converges kolu-bot's
+    # default root, and two servers on one root drain each other mid-run.
     KOLU_SERVER="$wrapper" KOLU_X11CAP=1 CUCUMBER_PARALLEL=1 \
+        KOLU_E2E_PADI_HOST_SEED="localhost,kolu-bot" \
+        KOLU_REMOTE_PADI_STATE_DIR="/home/toor/.local/state/kolu-hero-demo-padi" \
         {{ nix_shell_e2e }} nix-shell screencast/shell.nix --run \
         "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui features/recordings.feature $name_filter"
 
