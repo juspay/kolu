@@ -6,5 +6,12 @@
  *  the sensor layer (`@kolu/terminal-vocab`). This package never sees its
  *  sibling adapters. */
 
-export { classifyGhError, deriveCheckStatus, extractChecks } from "./github.ts";
+export {
+  classifyGhError,
+  deriveCheckStatus,
+  extractChecks,
+  GH_PR_VIEW_JSON_FIELDS,
+  prInfoFromGhView,
+} from "./github.ts";
+export type { GhPrViewJson } from "./github.ts";
 export { githubForgeAdapter, resolveGitHubPr } from "./resolve.ts";

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { classifyGhError, deriveCheckStatus } from "./github.ts";
+import {
+  classifyGhError,
+  deriveCheckStatus,
+  GH_PR_VIEW_JSON_FIELDS,
+  type GhPrViewJson,
+  prInfoFromGhView,
+} from "./github.ts";
 
 describe("deriveCheckStatus", () => {
   it("returns null for undefined rollup", () => {
@@ -150,5 +156,86 @@ describe("classifyGhError", () => {
       kind: "unavailable",
       source: { provider: "gh", code: "unknown" },
     });
+  });
+});
+
+describe("prInfoFromGhView", () => {
+  const base: GhPrViewJson = {
+    number: 42,
+    title: "Keep coverage",
+    url: "https://github.test/pull/42",
+    state: "OPEN",
+    statusCheckRollup: undefined,
+    reviewDecision: null,
+    mergeStateStatus: "UNKNOWN",
+  };
+
+  it("asks gh for reviewDecision and mergeStateStatus on the same view call", () => {
+    const fields = GH_PR_VIEW_JSON_FIELDS.split(",");
+    expect(fields).toContain("reviewDecision");
+    expect(fields).toContain("mergeStateStatus");
+    expect(fields).toContain("statusCheckRollup");
+  });
+
+  it("carries gh's reviewDecision and mergeStateStatus verbatim", () => {
+    expect(
+      prInfoFromGhView({
+        ...base,
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "CLEAN",
+      }),
+    ).toEqual({
+      number: 42,
+      title: "Keep coverage",
+      url: "https://github.test/pull/42",
+      state: "open",
+      checks: null,
+      checkRuns: [],
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "CLEAN",
+    });
+  });
+
+  it.each([
+    "APPROVED",
+    "CHANGES_REQUESTED",
+    "REVIEW_REQUIRED",
+    null,
+  ] as const)("passes reviewDecision %s through", (reviewDecision) => {
+    expect(prInfoFromGhView({ ...base, reviewDecision }).reviewDecision).toBe(
+      reviewDecision,
+    );
+  });
+
+  it.each([
+    "BEHIND",
+    "BLOCKED",
+    "CLEAN",
+    "DIRTY",
+    "DRAFT",
+    "HAS_HOOKS",
+    "UNKNOWN",
+    "UNSTABLE",
+  ] as const)("passes mergeStateStatus %s through", (mergeStateStatus) => {
+    expect(
+      prInfoFromGhView({ ...base, mergeStateStatus }).mergeStateStatus,
+    ).toBe(mergeStateStatus);
+  });
+
+  it("rejects a friendlier reviewDecision rather than mapping it", () => {
+    expect(() =>
+      prInfoFromGhView({ ...base, reviewDecision: "approved" }),
+    ).toThrow();
+  });
+
+  it("rejects a friendlier mergeStateStatus rather than mapping it", () => {
+    expect(() =>
+      prInfoFromGhView({ ...base, mergeStateStatus: "clean" }),
+    ).toThrow();
+  });
+
+  it("throws when a requested field is missing from gh's JSON", () => {
+    const { mergeStateStatus: _dropped, ...rest } = base;
+    expect(() => prInfoFromGhView(rest as GhPrViewJson)).toThrow();
   });
 });
