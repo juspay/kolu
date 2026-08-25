@@ -206,7 +206,13 @@ for (const name of AGENT_DIR_VARS) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
 }
-process.env.KOLU_OPENCODE_DB = opencodeDbPath;
+// Same recording-mode split as AGENT_DIR_VARS above: the fake per-worker
+// opencode DB is for the mocked e2e scenarios; under X11CAP the REAL
+// ~/.local/share/opencode/opencode.db must resolve (locally and on a
+// provisioned remote host, which inherits the var) or a live opencode is
+// detected as a bare shell and never surfaces agent attention.
+if (RECORDING) delete process.env.KOLU_OPENCODE_DB;
+else process.env.KOLU_OPENCODE_DB = opencodeDbPath;
 
 /** Fake agent binaries the codex/opencode mock scenarios invoke by
  *  absolute path to bypass PATH resolution — the user's shell rc (e.g.
@@ -737,6 +743,17 @@ const E2E_SERVER_ENV_KEYS = [
   // which is exactly why nothing caught this. Same class as KOLU_KAVAL_BIN
   // above: a which-binary var the from-source path can only get by inheritance.
   "KOLU_OSFACTS_BIN",
+  // The baked agent source ref remote-host provisioning resolves the padi drv
+  // from. Same class as KOLU_KAVAL_BIN/KOLU_OSFACTS_BIN: the nix wrapper bakes
+  // it via `--set`, so a from-source server (`just record`'s wrapper, which
+  // seeds kolu-bot for the hero-demo) can only get it by inheritance from the
+  // recipe's `agent_bake`.
+  "SURFACE_AGENT_FLAKE_REF",
+  // Isolates the recording's remote padi state-root from any OTHER kolu bound
+  // to the same host (the user's production kolu also converges kolu-bot's
+  // DEFAULT state-root, so the two servers drain-and-replace each other's
+  // daemon mid-recording — "daemon connection closed mid-session" on camera).
+  "KOLU_REMOTE_PADI_STATE_DIR",
   "KOLU_COMMIT_HASH",
   "TZ",
   "TERMINFO",
@@ -845,7 +862,9 @@ async function startServerChild(koluServer: string): Promise<void> {
           // HOME inherited (real) under X11CAP so the real claude/codex resolve
           // their sessions + login from the real home. See `serverModeEnv`.
           ...serverModeEnv,
-          KOLU_OPENCODE_DB: opencodeDbPath,
+          // Recording-mode split, same reason as serverModeEnv: real DB under
+          // X11CAP, fake per-worker DB for the mocked scenarios.
+          ...(RECORDING ? {} : { KOLU_OPENCODE_DB: opencodeDbPath }),
           // W3.1 — the ssh leg: when KOLU_E2E_PADI_HOST is set, the server binds a
           // REMOTE padi over ssh (the whole canvas becomes that host) instead of
           // spawning a local one, so the SAME suite runs unchanged against a remote
@@ -857,6 +876,16 @@ async function startServerChild(koluServer: string): Promise<void> {
           // (a nix-built koluBin — `just test`, not `just test-quick`).
           ...(process.env.KOLU_E2E_PADI_HOST
             ? { KOLU_PADI_HOST: process.env.KOLU_E2E_PADI_HOST }
+            : {}),
+          // The POOL seed twin (the `record` recipe's hero-demo multi-host
+          // fleet): forwarded to the server exactly like the W3.1 var above,
+          // but deliberately NOT read by rpcWire's PADI_HOST_KEY — that
+          // constant retargets EVERY harness padi verb (killAll, setTheme) at
+          // the first non-local token, which is correct for the whole-canvas
+          // ssh leg and wrong for a guest-pool seed: the recording's resets
+          // and pins must keep hitting the LOCAL padi.
+          ...(process.env.KOLU_E2E_PADI_HOST_SEED
+            ? { KOLU_PADI_HOST: process.env.KOLU_E2E_PADI_HOST_SEED }
             : {}),
         },
       },
@@ -1331,8 +1360,10 @@ Before(
 
 // Generous timeout: under KOLU_X11CAP this hook transcodes the raw grab (mp4 +
 // VP9 webm + poster). A long clip at 3200×1800 takes well over Cucumber's 70s
-// default, so give it room.
-After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
+// default, so give it room. The raw hero-demo grab is now up to ~6 minutes, and
+// transcoding it twice (mp4 + webm, preset slow) at that size outruns the old
+// 300s cap — which would kill a *successful* recording at publish time.
+After({ timeout: 600_000 }, async function (this: KoluWorld, scenario) {
   // Always retire a prepared scroll-lock FIFO, including when the fire step
   // never ran — `rm` of the dir alone leaves `cat` blocked on the unlinked
   // inode (juspay/kolu#2178).

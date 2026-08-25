@@ -55,9 +55,22 @@ export async function clearCanvas(
   // Node-side, over the harness's own wire — no `page.evaluate` hop, so the map
   // fold and the host key stay in the one place that owns them.
   await padiCall("lifecycle/killAll").catch(() => undefined);
+  // Count CANVAS TILES, not every [data-terminal-id] in the DOM — with a
+  // seeded host pool the fleet dock mirrors other hosts' terminals as rows,
+  // and killAll only clears the local padi.
+  let survivors = 0;
   for (let i = 0; i < 20; i++) {
-    if ((await world.terminalIds()).length === 0) break;
+    survivors = await world.page.locator('[data-testid="canvas-tile"]').count();
+    if (survivors === 0) break;
     await pause(world, 300);
+  }
+  // A canvas that never empties must FAIL here, loudly — a survivor tile from
+  // a swallowed killAll error derailed three hero-demo attempts (the paste
+  // landed in a stray "~" shell) before this poll stopped giving up silently.
+  if (survivors > 0) {
+    throw new Error(
+      `clearCanvas: ${survivors} terminal(s) survived lifecycle/killAll`,
+    );
   }
   await pause(world, beatMs); // a beat on the empty canvas
 }
@@ -403,6 +416,13 @@ export async function selectTextInView(
   containerSelector: string,
   target: string,
 ): Promise<void> {
+  // tsx (esbuild keepNames) wraps the nested function declarations below in a
+  // `__name(...)` helper that doesn't exist in the page — define a no-op shim
+  // first or the serialized waitForFunction predicate throws ReferenceError.
+  // (This evaluate itself has no nested declarations, so it isn't wrapped.)
+  await world.page.evaluate(
+    "globalThis.__name = globalThis.__name || ((f) => f)",
+  );
   const rectHandle = await world.page.waitForFunction(
     ({ containerSelector, target }) => {
       const shadowDfs = (
@@ -497,4 +517,237 @@ export async function openFileBySearch(
     await world.page.locator(row).click();
     await world.waitForFrame();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Canvas camera. The viewport singleton isn't reachable from page.evaluate,
+// and synthetic ctrl+wheel events on the container never moved the camera on
+// film (three recordings shipped at a stubborn 100%) — so the camera is
+// driven through the minimap zoom bar's REAL buttons, which call
+// viewport.zoomOut()/resetZoom() directly. Needs the minimap on screen
+// (tiled mode, not hidden by `display.hideMinimap`).
+// ---------------------------------------------------------------------------
+
+/** One zoom-out step about the viewport center, via the minimap button. */
+async function canvasZoomStep(world: KoluWorld): Promise<void> {
+  await world.page
+    .locator('[data-testid="minimap-zoombar"] button[title="Zoom out"]')
+    .click();
+  await world.waitForFrame();
+}
+
+/**
+ * Zoom the canvas out until every tile fits inside the viewport (with a
+ * margin) — the "wide shot" of the whole fleet. Bounded: stops after
+ * `maxSteps` or once `data-zoom` drops below `minZoom` (default 0.5 — below
+ * that terminals stop being readable on film; a stray far-flung tile then
+ * clips rather than shrinking the whole fleet to dots).
+ */
+export async function zoomOutToFitTiles(
+  world: KoluWorld,
+  {
+    margin = 24,
+    maxSteps = 16,
+    minZoom = 0.5,
+  }: { margin?: number; maxSteps?: number; minZoom?: number } = {},
+): Promise<void> {
+  for (let i = 0; i < maxSteps; i++) {
+    const done = await world.page.evaluate(
+      ({ m, floor }) => {
+        const c = document.querySelector('[data-testid="canvas-container"]');
+        if (!c) return true;
+        const zoom = Number(c.getAttribute("data-zoom") ?? "1");
+        if (zoom < floor) return true;
+        const cr = c.getBoundingClientRect();
+        const tiles = Array.from(
+          document.querySelectorAll('[data-testid="canvas-tile"]'),
+        );
+        if (tiles.length === 0) return true;
+        return tiles.every((t) => {
+          const r = t.getBoundingClientRect();
+          return (
+            r.left >= cr.left + m &&
+            r.right <= cr.right - m &&
+            r.top >= cr.top + m &&
+            r.bottom <= cr.bottom - m
+          );
+        });
+      },
+      { m: margin, floor: minZoom },
+    );
+    if (done) return;
+    await canvasZoomStep(world);
+    await pause(world, 90);
+  }
+}
+
+/** Reset canvas zoom to 100% via the minimap zoom bar (about the viewport
+ *  center — center the target tile first). Silent: no arrow; the zoom itself
+ *  is the visible move. Requires the minimap on screen (tiled mode, not
+ *  hidden by `display.hideMinimap`). */
+export async function resetCanvasZoom(world: KoluWorld): Promise<void> {
+  await world.page
+    .locator('[data-testid="minimap-zoombar"] button[title="Reset to 100%"]')
+    .click();
+  await world.waitForFrame();
+}
+
+/** Zoom out (minimap button steps) until `data-zoom` <= `target`. Bounded. */
+export async function zoomOutToLevel(
+  world: KoluWorld,
+  target: number,
+  maxClicks = 10,
+): Promise<void> {
+  for (let i = 0; i < maxClicks; i++) {
+    const zoom = await world.page.evaluate(() =>
+      Number(
+        document
+          .querySelector('[data-testid="canvas-container"]')
+          ?.getAttribute("data-zoom") ?? "1",
+      ),
+    );
+    if (zoom <= target) return;
+    await canvasZoomStep(world);
+    await pause(world, 90);
+  }
+}
+
+/** Drag a tile (by terminal id) so its TITLEBAR CENTER lands at viewport
+ *  (x, y) — real mouse, real steps. Drag the TOPMOST overlapping tile first:
+ *  the pointer grabs whatever is on top at the start point. Verifies the
+ *  landing and retries once; THROWS if the tile still isn't where it was
+ *  put — a silently-missed drag films a stacked pile instead of islands. */
+export async function dragTileTo(
+  world: KoluWorld,
+  terminalId: string,
+  x: number,
+  y: number,
+): Promise<void> {
+  const bar = world.page.locator(
+    `[data-testid="canvas-tile"][data-terminal-id="${terminalId}"] [data-testid="canvas-tile-titlebar"]`,
+  );
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const box = await bar.boundingBox();
+    if (!box) throw new Error(`dragTileTo: no titlebar for ${terminalId}`);
+    const sx = box.x + box.width / 2;
+    const sy = box.y + box.height / 2;
+    await world.page.mouse.move(sx, sy);
+    await world.page.mouse.down();
+    await world.page.mouse.move(x, y, { steps: 14 });
+    await world.page.mouse.up();
+    await world.waitForFrame();
+    await pause(world, 200);
+    const landed = await bar.boundingBox();
+    if (!landed) throw new Error(`dragTileTo: ${terminalId} vanished mid-drag`);
+    const lx = landed.x + landed.width / 2;
+    const ly = landed.y + landed.height / 2;
+    if (Math.hypot(lx - x, ly - y) <= 60) return;
+    console.log(
+      `[dragTileTo] ${terminalId} landed at (${Math.round(lx)}, ${Math.round(ly)}), wanted (${x}, ${y}) — retrying`,
+    );
+  }
+  throw new Error(`dragTileTo: ${terminalId} refused to land at (${x}, ${y})`);
+}
+
+/**
+ * Pan the canvas with the hand tool (shift + primary drag forces a canvas
+ * pan even over tiles). `dx/dy` are the MOUSE travel — the canvas content
+ * moves with the mouse, so at zoom z the camera crosses `dx/z` canvas px.
+ *
+ * SMOOTHNESS: one `mouse.move` per pixel-step would pay the harness's 250ms
+ * slowMo on EVERY call — 36 calls filmed as 36 visible jerks. Instead the
+ * travel is a few chained `mouse.move({steps})` calls: Playwright
+ * interpolates the intermediate events inside one call with no slowMo
+ * between them, so each chunk glides; chunk sizes are eased (small-big-small)
+ * so the whole move reads as one accelerating/decelerating camera pan.
+ */
+export async function handPan(
+  world: KoluWorld,
+  opts: { fromX: number; fromY: number; dx: number; dy: number },
+): Promise<void> {
+  // Ease-in-out chunk weights; each chunk is one interpolated mouse.move.
+  // Three chunks, ~30 interpolation steps total: every chunk pays the
+  // harness's 250ms slowMo once, so more chunks/steps = a pan that crawls
+  // on film (the take-22 complaint), fewer = a brisk glide.
+  const weights = [0.25, 0.5, 0.25];
+  await world.page.keyboard.down("Shift");
+  await world.page.mouse.move(opts.fromX, opts.fromY);
+  await world.page.mouse.down();
+  let progress = 0;
+  for (const w of weights) {
+    progress += w;
+    await world.page.mouse.move(
+      opts.fromX + opts.dx * progress,
+      opts.fromY + opts.dy * progress,
+      { steps: Math.max(6, Math.round(30 * w)) },
+    );
+  }
+  await world.page.mouse.up();
+  await world.page.keyboard.up("Shift");
+  await world.waitForFrame();
+}
+
+// ---------------------------------------------------------------------------
+// Hosts. Chips carry `data-host="<encoded key>"` whose encoding is an
+// implementation detail — resolve a chip to a concrete CSS selector by
+// scanning visible chip text (or by strip position), then drive that selector
+// like any other. Scoped to `host-chip-row` because a hidden measuring twin
+// of every chip is always mounted outside it.
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a host chip to an exact CSS selector, by visible `name` fragment or
+ * by strip `index` (0 = the local host). Returns null if no chip matches.
+ */
+export async function hostChipCss(
+  world: KoluWorld,
+  opts: { name?: string; index?: number },
+): Promise<string | null> {
+  return world.page.evaluate((o) => {
+    const row = document.querySelector('[data-testid="host-chip-row"]');
+    if (!row) return null;
+    const chips = Array.from(row.querySelectorAll('[data-testid="host-chip"]'));
+    const chip =
+      o.name !== undefined
+        ? chips.find((c) => (c.textContent ?? "").includes(o.name as string))
+        : chips[o.index ?? 0];
+    const key = chip?.getAttribute("data-host");
+    if (!key) return null;
+    const escaped = key.replace(/["\\]/g, "\\$&");
+    return `[data-testid="host-chip-row"] [data-testid="host-chip"][data-host="${escaped}"]`;
+  }, opts);
+}
+
+/**
+ * Switch the active host by clicking a chip's select button, then wait until
+ * the chip reports active and the target host's canvas is usable (no
+ * warming/connecting/down interstitial). THROWS on timeout: a host that never
+ * becomes usable must fail the recording, not film a dead canvas.
+ */
+export async function switchHost(
+  world: KoluWorld,
+  chipCss: string,
+  opts: { arrowLabel?: string; timeout?: number } = {},
+): Promise<void> {
+  const select = `${chipCss} [data-testid="host-select"]`;
+  if (opts.arrowLabel) {
+    await clickWithArrow(world, select, opts.arrowLabel, "down", 600);
+  } else {
+    await world.page.locator(select).click();
+    await world.waitForFrame();
+  }
+  await world.page.waitForFunction(
+    (sel) => document.querySelector(sel)?.hasAttribute("data-active") ?? false,
+    chipCss,
+    { timeout: 10_000 },
+  );
+  await pause(world, 600); // let an interstitial (warming/connecting) mount
+  await world.page.waitForFunction(
+    () =>
+      !document.querySelector(
+        '[data-testid="daemon-warming"], [data-testid="connect-canvas"], [data-testid="host-down-canvas"], [data-testid="boot-stalled-canvas"]',
+      ),
+    undefined,
+    { timeout: opts.timeout ?? 120_000 },
+  );
 }
