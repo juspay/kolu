@@ -59,7 +59,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
 
 // ── Workspace discovery (pnpm-workspace.yaml is the one source of truth) ──────
@@ -405,5 +405,81 @@ export function walkRuntimeDepEdges(opts: {
       `${a.file} ${a.spec}`.localeCompare(`${b.file} ${b.spec}`),
     ),
     reachedPackages: [...reached].sort(),
+  };
+}
+
+// ── The DECLARED closure (the TS mirror of nix's `depClosure`) ────────────────
+
+/**
+ * The transitive `dependencies` closure of `entries` over workspace members —
+ * what a consumer that VENDORS a package directory actually has to copy, and
+ * whose manifests it then installs from its own workspace.
+ *
+ * Distinct from {@link walkRuntimeDepEdges}, and both are needed: that one walks
+ * the IMPORT graph (what the code reaches), this one walks the MANIFEST graph
+ * (what the packaging costs). A package can sit in the manifest closure while no
+ * import path reaches it — and a hydrating consumer pays for it anyway, which is
+ * exactly the failure the padi/padi-client split exists to fix. A guard that
+ * asked only the import question would pass while the manifest still dragged a
+ * PTY host in.
+ *
+ * This is the same walk `mkWorkspaceClosure`'s `depClosure` performs in nix
+ * (`packages/surface-daemon/nix/workspace-closure.nix`), on the TS side and for
+ * the same reason: follow every `dependencies` edge whose target is a workspace
+ * member, stop at external npm packages. `devDependencies` are deliberately not
+ * followed — they never ship, and a hydrating consumer never installs them.
+ *
+ * A name in `entries` that is not a workspace member throws: naming a package
+ * that does not exist is a stale caller, and answering it with a quiet empty
+ * closure is how a gate passes vacuously.
+ */
+export function declaredDependencyClosure(opts: {
+  repoRoot: string;
+  entries: readonly string[];
+}): { names: string[]; manifestPaths: string[] } {
+  const { repoRoot, entries } = opts;
+
+  const dirOf = new Map<string, string>();
+  for (const dir of workspacePackageRoots(repoRoot)) {
+    const name = (
+      JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+        name?: string;
+      }
+    ).name;
+    // Nameless members (an e2e-only package) cannot be depended on BY NAME, so
+    // no edge can reach them and they cannot be in anyone's closure.
+    if (name !== undefined) dirOf.set(name, dir);
+  }
+
+  const seen = new Set<string>();
+  const stack = [...entries];
+  while (stack.length > 0) {
+    const name = stack.pop() as string;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const dir = dirOf.get(name);
+    if (dir === undefined) {
+      throw new Error(
+        `declaredDependencyClosure: '${name}' is not a workspace member — a stale entry answered with an empty closure is a gate that passes vacuously`,
+      );
+    }
+    const manifest = JSON.parse(
+      readFileSync(join(dir, "package.json"), "utf8"),
+    ) as { dependencies?: Record<string, string> };
+    for (const dep of Object.keys(manifest.dependencies ?? {})) {
+      if (dirOf.has(dep)) stack.push(dep);
+    }
+  }
+
+  const names = [...seen].sort();
+  return {
+    names,
+    manifestPaths: names
+      .map((n) =>
+        relative(repoRoot, join(dirOf.get(n) as string, "package.json"))
+          .split(sep)
+          .join("/"),
+      )
+      .sort(),
   };
 }

@@ -9,16 +9,17 @@
  * 2. root `pnpm.overrides` (`package.json`) — what collapses transitive
  *    resolution to one copy;
  * 3. the LITERAL specs in the manifests that must resolve OUTSIDE this
- *    workspace — the `@kolu/surface*` package roots, and the grafted
+ *    workspace — everything an external consumer vendors, and the grafted
  *    `osfacts-client`.
  *
  * **Why (3) exists at all.** `catalog:` is workspace-local, and two kinds of
  * manifest here are read somewhere kolu's catalog does not exist:
  *
  *   - **vendored OUT.** drishti and odu vendor the `packages/surface*`
- *     DIRECTORIES from a content-addressed pin and install their `dependencies`
- *     from their own workspace, so a `catalog:` spec there is unresolvable for
- *     the consumer that matters most.
+ *     DIRECTORIES from a content-addressed pin, and olai vendors
+ *     `packages/padi-client` (juspay/kolu#2216); each installs those
+ *     directories' `dependencies` from its own workspace, so a `catalog:` spec
+ *     there is unresolvable for the consumer that matters most.
  *   - **grafted IN.** `osfacts-client` is juspay/osfacts' `client-ts/`, copied
  *     into the tree from the npins pin (`nix/workspace.nix`, and the justfile's
  *     working-tree twin). Its manifest is authored in THAT repo's workspace,
@@ -37,6 +38,16 @@
  * every effect-family dependency in it. A new manifest, a new `@effect/*`
  * package, a new dependency section — each joins the gate by existing.
  *
+ * **The same rule applies to WHICH manifests owe a literal.** Vendoring is a
+ * package-DIRECTORY act, but what it costs is the whole transitive
+ * `dependencies` closure of that directory — so `@kolu/padi-client` arriving in
+ * olai brought `@kolu/terminal-vocab`, `kolu-transcript-core` and the
+ * integrations with it, none of which anyone would have thought to list. Only
+ * the ENTRY packages are declared here ({@link VENDOR_ENTRIES} — the
+ * irreducible fact, since it is a fact about OTHER repos); the closure is
+ * walked ({@link vendoredManifests}), so a package that joins a vendored
+ * closure by gaining an edge joins this gate by the same act.
+ *
  * A package name that appears in a manifest but has no catalog AND override
  * entry fails too: those two are how a version stays single, and a family
  * member outside them resolves on its own.
@@ -44,6 +55,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { declaredDependencyClosure } from "@kolu/daemon-test-gate/runtimeDepEdges";
 // Effect's own YAML parser, not the `yaml` package: this file's inputs are
 // machine-generated (pnpm-workspace.yaml), the workspace already depends on
 // Effect here, and using it drops a dependency rather than adding one. Both
@@ -74,14 +86,48 @@ export function isEffectFamily(pkg: string): boolean {
   return pkg === "effect" || pkg.startsWith("@effect/");
 }
 
-/** The `@kolu/surface*` package roots, which external consumers vendor as
- *  directories. `example` trees below them are not vendored and are excluded by
- *  the `[^/]*`. */
-const VENDORED_MANIFEST = /^packages\/surface[^/]*\/package\.json$/;
+/** The package DIRECTORIES an outside repo copies out of a content-addressed
+ *  kolu pin. This is the one thing that cannot be derived — it is a fact about
+ *  those repos, not about this tree — so it is declared, and nothing else about
+ *  the vendored set is.
+ *
+ *  `@kolu/surface*` is drishti's and odu's (see `packages/AGENTS.md`);
+ *  `@kolu/padi-client` is olai's, which dials a running padi from its server and
+ *  never installs one (juspay/kolu#2216). */
+const VENDOR_ENTRIES = [
+  "@kolu/surface",
+  "@kolu/surface-app",
+  "@kolu/surface-cli",
+  "@kolu/surface-daemon",
+  "@kolu/surface-daemon-supervisor",
+  "@kolu/surface-map",
+  "@kolu/surface-mcp",
+  "@kolu/surface-remote",
+  "@kolu/padi-client",
+] as const;
+
+/** Every manifest an external consumer installs outside kolu's workspace: the
+ *  vendored entry directories AND their transitive `dependencies` closure,
+ *  because a vendored directory's manifest is installed from the consumer's own
+ *  workspace and so is every manifest it names.
+ *
+ *  Walked with the shared `declaredDependencyClosure` — the TS mirror of nix's
+ *  `depClosure` — so this gate and `@kolu/padi-client`'s hydrate guard answer
+ *  "what does vendoring this cost" with ONE walk rather than two that agree
+ *  today. */
+export function vendoredManifests(repoRoot: string): ReadonlySet<string> {
+  return new Set(
+    declaredDependencyClosure({ repoRoot, entries: VENDOR_ENTRIES })
+      .manifestPaths,
+  );
+}
 
 /** True for a manifest an external consumer installs outside kolu's workspace. */
-export function isVendoredManifest(relPath: string): boolean {
-  return VENDORED_MANIFEST.test(relPath);
+export function isVendoredManifest(
+  relPath: string,
+  vendored: ReadonlySet<string>,
+): boolean {
+  return vendored.has(relPath);
 }
 
 /** The manifest grafted in from the `osfacts` pin — juspay/osfacts'
@@ -94,9 +140,12 @@ export function isGraftedManifest(relPath: string): boolean {
 /** Why a manifest owes a LITERAL version rather than `catalog:` — the phrase the
  *  gate's message uses, so a failure explains itself instead of naming a rule.
  *  `null` for the ordinary workspace member, which owes `catalog:`. */
-export function literalReason(relPath: string): string | null {
-  if (isVendoredManifest(relPath))
-    return "a vendored @kolu/surface* manifest; `catalog:` is workspace-local and does not resolve for drishti/odu";
+export function literalReason(
+  relPath: string,
+  vendored: ReadonlySet<string>,
+): string | null {
+  if (isVendoredManifest(relPath, vendored))
+    return "in a vendored package's dependency closure; `catalog:` is workspace-local and does not resolve for the repo that copies these directories (drishti/odu, olai)";
   if (isGraftedManifest(relPath))
     return "the manifest grafted from the `osfacts` pin; it is authored in juspay/osfacts' own workspace, where kolu's catalog does not exist";
   return null;
@@ -217,7 +266,10 @@ function describe(pin: EffectPin): string {
  * `betaAssumptions` keys its marker tags off it, so a bump moves both gates at
  * once.
  */
-export function validateEffectPins(pins: readonly EffectPin[]): string {
+export function validateEffectPins(
+  pins: readonly EffectPin[],
+  vendored: ReadonlySet<string>,
+): string {
   const problems: string[] = [];
   const catalog = pins.filter((pin) => pin.where === "catalog");
   if (catalog.length === 0) {
@@ -270,10 +322,10 @@ export function validateEffectPins(pins: readonly EffectPin[]): string {
       );
       continue;
     }
-    const reason = literalReason(pin.path);
+    const reason = literalReason(pin.path, vendored);
     if (reason !== null) {
       if (pin.spec === version) {
-        if (isVendoredManifest(pin.path)) vendoredLiterals += 1;
+        if (isVendoredManifest(pin.path, vendored)) vendoredLiterals += 1;
       } else {
         problems.push(
           `  ${describe(pin)} — must spell the literal ${version}: it is ${reason}.`,
@@ -293,7 +345,7 @@ export function validateEffectPins(pins: readonly EffectPin[]): string {
   // happen at all fails the `pnpm install` this gate runs after, loudly.)
   if (vendoredLiterals === 0) {
     problems.push(
-      "  no vendored @kolu/surface* manifest spells a literal version — the external-consumer pins have vanished.",
+      "  no vendored manifest spells a literal version — the external-consumer pins have vanished.",
     );
   }
 

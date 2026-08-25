@@ -10,12 +10,10 @@ out so a consumer can hydrate it **without installing the daemon**.
 
 ```ts
 import { connectPadi } from "@kolu/padi-client/dial";
-import { padiSocketPath, productionPadiStateRoot } from "@kolu/padi-client/rendezvous";
 import { Effect, Stream } from "effect";
 
-const connection = await Effect.runPromise(
-  connectPadi(padiSocketPath(productionPadiStateRoot())),
-);
+// The socket is GIVEN, not guessed — see "Finding the socket" below.
+const connection = await Effect.runPromise(connectPadi(process.env.PADI_SOCKET!));
 const ids = await Effect.runPromise(
   Stream.runHead(connection.client.padi.surface.terminals.keys(undefined)),
 );
@@ -39,7 +37,7 @@ arrived as a PTY host with a compile step.
 |  | `@kolu/padi` | `@kolu/padi-client` |
 | --- | --- | --- |
 | workspace packages | 34 | 22 |
-| npm packages | 39 | 13 |
+| npm packages | 38 | 12 |
 | native modules | `node-pty`, `@parcel/watcher` | `@parcel/watcher` |
 
 The twelve workspace packages it drops are the daemon and TUI tier: `kaval`,
@@ -56,16 +54,38 @@ leaf but shares a manifest with its machinery — and what fixing it would take.
 `@kolu/padi` **depends on this package**; the arrow never points back. There is
 one spec, in one place, and the daemon serves the same object its clients dial.
 
+## Finding the socket
+
+**Be told it; don't derive it.** `$PADI_SOCKET` is stamped into every PTY a padi
+spawns, so a program running in a kolu terminal already has the answer, and an
+explicit path is always accepted.
+
+`@kolu/padi-client/rendezvous` also ships the path *formula* —
+`padiSocketPath(stateRoot)` → `$XDG_RUNTIME_DIR/padi-<digest>/padi.sock` — and it
+is the right answer on the **construction** side, where the daemon decides where
+to bind. From a client it is a guess about someone else's environment, and padi's
+own discovery is explicit that the guess loses: `residentPadiSocket` takes the
+resident's `state-root` manifest over "any caller's own-env guess (never a bare
+digest-path recompute, which is exactly what reproduced the bug)". The bug was
+[#1713](https://github.com/juspay/kolu/issues/1713) — a `nix run` outside a login
+session computed a different runtime drawer than the live daemon and hung for
+thirty seconds against a padi that was up the whole time.
+
+The read-back that corrects a guess — manifest discovery, gated on a live pid
+holder — needs kaval's owner-only-dir and socket-inode checks, so it lives in
+`@kolu/padi/stateRoot` and is out of reach here. Recompute only when the client
+and the daemon share a launch context.
+
 ## The export map
 
 | entry | what it is | browser-safe |
 | --- | --- | --- |
 | `./surface` | `padiSurface` — the Effect Schema contract, the per-member forwarding policy (`value` = hold-open vs `delta` = fail-through), the frozen control-core sibling, and the whole terminal vocabulary it speaks (records, errors, chrome and policy schemas), re-exported from this one entry | ✅ |
-| `./dial` | `connectPadi` + `dialPadiHello` — dial a socket, handshake the frozen control core, gate the surface version, and hand back both typed faces over one dispatch (`padiClientOver`, `scopePadiSurface`) | ❌ `node:net` |
-| `./rendezvous` | the pure path algebra — state-root → digest → `$XDG_RUNTIME_DIR/padi-<digest>/padi.sock`. No probing, no kaval; the half that reads the live fleet is `@kolu/padi/stateRoot` | ❌ `node:` paths |
+| `./dial` | `connectPadi` — dial a socket, handshake the frozen control core, gate the surface version (`assertPadiSurfaceCompatible`), and hand back both typed faces over one dispatch (`padiClientOver`, `scopePadiSurface`). `dialPadiHello` is the ungated half, for a caller that wants to read `hello` and judge for itself | ❌ `node:net` |
+| `./rendezvous` | the path *formula* — state-root → digest → `$XDG_RUNTIME_DIR/padi-<digest>/padi.sock`, plus `productionPadiStateRoot` / `resolvePadiStateRoot` / `padiDigest` / `padiGatePath`. Pure: no probing, no kaval. Construction-side; see **Finding the socket** before dialing with it | ❌ `node:` paths |
 | `./watch` | the terminal watch kit — `watchTerminals`, the one `awaitTerminalCondition` engine and its two named waits (`awaitAgentState`, `awaitOutputSettled`), and `awaitWatchEvents` | ❌ mirror |
 | `./watchScope` | which terminals a subscription reports: `watchScopeOf` (the only constructor, where every never-match refusal lives), `scopeAdmits` (the only reader) | ✅ |
-| `./terminalVocab` | the pure folds over a terminal record — `activeAgent`, the wait-state vocabulary | ✅ |
+| `./terminalVocab` | the pure folds over a terminal record — `activeAgent`, `isWaitState`, `WAIT_STATES` | ✅ |
 | `./transcript` | the transcript-export wire schemas | ✅ |
 | `./errText` | what an unknown thrown thing says, guarded — a zero-import leaf | ✅ |
 

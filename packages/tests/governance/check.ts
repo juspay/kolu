@@ -16,7 +16,11 @@ import {
   collectEffectVersionRefs,
   validateBetaAssumptions,
 } from "./betaAssumptions";
-import { collectEffectPins, validateEffectPins } from "./effectPin";
+import {
+  collectEffectPins,
+  validateEffectPins,
+  vendoredManifests,
+} from "./effectPin";
 import {
   assertAppendOnly,
   census,
@@ -210,7 +214,10 @@ const optionalShimSites = [...optionalShims.values()].reduce(
 // registry (C3) it feeds. The two share one fact — the catalog's version — so a
 // bump has exactly one place to move and exactly one set of sites to re-verify.
 const effectPins = collectEffectPins(repoRoot);
-const effectVersion = validateEffectPins(effectPins);
+const effectVersion = validateEffectPins(
+  effectPins,
+  vendoredManifests(repoRoot),
+);
 const betaAssumptions = collectBetaAssumptions(repoRoot);
 const effectVersionRefs = collectEffectVersionRefs(repoRoot);
 validateBetaAssumptions(

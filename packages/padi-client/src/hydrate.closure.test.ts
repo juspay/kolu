@@ -23,6 +23,13 @@
  *   2. the DECLARED manifest closure — the set a hydrating consumer actually
  *      has to copy — against the same allowlist.
  *
+ * The related rule — that every manifest in this closure must spell a LITERAL
+ * dependency version, since `catalog:` is workspace-local and unresolvable for
+ * the repo that copies these directories — is NOT checked here. It has an owner
+ * already: `packages/tests/governance/effectPin.ts`, which derives the vendored
+ * set from this very closure (`vendoredManifests`) and polices both directions
+ * across the whole tree. A second copy here could only drift from it.
+ *
  * `ALLOWED` is the allowlist, and the point of it is that it is short and that a
  * new name in it is a CONSCIOUS act. A package that shows up here uninvited is
  * the boundary leaking: either the code belongs in `@kolu/padi` (the daemon
@@ -35,8 +42,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  declaredDependencyClosure,
   walkRuntimeDepEdges,
-  workspacePackageRoots,
 } from "@kolu/daemon-test-gate/runtimeDepEdges";
 import { describe, expect, it } from "vitest";
 
@@ -122,48 +129,19 @@ const DAEMON_TIER = [
   "@kolu/padi",
 ];
 
-/** The transitive `dependencies` closure of a workspace package, by manifest —
- *  the set a hydrating consumer copies. Mirrors nix's `depClosure`
- *  (`packages/surface-daemon/nix/workspace-closure.nix`) on the TS side: follow
- *  every `dependencies` edge whose target is a workspace member, stop at
- *  external npm packages. */
-function declaredClosure(
-  entry: string,
-  members: Map<string, string>,
-): string[] {
-  const seen = new Set<string>();
-  const stack = [entry];
-  while (stack.length > 0) {
-    const name = stack.pop() as string;
-    if (seen.has(name)) continue;
-    seen.add(name);
-    const dir = members.get(name);
-    if (dir === undefined) continue;
-    const manifest = JSON.parse(
-      readFileSync(join(dir, "package.json"), "utf8"),
-    ) as { dependencies?: Record<string, string> };
-    for (const dep of Object.keys(manifest.dependencies ?? {})) {
-      if (members.has(dep)) stack.push(dep);
-    }
-  }
-  return [...seen].sort();
-}
-
-/** name → dir for every workspace member, derived from `pnpm-workspace.yaml`
- *  through the same discovery `walkRuntimeDepEdges` uses — one answer to "what
- *  is a workspace package", so this walk and that one cannot disagree. Nameless
- *  members (`packages/tests`) cannot be depended on by name and are skipped. */
-function workspaceMembers(): Map<string, string> {
-  const members = new Map<string, string>();
-  for (const dir of workspacePackageRoots(REPO_ROOT)) {
-    const name = (
-      JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
-        name?: string;
-      }
-    ).name;
-    if (name !== undefined) members.set(name, dir);
-  }
-  return members;
+/** What a consumer copies when it vendors this package: the transitive
+ *  `dependencies` closure, as package names and as manifest paths.
+ *
+ *  The walk is `@kolu/daemon-test-gate`'s, not a local copy — it is the TS
+ *  mirror of nix's `depClosure`, and `packages/tests/governance/effectPin.ts`
+ *  asks it the same question (which manifests are read outside this workspace
+ *  and therefore owe a literal version). Two walks that agree today is how a
+ *  gate starts lying. */
+function hydrateClosure(): { names: string[]; manifestPaths: string[] } {
+  return declaredDependencyClosure({
+    repoRoot: REPO_ROOT,
+    entries: ["@kolu/padi-client"],
+  });
 }
 
 /**
@@ -236,8 +214,7 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
   });
 
   it("declares a manifest closure a consumer can hydrate — no kaval, no node-pty, no TUI tier", () => {
-    const members = workspaceMembers();
-    const closure = declaredClosure("@kolu/padi-client", members);
+    const closure = hydrateClosure().names;
 
     const daemonTier = closure.filter((p) => DAEMON_TIER.includes(p));
     expect(
@@ -256,48 +233,27 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
   });
 
   it("costs a consumer exactly these npm packages — the residual is pinned, not assumed", () => {
-    const members = workspaceMembers();
+    const { names, manifestPaths } = hydrateClosure();
+    const members = new Set(names);
     const externals = new Set<string>();
-    for (const name of declaredClosure("@kolu/padi-client", members)) {
-      const dir = members.get(name);
-      if (dir === undefined) continue;
+    for (const rel of manifestPaths) {
       const manifest = JSON.parse(
-        readFileSync(join(dir, "package.json"), "utf8"),
-      ) as { dependencies?: Record<string, string> };
-      for (const dep of Object.keys(manifest.dependencies ?? {})) {
-        if (!members.has(dep)) externals.add(dep);
-      }
-    }
-    expect([...externals].sort()).toEqual(EXPECTED_EXTERNALS);
-  });
-
-  it("spells every external dependency version literally — `catalog:` is unresolvable outside this workspace", () => {
-    const members = workspaceMembers();
-    const catalogued: string[] = [];
-    for (const name of declaredClosure("@kolu/padi-client", members)) {
-      const dir = members.get(name);
-      if (dir === undefined) continue;
-      const manifest = JSON.parse(
-        readFileSync(join(dir, "package.json"), "utf8"),
+        readFileSync(join(REPO_ROOT, rel), "utf8"),
       ) as {
         dependencies?: Record<string, string>;
         peerDependencies?: Record<string, string>;
       };
-      for (const [dep, spec] of Object.entries({
+      // `peerDependencies` count. A peer is a runtime import like any other, and
+      // the arrangement it names — "the app supplies the runtime" — IS what a
+      // hydrating consumer's root manifest is; olai's own check-kolu-deps.sh
+      // says the same thing from the other side.
+      for (const dep of Object.keys({
         ...manifest.dependencies,
         ...manifest.peerDependencies,
       })) {
-        if (spec.startsWith("catalog:")) catalogued.push(`${name} → ${dep}`);
+        if (!members.has(dep)) externals.add(dep);
       }
     }
-    expect(
-      catalogued,
-      `a package in @kolu/padi-client's hydrate closure spells a dependency as ` +
-        `\`catalog:\`: ${catalogued.join(", ")}. The catalog is WORKSPACE-LOCAL ` +
-        `(pnpm-workspace.yaml), so a consumer that vendors these directories and ` +
-        `installs their dependencies from its own manifest cannot resolve it — ` +
-        `the same rule the eight @kolu/surface* packages already follow. Spell ` +
-        `the literal version, and bump it in all three places the catalog note lists.`,
-    ).toEqual([]);
+    expect([...externals].sort()).toEqual(EXPECTED_EXTERNALS);
   });
 });

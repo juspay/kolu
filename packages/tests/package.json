@@ -7,6 +7,7 @@
     "@cucumber/messages": "32.2.0",
     "@kolu/daemon-test-gate": "workspace:*",
     "@kolu/padi": "workspace:*",
+    "@kolu/padi-client": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
@@ -26,8 +27,5 @@
     "baseline:report": "node --import tsx governance/reportBaseline.ts",
     "inventory:update": "node --import tsx governance/updateInventory.ts",
     "test:unit": "node --import tsx --test support/*.test.ts governance/*.test.ts"
-  },
-  "dependencies": {
-    "@kolu/padi-client": "workspace:*"
   }
 }

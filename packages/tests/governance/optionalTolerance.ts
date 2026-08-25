@@ -68,7 +68,7 @@ export const OPTIONAL_TOLERANCE_ALLOWLIST: readonly OptionalToleranceSite[] = [
     why: '`foregroundPid` — "no foreground pid" is a VALUE here, not an absent fact (`readForegroundPid` collapses `tcgetpgrp`\'s transient `0` to `undefined` and `ForegroundSample` declares the key REQUIRED), and the tap forwards whole samples verbatim, which no conditional spread can discipline; under `optionalKey` the encode killed the whole foreground tap',
   },
   {
-    path: "packages/padi/src/surface.ts",
+    path: "packages/padi-client/src/surface.ts",
     sites: 1,
     why: "`reflowEpoch` on the attach snapshot — forwarded verbatim across five hops of optional-typed records before it is encoded, and reading an absent optional key yields `undefined`, so every hop re-creates the key present-with-`undefined` however clean the hop before it was",
   },

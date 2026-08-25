@@ -33,7 +33,6 @@
     "kolu-transcript-core": "workspace:*"
   },
   "devDependencies": {
-    "@babel/parser": "^7.29.2",
     "@kolu/daemon-test-gate": "workspace:*",
     "@types/node": "^22.0.0",
     "typescript": "^7.0.2",

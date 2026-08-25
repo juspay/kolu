@@ -13,7 +13,8 @@ durable authority without a second relocation.
 
 ## W1 is ONE PR, in three commit stages (C → M → R)
 
-- **W1.C — the contract** (this file's `./surface`). `padiSurface` 1.0: the
+- **W1.C — the contract** (then `./surface` here; the spec lives in
+  [`@kolu/padi-client`](../padi-client) now). `padiSurface` 1.0: the
   composed `terminals` collection (`authored ⋈ snapshot`, one writer), a
   recency-free `urgency` fold, `activity`, the repo/file `{seq}` pulses, fs/git +
   worktree + byte (`scratch.write` / range-capable `preview.read`) procedures,
@@ -26,7 +27,7 @@ durable authority without a second relocation.
 - **W1.M — the motion**. The terminal domain relocates OUT of `packages/server`
   INTO this package, verbatim (registry · lifecycle · fold + metadata · endpoint
   bindings · scratch/transcript/worktree · session persistence · MRU trackers).
-  This adds a **node-only side** beside `./surface`. Pure relocation — no logic,
+  This adds a **node-only side** beside the contract. Pure relocation — no logic,
   wire, or UX change; git detects the moves as renames.
 - **W1.R — the rewiring**. The package serves `padiSurface` COMPLETE, natively
   (`implementSurface` is fail-fast — no member may stub, because every backing
@@ -91,7 +92,7 @@ The package graduated to a **process**: `package = process = restart-hash`.
   kaval alike via its manifest) instead of leaking forever, and the kolu-server
   binder treats the gone root as terminal rather than respawning into it.
 - **The frozen control core** (`@kolu/surface-daemon`'s identity/drain fragment,
-  extended by `./surface`'s padi-only version + clock members) — hello · version
+  extended by `@kolu/padi-client/surface`'s padi-only version + clock members) — hello · version
   · drain · clock.now — is served BESIDE
   `padiSurface` (sibling key `control`), so a binder reaches it even when
   `padiSurface` is version-skewed. It never versions.

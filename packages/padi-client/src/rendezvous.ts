@@ -12,6 +12,26 @@
  * kaval placement beside them, the daemon's own log paths — stays in
  * `@kolu/padi/stateRoot`, which imports this module and adds its own.
  *
+ * ── What this module is NOT: a way to FIND a running padi ────────────────────
+ *
+ * {@link padiSocketPath} is a RECOMPUTE from the calling process's own ambient
+ * environment (`$XDG_RUNTIME_DIR`, else `/tmp/<ns>-$UID`). Construction-side
+ * that is exactly right — the daemon computes where to bind. From a CLIENT it is
+ * a guess, and padi's own discovery says so in as many words: `residentPadiSocket`
+ * takes the resident's `state-root` MANIFEST over "any caller's own-env guess
+ * (never a bare digest-path recompute, which is exactly what reproduced the
+ * bug)" — juspay/kolu#1713, where a `nix run` outside a login session computed a
+ * different drawer than the live daemon and hung for 30s against a padi that was
+ * up the whole time.
+ *
+ * So a client that did not launch the daemon should be TOLD the socket, not
+ * derive it: `$PADI_SOCKET` is stamped into every PTY a padi spawns, and an
+ * explicit path is always accepted. The read-back that corrects a guess —
+ * manifest discovery gated on a live pid holder — needs kaval's own-dir and
+ * socket-inode checks, which is why it stayed in `@kolu/padi/stateRoot` and is
+ * out of reach for a consumer that hydrates this package alone. Recomputing is
+ * safe only when the client and the daemon share a launch context.
+ *
  * Two kinds of location, deliberately split (each mechanic exists because a
  * reviewer constructed the failure without it — see padi.mdx §identity):
  *

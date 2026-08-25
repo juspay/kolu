@@ -3,7 +3,7 @@
  * live, block until one terminal's agent enters a target bucket, block until one
  * terminal's output has been quiet for a window, and block until one terminal's
  * NEW output matches a pattern. Part of the dial kit (re-exported through
- * `@kolu/padi-client/dial`): a daemon's package owns the client helpers its consumers
+ * `@kolu/padi-client/watch`, its own entry): a daemon's package owns the client helpers its consumers
  * share.
  *
  * Graduated here from padi-tui (`read.ts`/`render.ts`) the day the kolu MCP

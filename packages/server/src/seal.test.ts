@@ -610,7 +610,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     // left open (W4 ledger L13). A test legitimately needs MORE of padi than
     // production does (it drives internals: `padi/padiBinding.test` reaches
     // `@kolu/padi/stateRoot`, `exportTranscriptHtml.test` reaches
-    // `@kolu/padi/transcript` — both PUBLISHED entry points other packages
+    // `@kolu/padi-client/transcript` — both PUBLISHED entry points other packages
     // (`tests`, `client`) consume too, so narrowing them out of padi's exports
     // would break real consumers). But a test must still go through the PUBLISHED
     // contract, never a deep `@kolu/padi/src/...` that bypasses the barrel.
