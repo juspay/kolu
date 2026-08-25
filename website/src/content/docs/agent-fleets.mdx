@@ -1,8 +1,8 @@
 ---
 title: Agent Fleets
 description: "A way of using kolu where an agent — not a person — drives the work: one coordinator terminal dispatches briefs to worktree'd implementing agents, watches them through padi's agent-state, routes their questions back to itself, and lets you sit one layer up. The pattern kolu's own development runs on."
-order: 62
-section: Use Kolu
+order: 51
+section: "Agents & Attention"
 koluHero:
   eyebrow: the coordinator pattern
   headline: |
@@ -18,6 +18,11 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 _This page explains a **pattern** — a way of using kolu — not a feature to turn on. It's the "why" and the shape; the daemons underneath it are described on the [kaval](/kaval) and [padi](/padi) pages, linked throughout._
 
 kolu can be driven by an **agent**, not just a person. Because every terminal kolu owns can be created, prompted, watched, and read from the shell, one agent sitting in a terminal can do to another terminal exactly what you would: open it, type a task, wait for the reply, read it, type the next one. Scale that up and you get a **fleet**: one _coordinator_ agent driving many _implementing_ agents, each in its own worktree, while you stay one layer above all of it.
+
+<figure class="doc-shot">
+  <img src="/shots/islands.webp" alt="A fleet of three agent terminals laid out across the canvas, each with its own repo group in the dock." loading="lazy" />
+  <figcaption>Three agents, three repos, one canvas — the dock keeps the roster.</figcaption>
+</figure>
 
 This isn't hypothetical. kolu's own features are built this way — the [remote-terminals work](/blog/remote-terminals) was a coordinator dispatching briefs to agents running inside kolu's terminals, on real hosts, for weeks. This page describes that pattern as something you can use.
 
