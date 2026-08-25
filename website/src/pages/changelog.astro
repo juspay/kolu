@@ -142,7 +142,7 @@ const previousVersion = releases[0]?.version;
           releases.map((release) => (
             <a href={`#${release.anchor}`}>
               <span>v{release.version}</span>
-              <small>{release.dateLabel}</small>
+              <small>{release.dateLabel} · {release.changeCount} changes</small>
             </a>
           ))
         }

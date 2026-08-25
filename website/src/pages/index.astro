@@ -11,6 +11,45 @@ const posts = (await getCollection('blog')).sort(
 );
 const latest = posts[0];
 
+// The feature bands under the demo — one image, one claim each, all stills
+// cropped from the self-filmed hero recording (real product, kept fresh by
+// re-recording). Order tells the product story: notice → act → review → scale.
+const features = [
+  {
+    eyebrow: 'attention',
+    title: 'See who needs you.',
+    copy: 'The dock mirrors every terminal — repo, agent, and how long it has been waiting. When an agent asks a question, a pinned Needs-you strip surfaces it, however deeply its tile is buried.',
+    link: { href: '/notifications', label: 'Notifications & attention' },
+    img: '/shots/needs-you.webp',
+    alt: "Kolu's dock with a pinned Needs-you strip above two repo groups, one entry waiting for a minute.",
+    portrait: true,
+  },
+  {
+    eyebrow: 'act',
+    title: 'Answer it right there.',
+    copy: 'Click the waiting agent, maximize its tile, approve — the question, your answer, and the work that follows all happen in the same place. No tab-hunting across a dozen terminal windows.',
+    link: { href: '/agent-fleets', label: 'Running agent fleets' },
+    img: '/shots/answer-anywhere.webp',
+    alt: 'A maximized Claude Code tile asking permission to create a file, with the dock as a sidebar.',
+  },
+  {
+    eyebrow: 'review',
+    title: 'Comment on code. The agent acts.',
+    copy: 'Select a line in the built-in code browser and leave a note, like reviewing a PR. Hand it to the agent in one paste — and watch the open file update itself the moment the edit lands.',
+    link: { href: '/code-tab', label: 'The Code tab' },
+    img: '/shots/comment-handoff.webp',
+    alt: 'A review comment quoted inside a Claude Code terminal, next to the code browser showing the file it names.',
+  },
+  {
+    eyebrow: 'machines',
+    title: 'Another machine is one tab away.',
+    copy: 'Add a host over ssh and the whole canvas switches to it — terminals, agents, and attention included, with nothing installed on the far end beyond Nix. Your fleet is every machine you have.',
+    link: { href: '/remote-hosts', label: 'Remote hosts' },
+    img: '/shots/remote-host.webp',
+    alt: 'The canvas switched to a remote host tab, showing an opencode agent running on another machine.',
+  },
+];
+
 const doors = [
   {
     title: 'Try it on this machine',
@@ -76,6 +115,11 @@ const doors = [
         </a>
       </div>
 
+      <p class="hero-oss">
+        Free and open source (AGPL-3.0). Self-hosted — no account, nothing to
+        sign up for.
+      </p>
+
       <p class="hero-aside">
         <a href={href('/philosophy')}>
           Why a terminal and not an editor <span aria-hidden="true">→</span>
@@ -100,10 +144,31 @@ const doors = [
         </video>
       </div>
       <figcaption class="hero-demo-cap">
-        The dock finds what you cannot see: two agents in two repos, and one
-        buried behind another tile asking for you.
+        One take, no cuts: a fleet of agents on the canvas, a question answered
+        from a maximized tile, a code comment an agent acts on, a second
+        machine one tab away — and a page reload every terminal survives.
       </figcaption>
     </figure>
+  </section>
+
+  <section class="home-band features-band" aria-label="What kolu does">
+    {
+      features.map((f) => (
+        <div class:list={['feature-band', { 'feature-band-portrait': f.portrait }]}>
+          <div class="feature-copy">
+            <p class="eyebrow">{f.eyebrow}</p>
+            <h2 class="display-sm">{f.title}</h2>
+            <p>{f.copy}</p>
+            <a href={href(f.link.href)} class="feature-link">
+              {f.link.label} <span aria-hidden="true">→</span>
+            </a>
+          </div>
+          <a href={href(f.link.href)} class="feature-shot">
+            <img src={href(f.img)} alt={f.alt} loading="lazy" decoding="async" />
+          </a>
+        </div>
+      ))
+    }
   </section>
 
   <section class="home-band">
@@ -308,8 +373,79 @@ const doors = [
   /* The kicker asserts the editor is the wrong shape for this era; this is the
      one click to where that argument is actually made. Deliberately quieter
      than the two hero buttons — it's a third path, not a third call to act. */
+  .hero-oss {
+    margin-top: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--color-ink-muted);
+  }
   .hero-aside {
     margin-top: 1.15rem;
+  }
+  .features-band {
+    display: flex;
+    flex-direction: column;
+    gap: 4.5rem;
+  }
+  .feature-band {
+    display: grid;
+    grid-template-columns: minmax(16rem, 2fr) 3fr;
+    gap: 2.5rem;
+    align-items: center;
+  }
+  /* Alternate sides so the eye zigzags down the page. */
+  .feature-band:nth-child(even) .feature-copy {
+    order: 2;
+  }
+  .feature-band:nth-child(even) .feature-shot {
+    order: 1;
+  }
+  /* The dock closeup is tall and narrow — cap it so it doesn't tower. */
+  .feature-band-portrait .feature-shot img {
+    max-width: 24rem;
+    margin-inline: auto;
+  }
+  .feature-copy h2 {
+    margin: 0.35rem 0 0.75rem;
+  }
+  .feature-copy p:not(.eyebrow) {
+    color: var(--color-ink-muted);
+    line-height: 1.65;
+    max-width: 34rem;
+  }
+  .feature-link {
+    display: inline-block;
+    margin-top: 0.9rem;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--color-kolu-primary);
+    text-decoration: none;
+  }
+  .feature-link:hover {
+    text-decoration: underline;
+  }
+  .feature-shot {
+    display: block;
+  }
+  .feature-shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--color-rule);
+    border-radius: 0.75rem;
+    box-shadow: 0 18px 48px rgb(0 0 0 / 0.35);
+  }
+  @media (max-width: 760px) {
+    .feature-band {
+      grid-template-columns: 1fr;
+      gap: 1.25rem;
+    }
+    .feature-band:nth-child(even) .feature-copy {
+      order: 1;
+    }
+    .feature-band:nth-child(even) .feature-shot {
+      order: 2;
+    }
   }
   .hero-aside a {
     font-family: var(--font-mono);

@@ -1,0 +1,118 @@
+---
+/**
+ * The handful of entries in a release worth reading first.
+ *
+ * A release is a long ledger; a human arriving at it wants the marquee changes
+ * before the archaeology. Each item names an entry that lives in the SAME
+ * release body and links to that entry's own anchor, so the block is a table of
+ * contents for the release rather than a second, drifting summary.
+ *
+ *   <ChangeHighlights items={[{ title: "…", note: "…" }]} />
+ *
+ * `title` must match its `<Change title="…">` verbatim — the anchor is derived
+ * from it by the shared slug rule.
+ */
+import { changelogEntrySlug } from "../changelog-slug";
+
+interface Props {
+  items: readonly { title: string; note: string }[];
+}
+
+const { items } = Astro.props;
+if (items.length === 0)
+  throw new Error("<ChangeHighlights> requires at least one item");
+---
+
+<nav class="cl-highlights" aria-label="Release highlights">
+  <p class="eyebrow cl-highlights-label">Highlights</p>
+  <div class="cl-highlights-items">
+    {
+      items.map((item) => (
+        <a class="cl-highlight" href={`#${changelogEntrySlug(item.title)}`}>
+          <span class="cl-highlight-title">{item.title}</span>
+          <span class="cl-highlight-note">{item.note}</span>
+        </a>
+      ))
+    }
+  </div>
+</nav>
+
+<style>
+  .cl-highlights {
+    margin: 0 0 2.25rem;
+    border: 1px solid var(--color-rule-strong);
+    border-left: 2px solid var(--color-kolu-bottom);
+    border-radius: 7px;
+    background: color-mix(
+      in srgb,
+      var(--color-void-raised) 82%,
+      transparent
+    );
+  }
+
+  .cl-highlights-label {
+    margin: 0;
+    padding: 0.6rem 0.9rem 0.5rem;
+    border-bottom: 1px solid var(--color-rule);
+    font-size: 0.62rem;
+    letter-spacing: 0.16em;
+  }
+
+  .cl-highlights-items {
+    display: grid;
+  }
+
+  .cl-highlight {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 0.15rem 1rem;
+    padding: 0.62rem 0.9rem;
+    border-top: 1px solid transparent;
+    color: var(--color-ink);
+    text-decoration: none;
+    transition: background 150ms ease;
+  }
+
+  .cl-highlight + .cl-highlight {
+    border-top-color: var(--color-rule);
+  }
+
+  .cl-highlight:hover {
+    background: color-mix(
+      in srgb,
+      var(--color-kolu-primary) 6%,
+      transparent
+    );
+  }
+
+  .cl-highlight-title {
+    font-size: 0.88rem;
+    font-weight: 560;
+    letter-spacing: -0.01em;
+    line-height: 1.35;
+  }
+
+  .cl-highlight:hover .cl-highlight-title {
+    color: var(--color-kolu-primary);
+  }
+
+  .cl-highlight-note {
+    color: var(--color-ink-muted);
+    font-size: 0.78rem;
+    line-height: 1.45;
+  }
+
+  @media (max-width: 620px) {
+    .cl-highlight {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.18rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cl-highlight {
+      transition: none;
+    }
+  }
+</style>

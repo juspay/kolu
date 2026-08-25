@@ -2,6 +2,34 @@
 version: Unreleased
 ---
 
+import ChangeHighlights from "../../components/ChangeHighlights.astro";
+
+<ChangeHighlights
+  items={[
+    {
+      title: "A pinned Needs-you strip surfaces blocked agents in one place",
+      note: "Blocked agents pin to the top of the dock, with their wait times.",
+    },
+    {
+      title: "`kolu` now manages terminals itself — one command instead of two side tools",
+      note: "One command creates, sends, waits, and debriefs — no side tools needed.",
+    },
+    {
+      title: "`kolu surface` spells the agent API as shell verbs",
+      note: "The tool table an agent uses is now callable from a shell script.",
+    },
+    {
+      title: "Your state is backed up at every boot, and restorable from inside kolu",
+      note: "Snapshots at every boot, restorable from Debug without leaving kolu.",
+    },
+    {
+      title:
+        "An unresponsive terminal daemon restarts itself — you no longer have to press the button",
+      note: "A wedged terminal daemon now recovers itself instead of waiting for a click.",
+    },
+  ]}
+/>
+
 ### [Inside a Tile](/tiles)
 
 - <Change kind="changed" title="Terminals run on the latest xterm.js" prs={[2130, 2191]}>The terminal engine under every tile is now **xterm.js 6.1.0-beta.302** (WebGL addon **0.20.0-beta.298**), up from beta.289 / beta.288. What lands from upstream: the shared glyph atlas **evicts and rebuilds** when it would outgrow GPU texture capacity instead of overflowing (xtermjs#6043); clearing the atlas on one tile no longer leaves **siblings painting stale glyphs** from wiped atlas pages (xtermjs#6055); the hidden input field used for keyboard focus sets `autocomplete="off"`, so **iPadOS Safari** no longer pops password / AutoFill suggestions when a terminal gains focus (xtermjs#6057); and after a program clears scrollback with `ESC[3J`, the viewport **follows new output** instead of staying pinned to the empty top of the buffer (xtermjs#6081).</Change>

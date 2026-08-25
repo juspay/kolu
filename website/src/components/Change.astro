@@ -21,6 +21,7 @@
  */
 import PR from "./PR.astro";
 import { CHANGE_KIND_LABELS, type ChangeKind } from "../changelog";
+import { changelogEntrySlug } from "../changelog-slug";
 
 interface ChangeProps {
   kind: ChangeKind;
@@ -51,13 +52,15 @@ const kindLabel = CHANGE_KIND_LABELS[kind];
 const prIds = prs ?? (pr === undefined ? [] : [pr]);
 
 const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
+// The entry's own address: shareable, and what a release's Highlights link to.
+const slug = changelogEntrySlug(title);
 ---
 
-<details class="cl-change" data-kind={kind}>
+<details class="cl-change" id={slug} data-kind={kind}>
   <summary>
     <span class="cl-change-toggle" aria-hidden="true"></span>
     <span class="cl-change-kind">{kindLabel}</span>
-    <span class="cl-change-title">{title}</span>
+    <span class="cl-change-title"><a href={`#${slug}`}>{title}</a></span>
     {prIds.length > 0 && <span class="cl-change-count">{provenanceLabel}</span>}
     <span class="cl-change-match" data-search-preview hidden></span>
   </summary>
@@ -83,6 +86,7 @@ const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
   .cl-change {
     --note-accent: var(--color-kolu-primary);
     border-top: 1px solid var(--color-rule);
+    scroll-margin-top: 7.5rem;
     transition:
       background 160ms ease,
       border-color 160ms ease;
@@ -184,6 +188,18 @@ const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
     letter-spacing: -0.012em;
     line-height: 1.35;
     transition: color 150ms ease;
+  }
+
+  /* The title is its own permalink, so it must read as the title until the
+     pointer says otherwise. */
+  .cl-change-title a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .cl-change-title a:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
   }
 
   .cl-change-kind {
