@@ -201,9 +201,9 @@ describe("prInfoFromGhView", () => {
     // Live pin: `gh pr view 2215 --json reviewDecision` returns `""`, not
     // JSON null. A decoder that only accepts null throws and the whole PR
     // collapses to unavailable.
-    expect(prInfoFromGhView({ ...base, reviewDecision: "" }).reviewDecision).toBe(
-      null,
-    );
+    expect(
+      prInfoFromGhView({ ...base, reviewDecision: "" }).reviewDecision,
+    ).toBe(null);
   });
 
   it.each([

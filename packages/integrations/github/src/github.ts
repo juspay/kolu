@@ -131,14 +131,18 @@ export type GhPrViewJson = {
   mergeStateStatus: string;
 };
 
-type GhPrViewJsonKeysMatch = Exclude<
-  keyof GhPrViewJson,
-  (typeof GH_PR_VIEW_JSON_FIELD_LIST)[number]
-> extends never
-  ? Exclude<(typeof GH_PR_VIEW_JSON_FIELD_LIST)[number], keyof GhPrViewJson> extends never
-    ? true
-    : never
-  : never;
+type GhPrViewJsonKeysMatch =
+  Exclude<
+    keyof GhPrViewJson,
+    (typeof GH_PR_VIEW_JSON_FIELD_LIST)[number]
+  > extends never
+    ? Exclude<
+        (typeof GH_PR_VIEW_JSON_FIELD_LIST)[number],
+        keyof GhPrViewJson
+      > extends never
+      ? true
+      : never
+    : never;
 const _ghPrViewJsonKeysMatch: GhPrViewJsonKeysMatch = true;
 
 const decodePrState = Schema.decodeUnknownSync(PrStateSchema);
