@@ -427,6 +427,21 @@ function koluSurfaceBindings(file: string): string[] {
 
 // ── (b) The @kolu/padi import-boundary walk ───────────────────────────────
 
+/** The packages that ARE the terminal domain, listed. Membership is what arms
+ *  (b) and (f) police, so it must be a fact a reviewer edits rather than a shape
+ *  a name happens to have: `startsWith("@kolu/padi")` reads like a rule and is a
+ *  coincidence, and it fails silently in both directions — a third domain
+ *  package under a different name (`@kolu/terminal-domain`) would slip out of the
+ *  seal while the arrow it polices inverts, and an unrelated `@kolu/padi-foo`
+ *  would slip in. */
+const TERMINAL_DOMAIN = ["@kolu/padi", "@kolu/padi-client"] as const;
+
+/** True for a specifier naming the terminal domain — the package itself or one
+ *  of its subpaths. */
+function inTerminalDomain(spec: string): boolean {
+  return TERMINAL_DOMAIN.some((n) => spec === n || spec.startsWith(`${n}/`));
+}
+
 /** The `@kolu/padi` specifiers kolu-server's PRODUCTION code (everything reachable
  *  from `index.ts`) may import — the TIGHT boundary. A DELIBERATE subset of padi's
  *  published `exports` (arm f asserts the subset relation): production reaches the
@@ -438,7 +453,7 @@ function koluSurfaceBindings(file: string): string[] {
  *     pure helpers). It moved to the client package at juspay/kolu#2216 so a
  *     consumer can hydrate the contract without the daemon; the DOOR is the same
  *     door, and the seal counts `@kolu/padi-client` as part of the terminal
- *     domain (`startsWith("@kolu/padi")` catches both), never as a way out of it;
+ *     domain (`TERMINAL_DOMAIN` names both), never as a way out of it;
  *   - `/assembly` — the padi binder's assembly surface (socket paths, preview, the
  *     kaval/padi probe types) — the one production door for state-root-adjacent needs;
  *   - `@kolu/padi-client/dial` — the shared dial kit (`connectPadi`), so `padi-tui`
@@ -587,7 +602,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
 
   it("(b) reaches the terminal domain only through its named doors — no deep src import", () => {
     const padiSpecs = [...externalsFromEntry()]
-      .filter((s) => s.startsWith("@kolu/padi"))
+      .filter((s) => inTerminalDomain(s))
       .sort();
     // Every @kolu/padi edge is one of the ALLOWED_PADI published entry points; a
     // `@kolu/padi/src/...` deep import (or any other subpath) fails here.
@@ -610,7 +625,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     // left open (W4 ledger L13). A test legitimately needs MORE of padi than
     // production does (it drives internals: `padi/padiBinding.test` reaches
     // `@kolu/padi/stateRoot`, `exportTranscriptHtml.test` reaches
-    // `@kolu/padi-client/transcript` — both PUBLISHED entry points other packages
+    // `@kolu/padi-client/surface` — both PUBLISHED entry points other packages
     // (`tests`, `client`) consume too, so narrowing them out of padi's exports
     // would break real consumers). But a test must still go through the PUBLISHED
     // contract, never a deep `@kolu/padi/src/...` that bypasses the barrel.
@@ -632,7 +647,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     let sawPadiImport = false;
     for (const file of serverTestFiles()) {
       for (const spec of importsOf(file)) {
-        if (!spec.startsWith("@kolu/padi")) continue;
+        if (!inTerminalDomain(spec)) continue;
         sawPadiImport = true;
         if (!published.has(spec)) {
           offenders.push(

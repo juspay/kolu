@@ -212,7 +212,7 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   daemon.
 
 - **Node-only entries** — the daemon main, binding, state-root discovery,
-  endpoint, log, transcript, and upload modules compose and serve that contract.
+  endpoint, log and transcript modules compose and serve that contract.
   Padi is the native authority; kolu-server binds or mirrors it rather than
   supplying a backing shim.
 

@@ -30,12 +30,20 @@
  * set from this very closure (`vendoredManifests`) and polices both directions
  * across the whole tree. A second copy here could only drift from it.
  *
- * `ALLOWED` is the allowlist, and the point of it is that it is short and that a
- * new name in it is a CONSCIOUS act. A package that shows up here uninvited is
- * the boundary leaking: either the code belongs in `@kolu/padi` (the daemon
- * package, which may depend on this one — the arrow points OUT), or the new
- * dependency is one every consumer of the padi contract is now required to
- * install, which is a decision worth a sentence in a PR body.
+ * The two walks get their OWN allowlists — `IMPORTED_ALLOWED` and
+ * `DECLARED_ALLOWED` — because they are two different sets and the difference
+ * between them is the whole subject of this file. One shared list would have to
+ * be the union, which leaves the tighter set unpinned by exactly that
+ * difference: a package could leave the import graph, or arrive in it while
+ * already sitting in the manifest, and nothing here would notice. Split, the gap
+ * is a fact a reviewer can read off two lists instead of slack hiding inside one.
+ *
+ * The point of both lists is that they are short and that a new name in either is
+ * a CONSCIOUS act. A package that shows up uninvited is the boundary leaking:
+ * either the code belongs in `@kolu/padi` (the daemon package, which may depend
+ * on this one — the arrow points OUT), or the new dependency is one every
+ * consumer of the padi contract is now required to install, which is a decision
+ * worth a sentence in a PR body.
  */
 
 import { readFileSync } from "node:fs";
@@ -85,7 +93,7 @@ function publishedEntries(): string[] {
  * `@kolu/surface-remote`, `@kolu/surface-map`, `kolu-pty`, `pino` — the daemon
  * and TUI tier.
  */
-const ALLOWED = new Set([
+const DECLARED_ALLOWED = new Set([
   "@kolu/padi-client",
   "@kolu/surface",
   "@kolu/surface-daemon",
@@ -115,6 +123,36 @@ const ALLOWED = new Set([
   "osfacts-client",
 ]);
 
+/** The packages this package's own code actually REACHES from its published
+ *  entries — necessarily a subset of `DECLARED_ALLOWED`, and the assertion below
+ *  proves it rather than assuming it.
+ *
+ *  The seven names it drops are the honest cost of hydration being per-manifest:
+ *  `@kolu/log`, `kolu-io`, `kolu-shared`, `kolu-pty`, `memorable-names`,
+ *  `nonempty` and `osfacts-client` sit in manifests this closure copies, but no
+ *  import path from a published entry reaches them. A consumer still copies
+ *  seven directories for code it never loads — which is the same shape as the
+ *  residual named below, several tiers down, and is why the gap is spelled out
+ *  here instead of being folded into one lenient list. */
+const IMPORTED_ALLOWED = new Set([
+  "@kolu/padi-client",
+  "@kolu/shell-quote",
+  "@kolu/surface",
+  "@kolu/surface-daemon",
+  "@kolu/surface-daemon-supervisor",
+  "@kolu/terminal-vocab",
+  "anyagent",
+  "anyforge",
+  "kolu-claude-code",
+  "kolu-codex",
+  "kolu-git",
+  "kolu-github",
+  "kolu-grok",
+  "kolu-opencode",
+  "kolu-pi",
+  "kolu-transcript-core",
+]);
+
 /** Names whose PRESENCE would mean the daemon tier came back. Asserted by name
  *  as well as by the allowlist, so the failure message says what happened
  *  instead of only that a set grew. */
@@ -129,15 +167,18 @@ const DAEMON_TIER = [
   "@kolu/padi",
 ];
 
-/** What a consumer copies when it vendors this package: the transitive
- *  `dependencies` closure, as package names and as manifest paths.
+/** What a consumer copies when it vendors this package: the transitive runtime
+ *  closure, as package names, as manifest paths, and as the npm packages those
+ *  manifests leave it to install.
  *
  *  The walk is `@kolu/daemon-test-gate`'s, not a local copy — it is the TS
  *  mirror of nix's `depClosure`, and `packages/tests/governance/effectPin.ts`
  *  asks it the same question (which manifests are read outside this workspace
  *  and therefore owe a literal version). Two walks that agree today is how a
- *  gate starts lying. */
-function hydrateClosure(): { names: string[]; manifestPaths: string[] } {
+ *  gate starts lying, which is why the nix one is held to this one by
+ *  `packages/tests/governance/closureWalk.ts` and why the externals below come
+ *  out of the SAME pass rather than a second edge rule spelled here. */
+function hydrateClosure(): ReturnType<typeof declaredDependencyClosure> {
   return declaredDependencyClosure({
     repoRoot: REPO_ROOT,
     entries: ["@kolu/padi-client"],
@@ -203,13 +244,27 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
         `so a devDependency edge here is a module that simply will not resolve there.`,
     ).toEqual([]);
 
-    const unexpected = reachedPackages.filter((p) => !ALLOWED.has(p)).sort();
+    const unexpected = reachedPackages
+      .filter((p) => !IMPORTED_ALLOWED.has(p))
+      .sort();
     expect(
       unexpected,
       `@kolu/padi-client's import closure grew: ${unexpected.join(", ")}. ` +
         `Either the new code belongs in @kolu/padi (which may depend on this ` +
         `package — the arrow points out), or every consumer of padi's contract ` +
-        `now has to hydrate these too; say which in ALLOWED above.`,
+        `now has to hydrate these too; say which in IMPORTED_ALLOWED above.`,
+    ).toEqual([]);
+
+    // The containment this file's whole premise rests on: what the code reaches
+    // is a subset of what the manifests cost. Asserted, not assumed — an entry
+    // that appears only in IMPORTED_ALLOWED would mean a module resolves through
+    // an edge no manifest in the closure declares.
+    const undeclared = [...IMPORTED_ALLOWED]
+      .filter((p) => !DECLARED_ALLOWED.has(p))
+      .sort();
+    expect(
+      undeclared,
+      `IMPORTED_ALLOWED names packages DECLARED_ALLOWED does not: ${undeclared.join(", ")}.`,
     ).toEqual([]);
   });
 
@@ -225,7 +280,7 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
         `which is exactly why this package was carved out of @kolu/padi.`,
     ).toEqual([]);
 
-    const unexpected = closure.filter((p) => !ALLOWED.has(p));
+    const unexpected = closure.filter((p) => !DECLARED_ALLOWED.has(p));
     expect(
       unexpected,
       `undeclared closure members: ${unexpected.join(", ")}`,
@@ -233,27 +288,12 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
   });
 
   it("costs a consumer exactly these npm packages — the residual is pinned, not assumed", () => {
-    const { names, manifestPaths } = hydrateClosure();
-    const members = new Set(names);
-    const externals = new Set<string>();
-    for (const rel of manifestPaths) {
-      const manifest = JSON.parse(
-        readFileSync(join(REPO_ROOT, rel), "utf8"),
-      ) as {
-        dependencies?: Record<string, string>;
-        peerDependencies?: Record<string, string>;
-      };
-      // `peerDependencies` count. A peer is a runtime import like any other, and
-      // the arrangement it names — "the app supplies the runtime" — IS what a
-      // hydrating consumer's root manifest is; olai's own check-kolu-deps.sh
-      // says the same thing from the other side.
-      for (const dep of Object.keys({
-        ...manifest.dependencies,
-        ...manifest.peerDependencies,
-      })) {
-        if (!members.has(dep)) externals.add(dep);
-      }
-    }
-    expect([...externals].sort()).toEqual(EXPECTED_EXTERNALS);
+    // The externals come out of the closure walk itself, on the walk's own edge
+    // rule (`dependencies` ∪ `peerDependencies`). Recomputing them here from the
+    // manifest paths is how the two halves of one gate came to hold different
+    // opinions about whether a peer is a runtime edge — and a workspace member
+    // reached only through a peer would then be reported as a third-party
+    // package while its own subtree went unwalked.
+    expect(hydrateClosure().externals).toEqual(EXPECTED_EXTERNALS);
   });
 });

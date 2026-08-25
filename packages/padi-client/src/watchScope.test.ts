@@ -10,23 +10,11 @@
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import {
-  scopeAdmits,
-  WATCH_SCOPE_ALL,
-  type WatchScope,
-  watchScopeOf,
-} from "./watchScope.ts";
-
-/** The constructor, unwrapped — a pin that MEANT to build a scope and got a
- *  refusal has a bug in the pin, so it throws rather than asserting on
- *  `undefined`. (padi's attention fixture keeps its own copy for the four daemon
- *  suites that share it; this one is here so the constructor's pins travel with
- *  the constructor.) */
-const okScope = (opts: Parameters<typeof watchScopeOf>[0]): WatchScope => {
-  const scope = watchScopeOf(opts);
-  if (scope.kind === "error") throw new Error(scope.message);
-  return scope.value;
-};
+import { scopeAdmits, WATCH_SCOPE_ALL, watchScopeOf } from "./watchScope.ts";
+// The unwrapper is `./watchScope.testlib.ts`'s — one copy, published, and shared
+// with padi's attention fixture, which is where the second copy of these six
+// lines used to live.
+import { scopeOf as okScope } from "./watchScope.testlib.ts";
 
 const SELF = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
 const LANE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as TerminalId;

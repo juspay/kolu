@@ -89,12 +89,16 @@ export function dialPadiViaHost(host: string): Promise<AgentDial> {
       // reads are interchangeable; ACROSS one neither is reachable (the framing
       // itself differs — D6's `unspeakable-protocol`, the supervisor's domain).
       //
-      // The reason it is not simply the control core: `sshConnector` builds ONE
-      // face from ONE surface and never hands the link's `dispatch` back, so a
-      // consumer of `dialAgentOnce` cannot build a second sibling's face. If
-      // `AgentDial` ever carries the dispatch, swap this for
-      // `padiClientOver(dial.dispatch).control.surface.core.hello()` and delete
-      // this note.
+      // The reason it is not simply the control core: the gate runs INSIDE
+      // `probe`, and `probe` is handed only the client
+      // (`surface-remote/src/dialAgentOnce.ts`'s `DialAgentOnceOptions.probe`).
+      // `AgentDial` itself already carries the link's `dispatch` — the seam a
+      // second sibling's face is built over — but the dial has not returned yet
+      // when the probe runs, so from in here there is nothing to build over.
+      // Widen `probe` to `(client, dispatch?)` and this becomes
+      // `padiClientOver(dispatch!).control.surface.core.hello()`, the same fact
+      // `connectPadi` gates on; that is a `@kolu/surface-remote` change, so it
+      // rides its own PR with the drishti pair the surface rule requires.
       const face = client as unknown as PadiSurfaceClient;
       return Effect.map(
         firstFrameOrThrow(

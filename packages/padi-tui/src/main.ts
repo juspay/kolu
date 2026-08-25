@@ -70,12 +70,11 @@ import {
   TOPLEVEL_PLACEMENT,
 } from "@kolu/padi-client/surface";
 import {
-  awaitAgentState,
   isWaitState,
   WAIT_STATES,
   type WaitState,
-  watchTerminals,
-} from "@kolu/padi-client/watch";
+} from "@kolu/padi-client/terminalVocab";
+import { awaitAgentState, watchTerminals } from "@kolu/padi-client/watch";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { cli, command } from "cleye";
 import {
@@ -527,9 +526,8 @@ function cmdWatch(
 
       const watching = Effect.tryPromise({
         try: () =>
-          watchTerminals(
-            conn.client,
-            {
+          watchTerminals(conn.client, {
+            handlers: {
               onUpsert: (id, value, live) => {
                 if (only !== undefined && id !== only) return;
                 emit(
@@ -555,12 +553,12 @@ function cmdWatch(
                 );
               },
             },
-            shutdown.signal,
-            (line) => {
+            signal: shutdown.signal,
+            log: (line) => {
               upstreamError ??= line;
               process.stderr.write(`padi-tui: ${line}\n`);
             },
-          ),
+          }),
         catch: (err) => err,
       });
 

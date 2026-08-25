@@ -152,9 +152,8 @@ import {
   PADI_LINK_CLOSED,
   WAIT_STATES,
   type WaitState,
-  watchAgentStates,
-  watchTerminals,
-} from "@kolu/padi-client/watch";
+} from "@kolu/padi-client/terminalVocab";
+import { watchAgentStates, watchTerminals } from "@kolu/padi-client/watch";
 import {
   scopeAdmits,
   type WatchScope,
@@ -731,9 +730,8 @@ export function run(
               // the ONLY fork between them — not two verbs, and not two copies of
               // the lifecycle above and below.
               return plan.supervise === undefined
-                ? watchTerminals(
-                    conn.client,
-                    {
+                ? watchTerminals(conn.client, {
+                    handlers: {
                       onUpsert: (id, value, live) =>
                         emitFor(
                           id,
@@ -759,12 +757,12 @@ export function run(
                         ),
                     },
                     signal,
-                    warn,
+                    log: warn,
                     // The roster we already read: any key here that the first
                     // snapshot does not re-assert departed while we were
                     // resolving, and the mirror reports it gone at once.
-                    () => live,
-                  )
+                    initialKeys: () => live,
+                  })
                 : watchAgentStates(
                     conn.client,
                     // The resolved id rides the WIRE, not a local filter: padi

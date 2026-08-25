@@ -28,7 +28,7 @@ import { match } from "ts-pattern";
 import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { TERMINAL_RESET } from "@kolu/padi/endpoint";
-import { rejectionFor, sizeRejectionFor } from "@kolu/padi/upload";
+import { rejectionFor, sizeRejectionFor } from "@kolu/padi-client/upload";
 import { activeArm } from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { toError } from "@kolu/surface/run-stream";

@@ -278,9 +278,6 @@ importers:
 
   packages/common:
     dependencies:
-      '@kolu/padi':
-        specifier: workspace:*
-        version: link:../padi
       '@kolu/padi-client':
         specifier: workspace:*
         version: link:../padi-client

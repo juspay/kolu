@@ -5,8 +5,6 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "sideEffects": false,
-  "main": "./src/assembly.ts",
-  "types": "./src/assembly.ts",
   "bin": {
     "padi": "./src/daemonBoot/bin.ts"
   },
@@ -23,7 +21,6 @@
     "./render": "./src/cliClient/render.ts",
     "./resumable": "./src/session/resumable.ts",
     "./stateRoot": "./src/stateRoot.ts",
-    "./upload": "./src/upload.ts",
     "./watchSpec": "./src/attention/watchSpec.ts"
   },
   "scripts": {

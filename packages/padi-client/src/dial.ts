@@ -6,8 +6,12 @@
  * returning the live, version-checked connection whose `.client` is the
  * COMBINED daemon client — one dispatch carrying BOTH siblings' tags, with a
  * typed face over each (`.control.surface.core.*` and `.padi.surface.*`).
- * This is the kaval precedent: a daemon's package owns the dial
- * kit its clients share, so EVERY consumer imports it —
+ * ONE dial kit, shared by every client — the invariant kaval established. Where
+ * it LIVES is the part that differs: kaval's rides kaval's own package because
+ * every kaval dialer is in-repo; padi's moved out because padi has a consumer
+ * that hydrates the contract without the daemon (juspay/kolu#2216). Extract
+ * kaval's the day it gets one, not on symmetry alone. So EVERY consumer imports
+ * this one —
  *   - kolu-server's binder (`server/src/padi/padiBinding.ts`), which layers
  *     SUPERVISION (drivers · adopt/spawn/refuse · the newer-binder drain
  *     convergence · the reconnect-mirror session · the re-serve) on top;
@@ -30,11 +34,13 @@
  * exactly one version judgement — the COMPATIBILITY gate (`connectPadi` refuses a
  * padi it cannot speak to, loudly) — and nothing that mutates padi's lifecycle.
  *
- * The kit's other halves are entries of their own, one name per thing: the
- * rendezvous path algebra a caller resolves a socket with
- * (`@kolu/padi-client/rendezvous`), the terminal WATCH kit
- * (`@kolu/padi-client/watch`), and the subscription scope vocabulary
- * (`@kolu/padi-client/watchScope`).
+ * The rest of the package is entries of its own, one name per thing and no name
+ * given twice: the contract itself (`/surface`), the rendezvous path algebra a
+ * caller resolves a socket with (`/rendezvous`), the terminal WATCH kit
+ * (`/watch`), the subscription scope vocabulary (`/watchScope`), the pure folds
+ * over a terminal record (`/terminalVocab` — reachable WITHOUT the watch kit's
+ * mirror graph, which is the only reason it is separate), and the drop gate a
+ * sender applies before it encodes a file (`/upload`).
  */
 
 import {

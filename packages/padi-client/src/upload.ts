@@ -4,6 +4,12 @@
  * the server (authoritative gate before writing to disk) consume these
  * constants, so the two sides cannot drift on the rejection threshold.
  *
+ * That is why it rides the CLIENT package rather than the daemon: a sender has
+ * to know the gate BEFORE it encodes a file, and this module imports nothing at
+ * all, so saying so costs a hydrating consumer no closure whatsoever. padi
+ * imports it back for the authoritative check — the arrow points out, and one
+ * threshold serves both ends of the wire.
+ *
  * The other half of a drop — how the bytes are cut so no single frame kills the
  * socket — is NOT here. That arithmetic was derived in this file, and then
  * re-derived in another repo, which is one derivation too many: it now lives

@@ -62,7 +62,7 @@ import {
 } from "./terminal-registry.ts";
 import { cleanupTerminalScratch } from "./terminalScratch.ts";
 import { setActiveTerminalId } from "./terminals.ts";
-import { MAX_UPLOAD_BYTES } from "./upload.ts";
+import { MAX_UPLOAD_BYTES } from "@kolu/padi-client/upload";
 
 // The parked-forfeit path drives `cleanupTerminalScratch`, which reads the
 // per-instance scratch root; boot injects the server id before any of this runs.

@@ -4,7 +4,7 @@
  *  carry full tool payloads hidden inside the file. */
 
 import Dialog from "@corvu/dialog";
-import type { TranscriptHtmlMode } from "@kolu/padi-client/transcript";
+import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
 import type { Component } from "solid-js";
 import { runAction } from "./runAction";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";

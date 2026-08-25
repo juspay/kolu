@@ -134,7 +134,7 @@ import {
 } from "./terminals.ts";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { exportTranscriptHtml } from "./transcript/transcript.ts";
-import { rejectionFor } from "./upload.ts";
+import { rejectionFor } from "@kolu/padi-client/upload";
 
 // Baked scrollback-backfill invariant, asserted at daemon startup (fail fast, no
 // degrade): a client's own scrollback must hold the ENTIRE reachable history —

@@ -11,7 +11,7 @@
  *  no optimistic cache needed. */
 
 import { TOPLEVEL_PLACEMENT } from "@kolu/padi-client/surface";
-import type { TranscriptHtmlMode } from "@kolu/padi-client/transcript";
+import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Data, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";

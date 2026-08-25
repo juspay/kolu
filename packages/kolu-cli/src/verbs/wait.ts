@@ -122,13 +122,12 @@
 
 import { formatWaitMet, shortId, tailLines } from "@kolu/padi/render";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import { PADI_LINK_CLOSED, WAIT_STATES } from "@kolu/padi-client/terminalVocab";
 import {
   awaitTerminalCondition,
   type ConditionMet,
-  PADI_LINK_CLOSED,
   type TerminalCondition,
   type TerminalConditionOutcome,
-  WAIT_STATES,
 } from "@kolu/padi-client/watch";
 import {
   isValidTimerMs,

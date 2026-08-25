@@ -5,17 +5,15 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "sideEffects": false,
-  "main": "./src/surface.ts",
-  "types": "./src/surface.ts",
   "exports": {
     "./surface": "./src/surface.ts",
     "./dial": "./src/dial.ts",
     "./rendezvous": "./src/rendezvous.ts",
     "./watch": "./src/watch.ts",
     "./watchScope": "./src/watchScope.ts",
+    "./watchScope.testlib": "./src/watchScope.testlib.ts",
     "./terminalVocab": "./src/terminalVocab.ts",
-    "./transcript": "./src/transcriptSchema.ts",
-    "./errText": "./src/errText.ts"
+    "./upload": "./src/upload.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

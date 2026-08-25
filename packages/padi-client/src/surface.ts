@@ -146,8 +146,10 @@ import {
   TerminalPlacementSchema,
 } from "./vocab.ts";
 
-// The terminal VOCABULARY (schemas · records · pure helpers) now lives HERE, in
-// `@kolu/padi` — the terminal-domain authority. Re-exported from this browser-safe
+// The terminal VOCABULARY (schemas · records · pure helpers) lives HERE, in
+// `@kolu/padi-client` — the terminal domain's client half. `@kolu/padi` depends on
+// this package and serves the same object its clients dial, so there is one
+// vocabulary and not two to keep in step. Re-exported from this browser-safe
 // entry so consumers reach the schemas as `@kolu/padi-client/surface`. The UI-chrome half
 // (`./chromeVocab.ts`, split out in L17) rides the same entry, so the export set is
 // unchanged — a chrome schema is still `@kolu/padi-client/surface`'s to give.
@@ -172,6 +174,13 @@ export {
   newTerminalPolicyEqual,
 } from "./newTerminalPolicy.ts";
 export * from "./vocab.ts";
+// The transcript-export wire vocabulary rides the same entry as everything else
+// `padiSurface` speaks. It had a door of its own until the two halves of ONE
+// vocabulary were noticed to be split by nothing but which symbols the spec
+// below happens to name: the two RPC schemas arrived through this entry, while
+// `Transcript` / `TranscriptSchema` / `TranscriptHtmlMode` arrived through a
+// second. A consumer should not have to know which half it wants.
+export * from "./transcriptSchema.ts";
 
 // ── Version ─────────────────────────────────────────────────────────────
 

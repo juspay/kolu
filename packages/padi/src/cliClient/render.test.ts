@@ -1,5 +1,5 @@
 import type { PadiTerminal } from "@kolu/padi-client/surface";
-import { isWaitState, WAIT_STATES } from "@kolu/padi-client/watch";
+import { isWaitState, WAIT_STATES } from "@kolu/padi-client/terminalVocab";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {

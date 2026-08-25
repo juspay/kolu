@@ -7,8 +7,11 @@
  * `TerminalSnapshot` or to the authored record was a four-file edit, and the one
  * rule the helper encodes (below) was remembered four times.
  *
- * {@link scopeOf} is here for the same reason and no other: three of those files
- * had a byte-identical copy of it.
+ * {@link scopeOf} is re-exported here for the same reason and no other: three of
+ * those files had a byte-identical copy of it, and so, once the constructor
+ * crossed a package line, did the client package. It has ONE home now —
+ * `@kolu/padi-client/watchScope.testlib` — and this file forwards it so the
+ * four suites keep the import they already had.
  *
  * `.testlib.ts`, per the repo's convention for a fixture shared between test
  * files — it forks nothing and is never reachable from production code.
@@ -19,7 +22,6 @@ import {
   composeTerminalMetadata,
   LOCAL_LOCATION,
 } from "@kolu/padi-client/surface";
-import { type WatchScope, watchScopeOf } from "@kolu/padi-client/watchScope";
 import type {
   AgentInfo,
   TerminalId,
@@ -183,15 +185,7 @@ export function stateWatchHarness(): {
  *  the derivation's stack, so nothing has arrived before this. */
 export const settled = (): Promise<void> => Promise.resolve();
 
-/** The scope a caller states, built through the ONE constructor — so a pin
- *  exercises the same value `servePadi` hands the registry, not a hand-shaped
- *  look-alike. The never-match refusals it raises are pinned in
- *  `watchScope.test.ts`, where the constructor lives; a test that gets one here
- *  meant to build a scope and did not, so it throws. */
-export const scopeOf = (
-  opts: Parameters<typeof watchScopeOf>[0],
-): WatchScope => {
-  const scope = watchScopeOf(opts);
-  if (scope.kind === "error") throw new Error(scope.message);
-  return scope.value;
-};
+/** The scope a caller states, built through the ONE constructor — re-exported
+ *  from where the constructor lives so padi's four attention suites keep their
+ *  import path without keeping a second copy of it. */
+export { scopeOf } from "@kolu/padi-client/watchScope.testlib";

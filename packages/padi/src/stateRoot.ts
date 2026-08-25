@@ -6,9 +6,17 @@
  * The pure path algebra it is built on — state-root resolution, the digest, the
  * socket/gate paths a client dials — is `@kolu/padi-client/rendezvous`, and is
  * re-exported nowhere: a caller that only needs to NAME a socket imports that
- * module and never installs the daemon tier this one rests on (kaval's privacy
- * and inode checks, its `state-root` manifest reader). Everything here reads the
- * filesystem or asks kaval; nothing here is spellable without them.
+ * module and never installs the daemon tier this one rests on.
+ *
+ * The rule that decides which side a new helper lands on is NOT "pure vs
+ * probing" — half of what follows is a `join` or a `find` over a list somebody
+ * else read. It is WHAT A CONSUMER THAT NEVER INSTALLS THE DAEMON CAN REACH:
+ * this module's closure includes kaval (its privacy and inode checks, its
+ * `state-root` manifest reader), so everything here costs that consumer a PTY
+ * host with a compile step, and everything in `rendezvous.ts` costs it nothing.
+ * That rule is machine-checked — `packages/padi-client/src/hydrate.closure.test.ts`
+ * fails the moment the client half's manifest closure grows — which is why it,
+ * and not a sentence about purity, is the one to apply.
  *
  * A tiny **manifest** (`state-root` file) in each runtime dir maps the opaque
  * digest back to its state-root, so a flag-less `kaval-tui` can still label what
@@ -17,7 +25,7 @@
 
 import { readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { errMessage } from "@kolu/padi-client/errText";
+import { messageOf } from "@kolu/surface/errors";
 import {
   PADI_GATE_FILE,
   PADI_SOCK_FILE,
@@ -599,7 +607,7 @@ export function localPadiSocket(target: LocalPadiTarget): LocalPadiSocket {
   try {
     resolved = resolveRunningPadiSocket(lookup);
   } catch (err) {
-    return { kind: "unaddressable", message: errMessage(err) };
+    return { kind: "unaddressable", message: messageOf(err) };
   }
 
   return (

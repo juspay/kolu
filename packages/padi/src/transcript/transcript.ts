@@ -20,7 +20,7 @@ import type {
   ExportTranscriptHtmlOutput,
   Transcript,
   TranscriptPr,
-} from "@kolu/padi-client/transcript";
+} from "@kolu/padi-client/surface";
 import { prValue } from "anyforge/schemas";
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
