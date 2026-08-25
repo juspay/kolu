@@ -63,6 +63,8 @@ function activeSnapshot(): TerminalSnapshot {
         state: "open",
         checks: "pass",
         checkRuns: [],
+        reviewDecision: null,
+        mergeStateStatus: "UNKNOWN",
       },
     },
     agent: null,

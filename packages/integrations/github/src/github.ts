@@ -3,7 +3,16 @@
  *  `anyforge/schemas`. */
 
 import { foldCheckOutcomes } from "anyforge";
-import type { CheckRun, CheckStatus, PrInfo, PrResult } from "anyforge/schemas";
+import {
+  type CheckRun,
+  type CheckStatus,
+  MergeStateStatusSchema,
+  type PrInfo,
+  type PrResult,
+  PrStateSchema,
+  ReviewDecisionSchema,
+} from "anyforge/schemas";
+import { Schema } from "effect";
 import { match, P } from "ts-pattern";
 import {
   GH_PROVIDER,
@@ -91,6 +100,77 @@ export function extractChecks(rollup: RollupEntry[] | undefined): CheckRun[] {
         : (c.name ?? c.context ?? "?"),
     outcome: classifyCheck(c),
   }));
+}
+
+/** `--json` fields for the ONE `gh pr view` the sensor already makes. Adding
+ *  a name here is adding it to that same request, not a second poll. The
+ *  CLI string and the JSON type are the same list — a new field that
+ *  lands in only one of them is a type error (`_ghPrViewJsonKeysMatch`). */
+export const GH_PR_VIEW_JSON_FIELD_LIST = [
+  "number",
+  "title",
+  "url",
+  "state",
+  "statusCheckRollup",
+  "reviewDecision",
+  "mergeStateStatus",
+] as const;
+
+export const GH_PR_VIEW_JSON_FIELDS = GH_PR_VIEW_JSON_FIELD_LIST.join(",");
+
+/** Shape returned by `gh pr view --json ${GH_PR_VIEW_JSON_FIELDS}`. */
+export type GhPrViewJson = {
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  statusCheckRollup?: RollupEntry[];
+  /** gh's Go field is `ReviewDecision string` — GraphQL null serializes
+   *  as `""`, never as JSON `null`. */
+  reviewDecision: string;
+  mergeStateStatus: string;
+};
+
+type GhPrViewJsonKeysMatch =
+  Exclude<
+    keyof GhPrViewJson,
+    (typeof GH_PR_VIEW_JSON_FIELD_LIST)[number]
+  > extends never
+    ? Exclude<
+        (typeof GH_PR_VIEW_JSON_FIELD_LIST)[number],
+        keyof GhPrViewJson
+      > extends never
+      ? true
+      : never
+    : never;
+const _ghPrViewJsonKeysMatch: GhPrViewJsonKeysMatch = true;
+
+const decodePrState = Schema.decodeUnknownSync(PrStateSchema);
+const decodeReviewDecision = Schema.decodeUnknownSync(
+  Schema.NullOr(ReviewDecisionSchema),
+);
+const decodeMergeStateStatus = Schema.decodeUnknownSync(MergeStateStatusSchema);
+
+/** Map gh's JSON onto `PrInfo`. Review/merge values pass through verbatim —
+ *  an unknown member throws (fail-fast), which `resolveGitHubPr`'s catch
+ *  turns into a classified failure rather than a silently wrong gate. */
+export function prInfoFromGhView(data: GhPrViewJson): PrInfo {
+  return {
+    number: data.number,
+    title: data.title,
+    url: data.url,
+    state: decodePrState(data.state.toLowerCase()),
+    checks: deriveCheckStatus(data.statusCheckRollup),
+    checkRuns: extractChecks(data.statusCheckRollup),
+    // `""` is gh's CLI serialization of GraphQL null (no decision), not a
+    // member of the enum — mapping it to `null` is carrying gh's own value
+    // verbatim, not inventing a friendlier vocabulary. A non-empty unknown
+    // member still throws.
+    reviewDecision: decodeReviewDecision(
+      data.reviewDecision === "" ? null : data.reviewDecision,
+    ),
+    mergeStateStatus: decodeMergeStateStatus(data.mergeStateStatus),
+  };
 }
 
 /** Classify a `gh pr view` failure.

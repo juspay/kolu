@@ -228,6 +228,8 @@ describe("WorkSection PR and CI", () => {
           { name: "ci::biome", outcome: "pass" },
           { name: "ci::nix", outcome: "pass" },
         ],
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "CLEAN",
       },
     },
   });
@@ -251,6 +253,8 @@ describe("WorkSection PR and CI", () => {
           { name: "ci::typecheck", outcome: "fail" },
           { name: "ci::e2e", outcome: "pending" },
         ],
+        reviewDecision: "CHANGES_REQUESTED",
+        mergeStateStatus: "BLOCKED",
       },
     },
   });

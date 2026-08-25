@@ -133,6 +133,8 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
           state: "open",
           checks: "pass",
           checkRuns: [{ name: "unit", outcome: "pass" }],
+          reviewDecision: "APPROVED",
+          mergeStateStatus: "CLEAN",
         },
       },
       agent: {
@@ -160,7 +162,8 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
         '"remoteUrl":"https://github.com/juspay/kolu"},' +
         '"pr":{"kind":"ok","value":{"number":2100,"title":"Wave 3",' +
         '"url":"https://github.com/juspay/kolu/pull/2100","state":"open","checks":"pass",' +
-        '"checkRuns":[{"name":"unit","outcome":"pass"}]}},' +
+        '"checkRuns":[{"name":"unit","outcome":"pass"}],' +
+        '"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN"}},' +
         '"agent":{"kind":"claude-code","state":"thinking",' +
         '"sessionId":"f47ac10b-58cc-4372-a567-0e02b2c3d479","model":"claude-opus-5",' +
         '"summary":null,"taskProgress":null,"workflow":null,"contextTokens":47000,' +
@@ -170,8 +173,8 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
     );
   });
 
-  it("decodes an OLDER producer's payload whose PR carries no checkRuns", () => {
-    // Rolling deploy: the anyforge leaf's `checkRuns` backfill has to survive
+  it("decodes an OLDER producer's payload whose PR carries no checkRuns / review / merge keys", () => {
+    // Rolling deploy: the anyforge leaf's field backfills have to survive
     // being composed into this snapshot, not just decoded standalone.
     const decoded = Schema.decodeUnknownSync(TerminalSnapshotSchema)({
       cwd: "/w",
@@ -199,6 +202,8 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
         state: "open",
         checks: null,
         checkRuns: [],
+        reviewDecision: null,
+        mergeStateStatus: "UNKNOWN",
       },
     });
   });
