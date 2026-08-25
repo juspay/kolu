@@ -411,9 +411,10 @@ export function walkRuntimeDepEdges(opts: {
 // ── The DECLARED closure (the TS mirror of nix's `depClosure`) ────────────────
 
 /**
- * The transitive `dependencies` closure of `entries` over workspace members —
- * what a consumer that VENDORS a package directory actually has to copy, and
- * whose manifests it then installs from its own workspace.
+ * The transitive RUNTIME-dependency closure of `entries` over workspace members —
+ * what a consumer that VENDORS a package directory actually has to copy, whose
+ * manifests it then installs from its own workspace, and (as `externals`) the
+ * npm packages those manifests leave for it to install.
  *
  * Distinct from {@link walkRuntimeDepEdges}, and both are needed: that one walks
  * the IMPORT graph (what the code reaches), this one walks the MANIFEST graph
@@ -423,11 +424,25 @@ export function walkRuntimeDepEdges(opts: {
  * asked only the import question would pass while the manifest still dragged a
  * PTY host in.
  *
- * This is the same walk `mkWorkspaceClosure`'s `depClosure` performs in nix
- * (`packages/surface-daemon/nix/workspace-closure.nix`), on the TS side and for
- * the same reason: follow every `dependencies` edge whose target is a workspace
- * member, stop at external npm packages. `devDependencies` are deliberately not
- * followed — they never ship, and a hydrating consumer never installs them.
+ * ONE edge rule, used for both answers. A runtime edge is a `dependencies` OR a
+ * `peerDependencies` entry: a peer is an import like any other, and the
+ * arrangement it names — "the app supplies the runtime" — IS what a hydrating
+ * consumer's own root manifest is. Deciding that twice is how the member walk and
+ * the externals tally come to disagree, and the disagreement is invisible until a
+ * workspace member is first reached through a peer edge: it would never enter the
+ * closure (so its own subtree goes unwalked) and would be reported as a
+ * third-party package. `devDependencies` are deliberately not followed — they
+ * never ship, and a hydrating consumer never installs them.
+ *
+ * This mirrors `mkWorkspaceClosure`'s `depClosure` in nix
+ * (`packages/surface-daemon/nix/workspace-closure.nix`), which follows the
+ * `dependencies` projection of the same rule because it answers a narrower
+ * question — which sources the daemon IDENTITY hashes. No workspace member is
+ * peer-depended on today, so the two answers coincide, and
+ * `packages/tests/governance/closureWalk.ts` holds them to that by machine: the
+ * day a member arrives through a peer edge the conformance check fails, which is
+ * the right moment to decide whether the daemon id should cover it — rather than
+ * two walks drifting apart in silence.
  *
  * A name in `entries` that is not a workspace member throws: naming a package
  * that does not exist is a stale caller, and answering it with a quiet empty
@@ -436,7 +451,7 @@ export function walkRuntimeDepEdges(opts: {
 export function declaredDependencyClosure(opts: {
   repoRoot: string;
   entries: readonly string[];
-}): { names: string[]; manifestPaths: string[] } {
+}): { names: string[]; manifestPaths: string[]; externals: string[] } {
   const { repoRoot, entries } = opts;
 
   const dirOf = new Map<string, string>();
@@ -452,6 +467,7 @@ export function declaredDependencyClosure(opts: {
   }
 
   const seen = new Set<string>();
+  const outside = new Set<string>();
   const stack = [...entries];
   while (stack.length > 0) {
     const name = stack.pop() as string;
@@ -465,9 +481,16 @@ export function declaredDependencyClosure(opts: {
     }
     const manifest = JSON.parse(
       readFileSync(join(dir, "package.json"), "utf8"),
-    ) as { dependencies?: Record<string, string> };
-    for (const dep of Object.keys(manifest.dependencies ?? {})) {
+    ) as {
+      dependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+    };
+    for (const dep of Object.keys({
+      ...manifest.dependencies,
+      ...manifest.peerDependencies,
+    })) {
       if (dirOf.has(dep)) stack.push(dep);
+      else outside.add(dep);
     }
   }
 
@@ -481,5 +504,6 @@ export function declaredDependencyClosure(opts: {
           .join("/"),
       )
       .sort(),
+    externals: [...outside].sort(),
   };
 }

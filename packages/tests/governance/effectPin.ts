@@ -94,7 +94,7 @@ export function isEffectFamily(pkg: string): boolean {
  *  `@kolu/surface*` is drishti's and odu's (see `packages/AGENTS.md`);
  *  `@kolu/padi-client` is olai's, which dials a running padi from its server and
  *  never installs one (juspay/kolu#2216). */
-const VENDOR_ENTRIES = [
+export const VENDOR_ENTRIES = [
   "@kolu/surface",
   "@kolu/surface-app",
   "@kolu/surface-cli",

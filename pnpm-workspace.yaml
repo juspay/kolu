@@ -24,9 +24,13 @@ packages:
 # of whatever kolu publishes outward, and it grew past the surface eight when
 # `@kolu/padi-client` was carved out for olai (juspay/kolu#2216): its closure
 # pulls @kolu/terminal-vocab, kolu-transcript-core and the seven integration
-# packages in with it. `packages/padi-client/src/hydrate.closure.test.ts` walks
-# that closure and FAILS on a `catalog:` spec inside it, so a new member of the
-# set is told rather than discovered downstream.
+# packages in with it. `packages/tests/governance/effectPin.ts` owns the rule: it
+# derives the vendored set with `@kolu/daemon-test-gate`'s
+# `declaredDependencyClosure` over `VENDOR_ENTRIES` and FAILS on a `catalog:`
+# spec anywhere in it, so a new member of the set is told rather than discovered
+# downstream. (`packages/padi-client/src/hydrate.closure.test.ts` walks the same
+# closure for a different question — what a consumer must install — and says in
+# its own header that the catalog rule is not its.)
 #
 # Bumping the stack therefore means editing all three places together:
 #   1. this catalog, 2. `pnpm.overrides` in package.json,

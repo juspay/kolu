@@ -25,7 +25,7 @@ let
   inherit ((import ../packages/surface-daemon/nix/workspace-closure.nix {
     inherit lib;
   }).mkWorkspaceClosure { members = rawMembers; pinned = pinnedNames; })
-    members identityInputs;
+    members identityInputs depClosure;
 
   # The members that are PINS, not directories in this repo — spelled ONCE, and
   # read by both things that must agree about it: `mkWorkspaceClosure` (which
@@ -185,4 +185,14 @@ let
 in
 {
   inherit version src fileset pnpmDeps identityInputs;
+
+  # The manifest walk itself, answered by name. `depClosure` has a TS mirror —
+  # `declaredDependencyClosure` in `@kolu/daemon-test-gate` — and one walk
+  # spelled in two languages is one walk that drifts: the nix answer decides
+  # daemon IDENTITY (a member missed here ships a rebuilt daemon under an
+  # unchanged id) while the TS answer decides what a vendoring consumer pays
+  # for, so a silent disagreement is wrong in both directions and visible in
+  # neither. Exposing it lets `packages/tests/governance/closureWalk.ts` ask
+  # both sides the same question and fail when they answer differently.
+  closureNamesFor = entries: depClosure { inherit entries; };
 }
