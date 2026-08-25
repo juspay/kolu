@@ -58,6 +58,8 @@ const sentinel: SavedActiveTerminal = {
       state: "open",
       checks: "pass",
       checkRuns: [],
+      reviewDecision: null,
+      mergeStateStatus: "UNKNOWN",
     },
   },
   lastAgentCommand: "claude --model sonnet",

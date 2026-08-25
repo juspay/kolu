@@ -51,6 +51,8 @@ describe("PrPip", () => {
           url: "https://example.test/pull/42",
           checks: null,
           checkRuns: [],
+          reviewDecision: null,
+          mergeStateStatus: "UNKNOWN",
         },
       }),
     );

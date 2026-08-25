@@ -8,19 +8,16 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { PrGitContext, ForgeAdapter, PrResult } from "anyforge";
 import { logPrResolveFailure } from "anyforge";
-import { PrStateSchema } from "anyforge/schemas";
-import { Schema } from "effect";
 import type { Logger } from "kolu-shared";
-import { classifyGhError, deriveCheckStatus, extractChecks } from "./github.ts";
+import {
+  classifyGhError,
+  GH_PR_VIEW_JSON_FIELDS,
+  type GhPrViewJson,
+  prInfoFromGhView,
+} from "./github.ts";
 import type { GhUnavailableSource } from "./schemas.ts";
 
 const execFileAsync = promisify(execFile);
-
-/** Built once — `decodeUnknownSync` compiles a parser per call otherwise.
- *  Throws on a state gh reports that the neutral vocabulary doesn't know,
- *  which `resolveGitHubPr`'s catch turns into a classified failure rather
- *  than a silently wrong PR state. */
-const decodePrState = Schema.decodeUnknownSync(PrStateSchema);
 
 const GH_TIMEOUT_MS = 5_000;
 
@@ -42,15 +39,6 @@ function getGhBin(): string {
   return v;
 }
 
-/** Shape returned by `gh pr view --json ...`. */
-interface GhPrViewResult {
-  number: number;
-  title: string;
-  url: string;
-  state: string;
-  statusCheckRollup?: Parameters<typeof deriveCheckStatus>[0];
-}
-
 /** Look up the GitHub PR for the current branch.
  *
  *  Uses `gh pr view` which resolves via git remote tracking — it finds the
@@ -69,20 +57,13 @@ export async function resolveGitHubPr(
   try {
     const { stdout } = await execFileAsync(
       getGhBin(),
-      ["pr", "view", "--json", "number,title,url,state,statusCheckRollup"],
+      ["pr", "view", "--json", GH_PR_VIEW_JSON_FIELDS],
       { cwd: git.repoRoot, timeout: GH_TIMEOUT_MS },
     );
-    const data = JSON.parse(stdout) as GhPrViewResult;
+    const data = JSON.parse(stdout) as GhPrViewJson;
     return {
       kind: "ok",
-      value: {
-        number: data.number,
-        title: data.title,
-        url: data.url,
-        state: decodePrState(data.state.toLowerCase()),
-        checks: deriveCheckStatus(data.statusCheckRollup),
-        checkRuns: extractChecks(data.statusCheckRollup),
-      },
+      value: prInfoFromGhView(data),
     };
   } catch (err) {
     const result = classifyGhError(err);

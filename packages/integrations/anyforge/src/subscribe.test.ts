@@ -192,6 +192,8 @@ describe("subscribePr", () => {
           state: "open",
           checks: null,
           checkRuns: [],
+          reviewDecision: null,
+          mergeStateStatus: "UNKNOWN",
         },
       };
       deferred.get("B")?.({ ...prB });
@@ -205,6 +207,8 @@ describe("subscribePr", () => {
           state: "open",
           checks: null,
           checkRuns: [],
+          reviewDecision: null,
+          mergeStateStatus: "UNKNOWN",
         },
       });
       await settle();
@@ -251,6 +255,8 @@ describe("subscribePr", () => {
           state: "open",
           checks: null,
           checkRuns: [],
+          reviewDecision: null,
+          mergeStateStatus: "UNKNOWN",
         },
       });
       await settle();
@@ -332,6 +338,8 @@ describe("subscribePr", () => {
           state: "open",
           checks: null,
           checkRuns: [],
+          reviewDecision: null,
+          mergeStateStatus: "UNKNOWN",
         },
       };
       deferred.get(remoteB)?.({ ...prB });
@@ -345,6 +353,8 @@ describe("subscribePr", () => {
           state: "open",
           checks: null,
           checkRuns: [],
+          reviewDecision: null,
+          mergeStateStatus: "UNKNOWN",
         },
       });
       await settle();

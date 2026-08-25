@@ -30,6 +30,33 @@ export type CheckStatus = typeof CheckStatusSchema.Type;
 export const PrStateSchema = Schema.Literals(["open", "closed", "merged"]);
 export type PrState = typeof PrStateSchema.Type;
 
+/** GitHub's `PullRequestReviewDecision`, carried verbatim — a consumer
+ *  predicates on gh's own values (`APPROVED` / `CHANGES_REQUESTED` /
+ *  `REVIEW_REQUIRED`) rather than a friendlier vocabulary. `null` is gh's
+ *  own "no decision" (no reviews yet, or reviews not required). */
+export const ReviewDecisionSchema = Schema.Literals([
+  "APPROVED",
+  "CHANGES_REQUESTED",
+  "REVIEW_REQUIRED",
+]);
+export type ReviewDecision = typeof ReviewDecisionSchema.Type;
+
+/** GitHub's `MergeStateStatus`, carried verbatim — a consumer predicates
+ *  on gh's own values rather than a friendlier vocabulary. The members
+ *  are the GraphQL enum as `gh pr view --json mergeStateStatus` returns
+ *  them. */
+export const MergeStateStatusSchema = Schema.Literals([
+  "BEHIND",
+  "BLOCKED",
+  "CLEAN",
+  "DIRTY",
+  "DRAFT",
+  "HAS_HOOKS",
+  "UNKNOWN",
+  "UNSTABLE",
+]);
+export type MergeStateStatus = typeof MergeStateStatusSchema.Type;
+
 /** Per-check entry of the PR's CI rollup. The dock pip's tooltip lists
  *  these so a reviewer sees which specific gate is red without opening
  *  the PR. `name` is the check's name as the forge reports it (e.g.
@@ -60,6 +87,20 @@ export const PrInfoSchema = Schema.Struct({
    *  is byte-identical to what it emitted before. */
   checkRuns: Schema.Array(CheckRunSchema).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
+  /** Review decision as gh reports it. Decoding default is rolling-deploy
+   *  tolerance — same spelling as `checkRuns`: an older server emitting
+   *  payloads without this field still parses on a newer client.
+   *  `withDecodingDefaultKey` (not `optionalKey` + it) keeps the key
+   *  required on the decoded side. Encoding never omits. */
+  reviewDecision: Schema.NullOr(ReviewDecisionSchema).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
+  /** Merge state as gh reports it. Decoding default `UNKNOWN` is gh's own
+   *  "cannot currently be determined" — the honest reading of a payload
+   *  that never asked for the field. Encoding never omits. */
+  mergeStateStatus: MergeStateStatusSchema.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("UNKNOWN" as const)),
   ),
 });
 export type PrInfo = typeof PrInfoSchema.Type;
@@ -174,7 +215,9 @@ export function prResultEqual<S extends PrUnavailableSourceBase>(
           a.value.url === bv.url &&
           a.value.state === bv.state &&
           a.value.checks === bv.checks &&
-          checkRunsEqual(a.value.checkRuns, bv.checkRuns)
+          checkRunsEqual(a.value.checkRuns, bv.checkRuns) &&
+          a.value.reviewDecision === bv.reviewDecision &&
+          a.value.mergeStateStatus === bv.mergeStateStatus
         );
       })
       .with({ kind: "unavailable" }, (a) => {
