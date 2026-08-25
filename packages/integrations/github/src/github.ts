@@ -125,7 +125,9 @@ export type GhPrViewJson = {
   url: string;
   state: string;
   statusCheckRollup?: RollupEntry[];
-  reviewDecision: string | null;
+  /** gh's Go field is `ReviewDecision string` — GraphQL null serializes
+   *  as `""`, never as JSON `null`. */
+  reviewDecision: string;
   mergeStateStatus: string;
 };
 
@@ -156,7 +158,13 @@ export function prInfoFromGhView(data: GhPrViewJson): PrInfo {
     state: decodePrState(data.state.toLowerCase()),
     checks: deriveCheckStatus(data.statusCheckRollup),
     checkRuns: extractChecks(data.statusCheckRollup),
-    reviewDecision: decodeReviewDecision(data.reviewDecision),
+    // `""` is gh's CLI serialization of GraphQL null (no decision), not a
+    // member of the enum — mapping it to `null` is carrying gh's own value
+    // verbatim, not inventing a friendlier vocabulary. A non-empty unknown
+    // member still throws.
+    reviewDecision: decodeReviewDecision(
+      data.reviewDecision === "" ? null : data.reviewDecision,
+    ),
     mergeStateStatus: decodeMergeStateStatus(data.mergeStateStatus),
   };
 }

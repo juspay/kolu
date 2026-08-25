@@ -167,7 +167,7 @@ describe("prInfoFromGhView", () => {
     url: "https://github.test/pull/42",
     state: "OPEN",
     statusCheckRollup: undefined,
-    reviewDecision: null,
+    reviewDecision: "",
     mergeStateStatus: "UNKNOWN",
   };
 
@@ -197,11 +197,19 @@ describe("prInfoFromGhView", () => {
     });
   });
 
+  it("maps gh's empty-string reviewDecision (GraphQL null) to null", () => {
+    // Live pin: `gh pr view 2215 --json reviewDecision` returns `""`, not
+    // JSON null. A decoder that only accepts null throws and the whole PR
+    // collapses to unavailable.
+    expect(prInfoFromGhView({ ...base, reviewDecision: "" }).reviewDecision).toBe(
+      null,
+    );
+  });
+
   it.each([
     "APPROVED",
     "CHANGES_REQUESTED",
     "REVIEW_REQUIRED",
-    null,
   ] as const)("passes reviewDecision %s through", (reviewDecision) => {
     expect(prInfoFromGhView({ ...base, reviewDecision }).reviewDecision).toBe(
       reviewDecision,
