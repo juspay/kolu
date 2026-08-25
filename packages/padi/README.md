@@ -141,7 +141,7 @@ remote host — reusing the local arm's seam, not a parallel one:
   **`KOLU_PADI_HOST=<ssh host>`** — OFF by default, no UI (the picker is W3.2) —
   branches kolu-server onto a Surface Remote `makeSession` +
   `sshConnector({ binary: "padi", extraArgs: ["--stdio"] })` composition (the
-  exact stack `kaval-tui --host` rides). It re-runs `@kolu/padi/dial`'s
+  exact stack `kaval-tui --host` rides). It re-runs `@kolu/padi/remote-dial`'s
   control-core `hello` + skew refusal over the ssh-bridged link, scopes to
   `.surface.padi`, and re-serves through the SAME `RemoteMirrorSession` seam the
   local `PadiBindingSession` plugs into. Unset → today's local binding,
@@ -201,20 +201,21 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
 
 ## The export map
 
-- **`@kolu/padi/surface`** — BROWSER-SAFE. The current `padiSurface` Effect
-  Schema contract, the per-member **forwarding-policy** annotations (`value` =
-  hold-open vs `delta` = fail-through), and the padi control types (version ·
-  drain · clock.now). Its read-only `processMemory` cell carries padi and kaval RSS as
-  the honest `ok | absent | error` three-way: one osfacts snapshot samples the
-  endpoint-owned process target and rejects a result from a superseded kaval
-  generation. The browser-safe entry imports no `node:` runtime.
+- **The CONTRACT is [`@kolu/padi-client`](../padi-client)** — `padiSurface`
+  itself, the vocabulary it speaks, the local `connectPadi` dial, the rendezvous
+  path algebra, and the terminal watch kit all live in a sibling package now, so
+  a consumer can hydrate the contract WITHOUT the daemon: hydration is
+  per-package, and this manifest names kaval, which names `node-pty`. padi
+  depends on it and serves it; the arrow never points back, and there is exactly
+  one spec. What a client reaches for is documented there — this file is the
+  daemon.
 
-- **Node-only entries** — the daemon main, dial/binding, state-root, endpoint,
-  log, transcript, and upload modules compose and serve that contract. Padi is
-  the native authority; kolu-server binds or mirrors it rather than supplying a
-  backing shim.
+- **Node-only entries** — the daemon main, binding, state-root discovery,
+  endpoint, log, transcript, and upload modules compose and serve that contract.
+  Padi is the native authority; kolu-server binds or mirrors it rather than
+  supplying a backing shim.
 
-- **The `dial` entry's wait kit** — `awaitTerminalCondition` is the ONE
+- **The `@kolu/padi-client/watch` wait kit** — `awaitTerminalCondition` is the ONE
   block-on-a-terminal-condition engine every face rides. It takes the condition
   as data (`idle` · `match` · `agent`) plus two orthogonal modifiers: a
   `settledMs` **conjunct** (met only once output has also been quiet that long,
@@ -275,16 +276,18 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   mailbox), and a daemon module reaching into a `cliClient/` directory would
   point the arrow backwards. The **subpaths above are unchanged**: the directory
   is padi's internal layout, not its public one.
-- **`@kolu/padi/containingTerminal`** and **`@kolu/padi/watchScope`** — the two
-  PURE concept modules a static consumer imports when the `dial` entry is too
-  heavy: the self-stamp sum (`containingTerminalId` + `confirmInFleet` +
-  `CONTAINING_TERMINAL_ENV`) and the watch-scope constructor (`watchScopeOf` +
-  `scopeAdmits` + the never-match refusal types). Both import nothing beyond
-  `kolu-pty`'s env-name constant and `@kolu/terminal-vocab` schemas, so a
-  command tree can hold a face's verb table statically without a socket ever
-  reaching its parse path — `kolu-mcp`'s tool modules are the first-party
-  consumer (the `dial` entry re-exports the very same names for a face that
-  dials anyway).
+- **`@kolu/padi/containingTerminal`** and
+  **`@kolu/padi-client/watchScope`** — the two PURE concept modules a static
+  consumer imports when the dial entry is too heavy: the self-stamp sum
+  (`containingTerminalId` + `confirmInFleet` + `CONTAINING_TERMINAL_ENV`) and
+  the watch-scope constructor (`watchScopeOf` + `scopeAdmits` + the never-match
+  refusal types). Both import nothing beyond `kolu-pty`'s env-name constant and
+  `@kolu/terminal-vocab` schemas, so a command tree can hold a face's verb table
+  statically without a socket ever reaching its parse path — `kolu-mcp`'s tool
+  modules are the first-party consumer. They are two packages because the scope
+  vocabulary is CONTRACT (a client states a scope; the daemon's registry reads
+  it) while "am I inside a kolu terminal" is a question only something inside one
+  asks.
 
 ## `screen.image` — padi is where the picture gets made
 
