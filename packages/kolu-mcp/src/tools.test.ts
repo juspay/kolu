@@ -8,9 +8,20 @@
  * tools it serves over MCP are handled: their handlers may pull the dial kit
  * at CALL time (dynamic `await import("@kolu/padi-client/dial")` inside the
  * handler); the MODULES may not, top-level. #2206 measured the regression
- * this prevents: three tool modules value-importing `@kolu/padi-client/dial` put
- * the socket/supervisor/remote/mirror closure onto the parse path of every
- * bare `kolu --help`.
+ * this prevents: three tool modules value-importing what was then ONE specifier,
+ * `@kolu/padi/dial`, put the socket/supervisor/remote/mirror closure onto the
+ * parse path of every bare `kolu --help`.
+ *
+ * That one specifier is four entries now (juspay/kolu#2216), and they do not
+ * carry the same weight — so the list below names each by what it drags in
+ * rather than by the door it used to share: `…-client/dial` the socket and the
+ * supervisor, `…-client/watch` the mirror, `@kolu/padi/remote-dial` the ssh
+ * provisioning closure and `kolu-pty`, and `…-client/rendezvous` the
+ * `@kolu/surface-daemon` BARREL (its `.` export value-re-exports `daemonMain`,
+ * `frontDaemonOverStdio`, the pid gate and `daemonProcessMain`) for one pure
+ * path helper. Splitting a banned specifier is how a fence quietly loses half
+ * its coverage: the two new entries had no live offender when they were added,
+ * which is exactly when a hole is cheap to close.
  *
  * The law: no tool module of the table holds a top-level VALUE import of a
  * transport-bearing module. `import type` is exempt (erased). A banned root
@@ -42,6 +53,8 @@ const SRC = dirname(fileURLToPath(import.meta.url));
 const BANNED_ROOTS = [
   "@kolu/padi-client/dial",
   "@kolu/padi-client/watch",
+  "@kolu/padi-client/rendezvous",
+  "@kolu/padi/remote-dial",
   "@kolu/padi/read",
   "@kolu/padi/cliClient",
   "@kolu/surface/links",
