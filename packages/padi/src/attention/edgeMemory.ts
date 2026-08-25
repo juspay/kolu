@@ -20,8 +20,8 @@
  * both sources, so "who was the parent" cannot differ by which source asked.
  */
 
+import type { PadiTerminal } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import type { PadiTerminal } from "../surface.ts";
 import {
   edgeMatches,
   edgeOf,

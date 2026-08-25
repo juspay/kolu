@@ -1,6 +1,6 @@
 /**
  * `--host`'s wiring: padi-tui reaches a remote padi ONLY through the shared
- * `@kolu/padi/dial` kit, and hands its face and disposal straight into the
+ * `@kolu/padi/remote-dial` kit, and hands its face and disposal straight into the
  * transport-blind `Connection` every verb is written against.
  */
 
@@ -9,8 +9,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({ dialPadiViaHost: vi.fn() }));
 
-vi.mock("@kolu/padi/dial", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@kolu/padi/dial")>();
+vi.mock("@kolu/padi/remote-dial", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@kolu/padi/remote-dial")>();
   return { ...actual, dialPadiViaHost: h.dialPadiViaHost };
 });
 

@@ -6,14 +6,14 @@ import {
   activeArm,
   sleepingArm,
   type TerminalMetadata,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import type {
   PipGlyphId,
   PipMotionKind,
   PipVariant,
 } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "kolu-common/surface";
-import { createMemo, type Accessor } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import { isActive, type TerminalAttention } from "../attention/attentionFacts";
 import { useAttentionFacts } from "../attention/useAttentionFacts";
 import {

@@ -8,7 +8,7 @@
  *  Kind tags appear only during cross-kind root search (`showKindTag`); scoped
  *  drill-ins drop them as noise. */
 
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import {

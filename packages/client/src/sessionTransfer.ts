@@ -17,7 +17,7 @@ import {
   backfillSavedSession,
   type SavedSession,
   SavedSessionSchema,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
 import { toError } from "@kolu/surface/run-stream";
 import { Cause, Effect, Result, Schema } from "effect";

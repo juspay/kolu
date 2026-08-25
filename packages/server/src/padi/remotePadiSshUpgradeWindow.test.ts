@@ -54,13 +54,13 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { collectLogger } from "@kolu/log/loggerStubs.testutil";
-import { type PadiDaemonClient, padiClientOver } from "@kolu/padi/dial";
-import { padiDigest } from "@kolu/padi/stateRoot";
+import { type PadiDaemonClient, padiClientOver } from "@kolu/padi-client/dial";
+import { padiDigest } from "@kolu/padi-client/rendezvous";
 import {
   PADI_SURFACE_VERSION,
   padiDaemonGroup,
   padiSurfaceSibling,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { assertPreviousReleaseWindow } from "@kolu/surface-daemon/upgrade-window.testlib";

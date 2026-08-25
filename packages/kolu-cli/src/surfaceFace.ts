@@ -66,7 +66,7 @@
  * `cli.ts`'s graph.
  */
 
-import { padiSurface } from "@kolu/padi/surface";
+import { padiSurface } from "@kolu/padi-client/surface";
 import {
   type ResolvedEndpoint,
   surfaceCommands,

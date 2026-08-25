@@ -20,7 +20,7 @@
  *  Identity (who is driving the terminal) is a SEPARATE axis — `pipGlyphFor`
  *  below — so paint and brand mark don't complect. */
 
-import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
+import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import {
   type PipGlyphId,
   type PipVariant,

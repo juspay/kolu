@@ -22,7 +22,7 @@ import {
   type ActiveTerminal,
   LOCAL_LOCATION,
   type TerminalMetadata,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";

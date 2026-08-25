@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
-import { LOCAL_LOCATION, type TerminalMetadata } from "@kolu/padi/surface";
+import {
+  LOCAL_LOCATION,
+  type TerminalMetadata,
+} from "@kolu/padi-client/surface";
 import { render } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 import { PrPip } from "./PrPip";

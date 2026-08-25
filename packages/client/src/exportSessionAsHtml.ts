@@ -10,7 +10,10 @@
  *  the client because the scrollback only exists there; this one runs
  *  on the server because the transcript only exists there. */
 
-import { MODE_LABEL, type TranscriptHtmlMode } from "@kolu/padi/transcript";
+import {
+  MODE_LABEL,
+  type TranscriptHtmlMode,
+} from "@kolu/padi-client/transcript";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";

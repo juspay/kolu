@@ -23,7 +23,7 @@
  * import is `import type`, so it is erased and the per-face fence is untouched.
  */
 
-import type { WaitState } from "@kolu/padi/dial";
+import type { WaitState } from "@kolu/padi-client/watch";
 
 /** The buckets that mean "the worker's turn is over": `awaiting` (it is asking
  *  the human something) and `waiting` (it finished and is idle at its prompt).

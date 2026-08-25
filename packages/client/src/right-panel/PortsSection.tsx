@@ -27,7 +27,7 @@
  *  effect at the row edge). This file is the section; `PortRow.tsx` is the row.
  */
 
-import { activeArm } from "@kolu/padi/surface";
+import { activeArm } from "@kolu/padi-client/surface";
 import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import {
   foldPorts,

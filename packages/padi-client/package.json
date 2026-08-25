@@ -1,0 +1,42 @@
+{
+  "name": "@kolu/padi-client",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/surface.ts",
+  "types": "./src/surface.ts",
+  "exports": {
+    "./surface": "./src/surface.ts",
+    "./dial": "./src/dial.ts",
+    "./rendezvous": "./src/rendezvous.ts",
+    "./watch": "./src/watch.ts",
+    "./watchScope": "./src/watchScope.ts",
+    "./terminalVocab": "./src/terminalVocab.ts",
+    "./transcript": "./src/transcriptSchema.ts",
+    "./errText": "./src/errText.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@kolu/surface": "workspace:*",
+    "@kolu/surface-daemon": "workspace:*",
+    "@kolu/surface-daemon-supervisor": "workspace:*",
+    "@kolu/terminal-vocab": "workspace:*",
+    "anyagent": "workspace:*",
+    "anyforge": "workspace:*",
+    "effect": "4.0.0-rc.110",
+    "kolu-git": "workspace:*",
+    "kolu-transcript-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@babel/parser": "^7.29.2",
+    "@kolu/daemon-test-gate": "workspace:*",
+    "@types/node": "^22.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.0"
+  }
+}

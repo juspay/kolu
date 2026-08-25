@@ -37,10 +37,10 @@
  * weakened.
  */
 
-import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
+import { collectLogger } from "@kolu/log/loggerStubs.testutil";
+import { PADI_SURFACE_VERSION } from "@kolu/padi-client/surface";
 import { directDispatch } from "@kolu/surface/links/direct";
 import type { SurfaceHandlers } from "@kolu/surface/server";
-import { Effect } from "effect";
 import {
   convergeAdmit,
   createConnectorDrainBudget,
@@ -55,9 +55,10 @@ import {
   type SessionState,
   type SshProv,
 } from "@kolu/surface-remote";
-import { collectLogger } from "@kolu/log/loggerStubs.testutil";
+import { Effect } from "effect";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { padiConvergencePolicyForBinding } from "./padiConvergence.ts";
 import type { PadiSession } from "./padiSession.ts";
 import {
   composePadiExtraArgs,
@@ -67,7 +68,6 @@ import {
   parseKoluPadiHostSeed,
   type RemotePadiSessionDeps,
 } from "./remotePadiBinding.ts";
-import { padiConvergencePolicyForBinding } from "./padiConvergence.ts";
 
 // ── Mock the ssh transport ONLY ──────────────────────────────────────────────
 // Replace `sshConnector` with a fake connector the per-test harness drives; keep the

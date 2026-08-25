@@ -1,5 +1,5 @@
+import type { TerminalInfo, TerminalMetadata } from "@kolu/padi-client/surface";
 import { Effect } from "effect";
-import type { TerminalInfo, TerminalMetadata } from "@kolu/padi/surface";
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal } from "solid-js";
@@ -52,7 +52,7 @@ const rpc = vi.hoisted(() => ({
 
 // Spread the REAL (browser-safe) module so every schema kolu-common/surface pulls from
 // here — e.g. `HostDaemonInventorySchema` — stays present; override only `activePadiRpc`.
-// Keep the REAL (browser-safe) `@kolu/padi/surface` — its schemas
+// Keep the REAL (browser-safe) `@kolu/padi-client/surface` — its schemas
 // (`HostDaemonInventorySchema`, …) must stay present; the RPC double moved to
 // `../wire`'s `activePadiRpc` (production now calls `activePadiRpc.*`).
 vi.mock("../wire", async () => {

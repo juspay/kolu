@@ -3,7 +3,7 @@ import {
   backfillRemoteUrl,
   backfillTerminalState,
   LOCAL_LOCATION,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {

@@ -42,13 +42,16 @@
  *    the contract is what makes the instant-tile UX work.
  */
 
+import type {
+  InitialTerminalMetadata,
+  TerminalInfo,
+} from "@kolu/padi-client/surface";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { SnapshotGrid } from "terminal-snapshot";
 import type {
   TerminalEndpointFs,
   TerminalEndpointGit,
 } from "./terminalWorkspace/endpoint.ts";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import type { InitialTerminalMetadata, TerminalInfo } from "./vocab.ts";
 
 /** RIS (`ESC c`) — a full terminal reset. An overflow-driven re-attach snapshot
  *  frame's `data` LEADS with this (see `reattachingDeltas`) so the consumer's

@@ -126,20 +126,10 @@
  */
 
 import {
-  confirmInFleet,
   CONTAINING_TERMINAL_ENV,
+  confirmInFleet,
   containingTerminalId,
-  namesWatchKnobs,
-  PADI_LINK_CLOSED,
-  type PadiSurfaceClient,
-  scopeAdmits,
-  WAIT_STATES,
-  type WaitState,
-  watchAgentStates,
-  type WatchScope,
-  watchScopeOf,
-  watchTerminals,
-} from "@kolu/padi/dial";
+} from "@kolu/padi/containingTerminal";
 import { readTerminalKeys } from "@kolu/padi/read";
 import {
   formatHeartbeat,
@@ -155,7 +145,21 @@ import {
   resolveTerminalId,
   shortId,
 } from "@kolu/padi/render";
-import type { PadiWatchStatesInput } from "@kolu/padi/surface";
+import { namesWatchKnobs } from "@kolu/padi/watchSpec";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import type { PadiWatchStatesInput } from "@kolu/padi-client/surface";
+import {
+  PADI_LINK_CLOSED,
+  WAIT_STATES,
+  type WaitState,
+  watchAgentStates,
+  watchTerminals,
+} from "@kolu/padi-client/watch";
+import {
+  scopeAdmits,
+  type WatchScope,
+  watchScopeOf,
+} from "@kolu/padi-client/watchScope";
 import { isValidTimerMs, timerRangeMessage } from "@kolu/surface/wait";
 import { isTerminalId, type TerminalId } from "@kolu/terminal-vocab/schema";
 import { type Cause, Effect, Fiber, Queue, Stream } from "effect";

@@ -14,23 +14,23 @@
  * INJECTED via `setDaemonProcessId` / `setSpawnServerVersion`, not imported.
  */
 
-// ── session persistence ─────────────────────────────────────────────────
 export {
-  cancelPendingAutosave,
-  freezeAutosave,
-  initAutosaveGate,
-  unfreezeAutosave,
-} from "./session/autosaveGate.ts";
-// padi's staleKey read — the binder's build-convergence key (#1670). Re-exported
-// through this barrel (not a deep `@kolu/padi/buildId` import) so the binder honors
-// the package-boundary seal: on boot it compares its own baked `PADI_BUILD_ID`
-// against the running padi's `hello.buildId` and drains a same-contract build change.
-export { currentPadiBuildId } from "./daemonBoot/buildId.ts";
+  padiDigest,
+  padiGatePath,
+  padiRuntimeHome,
+  padiSocketPath,
+  resolvePadiStateRoot,
+} from "@kolu/padi-client/rendezvous";
 // The #2146 toolchain-drift pre-check — the binder's same-machine twin of the
 // `padi --stdio` front's. Re-exported through this barrel (not a deep
 // `@kolu/padi/agent-tools-bake` import) for the same package-boundary-seal
 // reason as `currentPadiBuildId` above.
 export { drainResidentOnAgentToolsBakeDrift } from "./agentToolsBake.ts";
+// padi's staleKey read — the binder's build-convergence key (#1670). Re-exported
+// through this barrel (not a deep `@kolu/padi/buildId` import) so the binder honors
+// the package-boundary seal: on boot it compares its own baked `PADI_BUILD_ID`
+// against the running padi's `hello.buildId` and drains a same-contract build change.
+export { currentPadiBuildId } from "./daemonBoot/buildId.ts";
 // ── host-daemon inventory scanner (the "Running daemons" leak diagnostic) ─
 // The ONE scanner both padi (its `hostInventory` member) and kolu-server's web shell
 // (its local-machine `daemonInventory.localScan` under a remote binding) reuse. Padi
@@ -55,9 +55,6 @@ export {
   padiSurfaceCtx,
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
-// The persisted survivor pairing's type. The pairing is READ + RECORDED entirely
-// inside padi's boot reconcile (its conf store is set by padi's own `daemonMain`).
-export type { PairedDaemon } from "./session/pairedDaemon.ts";
 // The range-capable serve-dir read kolu-server's re-backed preview route
 // calls — the STREAMING form (`previewFile`, bounded heap), the same read
 // `preview.read` serves through its base64 wire-wrapper (`readPreview`).
@@ -82,6 +79,16 @@ export {
 } from "./publisher.ts";
 // ── native serving (W1.R0) ──────────────────────────────────────────────
 export { buildPadiSurfaceDeps } from "./servePadi.ts";
+// ── session persistence ─────────────────────────────────────────────────
+export {
+  cancelPendingAutosave,
+  freezeAutosave,
+  initAutosaveGate,
+  unfreezeAutosave,
+} from "./session/autosaveGate.ts";
+// The persisted survivor pairing's type. The pairing is READ + RECORDED entirely
+// inside padi's boot reconcile (its conf store is set by padi's own `daemonMain`).
+export type { PairedDaemon } from "./session/pairedDaemon.ts";
 export {
   clearSavedSession,
   getSavedSession,
@@ -98,16 +105,11 @@ export {
 export {
   discoverPadiDaemons,
   type PadiDaemon,
-  padiDigest,
-  padiGatePath,
   padiKavalHome,
   padiKavalSocketPath,
   padiLogPath,
-  padiRuntimeHome,
-  padiSocketPath,
   padiStderrLogPath,
   residentPadiSocket,
-  resolvePadiStateRoot,
 } from "./stateRoot.ts";
 export type {
   ActiveTerminalProcess,

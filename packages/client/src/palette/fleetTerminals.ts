@@ -15,7 +15,7 @@
  *  (`rowRecencyAt`). Parked (activity-window) rows are dropped the same way
  *  the Dock drops them. */
 
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import {
   createReactiveSubscription,

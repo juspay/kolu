@@ -32,7 +32,7 @@
  * drift.
  */
 
-import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
+import { PADI_SURFACE_VERSION } from "@kolu/padi-client/surface";
 import type { DialAttempt } from "@kolu/surface/links/websocket";
 import {
   type SubscriptionLiveness,

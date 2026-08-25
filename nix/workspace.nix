@@ -98,6 +98,7 @@ let
     "kolu-cli" = ../packages/kolu-cli;
     "kolu-mcp" = ../packages/kolu-mcp;
     "@kolu/padi" = ../packages/padi;
+    "@kolu/padi-client" = ../packages/padi-client;
     "padi-tui" = ../packages/padi-tui;
     "@kolu/port-forward" = ../packages/port-forward;
     # NOT a path in this repo: the tool left at OSF5 and its client went with

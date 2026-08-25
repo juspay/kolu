@@ -42,15 +42,17 @@ import type { PtyHostListEntry } from "kaval";
 
 /** zod's `.safeParse` in Effect terms, bound once at module scope. */
 const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
+
+import { encodeHostLocation, LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 import { log } from "../log.ts";
+import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
+import { ptyHostClient } from "../ptyHost/index.ts";
 import {
   getLastPairedDaemon,
   isReplacedDaemon,
   recordPairedDaemon,
 } from "../session/pairedDaemon.ts";
-import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
-import { ptyHostClient } from "../ptyHost/index.ts";
 import { reconcile } from "../session/reconcile.ts";
 import {
   clearSavedSession,
@@ -59,7 +61,6 @@ import {
 } from "../session/session.ts";
 import { getTerminal, terminalEntries } from "../terminal-registry.ts";
 import { restoreActiveTerminalId, snapshotSession } from "../terminals.ts";
-import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {
   adoptLocalOrphan,
   adoptLocalTerminal,

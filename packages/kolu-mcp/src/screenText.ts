@@ -32,13 +32,13 @@
  * node, before any wrapper — which is `jsonschema.ts`'s own stated law.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
 // The tail slice is padi's — a pure fold over `screen.text`'s own reply shape,
 // shared with `kolu snapshot --tail`, which used to import it from THIS module
 // (a CLI verb reaching sideways into a face's adapter).
 import { tailLines } from "@kolu/padi/render";
-import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { BespokeTool } from "@kolu/surface-mcp/tools";
+import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 
 export const ScreenTextArgsSchema = Schema.Struct({

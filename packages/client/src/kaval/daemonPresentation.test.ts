@@ -1,4 +1,4 @@
-import type { DaemonStatus } from "@kolu/padi/surface";
+import type { DaemonStatus } from "@kolu/padi-client/surface";
 import {
   ENDPOINT_STATES,
   isDownEndpointState,

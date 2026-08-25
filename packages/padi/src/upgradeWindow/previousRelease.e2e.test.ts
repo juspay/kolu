@@ -61,7 +61,6 @@
  * readable naming a live holder.
  */
 
-import { Effect } from "effect";
 import { execFile, spawn } from "node:child_process";
 import {
   existsSync,
@@ -79,7 +78,32 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
+import {
+  connectPadi,
+  type PadiConnectionMetadata,
+  type PadiDaemonClient,
+  type PadiHelloIdentity,
+} from "@kolu/padi-client/dial";
+import {
+  padiGatePath,
+  padiRuntimeHome,
+  padiSocketPath,
+} from "@kolu/padi-client/rendezvous";
+import {
+  LOCAL_LOCATION,
+  PADI_SURFACE_VERSION,
+  type SavedSession,
+  SavedSessionSchema,
+  TOPLEVEL_PLACEMENT,
+} from "@kolu/padi-client/surface";
+import { firstFrameOrThrow } from "@kolu/surface/first-frame";
+import {
   DAEMON_BIND_PID_ENV,
+  daemonBuild,
   gatePid,
   isHolderLive,
 } from "@kolu/surface-daemon";
@@ -93,47 +117,22 @@ import {
   waitForSocket,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
 import {
-  assertDaemonSpawnAllowed,
-  describeDaemon,
-} from "@kolu/daemon-test-gate";
-import { daemonBuild } from "@kolu/surface-daemon";
-import {
   converge,
   createEndpoint,
   outcomeAnomaly,
   probeDaemonIdentity,
 } from "@kolu/surface-daemon-supervisor";
-import { firstFrameOrThrow } from "@kolu/surface/first-frame";
+import { Effect, Schema } from "effect";
+import { KAVAL_GATE_FILE, PTY_HOST_CONTRACT_VERSION } from "kaval";
 import {
   bakedOsFactsBin,
   osfactsSocketHolders,
   processIdentityAsync,
 } from "osfacts-client";
-import { Schema } from "effect";
-import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
-import { KAVAL_GATE_FILE, PTY_HOST_CONTRACT_VERSION } from "kaval";
 import { currentPadiBuildIdentity } from "../daemonBoot/buildId.ts";
-import {
-  connectPadi,
-  type PadiConnectionMetadata,
-  type PadiDaemonClient,
-  type PadiHelloIdentity,
-} from "../dial.ts";
 import { connectKaval, probeKavalForConvergence } from "../ptyHost/connect.ts";
-import {
-  padiGatePath,
-  padiKavalSocketPath,
-  padiRuntimeHome,
-  padiSocketPath,
-  writeStateRootManifest,
-} from "../stateRoot.ts";
-import { PADI_SURFACE_VERSION, TOPLEVEL_PLACEMENT } from "../surface.ts";
-import {
-  LOCAL_LOCATION,
-  type SavedSession,
-  SavedSessionSchema,
-} from "../vocab.ts";
+import { padiKavalSocketPath, writeStateRootManifest } from "../stateRoot.ts";
 import { SHARED_ARTIFACTS } from "./sharedArtifacts.testlib.ts";
 
 /** The saved session, ENCODED by its own schema — so the blob planted on disk is

@@ -19,13 +19,13 @@
  * and, being UNDECLARED, it arrives as a DEFECT rather than a typed failure.
  */
 
+import { KavalContractSkew } from "@kolu/padi-client/surface";
 import { Cause, Effect, Exit } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { KavalContractSkew } from "./errors.ts";
 import { setDaemonProcessId } from "./koluRoot.ts";
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
-import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
+import { buildPadiSurfaceDeps } from "./servePadi.ts";
 
 // The RPC delegates the recycle itself to the SHARED routine (#2101 N1) — the
 // same one the supervisor invokes — so THAT is what is stubbed here. What is

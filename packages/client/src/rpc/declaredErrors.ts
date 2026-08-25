@@ -2,7 +2,7 @@
  * The padi failures this client BRANCHES on, matched by `_tag`.
  *
  * D4 replaced oRPC's `ORPCError` + magic code string with a
- * `Schema.TaggedError` vocabulary (`@kolu/padi/surface`'s `./errors.ts`), so
+ * `Schema.TaggedError` vocabulary (`@kolu/padi-client/surface`'s `./errors.ts`), so
  * "the server said no, and told you why" is now a `_tag` on a schema-carried
  * value. Three sites in this client act on one — the terminal-exit stream's
  * stale-session swallow, and the Code tab's un-fetched-base and
@@ -22,7 +22,7 @@
  *    `isPtyNotFound`), reused rather than re-derived.
  *
  * The tags are spelled as LITERALS typed against the classes' own `_tag`, so a
- * rename in `@kolu/padi/surface` is a compile error here — the property the
+ * rename in `@kolu/padi-client/surface` is a compile error here — the property the
  * magic-code compare never had.
  *
  * **Why this is a predicate and not `Effect.catchTag`.** A unary member call now
@@ -39,7 +39,7 @@ import type {
   FileGone,
   TerminalNotFound,
   WorktreeBaseBranchMissing,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import { isTransportError } from "@kolu/surface/client";
 
 /** No terminal with this id — it exited, or the restarted server never had it. */

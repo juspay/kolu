@@ -28,8 +28,8 @@ import { match } from "ts-pattern";
 import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { TERMINAL_RESET } from "@kolu/padi/endpoint";
-import { activeArm } from "@kolu/padi/surface";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi/upload";
+import { activeArm } from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { toError } from "@kolu/surface/run-stream";
 import {
@@ -751,7 +751,7 @@ const Terminal: Component<{
           // layout settle is the common one), a STREAM_RETRY, which re-subscribes
           // by replaying the ORIGINAL captured input, and another client
           // attaching at its own size — `resizeTo` is last-attach-wins on a
-          // SHARED pty (`@kolu/padi/surface`'s `PadiTerminalAttachInputSchema`),
+          // SHARED pty (`@kolu/padi-client/surface`'s `PadiTerminalAttachInputSchema`),
           // so a phone joining this terminal resizes it under this pane. Painting
           // the answer anyway and correcting the PTY afterwards does NOT undo the
           // damage — a later SIGWINCH repaints a full-screen app, but nothing

@@ -12,7 +12,7 @@
  *  The mobile pull-handle has its own one-row layout — see
  *  `TerminalMetaCompact`. */
 
-import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
+import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { prValue } from "anyforge/schemas";

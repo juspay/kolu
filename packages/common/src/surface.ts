@@ -38,7 +38,7 @@ import {
   HostDaemonInventorySchema,
   type NewTerminalPolicy,
   type ToastOnlyPolicy,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import {
   defineSurfaceWithPolicy,
   type SurfaceTypes,
@@ -56,24 +56,28 @@ import {
   ProcessRssSchema,
   TcpPortSchema,
 } from "@kolu/terminal-vocab/schema";
+import type { TaskProgressSchema } from "anyagent/schemas";
+import { Schema, Struct } from "effect";
+import { match } from "ts-pattern";
 // The host key, from its own padi-LESS module — the forward vocabulary below is
 // keyed by it, so a row can be filtered to a terminal's host without parsing an
 // ssh string. `./hostKey.ts` imports nothing of padi, so this keeps the seal.
 import { HostKeySchema } from "./hostKey.ts";
-import type { TaskProgressSchema } from "anyagent/schemas";
-import { Schema, Struct } from "effect";
-import { match } from "ts-pattern";
 
-// The host-daemon inventory row TYPES are re-exported from @kolu/padi/surface (their
+// The host-daemon inventory row TYPES are re-exported from @kolu/padi-client/surface (their
 // home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
 // them here — the schema home moved to the daemon-domain package, the consumers didn't.
-export type { RunningKaval, RunningPadi } from "@kolu/padi/surface";
 // kolu's app-owned client-error-policy union (SR11) — its home is `@kolu/padi`
 // (so `padiSurface`'s members can reference it without the seal-forbidden
 // `@kolu/padi → kolu-common` import); re-exported HERE so `koluSurface` above and
 // the kolu client (`interpretClientError` in `wire.ts`) reach it through their
 // usual `kolu-common/surface` door.
-export type { ClientErrorPolicy, ToastOnlyPolicy } from "@kolu/padi/surface";
+export type {
+  ClientErrorPolicy,
+  RunningKaval,
+  RunningPadi,
+  ToastOnlyPolicy,
+} from "@kolu/padi-client/surface";
 // The RESOLVED new-terminal theme policy — same seal reason as the error policy
 // above: it types a `padiSurface` cell, so it is DECLARED in `@kolu/padi`
 // (`newTerminalPolicy.ts`) and reaches `koluSurface`'s derivation below, and the
@@ -81,14 +85,33 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "@kolu/padi/surface";
 export {
   DEFAULT_NEW_TERMINAL_POLICY,
   type NewTerminalPolicy,
-  newTerminalPolicyEqual,
   NewTerminalPolicySchema,
-} from "@kolu/padi/surface";
+  newTerminalPolicyEqual,
+} from "@kolu/padi-client/surface";
 export type {
   AgentPaintClass,
   AlertClass,
   AttentionClass,
   Urgency,
+} from "@kolu/terminal-vocab/agentProjection";
+// The renderer-agnostic agent-state projection (bucket · urgency · needs-you
+// rank) is OWNED by `@kolu/terminal-vocab/agentProjection` — the ONE source
+// padi-tui and downstream dashboards (drishti) already share. The kolu client reaches it through the
+// SAME door it already uses for the awareness schema (this module) rather than a
+// second, direct `@kolu/terminal-vocab` edge, so the Dock joins as a third
+// consumer of the same definition instead of re-deriving "needs-you".
+export {
+  ATTENTION_CLASSES,
+  agentBucket,
+  agentPaintClass,
+  agentUrgency,
+  alertClass,
+  attentionActive,
+  attentionClass,
+  attentionCounted,
+  DASH,
+  paintClassOf,
+  URGENCY_RANK,
 } from "@kolu/terminal-vocab/agentProjection";
 // The attention TRANSITION decision (which terminals just entered the attention
 // class) rides the same door for the same reason — padi is its other consumer,
@@ -99,25 +122,6 @@ export type {
   AttentionTransitions,
 } from "@kolu/terminal-vocab/attentionTransitions";
 export { createAttentionTransitions } from "@kolu/terminal-vocab/attentionTransitions";
-// The renderer-agnostic agent-state projection (bucket · urgency · needs-you
-// rank) is OWNED by `@kolu/terminal-vocab/agentProjection` — the ONE source
-// padi-tui and downstream dashboards (drishti) already share. The kolu client reaches it through the
-// SAME door it already uses for the awareness schema (this module) rather than a
-// second, direct `@kolu/terminal-vocab` edge, so the Dock joins as a third
-// consumer of the same definition instead of re-deriving "needs-you".
-export {
-  agentBucket,
-  agentPaintClass,
-  agentUrgency,
-  alertClass,
-  ATTENTION_CLASSES,
-  attentionActive,
-  attentionClass,
-  attentionCounted,
-  DASH,
-  paintClassOf,
-  URGENCY_RANK,
-} from "@kolu/terminal-vocab/agentProjection";
 export type {
   AgentIdentity,
   AgentInfo,
@@ -155,20 +159,20 @@ export {
   type PortFamily,
   PortFamilySchema,
   type PortReach,
-  type TerminalPorts,
-  portReach,
-  preferredFamily,
-  samePortList,
-  TcpPortSchema,
   PrResultSchema,
   PrUnavailableSourceSchema,
+  portReach,
+  preferredFamily,
   prUnavailableReason,
   prUnavailableSource,
   RestoreTargetSchema,
   reasonForSource,
   resumableCommand,
+  samePortList,
+  TcpPortSchema,
   TERMINAL_IDLE_AFTER_MS,
   TerminalIdSchema,
+  type TerminalPorts,
   TerminalSnapshotSchema,
 } from "@kolu/terminal-vocab/schema";
 

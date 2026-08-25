@@ -14,7 +14,7 @@
  *  the escape are each pinned without repeating the wrapper shape; the #2129 pins at the
  *  bottom use their own link-down readers. */
 
-import type { DaemonState } from "@kolu/padi/surface";
+import type { DaemonState } from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
 import { type CanvasFacts, resolveCanvasMode } from "./canvasModeResolver";
 

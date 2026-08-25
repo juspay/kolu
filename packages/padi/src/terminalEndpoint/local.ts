@@ -22,7 +22,22 @@
  * `terminal-workspace` surface over the link, so there is one fs/git impl.
  */
 
-import type { SnapshotGrid } from "terminal-snapshot";
+import type {
+  AuthoredActiveTerminal,
+  SavedActiveTerminal,
+  SavedSleepingTerminal,
+  TerminalInfo,
+} from "@kolu/padi-client/surface";
+import {
+  AuthoredActiveSchema,
+  AuthoredParkedSchema,
+  AuthoredSleepingSchema,
+  createAuthoredActive,
+  LOCAL_LOCATION,
+  PersistedSnapshotSchema,
+  SavedActiveTerminalSchema,
+  SavedSleepingTerminalSchema,
+} from "@kolu/padi-client/surface";
 import type { WireSchema } from "@kolu/surface/define";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type {
@@ -37,6 +52,7 @@ import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
 import { Effect, Result, Schema, Stream } from "effect";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
+import type { SnapshotGrid } from "terminal-snapshot";
 import { abortableDelay } from "../abortableDelay.ts";
 import { trackRecentAgent, trackRecentRepo } from "../activity/activity.ts";
 import type {
@@ -89,22 +105,6 @@ import {
   type SensorSignals,
   startSensors,
 } from "../terminalWorkspace/sensors.ts";
-import type {
-  AuthoredActiveTerminal,
-  SavedActiveTerminal,
-  SavedSleepingTerminal,
-  TerminalInfo,
-} from "../vocab.ts";
-import {
-  AuthoredActiveSchema,
-  AuthoredParkedSchema,
-  AuthoredSleepingSchema,
-  createAuthoredActive,
-  LOCAL_LOCATION,
-  PersistedSnapshotSchema,
-  SavedActiveTerminalSchema,
-  SavedSleepingTerminalSchema,
-} from "../vocab.ts";
 import {
   commitSnapshot,
   dropSnapshot,

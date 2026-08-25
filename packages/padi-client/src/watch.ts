@@ -3,7 +3,7 @@
  * live, block until one terminal's agent enters a target bucket, block until one
  * terminal's output has been quiet for a window, and block until one terminal's
  * NEW output matches a pattern. Part of the dial kit (re-exported through
- * `@kolu/padi/dial`): a daemon's package owns the client helpers its consumers
+ * `@kolu/padi-client/dial`): a daemon's package owns the client helpers its consumers
  * share.
  *
  * Graduated here from padi-tui (`read.ts`/`render.ts`) the day the kolu MCP
@@ -20,8 +20,7 @@
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { isDeadTransportError } from "@kolu/surface/errors";
-import { isTerminalNotFound, isWatchSubscriptionNotFound } from "../errors.ts";
-import { Effect, Stream } from "effect";
+import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,
@@ -29,19 +28,20 @@ import {
   type WaitCtx,
   type WaitOutcome,
 } from "@kolu/surface/wait";
-import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
-import type { PadiSurfaceClient } from "../dial.ts";
-import { errMessage } from "../errText.ts";
+import { Effect, Stream } from "effect";
+import type { PadiSurfaceClient } from "./dial.ts";
+import { isTerminalNotFound, isWatchSubscriptionNotFound } from "./errors.ts";
+import { errMessage } from "./errText.ts";
 import {
-  padiSurface,
   type PadiStateEvent,
   type PadiTerminal,
   type PadiWatchEvent,
   type PadiWatchStatesInput,
-} from "../surface.ts";
-import { activeAgent } from "../terminalVocab.ts";
+  padiSurface,
+} from "./surface.ts";
+import { activeAgent } from "./terminalVocab.ts";
 
 /** Consume a member `Stream` as an async iterable whose teardown is bound to
  *  `signal`.
@@ -80,7 +80,7 @@ export {
   PADI_LINK_CLOSED,
   WAIT_STATES,
   type WaitState,
-} from "../terminalVocab.ts";
+} from "./terminalVocab.ts";
 
 /** The live agent of a record IF it is in one of the target buckets, else
  *  `null` — THE wait predicate, and its match payload in one. A record with no

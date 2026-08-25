@@ -9,17 +9,17 @@
  * invisible to a test that fires every pending timer regardless.
  */
 
+import type { PadiStateEvent } from "@kolu/padi-client/surface";
+import { WATCH_SCOPE_ALL } from "@kolu/padi-client/watchScope";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import type { PadiStateEvent } from "../surface.ts";
 import {
-  anchored as terminals,
+  stateWatchHarness as harness,
   makeAgent,
   settled,
-  stateWatchHarness as harness,
+  anchored as terminals,
 } from "./attentionFixture.testlib.ts";
 import type { StateWatchSpec } from "./stateWatch.ts";
-import { WATCH_SCOPE_ALL } from "./watchScope.ts";
 
 /** Subscribe and collect every batch. */
 function collect(

@@ -26,5 +26,8 @@
     "baseline:report": "node --import tsx governance/reportBaseline.ts",
     "inventory:update": "node --import tsx governance/updateInventory.ts",
     "test:unit": "node --import tsx --test support/*.test.ts governance/*.test.ts"
+  },
+  "dependencies": {
+    "@kolu/padi-client": "workspace:*"
   }
 }

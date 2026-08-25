@@ -31,16 +31,16 @@ import {
   mkdtempSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { padiClientOver, scopePadiSurface } from "@kolu/padi/dial";
-import { padiDaemonGroup } from "@kolu/padi/surface";
-import { firstFrameOrThrow } from "@kolu/surface/first-frame";
-import { unixSocketLink } from "@kolu/surface/links/unix-socket";
+import { join } from "node:path";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
+import { padiClientOver, scopePadiSurface } from "@kolu/padi-client/dial";
+import { padiDaemonGroup } from "@kolu/padi-client/surface";
+import { firstFrameOrThrow } from "@kolu/surface/first-frame";
+import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { Effect, Stream } from "effect";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import {

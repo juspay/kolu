@@ -1,24 +1,24 @@
 /** Session restore — hydration from server state, session restore handler. */
 
-import type { SavedSession, TerminalMetadata } from "@kolu/padi/surface";
+import type { SavedSession, TerminalMetadata } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal, onCleanup } from "solid-js";
 import { toast } from "solid-sonner";
 import { deepLinkFocusIntent } from "../deepLinkFocusIntent";
-import { activeScope } from "../hostScope/hostScopes";
-import { useRightPanel } from "../right-panel/useRightPanel";
-import { lifecycle } from "../rpc/rpc";
-import type { UiAction } from "../runAction";
 import {
   savedSessionSub,
   savedSession as serverSavedSession,
 } from "../hostScope/activeWire";
+import { activeScope } from "../hostScope/hostScopes";
+import { useRightPanel } from "../right-panel/useRightPanel";
+import { lifecycle } from "../rpc/rpc";
+import type { UiAction } from "../runAction";
 import { activePadiRpc } from "../wire";
+import { containingTileOf, descendantsByRoot } from "./terminalTree";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
-import { containingTileOf, descendantsByRoot } from "./terminalTree";
 
 /** A terminal paired with its (already-arrived) metadata. The hydration
  *  effect builds these by gating on the composed record having arrived on padi's

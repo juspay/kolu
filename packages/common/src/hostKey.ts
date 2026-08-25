@@ -63,7 +63,7 @@ export const decodeHostKeyValue: (value: unknown) => HostKey =
 
 /** The canonical local-host key — the pool's implicit, UNREMOVABLE default member.
  *  A DISTINCT concept from padi's daemon-status key (`HostLocation`, encoded via
- *  `encodeHostLocation` — @kolu/padi/surface): this is the map key a browser tab
+ *  `encodeHostLocation` — @kolu/padi-client/surface): this is the map key a browser tab
  *  selects; that is the key padi reports daemon status under. They name the same
  *  machine but own different axes — never conflate them. */
 export const LOCAL_HOST: HostKey = { kind: "local" };

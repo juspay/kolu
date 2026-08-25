@@ -47,9 +47,9 @@
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import type { PadiSurfaceClient } from "../dial.ts";
-import { TerminalNotFound } from "../errors.ts";
-import type { PadiTerminal } from "../surface.ts";
+import type { PadiSurfaceClient } from "./dial.ts";
+import { TerminalNotFound } from "./errors.ts";
+import type { PadiTerminal } from "./surface.ts";
 import {
   awaitAgentState,
   awaitOutputSettled,

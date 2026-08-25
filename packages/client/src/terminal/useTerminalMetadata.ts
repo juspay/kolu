@@ -18,7 +18,7 @@ import type {
   PadiParkedTerminal,
   PadiTerminal,
   TerminalMetadata,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import { writeWrappedValue } from "@kolu/surface/solid";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -30,8 +30,8 @@ import {
 } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { activeScope } from "../hostScope/hostScopes";
-import { reprojectTerminalClock } from "./reprojectClock";
 import { activeHost, padiMap } from "../wire";
+import { reprojectTerminalClock } from "./reprojectClock";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,

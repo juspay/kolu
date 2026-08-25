@@ -22,12 +22,12 @@
  * the per-field blurbs are what teach an agent that `lines` counts ROWS.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import type { PadiScreenImageOutput } from "@kolu/padi/surface";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import type { PadiScreenImageOutput } from "@kolu/padi-client/surface";
 import {
   SCREEN_IMAGE_LINES_CHECKS,
   SCREEN_IMAGE_MAX_ROWS,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import type { BespokeTool } from "@kolu/surface-mcp/tools";
 import { okImage } from "@kolu/surface-mcp/tools";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";

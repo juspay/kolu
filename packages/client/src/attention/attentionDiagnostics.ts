@@ -31,7 +31,7 @@
  *  Pure over its inputs — no store reads, no DOM — so it is unit-testable and
  *  the dialog stays a renderer. */
 
-import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
+import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import type {
   PipMotionKind,
   PipVariant,

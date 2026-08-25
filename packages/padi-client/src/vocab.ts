@@ -1,5 +1,5 @@
 /**
- * `@kolu/padi/surface` terminal VOCABULARY — the kolu-specific terminal-domain
+ * `@kolu/padi-client/surface` terminal VOCABULARY — the kolu-specific terminal-domain
  * schemas, records, and pure helpers the padi daemon (the terminal-domain
  * AUTHORITY) owns. These EXTEND the generic awareness base owned by
  * `@kolu/terminal-vocab/schema` (the `TerminalSnapshot` / agent / PR / memory
@@ -10,7 +10,7 @@
  * `packages/server`; the arrow now points the right way — `@kolu/padi` owns its
  * vocabulary and the app (kolu-common, client, server) imports it FROM here. Kept
  * BROWSER-SAFE (no `node:` imports) so the client can import the schemas via
- * `@kolu/padi/surface`.
+ * `@kolu/padi-client/surface`.
  */
 
 import type { WireSchema } from "@kolu/surface/define";
@@ -849,7 +849,7 @@ export type DaemonState = DaemonStatus["state"];
 // The honest three-way process-RSS union (`ProcessRssSchema`/`ProcessRss`) is OWNED
 // by the shared browser-safe `@kolu/terminal-vocab/schema` leaf that BOTH
 // `@kolu/padi` and `kolu-common` already import — one declaration instead of a
-// lockstep copy on each side of the seal. Re-exported so `@kolu/padi/surface`'s
+// lockstep copy on each side of the seal. Re-exported so `@kolu/padi-client/surface`'s
 // consumers (e.g. `memorySampler.ts`) resolve it from here unchanged.
 export { type ProcessRss, ProcessRssSchema };
 

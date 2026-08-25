@@ -18,7 +18,7 @@
  *  phone drawer and the compact rail) — both have the same two-line
  *  geometry and the same content rules. */
 
-import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
+import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import { stateLabels } from "../../ui/agentDisplay";
 
 export function rowSubline(meta: TerminalMetadata): string {

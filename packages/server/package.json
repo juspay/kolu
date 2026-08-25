@@ -15,6 +15,7 @@
     "@kolu/heap-diag": "workspace:*",
     "@kolu/log": "workspace:*",
     "@kolu/padi": "workspace:*",
+    "@kolu/padi-client": "workspace:*",
     "@kolu/port-forward": "workspace:*",
     "@kolu/serve-dir": "workspace:*",
     "@kolu/surface": "workspace:*",

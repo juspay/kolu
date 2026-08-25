@@ -5,13 +5,13 @@
  * decided here BEFORE anything dials a daemon.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import {
   formatStateEvent,
   formatStateEventJson,
   shortId,
 } from "@kolu/padi/render";
-import type { PadiStateEvent } from "@kolu/padi/surface";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import type { PadiStateEvent } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";

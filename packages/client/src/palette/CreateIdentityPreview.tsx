@@ -5,7 +5,7 @@
  *  fleet hue, annotation colour, agent mark — so create is "name the
  *  thing, then place it," not "spawn, then recognize it." */
 
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import type { Component } from "solid-js";
 import { createMemo, Show } from "solid-js";

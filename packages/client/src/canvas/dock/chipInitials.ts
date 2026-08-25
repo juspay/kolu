@@ -9,7 +9,7 @@
  *  Löwy: monogram revs with the identity string set; chip sub revs with
  *  intent — keep the clocks separate. */
 
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { intentLeadGlyph } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { ALPHANUM, caseToOneGlyph, repoMonogram } from "../../ui/monogramGlyph";

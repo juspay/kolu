@@ -25,7 +25,8 @@
  * give the same answer to the same intent.
  */
 
-import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import {
   ACCEPTED_KEY_NAMES,
   encodeSend,
@@ -33,8 +34,7 @@ import {
   type SendVocabulary,
   sendShapeRefusal,
 } from "@kolu/terminal-protocol";
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
+import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 
 export const SendInputArgsSchema = Schema.Struct({

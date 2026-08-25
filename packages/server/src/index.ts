@@ -18,12 +18,12 @@ import {
   PADI_FORWARDING_POLICY,
   type PadiProcessMemory,
   padiSurface,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClientRef } from "@kolu/surface/project";
 import { parseAllowedOrigins } from "@kolu/surface/ws-origin";
-import type { ManifestOptions } from "@kolu/surface-app/server";
 import { serveSurfaceApp } from "@kolu/surface-app/serve";
+import type { ManifestOptions } from "@kolu/surface-app/server";
 import {
   buildRemotePool,
   type ReServedSurface,
@@ -79,11 +79,11 @@ import {
 import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { buildAppRouter, CurrentViewer } from "./router.ts";
+import { stateBackupRing } from "./state.ts";
 import {
   listServerStateBackups,
   restoreServerStateBackup,
 } from "./stateBackups.ts";
-import { stateBackupRing } from "./state.ts";
 import {
   assembleServedHandlers,
   currentNewTerminalPolicy,

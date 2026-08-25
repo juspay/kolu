@@ -429,7 +429,7 @@ describe("consumeReattachingStream", () => {
   // ── Multi-client grid contention (kolu#2101 G8d/G8e) ────────────────────
   //
   // `resizeTo` is a WRITE to a SHARED pty and the policy is LAST-ATTACH-WINS
-  // (`@kolu/padi/surface`'s `PadiTerminalAttachInputSchema`). Two clients on one
+  // (`@kolu/padi-client/surface`'s `PadiTerminalAttachInputSchema`). Two clients on one
   // terminal therefore ping-pong its width — the production recording shows
   // content re-wrapping 136 → ~65 → 136 with neither viewer told why. The policy
   // is not what this test can change; what it pins is that the contention is a

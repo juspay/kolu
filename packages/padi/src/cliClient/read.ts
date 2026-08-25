@@ -18,13 +18,13 @@
  * through their own finalizers, and `main.ts` runs the whole command once.
  */
 
-import type { PadiSurfaceClient } from "../dial.ts";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import { type PadiTerminal, padiSurface } from "@kolu/padi-client/surface";
+import { PADI_LINK_CLOSED } from "@kolu/padi-client/terminalVocab";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Data, Deferred, Effect } from "effect";
-import { padiSurface, type PadiTerminal } from "../surface.ts";
-import { PADI_LINK_CLOSED } from "../terminalVocab.ts";
 
 /** The current terminal key set — the FIRST frame of the `keys` snapshot-then-delta
  *  stream. The `keys` collection ALWAYS opens with a snapshot frame (zero terminals

@@ -45,20 +45,24 @@
  * see one zero times.
  */
 
-import type { Logger } from "pino";
-import { WatchSubscriptionNotFound } from "../errors.ts";
 import type {
   PadiSettleEvent,
   PadiStateEvent,
   PadiWatchEvent,
-} from "../surface.ts";
+} from "@kolu/padi-client/surface";
+import { WatchSubscriptionNotFound } from "@kolu/padi-client/surface";
+import {
+  scopeAdmits,
+  WATCH_SCOPE_ALL,
+  type WatchScope,
+} from "@kolu/padi-client/watchScope";
+import type { Logger } from "pino";
 import type { SettleEvent } from "./settleEvents.ts";
 import {
-  sameStateWatchFilter,
   type StateWatchBatch,
   type StateWatchFilter,
+  sameStateWatchFilter,
 } from "./stateWatch.ts";
-import { scopeAdmits, WATCH_SCOPE_ALL, type WatchScope } from "./watchScope.ts";
 
 /** What a queue holds — either source's events, one `kind` vocabulary. */
 export type WatchEvent = PadiWatchEvent;

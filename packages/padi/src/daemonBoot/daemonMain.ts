@@ -19,6 +19,16 @@
  */
 
 import { dirname } from "node:path";
+import {
+  padiRuntimeHome,
+  resolvePadiStateRoot,
+} from "@kolu/padi-client/rendezvous";
+import {
+  encodeHostLocation,
+  LOCAL_LOCATION,
+  PADI_SURFACE_VERSION,
+  padiDaemonSurfaces,
+} from "@kolu/padi-client/surface";
 import { buildCommit } from "@kolu/surface/identity";
 import {
   implementSurfacesOnPublisher,
@@ -44,14 +54,15 @@ import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE } from "kaval";
 import { configureNixShellEnv } from "kolu-pty";
 import { processIdentityFromEnv } from "osfacts-client";
+import { writeAgentToolsBakeRecord } from "../agentToolsBake.ts";
+import { observeHeldKaval } from "../kavalObservation.ts";
+import { startKavalSupervision } from "../kavalSupervision.ts";
 import {
   ensureKoluRoot,
   setDaemonProcessId,
   shutdownCleanup,
 } from "../koluRoot.ts";
 import { configureDaemonLog, log as padiLog } from "../log.ts";
-import { observeHeldKaval } from "../kavalObservation.ts";
-import { startKavalSupervision } from "../kavalSupervision.ts";
 import { setPadiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import {
   getLocalSocketPath,
@@ -84,14 +95,7 @@ import {
   NewerPadiStateProjectVersionError,
   openPadiStateStores,
 } from "../session/stateStore.ts";
-import { writeAgentToolsBakeRecord } from "../agentToolsBake.ts";
-import {
-  padiKavalHome,
-  padiRuntimeHome,
-  resolvePadiStateRoot,
-  writeStateRootManifest,
-} from "../stateRoot.ts";
-import { PADI_SURFACE_VERSION, padiDaemonSurfaces } from "../surface.ts";
+import { padiKavalHome, writeStateRootManifest } from "../stateRoot.ts";
 import { hasParkedTerminals } from "../terminal-registry.ts";
 import { startInventoryReconciler } from "../terminalEndpoint/inventoryReconcile.ts";
 import {
@@ -101,7 +105,6 @@ import {
 } from "../terminalEndpoint/reattach.ts";
 import { resolveTerminalEndpoint } from "../terminalEndpoint/resolve.ts";
 import { snapshotSession } from "../terminals.ts";
-import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import { currentPadiBuildIdentity } from "./buildId.ts";
 import { buildControlCoreDeps } from "./controlCore.ts";
 

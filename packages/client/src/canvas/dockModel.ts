@@ -3,7 +3,7 @@
  *  (`buildDockModel`, `DockSourceEntry`, repo facets, columns) was retired
  *  with the grid; only the live leaves remain. */
 
-import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
+import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import {
   type AgentInfo,
   type AgentPaintClass,

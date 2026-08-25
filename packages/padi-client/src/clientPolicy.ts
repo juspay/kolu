@@ -14,7 +14,7 @@
  * live in a module `@kolu/padi` can import — here, its own browser-safe surface vocab.
  * `kolu-common/surface` RE-EXPORTS it (the established `kolu-common → @kolu/padi` edge)
  * so `koluSurface` and the kolu client reach it through their usual door. Pure types —
- * no runtime — so this stays browser-safe like the rest of `@kolu/padi/surface`.
+ * no runtime — so this stays browser-safe like the rest of `@kolu/padi-client/surface`.
  *
  * The ONE interpreter (`interpretClientError`, kolu client `wire.ts`) is `satisfies
  * never`-fenced over these arms; the per-scope subsets below make an origin-requiring

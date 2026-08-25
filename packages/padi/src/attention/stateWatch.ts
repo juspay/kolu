@@ -47,14 +47,14 @@
  * recompute stack. Same rule, same reason as `settleEvents.ts`.
  */
 
+import type { PadiStateEvent, PadiTerminal } from "@kolu/padi-client/surface";
+import { activeAgent, type WaitState } from "@kolu/padi-client/terminalVocab";
+import { scopeAdmits, type WatchScope } from "@kolu/padi-client/watchScope";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
-import type { PadiStateEvent, PadiTerminal } from "../surface.ts";
-import { activeAgent, type WaitState } from "../terminalVocab.ts";
 import type { EdgeMemory } from "./edgeMemory.ts";
 import type { EventSeq } from "./eventSeq.ts";
-import { scopeAdmits, type WatchScope } from "./watchScope.ts";
 
 /** The bucket a terminal is holding — the shared `agentBucket` fold's own
  *  answer, including the `other` arm no subscription can target (so an

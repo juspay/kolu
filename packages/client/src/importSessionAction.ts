@@ -19,7 +19,7 @@
  *  test runner — so the guard + toast semantics can only be unit-tested as a
  *  standalone unit. */
 
-import type { SavedSession } from "@kolu/padi/surface";
+import type { SavedSession } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import { toast } from "solid-sonner";

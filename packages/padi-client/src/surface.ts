@@ -1,5 +1,5 @@
 /**
- * `@kolu/padi/surface` — the BROWSER-SAFE face of `@kolu/padi`: `padiSurface`
+ * `@kolu/padi-client/surface` — the BROWSER-SAFE face of `@kolu/padi`: `padiSurface`
  * (the Effect Schema contract the client imports), the per-member
  * forwarding-policy annotations, and the frozen control-core types.
  *
@@ -55,7 +55,6 @@
  * coordinator restructures that next).
  */
 
-import { MAX_TIMER_MS } from "@kolu/surface/wait";
 import {
   composeSurfaceContracts,
   defineSurface,
@@ -63,12 +62,22 @@ import {
   type Surface,
   type SurfaceTypes,
 } from "@kolu/surface/define";
+import { MAX_TIMER_MS } from "@kolu/surface/wait";
 import {
   CONTROL_CORE_VERSION,
   type ControlCoreHello,
   ControlCoreHelloSchema,
   controlCoreProcedureSpec,
 } from "@kolu/surface-daemon/control-core";
+// The bucket VOCABULARY, straight from the leaf that owns the fold it is
+// defined from — not through `terminalVocab.ts`, which type-imports this module
+// back. A value import along that edge would make the pair a runtime cycle, and
+// the layering `terminalVocab.ts`'s header states would be one an import graph
+// refutes.
+import {
+  WAIT_STATES,
+  WATCH_DEFAULT_STATES,
+} from "@kolu/terminal-vocab/agentProjection";
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
@@ -103,9 +112,9 @@ import {
   ScratchWriteRejected,
   TerminalNotFound,
   TerminalParentCycle,
-  WatchSubscriptionNotFound,
   TranscriptNoAgent,
   TranscriptNotFound,
+  WatchSubscriptionNotFound,
   WorktreeCreateErrorSchema,
 } from "./errors.ts";
 import {
@@ -113,19 +122,10 @@ import {
   NewTerminalPolicySchema,
   newTerminalPolicyEqual,
 } from "./newTerminalPolicy.ts";
-// The bucket VOCABULARY, straight from the leaf that owns the fold it is
-// defined from — not through `terminalVocab.ts`, which type-imports this module
-// back. A value import along that edge would make the pair a runtime cycle, and
-// the layering `terminalVocab.ts`'s header states would be one an import graph
-// refutes.
-import {
-  WAIT_STATES,
-  WATCH_DEFAULT_STATES,
-} from "@kolu/terminal-vocab/agentProjection";
 import {
   ExportTranscriptHtmlInputSchema,
   ExportTranscriptHtmlOutputSchema,
-} from "./transcript/transcriptSchema.ts";
+} from "./transcriptSchema.ts";
 import {
   ActiveTerminalSchema,
   ActivityFeedSchema,
@@ -148,9 +148,9 @@ import {
 
 // The terminal VOCABULARY (schemas · records · pure helpers) now lives HERE, in
 // `@kolu/padi` — the terminal-domain authority. Re-exported from this browser-safe
-// entry so consumers reach the schemas as `@kolu/padi/surface`. The UI-chrome half
+// entry so consumers reach the schemas as `@kolu/padi-client/surface`. The UI-chrome half
 // (`./chromeVocab.ts`, split out in L17) rides the same entry, so the export set is
-// unchanged — a chrome schema is still `@kolu/padi/surface`'s to give.
+// unchanged — a chrome schema is still `@kolu/padi-client/surface`'s to give.
 export * from "./chromeVocab.ts";
 // kolu's app-owned client-error-policy union (SR11) — declared here (not kolu-common)
 // so `padiSurface`'s per-host members below can reference it without `@kolu/padi`

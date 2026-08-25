@@ -30,6 +30,17 @@ import {
   PADI_DIAL_RT_PREFIX,
   PADI_DIAL_SR_PREFIX,
 } from "@kolu/daemon-test-gate";
+import {
+  assertPadiSurfaceCompatible,
+  type PadiDaemonClient,
+  padiClientOver,
+} from "@kolu/padi-client/dial";
+import { padiGatePath, padiSocketPath } from "@kolu/padi-client/rendezvous";
+import {
+  PADI_SURFACE_VERSION,
+  padiDaemonGroup,
+  TOPLEVEL_PLACEMENT,
+} from "@kolu/padi-client/surface";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { awaitStdioReadiness } from "@kolu/surface/links/readiness";
 import { stdioLink } from "@kolu/surface/links/stdio";
@@ -38,23 +49,9 @@ import { isHolderLive } from "@kolu/surface-daemon";
 import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { Effect, Stream } from "effect";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import {
-  assertPadiSurfaceCompatible,
-  type PadiDaemonClient,
-  padiClientOver,
-} from "./dial.ts";
 import type { TerminalAttachFrame } from "./endpoint.ts";
 import { probeKavalStatus } from "./hostInventory.ts";
-import {
-  padiGatePath,
-  padiKavalSocketPath,
-  padiSocketPath,
-} from "./stateRoot.ts";
-import {
-  PADI_SURFACE_VERSION,
-  padiDaemonGroup,
-  TOPLEVEL_PLACEMENT,
-} from "./surface.ts";
+import { padiKavalSocketPath } from "./stateRoot.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 // Kept in step with the `padi` bin `package.json` declares — #2000 moved the

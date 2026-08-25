@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@parcel/watcher": "^2.5.1",
-    "effect": "catalog:",
+    "effect": "4.0.0-rc.110",
     "kolu-io": "workspace:*",
     "kolu-pty": "workspace:*",
     "kolu-shared": "workspace:*",

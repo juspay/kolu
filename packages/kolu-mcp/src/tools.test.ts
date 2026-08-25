@@ -6,16 +6,16 @@
  * `kolu-mcp/tools` sits on the STATIC tree-build path of EVERY `kolu`
  * invocation: `cli.ts` mounts `surfaceFace.ts`, which mounts this table. The
  * tools it serves over MCP are handled: their handlers may pull the dial kit
- * at CALL time (dynamic `await import("@kolu/padi/dial")` inside the
+ * at CALL time (dynamic `await import("@kolu/padi-client/dial")` inside the
  * handler); the MODULES may not, top-level. #2206 measured the regression
- * this prevents: three tool modules value-importing `@kolu/padi/dial` put
+ * this prevents: three tool modules value-importing `@kolu/padi-client/dial` put
  * the socket/supervisor/remote/mirror closure onto the parse path of every
  * bare `kolu --help`.
  *
  * The law: no tool module of the table holds a top-level VALUE import of a
  * transport-bearing module. `import type` is exempt (erased). `specifier`
  * prefix-matches the banned roots — the roots are package-level fences, and
- * the low false-positive risk (a future sibling like `@kolu/padi/dialer`)
+ * the low false-positive risk (a future sibling like `@kolu/padi-client/dialer`)
  * is bought back the day it exists by narrowing this list, not by loophole.
  *
  * Why here and not a lint rule: lint can't weight a value import by which
@@ -33,7 +33,8 @@ const SRC = dirname(fileURLToPath(import.meta.url));
  *  dynamic imports of the very same entries are fine — they load at call
  *  time, when a socket is about to be used anyway. */
 const BANNED_ROOTS = [
-  "@kolu/padi/dial",
+  "@kolu/padi-client/dial",
+  "@kolu/padi-client/watch",
   "@kolu/padi/read",
   "@kolu/padi/cliClient",
   "@kolu/surface/links",

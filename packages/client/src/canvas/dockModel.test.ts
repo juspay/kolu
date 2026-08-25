@@ -1,4 +1,4 @@
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
 import { metaBucket, paintBucket, workspaceSearchText } from "./dockModel";
 

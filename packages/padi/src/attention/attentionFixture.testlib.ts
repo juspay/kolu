@@ -14,17 +14,20 @@
  * files — it forks nothing and is never reachable from production code.
  */
 
+import type { PadiTerminal } from "@kolu/padi-client/surface";
+import {
+  composeTerminalMetadata,
+  LOCAL_LOCATION,
+} from "@kolu/padi-client/surface";
+import { type WatchScope, watchScopeOf } from "@kolu/padi-client/watchScope";
 import type {
   AgentInfo,
   TerminalId,
   TerminalSnapshot,
 } from "@kolu/terminal-vocab/schema";
 import { pino } from "pino";
-import type { PadiTerminal } from "../surface.ts";
-import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
 import { createEdgeMemory } from "./edgeMemory.ts";
 import { createEventSeq, type EventSeq } from "./eventSeq.ts";
-import { type WatchScope, watchScopeOf } from "./watchScope.ts";
 import {
   createStateWatchHub,
   type ScheduleTimer,

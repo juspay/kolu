@@ -19,7 +19,7 @@
   "dependencies": {
     "@kolu/log": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
-    "effect": "catalog:",
+    "effect": "4.0.0-rc.110",
     "nonempty": "workspace:*",
     "string-argv": "^0.3.2"
   },

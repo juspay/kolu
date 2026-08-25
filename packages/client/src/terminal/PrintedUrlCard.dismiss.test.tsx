@@ -37,7 +37,7 @@ vi.mock("../forwards/openPort", () => ({
 vi.mock("./handleWebLink", () => ({
   openRawUrl: vi.fn(),
 }));
-vi.mock(import("@kolu/padi/surface"), async (importOriginal) => {
+vi.mock(import("@kolu/padi-client/surface"), async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, activeArm: () => undefined };
 });

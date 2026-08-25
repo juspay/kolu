@@ -26,21 +26,21 @@
  * --host` does for a bare PTY.
  */
 
-import {
-  frontDaemonOverStdio,
-  reExecAsDetachedDaemon,
-} from "@kolu/surface-daemon";
 import type { Writable } from "node:stream";
+import {
+  padiSocketPath,
+  resolvePadiStateRoot,
+} from "@kolu/padi-client/rendezvous";
 import {
   type StdioReadinessVerdict,
   writeStdioReadiness,
 } from "@kolu/surface/links/readiness";
-import { Effect } from "effect";
 import {
-  padiSocketPath,
-  padiStderrLogPath,
-  resolvePadiStateRoot,
-} from "../stateRoot.ts";
+  frontDaemonOverStdio,
+  reExecAsDetachedDaemon,
+} from "@kolu/surface-daemon";
+import { Effect } from "effect";
+import { padiStderrLogPath } from "../stateRoot.ts";
 import { convergeStdioFront } from "./convergeFront.ts";
 
 /** Raised when the pre-step refused: the front has already written its `refused`

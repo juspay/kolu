@@ -24,11 +24,8 @@
  * bytes, no cast, and the tags can only agree with what the daemon serves.
  */
 
-import {
-  dialPadiViaHost,
-  padiClientOver,
-  scopePadiSurface,
-} from "@kolu/padi/dial";
+import { dialPadiViaHost } from "@kolu/padi/remote-dial";
+import { padiClientOver, scopePadiSurface } from "@kolu/padi-client/dial";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { Effect } from "effect";
 import {

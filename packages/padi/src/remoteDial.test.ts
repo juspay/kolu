@@ -1,6 +1,6 @@
+import { PADI_SURFACE_VERSION } from "@kolu/padi-client/surface";
 import { Effect, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PADI_SURFACE_VERSION } from "./surface.ts";
 
 const h = vi.hoisted(() => ({ dialAgentOnce: vi.fn() }));
 
@@ -10,7 +10,7 @@ vi.mock("@kolu/surface-remote", async (importOriginal) => {
 });
 
 import { dialAgentOnce } from "@kolu/surface-remote";
-import { dialPadiViaHost } from "./dial.ts";
+import { dialPadiViaHost } from "./remoteDial.ts";
 
 /** The face `dialAgentOnce` hands its probe. `sshConnector` builds ONE face from
  *  ONE surface and never hands the link's dispatch back, so padi's remote gate

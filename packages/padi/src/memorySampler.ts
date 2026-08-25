@@ -23,13 +23,14 @@
  * so a coarser tick than the client's 1s heap read is plenty live.
  */
 
+import type { PadiProcessMemory, ProcessRss } from "@kolu/padi-client/surface";
 import { Effect } from "effect";
 import {
   bakedOsFactsBin,
   isOsfactsClientError,
-  snapshotPids,
-  type SnapshotSourceErrorRow,
   type SnapshotReading,
+  type SnapshotSourceErrorRow,
+  snapshotPids,
   type UnreadableRow,
 } from "osfacts-client";
 import { match } from "ts-pattern";
@@ -38,7 +39,6 @@ import {
   currentKavalProcessTarget,
   type KavalProcessTarget,
 } from "./ptyHost/index.ts";
-import type { PadiProcessMemory, ProcessRss } from "./vocab.ts";
 
 /** Cadence of padi's process-memory readout — the SAME 5s the retired kolu-server
  *  sampler used. Coarser than the client's 1s heap tick: memory is slow-moving, so

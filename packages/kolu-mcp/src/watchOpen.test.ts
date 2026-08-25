@@ -4,10 +4,10 @@
  * ignore id, or refuses the param.
  */
 
-import type { PadiWatchOpenInput } from "@kolu/padi/surface";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import type { PadiWatchOpenInput } from "@kolu/padi-client/surface";
 import { ToolFailure } from "@kolu/surface-mcp";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveWatchOpenInput, watchOpenTool } from "./watchOpen.ts";

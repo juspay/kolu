@@ -23,8 +23,8 @@
  * leg; the cold leg is pinned by `session/sessionRestore.test.ts`.
  */
 
-import type { PtyHostListEntry } from "kaval";
 import { Effect } from "effect";
+import type { PtyHostListEntry } from "kaval";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const listEntries = vi.hoisted(() => ({ value: [] as PtyHostListEntry[] }));
@@ -68,6 +68,13 @@ vi.mock("../log.ts", () => ({
   },
 }));
 
+import {
+  encodeHostLocation,
+  LOCAL_LOCATION,
+  type SavedActiveTerminal,
+  type SavedSession,
+  type SavedTerminal,
+} from "@kolu/padi-client/surface";
 import { inMemoryStore } from "@kolu/surface/server";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
@@ -81,13 +88,6 @@ import { setPadiLastPairedDaemonStore } from "../session/confStores.ts";
 import type { PairedDaemon } from "../session/pairedDaemon.ts";
 import { setSavedSession } from "../session/session.ts";
 import { terminalEntries, unregisterTerminal } from "../terminal-registry.ts";
-import {
-  encodeHostLocation,
-  LOCAL_LOCATION,
-  type SavedActiveTerminal,
-  type SavedSession,
-  type SavedTerminal,
-} from "../vocab.ts";
 import { adoptSurvivingSession } from "./reattach.ts";
 
 setDaemonProcessId("reattach-order-test-server");

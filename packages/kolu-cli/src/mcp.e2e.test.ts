@@ -36,11 +36,13 @@ import { describeDaemon } from "@kolu/daemon-test-gate";
 import {
   assertPadiSurfaceCompatible,
   padiClientOver,
+  scopePadiSurface,
+} from "@kolu/padi-client/dial";
+import {
   padiSocketPath,
   resolvePadiStateRoot,
-  scopePadiSurface,
-} from "@kolu/padi/dial";
-import { padiDaemonGroup } from "@kolu/padi/surface";
+} from "@kolu/padi-client/rendezvous";
+import { padiDaemonGroup } from "@kolu/padi-client/surface";
 import { awaitStdioReadiness } from "@kolu/surface/links/readiness";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";

@@ -21,7 +21,7 @@
  *  `foo.html` already selected. */
 
 import Drawer from "@corvu/drawer";
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import type { Component, JSX } from "solid-js";
 import { withKeyboardDismiss } from "../ui/dismissSoftKeyboard";

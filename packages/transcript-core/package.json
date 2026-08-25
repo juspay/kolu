@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@kolu/log": "workspace:*",
-    "effect": "catalog:"
+    "effect": "4.0.0-rc.110"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

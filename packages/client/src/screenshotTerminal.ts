@@ -23,12 +23,12 @@
  *  Chrome, "black image" reports in real Chrome). Painting cells directly
  *  sidesteps that entire surface. */
 
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
+import { DEFAULT_FONT_SIZE } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { DEFAULT_FONT_SIZE } from "kolu-common/config";
 import {
   buildScene,
   cellHeight,

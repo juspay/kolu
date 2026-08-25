@@ -15,7 +15,7 @@ import {
   type DaemonStatus,
   encodeHostLocation,
   LOCAL_LOCATION,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import type { HostKey } from "kolu-common/hostKey";
 import { createMemo } from "solid-js";
 import { channelLive, toKavalPresence } from "../kaval/daemonPresentation";

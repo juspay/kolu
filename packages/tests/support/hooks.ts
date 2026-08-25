@@ -16,12 +16,9 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
-import {
-  padiGatePath,
-  padiKavalSocketPath,
-  padiSocketPath,
-} from "@kolu/padi/stateRoot";
-import type { NewTerminalPolicy } from "@kolu/padi/surface";
+import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
+import { padiGatePath, padiSocketPath } from "@kolu/padi-client/rendezvous";
+import type { NewTerminalPolicy } from "@kolu/padi-client/surface";
 import getPort from "get-port";
 import { composeSpawnEnv, NIX_ENV_WHITELIST, pickEnv } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";

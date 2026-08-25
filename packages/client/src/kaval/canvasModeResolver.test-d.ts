@@ -18,7 +18,7 @@
  * `const x: T = {...}; void x;` declarations plus inline `// @ts-expect-error`.
  */
 
-import type { DaemonState } from "@kolu/padi/surface";
+import type { DaemonState } from "@kolu/padi-client/surface";
 import type { CanvasFacts } from "./canvasModeResolver";
 
 // Shared liveness facts every arm carries — spread into each literal below. `connectPhase`

@@ -5,7 +5,9 @@
  * exit event, gone via feed-end + absent key, closed via feed-end + present
  * key (loud, never a false met), and timeout. Plus the tool's JSON frame.
  */
-import { awaitOutputSettled, type PadiSurfaceClient } from "@kolu/padi/dial";
+
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import { awaitOutputSettled } from "@kolu/padi-client/watch";
 import { SurfaceStdioTransportClosed } from "@kolu/surface/errors";
 import { type Cause, Effect, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";

@@ -4,21 +4,21 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { resumableTerminalIds } from "@kolu/padi/resumable";
-import { Schema } from "effect";
 import {
   LOCAL_LOCATION,
   SavedSessionSchema,
   type SavedTerminal,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
+import { Schema } from "effect";
 import { padiStateDir } from "../support/hooks.ts";
-import { padiCall } from "../support/rpcWire.ts";
 import { pollFor } from "../support/poll.ts";
+import { padiCall } from "../support/rpcWire.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
+  DOCK_ROW_SELECTOR,
   HYDRATION_TIMEOUT,
   type KoluWorld,
   POLL_TIMEOUT,
-  DOCK_ROW_SELECTOR,
 } from "../support/world.ts";
 
 /** Post the saved-session payload to the server. Used both at scenario

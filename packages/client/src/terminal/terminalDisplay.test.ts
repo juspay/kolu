@@ -1,4 +1,4 @@
-import { type ActiveTerminal, LOCAL_LOCATION } from "@kolu/padi/surface";
+import { type ActiveTerminal, LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import { terminalCaption } from "@kolu/terminal-vocab/terminalKey";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";

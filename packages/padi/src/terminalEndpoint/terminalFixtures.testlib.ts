@@ -13,6 +13,7 @@
  * suffix, so seeding a terminal in a test cannot perturb `PADI_BUILD_ID`.
  */
 
+import { LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import type {
   AgentIdentity,
   RestoreTarget,
@@ -23,7 +24,6 @@ import {
   type ActiveTerminalProcess,
   registerTerminal,
 } from "../terminal-registry.ts";
-import { LOCAL_LOCATION } from "../vocab.ts";
 import { installSnapshot } from "./metadata.ts";
 
 /** The native session id of the opencode conversation that was live at sleep —

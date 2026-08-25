@@ -1,6 +1,6 @@
 /** Pull-request presentation carried on desktop and touch Dock rows. */
 
-import { activePr, type TerminalMetadata } from "@kolu/padi/surface";
+import { activePr, type TerminalMetadata } from "@kolu/padi-client/surface";
 import type { PrInfo } from "anyforge/schemas";
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";

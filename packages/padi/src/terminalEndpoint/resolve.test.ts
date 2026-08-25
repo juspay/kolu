@@ -7,8 +7,8 @@
  * change to the local path.
  */
 
+import { type HostLocation, LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
-import { type HostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import { localTerminalEndpoint } from "./local.ts";
 import { resolveTerminalEndpoint } from "./resolve.ts";
 

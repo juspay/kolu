@@ -12,7 +12,7 @@
  *      (`stopped-partway` + `landed`) instead of erasing them.
  */
 
-import { padiSurface } from "@kolu/padi/surface";
+import { padiSurface } from "@kolu/padi-client/surface";
 import {
   type SurfaceClientCallable,
   serveSurfaceAsMcp,

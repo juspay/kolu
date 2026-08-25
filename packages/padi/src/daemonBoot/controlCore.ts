@@ -11,14 +11,14 @@
  * versions, the one call you need at a version mismatch is always reachable.
  */
 
-import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
-import { controlCoreFragment } from "@kolu/surface-daemon";
-import { Effect } from "effect";
 import {
   CONTROL_CORE_VERSION,
   PADI_SURFACE_VERSION,
   type padiControlSurface,
-} from "../surface.ts";
+} from "@kolu/padi-client/surface";
+import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
+import { controlCoreFragment } from "@kolu/surface-daemon";
+import { Effect } from "effect";
 
 type ControlCoreDeps = ImplementSurfaceDeps<typeof padiControlSurface.spec>;
 

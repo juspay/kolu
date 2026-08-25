@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { FileGone, GitFailed } from "@kolu/padi-client/surface";
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FileGone, GitFailed } from "../errors.ts";
 import { createTerminalWorkspaceEndpoint } from "./endpoint.ts";
 import { makeTempRepo } from "./gitRepo.testlib.ts";
 

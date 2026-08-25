@@ -13,7 +13,7 @@ import {
   type ActiveTerminal,
   LOCAL_LOCATION,
   type TerminalMetadata,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import type { AgentInfo } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { bindStatePip } from "./statePipBind";

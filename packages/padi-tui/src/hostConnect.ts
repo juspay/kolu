@@ -32,7 +32,7 @@
  * padi-tui depends only on padi's client kit here; the transport volatility
  * remains implemented by `@kolu/surface-remote`.
  */
-import { dialPadiViaHost } from "@kolu/padi/dial";
+import { dialPadiViaHost } from "@kolu/padi/remote-dial";
 import { Effect, type Scope } from "effect";
 import type { Connection, PadiTuiClient } from "./connect.ts";
 

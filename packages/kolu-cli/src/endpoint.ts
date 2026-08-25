@@ -34,7 +34,8 @@
  * `LocalPadiTarget`) are `import type`s, which are erased.
  */
 
-import type { LocalPadiTarget, PadiSurfaceClient } from "@kolu/padi/dial";
+import type { LocalPadiTarget } from "@kolu/padi/stateRoot";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import { Effect, Option, type Scope } from "effect";
 import { Flag } from "effect/unstable/cli";
 import { type CliFailure, errorMessage, failure, isBlank } from "./exit.ts";
@@ -42,15 +43,26 @@ import { type CliFailure, errorMessage, failure, isBlank } from "./exit.ts";
 /** Everything the dial half reaches for, as a type — so the functions below can
  *  take the kit as an argument and still be checked against padi's real
  *  signatures. `typeof import(…)` is a TYPE query: it names the module without
- *  loading it. */
-type PadiDialKit = typeof import("@kolu/padi/dial");
+ *  loading it.
+ *
+ *  TWO modules, because the dial and the RENDEZVOUS that finds what to dial live
+ *  in two packages now: `connectPadi` is `@kolu/padi-client`, hydratable without
+ *  a daemon; `localPadiSocket` reads the running fleet off this box and is
+ *  `@kolu/padi`'s. A CLI on this machine wants both, so it joins them here —
+ *  one object, so the functions below still take ONE argument. */
+type PadiDialKit = typeof import("@kolu/padi-client/dial") &
+  typeof import("@kolu/padi/stateRoot");
 
 /** padi's dial kit, loaded on FIRST DIAL rather than at import time — see the
  *  header. Node's module cache makes every dial after the first one free, so
  *  this stays a plain `Effect.promise` with nothing to memoize by hand. */
-const padiDialKit: Effect.Effect<PadiDialKit> = Effect.promise(
-  () => import("@kolu/padi/dial"),
-);
+const padiDialKit: Effect.Effect<PadiDialKit> = Effect.promise(async () => {
+  const [dial, rendezvous] = await Promise.all([
+    import("@kolu/padi-client/dial"),
+    import("@kolu/padi/stateRoot"),
+  ]);
+  return { ...dial, ...rendezvous };
+});
 
 /** The root command's shared flags. Declared once, inherited by every
  *  subcommand — so the one face that does NOT dial a padi at all (`web`)

@@ -7,13 +7,13 @@
  * upgrades when a listener appears and degrades when auto-cancel closes a door.
  */
 
-import { activeArm } from "@kolu/padi/surface";
+import { activeArm } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { parseLoopbackUrl } from "@kolu/url-shape";
 import { Effect } from "effect";
 import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
-import { portReach } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
+import { portReach } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -45,8 +45,8 @@ import { activeHost } from "../wire";
 import { openRawUrl } from "./handleWebLink";
 import {
   closePrintedUrlCard,
-  printedUrlCardTarget,
   type PrintedUrlCardTarget,
+  printedUrlCardTarget,
 } from "./printedUrlCardState";
 import { useTerminalStore } from "./useTerminalStore";
 

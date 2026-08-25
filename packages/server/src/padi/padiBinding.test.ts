@@ -22,12 +22,10 @@
  * Every padi + its detached kaval is reaped (SIGKILL via the gate files).
  */
 
-import { Effect } from "effect";
-import { createEndpointForKoluTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
 import {
   closeSync,
-  constants as fsConstants,
   existsSync,
+  constants as fsConstants,
   mkdirSync,
   mkdtempSync,
   openSync,
@@ -39,43 +37,41 @@ import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { describeDaemon } from "@kolu/daemon-test-gate";
+import { padiRuntimeHome, residentPadiSocket } from "@kolu/padi/assembly";
+import type { TerminalAttachFrame } from "@kolu/padi/endpoint";
+import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
 // `connectPadi` moved into the shared dial kit in W2.3; the supervision it feeds
 // (bind/drain convergence, drivers, the reconnect session) stays in the binder.
-import { connectPadi } from "@kolu/padi/dial";
-import {
-  padiGatePath,
-  padiKavalSocketPath,
-  padiSocketPath,
-} from "@kolu/padi/stateRoot";
-import type { TerminalAttachFrame } from "@kolu/padi/endpoint";
+import { connectPadi } from "@kolu/padi-client/dial";
+import { padiGatePath, padiSocketPath } from "@kolu/padi-client/rendezvous";
 import {
   PADI_FORWARDING_POLICY,
   PADI_SURFACE_VERSION,
   padiSurface,
   TOPLEVEL_PLACEMENT,
-} from "@kolu/padi/surface";
-import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
+} from "@kolu/padi-client/surface";
+import { buildSurfaceFace } from "@kolu/surface/client";
 import {
-  AGENT_TOOLS_BAKE_ENV,
-  SPAWN_ENV_ALLOWLIST,
-  TERMINAL_TOOLS_PATH_ENV,
-} from "kolu-pty";
+  isSurfaceRelayTransportLost,
+  isSurfaceStdioTransportClosed,
+} from "@kolu/surface/errors";
+import { directDispatch } from "@kolu/surface/links/direct";
+import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
 import {
   type ConvergenceOutcome,
   converge,
   daemonBuild,
   probeDaemonIdentity,
 } from "@kolu/surface-daemon-supervisor";
-
-import {
-  isSurfaceRelayTransportLost,
-  isSurfaceStdioTransportClosed,
-} from "@kolu/surface/errors";
-import { buildSurfaceFace } from "@kolu/surface/client";
-import { directDispatch } from "@kolu/surface/links/direct";
+import { createEndpointForKoluTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
 import { ConnectError, reServeSurface } from "@kolu/surface-remote";
-import { Stream } from "effect";
-import { describeDaemon } from "@kolu/daemon-test-gate";
+import { Effect, Stream } from "effect";
+import {
+  AGENT_TOOLS_BAKE_ENV,
+  SPAWN_ENV_ALLOWLIST,
+  TERMINAL_TOOLS_PATH_ENV,
+} from "kolu-pty";
 import {
   afterAll,
   afterEach,
@@ -106,7 +102,6 @@ import {
 // Post-S9 the binder returns a `PadiSession` (a base `Session` + the daemon-supervision
 // spread) — there is no `PadiBindingSession` class.
 import type { PadiSession } from "./padiSession.ts";
-import { padiRuntimeHome, residentPadiSocket } from "@kolu/padi/assembly";
 
 /** A silent structural logger for the in-test endpoint + the newer-binder bind
  *  (the drain path logs at info/warn/error; the test keeps stdout clean). */

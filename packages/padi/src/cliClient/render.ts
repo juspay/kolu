@@ -36,8 +36,8 @@ import {
   type PadiStateEvent,
   type PadiTerminal,
   WATCH_STATE_EVENT_KINDS,
-} from "../surface.ts";
-import { activeAgent } from "../terminalVocab.ts";
+} from "@kolu/padi-client/surface";
+import { activeAgent } from "@kolu/padi-client/terminalVocab";
 import {
   agentBucket,
   agentShortName,

@@ -22,9 +22,9 @@
  * mid-history.
  */
 
+import type { PadiStateEvent } from "@kolu/padi-client/surface";
 import { Effect, Queue, Stream } from "effect";
 import type { Logger } from "pino";
-import type { PadiStateEvent } from "../surface.ts";
 import type { StateWatchHub, StateWatchSpec } from "./stateWatch.ts";
 
 export function stateWatchSource(
