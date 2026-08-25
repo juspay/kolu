@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyGhError,
   deriveCheckStatus,
+  GH_PR_VIEW_JSON_FIELD_LIST,
   GH_PR_VIEW_JSON_FIELDS,
   type GhPrViewJson,
   prInfoFromGhView,
@@ -171,10 +172,10 @@ describe("prInfoFromGhView", () => {
   };
 
   it("asks gh for reviewDecision and mergeStateStatus on the same view call", () => {
-    const fields = GH_PR_VIEW_JSON_FIELDS.split(",");
-    expect(fields).toContain("reviewDecision");
-    expect(fields).toContain("mergeStateStatus");
-    expect(fields).toContain("statusCheckRollup");
+    expect(GH_PR_VIEW_JSON_FIELDS).toBe(GH_PR_VIEW_JSON_FIELD_LIST.join(","));
+    expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("reviewDecision");
+    expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("mergeStateStatus");
+    expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("statusCheckRollup");
   });
 
   it("carries gh's reviewDecision and mergeStateStatus verbatim", () => {

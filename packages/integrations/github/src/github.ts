@@ -103,9 +103,20 @@ export function extractChecks(rollup: RollupEntry[] | undefined): CheckRun[] {
 }
 
 /** `--json` fields for the ONE `gh pr view` the sensor already makes. Adding
- *  a field here is adding it to that same request, not a second poll. */
-export const GH_PR_VIEW_JSON_FIELDS =
-  "number,title,url,state,statusCheckRollup,reviewDecision,mergeStateStatus";
+ *  a name here is adding it to that same request, not a second poll. The
+ *  CLI string and the JSON type are the same list — a new field that
+ *  lands in only one of them is a type error (`_ghPrViewJsonKeysMatch`). */
+export const GH_PR_VIEW_JSON_FIELD_LIST = [
+  "number",
+  "title",
+  "url",
+  "state",
+  "statusCheckRollup",
+  "reviewDecision",
+  "mergeStateStatus",
+] as const;
+
+export const GH_PR_VIEW_JSON_FIELDS = GH_PR_VIEW_JSON_FIELD_LIST.join(",");
 
 /** Shape returned by `gh pr view --json ${GH_PR_VIEW_JSON_FIELDS}`. */
 export type GhPrViewJson = {
@@ -117,6 +128,16 @@ export type GhPrViewJson = {
   reviewDecision: string | null;
   mergeStateStatus: string;
 };
+
+type GhPrViewJsonKeysMatch = Exclude<
+  keyof GhPrViewJson,
+  (typeof GH_PR_VIEW_JSON_FIELD_LIST)[number]
+> extends never
+  ? Exclude<(typeof GH_PR_VIEW_JSON_FIELD_LIST)[number], keyof GhPrViewJson> extends never
+    ? true
+    : never
+  : never;
+const _ghPrViewJsonKeysMatch: GhPrViewJsonKeysMatch = true;
 
 const decodePrState = Schema.decodeUnknownSync(PrStateSchema);
 const decodeReviewDecision = Schema.decodeUnknownSync(

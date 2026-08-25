@@ -19,7 +19,7 @@ describe("PrInfo wire format", () => {
   const decode = Schema.decodeUnknownSync(PrInfoSchema);
   const encode = Schema.encodeSync(PrInfoSchema);
 
-  it("encodes to the exact legacy JSON bytes", () => {
+  it("encodes number/title/url/state/checks/checkRuns/reviewDecision/mergeStateStatus in that key order", () => {
     const pr: PrInfo = {
       number: 148,
       title: "Decomplect PR resolution state",
