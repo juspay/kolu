@@ -17,11 +17,7 @@ import {
   validateBetaAssumptions,
 } from "./betaAssumptions";
 import { checkClosureWalksAgree } from "./closureWalk";
-import {
-  collectEffectPins,
-  validateEffectPins,
-  vendoredManifests,
-} from "./effectPin";
+import { collectEffectPins, validateEffectPins } from "./effectPin";
 import {
   assertAppendOnly,
   census,
@@ -43,6 +39,7 @@ import {
   RUN_EDGE_ALLOWLIST,
   validateRunEdges,
 } from "./runEdges";
+import { vendoredManifests } from "./vendorEntries";
 
 const packageRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = path.resolve(packageRoot, "../..");
@@ -235,5 +232,5 @@ validateBetaAssumptions(
 );
 
 console.log(
-  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed), ${closureMembers} vendored closure members walked identically by nix and TS`,
+  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed), ${closureMembers} vendored + daemon-identity closure members walked identically by nix and TS`,
 );

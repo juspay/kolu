@@ -42,11 +42,10 @@
  * package-DIRECTORY act, but what it costs is the whole transitive
  * `dependencies` closure of that directory — so `@kolu/padi-client` arriving in
  * olai brought `@kolu/terminal-vocab`, `kolu-transcript-core` and the
- * integrations with it, none of which anyone would have thought to list. Only
- * the ENTRY packages are declared here ({@link VENDOR_ENTRIES} — the
- * irreducible fact, since it is a fact about OTHER repos); the closure is
- * walked ({@link vendoredManifests}), so a package that joins a vendored
- * closure by gaining an edge joins this gate by the same act.
+ * integrations with it, none of which anyone would have thought to list. Which
+ * directories are vendored, and what their closure costs, is `vendorEntries.ts`'s
+ * subject, not this file's — this gate takes the answer as data (the `vendored`
+ * set every function below is handed) and polices Effect versions against it.
  *
  * A package name that appears in a manifest but has no catalog AND override
  * entry fails too: those two are how a version stays single, and a family
@@ -55,7 +54,6 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { declaredDependencyClosure } from "@kolu/daemon-test-gate/runtimeDepEdges";
 // Effect's own YAML parser, not the `yaml` package: this file's inputs are
 // machine-generated (pnpm-workspace.yaml), the workspace already depends on
 // Effect here, and using it drops a dependency rather than adding one. Both
@@ -86,50 +84,6 @@ export function isEffectFamily(pkg: string): boolean {
   return pkg === "effect" || pkg.startsWith("@effect/");
 }
 
-/** The package DIRECTORIES an outside repo copies out of a content-addressed
- *  kolu pin. This is the one thing that cannot be derived — it is a fact about
- *  those repos, not about this tree — so it is declared, and nothing else about
- *  the vendored set is.
- *
- *  `@kolu/surface*` is drishti's and odu's (see `packages/AGENTS.md`);
- *  `@kolu/padi-client` is olai's, which dials a running padi from its server and
- *  never installs one (juspay/kolu#2216). */
-export const VENDOR_ENTRIES = [
-  "@kolu/surface",
-  "@kolu/surface-app",
-  "@kolu/surface-cli",
-  "@kolu/surface-daemon",
-  "@kolu/surface-daemon-supervisor",
-  "@kolu/surface-map",
-  "@kolu/surface-mcp",
-  "@kolu/surface-remote",
-  "@kolu/padi-client",
-] as const;
-
-/** Every manifest an external consumer installs outside kolu's workspace: the
- *  vendored entry directories AND their transitive `dependencies` closure,
- *  because a vendored directory's manifest is installed from the consumer's own
- *  workspace and so is every manifest it names.
- *
- *  Walked with the shared `declaredDependencyClosure` — the TS mirror of nix's
- *  `depClosure` — so this gate and `@kolu/padi-client`'s hydrate guard answer
- *  "what does vendoring this cost" with ONE walk rather than two that agree
- *  today. */
-export function vendoredManifests(repoRoot: string): ReadonlySet<string> {
-  return new Set(
-    declaredDependencyClosure({ repoRoot, entries: VENDOR_ENTRIES })
-      .manifestPaths,
-  );
-}
-
-/** True for a manifest an external consumer installs outside kolu's workspace. */
-export function isVendoredManifest(
-  relPath: string,
-  vendored: ReadonlySet<string>,
-): boolean {
-  return vendored.has(relPath);
-}
-
 /** The manifest grafted in from the `osfacts` pin — juspay/osfacts'
  *  `client-ts/package.json`, which is authored and installed in THAT repo's
  *  workspace. Not `startsWith`: only the graft ROOT is the manifest we mean. */
@@ -144,7 +98,7 @@ export function literalReason(
   relPath: string,
   vendored: ReadonlySet<string>,
 ): string | null {
-  if (isVendoredManifest(relPath, vendored))
+  if (vendored.has(relPath))
     return "in a vendored package's dependency closure; `catalog:` is workspace-local and does not resolve for the repo that copies these directories (drishti/odu, olai)";
   if (isGraftedManifest(relPath))
     return "the manifest grafted from the `osfacts` pin; it is authored in juspay/osfacts' own workspace, where kolu's catalog does not exist";
@@ -325,7 +279,7 @@ export function validateEffectPins(
     const reason = literalReason(pin.path, vendored);
     if (reason !== null) {
       if (pin.spec === version) {
-        if (isVendoredManifest(pin.path, vendored)) vendoredLiterals += 1;
+        if (vendored.has(pin.path)) vendoredLiterals += 1;
       } else {
         problems.push(
           `  ${describe(pin)} — must spell the literal ${version}: it is ${reason}.`,

@@ -20,11 +20,11 @@
  *     and never installs the daemon it talks to.
  *
  * That last consumer is why this module lives in `@kolu/padi-client` rather than
- * `@kolu/padi`: hydration is per-PACKAGE, so a dial that shares a manifest with
- * the daemon drags kaval, node-pty, xterm and the whole PTY tier into a server
- * that only wanted to speak the surface. What reaches a socket is here; what
- * reaches a HOST — the ssh provisioning dial, `@kolu/padi/remote-dial` — stays
- * with the daemon package that owns the closure it ships.
+ * `@kolu/padi` — the rule and its enforcer are stated once in
+ * `packages/padi-client/src/hydrate.closure.test.ts`. What reaches a socket is
+ * here; what reaches a HOST — the ssh provisioning dial,
+ * `@kolu/padi/remote-dial` — stays with the daemon package that owns the closure
+ * it ships.
  *
  * Supervision is NOT here, on purpose. The version ORDERING that decides
  * drain-vs-refuse (padi's `ConvergencePolicy`, enacted by the shared convergence

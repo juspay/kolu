@@ -98,6 +98,9 @@ describe("the tool table's tree-load fence", () => {
       const source = readFileSync(join(SRC, file), "utf8");
       for (const match of source.matchAll(VALUE_IMPORT)) {
         const specifier = match[1];
+        // The exact-or-`root/` shape is spelled again in
+        // `packages/server/src/seal.test.ts`. Deliberate: sharing three lines
+        // would cost this package a new devDependency, a worse trade.
         if (
           specifier &&
           BANNED_ROOTS.some(

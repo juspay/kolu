@@ -31,6 +31,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { declaredDependencyClosure } from "@kolu/daemon-test-gate/runtimeDepEdges";
 import { Effect } from "effect";
 import { parse } from "@babel/parser";
 import { contract } from "kolu-common/contract";
@@ -264,46 +265,13 @@ function padiSrcFilesAll(): string[] {
 }
 
 const PACKAGES_DIR = resolve(PADI_SRC, "..", "..");
+const REPO_ROOT = resolve(PACKAGES_DIR, "..");
 const PADI_PKG = resolve(PADI_SRC, "..", "package.json");
 const PADI_CLIENT_PKG = resolve(PADI_CLIENT_SRC, "..", "package.json");
 
 /** The app packages @kolu/padi (the terminal-domain AUTHORITY) must never depend
  *  on — the arrow points OUT. `@kolu/padi/*` is not among them (it IS padi). */
 const APP_PACKAGES = ["kolu-common", "kolu-server", "kolu-client"];
-
-/** Map every workspace package NAME → its `package.json` path, so a workspace
- *  dep (`@kolu/terminal-vocab`, `kaval`, `kolu-pty`, …) resolves to its dir
- *  even when the dir name differs from the package name.
- *
- *  Discovery is RECURSIVE, mirroring the ROOT `pnpm-workspace.yaml`, whose sole
- *  workspace glob is a fully-recursive `packages/**`: a workspace package may live
- *  at ANY depth under `packages/` — top-level (`packages/kaval`), nested
- *  (`packages/integrations/kolu-pty`), an `example/*` sub-package, and so on. The
- *  old top-level-only `readdirSync(PACKAGES_DIR)` silently DROPPED
- *  `packages/integrations/*` — ~7 of padi's OWN deps (kolu-pty, kolu-git,
- *  anyagent, anyforge, kolu-claude-code, kolu-codex, kolu-opencode) — so arm (e)'s
- *  cone walk never reached them and passed vacuously. We prune `node_modules`
- *  (pnpm never treats it as a workspace root) and dot-dirs; every remaining
- *  `package.json` is a workspace member, keyed by its declared `name`. */
-function workspacePkgJsonByName(): Map<string, string> {
-  const byName = new Map<string, string>();
-  const walk = (dir: string): void => {
-    const pj = resolve(dir, "package.json");
-    if (existsSync(pj)) {
-      try {
-        const name = JSON.parse(readFileSync(pj, "utf8")).name;
-        if (typeof name === "string" && name) byName.set(name, pj);
-      } catch {}
-    }
-    for (const ent of readdirSync(dir, { withFileTypes: true })) {
-      if (!ent.isDirectory()) continue;
-      if (ent.name === "node_modules" || ent.name.startsWith(".")) continue;
-      walk(resolve(dir, ent.name));
-    }
-  };
-  walk(PACKAGES_DIR);
-  return byName;
-}
 
 function declaredDeps(pkgJsonPath: string): string[] {
   const p = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
@@ -437,7 +405,11 @@ function koluSurfaceBindings(file: string): string[] {
 const TERMINAL_DOMAIN = ["@kolu/padi", "@kolu/padi-client"] as const;
 
 /** True for a specifier naming the terminal domain — the package itself or one
- *  of its subpaths. */
+ *  of its subpaths.
+ *
+ *  The exact-or-`root/` shape is spelled again in `packages/kolu-mcp/src/tools.test.ts`.
+ *  That duplication is DELIBERATE: sharing three lines would cost kolu-mcp a new
+ *  devDependency on this package's home, which is a worse trade than typing them twice. */
 function inTerminalDomain(spec: string): boolean {
   return TERMINAL_DOMAIN.some((n) => spec === n || spec.startsWith(`${n}/`));
 }
@@ -766,48 +738,36 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         "The terminal vocabulary lives in @kolu/padi now; import it locally, not from the app.",
     ).toEqual([]);
 
-    // (3) transitive: walk padi's WHOLE workspace dependency cone to a FIXPOINT —
-    //     follow every workspace runtime dep (integrations included, at any
-    //     nesting under `packages/**`) until no new package appears — and flag any
-    //     node that declares an app package. A one-hop check saw only padi's
-    //     DIRECT deps, so `padi → <lib> → <lib2> → app` slipped through; and with
-    //     the old top-level-only discovery, padi's integrations deps (kolu-pty,
-    //     kolu-git, …) weren't even in the map, so this arm passed vacuously.
-    const byName = workspacePkgJsonByName();
-    // The discovery fix as a CI-enforced fact: a known `packages/integrations/*`
-    // package IS in scope now, so the cone walk below is non-vacuous.
-    expect(
-      byName.has("kolu-pty"),
-      "workspace discovery is missing packages/integrations/* (e.g. kolu-pty) — " +
-        "the cone walk would skip ~7 of padi's own deps and pass vacuously.",
-    ).toBe(true);
+    // (3) transitive: padi's WHOLE workspace dependency cone — every workspace
+    //     runtime dep (integrations included, at any nesting under `packages/**`)
+    //     reachable from either terminal-domain manifest — must be free of app
+    //     packages. A one-hop check saw only padi's DIRECT deps, so
+    //     `padi → <lib> → <lib2> → app` slipped through.
+    //
+    //     The cone itself is `declaredDependencyClosure`'s, not a third
+    //     hand-rolled fixpoint beside it and nix's `depClosure` — "the transitive
+    //     workspace-dependency closure" is one derivation and this file consumes
+    //     it. That also retires the old vacuity guard here (`byName.has("kolu-pty")`,
+    //     which existed because a top-level-only discovery once silently dropped
+    //     `packages/integrations/*`): the shared walk THROWS on an entry that is
+    //     not a workspace member, so a stale seed can no longer be answered with a
+    //     quiet empty closure.
+    //
+    //     Seeded from BOTH manifests. `@kolu/padi-client` is a declared dep of
+    //     padi, so the walk would reach it anyway — naming it keeps the arm honest
+    //     if that edge ever inverts (the client half is the one an out-of-repo
+    //     consumer hydrates alone, so its cone matters on its own terms).
+    const cone = declaredDependencyClosure({
+      repoRoot: REPO_ROOT,
+      entries: TERMINAL_DOMAIN,
+    });
     const transitiveOffenders: string[] = [];
-    const expanded = new Set<string>(); // package NAMES already expanded
-    // Seeded from BOTH manifests. `@kolu/padi-client` is a declared dep of padi,
-    // so the walk would reach it anyway — naming it here keeps the arm honest if
-    // that edge ever inverts (the client half is the one an out-of-repo consumer
-    // hydrates alone, so its cone matters on its own terms).
-    const worklist = [PADI_PKG, PADI_CLIENT_PKG].flatMap((pkgJson) =>
-      Object.keys(JSON.parse(readFileSync(pkgJson, "utf8")).dependencies ?? {}),
-    );
-    while (worklist.length > 0) {
-      const dep = worklist.pop() as string;
-      if (expanded.has(dep)) continue;
-      expanded.add(dep);
-      const depPkg = byName.get(dep);
-      if (!depPkg) continue; // non-workspace (registry) dep — can't reach app workspaces
-      for (const a of declaredDeps(depPkg).filter((d) =>
+    for (const manifestPath of cone.manifestPaths) {
+      const pkgJson = resolve(REPO_ROOT, manifestPath);
+      for (const a of declaredDeps(pkgJson).filter((d) =>
         APP_PACKAGES.includes(d),
       )) {
-        transitiveOffenders.push(`${dep} → ${a}`);
-      }
-      // Follow this node's own RUNTIME deps — the runtime cone that determines
-      // padi's staleKey/closure. Registry deps aren't in `byName`, so the worklist
-      // only ever grows by workspace packages and the fixpoint terminates.
-      for (const next of Object.keys(
-        JSON.parse(readFileSync(depPkg, "utf8")).dependencies ?? {},
-      )) {
-        if (!expanded.has(next) && byName.has(next)) worklist.push(next);
+        transitiveOffenders.push(`${manifestPath} → ${a}`);
       }
     }
     expect(

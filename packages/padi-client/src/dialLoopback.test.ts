@@ -4,9 +4,9 @@
  * `connectPadi` is the one verb an out-of-repo consumer (olai's server, PR 1a of
  * the orchestrator plan) calls, and the whole claim of this package is that it
  * works with NO padi installed — no daemon binary, no kaval, no PTY host, no
- * spawn. So this test stands up the far end itself: a plain `net` server on a
- * temp socket serving the frozen control core over the same ndjson framing a
- * real padi serves, and then dials it with the real `connectPadi`.
+ * spawn. So this test stands up the far end itself: the frozen control core,
+ * served on a temp socket by the same `serveOverUnixSocket` a real padi binds
+ * with, and then dials it with the real `connectPadi`.
  *
  * That is deliberately the WHOLE local dial path, not a mock of it —
  * `dialSocket` → `socketDuplexLink` over `padiDaemonGroup` → the control-core
@@ -22,13 +22,16 @@
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
-import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { CONTROL_CORE_VERSION } from "@kolu/surface-daemon";
 import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
-import { serveOverStdio } from "@kolu/surface/peer-server";
+import {
+  serveOverUnixSocket,
+  type UnixSocketListener,
+} from "@kolu/surface/unix-socket";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { connectPadi } from "./dial.ts";
@@ -47,13 +50,14 @@ type FakePadi = {
  * A padi far end that is not a padi: the frozen control core, served on a unix
  * socket, answering `hello` with the version it is told to claim.
  *
- * `serveOverStdio` with an explicit `transport` is the in-process serve — the
- * connection socket is BOTH halves (a duplex), the same shape `socketDuplexLink`
- * dials from the other side. No readiness banner, deliberately: the local
+ * The serve is the REAL one — `serveOverUnixSocket`, the same function a live
+ * padi binds with (`packages/surface-daemon/src/daemonMain.ts`) — so this far
+ * end differs from a padi in what it ANSWERS and in nothing else. It sends no
+ * readiness banner, and neither does a real padi on this leg: the local
  * unix-socket rendezvous does not carry one (see `dialPadiHello`'s note), so a
  * banner here would test a discipline this leg does not have.
  */
-function serveFakePadi(surfaceVersion: string): FakePadi {
+async function serveFakePadi(surfaceVersion: string): Promise<FakePadi> {
   const dir = mkdtempSync(join(tmpdir(), "padi-client-dial-"));
   const socketPath = join(dir, "padi.sock");
   const runtime = implementSurface(padiControlSibling, {
@@ -79,22 +83,18 @@ function serveFakePadi(surfaceVersion: string): FakePadi {
     },
   });
 
-  // `void` because the serve settles when the connection ends, and the
-  // connection ends when the dial disposes — the teardown below closes the
-  // listener and the runtime, which is what this test owns.
-  const server: Server = createServer((conn) => {
-    void serveOverStdio({
-      group: padiControlSibling.group,
-      handlers: runtime.handlers,
-      transport: { read: conn, write: conn },
-    });
+  const listener: UnixSocketListener = await serveOverUnixSocket({
+    socketPath,
+    group: padiControlSibling.group,
+    handlers: runtime.handlers,
+    log: silentLogger,
   });
-  server.listen(socketPath);
+  expect(listener.outcome).toEqual({ kind: "listening" });
 
   return {
     socketPath,
     close: async () => {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      listener.close();
       await runtime.close();
       rmSync(dir, { recursive: true, force: true });
     },
@@ -109,7 +109,7 @@ afterEach(async () => {
 
 describe("connectPadi, with no padi installed", () => {
   it("dials a socket, handshakes the frozen core, and reports the far end's identity", async () => {
-    live = serveFakePadi(PADI_SURFACE_VERSION);
+    live = await serveFakePadi(PADI_SURFACE_VERSION);
 
     const connection = await Effect.runPromise(connectPadi(live.socketPath));
     try {
@@ -123,7 +123,7 @@ describe("connectPadi, with no padi installed", () => {
   });
 
   it("hands back BOTH typed faces over the one dispatch — the control core answers on it", async () => {
-    live = serveFakePadi(PADI_SURFACE_VERSION);
+    live = await serveFakePadi(PADI_SURFACE_VERSION);
 
     const connection = await Effect.runPromise(connectPadi(live.socketPath));
     try {
@@ -151,7 +151,7 @@ describe("connectPadi, with no padi installed", () => {
     // frozen core still answered: the refusal is a JUDGEMENT on a readable
     // hello, never a decode failure.
     const ahead = `${Number(PADI_SURFACE_VERSION.split(".")[0]) + 1}.0`;
-    live = serveFakePadi(ahead);
+    live = await serveFakePadi(ahead);
 
     const error = await Effect.runPromise(connectPadi(live.socketPath)).then(
       (connection) => {

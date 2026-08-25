@@ -17,9 +17,15 @@
  *     the walk misses is a directory drishti/odu/olai never copy, so the import
  *     fails in their tree and not in ours.
  *
- * So the walks are compared over the same entries the vendored set is derived
- * from ({@link VENDOR_ENTRIES}), and a disagreement fails here rather than
- * downstream.
+ * So the walks are compared over BOTH sets of roots that matter — the vendored
+ * entries (`vendorEntries.ts`) and the two DAEMON-IDENTITY roots, `kaval` and
+ * `@kolu/padi` ({@link IDENTITY_ENTRIES}) — and a disagreement fails here rather
+ * than downstream. The identity roots have to be named explicitly: they are not
+ * vendored by anyone, and `packages/padi-client/src/hydrate.closure.test.ts`
+ * positively asserts `kaval` and `@kolu/padi` are UNREACHABLE from the vendored
+ * set. Over the vendored entries alone the two walks would be held to agree on
+ * exactly the sub-graph where disagreement is cheapest — while the first failure
+ * mode named above, the one that decides daemon identity, went unchecked.
  *
  * ONE known asymmetry, and it is deliberate: the TS walk follows
  * `dependencies` ∪ `peerDependencies` (a peer is a runtime import a hydrating
@@ -33,7 +39,14 @@
 
 import { execFileSync } from "node:child_process";
 import { declaredDependencyClosure } from "@kolu/daemon-test-gate/runtimeDepEdges";
-import { VENDOR_ENTRIES } from "./effectPin";
+import { vendorEntries } from "./vendorEntries";
+
+/** The roots whose closure nix hashes into a DAEMON ID — `default.nix`'s
+ *  `[ "kaval" ]` (the PTY host) and `[ "@kolu/padi" ]` (the padi daemon). Nobody
+ *  vendors these, so they are not in `vendorEntries`, and without them the
+ *  conformance check below never covers the failure mode this file's header
+ *  names first. */
+const IDENTITY_ENTRIES = ["kaval", "@kolu/padi"] as const;
 
 /** Package names are spelled straight into a Nix string literal below, so they
  *  are checked against the shape a package name actually has. Nothing here is
@@ -65,34 +78,26 @@ export function nixClosureNames(
     ["eval", "--accept-flake-config", "--impure", "--json", "--expr", expr],
     { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
-  return (JSON.parse(out) as string[]).slice().sort();
+  return (JSON.parse(out) as string[]).sort();
 }
 
-/** What the two walks disagree about, as two lists a reader can act on. */
-export function closureWalkDelta(
-  nixNames: readonly string[],
-  tsNames: readonly string[],
-): { onlyInNix: string[]; onlyInTs: string[] } {
-  const inNix = new Set(nixNames);
-  const inTs = new Set(tsNames);
-  return {
-    onlyInNix: nixNames.filter((n) => !inTs.has(n)).sort(),
-    onlyInTs: tsNames.filter((n) => !inNix.has(n)).sort(),
-  };
-}
-
-/** Throw unless the two walks named exactly the same closure. */
+/** Throw unless the two walks named exactly the same closure. Both directions
+ *  are reported at once, so a disagreement takes one round to read rather than
+ *  one round per direction. */
 export function validateClosureWalkAgreement(
   nixNames: readonly string[],
   tsNames: readonly string[],
 ): void {
-  const { onlyInNix, onlyInTs } = closureWalkDelta(nixNames, tsNames);
+  const inNix = new Set(nixNames);
+  const inTs = new Set(tsNames);
+  const onlyInNix = nixNames.filter((n) => !inTs.has(n)).sort();
+  const onlyInTs = tsNames.filter((n) => !inNix.has(n)).sort();
   if (onlyInNix.length === 0 && onlyInTs.length === 0) return;
   throw new Error(
     `the manifest-closure walks disagree — nix's depClosure ` +
       `(packages/surface-daemon/nix/workspace-closure.nix) and TS's ` +
       `declaredDependencyClosure (packages/daemon-test-gate) must name the same ` +
-      `set over the vendored entries.\n` +
+      `set over the vendored and daemon-identity entries.\n` +
       `  only nix: ${onlyInNix.join(", ") || "(none)"}\n` +
       `  only TS:  ${onlyInTs.join(", ") || "(none)"}\n` +
       `A member only TS sees is one the daemon identity does not hash; a member ` +
@@ -101,15 +106,14 @@ export function validateClosureWalkAgreement(
   );
 }
 
-/** The whole conformance check, over the entries the vendored set is derived
- *  from — so every directory an outside repo copies is covered by one
- *  assertion. Returns the agreed closure size, for the census line. */
+/** The whole conformance check, over every root either walk's answer is USED
+ *  for: the vendored entries (what a consumer is told to copy) plus
+ *  {@link IDENTITY_ENTRIES} (what a daemon id hashes). Returns the agreed
+ *  closure size, for the census line. */
 export function checkClosureWalksAgree(repoRoot: string): number {
-  const ts = declaredDependencyClosure({
-    repoRoot,
-    entries: VENDOR_ENTRIES,
-  }).names;
-  const nix = nixClosureNames(repoRoot, VENDOR_ENTRIES);
+  const entries = [...vendorEntries(repoRoot), ...IDENTITY_ENTRIES];
+  const ts = declaredDependencyClosure({ repoRoot, entries }).names;
+  const nix = nixClosureNames(repoRoot, entries);
   validateClosureWalkAgreement(nix, ts);
   return ts.length;
 }

@@ -1114,6 +1114,9 @@ importers:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate
+      '@kolu/log':
+        specifier: workspace:*
+        version: link:../log
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15

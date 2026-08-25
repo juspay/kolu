@@ -128,6 +128,32 @@ export function workspacePackageRoots(repoRoot: string): string[] {
   return [...roots];
 }
 
+/** Every workspace member's manifest, cached by package DIRECTORY. One parse per
+ *  file no matter how many walks ask — the two walks below both read most of the
+ *  tree's manifests. */
+const manifests = new Map<string, Manifest>();
+function manifestOf(dir: string): Manifest {
+  let m = manifests.get(dir);
+  if (m === undefined) {
+    m = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as Manifest;
+    manifests.set(dir, m);
+  }
+  return m;
+}
+
+/** name → package dir, from pnpm's own membership. Nameless members (the
+ *  e2e-only `packages/tests`) cannot be depended on or imported BY NAME, so no
+ *  edge can reach them and they are skipped — the one rule both walks below
+ *  need, stated once. */
+function membersByName(repoRoot: string): Map<string, string> {
+  const members = new Map<string, string>();
+  for (const dir of workspacePackageRoots(repoRoot)) {
+    const name = manifestOf(dir).name;
+    if (name !== undefined) members.set(name, dir);
+  }
+  return members;
+}
+
 // ── AST import extraction ─────────────────────────────────────────────────────
 
 type AstNode = {
@@ -198,6 +224,7 @@ type Manifest = {
   exports?: Record<string, unknown>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
 };
 
 /** Resolve a base path to the `.ts`/`.tsx` file it names, or null for a
@@ -293,25 +320,7 @@ export function walkRuntimeDepEdges(opts: {
 }): { violations: DepEdgeViolation[]; reachedPackages: string[] } {
   const { repoRoot, entries, pinnedMembers = {} } = opts;
 
-  const manifests = new Map<string, Manifest>();
-  const manifestOf = (dir: string): Manifest => {
-    let m = manifests.get(dir);
-    if (m === undefined) {
-      m = JSON.parse(
-        readFileSync(join(dir, "package.json"), "utf8"),
-      ) as Manifest;
-      manifests.set(dir, m);
-    }
-    return m;
-  };
-
-  // name → package dir, from pnpm's own membership. Nameless members (the
-  // e2e-only packages/tests) cannot be imported by name and are skipped.
-  const members = new Map<string, string>();
-  for (const dir of workspacePackageRoots(repoRoot)) {
-    const name = manifestOf(dir).name;
-    if (name !== undefined) members.set(name, dir);
-  }
+  const members = membersByName(repoRoot);
   // Only workspace-discovered names owe the `workspace:` protocol; a pin is
   // spelled however the consumer's manifest spells pins, so the two membership
   // kinds are indexed together for walking but kept apart for that one rule.
@@ -454,37 +463,24 @@ export function declaredDependencyClosure(opts: {
 }): { names: string[]; manifestPaths: string[]; externals: string[] } {
   const { repoRoot, entries } = opts;
 
-  const dirOf = new Map<string, string>();
-  for (const dir of workspacePackageRoots(repoRoot)) {
-    const name = (
-      JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
-        name?: string;
-      }
-    ).name;
-    // Nameless members (an e2e-only package) cannot be depended on BY NAME, so
-    // no edge can reach them and they cannot be in anyone's closure.
-    if (name !== undefined) dirOf.set(name, dir);
-  }
+  const dirOf = membersByName(repoRoot);
 
-  const seen = new Set<string>();
+  // name → dir for every member REACHED, so the manifest paths below come out of
+  // the walk itself rather than a second lookup that has to assert its own hits.
+  const reached = new Map<string, string>();
   const outside = new Set<string>();
   const stack = [...entries];
   while (stack.length > 0) {
     const name = stack.pop() as string;
-    if (seen.has(name)) continue;
-    seen.add(name);
+    if (reached.has(name)) continue;
     const dir = dirOf.get(name);
     if (dir === undefined) {
       throw new Error(
         `declaredDependencyClosure: '${name}' is not a workspace member — a stale entry answered with an empty closure is a gate that passes vacuously`,
       );
     }
-    const manifest = JSON.parse(
-      readFileSync(join(dir, "package.json"), "utf8"),
-    ) as {
-      dependencies?: Record<string, string>;
-      peerDependencies?: Record<string, string>;
-    };
+    reached.set(name, dir);
+    const manifest = manifestOf(dir);
     for (const dep of Object.keys({
       ...manifest.dependencies,
       ...manifest.peerDependencies,
@@ -494,14 +490,11 @@ export function declaredDependencyClosure(opts: {
     }
   }
 
-  const names = [...seen].sort();
   return {
-    names,
-    manifestPaths: names
-      .map((n) =>
-        relative(repoRoot, join(dirOf.get(n) as string, "package.json"))
-          .split(sep)
-          .join("/"),
+    names: [...reached.keys()].sort(),
+    manifestPaths: [...reached.values()]
+      .map((dir) =>
+        relative(repoRoot, join(dir, "package.json")).split(sep).join("/"),
       )
       .sort(),
     externals: [...outside].sort(),

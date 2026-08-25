@@ -26,9 +26,10 @@
  * The related rule — that every manifest in this closure must spell a LITERAL
  * dependency version, since `catalog:` is workspace-local and unresolvable for
  * the repo that copies these directories — is NOT checked here. It has an owner
- * already: `packages/tests/governance/effectPin.ts`, which derives the vendored
- * set from this very closure (`vendoredManifests`) and polices both directions
- * across the whole tree. A second copy here could only drift from it.
+ * already: `packages/tests/governance/vendorEntries.ts` derives the vendored set
+ * from this very closure (`vendoredManifests`), and
+ * `packages/tests/governance/effectPin.ts` polices both directions across the
+ * whole tree. A second copy here could only drift from them.
  *
  * The two walks get their OWN allowlists — `IMPORTED_ALLOWED` and
  * `DECLARED_ALLOWED` — because they are two different sets and the difference
@@ -52,6 +53,7 @@ import { fileURLToPath } from "node:url";
 import {
   declaredDependencyClosure,
   walkRuntimeDepEdges,
+  workspacePackageRoots,
 } from "@kolu/daemon-test-gate/runtimeDepEdges";
 import { describe, expect, it } from "vitest";
 
@@ -153,9 +155,14 @@ const IMPORTED_ALLOWED = new Set([
   "kolu-transcript-core",
 ]);
 
-/** Names whose PRESENCE would mean the daemon tier came back. Asserted by name
- *  as well as by the allowlist, so the failure message says what happened
- *  instead of only that a set grew. */
+/** Names whose PRESENCE would mean the daemon tier came back.
+ *
+ *  Every one of these is already caught by the `DECLARED_ALLOWED` check, and
+ *  that is not why this list exists. It exists because it is the one assertion a
+ *  two-line edit to `DECLARED_ALLOWED` cannot silence: someone who reaches for
+ *  `kaval` and quiets the closure check by adding it to the allowlist still
+ *  fails here, by name, with the reason. An allowlist records a decision; this
+ *  list refuses one. */
 const DAEMON_TIER = [
   "kaval",
   "terminal-snapshot",
@@ -178,12 +185,10 @@ const DAEMON_TIER = [
  *  gate starts lying, which is why the nix one is held to this one by
  *  `packages/tests/governance/closureWalk.ts` and why the externals below come
  *  out of the SAME pass rather than a second edge rule spelled here. */
-function hydrateClosure(): ReturnType<typeof declaredDependencyClosure> {
-  return declaredDependencyClosure({
-    repoRoot: REPO_ROOT,
-    entries: ["@kolu/padi-client"],
-  });
-}
+const HYDRATE_CLOSURE = declaredDependencyClosure({
+  repoRoot: REPO_ROOT,
+  entries: ["@kolu/padi-client"],
+});
 
 /**
  * The npm packages a hydrating consumer must add to its OWN manifest — pinned
@@ -269,7 +274,27 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
   });
 
   it("declares a manifest closure a consumer can hydrate — no kaval, no node-pty, no TUI tier", () => {
-    const closure = hydrateClosure().names;
+    const closure = HYDRATE_CLOSURE.names;
+
+    // A DAEMON_TIER name that names nothing can never match, so a rename would
+    // leave a dead string that reads like a guard and refuses nothing.
+    const members = new Set(
+      workspacePackageRoots(REPO_ROOT).map(
+        (dir) =>
+          (
+            JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+              name?: string;
+            }
+          ).name,
+      ),
+    );
+    const ghosts = DAEMON_TIER.filter((p) => !members.has(p));
+    expect(
+      ghosts,
+      `DAEMON_TIER names packages that are not workspace members: ` +
+        `${ghosts.join(", ")}. A renamed package leaves a string here that can ` +
+        `never match — the refusal it stands for would be silently gone.`,
+    ).toEqual([]);
 
     const daemonTier = closure.filter((p) => DAEMON_TIER.includes(p));
     expect(
@@ -294,6 +319,6 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
     // opinions about whether a peer is a runtime edge — and a workspace member
     // reached only through a peer would then be reported as a third-party
     // package while its own subtree went unwalked.
-    expect(hydrateClosure().externals).toEqual(EXPECTED_EXTERNALS);
+    expect(HYDRATE_CLOSURE.externals).toEqual(EXPECTED_EXTERNALS);
   });
 });

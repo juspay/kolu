@@ -6,15 +6,11 @@
  *
  * It rides the CLIENT package because it is the first thing a client does: a
  * dial needs a socket path, and `padiSocketPath(stateRoot)` is how one is named.
- * The line between this module and `@kolu/padi/stateRoot` is WHAT A CONSUMER
- * THAT NEVER INSTALLS THE DAEMON CAN REACH, not "pure vs probing": everything
- * here costs such a consumer nothing beyond `node:` builtins and
- * `resolveDaemonHome`, while the other half's closure includes kaval — discovery
- * of live padis and the kaval placement beside them — and kaval is a PTY host
- * with a compile step. `@kolu/padi/stateRoot` imports this module and adds its
- * own; the split is machine-checked by
- * `packages/padi-client/src/hydrate.closure.test.ts`, which fails the moment
- * this package's manifest closure grows.
+ * Everything here costs a consumer that never installs the daemon nothing beyond
+ * `node:` builtins and `resolveDaemonHome`; the machine-side half is
+ * `@kolu/padi/stateRoot`, which imports this module and adds its own. Why the
+ * line falls there, and what enforces it, is stated once in
+ * `packages/padi-client/src/hydrate.closure.test.ts`.
  *
  * ── What this module is NOT: a way to FIND a running padi ────────────────────
  *

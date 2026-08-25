@@ -9,19 +9,11 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  closureWalkDelta,
-  nixClosureNames,
-  validateClosureWalkAgreement,
-} from "./closureWalk";
+import { nixClosureNames, validateClosureWalkAgreement } from "./closureWalk";
 
-test("identical closures agree", () => {
+test("identical closures agree, whatever order they arrive in", () => {
   const names = ["@kolu/surface", "kolu-io", "kolu-shared"];
-  assert.deepEqual(closureWalkDelta(names, [...names].reverse()), {
-    onlyInNix: [],
-    onlyInTs: [],
-  });
-  validateClosureWalkAgreement(names, names);
+  validateClosureWalkAgreement(names, [...names].reverse());
 });
 
 test("a member only TS reaches is named — the daemon id would not hash it", () => {
@@ -43,9 +35,10 @@ test("a member only nix reaches is named — a consumer is never told to copy it
 });
 
 test("both directions are reported at once, not one round at a time", () => {
-  const { onlyInNix, onlyInTs } = closureWalkDelta(["a", "x"], ["a", "y"]);
-  assert.deepEqual(onlyInNix, ["x"]);
-  assert.deepEqual(onlyInTs, ["y"]);
+  assert.throws(
+    () => validateClosureWalkAgreement(["a", "x"], ["a", "y"]),
+    /only nix: x\n\s*only TS:\s+y/,
+  );
 });
 
 test("a non-package-name entry is refused before it reaches the nix expression", () => {
