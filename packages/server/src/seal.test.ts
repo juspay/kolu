@@ -243,18 +243,29 @@ function serverTestFiles(): string[] {
 // remains in the app for padi to reach for.
 
 const PADI_SRC = resolve(SRC, "..", "..", "padi", "src");
+/** The terminal domain's CLIENT half. It is padi's — the spec padi serves, the
+ *  dial its clients share — carved into its own package only so a consumer can
+ *  hydrate it without the daemon (juspay/kolu#2216). So every reverse seal below
+ *  covers it too: a `koluSurface` reference or an app import here would be the
+ *  exact inversion arms (d)/(e) exist to forbid, and carving the files out must
+ *  not be a way to leave the seal. */
+const PADI_CLIENT_SRC = resolve(SRC, "..", "..", "padi-client", "src");
 
-/** Every `.ts` under `packages/padi/src` INCLUDING tests — the whole cone must be
- *  app-free, not just production (a test importing the app is still a reverse edge). */
+/** Every `.ts` under the terminal domain's two package roots, INCLUDING tests —
+ *  the whole cone must be app-free, not just production (a test importing the app
+ *  is still a reverse edge). */
 function padiSrcFilesAll(): string[] {
-  return readdirSync(PADI_SRC, { recursive: true })
-    .map((f) => String(f).split(sep).join("/"))
-    .filter((f) => f.endsWith(".ts"))
-    .map((f) => resolve(PADI_SRC, f));
+  return [PADI_SRC, PADI_CLIENT_SRC].flatMap((root) =>
+    readdirSync(root, { recursive: true })
+      .map((f) => String(f).split(sep).join("/"))
+      .filter((f) => f.endsWith(".ts"))
+      .map((f) => resolve(root, f)),
+  );
 }
 
 const PACKAGES_DIR = resolve(PADI_SRC, "..", "..");
 const PADI_PKG = resolve(PADI_SRC, "..", "package.json");
+const PADI_CLIENT_PKG = resolve(PADI_CLIENT_SRC, "..", "package.json");
 
 /** The app packages @kolu/padi (the terminal-domain AUTHORITY) must never depend
  *  on — the arrow points OUT. `@kolu/padi/*` is not among them (it IS padi). */
@@ -423,12 +434,21 @@ function koluSurfaceBindings(file: string): string[] {
  *  `supervisorClaim` routes through `/assembly` rather than importing
  *  `@kolu/padi/stateRoot` directly (its own header records that choice). Each entry
  *  earns its place:
- *   - `/surface` — the terminal VOCABULARY (schemas · records · pure helpers);
+ *   - `@kolu/padi-client/surface` — the terminal VOCABULARY (schemas · records ·
+ *     pure helpers). It moved to the client package at juspay/kolu#2216 so a
+ *     consumer can hydrate the contract without the daemon; the DOOR is the same
+ *     door, and the seal counts `@kolu/padi-client` as part of the terminal
+ *     domain (`startsWith("@kolu/padi")` catches both), never as a way out of it;
  *   - `/assembly` — the padi binder's assembly surface (socket paths, preview, the
  *     kaval/padi probe types) — the one production door for state-root-adjacent needs;
- *   - `/dial` — the shared dial kit (`connectPadi`), so `padi-tui` and the binder
- *     share ONE state-root→socket resolve + control-core handshake (the kaval precedent);
+ *   - `@kolu/padi-client/dial` — the shared dial kit (`connectPadi`), so `padi-tui`
+ *     and the binder share ONE control-core handshake (the kaval precedent);
  *   - `/log` — padi's pino logger, so a server log line joins padi's stream;
+ *   - `/remote-dial` — the ssh half of the dial: the closure this build
+ *     provisions onto a host (`PADI_REMOTE_DIAL`) and the one-shot dial through
+ *     it. It stayed in `@kolu/padi` when the local dial left, because what it
+ *     names is a nix package and a binary — the daemon, not the contract — and
+ *     the binder is the one production caller that genuinely ships a padi;
  *   - `/convergence-policy` — padi's own declaration of WHO IT IS and how a
  *     supervisor of it converges (juspay/kolu#2101). It earned a door of its own
  *     rather than riding `/assembly` precisely because of the rule above: it is
@@ -441,21 +461,32 @@ function koluSurfaceBindings(file: string): string[] {
 const ALLOWED_PADI = [
   "@kolu/padi/assembly",
   "@kolu/padi/convergence-policy",
-  "@kolu/padi/dial",
-  "@kolu/padi/surface",
   "@kolu/padi/log",
+  "@kolu/padi/remote-dial",
+  "@kolu/padi-client/dial",
+  "@kolu/padi-client/surface",
 ];
 
-/** padi's PUBLISHED subpaths, derived from its `package.json` `exports` (so this
- *  can't drift from the real contract) as `@kolu/padi/<name>` specifiers. This is
- *  the deliberate published surface — the set a TEST file may reach (arm f), and
- *  the superset `ALLOWED_PADI` (the production door) is a documented subset of. */
+/** The terminal domain's PUBLISHED subpaths, derived from BOTH package.jsons'
+ *  `exports` (so this can't drift from the real contract). This is the deliberate
+ *  published surface — the set a TEST file may reach (arm f), and the superset
+ *  `ALLOWED_PADI` (the production door) is a documented subset of.
+ *
+ *  Two manifests, one door set: the split into `@kolu/padi-client` is about what a
+ *  consumer HYDRATES, not about how many contracts the server may reach past. */
 function padiPublishedSubpaths(): Set<string> {
-  const exportsMap = JSON.parse(readFileSync(PADI_PKG, "utf8"))
-    .exports as Record<string, unknown>;
-  return new Set(
-    Object.keys(exportsMap).map((k) => k.replace(/^\.\//, "@kolu/padi/")),
-  );
+  const published = new Set<string>();
+  for (const [pkgJson, name] of [
+    [PADI_PKG, "@kolu/padi/"],
+    [PADI_CLIENT_PKG, "@kolu/padi-client/"],
+  ] as const) {
+    const exportsMap = JSON.parse(readFileSync(pkgJson, "utf8"))
+      .exports as Record<string, unknown>;
+    for (const key of Object.keys(exportsMap)) {
+      published.add(key.replace(/^\.\//, name));
+    }
+  }
+  return published;
 }
 
 function importsOf(file: string): string[] {
@@ -554,7 +585,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     expect(serverSrcTsFiles().length).toBeGreaterThan(0);
   });
 
-  it("(b) reaches @kolu/padi only through /assembly, /dial, /surface, /log — no deep src import", () => {
+  it("(b) reaches the terminal domain only through its named doors — no deep src import", () => {
     const padiSpecs = [...externalsFromEntry()]
       .filter((s) => s.startsWith("@kolu/padi"))
       .sort();
@@ -563,9 +594,11 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     const illegal = padiSpecs.filter((s) => !ALLOWED_PADI.includes(s));
     expect(
       illegal,
-      `illegal @kolu/padi import(s) from packages/server: ${illegal.join(
+      `illegal terminal-domain import(s) from packages/server: ${illegal.join(
         ", ",
-      )}. kolu-server must reach the terminal domain only via @kolu/padi/{assembly,dial,surface,log}.`,
+      )}. kolu-server must reach the terminal domain only via ` +
+        `@kolu/padi/{assembly,convergence-policy,log,remote-dial} and ` +
+        `@kolu/padi-client/{surface,dial}.`,
     ).toEqual([]);
     // And it genuinely reaches the barrel (not a vacuous pass).
     expect(padiSpecs.length).toBeGreaterThan(0);
@@ -664,7 +697,12 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     expect(
       offenders.map(
         (o) =>
-          `${o.f.replace(PADI_SRC, "@kolu/padi/src")}: ${o.refs.join(", ")}`,
+          `${o.f
+            .replace(PADI_SRC, "@kolu/padi/src")
+            .replace(
+              PADI_CLIENT_SRC,
+              "@kolu/padi-client/src",
+            )}: ${o.refs.join(", ")}`,
       ),
       "a @kolu/padi src file references the koluSurface SPEC/ctx — a reverse-" +
         "direction dependency the forward seal can't see. It's caught in ALL forms: " +
@@ -680,12 +718,16 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     // domain AUTHORITY) must not depend on the kolu APP. Three checks pin the
     // cone — package.json, the import graph, and one transitive hop.
 
-    // (1) padi/package.json declares no app package (runtime OR dev).
-    expect(
-      declaredDeps(PADI_PKG).filter((d) => APP_PACKAGES.includes(d)),
-      "packages/padi/package.json lists an app package (kolu-common/server/client) " +
-        "as a dependency — padi owns its vocabulary; the app depends on padi, not the reverse.",
-    ).toEqual([]);
+    // (1) NEITHER terminal-domain package.json declares an app package (runtime
+    //     OR dev). Both, because the vocabulary lives in the client half now and a
+    //     manifest edge there would invert the arrow just as surely.
+    for (const pkgJson of [PADI_PKG, PADI_CLIENT_PKG]) {
+      expect(
+        declaredDeps(pkgJson).filter((d) => APP_PACKAGES.includes(d)),
+        `${pkgJson} lists an app package (kolu-common/server/client) as a ` +
+          "dependency — padi owns its vocabulary; the app depends on padi, not the reverse.",
+      ).toEqual([]);
+    }
 
     // (2) no @kolu/padi src file (INCLUDING tests) imports an app package.
     const APP_SPEC = new RegExp(`^(${APP_PACKAGES.join("|")})($|/)`);
@@ -694,7 +736,9 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
       for (const spec of importsOf(file)) {
         if (APP_SPEC.test(spec)) {
           importOffenders.push(
-            `${file.replace(PADI_SRC, "@kolu/padi/src")}: ${spec}`,
+            `${file
+              .replace(PADI_SRC, "@kolu/padi/src")
+              .replace(PADI_CLIENT_SRC, "@kolu/padi-client/src")}: ${spec}`,
           );
         }
       }
@@ -724,8 +768,12 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     ).toBe(true);
     const transitiveOffenders: string[] = [];
     const expanded = new Set<string>(); // package NAMES already expanded
-    const worklist = Object.keys(
-      JSON.parse(readFileSync(PADI_PKG, "utf8")).dependencies ?? {},
+    // Seeded from BOTH manifests. `@kolu/padi-client` is a declared dep of padi,
+    // so the walk would reach it anyway — naming it here keeps the arm honest if
+    // that edge ever inverts (the client half is the one an out-of-repo consumer
+    // hydrates alone, so its cone matters on its own terms).
+    const worklist = [PADI_PKG, PADI_CLIENT_PKG].flatMap((pkgJson) =>
+      Object.keys(JSON.parse(readFileSync(pkgJson, "utf8")).dependencies ?? {}),
     );
     while (worklist.length > 0) {
       const dep = worklist.pop() as string;

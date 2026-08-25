@@ -13,10 +13,17 @@
  * bare `kolu --help`.
  *
  * The law: no tool module of the table holds a top-level VALUE import of a
- * transport-bearing module. `import type` is exempt (erased). `specifier`
- * prefix-matches the banned roots — the roots are package-level fences, and
- * the low false-positive risk (a future sibling like `@kolu/padi-client/dialer`)
- * is bought back the day it exists by narrowing this list, not by loophole.
+ * transport-bearing module. `import type` is exempt (erased). A banned root
+ * matches an entry EXACTLY or as its path prefix (`root/…`) — the roots are
+ * package- and entry-level fences.
+ *
+ * That boundary is not decoration: it is the narrowing this header used to
+ * promise for the day a sibling ENTRY shared a banned entry's name. The day came
+ * with `@kolu/padi-client` (juspay/kolu#2216) — `…/watchScope` is a pure
+ * concept (the scope vocabulary, no transport at all) sitting beside the banned
+ * `…/watch` (which reaches the mirror), and a bare `startsWith` fenced the
+ * concept out along with the transport. Each sibling that must ALSO be fenced is
+ * listed by name below, which is the point: the fence says what it means.
  *
  * Why here and not a lint rule: lint can't weight a value import by which
  * package it reaches; the fence is module-graph, so the fence is a test.
@@ -41,6 +48,9 @@ const BANNED_ROOTS = [
   "@kolu/surface/mirror",
   "@kolu/surface-remote",
   "@kolu/surface-daemon",
+  // Named separately now that a root no longer swallows its name-prefixed
+  // siblings — the supervisor half is its own package and its own fence.
+  "@kolu/surface-daemon-supervisor",
   "kolu-pty",
 ] as const;
 
@@ -77,7 +87,9 @@ describe("the tool table's tree-load fence", () => {
         const specifier = match[1];
         if (
           specifier &&
-          BANNED_ROOTS.some((root) => specifier.startsWith(root))
+          BANNED_ROOTS.some(
+            (root) => specifier === root || specifier.startsWith(`${root}/`),
+          )
         ) {
           offenders.push(`${file} → ${specifier}`);
         }
