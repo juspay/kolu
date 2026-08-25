@@ -47,6 +47,7 @@ import {
   buildSurfaceFace,
   type StreamingProcedure,
 } from "@kolu/surface/client";
+import { messageOf } from "@kolu/surface/errors";
 import {
   isContractVersionCompatible,
   type SurfaceSpec,
@@ -280,7 +281,7 @@ export function dialPadiHello(
       Effect.catch(client.control.surface.core.hello(), (err) =>
         Effect.fail(
           new Error(
-            `padi handshake failed — could not read control.core.hello (${(err as Error).message})`,
+            `padi handshake failed — could not read control.core.hello (${messageOf(err)})`,
           ),
         ),
       ),

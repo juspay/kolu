@@ -131,14 +131,28 @@ export function workspacePackageRoots(repoRoot: string): string[] {
 /** Every workspace member's manifest, cached by package DIRECTORY. One parse per
  *  file no matter how many walks ask — the two walks below both read most of the
  *  tree's manifests. */
-const manifests = new Map<string, Manifest>();
+/** Keyed by (dir, mtime), NOT by dir alone.
+ *
+ *  The cache is module-scope so both walks below share one read of each
+ *  manifest, and module scope in a vitest worker outlives a single test run.
+ *  A dir-only key would therefore serve the pre-edit manifest for the rest of
+ *  the worker's life — under `vitest --watch`, which is precisely the loop
+ *  someone is in when they are iterating on a manifest to see one of these
+ *  gates flip. A drift detector that caches the thing it detects drift in,
+ *  and reports green against a graph that no longer matches disk, is worse
+ *  than no cache: the answer it gives is the answer you were trying to change.
+ *
+ *  `statSync` is one extra stat per manifest against a `readFileSync` we were
+ *  already paying for, so correctness here costs approximately nothing. */
+const manifests = new Map<string, { mtimeMs: number; manifest: Manifest }>();
 function manifestOf(dir: string): Manifest {
-  let m = manifests.get(dir);
-  if (m === undefined) {
-    m = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as Manifest;
-    manifests.set(dir, m);
-  }
-  return m;
+  const file = join(dir, "package.json");
+  const { mtimeMs } = statSync(file);
+  const hit = manifests.get(dir);
+  if (hit !== undefined && hit.mtimeMs === mtimeMs) return hit.manifest;
+  const manifest = JSON.parse(readFileSync(file, "utf8")) as Manifest;
+  manifests.set(dir, { mtimeMs, manifest });
+  return manifest;
 }
 
 /** name → package dir, from pnpm's own membership. Nameless members (the
