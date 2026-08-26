@@ -736,6 +736,59 @@ describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", ()
       ).toBe(false);
     });
 
+    // `grid` (5.5) rides the SAME five hops and therefore needs the SAME
+    // spelling. It shipped as `optionalKey` for one round, which would have
+    // failed the ENCODE — taking the whole attach stream down — on both of its
+    // reachable no-grid producers: a kaval predating the field (the mixed-version
+    // path the no-major bump exists to keep alive) and `local.ts`'s
+    // abort-before-snapshot return, which omits it even on a current kaval. An
+    // encode throw is the opposite of "absence degrades to today's reading".
+    it("ACCEPTS a present-but-undefined grid, and OMITS it from the bytes", () => {
+      expect(
+        JSON.stringify(
+          encode({
+            kind: "snapshot",
+            data: "hi",
+            topLine: 0,
+            grid: undefined,
+          }),
+        ),
+      ).toBe('{"kind":"snapshot","data":"hi","topLine":0}');
+    });
+
+    it("emits a real grid, and REJECTS a malformed one", () => {
+      expect(
+        JSON.stringify(
+          encode({
+            kind: "snapshot",
+            data: "",
+            topLine: 0,
+            grid: { cols: 80, rows: 24 },
+          }),
+        ),
+      ).toBe(
+        '{"kind":"snapshot","data":"","topLine":0,"grid":{"cols":80,"rows":24}}',
+      );
+      // Half a grid is not a size — the both-or-neither rule the attach INPUT
+      // states, holding on the way back too.
+      expect(
+        accepts(frame, {
+          kind: "snapshot",
+          data: "",
+          topLine: 0,
+          grid: { cols: 80 },
+        }),
+      ).toBe(false);
+      expect(
+        accepts(frame, {
+          kind: "snapshot",
+          data: "",
+          topLine: 0,
+          grid: { cols: 0, rows: 24 },
+        }),
+      ).toBe(false);
+    });
+
     it("a delta frame is untouched by any of this", () => {
       expect(JSON.stringify(encode({ kind: "delta", data: ID }))).toBe(
         `{"kind":"delta","data":"${ID}"}`,

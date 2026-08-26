@@ -1021,11 +1021,28 @@ export const PadiTerminalAttachFrameSchema = Schema.Union([
      *      `snapshotAnswersGrid` does NOT claim, because two local measurements
      *      cannot see it.
      *
-     *  `optionalKey`, and NO MAJOR: absence degrades to exactly the previous
-     *  reading in both skew directions, the no-bump class this contract already
-     *  documents. kaval carries it the same way and for the same reason — a
-     *  cosmetic readout must never cost a live terminal. */
-    grid: Schema.optionalKey(EndpointGridSchema),
+     *  `Schema.optional`, NOT `optionalKey` — the same call `reflowEpoch` above
+     *  makes, for the same reason, and getting it wrong here would have been
+     *  strictly worse than the gap this field closes. `grid` rides the SAME five
+     *  hops: kaval's decoded frame → `OpenedAttach.grid?` →
+     *  `TerminalAttachment.grid?` → `reattachingDeltas`' re-attach frame → this
+     *  frame. Reading an absent optional key yields `undefined`, so every hop
+     *  re-creates the key present-with-`undefined`, and `optionalKey` REJECTS a
+     *  present `undefined` — which would fail the ENCODE and take the whole
+     *  attach stream down rather than degrade.
+     *
+     *  Two reachable producers omit it, so this is not theoretical: a kaval
+     *  predating the field (exactly the mixed-version path the no-major bump
+     *  exists to keep alive), and `local.ts`'s abort-before-snapshot return,
+     *  which carries no grid even on a current kaval. `optional` is
+     *  `optionalKey` + `UndefinedOr`, so the emitted BYTES are identical — the
+     *  key is omitted, never nulled — and absence really is silence.
+     *
+     *  NO MAJOR: absence degrades to exactly the previous reading in both skew
+     *  directions, the no-bump class this contract already documents. kaval's
+     *  OUTBOUND schema keeps `optionalKey` because its producer always supplies
+     *  a real grid — a cosmetic readout must never cost a live terminal. */
+    grid: Schema.optional(EndpointGridSchema),
   }),
 ]);
 export type TerminalAttachFrame = typeof PadiTerminalAttachFrameSchema.Type;

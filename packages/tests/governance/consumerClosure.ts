@@ -171,6 +171,26 @@ export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
       external,
     };
   }
+  // THE LOUD FAIL a short emission needs — and the one the first attempt at this
+  // guard missed. Parsing `workspace.nix` and throwing when its `pinnedNames`
+  // SYNTAX is gone protects the parse, not the emission: membership still comes
+  // from the directories that exist, so a bare clone without the graft quietly
+  // dropped the member (and reclassified the supervisor's `workspace:*` edge as
+  // an external). A consumer would then hydrate a package set missing a
+  // directory nothing told it about. Declared-but-absent is the real failure, so
+  // it is the one that throws.
+  const missing = [...pinnedByDeclaration]
+    .filter((n) => !(n in members))
+    .sort();
+  if (missing.length > 0) {
+    throw new Error(
+      `nix/workspace.nix declares these as pinned members but they are not in the ` +
+        `tree: ${missing.join(", ")}. They are grafted from their own pins, so this ` +
+        `emission would silently omit them and every consumer walking it would ` +
+        `hydrate a short package set. Run \`just install\` and re-emit.`,
+    );
+  }
+
   return {
     schemaVersion: 1,
     members: Object.fromEntries(
