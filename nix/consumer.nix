@@ -107,6 +107,38 @@ let
       '')
     else "${src}/${member.dir}";
 
+  # A `catalog:` external is unresolvable OUTSIDE kolu — it is pnpm's
+  # workspace-catalog protocol, and the catalog lives in kolu's own
+  # `pnpm-workspace.yaml`. Emitting one into `externals` would hand a consumer a
+  # range its resolver cannot understand, and a dependency guard that compares
+  # ranges literally fails on it with no clue which package is at fault. kolu's
+  # `effectPin` gate requires literal versions across the VENDORED closure, so
+  # this can only fire for a package that has not been brought across that
+  # boundary yet — which is a real state (`@kolu/xterm-kit`, 2026-08) and worth
+  # naming rather than propagating.
+  catalogOffenders = builtins.concatMap
+    (name:
+      let m = memberOf name; in
+      map (dep: "${name} → ${dep}")
+        (builtins.filter (dep: m.external.${dep} == "catalog:")
+          (builtins.attrNames m.external)))
+    names;
+
+  _catalogOk =
+    if catalogOffenders == [ ] then true
+    else throw ''
+      kolu/nix/consumer.nix: the closure for these seeds reaches a package whose
+      manifest declares a `catalog:` dependency, which resolves only inside kolu's
+      own pnpm workspace:
+
+        ${builtins.concatStringsSep "\n        " catalogOffenders}
+
+      That package is not yet set up to be consumed outside kolu. Adopting it means
+      adding it to packages/tests/governance/vendorEntries.ts and replacing
+      `catalog:` with a literal version across its closure (kolu's effectPin gate
+      then keeps it that way). See that package's README.
+    '';
+
   drvFor = name:
     pkgs.runCommand (slugOf name)
       {
@@ -118,7 +150,8 @@ let
       "cp -r ${sourceFor name} $out";
 
 in
-assert _schemaOk; {
+assert _schemaOk;
+assert _catalogOk; {
   inherit names;
 
   dirs = builtins.listToAttrs

@@ -69,3 +69,45 @@ a `_core.buffers.normal` rename touches all three in tandem.
   the `fullRate` accessor (focused tile). Unit-tested with injected timers.
 - `enableSoftKeyboardInput` / `isCoarsePointer` — the touch soft-keyboard surface
   and its coarse-pointer gate.
+
+## Not externally consumable yet — `effect: "catalog:"`
+
+**If you are hydrating this package into another repo, stop here.** Its manifest
+declares
+
+```json
+"effect": "catalog:"
+```
+
+`catalog:` is pnpm's **workspace-catalog protocol**. It resolves only inside
+kolu's own workspace, where `pnpm-workspace.yaml` defines the catalog — so a
+consumer that vendors this directory and installs its declared dependencies from
+its own manifest gets a specifier its resolver cannot understand, and a
+dependency guard that compares the range literally simply fails.
+
+This is not an oversight in the kit so much as a boundary the kit has not been
+brought across yet. The packages kolu ships to outside repos are declared in
+`packages/tests/governance/vendorEntries.ts`, and being in that set is what puts
+a manifest — and its whole dependency closure — under
+`packages/tests/governance/effectPin.ts`, the gate that requires a **literal**
+version everywhere `catalog:` would otherwise be convenient. `@kolu/xterm-kit`
+is not in that set, so nothing has ever forced its ranges to be resolvable from
+outside.
+
+**What it costs today.** The first external consumer to try (olai, 2026-08, for
+a live terminal pane) chose plain `xterm.js` instead rather than carry a
+hand-maintained exception in its dependency guard — which is the right call: a
+per-consumer guard exception is exactly the hand-kept residue kolu spent
+juspay/kolu#2217 deleting, and re-acquiring one to consume kolu is a bad trade.
+
+**What adopting it takes** — a small, ordinary change, not a redesign:
+
+1. add `@kolu/xterm-kit` to `vendorEntries.ts`;
+2. replace `catalog:` with the literal version in this manifest and anywhere
+   else in its closure that carries one (`effectPin.ts` will name them);
+3. run `just emit-consumer-closure`, so `nix/consumer.nix` can hydrate it from a
+   seed list.
+
+`nix/consumer.nix` refuses a `catalog:` external by name at eval, so a consumer
+that tries this before step 2 gets told which package and which dependency
+rather than a resolver error several minutes later. See `nix/README.md`.

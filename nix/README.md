@@ -53,6 +53,15 @@ anything at eval time and the hydrate argv is needed at eval time. It is
 seed-AGNOSTIC on purpose: one artifact serves every consumer, and adding a
 consumer adds nothing to this repo.
 
+**A `catalog:` dependency is refused by name.** `consumer.nix` throws at eval if
+your seed closure reaches a package whose manifest carries pnpm's
+workspace-catalog protocol, naming the package and the dependency. Such a
+package is not yet set up for outside consumption — the vendored set is what
+puts a manifest under the literal-version gate — and the alternative is a
+resolver error, or a dependency guard failing on a range it cannot parse, with
+no clue which package caused it. `@kolu/xterm-kit` is the standing case; its
+README says what adopting it takes.
+
 **Read `externals` too.** Those ranges are what your own root manifest has to
 install — a range you do not have is a resolution failure waiting to happen in
 your compiler, not in kolu's. (A vendored manifest may never spell `catalog:`,
