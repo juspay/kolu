@@ -122,20 +122,37 @@ const DECLARED_ALLOWED = new Set([
   "kolu-transcript-core",
   "memorable-names",
   "nonempty",
+  // NOT an npm package and NOT in this repo: grafted from the `juspay/osfacts`
+  // npins pin into `osfacts-client/`, and gitignored. It is in
+  // `@kolu/surface-daemon-supervisor`'s PUBLIC API — `ReadSocketHolders`, the
+  // seam every consumer implements, is typed in its vocabulary by a decision
+  // that module argues for at length — so a consumer of `connectPadi` needs
+  // it and must graft it the same way. drishti already does exactly that
+  // (`nix/overlay.nix`); the contract was simply never written down, which is
+  // what cost the first consumer a build. See the README's second-pin note.
+  "osfacts-client",
 ]);
 
 /** The packages this package's own code actually REACHES from its published
  *  entries — necessarily a subset of `DECLARED_ALLOWED`, and the assertion below
  *  proves it rather than assuming it.
  *
- *  The six names it drops are the honest cost of hydration being per-manifest:
- *  `@kolu/log`, `kolu-io`, `kolu-shared`, `kolu-pty`, `memorable-names` and
- *  `nonempty` sit in manifests this closure copies, but no
- *  import path from a published entry reaches them. A consumer still copies
- *  six directories for code it never loads — which is the same shape as the
- *  residual named below, several tiers down, and is why the gap is spelled out
- *  here instead of being folded into one lenient list. */
+ *  The four names it drops are the honest cost of hydration being
+ *  per-manifest: `kolu-io`, `kolu-shared`, `kolu-pty` and `memorable-names`
+ *  sit in manifests this closure copies, but no import path from a published
+ *  entry reaches them. A consumer still copies four directories for code it
+ *  never loads — the same shape as the residual named below, several tiers
+ *  down, and why the gap is spelled out rather than folded into one lenient
+ *  list.
+ *
+ *  It was six until the walk started counting type edges. `@kolu/log` and
+ *  `osfacts-client` were being credited as manifest-only cost while a
+ *  published entry really did reach them — through an `import type`, which a
+ *  consumer's `tsc` resolves like any other. Two directories moved from
+ *  "copied but never loaded" to "compiled", which is the more expensive
+ *  column, and the list says so now. */
 const IMPORTED_ALLOWED = new Set([
+  "@kolu/log",
   "@kolu/padi-client",
   "@kolu/shell-quote",
   "@kolu/surface",
@@ -152,6 +169,8 @@ const IMPORTED_ALLOWED = new Set([
   "kolu-opencode",
   "kolu-pi",
   "kolu-transcript-core",
+  // Reached through a type edge only — see the second-pin note in the README.
+  "osfacts-client",
 ]);
 
 /** Names whose PRESENCE would mean the daemon tier came back.
@@ -206,17 +225,20 @@ const HYDRATE_CLOSURE = declaredDependencyClosure({
  *    `@solid-primitives/{rootless,scheduled}` — the framework tier, already
  *    installed by every `@kolu/surface` consumer (drishti, odu).
  *
- *    `osfacts-client` USED to sit here, and the way it did is the reason this
- *    file now says what it says. It is grafted into kolu's tree from an npins
- *    pin and gitignored, so it is a workspace member HERE and absent from the
- *    archive a consumer vendors. This guard called it a member — true in kolu,
- *    false everywhere the guard exists to speak for — and stayed green while
- *    olai's hydrate failed on it (juspay/kolu#2216, found by the first
- *    out-of-repo consumer). It is out of the closure entirely now:
- *    `@kolu/surface-daemon-supervisor` declared it a runtime dependency while
- *    every non-test use in that package is `import type`, so it rides
- *    devDependencies and no consumer needs it at all.
- *  - `string-argv` — `anyagent`'s command parse, a pure leaf.
+ *    `osfacts-client` is the SECOND PIN, and the only entry here that is not
+ *    an ordinary npm install. It is grafted from `juspay/osfacts` and
+ *    gitignored, so it is absent from the archive a consumer vendors, and it
+ *    is in `@kolu/surface-daemon-supervisor`'s public API rather than an
+ *    internal detail. A consumer grafts it from the same pin — drishti's
+ *    `nix/overlay.nix` is the worked precedent.
+ *
+ *    This entry is where a previous round of this PR went wrong, and the
+ *    shape is worth keeping: it was moved to `devDependencies` because every
+ *    non-test use is `import type`, which is true and irrelevant — for raw
+ *    TypeScript a type edge is what a consumer compiles. The guard agreed,
+ *    because it walked runtime imports only. It walks type edges now, so that
+ *    inference cannot be made again without this file going red.
+ * *  - `string-argv` — `anyagent`'s command parse, a pure leaf.
  *  - `@parcel/watcher` (NATIVE), `simple-git`, `p-limit` — `kolu-git`'s, and
  *    `@anthropic-ai/claude-agent-sdk` — `kolu-claude-code`'s. These are the one
  *    residual, and it is the SAME shape as the split this package is: each of
@@ -249,6 +271,15 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
       walkRuntimeDepEdges({
         repoRoot: REPO_ROOT,
         entries: publishedEntries(),
+        // TYPE EDGES COUNT. This repo ships raw TypeScript, so a consumer's
+        // `tsc` resolves an `import type` exactly as it resolves a value
+        // import, and fails TS2307 when it cannot. A runtime-only walk sees a
+        // package leave the manifest while staying in the program — which is
+        // precisely how `osfacts-client` was moved to devDependencies here on
+        // the strength of "every non-test use is `import type`", passed this
+        // guard, and broke the first out-of-repo consumer three type sites
+        // later (juspay/kolu#2216, round two).
+        includeTypeOnly: true,
       });
 
     expect(

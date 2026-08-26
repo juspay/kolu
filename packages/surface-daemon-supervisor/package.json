@@ -22,6 +22,7 @@
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
     "effect": "4.0.0-rc.110",
+    "osfacts-client": "workspace:*",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
@@ -29,7 +30,6 @@
     "@kolu/daemon-test-gate": "workspace:*",
     "@kolu/log": "workspace:*",
     "@types/node": "^22.0.0",
-    "osfacts-client": "workspace:*",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }

@@ -223,7 +223,26 @@ const stringLiteralValue = (node: unknown): string | null =>
  *  `export type`, `import("…")` in a type position) are erased by tsx/tsc and
  *  deliberately skipped: a type may legitimately ride a devDependency without
  *  the daemon loading a byte of it. */
-function runtimeImportsOf(file: string): string[] {
+/** The specifiers a file imports.
+ *
+ *  `includeTypeOnly` decides whether `import type` / `export type` edges
+ *  count. Both answers are right, for different questions:
+ *
+ *  - For a DAEMON's build identity, a type edge is erased before anything
+ *    runs, so it contributes no bytes and must not move a staleKey. That is
+ *    the default, and it is why this walker skipped them from the start.
+ *  - For what a CONSUMER must install, a type edge is as load-bearing as a
+ *    value one — this repo ships raw TypeScript, so the consumer's `tsc`
+ *    resolves it and fails with TS2307 when it cannot. A package can leave a
+ *    manifest while staying in the program, which is the one shape that hides
+ *    from a runtime-only walk.
+ *
+ *  That second case is not hypothetical: it is how `osfacts-client` came to be
+ *  moved to `devDependencies` on the strength of "every non-test use is
+ *  `import type`" and broke the first out-of-repo consumer's build three type
+ *  sites later (juspay/kolu#2216). The seam it types, `ReadSocketHolders`, is
+ *  public API that every consumer implements. */
+function importsOf(file: string, includeTypeOnly: boolean): string[] {
   const ast = parse(readFileSync(file, "utf8"), {
     sourceFilename: file,
     sourceType: "module",
@@ -236,8 +255,8 @@ function runtimeImportsOf(file: string): string[] {
       (node.type === "ImportDeclaration" ||
         node.type === "ExportNamedDeclaration" ||
         node.type === "ExportAllDeclaration") &&
-      node.importKind !== "type" &&
-      node.exportKind !== "type"
+      (includeTypeOnly ||
+        (node.importKind !== "type" && node.exportKind !== "type"))
     ) {
       const spec = stringLiteralValue(node.source);
       if (spec) specs.add(spec);
@@ -362,12 +381,23 @@ export function walkRuntimeDepEdges(opts: {
    *  name. Walked like workspace members; see the pinned-member note above for
    *  the one rule that differs (protocol) and the ambiguity that throws. */
   pinnedMembers?: Record<string, string>;
+  /** Count `import type` / `export type` edges as real. Off by default (a type
+   *  edge is erased and contributes nothing to a daemon's build identity); ON
+   *  for the question "what must a consumer of this package install", because
+   *  this repo ships raw TypeScript and the consumer's `tsc` resolves them.
+   *  See {@link importsOf}. */
+  includeTypeOnly?: boolean;
 }): {
   violations: DepEdgeViolation[];
   reachedPackages: string[];
   reachedSpecifiers: string[];
 } {
-  const { repoRoot, entries, pinnedMembers = {} } = opts;
+  const {
+    repoRoot,
+    entries,
+    pinnedMembers = {},
+    includeTypeOnly = false,
+  } = opts;
 
   const members = membersByName(repoRoot);
   // Only workspace-discovered names owe the `workspace:` protocol; a pin is
@@ -411,7 +441,7 @@ export function walkRuntimeDepEdges(opts: {
     const owner = manifestOf(ownerDir);
     const ownerName = owner.name ?? relative(repoRoot, ownerDir);
     reached.add(ownerName);
-    for (const spec of runtimeImportsOf(file)) {
+    for (const spec of importsOf(file, includeTypeOnly)) {
       if (spec.startsWith(".")) {
         const r = resolveSourceFile(resolve(dirname(file), spec));
         if (r) stack.push(r); // null = inert asset (.json/.css/.js), skip
