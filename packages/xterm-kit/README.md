@@ -94,6 +94,11 @@ version everywhere `catalog:` would otherwise be convenient. `@kolu/xterm-kit`
 is not in that set, so nothing has ever forced its ranges to be resolvable from
 outside.
 
+**It is a PATTERN, not one package.** `kolu-common` carries one too, and cost a
+second consumer a second workaround in the same week. The rule and the full
+sweep live in [`nix/README.md`](../../nix/README.md) — "a hydratable package
+cannot declare `catalog:`".
+
 **What it costs today.** The first external consumer to try (olai, 2026-08, for
 a live terminal pane) chose plain `xterm.js` instead rather than carry a
 hand-maintained exception in its dependency guard — which is the right call: a

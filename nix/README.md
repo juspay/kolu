@@ -80,6 +80,72 @@ a script bug.
 `cp -rL`, never a symlink: TypeScript resolves transitive imports from the *real*
 file location, and a symlink into `/nix/store` has no adjacent `node_modules`.
 
+
+## The rule: a hydratable package cannot declare `catalog:`
+
+**Any kolu package meant to be hydrated by an outside repo must spell literal
+dependency versions.** `catalog:` is pnpm's workspace-catalog protocol; the
+catalog lives in kolu's own `pnpm-workspace.yaml`, so the specifier resolves
+only here. A consumer that vendors the directory and installs its declared
+dependencies from its own manifest gets a range its resolver cannot understand,
+and a dependency guard comparing ranges literally fails with no clue which
+package caused it.
+
+This has cost two real consumers two workarounds (2026-08): `@kolu/xterm-kit`,
+where a live terminal pane went to plain `xterm.js` instead; and
+`kolu-common/config`, where a consumer needing ONE integer
+(`DEFAULT_FONT_SIZE`) vendored a self-deleting copy with import-me-when-it-lands
+instructions. In both cases the alternative was a hand-maintained guard
+exception — the same hand-kept residue this tooling exists to delete — so
+routing around it was the right call, and the package is what should change.
+
+`consumer.nix` refuses such a dependency **by name** at eval rather than
+emitting it, so the next consumer learns which package and which dependency
+instead of debugging a resolver.
+
+### Which packages carry one — derive it, don't trust this list
+
+```bash
+node -e 'const c=require("./nix/consumer-closure.json");
+for (const [n,m] of Object.entries(c.members)) {
+  const k=Object.entries(m.external).filter(([,v])=>v==="catalog:").map(([d])=>d);
+  if (k.length) console.log(n, "→", k.join(", "));
+}'
+```
+
+At the time of writing that is **20 packages**, and the split is what matters:
+
+- **12 are apps, bins and examples** (`kolu-client`, `kolu-cli`, the TUIs, the
+  `surface` examples). Nobody hydrates an app, so `catalog:` is harmless there
+  and should stay — the catalog is a real convenience for in-repo code.
+- **7 have an `exports` map** and so are importable by name:
+  `@kolu/artifact-sdk`, `@kolu/padi`, `@kolu/serve-dir`, `@kolu/xterm-kit`,
+  `kaval`, `kolu-common`, `kolu-mcp`. Of those, `@kolu/padi` and `kaval` are the
+  daemon tier and are *deliberately* not hydratable — that separation is the
+  whole argument for `@kolu/padi-client`. The remainder are latent traps: they
+  look importable and are not.
+
+**Being in `vendorEntries.ts` is what makes a package hydratable**, because that
+is what puts its manifest — and its whole closure — under `effectPin.ts`, the
+gate that requires literal versions. There is no gate for "a package someone
+might want later", and there shouldn't be: intent is not derivable. What is
+derivable is the list above, and the eval-time refusal.
+
+### `catalog:` is not always the whole cost
+
+`@kolu/xterm-kit`'s closure is **1** workspace member, so removing `catalog:`
+makes it genuinely hydratable. `kolu-common`'s is **28** — so a consumer that
+wanted one integer out of `kolu-common/config` would still be installing
+twenty-eight directories for it. There the honest fix is not only the
+specifier: a constant with no dependencies belongs in a leaf that has none
+either. Check the closure before assuming a literal version is the fix:
+
+```bash
+nix eval --impure --expr '(import ./nix/consumer.nix {
+  pkgs = import <nixpkgs> {}; src = ./.; seeds = [ "kolu-common" ];
+}).names'
+```
+
 ## Which packages are meant to be hydrated
 
 Any of them can be, but two are *declared* out-of-repo entry points in
