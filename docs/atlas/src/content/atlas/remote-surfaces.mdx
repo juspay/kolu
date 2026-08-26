@@ -51,7 +51,7 @@ import { connectSurfaceMap } from "@kolu/surface-map/client";  // client half (+
 // 1 · CONTRACT — no new spec invented: the map is built over kolu's REAL padi surface
 //     (packages/padi/src/surface.ts — its `urgency` cell {awaiting, awaitingIds} and
 //      `terminals` collection already exist and already stream today)
-import { padiSurface } from "@kolu/padi/surface";
+import { padiSurface } from "@kolu/padi-client/surface";
 export const padiHosts = defineSurfaceMap(HostKeySchema, padiSurface);
 // ↑ HostKeySchema BRANDS the key; brings `entries: Collection<HostKey, EntryStatus>` free —
 //   the ONE membership authority (warming | connected | failed(reason), + clockOffset;

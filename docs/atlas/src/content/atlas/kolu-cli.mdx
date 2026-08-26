@@ -308,7 +308,7 @@ was going to fail anyway, which hides it.
   owning alternate-screen/context-loss recovery, that engine wrapper — not
   kolu-cli — would be the extraction candidate.
 - **Transport = the seams that already exist — nothing hand-rolled.** Local:
-  `resolveRunningPadiSocket` (`@kolu/padi/dial`) resolves, `connectPadi` dials
+  `resolveRunningPadiSocket` (`@kolu/padi/stateRoot`) resolves, `connectPadi` dials
   (handshake + compatibility gate). ssh: **`dialAgentOnce` from
   `@kolu/surface-remote`** — the same one-shot dial both sibling TUIs' 15–24
   line `hostConnect.ts` wrappers already consume; kolu-cli writes its own thin
@@ -430,7 +430,7 @@ Steps, in build order (PR1 = the kolu-cli package + dispatch + boot-function ext
    client; the connect layer (resolve + dial + `STREAM_RETRY`) lives in
    kolu-cli, the composition root.
 2. **Connect**: local socket resolution via `resolveRunningPadiSocket` +
-   `connectPadi` (`@kolu/padi/dial` — the resolution never lived in
+   `connectPadi` (`@kolu/padi-client/dial` — the resolution never lived in
    `connect.ts`; the TUIs' connect files only dial an already-resolved path);
    `--host` via a thin `dialAgentOnce` options wrapper (`@kolu/surface-remote`,
    the sibling `hostConnect.ts` shape). Build the one `surfaceClient` with

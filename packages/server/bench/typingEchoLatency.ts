@@ -53,7 +53,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import type { TerminalAttachFrame } from "@kolu/padi/endpoint";
-import { type TerminalInfo, TOPLEVEL_PLACEMENT } from "@kolu/padi/surface";
+import {
+  type TerminalInfo,
+  TOPLEVEL_PLACEMENT,
+} from "@kolu/padi-client/surface";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";

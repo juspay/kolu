@@ -10,23 +10,23 @@
  * was wrong, which name `kolu ls` as the way to see the live ones.
  */
 
-import {
-  isWaitState,
-  type WaitState,
-} from "@kolu/terminal-vocab/agentProjection";
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { readTerminalKeys } from "@kolu/padi/read";
-import { resolveTerminalId, shortId } from "@kolu/padi/render";
-// The ONE reading of "the reader hung up" — `@kolu/surface-cli`'s own, imported
-// (not re-spelled) since this binary mounted the projection: see the export
-// block below for why it is this package's.
-import { isConsumerHangup } from "@kolu/surface-cli";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { Data, Effect, type Sink, Stream } from "effect";
 // The SUBPATH, not the `@effect/platform-node` barrel — see `main.ts`'s import
 // header. Every verb goes through this module, so a barrel here would hand each
 // one the HTTP server and cluster transports on the way to a writable stream.
 import * as NodeSink from "@effect/platform-node/NodeSink";
+import { readTerminalKeys } from "@kolu/padi/read";
+import { resolveTerminalId, shortId } from "@kolu/padi/render";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+// The ONE reading of "the reader hung up" — `@kolu/surface-cli`'s own, imported
+// (not re-spelled) since this binary mounted the projection: see the export
+// block below for why it is this package's.
+import { isConsumerHangup } from "@kolu/surface-cli";
+import {
+  isWaitState,
+  type WaitState,
+} from "@kolu/terminal-vocab/agentProjection";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import { Data, Effect, type Sink, Stream } from "effect";
 import { type CliFailure, errorMessage, failure } from "../exit.ts";
 
 /** How a bucket list is SPELLED on a command line: comma-separated, any-of,

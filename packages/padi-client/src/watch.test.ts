@@ -47,15 +47,15 @@
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import type { PadiSurfaceClient } from "../dial.ts";
-import { TerminalNotFound } from "../errors.ts";
-import type { PadiTerminal } from "../surface.ts";
+import type { PadiSurfaceClient } from "./dial.ts";
+import { TerminalNotFound } from "./errors.ts";
+import type { PadiTerminal } from "./surface.ts";
+import { WAIT_STATES } from "./terminalVocab.ts";
 import {
   awaitAgentState,
   awaitOutputSettled,
   awaitTerminalCondition,
   matchingActiveAgent,
-  WAIT_STATES,
 } from "./watch.ts";
 
 /** A minimal `active` composed record — the agent the wait predicate reads.

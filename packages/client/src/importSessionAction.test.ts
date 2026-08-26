@@ -12,7 +12,7 @@ const { loading, success, error } = vi.hoisted(() => ({
 }));
 vi.mock("solid-sonner", () => ({ toast: { loading, success, error } }));
 
-import type { SavedSession } from "@kolu/padi/surface";
+import type { SavedSession } from "@kolu/padi-client/surface";
 import { createImportSessionAction } from "./importSessionAction";
 
 // A minimal valid session — the action only reads `terminals.length`.

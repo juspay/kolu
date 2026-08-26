@@ -39,7 +39,7 @@
  * execs. See `create.ts`.
  */
 
-import type { PadiSurfaceSpec } from "@kolu/padi/surface";
+import type { PadiSurfaceSpec } from "@kolu/padi-client/surface";
 import type { ExposeMap } from "@kolu/surface/expose";
 
 export const KOLU_MCP_EXPOSE = {

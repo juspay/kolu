@@ -34,12 +34,12 @@
  * forecloses — is unit-testable against synthetic inputs.
  */
 
-import type { PtyHostListEntry } from "kaval";
 import type {
   SavedActiveTerminal,
   SavedSession,
   SavedSleepingTerminal,
-} from "../vocab.ts";
+} from "@kolu/padi-client/surface";
+import type { PtyHostListEntry } from "kaval";
 
 /** A saved terminal whose PTY is still alive, paired with that live PTY. The
  *  join lives here (not the caller), so adoption never re-derives it: the

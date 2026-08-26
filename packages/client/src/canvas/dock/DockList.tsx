@@ -17,7 +17,7 @@
  *  supplies a `flex flex-col h-full` container and decides selection semantics —
  *  the drawer dismisses on select, the rail does not. */
 
-import { activeArm } from "@kolu/padi/surface";
+import { activeArm } from "@kolu/padi-client/surface";
 import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "kolu-common/surface";
@@ -36,13 +36,13 @@ import {
 import RepoMonogram from "../../ui/RepoMonogram";
 import { encActiveHost } from "../../wire";
 import { dockRowAttrs } from "./dockRowAttrs";
+import { createDockRowData } from "./dockRowData";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import { NeedsYouStrip } from "./NeedsYouStrip";
-import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
-import { createDockRowData } from "./dockRowData";
 import { PrPip } from "./PrPip";
+import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
 import { rowSubline } from "./rowSubline";
 import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockOrder } from "./useDockOrder";

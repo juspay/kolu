@@ -1,6 +1,6 @@
 /**
  * padi-tui — a terminal-side client for a running `padi` daemon. It dials padi's
- * digest-keyed unix socket (via the shared `@kolu/padi/dial` kit) and reads its
+ * digest-keyed unix socket (via the shared `@kolu/padi-client/dial` kit) and reads its
  * `padiSurface`: what each terminal *is in* (record state · repo·branch · PR ·
  * agent state · foreground) and, crucially, the precise agent-state DONE-SIGNAL
  * for driving an agent that drives another agent. It is the raw, non-interactive
@@ -50,18 +50,31 @@
  */
 
 import { NodeSink } from "@effect/platform-node";
+import { readTerminalKeys, settledSnapshot } from "@kolu/padi/read";
 import {
-  awaitAgentState,
-  isWaitState,
-  WAIT_STATES,
-  type WaitState,
-  watchTerminals,
-} from "@kolu/padi/dial";
+  formatStatus,
+  formatStatusJson,
+  formatWaitMet,
+  formatWatchActivity,
+  formatWatchActivityJson,
+  formatWatchEvent,
+  formatWatchJson,
+  formatWatchRemoval,
+  formatWatchRemovalJson,
+  resolveTerminalId,
+  shortId,
+} from "@kolu/padi/render";
 import {
   PADI_SURFACE_VERSION,
   type TerminalPlacement,
   TOPLEVEL_PLACEMENT,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
+import {
+  isWaitState,
+  WAIT_STATES,
+  type WaitState,
+} from "@kolu/padi-client/terminalVocab";
+import { awaitAgentState, watchTerminals } from "@kolu/padi-client/watch";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { cli, command } from "cleye";
 import {
@@ -77,8 +90,8 @@ import {
   Stream,
 } from "effect";
 import {
-  connectPadiTui,
   type Connection,
+  connectPadiTui,
   type PadiTuiClient,
 } from "./connect.ts";
 import { placementGate, runCreate } from "./create.ts";
@@ -93,20 +106,6 @@ import {
 } from "./exit.ts";
 import { connectPadiTuiViaHost } from "./hostConnect.ts";
 import { resolveSocketPath } from "./socketTarget.ts";
-import { readTerminalKeys, settledSnapshot } from "@kolu/padi/read";
-import {
-  formatStatus,
-  formatStatusJson,
-  formatWaitMet,
-  formatWatchActivity,
-  formatWatchActivityJson,
-  formatWatchEvent,
-  formatWatchJson,
-  formatWatchRemoval,
-  formatWatchRemovalJson,
-  resolveTerminalId,
-  shortId,
-} from "@kolu/padi/render";
 
 /** Parse this TUI's `--until` — a comma list of bucket names — into the set of
  *  target buckets, or a loud error. Whitespace is trimmed, case folded, and
@@ -527,9 +526,8 @@ function cmdWatch(
 
       const watching = Effect.tryPromise({
         try: () =>
-          watchTerminals(
-            conn.client,
-            {
+          watchTerminals(conn.client, {
+            handlers: {
               onUpsert: (id, value, live) => {
                 if (only !== undefined && id !== only) return;
                 emit(
@@ -555,12 +553,12 @@ function cmdWatch(
                 );
               },
             },
-            shutdown.signal,
-            (line) => {
+            signal: shutdown.signal,
+            log: (line) => {
               upstreamError ??= line;
               process.stderr.write(`padi-tui: ${line}\n`);
             },
-          ),
+          }),
         catch: (err) => err,
       });
 

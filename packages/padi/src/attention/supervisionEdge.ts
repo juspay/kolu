@@ -10,8 +10,8 @@
  * the kind of detail that drifts between copies.
  */
 
+import type { PadiTerminal, PadiWatchEvent } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import type { PadiTerminal, PadiWatchEvent } from "../surface.ts";
 
 /** The two attribution fields, as they ride the wire.
  *

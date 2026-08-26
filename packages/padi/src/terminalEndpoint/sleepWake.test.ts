@@ -27,6 +27,11 @@
  * failed-wake path, asserted below.
  */
 
+import {
+  type AuthoredTerminal,
+  LOCAL_LOCATION,
+  SavedTerminalSchema,
+} from "@kolu/padi-client/surface";
 import { resumeFormFor } from "anyagent/cli";
 import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -43,11 +48,6 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { snapshotSession } from "../terminals.ts";
-import {
-  type AuthoredTerminal,
-  LOCAL_LOCATION,
-  SavedTerminalSchema,
-} from "../vocab.ts";
 import {
   beginSleepLocal,
   discardLocalSleeping,

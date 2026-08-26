@@ -26,13 +26,13 @@
  * iterators.
  */
 
+import { hasTag } from "@kolu/padi-client/surface";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PtyHostDataMsg } from "kaval";
 import { PtyNotFound } from "kaval";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { abortableDelay } from "../abortableDelay.ts";
-import { hasTag } from "../errors.ts";
-import { log } from "../log.ts";
 import { TERMINAL_RESET, type TerminalAttachFrame } from "../endpoint.ts";
+import { log } from "../log.ts";
 
 /** RIS (`ESC c`) — a full terminal reset. Re-exported from the frame-type barrel
  *  (`endpoint.ts`, the one source of truth both sides read) so existing importers

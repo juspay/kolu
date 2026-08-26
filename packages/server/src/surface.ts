@@ -43,6 +43,8 @@
  */
 
 import { publisher } from "@kolu/padi/assembly";
+import type { PadiProcessMemory } from "@kolu/padi-client/surface";
+import { derived, everyMsOr, scan, source } from "@kolu/surface/reactor";
 import {
   type CellStore,
   confStore,
@@ -55,8 +57,6 @@ import { surfaceAppServer } from "@kolu/surface-app/server";
 import { Effect } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { koluRootGroup, koluSurfaceGroup } from "kolu-common/contract";
-import type { PadiProcessMemory } from "@kolu/padi/surface";
-import { derived, everyMsOr, scan, source } from "@kolu/surface/reactor";
 import type {
   ForwardCreateInput,
   Forwards,
@@ -82,8 +82,8 @@ import {
   MEMORY_SAMPLE_INTERVAL_MS,
   sampleServerMemory,
 } from "./memorySampler.ts";
-import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
 import { DAEMON_INVENTORY_SAMPLE_INTERVAL_MS } from "./padi/daemonInventory.ts";
+import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
 import { store } from "./state.ts";
 
 // ── The WIDENING SEAM: kolu-server's served superset group ─────────────────

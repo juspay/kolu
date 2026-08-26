@@ -8,7 +8,7 @@
  *  daemon's `daemonStatus.identity`) — never stored, never folded into the
  *  client-vs-server `≠ srv` signal (which stays the commit comparison). */
 
-import type { PadiStatus } from "@kolu/padi/surface";
+import type { PadiStatus } from "@kolu/padi-client/surface";
 import { createRoot } from "solid-js";
 import { activeHost, padiMap } from "../wire";
 

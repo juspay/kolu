@@ -1,5 +1,5 @@
+import type { CodeTabView } from "@kolu/padi-client/surface";
 import { Effect, type Fiber } from "effect";
-import type { CodeTabView } from "@kolu/padi/surface";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, onCleanup } from "solid-js";

@@ -8,7 +8,7 @@
  *  Shared by active-host metadata and the fleet switcher index so sentinel
  *  rules cannot drift. */
 
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 
 export function reprojectTerminalClock(
   toLocal: (epoch: number) => number | null,

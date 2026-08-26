@@ -1,5 +1,5 @@
+import { LOCAL_LOCATION, type SavedTerminal } from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
-import { LOCAL_LOCATION, type SavedTerminal } from "../vocab.ts";
 import { resumableTerminalIds } from "./resumable.ts";
 
 const base = {

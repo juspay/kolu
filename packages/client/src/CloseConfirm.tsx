@@ -7,7 +7,7 @@ import {
   activePr,
   sleepingArm,
   type TerminalMetadata,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./terminal/ChecksIndicator";

@@ -1,13 +1,17 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
-import { activeArm, type RecentAgent, sleepingArm } from "@kolu/padi/surface";
+import {
+  activeArm,
+  type RecentAgent,
+  sleepingArm,
+} from "@kolu/padi-client/surface";
+import type { HostKey } from "kolu-common/hostKey";
 import { isValidWorktreeName, WORKTREE_NAME_MESSAGE } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
 import type { Accessor } from "solid-js";
 import { createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
 import { aboutDialog } from "./AboutDialog";
-import type { HostKey } from "kolu-common/hostKey";
 import type {
   PaletteAction,
   PaletteCommand,
@@ -19,11 +23,11 @@ import type {
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
-import { stateBackupsDialog } from "./StateBackupsDialog";
 import {
   forwardFromPalette,
   forwardInputError,
 } from "./forwards/forwardFromPalette";
+import { recentAgents, recentRepos } from "./hostScope/activeWire";
 import {
   ACTIONS,
   type ActionContext,
@@ -32,7 +36,6 @@ import {
 import { offerRestartVerb } from "./kaval/daemonPresentation";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { activeKavalPresence } from "./kaval/useDaemonStatus";
-import { recentAgents, recentRepos } from "./hostScope/activeWire";
 import {
   hostRootActions,
   terminalHostGroups,
@@ -43,9 +46,10 @@ import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { runAction } from "./runAction";
+import { stateBackupsDialog } from "./StateBackupsDialog";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
-import { useTileStore } from "./tile/useTileStore";
 import { themePaletteGroup } from "./themePalette";
+import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";

@@ -26,7 +26,7 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
-    "@kolu/padi": "workspace:*",
+    "@kolu/padi-client": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",

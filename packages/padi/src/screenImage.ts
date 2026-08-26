@@ -12,10 +12,10 @@
  *  copy-to-clipboard screenshot (`terminal-snapshot`), so the agent's PNG and
  *  the user's PNG are the same picture by construction. */
 
-import { getThemeByName } from "terminal-themes";
-import type { PadiScreenImageOutput } from "./surface.ts";
+import type { PadiScreenImageOutput } from "@kolu/padi-client/surface";
 import type { SnapshotGrid } from "terminal-snapshot";
 import { buildPngScene, sceneToPng } from "terminal-snapshot/png";
+import { getThemeByName } from "terminal-themes";
 
 /** Type size of a rendered screenshot, in CSS pixels.
  *

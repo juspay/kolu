@@ -10,8 +10,8 @@
  *  Server signals propagate list/metadata changes via the live subscriptions —
  *  no optimistic cache needed. */
 
-import { TOPLEVEL_PLACEMENT } from "@kolu/padi/surface";
-import type { TranscriptHtmlMode } from "@kolu/padi/transcript";
+import { TOPLEVEL_PLACEMENT } from "@kolu/padi-client/surface";
+import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Data, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";

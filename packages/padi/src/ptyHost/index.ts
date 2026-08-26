@@ -16,6 +16,9 @@
  * See `docs/atlas/src/content/atlas/pty-daemon.mdx` (B2 — the door).
  */
 
+import { encodeHostLocation, LOCAL_LOCATION } from "@kolu/padi-client/surface";
+import type { SurfaceDispatch } from "@kolu/surface/link";
+import type { DaemonHomePaths } from "@kolu/surface-daemon";
 import {
   createEndpoint,
   type Endpoint,
@@ -23,22 +26,15 @@ import {
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
-import type { DaemonHomePaths } from "@kolu/surface-daemon";
-import type { SurfaceDispatch } from "@kolu/surface/link";
 import { Cause, Context, Effect, Fiber, MutableRef, Ref } from "effect";
-import {
-  bakedOsFactsBin,
-  osfactsSocketHolders,
-  processIdentityAsync,
-} from "osfacts-client";
 import {
   DEFAULT_MIRROR_SCROLLBACK,
   kavalConvergencePolicy,
   type PtyHostClient,
   type PtyHostIdentity,
-  ptyHostClientOver,
   type PtyHostSpawnInput,
   type PtyHostSystemInfo,
+  ptyHostClientOver,
 } from "kaval";
 import {
   CONTAINING_TERMINAL_ENV,
@@ -49,9 +45,13 @@ import {
   readAgentToolsBake,
   TERMINAL_TOOLS_PATH_ENV,
 } from "kolu-pty";
+import {
+  bakedOsFactsBin,
+  osfactsSocketHolders,
+  processIdentityAsync,
+} from "osfacts-client";
 import type { KavalObservation } from "../kavalObservation.ts";
 import { log } from "../log.ts";
-import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {
   connectKaval,
   type KavalConnectionMetadata,
@@ -64,11 +64,11 @@ import {
 } from "./daemonStatus.ts";
 import { withRestartClaim } from "./endpointClaim.ts";
 import { startLinkLossHealer } from "./linkLoss.ts";
+import { localKavalDriver } from "./localDriver.ts";
 import {
   type ConvergeVerdict,
   convergeAndReconcile,
 } from "./reconcileConverged.ts";
-import { localKavalDriver } from "./localDriver.ts";
 
 type Identity = PtyHostIdentity;
 

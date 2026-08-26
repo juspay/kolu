@@ -29,12 +29,15 @@ import {
 // the table). The two pure concept modules have homes of their own under padi
 // subpaths; the one transport-shaped reach — `readTerminalKeys`, whose closure
 // carries the mirror — arrives dynamically inside the handler instead.
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import {
   type PadiWatchOpenInput,
   PadiWatchOpenInputSchema,
-} from "@kolu/padi/surface";
-import { type WatchScopeRefusal, watchScopeOf } from "@kolu/padi/watchScope";
+} from "@kolu/padi-client/surface";
+import {
+  type WatchScopeRefusal,
+  watchScopeOf,
+} from "@kolu/padi-client/watchScope";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";

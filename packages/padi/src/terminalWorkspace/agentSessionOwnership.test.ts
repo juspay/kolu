@@ -26,6 +26,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import type { PadiTerminal } from "@kolu/padi-client/surface";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type {
   AgentInfo,
@@ -35,9 +36,8 @@ import type {
 } from "@kolu/terminal-vocab/schema";
 import type { ForegroundSample } from "kaval";
 import pino from "pino";
-import { recomputeUrgency } from "../activity/urgency.ts";
-import type { PadiTerminal } from "../surface.ts";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { recomputeUrgency } from "../activity/urgency.ts";
 
 const log = pino({ level: "silent" });
 

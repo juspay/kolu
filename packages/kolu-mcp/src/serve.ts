@@ -21,8 +21,8 @@
  * (juspay/kolu#2082).
  */
 
-import { padiSurface } from "@kolu/padi/surface";
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import { padiSurface } from "@kolu/padi-client/surface";
 import {
   type OwnedSurfaceConnection,
   serveSurfaceAsMcp,

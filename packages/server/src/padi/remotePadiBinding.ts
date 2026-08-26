@@ -24,22 +24,22 @@
  */
 
 import { currentPadiBuildId } from "@kolu/padi/assembly";
+import { PADI_REMOTE_DIAL } from "@kolu/padi/remote-dial";
 import {
-  PADI_REMOTE_DIAL,
   type PadiDaemonClient,
-  padiClientOver,
   type PadiSurfaceClient,
+  padiClientOver,
   scopePadiSurface,
-} from "@kolu/padi/dial";
+} from "@kolu/padi-client/dial";
 import {
+  PADI_SURFACE_VERSION,
   padiDaemonGroup,
   type padiSurface,
-  PADI_SURFACE_VERSION,
   padiSurfaceSibling,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import {
-  convergeAdmit,
   type ControlCoreProbeClient,
+  convergeAdmit,
   createConnectorDrainBudget,
   probeDaemonIdentityFrom,
 } from "@kolu/surface-daemon-supervisor";
@@ -53,11 +53,10 @@ import {
   resolveBakedAgentDrv,
   type Session,
   type SshConnectorOptions,
-  sshConnector,
   type SshProv,
+  sshConnector,
 } from "@kolu/surface-remote";
 import { Effect, Schema } from "effect";
-import { composeSpawnEnv } from "kolu-pty";
 import { encodeHostKey, parseHostInput } from "kolu-common/hostKey";
 import {
   type PadiConvergence,
@@ -68,6 +67,7 @@ import {
   type HostKey,
   LOCAL_HOST,
 } from "kolu-common/surfacesWithPadi";
+import { composeSpawnEnv } from "kolu-pty";
 import { log } from "../log.ts";
 // padi's convergence policy — ONE declaration for BOTH arms. The remote arm enacts
 // via `convergeAdmit` (same decision table + budget as the local `converge(endpoint)`).

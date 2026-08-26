@@ -1,5 +1,5 @@
 /**
- * `@kolu/padi/surface`'s DECLARED error vocabulary (PLAN D4).
+ * `@kolu/padi-client/surface`'s DECLARED error vocabulary (PLAN D4).
  *
  * Every failure a caller can BRANCH on is a `Schema.TaggedError` declared
  * here and carried by the `padiSurface` members that raise it — so the

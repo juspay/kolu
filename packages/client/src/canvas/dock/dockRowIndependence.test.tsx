@@ -25,19 +25,20 @@ import {
   activeArm,
   LOCAL_LOCATION,
   type TerminalMetadata,
-} from "@kolu/padi/surface";
-import type { GitInfo } from "kolu-git/schemas";
+} from "@kolu/padi-client/surface";
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
+import type { GitInfo } from "kolu-git/schemas";
 import { createMemo, For } from "solid-js";
 import { createStore } from "solid-js/store";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
-
-import { annotationLine } from "../../intent/text";
 import type { TerminalAttention } from "../../attention/attentionFacts";
+import { annotationLine } from "../../intent/text";
 import { bindStatePip } from "../../terminal/statePipBind";
-import { buildTerminalDisplayInfos } from "../../terminal/terminalDisplay";
-import { pairDisplayRow } from "../../terminal/terminalDisplay";
+import {
+  buildTerminalDisplayInfos,
+  pairDisplayRow,
+} from "../../terminal/terminalDisplay";
 import { dockRowAttrs } from "./dockRowAttrs";
 import { rowSubline } from "./rowSubline";
 

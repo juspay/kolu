@@ -18,16 +18,16 @@
  * SERVED contract with this padi-ful map locally.
  */
 
-import { padiSurface } from "@kolu/padi/surface";
-import {
-  type ConnectionInfo,
-  ConnectionInfoSchema,
-} from "@kolu/surface-remote/connection";
+import { padiSurface } from "@kolu/padi-client/surface";
 import {
   defineSurfaceMap,
   type EntryStatus,
   type KeyCodec,
 } from "@kolu/surface-map";
+import {
+  type ConnectionInfo,
+  ConnectionInfoSchema,
+} from "@kolu/surface-remote/connection";
 import { Schema } from "effect";
 import {
   decodeHostKey,
@@ -36,11 +36,6 @@ import {
   HostKeySchema,
 } from "./hostKey.ts";
 import { surfaces } from "./surface.ts";
-
-// The key + local-host constant live in the padi-LESS `./hostKey.ts` (so
-// `contract.ts` can type the `hosts.*` root RPCs without pulling `@kolu/padi`); re-export
-// them here beside the map so consumers still reach them through one module.
-export { type HostKey, HostKeySchema, LOCAL_HOST } from "./hostKey.ts";
 
 // The entry's fine `connection` payload value type — re-exported here so a consumer
 // reading `padiMap.entry(host).state().connection` (SR9: the fine word rides the entry,
@@ -54,6 +49,10 @@ export type {
   ConnectionInfo,
   ConnectPhase,
 } from "@kolu/surface-remote/connection";
+// The key + local-host constant live in the padi-LESS `./hostKey.ts` (so
+// `contract.ts` can type the `hosts.*` root RPCs without pulling `@kolu/padi`); re-export
+// them here beside the map so consumers still reach them through one module.
+export { type HostKey, HostKeySchema, LOCAL_HOST } from "./hostKey.ts";
 
 /** The single sibling key the padi map is mounted, composed, and served under
  *  (`surface.padi.*`). Single-sourced so the composed contract, the map's own `name`,

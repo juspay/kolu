@@ -16,8 +16,8 @@
  * set; it only renders the host-served list and may subtract (user opt-out).
  */
 
+import type { SavedTerminal } from "@kolu/padi-client/surface";
 import { resumableCommand } from "anyagent/schemas";
-import type { SavedTerminal } from "../vocab.ts";
 
 /** Ids of saved terminals that will resume an agent on restore (host-owned). */
 export function resumableTerminalIds(

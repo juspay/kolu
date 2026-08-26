@@ -1,5 +1,5 @@
 /**
- * `@kolu/padi/surface` UI-CHROME vocabulary — the canvas/right-panel presentation
+ * `@kolu/padi-client/surface` UI-CHROME vocabulary — the canvas/right-panel presentation
  * schemas and their pure presentation helpers, split out of `./vocab.ts` (W4
  * ledger L17). These change on a CHROME axis (a canvas layout tweak, a Code-tab
  * sub-view, the right-panel tab set) that is INDEPENDENT of the PTY-lifecycle /
@@ -9,9 +9,9 @@
  * arrow points ONE way: `vocab.ts` → `chromeVocab.ts`, never back.
  *
  * Surfaced through the SAME entry as the rest of the vocabulary: `surface.ts`
- * re-exports this module beside `./vocab.ts`, so `@kolu/padi/surface` carries the
+ * re-exports this module beside `./vocab.ts`, so `@kolu/padi-client/surface` carries the
  * identical export set it always did. BROWSER-SAFE (Effect Schema only, no
- * `node:` imports) so the client imports it via `@kolu/padi/surface`.
+ * `node:` imports) so the client imports it via `@kolu/padi-client/surface`.
  */
 
 import { Effect, Schema } from "effect";

@@ -50,7 +50,7 @@
  * ## Every watcher is padi's — one outcome vocabulary
  *
  * Every form rides padi's OWN engine — `awaitTerminalCondition` in
- * `@kolu/padi/dial`, which the three named waits kolu's MCP face calls are each
+ * `@kolu/padi-client/dial`, which the three named waits kolu's MCP face calls are each
  * a spelling of — so a driver gets the same answer whether it speaks argv or
  * MCP. `match:` was the last form to have a hand-rolled watcher in THIS module,
  * and that copy is exactly what a composition root must not own: it consumed
@@ -120,16 +120,15 @@
  * same way a met or timed-out one does.
  */
 
+import { formatWaitMet, shortId, tailLines } from "@kolu/padi/render";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import { PADI_LINK_CLOSED, WAIT_STATES } from "@kolu/padi-client/terminalVocab";
 import {
   awaitTerminalCondition,
   type ConditionMet,
-  PADI_LINK_CLOSED,
-  type PadiSurfaceClient,
   type TerminalCondition,
   type TerminalConditionOutcome,
-  WAIT_STATES,
-} from "@kolu/padi/dial";
-import { formatWaitMet, shortId, tailLines } from "@kolu/padi/render";
+} from "@kolu/padi-client/watch";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,

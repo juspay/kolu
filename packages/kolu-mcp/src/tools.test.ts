@@ -6,17 +6,35 @@
  * `kolu-mcp/tools` sits on the STATIC tree-build path of EVERY `kolu`
  * invocation: `cli.ts` mounts `surfaceFace.ts`, which mounts this table. The
  * tools it serves over MCP are handled: their handlers may pull the dial kit
- * at CALL time (dynamic `await import("@kolu/padi/dial")` inside the
+ * at CALL time (dynamic `await import("@kolu/padi-client/dial")` inside the
  * handler); the MODULES may not, top-level. #2206 measured the regression
- * this prevents: three tool modules value-importing `@kolu/padi/dial` put
- * the socket/supervisor/remote/mirror closure onto the parse path of every
- * bare `kolu --help`.
+ * this prevents: three tool modules value-importing what was then ONE specifier,
+ * `@kolu/padi/dial`, put the socket/supervisor/remote/mirror closure onto the
+ * parse path of every bare `kolu --help`.
+ *
+ * That one specifier is four entries now (juspay/kolu#2216), and they do not
+ * carry the same weight — so the list below names each by what it drags in
+ * rather than by the door it used to share: `…-client/dial` the socket and the
+ * supervisor, `…-client/watch` the mirror, `@kolu/padi/remote-dial` the ssh
+ * provisioning closure and `kolu-pty`, and `…-client/rendezvous` the
+ * `@kolu/surface-daemon` BARREL (its `.` export value-re-exports `daemonMain`,
+ * `frontDaemonOverStdio`, the pid gate and `daemonProcessMain`) for one pure
+ * path helper. Splitting a banned specifier is how a fence quietly loses half
+ * its coverage: the two new entries had no live offender when they were added,
+ * which is exactly when a hole is cheap to close.
  *
  * The law: no tool module of the table holds a top-level VALUE import of a
- * transport-bearing module. `import type` is exempt (erased). `specifier`
- * prefix-matches the banned roots — the roots are package-level fences, and
- * the low false-positive risk (a future sibling like `@kolu/padi/dialer`)
- * is bought back the day it exists by narrowing this list, not by loophole.
+ * transport-bearing module. `import type` is exempt (erased). A banned root
+ * matches an entry EXACTLY or as its path prefix (`root/…`) — the roots are
+ * package- and entry-level fences.
+ *
+ * That boundary is not decoration: it is the narrowing this header used to
+ * promise for the day a sibling ENTRY shared a banned entry's name. The day came
+ * with `@kolu/padi-client` (juspay/kolu#2216) — `…/watchScope` is a pure
+ * concept (the scope vocabulary, no transport at all) sitting beside the banned
+ * `…/watch` (which reaches the mirror), and a bare `startsWith` fenced the
+ * concept out along with the transport. Each sibling that must ALSO be fenced is
+ * listed by name below, which is the point: the fence says what it means.
  *
  * Why here and not a lint rule: lint can't weight a value import by which
  * package it reaches; the fence is module-graph, so the fence is a test.
@@ -33,13 +51,19 @@ const SRC = dirname(fileURLToPath(import.meta.url));
  *  dynamic imports of the very same entries are fine — they load at call
  *  time, when a socket is about to be used anyway. */
 const BANNED_ROOTS = [
-  "@kolu/padi/dial",
+  "@kolu/padi-client/dial",
+  "@kolu/padi-client/watch",
+  "@kolu/padi-client/rendezvous",
+  "@kolu/padi/remote-dial",
   "@kolu/padi/read",
   "@kolu/padi/cliClient",
   "@kolu/surface/links",
   "@kolu/surface/mirror",
   "@kolu/surface-remote",
   "@kolu/surface-daemon",
+  // Named separately now that a root no longer swallows its name-prefixed
+  // siblings — the supervisor half is its own package and its own fence.
+  "@kolu/surface-daemon-supervisor",
   "kolu-pty",
 ] as const;
 
@@ -74,9 +98,14 @@ describe("the tool table's tree-load fence", () => {
       const source = readFileSync(join(SRC, file), "utf8");
       for (const match of source.matchAll(VALUE_IMPORT)) {
         const specifier = match[1];
+        // The exact-or-`root/` shape is spelled again in
+        // `packages/server/src/seal.test.ts`. Deliberate: sharing three lines
+        // would cost this package a new devDependency, a worse trade.
         if (
           specifier &&
-          BANNED_ROOTS.some((root) => specifier.startsWith(root))
+          BANNED_ROOTS.some(
+            (root) => specifier === root || specifier.startsWith(`${root}/`),
+          )
         ) {
           offenders.push(`${file} → ${specifier}`);
         }

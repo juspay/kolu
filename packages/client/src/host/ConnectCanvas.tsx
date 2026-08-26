@@ -23,7 +23,7 @@
  *  CanvasMode), so this overlay renders only the up-but-not-yet-connected phases and
  *  never a second failure surface. */
 
-import type { DaemonState } from "@kolu/padi/surface";
+import type { DaemonState } from "@kolu/padi-client/surface";
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
 import {

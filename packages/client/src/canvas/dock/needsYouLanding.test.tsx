@@ -16,7 +16,10 @@
  * that the strip passes the id that makes those verbs correct.
  */
 
-import { LOCAL_LOCATION, type TerminalMetadata } from "@kolu/padi/surface";
+import {
+  LOCAL_LOCATION,
+  type TerminalMetadata,
+} from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

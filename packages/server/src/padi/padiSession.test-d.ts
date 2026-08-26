@@ -15,9 +15,9 @@
  * `@ts-expect-error` line below compile and fail the pin.
  */
 
-import { Effect } from "effect";
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { Session } from "@kolu/surface-remote";
+import { Effect } from "effect";
 import type { PadiConvergence } from "kolu-common/surface";
 import { asPadiSession, type PadiSession } from "./padiSession.ts";
 

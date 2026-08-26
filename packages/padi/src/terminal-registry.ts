@@ -9,15 +9,15 @@
  * endpoint itself, not on `TerminalProcess`.
  */
 
-import type { TerminalId, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
-import type { TerminalHandle } from "./endpoint.ts";
-import { TerminalNotFound } from "./errors.ts";
 import type {
   AuthoredActiveTerminal,
   AuthoredParkedTerminal,
   AuthoredSleepingTerminal,
   TerminalInfo,
-} from "./vocab.ts";
+} from "@kolu/padi-client/surface";
+import { TerminalNotFound } from "@kolu/padi-client/surface";
+import type { TerminalId, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
+import type { TerminalHandle } from "./endpoint.ts";
 
 /** An ACTIVE terminal process — a running PTY with its live control surface.
  *  `info` is the wire shape sent in the `terminalList` cell snapshot; `meta` is

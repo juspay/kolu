@@ -32,7 +32,7 @@
  * assertion is a byte-level fixture over the exact serialized string.
  */
 
-import { PLACEMENT_REQUIRED } from "@kolu/padi/surface";
+import { PLACEMENT_REQUIRED } from "@kolu/padi-client/surface";
 import { toInputSchema } from "@kolu/surface-mcp";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";

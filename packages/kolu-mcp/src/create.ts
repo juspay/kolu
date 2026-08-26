@@ -72,8 +72,12 @@
  * — there is no base to resolve it against that the caller meant.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { PadiCreateInputSchema, PLACEMENT_REQUIRED } from "@kolu/padi/surface";
+import { isAbsolute } from "node:path";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import {
+  PadiCreateInputSchema,
+  PLACEMENT_REQUIRED,
+} from "@kolu/padi-client/surface";
 import {
   type BespokeTool,
   messageOf,
@@ -82,7 +86,6 @@ import {
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import { isValidWorktreeName, WORKTREE_NAME_MESSAGE } from "kolu-git/schemas";
-import { isAbsolute } from "node:path";
 
 export const CreateArgsSchema = Schema.Struct({
   // The verb's existing fields, spread from the wire schema itself so this

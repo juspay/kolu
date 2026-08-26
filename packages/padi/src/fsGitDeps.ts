@@ -16,11 +16,11 @@
  * shape to disagree with this one about read-failure reporting.
  */
 
+import type { padiSurface } from "@kolu/padi-client/surface";
 import type { ImplementSurfaceDeps } from "@kolu/surface/server";
 import type { Logger } from "pino";
 import type { TerminalEndpoint } from "./endpoint.ts";
 import { pulseSource } from "./pulseSource.ts";
-import type { padiSurface } from "./surface.ts";
 
 type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
 

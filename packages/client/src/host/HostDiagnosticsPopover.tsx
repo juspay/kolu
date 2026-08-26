@@ -9,11 +9,16 @@
  *  honest state label — no fake progress bar (remote-hosts.mdx).
  */
 
+import { activePadiTerminal } from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { createReactiveSubscription } from "@kolu/surface/solid";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import type { KoluBuildInfo, TerminalId } from "kolu-common/surface";
+import type {
+  KoluBuildInfo,
+  KoluForward,
+  TerminalId,
+} from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -23,19 +28,18 @@ import {
   Show,
 } from "solid-js";
 import { Portal } from "solid-js/web";
-import CopyDiagnosticsButton from "../CopyDiagnosticsButton";
 import { hostMarks } from "../attention/attentionMarks";
-import { activePadiTerminal } from "@kolu/padi/surface";
-import type { KoluForward } from "kolu-common/surface";
+import CopyDiagnosticsButton from "../CopyDiagnosticsButton";
 import { ForwardRows } from "../forwards/ForwardRows";
 import { servingLink } from "../forwards/terminalServingPort";
-import { selectFleetTerminal } from "../palette/fleetActions";
-import { containingTileOf } from "../terminal/terminalTree";
-import { useTerminalStore } from "../terminal/useTerminalStore";
 import { forwardsForHost } from "../forwards/useForwards";
-import { formatTimeAgo } from "../terminal/staleness";
 import { tailOf } from "../kaval/connectCanvasView";
 import { failedEpisode } from "../kaval/useDaemonStatus";
+import { selectFleetTerminal } from "../palette/fleetActions";
+import { runAction } from "../runAction";
+import { formatTimeAgo } from "../terminal/staleness";
+import { containingTileOf } from "../terminal/terminalTree";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import {
   LOG_TAIL_LINE,
   LOG_TAIL_SURFACE,
@@ -50,12 +54,11 @@ import {
   padiMap,
   setActiveHost,
 } from "../wire";
-import { runAction } from "../runAction";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { hostGlance, hostLabel } from "./hostChipTone";
-import { useHostKavalChain } from "./useHostKaval";
 import { reconnectHost } from "./reconnectHost";
 import { removeHost } from "./removeHost";
+import { useHostKavalChain } from "./useHostKaval";
 
 /** How many trailing lines of a failed episode this popover shows — the last few, not the
  *  whole post-mortem the host-down card renders: this is a popover anchored to a status pip. */

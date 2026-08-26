@@ -55,7 +55,7 @@ import {
   activeArm,
   sleepingArm,
   type TerminalMetadata,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import {
   type AgentPaintClass,
   type AttentionClass,

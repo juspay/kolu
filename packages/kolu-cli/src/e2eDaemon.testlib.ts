@@ -29,13 +29,13 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertDaemonSpawnAllowed } from "@kolu/daemon-test-gate";
+import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
+import { padiClientOver } from "@kolu/padi-client/dial";
 import {
-  padiClientOver,
   padiSocketPath,
   resolvePadiStateRoot,
-} from "@kolu/padi/dial";
-import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
-import { padiDaemonGroup } from "@kolu/padi/surface";
+} from "@kolu/padi-client/rendezvous";
+import { padiDaemonGroup } from "@kolu/padi-client/surface";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { Effect } from "effect";
 

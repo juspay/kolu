@@ -16,6 +16,7 @@ import {
   collectEffectVersionRefs,
   validateBetaAssumptions,
 } from "./betaAssumptions";
+import { checkClosureWalksAgree } from "./closureWalk";
 import { collectEffectPins, validateEffectPins } from "./effectPin";
 import {
   assertAppendOnly,
@@ -38,6 +39,7 @@ import {
   RUN_EDGE_ALLOWLIST,
   validateRunEdges,
 } from "./runEdges";
+import { vendoredManifests } from "./vendorEntries";
 
 const packageRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = path.resolve(packageRoot, "../..");
@@ -206,11 +208,20 @@ const optionalShimSites = [...optionalShims.values()].reduce(
   0,
 );
 
+// The manifest-closure walk exists in TS and in Nix, and neither can run the
+// other. This makes them answer the same question over the same entries, so a
+// drift fails here instead of downstream — as a daemon that ships new code under
+// an unchanged id, or as a vendored directory a consumer was never told to copy.
+const closureMembers = checkClosureWalksAgree(repoRoot);
+
 // The Effect pin's agreement gate (A2), then the beta-behavior assumption
 // registry (C3) it feeds. The two share one fact — the catalog's version — so a
 // bump has exactly one place to move and exactly one set of sites to re-verify.
 const effectPins = collectEffectPins(repoRoot);
-const effectVersion = validateEffectPins(effectPins);
+const effectVersion = validateEffectPins(
+  effectPins,
+  vendoredManifests(repoRoot),
+);
 const betaAssumptions = collectBetaAssumptions(repoRoot);
 const effectVersionRefs = collectEffectVersionRefs(repoRoot);
 validateBetaAssumptions(
@@ -221,5 +232,5 @@ validateBetaAssumptions(
 );
 
 console.log(
-  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed)`,
+  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed), ${closureMembers} vendored + daemon-identity closure members walked identically by nix and TS`,
 );

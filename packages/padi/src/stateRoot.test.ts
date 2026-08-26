@@ -12,27 +12,29 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { readStateRootManifest, writeStateRootManifest } from "kaval";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { scrubDaemonLocatorEnv } from "@kolu/daemon-test-gate/setup";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  productionPadiStateRoot,
-  namePadiStateRootForDiscovery,
-  discoverPadiDaemons,
-  localPadiSocket,
   PADI_GATE_FILE,
-  type PadiDaemon,
   padiDigest,
   padiGatePath,
-  padiKavalSocketPath,
   padiSocketPath,
-  classifyLivePadis,
-  residentPadiSocket,
+  productionPadiStateRoot,
   resolvePadiStateRoot,
+} from "@kolu/padi-client/rendezvous";
+import { readStateRootManifest, writeStateRootManifest } from "kaval";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  classifyLivePadis,
+  discoverPadiDaemons,
+  localPadiSocket,
+  namePadiStateRootForDiscovery,
+  type PadiDaemon,
+  padiKavalSocketPath,
+  residentPadiSocket,
   resolveRunningPadiSocket,
 } from "./stateRoot.ts";
 

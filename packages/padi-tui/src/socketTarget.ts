@@ -14,7 +14,7 @@
  * the two-line adapter onto this CLI's error type.
  */
 
-import { localPadiSocket, localPadiTargetOf } from "@kolu/padi/dial";
+import { localPadiSocket, localPadiTargetOf } from "@kolu/padi/stateRoot";
 import { Effect } from "effect";
 import { type CliFailure, failure } from "./exit.ts";
 

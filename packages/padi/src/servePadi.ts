@@ -17,8 +17,20 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
-import { renderScreenImage } from "./screenImage.ts";
 import { rmSync } from "node:fs";
+import {
+  DEFAULT_PADI_VERSION,
+  isPadiDeclaredError,
+  KavalContractSkew,
+  PADI_SURFACE_VERSION,
+  type PadiIdentity,
+  type PadiStatus,
+  type PadiTerminal,
+  type PadiWatchStatesInput,
+  type padiSurface,
+  ScratchWriteRejected,
+} from "@kolu/padi-client/surface";
+import { watchScopeOf } from "@kolu/padi-client/watchScope";
 import { base64DecodedLength } from "@kolu/surface/frame-chunking";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import {
@@ -28,8 +40,8 @@ import {
 } from "@kolu/surface/server";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
-import { terminalCaption } from "@kolu/terminal-vocab/terminalKey";
 import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
+import { terminalCaption } from "@kolu/terminal-vocab/terminalKey";
 import { Effect } from "effect";
 import {
   currentPtyHostIdentity,
@@ -39,27 +51,21 @@ import {
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { createFinishQuiet } from "./activity/finishQuiet.ts";
-import { EMPTY_URGENCY } from "./activity/urgency.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import { EMPTY_URGENCY } from "./activity/urgency.ts";
 import { createEdgeMemory } from "./attention/edgeMemory.ts";
-import { createFleetGate } from "./attention/fleetGate.ts";
 import { createEventSeq } from "./attention/eventSeq.ts";
+import { createFleetGate } from "./attention/fleetGate.ts";
 import { createSettleEvents } from "./attention/settleEvents.ts";
 import { createStateWatchHub } from "./attention/stateWatch.ts";
-import { createWatchRegistry } from "./attention/watchRegistry.ts";
 import { stateWatchSource } from "./attention/stateWatchStream.ts";
+import { createWatchRegistry } from "./attention/watchRegistry.ts";
 import { specOf, watchFilterOf, watchSpecOf } from "./attention/watchSpec.ts";
-import { watchScopeOf } from "./attention/watchScope.ts";
 import type {
   EndpointGrid,
   TerminalAttachFrame,
   TerminalEndpoint,
 } from "./endpoint.ts";
-import {
-  isPadiDeclaredError,
-  KavalContractSkew,
-  ScratchWriteRejected,
-} from "./errors.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
 import {
   HOST_INVENTORY_SAMPLE_INTERVAL_MS,
@@ -81,6 +87,7 @@ import {
 } from "./ptyHost/daemonStatus.ts";
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
 import { pulseSource } from "./pulseSource.ts";
+import { renderScreenImage } from "./screenImage.ts";
 import { cancelPendingAutosave } from "./session/autosaveGate.ts";
 import {
   requirePadiActivityFeedStore,
@@ -96,15 +103,6 @@ import {
   listPadiStateBackups,
   restorePadiStateBackup,
 } from "./session/stateBackups.ts";
-import {
-  DEFAULT_PADI_VERSION,
-  PADI_SURFACE_VERSION,
-  type PadiIdentity,
-  type PadiStatus,
-  type PadiTerminal,
-  type PadiWatchStatesInput,
-  type padiSurface,
-} from "./surface.ts";
 import {
   getActiveTerminal,
   getTerminal,
@@ -136,7 +134,7 @@ import {
 } from "./terminals.ts";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { exportTranscriptHtml } from "./transcript/transcript.ts";
-import { rejectionFor } from "./upload.ts";
+import { rejectionFor } from "@kolu/padi-client/upload";
 
 // Baked scrollback-backfill invariant, asserted at daemon startup (fail fast, no
 // degrade): a client's own scrollback must hold the ENTIRE reachable history —

@@ -24,10 +24,10 @@
  * this fold stays pure over `(terminals, isEpisodeFinished)`.
  */
 
+import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 import { attentionClass } from "@kolu/terminal-vocab/agentProjection";
 import type { AttentionFrame } from "@kolu/terminal-vocab/attentionTransitions";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import type { PadiTerminal, PadiUrgency } from "../surface.ts";
 
 /** The urgency of a fleet nobody has seen yet — every list empty.
  *

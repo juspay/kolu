@@ -1,0 +1,165 @@
+# @kolu/padi-client
+
+Everything you need to **talk to** a padi, and nothing padi needs to **be** one.
+
+[`@kolu/padi`](../padi) is the per-host workspace daemon: PTYs, sessions, the
+attention engine, kaval. This package is the half of it a *client* holds — the
+`padiSurface` contract, the vocabulary that contract speaks, the dial that
+reaches a running padi over its unix socket, and the terminal watch kit — carved
+out so a consumer can hydrate it **without installing the daemon**.
+
+```ts
+import { connectPadi } from "@kolu/padi-client/dial";
+import { Effect, Stream } from "effect";
+
+// The socket is GIVEN, not guessed — see "Finding the socket" below.
+const connection = await Effect.runPromise(connectPadi(process.env.PADI_SOCKET!));
+const ids = await Effect.runPromise(
+  Stream.runHead(connection.client.padi.surface.terminals.keys(undefined)),
+);
+```
+
+Part of the kolu monorepo — `"@kolu/padi-client": "workspace:*"`.
+
+## Why it is its own package
+
+Hydration is **per-package**. A repo that consumes kolu from a content-addressed
+pin copies a package *directory* and installs that directory's declared
+dependencies from its own manifest — so what a consumer pays is the transitive
+closure of the **manifests**, not the set of modules its own code happens to
+reach.
+
+That is what made `@kolu/padi` unusable for a server that only wanted to speak
+the surface. padi's manifest names `kaval`, which names `node-pty` (a native
+binding) and `@xterm/headless`; so "give me a spec object and a dial function"
+arrived as a PTY host with a compile step.
+
+|  | `@kolu/padi` | `@kolu/padi-client` |
+| --- | --- | --- |
+| workspace packages | 34 | 21 |
+| npm packages | 38 | 12 |
+| native modules | `node-pty`, `@parcel/watcher` | `@parcel/watcher` |
+
+The thirteen workspace packages it drops are the daemon and TUI tier: `kaval`,
+`terminal-snapshot`, `terminal-themes`, `@kolu/xterm-kit`, `@kolu/serve-dir`,
+`@kolu/surface-remote`, `@kolu/surface-map` and the rest — and with them
+`node-pty`, the whole `@xterm/*` suite, `@resvg/resvg-wasm`, `pino`, `conf`,
+`marked`. The exact set is **pinned by a test**, not asserted here:
+[`src/hydrate.closure.test.ts`](src/hydrate.closure.test.ts) walks the runtime
+import closure *and* the declared manifest closure, and fails if either grows.
+That test also records the one residual — `@parcel/watcher` and the Claude Agent
+SDK ride in through two integration packages whose `/schemas` entry is a pure
+leaf but shares a manifest with its machinery — and what fixing it would take.
+
+`@kolu/padi` **depends on this package**; the arrow never points back. There is
+one spec, in one place, and the daemon serves the same object its clients dial.
+
+## Finding the socket
+
+**Be told it; don't derive it.** `$PADI_SOCKET` is stamped into every PTY a padi
+spawns, so a program running in a kolu terminal already has the answer, and an
+explicit path is always accepted.
+
+`@kolu/padi-client/rendezvous` also ships the path *formula* —
+`padiSocketPath(stateRoot)` → `$XDG_RUNTIME_DIR/padi-<digest>/padi.sock` — and it
+is the right answer on the **construction** side, where the daemon decides where
+to bind. From a client it is a guess about someone else's environment, and padi's
+own discovery is explicit that the guess loses: `residentPadiSocket` takes the
+resident's `state-root` manifest over "any caller's own-env guess (never a bare
+digest-path recompute, which is exactly what reproduced the bug)". The bug was
+[#1713](https://github.com/juspay/kolu/issues/1713) — a `nix run` outside a login
+session computed a different runtime drawer than the live daemon and hung for
+thirty seconds against a padi that was up the whole time.
+
+The read-back that corrects a guess — manifest discovery, gated on a live pid
+holder — needs kaval's owner-only-dir and socket-inode checks, so it lives in
+`@kolu/padi/stateRoot` and is out of reach here. Recompute only when the client
+and the daemon share a launch context.
+
+## The second pin — `osfacts-client`
+
+**A consumer needs one thing that is not on npm and is not in this repo.**
+
+`@kolu/surface-daemon-supervisor` — which `./dial` reaches for `dialSocket` and
+the skew error — states its `ReadSocketHolders` seam in `osfacts-client`'s
+vocabulary. That is deliberate and argued at the seam: the success half and the
+three failure tags have one provenance, so a local copy would be *"a second name
+for facts it does not produce, and every consumer would have to unwrap it to get
+back the tag it needed"*. It is public API, not an internal detail.
+
+`osfacts-client` is the TypeScript client of [`juspay/osfacts`](https://github.com/juspay/osfacts),
+grafted into this tree from an npins pin and gitignored — so it is **absent from
+the archive you vendor**. Graft it from the same pin, exactly as drishti does in
+its `nix/overlay.nix`:
+
+```nix
+# kolu pins it at 72a794c2527d450d55ef14ae7015056ebabe31b3
+# — keep the client and the binary on ONE revision; the client's version gate
+#   must never be paired with a binary from another source.
+osfacts-client = pkgs.runCommand "osfacts-client" { } ''
+  cp -r ${osfactsSrc}/client-ts $out
+'';
+```
+
+Then hydrate it beside the `@kolu/*` packages. Without it a consumer's `tsc`
+reports `TS2307` at three sites in `@kolu/surface-daemon-supervisor` — this repo
+ships raw TypeScript, so an `import type` is resolved by *your* compiler and is
+as load-bearing as a value import.
+
+> **The follow-up that would remove this.** If `@kolu/surface-daemon-supervisor`
+> published a leaf entry carrying just `dialSocket` + `DaemonContractSkewError`,
+> `./dial` would never compile `endpoint.ts` and the graft would stop being
+> required. That is the same leaf-entry change the daemon barrel wants (see the
+> guard's recorded barrel cost), and it is drishti-gated — named here rather than
+> half-done.
+
+## The export map
+
+| entry | what it is | browser-safe |
+| --- | --- | --- |
+| `./surface` | `padiSurface` — the Effect Schema contract, the per-member forwarding policy (`value` = hold-open vs `delta` = fail-through), the frozen control-core sibling, and the whole terminal vocabulary it speaks (records, errors, chrome, policy and transcript-export schemas), re-exported from this one entry | ✅ |
+| `./dial` | `connectPadi` — dial a socket, handshake the frozen control core, gate the surface version (`assertPadiSurfaceCompatible`), and hand back both typed faces over one dispatch (`padiClientOver`, `scopePadiSurface`). `dialPadiHello` is the ungated half, for a caller that wants to read `hello` and judge for itself | ❌ `node:net` |
+| `./rendezvous` | the path *formula* — state-root → digest → `$XDG_RUNTIME_DIR/padi-<digest>/padi.sock`, plus `productionPadiStateRoot` / `resolvePadiStateRoot` / `padiDigest` / `padiGatePath`. Pure: no probing, no kaval. Construction-side; see **Finding the socket** before dialing with it | ❌ `node:` paths |
+| `./watch` | the terminal watch kit — `watchTerminals`, the one `awaitTerminalCondition` engine and its two named waits (`awaitAgentState`, `awaitOutputSettled`), and `awaitWatchEvents` | ❌ mirror |
+| `./watchScope` | which terminals a subscription reports: `watchScopeOf` (the only constructor, where every never-match refusal lives), `scopeAdmits` (the only reader) | ✅ |
+| `./terminalVocab` | the pure folds over a terminal record — `activeAgent`, `isWaitState`, `WAIT_STATES` | ✅ |
+| `./upload` | what may be dropped onto a terminal and how big it may be — `MAX_UPLOAD_BYTES`, the extension allowlist, `rejectionFor`. The gate a sender applies before encoding is the gate padi applies before writing, so the two cannot drift | ✅ |
+
+## What stayed in `@kolu/padi`
+
+**The line is HYDRATION COST, not client-vs-daemon.** Plenty of client-side code
+stayed behind, and saying "it wasn't contract-shaped" would not classify it: a
+module stays with `@kolu/padi` when moving it would put a new npm package in
+every consumer's manifest, or when it genuinely needs the daemon tier. That is
+the criterion the closure test above enforces, so it is the one to apply to the
+next module that wants to move.
+
+Needs the daemon tier:
+
+- **`@kolu/padi/remote-dial`** — reaching a padi on another host over ssh.
+  `PADI_REMOTE_DIAL` names a nix package and a binary, and `dialAgentOnce` ships
+  that closure to the host: this is the daemon, not the contract.
+- **`@kolu/padi/stateRoot`** — discovery of the padis actually running on this
+  box, and the kaval placement beside each. Reads the filesystem, asks kaval.
+- **`@kolu/padi/endpoint`** — needs `terminal-snapshot`.
+
+Would cost every consumer a new npm package, for code no consumer has asked for
+yet:
+
+- **`@kolu/padi/read`** and **`@kolu/padi/render`** — the CLI's client-side read
+  and text formatting. Pure client code by every other measure (they import this
+  package and nothing daemon-tier), but `render` pulls `columnify`, and a
+  formatter is not what the out-of-repo consumer came for. Move them the day one
+  asks — the closure test will say exactly what that costs.
+- **`@kolu/padi/containingTerminal`** — "am I running inside a kolu terminal",
+  which is a question only something inside one asks. Free to move (it reads one
+  env name from `kolu-pty`, already in the closure); it has simply never been
+  wanted from outside, and an entry nobody asked for is an entry to un-publish
+  later.
+- **`@kolu/padi/watchSpec`** — the argv grammar for `kolu watch`'s knobs: a CLI
+  concern, not a wire one.
+
+## Docs
+
+- The daemon, whole — [`packages/padi/README.md`](../padi/README.md)
+- Plan of record — [Atlas: padi](https://kolu.dev/atlas/padi)

@@ -12,7 +12,7 @@
  *  explicit Wake button respawns. This is the canvas/mobile sleeping body; the
  *  swap between this and the live `Terminal` tree lives in `TerminalContent`. */
 
-import { sleepingArm } from "@kolu/padi/surface";
+import { sleepingArm } from "@kolu/padi-client/surface";
 import { prValue } from "anyforge/schemas";
 import type { TerminalId } from "kolu-common/surface";
 import { resumableCommand } from "kolu-common/surface";

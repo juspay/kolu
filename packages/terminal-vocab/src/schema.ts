@@ -479,7 +479,7 @@ export function seedMemory(): AgentMemory {
  *  "error AND a stale rss".
  *
  *  Lives on this browser-safe shared-vocab leaf (beside `AgentMemory`/`seedMemory`)
- *  because BOTH `kolu-common/surface` and `@kolu/padi/surface` compose it —
+ *  because BOTH `kolu-common/surface` and `@kolu/padi-client/surface` compose it —
  *  kolu-server's memory sampler folds padi's reading into its own `processMemory`
  *  cell — and the package-boundary seal forbids either importing the other. One
  *  declaration, imported both sides: no lockstep copy held together by a comment. */
@@ -520,7 +520,7 @@ export type Foreground = typeof ForegroundSchema.Type;
 //
 // These three shapes back the host-side fs/git reads and their live watcher
 // streams. They live on this browser-safe schema-only leaf (beside the terminal
-// vocabulary) because `@kolu/padi/surface` composes them — the Code tab's
+// vocabulary) because `@kolu/padi-client/surface` composes them — the Code tab's
 // `fs.readFile` / `subscribeRepoChange` / `subscribeFileChange` members — and the
 // package-boundary seal forbids padi importing them from a node-coupled module.
 

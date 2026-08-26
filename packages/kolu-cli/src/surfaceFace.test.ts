@@ -30,7 +30,7 @@
  */
 
 import { NodeServices } from "@effect/platform-node";
-import { padiSurface } from "@kolu/padi/surface";
+import { padiSurface } from "@kolu/padi-client/surface";
 import { classifyExpose } from "@kolu/surface/expose";
 import { toolName } from "@kolu/surface/verbs";
 import { isConsumerHangup } from "@kolu/surface-cli";
@@ -42,7 +42,7 @@ import { KOLU_MCP_EXPOSE } from "kolu-mcp/expose";
 import { KOLU_MCP_TOOLS } from "kolu-mcp/tools";
 import { describe, expect, it } from "vitest";
 import { runKoluCliWith } from "./cli.ts";
-import { KOLU_SURFACE_POSITIONALS, KOLU_SURFACE_HELP } from "./surfaceFace.ts";
+import { KOLU_SURFACE_HELP, KOLU_SURFACE_POSITIONALS } from "./surfaceFace.ts";
 
 /** Run the real command tree against an argv, to an `Exit`. */
 const run = (argv: string[]) =>

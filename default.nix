@@ -93,7 +93,7 @@ let
   # which bake the flake ref), so it is exposed but NOT proven.
   #
   # Be honest about what that costs. `padi-agent` IS what both dial paths now
-  # resolve (`@kolu/padi/dial`'s `PADI_REMOTE_DIAL`), so the build-input gate no
+  # resolve (`@kolu/padi/remote-dial`'s `PADI_REMOTE_DIAL`), so the build-input gate no
   # longer covers the dialed attr — it covers the daemon graph that closure is
   # composed out of, which is where a thin fileset actually shows up. What covers
   # the exposed attrs themselves is `ci::agent-flake-nix`, which evaluates every

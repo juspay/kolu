@@ -5,10 +5,11 @@
  * is the seam a coordinator's dropped merge-ready report fell through.
  */
 
+import type { PadiStateEvent } from "@kolu/padi-client/surface";
+import { WatchSubscriptionNotFound } from "@kolu/padi-client/surface";
+import type { WatchScope } from "@kolu/padi-client/watchScope";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import { WatchSubscriptionNotFound } from "../errors.ts";
-import type { PadiStateEvent } from "../surface.ts";
 import {
   frame,
   makeAgent,
@@ -24,7 +25,6 @@ import type {
   StateWatchSpec,
 } from "./stateWatch.ts";
 import { createWatchRegistry, type WatchRegistry } from "./watchRegistry.ts";
-import type { WatchScope } from "./watchScope.ts";
 import { specOf } from "./watchSpec.ts";
 
 let seq = 0;

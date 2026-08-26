@@ -14,12 +14,12 @@
  *  Pan/zoom viewport logic lives in viewport/ — decomposed by volatility
  *  axis (gestures, transforms, coordinates) per Lowy analysis. */
 
+import { sleepingArm } from "@kolu/padi-client/surface";
 import {
   DragDropProvider,
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import { sleepingArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
@@ -34,11 +34,11 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import { savedSessionSub } from "../hostScope/activeWire";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import type { TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
-import { savedSessionSub } from "../hostScope/activeWire";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
 import Dock from "./dock/Dock";

@@ -10,7 +10,7 @@
  *     denied stream fails as unknown (default deny, proven at the wire).
  */
 
-import { padiSurface } from "@kolu/padi/surface";
+import { padiSurface } from "@kolu/padi-client/surface";
 import {
   resolveExpose,
   type SurfaceClientCallable,

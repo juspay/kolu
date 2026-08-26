@@ -1,4 +1,7 @@
-import { LOCAL_LOCATION, type TerminalMetadata } from "@kolu/padi/surface";
+import {
+  LOCAL_LOCATION,
+  type TerminalMetadata,
+} from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { repoMonogram } from "../../ui/monogramGlyph";

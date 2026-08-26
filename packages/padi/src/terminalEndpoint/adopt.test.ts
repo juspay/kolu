@@ -1,11 +1,11 @@
-import type { PtyHostListEntry } from "kaval";
-import { describe, expect, it } from "vitest";
 import {
   AuthoredActiveSchema,
   PersistedSnapshotSchema,
   type SavedActiveTerminal,
   SavedActiveTerminalSchema,
-} from "../vocab.ts";
+} from "@kolu/padi-client/surface";
+import type { PtyHostListEntry } from "kaval";
+import { describe, expect, it } from "vitest";
 import { adoptedAuthored, adoptedSnapshot, orphanSnapshot } from "./local.ts";
 
 /** A live `terminal.list` entry for the sentinel id. The daemon snapshot is the

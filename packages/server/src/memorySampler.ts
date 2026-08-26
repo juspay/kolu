@@ -27,7 +27,7 @@
  * one wire dedup point for the derived member.
  */
 
-import type { PadiProcessMemory } from "@kolu/padi/surface";
+import type { PadiProcessMemory } from "@kolu/padi-client/surface";
 import type { ProcessMemory } from "kolu-common/surface";
 
 /** Take one reading — kolu-server's own RSS (always present, it measures itself)

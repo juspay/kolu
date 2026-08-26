@@ -12,14 +12,14 @@
  *  removal makes unspellable). Live fields come from `getMetadata(id)`, the
  *  fine-grained store proxy, at each consumer's own leaf. */
 
-import type { TerminalMetadata } from "@kolu/padi/surface";
-import type { TerminalId } from "kolu-common/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import {
   computeTerminalKeys,
-  terminalCaption,
   type TerminalKey,
+  terminalCaption,
   terminalKey,
 } from "@kolu/terminal-vocab/terminalKey";
+import type { TerminalId } from "kolu-common/surface";
 
 export type TerminalDisplayInfo = {
   /** Deterministic OKLCH hue per repo `group`. Always defined: `group`

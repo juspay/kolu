@@ -1,7 +1,7 @@
-import type { PadiTerminal } from "../surface.ts";
+import type { PadiTerminal } from "@kolu/padi-client/surface";
+import { isWaitState, WAIT_STATES } from "@kolu/padi-client/terminalVocab";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import { isWaitState, WAIT_STATES } from "../dial.ts";
 import {
   formatHeartbeat,
   formatHeartbeatJson,

@@ -10,8 +10,11 @@
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import { scopeOf as okScope } from "./attentionFixture.testlib.ts";
 import { scopeAdmits, WATCH_SCOPE_ALL, watchScopeOf } from "./watchScope.ts";
+// The unwrapper is `./watchScope.testlib.ts`'s — one copy, published, and shared
+// with padi's attention fixture, which is where the second copy of these six
+// lines used to live.
+import { scopeOf as okScope } from "./watchScope.testlib.ts";
 
 const SELF = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
 const LANE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as TerminalId;

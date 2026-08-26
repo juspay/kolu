@@ -7,7 +7,7 @@
  *  `git.mainRepoRoot`, the shared parent — these tests pin that
  *  contract without needing to spin a real git repo + e2e harness. */
 
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";

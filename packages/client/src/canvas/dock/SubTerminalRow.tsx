@@ -10,7 +10,7 @@
  * component serves desktop and touch because the row has no shortcut hint, PR
  * link, or drawer gesture of its own. */
 
-import { activeArm } from "@kolu/padi/surface";
+import { activeArm } from "@kolu/padi-client/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";

@@ -40,7 +40,7 @@
 // The one import: padi's `UPLOAD_VIDEO_EXTENSIONS` (a zero-dependency, node-free
 // constants leaf) is the canonical container list `VIDEO_EXTENSIONS` derives from
 // (L17) — the app→padi arrow the seal sanctions. Node-free still holds.
-import { UPLOAD_VIDEO_EXTENSIONS } from "@kolu/padi/upload";
+import { UPLOAD_VIDEO_EXTENSIONS } from "@kolu/padi-client/upload";
 
 export const SANDBOX_PREVIEWABLE_EXTENSIONS = [
   ".html",

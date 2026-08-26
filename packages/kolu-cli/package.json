@@ -12,6 +12,7 @@
   "dependencies": {
     "@effect/platform-node": "catalog:",
     "@kolu/padi": "workspace:*",
+    "@kolu/padi-client": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-cli": "workspace:*",

@@ -3,6 +3,14 @@
  * Uses finish.project (the production recompute shape).
  */
 
+import {
+  composeTerminalMetadata,
+  LOCAL_LOCATION,
+  type PadiTerminal,
+  PadiTerminalSchema,
+  PadiUrgencySchema,
+  urgencyEqual,
+} from "@kolu/padi-client/surface";
 import { defineSurface } from "@kolu/surface/define";
 import { derived } from "@kolu/surface/reactor";
 import { implementSurface } from "@kolu/surface/server";
@@ -15,13 +23,6 @@ import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFinishQuiet } from "./finishQuiet.ts";
-import {
-  type PadiTerminal,
-  PadiTerminalSchema,
-  PadiUrgencySchema,
-  urgencyEqual,
-} from "../surface.ts";
-import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
 
 const QUIET = 50;
 const A = "00000000-0000-4000-8000-000000000001" as TerminalId;

@@ -13,7 +13,7 @@
  * and canvas reflect progress without this hook tracking it.
  */
 
-import type { DaemonStatus } from "@kolu/padi/surface";
+import type { DaemonStatus } from "@kolu/padi-client/surface";
 // The declared-error narrowing verbs come from the surface receptacle
 // (`@kolu/surface/solid`, which now OWNS them — they were re-exports from
 // `@orpc/client`): the transport vendor stays encapsulated behind the surface
@@ -69,7 +69,7 @@ export function restartDaemon(): UiAction {
     const id = toast.loading("Restarting kaval…");
     // The DECLARED error union rides the effect's error channel (SK6/D4), so
     // `catchTag` IS the discriminant — and the compiler matches the tag against
-    // the procedure's own union, so a rename in `@kolu/padi/surface` is a compile
+    // the procedure's own union, so a rename in `@kolu/padi-client/surface` is a compile
     // error here rather than a toast printing `undefined`. What `catchTag` does NOT catch
     // is the framework's `SurfaceCallFailure` half, which is exactly right: a
     // transport drop is not the skew, and the residual arm below says so.

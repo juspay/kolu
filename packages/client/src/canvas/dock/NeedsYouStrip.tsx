@@ -16,9 +16,9 @@
  *  empties this strip is the agent leaving `awaiting_user`, the same rule the
  *  violet capsule has always followed. */
 
+import { activeArm } from "@kolu/padi-client/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
-import { activeArm } from "@kolu/padi/surface";
 import { DASH, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
@@ -27,8 +27,8 @@ import { useDuration } from "../../terminal/staleness";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
-import { createDockRowData } from "./dockRowData";
 import { dockRowAttrs } from "./dockRowAttrs";
+import { createDockRowData } from "./dockRowData";
 import { rowRecencyAt } from "./dockRowRanking";
 import type { DockNeedsYouEntry } from "./dockTree";
 import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";

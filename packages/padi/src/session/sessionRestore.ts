@@ -13,22 +13,18 @@
  * by neither) keeps the graph acyclic.
  */
 
+import type {
+  SavedActiveTerminal,
+  SavedSession,
+  SavedTerminal,
+} from "@kolu/padi-client/surface";
+import {
+  backfillSavedSession,
+  SavedSessionSchema,
+} from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
-import {
-  type AutosaveFreeze,
-  cancelPendingAutosave,
-  freezeAutosave,
-  unfreezeAutosave,
-} from "./autosaveGate.ts";
-import { resumableTerminalIds } from "./resumable.ts";
-import {
-  clearSavedSession,
-  getSavedSession,
-  saveSession,
-  setSavedSession,
-} from "./session.ts";
-import { padiStateBackupRing } from "./stateStore.ts";
+import { Schema } from "effect";
 import { getActiveTerminal, getTerminal } from "../terminal-registry.ts";
 import {
   discardAllLocalParked,
@@ -44,13 +40,20 @@ import {
   setTerminalParent,
   snapshotSession,
 } from "../terminals.ts";
-import type {
-  SavedActiveTerminal,
-  SavedSession,
-  SavedTerminal,
-} from "../vocab.ts";
-import { backfillSavedSession, SavedSessionSchema } from "../vocab.ts";
-import { Schema } from "effect";
+import {
+  type AutosaveFreeze,
+  cancelPendingAutosave,
+  freezeAutosave,
+  unfreezeAutosave,
+} from "./autosaveGate.ts";
+import { resumableTerminalIds } from "./resumable.ts";
+import {
+  clearSavedSession,
+  getSavedSession,
+  saveSession,
+  setSavedSession,
+} from "./session.ts";
+import { padiStateBackupRing } from "./stateStore.ts";
 
 /** zod's `.parse`, in Effect terms — bound once at module scope (`decodeUnknownSync`
  *  compiles the schema on each application). Fail-fast by design: an IMPORTED blob

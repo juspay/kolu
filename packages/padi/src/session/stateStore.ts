@@ -16,16 +16,16 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import Conf from "conf";
-import { confStore } from "@kolu/surface/server";
+import type { ActivityFeed, SavedSession } from "@kolu/padi-client/surface";
 import type { CellStore } from "@kolu/surface/server";
-import { log } from "../log.ts";
+import { confStore } from "@kolu/surface/server";
+import Conf from "conf";
 import {
   openStateBackupRing,
   type StateBackupRing,
 } from "kolu-shared/state-backup";
+import { log } from "../log.ts";
 import type { PairedDaemon } from "./pairedDaemon.ts";
-import type { ActivityFeed, SavedSession } from "../vocab.ts";
 
 /** padi's on-disk shape — the three keys padi owns under its state-root, plus the
  *  one-shot import marker. */

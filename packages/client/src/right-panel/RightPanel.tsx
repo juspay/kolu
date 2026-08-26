@@ -12,7 +12,10 @@
  *  when `!visible` so e2e selectors can assert collapse state without
  *  inspecting widths. */
 
-import type { RightPanelTabKind, TerminalMetadata } from "@kolu/padi/surface";
+import type {
+  RightPanelTabKind,
+  TerminalMetadata,
+} from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For } from "solid-js";
 import { match } from "ts-pattern";

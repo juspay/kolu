@@ -3,10 +3,10 @@
  *  The choice happens before generation so the lightweight chat log does not
  *  carry full tool payloads hidden inside the file. */
 
-import { runAction } from "./runAction";
 import Dialog from "@corvu/dialog";
-import type { TranscriptHtmlMode } from "@kolu/padi/transcript";
+import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
 import type { Component } from "solid-js";
+import { runAction } from "./runAction";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { createDisclosure } from "./ui/createDisclosure";
 import ModalDialog from "./ui/ModalDialog";

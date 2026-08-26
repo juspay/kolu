@@ -14,11 +14,14 @@
  * set when a fourth knob is added.
  */
 
-import type { WaitState } from "../terminalVocab.ts";
-import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
-import type { PadiWatchStatesInput } from "../surface.ts";
+import type { PadiWatchStatesInput } from "@kolu/padi-client/surface";
+import {
+  WATCH_DEFAULT_STATES,
+  WATCH_FILTER_KEYS,
+} from "@kolu/padi-client/surface";
+import type { WaitState } from "@kolu/padi-client/terminalVocab";
+import { type WatchScope, watchScopeOf } from "@kolu/padi-client/watchScope";
 import type { StateWatchFilter, StateWatchSpec } from "./stateWatch.ts";
-import { type WatchScope, watchScopeOf } from "./watchScope.ts";
 
 /** The three knobs as either face's schema decodes them. Structural, so both
  *  wire inputs satisfy it without an adapter object per call — and unexported,

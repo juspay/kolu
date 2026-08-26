@@ -4,11 +4,14 @@
  * same function, so a default can only ever be one number.
  */
 
+import {
+  WATCH_DEFAULT_STATES,
+  WATCH_FILTER_KEYS,
+} from "@kolu/padi-client/surface";
+import { WATCH_SCOPE_ALL } from "@kolu/padi-client/watchScope";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import { WATCH_DEFAULT_STATES, WATCH_FILTER_KEYS } from "../surface.ts";
 import { scopeOf as okScope } from "./attentionFixture.testlib.ts";
-import { WATCH_SCOPE_ALL } from "./watchScope.ts";
 import {
   namesWatchKnobs,
   specOf,

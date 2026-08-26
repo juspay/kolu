@@ -16,14 +16,20 @@
  */
 
 import {
+  FileGone,
+  GitFailed,
+  WorktreeBaseBranchMissing,
+  WorktreeNameCollision,
+} from "@kolu/padi-client/surface";
+import {
+  filePreviewTag,
+  type GitResult,
   getDiff,
   getStatus,
-  type GitResult,
   listAll,
   listDirectory,
   listIgnored,
   readFile,
-  filePreviewTag,
   subscribeFileChange,
   subscribeRepoChange,
 } from "kolu-git";
@@ -37,12 +43,6 @@ import type {
 } from "kolu-git/schemas";
 import type { Logger } from "pino";
 import { match } from "ts-pattern";
-import {
-  FileGone,
-  GitFailed,
-  WorktreeBaseBranchMissing,
-  WorktreeNameCollision,
-} from "../errors.ts";
 
 /** Filesystem operations scoped to an endpoint's host machine. Returns
  *  already-unwrapped values; implementations throw a DECLARED tagged error on failure so

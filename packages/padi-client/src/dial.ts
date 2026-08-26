@@ -1,18 +1,30 @@
 /**
- * `@kolu/padi/dial` — the CLIENT-SIDE DIAL KIT for a padi daemon.
+ * `@kolu/padi-client/dial` — the CLIENT-SIDE DIAL KIT for a padi daemon.
  *
- * One place spells how a client reaches padi: resolve a state-root to its
- * digest-keyed socket (re-exported from {@link ./stateRoot.ts}), dial it, and
- * handshake the FROZEN control core — hello · version compare · typed skew
- * refusal — returning the live, version-checked connection whose `.client` is the
+ * One place spells how a client reaches padi: dial a socket and handshake the
+ * FROZEN control core — hello · version compare · typed skew refusal —
+ * returning the live, version-checked connection whose `.client` is the
  * COMBINED daemon client — one dispatch carrying BOTH siblings' tags, with a
  * typed face over each (`.control.surface.core.*` and `.padi.surface.*`).
- * This is the kaval precedent: a daemon's package owns the dial
- * kit its clients share, so BOTH consumers import it —
+ * ONE dial kit, shared by every client — the invariant kaval established. Where
+ * it LIVES is the part that differs: kaval's rides kaval's own package because
+ * every kaval dialer is in-repo; padi's moved out because padi has a consumer
+ * that hydrates the contract without the daemon (juspay/kolu#2216). Extract
+ * kaval's the day it gets one, not on symmetry alone. So EVERY consumer imports
+ * this one —
  *   - kolu-server's binder (`server/src/padi/padiBinding.ts`), which layers
  *     SUPERVISION (drivers · adopt/spawn/refuse · the newer-binder drain
- *     convergence · the reconnect-mirror session · the re-serve) on top; and
- *   - `padi-tui`, which dials, runs one verb, and disposes.
+ *     convergence · the reconnect-mirror session · the re-serve) on top;
+ *   - `padi-tui`, which dials, runs one verb, and disposes; and
+ *   - an OUT-OF-REPO consumer that hydrates this package alone (juspay/kolu#2216)
+ *     and never installs the daemon it talks to.
+ *
+ * That last consumer is why this module lives in `@kolu/padi-client` rather than
+ * `@kolu/padi` — the rule and its enforcer are stated once in
+ * `packages/padi-client/src/hydrate.closure.test.ts`. What reaches a socket is
+ * here; what reaches a HOST — the ssh provisioning dial,
+ * `@kolu/padi/remote-dial` — stays with the daemon package that owns the closure
+ * it ships.
  *
  * Supervision is NOT here, on purpose. The version ORDERING that decides
  * drain-vs-refuse (padi's `ConvergencePolicy`, enacted by the shared convergence
@@ -21,18 +33,25 @@
  * drained by a mere dial — only by the supervisor that owns it (#1313). The dial kit does
  * exactly one version judgement — the COMPATIBILITY gate (`connectPadi` refuses a
  * padi it cannot speak to, loudly) — and nothing that mutates padi's lifecycle.
+ *
+ * The rest of the package is entries of its own, one name per thing and no name
+ * given twice: the contract itself (`/surface`), the rendezvous path algebra a
+ * caller resolves a socket with (`/rendezvous`), the terminal WATCH kit
+ * (`/watch`), the subscription scope vocabulary (`/watchScope`), the pure folds
+ * over a terminal record (`/terminalVocab` — reachable WITHOUT the watch kit's
+ * mirror graph, which is the only reason it is separate), and the drop gate a
+ * sender applies before it encodes a file (`/upload`).
  */
 
 import {
   buildSurfaceFace,
   type StreamingProcedure,
 } from "@kolu/surface/client";
+import { messageOf } from "@kolu/surface/errors";
 import {
   isContractVersionCompatible,
-  type Surface,
   type SurfaceSpec,
 } from "@kolu/surface/define";
-import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { socketDuplexLink } from "@kolu/surface/links/stdio";
 import type { SurfaceClientOf, SurfaceReadFace } from "@kolu/surface/project";
@@ -41,105 +60,16 @@ import {
   DaemonContractSkewError,
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
-import { type AgentDial, dialAgentOnce } from "@kolu/surface-remote";
 import { Effect } from "effect";
-import { composeSpawnEnv } from "kolu-pty";
 import {
   PADI_SURFACE_VERSION,
+  type PadiHello,
   padiControlSibling,
   type padiControlSurface,
   padiDaemonGroup,
-  type PadiHello,
   type padiSurface,
   padiSurfaceSibling,
 } from "./surface.ts";
-
-// The client-side rendezvous resolve is part of the dial kit — `state-root →
-// digest → socket`, plus the read-only multi-daemon discovery a flag-less client
-// labels what it finds with. Re-exported through this entry so a consumer reaches
-// the whole dial kit from ONE import, without pulling in the node-only
-// terminal-domain `@kolu/padi/assembly` barrel (the daemon runtime) just to
-// compute a socket path.
-export {
-  discoverPadiDaemons,
-  type LocalPadiSocket,
-  type LocalPadiFlags,
-  localPadiSocket,
-  type LocalPadiTarget,
-  localPadiTargetOf,
-  type PadiDaemon,
-  type PadiSocketResolution,
-  padiSocketPath,
-  residentPadiSocket,
-  resolvePadiStateRoot,
-  resolveRunningPadiSocket,
-} from "./stateRoot.ts";
-
-// The client-side terminal WATCH kit — `watchTerminals` + the ONE
-// block-on-a-condition engine (`awaitTerminalCondition`, which takes the
-// condition as data and carries the `--settled` quiescence conjunct and the
-// `--snapshot` screen stamp), the two named waits that are spellings of it
-// (`awaitAgentState` · `awaitOutputSettled` — named because their met payloads
-// ARE the MCP tools' wire frames), plus `awaitWatchEvents` (the
-// standing-subscription drain, which differs in kind: it drains a padi-side
-// BUFFER, so the gaps between calls are not holes) and the bucket vocabulary
-// they predicate on — rides the dial entry too: the same "a daemon's package
-// owns the client kit its consumers share" rule, and every consumer (padi-tui's
-// `wait`/`watch`, the kolu MCP face's `wait_agentState`/`wait_outputSettled`,
-// `kolu wait`'s three `--until` forms) already imports this entry to dial.
-// The `match:` form has NO named wrapper — `kolu wait` is its one consumer and
-// calls the engine directly; see the note at the foot of `cliClient/watch.ts`.
-// The knob-presence predicate rides the dial for the same reason the bucket
-// vocabulary does: `kolu watch` has to ask "did this invocation name a
-// supervision knob" and must ask padi's ONE definition, not a second list of
-// three fields that agrees today.
-export { namesWatchKnobs } from "./attention/watchSpec.ts";
-
-// Self-identity, not watch knobs: the FACT the stamp carries, never a sentence
-// about it. What a refusal READS like is argv/tool-arg grammar and belongs at
-// the face that owns the spelling — the same rule `cliClient/render.ts` records
-// having been litigated once already over `--until`.
-export {
-  confirmInFleet,
-  CONTAINING_TERMINAL_ENV,
-  containingTerminalId,
-  type FleetTerminal,
-} from "./containingTerminal.ts";
-
-// WHICH terminals a subscription reports is ONE concept with ONE constructor
-// and ONE reader, so the dial carries three names for it rather than a kit of
-// parts each face re-assembles: the value, the constructor that is the only way
-// to make one (and where every never-match refusal lives), and the predicate
-// every event source asks.
-export {
-  scopeAdmits,
-  type WatchScope,
-  watchScopeOf,
-  // …and WHICH never-match shape a refusal is, so a face can append its own way
-  // out without re-spelling the union the constructor already declares.
-  type WatchScopeRefusal,
-} from "./attention/watchScope.ts";
-
-export {
-  activeAgent,
-  type AgentStateOutcome,
-  isWaitState,
-  PADI_LINK_CLOSED,
-  awaitAgentState,
-  awaitOutputSettled,
-  awaitTerminalCondition,
-  awaitWatchEvents,
-  type ConditionMet,
-  type OutputSettledOutcome,
-  type TerminalCondition,
-  type TerminalConditionOutcome,
-  type WatchEventsOutcome,
-  WAIT_STATES,
-  type WaitState,
-  type WatchHandlers,
-  watchAgentStates,
-  watchTerminals,
-} from "./cliClient/watch.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -310,87 +240,6 @@ export function assertPadiSurfaceCompatible(
   }
 }
 
-/**
- * Provision and dial a padi on `host` using the exact source flake baked into
- * the caller's Nix wrapper. This is padi's client-side remote transport policy:
- * both padi-tui and kolu-cli share the same binary, fatal-prefix, clean local
- * environment, and frozen-control-core compatibility gate.
- *
- * Lifecycle supervision remains outside this dial kit. The returned connection
- * is one-shot and reading `hello` never drains or replaces the remote daemon.
- */
-/** How a remote kolu-managed padi is reached — the CLOSURE provisioned onto the
- *  host (the daemon PLUS the client CLIs a terminal there must be able to run)
- *  and the BINARY exec'd inside it. One value, so no dial path can name half of
- *  it: `padi-agent` here and a bare `padi` over there is how one host ended up
- *  receiving two different closures, with `padi-tui --host` / `kolu mcp --host`
- *  terminals missing the toolchain the browser path's terminals had.
- *
- *  Both dial paths import THIS — `dialPadiViaHost` below, and kolu-server's
- *  long-lived binder (`server/src/padi/remotePadiBinding.ts`). */
-export const PADI_REMOTE_DIAL = {
-  package: "padi-agent",
-  binary: "padi",
-} as const;
-
-/** The `Surface` an ssh dial is opened with: padi's SIBLING spec (so the face it
- *  builds is `client.surface.<member>.<verb>` at `surface/padi/*` — what every
- *  consumer of a remote padi actually holds) carried over the FULL daemon group
- *  (so the link can reach the control sibling's tags too).
- *
- *  Two halves, deliberately: `sshConnector` reads `.group` to open the link and
- *  walks `.spec`/`.tagPrefix` to build the face. Splitting them is the only way
- *  to dial a two-sibling daemon through a one-surface connector, and it is
- *  honest — the group IS what the daemon serves, the spec IS what the face
- *  addresses. */
-const padiRemoteDialSurface: Surface<typeof padiSurface.spec> = {
-  ...padiSurfaceSibling,
-  group: padiDaemonGroup,
-};
-
-export function dialPadiViaHost(host: string): Promise<AgentDial> {
-  return dialAgentOnce({
-    surface: padiRemoteDialSurface,
-    host,
-    localEnv: composeSpawnEnv(process.env),
-    ...PADI_REMOTE_DIAL,
-    fatalPrefix: "padi --stdio:",
-    probe: (client) => {
-      // The compatibility gate, over the padi face this dial hands back.
-      //
-      // The LOCAL dial gates on the frozen control-core `hello`; this one gates
-      // on padi's own `identity` cell, and they are the SAME FACT: padi seeds
-      // `identity` at boot from the same source constants `hello` reads, never
-      // re-derived (see `PadiIdentitySchema`), precisely so a per-host consumer
-      // can read the RUNNING padi's identity directly (P3).
-      //
-      // Sound here because this is a REFUSE-ONLY gate — a one-shot dial never
-      // drains or converges a running padi (#1313), so its only two outcomes are
-      // "proceed" and "fail loud", and an unreadable `identity` produces exactly
-      // the refusal a version mismatch does. WITHIN a protocol epoch the two
-      // reads are interchangeable; ACROSS one neither is reachable (the framing
-      // itself differs — D6's `unspeakable-protocol`, the supervisor's domain).
-      //
-      // The reason it is not simply the control core: `sshConnector` builds ONE
-      // face from ONE surface and never hands the link's `dispatch` back, so a
-      // consumer of `dialAgentOnce` cannot build a second sibling's face. If
-      // `AgentDial` ever carries the dispatch, swap this for
-      // `padiClientOver(dial.dispatch).control.surface.core.hello()` and delete
-      // this note.
-      const face = client as unknown as PadiSurfaceClient;
-      return Effect.map(
-        firstFrameOrThrow(
-          face.surface.identity.get(undefined),
-          "padi handshake failed — the identity cell yielded no frame",
-        ),
-        (identity) => {
-          assertPadiSurfaceCompatible(identity.surfaceVersion);
-        },
-      );
-    },
-  });
-}
-
 // ── The dial + control-core handshake ─────────────────────────────────────────
 
 /** Dial padi at `socketPath` and read the FROZEN control core's `hello` — the
@@ -432,7 +281,7 @@ export function dialPadiHello(
       Effect.catch(client.control.surface.core.hello(), (err) =>
         Effect.fail(
           new Error(
-            `padi handshake failed — could not read control.core.hello (${(err as Error).message})`,
+            `padi handshake failed — could not read control.core.hello (${messageOf(err)})`,
           ),
         ),
       ),

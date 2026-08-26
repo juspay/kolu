@@ -396,7 +396,7 @@ retry, MCP lifecycle) already lives in its receptacle (<code>@kolu/surface</code
 owning alternate-screen/context-loss recovery, that engine wrapper — not
 kolu-cli — would be the extraction candidate.</li>
 <li><strong>Transport = the seams that already exist — nothing hand-rolled.</strong> Local:
-<code>resolveRunningPadiSocket</code> (<code>@kolu/padi/dial</code>) resolves, <code>connectPadi</code> dials
+<code>resolveRunningPadiSocket</code> (<code>@kolu/padi/stateRoot</code>) resolves, <code>connectPadi</code> dials
 (handshake + compatibility gate). ssh: <strong><code>dialAgentOnce</code> from
 <code>@kolu/surface-remote</code></strong> — the same one-shot dial both sibling TUIs’ 15–24
 line <code>hostConnect.ts</code> wrappers already consume; kolu-cli writes its own thin
@@ -516,7 +516,7 @@ ever materializes.</span></span></span></p>
 client; the connect layer (resolve + dial + <code>STREAM_RETRY</code>) lives in
 kolu-cli, the composition root.</li>
 <li><strong>Connect</strong>: local socket resolution via <code>resolveRunningPadiSocket</code> +
-<code>connectPadi</code> (<code>@kolu/padi/dial</code> — the resolution never lived in
+<code>connectPadi</code> (<code>@kolu/padi-client/dial</code> — the resolution never lived in
 <code>connect.ts</code>; the TUIs’ connect files only dial an already-resolved path);
 <code>--host</code> via a thin <code>dialAgentOnce</code> options wrapper (<code>@kolu/surface-remote</code>,
 the sibling <code>hostConnect.ts</code> shape). Build the one <code>surfaceClient</code> with

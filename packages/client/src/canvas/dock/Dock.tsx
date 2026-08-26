@@ -62,12 +62,12 @@
  *  affordance. App.tsx mounts it (desktop only) inside the empty-state
  *  canvas as well as the populated one. */
 
-import { activeArm } from "@kolu/padi/surface";
+import { activeArm } from "@kolu/padi-client/surface";
 import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
+import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
-import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import {
   type Component,
   createMemo,
@@ -106,6 +106,7 @@ import { encActiveHost } from "../../wire";
 import { useViewPosture } from "../useViewPosture";
 import { capturePointerGesture } from "../viewport/capturePointerGesture";
 import { chipInitials } from "./chipInitials";
+import { DockShortcutHint } from "./DockShortcutHint";
 import {
   CARDS_WIDTH_PX,
   clampDockCardsWidth,
@@ -113,15 +114,14 @@ import {
   effectiveDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
-import { DockShortcutHint } from "./DockShortcutHint";
 import { dockRowAttrs } from "./dockRowAttrs";
+import { createDockRowData } from "./dockRowData";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import { NeedsYouStrip } from "./NeedsYouStrip";
-import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
-import { createDockRowData } from "./dockRowData";
 import { PrPip } from "./PrPip";
+import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
 import { rowSubline } from "./rowSubline";
 import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockFocus } from "./useDockFocus";

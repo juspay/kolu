@@ -3,7 +3,7 @@
  * live, block until one terminal's agent enters a target bucket, block until one
  * terminal's output has been quiet for a window, and block until one terminal's
  * NEW output matches a pattern. Part of the dial kit (re-exported through
- * `@kolu/padi/dial`): a daemon's package owns the client helpers its consumers
+ * `@kolu/padi-client/watch`, its own entry): a daemon's package owns the client helpers its consumers
  * share.
  *
  * Graduated here from padi-tui (`read.ts`/`render.ts`) the day the kolu MCP
@@ -19,9 +19,8 @@
  */
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
-import { isDeadTransportError } from "@kolu/surface/errors";
-import { isTerminalNotFound, isWatchSubscriptionNotFound } from "../errors.ts";
-import { Effect, Stream } from "effect";
+import { isDeadTransportError, messageOf } from "@kolu/surface/errors";
+import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,
@@ -29,19 +28,19 @@ import {
   type WaitCtx,
   type WaitOutcome,
 } from "@kolu/surface/wait";
-import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
-import type { PadiSurfaceClient } from "../dial.ts";
-import { errMessage } from "../errText.ts";
+import { Effect, Stream } from "effect";
+import type { PadiSurfaceClient } from "./dial.ts";
+import { isTerminalNotFound, isWatchSubscriptionNotFound } from "./errors.ts";
 import {
-  padiSurface,
   type PadiStateEvent,
   type PadiTerminal,
   type PadiWatchEvent,
   type PadiWatchStatesInput,
-} from "../surface.ts";
-import { activeAgent } from "../terminalVocab.ts";
+  padiSurface,
+} from "./surface.ts";
+import { activeAgent } from "./terminalVocab.ts";
 
 /** Consume a member `Stream` as an async iterable whose teardown is bound to
  *  `signal`.
@@ -69,18 +68,13 @@ function iterateUntilAborted<T>(
 }
 
 // The pure vocabulary (`activeAgent`, `WAIT_STATES`, `WaitState`,
-// `isWaitState`) lives one layer DOWN, in `terminalVocab.ts`, and is
-// re-exported here so every consumer's import path is unchanged. It moved
-// because `render.ts` — which promises "no I/O, no transport, no tty" — needs
-// it, and reaching it through this module dragged the whole dial graph into a
-// text formatter. See that file's header.
-export {
-  activeAgent,
-  isWaitState,
-  PADI_LINK_CLOSED,
-  WAIT_STATES,
-  type WaitState,
-} from "../terminalVocab.ts";
+// `isWaitState`, `PADI_LINK_CLOSED`) lives one layer DOWN, in
+// `terminalVocab.ts`, and is reached THERE — `@kolu/padi-client/terminalVocab`.
+// It is deliberately not re-exported from here: the whole reason the leaf was
+// split out is that `render.ts` ("no I/O, no transport, no tty") needs it, and
+// reaching it through this module drags the mirror and wait graph into a text
+// formatter. A second door onto the same four names makes the cheap one
+// optional, which is how the expensive one gets picked by accident.
 
 /** The live agent of a record IF it is in one of the target buckets, else
  *  `null` — THE wait predicate, and its match payload in one. A record with no
@@ -141,11 +135,18 @@ export interface WatchHandlers {
  *  hanging forever. */
 export async function watchTerminals(
   client: PadiSurfaceClient,
-  handlers: WatchHandlers,
-  signal?: AbortSignal,
-  log?: (line: string) => void,
-  initialKeys?: () => Iterable<TerminalId>,
+  // Named, not positional. The knobs are three optionals deep already, and this
+  // is a PUBLISHED entry an out-of-repo consumer pins — a sixth positional would
+  // be the watch kit's own growth leaking into a contract, and every call site
+  // would have to spell `undefined` to reach past the ones it does not want.
+  opts: {
+    handlers: WatchHandlers;
+    signal?: AbortSignal;
+    log?: (line: string) => void;
+    initialKeys?: () => Iterable<TerminalId>;
+  },
 ): Promise<void> {
+  const { handlers, signal, log, initialKeys } = opts;
   // The `activity` stream's current membership — the set of terminals moving
   // bytes right now — built up from the mirror's own `activity` frames below.
   // It starts EMPTY and stays that way until the first frame: padi builds a
@@ -177,14 +178,14 @@ export async function watchTerminals(
             try {
               handlers.onUpsert(id, value, live.has(id));
             } catch (err) {
-              log?.(`terminals upsert handler failed: ${errMessage(err)}`);
+              log?.(`terminals upsert handler failed: ${messageOf(err)}`);
             }
           },
           remove: (id) => {
             try {
               handlers.onRemove(id);
             } catch (err) {
-              log?.(`terminals remove handler failed: ${errMessage(err)}`);
+              log?.(`terminals remove handler failed: ${messageOf(err)}`);
             }
           },
           // A key here that the first snapshot doesn't re-assert departed before
@@ -207,7 +208,7 @@ export async function watchTerminals(
                   try {
                     handlers.onActivity?.(id, isLive);
                   } catch (err) {
-                    log?.(`activity handler failed: ${errMessage(err)}`);
+                    log?.(`activity handler failed: ${messageOf(err)}`);
                   }
                 };
                 for (const id of next) if (!live.has(id)) fire(id, true);
@@ -260,7 +261,7 @@ export async function watchAgentStates(
             try {
               onBatch(batch);
             } catch (err) {
-              log?.(`watchStates handler failed: ${errMessage(err)}`);
+              log?.(`watchStates handler failed: ${messageOf(err)}`);
             }
           },
         },
@@ -406,7 +407,7 @@ async function watchAttachFeed(
     try {
       run?.();
     } catch (err) {
-      ctx.recordUpstreamError(`${what} handler failed: ${errMessage(err)}`);
+      ctx.recordUpstreamError(`${what} handler failed: ${messageOf(err)}`);
     }
   };
 
@@ -465,7 +466,7 @@ async function watchAttachFeed(
       // dead socket forever. A healthy-transport lost feed (a slow-consumer
       // drop) still settles `closed` below.
       if (isDeadTransportError(err)) throw err;
-      const m = errMessage(err);
+      const m = messageOf(err);
       feedError ??= m;
       ctx.recordUpstreamError(m);
     }
@@ -505,7 +506,7 @@ async function watchAttachFeed(
       // settle loud.
       if (!ctx.signal.aborted) {
         if (isDeadTransportError(err)) throw err;
-        const m = errMessage(err);
+        const m = messageOf(err);
         feedError ??= m;
         ctx.recordUpstreamError(m);
         await settleOnLostFeed();
@@ -653,7 +654,7 @@ export async function awaitWatchEvents(
       // was declared to prevent, and folding it in here would have re-created it
       // one layer up. Propagate so the caller sees the name it must re-open.
       if (isWatchSubscriptionNotFound(err)) throw err;
-      const m = errMessage(err);
+      const m = messageOf(err);
       ctx.recordUpstreamError(m);
       ctx.settle({ kind: "closed", error: m });
     }
@@ -1043,9 +1044,8 @@ function conditionForm(
       return {
         evidenceIsFeedOrdered: false,
         subscribe: () =>
-          watchTerminals(
-            engine.client,
-            {
+          watchTerminals(engine.client, {
+            handlers: {
               onUpsert: (upserted, value) => {
                 if (upserted !== engine.id) return;
                 const agent = matchingActiveAgent(value, targets);
@@ -1069,13 +1069,13 @@ function conditionForm(
                 });
               },
             },
-            engine.ctx.signal,
-            (line) => engine.ctx.recordUpstreamError(line),
+            signal: engine.ctx.signal,
+            log: (line) => engine.ctx.recordUpstreamError(line),
             // Seed the watched id so a terminal that exited BEFORE this
             // subscription (in the gap after the caller resolved the id) is
             // reconciled to gone on the first snapshot instead of hanging.
-            () => [engine.id],
-          ),
+            initialKeys: () => [engine.id],
+          }),
       };
     }
   }
@@ -1351,7 +1351,7 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
             ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
             return;
           }
-          const message = errMessage(err);
+          const message = messageOf(err);
           ctx.recordUpstreamError(message);
           // A DEAD transport poisons the shared connection and must PROPAGATE so
           // the MCP face resets it before the next call (see `watchAttachFeed`).

@@ -11,9 +11,10 @@
  * timer for it).
  */
 
+import type { PadiStateEvent } from "@kolu/padi-client/surface";
+import { WATCH_SCOPE_ALL } from "@kolu/padi-client/watchScope";
 import { Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import type { PadiStateEvent } from "../surface.ts";
 import {
   frame,
   makeAgent,
@@ -21,7 +22,6 @@ import {
   stateWatchHarness,
 } from "./attentionFixture.testlib.ts";
 import { stateWatchSource } from "./stateWatchStream.ts";
-import { WATCH_SCOPE_ALL } from "./watchScope.ts";
 
 /** The shared harness, already looking at ONE idle terminal — every pin here is
  *  about what the STREAM does with what the hub hands it, so the fleet is a

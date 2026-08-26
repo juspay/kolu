@@ -13,7 +13,7 @@
  */
 
 import type { Logger } from "@kolu/log";
-import { activePadiTerminal } from "@kolu/padi/surface";
+import { activePadiTerminal } from "@kolu/padi-client/surface";
 import { firstFrameOfCollectionItem } from "@kolu/surface/first-frame";
 import { Effect, Option, Stream } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";

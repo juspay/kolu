@@ -1,15 +1,15 @@
 /** Tab bar for sub-terminals within a parent's sub-panel. */
 
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
+import { useAttentionFacts } from "../attention/useAttentionFacts";
 import { ACTIONS } from "../input/actions";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
-import LiveActivityDot from "./LiveActivityDot";
-import { useAttentionFacts } from "../attention/useAttentionFacts";
 import { encActiveHost } from "../wire";
+import LiveActivityDot from "./LiveActivityDot";
 
 const SubPanelTabBar: Component<{
   subIds: TerminalId[];

@@ -17,20 +17,20 @@
  * the enactment around that shared skeleton, which the base `Session` hides.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import type { Effect } from "effect";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type {
   DaemonSession,
   DownSessionState,
   Session,
   SshProv,
 } from "@kolu/surface-remote";
+import type { Effect } from "effect";
+import type { PadiConvergence } from "kolu-common/surface";
 import type {
   EntryFailedCause,
   PadiEntryFailure,
   SkewVersionPair,
 } from "kolu-common/surfacesWithPadi";
-import type { PadiConvergence } from "kolu-common/surface";
 
 /** The domain detail a padi arm attaches to the map's published `EntryStatus`
  *  when its session is DOWN (D1 + D2) — the failure `cause`, plus the typed

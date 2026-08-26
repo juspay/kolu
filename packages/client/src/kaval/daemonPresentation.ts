@@ -14,7 +14,7 @@ import type {
   DaemonState,
   DaemonStatus,
   KavalSkewVersions,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import { match, P } from "ts-pattern";
 import type { WsStatus } from "../rpc/rpc";
 import { compactDelta } from "../time/duration";
