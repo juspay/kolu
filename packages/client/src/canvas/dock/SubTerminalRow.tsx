@@ -15,7 +15,7 @@
 
 import { activeArm } from "@kolu/padi-client/surface";
 import { DockSubRow } from "@kolu/solid-dockrow";
-import type { DockRowDensity } from "@kolu/solid-dockrow/rowValues";
+import type { DockRowSurface } from "@kolu/solid-dockrow/rowValues";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
@@ -30,7 +30,7 @@ import type { RankedDockRow } from "./dockRowRanking";
 export const SubTerminalRow: Component<{
   row: RankedDockRow["subRows"][number];
   onSelect: (id: TerminalId) => void;
-  surface: DockRowDensity;
+  surface: DockRowSurface;
 }> = (props) => {
   const store = useTerminalStore();
   const meta = () => store.getMetadata(props.row.id);
@@ -61,7 +61,7 @@ export const SubTerminalRow: Component<{
             id={props.row.id}
             parentId={parentId}
             depth={props.row.depth}
-            density={props.surface}
+            surface={props.surface}
             pip={pip()}
             bucket={props.row.bucket}
             agentState={activeArm(m())?.agent?.state}

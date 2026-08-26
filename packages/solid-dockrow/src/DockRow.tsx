@@ -43,9 +43,9 @@ import { type Component, type JSX, Show } from "solid-js";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
-  DOCK_ROW_DENSITY,
+  DOCK_ROW_SURFACE,
   DOCK_ROW_STRIPE_CLASS,
-  type DockRowDensity,
+  type DockRowSurface,
 } from "./geometry.ts";
 import type { DockRowBucket, StatePipBind } from "./pipBind.ts";
 import { PrPip } from "./PrPip.tsx";
@@ -71,7 +71,7 @@ export type DockRowTestIds = {
 export type DockRowProps = {
   id: TerminalId;
   /** How much room the row has — the ONE axis desktop and touch differ by. */
-  density: DockRowDensity;
+  surface: DockRowSurface;
   /** The bound status indicator. `asking`, `sleeping` and the unread `alert`
    *  are read OFF this rather than repeated as sibling props: they are the same
    *  facts the pip is painted from, and a row that took them twice is a row
@@ -111,7 +111,7 @@ export type DockRowProps = {
 };
 
 export const DockRow: Component<DockRowProps> = (props) => {
-  const d = () => DOCK_ROW_DENSITY[props.density];
+  const s = () => DOCK_ROW_SURFACE[props.surface];
   return (
     // biome-ignore lint/a11y/useSemanticElements: native button would nest invalid interactive HTML — see the module header
     <div
@@ -139,7 +139,7 @@ export const DockRow: Component<DockRowProps> = (props) => {
           props.onSelect();
         }
       }}
-      class={`relative w-full grid grid-cols-subgrid col-span-full items-center ${d().rowPad} ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${d().gutter} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${d().focus} ${d().press}`}
+      class={`relative w-full grid grid-cols-subgrid col-span-full items-center ${s().rowPad} ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${s().rowGutter} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${s().rowFocus} ${s().rowPress}`}
       classList={{ [SLEEPING_RECEDE_CLASS]: props.pip.sleeping }}
       title={props.title}
     >
@@ -150,13 +150,13 @@ export const DockRow: Component<DockRowProps> = (props) => {
       <RowLabel
         markdown={props.label}
         render={props.renderLabel}
-        class={d().label}
+        class={s().textLabel}
         color={props.labelColor}
       />
       {/* Recency — hidden while active; width reserved. On a blocked row it
        *  flips to the violet WAIT chip: how long the agent has waited on you IS
        *  the signal (a 20 h wait must be legible). */}
-      <RecencyCell recency={props.recency} textSize={d().recency} />
+      <RecencyCell recency={props.recency} textSize={s().textRecency} />
       {props.overlay}
       {/* Second line — flex row spanning the annotation column → end. Leads
        *  with the PR pip (left edge anchored to the annotation column's left, so
@@ -171,7 +171,7 @@ export const DockRow: Component<DockRowProps> = (props) => {
           fallback={
             <span
               aria-hidden="true"
-              class={`font-mono ${d().subline} leading-tight invisible`}
+              class={`font-mono ${s().textSubline} leading-tight invisible`}
             >
               &nbsp;
             </span>
@@ -190,7 +190,7 @@ export const DockRow: Component<DockRowProps> = (props) => {
               // silently left a row type out of the wash. Set only on the AGENT
               // subline: a quiet foreground line does not speak needs-you.
               data-dock-subline={props.subline.fromAgent ? "" : undefined}
-              class={`font-mono ${d().subline} leading-snug text-fg-3 truncate min-w-0`}
+              class={`font-mono ${s().textSubline} leading-snug text-fg-3 truncate min-w-0`}
               title={line()}
             >
               {line()}

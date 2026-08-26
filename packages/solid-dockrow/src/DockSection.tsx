@@ -24,11 +24,11 @@
 import { type Component, type JSX, Show } from "solid-js";
 import {
   DOCK_NEEDS_YOU_STRIP_CLASS,
-  DOCK_ROW_DENSITY,
+  DOCK_ROW_SURFACE,
   DOCK_ROW_GAP,
   DOCK_ROW_GRID,
   DOCK_SECTION_CLASS,
-  type DockRowDensity,
+  type DockRowSurface,
   type NeedsYouDensity,
 } from "./geometry.ts";
 
@@ -37,7 +37,7 @@ import {
 export const DockSection: Component<{
   /** Matches the rows inside it — the card's inset is a density decision like
    *  every other, so a touch list does not inherit desktop chrome padding. */
-  density: DockRowDensity;
+  surface: DockRowSurface;
   /** The repo hue every tinted surface in the card reads (`--repo-color`). */
   repoColor: string;
   /** The sticky header band — name, count, whatever the app puts there. It
@@ -52,7 +52,7 @@ export const DockSection: Component<{
     data-testid={props.testId}
     data-repo={props.repo}
     style={{ "--repo-color": props.repoColor }}
-    class={`${DOCK_SECTION_CLASS} grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} ${DOCK_ROW_DENSITY[props.density].sectionPad}`}
+    class={`${DOCK_SECTION_CLASS} grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} ${DOCK_ROW_SURFACE[props.surface].sectionPad}`}
   >
     {props.header}
     {props.children}

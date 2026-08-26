@@ -61,13 +61,12 @@
  *  the welcome card advertises the shortcut but carries no clickable
  *  affordance. App.tsx mounts it (desktop only) inside the empty-state
  *  canvas as well as the populated one. */
+import { activeArm } from "@kolu/padi-client/surface";
 
-import { activeArm, activePr } from "@kolu/padi-client/surface";
 import { DockRow as DockRowView, DockSection } from "@kolu/solid-dockrow";
 import {
   type DockRowBucket,
   DOCK_CARDS_GUTTER_NEG_CLASS,
-  rowSubline,
 } from "@kolu/solid-dockrow/rowValues";
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
@@ -86,12 +85,13 @@ import { match } from "ts-pattern";
 import { createSharedRoot } from "../../createSharedRoot";
 import { ACTIONS } from "../../input/actions";
 import { isPlatformModifier } from "../../input/keyboard";
-import { annotationLine, intentLeadGlyph } from "../../intent/text";
+import { annotationLine } from "../../intent/text";
+import { intentLeadGlyph } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
-import { useStatePip } from "../../terminal/statePipBind";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { useStatePip } from "../../terminal/statePipBind";
 import { useTileStore } from "../../tile/useTileStore";
 import { RAIL_WIDTH_PX } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
@@ -109,14 +109,11 @@ import {
   effectiveDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
-import { isActiveRow } from "./activeRow";
-import { renderRowLabel } from "./renderRowLabel";
+import { useDockRowBag } from "./useDockRowBag";
 import { createDockRowData } from "./dockRowData";
-import { rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import { NeedsYouStrip } from "./NeedsYouStrip";
-import { useRowRecency } from "./rowRecency";
 import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockFocus } from "./useDockFocus";
 import { useDockOrder } from "./useDockOrder";
@@ -559,7 +556,7 @@ const RepoSection: Component<{
   // vertically across rows in one section.
   return (
     <DockSection
-      density="desktop"
+      surface="desktop"
       testId="dock-section"
       repo={props.group.name}
       repoColor={props.group.color}
@@ -656,36 +653,23 @@ const DockRow: Component<{
    *  modifier is held. */
   flatIndex: number;
 }> = (props) => {
-  const store = useTerminalStore();
   const tileStore = useTileStore();
   const combined = createDockRowData(props.id);
-  const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
-  const rowRecency = useRowRecency();
+  const rowBag = useDockRowBag();
   return (
     <Show when={combined()}>
       {(c) => {
-        const pip = useStatePip(
-          encActiveHost,
-          () => props.id,
-          () => c().meta,
-          unread,
-          () => props.pip,
-        );
         return (
           <DockRowView
-            id={props.id}
-            density="desktop"
-            pip={pip()}
-            bucket={props.bucket}
-            agentState={activeArm(c().meta)?.agent?.state}
-            active={isActiveRow(props.id)}
-            label={annotationLine(c().meta.intent, c().info.key.label)}
-            labelColor={c().info.annotationColor}
-            renderLabel={renderRowLabel}
-            subline={rowSubline(c().meta)}
-            pr={activePr(c().meta)}
-            recency={rowRecency(pip(), props.recencyAt, rowRecencyAt(c().meta))}
+            {...rowBag({
+              id: props.id,
+              combined: c(),
+              bucket: props.bucket,
+              pipBucket: props.pip,
+              recencyAt: props.recencyAt,
+            })}
+            surface="desktop"
             onSelect={() => tileStore.activate(props.id)}
             overlay={
               <DockShortcutHint

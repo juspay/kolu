@@ -14,13 +14,13 @@ export {
   DOCK_CARDS_GUTTER_NEG_CLASS,
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
-  DOCK_ROW_DENSITY,
+  DOCK_ROW_SURFACE,
   DOCK_ROW_GAP,
   DOCK_ROW_GRID,
   DOCK_NEEDS_YOU_STRIP_CLASS,
   DOCK_SECTION_CLASS,
   DOCK_ROW_STRIPE_CLASS,
-  type DockRowDensity,
+  type DockRowSurface,
   type NeedsYouDensity,
 } from "./geometry.ts";
 export {
@@ -47,6 +47,7 @@ export {
   firstIntentLine,
   identityColor,
 } from "./rowIdentity.ts";
+export { type DockRowFacts, dockRowFacts } from "./rowFacts.ts";
 export { type RowSubline, rowSubline, stateLabels } from "./rowSubline.ts";
 // The PIP trio's narrowing rides through this door too — the guards live with
 // the vocabulary they fence (`@kolu/solid-statepip`, beside the records that

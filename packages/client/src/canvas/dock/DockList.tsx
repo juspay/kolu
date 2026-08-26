@@ -17,25 +17,17 @@
  *  supplies a `flex flex-col h-full` container and decides selection semantics —
  *  the drawer dismisses on select, the rail does not. */
 
-import { activeArm, activePr } from "@kolu/padi-client/surface";
 import { DockRow as DockRowView, DockSection } from "@kolu/solid-dockrow";
-import { type DockRowBucket, rowSubline } from "@kolu/solid-dockrow/rowValues";
+import type { DockRowBucket } from "@kolu/solid-dockrow/rowValues";
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import type { TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
-import { annotationLine } from "../../intent/text";
-import { useStatePip } from "../../terminal/statePipBind";
-import { useTerminalStore } from "../../terminal/useTerminalStore";
 import RepoMonogram from "../../ui/RepoMonogram";
-import { encActiveHost } from "../../wire";
-import { isActiveRow } from "./activeRow";
-import { renderRowLabel } from "./renderRowLabel";
+import { useDockRowBag } from "./useDockRowBag";
 import { createDockRowData } from "./dockRowData";
-import { rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import { NeedsYouStrip } from "./NeedsYouStrip";
-import { useRowRecency } from "./rowRecency";
 import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockOrder } from "./useDockOrder";
 import { useSectionAttention } from "./useSectionAttention";
@@ -100,7 +92,7 @@ function DockListSection(props: {
   // Promote to a shared constant the moment a third file consumes it.
   return (
     <DockSection
-      density="touch"
+      surface="touch"
       testId="mobile-dock-section"
       repo={props.group.name}
       repoColor={props.group.color}
@@ -182,34 +174,21 @@ function DockListRow(props: {
   recencyAt: number | null;
   onSelect: (id: TerminalId) => void;
 }) {
-  const store = useTerminalStore();
   const combined = createDockRowData(props.id);
-  const unread = () => store.isUnread(props.id);
-  const rowRecency = useRowRecency();
+  const rowBag = useDockRowBag();
   return (
     <Show when={combined()}>
       {(c) => {
-        const pip = useStatePip(
-          encActiveHost,
-          () => props.id,
-          () => c().meta,
-          unread,
-          () => props.pip,
-        );
         return (
           <DockRowView
-            id={props.id}
-            density="touch"
-            pip={pip()}
-            bucket={props.bucket}
-            agentState={activeArm(c().meta)?.agent?.state}
-            active={isActiveRow(props.id)}
-            label={annotationLine(c().meta.intent, c().info.key.label)}
-            labelColor={c().info.annotationColor}
-            renderLabel={renderRowLabel}
-            subline={rowSubline(c().meta)}
-            pr={activePr(c().meta)}
-            recency={rowRecency(pip(), props.recencyAt, rowRecencyAt(c().meta))}
+            {...rowBag({
+              id: props.id,
+              combined: c(),
+              bucket: props.bucket,
+              pipBucket: props.pip,
+              recencyAt: props.recencyAt,
+            })}
+            surface="touch"
             onSelect={() => props.onSelect(props.id)}
             // stopPropagation on pointerdown keeps Corvu Drawer's
             // drag-to-dismiss from claiming the tap (no-op in the rail,

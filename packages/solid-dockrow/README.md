@@ -27,7 +27,7 @@ const mode = recencyMode(pip);
 
 <DockRow
   id={id}
-  density="desktop"
+  surface="desktop"
   pip={pip}
   bucket={bucket}
   agentState={agent?.state}
@@ -50,9 +50,10 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   `[data-dock-row]` attribute contract the stylesheet's washes key on, the repo
   stripe, the active highlight, the sleeping recede, and the two-line reserve
   that keeps row height constant so nothing reflows when a row lights up.
-  `density` is `"desktop"` or `"touch"` — the ONE axis kolu's dock and its phone
-  drawer differ by, and every pixel of that difference is a column of the
-  density table rather than a second component.
+  `surface` is `"desktop"` or `"touch"` — the one axis kolu's dock and its phone
+  drawer differ by. Room and input both follow from it (a mouse hovers, a finger
+  presses; a desktop row wears a focus ring), and every pixel of the difference
+  is a column of `DOCK_ROW_SURFACE` rather than a second component.
 - **`<DockSubRow>`** — a split terminal, indented one notch per hop under its
   real parent.
 - **`<DockNeedsYouRow>`** — an entry in the pinned needs-you strip, at `full` or
@@ -64,6 +65,9 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
 - **`<PrPip>` · `<PrStateIcon>` · `<ChecksIndicator>` · `prTooltip`** — the PR
   badge and its glyphs. The row's, and the repo's only copy of them.
 - **`<RecencyCell>` · `<RowLabel>`** — the two leaves the three rows share.
+- **`dockRowFacts(meta)`** — the three facts a row reads off ONE terminal record
+  (`agentState`, `subline`, `pr`), fused so a row's words and its PR cannot come
+  from two different terminals.
 - **`rowValues`** — every pure fold: `bindStatePip` (and the paint / glyph /
   motion decisions under it), `dockRowAttrs`, `rowSubline`, `annotationLine`,
   `identityColor`, `recencyMode`, `displayRecencyAt`, `paintDockRow`, the
@@ -82,13 +86,25 @@ required prop and where its value comes from:
 | --- | --- |
 | `pip` | `bindStatePip({ meta, attention, unread })` on the SERVER (it needs the record), shipped as a flat struct; or built field-by-field in the browser with the guards below |
 | `bucket` | the `pip.variant`'s bucket, or `paintDockRow(meta, klass)` server-side. `bucket` drives `data-bucket` — a styling/e2e hook, not a paint decision — so a surface with no activity window of its own can pass the paint bucket it already has |
-| `agentState` | your wire string, verbatim — `narrowAgentState(raw).attr` |
+| `agentState` | your wire string, verbatim — `narrowAgentState(raw).attr`, or `dockRowFacts(meta).agentState` |
 | `label` | `annotationLine(intent, branchLabel)` — exported; do not re-derive |
 | `labelColor` | `identityColor(branchLabel)` — exported; do not re-derive |
-| `subline` | `{ text, fromAgent }` — `rowSubline(meta)` server-side, or `narrowAgentState(raw).label` with `fromAgent: true` |
+| `subline` | `dockRowFacts(meta).subline` server-side (see below). From a flat wire: `{ text: summary ?? narrowAgentState(raw).label, fromAgent: true }` — the `summary ?? label` rule is the row's, do not drop the summary |
 | `recency` | `{ mode: recencyMode(pip), text }` — you own the clock, the package owns the rest |
-| `pr` | `activePr(meta)` from `@kolu/padi-client/surface`, or your own `PrInfo` |
+| `pr` | `dockRowFacts(meta).pr`, or your own `PrInfo` |
 | `renderLabel` | your markdown renderer, or `(md) => md` |
+
+**If you hold a `TerminalMetadata`** — most likely on your server, where you
+dial padi — take the three record-derived facts in one call:
+
+```ts
+const { agentState, subline, pr } = dockRowFacts(meta);
+```
+
+They are three independent derivations over one record, and every row surface
+needs all three. Spelled separately they are three chances to pair one
+terminal's words with another terminal's PR; fused, a row's facts come from one
+record by construction.
 
 Two of those rows are the whole reason this section exists: `label` and
 `labelColor` look like something you would just write, and both hide a rule.
@@ -182,7 +198,7 @@ gets (`recencyMode`), which timestamp that rendering means
    spell:
 
    ```tsx
-   <DockSection density="desktop" repoColor={hue} header={<YourHeader />}>
+   <DockSection surface="desktop" repoColor={hue} header={<YourHeader />}>
      <DockRow … />
    </DockSection>
 

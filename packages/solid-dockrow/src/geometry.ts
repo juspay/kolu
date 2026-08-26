@@ -35,63 +35,91 @@ export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-3 pl-3";
 export const DOCK_CARDS_GUTTER_CLASS = "pr-3";
 export const DOCK_CARDS_GUTTER_NEG_CLASS = "-mr-3";
 
-/** How much room a row has. The ONE axis the desktop dock and the touch list
- *  differ by; every pixel that differs between them is a column of
- *  {@link DOCK_ROW_DENSITY} rather than a second component.
+/** WHICH SURFACE a row is on — kolu's on-canvas dock, or its touch drawer /
+ *  compact rail. The one axis `Dock.tsx` and `DockList.tsx` differ by.
+ *
+ *  Named for the surface, not for "density", and that is a correction rather
+ *  than a preference: `SubTerminalRow` already called it `surface` before this
+ *  package existed, and it was right. What varies across the two is NOT only
+ *  how much room there is. It is also the INPUT — a mouse hovers and a finger
+ *  presses; a desktop row wears a keyboard focus ring and a touch row has no
+ *  keyboard to earn one from. Room and input are two facts, but they are not
+ *  two axes here: both follow from which surface you are on, and there is no
+ *  such thing in kolu as a touch-sized row driven by a mouse. One honest axis
+ *  with two consequences beats one dishonest axis called "density" carrying a
+ *  consequence its own name denies.
  *
  *  `Dock.tsx` and `DockList.tsx` used to be two hand-kept copies of one row,
  *  linked by a comment reading "Update both files when row geometry changes" —
  *  which is the shape a table exists to replace. */
-export type DockRowDensity = "desktop" | "touch";
+export type DockRowSurface = "desktop" | "touch";
 
-/** The per-density pixel table. Exhaustive `Record`, so a third density stops
- *  this compiling until every axis is decided for it. */
-export const DOCK_ROW_DENSITY: Record<
-  DockRowDensity,
+/** The per-surface pixel table.
+ *
+ *  Each field is prefixed with the component that SPENDS it, because the table
+ *  does not vary uniformly and pretending otherwise is what makes a shared
+ *  table lie. `row*` is `DockRow`'s alone: it is the only component whose focus
+ *  ring and pointer feedback change with the surface. `DockSubRow` and
+ *  `DockNeedsYouRow` carry the focus ring on BOTH surfaces — they are
+ *  single-line and always keyboard-reachable, and that was true before the
+ *  extraction too — so they read only their own padding and spell the rest
+ *  themselves. `text*` is shared by every component that renders words.
+ *
+ *  Exhaustive `Record`, so a third surface stops this compiling until every
+ *  field is decided for it. */
+export const DOCK_ROW_SURFACE: Record<
+  DockRowSurface,
   {
-    /** Vertical padding — touch clears the 44-48 px tap minimum. */
+    /** `DockRow` vertical padding — touch clears the 44-48 px tap minimum. */
     rowPad: string;
-    /** Right gutter + its bleed. */
-    gutter: string;
-    /** Pointer feedback: desktop hovers, touch presses. */
-    press: string;
-    /** Keyboard focus ring — desktop only (the touch surfaces have no
-     *  keyboard to focus from, and the ring is a desktop chrome idiom). */
-    focus: string;
-    /** Annotation-line size. */
-    label: string;
-    /** Recency-cell size. */
-    recency: string;
-    /** Second-line subline size. */
-    subline: string;
-    /** The split row's vertical padding (`DockSubRow`). */
+    /** `DockRow` right gutter + its bleed.
+     *
+     *  The two cells expand to the same string TODAY, and they are still two
+     *  cells: desktop's is the chrome-density vocabulary
+     *  (`DOCK_CARDS_GUTTER_*`, which moves when chrome density moves), touch's
+     *  is a touch-density choice that happens to have landed on the same
+     *  value. Before this table those two decisions lived in two files and the
+     *  coincidence was invisible; here it is one line apart and legible, which
+     *  is the argument for the table rather than against it. */
+    rowGutter: string;
+    /** `DockRow` pointer feedback: a mouse hovers, a finger presses. */
+    rowPress: string;
+    /** `DockRow` keyboard focus ring — desktop only. */
+    rowFocus: string;
+    /** `DockSubRow` vertical padding. */
     subRowPad: string;
-    /** The repo card's own left inset + right gutter (`DockSection`). */
+    /** `DockSection` left inset + right gutter. */
     sectionPad: string;
+    /** Annotation-line size. */
+    textLabel: string;
+    /** Recency-cell size. */
+    textRecency: string;
+    /** Second-line subline size. */
+    textSubline: string;
   }
 > = {
   desktop: {
     rowPad: "py-2",
-    gutter: `${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS}`,
-    press: "hover:bg-surface-2/40",
-    focus:
+    rowGutter: `${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS}`,
+    rowPress: "hover:bg-surface-2/40",
+    rowFocus:
       "focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40",
-    label: "text-[0.84rem]",
-    recency: "text-[0.6rem]",
-    subline: "text-[0.68rem]",
     subRowPad: "py-1",
     sectionPad: `pl-3 ${DOCK_CARDS_GUTTER_CLASS}`,
+    textLabel: "text-[0.84rem]",
+    textRecency: "text-[0.6rem]",
+    textSubline: "text-[0.68rem]",
   },
   touch: {
     rowPad: "py-3",
-    gutter: "-mr-3 pr-3",
-    press: "active:bg-surface-2",
-    focus: "",
-    label: "text-[0.9rem]",
-    recency: "text-[0.65rem]",
-    subline: "text-[0.7rem]",
+    rowGutter: "-mr-3 pr-3",
+    rowPress: "active:bg-surface-2",
+    rowFocus: "",
     subRowPad: "py-2",
     sectionPad: "pl-3 pr-3",
+    textLabel: "text-[0.9rem]",
+    textRecency: "text-[0.65rem]",
+    textSubline: "text-[0.7rem]",
   },
 };
 

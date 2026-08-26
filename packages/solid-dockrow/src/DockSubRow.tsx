@@ -18,9 +18,9 @@ import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Component, JSX } from "solid-js";
 import {
-  DOCK_ROW_DENSITY,
+  DOCK_ROW_SURFACE,
   DOCK_ROW_STRIPE_CLASS,
-  type DockRowDensity,
+  type DockRowSurface,
 } from "./geometry.ts";
 import type { DockRowBucket, StatePipBind } from "./pipBind.ts";
 import { dockRowAttrs } from "./rowAttrs.ts";
@@ -32,7 +32,7 @@ export const DockSubRow: Component<{
   parentId: TerminalId;
   /** Hops from the top-level tile: 1 for a split, 2 for a split of a split. */
   depth: number;
-  density: DockRowDensity;
+  surface: DockRowSurface;
   pip: StatePipBind;
   bucket: DockRowBucket;
   /** The agent state VERBATIM (`data-agent-state`). A plain `string`: a
@@ -65,7 +65,7 @@ export const DockSubRow: Component<{
     // split it actually belongs to. Inline (not a Tailwind class) because depth
     // is unbounded — no class list can enumerate it.
     style={{ "padding-left": `${1.75 + (props.depth - 1) * 0.75}rem` }}
-    class={`relative w-full col-span-full flex items-center gap-1.5 pr-2 ${DOCK_ROW_DENSITY[props.density].subRowPad} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
+    class={`relative w-full col-span-full flex items-center gap-1.5 pr-2 ${DOCK_ROW_SURFACE[props.surface].subRowPad} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
     onPointerDown={(event) => props.onPointerDown?.(event)}
     onClick={() => props.onSelect()}
     title={props.title}
