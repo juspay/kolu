@@ -433,7 +433,7 @@ export * from "./transcriptSchema.ts";
  *  the honest recycle. This is the same call kaval's own 7.1 note makes for
  *  `getScreenCells`, and the same one 4.4 (`listIgnored`), 4.6
  *  (`listDirectory`) and 5.2 (backups) made before it. */
-export const PADI_SURFACE_VERSION = "5.4";
+export const PADI_SURFACE_VERSION = "5.5";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1003,6 +1003,29 @@ export const PadiTerminalAttachFrameSchema = Schema.Union([
     // the key is omitted, never nulled — and a non-integer is still
     // rejected. Pinned by a byte fixture in `surface.test.ts`.
     reflowEpoch: Schema.optional(NonNegativeInt),
+    /** `grid` (5.5 · additive · optional) — the cols×rows this snapshot was
+     *  SERIALIZED at, read inside the same synchronous act as the bytes and the
+     *  epoch so it cannot describe a reflow they never saw.
+     *
+     *  It closes the gap the multi-client note above names as NOT SETTLED. Two
+     *  consumers needed it and neither could be served without it:
+     *
+     *    · the OBSERVE-ONLY attach — one that passes no `resizeTo` because it
+     *      has no size to assert (a monitor, a read-only pane, a CLI dumping the
+     *      screen). It never learned what size it received, so it sized its
+     *      renderer by guess and a mismatched box wrapped the bytes into
+     *      garbage. The frame is self-describing now.
+     *    · the FOREIGN-RESIZE reading. Comparing this with the grid you ASKED
+     *      at is the first honest detector of another viewer holding the
+     *      terminal at a different size — precisely what `./attach`'s
+     *      `snapshotAnswersGrid` does NOT claim, because two local measurements
+     *      cannot see it.
+     *
+     *  `optionalKey`, and NO MAJOR: absence degrades to exactly the previous
+     *  reading in both skew directions, the no-bump class this contract already
+     *  documents. kaval carries it the same way and for the same reason — a
+     *  cosmetic readout must never cost a live terminal. */
+    grid: Schema.optionalKey(EndpointGridSchema),
   }),
 ]);
 export type TerminalAttachFrame = typeof PadiTerminalAttachFrameSchema.Type;

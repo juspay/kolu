@@ -58,7 +58,7 @@ const prStateConfig: Record<
 > = {
   open: { icon: GitPullRequestIcon, color: "text-ok" },
   closed: { icon: GitPullRequestClosedIcon, color: "text-danger" },
-  merged: { icon: GitMergeIcon, color: "text-purple-400" },
+  merged: { icon: GitMergeIcon, color: "text-merged" },
 };
 
 /** PR state icon — green for open, purple for merged, red for closed. */

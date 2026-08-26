@@ -123,13 +123,16 @@ const DECLARED_ALLOWED = new Set([
   "memorable-names",
   "nonempty",
   // NOT an npm package and NOT in this repo: grafted from the `juspay/osfacts`
-  // npins pin into `osfacts-client/`, and gitignored. It is in
-  // `@kolu/surface-daemon-supervisor`'s PUBLIC API — `ReadSocketHolders`, the
-  // seam every consumer implements, is typed in its vocabulary by a decision
-  // that module argues for at length — so a consumer of `connectPadi` needs
-  // it and must graft it the same way. drishti already does exactly that
-  // (`nix/overlay.nix`); the contract was simply never written down, which is
-  // what cost the first consumer a build. See the README's second-pin note.
+  // npins pin into `osfacts-client/`, and gitignored.
+  //
+  // It is DECLARED cost and no longer IMPORTED cost, and the distinction is the
+  // whole point of splitting these two lists. Nothing a consumer's `tsc`
+  // compiles resolves it any more — the supervisor's dial leaf means no
+  // published entry reaches `endpoint.ts` — so there is no graft to make the
+  // compiler happy. But hydration is per-MANIFEST: a consumer still copies
+  // `@kolu/surface-daemon-supervisor`'s directory, and its manifest still names
+  // this, so `nix/consumer.nix` still asks for a source (`pinnedSources`)
+  // rather than inventing one. See the README's second-pin section.
   "osfacts-client",
 ]);
 
@@ -226,19 +229,6 @@ const HYDRATE_CLOSURE = declaredDependencyClosure({
  *    `@solid-primitives/{rootless,scheduled}` — the framework tier, already
  *    installed by every `@kolu/surface` consumer (drishti, odu).
  *
- *    `osfacts-client` is the SECOND PIN, and the only entry here that is not
- *    an ordinary npm install. It is grafted from `juspay/osfacts` and
- *    gitignored, so it is absent from the archive a consumer vendors, and it
- *    is in `@kolu/surface-daemon-supervisor`'s public API rather than an
- *    internal detail. A consumer grafts it from the same pin — drishti's
- *    `nix/overlay.nix` is the worked precedent.
- *
- *    This entry is where a previous round of this PR went wrong, and the
- *    shape is worth keeping: it was moved to `devDependencies` because every
- *    non-test use is `import type`, which is true and irrelevant — for raw
- *    TypeScript a type edge is what a consumer compiles. The guard agreed,
- *    because it walked runtime imports only. It walks type edges now, so that
- *    inference cannot be made again without this file going red.
  * *  - `string-argv` — `anyagent`'s command parse, a pure leaf.
  *  - `@parcel/watcher` (NATIVE), `simple-git`, `p-limit` — `kolu-git`'s, and
  *    `@anthropic-ai/claude-agent-sdk` — `kolu-claude-code`'s. These are the one

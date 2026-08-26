@@ -425,7 +425,7 @@ _out_. The map, grouped:
   PTY daemon). Each ships a thin shell CLI — `padi-tui`, `kaval-tui`.
   `padi-client` is padi's other half: the `padiSurface` contract, the dial that
   reaches a running padi, and the terminal watch kit, split out so a program can
-  speak the surface without installing the daemon. Packages are copied whole by
+  speak the surface without installing the daemon, its attention fold (`./attention`) and the terminal-attach consumer contract (`./attach`). Packages are copied whole by
   the repos that consume kolu from a pin, so sharing a manifest with the daemon
   meant sharing its PTY engine and its native bindings. padi depends on it and
   serves it — one contract, one home.

@@ -42,7 +42,7 @@ export function annotationLine(
 function stableHue(key: string): number {
   // NFC so the hue matches a monogram built from an NFD/NFC-equivalent name
   // (macOS paths). Empty / unexpected keys still get a deterministic hue.
-  const s = (key ?? "").normalize("NFC");
+  const s = key.normalize("NFC");
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);

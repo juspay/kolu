@@ -20,18 +20,30 @@
  *     {@link snapshotAnswersGrid} BEFORE writing a byte; on a mismatch, refuse
  *     the frame and re-attach at the current grid.
  *
- *  2. **Three different things can stale that grid**, and only one of them is
- *     your own resize:
+ *  2. **Two things can stale that grid**, and only one of them is your own
+ *     resize:
  *       · you resized while the request was in flight;
  *       · the framework's transport retry re-subscribed by REPLAYING the input
  *         it captured at the first call — so a retry re-sends the ORIGINAL grid
  *         even though your pane has moved on (see `.claude/rules/streaming.md`,
- *         "A member's input is CAPTURED — never a live fact");
- *       · **another client attached at its own size.** `resizeTo` is
- *         last-attach-wins on a SHARED pty, so a phone joining the same terminal
- *         resizes it under you, with no local event to observe. This is the one
- *         no consumer guesses, and it is why the check must run on every
- *         snapshot rather than only after your own resizes.
+ *         "A member's input is CAPTURED — never a live fact").
+ *
+ *     Both are LOCAL: the predicate compares the grid you asked at with the grid
+ *     you have now, and that is the whole of what it can see.
+ *
+ *  2b. **What it does NOT catch, stated because the tempting reading is wrong.**
+ *     `resizeTo` is last-attach-wins on a SHARED pty, so another viewer
+ *     attaching at its own size reflows the terminal under you. You will not
+ *     detect it here and you cannot: your own attach asserted YOUR grid, so the
+ *     snapshot you got answers the grid you asked at and this predicate rightly
+ *     returns true. What you receive afterwards is reflowed BYTES — no snapshot,
+ *     no frame to refuse — rendered at N columns inside your 2N-column pane
+ *     until something makes you re-attach. `./surface`'s multi-client contract
+ *     states the limit this predicate has. What CLOSES it is a different fact on
+ *     a different field: the snapshot frame now carries `grid` — the cols×rows
+ *     those bytes were serialized at (contract 5.5). Compare THAT with the grid
+ *     you asked at and a foreign resize is visible; see {@link snapshotGridMoved}.
+ *     Do not read `snapshotAnswersGrid` as an answer to it.
  *
  *  3. **A clean end does not mean the PTY exited.** Treat completion as a
  *     recoverable re-attach unless your own facts about the terminal agree it is
@@ -41,7 +53,8 @@
  *  4. **Silence is a failure mode with no event.** A stream can open, never
  *     fail, never end, and never deliver — leaving a pane blank over a live
  *     agent forever. Give the first frame a deadline and treat expiry as a
- *     re-attach. kolu uses 4 s; the number is policy, having one is not.
+ *     re-attach. Having a deadline is the contract; the number is policy, so
+ *     pick your own rather than inheriting one from here.
  *
  * The LOOP that acts on all four — backoff, budgets, the fruitless-cycle
  * verdict, how a refusal is surfaced to a user — is deliberately NOT here. It is
@@ -68,13 +81,53 @@ import type { EndpointGrid, TerminalAttachFrame } from "./surface.ts";
  *  it was first written as a throw.
  *
  *  Ask it on EVERY `snapshot` frame, including a mid-stream overflow re-attach,
- *  and ask it before writing a byte. */
+ *  and ask it before writing a byte. What it answers is precisely "did THIS
+ *  pane's grid move since we asked" — see 2b above for what that excludes. */
 export function snapshotAnswersGrid(
   asked: EndpointGrid | null | undefined,
   current: EndpointGrid | null | undefined,
 ): boolean {
   if (!asked || !current) return true;
   return asked.cols === current.cols && asked.rows === current.rows;
+}
+
+/** What grid were these bytes laid out at?
+ *
+ *  The answer for an OBSERVE-ONLY consumer — one that attaches with no
+ *  `resizeTo` because it has no size to assert (a monitor, a read-only pane, a
+ *  CLI dumping the screen). Such a consumer asserts nothing and so, before
+ *  contract 5.5, learned nothing: it had to size its renderer by guess, and a
+ *  mismatched box wraps the bytes into garbage. Size to this instead.
+ *
+ *  `undefined` from a padi/kaval predating 5.5 — fail-open, size as you did
+ *  before. It is optional on the wire precisely so an older daemon is not
+ *  recycled (killing live PTYs) to buy a readout. */
+export function snapshotGrid(
+  frame: TerminalAttachFrame,
+): EndpointGrid | undefined {
+  return isSnapshotFrame(frame) ? frame.grid : undefined;
+}
+
+/** Did someone ELSE move this terminal?
+ *
+ *  The honest foreign-resize detector, and the thing {@link snapshotAnswersGrid}
+ *  deliberately is not: it compares the grid you ASKED at with the grid the
+ *  bytes were actually SERIALIZED at, which is a fact from the other side of the
+ *  wire. `resizeTo` is last-attach-wins on a shared pty, so a mismatch here
+ *  means another viewer holds the terminal at its own size and your pane is
+ *  rendering N columns of content in a 2N-column box.
+ *
+ *  `false` when either side is absent — an older daemon that sends no grid, or
+ *  a consumer that asked at none. Ignorance is not evidence, the same rule
+ *  {@link snapshotAnswersGrid} follows, and for the same reason: a detector that
+ *  fires on silence would light permanently against a 5.4 padi. */
+export function snapshotGridMoved(
+  frame: TerminalAttachFrame,
+  asked: EndpointGrid | null | undefined,
+): boolean {
+  const served = snapshotGrid(frame);
+  if (!served || !asked) return false;
+  return served.cols !== asked.cols || served.rows !== asked.rows;
 }
 
 /** Narrow a frame to the snapshot arm — the frames rule 1 governs.

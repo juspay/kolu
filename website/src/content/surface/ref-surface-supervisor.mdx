@@ -46,6 +46,34 @@ telling a poll-based exit oracle to stop once the drain ceiling had won — and
 fiber interruption does that job unconditionally. Interruption is not refusable;
 an abandoned `AbortController` was.
 
+## The dial leaf — `/dial`
+
+`@kolu/surface-daemon-supervisor/dial` carries exactly three things: `dialSocket`
+(the unix-socket connect/error race, won once), `DaemonContractSkewError` plus
+its brand-checked `isContractSkewError`, and the `DaemonConnection` shape a
+handshake produces.
+
+It exists because of who else needs them. `@kolu/padi-client/dial` needs those
+three and nothing more, and it is the entry an out-of-repo consumer hydrates on
+its own — so what it reaches, that consumer's `tsc` compiles. Reaching them
+through the BARREL made it compile `endpoint.ts`: the drivers, the convergence
+probe, and through the process-identity seam `osfacts-client`, a second npins pin
+the consumer then had to graft and guard.
+
+| entry | carries | what it no longer compiles |
+| --- | --- | --- |
+| `@kolu/surface-daemon-supervisor/dial` | `dialSocket`, `DaemonContractSkewError`, `isContractSkewError`, `DaemonConnection` | `endpoint.ts` — drivers, convergence, `osfacts-client` |
+
+`endpoint.ts` imports the three from the leaf and re-exports them, so the
+barrel's surface is unchanged. Its whole compile cost is `node:net` and
+`effect`. `@kolu/padi-client`'s hydrate guard now asserts that **no bare daemon
+barrel** is in its import closure — the list that once recorded both barrels as
+a known cost is empty, and empty is the assertion.
+
+Note the copy/compile split this does NOT change: a consumer still copies the
+supervisor's directory, whose manifest still names `osfacts-client`. The graft
+that is gone is the one the COMPILER needed.
+
 ## The endpoint
 
 `createEndpoint({ home, readProcessIdentity, policy, probe, connect: (socketPath) => …, … })` is the

@@ -18,7 +18,7 @@ import {
   activeArm,
   activePr,
   type TerminalMetadata,
-} from "@kolu/padi-client/surface";
+} from "@kolu/padi-client/vocab";
 import type { PrInfo } from "anyforge/schemas";
 import { type RowSubline, rowSubline } from "./rowSubline.ts";
 

@@ -38,6 +38,11 @@
   --color-ok: #4ade80;
   --color-warning: #facc15;
   --color-danger: #f87171;
+  /* A MERGED pull request — the third PR state, beside open (`ok`) and closed
+   * (`danger`). A token rather than a raw Tailwind palette class so the three
+   * states resolve the same way on every surface that paints them, and so a
+   * theme can move it. */
+  --color-merged: #c084fc;
   /* Machine in flight — thinking / tools / live shell output. Not teal accent. */
   --color-busy: #d97757;
 
@@ -75,5 +80,6 @@
   --color-ok: #16a34a;
   --color-warning: #ca8a04;
   --color-danger: #dc2626;
+  --color-merged: #9333ea;
   --color-busy: #c4623e;
 }

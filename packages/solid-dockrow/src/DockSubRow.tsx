@@ -66,7 +66,7 @@ export const DockSubRow: Component<{
     // is unbounded — no class list can enumerate it.
     style={{ "padding-left": `${1.75 + (props.depth - 1) * 0.75}rem` }}
     class={`relative w-full col-span-full flex items-center gap-1.5 pr-2 ${DOCK_ROW_SURFACE[props.surface].subRowPad} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
-    onPointerDown={(event) => props.onPointerDown?.(event)}
+    onPointerDown={props.onPointerDown}
     onClick={() => props.onSelect()}
     title={props.title}
   >

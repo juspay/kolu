@@ -78,6 +78,30 @@ export type ConsumerClosure = {
  *  is a property of the index, and asking it 67 times would be 67 subprocesses
  *  to learn one thing. A member whose directory contributes no tracked file is
  *  PINNED (see {@link ClosureMember.pinned}). */
+/** The workspace members nix declares, INCLUDING the pin-grafted ones.
+ *
+ *  `workspacePackageRoots` walks directories that EXIST, so on a bare clone —
+ *  before `just install` grafts `osfacts-client` — it silently omits that member
+ *  and the emission loses a row. The flag below is derivable from a bare clone;
+ *  membership was not, and claiming otherwise was the same overclaim this file
+ *  exists to prevent downstream. `nix/workspace.nix` DECLARES both the members
+ *  and the pinned ones, so membership is seeded from there and the tree is used
+ *  only to read manifests that are present. */
+function declaredPinnedNames(repoRoot: string): Set<string> {
+  const nix = readFileSync(join(repoRoot, "nix/workspace.nix"), "utf8");
+  const block = /pinnedNames\s*=\s*\[([^\]]*)\]/.exec(nix);
+  if (!block) {
+    throw new Error(
+      "nix/workspace.nix: no `pinnedNames = [ … ]` — the emitter seeds pin-grafted " +
+        "membership from that declaration rather than from whichever directories " +
+        "happen to exist on this machine.",
+    );
+  }
+  return new Set(
+    [...(block[1] as string).matchAll(/"([^"]+)"/g)].map((m) => m[1] as string),
+  );
+}
+
 function trackedDirs(repoRoot: string): Set<string> {
   const out = execFileSync("git", ["ls-files", "-z"], {
     cwd: repoRoot,
@@ -113,6 +137,7 @@ export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
   const members: Record<string, ClosureMember> = {};
   const dirs = new Map<string, string>();
   const tracked = trackedDirs(repoRoot);
+  const pinnedByDeclaration = declaredPinnedNames(repoRoot);
   for (const dir of workspacePackageRoots(repoRoot)) {
     const manifest = JSON.parse(
       readFileSync(join(dir, "package.json"), "utf8"),
@@ -139,7 +164,9 @@ export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
     const rel = dirs.get(name) as string;
     members[name] = {
       dir: rel,
-      ...(tracked.has(rel) ? {} : { pinned: true as const }),
+      ...(pinnedByDeclaration.has(name) || !tracked.has(rel)
+        ? { pinned: true as const }
+        : {}),
       workspace,
       external,
     };
@@ -172,7 +199,11 @@ export function checkConsumerClosureFresh(repoRoot: string): string {
   let have: string;
   try {
     have = readFileSync(path, "utf8");
-  } catch {
+  } catch (err) {
+    // ENOENT ONLY. An EACCES or EIO reported as "is missing" would send a
+    // reader to regenerate a file that is right there and unreadable — a caught
+    // error collapsing into the convenient story.
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") throw err;
     throw new Error(
       `${CONSUMER_CLOSURE_PATH} is missing. Run \`just emit-consumer-closure\`.`,
     );

@@ -560,48 +560,45 @@ const RepoSection: Component<{
       testId="dock-section"
       repo={props.group.name}
       repoColor={props.group.color}
+      headerTestId="dock-section-header"
+      headerClass={`flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-2.5 pr-3 py-2`}
       header={
         <>
           {/* Sticky repo header — monogram + uppercase name + bare tally +
-           *  attention triplet (styles in `index.css`). The tally is
+           *  attention triplet (styles in `@kolu/solid-dockrow/dockrow.css`). The tally
            *  deliberately BARE text, not a capsule: the capsule silhouette is
            *  reserved for actionable attention counts, so a number in a pill
            *  always means "act on this" (fucknotif — the old count capsule
            *  read as six decoy notification badges). Monogram is the shared
            *  `<RepoMonogram />` atom — same paint as palette / restore. */}
-          <div
-            data-testid="dock-section-header"
-            class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-2.5 pr-3 py-2`}
+          <RepoMonogram
+            group={props.group.name}
+            color={props.group.color}
+            data-testid="dock-section-monogram"
+          />
+          <span
+            data-testid="dock-section-name"
+            class="dock-cards-section-name font-mono text-[0.7rem] font-extrabold uppercase tracking-[0.1em] truncate min-w-0"
+            title={props.group.name}
           >
-            <RepoMonogram
-              group={props.group.name}
-              color={props.group.color}
-              data-testid="dock-section-monogram"
-            />
-            <span
-              data-testid="dock-section-name"
-              class="dock-cards-section-name font-mono text-[0.7rem] font-extrabold uppercase tracking-[0.1em] truncate min-w-0"
-              title={props.group.name}
-            >
-              {props.group.name}
-            </span>
-            <span
-              class="dock-cards-section-count font-mono text-[0.6rem]"
-              title={`${props.group.railEntries.length} terminals`}
-            >
-              {props.group.railEntries.length}
-            </span>
-            <AttentionTriplet
-              active={attn().activeIds.length}
-              asking={attn().askingIds.length}
-              unseen={attn().unseenIds.length}
-              sizeClass="min-w-4 px-1 h-4"
-              scopeLabel={props.group.name}
-              onAsking={() => jumpTo(attn().askingIds)}
-              onUnseen={() => jumpTo(attn().unseenIds)}
-              class="ml-auto"
-            />
-          </div>
+            {props.group.name}
+          </span>
+          <span
+            class="dock-cards-section-count font-mono text-[0.6rem]"
+            title={`${props.group.railEntries.length} terminals`}
+          >
+            {props.group.railEntries.length}
+          </span>
+          <AttentionTriplet
+            active={attn().activeIds.length}
+            asking={attn().askingIds.length}
+            unseen={attn().unseenIds.length}
+            sizeClass="min-w-4 px-1 h-4"
+            scopeLabel={props.group.name}
+            onAsking={() => jumpTo(attn().askingIds)}
+            onUnseen={() => jumpTo(attn().unseenIds)}
+            class="ml-auto"
+          />
         </>
       }
     >
@@ -660,15 +657,19 @@ const DockRow: Component<{
   return (
     <Show when={combined()}>
       {(c) => {
+        // ONCE per row, not in the spread — the bag mints this row's StatePip
+        // memo, and a memo re-created on every prop read either accumulates on
+        // this owner or freezes the row at first paint. See `useDockRowBag`.
+        const bag = rowBag({
+          id: props.id,
+          combined: c,
+          bucket: () => props.bucket,
+          pipBucket: () => props.pip,
+          recencyAt: () => props.recencyAt,
+        });
         return (
           <DockRowView
-            {...rowBag({
-              id: props.id,
-              combined: c(),
-              bucket: props.bucket,
-              pipBucket: props.pip,
-              recencyAt: props.recencyAt,
-            })}
+            {...bag}
             surface="desktop"
             onSelect={() => tileStore.activate(props.id)}
             overlay={

@@ -18,7 +18,7 @@
  *  row's subline test id. Two answers derived from one read, returned together,
  *  so a surface cannot pair one row's words with another row's verdict. */
 
-import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
+import { activeArm, type TerminalMetadata } from "@kolu/padi-client/vocab";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 
 /** The live-state words shown when an agent gave no summary of its own. */

@@ -20,6 +20,14 @@
  * barrel's surface is unchanged and every in-repo caller keeps its import.
  *
  * Its whole compile cost is `node:net` and `effect`.
+ *
+ * (The sibling `@kolu/surface-daemon/home` leaf is narrower than the barrel but
+ * not free: it value-imports `getRuntimeSocketPath` from
+ * `@kolu/surface/unix-socket`, the module that also carries the socket serve
+ * stack. Splitting that constant out is a `@kolu/surface` change with its own
+ * companion-repo gate, so it is named here rather than half-done — the leaf
+ * drops the DAEMON tier, which is what retired the osfacts graft, not every
+ * node dependency.)
  */
 
 export { dialSocket } from "./dialSocket.ts";

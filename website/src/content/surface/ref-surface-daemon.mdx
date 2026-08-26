@@ -85,6 +85,30 @@ The fixture returns independent discriminated `process`, `listener`, and
 `state` arms, so a pid cannot exist without its child and a config path cannot
 exist without its state root.
 
+## The narrow entries — `/home` and `/lifetime`
+
+Two symbols on this package are read by code that must NOT compile a daemon, so
+each has its own entry beside the barrel. The barrel value-re-exports
+`daemonMain` and `daemonProcessMain`, and for a repo that ships raw TypeScript
+that is not a detail: whatever a consumer imports, its `tsc` compiles.
+
+| entry | carries | what it no longer compiles |
+| --- | --- | --- |
+| `@kolu/surface-daemon/home` | `daemonHome`, `resolveDaemonHome` and the home path types | `daemonMain`, `daemonProcessMain`, the process-signal tier |
+| `@kolu/surface-daemon/lifetime` | `DaemonLifetime`, `DaemonLifetimeInfo`, `lifetimeInfo` | the same |
+
+`DaemonLifetimeInfo` is the serializable projection a daemon PUBLISHES about
+itself, so a browser-safe vocabulary downstream `satisfies`-pins its wire schema
+to it — which is how a module documented browser-safe came to compile a daemon's
+signal handling for an out-of-repo consumer (juspay/kolu#2216). The leaves close
+that.
+
+Both are re-exported from their original homes, so the barrel's surface is
+unchanged and no in-repo caller moved. Honest residual: `/home` still
+value-imports `getRuntimeSocketPath` from `@kolu/surface/unix-socket`, which is
+the module that also carries the socket serve stack — the leaf drops the daemon
+tier, not every node dependency.
+
 ## The on-disk home
 
 `daemonHome({ app, placement, instance?, socketFile? })` is the one call that

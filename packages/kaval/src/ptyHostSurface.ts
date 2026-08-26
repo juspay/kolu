@@ -669,6 +669,31 @@ const TerminalDataMsgSchema = Schema.Union([
     // 5.1 daemon that omits it leaves the client fail-open (no epoch → no gate,
     // the historical single-width behavior), no skew refusal.
     reflowEpoch: Schema.optionalKey(NonNegativeInt),
+    // `grid` (contract 5.3 · additive · optional) — the cols×rows this snapshot
+    // was SERIALIZED at. The same kind of fact as `topLine` and `reflowEpoch`,
+    // riding on the same frame as the bytes it describes so it can never drift
+    // from the snapshot a client actually received.
+    //
+    // It exists for the OBSERVE-ONLY consumer: a client that attaches WITHOUT a
+    // `resizeTo` (a monitor, a read-only pane, a CLI dumping the screen) never
+    // asserts a size and so has no idea what size it just received. Without
+    // this it must size its renderer by guess, and a mismatched box wraps the
+    // bytes into garbage. With it, the frame is self-describing.
+    //
+    // It is also the first honest answer to "is another viewer holding this
+    // terminal at a different size" — comparing it with the grid you ASKED at
+    // detects a foreign last-attach-wins resize, which nothing on this wire
+    // could express before (padi's `surface.ts` names the gap and says no code
+    // should pretend otherwise).
+    //
+    // OPTIONAL and NO BUMP, for the reason this file already gives for
+    // `resizeTo` and the lifetime field: absence degrades to exactly today's
+    // reading in both skew directions (an older daemon omits it and a consumer
+    // sizes as it always did; a newer daemon under an older padi has it
+    // stripped). Bumping would force-recycle a surviving kaval — killing the
+    // user's live PTYs — to buy a graceful improvement, and "a cosmetic readout
+    // must never cost a terminal".
+    grid: Schema.optionalKey(PtyGridSchema),
   }),
   Schema.Struct({ kind: Schema.Literal("delta"), data: Schema.String }),
   // The host dropped THIS attach subscriber for exceeding its buffered-chunk

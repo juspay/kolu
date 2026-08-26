@@ -107,8 +107,15 @@ assertion. `osfacts-client` left `IMPORTED_ALLOWED` with them.
 It remains in `DECLARED_ALLOWED`: hydration is per-MANIFEST, so a consumer that
 copies `@kolu/surface-daemon-supervisor`'s directory still copies a manifest that
 names it. What changed is the part that cost real work — nothing a consumer's
-`tsc` compiles resolves it any more, so there is no pin to add, no revision to
-keep in step with a binary, and no `TS2307` to chase.
+`tsc` compiles resolves it any more, so there is no revision to keep in step
+with a binary and no `TS2307` to chase.
+
+Be precise about what that does NOT mean, because the two questions are easy to
+run together: you still **copy** the directory. `@kolu/surface-daemon-supervisor`'s
+manifest still names `osfacts-client`, so the declared closure still contains
+it, and `nix/consumer.nix` still asks you for a source (`pinnedSources`) rather
+than inventing one. The graft that is gone is the one your COMPILER needed; the
+one your copier needs is still yours.
 
 ## The export map
 

@@ -131,7 +131,11 @@ export const DockRow: Component<DockRowProps> = (props) => {
         active: props.active ?? false,
       })}
       data-sleeping={props.pip.sleeping ? "" : undefined}
-      onPointerDown={(event) => props.onPointerDown?.(event)}
+      // Attached only when a surface actually traps the gesture. Registering a
+      // no-op listener on every row is a real DOM delta the desktop row did not
+      // have before the extraction, and "it does nothing" is not the same as
+      // "it is not there".
+      onPointerDown={props.onPointerDown}
       onClick={() => props.onSelect()}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {

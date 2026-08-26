@@ -24,7 +24,7 @@ import {
   activeArm,
   sleepingArm,
   type TerminalMetadata,
-} from "@kolu/padi-client/surface";
+} from "@kolu/padi-client/vocab";
 import type {
   PipGlyphId,
   PipMotionKind,

@@ -20,6 +20,10 @@ in import "${koluSrc}/nix/consumer.nix" {
   src = koluSrc;
   # The packages you actually IMPORT. That is all you maintain.
   seeds = [ "@kolu/padi-client" "@kolu/solid-dockrow" "@kolu/surface-app" ];
+  # PINNED members you must supply yourself — this seed set reaches one.
+  # `.pinned` lists them; omitting one is a named throw, not a broken `cp`.
+  pinnedSources.osfacts-client = pkgs.runCommand "osfacts-client" { }
+    "cp -r ${(import ./npins).osfacts}/client-ts $out";
 }
 ```
 
@@ -52,6 +56,16 @@ It is committed rather than computed on demand because Nix cannot execute
 anything at eval time and the hydrate argv is needed at eval time. It is
 seed-AGNOSTIC on purpose: one artifact serves every consumer, and adding a
 consumer adds nothing to this repo.
+
+**`osfacts-client` still has to be COPIED, even though nothing compiles it.**
+Two different questions, and kolu#2217 only closed one of them. Your `tsc` no
+longer resolves it — the daemon leaf entries mean no published padi-client entry
+reaches `endpoint.ts`, so there is no second pin to graft *for typechecking*,
+which is what `@kolu/padi-client`'s README means by "no pin to add". But
+hydration is per-MANIFEST: you still copy `@kolu/surface-daemon-supervisor`'s
+directory, and its manifest still names `osfacts-client`. So the DECLARED
+closure still contains it and `consumer.nix` still needs a source for it. That
+is why the example above passes `pinnedSources`.
 
 **A `catalog:` dependency is refused by name.** `consumer.nix` throws at eval if
 your seed closure reaches a package whose manifest carries pnpm's
@@ -142,7 +156,7 @@ either. Check the closure before assuming a literal version is the fix:
 
 ```bash
 nix eval --impure --expr '(import ./nix/consumer.nix {
-  pkgs = import <nixpkgs> {}; src = ./.; seeds = [ "kolu-common" ];
+  pkgs = import <nixpkgs> {}; src = ./.; seeds = [ "@kolu/padi-client" ];
 }).names'
 ```
 

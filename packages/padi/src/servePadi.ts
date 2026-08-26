@@ -228,13 +228,13 @@ async function* attachFrames(
   signal: AbortSignal,
 ): AsyncGenerator<TerminalAttachFrame> {
   const entry = requireActiveTerminal(id);
-  const { snapshot, topLine, reflowEpoch, deltas } =
+  const { snapshot, topLine, reflowEpoch, grid, deltas } =
     await resolveTerminalEndpoint(entry.meta.location).attach(
       id,
       signal,
       resizeTo,
     );
-  yield { kind: "snapshot", data: snapshot, topLine, reflowEpoch };
+  yield { kind: "snapshot", data: snapshot, topLine, reflowEpoch, grid };
   for await (const frame of deltas) yield frame;
 }
 

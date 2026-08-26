@@ -96,11 +96,22 @@ export function emptyByClass(): Record<FrameClass, TerminalId[]> {
   return { asking: [], working: [], linger: [], finished: [] };
 }
 
-/** An empty frame — the reading for a host nothing is known about. */
-export const EMPTY_FRAME: HostAttentionFrame = {
-  byClass: emptyByClass(),
-  liveIds: [],
-};
+/** An empty frame — the reading for a host nothing is known about.
+ *
+ *  FROZEN, and its lists with it. `emptyByClass` is a function precisely so no
+ *  two "nothing here yet" hosts share nested arrays that one accidental push
+ *  corrupts for all of them — and then this constant handed every reader the
+ *  same nested arrays anyway. Freezing keeps the one shared reading safe to
+ *  share; a caller that needs a MUTABLE seed calls `emptyByClass()`. */
+export const EMPTY_FRAME: HostAttentionFrame = Object.freeze({
+  byClass: Object.freeze({
+    asking: Object.freeze([] as readonly TerminalId[]),
+    working: Object.freeze([] as readonly TerminalId[]),
+    linger: Object.freeze([] as readonly TerminalId[]),
+    finished: Object.freeze([] as readonly TerminalId[]),
+  }),
+  liveIds: Object.freeze([] as readonly TerminalId[]),
+});
 
 /** The WIRE→FRAME translation: padi's `urgency` cell as the class map every
  *  reader below speaks.
@@ -161,9 +172,19 @@ export function hostActiveIds(
   // list for every id — quadratic in a host's terminals, re-run on each reactive
   // read of the tab's count. The membership rule still comes from
   // `attentionCounted`; only the lookup is indexed.
+  // FIRST-WINS, matching `frameClassOf`'s walk exactly. The partition is
+  // disjoint today so no id is in two lists and the two orders agree — but they
+  // agree by luck, not by construction, and this module's own header calls
+  // `frameClassOf` the one place a terminal's class is decided. A last-wins
+  // `set` here was a SECOND decision with the opposite tie-break: a sixth,
+  // overlapping class would split the pip from the host-tab count that
+  // summarises it, which is the exact disagreement this module exists to
+  // prevent.
   const klassOf = new Map<TerminalId, FrameClass>();
   for (const klass of FRAME_CLASSES) {
-    for (const id of frame.byClass[klass]) klassOf.set(id, klass);
+    for (const id of frame.byClass[klass]) {
+      if (!klassOf.has(id)) klassOf.set(id, klass);
+    }
   }
   const live = new Set(frame.liveIds);
   const out: TerminalId[] = [];

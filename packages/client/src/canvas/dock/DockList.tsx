@@ -96,11 +96,10 @@ function DockListSection(props: {
       testId="mobile-dock-section"
       repo={props.group.name}
       repoColor={props.group.color}
+      headerTestId="mobile-dock-section-header"
+      headerClass="flex items-center gap-2 -ml-3 -mr-3 pl-2.5 pr-3 py-2.5"
       header={
-        <div
-          data-testid="mobile-dock-section-header"
-          class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-2.5 pr-3 py-2.5"
-        >
+        <>
           <RepoMonogram
             group={props.group.name}
             color={props.group.color}
@@ -126,7 +125,7 @@ function DockListSection(props: {
             scopeLabel={props.group.name}
             class="ml-auto"
           />
-        </div>
+        </>
       }
     >
       <For each={props.group.topRows}>
@@ -179,15 +178,19 @@ function DockListRow(props: {
   return (
     <Show when={combined()}>
       {(c) => {
+        // ONCE per row, not in the spread — the bag mints this row's StatePip
+        // memo, and a memo re-created on every prop read either accumulates on
+        // this owner or freezes the row at first paint. See `useDockRowBag`.
+        const bag = rowBag({
+          id: props.id,
+          combined: c,
+          bucket: () => props.bucket,
+          pipBucket: () => props.pip,
+          recencyAt: () => props.recencyAt,
+        });
         return (
           <DockRowView
-            {...rowBag({
-              id: props.id,
-              combined: c(),
-              bucket: props.bucket,
-              pipBucket: props.pip,
-              recencyAt: props.recencyAt,
-            })}
+            {...bag}
             surface="touch"
             onSelect={() => props.onSelect(props.id)}
             // stopPropagation on pointerdown keeps Corvu Drawer's

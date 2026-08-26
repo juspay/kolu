@@ -1737,6 +1737,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         snapshot: first.value.data,
         topLine: first.value.topLine,
         reflowEpoch: first.value.reflowEpoch,
+        grid: first.value.grid,
         iter,
       };
     };
@@ -1751,6 +1752,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       snapshot: initial.snapshot,
       topLine: initial.topLine,
       reflowEpoch: initial.reflowEpoch,
+      grid: initial.grid,
       // Re-attaches carry NO resize (see above) — `open()` with no argument.
       // `signal` rides along so the loop can tell OUR teardown (the abort that
       // ends the kaval iterator through the `iter.return()` bridge above) from an

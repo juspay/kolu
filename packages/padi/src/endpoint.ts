@@ -91,6 +91,11 @@ export interface TerminalAttachment {
    *  cursor a no-splice `stale` reply (F3). Undefined only from an older kaval
    *  that predates the field (fail-open — no gate). */
   reflowEpoch?: number;
+  /** The grid the snapshot was SERIALIZED at — for the OBSERVE-ONLY attach,
+   *  which passes no `resizeTo` and so otherwise never learns what size it
+   *  received. Undefined only from an older kaval that predates the field
+   *  (fail-open — a consumer sizes as it did before). */
+  grid?: { cols: number; rows: number };
   /** Live output deltas after the snapshot. Ends on iterator return,
    *  signal abort, or PTY exit. Each re-attach frame (after an overflow drop)
    *  carries its own fresh `topLine`, so a mid-stream re-seed stays anchored. */
@@ -118,6 +123,11 @@ export type TerminalAttachFrame =
        *  halts backfill rather than corrupting it (F3). Undefined from a kaval
        *  predating contract 5.2 (fail-open). */
       reflowEpoch?: number;
+      /** The grid this snapshot was SERIALIZED at. Undefined from a kaval
+       *  predating the additive add (fail-open: a consumer sizes as it did
+       *  before). Its reason for existing is the OBSERVE-ONLY attach — one that
+       *  passes no `resizeTo` and so never learns what size it received. */
+      grid?: { cols: number; rows: number };
     };
 
 /** One older-scrollback reply for the client's in-place backfill — the padi

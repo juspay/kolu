@@ -40,9 +40,21 @@ export const DockSection: Component<{
   surface: DockRowSurface;
   /** The repo hue every tinted surface in the card reads (`--repo-color`). */
   repoColor: string;
-  /** The sticky header band — name, count, whatever the app puts there. It
-   *  renders INSIDE the grid, so it spells its own `col-span-full`. */
+  /** The CONTENT of the sticky header band — a name, a count, attention
+   *  capsules, whatever the app puts there.
+   *
+   *  The band itself is ours: `dock-cards-section-header` is a wash-scoped class
+   *  exactly like the section's own, and leaving it for the caller to remember
+   *  was the same silent miss this component exists to close — a structurally
+   *  correct section whose header simply does not pin, with nothing erroring.
+   *  So pass the contents; the band, its class and its `col-span-full` are
+   *  applied here. */
   header?: JSX.Element;
+  /** Padding for the header band. The band's inset is a surface decision like
+   *  the card's, and the two dock surfaces genuinely differ (`py-2` vs
+   *  `py-2.5`), so it is stated rather than guessed. */
+  headerClass?: string;
+  headerTestId?: string;
   /** The repo this card is for — `data-repo`, an e2e/debug handle. */
   repo?: string;
   testId?: string;
@@ -54,7 +66,14 @@ export const DockSection: Component<{
     style={{ "--repo-color": props.repoColor }}
     class={`${DOCK_SECTION_CLASS} grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} ${DOCK_ROW_SURFACE[props.surface].sectionPad}`}
   >
-    {props.header}
+    <Show when={props.header}>
+      <div
+        data-testid={props.headerTestId}
+        class={`dock-cards-section-header col-span-full ${props.headerClass ?? ""}`}
+      >
+        {props.header}
+      </div>
+    </Show>
     {props.children}
   </section>
 );

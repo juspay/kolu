@@ -30,7 +30,7 @@ import "@xterm/xterm/css/xterm.css";
 import { TERMINAL_RESET } from "@kolu/padi/endpoint";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi-client/upload";
 import { activeArm } from "@kolu/padi-client/surface";
-import { snapshotAnswersGrid } from "@kolu/padi-client/attach";
+import { isSnapshotFrame, snapshotAnswersGrid } from "@kolu/padi-client/attach";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { toError } from "@kolu/surface/run-stream";
 import {
@@ -779,7 +779,7 @@ const Terminal: Component<{
           // common case before a single byte is written or any backfill state is
           // touched. Receipt is not when the bytes LAND, so the write callback
           // re-checks; the why is stated in full there.
-          if (frame.kind === "snapshot" && !answersCurrentGrid()) {
+          if (isSnapshotFrame(frame) && !answersCurrentGrid()) {
             return new StaleSnapshotGrid({
               terminalId: props.terminalId,
               requested: requestedGrid,
@@ -800,22 +800,21 @@ const Terminal: Component<{
           // fetch fires until a real user scroll-up. The committer rides the write
           // callback, which scroll-lock preserves across a buffered flush — so the
           // seed can't be lost while the user is scrolled up.
-          const commitSeed =
-            frame.kind === "snapshot"
-              ? backfill?.consumeSnapshotFrame(
-                  frame.topLine,
-                  frame.reflowEpoch,
-                  // An overflow re-attach snapshot's data LEADS with a RIS
-                  // (`TERMINAL_RESET + snapshot`); the initial attach does not. The
-                  // controller's esc handler pauses on THIS frame's own leading RIS
-                  // too, so the controller must know it's coming: the seam captures
-                  // the committer's baseline one generation-bump BEFORE that RIS and
-                  // PREDICTS it, so the frame's own reset doesn't read as an
-                  // invalidation that revokes this frame's re-seed — otherwise
-                  // backfill pauses forever after a re-attach (F11).
-                  frame.data.startsWith(TERMINAL_RESET),
-                )
-              : undefined;
+          const commitSeed = isSnapshotFrame(frame)
+            ? backfill?.consumeSnapshotFrame(
+                frame.topLine,
+                frame.reflowEpoch,
+                // An overflow re-attach snapshot's data LEADS with a RIS
+                // (`TERMINAL_RESET + snapshot`); the initial attach does not. The
+                // controller's esc handler pauses on THIS frame's own leading RIS
+                // too, so the controller must know it's coming: the seam captures
+                // the committer's baseline one generation-bump BEFORE that RIS and
+                // PREDICTS it, so the frame's own reset doesn't read as an
+                // invalidation that revokes this frame's re-seed — otherwise
+                // backfill pauses forever after a re-attach (F11).
+                frame.data.startsWith(TERMINAL_RESET),
+              )
+            : undefined;
           // A consumed snapshot frame carries its OWN seed seam (with a per-frame
           // token) so the controller captures its committer baseline at the
           // snapshot's byte position, not at receipt — the F11 fix under scroll

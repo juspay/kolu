@@ -149,10 +149,26 @@ let
       }
       "cp -r ${sourceFor name} $out";
 
+  # An empty seed list walks to an empty closure, passes every assert, and emits
+  # an empty `hydrateArgs` — so the copier dies at RUNTIME with a usage error
+  # instead of here, where the mistake is. A consumer asking for nothing is
+  # always a mistake; the honest answer is to say so at eval.
+  _seedsOk =
+    if seeds != [ ] then true
+    else throw "kolu/nix/consumer.nix: `seeds` is empty — name the packages you import.";
+
 in
 assert _schemaOk;
+assert _seedsOk;
 assert _catalogOk; {
   inherit names;
+
+  # The members this entry point CANNOT copy out of `src` — they are gitignored
+  # grafts (see `pinned` in consumer-closure.json). Exported because a consumer
+  # that builds its own copier off `dirs` would otherwise reproduce exactly the
+  # `cp: cannot stat` that `sourceFor`'s throw exists to replace: the throw only
+  # guards the `drvFor` path, so the list has to be readable on the others.
+  pinned = builtins.filter (name: (memberOf name).pinned or false) names;
 
   dirs = builtins.listToAttrs
     (map (name: { inherit name; value = (memberOf name).dir; }) names);

@@ -90,7 +90,15 @@ describe("padiSurface contract", () => {
     // reading a restore's active tile off the `session` cell's next snapshot. That
     // was a race the client cannot win: the snapshot publishes behind a
     // synchronous disk write while the restored terminals publish as they spawn.
-    expect(PADI_SURFACE_VERSION).toBe("5.4");
+    //
+    // 5.5 adds an OPTIONAL `grid` to the `terminalAttach` snapshot frame — the
+    // cols×rows those bytes were serialized at. A MINOR, not a major, for the
+    // reason this contract already applies to `reflowEpoch`: absence degrades
+    // to exactly the previous reading in both skew directions, and a major
+    // would force-recycle a surviving kaval — killing live PTYs — to buy a
+    // readout. It exists for the OBSERVE-ONLY attach, which asserts no size and
+    // therefore never learned what size it received.
+    expect(PADI_SURFACE_VERSION).toBe("5.5");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),

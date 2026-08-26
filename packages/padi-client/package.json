@@ -9,6 +9,7 @@
     "./surface": "./src/surface.ts",
     "./attention": "./src/attention.ts",
     "./attach": "./src/attach.ts",
+    "./vocab": "./src/vocab.ts",
     "./dial": "./src/dial.ts",
     "./rendezvous": "./src/rendezvous.ts",
     "./watch": "./src/watch.ts",
