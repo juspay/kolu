@@ -963,6 +963,53 @@ export const PadiTerminalAttachInputSchema = Schema.Struct({
   resizeTo: Schema.optionalKey(EndpointGridSchema),
 });
 
+/** One frame of the per-subscriber terminal byte stream.
+ *
+ *  A discriminated union, not a bare string and not an optional field: a
+ *  `delta` is bytes to write; a `snapshot` (the first frame of any fresh
+ *  stream, and every overflow re-attach) is a serialized screen that also
+ *  carries the absolute mirror-line `topLine` seed for a scrollback-backfill
+ *  cursor. Mirrors kaval's own `TerminalDataMsg` one hop up.
+ *
+ *  NAMED and exported because a consumer has to be able to say this type to
+ *  write a frame handler at all — and because only the `snapshot` arm can go
+ *  STALE. See `./attach` for the rules that govern it.
+ */
+export const PadiTerminalAttachFrameSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("delta"),
+    data: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("snapshot"),
+    data: Schema.String,
+    topLine: NonNegativeInt,
+    // `reflowEpoch` (3.1 · additive · optional) — the mirror's reflow
+    // generation this snapshot was serialized under; the client re-seeds
+    // its backfill epoch from it so a foreign-resize reflow halts backfill
+    // rather than corrupts it (F3). Absent from a kaval predating 5.2.
+    //
+    // `Schema.optional`, NOT `optionalKey` — the one place on this wire
+    // that reads the way zod's `.optional()` did, and deliberately. This
+    // value is FORWARDED VERBATIM across five hops of optional-typed
+    // records before it is encoded: kaval's decoded attach frame →
+    // `OpenedAttach.reflowEpoch?` → `TerminalAttachment.reflowEpoch?` →
+    // `reattachingDeltas`' re-attach frame → this frame. Reading an absent
+    // optional key yields `undefined`, so EVERY hop re-creates the key
+    // present-with-`undefined`, and no amount of conditional-spread
+    // discipline at one hop survives the next (`exactOptionalPropertyTypes`
+    // is not set, so the compiler never objects). `optional` is
+    // `optionalKey` + `UndefinedOr`, so the emitted BYTES are unchanged —
+    // the key is omitted, never nulled — and a non-integer is still
+    // rejected. Pinned by a byte fixture in `surface.test.ts`.
+    reflowEpoch: Schema.optional(NonNegativeInt),
+  }),
+]);
+export type TerminalAttachFrame = typeof PadiTerminalAttachFrameSchema.Type;
+
+/** The grid an attach asks for, and the unit a snapshot is laid out at. */
+export type EndpointGrid = typeof EndpointGridSchema.Type;
+
 // The SAME grid rule the attach carries. `resize` and `attach` describe one
 // value with one meaning, reaching the same mutator, so they must not derive it
 // twice — a bare `z.number()` here accepted a float or a negative that kaval
@@ -1862,36 +1909,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       // and every overflow re-attach) also carries the absolute mirror-line
       // `topLine` seed for the client's scrollback-backfill cursor. Mirrors
       // kaval's own `TerminalDataMsg` union one hop up (see `TerminalAttachFrame`).
-      outputSchema: Schema.Union([
-        Schema.Struct({
-          kind: Schema.Literal("delta"),
-          data: Schema.String,
-        }),
-        Schema.Struct({
-          kind: Schema.Literal("snapshot"),
-          data: Schema.String,
-          topLine: NonNegativeInt,
-          // `reflowEpoch` (3.1 · additive · optional) — the mirror's reflow
-          // generation this snapshot was serialized under; the client re-seeds
-          // its backfill epoch from it so a foreign-resize reflow halts backfill
-          // rather than corrupts it (F3). Absent from a kaval predating 5.2.
-          //
-          // `Schema.optional`, NOT `optionalKey` — the one place on this wire
-          // that reads the way zod's `.optional()` did, and deliberately. This
-          // value is FORWARDED VERBATIM across five hops of optional-typed
-          // records before it is encoded: kaval's decoded attach frame →
-          // `OpenedAttach.reflowEpoch?` → `TerminalAttachment.reflowEpoch?` →
-          // `reattachingDeltas`' re-attach frame → this frame. Reading an absent
-          // optional key yields `undefined`, so EVERY hop re-creates the key
-          // present-with-`undefined`, and no amount of conditional-spread
-          // discipline at one hop survives the next (`exactOptionalPropertyTypes`
-          // is not set, so the compiler never objects). `optional` is
-          // `optionalKey` + `UndefinedOr`, so the emitted BYTES are unchanged —
-          // the key is omitted, never nulled — and a non-integer is still
-          // rejected. Pinned by a byte fixture in `surface.test.ts`.
-          reflowEpoch: Schema.optional(NonNegativeInt),
-        }),
-      ]),
+      outputSchema: PadiTerminalAttachFrameSchema,
     },
   },
   events: {

@@ -30,6 +30,7 @@ import "@xterm/xterm/css/xterm.css";
 import { TERMINAL_RESET } from "@kolu/padi/endpoint";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi-client/upload";
 import { activeArm } from "@kolu/padi-client/surface";
+import { snapshotAnswersGrid } from "@kolu/padi-client/attach";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { toError } from "@kolu/surface/run-stream";
 import {
@@ -42,7 +43,6 @@ import {
 } from "@kolu/xterm-kit/backfill";
 import { cellAtPoint, readBufferBytes } from "@kolu/xterm-kit/internals";
 import {
-  sameGrid,
   type TerminalGrid,
   Xterm,
   type XtermHandle,
@@ -639,10 +639,15 @@ const Terminal: Component<{
        *  rather than protect anything. The reachable absences are both benign —
        *  no request has been made yet, or the pane has been disposed and its grid
        *  released. */
-      const answersCurrentGrid = (): boolean => {
-        const current = h.grid();
-        return !requestedGrid || !current || sameGrid(requestedGrid, current);
-      };
+      // The predicate itself is `@kolu/padi-client/attach`'s, not this pane's:
+      // "a snapshot is only valid at the grid it was asked for" is a property of
+      // the `terminalAttach` CONTRACT — including the clause no consumer guesses,
+      // that another client attaching at its own size resizes this pty underneath
+      // us — so it lives with the stream rather than in whichever app learned it
+      // the expensive way. What stays here is the pane's own inputs: the grid it
+      // asked at, and the grid it has now.
+      const answersCurrentGrid = (): boolean =>
+        snapshotAnswersGrid(requestedGrid, h.grid());
 
       /** End this loop and start exactly one replacement — the FOURTH reopen
        *  lane, named in `reattachingStream.ts`'s module-header taxonomy along
