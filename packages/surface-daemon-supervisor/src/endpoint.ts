@@ -64,7 +64,25 @@ import {
   unspeakableClause,
   UnspeakablePeerError,
 } from "./convergence/unspeakable.ts";
-import { dialSocket } from "./dialSocket.ts";
+// The three the DIAL LEAF owns — imported from it and re-exported below, so
+// this file stays their only in-repo reader's door while `@kolu/padi-client`
+// (an out-of-repo consumer's entry) reaches them WITHOUT compiling this module.
+// See `daemonDial.ts`'s header for what that saved.
+import {
+  type ConnectedMetadata,
+  type DaemonConnection,
+  DaemonContractSkewError,
+  dialSocket,
+  isContractSkewError,
+} from "./daemonDial.ts";
+
+export {
+  type ConnectedMetadata,
+  type DaemonConnection,
+  DaemonContractSkewError,
+  dialSocket,
+  isContractSkewError,
+};
 import type { OsfactsClientError } from "osfacts-client";
 import type { DaemonDriver } from "./driver.ts";
 import {
@@ -123,10 +141,6 @@ export type ReadProcessIdentityAsync = (
   pid: number,
 ) => Effect.Effect<ProcessIdentity | undefined, OsfactsClientError>;
 
-type ConnectedMetadata<M> = [M] extends [undefined]
-  ? { metadata?: undefined }
-  : { metadata: M };
-
 export type ConnectedEndpointStatus<I, M = undefined> = {
   state: "connected";
   /** The daemon's self-declared identity. */
@@ -163,87 +177,6 @@ export type EndpointStatus<I, M = undefined> =
       daemonVersion?: never;
       requiredVersion?: never;
     };
-
-/**
- * The soul's `connect` throws THIS — and only this — to tell the endpoint a live
- * survivor is genuinely INCOMPATIBLE (a contract-version skew: the daemon speaks
- * a version this client cannot talk to). It is the one connect failure that
- * proves recycling is safe-and-necessary: retrying can never make an
- * incompatible daemon compatible, and the survivor must be replaced.
- *
- * The endpoint stays soul-agnostic about *what* skew means — it never parses an
- * error message or knows a contract version. It only checks this typed marker:
- * the soul (which owns the handshake) decides "this is skew" and signals it.
- * Every OTHER connect rejection (a transport dial failure, an unreadable
- * handshake read) is NON-skew — possibly transient — so `adoptOrEnsure` retries
- * it and, if it persists, refuses to kill the live survivor (F4): a daemon we
- * merely cannot reach right now is not proven incompatible, and killing it would
- * destroy the live PTYs adoption exists to preserve.
- */
-export class DaemonContractSkewError extends Error {
-  readonly isContractSkew = true as const;
-  /** Which contract flavor skewed ("pty-host", "padiSurface") — a readable
-   *  FIELD, so a consumer that logs or routes by flavor never parses prose. */
-  readonly subject: string;
-  /** The contract version the running daemon actually speaks. */
-  readonly daemonVersion: string;
-  /** The contract version this supervisor's build requires. */
-  readonly requiredVersion: string;
-  /** The skewed daemon's own OS pid, as it self-reported over the handshake
-   *  (kaval's `system.version.pid`). ADDITIVE and optional. It rides HERE — not
-   *  only on a `DaemonConnection` — because the skew path THROWS before a
-   *  connection is ever built, and the gate-less-squatter recovery of an OLD,
-   *  skewed orphan (the 25494 case) still needs the daemon's self-reported pid as
-   *  its third identity attestation. */
-  readonly pid?: number;
-  /** The message is DERIVED from the fields (parse-don't-validate — no
-   *  consumer ever regexes the prose back apart); `subject` names the
-   *  contract's flavor for a legible journal line ("pty-host", "padiSurface")
-   *  while staying a field, never free prose. */
-  constructor(versions: {
-    subject: string;
-    daemonVersion: string;
-    requiredVersion: string;
-    /** The skewed daemon's self-reported OS pid, if the handshake carried one. */
-    pid?: number;
-  }) {
-    super(
-      `${versions.subject} contract skew: daemon speaks ${versions.daemonVersion}, needs ${versions.requiredVersion}`,
-    );
-    this.name = "DaemonContractSkewError";
-    this.subject = versions.subject;
-    this.daemonVersion = versions.daemonVersion;
-    this.requiredVersion = versions.requiredVersion;
-    this.pid = versions.pid;
-  }
-}
-
-/** True iff `err` is a `DaemonContractSkewError` — a genuine contract skew the
- *  soul's `connect` raised. Brand-checked (not `instanceof`) so it holds across
- *  module-instance / realm boundaries, the same robustness oRPC errors use. */
-export function isContractSkewError(
-  err: unknown,
-): err is DaemonContractSkewError {
-  const e = err as {
-    isContractSkew?: unknown;
-    subject?: unknown;
-    daemonVersion?: unknown;
-    requiredVersion?: unknown;
-  };
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    e.isContractSkew === true &&
-    // The narrowed type promises its FIELDS (`subject` for the flavor a
-    // consumer logs/routes by; the versions for the incompatible status arm
-    // and the typed rethrow) — so the brand attests them all: a foreign
-    // brand-carrier without the payload must not narrow to a type whose
-    // fields it cannot honor.
-    typeof e.subject === "string" &&
-    typeof e.daemonVersion === "string" &&
-    typeof e.requiredVersion === "string"
-  );
-}
 
 /** Thrown by the gate-less-squatter recovery when the process holding the
  *  rendezvous socket does **not** speak kaval — a genuinely foreign process (or a
@@ -394,19 +327,6 @@ export function isSocketProbeIndeterminateError(
  *  incompatible, never killing a running daemon. The compatible-adopt and
  *  foreign-refusal arms are identical across both. */
 type GatelessSkewPolicy = "recycle" | "refuse";
-
-/** A live, handshaken connection to a daemon. The injected `connect` builds it;
- *  the endpoint holds it and tears it down. */
-export type DaemonConnection<C, I, M = undefined> = {
-  client: C;
-  identity: I;
-  startedAt: number;
-  /** Drop the transport. */
-  dispose(): void;
-  /** Subscribe to the transport dropping (the daemon exited / the socket
-   *  closed). Fires at most once. The endpoint uses it to flip to `degraded`. */
-  onClose(cb: () => void): void;
-} & ConnectedMetadata<M>;
 
 export interface EndpointSpec<
   C,

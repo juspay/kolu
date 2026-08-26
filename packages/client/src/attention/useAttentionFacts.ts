@@ -43,9 +43,10 @@ import { createSharedRoot } from "../createSharedRoot";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
 import {
   FRAME_CLASSES,
+  frameByClass,
   hostActiveIds,
   type TerminalAttention,
-} from "./attentionFacts";
+} from "@kolu/padi-client/attention";
 import {
   forgetHostIndex,
   hostFrame,
@@ -95,9 +96,11 @@ export const useAttentionFacts = createSharedRoot(() => {
 
       // The class lists — the ONE wire→frame translation in the app, which is
       // also where the wire's positional `awaitingIds` name becomes the class
-      // name every reader speaks. The `[...]` copies are the same sticky-live
-      // fence the live set needs below: `.use()` hands back a `reconcile` proxy
-      // that mutates in place across ticks.
+      // name every reader speaks — `frameByClass`, in `@kolu/padi-client/attention`,
+      // beside the cell it reads, so this mirror and any other consumer of the
+      // same surface translate the wire identically (it also owns the copies that
+      // fence the `reconcile` proxy `.use()` hands back, which mutates in place
+      // across ticks).
       createEffect(() => {
         const v = urgency();
         // No frame yet — the mirror stays SILENT about this host rather than
@@ -106,15 +109,7 @@ export const useAttentionFacts = createSharedRoot(() => {
         // the first REAL frame as its baseline: a chime for an agent that was
         // already finished when the app bound is a discovery, not a transition.
         if (v === undefined) return;
-        writeHostMarks(encHost, {
-          reported: true,
-          byClass: {
-            asking: [...v.awaitingIds],
-            working: [...v.workingIds],
-            linger: [...v.lingerIds],
-            finished: [...v.finishedIds],
-          },
-        });
+        writeHostMarks(encHost, { reported: true, byClass: frameByClass(v) });
       });
       // Separate from the frame write so a link flap (live changes, the frame
       // doesn't) still repaints the badge without minting a fresh frame that

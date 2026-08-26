@@ -17,30 +17,29 @@
  *  violet capsule has always followed. */
 
 import { activeArm } from "@kolu/padi-client/surface";
-import { StatePip } from "@kolu/solid-statepip";
-import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
+import { DockNeedsYouRow, type NeedsYouDensity } from "@kolu/solid-dockrow";
 import { DASH, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
-import { useDuration } from "../../terminal/staleness";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
-import { dockRowAttrs } from "./dockRowAttrs";
+import { isActiveRow } from "./activeRow";
 import { createDockRowData } from "./dockRowData";
 import { rowRecencyAt } from "./dockRowRanking";
 import type { DockNeedsYouEntry } from "./dockTree";
-import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
+import { useRowRecency } from "./rowRecency";
 
-/** How much of an entry there is room for. Named for the axis, not for the
- *  caller: `DockList` IS the compact layout's persistent left rail and takes
- *  `"full"`, because what the desktop dock's rail mode really means here is
- *  "44 px, icons only". A `rail: boolean` read backwards at one of its two call
- *  sites. */
-export type NeedsYouDensity = "icon" | "full";
+// `NeedsYouDensity` — how much of an entry there is ROOM for — is the package's
+// (`@kolu/solid-dockrow`), re-exported here because this module's two call sites
+// name it. `DockList` IS the compact layout's persistent left rail and takes
+// `"full"`, because what the desktop dock's rail mode really means is "44 px,
+// icons only".
+export type { NeedsYouDensity };
 
-/** One mirrored entry. Two rows ride on it, split by what each can answer:
+/** kolu's wiring for `@kolu/solid-dockrow`'s needs-you entry. Two terminals
+ *  ride on one entry, split by what each can answer:
  *
  *  - **tile** — the DISPLAY IDENTITY (repo · branch, annotation colour,
  *    intent). A split has none of its own: `getDisplayInfo` is keyed on
@@ -51,7 +50,7 @@ export type NeedsYouDensity = "icon" | "full";
  *    capsule under a heading reading "Needs you", and a tooltip reporting a
  *    chattier sibling's three seconds as this agent's twenty hours.
  *
- *  It reads the same pip binding and the same recency cell the structural row
+ *  It reads the same pip binding and the same recency fold the structural row
  *  does, so the two renderings of one terminal cannot drift — the whole point
  *  of a mirror is that it agrees with what it mirrors. */
 const NeedsYouEntryRow: Component<{
@@ -67,8 +66,7 @@ const NeedsYouEntryRow: Component<{
   // row therefore made the whole entry render NOTHING: the strip silently
   // dropped the split-blocked agent, which is the exact case this pair exists
   // for. `SubTerminalRow`, the other surface that renders a split, reads only
-  // `getMetadata` for the same reason — a split has no display identity of its
-  // own, which is precisely WHY the entry carries a tile beside it.
+  // `getMetadata` for the same reason.
   const blockedMeta = () => store.getMetadata(props.entry.blocked.id);
   const unread = () => store.isUnread(props.entry.blocked.id);
   const combined = createMemo(() => {
@@ -76,6 +74,7 @@ const NeedsYouEntryRow: Component<{
     const blocked = blockedMeta();
     return tile && blocked ? { tile, blocked } : null;
   });
+  const rowRecency = useRowRecency();
   return (
     <Show when={combined()}>
       {(c) => {
@@ -86,116 +85,61 @@ const NeedsYouEntryRow: Component<{
           unread,
           () => props.entry.blocked.pip,
         );
-        const mode = () => recencyMode(pip());
         // The blocked row's OWN wait, never the tile-wide fold. A sub-row's
         // `ts` already IS its own recency, and so is `rowRecencyAt` of its
         // metadata — one expression covers both halves of the pair.
-        const waitAt = () =>
-          displayRecencyAt(
-            mode(),
-            props.entry.tile.ts,
-            rowRecencyAt(c().blocked),
-          );
-        // The EXACT string the violet capsule shows, for the icon density's
-        // tooltip — `useDuration`, not `formatTimeAgo`. The two are not
-        // interchangeable: `formatTimeAgo` answers "20h ago", which composes
-        // into "waiting on you for 20h ago". A duration is what belongs after
-        // "for", and it is the same reading the full density renders, so the
-        // two densities cannot report different waits.
-        //
-        // `formatDuration` answers the dash on clock skew and the clock is
-        // absent for a never-active row — both deliberate "nothing honest to
-        // report" answers, so the clause DROPS rather than inventing one.
-        const duration = useDuration();
+        const recency = () =>
+          rowRecency(pip(), props.entry.tile.ts, rowRecencyAt(c().blocked));
         const title = () => {
           const where = `${c().tile.info.key.group} · ${c().tile.info.key.label}`;
           const hidden = props.entry.hiddenByFilter
             ? " (hidden by the dock filters)"
             : "";
           // The wait rides the tooltip ONLY at icon density, where the capsule
-          // has no room. Reading the clock outside that branch would subscribe
-          // every full-density entry to the shared 1s tick to build a string it
-          // never renders — and hold that subscription for the whole length of
-          // the block, i.e. longest in exactly the twenty-hour case this strip
-          // exists for. Computed once, not twice.
+          // has no room. The EXACT string the violet capsule shows, so the two
+          // densities cannot report different waits — `recency().text` is the
+          // duration, not `formatTimeAgo`'s "20h ago", which would compose into
+          // "waiting on you for 20h ago". The dash (clock skew, or a never-
+          // active row) is a deliberate "nothing honest to report", so the
+          // clause DROPS rather than inventing one.
           if (props.density !== "icon") {
             return `${where} — waiting on you${hidden}`;
           }
-          const at = waitAt();
-          const d = at === null ? "" : duration(at);
+          const d = recency().text;
           const wait = d && d !== DASH ? ` for ${d}` : "";
           return `${where} — waiting on you${wait}${hidden}`;
         };
         return (
-          <button
-            type="button"
-            data-testid="dock-needs-you-entry"
-            // The SHARED row contract, not a fourth hand-spelling of it. The
-            // strip used to carry none of it, so the one surface literally
-            // named "Needs you" was the one dock surface outside the
-            // `[data-asking]` wash vocabulary — and it failed silently, by
-            // rendering plainer than every other row.
-            {...dockRowAttrs({
-              id: props.entry.blocked.id,
-              bucket: props.entry.blocked.bucket,
-              agentState: activeArm(c().blocked)?.agent?.state,
-              asking: pip().asking,
-              unread: unread(),
-            })}
-            // The tile this entry lands on — distinct from `data-terminal-id`
-            // above, which names the row the pip and the wait come off.
-            data-tile-id={props.entry.tile.id}
+          <DockNeedsYouRow
             // The BLOCKED id, not the tile. When a split is the one asking, this
             // entry names that split — its pip, its wait, its `data-terminal-id`
             // — so landing on the parent's MAIN pane would send you to a pane
             // that is not waiting: the strip would name one agent and navigate
             // to another, the same lie as painting the wrong clock. Every host's
-            // verb resolves a split to its tab (`focusTerminal` /
-            // `focusTerminalSilently`, the same landing `SubTerminalRow` and the
-            // section-header capsule use). For an ordinary row
+            // verb resolves a split to its tab (the same landing `SubTerminalRow`
+            // and the section-header capsule use). For an ordinary row
             // `blocked.id === tile.id`, so nothing else changes.
-            onClick={() => props.onSelect(props.entry.blocked.id)}
-            // The icon density is 44px, so it drops the label and the wait
-            // capsule and shows the pip alone. The duration is the reason to
-            // glance at this strip at all, so it rides in the tooltip rather
-            // than being lost — an unlabelled band of pips is not the feature.
+            id={props.entry.blocked.id}
+            tileId={props.entry.tile.id}
+            density={props.density}
+            pip={pip()}
+            bucket={props.entry.blocked.bucket}
+            agentState={activeArm(c().blocked)?.agent?.state}
+            active={isActiveRow(props.entry.blocked.id)}
+            label={annotationLine(
+              c().tile.meta.intent,
+              c().tile.info.key.label,
+            )}
+            labelColor={c().tile.info.annotationColor}
+            renderLabel={(markdown) => (
+              <IntentMarkdownInline markdown={markdown} />
+            )}
+            recency={recency()}
             title={title()}
-            class={`flex items-center gap-1.5 w-full rounded-md cursor-pointer text-left transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${
-              props.density === "icon" ? "justify-center py-1" : "px-1.5 py-1"
-            }`}
-            classList={{ "opacity-70": props.entry.hiddenByFilter }}
-          >
-            <StatePip {...pip()} class={DOCK_ROW_PIP_BOX} />
-            <Show when={props.density === "full"}>
-              {/* The SHARED label class, not three of its six rules re-spelled
-               *  as utilities. `[data-dock-row]:is([data-unread],[data-asking])
-               *  .dock-cards-row-label` lifts a blocked row's label to weight
-               *  700 — these entries carry both attributes, so that rule was
-               *  already targeting them and finding no element: every blocked
-               *  row in the sections rendered bold and the surface named "Needs
-               *  you" rendered default. It supplies `min-width:0` and the
-               *  ellipsis too, so `flex-1` is all that is left to add. */}
-              <span
-                class="dock-cards-row-label flex-1 text-[0.8rem]"
-                style={{ color: c().tile.info.annotationColor }}
-              >
-                <IntentMarkdownInline
-                  markdown={annotationLine(
-                    c().tile.meta.intent,
-                    c().tile.info.key.label,
-                  )}
-                />
-              </span>
-              {/* The violet wait capsule — how long it has been blocked. The
-               *  one number that makes this strip worth glancing at, and the
-               *  same cell the row below renders. */}
-              <RecencyCell
-                recencyAt={waitAt()}
-                textSize="text-[0.6rem]"
-                mode={mode()}
-              />
-            </Show>
-          </button>
+            hiddenByFilter={props.entry.hiddenByFilter}
+            onSelect={() => props.onSelect(props.entry.blocked.id)}
+            testId="dock-needs-you-entry"
+          />
         );
       }}
     </Show>

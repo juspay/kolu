@@ -10,9 +10,9 @@ import {
 } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import ChecksIndicator from "./terminal/ChecksIndicator";
-import { prTooltip } from "./terminal/prTooltip";
-import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
+import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
+import { prTooltip } from "@kolu/solid-dockrow/rowValues";
+import { WorktreeIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 

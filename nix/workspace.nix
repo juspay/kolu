@@ -72,6 +72,7 @@ let
     "@kolu/solid-fileview" = ../packages/solid-fileview;
     "@kolu/solid-browser" = ../packages/solid-browser;
     "@kolu/solid-statepip" = ../packages/solid-statepip;
+    "@kolu/solid-dockrow" = ../packages/solid-dockrow;
     "kolu-common" = ../packages/common;
     "@kolu/daemon-test-gate" = ../packages/daemon-test-gate;
     "anyagent" = ../packages/integrations/anyagent;

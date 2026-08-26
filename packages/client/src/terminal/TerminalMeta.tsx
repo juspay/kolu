@@ -14,21 +14,23 @@
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import { StatePip } from "@kolu/solid-statepip";
-import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
+import {
+  SLEEPING_RECEDE_CLASS,
+  TITLE_PIP_BOX,
+} from "@kolu/solid-statepip/pipVariant";
 import { prValue } from "anyforge/schemas";
 import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import { agentWorkflow } from "../ui/agentDisplay";
-import { SLEEPING_RECEDE_CLASS } from "../ui/chromeSpacing";
-import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
+import { WorktreeIcon } from "../ui/Icons";
 import RepoMonogram from "../ui/RepoMonogram";
 import Tip from "../ui/Tip";
 import { encActiveHost } from "../wire";
-import ChecksIndicator from "./ChecksIndicator";
+import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
-import { prTooltip } from "./prTooltip";
+import { prTooltip } from "@kolu/solid-dockrow/rowValues";
 import { useStatePip } from "./statePipBind";
 import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
 

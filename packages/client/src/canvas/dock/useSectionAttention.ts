@@ -2,7 +2,7 @@
  *  surfaces (desktop `Dock.tsx`, touch `DockList.tsx`).
  *
  *  The fold itself is `scopeAttention` (pure, beside its two sibling altitudes
- *  in `attention/attentionFacts.ts`); this is the reactive plumbing that hands
+ *  in `@kolu/padi-client/attention`); this is the reactive plumbing that hands
  *  it the two readers it needs — the unread ledger and each row's attention
  *  facts — plus the flattening from dock rows to bare ids. Wiring it once means
  *  the two headers can't end up reading different facts into the same fold.
@@ -22,7 +22,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
-import { scopeAttention } from "../../attention/attentionFacts";
+import { scopeAttention } from "@kolu/padi-client/attention";
 import { useAttentionFacts } from "../../attention/useAttentionFacts";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";

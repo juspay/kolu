@@ -25,7 +25,7 @@ import {
   hostActiveIds,
   frameClassOf,
   type TerminalAttention,
-} from "./attentionFacts";
+} from "@kolu/padi-client/attention";
 import type { AttentionClass, TerminalId } from "kolu-common/surface";
 import { createStore, produce } from "solid-js/store";
 
@@ -83,10 +83,10 @@ export function writeHostMarks(
   setMarks(encHost, (prev) => ({ ...(prev ?? emptyMarks()), ...value }));
 }
 
-/** A host's frame in INDEXED form — the same three answers `attentionFacts`
+/** A host's frame in INDEXED form — the same three answers `@kolu/padi-client/attention`
  *  defines, precomputed once per invalidation instead of re-folded per read.
  *
- *  The pure folds in `attentionFacts` remain the DEFINITION (and what the tests
+ *  The pure folds in `@kolu/padi-client/attention` remain the DEFINITION (and what the tests
  *  pin); this is an index over the same answer, never a second rule. It exists
  *  because both folds are O(frame) for ONE question: `frameClassOf` scans four
  *  class lists through the store proxy per id — and three readers ask it per
@@ -172,7 +172,7 @@ export function hostMarks(encHost: string): {
     // Counts are DERIVED from the id lists at the read site — the same
     // no-second-source law the urgency cell itself follows, so a count can
     // never disagree with the ids it summarizes. `active` is the SAME predicate
-    // the pips' motion runs on (`attentionFacts`), which is why the number on a
+    // the pips' motion runs on (`@kolu/padi-client/attention`), which is why the number on a
     // host tab always matches the number of moving marks under it.
     //
     // Read through the host's index when there is one: `hostActiveIds` builds a
@@ -196,7 +196,7 @@ export function hostMarks(encHost: string): {
  *  Both facts therefore come from ONE snapshot of ONE mirrored frame: padi
  *  computed the class, shipped the answer, and this reads the answer back (the
  *  two-subscriptions argument against re-deriving it lives in
- *  `attentionFacts.ts`'s header). Taking the host key is the site-specific
+ *  `@kolu/padi-client/attention`'s header). Taking the host key is the site-specific
  *  half: a reader without it had to scan every host's arrays for the id, so
  *  correctness rested on "TerminalIds never collide across hosts", a rule
  *  written nowhere and enforced by nothing, and any host's ~1 s activity tick

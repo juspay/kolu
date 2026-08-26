@@ -59,7 +59,7 @@ import {
   type DaemonConnection,
   DaemonContractSkewError,
   dialSocket,
-} from "@kolu/surface-daemon-supervisor";
+} from "@kolu/surface-daemon-supervisor/dial";
 import { Effect } from "effect";
 import {
   PADI_SURFACE_VERSION,

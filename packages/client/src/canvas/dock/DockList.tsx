@@ -17,33 +17,30 @@
  *  supplies a `flex flex-col h-full` container and decides selection semantics —
  *  the drawer dismisses on select, the rail does not. */
 
-import { activeArm } from "@kolu/padi-client/surface";
-import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
-import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
+import { activeArm, activePr } from "@kolu/padi-client/surface";
+import { DockRow as DockRowView } from "@kolu/solid-dockrow";
+import {
+  type DockRowBucket,
+  DOCK_ROW_GAP,
+  DOCK_ROW_GRID,
+  rowSubline,
+} from "@kolu/solid-dockrow/rowValues";
+import { AttentionTriplet } from "@kolu/solid-statepip";
 import type { TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import {
-  DOCK_CARDS_SUBGRID_LEFT_RESTORE,
-  DOCK_ROW_BRANCH_COL,
-  DOCK_ROW_GAP,
-  DOCK_ROW_GRID,
-  SLEEPING_RECEDE_CLASS,
-} from "../../ui/chromeSpacing";
 import RepoMonogram from "../../ui/RepoMonogram";
 import { encActiveHost } from "../../wire";
-import { dockRowAttrs } from "./dockRowAttrs";
+import { isActiveRow } from "./activeRow";
 import { createDockRowData } from "./dockRowData";
-import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
+import { rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import { NeedsYouStrip } from "./NeedsYouStrip";
-import { PrPip } from "./PrPip";
-import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
-import { rowSubline } from "./rowSubline";
+import { useRowRecency } from "./rowRecency";
 import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockOrder } from "./useDockOrder";
 import { useSectionAttention } from "./useSectionAttention";
@@ -169,11 +166,14 @@ function DockListSection(props: {
   );
 }
 
-/** Touch counterpart to `Dock.tsx`'s `DockRow`. Geometry is shared
- *  (two-line subgrid, indicator + branch + time on line 1,
- *  PR pip + subline on line 2); the two diverge on touch target sizing,
- *  the Corvu drag-to-dismiss pointer-down trap, and the absence of a
- *  `Cmd+N` shortcut hint. Update both files when row geometry changes. */
+/** kolu's TOUCH wiring for `@kolu/solid-dockrow`'s two-line row — the same
+ *  component `Dock.tsx` renders, at `touch` density.
+ *
+ *  The two used to be hand-kept copies of one row's markup, linked by a comment
+ *  reading "Update both files when row geometry changes". The divergences that
+ *  comment defended — tap-target sizing, the Corvu drag-to-dismiss pointer trap,
+ *  and the absence of a `Cmd+N` shortcut hint — are the density token and two
+ *  props below, not a second component. */
 function DockListRow(props: {
   id: TerminalId;
   /** ORDER bucket — drives `data-bucket`. */
@@ -188,6 +188,7 @@ function DockListRow(props: {
   const store = useTerminalStore();
   const combined = createDockRowData(props.id);
   const unread = () => store.isUnread(props.id);
+  const rowRecency = useRowRecency();
   return (
     <Show when={combined()}>
       {(c) => {
@@ -198,113 +199,33 @@ function DockListRow(props: {
           unread,
           () => props.pip,
         );
-        const mode = () => recencyMode(pip());
         return (
-          // Row is `<div role="button">` rather than `<button>` so the
-          // `<a>` PR pip on line 2 stays valid HTML (no `<a>` inside
-          // `<button>` nesting). Activation keyboard handlers mirror
-          // native button behaviour (Enter + Space). Same trade-off
-          // the desktop dock makes; see `Dock.tsx` for the longer
-          // rationale.
-          // biome-ignore lint/a11y/useSemanticElements: native button would nest invalid interactive HTML — see Dock.tsx
-          <div
-            role="button"
-            tabIndex={0}
-            data-testid="mobile-dock-row"
-            // The shared row contract (`dockRowAttrs`) — see `Dock.tsx`. The
-            // washes key on the ATTENTION class, not the ORDER bucket.
-            {...dockRowAttrs({
-              id: props.id,
-              bucket: props.bucket,
-              agentState: activeArm(c().meta)?.agent?.state,
-              asking: pip().asking,
-              unread: unread(),
-            })}
-            data-sleeping={pip().sleeping ? "" : undefined}
+          <DockRowView
+            id={props.id}
+            density="touch"
+            pip={pip()}
+            bucket={props.bucket}
+            agentState={activeArm(c().meta)?.agent?.state}
+            active={isActiveRow(props.id)}
+            label={annotationLine(c().meta.intent, c().info.key.label)}
+            labelColor={c().info.annotationColor}
+            renderLabel={(markdown) => (
+              <IntentMarkdownInline markdown={markdown} />
+            )}
+            subline={rowSubline(c().meta)}
+            pr={activePr(c().meta)}
+            recency={rowRecency(pip(), props.recencyAt, rowRecencyAt(c().meta))}
+            onSelect={() => props.onSelect(props.id)}
             // stopPropagation on pointerdown keeps Corvu Drawer's
             // drag-to-dismiss from claiming the tap (no-op in the rail,
             // load-bearing in the phone drawer).
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => props.onSelect(props.id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                props.onSelect(props.id);
-              }
+            onPointerDown={(event) => event.stopPropagation()}
+            testIds={{
+              row: "mobile-dock-row",
+              agentSubline: "mobile-dock-agent-subline",
+              quietSubline: "mobile-dock-foreground",
             }}
-            // Right side stays at the call site because the touch list uses
-            // `-mr-3 pr-3` (12 px) — the tighter touch-gutter — while
-            // desktop rides on `DOCK_CARDS_GUTTER_*` (24 px). The left
-            // side is symmetric between the two surfaces, so it ships
-            // as one symbol.
-            class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left transition-colors duration-150 cursor-pointer active:bg-surface-2`}
-            classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
-          >
-            {/* Identity status indicator — same binder as Dock/title. */}
-            <span class="row-span-2 flex self-center">
-              <StatePip {...pip()} class={DOCK_ROW_PIP_BOX} />
-            </span>
-            <span
-              class="dock-cards-row-label text-[0.9rem]"
-              style={{
-                color: c().info.annotationColor,
-              }}
-            >
-              <IntentMarkdownInline
-                markdown={annotationLine(c().meta.intent, c().info.key.label)}
-              />
-            </span>
-            {/* Recency — hidden while active; width reserved. Blocked rows
-             *  show the violet wait chip instead (see RecencyCell). */}
-            <RecencyCell
-              recencyAt={displayRecencyAt(
-                mode(),
-                props.recencyAt,
-                rowRecencyAt(c().meta),
-              )}
-              textSize="text-[0.65rem]"
-              mode={mode()}
-            />
-            {/* Second line — flex row spanning the branch column → end.
-             *  PR pip on the left (anchored to the branch column's left
-             *  edge so it aligns across every section), subline text
-             *  following. */}
-            <div
-              class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0 mt-0.5`}
-            >
-              <PrPip meta={c().meta} />
-              <Show
-                when={rowSubline(c().meta)}
-                fallback={
-                  <span
-                    aria-hidden="true"
-                    class="font-mono text-[0.7rem] leading-tight invisible"
-                  >
-                    &nbsp;
-                  </span>
-                }
-              >
-                {(line) => (
-                  <span
-                    data-testid={
-                      activeArm(c().meta)?.agent
-                        ? "mobile-dock-agent-subline"
-                        : "mobile-dock-foreground"
-                    }
-                    // The shared subline hook — see `Dock.tsx`. Set only on the
-                    // AGENT subline.
-                    data-dock-subline={
-                      activeArm(c().meta)?.agent ? "" : undefined
-                    }
-                    class="font-mono text-[0.7rem] leading-snug text-fg-3 truncate min-w-0"
-                    title={line()}
-                  >
-                    {line()}
-                  </span>
-                )}
-              </Show>
-            </div>
-          </div>
+          />
         );
       }}
     </Show>

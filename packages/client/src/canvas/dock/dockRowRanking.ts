@@ -57,27 +57,27 @@ import {
   type TerminalMetadata,
 } from "@kolu/padi-client/surface";
 import {
-  type AgentPaintClass,
+  type DockRowBucket,
+  dockOverlayBucket,
+  paintDockRow,
+} from "@kolu/solid-dockrow/rowValues";
+import {
   type AttentionClass,
   agentUrgency,
-  paintClassOf,
   type TerminalId,
 } from "kolu-common/surface";
 import { match, P } from "ts-pattern";
 import type { PaneNode } from "../../terminal/terminalTree";
 
-/** Per-row render variant. Declared as an EXTENSION of the shared
- *  `AgentPaintClass` (awaiting | linger | working | none) plus the dock's own triage tail,
- *  so `DockRowBucket` CONTAINS `AgentPaintClass` by declaration — the paint class
- *  the row pip and the tile title both feed into `StatePip` is then a declared
- *  subset of this union, not a literal coincidence. `parked` is its own bucket
- *  (not folded into idle) because it carries a different visual treatment (faded,
- *  tinier row) and routes through staleness, not the idle-bucket classifier.
- *  `sleeping` is its own bucket for the fresh-within-window case — a freshly-slept
- *  tile reads "asleep" with its ☾ row. But staleness wins over it: once a slept
- *  tile's last activity falls outside the window it routes to `parked` and is
- *  dropped, so the activity-window selector compresses old dormant tiles too. */
-export type DockRowBucket = AgentPaintClass | "idle" | "sleeping" | "parked";
+// The row's PAINT fold — `DockRowBucket`, the overlay precedence, and
+// `paintDockRow` — moved out with the row itself (`@kolu/solid-dockrow`): a
+// consumer that renders kolu's row needs to decide which pip it paints, and a
+// second implementation of that decision is exactly the drift the package
+// exists to end. What stayed HERE is the ORDER fold, which reads the dock's own
+// tile tree, its activity window and its ☾ filter — app state no package can
+// see. The two folds share `dockOverlayBucket` so a future reorder cannot
+// desync them across the package boundary.
+export type { DockRowBucket };
 
 /** Values the ORDER fold can actually emit. `linger` is paint-only. */
 type DockOrderBucket = Exclude<DockRowBucket, "linger">;
@@ -88,24 +88,6 @@ type DockPaintBucket = Exclude<DockRowBucket, "none">;
 /** A split shares its parent's window fate, so it cannot independently park. */
 type SubDockOrderBucket = Exclude<DockOrderBucket, "parked">;
 type SubDockPaintBucket = Exclude<DockPaintBucket, "parked">;
-
-/** The row-overlay precedence shared by BOTH folds (order and paint): parked
- *  wins over sleeping. Parked is checked FIRST because a sleeping tile is still
- *  subject to the activity window — a *fresh* slept tile keeps its ☾ row, but
- *  once its last activity falls outside the window it routes to `parked` (which
- *  `dockTree` hides) like any other stale row, otherwise yesterday's dormant
- *  terminals pile up in the dock and the window selector can't compress them.
- *  Lifting the precedence here means it lives at ONE site: the order and paint
- *  folds call this before diverging into their agent-state tails, so a future
- *  reorder can't desync the two. */
-function dockOverlayBucket(
-  meta: TerminalMetadata,
-  parked: boolean,
-): "parked" | "sleeping" | undefined {
-  if (parked) return "parked";
-  if (sleepingArm(meta)) return "sleeping";
-  return undefined;
-}
 
 function classifyDockRow(
   meta: TerminalMetadata,
@@ -144,64 +126,6 @@ function classifyDockRow(
       if (agent) return "idle";
       return meta.lastActivityAt !== null ? "idle" : "none";
   }
-}
-
-/** The PIP bucket a row paints — separate from the ORDER bucket above so a row's
- *  pip COLOUR is decided once and reads identically across the dock row and the
- *  tile title (both render through `StatePip`).
- *
- *  It paints the terminal's ATTENTION CLASS — the same value its motion, its
- *  wash and every count read — never a class re-derived from the terminal's own
- *  metadata; the two-subscriptions argument for that is stated once in
- *  `attention/attentionFacts.ts`'s header. Colour was the last channel still
- *  believing the metadata, which is why it is spelled out here.
- *
- *  A quiet host therefore paints quiet: if the frame has not arrived, every
- *  mark reads idle rather than confidently colouring from a fact no count
- *  agrees with. That is the honest reading, and it is the same fact the host
- *  tab already shows by dimming.
- *
- *  A fresh `waiting` agent paints `linger` (the lingering dim-alert) even
- *  though `classifyDockRow` ranks it `idle` for ORDERING — order≠colour, still
- *  deliberately. Dock-only triage: `sleeping` / `parked` come off the metadata
- *  overlay, which is where they live. `parked` defaults false for non-windowed
- *  surfaces (title/switcher). */
-export function paintDockRow(
-  meta: TerminalMetadata,
-  klass: AttentionClass,
-): SubDockPaintBucket;
-export function paintDockRow(
-  meta: TerminalMetadata,
-  klass: AttentionClass,
-  parked: false,
-): SubDockPaintBucket;
-export function paintDockRow(
-  meta: TerminalMetadata,
-  klass: AttentionClass,
-  parked: boolean,
-): DockPaintBucket;
-export function paintDockRow(
-  meta: TerminalMetadata,
-  klass: AttentionClass,
-  parked: boolean = false,
-): DockPaintBucket {
-  // The overlay also runs in the paint fold so the two folds stay aligned by
-  // construction — even though a parked pip never paints (`dockTree` drops the
-  // row before it can reach a pip). Dormancy is a property of the TILE, not of
-  // any agent inside it, so it stays a metadata read.
-  const overlay = dockOverlayBucket(meta, parked);
-  if (overlay) return overlay;
-  // The class→paint rename is the vocabulary's `paintClassOf`, never restated
-  // here: this switch used to spell the same five arms with the same four
-  // answers, which is precisely the "two switches that happen to match" the
-  // fenced vocabulary exists to prevent — a sixth class would have had to be
-  // decided twice, and the copies could agree only by luck.
-  const paint = paintClassOf(klass);
-  // The ONE arm the dock diverges on. `none` is the vocabulary's absent class
-  // (no glow at all), but every dock row core is an identity mark (Option C):
-  // `PIP_BODY.empty` would swallow the shell's identity glyph, so a classless
-  // row paints the quiet `idle` body instead of nothing.
-  return paint === "none" ? "idle" : paint;
 }
 
 /** The neutral projection shared by every dock row. */

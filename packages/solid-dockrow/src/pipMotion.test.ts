@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pipMotionKind } from "./pipMotion";
+import { pipMotionKind } from "./pipBind.ts";
 
 describe("pipMotionKind", () => {
   it("working always spins", () => {

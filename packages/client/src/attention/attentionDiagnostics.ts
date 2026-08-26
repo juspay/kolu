@@ -36,7 +36,7 @@ import type {
   PipMotionKind,
   PipVariant,
 } from "@kolu/solid-statepip/pipVariant";
-import { isCounted, type TerminalAttention } from "./attentionFacts";
+import { isCounted, type TerminalAttention } from "@kolu/padi-client/attention";
 
 /** Spinner glyphs a CLI animates into its terminal title while it works: the
  *  braille block (U+2800–U+28FF — codex, claude, and most Node spinners use
@@ -99,7 +99,7 @@ export type AttentionDiagnostic = {
  *  `isLive` and `isFinished` are DERIVED here, never taken as inputs: both are
  *  functions of `attention` (its `live` flag, and its class being `finished`),
  *  and taking them alongside it is the fabricable-loose-booleans shape the rest
- *  of this subsystem abolished (see `attentionFacts.ts`'s header). A caller
+ *  of this subsystem abolished (see `@kolu/padi-client/attention`'s header). A caller
  *  could have handed in `isFinished: false` for a terminal whose class says
  *  otherwise, and the diagnostic built to catch disagreements would have
  *  reported the fabrication as fact. */

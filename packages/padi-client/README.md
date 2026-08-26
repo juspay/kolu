@@ -76,48 +76,46 @@ holder — needs kaval's owner-only-dir and socket-inode checks, so it lives in
 `@kolu/padi/stateRoot` and is out of reach here. Recompute only when the client
 and the daemon share a launch context.
 
-## The second pin — `osfacts-client`
+## The second pin — `osfacts-client` — is no longer yours to graft
 
-**A consumer needs one thing that is not on npm and is not in this repo.**
+**It used to be.** `@kolu/surface-daemon-supervisor` states its
+`ReadSocketHolders` seam in the vocabulary of
+[`juspay/osfacts`](https://github.com/juspay/osfacts)'s TypeScript client — that
+is deliberate and argued at the seam (the success half and the three failure
+tags have one provenance, so a local copy would be *"a second name for facts it
+does not produce"*). `osfacts-client` is grafted into this tree from an npins pin
+and gitignored, so it is **absent from the archive you vendor**; and `./dial`
+reached the supervisor's BARREL, which compiles `endpoint.ts`, which names that
+vocabulary. Every consumer of `connectPadi` therefore had to graft a second pin,
+guard its revision, and carry shims for a daemon runtime none of its own source
+called.
 
-`@kolu/surface-daemon-supervisor` — which `./dial` reaches for `dialSocket` and
-the skew error — states its `ReadSocketHolders` seam in `osfacts-client`'s
-vocabulary. That is deliberate and argued at the seam: the success half and the
-three failure tags have one provenance, so a local copy would be *"a second name
-for facts it does not produce, and every consumer would have to unwrap it to get
-back the tag it needed"*. It is public API, not an internal detail.
+**The leaf entries closed it.** Each daemon package now publishes the narrow door
+the follow-up note here used to describe:
 
-`osfacts-client` is the TypeScript client of [`juspay/osfacts`](https://github.com/juspay/osfacts),
-grafted into this tree from an npins pin and gitignored — so it is **absent from
-the archive you vendor**. Graft it from the same pin, exactly as drishti does in
-its `nix/overlay.nix`:
+| leaf | what it carries | what it no longer compiles |
+| --- | --- | --- |
+| `@kolu/surface-daemon-supervisor/dial` | `dialSocket`, `DaemonContractSkewError`, `isContractSkewError`, `DaemonConnection` | `endpoint.ts` — the drivers, the convergence probe, and `osfacts-client` |
+| `@kolu/surface-daemon/home` | `resolveDaemonHome` + the home path algebra | `daemonMain`, `daemonProcessMain`, the process-signal tier |
+| `@kolu/surface-daemon/lifetime` | `DaemonLifetime`, `DaemonLifetimeInfo`, `lifetimeInfo` | the same |
 
-```nix
-# kolu pins it at 72a794c2527d450d55ef14ae7015056ebabe31b3
-# — keep the client and the binary on ONE revision; the client's version gate
-#   must never be paired with a binary from another source.
-osfacts-client = pkgs.runCommand "osfacts-client" { } ''
-  cp -r ${osfactsSrc}/client-ts $out
-'';
-```
+`connectPadi` reaches all three, and `hydrate.closure.test.ts` now asserts that
+**no bare daemon barrel** is in this package's import closure — the list that
+used to record those two barrels as a KNOWN cost is empty, and empty is the
+assertion. `osfacts-client` left `IMPORTED_ALLOWED` with them.
 
-Then hydrate it beside the `@kolu/*` packages. Without it a consumer's `tsc`
-reports `TS2307` at three sites in `@kolu/surface-daemon-supervisor` — this repo
-ships raw TypeScript, so an `import type` is resolved by *your* compiler and is
-as load-bearing as a value import.
-
-> **The follow-up that would remove this.** If `@kolu/surface-daemon-supervisor`
-> published a leaf entry carrying just `dialSocket` + `DaemonContractSkewError`,
-> `./dial` would never compile `endpoint.ts` and the graft would stop being
-> required. That is the same leaf-entry change the daemon barrel wants (see the
-> guard's recorded barrel cost), and it is drishti-gated — named here rather than
-> half-done.
+It remains in `DECLARED_ALLOWED`: hydration is per-MANIFEST, so a consumer that
+copies `@kolu/surface-daemon-supervisor`'s directory still copies a manifest that
+names it. What changed is the part that cost real work — nothing a consumer's
+`tsc` compiles resolves it any more, so there is no pin to add, no revision to
+keep in step with a binary, and no `TS2307` to chase.
 
 ## The export map
 
 | entry | what it is | browser-safe |
 | --- | --- | --- |
 | `./surface` | `padiSurface` — the Effect Schema contract, the per-member forwarding policy (`value` = hold-open vs `delta` = fail-through), the frozen control-core sibling, and the whole terminal vocabulary it speaks (records, errors, chrome, policy and transcript-export schemas), re-exported from this one entry | ✅ |
+| `./attention` | the ATTENTION FOLD over two of that contract's members — the `urgency` cell's class lists and the `activity` stream's live set, folded into `TerminalAttention { klass, live }` and its per-host / per-scope siblings (`frameByClass`, `frameClassOf`, `hostActiveIds`, `scopeAttention`). Pure: what padi's partition MEANS, shipped with the feeds so a consumer reads them rather than reinventing the reading | ✅ |
 | `./dial` | `connectPadi` — dial a socket, handshake the frozen control core, gate the surface version (`assertPadiSurfaceCompatible`), and hand back both typed faces over one dispatch (`padiClientOver`, `scopePadiSurface`). `dialPadiHello` is the ungated half, for a caller that wants to read `hello` and judge for itself | ❌ `node:net` |
 | `./rendezvous` | the path *formula* — state-root → digest → `$XDG_RUNTIME_DIR/padi-<digest>/padi.sock`, plus `productionPadiStateRoot` / `resolvePadiStateRoot` / `padiDigest` / `padiGatePath`. Pure: no probing, no kaval. Construction-side; see **Finding the socket** before dialing with it | ❌ `node:` paths |
 | `./watch` | the terminal watch kit — `watchTerminals`, the one `awaitTerminalCondition` engine and its two named waits (`awaitAgentState`, `awaitOutputSettled`), and `awaitWatchEvents` | ❌ mirror |

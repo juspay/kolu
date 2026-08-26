@@ -1,8 +1,7 @@
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
-import type { PipVariant } from "@kolu/solid-statepip";
+import type { PipVariant } from "@kolu/solid-statepip/pipVariant";
 import { describe, expect, it } from "vitest";
-import type { DockRowBucket } from "./dockRowRanking";
-import { pipGlyphFor, pipVariant } from "./pipVariant";
+import { type DockRowBucket, pipGlyphFor, pipVariant } from "./pipBind.ts";
 
 // The bucket carries only the CORE state now — `unread` is no longer folded in
 // (R-activity-merge moved it to the indicator's `alert` corner badge). awaiting is the

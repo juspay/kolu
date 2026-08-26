@@ -3,8 +3,12 @@
  *  terminal. The equivalence test below is the executable form of that — it is
  *  the reason the two can't drift, not a spot-check of a few cases. */
 
-import type { AttentionClass, TerminalId } from "kolu-common/surface";
-import { ATTENTION_CLASSES, attentionCounted } from "kolu-common/surface";
+import type { AttentionClass } from "@kolu/terminal-vocab/agentProjection";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import {
+  ATTENTION_CLASSES,
+  attentionCounted,
+} from "@kolu/terminal-vocab/agentProjection";
 import { describe, expect, it } from "vitest";
 import {
   EMPTY_FRAME,
@@ -14,7 +18,7 @@ import {
   isActive,
   scopeAttention,
   type TerminalAttention,
-} from "./attentionFacts";
+} from "./attention.ts";
 
 // The vocabulary's OWN enumeration, not a hand-written copy. A sixth class used
 // to pass this file green while vanishing from every count, because the list

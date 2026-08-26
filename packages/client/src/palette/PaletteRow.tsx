@@ -20,7 +20,7 @@ import { DASH, type TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { PaletteCommand, PaletteLabel } from "../CommandPalette";
-import { rowSubline } from "../canvas/dock/rowSubline";
+import { rowSubline } from "@kolu/solid-dockrow/rowValues";
 import { HostIdentityLabel } from "../host/HostIdentityLabel";
 import {
   dotClass,
@@ -226,7 +226,7 @@ const PaletteRow: Component<{
       // keeps branch off the headline in the same case). Otherwise the
       // Dock subline (agent summary / foreground).
       if (r.terminalMeta?.intent) return r.branchLabel ?? "";
-      if (r.terminalMeta) return rowSubline(r.terminalMeta);
+      if (r.terminalMeta) return rowSubline(r.terminalMeta).text;
       if (r.context) return r.context;
       return props.cmd.description ?? "";
     }

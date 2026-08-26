@@ -1,0 +1,875 @@
+{
+  "schemaVersion": 1,
+  "members": {
+    "@kolu/artifact-sdk": {
+      "dir": "packages/artifact-sdk",
+      "workspace": [
+        "@kolu/solid-browser"
+      ],
+      "external": {
+        "effect": "catalog:",
+        "esbuild": "^0.28.1",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "@kolu/daemon-test-gate": {
+      "dir": "packages/daemon-test-gate",
+      "workspace": [],
+      "external": {
+        "@babel/parser": "^7.29.2",
+        "vitest": "*"
+      }
+    },
+    "@kolu/detect": {
+      "dir": "packages/detect",
+      "workspace": [],
+      "external": {}
+    },
+    "@kolu/heap-diag": {
+      "dir": "packages/heap-diag",
+      "workspace": [
+        "@kolu/log"
+      ],
+      "external": {}
+    },
+    "@kolu/html-escape": {
+      "dir": "packages/html-escape",
+      "workspace": [],
+      "external": {}
+    },
+    "@kolu/log": {
+      "dir": "packages/log",
+      "workspace": [],
+      "external": {}
+    },
+    "@kolu/padi": {
+      "dir": "packages/padi",
+      "workspace": [
+        "@kolu/padi-client",
+        "@kolu/serve-dir",
+        "@kolu/surface",
+        "@kolu/surface-daemon",
+        "@kolu/surface-daemon-supervisor",
+        "@kolu/surface-remote",
+        "@kolu/terminal-vocab",
+        "anyagent",
+        "anyforge",
+        "kaval",
+        "kolu-claude-code",
+        "kolu-codex",
+        "kolu-git",
+        "kolu-github",
+        "kolu-grok",
+        "kolu-opencode",
+        "kolu-pi",
+        "kolu-pty",
+        "kolu-shared",
+        "kolu-transcript-core",
+        "kolu-transcript-html",
+        "osfacts-client",
+        "terminal-snapshot",
+        "terminal-themes"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "columnify": "^1.6.0",
+        "conf": "^15.1.0",
+        "effect": "catalog:",
+        "pino": "^10.3.1",
+        "pino-pretty": "^13.1.3",
+        "pino-roll": "^3.1.0",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "@kolu/padi-client": {
+      "dir": "packages/padi-client",
+      "workspace": [
+        "@kolu/surface",
+        "@kolu/surface-daemon",
+        "@kolu/surface-daemon-supervisor",
+        "@kolu/terminal-vocab",
+        "anyagent",
+        "anyforge",
+        "kolu-git",
+        "kolu-transcript-core"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.110"
+      }
+    },
+    "@kolu/port-forward": {
+      "dir": "packages/port-forward",
+      "workspace": [],
+      "external": {}
+    },
+    "@kolu/serve-dir": {
+      "dir": "packages/serve-dir",
+      "workspace": [],
+      "external": {
+        "effect": "catalog:",
+        "mrmime": "^2.0.1"
+      }
+    },
+    "@kolu/shell-quote": {
+      "dir": "packages/shell-quote",
+      "workspace": [],
+      "external": {}
+    },
+    "@kolu/solid-browser": {
+      "dir": "packages/solid-browser",
+      "workspace": [
+        "@kolu/url-shape"
+      ],
+      "external": {
+        "solid-js": "^1.9.0"
+      }
+    },
+    "@kolu/solid-browser-example-docsite": {
+      "dir": "packages/solid-browser/example/docsite",
+      "workspace": [
+        "@kolu/solid-browser"
+      ],
+      "external": {
+        "solid-js": "^1.9.0"
+      }
+    },
+    "@kolu/solid-dockrow": {
+      "dir": "packages/solid-dockrow",
+      "workspace": [
+        "@kolu/padi-client",
+        "@kolu/solid-statepip",
+        "@kolu/terminal-vocab",
+        "anyforge"
+      ],
+      "external": {
+        "solid-js": "^1.9.0"
+      }
+    },
+    "@kolu/solid-fileview": {
+      "dir": "packages/solid-fileview",
+      "workspace": [
+        "@kolu/solid-markdown"
+      ],
+      "external": {
+        "solid-js": "^1.9.0"
+      }
+    },
+    "@kolu/solid-markdown": {
+      "dir": "packages/solid-markdown",
+      "workspace": [
+        "@kolu/html-escape",
+        "@kolu/url-shape"
+      ],
+      "external": {
+        "dompurify": "^3.4.13",
+        "marked": "^18.0.2",
+        "marked-alert": "^2.1.2",
+        "marked-footnote": "^1.2.4",
+        "marked-gfm-heading-id": "^4.1.1",
+        "shiki": "^4.2.0",
+        "solid-js": "^1.9.0",
+        "yaml": "^2.8.3"
+      }
+    },
+    "@kolu/solid-pierre": {
+      "dir": "packages/solid-pierre",
+      "workspace": [],
+      "external": {
+        "@pierre/diffs": "^1.3.5",
+        "@pierre/trees": "^1.0.0-beta.6",
+        "@solid-primitives/event-listener": "^2.4.5",
+        "solid-js": "^1.9.0"
+      }
+    },
+    "@kolu/solid-pwa-install": {
+      "dir": "packages/solid-pwa-install",
+      "workspace": [],
+      "external": {
+        "solid-js": "^1.9.0"
+      }
+    },
+    "@kolu/solid-statepip": {
+      "dir": "packages/solid-statepip",
+      "workspace": [
+        "@kolu/terminal-vocab"
+      ],
+      "external": {
+        "solid-js": "^1.9.0"
+      }
+    },
+    "@kolu/surface": {
+      "dir": "packages/surface",
+      "workspace": [
+        "@kolu/log"
+      ],
+      "external": {
+        "@effect/platform-browser": "4.0.0-rc.110",
+        "@effect/platform-node": "4.0.0-rc.110",
+        "@solid-primitives/rootless": "^1.5.3",
+        "@solid-primitives/scheduled": "^1.5.3",
+        "effect": "4.0.0-rc.110",
+        "solid-js": "^1.9.0"
+      }
+    },
+    "@kolu/surface-app": {
+      "dir": "packages/surface-app",
+      "workspace": [
+        "@kolu/surface",
+        "@kolu/url-shape"
+      ],
+      "external": {
+        "@effect/platform-browser": "4.0.0-rc.110",
+        "@effect/platform-node": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.110",
+        "solid-js": "^1.9.0",
+        "ws": "^8.21.0"
+      }
+    },
+    "@kolu/surface-app-example": {
+      "dir": "packages/surface-app/example",
+      "workspace": [
+        "@kolu/surface",
+        "@kolu/surface-app"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "effect": "catalog:",
+        "solid-js": "^1.9.0",
+        "ws": "^8.21.0"
+      }
+    },
+    "@kolu/surface-cli": {
+      "dir": "packages/surface-cli",
+      "workspace": [
+        "@kolu/surface"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.110",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "@kolu/surface-daemon": {
+      "dir": "packages/surface-daemon",
+      "workspace": [
+        "@kolu/log",
+        "@kolu/surface"
+      ],
+      "external": {
+        "@effect/platform-node": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.110",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "@kolu/surface-daemon-supervisor": {
+      "dir": "packages/surface-daemon-supervisor",
+      "workspace": [
+        "@kolu/surface",
+        "@kolu/surface-daemon",
+        "osfacts-client"
+      ],
+      "external": {
+        "@effect/platform-node": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.110",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "@kolu/surface-example": {
+      "dir": "packages/surface/example",
+      "workspace": [
+        "@kolu/surface",
+        "@kolu/surface-app"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "effect": "catalog:",
+        "solid-js": "^1.9.0",
+        "ws": "^8.21.0"
+      }
+    },
+    "@kolu/surface-example-fleet-top-part-1": {
+      "dir": "packages/surface/example/fleet-top/part-1",
+      "workspace": [
+        "@kolu/surface",
+        "@kolu/surface-app"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "effect": "catalog:",
+        "solid-js": "^1.9.0",
+        "ws": "^8.21.0"
+      }
+    },
+    "@kolu/surface-example-fleet-top-part-2": {
+      "dir": "packages/surface/example/fleet-top/part-2",
+      "workspace": [
+        "@kolu/surface",
+        "@kolu/surface-daemon",
+        "@kolu/surface-daemon-supervisor",
+        "osfacts-client"
+      ],
+      "external": {
+        "effect": "catalog:"
+      }
+    },
+    "@kolu/surface-example-fleet-top-part-3": {
+      "dir": "packages/surface/example/fleet-top/part-3",
+      "workspace": [
+        "@kolu/surface",
+        "@kolu/surface-app",
+        "@kolu/surface-map",
+        "@kolu/surface-remote"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "effect": "catalog:",
+        "solid-js": "^1.9.0",
+        "ts-pattern": "^5.9.0",
+        "ws": "^8.21.0"
+      }
+    },
+    "@kolu/surface-example-mini-ci": {
+      "dir": "packages/surface/example/mini-ci",
+      "workspace": [
+        "@kolu/surface",
+        "@kolu/surface-remote"
+      ],
+      "external": {
+        "effect": "catalog:"
+      }
+    },
+    "@kolu/surface-example-remote-process-monitor": {
+      "dir": "packages/surface/example/remote-process-monitor",
+      "workspace": [
+        "@kolu/surface",
+        "@kolu/surface-app",
+        "@kolu/surface-remote"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "effect": "catalog:",
+        "solid-js": "^1.9.0",
+        "ws": "^8.21.0"
+      }
+    },
+    "@kolu/surface-example-snippets": {
+      "dir": "packages/surface/example/snippets",
+      "workspace": [
+        "@kolu/surface",
+        "@kolu/surface-app",
+        "@kolu/surface-cli",
+        "@kolu/surface-daemon",
+        "@kolu/surface-daemon-supervisor",
+        "@kolu/surface-map",
+        "@kolu/surface-mcp",
+        "@kolu/surface-remote"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "effect": "catalog:",
+        "solid-js": "^1.9.0",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "@kolu/surface-map": {
+      "dir": "packages/surface-map",
+      "workspace": [
+        "@kolu/surface"
+      ],
+      "external": {
+        "@solid-primitives/keyed": "^1.5.3",
+        "dequal": "^2.0.3",
+        "effect": "4.0.0-rc.110",
+        "solid-js": "^1.9.0",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "@kolu/surface-mcp": {
+      "dir": "packages/surface-mcp",
+      "workspace": [
+        "@kolu/surface"
+      ],
+      "external": {
+        "@modelcontextprotocol/sdk": "^1.29.0",
+        "effect": "4.0.0-rc.110",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "@kolu/surface-remote": {
+      "dir": "packages/surface-remote",
+      "workspace": [
+        "@kolu/log",
+        "@kolu/shell-quote",
+        "@kolu/surface",
+        "@kolu/surface-map"
+      ],
+      "external": {
+        "@effect/platform-node": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.110",
+        "neverthrow": "^8.2.0",
+        "quick-lru": "^7.3.0",
+        "split2": "^4.2.0",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "@kolu/terminal-protocol": {
+      "dir": "packages/terminal-protocol",
+      "workspace": [],
+      "external": {}
+    },
+    "@kolu/terminal-vocab": {
+      "dir": "packages/terminal-vocab",
+      "workspace": [
+        "anyagent",
+        "anyforge",
+        "kolu-claude-code",
+        "kolu-codex",
+        "kolu-git",
+        "kolu-github",
+        "kolu-grok",
+        "kolu-opencode",
+        "kolu-pi"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.110",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "@kolu/theme": {
+      "dir": "packages/theme",
+      "workspace": [],
+      "external": {}
+    },
+    "@kolu/url-shape": {
+      "dir": "packages/url-shape",
+      "workspace": [],
+      "external": {}
+    },
+    "@kolu/xterm-kit": {
+      "dir": "packages/xterm-kit",
+      "workspace": [],
+      "external": {
+        "@solid-primitives/event-listener": "^2.4.5",
+        "@solid-primitives/media": "^2.3.5",
+        "@solid-primitives/resize-observer": "^2.1.5",
+        "@xterm/addon-fit": "^0.11.0",
+        "@xterm/addon-image": "^0.9.0",
+        "@xterm/addon-search": "^0.16.0",
+        "@xterm/addon-serialize": "^0.14.0",
+        "@xterm/addon-unicode11": "^0.9.0",
+        "@xterm/addon-web-links": "^0.12.0",
+        "@xterm/addon-webgl": "^0.19.0",
+        "@xterm/xterm": "^6.0.0",
+        "effect": "catalog:",
+        "solid-js": "^1.9.0"
+      }
+    },
+    "anyagent": {
+      "dir": "packages/integrations/anyagent",
+      "workspace": [
+        "@kolu/log",
+        "@kolu/shell-quote",
+        "nonempty"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.110",
+        "string-argv": "^0.3.2"
+      }
+    },
+    "anyforge": {
+      "dir": "packages/integrations/anyforge",
+      "workspace": [
+        "@kolu/log"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.110",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "kaval": {
+      "dir": "packages/kaval",
+      "workspace": [
+        "@kolu/heap-diag",
+        "@kolu/shell-quote",
+        "@kolu/surface",
+        "@kolu/surface-daemon",
+        "@kolu/surface-daemon-supervisor",
+        "@kolu/terminal-protocol",
+        "@kolu/xterm-kit",
+        "osfacts-client",
+        "terminal-snapshot"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "@xterm/addon-serialize": "^0.14.0",
+        "@xterm/headless": "^6.0.0",
+        "effect": "catalog:",
+        "node-pty": "github:juspay/node-pty#feat/foreground-pid-dist"
+      }
+    },
+    "kaval-tui": {
+      "dir": "packages/kaval-tui",
+      "workspace": [
+        "@kolu/shell-quote",
+        "@kolu/surface",
+        "@kolu/surface-remote",
+        "@kolu/terminal-protocol",
+        "kaval",
+        "kolu-pty"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "cleye": "^2.3.0",
+        "columnify": "^1.6.0",
+        "effect": "catalog:"
+      }
+    },
+    "kolu-claude-code": {
+      "dir": "packages/integrations/claude-code",
+      "workspace": [
+        "anyagent",
+        "kolu-io",
+        "kolu-shared",
+        "kolu-transcript-core"
+      ],
+      "external": {
+        "@anthropic-ai/claude-agent-sdk": "^0.2.96",
+        "effect": "4.0.0-rc.110",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "kolu-cli": {
+      "dir": "packages/kolu-cli",
+      "workspace": [
+        "@kolu/padi",
+        "@kolu/padi-client",
+        "@kolu/shell-quote",
+        "@kolu/surface",
+        "@kolu/surface-cli",
+        "@kolu/surface-daemon-supervisor",
+        "@kolu/surface-remote",
+        "@kolu/terminal-protocol",
+        "@kolu/terminal-vocab",
+        "kolu-common",
+        "kolu-mcp",
+        "kolu-pty",
+        "kolu-server"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "effect": "catalog:",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "kolu-client": {
+      "dir": "packages/client",
+      "workspace": [
+        "@kolu/artifact-sdk",
+        "@kolu/html-escape",
+        "@kolu/padi",
+        "@kolu/padi-client",
+        "@kolu/port-forward",
+        "@kolu/shell-quote",
+        "@kolu/solid-browser",
+        "@kolu/solid-dockrow",
+        "@kolu/solid-fileview",
+        "@kolu/solid-markdown",
+        "@kolu/solid-pierre",
+        "@kolu/solid-pwa-install",
+        "@kolu/solid-statepip",
+        "@kolu/surface",
+        "@kolu/surface-app",
+        "@kolu/surface-map",
+        "@kolu/terminal-protocol",
+        "@kolu/terminal-vocab",
+        "@kolu/theme",
+        "@kolu/url-shape",
+        "@kolu/xterm-kit",
+        "memorable-names",
+        "nonempty",
+        "terminal-snapshot"
+      ],
+      "external": {
+        "@corvu/dialog": "^0.2.4",
+        "@corvu/drawer": "^0.2.2",
+        "@corvu/resizable": "^0.2.5",
+        "@corvu/tooltip": "^0.2.2",
+        "@effect/platform-browser": "catalog:",
+        "@pierre/diffs": "^1.3.5",
+        "@pierre/trees": "^1.0.0-beta.6",
+        "@solid-primitives/event-listener": "^2.4.5",
+        "@solid-primitives/media": "^2.3.5",
+        "@solid-primitives/resize-observer": "^2.1.5",
+        "@solid-primitives/storage": "^4.3.4",
+        "@solidjs/meta": "^0.29.4",
+        "@thisbeyond/solid-dnd": "^0.7.5",
+        "@xterm/addon-clipboard": "^0.2.0",
+        "@xterm/addon-search": "^0.16.0",
+        "@xterm/addon-serialize": "^0.14.0",
+        "@xterm/xterm": "^6.0.0",
+        "effect": "catalog:",
+        "fix-webm-duration": "^1.0.6",
+        "neverthrow": "^8.2.0",
+        "solid-js": "^1.9.0",
+        "solid-sonner": "^0.2.0",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "kolu-codex": {
+      "dir": "packages/integrations/codex",
+      "workspace": [
+        "anyagent",
+        "kolu-shared",
+        "kolu-transcript-core"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.110",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "kolu-common": {
+      "dir": "packages/common",
+      "workspace": [
+        "@kolu/padi-client",
+        "@kolu/surface",
+        "@kolu/surface-app",
+        "@kolu/surface-daemon-supervisor",
+        "@kolu/surface-map",
+        "@kolu/surface-remote",
+        "@kolu/terminal-vocab",
+        "anyagent",
+        "anyforge",
+        "kolu-claude-code",
+        "kolu-codex",
+        "kolu-git",
+        "kolu-github",
+        "kolu-grok",
+        "kolu-opencode",
+        "kolu-transcript-core"
+      ],
+      "external": {
+        "effect": "catalog:",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "kolu-git": {
+      "dir": "packages/integrations/git",
+      "workspace": [
+        "kolu-io",
+        "kolu-pty",
+        "kolu-shared",
+        "memorable-names"
+      ],
+      "external": {
+        "@parcel/watcher": "^2.5.1",
+        "effect": "4.0.0-rc.110",
+        "p-limit": "^7.3.1",
+        "simple-git": "^3.36.0"
+      }
+    },
+    "kolu-github": {
+      "dir": "packages/integrations/github",
+      "workspace": [
+        "anyforge",
+        "kolu-shared"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.110",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "kolu-grok": {
+      "dir": "packages/integrations/grok",
+      "workspace": [
+        "anyagent",
+        "kolu-io",
+        "kolu-shared",
+        "kolu-transcript-core"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.110"
+      }
+    },
+    "kolu-io": {
+      "dir": "packages/integrations/io",
+      "workspace": [
+        "@kolu/log"
+      ],
+      "external": {}
+    },
+    "kolu-mcp": {
+      "dir": "packages/kolu-mcp",
+      "workspace": [
+        "@kolu/padi",
+        "@kolu/padi-client",
+        "@kolu/surface",
+        "@kolu/surface-mcp",
+        "@kolu/terminal-protocol",
+        "@kolu/terminal-vocab",
+        "kolu-git"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "@modelcontextprotocol/sdk": "^1.29.0",
+        "effect": "catalog:",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "kolu-opencode": {
+      "dir": "packages/integrations/opencode",
+      "workspace": [
+        "anyagent",
+        "kolu-shared",
+        "kolu-transcript-core"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.110",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "kolu-pi": {
+      "dir": "packages/integrations/pi",
+      "workspace": [
+        "anyagent",
+        "kolu-io",
+        "kolu-shared",
+        "kolu-transcript-core"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.110",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "kolu-pty": {
+      "dir": "packages/integrations/pty",
+      "workspace": [],
+      "external": {}
+    },
+    "kolu-server": {
+      "dir": "packages/server",
+      "workspace": [
+        "@kolu/artifact-sdk",
+        "@kolu/heap-diag",
+        "@kolu/log",
+        "@kolu/padi",
+        "@kolu/padi-client",
+        "@kolu/port-forward",
+        "@kolu/serve-dir",
+        "@kolu/surface",
+        "@kolu/surface-app",
+        "@kolu/surface-daemon",
+        "@kolu/surface-daemon-supervisor",
+        "@kolu/surface-remote",
+        "@kolu/terminal-protocol",
+        "@kolu/terminal-vocab",
+        "@kolu/url-shape",
+        "anyagent",
+        "anyforge",
+        "kaval",
+        "kolu-claude-code",
+        "kolu-codex",
+        "kolu-common",
+        "kolu-git",
+        "kolu-github",
+        "kolu-grok",
+        "kolu-opencode",
+        "kolu-pty",
+        "kolu-shared",
+        "kolu-transcript-html",
+        "osfacts-client"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "conf": "^15.1.0",
+        "effect": "catalog:",
+        "pino": "^10.3.1",
+        "pino-pretty": "^13.1.3",
+        "selfsigned": "^5.5.0",
+        "ts-pattern": "^5.9.0",
+        "ws": "^8.21.0"
+      }
+    },
+    "kolu-shared": {
+      "dir": "packages/shared",
+      "workspace": [
+        "@kolu/log",
+        "kolu-io"
+      ],
+      "external": {}
+    },
+    "kolu-transcript-core": {
+      "dir": "packages/transcript-core",
+      "workspace": [
+        "@kolu/log"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.110"
+      }
+    },
+    "kolu-transcript-html": {
+      "dir": "packages/transcript-html",
+      "workspace": [
+        "@kolu/html-escape",
+        "kolu-transcript-core"
+      ],
+      "external": {
+        "marked": "^18.0.2"
+      }
+    },
+    "memorable-names": {
+      "dir": "packages/memorable-names",
+      "workspace": [
+        "nonempty"
+      ],
+      "external": {}
+    },
+    "nonempty": {
+      "dir": "packages/nonempty",
+      "workspace": [],
+      "external": {}
+    },
+    "osfacts-client": {
+      "dir": "osfacts-client",
+      "workspace": [],
+      "external": {
+        "effect": "4.0.0-rc.110"
+      }
+    },
+    "padi-tui": {
+      "dir": "packages/padi-tui",
+      "workspace": [
+        "@kolu/padi",
+        "@kolu/padi-client",
+        "@kolu/shell-quote",
+        "@kolu/surface",
+        "@kolu/surface-remote",
+        "@kolu/terminal-vocab",
+        "kolu-pty"
+      ],
+      "external": {
+        "@effect/platform-node": "catalog:",
+        "cleye": "^2.3.0",
+        "effect": "catalog:"
+      }
+    },
+    "terminal-snapshot": {
+      "dir": "packages/terminal-snapshot",
+      "workspace": [
+        "@kolu/html-escape",
+        "terminal-themes"
+      ],
+      "external": {
+        "@resvg/resvg-wasm": "^2.6.2"
+      }
+    },
+    "terminal-themes": {
+      "dir": "packages/terminal-themes",
+      "workspace": [
+        "nonempty"
+      ],
+      "external": {
+        "@xterm/xterm": "^6.0.0",
+        "neverthrow": "^8.2.0"
+      }
+    }
+  }
+}

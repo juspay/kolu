@@ -62,9 +62,17 @@
  *  affordance. App.tsx mounts it (desktop only) inside the empty-state
  *  canvas as well as the populated one. */
 
-import { activeArm } from "@kolu/padi-client/surface";
-import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
-import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
+import { activeArm, activePr } from "@kolu/padi-client/surface";
+import { DockRow as DockRowView } from "@kolu/solid-dockrow";
+import {
+  type DockRowBucket,
+  DOCK_CARDS_GUTTER_CLASS,
+  DOCK_CARDS_GUTTER_NEG_CLASS,
+  DOCK_ROW_GAP,
+  DOCK_ROW_GRID,
+  rowSubline,
+} from "@kolu/solid-dockrow/rowValues";
+import { AttentionTriplet } from "@kolu/solid-statepip";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
@@ -89,16 +97,7 @@ import { useStatePip } from "../../terminal/statePipBind";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
-import {
-  DOCK_CARDS_GUTTER_CLASS,
-  DOCK_CARDS_GUTTER_NEG_CLASS,
-  DOCK_CARDS_SUBGRID_LEFT_RESTORE,
-  DOCK_ROW_BRANCH_COL,
-  DOCK_ROW_GAP,
-  DOCK_ROW_GRID,
-  RAIL_WIDTH_PX,
-  SLEEPING_RECEDE_CLASS,
-} from "../../ui/chromeSpacing";
+import { RAIL_WIDTH_PX } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { nextAfter } from "../../ui/nextAfter";
 import RepoMonogram from "../../ui/RepoMonogram";
@@ -114,15 +113,13 @@ import {
   effectiveDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
-import { dockRowAttrs } from "./dockRowAttrs";
+import { isActiveRow } from "./activeRow";
 import { createDockRowData } from "./dockRowData";
-import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
+import { rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import { NeedsYouStrip } from "./NeedsYouStrip";
-import { PrPip } from "./PrPip";
-import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
-import { rowSubline } from "./rowSubline";
+import { useRowRecency } from "./rowRecency";
 import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockFocus } from "./useDockFocus";
 import { useDockOrder } from "./useDockOrder";
@@ -631,27 +628,18 @@ const RepoSection: Component<{
   );
 };
 
-/** A row in cards mode — two lines:
+/** kolu's desktop wiring for `@kolu/solid-dockrow`'s two-line row.
  *
- *    Line 1: `indicator · branch · time`
- *    Line 2: `[PR pip] subline`  (branch col → end)
+ *  The row itself — pip, annotation, status words, recency, PR badge, stripe,
+ *  wash — is the package's. What is HERE is what only this app can answer: the
+ *  terminal store and its display projection, the attention mirror the pip binds
+ *  off, which tile is active, and the desktop-only ⌘N hint that rides over the
+ *  row while the platform modifier is held.
  *
- *  A single leading status indicator (`StatePip`) folds the old
- *  activity/agent glyphs into one column; the branch column starts at
- *  col 2 (`DOCK_ROW_BRANCH_COL = col-start-2`). The PR pip rides on
- *  line 2 at the leftmost X (anchored to the branch column's left edge,
- *  col 2) so PR icons align across every section. Active row gets a quiet
- *  highlight (`bg-accent/15` +
- *  3 px accent left stripe) but identical geometry, so the dock
- *  doesn't reflow on activation.
- *
- *  Touch variant lives in `DockList.tsx`'s `DockListRow`.
- *  The two are intentionally separate — touch-target sizing,
- *  pointer-down gesture interception (Corvu drawer drag-to-dismiss),
- *  and the desktop-only `Cmd+N` shortcut hint are real divergence
- *  axes that a `BaseRow` extraction would have to expose as props.
- *  Both reviewers agreed: keep them separate, link via this comment.
- *  Update both files when row geometry changes. */
+ *  The touch counterpart lives in `DockList.tsx` and hands the SAME component a
+ *  `touch` density. They used to be two hand-kept copies of the markup, linked
+ *  by a comment reading "Update both files when row geometry changes"; there is
+ *  now nothing to keep in step. */
 const DockRow: Component<{
   id: TerminalId;
   /** ORDER bucket — drives `data-bucket` (used by ordering tests / styling). */
@@ -669,15 +657,12 @@ const DockRow: Component<{
   const store = useTerminalStore();
   const tileStore = useTileStore();
   const combined = createDockRowData(props.id);
-  // `data-active` is read inside `dockRowAttrs` off the TILE registry (so a
-  // focused sleeping tile reads as the active row in PR 2); unread is
-  // terminal-attention, stays on the terminal store.
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
+  const rowRecency = useRowRecency();
   return (
     <Show when={combined()}>
       {(c) => {
-        const agent = () => activeArm(c().meta)?.agent;
         const pip = useStatePip(
           encActiveHost,
           () => props.id,
@@ -685,122 +670,37 @@ const DockRow: Component<{
           unread,
           () => props.pip,
         );
-        const mode = () => recencyMode(pip());
         return (
-          // Row is `<div role="button">` rather than `<button>` so the
-          // `<a>` PR pip on line 2 stays valid HTML. Nested interactive
-          // elements (`<a>` inside `<button>`) produce unreliable
-          // keyboard / screen-reader behaviour; the div+role pattern
-          // keeps the row activatable via mouse, Enter, and Space
-          // without that nesting. Biome's a11y rule wants a native
-          // `<button>` here, but that's exactly what we can't use —
-          // the PR pip must remain a real link (Cmd-click, right-click
-          // context menu) and HTML forbids `<a>` inside `<button>`.
-          // biome-ignore lint/a11y/useSemanticElements: see comment above — native button would nest invalid interactive HTML
-          <div
-            role="button"
-            tabIndex={0}
-            data-testid="dock-row"
-            // The shared row contract (`dockRowAttrs`) — wash hook, bucket,
-            // agent state, active/asking/unread. Attention washes key on the
-            // ATTENTION class, not the ORDER bucket: the wash, the chip, the
-            // header count and its jump are one fact rendered four ways.
-            {...dockRowAttrs({
-              id: props.id,
-              bucket: props.bucket,
-              agentState: agent()?.state,
-              asking: pip().asking,
-              unread: unread(),
-            })}
-            data-sleeping={pip().sleeping ? "" : undefined}
-            onClick={() => tileStore.activate(props.id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                tileStore.activate(props.id);
-              }
-            }}
-            class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-2 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
-            classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
-            title="Jump to this terminal"
-          >
-            {/* Identity status indicator — one binder shared with title/list. */}
-            <span class="row-span-2 flex self-center">
-              <StatePip {...pip()} class={DOCK_ROW_PIP_BOX} />
-            </span>
-            <span
-              class="dock-cards-row-label text-[0.84rem]"
-              style={{
-                color: c().info.annotationColor,
-              }}
-            >
-              <IntentMarkdownInline
-                markdown={annotationLine(c().meta.intent, c().info.key.label)}
+          <DockRowView
+            id={props.id}
+            density="desktop"
+            pip={pip()}
+            bucket={props.bucket}
+            agentState={activeArm(c().meta)?.agent?.state}
+            active={isActiveRow(props.id)}
+            label={annotationLine(c().meta.intent, c().info.key.label)}
+            labelColor={c().info.annotationColor}
+            renderLabel={(markdown) => (
+              <IntentMarkdownInline markdown={markdown} />
+            )}
+            subline={rowSubline(c().meta)}
+            pr={activePr(c().meta)}
+            recency={rowRecency(pip(), props.recencyAt, rowRecencyAt(c().meta))}
+            onSelect={() => tileStore.activate(props.id)}
+            overlay={
+              <DockShortcutHint
+                flatIndex={props.flatIndex}
+                modHeld={modHeld}
+                class="absolute top-0.5 left-0.5 inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded bg-accent text-surface-1 font-mono text-[0.55rem] font-bold tabular-nums pointer-events-none"
               />
-            </span>
-            {/* Recency — hidden while active; width reserved. On a blocked
-             *  row it flips to the violet WAIT chip: how long the agent has
-             *  waited on you IS the signal (a 20 h wait must be legible). */}
-            <RecencyCell
-              recencyAt={displayRecencyAt(
-                mode(),
-                props.recencyAt,
-                rowRecencyAt(c().meta),
-              )}
-              textSize="text-[0.6rem]"
-              mode={mode()}
-            />
-            <DockShortcutHint
-              flatIndex={props.flatIndex}
-              modHeld={modHeld}
-              class="absolute top-0.5 left-0.5 inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded bg-accent text-surface-1 font-mono text-[0.55rem] font-bold tabular-nums pointer-events-none"
-            />
-            {/* Second line — flex row spanning the branch column → end.
-             *  Leads with the PR pip (left edge anchored to the branch
-             *  column's left, so PR icons align across every section)
-             *  followed by the subline text (agent summary / state, or
-             *  foreground process title, or an invisible placeholder
-             *  keeping the row two-line tall). */}
-            <div
-              class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0 mt-0.5`}
-            >
-              <PrPip meta={c().meta} />
-              <Show
-                when={rowSubline(c().meta)}
-                fallback={
-                  <span
-                    aria-hidden="true"
-                    class="font-mono text-[0.68rem] leading-tight invisible"
-                  >
-                    &nbsp;
-                  </span>
-                }
-              >
-                {(line) => (
-                  <span
-                    data-testid={
-                      activeArm(c().meta)?.agent
-                        ? "dock-agent-subline"
-                        : "dock-quiet-foreground"
-                    }
-                    // The shared subline hook every row surface carries, so the
-                    // blocked-row colour rule is ONE selector instead of an
-                    // enumeration of test ids per surface — the same
-                    // enumeration that silently left a row type out of the wash.
-                    // Set only on the AGENT subline: a quiet foreground line
-                    // does not speak needs-you.
-                    data-dock-subline={
-                      activeArm(c().meta)?.agent ? "" : undefined
-                    }
-                    class="font-mono text-[0.68rem] leading-snug text-fg-3 truncate min-w-0"
-                    title={line()}
-                  >
-                    {line()}
-                  </span>
-                )}
-              </Show>
-            </div>
-          </div>
+            }
+            testIds={{
+              row: "dock-row",
+              agentSubline: "dock-agent-subline",
+              quietSubline: "dock-quiet-foreground",
+            }}
+            title="Jump to this terminal"
+          />
         );
       }}
     </Show>
