@@ -58,7 +58,15 @@
  * workspace package is.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
 
@@ -142,17 +150,29 @@ export function workspacePackageRoots(repoRoot: string): string[] {
  *  and reports green against a graph that no longer matches disk, is worse
  *  than no cache: the answer it gives is the answer you were trying to change.
  *
- *  `statSync` is one extra stat per manifest against a `readFileSync` we were
- *  already paying for, so correctness here costs approximately nothing. */
+ *  The stamp and the bytes come from ONE open handle — `openSync` once, then
+ *  `fstatSync` and `readFileSync` on that fd. Stat-by-path-then-read-by-path
+ *  is a check-then-use race (CodeQL's `js/file-system-race`, which caught the
+ *  first cut of this): the path can be replaced between the two calls, and the
+ *  cache would then pair one file's mtime with another file's contents — a
+ *  staleness bug of exactly the kind this key exists to prevent, but now
+ *  undetectable. One handle cannot be re-resolved out from under itself.
+ *
+ *  Cost is one `open`/`close` per manifest against a read we were already
+ *  paying for, so correctness here costs approximately nothing. */
 const manifests = new Map<string, { mtimeMs: number; manifest: Manifest }>();
 function manifestOf(dir: string): Manifest {
-  const file = join(dir, "package.json");
-  const { mtimeMs } = statSync(file);
-  const hit = manifests.get(dir);
-  if (hit !== undefined && hit.mtimeMs === mtimeMs) return hit.manifest;
-  const manifest = JSON.parse(readFileSync(file, "utf8")) as Manifest;
-  manifests.set(dir, { mtimeMs, manifest });
-  return manifest;
+  const fd = openSync(join(dir, "package.json"), "r");
+  try {
+    const { mtimeMs } = fstatSync(fd);
+    const hit = manifests.get(dir);
+    if (hit !== undefined && hit.mtimeMs === mtimeMs) return hit.manifest;
+    const manifest = JSON.parse(readFileSync(fd, "utf8")) as Manifest;
+    manifests.set(dir, { mtimeMs, manifest });
+    return manifest;
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** name → package dir, from pnpm's own membership. Nameless members (the
