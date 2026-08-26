@@ -20,12 +20,12 @@ import { activeArm } from "@kolu/padi-client/surface";
 import { DockNeedsYouRow, type NeedsYouDensity } from "@kolu/solid-dockrow";
 import { DASH, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
-import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
 import { isActiveRow } from "./activeRow";
+import { renderRowLabel } from "./renderRowLabel";
 import { createDockRowData } from "./dockRowData";
 import { rowRecencyAt } from "./dockRowRanking";
 import type { DockNeedsYouEntry } from "./dockTree";
@@ -131,9 +131,7 @@ const NeedsYouEntryRow: Component<{
               c().tile.info.key.label,
             )}
             labelColor={c().tile.info.annotationColor}
-            renderLabel={(markdown) => (
-              <IntentMarkdownInline markdown={markdown} />
-            )}
+            renderLabel={renderRowLabel}
             recency={recency()}
             title={title()}
             hiddenByFilter={props.entry.hiddenByFilter}

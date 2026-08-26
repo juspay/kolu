@@ -34,10 +34,9 @@ import { pipForPaintClass } from "@kolu/solid-statepip/pipVariant";
 import {
   type AgentPaintClass,
   type AttentionClass,
-  attentionActive,
   paintClassOf,
 } from "@kolu/terminal-vocab/agentProjection";
-import type { TerminalAttention } from "@kolu/padi-client/attention";
+import { isActive, type TerminalAttention } from "@kolu/padi-client/attention";
 
 /** Per-row render variant. Declared as an EXTENSION of the shared
  *  `AgentPaintClass` (awaiting | linger | working | none) plus the dock's own
@@ -257,7 +256,7 @@ export function bindStatePip(input: {
   // The ONE activity predicate — the same function every host tab and section
   // header counts with, so a still mark is never counted and a moving one never
   // missed.
-  const active = attentionActive(input.attention.klass, input.attention.live);
+  const active = isActive(input.attention);
   const motion = pipMotionKind({ variant, active });
   // Live shell keeps idle *variant* (title/a11y stay "Idle") but busy-orange
   // paint via shellLive — not agent "Working".

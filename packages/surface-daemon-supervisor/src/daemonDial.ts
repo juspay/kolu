@@ -22,8 +22,6 @@
  * Its whole compile cost is `node:net` and `effect`.
  */
 
-import type { Socket } from "node:net";
-
 export { dialSocket } from "./dialSocket.ts";
 
 /** `metadata` is present exactly when the endpoint declares a metadata type —
@@ -45,10 +43,6 @@ export type DaemonConnection<C, I, M = undefined> = {
    *  closed). Fires at most once. The endpoint uses it to flip to `degraded`. */
   onClose(cb: () => void): void;
 } & ConnectedMetadata<M>;
-
-/** The connected socket a dial hands back — re-exported as a type so a leaf
- *  consumer names it without importing `node:net` itself. */
-export type DialedSocket = Socket;
 
 /**
  * The soul's `connect` throws THIS — and only this — to tell the endpoint a live

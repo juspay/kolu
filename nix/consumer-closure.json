@@ -829,6 +829,7 @@
     },
     "osfacts-client": {
       "dir": "osfacts-client",
+      "pinned": true,
       "workspace": [],
       "external": {
         "effect": "4.0.0-rc.110"

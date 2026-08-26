@@ -61,9 +61,74 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   badge and its glyphs. The row's, and the repo's only copy of them.
 - **`<RecencyCell>` · `<RowLabel>`** — the two leaves the three rows share.
 - **`rowValues`** — every pure fold: `bindStatePip` (and the paint / glyph /
-  motion decisions under it), `dockRowAttrs`, `rowSubline`, `recencyMode`,
-  `displayRecencyAt`, `paintDockRow`, and the geometry constants.
+  motion decisions under it), `dockRowAttrs`, `rowSubline`, `annotationLine`,
+  `identityColor`, `recencyMode`, `displayRecencyAt`, `paintDockRow`, the
+  geometry constants, and the closed-set NARROWING (`narrowAgentState` and its
+  ten sibling guards — see "Filling the bag from a flat wire").
 - **`dockrow.css`** — the repo card, the row label, and the attention washes.
+
+## Filling the bag from a flat wire
+
+The worked case, because it is the one this package exists for. You have a wire
+record with `agentState: string | null` and no `TerminalMetadata` in the browser
+— your server dials padi, your browser gets a flat projection. Here is every
+required prop and where its value comes from:
+
+| prop | where it comes from |
+| --- | --- |
+| `pip` | `bindStatePip({ meta, attention, unread })` on the SERVER (it needs the record), shipped as a flat struct; or built field-by-field in the browser with the guards below |
+| `bucket` | the `pip.variant`'s bucket, or `paintDockRow(meta, klass)` server-side. `bucket` drives `data-bucket` — a styling/e2e hook, not a paint decision — so a surface with no activity window of its own can pass the paint bucket it already has |
+| `agentState` | your wire string, verbatim — `narrowAgentState(raw).attr` |
+| `label` | `annotationLine(intent, branchLabel)` — exported; do not re-derive |
+| `labelColor` | `identityColor(branchLabel)` — exported; do not re-derive |
+| `subline` | `{ text, fromAgent }` — `rowSubline(meta)` server-side, or `narrowAgentState(raw).label` with `fromAgent: true` |
+| `recency` | `{ mode: recencyMode(pip), text }` — you own the clock, the package owns the rest |
+| `pr` | `activePr(meta)` from `@kolu/padi-client/surface`, or your own `PrInfo` |
+| `renderLabel` | your markdown renderer, or `(md) => md` |
+
+Two of those rows are the whole reason this section exists: `label` and
+`labelColor` look like something you would just write, and both hide a rule.
+`annotationLine` takes intent line 1 and NOT the branch when an intent exists —
+never both stacked. `identityColor` hashes the key ALONE, never the set of keys
+on screen, which is why the dock, a palette and a restore card paint one repo
+one hue. Re-deriving either gives you a row whose words and hues differ from the
+Dock's, in the package built so they cannot.
+
+### The narrowing — the closed sets, and what an unknown state does
+
+Your wire carries kolu's vocabulary as text, and it should: kolu's agent-state
+literals do not exist as an array anywhere upstream — they live in five
+per-agent packages and compose as a union — so importing them into an outline
+wire spec compiles that whole schema graph into it. So narrow against the
+vocabulary rather than declaring your own copy of the literals, which is a
+second closed set for one fact, and the drift is silent (kolu's `satisfies
+never` fences fire in kolu).
+
+Every closed set the bag names is enumerable and guarded, from `./rowValues`:
+
+```ts
+ROW_AGENT_STATES  / isRowAgentState    PIP_VARIANTS      / isPipVariant
+DOCK_ROW_BUCKETS  / isDockRowBucket    PIP_MOTION_KINDS  / isPipMotionKind
+RECENCY_MODES     / isRecencyMode      PIP_GLYPH_IDS     / isPipGlyphId
+```
+
+and one fold for the common case:
+
+```ts
+narrowAgentState("awaiting_user")
+// → { state: "awaiting_user", attr: "awaiting_user",
+//     label: "Awaiting input", known: true }
+
+narrowAgentState("compacting_context")   // a newer padi than your pin
+// → { state: undefined, attr: "compacting_context",
+//     label: "compacting_context", known: false }
+```
+
+**Unknown degrades visibly.** No fold is handed a state it cannot decide
+(`state` is withheld), but the word is not dropped: it reaches
+`data-agent-state` and the subline, so you read the strange word on the row.
+That is kolu's own answer for an unrecognised state — rank it idle, paint it
+quiet, print the word.
 
 ## Two things it deliberately does NOT own
 

@@ -89,7 +89,6 @@ import { match } from "ts-pattern";
 import { createSharedRoot } from "../../createSharedRoot";
 import { ACTIONS } from "../../input/actions";
 import { isPlatformModifier } from "../../input/keyboard";
-import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine, intentLeadGlyph } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
@@ -114,6 +113,7 @@ import {
   setDockCardsWidth,
 } from "./dockCardsWidth";
 import { isActiveRow } from "./activeRow";
+import { renderRowLabel } from "./renderRowLabel";
 import { createDockRowData } from "./dockRowData";
 import { rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
@@ -523,7 +523,8 @@ const DockHeader: Component<{
 /** Repo section — monogram tile + uppercase name + bare row tally +
  *  attention triplet over the group's rows. Always rendered, even for
  *  single-repo workspaces — a consistent structure beats a degenerate-case
- *  collapse. Paint lives in `.dock-cards-section*` (index.css). */
+ *  collapse. Paint lives in `.dock-cards-section*`, now shipped by
+ *  `@kolu/solid-dockrow/dockrow.css` with the rows it wraps. */
 const RepoSection: Component<{
   group: DockGroup;
   /** Pre-built `id → flat position` lookup so each row's `Cmd+N` hint
@@ -680,9 +681,7 @@ const DockRow: Component<{
             active={isActiveRow(props.id)}
             label={annotationLine(c().meta.intent, c().info.key.label)}
             labelColor={c().info.annotationColor}
-            renderLabel={(markdown) => (
-              <IntentMarkdownInline markdown={markdown} />
-            )}
+            renderLabel={renderRowLabel}
             subline={rowSubline(c().meta)}
             pr={activePr(c().meta)}
             recency={rowRecency(pip(), props.recencyAt, rowRecencyAt(c().meta))}

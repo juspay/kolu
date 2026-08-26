@@ -29,6 +29,7 @@
  * artifact serves every consumer, and adding a consumer adds nothing to kolu.
  */
 
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { workspacePackageRoots } from "@kolu/daemon-test-gate/runtimeDepEdges";
@@ -38,8 +39,24 @@ export const CONSUMER_CLOSURE_PATH = "nix/consumer-closure.json";
 
 /** One workspace member, as a consumer needs to see it. */
 export type ClosureMember = {
-  /** Repo-relative directory to copy (`packages/padi-client`). */
+  /** Repo-relative directory (`packages/padi-client`). */
   dir: string;
+  /** PINNED members are not in the archive a consumer fetches.
+   *
+   *  `osfacts-client` is the standing case: it is grafted from its own npins
+   *  pin and gitignored, so `git archive` — and therefore the `src` a consumer
+   *  hands `consumer.nix` — does not contain the directory at all. A walk that
+   *  reached it and emitted a `cp -r` out of that `src` would produce a
+   *  derivation that cannot build, from the very seed list this repo's own
+   *  README prints. The consumer must graft it from the same pin, which is
+   *  exactly the contract `padi-client`'s hydrate guard already documents.
+   *
+   *  Derived from `git ls-files`, not from a second hand-kept list beside
+   *  `nix/workspace.nix`'s `pinnedNames`: "is this directory in the archive a
+   *  consumer vendors" is a question git answers, and answering it that way is
+   *  also what makes this emission derivable from a bare clone rather than from
+   *  whichever grafts happen to have run on the emitting machine. */
+  pinned?: true;
   /** Workspace members this one's manifest names — the edges of the walk. */
   workspace: string[];
   /** Non-workspace dependencies, with the version range this manifest declares.
@@ -55,6 +72,30 @@ export type ConsumerClosure = {
   members: Record<string, ClosureMember>;
 };
 
+/** The directories git actually carries — the set a consumer's `src` contains.
+ *
+ *  One `git ls-files` for the whole tree rather than one per member: the answer
+ *  is a property of the index, and asking it 67 times would be 67 subprocesses
+ *  to learn one thing. A member whose directory contributes no tracked file is
+ *  PINNED (see {@link ClosureMember.pinned}). */
+function trackedDirs(repoRoot: string): Set<string> {
+  const out = execFileSync("git", ["ls-files", "-z"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const dirs = new Set<string>();
+  for (const file of out.split("\0")) {
+    if (file === "") continue;
+    // Every ancestor directory of a tracked file is itself tracked-bearing.
+    let cut = file.lastIndexOf("/");
+    while (cut > 0) {
+      dirs.add(file.slice(0, cut));
+      cut = file.lastIndexOf("/", cut - 1);
+    }
+  }
+  return dirs;
+}
 type Manifest = {
   name?: string;
   dependencies?: Record<string, string>;
@@ -71,6 +112,7 @@ type Manifest = {
 export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
   const members: Record<string, ClosureMember> = {};
   const dirs = new Map<string, string>();
+  const tracked = trackedDirs(repoRoot);
   for (const dir of workspacePackageRoots(repoRoot)) {
     const manifest = JSON.parse(
       readFileSync(join(dir, "package.json"), "utf8"),
@@ -94,8 +136,10 @@ export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
       if (dirs.has(dep)) workspace.push(dep);
       else external[dep] = declared[dep] as string;
     }
+    const rel = dirs.get(name) as string;
     members[name] = {
-      dir: dirs.get(name) as string,
+      dir: rel,
+      ...(tracked.has(rel) ? {} : { pinned: true as const }),
       workspace,
       external,
     };

@@ -42,7 +42,7 @@
 # `anyforge`, `kolu-common`) — not directory names. An unknown seed is an error,
 # loudly: a typo that quietly hydrated nothing is a gate that passes vacuously.
 
-{ pkgs, src, seeds }:
+{ pkgs, src, seeds, pinnedSources ? { } }:
 
 let
   closure = builtins.fromJSON (builtins.readFile ./consumer-closure.json);
@@ -83,8 +83,31 @@ let
     let stripped = pkgs.lib.removePrefix "@kolu/" name;
     in if stripped == name then name else "kolu-${stripped}";
 
-  drvFor = name:
+  # PINNED members are not in `src` at all — see `pinned` in
+  # consumer-closure.json. `osfacts-client` is the standing case: gitignored,
+  # grafted from its own npins pin, and therefore absent from the archive a
+  # consumer fetches. Emitting a copy out of `src` for it would build a
+  # derivation that cannot build, from the very seed list this file documents.
+  # So the consumer supplies it — exactly as `@kolu/padi-client`'s hydrate guard
+  # already says it must — and a missing one is a NAMED throw at eval rather
+  # than a `cp: cannot stat` several minutes into a build.
+  sourceFor = name:
     let member = memberOf name; in
+    if member.pinned or false then
+      (if builtins.hasAttr name pinnedSources then
+        builtins.getAttr name pinnedSources
+      else throw ''
+        kolu/nix/consumer.nix: '${name}' is a PINNED member — gitignored in kolu and
+        absent from the source archive you fetched, so this entry point cannot copy it
+        out of `src`. Graft it from its own pin and pass it in:
+
+          pinnedSources = { "${name}" = yourGraftedSrc; };
+
+        (drishti's nix/overlay.nix is the worked precedent for `osfacts-client`.)
+      '')
+    else "${src}/${member.dir}";
+
+  drvFor = name:
     pkgs.runCommand (slugOf name)
       {
         meta = {
@@ -92,7 +115,7 @@ let
           homepage = "https://github.com/juspay/kolu";
         };
       }
-      "cp -r ${src}/${member.dir} $out";
+      "cp -r ${sourceFor name} $out";
 
 in
 assert _schemaOk; {

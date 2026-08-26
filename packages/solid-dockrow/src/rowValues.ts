@@ -39,6 +39,11 @@ export {
   recencyMode,
 } from "./recency.ts";
 export { type DockRowAttrs, dockRowAttrs } from "./rowAttrs.ts";
+export {
+  annotationLine,
+  firstIntentLine,
+  identityColor,
+} from "./rowIdentity.ts";
 export { type RowSubline, rowSubline, stateLabels } from "./rowSubline.ts";
 // The PIP trio's narrowing rides through this door too — the guards live with
 // the vocabulary they fence (`@kolu/solid-statepip`, beside the records that

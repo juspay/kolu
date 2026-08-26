@@ -19,12 +19,12 @@ import type { DockRowDensity } from "@kolu/solid-dockrow/rowValues";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
 import { isActiveRow } from "./activeRow";
+import { renderRowLabel } from "./renderRowLabel";
 import type { RankedDockRow } from "./dockRowRanking";
 
 export const SubTerminalRow: Component<{
@@ -67,9 +67,7 @@ export const SubTerminalRow: Component<{
             agentState={activeArm(m())?.agent?.state}
             active={isActiveRow(props.row.id)}
             label={annotationLine(m().intent, cwdBasename(m().cwd))}
-            renderLabel={(markdown) => (
-              <IntentMarkdownInline markdown={markdown} />
-            )}
+            renderLabel={renderRowLabel}
             onSelect={() => props.onSelect(props.row.id)}
             // The Corvu drawer's drag-to-dismiss would otherwise claim the tap
             // (a no-op in the rail, load-bearing in the phone drawer).

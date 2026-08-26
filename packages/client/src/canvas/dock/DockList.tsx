@@ -28,13 +28,13 @@ import {
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import type { TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
-import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import RepoMonogram from "../../ui/RepoMonogram";
 import { encActiveHost } from "../../wire";
 import { isActiveRow } from "./activeRow";
+import { renderRowLabel } from "./renderRowLabel";
 import { createDockRowData } from "./dockRowData";
 import { rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
@@ -209,9 +209,7 @@ function DockListRow(props: {
             active={isActiveRow(props.id)}
             label={annotationLine(c().meta.intent, c().info.key.label)}
             labelColor={c().info.annotationColor}
-            renderLabel={(markdown) => (
-              <IntentMarkdownInline markdown={markdown} />
-            )}
+            renderLabel={renderRowLabel}
             subline={rowSubline(c().meta)}
             pr={activePr(c().meta)}
             recency={rowRecency(pip(), props.recencyAt, rowRecencyAt(c().meta))}

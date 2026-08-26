@@ -142,6 +142,7 @@ import {
   SavedSessionSchema,
   SleepingTerminalSchema,
   TerminalInfoSchema,
+  type TerminalMetadata,
   TerminalOnExitOutputSchema,
   TerminalPlacementSchema,
 } from "./vocab.ts";
@@ -689,6 +690,50 @@ export function activePadiTerminal(
   record: PadiTerminal | null | undefined,
 ): PadiActiveTerminal | undefined {
   return record?.state === "active" ? record : undefined;
+}
+
+/** Is this wire record the PARKED arm — a reboot-killed record padi parked at
+ *  boot, which is a restore-card row rather than a live terminal?
+ *
+ *  Exported (rather than left as each reader's `state === "parked"`) for the
+ *  same reason {@link activePadiTerminal} is: so a narrowing of padi's wire
+ *  union has one spelling per seam. kolu declared this guard privately in its
+ *  own client bridge; an out-of-repo consumer holding the same three-arm union
+ *  had no way to reach it, and no honest way past it. */
+export function isParkedTerminal(
+  record: PadiTerminal,
+): record is PadiParkedTerminal {
+  return record.state === "parked";
+}
+
+/** Narrow a wire record to the TILE record — the honest two-arm
+ *  `TerminalMetadata` (`active | sleeping`) that every tile-rendering consumer
+ *  expects — or `undefined` for a parked record or an absent one.
+ *
+ *  This is the ONE type bridge where padi's wire shape meets a client's domain
+ *  type, and it belongs here rather than in each client. A parked record has no
+ *  live arm and no `sleptAt`: it is not a tile, it is a row on a restore card,
+ *  and every fold over a terminal's live state (`activeArm`, `sleepingArm`, a
+ *  dock row's paint) is undefined for it — not by oversight, by what the record
+ *  IS. A reader who has one and wants a tile wants exactly this answer.
+ *
+ *  It folds "has not arrived" and "arrived but parked" into one `undefined`,
+ *  deliberately: both mean "there is no tile here", which is the only question
+ *  the caller is asking. A caller that needs the census apart (kolu's does, to
+ *  count parked records for its restore card) tests {@link isParkedTerminal}
+ *  itself, on the raw record, before reaching for this.
+ *
+ *  NOTE — two unrelated things are called "parked" in this stack, and they are
+ *  not the same fact. THIS one is padi's record state: the terminal is gone, its
+ *  record persisted. The dock row's `parked` BUCKET is a staleness verdict
+ *  (`isStale(recencyAt)` — the row fell outside the user's activity window) over
+ *  a terminal that is perfectly alive. A row fold's `parked: boolean` parameter
+ *  always means the second one. */
+export function tileTerminalOf(
+  record: PadiTerminal | null | undefined,
+): TerminalMetadata | undefined {
+  if (record === null || record === undefined) return undefined;
+  return isParkedTerminal(record) ? undefined : record;
 }
 
 // ── The urgency projection (recency-free) ─────────────────────────────────
