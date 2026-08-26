@@ -57,6 +57,10 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   real parent.
 - **`<DockNeedsYouRow>`** — an entry in the pinned needs-you strip, at `full` or
   `icon` density.
+- **`<DockSection>` · `<DockNeedsYouStrip>`** — the two CONTAINERS. They carry
+  the classes the stylesheet scopes every wash and divider to, and declare the
+  grid the rows subgrid into. Not optional sugar: a row outside them loses its
+  attention wash silently.
 - **`<PrPip>` · `<PrStateIcon>` · `<ChecksIndicator>` · `prTooltip`** — the PR
   badge and its glyphs. The row's, and the repo's only copy of them.
 - **`<RecencyCell>` · `<RowLabel>`** — the two leaves the three rows share.
@@ -172,12 +176,27 @@ gets (`recencyMode`), which timestamp that rendering means
    Every repo-tinted surface (spine, sticky header band, name ink) reads that one
    socket. The sheet defines `--dock-edge-stripe-w` and `--repo-ink` itself.
 
-4. **The section grid.** A row is `grid-cols-subgrid`, so the container around it
-   declares the tracks:
+4. **The containers — use the exported ones.** A row is `grid-cols-subgrid`, and
+   every wash, the active highlight and the row dividers are scoped to the
+   container's class. Both are shipped as components, so neither is yours to
+   spell:
 
    ```tsx
-   <section class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 pr-3`}>
+   <DockSection density="desktop" repoColor={hue} header={<YourHeader />}>
+     <DockRow … />
+   </DockSection>
+
+   <DockNeedsYouStrip density="full">
+     <DockNeedsYouRow … />
+   </DockNeedsYouStrip>
    ```
+
+   Rendering a `<DockRow>` inside a container of your own gets you a
+   structurally correct, attribute-complete row with **no violet "blocked on
+   you" wash at all**, and nothing errors — which is exactly why the containers
+   ship rather than being described here. If you genuinely need your own
+   element, `DOCK_SECTION_CLASS` and `DOCK_NEEDS_YOU_STRIP_CLASS` are exported
+   beside the grid constants so it can still land inside the rules.
 
 ## Why it depends on `@kolu/padi-client`
 

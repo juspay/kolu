@@ -17,8 +17,11 @@ export {
   DOCK_ROW_DENSITY,
   DOCK_ROW_GAP,
   DOCK_ROW_GRID,
+  DOCK_NEEDS_YOU_STRIP_CLASS,
+  DOCK_SECTION_CLASS,
   DOCK_ROW_STRIPE_CLASS,
   type DockRowDensity,
+  type NeedsYouDensity,
 } from "./geometry.ts";
 export {
   bindStatePip,

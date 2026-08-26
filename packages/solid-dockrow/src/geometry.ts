@@ -66,6 +66,8 @@ export const DOCK_ROW_DENSITY: Record<
     subline: string;
     /** The split row's vertical padding (`DockSubRow`). */
     subRowPad: string;
+    /** The repo card's own left inset + right gutter (`DockSection`). */
+    sectionPad: string;
   }
 > = {
   desktop: {
@@ -78,6 +80,7 @@ export const DOCK_ROW_DENSITY: Record<
     recency: "text-[0.6rem]",
     subline: "text-[0.68rem]",
     subRowPad: "py-1",
+    sectionPad: `pl-3 ${DOCK_CARDS_GUTTER_CLASS}`,
   },
   touch: {
     rowPad: "py-3",
@@ -88,6 +91,7 @@ export const DOCK_ROW_DENSITY: Record<
     recency: "text-[0.65rem]",
     subline: "text-[0.7rem]",
     subRowPad: "py-2",
+    sectionPad: "pl-3 pr-3",
   },
 };
 
@@ -96,3 +100,28 @@ export const DOCK_ROW_DENSITY: Record<
  *  any geometry and the dock never reflows when either turns on. */
 export const DOCK_ROW_STRIPE_CLASS =
   "border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent";
+
+/** The repo CARD a row lives in, and the pinned NEEDS-YOU STRIP — the two
+ *  classes `dockrow.css` scopes every wash, the active highlight and the row
+ *  dividers to (`:is(.dock-cards-section, .dock-needs-you-strip) >
+ *  [data-dock-row]`).
+ *
+ *  Exported as VALUES, not described in a README, because they are load-bearing
+ *  and they fail SILENTLY: a consumer that renders a `<DockRow>` in a container
+ *  of its own gets a structurally correct, attribute-complete row with no violet
+ *  "blocked on you" wash at all, and nothing errors. That is this stylesheet's
+ *  own recorded failure — "a surface silently outside the wash rather than
+ *  outside it by anyone's decision" — reproduced one level up, at the package
+ *  boundary. `<DockSection>` and `<DockNeedsYouStrip>` spend them so a consumer
+ *  need not; these constants are for a surface that genuinely wants its own
+ *  container element and still has to land inside the rules. */
+export const DOCK_SECTION_CLASS = "dock-cards-section";
+export const DOCK_NEEDS_YOU_STRIP_CLASS = "dock-needs-you-strip";
+
+/** How much of a needs-you entry there is ROOM for. Named for the axis, not for
+ *  the caller: a touch surface's persistent left rail takes `"full"`, because
+ *  what a desktop dock's rail mode really means here is "44 px, icons only".
+ *
+ *  Beside the row densities rather than inside the component, because the STRIP
+ *  and its ENTRIES both read it and neither owns the other. */
+export type NeedsYouDensity = "icon" | "full";

@@ -19,16 +19,12 @@
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import type { NeedsYouDensity } from "./geometry.ts";
 import { type Component, type JSX, Show } from "solid-js";
 import type { DockRowBucket, StatePipBind } from "./pipBind.ts";
 import { RecencyCell, type RowRecency } from "./RecencyCell.tsx";
 import { dockRowAttrs } from "./rowAttrs.ts";
 import { RowLabel } from "./RowLabel.tsx";
-
-/** How much of an entry there is room for. Named for the axis, not for the
- *  caller: a touch surface's persistent left rail takes `"full"`, because what
- *  a desktop dock's rail mode really means here is "44 px, icons only". */
-export type NeedsYouDensity = "icon" | "full";
 
 export const DockNeedsYouRow: Component<{
   /** The BLOCKED terminal — the one whose pip, wait and landing this entry

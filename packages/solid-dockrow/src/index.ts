@@ -4,7 +4,8 @@
  *  shows ride on `@kolu/solid-dockrow/rowValues`, which carries no JSX; the
  *  stylesheet is `@kolu/solid-dockrow/dockrow.css`. See the README. */
 
-export { DockNeedsYouRow, type NeedsYouDensity } from "./DockNeedsYouRow.tsx";
+export { DockNeedsYouRow } from "./DockNeedsYouRow.tsx";
+export { DockNeedsYouStrip, DockSection } from "./DockSection.tsx";
 export {
   DockRow,
   type DockRowProps,

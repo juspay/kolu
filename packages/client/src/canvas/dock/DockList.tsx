@@ -18,13 +18,8 @@
  *  the drawer dismisses on select, the rail does not. */
 
 import { activeArm, activePr } from "@kolu/padi-client/surface";
-import { DockRow as DockRowView } from "@kolu/solid-dockrow";
-import {
-  type DockRowBucket,
-  DOCK_ROW_GAP,
-  DOCK_ROW_GRID,
-  rowSubline,
-} from "@kolu/solid-dockrow/rowValues";
+import { DockRow as DockRowView, DockSection } from "@kolu/solid-dockrow";
+import { type DockRowBucket, rowSubline } from "@kolu/solid-dockrow/rowValues";
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import type { TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
@@ -104,42 +99,44 @@ function DockListSection(props: {
   // touch-density choice, desktop's is the chrome-density vocabulary.
   // Promote to a shared constant the moment a third file consumes it.
   return (
-    <section
-      data-testid="mobile-dock-section"
-      data-repo={props.group.name}
-      style={{ "--repo-color": props.group.color }}
-      class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 pr-3`}
+    <DockSection
+      density="touch"
+      testId="mobile-dock-section"
+      repo={props.group.name}
+      repoColor={props.group.color}
+      header={
+        <div
+          data-testid="mobile-dock-section-header"
+          class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-2.5 pr-3 py-2.5"
+        >
+          <RepoMonogram
+            group={props.group.name}
+            color={props.group.color}
+            data-testid="mobile-dock-section-monogram"
+          />
+          <span
+            data-testid="mobile-dock-section-name"
+            class="dock-cards-section-name font-mono text-[0.7rem] font-extrabold uppercase tracking-[0.1em] truncate min-w-0"
+          >
+            {props.group.name}
+          </span>
+          <span
+            class="dock-cards-section-count font-mono text-[0.6rem]"
+            title={`${props.group.railEntries.length} terminals`}
+          >
+            {props.group.railEntries.length}
+          </span>
+          <AttentionTriplet
+            active={attn().activeIds.length}
+            asking={attn().askingIds.length}
+            unseen={attn().unseenIds.length}
+            sizeClass="min-w-4 px-1 h-4"
+            scopeLabel={props.group.name}
+            class="ml-auto"
+          />
+        </div>
+      }
     >
-      <div
-        data-testid="mobile-dock-section-header"
-        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-2.5 pr-3 py-2.5"
-      >
-        <RepoMonogram
-          group={props.group.name}
-          color={props.group.color}
-          data-testid="mobile-dock-section-monogram"
-        />
-        <span
-          data-testid="mobile-dock-section-name"
-          class="dock-cards-section-name font-mono text-[0.7rem] font-extrabold uppercase tracking-[0.1em] truncate min-w-0"
-        >
-          {props.group.name}
-        </span>
-        <span
-          class="dock-cards-section-count font-mono text-[0.6rem]"
-          title={`${props.group.railEntries.length} terminals`}
-        >
-          {props.group.railEntries.length}
-        </span>
-        <AttentionTriplet
-          active={attn().activeIds.length}
-          asking={attn().askingIds.length}
-          unseen={attn().unseenIds.length}
-          sizeClass="min-w-4 px-1 h-4"
-          scopeLabel={props.group.name}
-          class="ml-auto"
-        />
-      </div>
       <For each={props.group.topRows}>
         {(row) => (
           <>
@@ -162,7 +159,7 @@ function DockListSection(props: {
           </>
         )}
       </For>
-    </section>
+    </DockSection>
   );
 }
 

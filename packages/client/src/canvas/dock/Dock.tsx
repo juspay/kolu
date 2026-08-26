@@ -63,13 +63,10 @@
  *  canvas as well as the populated one. */
 
 import { activeArm, activePr } from "@kolu/padi-client/surface";
-import { DockRow as DockRowView } from "@kolu/solid-dockrow";
+import { DockRow as DockRowView, DockSection } from "@kolu/solid-dockrow";
 import {
   type DockRowBucket,
-  DOCK_CARDS_GUTTER_CLASS,
   DOCK_CARDS_GUTTER_NEG_CLASS,
-  DOCK_ROW_GAP,
-  DOCK_ROW_GRID,
   rowSubline,
 } from "@kolu/solid-dockrow/rowValues";
 import { AttentionTriplet } from "@kolu/solid-statepip";
@@ -561,52 +558,56 @@ const RepoSection: Component<{
   // item that inherits these columns, keeping the icons aligned
   // vertically across rows in one section.
   return (
-    <section
-      data-testid="dock-section"
-      data-repo={props.group.name}
-      style={{ "--repo-color": props.group.color }}
-      class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
+    <DockSection
+      density="desktop"
+      testId="dock-section"
+      repo={props.group.name}
+      repoColor={props.group.color}
+      header={
+        <>
+          {/* Sticky repo header — monogram + uppercase name + bare tally +
+           *  attention triplet (styles in `index.css`). The tally is
+           *  deliberately BARE text, not a capsule: the capsule silhouette is
+           *  reserved for actionable attention counts, so a number in a pill
+           *  always means "act on this" (fucknotif — the old count capsule
+           *  read as six decoy notification badges). Monogram is the shared
+           *  `<RepoMonogram />` atom — same paint as palette / restore. */}
+          <div
+            data-testid="dock-section-header"
+            class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-2.5 pr-3 py-2`}
+          >
+            <RepoMonogram
+              group={props.group.name}
+              color={props.group.color}
+              data-testid="dock-section-monogram"
+            />
+            <span
+              data-testid="dock-section-name"
+              class="dock-cards-section-name font-mono text-[0.7rem] font-extrabold uppercase tracking-[0.1em] truncate min-w-0"
+              title={props.group.name}
+            >
+              {props.group.name}
+            </span>
+            <span
+              class="dock-cards-section-count font-mono text-[0.6rem]"
+              title={`${props.group.railEntries.length} terminals`}
+            >
+              {props.group.railEntries.length}
+            </span>
+            <AttentionTriplet
+              active={attn().activeIds.length}
+              asking={attn().askingIds.length}
+              unseen={attn().unseenIds.length}
+              sizeClass="min-w-4 px-1 h-4"
+              scopeLabel={props.group.name}
+              onAsking={() => jumpTo(attn().askingIds)}
+              onUnseen={() => jumpTo(attn().unseenIds)}
+              class="ml-auto"
+            />
+          </div>
+        </>
+      }
     >
-      {/* Sticky repo header — monogram + uppercase name + bare tally +
-       *  attention triplet (styles in `index.css`). The tally is
-       *  deliberately BARE text, not a capsule: the capsule silhouette is
-       *  reserved for actionable attention counts, so a number in a pill
-       *  always means "act on this" (fucknotif — the old count capsule
-       *  read as six decoy notification badges). Monogram is the shared
-       *  `<RepoMonogram />` atom — same paint as palette / restore. */}
-      <div
-        data-testid="dock-section-header"
-        class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-2.5 pr-3 py-2`}
-      >
-        <RepoMonogram
-          group={props.group.name}
-          color={props.group.color}
-          data-testid="dock-section-monogram"
-        />
-        <span
-          data-testid="dock-section-name"
-          class="dock-cards-section-name font-mono text-[0.7rem] font-extrabold uppercase tracking-[0.1em] truncate min-w-0"
-          title={props.group.name}
-        >
-          {props.group.name}
-        </span>
-        <span
-          class="dock-cards-section-count font-mono text-[0.6rem]"
-          title={`${props.group.railEntries.length} terminals`}
-        >
-          {props.group.railEntries.length}
-        </span>
-        <AttentionTriplet
-          active={attn().activeIds.length}
-          asking={attn().askingIds.length}
-          unseen={attn().unseenIds.length}
-          sizeClass="min-w-4 px-1 h-4"
-          scopeLabel={props.group.name}
-          onAsking={() => jumpTo(attn().askingIds)}
-          onUnseen={() => jumpTo(attn().unseenIds)}
-          class="ml-auto"
-        />
-      </div>
       <For each={props.group.topRows}>
         {(row) => (
           <>
@@ -625,7 +626,7 @@ const RepoSection: Component<{
           </>
         )}
       </For>
-    </section>
+    </DockSection>
   );
 };
 

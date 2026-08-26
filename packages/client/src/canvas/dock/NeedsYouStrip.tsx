@@ -17,7 +17,8 @@
  *  violet capsule has always followed. */
 
 import { activeArm } from "@kolu/padi-client/surface";
-import { DockNeedsYouRow, type NeedsYouDensity } from "@kolu/solid-dockrow";
+import { DockNeedsYouRow, DockNeedsYouStrip } from "@kolu/solid-dockrow";
+import type { NeedsYouDensity } from "@kolu/solid-dockrow/rowValues";
 import { DASH, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { annotationLine } from "../../intent/text";
@@ -160,17 +161,7 @@ export const NeedsYouStrip: Component<{
   onSelect: (id: TerminalId) => void;
 }> = (props) => (
   <Show when={props.entries.length > 0}>
-    <section
-      data-testid="dock-needs-you-strip"
-      aria-label="Agents waiting on you"
-      class="dock-needs-you-strip shrink-0 flex flex-col gap-0.5 border-b border-edge/40 py-1"
-      classList={{ "px-1": props.density === "full" }}
-    >
-      <Show when={props.density === "full"}>
-        <span class="px-1.5 font-mono text-[0.55rem] font-bold uppercase tracking-[0.12em] text-fg-3">
-          Needs you
-        </span>
-      </Show>
+    <DockNeedsYouStrip density={props.density} testId="dock-needs-you-strip">
       <For each={props.entries}>
         {(entry) => (
           <NeedsYouEntryRow
@@ -180,6 +171,6 @@ export const NeedsYouStrip: Component<{
           />
         )}
       </For>
-    </section>
+    </DockNeedsYouStrip>
   </Show>
 );
