@@ -270,8 +270,11 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   vocabulary with two faces reading it, not two copies held in lockstep by
   JSDoc cross-reference. They stay here rather than in `@kolu/surface` because
   they speak **padi's** records — the generic wait scaffold went the other way.
-  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, and the
-  `watch.ts` wait kit the `dial` entry re-exports. The tail-mode screen slice
+  Both live under `src/cliClient/` — `render.ts` and `read.ts`, and nothing
+  else: the wait kit a reader of this paragraph used to be sent here for is
+  `@kolu/padi-client/watch`, one package down, and this package has no `./dial`
+  entry to re-export it through (the dial is `@kolu/padi-client/dial`). The
+  tail-mode screen slice
   went the whole way it was always headed and is now
   `@kolu/padi-client/screenTail`, a genuinely zero-import leaf that `render.ts`
   re-exports: it folds padi's `screen.text` REPLY, so it belongs beside that

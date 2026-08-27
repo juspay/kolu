@@ -12,16 +12,23 @@
  *  that renders kolu's Dock row could not say them — so the first consumer to
  *  render that row wrote its own, and diverged in both modes at once: "7m" where
  *  the Dock says "5m ago", and the empty string where the wait chip must say the
- *  dash. There are already THREE ladders in this tree with these exact
- *  thresholds and three different skew policies; a fourth, in a consumer, is
- *  what "compose rather than re-derive" exists to prevent.
+ *  dash. There were THREE ladders in this tree with these exact thresholds and
+ *  three different skew policies; a fourth, in a consumer, is what "compose
+ *  rather than re-derive" exists to prevent.
+ *
+ *  This is now the only one of the three that WALKS it. `relativeTime`, one
+ *  file over, folds onto {@link compactPhrase} and keeps only its own
+ *  never-observed sentinel. `kaval-tui`'s copy stays, argued rather than
+ *  forgotten: that package's manifest sits BELOW padi and names neither this
+ *  package nor `@kolu/padi-client`, so reaching for this ladder would point its
+ *  dependency arrow up.
  *
  *  **Why HERE and not a new leaf.** Both readers — kolu's client and
  *  `@kolu/solid-dockrow` — already declare `@kolu/terminal-vocab`, so this costs
  *  neither of them a manifest edge, a workspace entry, or a closure
- *  regeneration. It also lands beside {@link DASH}, which every arm below
- *  returns, and beside `relativeTime`, the second of the three ladders — which
- *  is where the collapse of the remaining duplicates will have to stand.
+ *  regeneration. It also lands beside `DASH`, which every arm below
+ *  returns, and beside `relativeTime` — which now reads this ladder rather than
+ *  walking its own.
  *
  *  It is domain-NEUTRAL code in a terminal-vocabulary package, and that tension
  *  is real. It is resolved by what the tree already does rather than by taste:
@@ -44,7 +51,7 @@
  *  1 s tick for the wait chip and a plain `Date.now()` read for "3m ago",
  *  deliberately different subscriptions. */
 
-import { DASH } from "./agentProjection.ts";
+import { DASH } from "./dash.ts";
 
 export type DeltaUnit = "s" | "m" | "h" | "d";
 

@@ -18,6 +18,7 @@ import {
   bindStatePip,
   displayRecencyAt,
   recencyMode,
+  recencyText,
   rowSubline,
 } from "@kolu/solid-dockrow/rowValues";
 import { activePr } from "@kolu/padi-client/surface";
@@ -36,7 +37,11 @@ const mode = recencyMode(pip);
   renderLabel={(md) => <Markdown markdown={md} />}
   subline={rowSubline(meta)}
   pr={activePr(meta)}
-  recency={{ mode, text: format(displayRecencyAt(mode, tileTs, rowTs)) }}
+  recency={
+    mode === "hidden"
+      ? { mode }
+      : { mode, text: recencyText(mode, displayRecencyAt(mode, tileTs, rowTs), now()) }
+  }
   onSelect={() => focus(id)}
 />;
 ```
@@ -167,17 +172,25 @@ survives beside it:
 
 ```ts
 narrowRowVocab({ pip: wire.pip, bucket: wire.bucket })
-// → { pip: StatePipBind, bucket: DockRowBucket, known: boolean,
-//     unrecognised: { variant?, glyph?, motion?, bucket? } }
+// → { pip: StatePipBind; bucket: DockRowBucket }
+//   & ({ known: true } | { known: false; unrecognised: { variant?, glyph?, bucket? } })
 ```
+
+A UNION, so reading `unrecognised` means having checked `known` — the two are
+one fact, and a `{ known: true, unrecognised: { variant: "zzz" } }` you could
+build by hand would be a lie the type let you tell.
 
 Each default is kolu's own answer, not a guess: an absent paint is the quiet
 `idle` body (never `empty`, which would swallow the identity glyph), an unknown
-driver is the `shell` prompt, an unrecognised bucket ranks `idle` — and MOTION
-is not defaulted at all, it is re-folded from the narrowed variant and your
-bag's own `active` through the same `pipMotionKind` that produced the wire's
-word. Do not spell these yourself: a hand-written fallback is silent, and
-nothing downstream can then tell that one fired.
+driver is the `shell` prompt, and an unrecognised bucket ranks `idle`. Do not
+spell these yourself: a hand-written fallback is silent, and nothing downstream
+can then tell that one fired.
+
+**Do not send `motion`** — the bag does not take it. It is a total function of
+`variant` and `active` (`pipMotionKind`, the fold kolu's own producer runs), so
+a wire carrying all three can say `spin` beside `active: false`: three fields
+each honest alone and lying together. It is recomputed here from the variant
+this build will actually PAINT, which after a fallback is not the one you sent.
 
 The two arguments are SEPARATE because the two folds are. `pip.variant` is
 PAINT; `bucket` is ORDER; kolu keeps them apart and they disagree.

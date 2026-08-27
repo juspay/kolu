@@ -70,7 +70,7 @@ import type {
   TerminalId,
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
-import { portsEqual } from "@kolu/terminal-vocab/schema";
+import { gridsEqual, portsEqual } from "@kolu/terminal-vocab/schema";
 import { claimSession, releaseTerminal } from "./sessionOwnership.ts";
 
 /** The engine's transient agent working state — the last-emitted agent value (the
@@ -297,13 +297,7 @@ export function startGridSensor(
   let published: TerminalGrid | undefined;
   const cleanup = signals.grid.consume({
     onEvent: (grid) => {
-      if (
-        published !== undefined &&
-        published.cols === grid.cols &&
-        published.rows === grid.rows
-      ) {
-        return;
-      }
+      if (published !== undefined && gridsEqual(published, grid)) return;
       glog.debug({ cols: grid.cols, rows: grid.rows }, "pty grid changed");
       published = grid;
       emit({ kind: "grid", grid });

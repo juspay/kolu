@@ -95,12 +95,12 @@ describe("narrowAgentState", () => {
 
 describe("narrowRowVocab — the guards WITH their defaults", () => {
   /** A fully-known wire row. The seven typed facts are the ones that must pass
-   *  through untouched; the four closed-set words are the ones under test. */
+   *  through untouched; the three closed-set words are the ones under test.
+   *  `motion` is deliberately absent — it is not a wire fact. */
   const wire = () => ({
     pip: {
       variant: "working",
       glyph: "claude-code",
-      motion: "spin",
       active: true,
       asking: false,
       bytesLive: true,
@@ -112,12 +112,11 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
     bucket: "working",
   });
 
-  it("passes a known row through unchanged, every field", () => {
+  it("passes a known row through unchanged, and folds the motion", () => {
     const n = narrowRowVocab(wire());
-    expect(n.pip).toEqual(wire().pip);
+    expect(n.pip).toEqual({ ...wire().pip, motion: "spin" });
     expect(n.bucket).toBe("working");
     expect(n.known).toBe(true);
-    expect(n.unrecognised).toEqual({});
   });
 
   it.each([
@@ -135,32 +134,39 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
     const got = field === "bucket" ? n.bucket : n.pip[field];
     expect(got).toBe(fallback);
     // The fallback is what the row DRAWS; this is the fact it must not cost.
-    expect(n.unrecognised[field]).toBe("sideways");
+    // Reading it at all means having checked `known` — the union sees to that.
     expect(n.known).toBe(false);
+    if (!n.known) expect(n.unrecognised[field]).toBe("sideways");
   });
 
-  it("does not GUESS a motion — it re-folds the one this build would paint", () => {
-    // The wire's word is unknown, but `active: true` and a `working` variant
-    // already decide the answer through the package's own fold. A hand-picked
-    // `"none"` here would still the mark on a terminal the same bag calls active.
-    const spinning = narrowRowVocab({
-      ...wire(),
-      pip: { ...wire().pip, motion: "sideways" },
-    });
-    expect(spinning.pip.motion).toBe("spin");
-    expect(spinning.unrecognised.motion).toBe("sideways");
+  it("FOLDS the motion rather than transporting it — always, not only on a miss", () => {
+    // `pipMotionKind` is a total function of the variant and `active`, so a
+    // transported motion could only agree with the fold or contradict it. It is
+    // recomputed from the variant this build will PAINT, which after a fallback
+    // is not the one the wire named.
+    expect(narrowRowVocab(wire()).pip.motion).toBe("spin");
 
     const asking = narrowRowVocab({
       ...wire(),
-      pip: { ...wire().pip, variant: "awaiting", motion: "sideways" },
+      pip: { ...wire().pip, variant: "awaiting" },
     });
     expect(asking.pip.motion).toBe("glow");
 
     const still = narrowRowVocab({
       ...wire(),
-      pip: { ...wire().pip, active: false, motion: "sideways" },
+      pip: { ...wire().pip, active: false },
     });
     expect(still.pip.motion).toBe("none");
+
+    // The tell that it follows the NARROWED variant: an unrecognised variant
+    // falls back to `idle`, whose active motion is `spin` — not whatever an
+    // unknown variant might have meant.
+    const strange = narrowRowVocab({
+      ...wire(),
+      pip: { ...wire().pip, variant: "sideways" },
+    });
+    expect(strange.pip.variant).toBe("idle");
+    expect(strange.pip.motion).toBe("spin");
   });
 
   it("never derives the ORDER bucket from the PAINT variant — they disagree", () => {
@@ -187,9 +193,11 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
     });
     expect(n.pip.glyph).toBe("shell");
     expect(n.bucket).toBe("idle");
-    expect(n.unrecognised).toEqual({
-      glyph: "toString",
-      bucket: "constructor",
-    });
+    expect(n.known).toBe(false);
+    if (!n.known)
+      expect(n.unrecognised).toEqual({
+        glyph: "toString",
+        bucket: "constructor",
+      });
   });
 });

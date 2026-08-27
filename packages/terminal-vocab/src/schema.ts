@@ -363,12 +363,24 @@ export type TerminalGrid = typeof TerminalGridSchema.Type;
  *  of bytes laid out FOR a grid (a serialized screen, a snapshot frame) asks
  *  whether those bytes still describe the pane.
  *
- *  `@kolu/xterm-kit/solid` states this again over its own structurally-identical
- *  `TerminalGrid`, and that copy is argued rather than forgotten: the kit's
- *  manifest declares no workspace package at all, which is the property that
- *  makes it cheap to consume, and importing this one would take its closure from
- *  one member to twelve to share four tokens. The wire's grid is the one this
- *  belongs to — it is the grid a padi frame carries. */
+ *  TWO other spellings of this comparison survive, and both are argued rather
+ *  than forgotten — read them before adding a third:
+ *
+ *    · `@kolu/xterm-kit/solid`'s `sameGrid`, over its own structurally-identical
+ *      `TerminalGrid`. That kit's manifest declares no workspace package at all,
+ *      which is the property that makes it cheap to consume; importing this one
+ *      would take its closure from one member to twelve to share four tokens.
+ *    · `@kolu/padi-client/attach`'s `snapshotAnswersGrid`, over `EndpointGrid` —
+ *      a THIRD declaration of `{ cols, rows }`, on padi's own surface, with its
+ *      own header claiming to be "the ONE grid rule on this surface". It is
+ *      structurally identical and its comparison is not: it answers `true` for a
+ *      nullable pair, because "nobody asserted a size" is not "the sizes differ".
+ *      Collapsing the two RECORDS is a wire-schema change and wants its own
+ *      sitting; until then this fold would only be its last line.
+ *
+ *  What this one is, meanwhile, is the comparison for the grid a padi frame
+ *  carries as a terminal FACT — which is what a dedup gate over the record
+ *  compares, and what a consumer holding one off the wire compares. */
 export function gridsEqual(a: TerminalGrid, b: TerminalGrid): boolean {
   return a.cols === b.cols && a.rows === b.rows;
 }

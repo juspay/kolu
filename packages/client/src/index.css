@@ -616,8 +616,8 @@ body {
 
 /* ── Cards-mode repo section + rows ────────────────────────────
  * The dock row and the repo CARD it sits in are styled by
- * `@kolu/solid-dockrow/dockrow.css`, imported at the top of this file with the
- * row components themselves — the spine, the sticky header wash, the row
+ * `@kolu/solid-dockrow/dockrow.css`, which arrives through that package's
+ * `all.css` at the top of this file with the row components themselves — the spine, the sticky header wash, the row
  * label, the attention washes, and the `--dock-edge-stripe-w` / `--repo-ink`
  * tokens all ship with the package so this surface and a fleet mirror render
  * one row rather than two that agree today. `--repo-color` is still set INLINE

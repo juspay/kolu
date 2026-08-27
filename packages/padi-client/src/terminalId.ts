@@ -54,16 +54,25 @@ export type ResolveResult<Id extends string = string> =
  *  other rule states its own, and states why. */
 export function resolveTerminalId<Id extends string>(
   query: string,
-  ids: readonly Id[],
+  ids: Iterable<Id>,
 ): ResolveResult<Id> {
   // An empty query is a prefix of EVERY id, so with one live terminal it would
   // silently resolve to it — a wrong-terminal footgun when `$id` is accidentally
   // empty. Reject it as a no-match so the caller fails loud instead.
   if (query === "") return { kind: "none" };
   const q = query.toLowerCase();
-  const exact = ids.find((id) => id.toLowerCase() === q);
-  if (exact !== undefined) return { kind: "found", id: exact };
-  const matches = ids.filter((id) => id.toLowerCase().startsWith(q));
+  // ONE forward pass, over an `Iterable` and not an array, because the client
+  // this moved here for holds a live map and would otherwise materialise every
+  // key on every keystroke. An array is an Iterable, so kolu's own callers are
+  // unchanged. Exact still wins OUTRIGHT — the loop stops on it and the prefix
+  // matches collected so far are discarded, which is the same answer a
+  // find-then-filter gave.
+  const matches: Id[] = [];
+  for (const id of ids) {
+    const lower = id.toLowerCase();
+    if (lower === q) return { kind: "found", id };
+    if (lower.startsWith(q)) matches.push(id);
+  }
   const [first, ...rest] = matches;
   if (first === undefined) return { kind: "none" };
   if (rest.length > 0) return { kind: "ambiguous", matches };

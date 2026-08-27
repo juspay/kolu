@@ -186,9 +186,12 @@ nix eval --impure --expr '(import ./nix/consumer.nix {
 
 ## Which packages are meant to be hydrated
 
-Any of them can be, but two are *declared* out-of-repo entry points in
+Any of them can be, but four are *declared* out-of-repo entry points in
 `packages/tests/governance/vendorEntries.ts` — `@kolu/padi-client` (the padi
-contract, dial and vocabulary) and `@kolu/solid-dockrow` (the Dock terminal row).
+contract, dial and vocabulary), `@kolu/solid-dockrow` (the Dock terminal row),
+`@kolu/detect` (the "is there a usable kolu on this host" probe) and
+`terminal-themes` (the theme catalog, so a consumer's live pane paints a padi
+terminal the way kolu paints it rather than in xterm's default).
 Being listed there is what puts a package and its whole manifest closure under
 the literal-version gate. The `@kolu/surface*` stack is derived from the tree
 rather than listed, so a new surface package joins by existing.

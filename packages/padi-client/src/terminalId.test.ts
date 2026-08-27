@@ -52,3 +52,29 @@ describe("resolveTerminalId — prefix resolution", () => {
     expect(resolveTerminalId("ffff", ids)).toEqual({ kind: "none" });
   });
 });
+
+describe("resolveTerminalId — the shape a client actually holds", () => {
+  const fleet = new Map([
+    ["11111111-1111-1111-1111-111111111111", 1],
+    ["22222222-2222-2222-2222-222222222222", 2],
+  ]);
+
+  it("takes a live map's keys without materialising them", () => {
+    // The consumer this fold moved here for holds a Map and resolves on every
+    // keystroke; `readonly Id[]` would have made each call copy the fleet.
+    expect(resolveTerminalId("1111", fleet.keys())).toEqual({
+      kind: "found",
+      id: "11111111-1111-1111-1111-111111111111",
+    });
+    expect(resolveTerminalId("zz", fleet.keys())).toEqual({ kind: "none" });
+  });
+
+  it("still lets an exact match win over a prefix seen EARLIER in the walk", () => {
+    // The one-pass rewrite's risk: a prefix match found before the exact one.
+    // Exact wins outright, so the earlier partials are discarded.
+    expect(resolveTerminalId("1111", ["11111111-aaaa", "1111"])).toEqual({
+      kind: "found",
+      id: "1111",
+    });
+  });
+});
