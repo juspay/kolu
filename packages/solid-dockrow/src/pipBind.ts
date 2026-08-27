@@ -135,8 +135,17 @@ export function paintDockRow(
   // (no glow at all), but every dock row core is an identity mark: `PIP_BODY.empty`
   // would swallow the shell's identity glyph, so a classless row paints the
   // quiet `idle` body instead of nothing.
-  return paint === "none" ? "idle" : paint;
+  return paint === "none" ? FALLBACK_ROW_BUCKET : paint;
 }
+
+/** kolu's answer when nothing names a row's paint or order: the quiet `idle`
+ *  body — never `empty`, which would swallow the identity glyph.
+ *  {@link paintDockRow}'s own last line returns it for a classless row, and
+ *  `narrowRowVocab` hands it back for a bucket this build cannot name, so the
+ *  two are one fact rather than two literals. Typed {@link DockPaintBucket}
+ *  because `paintDockRow` returns it — a fallback wider than the fold it
+ *  stands in for would not be the same answer. */
+export const FALLBACK_ROW_BUCKET: DockPaintBucket = "idle";
 
 /** The row bucket → `PipVariant` rule — the glue that feeds the CORE of the
  *  shared `StatePip`.
@@ -172,6 +181,18 @@ export function pipVariant(bucket: DockRowBucket): PipVariant {
   }
 }
 
+/** kolu's answer when nothing names who is driving a terminal: the shell
+ *  prompt. Spelled ONCE — {@link pipGlyphFor} returns it as its terminal `else`
+ *  and `narrowRowVocab` hands it back for a glyph this build cannot name — so
+ *  the two are one fact rather than two literals held together by a docstring
+ *  cross-reference. */
+export const FALLBACK_PIP_GLYPH: PipGlyphId = "shell";
+
+/** …and the PIP CORE that answer paints, read THROUGH {@link pipVariant} rather
+ *  than re-typed, so a change to the bucket→variant rule reaches the fallback
+ *  too. */
+export const FALLBACK_PIP_VARIANT: PipVariant = pipVariant(FALLBACK_ROW_BUCKET);
+
 /** Identity glyph for a row/title pip — live agent kind, else the persisted
  *  resume identity on a sleeping (or just-quit) terminal, else the shell
  *  prompt. One place every StatePip call site reads "who is driving this". */
@@ -180,7 +201,7 @@ export function pipGlyphFor(meta: TerminalMetadata): PipGlyphId {
   if (live) return live;
   const target = meta.restoreTarget;
   if (target?.kind === "exact") return target.agent.kind;
-  return "shell";
+  return FALLBACK_PIP_GLYPH;
 }
 
 /** Which motion class the glyph runs. Collapsed: inactive/empty/sleeping →
@@ -205,6 +226,22 @@ export function pipMotionKind(input: {
     return "none";
   }
   return input.variant === "awaiting" ? "glow" : "spin";
+}
+
+/** Whether the mark paints the busy-shell orange: a QUIET shell — no agent
+ *  driving it — with live PTY bytes, whose variant is therefore `idle`.
+ *
+ *  The bag's SECOND variant-derived member, and a fold for the same reason
+ *  {@link pipMotionKind} is one: a bag that carried it as an independent fact
+ *  would admit `{ variant: "working", shellLive: true }`, a combination the
+ *  producer cannot generate. `hasAgent` is the one input the bag does not
+ *  itself carry, so anything re-folding this must supply it. */
+export function pipShellLive(input: {
+  variant: PipVariant;
+  hasAgent: boolean;
+  bytesLive: boolean;
+}): boolean {
+  return !input.hasAgent && input.bytesLive && input.variant === "idle";
 }
 
 /** The bound `StatePip` prop bag — identity · paint · motion · activity ·
@@ -260,7 +297,11 @@ export function bindStatePip(input: {
   const motion = pipMotionKind({ variant, active });
   // Live shell keeps idle *variant* (title/a11y stay "Idle") but busy-orange
   // paint via shellLive — not agent "Working".
-  const shellLive = !agent && input.attention.live && variant === "idle";
+  const shellLive = pipShellLive({
+    variant,
+    hasAgent: Boolean(agent),
+    bytesLive: input.attention.live,
+  });
   return {
     variant,
     glyph: pipGlyphFor(input.meta),

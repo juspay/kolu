@@ -14,7 +14,7 @@
  *  and its cadence is the app's call — so the package takes the two READERS and
  *  decides between them itself. */
 
-import type { RowRecency } from "@kolu/solid-dockrow/rowValues";
+import type { RecencyAt, RowRecency } from "@kolu/solid-dockrow/rowValues";
 import { rowRecency } from "@kolu/solid-dockrow/rowValues";
 import { getClockNow } from "../../time/clock";
 
@@ -24,12 +24,8 @@ import { getClockNow } from "../../time/clock";
  *  nothing. */
 export function useRowRecency(): (
   pip: { asking: boolean; active: boolean },
-  /** The tile's window recency — newest activity across parent and splits. */
-  windowRecencyAt: number | null,
-  /** THIS row's own agent recency — how long it has awaited you. */
-  ownRecencyAt: number | null,
+  at: RecencyAt,
 ) => RowRecency {
-  const tick = getClockNow();
-  return (pip, windowRecencyAt, ownRecencyAt) =>
-    rowRecency(pip, windowRecencyAt, ownRecencyAt, { tick, stable: Date.now });
+  const counting = getClockNow();
+  return (pip, at) => rowRecency(pip, at, { counting, glancing: Date.now });
 }

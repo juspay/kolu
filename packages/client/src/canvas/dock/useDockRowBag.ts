@@ -132,11 +132,10 @@ export function useDockRowBag(): (input: {
         return facts().pr;
       },
       get recency() {
-        return rowRecency(
-          pip(),
-          input.recencyAt(),
-          rowRecencyAt(input.combined().meta),
-        );
+        return rowRecency(pip(), {
+          window: input.recencyAt(),
+          own: rowRecencyAt(input.combined().meta),
+        });
       },
     };
   };

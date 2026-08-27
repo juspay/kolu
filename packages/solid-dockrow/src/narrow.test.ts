@@ -25,6 +25,7 @@ import {
   narrowRowVocab,
   RECENCY_MODES,
   ROW_AGENT_STATES,
+  toWireRowVocab,
 } from "./narrow.ts";
 
 describe("every closed set the prop bag names is enumerable and guarded", () => {
@@ -94,17 +95,19 @@ describe("narrowAgentState", () => {
 });
 
 describe("narrowRowVocab — the guards WITH their defaults", () => {
-  /** A fully-known wire row. The seven typed facts are the ones that must pass
-   *  through untouched; the three closed-set words are the ones under test.
-   *  `motion` is deliberately absent — it is not a wire fact. */
+  /** A fully-known wire row. The typed facts are the ones that must pass through
+   *  untouched; the three closed-set words are the ones under test. `motion` and
+   *  `shellLive` are deliberately absent — neither is a wire fact — and
+   *  `hasAgent` is present because it is the input the second of them is folded
+   *  from. */
   const wire = () => ({
     pip: {
       variant: "working",
       glyph: "claude-code",
+      hasAgent: true,
       active: true,
       asking: false,
       bytesLive: true,
-      shellLive: false,
       sleeping: false,
       alert: false,
       alertLabel: "unread alert",
@@ -112,9 +115,16 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
     bucket: "working",
   });
 
-  it("passes a known row through unchanged, and folds the motion", () => {
+  /** The wire row's typed facts, minus the input that exists only to be folded
+   *  away — what a narrowed `pip` carries beside the two derived members. */
+  const carried = () => {
+    const { hasAgent: _hasAgent, ...rest } = wire().pip;
+    return rest;
+  };
+
+  it("passes a known row through unchanged, and folds the two derived members", () => {
     const n = narrowRowVocab(wire());
-    expect(n.pip).toEqual({ ...wire().pip, motion: "spin" });
+    expect(n.pip).toEqual({ ...carried(), motion: "spin", shellLive: false });
     expect(n.bucket).toBe("working");
     expect(n.known).toBe(true);
   });
@@ -167,6 +177,64 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
     });
     expect(strange.pip.variant).toBe("idle");
     expect(strange.pip.motion).toBe("spin");
+  });
+
+  it("FOLDS shellLive too — the bag's OTHER variant-derived member", () => {
+    // `{ variant: "working", shellLive: true }` is a combination the producer
+    // cannot generate, and a transported `shellLive` made it spellable. Folded
+    // from the NARROWED variant, it cannot be.
+    const quietShell = narrowRowVocab({
+      ...wire(),
+      pip: { ...wire().pip, variant: "idle", hasAgent: false, bytesLive: true },
+    });
+    expect(quietShell.pip.shellLive).toBe(true);
+
+    // An agent is driving it: busy-orange is the wrong paint, whatever a wire
+    // claimed.
+    const driven = narrowRowVocab({
+      ...wire(),
+      pip: { ...wire().pip, variant: "idle", hasAgent: true, bytesLive: true },
+    });
+    expect(driven.pip.shellLive).toBe(false);
+
+    // And it follows the variant this build will PAINT: an unrecognised variant
+    // narrows to `idle`, so an agentless live terminal reads as a busy shell.
+    const strange = narrowRowVocab({
+      ...wire(),
+      pip: {
+        ...wire().pip,
+        variant: "sideways",
+        hasAgent: false,
+        bytesLive: true,
+      },
+    });
+    expect(strange.pip.shellLive).toBe(true);
+  });
+
+  it("round-trips a bound bag through toWireRowVocab, deriving both members back", () => {
+    // The producer half. `motion` and `shellLive` leave by construction rather
+    // than by a caller remembering to strip them — excess-property checks do not
+    // fire through a variable, so the type alone would not have stopped it.
+    const bag = {
+      variant: "idle" as const,
+      glyph: "shell" as const,
+      motion: "spin" as const,
+      active: true,
+      asking: false,
+      bytesLive: true,
+      shellLive: true,
+      sleeping: false,
+      alert: false,
+      alertLabel: "unread alert",
+    };
+    const sent = toWireRowVocab({ pip: bag, bucket: "idle", hasAgent: false });
+    expect(sent.pip).not.toHaveProperty("motion");
+    expect(sent.pip).not.toHaveProperty("shellLive");
+    expect(sent.pip.hasAgent).toBe(false);
+    const back = narrowRowVocab(sent);
+    expect(back.pip.motion).toBe("spin");
+    expect(back.pip.shellLive).toBe(true);
+    expect(back.known).toBe(true);
   });
 
   it("never derives the ORDER bucket from the PAINT variant — they disagree", () => {

@@ -90,7 +90,10 @@ const NeedsYouEntryRow: Component<{
         // `ts` already IS its own recency, and so is `rowRecencyAt` of its
         // metadata — one expression covers both halves of the pair.
         const recency = () =>
-          rowRecency(pip(), props.entry.tile.ts, rowRecencyAt(c().blocked));
+          rowRecency(pip(), {
+            window: props.entry.tile.ts,
+            own: rowRecencyAt(c().blocked),
+          });
         const title = () => {
           const where = `${c().tile.info.key.group} · ${c().tile.info.key.label}`;
           const hidden = props.entry.hiddenByFilter

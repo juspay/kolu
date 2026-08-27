@@ -42,7 +42,11 @@ import { isPipGlyphId, isPipVariant } from "@kolu/solid-statepip/pipVariant";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import {
   type DockRowBucket,
+  FALLBACK_PIP_GLYPH,
+  FALLBACK_PIP_VARIANT,
+  FALLBACK_ROW_BUCKET,
   pipMotionKind,
+  pipShellLive,
   type StatePipBind,
 } from "./pipBind.ts";
 import type { RecencyMode } from "./recency.ts";
@@ -161,7 +165,17 @@ export type WireRowVocab = {
    *  `Omit` off the bag, never a re-typed copy, so a new field on the bag is a
    *  new field here.
    *
-   *  MOTION IS NOT A WIRE FACT and is not accepted as one. It is a total
+   *  MOTION AND `shellLive` ARE NOT WIRE FACTS and are not accepted as ones.
+   *  Both are total functions of the bag's own members — `pipMotionKind` and
+   *  `pipShellLive`, the same folds kolu's producer runs — so a bag carrying
+   *  them admits combinations that cannot arise (`spin` beside
+   *  `active: false`; `shellLive: true` beside `variant: "working"`), each
+   *  field honest alone and lying jointly. Transporting either would also be
+   *  the wrong answer on the merits, because both have to agree with the
+   *  variant THIS build will paint, which after narrowing may not be the one
+   *  the wire named. So both are recomputed, always.
+   *
+   *  In detail, for motion: it is a total
    *  function of `variant` and `active` — `pipMotionKind`, the same fold kolu's
    *  own producer runs — so a bag carrying all three admits a combination that
    *  cannot arise: a `spin` beside `active: false`, three fields each honest
@@ -170,13 +184,36 @@ export type WireRowVocab = {
    *  will paint, which after narrowing may not be the one the wire named. So it
    *  is recomputed, always, and the illegal combination is unspellable rather
    *  than merely unlikely. */
-  pip: Omit<StatePipBind, "variant" | "glyph" | "motion"> & {
+  pip: Omit<StatePipBind, "variant" | "glyph" | "motion" | "shellLive"> & {
     variant: string;
     glyph: string;
+    /** WHETHER AN AGENT IS DRIVING the terminal — the one `shellLive` input the
+     *  bag does not itself carry, and the reason `shellLive` can leave the wire
+     *  the way `motion` did. Send this, not the answer. */
+    hasAgent: boolean;
   };
   /** The row's ORDER bucket (`data-bucket`), verbatim. */
   bucket: string;
 };
+
+/** A bound bag → the wire shape, so the two DERIVED members leave by
+ *  construction rather than by remembering to strip them.
+ *
+ *  The type alone is only half a contract: excess-property checks do not fire
+ *  through a variable, so a producer holding a {@link StatePipBind} could assign
+ *  it into a `WireRowVocab` and transport the very fields the type exists to
+ *  exclude. This is the other half — the README's "do not send `motion`"
+ *  becomes a function rather than a sentence. */
+export function toWireRowVocab(row: {
+  pip: StatePipBind;
+  bucket: DockRowBucket;
+  /** Whether an agent is driving the terminal — {@link WireRowVocab}'s own
+   *  `pip.hasAgent`, which the bound bag does not carry. */
+  hasAgent: boolean;
+}): WireRowVocab {
+  const { motion: _motion, shellLive: _shellLive, ...pip } = row.pip;
+  return { pip: { ...pip, hasAgent: row.hasAgent }, bucket: row.bucket };
+}
 
 /** Which wire word this build did not recognise. Three, not four: `motion` is
  *  never a wire word — see {@link WireRowVocab}. */
@@ -235,16 +272,22 @@ export type NarrowedRowVocab = {
  *  of it could afterwards tell that a fallback had fired. That, not the
  *  copy-paste, is what this closes.
  *
- *  **Each default is kolu's own answer, not this function's invention.** An
- *  absent paint is the quiet `idle` body — never `empty`, which would swallow
- *  the identity glyph (`paintDockRow`'s own last line). An unknown driver is the
- *  `shell` prompt ({@link pipGlyphFor}'s terminal else). An unrecognised order
- *  bucket ranks `idle`, which is this module's standing rule for an unrecognised
- *  word. And an undecidable MOTION is not guessed at all: it is RE-FOLDED from
- *  the narrowed variant and the bag's own `active` through {@link pipMotionKind}
- *  — the same fold that produced the wire's word server-side. That is one fewer
- *  hand-picked literal, and strictly better than the `"none"` a consumer reached
- *  for, which stills the mark on a terminal the same bag says is active.
+ *  **Each default is kolu's own answer, and READ from it rather than re-typed.**
+ *  `FALLBACK_PIP_VARIANT`, `FALLBACK_PIP_GLYPH` and `FALLBACK_ROW_BUCKET` are the
+ *  same constants `paintDockRow`'s last line and {@link pipGlyphFor}'s terminal
+ *  `else` return, so the claim is mechanical instead of a docstring
+ *  cross-reference: an absent paint is the quiet `idle` body (never `empty`,
+ *  which would swallow the identity glyph), an unknown driver is the `shell`
+ *  prompt, an unrecognised order bucket ranks `idle`. Spelled here as fresh
+ *  literals they would have been one fact in two places, kept in step by a
+ *  comment — the exact defect this module exists to retire.
+ *
+ *  And the two DERIVED members are not guessed at all: `motion` and `shellLive`
+ *  are RE-FOLDED from the narrowed variant through {@link pipMotionKind} and
+ *  {@link pipShellLive} — the same folds that produced the wire's answers
+ *  server-side. That is two fewer hand-picked literals, and strictly better
+ *  than the `"none"` a consumer reached for, which stills the mark on a
+ *  terminal the same bag says is active.
  *
  *  **It does not throw, and that is not a softness.** The fail-fast rule is about
  *  values this build owns — bake them in, crash if one is absent. A word off
@@ -258,31 +301,52 @@ export function narrowRowVocab(wire: WireRowVocab): NarrowedRowVocab {
 
   /** Narrow one field, or record the wire's word and hand back kolu's answer.
    *  One helper so the "keep the word" step cannot be forgotten on a fifth
-   *  field the way it was forgotten on all four downstream. */
+   *  field the way it was forgotten on all four downstream.
+   *
+   *  `fallback` is a VALUE, not a thunk: every one of them is a constant this
+   *  package already names, so deferring costs an allocation and reads as
+   *  though the default were expensive or effectful — a false signal about the
+   *  one thing this function most wants to be legible. */
   function narrow<T extends string>(
     field: RowVocabField,
     raw: string,
     is: (value: string) => value is T,
-    fallback: () => T,
+    fallback: T,
   ): T {
     if (is(raw)) return raw;
     unrecognised[field] = raw;
-    return fallback();
+    return fallback;
   }
 
   const variant = narrow(
     "variant",
     wire.pip.variant,
     isPipVariant,
-    () => "idle",
+    FALLBACK_PIP_VARIANT,
   );
-  const glyph = narrow("glyph", wire.pip.glyph, isPipGlyphId, () => "shell");
-  const bucket = narrow("bucket", wire.bucket, isDockRowBucket, () => "idle");
+  const glyph = narrow(
+    "glyph",
+    wire.pip.glyph,
+    isPipGlyphId,
+    FALLBACK_PIP_GLYPH,
+  );
+  const bucket = narrow(
+    "bucket",
+    wire.bucket,
+    isDockRowBucket,
+    FALLBACK_ROW_BUCKET,
+  );
   // Never narrowed, always FOLDED — from the variant this build will actually
   // paint, not the one the wire named. See {@link WireRowVocab}.
+  const { hasAgent, ...rest } = wire.pip;
   const motion = pipMotionKind({ variant, active: wire.pip.active });
+  const shellLive = pipShellLive({
+    variant,
+    hasAgent,
+    bytesLive: wire.pip.bytesLive,
+  });
 
-  const pip = { ...wire.pip, variant, glyph, motion };
+  const pip = { ...rest, variant, glyph, motion, shellLive };
   const words = Object.keys(unrecognised);
   return words.length === 0
     ? { pip, bucket, known: true }

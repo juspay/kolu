@@ -32,6 +32,21 @@ export function recencyMode(pip: {
   return pip.active ? "hidden" : "ago";
 }
 
+/** The two timestamps a row's recency is read off, NAMED.
+ *
+ *  Two adjacent `number | null` parameters is the one shape this fold cannot
+ *  afford: swapping them is a real bug — a split's fresh activity would shorten
+ *  its parent's blocked-on-you duration — and neither the type system nor a
+ *  reviewer reading a call site can see the swap. As a record the pairing is
+ *  spelled where it is made, so the mistake stops being expressible rather than
+ *  merely being warned against in a docstring. */
+export type RecencyAt = {
+  /** The tile's window recency — newest activity across parent and splits. */
+  window: number | null;
+  /** THIS row's own agent recency — how long it has awaited you. */
+  own: number | null;
+};
+
 /** Pick the timestamp whose meaning matches the rendering.
  *
  *  The ordinary timestamp is the whole tile's window key — the newest activity
@@ -42,10 +57,9 @@ export function recencyMode(pip: {
  *  duration. This is the two-channel seam. */
 export function displayRecencyAt(
   mode: RecencyMode,
-  windowRecencyAt: number | null,
-  ownRecencyAt: number | null,
+  at: RecencyAt,
 ): number | null {
-  return mode === "wait-chip" ? ownRecencyAt : windowRecencyAt;
+  return mode === "wait-chip" ? at.own : at.window;
 }
 
 /** The cell's TEXT, for a mode that has one.
@@ -111,7 +125,12 @@ export type RowRecency =
   | { mode: "ago"; text: string }
   | { mode: "wait-chip"; text: string };
 
-/** The two clocks a row's recency is read off.
+/** The two clocks a row's recency is read off, each named for the OBLIGATION it
+ *  carries rather than for the cadence it happens to run at. `tick`/`stable`
+ *  named implementations, and both have the same type `() => number`, so
+ *  passing the wrong one is silent in both directions: a plain read for the
+ *  chip freezes it, and a subscribing read for `ago` repaints every quiet row
+ *  every second.
  *
  *  Two, not one, and that is the whole reason this fold takes them instead of a
  *  `now`: the wait chip's sub-minute seconds must COUNT UP, so it wants a
@@ -124,12 +143,17 @@ export type RowRecency =
  *  themselves, because a ticking `now` is ambient app state and its cadence is
  *  the app's call. */
 export type RowClocks = {
-  /** A SUBSCRIBING read — kolu's 1 s tick. Called only for a wait chip that has
-   *  an honest duration to count. */
-  tick: () => number;
-  /** A plain read — kolu passes `Date.now`. Called for the `ago` arm, and for a
-   *  wait chip with nothing to count. */
-  stable: () => number;
+  /** Read INSIDE a reactive scope, so the chip's sub-minute seconds COUNT UP.
+   *  A non-subscribing reader here does not fail — it freezes the chip at the
+   *  second it first rendered, which is the readout this package exists for.
+   *  kolu passes its shared 1 s tick. Called only for a wait chip that has an
+   *  honest duration to count. */
+  counting: () => number;
+  /** A plain read, deliberately NOT subscribing: `ago` has a 60 s ceiling on
+   *  its visual lag that nobody can see, and a subscribing reader here repaints
+   *  every quiet row every second. kolu passes `Date.now`. Called for the `ago`
+   *  arm, and for a wait chip with nothing to count. */
+  glancing: () => number;
 };
 
 /** A row's whole recency, from the pip and the two timestamps — mode, timestamp,
@@ -147,7 +171,8 @@ export type RowClocks = {
  *    · the wait chip means THIS row's own recency and `ago` means the tile's
  *      window recency ({@link displayRecencyAt}) — pairing them the other way
  *      lets a split's fresh activity shorten its parent's blocked-on-you
- *      duration;
+ *      duration, which is why the two arrive as the NAMED {@link RecencyAt}
+ *      rather than as two adjacent `number | null` positionals;
  *    · and the chip gets the ticking clock while `ago` gets the plain one,
  *      EXCEPT that a chip with no honest duration reads no clock at all, so a
  *      never-active blocked row does not repaint every second to redraw the
@@ -157,16 +182,15 @@ export type RowClocks = {
  *  whoever assembled the value. */
 export function rowRecency(
   pip: { asking: boolean; active: boolean },
-  /** The tile's window recency — newest activity across parent and splits. */
-  windowRecencyAt: number | null,
-  /** THIS row's own agent recency — how long it has awaited you. */
-  ownRecencyAt: number | null,
+  at: RecencyAt,
   clocks: RowClocks,
 ): RowRecency {
   const mode = recencyMode(pip);
   if (mode === "hidden") return { mode };
-  const at = displayRecencyAt(mode, windowRecencyAt, ownRecencyAt);
+  const shown = displayRecencyAt(mode, at);
   const now =
-    mode === "wait-chip" && at !== null ? clocks.tick() : clocks.stable();
-  return { mode, text: recencyText(mode, at, now) };
+    mode === "wait-chip" && shown !== null
+      ? clocks.counting()
+      : clocks.glancing();
+  return { mode, text: recencyText(mode, shown, now) };
 }

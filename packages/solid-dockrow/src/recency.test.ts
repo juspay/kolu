@@ -22,12 +22,12 @@ describe("recencyMode", () => {
 
 describe("displayRecencyAt", () => {
   it("keeps a blocked parent's wait duration on its own agent transition", () => {
-    expect(displayRecencyAt("wait-chip", 2_000, 10)).toBe(10);
+    expect(displayRecencyAt("wait-chip", { window: 2_000, own: 10 })).toBe(10);
   });
 
   it("uses aggregate tile activity for the ordinary age and window", () => {
-    expect(displayRecencyAt("ago", 2_000, 10)).toBe(2_000);
-    expect(displayRecencyAt("hidden", 2_000, 10)).toBe(2_000);
+    expect(displayRecencyAt("ago", { window: 2_000, own: 10 })).toBe(2_000);
+    expect(displayRecencyAt("hidden", { window: 2_000, own: 10 })).toBe(2_000);
   });
 });
 
@@ -84,12 +84,12 @@ describe("rowRecency — the whole cell, and the three rules between the steps",
     const reads: string[] = [];
     return {
       reads,
-      tick: () => {
-        reads.push("tick");
+      counting: () => {
+        reads.push("counting");
         return now;
       },
-      stable: () => {
-        reads.push("stable");
+      glancing: () => {
+        reads.push("glancing");
         return now;
       },
     };
@@ -97,7 +97,11 @@ describe("rowRecency — the whole cell, and the three rules between the steps",
 
   it("gives `hidden` no text at all — the filler stays unspellable", () => {
     const c = clocks();
-    const r = rowRecency({ asking: false, active: true }, now - MIN, null, c);
+    const r = rowRecency(
+      { asking: false, active: true },
+      { window: now - MIN, own: null },
+      c,
+    );
     expect(r).toEqual({ mode: "hidden" });
     // An active row is "just now" by definition, so nothing is read.
     expect(c.reads).toEqual([]);
@@ -108,18 +112,21 @@ describe("rowRecency — the whole cell, and the three rules between the steps",
     expect(
       rowRecency(
         { asking: true, active: true },
-        now - 9 * MIN,
-        now - MIN,
+        { window: now - 9 * MIN, own: now - MIN },
         chip,
       ),
     ).toEqual({ mode: "wait-chip", text: "1m" });
-    expect(chip.reads).toEqual(["tick"]);
+    expect(chip.reads).toEqual(["counting"]);
 
     const ago = clocks();
     expect(
-      rowRecency({ asking: false, active: false }, now - 9 * MIN, null, ago),
+      rowRecency(
+        { asking: false, active: false },
+        { window: now - 9 * MIN, own: null },
+        ago,
+      ),
     ).toEqual({ mode: "ago", text: "9m ago" });
-    expect(ago.reads).toEqual(["stable"]);
+    expect(ago.reads).toEqual(["glancing"]);
   });
 
   it("takes THIS row's own recency for the chip, the tile's window for the age", () => {
@@ -128,8 +135,10 @@ describe("rowRecency — the whole cell, and the three rules between the steps",
     const c = clocks();
     const chip = rowRecency(
       { asking: true, active: true },
-      now - MIN, // the tile saw activity a minute ago…
-      now - 20 * 60 * MIN, // …but THIS agent has waited twenty hours.
+      {
+        window: now - MIN, // the tile saw activity a minute ago…
+        own: now - 20 * 60 * MIN, // …but THIS agent has waited twenty hours.
+      },
       c,
     );
     expect(chip).toEqual({ mode: "wait-chip", text: "20h" });
@@ -142,8 +151,12 @@ describe("rowRecency — the whole cell, and the three rules between the steps",
     // each consumer has to know.
     const c = clocks();
     expect(
-      rowRecency({ asking: true, active: true }, now - MIN, null, c),
+      rowRecency(
+        { asking: true, active: true },
+        { window: now - MIN, own: null },
+        c,
+      ),
     ).toEqual({ mode: "wait-chip", text: "—" });
-    expect(c.reads).toEqual(["stable"]);
+    expect(c.reads).toEqual(["glancing"]);
   });
 });

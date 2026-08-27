@@ -31,9 +31,13 @@ export {
   type DockPaintBucket,
   type DockRowBucket,
   dockOverlayBucket,
+  FALLBACK_PIP_GLYPH,
+  FALLBACK_PIP_VARIANT,
+  FALLBACK_ROW_BUCKET,
   paintDockRow,
   pipGlyphFor,
   pipMotionKind,
+  pipShellLive,
   pipVariant,
   type StatePipBind,
   type UnparkedPaintBucket,
@@ -41,6 +45,7 @@ export {
 export { prTooltip } from "./prTooltip.ts";
 export {
   displayRecencyAt,
+  type RecencyAt,
   type RecencyMode,
   recencyMode,
   recencyText,
@@ -82,5 +87,6 @@ export {
   RECENCY_MODES,
   ROW_AGENT_STATES,
   type RowAgentState,
+  toWireRowVocab,
   type WireRowVocab,
 } from "./narrow.ts";

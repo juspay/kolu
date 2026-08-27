@@ -16,15 +16,12 @@ like any other consumer.
 import { DockRow } from "@kolu/solid-dockrow";
 import {
   bindStatePip,
-  displayRecencyAt,
-  recencyMode,
-  recencyText,
+  rowRecency,
   rowSubline,
 } from "@kolu/solid-dockrow/rowValues";
 import { activePr } from "@kolu/padi-client/surface";
 
 const pip = bindStatePip({ meta, attention, unread });
-const mode = recencyMode(pip);
 
 <DockRow
   id={id}
@@ -37,11 +34,11 @@ const mode = recencyMode(pip);
   renderLabel={(md) => <Markdown markdown={md} />}
   subline={rowSubline(meta)}
   pr={activePr(meta)}
-  recency={
-    mode === "hidden"
-      ? { mode }
-      : { mode, text: recencyText(mode, displayRecencyAt(mode, tileTs, rowTs), now()) }
-  }
+  recency={rowRecency(
+    pip,
+    { window: tileTs, own: rowTs },
+    { counting: tick, glancing: Date.now },
+  )}
   onSelect={() => focus(id)}
 />;
 ```
@@ -74,11 +71,12 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   (`agentState`, `subline`, `pr`), fused so a row's words and its PR cannot come
   from two different terminals.
 - **`rowValues`** — every pure fold: `bindStatePip` (and the paint / glyph /
-  motion decisions under it), `dockRowAttrs`, `rowSubline`, `annotationLine`,
-  `identityColor`, `recencyMode`, `displayRecencyAt`, `recencyText`,
-  `paintDockRow`, the geometry constants, and the closed-set NARROWING
-  (`narrowRowVocab`, `narrowAgentState` and their sibling guards — see "Filling
-  the bag from a flat wire").
+  motion / shell-live decisions under it), `dockRowAttrs`, `rowSubline`,
+  `annotationLine`, `identityColor`, `rowRecency` and the three pieces it is
+  composed from, `paintDockRow`, the geometry constants, and the closed-set
+  NARROWING with its producer (`toWireRowVocab`, `narrowRowVocab`,
+  `narrowAgentState` and their sibling guards — see "Filling the bag from a flat
+  wire").
 
   It is the PURE half by contract, not by intention: its import graph reaches no
   `.tsx` and no `solid-js` edge, so a server can fold rows with it without
@@ -104,7 +102,7 @@ required prop and where its value comes from:
 | `label` | `annotationLine(intent, branchLabel)` — exported; do not re-derive |
 | `labelColor` | `identityColor(branchLabel)` — exported; do not re-derive |
 | `subline` | `dockRowFacts(meta).subline` server-side (see below). From a flat wire: `{ text: summary ?? narrowAgentState(raw).label, fromAgent: true }` — the `summary ?? label` rule is the row's, do not drop the summary |
-| `recency` | `rowRecency(pip, windowRecencyAt, ownRecencyAt, { tick, stable })` — ONE call. You own the two clocks; the package owns which rendering, which timestamp, which clock, and the words |
+| `recency` | `rowRecency(pip, { window, own }, { counting, glancing })` — ONE call. You own the two clocks; the package owns which rendering, which timestamp, which clock, and the words |
 | `pr` | `dockRowFacts(meta).pr`, or your own `PrInfo` |
 | `renderLabel` | your markdown renderer, or `(md) => md` |
 
@@ -180,17 +178,34 @@ A UNION, so reading `unrecognised` means having checked `known` — the two are
 one fact, and a `{ known: true, unrecognised: { variant: "zzz" } }` you could
 build by hand would be a lie the type let you tell.
 
-Each default is kolu's own answer, not a guess: an absent paint is the quiet
-`idle` body (never `empty`, which would swallow the identity glyph), an unknown
-driver is the `shell` prompt, and an unrecognised bucket ranks `idle`. Do not
-spell these yourself: a hand-written fallback is silent, and nothing downstream
-can then tell that one fired.
+Each default is kolu's own answer, not a guess, and it is READ from kolu's own
+constants rather than re-typed — `FALLBACK_PIP_VARIANT`, `FALLBACK_PIP_GLYPH`
+and `FALLBACK_ROW_BUCKET` are the same values `paintDockRow`'s last line and
+`pipGlyphFor`'s terminal `else` return. An absent paint is the quiet `idle` body
+(never `empty`, which would swallow the identity glyph), an unknown driver is the
+`shell` prompt, and an unrecognised bucket ranks `idle`. Do not spell these
+yourself: a hand-written fallback is silent, and nothing downstream can then tell
+that one fired.
 
-**Do not send `motion`** — the bag does not take it. It is a total function of
-`variant` and `active` (`pipMotionKind`, the fold kolu's own producer runs), so
-a wire carrying all three can say `spin` beside `active: false`: three fields
-each honest alone and lying together. It is recomputed here from the variant
-this build will actually PAINT, which after a fallback is not the one you sent.
+**Two members of the bag are never sent — build the wire value with
+`toWireRowVocab`.** `motion` and `shellLive` are total functions of the bag's own
+members (`pipMotionKind` and `pipShellLive`, the folds kolu's own producer runs),
+so a wire carrying them can say `spin` beside `active: false` or `shellLive: true`
+beside `variant: "working"` — fields each honest alone and lying together. Both
+are recomputed here from the variant this build will actually PAINT, which after
+a fallback is not the one you sent. `shellLive` needs one input the bag does not
+carry, so the wire carries THAT instead:
+
+```ts
+// producer, holding a bound bag
+const wire = toWireRowVocab({ pip, bucket, hasAgent: Boolean(agent) });
+// → { pip: … & { hasAgent: boolean }, bucket: string }   // no motion, no shellLive
+```
+
+The type alone would not have been enough: excess-property checks do not fire
+through a variable, so a producer could have assigned a whole `StatePipBind` into
+the wire shape and transported the very fields the type exists to exclude. The
+function is the other half of that contract.
 
 The two arguments are SEPARATE because the two folds are. `pip.variant` is
 PAINT; `bucket` is ORDER; kolu keeps them apart and they disagree.
@@ -216,9 +231,18 @@ renderings a row gets (`recencyMode`), which timestamp that rendering means
 reserved 8ch track.
 
 ```ts
-rowRecency(pip, windowRecencyAt, ownRecencyAt, { tick, stable: Date.now })
+rowRecency(
+  pip,
+  { window: windowRecencyAt, own: ownRecencyAt },
+  { counting: tick, glancing: Date.now },
+)
 // → { mode: "hidden" } | { mode: "ago" | "wait-chip"; text: string }
 ```
+
+The two timestamps arrive as a NAMED pair and the two clocks are named for what
+each is FOR, because both pairs are otherwise swappable in silence: two adjacent
+`number | null`s that no type can tell apart, and two `() => number`s of which
+the wrong one either freezes the chip or repaints every quiet row every second.
 
 Two clock READERS, and the package decides between them — because which arm gets
 which is not a preference, it is one of three rules that are invisible at a call
@@ -226,12 +250,13 @@ site:
 
 1. `hidden` carries no text, and the union makes the filler unspellable — which
    only helps if the branch producing it is not re-written per consumer.
-2. The wait chip means THIS row's own recency and `ago` means the tile's window
-   recency. Paired the other way, a split's fresh activity shortens its parent's
-   blocked-on-you duration.
-3. The chip reads the ticking clock and `ago` the plain one — EXCEPT that a chip
-   with no honest duration reads neither, so a never-active blocked row does not
-   repaint every second to redraw the same dash.
+2. The wait chip means THIS row's own recency (`own`) and `ago` means the tile's
+   window recency (`window`). Paired the other way, a split's fresh activity
+   shortens its parent's blocked-on-you duration.
+3. The chip reads `counting` (a subscribing read) and `ago` reads `glancing` (a
+   plain one) — EXCEPT that a chip with no honest duration reads `glancing` too,
+   so a never-active blocked row does not repaint every second to redraw the same
+   dash.
 
 The words used to be yours too, and the first consumer to spell them diverged in
 both modes at once: "7m" where the Dock says "5m ago", and the empty string where
