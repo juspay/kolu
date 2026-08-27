@@ -1,0 +1,21 @@
+/* `@kolu/solid-dockrow`, whole — the row's sheet AND its prerequisites, in the
+ * one order that works.
+ *
+ * Import THIS after `tailwindcss` and there is no second step: the pip's own
+ * `all.css` brings the theme tokens and the pip's sheet, then the row's sheet,
+ * then the `@source` that keeps the row's utility classes alive. Each package
+ * points Tailwind at ITSELF with a path relative only to itself, so no consumer
+ * has to know where a sibling landed in its node_modules — see
+ * `@kolu/solid-statepip/all.css` for why that is the whole argument.
+ *
+ * THE CHAIN, not a flat list, and the difference is which package owes what.
+ * This sheet's own colours resolve `@kolu/theme` tokens too, so theme is a
+ * prerequisite of the row as much as of the pip — but it arrives through the
+ * pip, because the pip already declares it and a package that re-declares a
+ * sibling's prerequisite is a second place to get the order wrong. Each file
+ * states what IT needs; nobody states what a sibling needs.
+ *
+ * The granular `./dockrow.css` door stays, for the reason the pip's does. */
+@import "@kolu/solid-statepip/all.css";
+@import "./dockrow.css";
+@source "./";

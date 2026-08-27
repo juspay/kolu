@@ -38,8 +38,17 @@
  *  the row ranks it idle and paints it quiet. You read the strange word on the
  *  row; you never read a blank line, and you never read a lie. */
 
+import {
+  isPipGlyphId,
+  isPipMotionKind,
+  isPipVariant,
+} from "@kolu/solid-statepip/pipVariant";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
-import type { DockRowBucket } from "./pipBind.ts";
+import {
+  type DockRowBucket,
+  pipMotionKind,
+  type StatePipBind,
+} from "./pipBind.ts";
 import type { RecencyMode } from "./recency.ts";
 import { stateLabels } from "./rowSubline.ts";
 
@@ -135,4 +144,129 @@ export function narrowAgentState(
     return { state: raw, attr: raw, label: stateLabels[raw], known: true };
   }
   return { state: undefined, attr: raw, label: raw, known: false };
+}
+
+/** ONE wire row's kolu VOCABULARY, as text — in the shape the wire already has.
+ *
+ *  `bucket` is a SIBLING of the pip bag, never a member of it, and the nesting
+ *  is the whole point rather than a formality. The row's `bucket` is the ORDER
+ *  fold (`classifyDockRow` → `Exclude<DockRowBucket, "linger">`); the pip's
+ *  `variant` is the PAINT fold ({@link pipVariant} over `paintDockRow`'s
+ *  answer). kolu keeps the two apart on purpose and they DISAGREE in a case it
+ *  names: a fresh `waiting` agent paints `linger` — a dim glow — while the order
+ *  bucket ranks it `idle`. Flattening them into one bag would say, in an
+ *  exported type, that one is derivable from the other; it is not, and the
+ *  `Exclude` is the proof (`pipVariant(orderBucket)` can never return `linger`,
+ *  while the real variant does). Narrow each against its own vocabulary. */
+export type WireRowVocab = {
+  /** The bound pip as a wire carries it: {@link StatePipBind} with the three
+   *  closed-set members widened to string. `Omit` off the bag, never a re-typed
+   *  copy, so a new field on the bag is a new field here. */
+  pip: Omit<StatePipBind, "variant" | "glyph" | "motion"> & {
+    variant: string;
+    glyph: string;
+    motion: string;
+  };
+  /** The row's ORDER bucket (`data-bucket`), verbatim. */
+  bucket: string;
+};
+
+/** Which wire word this build did not recognise. */
+export type RowVocabField = "variant" | "glyph" | "motion" | "bucket";
+
+/** What the row needs from a wire's vocabulary, narrowed. Nothing here is a
+ *  cast, and no unknown word is swallowed — see {@link narrowRowVocab}. */
+export type NarrowedRowVocab = {
+  /** The bag `<DockRow>` and `<StatePip>` take, whole. */
+  pip: StatePipBind;
+  /** The row's `bucket` prop — `data-bucket`, and the order the row ranks at. */
+  bucket: DockRowBucket;
+  /** False when any of the four wire words is outside this build's vocabulary.
+   *
+   *  `true` means this build recognised every word, NOT that the two builds
+   *  agree: a NEWER mirror against an OLDER wire produces no unknown words at
+   *  all, so nothing surfaces and nothing should. */
+  known: boolean;
+  /** The wire's OWN words for the members this build did not recognise, keyed by
+   *  field; empty when `known`.
+   *
+   *  This is the pip's answer to {@link NarrowedAgentState.attr}, and it exists
+   *  because the pip cannot do what the agent state does. An unrecognised agent
+   *  state keeps its raw word and the row PRINTS it — `data-agent-state` carries
+   *  it, the subline shows it. A pip is a 20px picture with no text channel, so
+   *  a strange word cannot reach the screen through the mark itself; withholding
+   *  the mark instead would draw nothing, and "nothing" reads as "there is
+   *  nothing here", which is a lie rather than an absence. So the mark is drawn
+   *  and the word survives BESIDE it, as a value to log, count, or paint an
+   *  "unknown" affordance from. The fallback is what the row DRAWS; this is the
+   *  fact it must not cost you. */
+  unrecognised: Partial<Record<RowVocabField, string>>;
+};
+
+/** Narrow one wire row's kolu vocabulary into the row's prop bags — each guard
+ *  and its default in ONE place, so a consumer never spells a member of a closed
+ *  set.
+ *
+ *  Every guard this package exports had no paired default, so every consumer
+ *  wrote the default itself — and wrote it silently: the first one to do so
+ *  spelled `"idle"`, `"shell"`, `"none"`, `"idle"` in four places, and no line
+ *  of it could afterwards tell that a fallback had fired. That, not the
+ *  copy-paste, is what this closes.
+ *
+ *  **Each default is kolu's own answer, not this function's invention.** An
+ *  absent paint is the quiet `idle` body — never `empty`, which would swallow
+ *  the identity glyph (`paintDockRow`'s own last line). An unknown driver is the
+ *  `shell` prompt ({@link pipGlyphFor}'s terminal else). An unrecognised order
+ *  bucket ranks `idle`, which is this module's standing rule for an unrecognised
+ *  word. And an undecidable MOTION is not guessed at all: it is RE-FOLDED from
+ *  the narrowed variant and the bag's own `active` through {@link pipMotionKind}
+ *  — the same fold that produced the wire's word server-side. That is one fewer
+ *  hand-picked literal, and strictly better than the `"none"` a consumer reached
+ *  for, which stills the mark on a terminal the same bag says is active.
+ *
+ *  **It does not throw, and that is not a softness.** The fail-fast rule is about
+ *  values this build owns — bake them in, crash if one is absent. A word off
+ *  another build's wire is untrusted INPUT, and the guard is its validation. A
+ *  `narrowRowVocab` that threw would take down, inside a render, the very row
+ *  that was about to tell you the two builds have diverged: it would destroy the
+ *  evidence it exists to surface. Rank it idle, paint it quiet, keep the word —
+ *  the same answer this module's header already gives for an unrecognised state. */
+export function narrowRowVocab(wire: WireRowVocab): NarrowedRowVocab {
+  const unrecognised: Partial<Record<RowVocabField, string>> = {};
+
+  /** Narrow one field, or record the wire's word and hand back kolu's answer.
+   *  One helper so the "keep the word" step cannot be forgotten on a fifth
+   *  field the way it was forgotten on all four downstream. */
+  function narrow<T extends string>(
+    field: RowVocabField,
+    raw: string,
+    is: (value: string) => value is T,
+    fallback: () => T,
+  ): T {
+    if (is(raw)) return raw;
+    unrecognised[field] = raw;
+    return fallback();
+  }
+
+  const variant = narrow(
+    "variant",
+    wire.pip.variant,
+    isPipVariant,
+    () => "idle",
+  );
+  const glyph = narrow("glyph", wire.pip.glyph, isPipGlyphId, () => "shell");
+  // The variant is already narrowed, so the re-fold reads the word this build
+  // will actually PAINT — never the wire's, which may name a variant whose
+  // motion rule this build does not have.
+  const motion = narrow("motion", wire.pip.motion, isPipMotionKind, () =>
+    pipMotionKind({ variant, active: wire.pip.active }),
+  );
+  const bucket = narrow("bucket", wire.bucket, isDockRowBucket, () => "idle");
+
+  return {
+    pip: { ...wire.pip, variant, glyph, motion },
+    bucket,
+    known: Object.keys(unrecognised).length === 0,
+    unrecognised,
+  };
 }

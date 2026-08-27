@@ -22,6 +22,7 @@ import {
   isRecencyMode,
   isRowAgentState,
   narrowAgentState,
+  narrowRowVocab,
   RECENCY_MODES,
   ROW_AGENT_STATES,
 } from "./narrow.ts";
@@ -89,5 +90,106 @@ describe("narrowAgentState", () => {
         isRowAgentState(raw) || raw === "",
       );
     }
+  });
+});
+
+describe("narrowRowVocab — the guards WITH their defaults", () => {
+  /** A fully-known wire row. The seven typed facts are the ones that must pass
+   *  through untouched; the four closed-set words are the ones under test. */
+  const wire = () => ({
+    pip: {
+      variant: "working",
+      glyph: "claude-code",
+      motion: "spin",
+      active: true,
+      asking: false,
+      bytesLive: true,
+      shellLive: false,
+      sleeping: false,
+      alert: false,
+      alertLabel: "unread alert",
+    },
+    bucket: "working",
+  });
+
+  it("passes a known row through unchanged, every field", () => {
+    const n = narrowRowVocab(wire());
+    expect(n.pip).toEqual(wire().pip);
+    expect(n.bucket).toBe("working");
+    expect(n.known).toBe(true);
+    expect(n.unrecognised).toEqual({});
+  });
+
+  it.each([
+    { field: "variant", fallback: "idle" },
+    { field: "glyph", fallback: "shell" },
+    { field: "bucket", fallback: "idle" },
+  ] as const)("an unknown $field falls back to $fallback AND keeps the word", ({
+    field,
+    fallback,
+  }) => {
+    const w = wire();
+    if (field === "bucket") w.bucket = "sideways";
+    else w.pip[field] = "sideways";
+    const n = narrowRowVocab(w);
+    const got = field === "bucket" ? n.bucket : n.pip[field];
+    expect(got).toBe(fallback);
+    // The fallback is what the row DRAWS; this is the fact it must not cost.
+    expect(n.unrecognised[field]).toBe("sideways");
+    expect(n.known).toBe(false);
+  });
+
+  it("does not GUESS a motion — it re-folds the one this build would paint", () => {
+    // The wire's word is unknown, but `active: true` and a `working` variant
+    // already decide the answer through the package's own fold. A hand-picked
+    // `"none"` here would still the mark on a terminal the same bag calls active.
+    const spinning = narrowRowVocab({
+      ...wire(),
+      pip: { ...wire().pip, motion: "sideways" },
+    });
+    expect(spinning.pip.motion).toBe("spin");
+    expect(spinning.unrecognised.motion).toBe("sideways");
+
+    const asking = narrowRowVocab({
+      ...wire(),
+      pip: { ...wire().pip, variant: "awaiting", motion: "sideways" },
+    });
+    expect(asking.pip.motion).toBe("glow");
+
+    const still = narrowRowVocab({
+      ...wire(),
+      pip: { ...wire().pip, active: false, motion: "sideways" },
+    });
+    expect(still.pip.motion).toBe("none");
+  });
+
+  it("never derives the ORDER bucket from the PAINT variant — they disagree", () => {
+    // kolu's own case: a fresh `waiting` agent PAINTS `linger` (a dim glow)
+    // while the ORDER fold ranks it `idle`. `Exclude<DockRowBucket, "linger">`
+    // is the proof the two are different folds — so a wire that says so must
+    // survive intact rather than have one re-derived from the other.
+    const n = narrowRowVocab({
+      pip: { ...wire().pip, variant: "linger" },
+      bucket: "idle",
+    });
+    expect(n.pip.variant).toBe("linger");
+    expect(n.bucket).toBe("idle");
+    expect(n.known).toBe(true);
+  });
+
+  it("treats an inherited property name as the stranger it is", () => {
+    // `Object.hasOwn`, never `in` — a wire word of "toString" must not narrow
+    // as a member of a set it is not in. The guards already do this; this pins
+    // that narrowRowVocab inherits it rather than re-testing membership itself.
+    const n = narrowRowVocab({
+      pip: { ...wire().pip, glyph: "toString" },
+      bucket: "constructor",
+    });
+    expect(n.pip.glyph).toBe("shell");
+    expect(n.bucket).toBe("idle");
+    expect(n.unrecognised).toEqual({
+      glyph: "toString",
+      bucket: "constructor",
+    });
   });
 });

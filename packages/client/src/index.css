@@ -1,48 +1,42 @@
 @import "kolu-fonts";
 @import "tailwindcss";
 
-/* The shared kolu colour palette (`--color-alert`, `--color-accent`, …) — the
- * ONE definition both this surface and the pulam-web fleet dashboard resolve, so
- * a `bg-alert` pip renders the identical colour on both. The app-specific tokens
- * (`--breakpoint-sm`, `--font-sans`) stay local, below. */
-@import "@kolu/theme/theme.css";
+/* `@kolu/solid-dockrow`, WHOLE — the row's sheet, the pip's sheet beneath it,
+ * the shared colour palette (`--color-alert`, `--color-accent`, …) all three
+ * resolve against, and the `@source` directives that keep each package's own
+ * Tailwind utilities from being tree-shaken. ONE import, in an order the
+ * packages hold rather than this file.
+ *
+ * It used to be three `@import`s here plus two `@source`s below, and the order
+ * among them was load-bearing and stated only in a README — a wrong one renders
+ * a row with no layout at all, silently. kolu got it right; the first outside
+ * consumer to render the row obeyed the same instruction in two files
+ * independently and could not tell whether it had. The instruction is also not
+ * writeable in general, because the sibling paths a `@source` needs are
+ * different from every consumer's directory. So it is an invariant now, and
+ * kolu reads it through the same door everyone else does.
+ *
+ * `@kolu/theme` still resolves the app-specific tokens (`--breakpoint-sm`,
+ * `--font-sans`) declared locally below. */
+@import "@kolu/solid-dockrow/all.css";
 
 /* `@kolu/solid-markdown`'s rendered-Markdown stylesheet (`.kolu-md`). The
  * package ships the structural + scale rules; we inline them here — rather
  * than via a component-level CSS import the package's `sideEffects:false`
  * could tree-shake — so the rendered preview, intent body, and dock all pick
- * them up. The sheet reads `--color-accent` (now from `@kolu/theme`). */
+ * them up. The sheet reads `--color-accent` (from `@kolu/theme`, above). */
 @import "@kolu/solid-markdown/markdown.css";
-
-/* `@kolu/solid-statepip`'s CSS leaf — the status indicator's live RING (a
- * rotating conic-gradient arc) + alert corner BADGE, which can't be expressed as
- * Tailwind utilities. Both this surface and pulam-web import it, so they're
- * single-sourced and can't drift. */
-@import "@kolu/solid-statepip/statepip.css";
-
-/* `@kolu/solid-dockrow`'s CSS leaf — the repo CARD, the row label, and the
- * attention washes keyed on the shared `[data-dock-row]` contract. The row
- * components live in the package too, so the Dock and any fleet mirror render
- * ONE row; this sheet is the half of it Tailwind utilities cannot express
- * (the per-repo colour interpolations and the wash). It also defines
- * `--dock-edge-stripe-w` and `--repo-ink`, which surfaces below read. */
-@import "@kolu/solid-dockrow/dockrow.css";
 
 /* `@kolu/solid-fileview` likewise ships its own Tailwind utility classes
  * (the toggle host + image/iframe appliances), so scan it too — otherwise
  * the toggle and preview-container utilities are tree-shaken away. */
 @source "../../solid-fileview/src";
 
-/* `@kolu/solid-statepip` ships the shared `StatePip` and its Tailwind classes
- * (`bg-alert`, `border-accent`, `text-moonlit`, the spin/pulse animations), so
- * scan it — otherwise the pip utilities are tree-shaken away. */
-@source "../../solid-statepip/src";
-
-/* `@kolu/solid-dockrow` ships the dock row components and their Tailwind
- * classes (the row grid + subgrid, the density text sizes, `hover:bg-surface-2/40`,
- * the PR pip colours), so scan it — otherwise the row utilities are tree-shaken
- * away. */
-@source "../../solid-dockrow/src";
+/* The `@source` directives for `@kolu/solid-statepip` and `@kolu/solid-dockrow`
+ * moved INTO those packages' own `all.css`, above — each points Tailwind at
+ * itself with a path relative only to itself, which is the only spelling that is
+ * correct from a workspace checkout, from a node_modules copy and from a
+ * consumer's hydrated tree alike. */
 
 /* Suppress the browser's pull-to-refresh and scroll-chaining at the
  * document level. Without this, swiping down at the top of the

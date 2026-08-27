@@ -1442,6 +1442,9 @@ importers:
         specifier: ^1.9.0
         version: 1.9.11
     devDependencies:
+      '@kolu/daemon-test-gate':
+        specifier: workspace:*
+        version: link:../daemon-test-gate
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15

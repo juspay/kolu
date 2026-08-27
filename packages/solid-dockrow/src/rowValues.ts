@@ -73,7 +73,11 @@ export {
   isRowAgentState,
   narrowAgentState,
   type NarrowedAgentState,
+  type NarrowedRowVocab,
+  narrowRowVocab,
+  type RowVocabField,
   RECENCY_MODES,
   ROW_AGENT_STATES,
   type RowAgentState,
+  type WireRowVocab,
 } from "./narrow.ts";

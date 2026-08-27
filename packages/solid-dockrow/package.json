@@ -12,13 +12,15 @@
   "exports": {
     ".": "./src/index.ts",
     "./rowValues": "./src/rowValues.ts",
-    "./dockrow.css": "./src/dockrow.css"
+    "./dockrow.css": "./src/dockrow.css",
+    "./all.css": "./src/all.css"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run"
   },
   "devDependencies": {
+    "@kolu/daemon-test-gate": "workspace:*",
     "@types/node": "^22.0.0",
     "happy-dom": "^20.8.9",
     "typescript": "^7.0.2",
