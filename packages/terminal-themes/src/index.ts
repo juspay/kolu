@@ -20,6 +20,7 @@ export {
 // Theme catalog
 export {
   availableThemes,
+  DEFAULT_FONT_SIZE,
   DEFAULT_THEME,
   DEFAULT_THEME_NAME,
   FONT_FAMILY,

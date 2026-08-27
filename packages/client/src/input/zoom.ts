@@ -6,8 +6,8 @@
  */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { DEFAULT_FONT_SIZE } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
+import { DEFAULT_FONT_SIZE } from "terminal-themes";
 import { persistedPref } from "../persistedPref";
 import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
 

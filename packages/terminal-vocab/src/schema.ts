@@ -354,6 +354,25 @@ export const TerminalGridSchema = Schema.Struct({
 });
 export type TerminalGrid = typeof TerminalGridSchema.Type;
 
+/** Do two grids describe the same layout?
+ *
+ *  Beside {@link portsEqual} and for its reason: a record on this wire that is
+ *  compared per frame needs its comparison stated once, here, rather than
+ *  re-spelled at each dedup gate. Both readers ask the same question — the pane
+ *  asks whether its measured size still matches what it published, and a holder
+ *  of bytes laid out FOR a grid (a serialized screen, a snapshot frame) asks
+ *  whether those bytes still describe the pane.
+ *
+ *  `@kolu/xterm-kit/solid` states this again over its own structurally-identical
+ *  `TerminalGrid`, and that copy is argued rather than forgotten: the kit's
+ *  manifest declares no workspace package at all, which is the property that
+ *  makes it cheap to consume, and importing this one would take its closure from
+ *  one member to twelve to share four tokens. The wire's grid is the one this
+ *  belongs to — it is the grid a padi frame carries. */
+export function gridsEqual(a: TerminalGrid, b: TerminalGrid): boolean {
+  return a.cols === b.cols && a.rows === b.rows;
+}
+
 export const TerminalSnapshotSchema = Schema.Struct({
   cwd: Schema.String,
   git: Schema.NullOr(GitInfoSchema),
