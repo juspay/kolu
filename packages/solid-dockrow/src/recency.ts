@@ -80,14 +80,10 @@ export function displayRecencyAt(
  *  here too, and costs the caller nothing: after the `hidden` early-return every
  *  call site already has, TypeScript has narrowed `mode` for free.
  *
- *  **The clock is the caller's, and `now` is a parameter for the reason this
- *  package owns no clock at all**: a ticking `now` is ambient app state whose
- *  cadence the consuming app owns. Because the two modes are two separate calls
- *  rather than one bundled fold, a caller can hand each the clock it deserves —
- *  kolu passes a 1 s tick to the chip, whose sub-minute seconds must count up,
- *  and a plain `Date.now()` read to `ago`, whose 60 s ceiling on visual lag is
- *  invisible. A fold that took one `now` would have forced one cadence on both,
- *  and subscribed every quiet row to the fast one. */
+ *  `now` is a PARAMETER because this package owns no clock. WHICH clock each
+ *  rendering deserves is {@link RowClocks}'s subject, and choosing between them
+ *  is {@link rowRecency}'s — call that unless you are assembling a different
+ *  set, because the pairing is one of three rules invisible at a call site. */
 export function recencyText(
   mode: Exclude<RecencyMode, "hidden">,
   at: number | null,

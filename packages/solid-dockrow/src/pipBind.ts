@@ -143,7 +143,14 @@ export function paintDockRow(
  *  own last line returns it for a classless row, and {@link FALLBACK_PIP_VARIANT}
  *  is derived from it, so the fold and its fallback are one fact. Typed
  *  {@link DockPaintBucket} because that is what `paintDockRow` returns. */
-export const FALLBACK_PAINT_BUCKET: DockPaintBucket = "idle";
+// MODULE-PRIVATE, unlike its order-side twin. Both readers are in this file
+// (`paintDockRow`'s own last line, and `FALLBACK_PIP_VARIANT` below), and the
+// two constants hold the same word — so publishing this one would offer a
+// consumer two identically-valued `"idle"`s and a docstring explaining which
+// they must not pick. `FALLBACK_ORDER_BUCKET` is the one a consumer narrows
+// with; this is the one `paintDockRow` answers with, and the distinction stays
+// a fact about the folds rather than a choice at the door.
+const FALLBACK_PAINT_BUCKET: DockPaintBucket = "idle";
 
 /** …and kolu's answer when nothing names a row's ORDER: the same word, and
  *  DELIBERATELY NOT THE SAME CONSTANT.

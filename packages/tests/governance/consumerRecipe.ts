@@ -23,9 +23,9 @@
  * doc causes.
  */
 
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { nixEvalJson, nixpkgsPreamble } from "./nixEval";
 
 /** The file the recipe lives in, repo-relative. */
 export const CONSUMER_RECIPE_DOC = "nix/README.md";
@@ -105,19 +105,14 @@ export function checkConsumerRecipeEvaluates(repoRoot: string): number {
   // survived only because nothing forced `pkgs` either.
   const expr = `
     let
-      pkgs = import (${JSON.stringify(repoRoot)} + "/nix/nixpkgs.nix") { system = builtins.currentSystem; };
+      pkgs = ${nixpkgsPreamble(repoRoot)};
       recipe = ${bound};
     in builtins.deepSeq
       (builtins.map (p: p.drvPath) (builtins.attrValues recipe.packages))
       (builtins.length recipe.names)`;
 
   try {
-    const out = execFileSync(
-      "nix",
-      ["eval", "--accept-flake-config", "--impure", "--json", "--expr", expr],
-      { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-    );
-    return JSON.parse(out) as number;
+    return nixEvalJson<number>(repoRoot, expr);
   } catch (err) {
     // The nix error is the WHOLE point — it is what a consumer would have seen —
     // so it is carried through verbatim rather than summarised into "recipe

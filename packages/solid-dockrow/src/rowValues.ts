@@ -35,7 +35,6 @@ export {
   FALLBACK_PIP_GLYPH,
   FALLBACK_PIP_VARIANT,
   FALLBACK_ORDER_BUCKET,
-  FALLBACK_PAINT_BUCKET,
   paintDockRow,
   pipGlyphFor,
   pipMotionKind,

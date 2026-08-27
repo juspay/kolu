@@ -61,9 +61,6 @@ describe("compactDelta", () => {
 });
 
 describe("compactPhrase — a live DURATION, no suffix", () => {
-  const SEC = 1000;
-  const MIN = 60 * SEC;
-
   it.each([
     { ms: 0, expected: "0s" },
     { ms: 12 * SEC, expected: "12s" },
@@ -164,7 +161,12 @@ describe("dualPhrase — the dominant tier and the next-finer one", () => {
     // does for the wait chip's dash. A defaulted word parameter here would be a
     // knob: the second caller wanting a third word gets it free, and the
     // vocabulary stops being kolu's.
-    expect(dualPhrase.length).toBe(1);
+    // No arity probe: `Function.length` EXCLUDES defaulted parameters, so
+    // `expect(dualPhrase.length).toBe(1)` would have passed for
+    // `dualPhrase(ms, unknown = DASH)` — blind to the one shape this test is
+    // named for. The signature is the contract; a runtime probe that cannot see
+    // the case it names is the guard this repo refuses twice over in this same
+    // change.
     expect(dualPhrase(3 * DAY + 5 * HOUR)).toBe("3d 5h");
   });
 });

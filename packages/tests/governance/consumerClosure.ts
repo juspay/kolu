@@ -36,6 +36,7 @@ import {
   declaredDependencyClosure,
   workspacePackageRoots,
 } from "@kolu/daemon-test-gate/runtimeDepEdges";
+import { nixEvalJson, nixpkgsPreamble } from "./nixEval";
 import { vendorEntries } from "./vendorEntries";
 
 /** The file the emission lives in, repo-relative. */
@@ -129,17 +130,11 @@ function declaredPinnedMembers(
   repoRoot: string,
 ): Record<string, { name: string; revision: string; subdir: string }> {
   const expr = `
-    let pkgs = import "${repoRoot}/nix/nixpkgs.nix" { system = builtins.currentSystem; };
+    let pkgs = ${nixpkgsPreamble(repoRoot)};
     in (import "${repoRoot}/nix/workspace.nix" { inherit pkgs; }).pinnedProvenance`;
-  const out = execFileSync(
-    "nix",
-    ["eval", "--accept-flake-config", "--impure", "--json", "--expr", expr],
-    { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  );
-  return JSON.parse(out) as Record<
-    string,
-    { name: string; revision: string; subdir: string }
-  >;
+  return nixEvalJson<
+    Record<string, { name: string; revision: string; subdir: string }>
+  >(repoRoot, expr);
 }
 
 /** The directories git actually carries — the set a consumer's `src` contains.

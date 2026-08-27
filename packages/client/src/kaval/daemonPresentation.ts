@@ -10,7 +10,8 @@
  *  on its own, which is what lets `toKavalPresence`'s transport-liveness floor be pinned
  *  by a unit test without standing up a socket. */
 
-import { compactDelta, dualPhrase } from "@kolu/terminal-vocab/duration";
+import { DASH } from "@kolu/terminal-vocab/dash";
+import { compactDelta, dualOf } from "@kolu/terminal-vocab/duration";
 import type {
   DaemonState,
   DaemonStatus,
@@ -122,14 +123,12 @@ export const DAEMON_UNKNOWN_LABEL = "unknown";
  *  is host clock skew, and the shared ladder says so rather than clamping it to
  *  `0s`. */
 export function formatUptime(ms: number): string {
-  // The substitution is made HERE, not asked of the phrase. `recencyText` puts
-  // the wait chip's dash at its own call site for the same reason and says so:
-  // the rendering's own rule is the rendering's, and a phrase that took a word
-  // parameter would be a knob — a second caller wanting a third word gets it
-  // free, and the vocabulary stops being kolu's.
-  return compactDelta(ms).kind === "unknown"
-    ? DAEMON_UNKNOWN_LABEL
-    : dualPhrase(ms);
+  // ONE walk: the delta decides both the substitution and the rendering, so it
+  // is held rather than recomputed — this module's own premise. The knob
+  // argument for why the WORD is substituted here rather than passed lives on
+  // {@link dualPhrase}, which owns it.
+  const d = compactDelta(ms);
+  return d.kind === "unknown" ? DAEMON_UNKNOWN_LABEL : dualOf(d);
 }
 
 /** A WebSocket transport status → its coarse tone — `connecting` is transient
@@ -485,7 +484,7 @@ export function presenceState(
 export function formatLifetime(
   lifetime: DaemonLifetimeView | undefined,
 ): string {
-  if (lifetime === undefined) return "—";
+  if (lifetime === undefined) return DASH;
   return match(lifetime)
     .with({ kind: "forever" }, () => "forever")
     .with(

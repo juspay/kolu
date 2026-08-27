@@ -6,7 +6,7 @@
  *  package that renders kolu's Dock row can say the Dock's words instead of
  *  inventing a fourth spelling of them. What stayed is the one formatter with a
  *  single caller and an app-shaped rule: the connect overlay's live timer. */
-import { compactDelta, dualPhrase } from "@kolu/terminal-vocab/duration";
+import { compactDelta, dualOf } from "@kolu/terminal-vocab/duration";
 
 /** A compact elapsed readout for a LIVE, seconds-granularity timer — `"45s"` under a
  *  minute, `"2m 3s"` above (dual-unit so a minutes-long connect still shows its seconds
@@ -34,5 +34,7 @@ export function formatElapsedShort(ms: number): string {
   if (d.kind === "delta" && d.unit === "m") {
     return `${d.value}m ${Math.floor(ms / 1000) % 60}s`;
   }
-  return dualPhrase(ms);
+  // `dualOf`, not `dualPhrase`: `d` is already in hand, and re-walking the
+  // ladder to render it would throw that walk away on every non-minute tick.
+  return dualOf(d);
 }

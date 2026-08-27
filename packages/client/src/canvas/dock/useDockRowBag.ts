@@ -101,6 +101,17 @@ export function useDockRowBag(): (input: {
     // all seven data-* attributes. The memo is the boundary that keeps the
     // attribute effect tracking only what it renders.
     const facts = createMemo(() => dockRowFacts(input.combined().meta));
+    // Memoised for `facts`' reason, one line up: `RecencyCell` reads this prop
+    // in four separate tracking contexts (both `Switch` conditions, then
+    // `.mode` and `.text` inside whichever branch renders), and a getter
+    // re-runs the whole fold — and re-allocates its `{ window, own }` and its
+    // `CompactDelta` — once per read, per row, per repaint.
+    const recency = createMemo(() =>
+      rowRecency(pip(), {
+        window: input.recencyAt(),
+        own: rowRecencyAt(input.combined().meta),
+      }),
+    );
     return {
       id: input.id,
       get pip() {
@@ -132,10 +143,7 @@ export function useDockRowBag(): (input: {
         return facts().pr;
       },
       get recency() {
-        return rowRecency(pip(), {
-          window: input.recencyAt(),
-          own: rowRecencyAt(input.combined().meta),
-        });
+        return recency();
       },
     };
   };

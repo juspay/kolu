@@ -169,9 +169,10 @@ let
         '${name}' — must be `{ src = <store path>; revision = <string>; }`. A bare
         store path carries no revision, and the revision is the half this file checks.
       '' ]
-      else if given.revision != (memberOf name).pin.revision then [ ''
-        '${name}' — kolu pins `${(memberOf name).pin.name}` at
-        ${(memberOf name).pin.revision}, and you pass ${toString given.revision}.
+      else if given.revision != (memberOf name).pin.revision then
+        let pin = (memberOf name).pin; in [ ''
+        '${name}' — kolu pins `${pin.name}` at
+        ${pin.revision}, and you pass ${toString given.revision}.
         This member is not in kolu's archive: kolu grafts it from that pin and you
         graft it from yours, and then your `tsc` compiles the two against each
         other. Move yours to kolu's — that is what re-pinning kolu always owes.

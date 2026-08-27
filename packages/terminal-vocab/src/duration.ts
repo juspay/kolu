@@ -120,7 +120,22 @@ export function compactPhrase(ms: number): string {
  *  the second caller wanting a third word gets it free, and the vocabulary stops
  *  being kolu's. Everything here gets the ladder's own dash. */
 export function dualPhrase(ms: number): string {
-  const d = compactDelta(ms);
+  return dualOf(compactDelta(ms));
+}
+
+/** …and the same rendering over a delta ALREADY WALKED.
+ *
+ *  Two callers hold a `CompactDelta` before they know they want this: one
+ *  branches on `kind === "unknown"` to say its own word for an untrustworthy
+ *  delta, the other on the minute tier to show live seconds. Handing them
+ *  {@link dualPhrase} made each walk the ladder a SECOND time and throw the
+ *  first walk away — in the module whose whole premise is that the ladder is
+ *  walked once, in one place.
+ *
+ *  Not a knob and not a second rendering: it is this rendering at the level the
+ *  caller is already at, the same shape {@link compactPhrase} and
+ *  {@link agoPhrase} would take if anyone needed them pre-walked. */
+export function dualOf(d: CompactDelta): string {
   if (d.kind === "unknown") return DASH;
   return d.sub
     ? `${d.value}${d.unit} ${d.sub.value}${d.sub.unit}`
