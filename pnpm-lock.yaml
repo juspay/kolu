@@ -1466,6 +1466,9 @@ importers:
       '@kolu/solid-markdown':
         specifier: workspace:*
         version: link:../solid-markdown
+      '@kolu/theme':
+        specifier: workspace:*
+        version: link:../theme
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11

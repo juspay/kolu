@@ -1,6 +1,15 @@
 @import "kolu-fonts";
 @import "tailwindcss";
 
+/* The app's OWN colour palette. `--color-alert`, `--color-surface-1`,
+ * `--color-fg-3` and the rest are read by hundreds of app-wide utilities that
+ * have nothing to do with a Dock row, so the app states the edge itself rather
+ * than inheriting it through the row's sheet — "the app's colour system" and
+ * "the Dock row's prerequisites" are two independent concerns, and braiding them
+ * meant deleting the Dock from this app would take the palette with it. The
+ * doubled `@import` below is deduplicated and a token sheet is idempotent. */
+@import "@kolu/theme/theme.css";
+
 /* `@kolu/solid-dockrow`, WHOLE — the row's sheet, the pip's sheet beneath it,
  * the shared colour palette (`--color-alert`, `--color-accent`, …) all three
  * resolve against, and the `@source` directives that keep each package's own
@@ -16,27 +25,38 @@
  * different from every consumer's directory. So it is an invariant now, and
  * kolu reads it through the same door everyone else does.
  *
- * `@kolu/theme` still resolves the app-specific tokens (`--breakpoint-sm`,
- * `--font-sans`) declared locally below. */
+ * It brings `@kolu/theme` too, and states so — this file's own import above is
+ * the app's edge, not a duplicate of the row's. */
 @import "@kolu/solid-dockrow/all.css";
+
+/* `@kolu/solid-fileview`, WHOLE — the same door as the row above, for the same
+ * reason. The package ships Tailwind utility classes of its own (the toggle host
+ * + image/iframe appliances) that must be scanned or they are tree-shaken away,
+ * and the `@source` that scans them is now inside the package, relative only to
+ * itself. This file used to spell `@source "../../solid-fileview/src"` — exactly
+ * the non-portable sibling path the paragraph above declares unwriteable, three
+ * lines under it. */
+@import "@kolu/solid-fileview/all.css";
 
 /* `@kolu/solid-markdown`'s rendered-Markdown stylesheet (`.kolu-md`). The
  * package ships the structural + scale rules; we inline them here — rather
  * than via a component-level CSS import the package's `sideEffects:false`
  * could tree-shake — so the rendered preview, intent body, and dock all pick
- * them up. The sheet reads `--color-accent` (from `@kolu/theme`, above). */
+ * them up. The sheet reads `--color-accent` (from `@kolu/theme`, above).
+ *
+ * It gets a granular import and no `all.css`, and that is a decision rather than
+ * an omission: markdown ships a PLAIN sheet and no Tailwind utilities at all —
+ * its components carry semantic class names (`.kolu-md`, `.shiki`,
+ * `.markdown-alert`) and not one utility — so there is nothing for a `@source`
+ * to keep alive and no non-portable sibling path to hide. The day it grows one,
+ * it gets the same two lines the other three have. */
 @import "@kolu/solid-markdown/markdown.css";
 
-/* `@kolu/solid-fileview` likewise ships its own Tailwind utility classes
- * (the toggle host + image/iframe appliances), so scan it too — otherwise
- * the toggle and preview-container utilities are tree-shaken away. */
-@source "../../solid-fileview/src";
-
-/* The `@source` directives for `@kolu/solid-statepip` and `@kolu/solid-dockrow`
- * moved INTO those packages' own `all.css`, above — each points Tailwind at
- * itself with a path relative only to itself, which is the only spelling that is
- * correct from a workspace checkout, from a node_modules copy and from a
- * consumer's hydrated tree alike. */
+/* The `@source` directives for `@kolu/solid-statepip`, `@kolu/solid-dockrow` and
+ * `@kolu/solid-fileview` moved INTO those packages' own `all.css`, above — each
+ * points Tailwind at itself with a path relative only to itself, which is the
+ * only spelling that is correct from a workspace checkout, from a node_modules
+ * copy and from a consumer's hydrated tree alike. */
 
 /* Suppress the browser's pull-to-refresh and scroll-chaining at the
  * document level. Without this, swiping down at the top of the

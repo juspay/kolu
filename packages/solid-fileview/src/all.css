@@ -1,0 +1,16 @@
+/* `@kolu/solid-fileview`, whole — the theme tokens its classes resolve, and the
+ * `@source` that keeps its own Tailwind utilities alive.
+ *
+ * It ships no stylesheet of its own: the file view is built entirely from
+ * Tailwind utilities (the toggle host, the image/iframe appliances) plus the
+ * `text-fg` token utility, so what a consumer owes it is a scan and a palette,
+ * not a sheet. Both are stated HERE for the reason
+ * `@kolu/solid-statepip/all.css` gives at length: the `@source` a consumer would
+ * otherwise have to write is `../../solid-fileview/src` from kolu's own client,
+ * `../solid-fileview/src` from inside a node_modules copy, and a four-level
+ * climb from a consumer's app directory. A `@source` relative to THIS file is
+ * right from all three, because each package points Tailwind at ITSELF. The
+ * failure it prevents is silent: the toggle and preview-container utilities are
+ * tree-shaken away and the appliance renders unstyled. */
+@import "@kolu/theme/theme.css";
+@source "./";

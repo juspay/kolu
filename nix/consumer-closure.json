@@ -154,7 +154,8 @@
     "@kolu/solid-fileview": {
       "dir": "packages/solid-fileview",
       "workspace": [
-        "@kolu/solid-markdown"
+        "@kolu/solid-markdown",
+        "@kolu/theme"
       ],
       "external": {
         "solid-js": "^1.9.0"
