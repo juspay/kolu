@@ -5,22 +5,29 @@
  * These schemas exist to be *rendered*, not just decoded — the per-field blurb
  * is how a coding agent learns that `tail` counts lines and that `text` must
  * never carry the submit. Under zod the blurb was `.describe()`; under Effect
- * Schema it is the `description` ANNOTATION, and TWO placement rules decide
- * whether it survives the converter:
+ * Schema it is the `description` ANNOTATION, and ONE placement rule decides
+ * whether it survives the converter: it must sit on the ENCODED-side node —
+ * INSIDE `optionalKey`, before any wrapper (`@kolu/surface-mcp`'s
+ * `jsonschema.ts` law).
  *
- *   1. it must sit on the ENCODED-side node — INSIDE `optionalKey`, before any
- *      wrapper (`@kolu/surface-mcp`'s `jsonschema.ts` law); and
- *   2. **annotate first, check second.** `SchemaAST.annotate` attaches to a
- *      schema's LAST CHECK when it has one, and a check's annotations are
- *      emitted inside an `allOf` branch — legal JSON Schema that no MCP host
- *      reads as the property's description. `Schema.Int` is itself
- *      `Schema.Number.check(isInt())`, so it is already "checked" and a bare
- *      `Schema.Int.annotate({description})` loses the blurb.
+ * There used to be a second rule, "ANNOTATE FIRST, CHECK SECOND".
+ * `SchemaAST.annotate` attaches to a schema's LAST CHECK when it has one, and
+ * rc.110's converter emitted a check's annotations inside an
+ * `allOf` branch — legal JSON Schema that no MCP host reads as the property's
+ * description. `Schema.Int` is itself `Schema.Number.check(isInt())`, so a bare
+ * `Schema.Int.annotate({description})` lost the blurb, and every arg schema in
+ * this package had to be spelled annotate-first by hand.
  *
- * Both failures are invisible in a decode test and very visible to an agent, so
- * the placement is pinned here — including the losing spelling, so the trap
- * cannot come back silently (the same discipline `jsonschema.test.ts` applies
- * to the `default` keyword).
+ * rc.111 COMPACTS check constraints onto the node they constrain
+ * whenever the keywords do not collide, so the trap is gone: the blurb reaches
+ * the property node in either spelling, and so do the bounds — `exclusiveMinimum`,
+ * `maximum`, `minLength`, `minItems`, `pattern`, `format`. That is a
+ * host-visible upgrade, not a cosmetic one: an `allOf`-buried bound is a bound
+ * the model never reads, so the schemas below now advertise their constraints
+ * where a host actually renders them. Both halves are pinned here — the blurb
+ * on the node from an already-checked schema, and every bound beside it — so a
+ * regression in either direction is a failing test rather than a silently worse
+ * tools/list.
  *
  * Two more laws ride along:
  *   - an MCP-facing numeric advertises as `integer`/`number`, never as bare
@@ -63,32 +70,55 @@ function property(schema: JsonNode, name: string): JsonNode {
 }
 
 describe("the description ANNOTATION reaches the property node", () => {
-  it("annotate-then-check keeps the blurb on the node; check-then-annotate buries it in allOf", () => {
-    // The winning spelling — the blurb is the property's own `description`,
-    // which is the only place an MCP host renders it.
-    const kept = toInputSchema(
+  it("reaches the node from EITHER spelling — the annotate-first trap is gone", () => {
+    // Annotate-first: the blurb is the property's own `description`, which is
+    // the only place an MCP host renders it.
+    const first = toInputSchema(
       Schema.Struct({
         n: Schema.Number.annotate({ description: "blurb" }).check(
           Schema.isInt(),
         ),
       }),
     );
-    expect(kept).toEqual({
+    expect(first).toEqual({
       type: "object",
       properties: { n: { description: "blurb", type: "integer" } },
       required: ["n"],
     });
 
-    // The losing spelling, pinned so the trap cannot return unnoticed:
-    // `Schema.Int` already carries a check, so `.annotate` lands ON THE CHECK
-    // and the converter emits it inside `allOf` — no top-level `description`.
-    const buried = toInputSchema(
-      Schema.Struct({ n: Schema.Int.annotate({ description: "blurb" }) }),
+    // Check-first — the spelling that USED to lose the blurb. `Schema.Int`
+    // already carries a check, so `.annotate` lands ON THE CHECK; up to
+    // rc.110 the converter emitted that inside an `allOf` branch and the
+    // property node had no `description` at all. Since rc.111 the check is
+    // compacted onto the node, blurb and all. Pinned so a regression that
+    // re-buries it is a failing test rather than a quietly worse tools/list.
+    expect(
+      toInputSchema(
+        Schema.Struct({ n: Schema.Int.annotate({ description: "blurb" }) }),
+      ),
+    ).toEqual({
+      type: "object",
+      properties: { n: { type: "integer", description: "blurb" } },
+      required: ["n"],
+    });
+  });
+
+  it("compacts a check's BOUNDS onto the node, where a host reads them", () => {
+    // The other half of the same rc.111 change, and the one an agent feels:
+    // a bound inside `allOf` is a bound the model is never shown. Every
+    // keyword below used to ride an `allOf` branch.
+    const doc = toInputSchema(
+      Schema.Struct({
+        n: Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThan(10)),
+        s: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(8)),
+      }),
     );
-    const buriedNode = (buried.properties as Record<string, JsonNode>)
-      .n as JsonNode;
-    expect(buriedNode.description).toBe(undefined);
-    expect(buriedNode.allOf).toEqual([{ description: "blurb" }]);
+    expect(doc.properties).toEqual({
+      n: { type: "integer", exclusiveMinimum: 0, exclusiveMaximum: 10 },
+      s: { type: "string", minLength: 1, maxLength: 8 },
+    });
+    expect(property(doc, "n").allOf).toBe(undefined);
+    expect(property(doc, "s").allOf).toBe(undefined);
   });
 });
 
@@ -97,27 +127,26 @@ describe("screen_text args → the JSON Schema a host reads", () => {
     // Byte-level, not decode-equality: this string is the wire an MCP host
     // parses (hit-list rule). `tail` is an INTEGER (not the NaN-tolerant union),
     // the object is OPEN (no `additionalProperties`), and `tail` is absent from
-    // `required` because it is an `optionalKey`. The `allOf` carries the bound
-    // the base node had no room for; the blurb and the type do NOT ride there.
+    // `required` because it is an `optionalKey`. Every bound rides the node it
+    // constrains — `id`'s uuid `pattern`/`format` and `tail`'s
+    // `exclusiveMinimum` were an `allOf` branch until effect rc.111 compacted
+    // them, which is the difference between a constraint a host renders and one
+    // it silently drops.
     expect(JSON.stringify(toInputSchema(ScreenTextArgsSchema))).toBe(
       JSON.stringify({
         type: "object",
         properties: {
           id: {
             type: "string",
-            allOf: [
-              {
-                pattern:
-                  "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|[fF]{8}-[fF]{4}-[fF]{4}-[fF]{4}-[fF]{12})$",
-                format: "uuid",
-              },
-            ],
+            pattern:
+              "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|[fF]{8}-[fF]{4}-[fF]{4}-[fF]{4}-[fF]{12})$",
+            format: "uuid",
           },
           tail: {
             description:
               "Return only the last N lines (omit for the whole scrollback).",
             type: "integer",
-            allOf: [{ exclusiveMinimum: 0 }],
+            exclusiveMinimum: 0,
           },
         },
         required: ["id"],
@@ -142,14 +171,16 @@ describe("lifecycle_create args → the JSON Schema a host reads", () => {
   it("the directory fields carry their blurb ON the node, checks and all", () => {
     const doc = toInputSchema(CreateArgsSchema);
     const described = propertyDescriptions(doc);
-    // `worktree` is the one that would lose its blurb to `allOf`: it carries
-    // the wire's git-ref CHECK, so it is spelled annotate-first.
+    // `worktree` is the one that used to lose its blurb to `allOf`: it carries
+    // the wire's git-ref CHECK.
     expect(described.worktree).toMatch(/<repo>\/\.worktrees\/<name>/);
     expect(described.repo).toMatch(/Absolute path/);
     expect(described.run).toMatch(/not a spawn argv/);
     // …and the check really is there, beside the blurb rather than instead of
-    // it — an agent's name is validated before the tool dials padi.
-    expect(property(doc, "worktree").allOf).toBeDefined();
+    // it — an agent's name is validated before the tool dials padi, and the
+    // host can now say so before the model ever sends an empty string.
+    expect(property(doc, "worktree").minLength).toBe(1);
+    expect(property(doc, "worktree").allOf).toBe(undefined);
   });
 
   it("advertises `placement` as the ONE required field, both spellings and the rule", () => {
@@ -200,11 +231,11 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
         undefined,
       );
       // The bounds: positive, and inside the setTimeout ceiling `runWait` and
-      // `awaitOutputSettled` both enforce at runtime.
-      expect(node.allOf).toEqual([
-        { exclusiveMinimum: 0 },
-        { maximum: 2_147_483_647 },
-      ]);
+      // `awaitOutputSettled` both enforce at runtime — advertised ON the node,
+      // so a host renders them beside the blurb instead of dropping an `allOf`.
+      expect(node.exclusiveMinimum).toBe(0);
+      expect(node.maximum).toBe(2_147_483_647);
+      expect(node.allOf).toBe(undefined);
       expect(typeof node.description).toBe("string");
     }
     // `idleMs` is the one required knob; the rest are optional.
@@ -218,10 +249,8 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
     const agent = toInputSchema(WaitAgentStateArgsSchema);
     const settledMs = property(agent, "settledMs");
     expect(settledMs.type).toBe("integer");
-    expect(settledMs.allOf).toEqual([
-      { exclusiveMinimum: 0 },
-      { maximum: 2_147_483_647 },
-    ]);
+    expect(settledMs.exclusiveMinimum).toBe(0);
+    expect(settledMs.maximum).toBe(2_147_483_647);
     expect(settledMs.description).toMatch(/CONJUNCT/);
 
     // `screenTail` counts LINES, so it rides the line bound, not the timer
@@ -230,7 +259,7 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
     for (const schema of [agent, toInputSchema(WaitOutputSettledArgsSchema)]) {
       const tail = property(schema, "screenTail");
       expect(tail.type).toBe("integer");
-      expect(tail.allOf).toEqual([{ exclusiveMinimum: 0 }]);
+      expect(tail.exclusiveMinimum).toBe(0);
       expect(tail.description).toMatch(/last N rendered lines/);
     }
 
@@ -249,28 +278,26 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
 
   it("watch_next's timeoutMs rides the SAME shared milliseconds field", () => {
     // It re-derived this shape once, which left the package's third bespoke
-    // tool the only one doing the annotate-then-check dance unpinned by this
-    // file. It now reuses `MillisecondsSchema`, so it is covered here for free.
+    // tool the only one unpinned by this file. It now reuses
+    // `MillisecondsSchema`, so it is covered here for free.
     const node = property(toInputSchema(WatchNextArgsSchema), "timeoutMs");
     expect(node.type).toBe("integer");
     expect(node.anyOf).toBe(undefined);
-    expect(node.allOf).toEqual([
-      { exclusiveMinimum: 0 },
-      { maximum: 2_147_483_647 },
-    ]);
+    expect(node.exclusiveMinimum).toBe(0);
+    expect(node.maximum).toBe(2_147_483_647);
     expect(typeof node.description).toBe("string");
     // `after` is an acknowledgement watermark, so ZERO is legal where a
-    // duration's zero is not — and its blurb must be ON THE NODE, not buried in
-    // the `allOf` branch (reusing padi's already-checked `NonNegativeInt` put it
-    // there, which this assertion caught).
+    // duration's zero is not — and both the bound and the blurb sit on the
+    // node a host renders.
     const after = property(toInputSchema(WatchNextArgsSchema), "after");
     expect(after.type).toBe("integer");
-    expect(after.allOf).toEqual([{ minimum: 0 }]);
+    expect(after.minimum).toBe(0);
     expect(typeof after.description).toBe("string");
     // Same for the name: bounded, and its blurb readable by a host.
     const name = property(toInputSchema(WatchNextArgsSchema), "name");
     expect(name.type).toBe("string");
-    expect(name.allOf).toEqual([{ minLength: 1 }, { maxLength: 128 }]);
+    expect(name.minLength).toBe(1);
+    expect(name.maxLength).toBe(128);
     expect(typeof name.description).toBe("string");
   });
 
@@ -295,7 +322,7 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
       type: "string",
       enum: ["working", "awaiting", "waiting"],
     });
-    expect(until.allOf).toEqual([{ minItems: 1 }]);
+    expect(until.minItems).toBe(1);
     expect(until.description).toMatch(/working \(thinking\/tool_use\)/);
   });
 

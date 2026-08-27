@@ -19,7 +19,7 @@
   "dependencies": {
     "@kolu/surface": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "effect": "4.0.0-rc.110",
+    "effect": "4.0.0-rc.112",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {

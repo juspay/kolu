@@ -328,7 +328,7 @@ export async function websocketLink(
   // closed/retired edge stays exactly as observable as before — and it reads the
   // `retired` flag the socket's own `close` listener has already set.
   //
-  // BETA-ASSUMPTION(rc.110): `onDisconnect` runs on EVERY attempt end, including
+  // BETA-ASSUMPTION(rc.112): `onDisconnect` runs on EVERY attempt end, including
   // the ones whose failure `retryTransientErrors` then swallows — Effect RPC applies
   // `Effect.ensuring(hooks.onDisconnect)` to the whole attempt, OUTSIDE the `tapCause`
   // that returns early for a `SocketOpenError`. Two things below rest on it and on
