@@ -25,7 +25,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "test:daemon": "vitest run --exclude src/upgradeWindow/previousRelease.e2e.test.ts"
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",

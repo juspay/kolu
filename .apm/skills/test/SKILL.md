@@ -14,10 +14,11 @@ Don't go hunting through the `justfile` or a `package.json` for how to run vites
 | Reach | Command |
 | --- | --- |
 | Whole workspace, fork-free | `just test-unit` |
-| One package | `nix develop -c pnpm --filter <pkg> test:unit` |
+| One package | `nix develop -c pnpm --filter <pkg> test:unit` — or `test:daemon` for a daemon-forking package (see below) |
 | One or more files | `nix develop -c pnpm --filter <pkg> exec vitest run src/foo.test.ts` |
 | Daemon-forking suites (CI / `pu` box **only**) | `just test-daemon` |
 
+- **A package declares exactly ONE lane script: `test:unit` or `test:daemon`.** The 13 whose suites fork real daemons or PTYs — `kaval`, `kaval-tui`, `@kolu/padi`, `kolu-server`, `kolu-cli`, `@kolu/surface`, `@kolu/surface-daemon`, `@kolu/surface-daemon-supervisor`, `@kolu/surface-remote`, `@kolu/port-forward`, `kolu-pty`, `kolu-pi`, `kolu-claude-code` — declare `test:daemon`, so `just test-unit` skips them; everything else declares `test:unit`. `pnpm --filter <pkg> test:unit` on a daemon-lane package fails with "no script" — read its `package.json` rather than guessing. A per-package `test:daemon` still needs `KOLU_DAEMON_TESTS=1` to un-skip its gated blocks, plus the venue gate below.
 - **`<pkg>` is the `name` from that package's own `package.json`, and it is not uniformly `@kolu/…`** — the apps are bare (`kolu-server`, `kolu-client`, `kolu-common`) while the libraries are scoped (`@kolu/surface-remote`). Read the name; don't guess it. `--filter` repeats to span packages: `pnpm --filter kolu-server --filter @kolu/surface-remote test:unit`.
 - **A fresh worktree has no `node_modules`.** `just test-unit` / `just test-daemon` depend on the `install` recipe, so they bootstrap themselves; the two `--filter` forms do **not** — run `just install` once first when `node_modules/` is absent, rather than reading a missing-module error as a broken test.
 - **`just test-daemon` never runs beside a live kolu.** Its suites fork real kaval/padi daemons and PTYs; a workstation run OOM-reaped production kaval in [#1375](https://github.com/juspay/kolu/issues/1375). Apply the same venue gate as step 4 below.

@@ -10,9 +10,14 @@
  * inventory against the live runtime dir + state-root (unknown non-log files
  * fail the suite).
  *
- * Own CI recipe (`ci::upgrade-window`) so the ordinary daemon lane stays
- * fast. Generous timeouts; deterministic waits (poll readiness, never
- * sleep-and-hope).
+ * Own CI recipe (`ci::upgrade-window`) so the ordinary daemon lane stays fast —
+ * and padi's `test:daemon` script `--exclude`s this file, which is what makes
+ * that true. It did not for a long time: the lane collected the file too and
+ * spent ~3 minutes a run re-deriving the previous tag, nix-building it, and
+ * driving the window a second time WITHOUT `KOLU_UPGRADE_WINDOW_REQUIRE`, so
+ * the copy that cost the most was also the one that could not fail on a
+ * collapse. `ciRecipe.watchdog.test.ts` now pins both ends.
+ * Generous timeouts; deterministic waits (poll readiness, never sleep-and-hope).
  *
  * Under `KOLU_UPGRADE_WINDOW_REQUIRE=1` (CI): the previous ref MUST be a version
  * tag and the previous kaval store path MUST differ from current #kaval — a

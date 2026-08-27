@@ -16,7 +16,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "test:daemon": "vitest run"
   },
   "dependencies": {
     "@effect/platform-node": "4.0.0-rc.112",
