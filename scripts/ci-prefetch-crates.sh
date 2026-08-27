@@ -68,26 +68,64 @@ while IFS= read -r cdrv; do
     continue
   fi
 
-  # Two shapes to survive: nix >= 2.31 wraps the map in `.derivations`, and a
-  # `structuredAttrs` derivation (which these are) carries `urls` there rather
-  # than in `env`. `..|objects|.urls?` finds it either way; `env.url` is the
-  # unstructured fallback.
+  # `nix-store --add-fixed` names the store path after the FILE's basename, so
+  # the temp file must be named as the store path is WITHOUT its hash prefix.
+  # Naming it after the full basename mints `<newhash>-<oldhash>-crate-…`, a
+  # path no fixed-output derivation is looking for, and the build then 403s
+  # exactly as if nothing had been prefetched.
+  store_name=$(basename "$out" | cut -d- -f2-)
+
+  # PREFERRED: ask the derivation. Two shapes to survive — nix >= 2.31 wraps the
+  # map in `.derivations`, and a `structuredAttrs` derivation carries `urls`
+  # there rather than in `env`; `..|objects|.urls?` finds it either way, and
+  # `env.url` is the unstructured fallback. stderr is captured rather than
+  # dropped, so a `nix derivation show` that fails on some other nix build says
+  # WHY instead of arriving here as a silent empty string.
+  show_err="$tmpdir/show.err"
   url=$(
-    nix derivation show "$cdrv" \
+    nix derivation show "$cdrv" 2>"$show_err" \
       | jq -r '[.. | objects | (.urls? // empty)] + [.. | objects | (.env?.url? // empty)]
-               | flatten | map(select(type == "string" and startswith("http"))) | first // ""'
+               | flatten
+               | map(select(type == "string"))
+               | map(split(" ")[]) | map(select(startswith("http")))
+               | first // ""' 2>/dev/null
   )
+
+  # FALLBACK: rebuild it from the store name. Correct-by-construction is not
+  # possible here — a crate name may itself end in `-<digits>` — so this is a
+  # heuristic: the version begins at the FIRST `-`-separated token that starts
+  # with a digit, and runs to the end. That is what keeps cargo's `+build`
+  # metadata intact (`wasip2-1.0.4+wasi-0.2.12` → name `wasip2`, version
+  # `1.0.4+wasi-0.2.12`), where splitting on the LAST `-` would 404. A wrong
+  # guess is not silent: the add-fixed assertion below compares the path we
+  # minted against the path the FOD wants, and a wrong tarball cannot match it.
+  if [ -z "$url" ]; then
+    stem=${store_name%.tar.gz}
+    stem=${stem#crate-}
+    name=""; ver=""
+    IFS='-' read -ra parts <<< "$stem"
+    for i in "${!parts[@]}"; do
+      case "${parts[$i]}" in
+        [0-9]*)
+          name=$(IFS='-'; echo "${parts[*]:0:$i}")
+          ver=$(IFS='-'; echo "${parts[*]:$i}")
+          break
+          ;;
+      esac
+    done
+    if [ -n "$name" ] && [ -n "$ver" ]; then
+      url="https://crates.io/api/v1/crates/$name/$ver/download"
+      echo "note: rebuilt url for $store_name (derivation gave none)" >&2
+    fi
+  fi
+
   if [ -z "$url" ] || [ "$url" = "null" ]; then
-    echo "no url on $cdrv" >&2
+    echo "no url for $cdrv" >&2
+    echo "--- nix derivation show stderr ---" >&2
+    cat "$show_err" >&2 || true
     exit 1
   fi
 
-  # `nix-store --add-fixed` names the store path after the FILE's basename, so
-  # the temp file must be named `crate-<name>-<ver>.tar.gz` — the store path's
-  # name WITHOUT its hash prefix. Naming it after the full basename mints
-  # `<newhash>-<oldhash>-crate-…`, a path no FOD is looking for, and the build
-  # then 403s exactly as if nothing had been prefetched.
-  store_name=$(basename "$out" | cut -d- -f2-)
   tmp="$tmpdir/$store_name"
   curl -fsSL -A "$UA" -o "$tmp" "$url"
   added=$(nix-store --add-fixed sha256 "$tmp")
