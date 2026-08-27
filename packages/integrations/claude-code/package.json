@@ -13,7 +13,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "test:daemon": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.96",

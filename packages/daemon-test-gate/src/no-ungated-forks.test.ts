@@ -75,7 +75,7 @@
  */
 
 import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "@babel/parser";
 import { expect, test } from "vitest";
@@ -485,6 +485,116 @@ test("advisory hygiene: every real-spawn test site is describeDaemon-gated or st
       `(so a bare \`vitest\` skips it) or call \`assertDaemonSpawnAllowed(...)\` in the same ` +
       `function before the fork, both from \`@kolu/daemon-test-gate\` ` +
       `(juspay/kolu#1334/#1375):\n${offenders.join("\n")}`,
+  ).toEqual([]);
+});
+
+// ── Lane assignment: which CI node runs a package's suite ────────────────────
+//
+// CI has two workspace-wide suite nodes: `unit` (fork-free, gate OFF) and
+// `daemon` (gate ON). Which one runs a package is decided by the SCRIPT NAME its
+// manifest declares — `test:unit` or `test:daemon` — because `pnpm -r <script>`
+// already skips a package that doesn't have it. That is the whole selector: no
+// filter list to keep in sync, and each suite runs in exactly ONE lane instead
+// of twice (before this split both recipes traversed all 54 suites, so every
+// fork-free test in the tree ran a second time under the gate for nothing).
+//
+// The split is only safe while the manifest agrees with the code, which is what
+// the two tests below hold: a package holding a gate call site MUST be in the
+// daemon lane (else its gated blocks are `describe.skip` forever and the
+// coverage evaporates silently — #1375 A7's failure mode, one level down), and
+// a package with tests must be in exactly one lane (else its suite runs
+// nowhere, or twice again).
+
+const LANE_SCRIPTS = ["test:unit", "test:daemon"] as const;
+
+/** The nearest workspace package root at or above `file` — nearest, so a nested
+ *  member (`packages/surface/example/mini-ci`) owns its own files rather than
+ *  its parent claiming them. */
+function owningPackage(file: string, roots: readonly string[]): string {
+  let owner = "";
+  for (const root of roots) {
+    if (
+      (file === root || file.startsWith(root + sep)) &&
+      root.length > owner.length
+    ) {
+      owner = root;
+    }
+  }
+  if (owner === "") {
+    // Every file here came from a walk rooted AT a package, so no owner means
+    // the walk and the roots disagree — a real defect, never a skipped file.
+    throw new Error(`no workspace package owns ${file}`);
+  }
+  return owner;
+}
+
+/** The lane scripts a package declares (0, 1, or — a defect — 2). */
+function lanesOf(packageRoot: string): string[] {
+  const manifest = JSON.parse(
+    readFileSync(join(packageRoot, "package.json"), "utf8"),
+  ) as { scripts?: Record<string, unknown> };
+  const scripts = manifest.scripts ?? {};
+  return LANE_SCRIPTS.filter((s) => scripts[s] !== undefined);
+}
+
+const show = (p: string): string => relative(REPO_ROOT, p);
+
+test("a package holding a daemon-gate call site declares `test:daemon`, so the daemon lane actually runs it", {
+  // Same whole-repo AST walk as the inventory above — see its timeout note.
+  timeout: 60000,
+}, () => {
+  const roots = workspacePackageRoots(REPO_ROOT);
+  const gated = new Set<string>();
+  for (const file of allTestFiles()) {
+    const ast = parseFile(file);
+    let hit = false;
+    walkWithAncestors(ast, [], (node) => {
+      if (isDescribeDaemonCall(node) || isAssertSpawnAllowedCall(node))
+        hit = true;
+    });
+    if (hit) gated.add(owningPackage(file, roots));
+  }
+  // The gate's OWN package names these primitives to test them (here, and
+  // against synthetic sources); it forks nothing. It also holds
+  // `daemon-node.test.ts`, the backstop that fails when the `daemon` CI node is
+  // unwired — which only works from the always-on lane, since a test inside the
+  // node it guards disappears with it. So the gate stays fork-free by
+  // construction and in `test:unit` on purpose.
+  gated.delete(join(HERE, ".."));
+  const misfiled = [...gated]
+    .filter((root) => !lanesOf(root).includes("test:daemon"))
+    .map(show)
+    .sort();
+  expect(
+    misfiled,
+    `these packages hold a \`describeDaemon(...)\` / \`assertDaemonSpawnAllowed(...)\` ` +
+      `call site but declare \`test:unit\`, so \`just test-daemon\` (which runs ` +
+      `\`pnpm -r test:daemon\`) skips them and every gated block in them is ` +
+      `\`describe.skip\` in BOTH CI lanes. Rename the manifest's \`test:unit\` script ` +
+      `to \`test:daemon\`:\n${misfiled.join("\n")}`,
+  ).toEqual([]);
+});
+
+test("every test-bearing package declares exactly one lane script, so its suite runs in exactly one CI node", () => {
+  const roots = workspacePackageRoots(REPO_ROOT);
+  const withTests = new Set<string>();
+  for (const file of allTestFiles()) {
+    // `.testlib.ts` files are helpers vitest never collects on their own; a
+    // package needs a lane only if it owns a real `*.test.*` file.
+    if (/\.(test)\.(ts|cts|mts|tsx)$/.test(file))
+      withTests.add(owningPackage(file, roots));
+  }
+  const offenders = [...withTests]
+    .map((root) => ({ root, lanes: lanesOf(root) }))
+    .filter(({ lanes }) => lanes.length !== 1)
+    .map(({ root, lanes }) => `${show(root)}: [${lanes.join(", ")}]`)
+    .sort();
+  expect(
+    offenders,
+    `each of these packages owns test files but declares neither or both of ` +
+      `\`test:unit\` / \`test:daemon\`. Neither ⇒ \`pnpm -r\` skips it in both CI ` +
+      `lanes and the suite runs NOWHERE; both ⇒ it runs twice. Declare exactly ` +
+      `one:\n${offenders.join("\n")}`,
   ).toEqual([]);
 });
 

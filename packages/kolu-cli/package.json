@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "KOLU_STATE_DIR=\"$(git rev-parse --show-toplevel)/.kolu-dev\" KOLU_PADI_STATE_DIR=\"$(git rev-parse --show-toplevel)/.kolu-dev/padi\" node --watch --import tsx src/main.ts web --allow-nix-shell-with-env-whitelist default",
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "test:daemon": "vitest run"
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
