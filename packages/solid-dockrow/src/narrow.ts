@@ -160,30 +160,33 @@ export function narrowAgentState(
  *  while the real variant does). Narrow each against its own vocabulary. */
 export type WireRowVocab = {
   /** The bound pip as a wire carries it: {@link StatePipBind} with its two
-   *  closed-set IDENTITY members widened to string, and `motion` gone.
+   *  closed-set IDENTITY members widened to string, and its two DERIVED members
+   *  gone. `Omit` off the bag, never a re-typed copy, so a new field on the bag
+   *  is a new field here.
    *
-   *  `Omit` off the bag, never a re-typed copy, so a new field on the bag is a
-   *  new field here.
+   *  **THE RULE, because this is the third field it has decided: a DERIVED FIELD
+   *  IS NOT A WIRE FACT.** If a member of the bag is a total function of other
+   *  members, it does not cross — the wire carries the INPUTS and this end runs
+   *  the fold. Two members qualify today:
    *
-   *  MOTION AND `shellLive` ARE NOT WIRE FACTS and are not accepted as ones.
-   *  Both are total functions of the bag's own members — `pipMotionKind` and
-   *  `pipShellLive`, the same folds kolu's producer runs — so a bag carrying
-   *  them admits combinations that cannot arise (`spin` beside
-   *  `active: false`; `shellLive: true` beside `variant: "working"`), each
-   *  field honest alone and lying jointly. Transporting either would also be
-   *  the wrong answer on the merits, because both have to agree with the
-   *  variant THIS build will paint, which after narrowing may not be the one
-   *  the wire named. So both are recomputed, always.
+   *    · `motion` — `pipMotionKind({ variant, active })`;
+   *    · `shellLive` — `pipShellLive({ variant, hasAgent, bytesLive })`, whose
+   *      one input the bag does not itself carry is `hasAgent`, so THAT crosses
+   *      instead. Send the input, not the answer.
    *
-   *  In detail, for motion: it is a total
-   *  function of `variant` and `active` — `pipMotionKind`, the same fold kolu's
-   *  own producer runs — so a bag carrying all three admits a combination that
-   *  cannot arise: a `spin` beside `active: false`, three fields each honest
-   *  alone and lying jointly. Transporting it would also be the wrong answer on
-   *  the merits, because the motion has to agree with the variant THIS build
-   *  will paint, which after narrowing may not be the one the wire named. So it
-   *  is recomputed, always, and the illegal combination is unspellable rather
-   *  than merely unlikely. */
+   *  Two reasons, and the second is the one that makes it a rule rather than a
+   *  tidy-up. **A carried derived field admits combinations no producer can
+   *  generate** — `spin` beside `active: false`, `shellLive: true` beside
+   *  `variant: "working"` — each field honest alone and lying jointly, which is
+   *  the shape a per-field review cannot see. **And a carried one would have to
+   *  agree with the variant THIS build paints**, which after narrowing may not
+   *  be the variant the wire named: an unrecognised `variant` falls back to
+   *  `idle`, and a transported `motion` computed against the word the wire sent
+   *  would then contradict the mark actually drawn. Recomputing is not a
+   *  belt-and-braces check on the wire's answer; it is the only answer that can
+   *  be right.
+   *
+   *  A fourth field arriving is decided by the rule, not by a third argument. */
   pip: Omit<StatePipBind, "variant" | "glyph" | "motion" | "shellLive"> & {
     variant: string;
     glyph: string;
