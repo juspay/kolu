@@ -16,13 +16,31 @@
  * package root that sits at `packages/surface<something>` — and a new surface
  * package joins both gates BY EXISTING.
  *
- * `@kolu/padi-client` and `@kolu/solid-dockrow` are DECLARED, and they are the
- * only things here that are, because they are genuinely irreducible: both are
- * facts about olai, which dials a running padi from its server and never
- * installs one (juspay/kolu#2216), and renders kolu's Dock terminal row rather
- * than inventing its own status UI. Nothing in this tree says either package is
- * vendored — no directory name, no manifest field — so there is no in-tree
- * source to derive them from.
+ * The rest are DECLARED, and declaration here is not a derivation nobody got
+ * around to writing: it is what a fact about ANOTHER repo looks like from inside
+ * this one. Nothing in this tree says `@kolu/detect` is vendored — not its
+ * directory name, not a manifest field — because the fact is "olai imports it",
+ * and olai is not in this tree. The `@kolu/surface*` half above is derived for
+ * exactly the mirror reason: there the fact IS in the tree, and a ninth surface
+ * package joins by existing.
+ *
+ *   - `@kolu/padi-client` — olai dials a running padi from its server and never
+ *     installs one (juspay/kolu#2216).
+ *   - `@kolu/solid-dockrow` — olai renders kolu's Dock terminal row rather than
+ *     inventing its own status UI (juspay/kolu#2217).
+ *   - `@kolu/detect` — "is there a usable kolu on this host", the probe olai
+ *     spawns before it offers the terminal door at all. Its closure is itself
+ *     alone: the manifest declares no runtime dependency.
+ *   - `terminal-themes` — a padi record carries the `themeName` its terminal was
+ *     created with, so a consumer's live pane paints that terminal with kolu's
+ *     own catalog instead of xterm's washed-out default. It costs exactly one
+ *     more member, `nonempty`, which `@kolu/padi-client`'s closure already
+ *     brought.
+ *
+ * The COUNT is not the structure. A fifth would not change what this file is:
+ * the split is by where the fact lives, not by how many facts there are. What
+ * would change it is a declared entry becoming derivable — and none of these can
+ * be, because the deriving evidence lives in a repo kolu does not contain.
  */
 
 import { readFileSync } from "node:fs";
@@ -52,9 +70,11 @@ export function vendorEntries(repoRoot: string): string[] {
     ).name;
     if (name !== undefined) names.push(name);
   }
-  // olai's two, the only entries with no in-tree source — see the header.
+  // The declared entries — the ones with no in-tree source. See the header.
   names.push("@kolu/padi-client");
   names.push("@kolu/solid-dockrow");
+  names.push("@kolu/detect");
+  names.push("terminal-themes");
   return names.sort();
 }
 
