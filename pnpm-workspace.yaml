@@ -42,10 +42,10 @@ packages:
 #   1. this catalog, 2. `pnpm.overrides` in package.json,
 #   3. every literal spec — `grep -rl '"effect": "4' packages/*/package.json packages/integrations/*/package.json`
 catalog:
-  effect: 4.0.0-rc.110
-  "@effect/platform-node": 4.0.0-rc.110
-  "@effect/platform-browser": 4.0.0-rc.110
-  "@effect/vitest": 4.0.0-rc.110
+  effect: 4.0.0-rc.112
+  "@effect/platform-node": 4.0.0-rc.112
+  "@effect/platform-browser": 4.0.0-rc.112
+  "@effect/vitest": 4.0.0-rc.112
 
 # @pierre/trees and @pierre/diffs declare react/react-dom as peer deps but only
 # need them for their /react entry points. Kolu consumes the vanilla classes

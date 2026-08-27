@@ -57,13 +57,18 @@ import { Effect, Schema } from "effect";
 /** A milliseconds field: a positive integer inside the shared `setTimeout`
  *  ceiling, carrying the blurb an MCP host renders.
  *
- *  ANNOTATE FIRST, CHECK SECOND — `SchemaAST.annotate` attaches to a schema's
- *  LAST CHECK when it has one, and a check's annotations are emitted inside an
- *  `allOf` branch where no host reads a property description (`Schema.Int` is
- *  itself `Schema.Number.check(isInt())`, so it is already "checked"). Adding
- *  `isInt` as a check instead keeps the blurb on the node AND still advertises
- *  the field as an integer rather than as bare `Schema.Number`, whose encoded
- *  form admits the strings `"NaN"`/`"Infinity"` (D8/#14 divergence 2). Pinned
+ *  `isInt()` is load-bearing, not decoration. Bare `Schema.Number`'s ENCODED
+ *  form is the Infinity/NaN-tolerant union (`jsonSchemaBridge.ts` divergence
+ *  2), and a `description` or a bound placed on the decoded number never
+ *  reaches it — the bridge collapses the union to a naked `{"type":"number"}`
+ *  with no blurb and no bounds, whichever order they were written in.
+ *  `isInt()` is what puts the field on a representable `integer` node, which
+ *  is the only node the blurb and `exclusiveMinimum`/`maximum` can ride on.
+ *
+ *  There used to be a second rule here — ANNOTATE FIRST, CHECK SECOND — because
+ *  up to effect rc.110 an annotation on an already-checked schema was emitted
+ *  inside an `allOf` branch no host reads. rc.111 compacts a check onto the
+ *  node it constrains, so the order no longer matters. Both halves are pinned
  *  in `argSchemas.test.ts`. */
 export const MillisecondsSchema = (description: string) =>
   Schema.Number.annotate({ description }).check(
@@ -86,7 +91,6 @@ const TimeoutMsSchema = Schema.optionalKey(
  *  says both "yes, capture" and "this much", so there is no way to ask for a
  *  screen and forget to bound it. */
 const ScreenTailSchema = Schema.optionalKey(
-  // Annotate first, check second — see `MillisecondsSchema` above.
   Schema.Number.annotate({
     description:
       "Also return the terminal's last N rendered lines on the met, read INSIDE this wait — so no second screen_text call can race the terminal between the signal and the read.",
@@ -193,7 +197,6 @@ export const waitOutputSettledTool: BespokeTool = {
 
 export const WaitAgentStateArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
-  // Annotate first, check second — see `MillisecondsSchema` above.
   until: Schema.Array(Schema.Literals(WAIT_STATES))
     .annotate({
       description:

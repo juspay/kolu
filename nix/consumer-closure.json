@@ -96,7 +96,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "4.0.0-rc.110"
+        "effect": "4.0.0-rc.112"
       }
     },
     "@kolu/port-forward": {
@@ -212,11 +212,11 @@
         "@kolu/log"
       ],
       "external": {
-        "@effect/platform-browser": "4.0.0-rc.110",
-        "@effect/platform-node": "4.0.0-rc.110",
+        "@effect/platform-browser": "4.0.0-rc.112",
+        "@effect/platform-node": "4.0.0-rc.112",
         "@solid-primitives/rootless": "^1.5.3",
         "@solid-primitives/scheduled": "^1.5.3",
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "solid-js": "^1.9.0"
       }
     },
@@ -228,9 +228,9 @@
         "@kolu/url-shape"
       ],
       "external": {
-        "@effect/platform-browser": "4.0.0-rc.110",
-        "@effect/platform-node": "4.0.0-rc.110",
-        "effect": "4.0.0-rc.110",
+        "@effect/platform-browser": "4.0.0-rc.112",
+        "@effect/platform-node": "4.0.0-rc.112",
+        "effect": "4.0.0-rc.112",
         "solid-js": "^1.9.0",
         "ws": "^8.21.0"
       }
@@ -255,7 +255,7 @@
         "@kolu/surface"
       ],
       "external": {
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -267,8 +267,8 @@
         "@kolu/surface"
       ],
       "external": {
-        "@effect/platform-node": "4.0.0-rc.110",
-        "effect": "4.0.0-rc.110",
+        "@effect/platform-node": "4.0.0-rc.112",
+        "effect": "4.0.0-rc.112",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -281,8 +281,8 @@
         "osfacts-client"
       ],
       "external": {
-        "@effect/platform-node": "4.0.0-rc.110",
-        "effect": "4.0.0-rc.110",
+        "@effect/platform-node": "4.0.0-rc.112",
+        "effect": "4.0.0-rc.112",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -392,7 +392,7 @@
       "external": {
         "@solid-primitives/keyed": "^1.5.3",
         "dequal": "^2.0.3",
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "solid-js": "^1.9.0",
         "ts-pattern": "^5.9.0"
       }
@@ -405,7 +405,7 @@
       ],
       "external": {
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -419,8 +419,8 @@
         "@kolu/surface-map"
       ],
       "external": {
-        "@effect/platform-node": "4.0.0-rc.110",
-        "effect": "4.0.0-rc.110",
+        "@effect/platform-node": "4.0.0-rc.112",
+        "effect": "4.0.0-rc.112",
         "neverthrow": "^8.2.0",
         "quick-lru": "^7.3.0",
         "split2": "^4.2.0",
@@ -447,7 +447,7 @@
         "kolu-pi"
       ],
       "external": {
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -491,7 +491,7 @@
         "nonempty"
       ],
       "external": {
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "string-argv": "^0.3.2"
       }
     },
@@ -502,7 +502,7 @@
         "@kolu/log"
       ],
       "external": {
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -555,7 +555,7 @@
       ],
       "external": {
         "@anthropic-ai/claude-agent-sdk": "^0.2.96",
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -645,7 +645,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -685,7 +685,7 @@
       ],
       "external": {
         "@parcel/watcher": "^2.5.1",
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "p-limit": "^7.3.1",
         "simple-git": "^3.36.0"
       }
@@ -698,7 +698,7 @@
         "kolu-shared"
       ],
       "external": {
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -712,7 +712,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "4.0.0-rc.110"
+        "effect": "4.0.0-rc.112"
       }
     },
     "kolu-io": {
@@ -750,7 +750,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -764,7 +764,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.112",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -834,7 +834,7 @@
         "@kolu/log"
       ],
       "external": {
-        "effect": "4.0.0-rc.110"
+        "effect": "4.0.0-rc.112"
       }
     },
     "kolu-transcript-html": {
@@ -865,13 +865,13 @@
       "dir": "osfacts-client",
       "pin": {
         "name": "osfacts",
-        "revision": "72a794c2527d450d55ef14ae7015056ebabe31b3",
+        "revision": "24d3e87a0ae7a6c4fa752c94ed01a7911590de68",
         "subdir": "client-ts"
       },
       "vendored": true,
       "workspace": [],
       "external": {
-        "effect": "4.0.0-rc.110"
+        "effect": "4.0.0-rc.112"
       }
     },
     "padi-tui": {

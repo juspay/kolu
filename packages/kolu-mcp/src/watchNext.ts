@@ -44,8 +44,9 @@
 // invocation, so the watcher's mirror/socket closure may only load at call time.
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import {
+  NonNegativeInt,
   type PadiWatchEvent,
-  WATCH_NAME_MAX_LENGTH,
+  WatchNameSchema,
 } from "@kolu/padi-client/surface";
 import { waitOutcomeJson } from "@kolu/surface/wait";
 import type { BespokeTool } from "@kolu/surface-mcp/tools";
@@ -53,26 +54,25 @@ import { Effect, Schema } from "effect";
 import { MillisecondsSchema } from "./wait.ts";
 
 export const WatchNextArgsSchema = Schema.Struct({
-  // ANNOTATE FIRST, CHECK SECOND — the trap `wait.ts`'s `MillisecondsSchema`
-  // documents and `argSchemas.test.ts` pins: annotating an ALREADY-checked schema
-  // attaches the blurb to its last check, which is emitted inside an `allOf`
-  // branch no MCP host reads. That is why these spell their own schema over the
-  // wire's exported BOUND rather than reusing padi's checked `WatchNameSchema` /
-  // `NonNegativeInt` objects — the number is shared, the annotation order is the
-  // face's own requirement.
-  name: Schema.String.annotate({
+  // Padi's OWN checked schemas, annotated — not a re-derivation over an
+  // exported bound. This face used to spell `string ∧ ≥1 ∧ ≤MAX` and
+  // `integer ∧ ≥0` itself because an annotation on an already-checked schema
+  // landed in an `allOf` branch no MCP host reads; effect rc.111 compacts a
+  // check onto the node it constrains, so the blurb and the bounds now arrive
+  // together and the wire's rule can be reused whole.
+  name: WatchNameSchema.annotate({
     description:
       "The subscription name you passed to watch_open. Reuse the SAME name across restarts — it reattaches to the existing queue.",
-  }).check(Schema.isMinLength(1), Schema.isMaxLength(WATCH_NAME_MAX_LENGTH)),
+  }),
   after: Schema.optionalKey(
-    Schema.Number.annotate({
+    NonNegativeInt.annotate({
       description:
         "The `ackAfter` value from the last batch you actually PROCESSED — your acknowledgement. Omit on your first call, then pass back the `ackAfter` each result gives you. Until you acknowledge, those events stay queued and come again: that is what makes a reply lost in flight (a timeout, an interruption) cost a repeat rather than a lost report. Do NOT carry one across a kolu restart — padi says so and ignores it, but a fresh watch_open deserves a fresh cursor.",
-    }).check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+    }),
   ),
-  // The SHARED milliseconds field — same annotate-then-check ordering trap
-  // `wait.ts` documents and `argSchemas.test.ts` pins. Re-deriving it here would
-  // have left this the one arg schema in the package doing that dance unpinned.
+  // The SHARED milliseconds field `wait.ts` declares and `argSchemas.test.ts`
+  // pins. Re-deriving it here would have left this the one arg schema in the
+  // package holding its own opinion about the setTimeout ceiling.
   timeoutMs: Schema.optionalKey(
     MillisecondsSchema(
       'Give up after this many milliseconds (result: "timeout") and return so you can do other work. Queued events are NOT lost by a timeout — the next call still gets them. Omit to wait indefinitely (the MCP host\'s own request timeout still applies).',
