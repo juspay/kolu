@@ -95,7 +95,7 @@ export interface TerminalAttachment {
    *  which passes no `resizeTo` and so otherwise never learns what size it
    *  received. Undefined only from an older kaval that predates the field
    *  (fail-open — a consumer sizes as it did before). */
-  grid?: { cols: number; rows: number };
+  grid?: EndpointGrid;
   /** Live output deltas after the snapshot. Ends on iterator return,
    *  signal abort, or PTY exit. Each re-attach frame (after an overflow drop)
    *  carries its own fresh `topLine`, so a mid-stream re-seed stays anchored. */
@@ -127,7 +127,7 @@ export type TerminalAttachFrame =
        *  predating the additive add (fail-open: a consumer sizes as it did
        *  before). Its reason for existing is the OBSERVE-ONLY attach — one that
        *  passes no `resizeTo` and so never learns what size it received. */
-      grid?: { cols: number; rows: number };
+      grid?: EndpointGrid;
     };
 
 /** One older-scrollback reply for the client's in-place backfill — the padi

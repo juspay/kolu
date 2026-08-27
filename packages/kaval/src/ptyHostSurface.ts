@@ -669,7 +669,7 @@ const TerminalDataMsgSchema = Schema.Union([
     // 5.1 daemon that omits it leaves the client fail-open (no epoch → no gate,
     // the historical single-width behavior), no skew refusal.
     reflowEpoch: Schema.optionalKey(NonNegativeInt),
-    // `grid` (contract 5.3 · additive · optional) — the cols×rows this snapshot
+    // `grid` (contract 5.4 · additive · optional) — the cols×rows this snapshot
     // was SERIALIZED at. The same kind of fact as `topLine` and `reflowEpoch`,
     // riding on the same frame as the bytes it describes so it can never drift
     // from the snapshot a client actually received.

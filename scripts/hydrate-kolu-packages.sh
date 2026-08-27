@@ -42,6 +42,12 @@ while [ $# -gt 0 ]; do
   fi
   mkdir -p "node_modules/$(dirname "$dest")"
   if [ -d "node_modules/$dest" ]; then
+    # Best-effort, and the ONE swallowed error in this script: a previous hydrate
+    # left /nix/store-mode (read-only) files behind, and this makes them
+    # removable. A failure here is not fatal because the `rm -rf` below is the
+    # step that actually has to succeed — and it will report its own failure. We
+    # do not want a stale-permissions warning to abort an install that is about
+    # to delete the directory anyway.
     chmod -R u+w "node_modules/$dest" 2>/dev/null || true
   fi
   rm -rf "node_modules/$dest"

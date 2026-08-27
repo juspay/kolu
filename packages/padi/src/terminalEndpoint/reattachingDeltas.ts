@@ -31,7 +31,11 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PtyHostDataMsg } from "kaval";
 import { PtyNotFound } from "kaval";
 import { abortableDelay } from "../abortableDelay.ts";
-import { TERMINAL_RESET, type TerminalAttachFrame } from "../endpoint.ts";
+import {
+  type EndpointGrid,
+  TERMINAL_RESET,
+  type TerminalAttachFrame,
+} from "../endpoint.ts";
 import { log } from "../log.ts";
 
 /** RIS (`ESC c`) — a full terminal reset. Re-exported from the frame-type barrel
@@ -155,7 +159,7 @@ export interface OpenedAttach {
    *  frame so a consumer that never asserts a size still knows what shape the
    *  screen it just received is. Undefined from a kaval predating the field
    *  (fail-open). */
-  grid?: { cols: number; rows: number };
+  grid?: EndpointGrid;
   iter: AsyncIterator<PtyHostDataMsg>;
 }
 

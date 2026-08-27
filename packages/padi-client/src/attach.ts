@@ -45,6 +45,12 @@
  *     you asked at and a foreign resize is visible; see {@link snapshotGridMoved}.
  *     Do not read `snapshotAnswersGrid` as an answer to it.
  *
+ *     kolu CONSUMES that — `client/src/terminal/Terminal.tsx` refuses a frame
+ *     whose served grid moved, in the same recoverable channel as a locally
+ *     stale one. Stated because shipping the detector and not wiring it would
+ *     have left this header claiming a gap was closed while the app still
+ *     painted the corruption.
+ *
  *  3. **A clean end does not mean the PTY exited.** Treat completion as a
  *     recoverable re-attach unless your own facts about the terminal agree it is
  *     gone; kolu budgets the re-attaches so a genuinely-dead terminal still

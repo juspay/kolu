@@ -30,7 +30,12 @@ import "@xterm/xterm/css/xterm.css";
 import { TERMINAL_RESET } from "@kolu/padi/endpoint";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi-client/upload";
 import { activeArm } from "@kolu/padi-client/surface";
-import { isSnapshotFrame, snapshotAnswersGrid } from "@kolu/padi-client/attach";
+import {
+  isSnapshotFrame,
+  snapshotAnswersGrid,
+  snapshotGrid,
+  snapshotGridMoved,
+} from "@kolu/padi-client/attach";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { toError } from "@kolu/surface/run-stream";
 import {
@@ -784,6 +789,29 @@ const Terminal: Component<{
               terminalId: props.terminalId,
               requested: requestedGrid,
               current: h.grid(),
+            });
+          }
+          // THE FOREIGN RESIZE — the case the check above structurally cannot
+          // see, and the reason contract 5.5 put the SERVED grid on the frame.
+          //
+          // `answersCurrentGrid` compares two LOCAL measurements, so it is blind
+          // to another viewer asserting its own size: `resizeTo` is
+          // last-attach-wins on a shared pty, and our own attach asked at OUR
+          // grid, so asked === current and it waves the frame through. But the
+          // bytes came back serialized at the OTHER viewer's width, and painting
+          // them wraps scrollback at a width this pane never had — the same
+          // damage, from a cause the local check cannot detect.
+          //
+          // Same disposition, and deliberately so: refuse in the recoverable
+          // channel and let the loop reopen at the current grid. Two viewers
+          // then ping-pong the width, which is the multi-client contract's own
+          // stated outcome — "contention costs a repaint, never the attach
+          // loop" — bounded by the loop's backoff.
+          if (snapshotGridMoved(frame, requestedGrid)) {
+            return new StaleSnapshotGrid({
+              terminalId: props.terminalId,
+              requested: requestedGrid,
+              current: snapshotGrid(frame) ?? h.grid(),
             });
           }
           // A `snapshot` frame begins a fresh snapshot (initial attach or a
