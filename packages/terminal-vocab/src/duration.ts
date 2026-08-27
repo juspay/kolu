@@ -110,11 +110,15 @@ export function compactPhrase(ms: number): string {
  *
  *  This is the rendering `compactDelta`'s `sub` exists for, and it was spelled
  *  identically in two client formatters — the connect overlay's elapsed timer and
- *  the kaval daemon's uptime — which is one rule in two places. The only thing
- *  those two genuinely disagree about is the WORD for a delta that cannot be
- *  trusted, so that is the only thing they pass: the daemon says "unknown"
- *  because a daemon presence has a vocabulary for it, and everything else says
- *  the ladder's own dash. */
+ *  the kaval daemon's uptime — which is one rule in two places.
+ *
+ *  The only thing those two genuinely disagree about is the WORD for a delta
+ *  that cannot be trusted, and that substitution is made at the DISAGREEING CALL
+ *  SITE rather than taken as a parameter here: `formatUptime` says "unknown"
+ *  because a daemon presence has a vocabulary for it, exactly as `recencyText`
+ *  supplies the wait chip's dash. A defaulted word parameter would be a knob —
+ *  the second caller wanting a third word gets it free, and the vocabulary stops
+ *  being kolu's. Everything here gets the ladder's own dash. */
 export function dualPhrase(ms: number): string {
   const d = compactDelta(ms);
   if (d.kind === "unknown") return DASH;

@@ -31,6 +31,7 @@ export {
   type DockPaintBucket,
   type DockRowBucket,
   dockOverlayBucket,
+  hasAgentOf,
   FALLBACK_PIP_GLYPH,
   FALLBACK_PIP_VARIANT,
   FALLBACK_ORDER_BUCKET,

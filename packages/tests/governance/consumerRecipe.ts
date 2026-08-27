@@ -67,21 +67,49 @@ export function checkConsumerRecipeEvaluates(repoRoot: string): number {
   // holds the osfacts that `consumer-closure.json` was emitted against — which
   // is exactly the revision the recipe must agree with, so the check exercises
   // the agreeing case rather than a contrived one.
-  const bound = recipe
-    .replace("(import ../npins).kolu;", `${JSON.stringify(repoRoot)};`)
-    .replace("(import ../npins).osfacts;", "(import ./npins).osfacts;");
-  if (bound === recipe) {
-    throw new Error(
-      `${CONSUMER_RECIPE_DOC}'s recipe no longer binds its pins as ` +
-        `\`(import ../npins).kolu\` / \`(import ../npins).osfacts\`, so this check ` +
-        `could not point it at this repo. Update the substitution here to match ` +
-        `the doc — do not "fix" the doc to match this file.`,
-    );
+  // EACH rebind is checked, not the pair: a doc that renames one of them would
+  // otherwise slip past a `bound === recipe` test and fail later on a nix path
+  // error, which names the wrong thing.
+  const rebinds: [string, string][] = [
+    ["(import ../npins).kolu;", `${JSON.stringify(repoRoot)};`],
+    ["(import ../npins).osfacts;", "(import ./npins).osfacts;"],
+  ];
+  let bound = recipe;
+  for (const [from, to] of rebinds) {
+    if (!bound.includes(from)) {
+      throw new Error(
+        `${CONSUMER_RECIPE_DOC}'s recipe no longer binds \`${from}\`, so this check ` +
+          `could not point it at this repo. Update the substitution here to match ` +
+          `the doc — do not "fix" the doc to match this file.`,
+      );
+    }
+    bound = bound.replace(from, to);
   }
 
+  // `.names` alone forces almost nothing. `pinnedProblems` checks `given ? src`
+  // — PRESENCE, not value — and forces only `given.revision`, so every error
+  // inside the `src` expression is invisible on that spine: a recipe reading
+  // `pins.osfacts-client.NOSUCHATTR` evaluated clean and this gate reported a
+  // healthy 28 members. That is the half the recipe ADDED — the `pins` read
+  // exists so a consumer takes kolu's answer for the subdir instead of
+  // hardcoding it — and a guard that cannot fail for the case it names is worse
+  // than none, which is the bar `consumer.nix` sets for itself two files over.
+  //
+  // So the pinned sources are forced too, through `drvPath`. That stays at EVAL
+  // — a derivation path is computed, nothing is realised — so the paragraph
+  // above about what this does not prove stays true.
+  //
+  // The parenthesis on `pkgs` is load-bearing and was wrong until the forcing
+  // exposed it: `import <path>/nix/nixpkgs.nix { … }` parses as
+  // `import(<path>)` applied to the absolute path `/nix/nixpkgs.nix`, which
+  // survived only because nothing forced `pkgs` either.
   const expr = `
-    let pkgs = import ${JSON.stringify(repoRoot)}/nix/nixpkgs.nix { system = builtins.currentSystem; };
-    in builtins.length (${bound}).names`;
+    let
+      pkgs = import (${JSON.stringify(repoRoot)} + "/nix/nixpkgs.nix") { system = builtins.currentSystem; };
+      recipe = ${bound};
+    in builtins.deepSeq
+      (builtins.map (p: p.drvPath) (builtins.attrValues recipe.packages))
+      (builtins.length recipe.names)`;
 
   try {
     const out = execFileSync(

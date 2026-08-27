@@ -132,11 +132,6 @@ let
     "@kolu/log" = ../packages/log;
     "@kolu/xterm-kit" = ../packages/xterm-kit;
   };
-  # Only members that are paths in THIS repo can ride a repo-rooted fileset; the
-  # pins are grafted into the build tree by `src` below instead. Split off
-  # `members` (not `rawMembers`) so building the source forces the doorstep
-  # assertions too — an example flake that only wants `src`/`pnpmDeps` still
-  # pays for a mis-keyed or wrongly-typed member at eval, not at runtime.
   # member → { name = <npins pin>; revision; subdir } for every pinned member.
   #
   # WHY A CONSUMER NEEDS IT. A pinned member is absent from the archive a
@@ -174,6 +169,11 @@ let
       })
     pinnedPins;
 
+  # Only members that are paths in THIS repo can ride a repo-rooted fileset; the
+  # pins are grafted into the build tree by `src` below instead. Split off
+  # `members` (not `rawMembers`) so building the source forces the doorstep
+  # assertions too — an example flake that only wants `src`/`pnpmDeps` still
+  # pays for a mis-keyed or wrongly-typed member at eval, not at runtime.
   treeMembers = removeAttrs members pinnedNames;
 
   fileset = lib.fileset.unions ([

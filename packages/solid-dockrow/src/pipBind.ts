@@ -205,6 +205,31 @@ export const FALLBACK_PIP_VARIANT: PipVariant = pipVariant(
   FALLBACK_PAINT_BUCKET,
 );
 
+/** Is an agent DRIVING this terminal right now?
+ *
+ *  One line, and it is exported for the reason every guard in this package is:
+ *  a fold with no door is a fold each caller re-spells. This one is
+ *  {@link pipShellLive}'s third input and the one member of the wire bag that a
+ *  producer must supply rather than derive from the bag — so without a name it
+ *  is derived by hand at every producer, and the neighbouring spellings are
+ *  wrong in ways nothing catches: `Boolean(meta.agent)` reads a field that is
+ *  not the live arm, and `activeAgent(meta)` is a different fold over a
+ *  different record. Either sends a `hasAgent` that disagrees with the
+ *  `variant` beside it, and the terminal paints busy-shell orange against what
+ *  its own bag says.
+ *
+ *  `activeArm(meta)?.agent` is the same read {@link pipGlyphFor} makes two lines
+ *  below and {@link bindStatePip} makes internally; all three now make it
+ *  through this. */
+export function hasAgentOf(meta: TerminalMetadata): boolean {
+  // `Boolean`, not `!== undefined`: the schema is `AgentInfo | null`, so a quiet
+  // shell carries an EXPLICIT null and `!== undefined` reads it as an agent —
+  // which paints a printing shell as agent-driven and silences the busy-shell
+  // orange. Caught here twice now, once per author; the comment is the third
+  // reader's warning.
+  return Boolean(activeArm(meta)?.agent);
+}
+
 /** Identity glyph for a row/title pip — live agent kind, else the persisted
  *  resume identity on a sleeping (or just-quit) terminal, else the shell
  *  prompt. One place every StatePip call site reads "who is driving this". */
@@ -296,7 +321,6 @@ export function bindStatePip(input: {
    *  it and this folds the class itself. */
   pipBucket?: DockRowBucket;
 }): StatePipBind {
-  const agent = activeArm(input.meta)?.agent;
   // Paint comes off the SAME attention value as motion, wash and every count —
   // never re-derived from the metadata.
   const bucket =
@@ -311,7 +335,7 @@ export function bindStatePip(input: {
   // paint via shellLive — not agent "Working".
   const shellLive = pipShellLive({
     variant,
-    hasAgent: Boolean(agent),
+    hasAgent: hasAgentOf(input.meta),
     bytesLive: input.attention.live,
   });
   return {

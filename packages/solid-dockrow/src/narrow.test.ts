@@ -15,6 +15,7 @@ import {
   PIP_MOTION_KINDS,
   PIP_VARIANTS,
 } from "@kolu/solid-statepip/pipVariant";
+import type { TerminalMetadata } from "@kolu/padi-client/vocab";
 import { describe, expect, it } from "vitest";
 import {
   DOCK_ROW_BUCKETS,
@@ -93,6 +94,22 @@ describe("narrowAgentState", () => {
     }
   });
 });
+
+/** A quiet shell — no agent driving it. `hasAgentOf` reads the live arm, so
+ *  what matters here is that no active agent is present. */
+function shellMeta(): TerminalMetadata {
+  return {
+    state: "active",
+    cwd: "/work/repo",
+    git: null,
+    location: { kind: "local" },
+    pr: { kind: "absent" },
+    agent: null,
+    foreground: null,
+    ports: { status: "unknown" },
+    lastActivityAt: 1,
+  } as unknown as TerminalMetadata;
+}
 
 describe("narrowRowVocab — the guards WITH their defaults", () => {
   /** A fully-known wire row. The typed facts are the ones that must pass through
@@ -227,7 +244,14 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
       alert: false,
       alertLabel: "unread alert",
     };
-    const sent = toWireRowVocab({ pip: bag, bucket: "idle", hasAgent: false });
+    // The producer hands the RECORD, not the answer — `hasAgent` is derived by
+    // the package that owns the read, so a producer cannot send one that
+    // disagrees with the variant beside it.
+    const sent = toWireRowVocab({
+      pip: bag,
+      bucket: "idle",
+      meta: shellMeta(),
+    });
     expect(sent.pip).not.toHaveProperty("motion");
     expect(sent.pip).not.toHaveProperty("shellLive");
     expect(sent.pip.hasAgent).toBe(false);

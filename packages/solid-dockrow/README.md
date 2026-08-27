@@ -179,9 +179,11 @@ one fact, and a `{ known: true, unrecognised: { variant: "zzz" } }` you could
 build by hand would be a lie the type let you tell.
 
 Each default is kolu's own answer, not a guess, and it is READ from kolu's own
-constants rather than re-typed — `FALLBACK_PIP_VARIANT`, `FALLBACK_PIP_GLYPH`
-and `FALLBACK_ROW_BUCKET` are the same values `paintDockRow`'s last line and
-`pipGlyphFor`'s terminal `else` return. An absent paint is the quiet `idle` body
+constants rather than re-typed — `FALLBACK_PIP_VARIANT` and `FALLBACK_PIP_GLYPH`
+are what `paintDockRow`'s last line and `pipGlyphFor`'s terminal `else` return,
+and `FALLBACK_ORDER_BUCKET` is the ORDER vocabulary's own answer — deliberately
+a separate constant from the paint one, which is the same paint/order
+distinction the nesting above exists to keep. An absent paint is the quiet `idle` body
 (never `empty`, which would swallow the identity glyph), an unknown driver is the
 `shell` prompt, and an unrecognised bucket ranks `idle`. Do not spell these
 yourself: a hand-written fallback is silent, and nothing downstream can then tell
@@ -194,13 +196,21 @@ so a wire carrying them can say `spin` beside `active: false` or `shellLive: tru
 beside `variant: "working"` — fields each honest alone and lying together. Both
 are recomputed here from the variant this build will actually PAINT, which after
 a fallback is not the one you sent. `shellLive` needs one input the bag does not
-carry, so the wire carries THAT instead:
+carry — whether an agent is DRIVING the terminal — so hand the producer the
+record and let the package read it:
 
 ```ts
-// producer, holding a bound bag
-const wire = toWireRowVocab({ pip, bucket, hasAgent: Boolean(agent) });
+// producer, holding a bound bag and the record it was bound from
+const wire = toWireRowVocab({ pip, bucket, meta });
 // → { pip: … & { hasAgent: boolean }, bucket: string }   // no motion, no shellLive
 ```
+
+The `meta`, not a `hasAgent` you computed: `hasAgentOf` owns that read
+(`activeArm(meta)?.agent`, the same arm `pipGlyphFor` reads), and the two
+neighbouring spellings are wrong in ways nothing catches — `Boolean(meta.agent)`
+reads a field that is not the live arm, and `activeAgent(meta)` is a different
+fold. Either sends a `hasAgent` that disagrees with the `variant` beside it, and
+the terminal paints busy-shell orange against what its own bag says.
 
 The type alone would not have been enough: excess-property checks do not fire
 through a variable, so a producer could have assigned a whole `StatePipBind` into

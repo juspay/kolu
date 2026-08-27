@@ -40,10 +40,12 @@
 
 import { isPipGlyphId, isPipVariant } from "@kolu/solid-statepip/pipVariant";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
+import type { TerminalMetadata } from "@kolu/padi-client/vocab";
 import {
   type DockRowBucket,
   FALLBACK_PIP_GLYPH,
   FALLBACK_PIP_VARIANT,
+  hasAgentOf,
   FALLBACK_ORDER_BUCKET,
   pipMotionKind,
   pipShellLive,
@@ -210,12 +212,19 @@ export type WireRowVocab = {
 export function toWireRowVocab(row: {
   pip: StatePipBind;
   bucket: DockRowBucket;
-  /** Whether an agent is driving the terminal — {@link WireRowVocab}'s own
-   *  `pip.hasAgent`, which the bound bag does not carry. */
-  hasAgent: boolean;
+  /** The record the pip was bound FROM — because `hasAgent` is the one wire
+   *  member the bag cannot yield, and asking a producer for the ANSWER put the
+   *  derivation back in the caller's hands, which is the shape this whole file
+   *  exists to end. {@link hasAgentOf} owns the read; a producer that spelled it
+   *  `Boolean(meta.agent)` sent a field disagreeing with the `variant` beside
+   *  it, and nothing anywhere would have said so. */
+  meta: TerminalMetadata;
 }): WireRowVocab {
   const { motion: _motion, shellLive: _shellLive, ...pip } = row.pip;
-  return { pip: { ...pip, hasAgent: row.hasAgent }, bucket: row.bucket };
+  return {
+    pip: { ...pip, hasAgent: hasAgentOf(row.meta) },
+    bucket: row.bucket,
+  };
 }
 
 /** Which wire word this build did not recognise. Three, not four: `motion` is
