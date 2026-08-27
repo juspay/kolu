@@ -41,9 +41,7 @@ export const SendInputArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
   // The per-field blurb an MCP host renders is the `description` ANNOTATION,
   // and it must sit on the encoded-side node INSIDE `optionalKey` for the
-  // converter to see it (`@kolu/surface-mcp`'s `jsonschema.ts` law). These two
-  // are CHECK-FREE, so a plain `.annotate` lands on the node; a CHECKED schema
-  // needs the annotate-first order `wait.ts`'s `MillisecondsSchema` explains.
+  // converter to see it (`@kolu/surface-mcp`'s `jsonschema.ts` law).
   text: Schema.optionalKey(
     Schema.String.annotate({
       description:

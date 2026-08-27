@@ -12,13 +12,13 @@
  *
  * There used to be a second rule, "ANNOTATE FIRST, CHECK SECOND".
  * `SchemaAST.annotate` attaches to a schema's LAST CHECK when it has one, and
- * effect@4.0.0-rc.110's converter emitted a check's annotations inside an
+ * rc.110's converter emitted a check's annotations inside an
  * `allOf` branch — legal JSON Schema that no MCP host reads as the property's
  * description. `Schema.Int` is itself `Schema.Number.check(isInt())`, so a bare
  * `Schema.Int.annotate({description})` lost the blurb, and every arg schema in
  * this package had to be spelled annotate-first by hand.
  *
- * effect@4.0.0-rc.111 COMPACTS check constraints onto the node they constrain
+ * rc.111 COMPACTS check constraints onto the node they constrain
  * whenever the keywords do not collide, so the trap is gone: the blurb reaches
  * the property node in either spelling, and so do the bounds — `exclusiveMinimum`,
  * `maximum`, `minLength`, `minItems`, `pattern`, `format`. That is a

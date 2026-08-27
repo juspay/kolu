@@ -908,8 +908,16 @@ export const PadiTerminalIdInputSchema = Schema.Struct({
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
 /** A whole non-negative count/index — the `z.number().int().nonnegative()` of
- *  this wire (line cursors, scrollback extents). */
-const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+ *  this wire (line cursors, scrollback extents).
+ *
+ *  Exported so a FACE can annotate it directly rather than re-spelling
+ *  `integer ∧ ≥ 0` over the bound: since effect rc.111 a check's constraints
+ *  and annotations compact onto the node they constrain, so
+ *  `NonNegativeInt.annotate({description})` puts the blurb and the `minimum`
+ *  on the property node an MCP host renders. */
+export const NonNegativeInt = Schema.Int.check(
+  Schema.isGreaterThanOrEqualTo(0),
+);
 
 /** A terminal grid — cols AND rows, together or not at all. The ONE grid rule
  *  on this surface: every member carrying a grid reuses it, so tightening the
@@ -1191,11 +1199,9 @@ export { WATCH_DEFAULT_STATES };
 /** The three knobs, declared ONCE and spread into both faces' inputs, so a CLI
  *  flag and an MCP param cannot mean different things.
  *
- *  ANNOTATE FIRST, CHECK SECOND on every field — `watch.open` is exposed to MCP
- *  as a RAW procedure, so these annotations are the only blurb an agent ever
- *  sees for them, and annotating an already-checked schema buries the text in an
- *  `allOf` branch no host reads (the trap `kolu-mcp`'s `MillisecondsSchema`
- *  documents). */
+ *  Every field carries a blurb because `watch.open` is exposed to MCP as a RAW
+ *  procedure: these annotations are the only description an agent ever sees for
+ *  them. */
 export const PadiWatchFilterFields = {
   states: Schema.optionalKey(
     Schema.Array(WatchStateSchema)
@@ -1308,17 +1314,23 @@ export const PadiWatchEventSchema = Schema.Union([
 ]);
 export type PadiWatchEvent = typeof PadiWatchEventSchema.Type;
 
-/** A subscription NAME — caller-chosen and stable across restarts, which is the
- *  point: re-opening the same name after the agent, the MCP process, or kaval
- *  restarted reattaches to the same queue instead of minting an empty one. */
-/** The cap on a subscription name. Exported as the BOUND rather than as the
- *  checked schema: an MCP arg schema must annotate BEFORE it checks (or the
- *  blurb is buried in an `allOf` branch no host reads — see `kolu-mcp`'s
- *  `MillisecondsSchema`), so a face reuses this NUMBER and spells its own
- *  annotate-first schema over it. */
+/** The cap on a subscription name. */
 export const WATCH_NAME_MAX_LENGTH = 128;
 
-const WatchNameSchema = Schema.String.check(
+/** A subscription NAME — caller-chosen and stable across restarts, which is the
+ *  point: re-opening the same name after the agent, the MCP process, or kaval
+ *  restarted reattaches to the same queue instead of minting an empty one.
+ *
+ *  Exported as the CHECKED SCHEMA, which is what a face should reuse. It used
+ *  to be private, with only {@link WATCH_NAME_MAX_LENGTH} exported, because an
+ *  MCP arg schema had to annotate before it checked — up to effect rc.110 an
+ *  annotation on a checked schema landed inside an `allOf` branch no host
+ *  reads. rc.111 compacts a check onto the node it constrains, so
+ *  `WatchNameSchema.annotate({description})` now emits the blurb, the
+ *  `minLength` and the `maxLength` together on the property node. Reusing this
+ *  object is the spelling; re-deriving `string ∧ ≥1 ∧ ≤MAX` per face is how
+ *  one decision became several. */
+export const WatchNameSchema = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(WATCH_NAME_MAX_LENGTH),
 );
@@ -1333,7 +1345,15 @@ export const WATCH_FILTER_KEYS = Object.keys(
 ) as readonly (keyof typeof PadiWatchFilterFields)[];
 
 export const PadiWatchOpenInputSchema = Schema.Struct({
-  name: WatchNameSchema,
+  // `watch.open` is a RAW MCP procedure, so this annotation is the only thing
+  // that tells an agent the name is ITS choice and that reusing it is the
+  // point. It had no blurb at all until effect rc.111: `WatchNameSchema` is
+  // already checked, and rc.110 buried an annotation on a checked schema in an
+  // `allOf` branch, so the sentence would have been written and never rendered.
+  name: WatchNameSchema.annotate({
+    description:
+      "A name YOU choose for this subscription. Reuse the SAME name across restarts — re-opening an existing name reattaches to its queue with your place kept, instead of minting an empty one.",
+  }),
   /** Terminals to watch. OMIT to watch every terminal on the host — the
    *  restart-proof choice, since it names no id that a respawn could invalidate.
    *  An empty array is REFUSED at the SCHEMA rather than treated as "all": a
@@ -1506,30 +1526,20 @@ export const PadiScreenTextInputSchema = Schema.Struct({
 export const SCREEN_IMAGE_MAX_ROWS = 200;
 
 /** What a legal `lines` is: a whole count of rows, at least one, at most
- *  {@link SCREEN_IMAGE_MAX_ROWS} — as CHECKS, so a face can spread them onto
- *  its own base node.
+ *  {@link SCREEN_IMAGE_MAX_ROWS}.
  *
- *  Exported in this shape rather than as a finished schema because the MCP
- *  face must annotate a check-FREE base and add every check after (an
- *  annotation lands on the last check otherwise, where no host looks for a
- *  property description — `screenText.ts` states that law at length). Sharing
- *  the rule and honouring the law are both possible; sharing only the constant
- *  and re-spelling `integer ∧ > 0 ∧ ≤ MAX` per face is what left three copies
- *  of one decision. */
-export const SCREEN_IMAGE_LINES_CHECKS = [
+ *  ONE spelling, reused by every face. This was a bare CHECK ARRAY plus a
+ *  module-private schema built from it, because an MCP face had to spread the
+ *  checks onto its own annotated base — up to effect rc.110 an annotation on
+ *  an already-checked schema landed in an `allOf` branch no host reads. rc.111
+ *  compacts a check onto the node it constrains, so
+ *  `ScreenImageLinesSchema.annotate({description})` emits the blurb,
+ *  `exclusiveMinimum` and `maximum` together on the property node, and the
+ *  array-plus-schema pair collapses back to the schema. */
+export const ScreenImageLinesSchema = Schema.Number.check(
   Schema.isInt(),
   Schema.isGreaterThan(0),
   Schema.isLessThanOrEqualTo(SCREEN_IMAGE_MAX_ROWS),
-] as const;
-
-/** The same rule as a ready-made schema, for a face with nothing to annotate —
- *  which today is only this module's own `screen.image` input. Module-private
- *  rather than exported: a face that has something to annotate must spread
- *  {@link SCREEN_IMAGE_LINES_CHECKS} onto its own base node instead (the
- *  annotate-first law `screenText.ts` states at length), so an export here
- *  would be an invitation to get that wrong. */
-const ScreenImageLinesSchema = Schema.Number.check(
-  ...SCREEN_IMAGE_LINES_CHECKS,
 );
 
 /** The same rule for a face that parses FLAGS rather than schemas — the CLI's

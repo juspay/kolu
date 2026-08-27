@@ -689,13 +689,13 @@ export const DaemonLifetimeInfoSchema = Schema.Union([
 //
 // The anti-field spelling is `Schema.optionalKey(Schema.Never)` — the Effect
 // twin of zod's `z.never().optional()`. VERIFIED against
-// effect@4.0.0-rc.110, not assumed (review #11 asked for exactly this): a
+// effect@4.0.0-rc.112, not assumed (review #11 asked for exactly this): a
 // MISSING key decodes fine, and a PRESENT value — including an explicit
 // `undefined` — is REJECTED, which is what makes the field unspellable on the
 // arms that must not carry it. `vocabByteCompat.test.ts` pins both
 // directions per arm so the guard cannot rot into a no-op.
 //
-// BETA-ASSUMPTION(rc.110): `Schema.optionalKey(Schema.Never)` accepts a MISSING key and rejects any PRESENT value.
+// BETA-ASSUMPTION(rc.112): `Schema.optionalKey(Schema.Never)` accepts a MISSING key and rejects any PRESENT value.
 //   Both halves are decoder behavior, not type-level — a bump that accepts an
 //   explicit `undefined` makes the field spellable again and the arms stop
 //   being disjoint on the wire, with nothing in the types to say so.

@@ -1492,7 +1492,7 @@ Two consequences a member author owns:
 - `1009` must stay OUT of any `isTerminalClose` set — it is recoverable, and
   halting the retry schedule on it would strand the tab with no subscriptions.
 
-The close-on-exceed semantics carry a `BETA-ASSUMPTION(rc.110)` marker
+The close-on-exceed semantics carry a `BETA-ASSUMPTION(rc.112)` marker
 (governed by `packages/tests/governance/betaAssumptions.ts`), so an Effect bump
 must re-measure them before it can land.
 
