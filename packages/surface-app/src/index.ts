@@ -131,6 +131,32 @@ export const HASHED_NAMING = "[name]-[hash].[ext]";
 const escapeRe = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/** {@link HASHED_NAMING} READ BACKWARDS, as regex source — `[name]` bound to
+ *  `module`, `[hash]` to the bundler's opaque token, `[ext]` to the extension
+ *  asked for, and everything the template says LITERALLY (today the `-` and the
+ *  `.`) escaped so it matches itself.
+ *
+ *  This is what makes "the same rule read backwards" true instead of stated.
+ *  Spelling the separator and the field order a second time here — which is what
+ *  this did — left one string read forwards by `Bun.build` and a hand-written
+ *  copy read backwards, held together by a test pinning the template to a THIRD
+ *  literal. That test could not catch the drift it was written for: change this
+ *  pattern's separator and every assertion still passes, because the assertions
+ *  feed it names built to the pattern. There is one string now. */
+const namingSource = (module: string, ext: string): string =>
+  HASHED_NAMING.split(/(\[name\]|\[hash\]|\[ext\])/).reduce(
+    (source, part) =>
+      source +
+      (part === "[name]"
+        ? escapeRe(module)
+        : part === "[hash]"
+          ? "[^/]+"
+          : part === "[ext]"
+            ? escapeRe(ext)
+            : escapeRe(part)),
+    "",
+  );
+
 /**
  * What the split chunk for `module` is CALLED — anchored to the whole filename.
  *
@@ -155,20 +181,31 @@ const escapeRe = (value: string): string =>
  * discriminating work: `md-pipeline-…` does not match `pipeline`.
  *
  * @param module the split module's own name, without directory or extension.
+ * @param ext the extension asked for. `js` for a split chunk; the template
+ *   emits CSS and every other asset under the same rule, so a caller naming
+ *   `styles-657b883b.css` before the build has run asks here rather than
+ *   writing the fourth spelling.
  */
-export const chunkPattern = (module: string): RegExp =>
-  new RegExp(`^${escapeRe(module)}-[^/]+\\.js$`);
+export const chunkPattern = (module: string, ext = "js"): RegExp =>
+  new RegExp(`^${namingSource(module, ext)}$`);
 
 /**
  * …and the same rule as a URL under the hashed prefix — what a REQUEST for that
  * chunk looks like on the wire.
  *
- * Takes its prefix through {@link assertAssetPrefix}, so a prefix a build
- * refuses cannot be one a matcher accepts.
+ * The filename half is {@link chunkPattern}'s, through the same
+ * {@link namingSource}: the two differ by a prefix and nothing else, so spelling
+ * the body twice would be the drift this whole trio exists to close. Takes its
+ * prefix through {@link assertAssetPrefix}, so a prefix a build refuses cannot
+ * be one a matcher accepts.
  */
-export const chunkUrlPattern = (module: string, assetPrefix?: string): RegExp =>
+export const chunkUrlPattern = (
+  module: string,
+  assetPrefix?: string,
+  ext = "js",
+): RegExp =>
   new RegExp(
-    `^${escapeRe(assertAssetPrefix(assetPrefix))}${escapeRe(module)}-[^/]+\\.js$`,
+    `^${escapeRe(assertAssetPrefix(assetPrefix))}${namingSource(module, ext)}$`,
   );
 
 /** A `Content-Encoding` token this package will serve a build-time sibling for. */

@@ -633,14 +633,37 @@ describe("chunkPattern — the naming template, read backwards", () => {
     expect(() => chunkUrlPattern("pipeline", "/")).toThrow(/kolu#1319/);
   });
 
-  it("is the template it is read from, in both directions", () => {
-    // The pin that makes the single-sourcing real rather than stated: if
-    // someone changes the emitted shape, this fails here rather than going
-    // quiet in a consumer's route matcher.
-    expect(HASHED_NAMING).toBe("[name]-[hash].[ext]");
-    const [stem, rest] = HASHED_NAMING.split("-");
-    expect(stem).toBe("[name]");
-    expect(rest).toBe("[hash].[ext]");
-    expect(chunkPattern("main").test("main-1wde7jkp.js")).toBe(true);
+  it("names a hashed CSS chunk too — the template is not js-only", () => {
+    // `HASHED_NAMING`'s own docstring advertises `styles-657b883b.css` as an
+    // output it covers. A `\.js$` hardcoded here made "the same rule read
+    // backwards" a js-only specialisation, and a consumer naming a hashed
+    // stylesheet before the build had run wrote the fourth spelling.
+    expect(chunkPattern("styles", "css").test("styles-657b883b.css")).toBe(
+      true,
+    );
+    expect(chunkPattern("styles", "css").test("styles-657b883b.js")).toBe(
+      false,
+    );
+    expect(
+      chunkUrlPattern("styles", "/_olai/assets/", "css").test(
+        "/_olai/assets/styles-657b883b.css",
+      ),
+    ).toBe(true);
+  });
+
+  it("IS the template, rather than being pinned against a copy of it", () => {
+    // The single-sourcing, proved by construction: emit a name the way
+    // `Bun.build` emits one — by filling the template's own placeholders — and
+    // the pattern must match it. Change `HASHED_NAMING` and both sides move
+    // together, which is the property; the old assertion pinned the template to
+    // a THIRD literal and could not fail for the drift it was written for,
+    // because the names it fed the pattern were built to the pattern.
+    const emitted = HASHED_NAMING.replace("[name]", "main")
+      .replace("[hash]", "1wde7jkp")
+      .replace("[ext]", "js");
+    expect(chunkPattern("main").test(emitted)).toBe(true);
+    // …and it is a rule, not a wildcard: a name built to a DIFFERENT template
+    // (the separator moved) does not match.
+    expect(chunkPattern("main").test(emitted.replace("-", "."))).toBe(false);
   });
 });
