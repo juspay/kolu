@@ -7,6 +7,8 @@
   "sideEffects": false,
   "exports": {
     "./surface": "./src/surface.ts",
+    "./terminalId": "./src/terminalId.ts",
+    "./screenTail": "./src/screenTail.ts",
     "./attention": "./src/attention.ts",
     "./attach": "./src/attach.ts",
     "./vocab": "./src/vocab.ts",

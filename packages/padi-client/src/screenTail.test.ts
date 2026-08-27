@@ -1,6 +1,10 @@
-/** `tailLines` — the tail-mode slice, pinned apart from the wire. */
+/** `tailLines` — the tail-mode slice, pinned apart from the wire.
+ *
+ *  Moved here with the fold itself: a test that imported `@kolu/padi/render`
+ *  after the move would pin the RE-EXPORT and go quietly green if the leaf
+ *  drifted underneath it. */
 import { describe, expect, it } from "vitest";
-import { tailLines } from "./render.ts";
+import { tailLines } from "./screenTail.ts";
 
 describe("tailLines", () => {
   it("returns the last N lines", () => {

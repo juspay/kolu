@@ -49,6 +49,30 @@ import {
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import columnify from "columnify";
 
+// The prefix-resolution rule and the screen tail MOVED to `@kolu/padi-client` —
+// two zero-import leaves, because a client that turns a user's `7f3e` into an id,
+// or keeps the last N lines of a screen, should not have to install a PTY host to
+// do it. This module's manifest names `columnify`, `kaval` and `node-pty`; both
+// folds are pure string work that needs none of them, and both were being written
+// out again downstream for exactly that reason. `@kolu/padi-client`'s own README
+// named this as the move to make "the day one asks", and one asked.
+//
+// Re-exported HERE so every face's import specifier is unchanged — this is still
+// the door padi's CLI faces knock on, it is simply no longer where the folds live.
+//
+// `shortId`/`SHORT_ID_LEN` deliberately did NOT go with them. They read as the
+// resolver's other half (`list` prints a short id; any verb takes it back), and
+// padi's own README argues them across together — but no consumer asked, and there
+// is a THIRD copy of the 8-char rule in kolu's own browser package
+// (`right-panel/KavalAttachSection.tsx`). Publishing a one-truth entry while
+// leaving that copy behind would create the second source of truth this move
+// exists to end, so the pair stays here until it is collapsed as one act.
+export {
+  type ResolveResult,
+  resolveTerminalId,
+} from "@kolu/padi-client/terminalId";
+export { tailLines } from "@kolu/padi-client/screenTail";
+
 /** How many leading chars of a terminal id the human views show. v4 UUIDs
  *  collide with vanishing probability across the handful one runs; `--json`
  *  keeps the full id. */
@@ -157,38 +181,6 @@ function activeForeground(v: PadiTerminal): { name: string } | null {
   return v.state === "active" ? v.foreground : null;
 }
 
-/** The outcome of resolving a user-typed id-or-prefix against the live ids —
- *  pure, so the decision is unit-tested apart from the `fail()`/exit the CLI glue
- *  maps it to. Mirrors kaval-tui's `resolveTerminalId`. */
-export type ResolveResult =
-  | { kind: "found"; id: TerminalId }
-  | { kind: "none" }
-  | { kind: "ambiguous"; matches: TerminalId[] };
-
-/** Resolve a user-supplied id-or-prefix to a single full terminal id against the
- *  live `terminals` keys. A full id is a prefix of itself, so a pasted full id
- *  keeps resolving to itself. Matching is case-insensitive — UUIDs are lowercase
- *  hex, but a hand-typed/pasted upper-case prefix should still land. Zero matches
- *  → `none`; more than one → `ambiguous` with the full ids so the caller can ask
- *  for more chars. */
-export function resolveTerminalId(
-  query: string,
-  ids: readonly TerminalId[],
-): ResolveResult {
-  // An empty query is a prefix of EVERY id, so with one live terminal it would
-  // silently resolve to it — a wrong-terminal footgun when `$id` is accidentally
-  // empty. Reject it as a no-match so the caller fails loud instead.
-  if (query === "") return { kind: "none" };
-  const q = query.toLowerCase();
-  const exact = ids.find((id) => id.toLowerCase() === q);
-  if (exact !== undefined) return { kind: "found", id: exact };
-  const matches = ids.filter((id) => id.toLowerCase().startsWith(q));
-  const [first, ...rest] = matches;
-  if (first === undefined) return { kind: "none" };
-  if (rest.length > 0) return { kind: "ambiguous", matches };
-  return { kind: "found", id: first };
-}
-
 // `parseUntilStates` used to live here: the comma split, plus a `--until:`-
 // prefixed error string, inside a module that renders. `watch.ts`'s header states
 // the rule it broke — "the CLI-flag grammar (`--until`'s comma parse and its
@@ -198,29 +190,6 @@ export function resolveTerminalId(
 // name the three `--until` FORMS a CLI user needs. What padi owns is
 // `isWaitState` (`terminalVocab.ts`): whether a token is a bucket, and nothing
 // about commas.
-
-/** The last `tail` lines of a rendered screen, with the trailing run of
- *  whitespace-only rows dropped first.
- *
- *  A pure fold over `screen.text`'s output, and it lives beside padi's other
- *  formatters because the rule it encodes is about padi's REPLY: the rendered
- *  buffer ends in the empty viewport below the cursor, which carries zero
- *  information and would otherwise BE the tail (`tail: 6` on a fresh shell
- *  returned six blank lines — a real bug, caught on the MCP face). Blank lines
- *  BETWEEN content are kept verbatim.
- *
- *  It was `kolu-mcp/screenText`'s until `kolu snapshot --tail` became its second
- *  consumer and imported it from there — a CLI verb reaching sideways into a
- *  sibling FACE's adapter for domain knowledge, which also made `cli.ts`'s
- *  per-face fence claim false (a terminal verb was building an MCP argument
- *  schema at module load). Both faces now import it from the package that owns
- *  the reply it folds. */
-export function tailLines(text: string, tail: number): string {
-  const lines = text.split("\n");
-  let end = lines.length;
-  while (end > 0 && (lines[end - 1] as string).trim() === "") end -= 1;
-  return lines.slice(Math.max(0, end - tail), end).join("\n");
-}
 
 /** Strip terminal-hostile bytes from a human-rendered value. A shell can set its
  *  title / process name / branch to anything (newlines, raw ESC), so painting
