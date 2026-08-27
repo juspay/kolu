@@ -23,22 +23,13 @@
 
 import { NeedsYouCapsule } from "@kolu/solid-statepip";
 import { type Component, Match, Switch } from "solid-js";
+import type { RowRecency } from "./recency.ts";
 
-/** The cell's inputs as ONE value — the rendering, and the string computed FOR
- *  that rendering. Separately they are two props a call site can pair wrongly (a
- *  wait duration rendered into the `ago` slot reads as an age and is not one).
- *
- *  A DISCRIMINATED UNION, because `hidden` has no text and a `{ mode, text }`
- *  product made that combination spellable — the caller then had to invent a
- *  filler (`text: ""`) for a slot that means nothing. That is precisely the
- *  shape `recency.ts` argues against one file over: the two booleans it replaced
- *  were "a state machine spelled as flags, one of whose four combinations was
- *  unreachable and another duplicate". Re-opening it here would have been the
- *  same mistake one level up. */
-export type RowRecency =
-  | { mode: "hidden" }
-  | { mode: "ago"; text: string }
-  | { mode: "wait-chip"; text: string };
+/** The cell's inputs as ONE value. Declared in `./recency.ts` — the pure half,
+ *  where the fold that BUILDS it lives — and re-exported here because this is
+ *  the component that takes it; see that file's header for why a consumer
+ *  folding a row on a server must be able to name it without compiling JSX. */
+export type { RowRecency } from "./recency.ts";
 
 export const RecencyCell: Component<{
   recency: RowRecency;

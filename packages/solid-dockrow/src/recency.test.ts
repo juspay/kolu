@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { displayRecencyAt, recencyMode, recencyText } from "./recency.ts";
+import {
+  displayRecencyAt,
+  recencyMode,
+  recencyText,
+  rowRecency,
+} from "./recency.ts";
 
 describe("recencyMode", () => {
   it("a blocked row shows the wait chip even though its pip is active", () => {
@@ -67,5 +72,78 @@ describe("recencyText — the words, per rendering", () => {
     const ahead = now + 60_000;
     expect(recencyText("ago", ahead, now)).toBe("—");
     expect(recencyText("wait-chip", ahead, now)).toBe("—");
+  });
+});
+
+describe("rowRecency — the whole cell, and the three rules between the steps", () => {
+  const now = 10_000_000;
+  const MIN = 60_000;
+  // Two clocks that RECORD being read, so the pairing is asserted rather than
+  // assumed — the point of the fold is which arm reads which.
+  const clocks = () => {
+    const reads: string[] = [];
+    return {
+      reads,
+      tick: () => {
+        reads.push("tick");
+        return now;
+      },
+      stable: () => {
+        reads.push("stable");
+        return now;
+      },
+    };
+  };
+
+  it("gives `hidden` no text at all — the filler stays unspellable", () => {
+    const c = clocks();
+    const r = rowRecency({ asking: false, active: true }, now - MIN, null, c);
+    expect(r).toEqual({ mode: "hidden" });
+    // An active row is "just now" by definition, so nothing is read.
+    expect(c.reads).toEqual([]);
+  });
+
+  it("reads the TICKING clock for a wait chip, and the plain one for an age", () => {
+    const chip = clocks();
+    expect(
+      rowRecency(
+        { asking: true, active: true },
+        now - 9 * MIN,
+        now - MIN,
+        chip,
+      ),
+    ).toEqual({ mode: "wait-chip", text: "1m" });
+    expect(chip.reads).toEqual(["tick"]);
+
+    const ago = clocks();
+    expect(
+      rowRecency({ asking: false, active: false }, now - 9 * MIN, null, ago),
+    ).toEqual({ mode: "ago", text: "9m ago" });
+    expect(ago.reads).toEqual(["stable"]);
+  });
+
+  it("takes THIS row's own recency for the chip, the tile's window for the age", () => {
+    // The two-channel seam: a split's fresh activity keeps its parent visible,
+    // and must not shorten the parent's own blocked-on-you duration.
+    const c = clocks();
+    const chip = rowRecency(
+      { asking: true, active: true },
+      now - MIN, // the tile saw activity a minute ago…
+      now - 20 * 60 * MIN, // …but THIS agent has waited twenty hours.
+      c,
+    );
+    expect(chip).toEqual({ mode: "wait-chip", text: "20h" });
+  });
+
+  it("subscribes to NOTHING for a blocked row with no honest duration", () => {
+    // A never-active row has no duration to count, so the capsule shows the
+    // dash — and a row showing a dash must not repaint every second to redraw
+    // it. The clock choice is part of the fold precisely so this is not a rule
+    // each consumer has to know.
+    const c = clocks();
+    expect(
+      rowRecency({ asking: true, active: true }, now - MIN, null, c),
+    ).toEqual({ mode: "wait-chip", text: "—" });
+    expect(c.reads).toEqual(["stable"]);
   });
 });

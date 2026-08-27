@@ -86,3 +86,87 @@ export function recencyText(
   }
   return agoPhrase(at, now);
 }
+
+/** The recency cell's inputs as ONE value — the rendering, and the string
+ *  computed FOR that rendering. Separately they are two props a call site can
+ *  pair wrongly (a wait duration rendered into the `ago` slot reads as an age
+ *  and is not one).
+ *
+ *  A DISCRIMINATED UNION, because `hidden` has no text and a `{ mode, text }`
+ *  product made that combination spellable — the caller then had to invent a
+ *  filler (`text: ""`) for a slot that means nothing. That is the shape the top
+ *  of this file argues against: the two booleans `recencyMode` replaced were "a
+ *  state machine spelled as flags, one of whose four combinations was
+ *  unreachable and another duplicate". Re-opening it one level up would have
+ *  been the same mistake.
+ *
+ *  It lives HERE, in the pure half, and not beside the component that renders
+ *  it. A consumer folding a row on a server reaches `recencyText` through
+ *  `./rowValues` — the JSX-free entry — and then needed this TYPE to put the
+ *  answer anywhere, which meant importing from the barrel and compiling the
+ *  whole component graph to name a union of three strings. `RecencyCell`
+ *  re-exports it, so the rendering side reads unchanged. */
+export type RowRecency =
+  | { mode: "hidden" }
+  | { mode: "ago"; text: string }
+  | { mode: "wait-chip"; text: string };
+
+/** The two clocks a row's recency is read off.
+ *
+ *  Two, not one, and that is the whole reason this fold takes them instead of a
+ *  `now`: the wait chip's sub-minute seconds must COUNT UP, so it wants a
+ *  subscribing tick, while "3m ago" has a 60 s ceiling on its visual lag that
+ *  nobody can see, so it wants a plain read. Handing one `now` to both would
+ *  either freeze the chip or subscribe every quiet row to a per-second repaint.
+ *
+ *  Which arm gets which is not the consumer's to remember — that is the pairing
+ *  {@link rowRecency} exists to hold. What the consumer owns is the clocks
+ *  themselves, because a ticking `now` is ambient app state and its cadence is
+ *  the app's call. */
+export type RowClocks = {
+  /** A SUBSCRIBING read — kolu's 1 s tick. Called only for a wait chip that has
+   *  an honest duration to count. */
+  tick: () => number;
+  /** A plain read — kolu passes `Date.now`. Called for the `ago` arm, and for a
+   *  wait chip with nothing to count. */
+  stable: () => number;
+};
+
+/** A row's whole recency, from the pip and the two timestamps — mode, timestamp,
+ *  clock and words in one call.
+ *
+ *  This is the door. {@link recencyMode}, {@link displayRecencyAt} and
+ *  {@link recencyText} are the pieces it is composed FROM, and they stay
+ *  exported for a surface assembling a different set — but a consumer that
+ *  wants what the Dock row shows should ask for it here, because the four steps
+ *  have rules between them that a call site cannot see:
+ *
+ *    · `hidden` carries no text, and the union makes the filler unspellable —
+ *      which only helps if the branch that produces it is not re-written per
+ *      consumer;
+ *    · the wait chip means THIS row's own recency and `ago` means the tile's
+ *      window recency ({@link displayRecencyAt}) — pairing them the other way
+ *      lets a split's fresh activity shorten its parent's blocked-on-you
+ *      duration;
+ *    · and the chip gets the ticking clock while `ago` gets the plain one,
+ *      EXCEPT that a chip with no honest duration reads no clock at all, so a
+ *      never-active blocked row does not repaint every second to redraw the
+ *      same dash.
+ *
+ *  Three rules, all invisible at a call site, all previously re-derived by
+ *  whoever assembled the value. */
+export function rowRecency(
+  pip: { asking: boolean; active: boolean },
+  /** The tile's window recency — newest activity across parent and splits. */
+  windowRecencyAt: number | null,
+  /** THIS row's own agent recency — how long it has awaited you. */
+  ownRecencyAt: number | null,
+  clocks: RowClocks,
+): RowRecency {
+  const mode = recencyMode(pip);
+  if (mode === "hidden") return { mode };
+  const at = displayRecencyAt(mode, windowRecencyAt, ownRecencyAt);
+  const now =
+    mode === "wait-chip" && at !== null ? clocks.tick() : clocks.stable();
+  return { mode, text: recencyText(mode, at, now) };
+}

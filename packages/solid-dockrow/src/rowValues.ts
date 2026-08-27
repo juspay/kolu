@@ -44,6 +44,9 @@ export {
   type RecencyMode,
   recencyMode,
   recencyText,
+  type RowClocks,
+  rowRecency,
+  type RowRecency,
 } from "./recency.ts";
 export { type DockRowAttrs, dockRowAttrs } from "./rowAttrs.ts";
 export {

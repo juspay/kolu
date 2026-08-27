@@ -104,7 +104,7 @@ required prop and where its value comes from:
 | `label` | `annotationLine(intent, branchLabel)` — exported; do not re-derive |
 | `labelColor` | `identityColor(branchLabel)` — exported; do not re-derive |
 | `subline` | `dockRowFacts(meta).subline` server-side (see below). From a flat wire: `{ text: summary ?? narrowAgentState(raw).label, fromAgent: true }` — the `summary ?? label` rule is the row's, do not drop the summary |
-| `recency` | `{ mode }` when hidden, else `{ mode, text: recencyText(mode, at, now) }` — you own the clock, the package owns the words. A discriminated union: `hidden` has no `text`, and a `""` filler is not spellable |
+| `recency` | `rowRecency(pip, windowRecencyAt, ownRecencyAt, { tick, stable })` — ONE call. You own the two clocks; the package owns which rendering, which timestamp, which clock, and the words |
 | `pr` | `dockRowFacts(meta).pr`, or your own `PrInfo` |
 | `renderLabel` | your markdown renderer, or `(md) => md` |
 
@@ -216,19 +216,32 @@ renderings a row gets (`recencyMode`), which timestamp that rendering means
 reserved 8ch track.
 
 ```ts
-const mode = recencyMode(pip);
-if (mode === "hidden") return { mode };
-const at = displayRecencyAt(mode, windowRecencyAt, ownRecencyAt);
-return { mode, text: recencyText(mode, at, yourClock()) };
+rowRecency(pip, windowRecencyAt, ownRecencyAt, { tick, stable: Date.now })
+// → { mode: "hidden" } | { mode: "ago" | "wait-chip"; text: string }
 ```
 
-The words used to be yours, and the first consumer to spell them diverged in both
-modes at once — "7m" where the Dock says "5m ago", and the empty string where the
-wait chip must say the dash, because a violet pill with no glyph reads as a
-rendering bug rather than as "unknown". The two renderings answer a never-active
-row differently, on purpose, and that is a row rule rather than a formatting
-taste. `recencyText` does not accept `"hidden"`: that mode has no text, and a
-`""` filler is what the `RowRecency` union exists to make unspellable.
+Two clock READERS, and the package decides between them — because which arm gets
+which is not a preference, it is one of three rules that are invisible at a call
+site:
+
+1. `hidden` carries no text, and the union makes the filler unspellable — which
+   only helps if the branch producing it is not re-written per consumer.
+2. The wait chip means THIS row's own recency and `ago` means the tile's window
+   recency. Paired the other way, a split's fresh activity shortens its parent's
+   blocked-on-you duration.
+3. The chip reads the ticking clock and `ago` the plain one — EXCEPT that a chip
+   with no honest duration reads neither, so a never-active blocked row does not
+   repaint every second to redraw the same dash.
+
+The words used to be yours too, and the first consumer to spell them diverged in
+both modes at once: "7m" where the Dock says "5m ago", and the empty string where
+the wait chip must say the dash, because a violet pill with no glyph reads as a
+rendering bug rather than as "unknown".
+
+`recencyMode`, `displayRecencyAt` and `recencyText` remain exported — they are
+the pieces `rowRecency` is composed from, for a surface assembling a different
+set. `recencyText` does not accept `"hidden"`: that mode has no text, and the
+type says so rather than a comment.
 
 ## What a consumer needs
 
