@@ -11,6 +11,7 @@
     "./schema": "./src/schema.ts",
     "./ports": "./src/ports.ts",
     "./agentProjection": "./src/agentProjection.ts",
+    "./duration": "./src/duration.ts",
     "./attentionTransitions": "./src/attentionTransitions.ts",
     "./terminalKey": "./src/terminalKey.ts"
   },

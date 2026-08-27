@@ -43,6 +43,7 @@ export {
   displayRecencyAt,
   type RecencyMode,
   recencyMode,
+  recencyText,
 } from "./recency.ts";
 export { type DockRowAttrs, dockRowAttrs } from "./rowAttrs.ts";
 export {

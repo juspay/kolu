@@ -10,6 +10,7 @@
  *  on its own, which is what lets `toKavalPresence`'s transport-liveness floor be pinned
  *  by a unit test without standing up a socket. */
 
+import { compactDelta } from "@kolu/terminal-vocab/duration";
 import type {
   DaemonState,
   DaemonStatus,
@@ -17,7 +18,6 @@ import type {
 } from "@kolu/padi-client/surface";
 import { match, P } from "ts-pattern";
 import type { WsStatus } from "../rpc/rpc";
-import { compactDelta } from "../time/duration";
 
 /** A daemon state's coarse tone — the warming-up/up/down bucket every display
  *  site shares. `restarting` and `connecting` are both `warming` (transient,
