@@ -47,7 +47,12 @@ import {
   type StandInBun,
 } from "./bunRuntime.testlib";
 import { drive } from "./httpDrive.testlib";
-import { ASSET_DIR, PRECOMPRESSED_ENCODINGS } from "./index";
+import {
+  ASSET_DIR,
+  chunkPattern,
+  chunkUrlPattern,
+  PRECOMPRESSED_ENCODINGS,
+} from "./index";
 import { freshStaticLayer } from "./server";
 
 const DECODE: Record<string, (bytes: Buffer) => Buffer> = {
@@ -246,6 +251,17 @@ describe("buildSurfaceClient — the dist freshStaticLayer is built to serve", (
     expect(chunk).toBeDefined();
     // A chunk pinned `immutable` for a year is only safe because it is hashed.
     expect(chunk!.file).toMatch(/^chunk-[0-9a-f]{8}\.js$/);
+    // …and the name a CONSUMER would compute for it, before this build has run,
+    // is the name this build emitted. That is the whole point of exporting the
+    // pattern: the two halves of one rule, checked against each other rather
+    // than by comment. (The hash here is the stand-in bundler's hex; a real Bun
+    // emits base36 — which is exactly why `chunkPattern` does not narrow the
+    // alphabet, and why this asserts the pattern MATCHES rather than what the
+    // hash looks like.)
+    expect(chunkPattern(DYNAMIC_CHUNK_STEM).test(chunk!.file)).toBe(true);
+    expect(
+      chunkUrlPattern(DYNAMIC_CHUNK_STEM).test(`/${ASSET_DIR}/${chunk!.file}`),
+    ).toBe(true);
     const res = await drive(
       freshStaticLayer({ root: distDir }),
       `/${ASSET_DIR}/${chunk!.file}`,

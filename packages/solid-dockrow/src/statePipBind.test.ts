@@ -126,4 +126,22 @@ describe("bindStatePip — colour comes from the same value as motion", () => {
     expect(pip.active).toBe(true);
     expect(pip.motion).toBe("spin");
   });
+  it("a terminal an agent IS driving does NOT paint busy-shell, however quiet", () => {
+    // The MIRROR of the case above, and the reason it is written: `hasAgentOf`
+    // decides both, and until now only the `false` answer was pinned — a fold
+    // whose body was replaced with a constant `false` passed all 1381 tests in
+    // this package and the client. That is asymmetric coverage on a one-line
+    // fold that has already been written wrong twice in one PR, by two authors,
+    // in the two opposite directions.
+    //
+    // Busy-shell orange means "no agent, but bytes are moving". Painting it on a
+    // terminal an agent IS driving is the lie the docstring names, and it is
+    // exactly what a constant `false` would produce here.
+    const pip = bindStatePip({
+      meta: meta({ agent: agent("thinking") }),
+      attention: { klass: "idle", live: true },
+      unread: false,
+    });
+    expect(pip.shellLive).toBe(false);
+  });
 });

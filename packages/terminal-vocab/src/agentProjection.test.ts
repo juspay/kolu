@@ -124,6 +124,14 @@ describe("relativeTime", () => {
     expect(relativeTime(now - 3 * 3_600_000, now)).toBe("3h");
     expect(relativeTime(now - 2 * 86_400_000, now)).toBe("2d");
   });
+
+  it("says the dash for a host running AHEAD of this clock, not a confident 0s", () => {
+    // The clamp this lost. A remote host a minute ahead puts its event in this
+    // clock's future: the reading is provably wrong, and `0s` is a number
+    // nobody should act on. Every other kolu duration already said the dash
+    // here — this one now agrees with them rather than with itself.
+    expect(relativeTime(now + 60_000, now)).toBe(DASH);
+  });
 });
 
 describe("fleetStateLabel (idle three-way fork, renderer labels passed in)", () => {

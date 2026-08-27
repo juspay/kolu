@@ -42,6 +42,29 @@ the *attention summary* both surfaces roll up into.
   and printing shells too). The two pills share geometry and split by hue;
   neither is the deliberately-quiet one.
 
+## What a consumer needs
+
+Two lines:
+
+```css
+@import "tailwindcss";
+@import "@kolu/solid-statepip/all.css";
+```
+
+`all.css` carries its own prerequisites — the `@kolu/theme` tokens every colour
+here resolves — and the `@source` that keeps the pip's Tailwind utility classes
+from being tree-shaken away. It points Tailwind at this package with a path
+relative only to ITSELF, which is the only spelling that is correct from a
+workspace checkout, a `node_modules` copy and a hydrated tree alike.
+
+`./statepip.css` remains the granular door — not as an escape hatch, but because
+it is the piece `all.css` is composed from. On its own it under-renders: the
+utility classes go, and the colours have no tokens to resolve. Reach for it only
+when you are assembling the prerequisites yourself.
+
+(A consumer rendering the whole Dock row imports `@kolu/solid-dockrow/all.css`
+instead, which brings this one with it.)
+
 ## What it knows nothing about
 
 - Agent-state → paint / motion folds (caller's `bindStatePip` / `pipMotionKind`)

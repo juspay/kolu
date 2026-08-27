@@ -34,6 +34,14 @@ let
   # repo-rooted `fileset` below (which cannot carry a store path, so `src`
   # grafts it in instead).
   #
+  # It is a MAPPING rather than a list because the name → PIN is the one fact
+  # about a pinned member that nothing can derive. By the time anything reads
+  # `members."osfacts-client"` it is already a plain store-path STRING —
+  # `sources.osfacts + "/client-ts"` coerces the attrset away — and a store path
+  # carries neither a revision nor the name of the pin it came from. Everything
+  # else IS derivable and is derived below, so this stays a mapping and never
+  # grows into a second hand-kept list.
+  #
   # DECLARED, never sniffed from how the value is spelled. Two location tests
   # were tried before this list existed and both were wrong: `lib.isStorePath`
   # holds only for a store ROOT (`/nix/store/<hash>-name`), so a grafted
@@ -43,7 +51,8 @@ let
   # store path, so the filter emptied the whole workspace and the agent source
   # lost every package. A declaration does not depend on where the evaluation
   # is rooted; see workspace-closure.nix's doorstep note.
-  pinnedNames = [ "osfacts-client" ];
+  pinnedPins = { "osfacts-client" = "osfacts"; };
+  pinnedNames = builtins.attrNames pinnedPins;
 
   # Workspace membership: package name → package directory, the ONE Nix-side
   # index of the pnpm workspace. Everything below derives from it — the build
@@ -123,6 +132,43 @@ let
     "@kolu/log" = ../packages/log;
     "@kolu/xterm-kit" = ../packages/xterm-kit;
   };
+  # member → { name = <npins pin>; revision; subdir } for every pinned member.
+  #
+  # WHY A CONSUMER NEEDS IT. A pinned member is absent from the archive a
+  # consumer fetches, so the consumer grafts it from ITS OWN pin — and then
+  # compiles the result against packages copied from KOLU's. Two revisions of one
+  # package in one `tsc`, and nothing holding them together: it typechecks right
+  # up until a field moves. Consumers have been holding that pairing by hand,
+  # one 63-line shell script per repo, each re-deriving kolu's revision by
+  # jq-ing kolu's INTERNAL `npins/sources.json` — a file layout kolu never
+  # promised to keep. The revision is a fact this tree knows, so it is emitted
+  # into `consumer-closure.json` and checked at eval by `nix/consumer.nix`.
+  #
+  # READ BACK out of `members` and `sources` rather than re-spelled, so the graft
+  # that supplies the BYTES and the revision a consumer is checked against can
+  # never name two different things. `members`, not `rawMembers`: the doorstep in
+  # `mkWorkspaceClosure` has already asserted this value is a string under the
+  # store — the path-literal mistake its own note records — so the only thing
+  # left for the assert below to say is the one thing it can say, "wrong pin".
+  pinnedProvenance = lib.mapAttrs
+    (member: pin:
+      let
+        root = "${sources.${pin}}";
+        dir = members.${member};
+      in
+      assert lib.assertMsg (lib.hasPrefix "${root}/" dir) ''
+        nix/workspace.nix: member '${member}' is declared in `pinnedPins` as coming from
+        the `${pin}` pin, but its path '${dir}' is not under that pin's store path
+        '${root}'. A pinned member's directory must be a subpath of the pin it names —
+        otherwise the `subdir` every consumer is told to graft would be a lie.
+      '';
+      {
+        name = pin;
+        inherit (sources.${pin}) revision;
+        subdir = lib.removePrefix "${root}/" dir;
+      })
+    pinnedPins;
+
   # Only members that are paths in THIS repo can ride a repo-rooted fileset; the
   # pins are grafted into the build tree by `src` below instead. Split off
   # `members` (not `rawMembers`) so building the source forces the doorstep
@@ -203,5 +249,21 @@ in
   # it through the `nix eval` route `closureWalk.ts` already uses, so the
   # declaration has one reader-facing spelling and a rename cannot silently
   # change what the emitter believes.
-  inherit pinnedNames;
+  #
+  # `pinnedProvenance` carries what the emitter cannot see: which pin, at which
+  # revision, from which subdirectory. A consumer is checked against that
+  # revision at eval (`nix/consumer.nix`), which is what retires the per-consumer
+  # shell script that used to hold the two pins in step.
+  #
+  # ONE reader-facing spelling, which is why `pinnedNames` is not beside it:
+  # `builtins.attrNames pinnedProvenance` is the same set, and exporting both
+  # made one declaration two exported facts — with only this one ever read. It
+  # stays a local binding, for `treeMembers` and `mkWorkspaceClosure`.
+  #
+  # And PROVENANCE rather than `pinnedMembers`, because `@kolu/daemon-test-gate`
+  # already means something else by that name (`{ name: absolute dir }`): two
+  # differently-shaped things called `pinnedMembers`, both about pinned workspace
+  # members, is the concept multiplication this file's headers hunt everywhere
+  # else. The name here says what it carries that the other one does not.
+  inherit pinnedProvenance;
 }

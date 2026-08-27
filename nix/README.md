@@ -14,21 +14,46 @@ Two files here answer that, so a consumer stops answering it by hand.
 
 ```nix
 # nix/kolu.nix, in a consumer
-let koluSrc = (import ../npins).kolu;
-in import "${koluSrc}/nix/consumer.nix" {
-  inherit pkgs;
-  src = koluSrc;
-  # The packages you actually IMPORT. That is all you maintain.
-  seeds = [ "@kolu/padi-client" "@kolu/solid-dockrow" "@kolu/surface-app" ];
-  # PINNED members you must supply yourself — this seed set reaches one.
-  # `.pinned` lists them; omitting one is a named throw, not a broken `cp`.
-  pinnedSources.osfacts-client = pkgs.runCommand "osfacts-client" { }
-    "cp -r ${(import ./npins).osfacts}/client-ts $out";
+let
+  koluSrc = (import ../npins).kolu;
+  osfacts = (import ../npins).osfacts;
+
+  # ONE call, parameterised by the sources you supply — because you have to ask
+  # kolu what to graft BEFORE you can graft it, and `.pins` is answerable with
+  # nothing supplied. Two calls of one function, never a self-reference: a
+  # recipe that read `kolu.pins` from inside its own `pinnedSources` would be a
+  # knot that holds only while nothing forces the value, and the day something
+  # did the error would be `infinite recursion` rather than a named throw.
+  koluWith = pinnedSources: import "${koluSrc}/nix/consumer.nix" {
+    inherit pkgs pinnedSources;
+    src = koluSrc;
+    # The packages you actually IMPORT. That is all you maintain.
+    seeds = [ "@kolu/padi-client" "@kolu/solid-dockrow" "@kolu/surface-app" ];
+  };
+
+  # PINNED members you must supply yourself — this seed set reaches one. Each
+  # entry names the pin, the REVISION kolu was built against, and the
+  # subdirectory to copy. Omitting one is a named throw rather than a broken
+  # `cp`; passing a different revision is refused at eval, because kolu compiles
+  # this package against its own and you would find out when a field moved.
+  pins = (koluWith { }).pins;
+in
+koluWith {
+  osfacts-client = {
+    # `pins.<member>.subdir`, never a hardcoded "/client-ts": the point of
+    # `pins` is that you read kolu's answer instead of carrying a second
+    # spelling. Only the REVISION half is checked at eval — a wrong subdir fails
+    # as a broken `cp`, which is the failure the named throw in `sourceFor`
+    # exists to replace.
+    src = pkgs.runCommand "osfacts-client" { }
+      "cp -r ${osfacts}/${pins.osfacts-client.subdir} $out";
+    revision = osfacts.revision;
+  };
 }
 ```
 
-Back come `names`, `dirs`, `externals`, `packages`, `overlay`, `hydrateArgs` and
-`hydrateScript` — see the header of `consumer.nix` for what each is. The two
+Back come `names`, `dirs`, `externals`, `pins`, `packages`, `overlay`,
+`hydrateArgs` and `hydrateScript` — see the header of `consumer.nix` for what each is. The two
 callers that need the argv (a dev-shell `install` recipe and the build
 derivation) both pass `hydrateArgs`, so neither re-lists the set:
 
@@ -66,6 +91,16 @@ hydration is per-MANIFEST: you still copy `@kolu/surface-daemon-supervisor`'s
 directory, and its manifest still names `osfacts-client`. So the DECLARED
 closure still contains it and `consumer.nix` still needs a source for it. That
 is why the example above passes `pinnedSources`.
+
+**And it has to be kolu's REVISION of it.** You graft those bytes from your own
+pin and then compile them against packages copied from kolu's — two revisions of
+one package in one `tsc`, which typechecks right up until a field moves. That
+pairing used to be each consumer's to hold, one shell script per repo, every one
+of them re-deriving kolu's answer by reading kolu's INTERNAL `npins/sources.json`
+out of the fetched archive — a file layout kolu never promised to keep. kolu knows
+its own revision, so `consumer-closure.json` carries it (`pin: { name, revision,
+subdir }`) and `consumer.nix` refuses a `pinnedSources` entry that disagrees. The
+script is yours to delete; `npins add --at` the revision `.pins` names.
 
 **A seed must be a package kolu supports consuming.** `consumer.nix` throws at
 eval if a SEED is not a declared `vendorEntries.ts` entry or in its closure —
@@ -169,9 +204,12 @@ nix eval --impure --expr '(import ./nix/consumer.nix {
 
 ## Which packages are meant to be hydrated
 
-Any of them can be, but two are *declared* out-of-repo entry points in
+Any of them can be, but four are *declared* out-of-repo entry points in
 `packages/tests/governance/vendorEntries.ts` — `@kolu/padi-client` (the padi
-contract, dial and vocabulary) and `@kolu/solid-dockrow` (the Dock terminal row).
+contract, dial and vocabulary), `@kolu/solid-dockrow` (the Dock terminal row),
+`@kolu/detect` (the "is there a usable kolu on this host" probe) and
+`terminal-themes` (the theme catalog, so a consumer's live pane paints a padi
+terminal the way kolu paints it rather than in xterm's default).
 Being listed there is what puts a package and its whole manifest closure under
 the literal-version gate. The `@kolu/surface*` stack is derived from the tree
 rather than listed, so a new surface package joins by existing.

@@ -8,6 +8,7 @@
  *  Kind tags appear only during cross-kind root search (`showKindTag`); scoped
  *  drill-ins drop them as noise. */
 
+import { compactDelta } from "@kolu/terminal-vocab/duration";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
@@ -35,7 +36,6 @@ import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import { useStatePip } from "../terminal/statePipBind";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { compactDelta } from "../time/duration";
 import Kbd from "../ui/Kbd";
 import RepoMonogram from "../ui/RepoMonogram";
 import { activeHost, padiMap } from "../wire";

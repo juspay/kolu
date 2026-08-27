@@ -249,9 +249,14 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
 - **`@kolu/padi/render`** and **`@kolu/padi/read`** — the CLI faces' shared
   view + data layers. `render` is pure formatting (the roster table's
   `ID · STATE · REPO·BRANCH · PR · AGENT · FOREGROUND` columns, the PR/checks
-  and agent-status folds, plus `shortId` and `resolveTerminalId` — the
-  id-prefix resolution every `<id>` argument accepts, which is a pure fold over
-  an id list and so belongs on this side of the line) with no I/O. It also owns
+  and agent-status folds, plus `shortId`, the short form the roster prints) with
+  no I/O. The id-prefix RESOLUTION every `<id>` argument accepts is no longer
+  here: it is `@kolu/padi-client/terminalId`, a zero-import leaf, because the
+  rule is a property of padi's addressing rather than of any face that renders
+  it — and a client that only wants to turn a user's `7f3e` into an id should
+  not install a PTY host to do it. `render` does NOT re-export it: every face
+  imports it from where it lives, so this module is the door for exactly what it
+  still holds. It also owns
   `parsePlacementFlags`, the `--toplevel` / `--parent` decision BOTH CLI faces
   run: same reason as the roster table, one rule up from formatting — two faces
   that must answer a create identically may not each hand-roll the answer. `read`
@@ -266,10 +271,15 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   vocabulary with two faces reading it, not two copies held in lockstep by
   JSDoc cross-reference. They stay here rather than in `@kolu/surface` because
   they speak **padi's** records — the generic wait scaffold went the other way.
-  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, `tail.ts`
-  (the tail-mode screen slice, a zero-import leaf `render.ts` re-exports so the
-  wait kit can reuse it without dragging `columnify` into every dial consumer),
-  and the `watch.ts` wait kit the `dial` entry re-exports — the same
+  Both live under `src/cliClient/` — `render.ts` and `read.ts`, and nothing
+  else: the wait kit a reader of this paragraph used to be sent here for is
+  `@kolu/padi-client/watch`, one package down, and this package has no `./dial`
+  entry to re-export it through (the dial is `@kolu/padi-client/dial`). The
+  tail-mode screen slice
+  went the whole way it was always headed and is now
+  `@kolu/padi-client/screenTail`, a genuinely zero-import leaf: it folds padi's
+  `screen.text` REPLY, so it belongs beside that reply's schema and not behind a
+  manifest naming `columnify` — the same
   one-cluster-one-directory shape as `terminalEndpoint/` and
   `terminalWorkspace/`. The pure `terminalVocab.ts` they all fold over sits one
   level UP, at the package root: the SERVER speaks it too (supervision-edge

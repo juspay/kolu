@@ -89,8 +89,18 @@ const NeedsYouEntryRow: Component<{
         // The blocked row's OWN wait, never the tile-wide fold. A sub-row's
         // `ts` already IS its own recency, and so is `rowRecencyAt` of its
         // metadata — one expression covers both halves of the pair.
-        const recency = () =>
-          rowRecency(pip(), props.entry.tile.ts, rowRecencyAt(c().blocked));
+        // MEMOISED: every entry here is `asking` by construction, so every read
+        // lands in the wait-chip arm and reads the shared 1 s tick. The value is
+        // read four or five times per entry (the title, the prop, and
+        // `RecencyCell`'s own `Switch` conditions), so a plain closure was four
+        // or five folds AND four or five subscriptions to the fastest clock in
+        // the app, per blocked row, per second.
+        const recency = createMemo(() =>
+          rowRecency(pip(), {
+            window: props.entry.tile.ts,
+            own: rowRecencyAt(c().blocked),
+          }),
+        );
         const title = () => {
           const where = `${c().tile.info.key.group} · ${c().tile.info.key.label}`;
           const hidden = props.entry.hiddenByFilter

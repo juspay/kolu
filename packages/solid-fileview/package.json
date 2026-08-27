@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./all.css": "./src/all.css",
     "./renderers/image": "./src/renderers/image.tsx",
     "./renderers/iframe": "./src/renderers/iframe.tsx",
     "./renderers/markdown": "./src/renderers/markdown.tsx",
@@ -23,6 +24,7 @@
   },
   "dependencies": {
     "@kolu/solid-markdown": "workspace:*",
+    "@kolu/theme": "workspace:*",
     "solid-js": "^1.9.0"
   }
 }

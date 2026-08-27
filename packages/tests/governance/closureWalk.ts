@@ -37,8 +37,8 @@
  * walks quietly parting ways.
  */
 
-import { execFileSync } from "node:child_process";
 import { declaredDependencyClosure } from "@kolu/daemon-test-gate/runtimeDepEdges";
+import { nixEvalJson, nixpkgsPreamble } from "./nixEval";
 import { vendorEntries } from "./vendorEntries";
 
 /** The roots whose closure nix hashes into a DAEMON ID — `default.nix`'s
@@ -71,14 +71,9 @@ export function nixClosureNames(
   }
   const list = entries.map((e) => `"${e}"`).join(" ");
   const expr = `
-    let pkgs = import "${repoRoot}/nix/nixpkgs.nix" { system = builtins.currentSystem; };
+    let pkgs = ${nixpkgsPreamble(repoRoot)};
     in (import "${repoRoot}/nix/workspace.nix" { inherit pkgs; }).closureNamesFor [ ${list} ]`;
-  const out = execFileSync(
-    "nix",
-    ["eval", "--accept-flake-config", "--impure", "--json", "--expr", expr],
-    { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  );
-  return (JSON.parse(out) as string[]).sort();
+  return nixEvalJson<string[]>(repoRoot, expr).sort();
 }
 
 /** Throw unless the two walks named exactly the same closure. Both directions

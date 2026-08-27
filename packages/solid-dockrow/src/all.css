@@ -1,0 +1,31 @@
+/* `@kolu/solid-dockrow`, whole — the row's sheet AND its prerequisites, in the
+ * one order that works.
+ *
+ * Import THIS after `tailwindcss` and there is no second step: the theme tokens
+ * this sheet's colours resolve, the pip's own `all.css`, the row's sheet, then
+ * the `@source` that keeps the row's utility classes alive. Each package points
+ * Tailwind at ITSELF with a path relative only to itself, so no consumer has to
+ * know where a sibling landed in its node_modules — see
+ * `@kolu/solid-statepip/all.css` for why that is the whole argument.
+ *
+ * EACH FILE IMPORTS EVERY PREREQUISITE IT READS A TOKEN FROM, its siblings'
+ * included. `./dockrow.css` resolves seven `@kolu/theme` tokens
+ * (`--color-accent`, `--color-alert`, `--color-attention`, `--color-edge`,
+ * `--color-fg`, `--color-fg-3`, `--color-surface-1`) and this package's own
+ * manifest declares `@kolu/theme` — so the row NEEDS theme and must say so. It
+ * used to arrive only as a side effect of the pip's sheet importing it, which
+ * made the row's palette conditional on the PIP continuing to need what the row
+ * needs: drop the pip, or render a row without one, and the row loses its
+ * colours — silently, which is the failure class this file exists to make
+ * unspellable.
+ *
+ * Stating it twice costs nothing and is not a second order to get wrong: a CSS
+ * `@import` of an identical path is deduplicated by the bundler, and a token
+ * sheet is idempotent. That is exactly what makes "state what you need" safe to
+ * obey rather than a rule with an exception in it.
+ *
+ * The granular `./dockrow.css` door stays, for the reason the pip's does. */
+@import "@kolu/theme/theme.css";
+@import "@kolu/solid-statepip/all.css";
+@import "./dockrow.css";
+@source "./";

@@ -1144,7 +1144,7 @@ function conditionForm(
  *
  * The `screen` is the WHOLE rendered buffer. Bounding it to N lines is the
  * caller's rendering decision (`kolu wait --snapshot N` slices with
- * `@kolu/padi/render`'s `tailLines`), and it is not even a wire saving — this
+ * `./screenTail`'s `tailLines`), and it is not even a wire saving — this
  * read passes no `startLine`/`endLine`, so the buffer has already crossed the
  * transport before any slice could run.
  */

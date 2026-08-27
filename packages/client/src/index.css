@@ -1,48 +1,62 @@
 @import "kolu-fonts";
 @import "tailwindcss";
 
-/* The shared kolu colour palette (`--color-alert`, `--color-accent`, …) — the
- * ONE definition both this surface and the pulam-web fleet dashboard resolve, so
- * a `bg-alert` pip renders the identical colour on both. The app-specific tokens
- * (`--breakpoint-sm`, `--font-sans`) stay local, below. */
+/* The app's OWN colour palette. `--color-alert`, `--color-surface-1`,
+ * `--color-fg-3` and the rest are read by hundreds of app-wide utilities that
+ * have nothing to do with a Dock row, so the app states the edge itself rather
+ * than inheriting it through the row's sheet — "the app's colour system" and
+ * "the Dock row's prerequisites" are two independent concerns, and braiding them
+ * meant deleting the Dock from this app would take the palette with it. The
+ * doubled `@import` below is deduplicated and a token sheet is idempotent. */
 @import "@kolu/theme/theme.css";
+
+/* `@kolu/solid-dockrow`, WHOLE — the row's sheet, the pip's sheet beneath it,
+ * the shared colour palette (`--color-alert`, `--color-accent`, …) all three
+ * resolve against, and the `@source` directives that keep each package's own
+ * Tailwind utilities from being tree-shaken. ONE import, in an order the
+ * packages hold rather than this file.
+ *
+ * It used to be three `@import`s here plus two `@source`s below, and the order
+ * among them was load-bearing and stated only in a README — a wrong one renders
+ * a row with no layout at all, silently. kolu got it right; the first outside
+ * consumer to render the row obeyed the same instruction in two files
+ * independently and could not tell whether it had. The instruction is also not
+ * writeable in general, because the sibling paths a `@source` needs are
+ * different from every consumer's directory. So it is an invariant now, and
+ * kolu reads it through the same door everyone else does.
+ *
+ * It brings `@kolu/theme` too, and states so — this file's own import above is
+ * the app's edge, not a duplicate of the row's. */
+@import "@kolu/solid-dockrow/all.css";
+
+/* `@kolu/solid-fileview`, WHOLE — the same door as the row above, for the same
+ * reason. The package ships Tailwind utility classes of its own (the toggle host
+ * + image/iframe appliances) that must be scanned or they are tree-shaken away,
+ * and the `@source` that scans them is now inside the package, relative only to
+ * itself. This file used to spell `@source "../../solid-fileview/src"` — exactly
+ * the non-portable sibling path the paragraph above declares unwriteable, three
+ * lines under it. */
+@import "@kolu/solid-fileview/all.css";
 
 /* `@kolu/solid-markdown`'s rendered-Markdown stylesheet (`.kolu-md`). The
  * package ships the structural + scale rules; we inline them here — rather
  * than via a component-level CSS import the package's `sideEffects:false`
  * could tree-shake — so the rendered preview, intent body, and dock all pick
- * them up. The sheet reads `--color-accent` (now from `@kolu/theme`). */
+ * them up. The sheet reads `--color-accent` (from `@kolu/theme`, above).
+ *
+ * It gets a granular import and no `all.css`, and that is a decision rather than
+ * an omission: markdown ships a PLAIN sheet and no Tailwind utilities at all —
+ * its components carry semantic class names (`.kolu-md`, `.shiki`,
+ * `.markdown-alert`) and not one utility — so there is nothing for a `@source`
+ * to keep alive and no non-portable sibling path to hide. The day it grows one,
+ * it gets the same two lines the other three have. */
 @import "@kolu/solid-markdown/markdown.css";
 
-/* `@kolu/solid-statepip`'s CSS leaf — the status indicator's live RING (a
- * rotating conic-gradient arc) + alert corner BADGE, which can't be expressed as
- * Tailwind utilities. Both this surface and pulam-web import it, so they're
- * single-sourced and can't drift. */
-@import "@kolu/solid-statepip/statepip.css";
-
-/* `@kolu/solid-dockrow`'s CSS leaf — the repo CARD, the row label, and the
- * attention washes keyed on the shared `[data-dock-row]` contract. The row
- * components live in the package too, so the Dock and any fleet mirror render
- * ONE row; this sheet is the half of it Tailwind utilities cannot express
- * (the per-repo colour interpolations and the wash). It also defines
- * `--dock-edge-stripe-w` and `--repo-ink`, which surfaces below read. */
-@import "@kolu/solid-dockrow/dockrow.css";
-
-/* `@kolu/solid-fileview` likewise ships its own Tailwind utility classes
- * (the toggle host + image/iframe appliances), so scan it too — otherwise
- * the toggle and preview-container utilities are tree-shaken away. */
-@source "../../solid-fileview/src";
-
-/* `@kolu/solid-statepip` ships the shared `StatePip` and its Tailwind classes
- * (`bg-alert`, `border-accent`, `text-moonlit`, the spin/pulse animations), so
- * scan it — otherwise the pip utilities are tree-shaken away. */
-@source "../../solid-statepip/src";
-
-/* `@kolu/solid-dockrow` ships the dock row components and their Tailwind
- * classes (the row grid + subgrid, the density text sizes, `hover:bg-surface-2/40`,
- * the PR pip colours), so scan it — otherwise the row utilities are tree-shaken
- * away. */
-@source "../../solid-dockrow/src";
+/* The `@source` directives for `@kolu/solid-statepip`, `@kolu/solid-dockrow` and
+ * `@kolu/solid-fileview` moved INTO those packages' own `all.css`, above — each
+ * points Tailwind at itself with a path relative only to itself, which is the
+ * only spelling that is correct from a workspace checkout, from a node_modules
+ * copy and from a consumer's hydrated tree alike. */
 
 /* Suppress the browser's pull-to-refresh and scroll-chaining at the
  * document level. Without this, swiping down at the top of the
@@ -622,9 +636,10 @@ body {
 
 /* ── Cards-mode repo section + rows ────────────────────────────
  * The dock row and the repo CARD it sits in are styled by
- * `@kolu/solid-dockrow/dockrow.css`, imported at the top of this file with the
- * row components themselves — the spine, the sticky header wash, the row
- * label, the attention washes, and the `--dock-edge-stripe-w` / `--repo-ink`
+ * `@kolu/solid-dockrow/dockrow.css`, which arrives through that package's
+ * `all.css` at the top of this file with the row components themselves — the
+ * spine, the sticky header wash, the row label, the attention washes, and the
+ * `--dock-edge-stripe-w` / `--repo-ink`
  * tokens all ship with the package so this surface and a fleet mirror render
  * one row rather than two that agree today. `--repo-color` is still set INLINE
  * per section from `group.color`, the shared socket every repo-tinted surface

@@ -120,7 +120,8 @@
  * same way a met or timed-out one does.
  */
 
-import { formatWaitMet, shortId, tailLines } from "@kolu/padi/render";
+import { formatWaitMet, shortId } from "@kolu/padi/render";
+import { tailLines } from "@kolu/padi-client/screenTail";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import { PADI_LINK_CLOSED, WAIT_STATES } from "@kolu/padi-client/terminalVocab";
 import {

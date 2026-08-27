@@ -34,7 +34,7 @@
 
 // The tail slice is padi's — the same fold `screen_text`'s `tail` and `kolu
 // wait --snapshot` use, so "the last N lines" means one thing on every face.
-import { tailLines } from "@kolu/padi/render";
+import { tailLines } from "@kolu/padi-client/screenTail";
 // The dial kit arrives dynamically, INSIDE the handlers: this module is on the
 // static tree-build path of every `kolu` invocation (the surface face mounts
 // the table), so the waiters' socket/mirror closure may only load at call
@@ -109,7 +109,8 @@ const ScreenTailSchema = Schema.optionalKey(
  *  the face's one met→frame projection, rather than in each handler, because it
  *  is one rendering decision about one wire: the engine hands back the WHOLE
  *  rendered buffer by design (bounding it is the caller's call), and both wait
- *  tools bound it identically. The slice is `@kolu/padi/render`'s `tailLines` —
+ *  tools bound it identically. The slice is `@kolu/padi-client/screenTail`'s
+ *  `tailLines` —
  *  the same fold `screen_text`'s own `tail` and `kolu wait --snapshot` use, so
  *  "the last N lines" means one thing across every face. */
 export function waitJson<Met extends WaitMet>(

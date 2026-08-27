@@ -129,6 +129,8 @@ one your copier needs is still yours.
 | `./watch` | the terminal watch kit — `watchTerminals`, the one `awaitTerminalCondition` engine and its two named waits (`awaitAgentState`, `awaitOutputSettled`), and `awaitWatchEvents` | ❌ mirror |
 | `./watchScope` | which terminals a subscription reports: `watchScopeOf` (the only constructor, where every never-match refusal lives), `scopeAdmits` (the only reader) | ✅ |
 | `./terminalVocab` | the pure folds over a terminal record — `activeAgent`, `isWaitState`, `WAIT_STATES` | ✅ |
+| `./terminalId` | how a user NAMES a terminal — `resolveTerminalId` (any unique prefix, case-folded, exact-wins, an empty query refused) and its `ResolveResult`. Generic over the caller's own id type, and the file imports NOTHING — not even `import type` — because the consumer that asked for it resolves prefixes inside the package its browser bundles | ✅ |
+| `./screenTail` | `tailLines` — the last N lines of a rendered screen, trailing blank viewport dropped first. The fold over `screen.text`'s REPLY, so it lives beside that reply's schema. Also import-free | ✅ |
 | `./upload` | what may be dropped onto a terminal and how big it may be — `MAX_UPLOAD_BYTES`, the extension allowlist, `rejectionFor`. The gate a sender applies before encoding is the gate padi applies before writing, so the two cannot drift | ✅ |
 
 ## What stayed in `@kolu/padi`
@@ -155,8 +157,17 @@ yet:
 - **`@kolu/padi/read`** and **`@kolu/padi/render`** — the CLI's client-side read
   and text formatting. Pure client code by every other measure (they import this
   package and nothing daemon-tier), but `render` pulls `columnify`, and a
-  formatter is not what the out-of-repo consumer came for. Move them the day one
-  asks — the closure test will say exactly what that costs.
+  formatter is not what the out-of-repo consumer came for.
+
+  One asked, so two of `render`'s folds came across: the id-prefix resolution and
+  the screen tail, now `./terminalId` and `./screenTail` above. Neither is
+  formatting — one is padi's ADDRESSING and the other folds its `screen.text`
+  REPLY — and both were being written out again downstream, with the downstream
+  header naming this manifest as the reason. What stayed behind is the part that
+  genuinely is a formatter: the roster table, the columns, `columnify` — and it
+  is true rather than aspirational, because `render` does not re-export the two
+  that left. Every face imports them from here. The rest of `render` moves the
+  day someone asks, on the same terms.
 - **`@kolu/padi/containingTerminal`** — "am I running inside a kolu terminal",
   which is a question only something inside one asks. Free to move (it reads one
   env name from `kolu-pty`, already in the closure); it has simply never been

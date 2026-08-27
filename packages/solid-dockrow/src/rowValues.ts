@@ -31,9 +31,14 @@ export {
   type DockPaintBucket,
   type DockRowBucket,
   dockOverlayBucket,
+  hasAgentOf,
+  FALLBACK_PIP_GLYPH,
+  FALLBACK_PIP_VARIANT,
+  FALLBACK_ORDER_BUCKET,
   paintDockRow,
   pipGlyphFor,
   pipMotionKind,
+  pipShellLive,
   pipVariant,
   type StatePipBind,
   type UnparkedPaintBucket,
@@ -41,8 +46,13 @@ export {
 export { prTooltip } from "./prTooltip.ts";
 export {
   displayRecencyAt,
+  type RecencyAt,
   type RecencyMode,
   recencyMode,
+  recencyText,
+  type RowClocks,
+  rowRecency,
+  type RowRecency,
 } from "./recency.ts";
 export { type DockRowAttrs, dockRowAttrs } from "./rowAttrs.ts";
 export {
@@ -72,7 +82,12 @@ export {
   isRowAgentState,
   narrowAgentState,
   type NarrowedAgentState,
+  type NarrowedRowVocab,
+  narrowRowVocab,
+  type RowVocabField,
   RECENCY_MODES,
   ROW_AGENT_STATES,
   type RowAgentState,
+  toWireRowVocab,
+  type WireRowVocab,
 } from "./narrow.ts";

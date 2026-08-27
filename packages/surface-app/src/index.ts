@@ -112,6 +112,114 @@ export function assertAssetPrefix(
 export const assetDirOf = (assetPrefix?: string): string =>
   assertAssetPrefix(assetPrefix).slice(1, -1);
 
+/**
+ * The naming template every hashed output is emitted under — `main-1wde7jkp.js`,
+ * `pipeline-vexvnf69.js`, `styles-657b883b.css`.
+ *
+ * `@kolu/surface-app/bun` hands it to `Bun.build`'s `naming` for entry, chunk and
+ * asset alike, and {@link chunkPattern} is the same rule read backwards.
+ * Single-sourced here for {@link assetDirOf}'s reason: a build that emits under
+ * one rule and a consumer that matches another are not two settings that
+ * disagree, they are one setting spelled twice.
+ */
+export const HASHED_NAMING = "[name]-[hash].[ext]";
+
+/** Everything a RegExp treats as syntax, escaped — so a module or prefix
+ *  carrying `.` or `+` matches itself rather than whatever the metacharacter
+ *  meant. `assertAssetPrefix` admits both quite legitimately in a path segment;
+ *  a RegExp does not.
+ *
+ *  MODULE-PRIVATE, and that is a correction rather than an oversight. It was
+ *  exported on the argument that the tree should not grow a second escape
+ *  helper — but the tree has SIX (`kaval/socketPath.ts`, `padi/stateRoot.ts`,
+ *  `transcript-core/transform.ts`, `surface-daemon`'s upgrade-window testlib,
+ *  `solid-pierre`'s file-tree test, and this one), and publishing this could
+ *  never collapse five of them: they all sit BELOW `@kolu/surface-app` and
+ *  importing it would point their dependency arrows up. So the export bought one
+ *  call site in an e2e step file and cost a bounded-algorithm leaf a public door
+ *  on a package about serving hashed browser assets — placement by convenience,
+ *  which is the thing this PR spends itself refusing. Collapsing all six wants a
+ *  leaf every tier can already reach, and that is its own change. */
+const escapeRe = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** {@link HASHED_NAMING} READ BACKWARDS, as regex source — `[name]` bound to
+ *  `module`, `[hash]` to the bundler's opaque token, `[ext]` to the extension
+ *  asked for, and everything the template says LITERALLY (today the `-` and the
+ *  `.`) escaped so it matches itself.
+ *
+ *  This is what makes "the same rule read backwards" true instead of stated.
+ *  Spelling the separator and the field order a second time here — which is what
+ *  this did — left one string read forwards by `Bun.build` and a hand-written
+ *  copy read backwards, held together by a test pinning the template to a THIRD
+ *  literal. That test could not catch the drift it was written for: change this
+ *  pattern's separator and every assertion still passes, because the assertions
+ *  feed it names built to the pattern. There is one string now. */
+const namingSource = (module: string, ext: string): string =>
+  HASHED_NAMING.split(/(\[name\]|\[hash\]|\[ext\])/).reduce(
+    (source, part) =>
+      source +
+      (part === "[name]"
+        ? escapeRe(module)
+        : part === "[hash]"
+          ? "[^/]+"
+          : part === "[ext]"
+            ? escapeRe(ext)
+            : escapeRe(part)),
+    "",
+  );
+
+/**
+ * What the split chunk for `module` is CALLED — anchored to the whole filename.
+ *
+ * `buildSurfaceClient` splits on a dynamic `import()` and names the output after
+ * the split module, hashed like everything else: `markdown/pipeline.ts` →
+ * `pipeline-<hash>.js`. A consumer that has to name that file BEFORE the build
+ * has run — a shell preload it rewrites, a test that holds the chunk up, an
+ * evidence driver that delays it — asks here rather than re-deriving
+ * {@link HASHED_NAMING}, because a pattern that drifts from the template goes
+ * QUIET rather than red: it stops matching, and the caller concludes the page
+ * never asked for the chunk.
+ *
+ * A RegExp and not a predicate, because the callers that need it hand it to a
+ * route matcher and print it in a failure message. `(f) => chunkPattern(m).test(f)`
+ * is one line; the RegExp is not recoverable from a closure.
+ *
+ * The hash class is `[^/]+` rather than a narrower alphabet or a fixed width.
+ * Both are the BUNDLER's to change — today it emits 8 characters of base36 for a
+ * chunk and this package's own extra-asset hashing is hex, in the same directory
+ * — and the only direction a narrower class can be wrong is a silent NON-match,
+ * which is the quiet failure above. The anchors and the `<module>-` prefix do the
+ * discriminating work: `md-pipeline-…` does not match `pipeline`.
+ *
+ * @param module the split module's own name, without directory or extension.
+ * @param ext the extension asked for. `js` for a split chunk; the template
+ *   emits CSS and every other asset under the same rule, so a caller naming
+ *   `styles-657b883b.css` before the build has run asks here rather than
+ *   writing the fourth spelling.
+ */
+export const chunkPattern = (module: string, ext = "js"): RegExp =>
+  new RegExp(`^${namingSource(module, ext)}$`);
+
+/**
+ * …and the same rule as a URL under the hashed prefix — what a REQUEST for that
+ * chunk looks like on the wire.
+ *
+ * The filename half is {@link chunkPattern}'s, through the same
+ * {@link namingSource}: the two differ by a prefix and nothing else, so spelling
+ * the body twice would be the drift this whole trio exists to close. Takes its
+ * prefix through {@link assertAssetPrefix}, so a prefix a build refuses cannot
+ * be one a matcher accepts.
+ */
+export const chunkUrlPattern = (
+  module: string,
+  assetPrefix?: string,
+  ext = "js",
+): RegExp =>
+  new RegExp(
+    `^${escapeRe(assertAssetPrefix(assetPrefix))}${namingSource(module, ext)}$`,
+  );
+
 /** A `Content-Encoding` token this package will serve a build-time sibling for. */
 export type PrecompressedEncoding = "br" | "zstd" | "gzip";
 /** The file suffix carrying one encoding's bytes beside the identity asset. */

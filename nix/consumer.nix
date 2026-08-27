@@ -29,6 +29,13 @@
 #                  closure declares. Cross-check against your own root manifest:
 #                  a range you do not have installed is a resolution failure
 #                  waiting to happen in your compiler, not in kolu's.
+#   pins         — the members kolu CANNOT ship you (gitignored pin grafts),
+#                  each as { name; revision; subdir } — the pin to add, the
+#                  revision to add it AT, and the subdirectory to copy. Pass each
+#                  back as `pinnedSources.<name> = { src; revision; }`; a
+#                  revision that disagrees with kolu's is refused at eval, which
+#                  is what retires the per-consumer script that used to hold the
+#                  two pins in step.
 #   packages     — attrs `kolu-<slug>` → a realizable store path per member, so
 #                  `nix build .#kolu-padi-client` gets you the exact tree the
 #                  hydrate script copies.
@@ -49,15 +56,25 @@ let
 
   members = closure.members;
 
-  # The schema version is checked, not assumed: a consumer pinned to a kolu
-  # whose artifact grew a different shape must fail here, where the message can
-  # say so, rather than several `builtins.getAttr` calls later.
-  _schemaOk =
-    if closure.schemaVersion == 1 then true
-    else throw ''
-      kolu/nix/consumer.nix: consumer-closure.json is schemaVersion ${toString closure.schemaVersion},
-      this reader understands 1. Update your kolu pin's consumer entry, or pin an older kolu.
-    '';
+  # NO schemaVersion GATE, deliberately. This file and `consumer-closure.json`
+  # ship in the SAME pin — a consumer imports "${koluSrc}/nix/consumer.nix",
+  # which reads `./consumer-closure.json` from that same store path — so reader
+  # and artifact can never come from different revisions and the comparison can
+  # never be false. A guard that cannot fail is worse than no guard: it reads as
+  # one, and its advice ("pin an older kolu") names a situation that cannot
+  # arise. A mis-shaped artifact still fails loudly and by name, in `memberOf`
+  # and in `sourceFor`. If a consumer ever VENDORS its own copy of this file,
+  # reader and artifact come apart and the gate becomes real — add it back then,
+  # naming that consumer.
+  #
+  # THE OTHER READER, since this file invites one: `dirs` and `pins` are exported
+  # precisely so a consumer can build its own copier, and nix/README.md describes
+  # the artifact in its own right — so a consumer parsing `consumer-closure.json`
+  # directly is a reader that does not ship with this file. The same reasoning
+  # still covers it: it reads the JSON out of the kolu pin it already fetched, so
+  # its reader and its artifact are one revision too. What would break that is a
+  # consumer COPYING the JSON into its own tree and reading it across a later
+  # bump — the same vendoring case as above, and the same answer.
 
   memberOf = name:
     if builtins.hasAttr name members then builtins.getAttr name members
@@ -83,29 +100,93 @@ let
     let stripped = pkgs.lib.removePrefix "@kolu/" name;
     in if stripped == name then name else "kolu-${stripped}";
 
-  # PINNED members are not in `src` at all — see `pinned` in
-  # consumer-closure.json. `osfacts-client` is the standing case: gitignored,
-  # grafted from its own npins pin, and therefore absent from the archive a
-  # consumer fetches. Emitting a copy out of `src` for it would build a
-  # derivation that cannot build, from the very seed list this file documents.
-  # So the consumer supplies it — exactly as `@kolu/padi-client`'s hydrate guard
-  # already says it must — and a missing one is a NAMED throw at eval rather
-  # than a `cp: cannot stat` several minutes into a build.
+  # PINNED members are not in `src` at all — see `pin` in consumer-closure.json.
+  # `osfacts-client` is the standing case: gitignored, grafted from kolu's own
+  # npins `osfacts` pin, and therefore absent from the archive a consumer
+  # fetches. Emitting a copy out of `src` for it would build a derivation that
+  # cannot build, from the very seed list this file documents. So the consumer
+  # supplies it, and a missing one is a NAMED throw at eval rather than a
+  # `cp: cannot stat` several minutes into a build.
+  #
+  # It arrives as a RECORD — `{ src; revision; }` — and not as a bare path,
+  # because a store path carries no revision and the revision is the half that
+  # matters. The consumer grafts these bytes and then compiles them against
+  # packages copied from KOLU: two revisions of one package in one `tsc`, which
+  # typechecks right up until a field moves. Consumers were holding that pairing
+  # by hand, one shell script per repo, each jq-ing kolu's INTERNAL
+  # `npins/sources.json` — a file layout kolu never promised to keep. kolu knows
+  # its own revision, so it says so, and disagreement is refused here.
   sourceFor = name:
     let member = memberOf name; in
-    if member.pinned or false then
+    if member ? pin then
       (if builtins.hasAttr name pinnedSources then
-        builtins.getAttr name pinnedSources
+        (builtins.getAttr name pinnedSources).src
       else throw ''
         kolu/nix/consumer.nix: '${name}' is a PINNED member — gitignored in kolu and
         absent from the source archive you fetched, so this entry point cannot copy it
-        out of `src`. Graft it from its own pin and pass it in:
+        out of `src`. Graft it from `${member.pin.name}` at ${member.pin.revision}
+        (subdirectory `${member.pin.subdir}`) and pass it in:
 
-          pinnedSources = { "${name}" = yourGraftedSrc; };
+          pinnedSources."${name}" = {
+            src = yourGraftedSrc;
+            revision = (import ./npins).${member.pin.name}.revision;
+          };
 
-        (drishti's nix/overlay.nix is the worked precedent for `osfacts-client`.)
+        The revision is checked against kolu's, so the pin you add and the pin kolu
+        was built against cannot drift apart unnoticed.
       '')
     else "${src}/${member.dir}";
+
+  pinnedInClosure = builtins.filter (name: (memberOf name) ? pin) names;
+
+  # THE SPLIT: what you PASSED is checked eagerly; what you did NOT pass is
+  # checked where it is needed.
+  #
+  # An entry that disagrees with kolu is wrong no matter which output you read,
+  # so it is refused at the doorstep — asserted below rather than inside
+  # `sourceFor`, because this file exports `dirs` and `pins` precisely so a
+  # consumer can build its own copier and never take the `drvFor` path. A lazy
+  # drift check would miss exactly that consumer, which is the one this replaces
+  # a shell script for.
+  #
+  # A MISSING entry is the other way round and stays lazy, in `sourceFor`. Not
+  # every caller is hydrating: nix/README.md's own closure-size diagnostic reads
+  # `.names` for a seed list and copies nothing, and a reader asking "how big is
+  # this closure" owes no pin for an answer that has no bytes in it. The first
+  # draft asserted this half eagerly too and broke that documented one-liner —
+  # while carrying a comment that said it did not. A comment describing a guard
+  # is a guard's worst substitute; the split is the guard.
+  pinnedProblems = builtins.concatMap
+    (name:
+      let given = builtins.getAttr name pinnedSources; in
+      if !(builtins.elem name pinnedInClosure) then [ ''
+        '${name}' — the closure for your seeds does not pin it. Either it left your
+        closure or this kolu no longer grafts it: drop the entry, and if it was your
+        only reason for a second pin, drop the pin and the guard you wrote to hold
+        the two in step.
+      '' ]
+      else if !(builtins.isAttrs given && given ? src && given ? revision) then [ ''
+        '${name}' — must be `{ src = <store path>; revision = <string>; }`. A bare
+        store path carries no revision, and the revision is the half this file checks.
+      '' ]
+      else if given.revision != (memberOf name).pin.revision then
+        let pin = (memberOf name).pin; in [ ''
+        '${name}' — kolu pins `${pin.name}` at
+        ${pin.revision}, and you pass ${toString given.revision}.
+        This member is not in kolu's archive: kolu grafts it from that pin and you
+        graft it from yours, and then your `tsc` compiles the two against each
+        other. Move yours to kolu's — that is what re-pinning kolu always owes.
+      '' ]
+      else [ ])
+    (builtins.attrNames pinnedSources);
+
+  _pinnedOk =
+    if pinnedProblems == [ ] then true
+    else throw ''
+      kolu/nix/consumer.nix: this consumer's pinned sources do not match kolu's.
+
+        ${builtins.concatStringsSep "\n        " pinnedProblems}
+    '';
 
   # A `catalog:` external is unresolvable OUTSIDE kolu — it is pnpm's
   # workspace-catalog protocol, and the catalog lives in kolu's own
@@ -184,18 +265,21 @@ let
     else throw "kolu/nix/consumer.nix: `seeds` is empty — name the packages you import.";
 
 in
-assert _schemaOk;
 assert _seedsOk;
 assert _vendoredOk;
+assert _pinnedOk;
 assert _catalogOk; {
   inherit names;
 
-  # The members this entry point CANNOT copy out of `src` — they are gitignored
-  # grafts (see `pinned` in consumer-closure.json). Exported because a consumer
-  # that builds its own copier off `dirs` would otherwise reproduce exactly the
-  # `cp: cannot stat` that `sourceFor`'s throw exists to replace: the throw only
-  # guards the `drvFor` path, so the list has to be readable on the others.
-  pinned = builtins.filter (name: (memberOf name).pinned or false) names;
+  # The members this entry point CANNOT copy out of `src` — gitignored grafts —
+  # each with the pin, revision and subdirectory to graft it from. Exported
+  # because a consumer that builds its own copier off `dirs` needs to know which
+  # entries are not there, and because the revision is the fact its own npins pin
+  # has to match. The `_pinnedOk` assert above already refuses a mismatch, so
+  # this is for a consumer that wants to READ kolu's answer rather than be told
+  # it was wrong — the shape `npins add --at <revision>` takes.
+  pins = builtins.listToAttrs
+    (map (name: { inherit name; value = (memberOf name).pin; }) pinnedInClosure);
 
   dirs = builtins.listToAttrs
     (map (name: { inherit name; value = (memberOf name).dir; }) names);

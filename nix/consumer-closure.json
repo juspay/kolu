@@ -1,5 +1,4 @@
 {
-  "schemaVersion": 1,
   "members": {
     "@kolu/artifact-sdk": {
       "dir": "packages/artifact-sdk",
@@ -22,6 +21,7 @@
     },
     "@kolu/detect": {
       "dir": "packages/detect",
+      "vendored": true,
       "workspace": [],
       "external": {}
     },
@@ -153,7 +153,8 @@
     "@kolu/solid-fileview": {
       "dir": "packages/solid-fileview",
       "workspace": [
-        "@kolu/solid-markdown"
+        "@kolu/solid-markdown",
+        "@kolu/theme"
       ],
       "external": {
         "solid-js": "^1.9.0"
@@ -862,7 +863,11 @@
     },
     "osfacts-client": {
       "dir": "osfacts-client",
-      "pinned": true,
+      "pin": {
+        "name": "osfacts",
+        "revision": "24d3e87a0ae7a6c4fa752c94ed01a7911590de68",
+        "subdir": "client-ts"
+      },
       "vendored": true,
       "workspace": [],
       "external": {
@@ -898,6 +903,7 @@
     },
     "terminal-themes": {
       "dir": "packages/terminal-themes",
+      "vendored": true,
       "workspace": [
         "nonempty"
       ],

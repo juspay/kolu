@@ -10,6 +10,8 @@
  *  on its own, which is what lets `toKavalPresence`'s transport-liveness floor be pinned
  *  by a unit test without standing up a socket. */
 
+import { DASH } from "@kolu/terminal-vocab/dash";
+import { compactDelta, dualOf } from "@kolu/terminal-vocab/duration";
 import type {
   DaemonState,
   DaemonStatus,
@@ -17,7 +19,6 @@ import type {
 } from "@kolu/padi-client/surface";
 import { match, P } from "ts-pattern";
 import type { WsStatus } from "../rpc/rpc";
-import { compactDelta } from "../time/duration";
 
 /** A daemon state's coarse tone — the warming-up/up/down bucket every display
  *  site shares. `restarting` and `connecting` are both `warming` (transient,
@@ -112,17 +113,22 @@ export const DAEMON_UNKNOWN_LABEL = "unknown";
 /** Compact human uptime from a millisecond delta — `45s`, `12m`, `3h 20m`,
  *  `2d 4h`. The one uptime projection for the one daemon: the rail (passing
  *  `clockNow() - startedAt`) and the kaval dialog (`Date.now() - startedAt`)
- *  both call this, so a format tweak reaches both surfaces at once. Renders the
- *  dual-unit form of the shared {@link compactDelta} ladder (the sub-tier where
- *  one exists), so the sec/min/hr/day thresholds stay defined in one place. */
+ *  both call this, so a format tweak reaches both surfaces at once. It IS the
+ *  shared {@link dualPhrase} rendering — the sec/min/hr/day thresholds and the
+ *  dual-unit spelling both live in `@kolu/terminal-vocab/duration`, and the only
+ *  thing this adds is the one word that is genuinely the daemon's: a delta it
+ *  cannot trust reads {@link DAEMON_UNKNOWN_LABEL} rather than the dash, because
+ *  a daemon presence has a vocabulary for "we can't confirm this" and the rest of
+ *  the product does not. A daemon cannot have started in the future — that delta
+ *  is host clock skew, and the shared ladder says so rather than clamping it to
+ *  `0s`. */
 export function formatUptime(ms: number): string {
+  // ONE walk: the delta decides both the substitution and the rendering, so it
+  // is held rather than recomputed — this module's own premise. The knob
+  // argument for why the WORD is substituted here rather than passed lives on
+  // {@link dualPhrase}, which owns it.
   const d = compactDelta(ms);
-  // A daemon cannot have started in the future — that delta is host clock
-  // skew, and the shared ladder now says so rather than clamping it to `0s`.
-  if (d.kind === "unknown") return DAEMON_UNKNOWN_LABEL;
-  return d.sub
-    ? `${d.value}${d.unit} ${d.sub.value}${d.sub.unit}`
-    : `${d.value}${d.unit}`;
+  return d.kind === "unknown" ? DAEMON_UNKNOWN_LABEL : dualOf(d);
 }
 
 /** A WebSocket transport status → its coarse tone — `connecting` is transient
@@ -478,7 +484,7 @@ export function presenceState(
 export function formatLifetime(
   lifetime: DaemonLifetimeView | undefined,
 ): string {
-  if (lifetime === undefined) return "—";
+  if (lifetime === undefined) return DASH;
   return match(lifetime)
     .with({ kind: "forever" }, () => "forever")
     .with(

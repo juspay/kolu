@@ -1,47 +1,31 @@
-/** The dock's recency STRINGS — the one place a row's clock is read.
+/** The dock's two CLOCKS — the only part of a row's recency that is the app's.
  *
- *  `@kolu/solid-dockrow` owns which rendering a row gets (`recencyMode`), which
- *  timestamp that rendering means (`displayRecencyAt`), the violet capsule and
- *  the reserved 8ch track. What it deliberately does not own is the CLOCK: a
- *  ticking `now` is ambient app state, and kolu runs two of them on purpose —
- *  a 1 s tick for the wait chip, whose sub-minute seconds must count up, and a
- *  plain `Date.now()` read for "3m ago", which recomputes on mount because the
- *  60 s ceiling on its visual lag is invisible.
+ *  `@kolu/solid-dockrow` owns the rest, and owns it as one call: which rendering
+ *  a row gets, which timestamp that rendering means, what it says, which clock
+ *  each arm reads, the violet capsule and the reserved 8ch track. This file used
+ *  to hold the assembly — four lines with three invisible rules in them — and
+ *  every consumer rendering the same row had to write those four lines too. The
+ *  first one to try got two of the three wrong.
  *
- *  So the fold is here, ONCE, for all three row surfaces (`DockRow`,
- *  `DockListRow`, the needs-you strip). Each used to spell `displayRecencyAt(…)`
- *  itself and hand the cell a raw timestamp; now each hands it the same value,
- *  and the wait chip's "no honest reading → the dash" rule — a violet pill with
- *  no glyph reads as a rendering bug, not as "unknown" — is stated once. */
+ *  What is genuinely kolu's is that there are two clocks at all: a 1 s tick for
+ *  the wait chip, whose sub-minute seconds must count up, and a plain
+ *  `Date.now()` read for "3m ago", which recomputes on mount because the 60 s
+ *  ceiling on its visual lag is invisible. A ticking `now` is ambient app state
+ *  and its cadence is the app's call — so the package takes the two READERS and
+ *  decides between them itself. */
 
-import type { RowRecency } from "@kolu/solid-dockrow";
-import { displayRecencyAt, recencyMode } from "@kolu/solid-dockrow/rowValues";
-import { DASH } from "kolu-common/surface";
-import { formatTimeAgo, useDuration } from "../../terminal/staleness";
+import type { RecencyAt, RowRecency } from "@kolu/solid-dockrow/rowValues";
+import { rowRecency } from "@kolu/solid-dockrow/rowValues";
+import { getClockNow } from "../../time/clock";
 
 /** Build the row-recency reader. Call from a component body: the returned
- *  function reads the shared 1 s clock in the wait-chip arm, so a long-blocked
- *  agent's capsule counts up without a repaint hook, and reads nothing at all
- *  in the other two arms. */
+ *  function reads the shared 1 s clock only in the wait-chip arm — and only when
+ *  that chip has an honest duration to count — so a quiet row subscribes to
+ *  nothing. */
 export function useRowRecency(): (
   pip: { asking: boolean; active: boolean },
-  /** The tile's window recency — newest activity across parent and splits. */
-  windowRecencyAt: number | null,
-  /** THIS row's own agent recency — how long it has awaited you. */
-  ownRecencyAt: number | null,
+  at: RecencyAt,
 ) => RowRecency {
-  const duration = useDuration();
-  return (pip, windowRecencyAt, ownRecencyAt) => {
-    const mode = recencyMode(pip);
-    const at = displayRecencyAt(mode, windowRecencyAt, ownRecencyAt);
-    // No filler: `hidden` has no text, and the union no longer lets one be
-    // spelled. That the old shape REQUIRED a `text: ""` here was the evidence
-    // the product type was wrong.
-    if (mode === "hidden") return { mode };
-    if (mode === "ago") return { mode, text: formatTimeAgo(at) };
-    // Compact live duration ("2m" → "20h") — compact, not "2m ago": the capsule
-    // sits in the 8ch recency track and the suffix would wrap it. A never-active
-    // row has no honest duration, and the capsule cannot render empty.
-    return { mode, text: at === null ? DASH : duration(at) };
-  };
+  const counting = getClockNow();
+  return (pip, at) => rowRecency(pip, at, { counting, glancing: Date.now });
 }

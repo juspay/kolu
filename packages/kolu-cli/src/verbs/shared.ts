@@ -4,7 +4,8 @@
  * onto stdout/stderr under the CLI's output discipline.
  *
  * The pure halves already live one layer down and are NOT re-implemented here —
- * `resolveTerminalId` (the prefix/exact/ambiguous decision) and `shortId` are
+ * `resolveTerminalId` (the prefix/exact/ambiguous decision, on
+ * `@kolu/padi-client/terminalId`) and `shortId` are
  * `@kolu/padi/render`'s, shared with padi-tui. What this module adds is the
  * kolu-CLI-shaped wrapper around them: the sentences a user reads when the id
  * was wrong, which name `kolu ls` as the way to see the live ones.
@@ -15,7 +16,8 @@
 // one the HTTP server and cluster transports on the way to a writable stream.
 import * as NodeSink from "@effect/platform-node/NodeSink";
 import { readTerminalKeys } from "@kolu/padi/read";
-import { resolveTerminalId, shortId } from "@kolu/padi/render";
+import { shortId } from "@kolu/padi/render";
+import { resolveTerminalId } from "@kolu/padi-client/terminalId";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 // The ONE reading of "the reader hung up" — `@kolu/surface-cli`'s own, imported
 // (not re-spelled) since this binary mounted the projection: see the export

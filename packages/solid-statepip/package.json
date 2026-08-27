@@ -12,7 +12,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./pipVariant": "./src/pipVariant.ts",
-    "./statepip.css": "./src/statepip.css"
+    "./statepip.css": "./src/statepip.css",
+    "./all.css": "./src/all.css"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
