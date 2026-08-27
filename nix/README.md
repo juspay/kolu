@@ -21,14 +21,21 @@ in import "${koluSrc}/nix/consumer.nix" {
   # The packages you actually IMPORT. That is all you maintain.
   seeds = [ "@kolu/padi-client" "@kolu/solid-dockrow" "@kolu/surface-app" ];
   # PINNED members you must supply yourself — this seed set reaches one.
-  # `.pinned` lists them; omitting one is a named throw, not a broken `cp`.
-  pinnedSources.osfacts-client = pkgs.runCommand "osfacts-client" { }
-    "cp -r ${(import ./npins).osfacts}/client-ts $out";
+  # `.pins` lists them WITH the pin, revision and subdirectory to graft, and
+  # omitting one is a named throw rather than a broken `cp`. The revision comes
+  # back as well as the bytes, because kolu compiles this package against its
+  # OWN revision of it: pass a different one and you are told here, at eval,
+  # instead of finding out when a field moves.
+  pinnedSources.osfacts-client = {
+    src = pkgs.runCommand "osfacts-client" { }
+      "cp -r ${(import ./npins).osfacts}/client-ts $out";
+    revision = (import ./npins).osfacts.revision;
+  };
 }
 ```
 
-Back come `names`, `dirs`, `externals`, `packages`, `overlay`, `hydrateArgs` and
-`hydrateScript` — see the header of `consumer.nix` for what each is. The two
+Back come `names`, `dirs`, `externals`, `pins`, `packages`, `overlay`,
+`hydrateArgs` and `hydrateScript` — see the header of `consumer.nix` for what each is. The two
 callers that need the argv (a dev-shell `install` recipe and the build
 derivation) both pass `hydrateArgs`, so neither re-lists the set:
 
@@ -66,6 +73,16 @@ hydration is per-MANIFEST: you still copy `@kolu/surface-daemon-supervisor`'s
 directory, and its manifest still names `osfacts-client`. So the DECLARED
 closure still contains it and `consumer.nix` still needs a source for it. That
 is why the example above passes `pinnedSources`.
+
+**And it has to be kolu's REVISION of it.** You graft those bytes from your own
+pin and then compile them against packages copied from kolu's — two revisions of
+one package in one `tsc`, which typechecks right up until a field moves. That
+pairing used to be each consumer's to hold, one shell script per repo, every one
+of them re-deriving kolu's answer by reading kolu's INTERNAL `npins/sources.json`
+out of the fetched archive — a file layout kolu never promised to keep. kolu knows
+its own revision, so `consumer-closure.json` carries it (`pin: { name, revision,
+subdir }`) and `consumer.nix` refuses a `pinnedSources` entry that disagrees. The
+script is yours to delete; `npins add --at` the revision `.pins` names.
 
 **A seed must be a package kolu supports consuming.** `consumer.nix` throws at
 eval if a SEED is not a declared `vendorEntries.ts` entry or in its closure —

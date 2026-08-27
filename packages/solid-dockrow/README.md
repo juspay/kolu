@@ -70,10 +70,19 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   from two different terminals.
 - **`rowValues`** — every pure fold: `bindStatePip` (and the paint / glyph /
   motion decisions under it), `dockRowAttrs`, `rowSubline`, `annotationLine`,
-  `identityColor`, `recencyMode`, `displayRecencyAt`, `paintDockRow`, the
-  geometry constants, and the closed-set NARROWING (`narrowAgentState` and its
-  ten sibling guards — see "Filling the bag from a flat wire").
-- **`dockrow.css`** — the repo card, the row label, and the attention washes.
+  `identityColor`, `recencyMode`, `displayRecencyAt`, `recencyText`,
+  `paintDockRow`, the geometry constants, and the closed-set NARROWING
+  (`narrowRowVocab`, `narrowAgentState` and their sibling guards — see "Filling
+  the bag from a flat wire").
+
+  It is the PURE half by contract, not by intention: its import graph reaches no
+  `.tsx` and no `solid-js` edge, so a server can fold rows with it without
+  compiling a component library, and `rowValues.purity.test.ts` fails if a fold
+  ever reaches for one.
+- **`all.css`** — this package's stylesheet AND its prerequisites, in the one
+  order that works. The import a consumer wants; see "What a consumer needs".
+- **`dockrow.css`** — the repo card, the row label, and the attention washes, on
+  their own. The piece `all.css` is composed from.
 
 ## Filling the bag from a flat wire
 
@@ -85,12 +94,12 @@ required prop and where its value comes from:
 | prop | where it comes from |
 | --- | --- |
 | `pip` | `bindStatePip({ meta, attention, unread })` on the SERVER (it needs the record), shipped as a flat struct; or built field-by-field in the browser with the guards below |
-| `bucket` | the `pip.variant`'s bucket, or `paintDockRow(meta, klass)` server-side. `bucket` drives `data-bucket` — a styling/e2e hook, not a paint decision — so a surface with no activity window of its own can pass the paint bucket it already has |
+| `bucket` | the row's ORDER bucket, NOT a fold of `pip.variant` — the two are different folds and kolu's disagree (a fresh `waiting` agent PAINTS `linger` while the order bucket ranks it `idle`). `bucket` drives `data-bucket` and the row's rank; a surface with no activity window of its own can pass `paintDockRow(meta, klass)`, which is a deliberate substitution rather than a derivation |
 | `agentState` | your wire string, verbatim — `narrowAgentState(raw).attr`, or `dockRowFacts(meta).agentState` |
 | `label` | `annotationLine(intent, branchLabel)` — exported; do not re-derive |
 | `labelColor` | `identityColor(branchLabel)` — exported; do not re-derive |
 | `subline` | `dockRowFacts(meta).subline` server-side (see below). From a flat wire: `{ text: summary ?? narrowAgentState(raw).label, fromAgent: true }` — the `summary ?? label` rule is the row's, do not drop the summary |
-| `recency` | `{ mode: recencyMode(pip), text }` — you own the clock, the package owns the rest |
+| `recency` | `{ mode }` when hidden, else `{ mode, text: recencyText(mode, at, now) }` — you own the clock, the package owns the words. A discriminated union: `hidden` has no `text`, and a `""` filler is not spellable |
 | `pr` | `dockRowFacts(meta).pr`, or your own `PrInfo` |
 | `renderLabel` | your markdown renderer, or `(md) => md` |
 
@@ -150,6 +159,29 @@ narrowAgentState("compacting_context")   // a newer padi than your pin
 That is kolu's own answer for an unrecognised state — rank it idle, paint it
 quiet, print the word.
 
+**For the pip and the bucket, take all four at once.** Those guards have no text
+channel to keep a strange word in — a `PipVariant` selects a CSS class, and
+withholding it draws nothing, which reads as "there is nothing here" rather than
+as "I don't know". So the mark IS drawn, from kolu's own default, and the word
+survives beside it:
+
+```ts
+narrowRowVocab({ pip: wire.pip, bucket: wire.bucket })
+// → { pip: StatePipBind, bucket: DockRowBucket, known: boolean,
+//     unrecognised: { variant?, glyph?, motion?, bucket? } }
+```
+
+Each default is kolu's own answer, not a guess: an absent paint is the quiet
+`idle` body (never `empty`, which would swallow the identity glyph), an unknown
+driver is the `shell` prompt, an unrecognised bucket ranks `idle` — and MOTION
+is not defaulted at all, it is re-folded from the narrowed variant and your
+bag's own `active` through the same `pipMotionKind` that produced the wire's
+word. Do not spell these yourself: a hand-written fallback is silent, and
+nothing downstream can then tell that one fired.
+
+The two arguments are SEPARATE because the two folds are. `pip.variant` is
+PAINT; `bucket` is ORDER; kolu keeps them apart and they disagree.
+
 ## Two things it deliberately does NOT own
 
 **The markdown renderer.** `renderLabel` is a required prop. The annotation line
@@ -160,39 +192,64 @@ passes its inline intent renderer; a consumer that wants plain text passes
 `(md) => md`. It is required rather than defaulted so the choice is a decision,
 not a silent degradation.
 
-**The clock.** `recency` arrives as `{ mode, text }` with the text already
-formatted. A ticking `now` is ambient app state, and the cadence is the app's
-call — kolu runs a 1 s tick for the wait chip (whose sub-minute seconds must
-count up) and a plain `Date.now()` read for "3m ago". What the package still
-owns is everything that is not the clock: which of the three renderings a row
-gets (`recencyMode`), which timestamp that rendering means
-(`displayRecencyAt`), the violet capsule, and the reserved 8ch track.
+**The clock, and ONLY the clock.** A ticking `now` is ambient app state and its
+cadence is the app's call — kolu runs a 1 s tick for the wait chip (whose
+sub-minute seconds must count up) and a plain `Date.now()` read for "3m ago",
+deliberately different subscriptions. So `now` is a parameter.
+
+Everything else is the package's, the WORDS included: which of the three
+renderings a row gets (`recencyMode`), which timestamp that rendering means
+(`displayRecencyAt`), what it says (`recencyText`), the violet capsule, and the
+reserved 8ch track.
+
+```ts
+const mode = recencyMode(pip);
+if (mode === "hidden") return { mode };
+const at = displayRecencyAt(mode, windowRecencyAt, ownRecencyAt);
+return { mode, text: recencyText(mode, at, yourClock()) };
+```
+
+The words used to be yours, and the first consumer to spell them diverged in both
+modes at once — "7m" where the Dock says "5m ago", and the empty string where the
+wait chip must say the dash, because a violet pill with no glyph reads as a
+rendering bug rather than as "unknown". The two renderings answer a never-active
+row differently, on purpose, and that is a row rule rather than a formatting
+taste. `recencyText` does not accept `"hidden"`: that mode has no text, and a
+`""` filler is what the `RowRecency` union exists to make unspellable.
 
 ## What a consumer needs
 
-1. **Tailwind v4.** The components spell utility classes. Point Tailwind at this
-   package's sources or they are tree-shaken away:
-
-   ```css
-   @source "../../solid-dockrow/src";
-   ```
-
-2. **`@kolu/theme`.** Every colour resolves a theme token (`--color-alert`,
-   `--color-attention`, `--color-surface-1`, `--color-fg-3`, …). Import it, and
-   `@kolu/solid-statepip`'s sheet, before this one:
+1. **Tailwind v4, and two lines of CSS.** That is the whole styling contract:
 
    ```css
    @import "tailwindcss";
-   @import "@kolu/theme/theme.css";
-   @import "@kolu/solid-statepip/statepip.css";
-   @import "@kolu/solid-dockrow/dockrow.css";
+   @import "@kolu/solid-dockrow/all.css";
    ```
 
-3. **`--repo-color`**, set inline per section from whatever you hash a repo to.
+   `all.css` brings its own prerequisites — `@kolu/solid-statepip`'s sheet, the
+   `@kolu/theme` tokens every colour below resolves — in the one order that
+   works, plus the `@source` directives that keep each package's utility classes
+   from being tree-shaken away. Each package points Tailwind at ITSELF with a
+   path relative only to itself, which is the only spelling correct from a
+   workspace checkout, a `node_modules` copy and a hydrated tree alike.
+
+   This used to be four `@import`s and two `@source`s you had to order
+   correctly, and a wrong order renders a row with **no layout at all** — not a
+   missing colour, no layout. That was an instruction, and an instruction that
+   cannot be written correctly for every consumer's directory layout is one
+   nobody can be sure they followed. It is an invariant now. kolu's own
+   `index.css` reads it through this same door.
+
+   The granular `./dockrow.css` and `@kolu/solid-statepip/statepip.css` doors
+   remain — not as an escape hatch, but because they are the pieces `all.css` is
+   composed from, and a surface assembling a different set legitimately reaches
+   for them.
+
+2. **`--repo-color`**, set inline per section from whatever you hash a repo to.
    Every repo-tinted surface (spine, sticky header band, name ink) reads that one
    socket. The sheet defines `--dock-edge-stripe-w` and `--repo-ink` itself.
 
-4. **The containers — use the exported ones.** A row is `grid-cols-subgrid`, and
+3. **The containers — use the exported ones.** A row is `grid-cols-subgrid`, and
    every wash, the active highlight and the row dividers are scoped to the
    container's class. Both are shipped as components, so neither is yours to
    spell:
