@@ -4,8 +4,9 @@
 // stacked — is one a consumer rendering that row must not re-derive. This module
 // keeps the folds that are genuinely about intent TEXT rather than about the
 // slot, and re-exports the two so the ~7 client call sites keep one door.
-export { annotationLine, firstIntentLine } from "@kolu/solid-dockrow/rowValues";
-import { firstIntentLine } from "@kolu/solid-dockrow/rowValues";
+import { annotationLine, firstIntentLine } from "@kolu/solid-dockrow/rowValues";
+
+export { annotationLine, firstIntentLine };
 
 /** Stateless. Hoisted to module scope so `firstGrapheme` doesn't
  *  allocate a new segmenter on every reactive update. `Intl.Segmenter`

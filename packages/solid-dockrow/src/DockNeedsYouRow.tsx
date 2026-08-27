@@ -19,7 +19,7 @@
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import type { NeedsYouDensity } from "./geometry.ts";
+import { DOCK_ROW_FOCUS_RING, type NeedsYouDensity } from "./geometry.ts";
 import { type Component, type JSX, Show } from "solid-js";
 import type { DockRowBucket, StatePipBind } from "./pipBind.ts";
 import { RecencyCell, type RowRecency } from "./RecencyCell.tsx";
@@ -61,20 +61,13 @@ export const DockNeedsYouRow: Component<{
   <button
     type="button"
     data-testid={props.testId}
-    {...dockRowAttrs({
-      id: props.id,
-      bucket: props.bucket,
-      agentState: props.agentState,
-      asking: props.pip.asking,
-      unread: props.pip.alert,
-      active: props.active ?? false,
-    })}
+    {...dockRowAttrs(props)}
     // The tile this entry lands on — distinct from `data-terminal-id` above,
     // which names the row the pip and the wait come off.
     data-tile-id={props.tileId}
     onClick={() => props.onSelect()}
     title={props.title}
-    class={`flex items-center gap-1.5 w-full rounded-md cursor-pointer text-left transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${
+    class={`flex items-center gap-1.5 w-full rounded-md cursor-pointer text-left transition-colors duration-150 ${DOCK_ROW_FOCUS_RING} ${
       props.density === "icon" ? "justify-center py-1" : "px-1.5 py-1"
     }`}
     classList={{ "opacity-70": props.hiddenByFilter ?? false }}

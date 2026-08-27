@@ -106,7 +106,12 @@ const NeedsYouEntryRow: Component<{
           if (props.density !== "icon") {
             return `${where} — waiting on you${hidden}`;
           }
-          const d = recency().text;
+          // `hidden` carries no text at all now — the union says so, rather
+          // than a comment promising an empty string. An entry in this strip is
+          // asking by construction, so it is always the wait chip; reading the
+          // union honestly costs one narrow and removes the assumption.
+          const r = recency();
+          const d = r.mode === "hidden" ? "" : r.text;
           const wait = d && d !== DASH ? ` for ${d}` : "";
           return `${where} — waiting on you${wait}${hidden}`;
         };

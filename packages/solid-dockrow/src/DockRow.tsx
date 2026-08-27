@@ -122,14 +122,7 @@ export const DockRow: Component<DockRowProps> = (props) => {
       // state, active/asking/unread. Attention washes key on the ATTENTION
       // class, not the ORDER bucket: the wash, the chip, the header count and
       // its jump are one fact rendered four ways.
-      {...dockRowAttrs({
-        id: props.id,
-        bucket: props.bucket,
-        agentState: props.agentState,
-        asking: props.pip.asking,
-        unread: props.pip.alert,
-        active: props.active ?? false,
-      })}
+      {...dockRowAttrs(props)}
       data-sleeping={props.pip.sleeping ? "" : undefined}
       // Attached only when a surface actually traps the gesture. Registering a
       // no-op listener on every row is a real DOM delta the desktop row did not

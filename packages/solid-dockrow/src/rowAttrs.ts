@@ -34,7 +34,13 @@ export type DockRowAttrs = {
  *  assembles is a value a call site can get wrong") is kept the same way it
  *  always was, by there being ONE spelling of the answer: kolu-client's
  *  `isActiveRow`, which every dock call site passes and none re-derives. */
-export function dockRowAttrs(row: {
+/** The five facts every row surface hands the attribute builder. Declared once
+ *  and taken WHOLE — each component's props extend it structurally, so the call
+ *  is `dockRowAttrs(props)` rather than a five-field adapter block spelled
+ *  identically at three call sites. That block was the rule's only enforcement:
+ *  `asking` must come off the pip and never the order bucket, and a hand-copied
+ *  adapter is where that stops being true. */
+export type DockRowAttrsInput = {
   id: TerminalId;
   /** The ORDER bucket (`data-bucket`) — ordering tests and the rail glow. */
   bucket: DockRowBucket;
@@ -46,26 +52,26 @@ export function dockRowAttrs(row: {
    *  an unfamiliar state is more honest than dropping it, and this attribute is
    *  read (debug, e2e), never switched over. */
   agentState: string | undefined;
-  /** Blocked on you. Comes off the ATTENTION class (the bound pip's `asking`),
-   *  never the ORDER bucket: those are different folds that agreed only by
-   *  luck. Violet needs-you dominates amber unread when both hold, which the
-   *  stylesheet decides by declaration order. */
-  asking: boolean;
-  /** Finished work you have not opened. */
-  unread: boolean;
+  /** The bound status indicator. `asking` and the unread `alert` are read OFF
+   *  it — never off the ORDER bucket, which is a different fold that agreed with
+   *  the attention class only by luck. Taking the pip rather than two booleans
+   *  is what stops a call site pairing them wrongly. */
+  pip: { asking: boolean; alert: boolean };
   /** The row the user is LOOKING at — its highlight wins over an obligation
    *  they are already discharging. An OPTIONAL fact: a surface with no notion
    *  of an active tile simply never sets it, and every row reads unwashed by
    *  the active rule rather than wrongly. */
-  active: boolean;
-}): DockRowAttrs {
+  active?: boolean;
+};
+
+export function dockRowAttrs(row: DockRowAttrsInput): DockRowAttrs {
   return {
     "data-dock-row": "",
     "data-terminal-id": row.id,
     "data-bucket": row.bucket,
     "data-agent-state": row.agentState,
     "data-active": row.active ? "" : undefined,
-    "data-asking": row.asking ? "" : undefined,
-    "data-unread": row.unread ? "" : undefined,
+    "data-asking": row.pip.asking ? "" : undefined,
+    "data-unread": row.pip.alert ? "" : undefined,
   };
 }

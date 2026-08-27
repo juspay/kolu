@@ -153,6 +153,32 @@ let
   # an empty `hydrateArgs` — so the copier dies at RUNTIME with a usage error
   # instead of here, where the mistake is. A consumer asking for nothing is
   # always a mistake; the honest answer is to say so at eval.
+  # A SEED must be a package kolu supports being consumed from outside — i.e. a
+  # declared `vendorEntries.ts` entry or something in its closure. Being in that
+  # set is what puts a manifest under the literal-version gate; outside it,
+  # `catalog:`-freeness is a coincidence, so a package that resolves today can
+  # break at a pin bump the consumer did not make.
+  #
+  # Gating SEEDS, not the closure: reaching an unvendored member transitively is
+  # kolu's business, but seeding one is a consumer saying "I import this", and
+  # that is the claim kolu has to be able to honour. The `catalog:` refusal below
+  # stays as the second net for the transitive case.
+  unvendoredSeeds = builtins.filter (name: !((memberOf name).vendored or false)) seeds;
+
+  _vendoredOk =
+    if unvendoredSeeds == [ ] then true
+    else throw ''
+      kolu/nix/consumer.nix: these seeds are not packages kolu supports consuming
+      from outside:
+
+        ${builtins.concatStringsSep "\n        " unvendoredSeeds}
+
+      Only the entries declared in packages/tests/governance/vendorEntries.ts and
+      their closure are held to literal dependency versions by kolu's own gates.
+      A package outside that set may resolve today and stop resolving at a pin
+      bump you did not make. To adopt one, add it there — see nix/README.md.
+    '';
+
   _seedsOk =
     if seeds != [ ] then true
     else throw "kolu/nix/consumer.nix: `seeds` is empty — name the packages you import.";
@@ -160,6 +186,7 @@ let
 in
 assert _schemaOk;
 assert _seedsOk;
+assert _vendoredOk;
 assert _catalogOk; {
   inherit names;
 

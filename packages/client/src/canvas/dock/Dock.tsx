@@ -64,10 +64,7 @@
 import { activeArm } from "@kolu/padi-client/surface";
 
 import { DockRow as DockRowView, DockSection } from "@kolu/solid-dockrow";
-import {
-  type DockRowBucket,
-  DOCK_CARDS_GUTTER_NEG_CLASS,
-} from "@kolu/solid-dockrow/rowValues";
+import type { DockRowBucket } from "@kolu/solid-dockrow/rowValues";
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import { createElementSize } from "@solid-primitives/resize-observer";
@@ -561,7 +558,6 @@ const RepoSection: Component<{
       repo={props.group.name}
       repoColor={props.group.color}
       headerTestId="dock-section-header"
-      headerClass={`flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-2.5 pr-3 py-2`}
       header={
         <>
           {/* Sticky repo header — monogram + uppercase name + bare tally +

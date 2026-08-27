@@ -198,7 +198,7 @@ gets (`recencyMode`), which timestamp that rendering means
    spell:
 
    ```tsx
-   <DockSection surface="desktop" repoColor={hue} header={<YourHeader />}>
+   <DockSection surface="desktop" repoColor={hue} header={<YourHeaderContents />}>
      <DockRow … />
    </DockSection>
 
@@ -210,9 +210,9 @@ gets (`recencyMode`), which timestamp that rendering means
    Rendering a `<DockRow>` inside a container of your own gets you a
    structurally correct, attribute-complete row with **no violet "blocked on
    you" wash at all**, and nothing errors — which is exactly why the containers
-   ship rather than being described here. If you genuinely need your own
-   element, `DOCK_SECTION_CLASS` and `DOCK_NEEDS_YOU_STRIP_CLASS` are exported
-   beside the grid constants so it can still land inside the rules.
+   ship rather than being described here. There is no second door: the class names are
+   deliberately NOT exported, because a receptacle that ships the step it says
+   you must not miss is offering you the miss.
 
 ## Why it depends on `@kolu/padi-client`
 

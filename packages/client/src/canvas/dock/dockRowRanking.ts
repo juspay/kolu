@@ -57,11 +57,11 @@ import {
   type TerminalMetadata,
 } from "@kolu/padi-client/surface";
 import {
-  type DockPaintBucket as PackageDockPaintBucket,
+  type DockPaintBucket,
   type DockRowBucket,
   dockOverlayBucket,
   paintDockRow,
-  type UnparkedPaintBucket,
+  type UnparkedPaintBucket as SubDockPaintBucket,
 } from "@kolu/solid-dockrow/rowValues";
 import {
   type AttentionClass,
@@ -84,15 +84,12 @@ export type { DockRowBucket };
 /** Values the ORDER fold can actually emit. `linger` is paint-only. */
 type DockOrderBucket = Exclude<DockRowBucket, "linger">;
 
-// The PAINT fold's own emit-set and its unparked narrowing are the package's
-// (`DockPaintBucket` / `UnparkedPaintBucket`) — re-spelling them here would be a
-// second `Exclude` over the same union, agreeing with the first only until one
-// of them moved.
-type DockPaintBucket = PackageDockPaintBucket;
+// The PAINT fold's emit-set and its unparked narrowing are the package's; they
+// are imported under this file's own names rather than re-declared, so there is
+// no second `Exclude` over the same union to drift.
 
 /** A split shares its parent's window fate, so it cannot independently park. */
 type SubDockOrderBucket = Exclude<DockOrderBucket, "parked">;
-type SubDockPaintBucket = UnparkedPaintBucket;
 
 function classifyDockRow(
   meta: TerminalMetadata,

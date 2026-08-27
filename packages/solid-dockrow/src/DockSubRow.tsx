@@ -18,6 +18,7 @@ import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Component, JSX } from "solid-js";
 import {
+  DOCK_ROW_FOCUS_RING,
   DOCK_ROW_SURFACE,
   DOCK_ROW_STRIPE_CLASS,
   type DockRowSurface,
@@ -50,14 +51,7 @@ export const DockSubRow: Component<{
   <button
     type="button"
     data-testid={props.testId}
-    {...dockRowAttrs({
-      id: props.id,
-      bucket: props.bucket,
-      agentState: props.agentState,
-      asking: props.pip.asking,
-      unread: props.pip.alert,
-      active: props.active ?? false,
-    })}
+    {...dockRowAttrs(props)}
     data-parent-id={props.parentId}
     data-depth={props.depth}
     // Sub-entries are flat DOM siblings inside the section grid, so the indent
@@ -65,7 +59,7 @@ export const DockSubRow: Component<{
     // split it actually belongs to. Inline (not a Tailwind class) because depth
     // is unbounded — no class list can enumerate it.
     style={{ "padding-left": `${1.75 + (props.depth - 1) * 0.75}rem` }}
-    class={`relative w-full col-span-full flex items-center gap-1.5 pr-2 ${DOCK_ROW_SURFACE[props.surface].subRowPad} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
+    class={`relative w-full col-span-full flex items-center gap-1.5 pr-2 ${DOCK_ROW_SURFACE[props.surface].subRowPad} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${DOCK_ROW_FOCUS_RING} hover:bg-surface-2/40`}
     onPointerDown={props.onPointerDown}
     onClick={() => props.onSelect()}
     title={props.title}

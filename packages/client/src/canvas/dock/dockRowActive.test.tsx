@@ -53,8 +53,7 @@ function litRows(
             id: PARENT,
             bucket: "idle",
             agentState: undefined,
-            asking: false,
-            unread: false,
+            pip: { asking: false, alert: false },
             active: isActiveRow(PARENT),
           })}
         />
@@ -64,8 +63,7 @@ function litRows(
             id: SPLIT,
             bucket: splitAgentState ? "working" : "idle",
             agentState: splitAgentState,
-            asking: false,
-            unread: false,
+            pip: { asking: false, alert: false },
             active: isActiveRow(SPLIT),
           })}
         />

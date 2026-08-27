@@ -35,6 +35,12 @@ export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-3 pl-3";
 export const DOCK_CARDS_GUTTER_CLASS = "pr-3";
 export const DOCK_CARDS_GUTTER_NEG_CLASS = "-mr-3";
 
+/** The keyboard focus ring every row surface wears. One token: it was spelled
+ *  out in three files, which is the "update both files when geometry changes"
+ *  failure this package exists to end, in miniature. */
+export const DOCK_ROW_FOCUS_RING =
+  "focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40";
+
 /** WHICH SURFACE a row is on — kolu's on-canvas dock, or its touch drawer /
  *  compact rail. The one axis `Dock.tsx` and `DockList.tsx` differ by.
  *
@@ -90,6 +96,17 @@ export const DOCK_ROW_SURFACE: Record<
     subRowPad: string;
     /** `DockSection` left inset + right gutter. */
     sectionPad: string;
+    /** `DockSection`'s sticky header BAND — its flex row, its inset, and the
+     *  negative-margin bleed that lets the wash reach the card's edges.
+     *
+     *  In the table rather than a prop because it is package geometry, not app
+     *  chrome: the bleed pair is the same one `DOCK_CARDS_GUTTER_*` documents
+     *  and the section spends for itself. It was briefly a free-form
+     *  `headerClass` prop, which meant a consumer omitting it got a header band
+     *  with no flex row, no inset and no bleed — silently. That is the exact
+     *  failure `DockSection` exists to close, reintroduced one prop down. What
+     *  stays the app's is the header's CONTENT. */
+    headerPad: string;
     /** Annotation-line size. */
     textLabel: string;
     /** Recency-cell size. */
@@ -102,10 +119,10 @@ export const DOCK_ROW_SURFACE: Record<
     rowPad: "py-2",
     rowGutter: `${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS}`,
     rowPress: "hover:bg-surface-2/40",
-    rowFocus:
-      "focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40",
+    rowFocus: DOCK_ROW_FOCUS_RING,
     subRowPad: "py-1",
     sectionPad: `pl-3 ${DOCK_CARDS_GUTTER_CLASS}`,
+    headerPad: `flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-2.5 pr-3 py-2`,
     textLabel: "text-[0.84rem]",
     textRecency: "text-[0.6rem]",
     textSubline: "text-[0.68rem]",
@@ -117,6 +134,7 @@ export const DOCK_ROW_SURFACE: Record<
     rowFocus: "",
     subRowPad: "py-2",
     sectionPad: "pl-3 pr-3",
+    headerPad: "flex items-center gap-2 -ml-3 -mr-3 pl-2.5 pr-3 py-2.5",
     textLabel: "text-[0.9rem]",
     textRecency: "text-[0.65rem]",
     textSubline: "text-[0.7rem]",

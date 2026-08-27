@@ -97,7 +97,6 @@ function DockListSection(props: {
       repo={props.group.name}
       repoColor={props.group.color}
       headerTestId="mobile-dock-section-header"
-      headerClass="flex items-center gap-2 -ml-3 -mr-3 pl-2.5 pr-3 py-2.5"
       header={
         <>
           <RepoMonogram

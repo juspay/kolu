@@ -32,7 +32,11 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { workspacePackageRoots } from "@kolu/daemon-test-gate/runtimeDepEdges";
+import {
+  declaredDependencyClosure,
+  workspacePackageRoots,
+} from "@kolu/daemon-test-gate/runtimeDepEdges";
+import { vendorEntries } from "./vendorEntries";
 
 /** The file the emission lives in, repo-relative. */
 export const CONSUMER_CLOSURE_PATH = "nix/consumer-closure.json";
@@ -57,6 +61,23 @@ export type ClosureMember = {
    *  also what makes this emission derivable from a bare clone rather than from
    *  whichever grafts happen to have run on the emitting machine. */
   pinned?: true;
+  /** VENDORED members are the ones kolu actually supports being consumed from
+   *  outside — the declared entries in `vendorEntries.ts` and their closure.
+   *
+   *  Being in that set is what puts a manifest under `effectPin.ts`, the gate
+   *  that requires LITERAL dependency versions. Outside it, `catalog:`-freeness
+   *  is a coincidence rather than an invariant: sixteen members are seedable
+   *  today and in no vendored closure, and `@kolu/solid-markdown` — the obvious
+   *  next reach for a consumer answering `renderLabel` — is one of them. Nothing
+   *  stops it going `catalog:` on a future edit with CI green, breaking a
+   *  consumer at a pin bump they did not make.
+   *
+   *  So `consumer.nix` gates SEEDS on this. That is not a gate on intent — the
+   *  objection I raised when I declined to add one — it is a gate on a
+   *  declaration that already exists. The closure may still REACH an unvendored
+   *  member; what it may not do is let one be seeded, because a seed is a
+   *  consumer saying "I import this". */
+  vendored?: true;
   /** Workspace members this one's manifest names — the edges of the walk. */
   workspace: string[];
   /** Non-workspace dependencies, with the version range this manifest declares.
@@ -72,36 +93,32 @@ export type ConsumerClosure = {
   members: Record<string, ClosureMember>;
 };
 
+/** The pin-grafted members, asked of NIX rather than parsed out of its source.
+ *
+ *  `nix/workspace.nix` declares `pinnedNames`, and this file needs it. The first
+ *  version read it with `/pinnedNames\\s*=\\s*\\[([^\\]]*)\\]/` over the file's
+ *  bytes — a hand-written parser for a language this repo ships an evaluator
+ *  for, whose `[^\\]]*` would have stopped at a `]` inside a comment and
+ *  silently truncated the set. `closureWalk.ts` already asks Nix for the
+ *  sibling `closureNamesFor` this way; there is no reason for two mechanisms in
+ *  one directory. */
+function declaredPinnedNames(repoRoot: string): Set<string> {
+  const expr = `
+    let pkgs = import "${repoRoot}/nix/nixpkgs.nix" { system = builtins.currentSystem; };
+    in (import "${repoRoot}/nix/workspace.nix" { inherit pkgs; }).pinnedNames`;
+  const out = execFileSync(
+    "nix",
+    ["eval", "--accept-flake-config", "--impure", "--json", "--expr", expr],
+    { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+  return new Set(JSON.parse(out) as string[]);
+}
+
 /** The directories git actually carries — the set a consumer's `src` contains.
  *
  *  One `git ls-files` for the whole tree rather than one per member: the answer
- *  is a property of the index, and asking it 67 times would be 67 subprocesses
- *  to learn one thing. A member whose directory contributes no tracked file is
- *  PINNED (see {@link ClosureMember.pinned}). */
-/** The workspace members nix declares, INCLUDING the pin-grafted ones.
- *
- *  `workspacePackageRoots` walks directories that EXIST, so on a bare clone —
- *  before `just install` grafts `osfacts-client` — it silently omits that member
- *  and the emission loses a row. The flag below is derivable from a bare clone;
- *  membership was not, and claiming otherwise was the same overclaim this file
- *  exists to prevent downstream. `nix/workspace.nix` DECLARES both the members
- *  and the pinned ones, so membership is seeded from there and the tree is used
- *  only to read manifests that are present. */
-function declaredPinnedNames(repoRoot: string): Set<string> {
-  const nix = readFileSync(join(repoRoot, "nix/workspace.nix"), "utf8");
-  const block = /pinnedNames\s*=\s*\[([^\]]*)\]/.exec(nix);
-  if (!block) {
-    throw new Error(
-      "nix/workspace.nix: no `pinnedNames = [ … ]` — the emitter seeds pin-grafted " +
-        "membership from that declaration rather than from whichever directories " +
-        "happen to exist on this machine.",
-    );
-  }
-  return new Set(
-    [...(block[1] as string).matchAll(/"([^"]+)"/g)].map((m) => m[1] as string),
-  );
-}
-
+ *  is a property of the index. A member whose directory contributes no tracked
+ *  file is PINNED (see {@link ClosureMember.pinned}). */
 function trackedDirs(repoRoot: string): Set<string> {
   const out = execFileSync("git", ["ls-files", "-z"], {
     cwd: repoRoot,
@@ -134,43 +151,58 @@ type Manifest = {
  *  devDependencies. Sorted throughout so the artifact is byte-stable and its
  *  diff is readable. */
 export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
-  const members: Record<string, ClosureMember> = {};
-  const dirs = new Map<string, string>();
   const tracked = trackedDirs(repoRoot);
   const pinnedByDeclaration = declaredPinnedNames(repoRoot);
+  const vendored = new Set(
+    declaredDependencyClosure({
+      repoRoot,
+      entries: vendorEntries(repoRoot),
+    }).names,
+  );
+
+  // ONE walk, ONE parse per manifest. The first version looped
+  // `workspacePackageRoots` twice with the same read/skip block copy-pasted into
+  // both — two traversals and ~67 redundant `JSON.parse`s on every governance
+  // run, beside a module that keeps an mtime-keyed manifest cache precisely to
+  // avoid that.
+  const parsed: { name: string; rel: string; manifest: Manifest }[] = [];
   for (const dir of workspacePackageRoots(repoRoot)) {
     const manifest = JSON.parse(
       readFileSync(join(dir, "package.json"), "utf8"),
     ) as Manifest;
     if (manifest.name === undefined) continue;
-    dirs.set(manifest.name, relative(repoRoot, dir).split(sep).join("/"));
+    parsed.push({
+      name: manifest.name,
+      rel: relative(repoRoot, dir).split(sep).join("/"),
+      manifest,
+    });
   }
-  for (const dir of workspacePackageRoots(repoRoot)) {
-    const manifest = JSON.parse(
-      readFileSync(join(dir, "package.json"), "utf8"),
-    ) as Manifest;
-    const name = manifest.name;
-    if (name === undefined) continue;
-    const declared = {
-      ...manifest.dependencies,
-      ...manifest.peerDependencies,
-    };
+  const names = new Set(parsed.map((m) => m.name));
+
+  const members: Record<string, ClosureMember> = {};
+  for (const { name, rel, manifest } of parsed) {
+    // The SAME edge rule `declaredDependencyClosure` walks — `dependencies` +
+    // `peerDependencies`, never devDependencies, because a hydrating consumer
+    // installs a copied directory's declared RUNTIME edges. Spelled here rather
+    // than imported only because that helper answers a closure, not an
+    // adjacency; the rule itself must stay the same one, which is why it is
+    // named rather than paraphrased.
+    const declared = { ...manifest.dependencies, ...manifest.peerDependencies };
     const workspace: string[] = [];
     const external: Record<string, string> = {};
     for (const dep of Object.keys(declared).sort()) {
-      if (dirs.has(dep)) workspace.push(dep);
+      if (names.has(dep)) workspace.push(dep);
       else external[dep] = declared[dep] as string;
     }
-    const rel = dirs.get(name) as string;
     members[name] = {
       dir: rel,
-      ...(pinnedByDeclaration.has(name) || !tracked.has(rel)
-        ? { pinned: true as const }
-        : {}),
+      ...(!tracked.has(rel) ? { pinned: true as const } : {}),
+      ...(vendored.has(name) ? { vendored: true as const } : {}),
       workspace,
       external,
     };
   }
+
   // THE LOUD FAIL a short emission needs — and the one the first attempt at this
   // guard missed. Parsing `workspace.nix` and throwing when its `pinnedNames`
   // SYNTAX is gone protects the parse, not the emission: membership still comes

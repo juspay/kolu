@@ -1432,6 +1432,9 @@ importers:
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
+      '@kolu/theme':
+        specifier: workspace:*
+        version: link:../theme
       anyforge:
         specifier: workspace:*
         version: link:../integrations/anyforge
@@ -1563,6 +1566,9 @@ importers:
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
+      '@kolu/theme':
+        specifier: workspace:*
+        version: link:../theme
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11

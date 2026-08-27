@@ -34,7 +34,10 @@ export function useRowRecency(): (
   return (pip, windowRecencyAt, ownRecencyAt) => {
     const mode = recencyMode(pip);
     const at = displayRecencyAt(mode, windowRecencyAt, ownRecencyAt);
-    if (mode === "hidden") return { mode, text: "" };
+    // No filler: `hidden` has no text, and the union no longer lets one be
+    // spelled. That the old shape REQUIRED a `text: ""` here was the evidence
+    // the product type was wrong.
+    if (mode === "hidden") return { mode };
     if (mode === "ago") return { mode, text: formatTimeAgo(at) };
     // Compact live duration ("2m" → "20h") — compact, not "2m ago": the capsule
     // sits in the 8ch recency track and the suffix would wrap it. A never-active

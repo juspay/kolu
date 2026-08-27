@@ -39,6 +39,7 @@
     },
     "@kolu/log": {
       "dir": "packages/log",
+      "vendored": true,
       "workspace": [],
       "external": {}
     },
@@ -83,6 +84,7 @@
     },
     "@kolu/padi-client": {
       "dir": "packages/padi-client",
+      "vendored": true,
       "workspace": [
         "@kolu/surface",
         "@kolu/surface-daemon",
@@ -112,6 +114,7 @@
     },
     "@kolu/shell-quote": {
       "dir": "packages/shell-quote",
+      "vendored": true,
       "workspace": [],
       "external": {}
     },
@@ -135,10 +138,12 @@
     },
     "@kolu/solid-dockrow": {
       "dir": "packages/solid-dockrow",
+      "vendored": true,
       "workspace": [
         "@kolu/padi-client",
         "@kolu/solid-statepip",
         "@kolu/terminal-vocab",
+        "@kolu/theme",
         "anyforge"
       ],
       "external": {
@@ -190,8 +195,10 @@
     },
     "@kolu/solid-statepip": {
       "dir": "packages/solid-statepip",
+      "vendored": true,
       "workspace": [
-        "@kolu/terminal-vocab"
+        "@kolu/terminal-vocab",
+        "@kolu/theme"
       ],
       "external": {
         "solid-js": "^1.9.0"
@@ -199,6 +206,7 @@
     },
     "@kolu/surface": {
       "dir": "packages/surface",
+      "vendored": true,
       "workspace": [
         "@kolu/log"
       ],
@@ -213,6 +221,7 @@
     },
     "@kolu/surface-app": {
       "dir": "packages/surface-app",
+      "vendored": true,
       "workspace": [
         "@kolu/surface",
         "@kolu/url-shape"
@@ -240,6 +249,7 @@
     },
     "@kolu/surface-cli": {
       "dir": "packages/surface-cli",
+      "vendored": true,
       "workspace": [
         "@kolu/surface"
       ],
@@ -250,6 +260,7 @@
     },
     "@kolu/surface-daemon": {
       "dir": "packages/surface-daemon",
+      "vendored": true,
       "workspace": [
         "@kolu/log",
         "@kolu/surface"
@@ -262,6 +273,7 @@
     },
     "@kolu/surface-daemon-supervisor": {
       "dir": "packages/surface-daemon-supervisor",
+      "vendored": true,
       "workspace": [
         "@kolu/surface",
         "@kolu/surface-daemon",
@@ -372,6 +384,7 @@
     },
     "@kolu/surface-map": {
       "dir": "packages/surface-map",
+      "vendored": true,
       "workspace": [
         "@kolu/surface"
       ],
@@ -385,6 +398,7 @@
     },
     "@kolu/surface-mcp": {
       "dir": "packages/surface-mcp",
+      "vendored": true,
       "workspace": [
         "@kolu/surface"
       ],
@@ -396,6 +410,7 @@
     },
     "@kolu/surface-remote": {
       "dir": "packages/surface-remote",
+      "vendored": true,
       "workspace": [
         "@kolu/log",
         "@kolu/shell-quote",
@@ -418,6 +433,7 @@
     },
     "@kolu/terminal-vocab": {
       "dir": "packages/terminal-vocab",
+      "vendored": true,
       "workspace": [
         "anyagent",
         "anyforge",
@@ -436,11 +452,13 @@
     },
     "@kolu/theme": {
       "dir": "packages/theme",
+      "vendored": true,
       "workspace": [],
       "external": {}
     },
     "@kolu/url-shape": {
       "dir": "packages/url-shape",
+      "vendored": true,
       "workspace": [],
       "external": {}
     },
@@ -465,6 +483,7 @@
     },
     "anyagent": {
       "dir": "packages/integrations/anyagent",
+      "vendored": true,
       "workspace": [
         "@kolu/log",
         "@kolu/shell-quote",
@@ -477,6 +496,7 @@
     },
     "anyforge": {
       "dir": "packages/integrations/anyforge",
+      "vendored": true,
       "workspace": [
         "@kolu/log"
       ],
@@ -525,6 +545,7 @@
     },
     "kolu-claude-code": {
       "dir": "packages/integrations/claude-code",
+      "vendored": true,
       "workspace": [
         "anyagent",
         "kolu-io",
@@ -616,6 +637,7 @@
     },
     "kolu-codex": {
       "dir": "packages/integrations/codex",
+      "vendored": true,
       "workspace": [
         "anyagent",
         "kolu-shared",
@@ -653,6 +675,7 @@
     },
     "kolu-git": {
       "dir": "packages/integrations/git",
+      "vendored": true,
       "workspace": [
         "kolu-io",
         "kolu-pty",
@@ -668,6 +691,7 @@
     },
     "kolu-github": {
       "dir": "packages/integrations/github",
+      "vendored": true,
       "workspace": [
         "anyforge",
         "kolu-shared"
@@ -679,6 +703,7 @@
     },
     "kolu-grok": {
       "dir": "packages/integrations/grok",
+      "vendored": true,
       "workspace": [
         "anyagent",
         "kolu-io",
@@ -691,6 +716,7 @@
     },
     "kolu-io": {
       "dir": "packages/integrations/io",
+      "vendored": true,
       "workspace": [
         "@kolu/log"
       ],
@@ -716,6 +742,7 @@
     },
     "kolu-opencode": {
       "dir": "packages/integrations/opencode",
+      "vendored": true,
       "workspace": [
         "anyagent",
         "kolu-shared",
@@ -728,6 +755,7 @@
     },
     "kolu-pi": {
       "dir": "packages/integrations/pi",
+      "vendored": true,
       "workspace": [
         "anyagent",
         "kolu-io",
@@ -741,6 +769,7 @@
     },
     "kolu-pty": {
       "dir": "packages/integrations/pty",
+      "vendored": true,
       "workspace": [],
       "external": {}
     },
@@ -790,6 +819,7 @@
     },
     "kolu-shared": {
       "dir": "packages/shared",
+      "vendored": true,
       "workspace": [
         "@kolu/log",
         "kolu-io"
@@ -798,6 +828,7 @@
     },
     "kolu-transcript-core": {
       "dir": "packages/transcript-core",
+      "vendored": true,
       "workspace": [
         "@kolu/log"
       ],
@@ -817,6 +848,7 @@
     },
     "memorable-names": {
       "dir": "packages/memorable-names",
+      "vendored": true,
       "workspace": [
         "nonempty"
       ],
@@ -824,12 +856,14 @@
     },
     "nonempty": {
       "dir": "packages/nonempty",
+      "vendored": true,
       "workspace": [],
       "external": {}
     },
     "osfacts-client": {
       "dir": "osfacts-client",
       "pinned": true,
+      "vendored": true,
       "workspace": [],
       "external": {
         "effect": "4.0.0-rc.110"

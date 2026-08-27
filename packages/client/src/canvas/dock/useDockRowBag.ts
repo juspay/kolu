@@ -38,7 +38,7 @@ import type { DockRowProps } from "@kolu/solid-dockrow";
 import { dockRowFacts } from "@kolu/solid-dockrow/rowValues";
 import type { TerminalMetadata } from "@kolu/padi-client/vocab";
 import type { TerminalId } from "kolu-common/surface";
-import type { Accessor } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import { annotationLine } from "../../intent/text";
 import { useStatePip } from "../../terminal/statePipBind";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
@@ -89,7 +89,18 @@ export function useDockRowBag(): (input: {
       () => store.isUnread(input.id),
       input.pipBucket,
     );
-    const facts = () => dockRowFacts(input.combined().meta);
+    // MEMOIZED, and this is the "once per row" case rather than the per-read one
+    // note 1 warns about: the bag runs inside the <Show> owner where
+    // `useStatePip`'s memo already lives, so the lifetime is the same.
+    //
+    // Not a micro-optimisation. `dockRowFacts` derives agentState, subline AND
+    // pr from one record, and `agentState` is read inside the `dockRowAttrs`
+    // spread — a render effect. Computing the other two in that effect
+    // subscribed it to `arm.pr.*` and `arm.foreground.title`, so a PR resolving,
+    // or the foreground title changing on EVERY command the user runs, rewrote
+    // all seven data-* attributes. The memo is the boundary that keeps the
+    // attribute effect tracking only what it renders.
+    const facts = createMemo(() => dockRowFacts(input.combined().meta));
     return {
       id: input.id,
       get pip() {

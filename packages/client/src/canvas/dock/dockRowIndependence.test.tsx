@@ -176,8 +176,10 @@ function renderDock() {
                 id,
                 bucket: "working",
                 agentState: activeArm(meta[id])?.agent?.state,
-                asking: pip()?.asking ?? false,
-                unread: unread[id] ?? false,
+                pip: {
+                  asking: pip()?.asking ?? false,
+                  alert: unread[id] ?? false,
+                },
                 active: isActiveRow(id),
               })}
               data-pip={pip()?.variant}

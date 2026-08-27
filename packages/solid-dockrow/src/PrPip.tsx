@@ -19,9 +19,9 @@ import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { prTooltip } from "./prTooltip.ts";
 
-const GitMergeIcon: Component<{ class?: string }> = (props) => (
+const GitMergeIcon: Component<{ class: string }> = (props) => (
   <svg
-    class={props.class ?? "w-3.5 h-3.5"}
+    class={props.class}
     viewBox="0 0 16 16"
     fill="currentColor"
     aria-hidden="true"
@@ -30,9 +30,9 @@ const GitMergeIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-const GitPullRequestClosedIcon: Component<{ class?: string }> = (props) => (
+const GitPullRequestClosedIcon: Component<{ class: string }> = (props) => (
   <svg
-    class={props.class ?? "w-3.5 h-3.5"}
+    class={props.class}
     viewBox="0 0 16 16"
     fill="currentColor"
     aria-hidden="true"
@@ -41,9 +41,9 @@ const GitPullRequestClosedIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-const GitPullRequestIcon: Component<{ class?: string }> = (props) => (
+const GitPullRequestIcon: Component<{ class: string }> = (props) => (
   <svg
-    class={props.class ?? "w-3.5 h-3.5"}
+    class={props.class}
     viewBox="0 0 16 16"
     fill="currentColor"
     aria-hidden="true"
@@ -54,7 +54,7 @@ const GitPullRequestIcon: Component<{ class?: string }> = (props) => (
 
 const prStateConfig: Record<
   PrInfo["state"],
-  { icon: Component<{ class?: string }>; color: string }
+  { icon: Component<{ class: string }>; color: string }
 > = {
   open: { icon: GitPullRequestIcon, color: "text-ok" },
   closed: { icon: GitPullRequestClosedIcon, color: "text-danger" },

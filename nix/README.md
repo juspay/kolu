@@ -67,6 +67,13 @@ directory, and its manifest still names `osfacts-client`. So the DECLARED
 closure still contains it and `consumer.nix` still needs a source for it. That
 is why the example above passes `pinnedSources`.
 
+**A seed must be a package kolu supports consuming.** `consumer.nix` throws at
+eval if a SEED is not a declared `vendorEntries.ts` entry or in its closure —
+because being in that set is what puts a manifest under the literal-version
+gate. Outside it, resolvable-today is a coincidence, not a promise. The closure
+may still REACH an unvendored member; seeding one is you saying "I import this",
+which is the claim kolu has to be able to honour.
+
 **A `catalog:` dependency is refused by name.** `consumer.nix` throws at eval if
 your seed closure reaches a package whose manifest carries pnpm's
 workspace-catalog protocol, naming the package and the dependency. Such a

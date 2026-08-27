@@ -9,17 +9,20 @@
  *  dependency. The rendering call sites import the components from the barrel;
  *  the two entry points are a deliberate split, not redundancy. */
 
+// Only the two gutter tokens are re-exported: they are the ones kolu spends
+// OUTSIDE this package (the dock's hidden-footer and its section header). The
+// grid template, the gap, the branch column, the stripe, the subgrid restore,
+// the surface table and the two container CLASS NAMES stay module-internal.
+//
+// They were exported, and the class names were documented as an escape hatch
+// "for a surface that genuinely wants its own container element". That was the
+// override knob this repo's own philosophy calls a defect, and it contradicted
+// the sentence one file over: `DockSection`'s header says a receptacle may not
+// leave a load-bearing step in the consumer's hands. It cannot say that and
+// also ship the step. The containers are the answer; there is no second door.
 export {
   DOCK_CARDS_GUTTER_CLASS,
   DOCK_CARDS_GUTTER_NEG_CLASS,
-  DOCK_CARDS_SUBGRID_LEFT_RESTORE,
-  DOCK_ROW_BRANCH_COL,
-  DOCK_ROW_SURFACE,
-  DOCK_ROW_GAP,
-  DOCK_ROW_GRID,
-  DOCK_NEEDS_YOU_STRIP_CLASS,
-  DOCK_SECTION_CLASS,
-  DOCK_ROW_STRIPE_CLASS,
   type DockRowSurface,
   type NeedsYouDensity,
 } from "./geometry.ts";

@@ -23,16 +23,22 @@
 
 import { NeedsYouCapsule } from "@kolu/solid-statepip";
 import { type Component, Match, Switch } from "solid-js";
-import type { RecencyMode } from "./recency.ts";
 
-/** The cell's two inputs as ONE value — the mode and the string computed FOR
- *  that mode. Separately they are two props a call site can pair wrongly (a
- *  wait duration rendered into the `ago` slot reads as an age and is not one). */
-export type RowRecency = {
-  mode: RecencyMode;
-  /** Already formatted for `mode`; ignored when `mode` is `hidden`. */
-  text: string;
-};
+/** The cell's inputs as ONE value — the rendering, and the string computed FOR
+ *  that rendering. Separately they are two props a call site can pair wrongly (a
+ *  wait duration rendered into the `ago` slot reads as an age and is not one).
+ *
+ *  A DISCRIMINATED UNION, because `hidden` has no text and a `{ mode, text }`
+ *  product made that combination spellable — the caller then had to invent a
+ *  filler (`text: ""`) for a slot that means nothing. That is precisely the
+ *  shape `recency.ts` argues against one file over: the two booleans it replaced
+ *  were "a state machine spelled as flags, one of whose four combinations was
+ *  unreachable and another duplicate". Re-opening it here would have been the
+ *  same mistake one level up. */
+export type RowRecency =
+  | { mode: "hidden" }
+  | { mode: "ago"; text: string }
+  | { mode: "wait-chip"; text: string };
 
 export const RecencyCell: Component<{
   recency: RowRecency;
@@ -44,15 +50,24 @@ export const RecencyCell: Component<{
     class={`inline-flex justify-end w-[8ch] font-mono tabular-nums text-fg-3 ${props.textSize}`}
   >
     <Switch>
+      {/* The conditions read `mode` ONLY. Reading `text` here would drag the
+       * caller's clock into the Switch's own condition memo — for a wait chip
+       * that is a 1 s tick re-evaluating which branch to take, every second,
+       * for every blocked row. The text is read inside the branch that renders
+       * it, which is where the pre-extraction cell read it too. */}
       <Match when={props.recency.mode === "wait-chip"}>
-        <NeedsYouCapsule
-          testid="dock-wait-chip"
-          title="How long this agent has been waiting on your input"
-        >
-          {props.recency.text}
-        </NeedsYouCapsule>
+        {(_) => (
+          <NeedsYouCapsule
+            testid="dock-wait-chip"
+            title="How long this agent has been waiting on your input"
+          >
+            {props.recency.mode === "wait-chip" ? props.recency.text : ""}
+          </NeedsYouCapsule>
+        )}
       </Match>
-      <Match when={props.recency.mode === "ago"}>{props.recency.text}</Match>
+      <Match when={props.recency.mode === "ago"}>
+        {(_) => (props.recency.mode === "ago" ? props.recency.text : "")}
+      </Match>
     </Switch>
   </span>
 );

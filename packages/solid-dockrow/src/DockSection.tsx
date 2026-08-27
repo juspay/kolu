@@ -50,10 +50,6 @@ export const DockSection: Component<{
    *  So pass the contents; the band, its class and its `col-span-full` are
    *  applied here. */
   header?: JSX.Element;
-  /** Padding for the header band. The band's inset is a surface decision like
-   *  the card's, and the two dock surfaces genuinely differ (`py-2` vs
-   *  `py-2.5`), so it is stated rather than guessed. */
-  headerClass?: string;
   headerTestId?: string;
   /** The repo this card is for — `data-repo`, an e2e/debug handle. */
   repo?: string;
@@ -69,7 +65,7 @@ export const DockSection: Component<{
     <Show when={props.header}>
       <div
         data-testid={props.headerTestId}
-        class={`dock-cards-section-header col-span-full ${props.headerClass ?? ""}`}
+        class={`dock-cards-section-header col-span-full ${DOCK_ROW_SURFACE[props.surface].headerPad}`}
       >
         {props.header}
       </div>

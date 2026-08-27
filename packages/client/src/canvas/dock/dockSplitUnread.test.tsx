@@ -67,8 +67,7 @@ it("clears a split's unread dock dot when its sub-entry lands", async () => {
               id: SPLIT,
               bucket: "working",
               agentState: "thinking",
-              asking: false,
-              unread: view.isUnread(SPLIT),
+              pip: { asking: false, alert: view.isUnread(SPLIT) },
               active: isActiveRow(SPLIT),
             })}
             onClick={() => useSubPanel().focusSubTab(PARENT, SPLIT)}
