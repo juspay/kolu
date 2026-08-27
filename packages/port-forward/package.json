@@ -13,7 +13,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "test:daemon": "vitest run"
   },
   "dependencies": {},
   "devDependencies": {
