@@ -1199,9 +1199,9 @@ export { WATCH_DEFAULT_STATES };
 /** The three knobs, declared ONCE and spread into both faces' inputs, so a CLI
  *  flag and an MCP param cannot mean different things.
  *
- *  Every field carries a blurb because `watch.open` is exposed to MCP as a RAW
- *  procedure: these annotations are the only description an agent ever sees for
- *  them. */
+ *  Every field carries a blurb because these fields reach MCP verbatim:
+ *  `kolu-mcp`'s bespoke `watch_open` tool SPREADS them rather than re-declaring
+ *  them, so these annotations are the only description an agent ever sees. */
 export const PadiWatchFilterFields = {
   states: Schema.optionalKey(
     Schema.Array(WatchStateSchema)
@@ -1345,11 +1345,13 @@ export const WATCH_FILTER_KEYS = Object.keys(
 ) as readonly (keyof typeof PadiWatchFilterFields)[];
 
 export const PadiWatchOpenInputSchema = Schema.Struct({
-  // `watch.open` is a RAW MCP procedure, so this annotation is the only thing
-  // that tells an agent the name is ITS choice and that reusing it is the
-  // point. It had no blurb at all until effect rc.111: `WatchNameSchema` is
-  // already checked, and rc.110 buried an annotation on a checked schema in an
-  // `allOf` branch, so the sentence would have been written and never rendered.
+  // These fields reach MCP verbatim: `kolu-mcp`'s bespoke `watch_open` tool
+  // SPREADS this struct's fields rather than re-declaring them, so this
+  // annotation is the only thing that tells an agent the name is ITS choice and
+  // that reusing it is the point. It had no blurb at all until effect rc.111:
+  // `WatchNameSchema` is already checked, and rc.110 buried an annotation on a
+  // checked schema in an `allOf` branch, so the sentence would have been
+  // written and never rendered.
   name: WatchNameSchema.annotate({
     description:
       "A name YOU choose for this subscription. Reuse the SAME name across restarts — re-opening an existing name reattaches to its queue with your place kept, instead of minting an empty one.",
