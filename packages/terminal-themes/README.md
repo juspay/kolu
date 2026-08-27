@@ -28,9 +28,10 @@ import {
 const theme = getThemeByName("Tomorrow Night");
 
 // The two facts about how a kolu terminal is DRAWN, beside the colours it is
-// drawn in. Nobody has ever needed one without the other: kolu reads both to
-// repaint a buffer for a screenshot, and a consumer painting a padi's terminal
-// with this catalog reads both to construct it.
+// drawn in. They travel together because constructing a terminal wants both:
+// kolu reads both to repaint a buffer for a screenshot, and a consumer painting
+// a padi's terminal with this catalog reads both to construct it. Either is
+// readable alone — kolu's own zoom preference reads the size and no theme.
 new Terminal({ theme, fontFamily: FONT_FAMILY, fontSize: DEFAULT_FONT_SIZE });
 
 // Pick a theme whose background is maximally distinct from peers

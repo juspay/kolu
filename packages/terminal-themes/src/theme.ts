@@ -18,10 +18,12 @@ export const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
  *  otherwise, in px.
  *
  *  Beside {@link FONT_FAMILY} because the two are ONE fact — what a kolu
- *  terminal is drawn in — and nobody has ever needed one without the other:
- *  kolu's own `screenshotTerminal.ts` reads both to repaint a buffer, and a
- *  consumer painting a padi's terminal with this catalog reads both to
- *  construct it. It lived in `kolu-common/config` beside the server port, which
+ *  terminal is DRAWN in — and they travel together for that reason:
+ *  `screenshotTerminal.ts` reads both to repaint a buffer, and a consumer
+ *  painting a padi's terminal with this catalog reads both to construct it.
+ *  Not because nobody needs one alone — `client/src/input/zoom.ts` reads the
+ *  SIZE alone, as the base and reset value of a user zoom preference, and
+ *  touches no theme at all. It lived in `kolu-common/config` beside the server port, which
  *  is a manifest naming eighteen workspace packages — so the first consumer to
  *  want the integer re-typed it as a bare `14` rather than pay that, on the
  *  line below the `FONT_FAMILY` it was already importing from here. A catalog

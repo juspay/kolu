@@ -27,8 +27,13 @@ in import "${koluSrc}/nix/consumer.nix" {
   # OWN revision of it: pass a different one and you are told here, at eval,
   # instead of finding out when a field moves.
   pinnedSources.osfacts-client = {
+    # `pins.<member>.subdir`, never a hardcoded "/client-ts": the whole point of
+    # `pins` is that a consumer reads kolu's answer rather than carrying a second
+    # spelling of it. Only the REVISION half is checked at eval; a wrong subdir
+    # fails as a broken `cp`, which is exactly the failure mode the named throw
+    # in `sourceFor` exists to replace.
     src = pkgs.runCommand "osfacts-client" { }
-      "cp -r ${(import ./npins).osfacts}/client-ts $out";
+      "cp -r ${(import ./npins).osfacts}/${kolu.pins.osfacts-client.subdir} $out";
     revision = (import ./npins).osfacts.revision;
   };
 }

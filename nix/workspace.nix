@@ -155,7 +155,7 @@ let
   # `mkWorkspaceClosure` has already asserted this value is a string under the
   # store — the path-literal mistake its own note records — so the only thing
   # left for the assert below to say is the one thing it can say, "wrong pin".
-  pinnedMembers = lib.mapAttrs
+  pinnedProvenance = lib.mapAttrs
     (member: pin:
       let
         root = "${sources.${pin}}";
@@ -250,9 +250,20 @@ in
   # declaration has one reader-facing spelling and a rename cannot silently
   # change what the emitter believes.
   #
-  # `pinnedMembers` carries the PROVENANCE the emitter cannot see: which pin, at
-  # which revision, from which subdirectory. A consumer is checked against that
+  # `pinnedProvenance` carries what the emitter cannot see: which pin, at which
+  # revision, from which subdirectory. A consumer is checked against that
   # revision at eval (`nix/consumer.nix`), which is what retires the per-consumer
   # shell script that used to hold the two pins in step.
-  inherit pinnedNames pinnedMembers;
+  #
+  # ONE reader-facing spelling, which is why `pinnedNames` is not beside it:
+  # `builtins.attrNames pinnedProvenance` is the same set, and exporting both
+  # made one declaration two exported facts — with only this one ever read. It
+  # stays a local binding, for `treeMembers` and `mkWorkspaceClosure`.
+  #
+  # And PROVENANCE rather than `pinnedMembers`, because `@kolu/daemon-test-gate`
+  # already means something else by that name (`{ name: absolute dir }`): two
+  # differently-shaped things called `pinnedMembers`, both about pinned workspace
+  # members, is the concept multiplication this file's headers hunt everywhere
+  # else. The name here says what it carries that the other one does not.
+  inherit pinnedProvenance;
 }

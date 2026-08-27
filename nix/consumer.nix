@@ -56,15 +56,16 @@ let
 
   members = closure.members;
 
-  # The schema version is checked, not assumed: a consumer pinned to a kolu
-  # whose artifact grew a different shape must fail here, where the message can
-  # say so, rather than several `builtins.getAttr` calls later.
-  _schemaOk =
-    if closure.schemaVersion == 2 then true
-    else throw ''
-      kolu/nix/consumer.nix: consumer-closure.json is schemaVersion ${toString closure.schemaVersion},
-      this reader understands 2. Update your kolu pin's consumer entry, or pin an older kolu.
-    '';
+  # NO schemaVersion GATE, deliberately. This file and `consumer-closure.json`
+  # ship in the SAME pin — a consumer imports "${koluSrc}/nix/consumer.nix",
+  # which reads `./consumer-closure.json` from that same store path — so reader
+  # and artifact can never come from different revisions and the comparison can
+  # never be false. A guard that cannot fail is worse than no guard: it reads as
+  # one, and its advice ("pin an older kolu") names a situation that cannot
+  # arise. A mis-shaped artifact still fails loudly and by name, in `memberOf`
+  # and in `sourceFor`. If a consumer ever VENDORS its own copy of this file,
+  # reader and artifact come apart and the gate becomes real — add it back then,
+  # naming that consumer.
 
   memberOf = name:
     if builtins.hasAttr name members then builtins.getAttr name members
@@ -254,7 +255,6 @@ let
     else throw "kolu/nix/consumer.nix: `seeds` is empty — name the packages you import.";
 
 in
-assert _schemaOk;
 assert _seedsOk;
 assert _vendoredOk;
 assert _pinnedOk;

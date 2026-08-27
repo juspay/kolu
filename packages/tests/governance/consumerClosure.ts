@@ -105,22 +105,20 @@ export type ClosureMember = {
   external: Record<string, string>;
 };
 
+/** NO `schemaVersion`, deliberately — see `nix/consumer.nix`'s note. The reader
+ *  and this artifact ship in the SAME pin (a consumer imports
+ *  `"${koluSrc}/nix/consumer.nix"`, which reads `./consumer-closure.json` from
+ *  that same store path), so a version comparison could never be false. Carrying
+ *  the number anyway meant emitting a fact nobody compares across, to feed a
+ *  guard that could not fire. */
 export type ConsumerClosure = {
-  /** Bumped when the SHAPE changes, so a consumer pinned to an older kolu reads
-   *  a file it understands or fails loudly rather than silently mis-walking.
-   *
-   *  2: `pinned: true` became `pin: { name; revision; subdir }`. A key changed
-   *  TYPE, which is exactly the shape change this number is for — a reader doing
-   *  `member.pinned or false` in an `if` now gets an attrset where a boolean was
-   *  expected, which in Nix is an error rather than a wrong answer. */
-  schemaVersion: 2;
   members: Record<string, ClosureMember>;
 };
 
 /** The pin-grafted members and their provenance, asked of NIX rather than parsed
  *  out of its source.
  *
- *  `nix/workspace.nix` declares `pinnedPins` and derives `pinnedMembers` from it,
+ *  `nix/workspace.nix` declares `pinnedPins` and derives `pinnedProvenance` from it,
  *  and this file needs the derived answer. The first version read the declaration
  *  with `/pinnedNames\s*=\s*\[([^\]]*)\]/` over the file's bytes — a hand-written
  *  parser for a language this repo ships an evaluator for, whose `[^\]]*` would
@@ -132,7 +130,7 @@ function declaredPinnedMembers(
 ): Record<string, { name: string; revision: string; subdir: string }> {
   const expr = `
     let pkgs = import "${repoRoot}/nix/nixpkgs.nix" { system = builtins.currentSystem; };
-    in (import "${repoRoot}/nix/workspace.nix" { inherit pkgs; }).pinnedMembers`;
+    in (import "${repoRoot}/nix/workspace.nix" { inherit pkgs; }).pinnedProvenance`;
   const out = execFileSync(
     "nix",
     ["eval", "--accept-flake-config", "--impure", "--json", "--expr", expr],
@@ -271,7 +269,6 @@ export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
   }
 
   return {
-    schemaVersion: 2,
     members: Object.fromEntries(
       Object.keys(members)
         .sort()

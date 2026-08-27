@@ -11,7 +11,7 @@
  *  combination stops being spellable. */
 
 import { agoPhrase, compactPhrase } from "@kolu/terminal-vocab/duration";
-import { DASH } from "@kolu/terminal-vocab/agentProjection";
+import { DASH } from "@kolu/terminal-vocab/dash";
 
 /** `wait-chip` wins over `hidden` by being a distinct value rather than by an
  *  override rule. */

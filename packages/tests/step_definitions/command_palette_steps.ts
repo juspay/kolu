@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import { escapeRe } from "@kolu/surface-app";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
@@ -58,12 +59,8 @@ function paletteOption(
   return byName.or(
     palette
       .locator('[role="option"]')
-      .filter({ hasText: new RegExp(`^${escapeRegExp(text)}`) }),
+      .filter({ hasText: new RegExp(`^${escapeRe(text)}`) }),
   );
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 When(

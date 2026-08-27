@@ -127,8 +127,13 @@ export const HASHED_NAMING = "[name]-[hash].[ext]";
 /** Everything a RegExp treats as syntax, escaped — so a module or prefix
  *  carrying `.` or `+` matches itself rather than whatever the metacharacter
  *  meant. `assertAssetPrefix` admits both quite legitimately in a path segment;
- *  a RegExp does not. */
-const escapeRe = (value: string): string =>
+ *  a RegExp does not.
+ *
+ *  EXPORTED, because a caller that builds a matcher beside {@link chunkPattern}
+ *  needs the same escaping and there is no reason for the tree to grow a second
+ *  four-line character class — it already had two, and a character class that
+ *  differs by one metacharacter is the kind of copy nobody notices. */
+export const escapeRe = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** {@link HASHED_NAMING} READ BACKWARDS, as regex source — `[name]` bound to

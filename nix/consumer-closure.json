@@ -1,5 +1,4 @@
 {
-  "schemaVersion": 2,
   "members": {
     "@kolu/artifact-sdk": {
       "dir": "packages/artifact-sdk",
