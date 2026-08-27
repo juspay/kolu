@@ -20,10 +20,10 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.0-rc.110",
+    "@effect/platform-node": "4.0.0-rc.112",
     "@kolu/log": "workspace:*",
     "@kolu/surface": "workspace:*",
-    "effect": "4.0.0-rc.110",
+    "effect": "4.0.0-rc.112",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {

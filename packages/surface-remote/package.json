@@ -17,12 +17,12 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.0-rc.110",
+    "@effect/platform-node": "4.0.0-rc.112",
     "@kolu/log": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-map": "workspace:*",
-    "effect": "4.0.0-rc.110",
+    "effect": "4.0.0-rc.112",
     "neverthrow": "^8.2.0",
     "quick-lru": "^7.3.0",
     "split2": "^4.2.0",
