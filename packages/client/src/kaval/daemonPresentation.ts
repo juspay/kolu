@@ -10,7 +10,7 @@
  *  on its own, which is what lets `toKavalPresence`'s transport-liveness floor be pinned
  *  by a unit test without standing up a socket. */
 
-import { compactDelta } from "@kolu/terminal-vocab/duration";
+import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import type {
   DaemonState,
   DaemonStatus,
@@ -112,17 +112,17 @@ export const DAEMON_UNKNOWN_LABEL = "unknown";
 /** Compact human uptime from a millisecond delta — `45s`, `12m`, `3h 20m`,
  *  `2d 4h`. The one uptime projection for the one daemon: the rail (passing
  *  `clockNow() - startedAt`) and the kaval dialog (`Date.now() - startedAt`)
- *  both call this, so a format tweak reaches both surfaces at once. Renders the
- *  dual-unit form of the shared {@link compactDelta} ladder (the sub-tier where
- *  one exists), so the sec/min/hr/day thresholds stay defined in one place. */
+ *  both call this, so a format tweak reaches both surfaces at once. It IS the
+ *  shared {@link dualPhrase} rendering — the sec/min/hr/day thresholds and the
+ *  dual-unit spelling both live in `@kolu/terminal-vocab/duration`, and the only
+ *  thing this adds is the one word that is genuinely the daemon's: a delta it
+ *  cannot trust reads {@link DAEMON_UNKNOWN_LABEL} rather than the dash, because
+ *  a daemon presence has a vocabulary for "we can't confirm this" and the rest of
+ *  the product does not. A daemon cannot have started in the future — that delta
+ *  is host clock skew, and the shared ladder says so rather than clamping it to
+ *  `0s`. */
 export function formatUptime(ms: number): string {
-  const d = compactDelta(ms);
-  // A daemon cannot have started in the future — that delta is host clock
-  // skew, and the shared ladder now says so rather than clamping it to `0s`.
-  if (d.kind === "unknown") return DAEMON_UNKNOWN_LABEL;
-  return d.sub
-    ? `${d.value}${d.unit} ${d.sub.value}${d.sub.unit}`
-    : `${d.value}${d.unit}`;
+  return dualPhrase(ms, DAEMON_UNKNOWN_LABEL);
 }
 
 /** A WebSocket transport status → its coarse tone — `connecting` is transient

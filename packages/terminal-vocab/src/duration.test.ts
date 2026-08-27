@@ -6,7 +6,12 @@
  *  move as before it. A rewritten table would have proved only that the new code
  *  agrees with itself. */
 import { describe, expect, it } from "vitest";
-import { agoPhrase, compactDelta, compactPhrase } from "./duration.ts";
+import {
+  agoPhrase,
+  compactDelta,
+  compactPhrase,
+  dualPhrase,
+} from "./duration.ts";
 
 const SEC = 1000;
 const MIN = 60 * SEC;
@@ -131,5 +136,32 @@ describe("agoPhrase — an AGE, with the suffix", () => {
     // deliberately not this phrase's.
     expect(agoPhrase(null, now)).toBe("");
     expect(compactPhrase(-1)).toBe("—");
+  });
+});
+
+describe("dualPhrase — the dominant tier and the next-finer one", () => {
+  // The rendering that was spelled identically in the connect overlay's timer
+  // and the kaval daemon's uptime. These strings are that pixel contract.
+  it.each([
+    { ms: 45 * SEC, expected: "45s", why: "the seconds tier has no sub" },
+    { ms: 2 * MIN, expected: "2m", why: "nor does the minute tier" },
+    { ms: 2 * HOUR, expected: "2h 0m" },
+    { ms: 2 * HOUR + 47 * SEC, expected: "2h 0m" },
+    { ms: 2 * HOUR + 5 * MIN, expected: "2h 5m" },
+    { ms: 3 * DAY + 5 * HOUR, expected: "3d 5h" },
+  ])("$ms → $expected", ({ ms, expected }) => {
+    expect(dualPhrase(ms)).toBe(expected);
+  });
+
+  it("says the ladder's own dash for a delta it cannot trust", () => {
+    expect(dualPhrase(-5 * SEC)).toBe("—");
+  });
+
+  it("lets ONE caller say its own word for that, and nothing else", () => {
+    // The only thing the daemon uptime genuinely disagreed about: a daemon
+    // presence has a vocabulary for "we can't confirm this" and the rest of the
+    // product does not. Everything else it used to spell is the same rendering.
+    expect(dualPhrase(-5 * SEC, "unknown")).toBe("unknown");
+    expect(dualPhrase(3 * DAY + 5 * HOUR, "unknown")).toBe("3d 5h");
   });
 });

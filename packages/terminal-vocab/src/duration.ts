@@ -3,7 +3,8 @@
  *
  *  One coarse-magnitude ladder — sec<60 / min<60 / hr<24 / else — plus the
  *  untrustworthy-delta policy, plus the two sentences kolu renders over them:
- *  "5m ago" for an age, "45s" for a live duration. Every compact-duration
+ *  "5m ago" for an age, "45s" for a live duration, "2h 20m" for a dual-unit one.
+ *  Every compact-duration
  *  readout in the product is one of these: terminal staleness, the Dock row's
  *  recency cell and its wait chip, the right-panel "Running for", the kaval
  *  daemon uptime, the connect overlay's elapsed timer.
@@ -101,6 +102,25 @@ export function compactPhrase(ms: number): string {
   const d = compactDelta(ms);
   if (d.kind === "unknown") return DASH;
   return `${d.value}${d.unit}`;
+}
+
+/** A compact DUAL-unit duration: "45s" / "2m" / "2h 20m" / "3d 5h" — the
+ *  dominant tier plus the ladder's next-finer `sub` where the tier HAS one, and
+ *  the single unit where it does not.
+ *
+ *  This is the rendering `compactDelta`'s `sub` exists for, and it was spelled
+ *  identically in two client formatters — the connect overlay's elapsed timer and
+ *  the kaval daemon's uptime — which is one rule in two places. The only thing
+ *  those two genuinely disagree about is the WORD for a delta that cannot be
+ *  trusted, so that is the only thing they pass: the daemon says "unknown"
+ *  because a daemon presence has a vocabulary for it, and everything else says
+ *  the ladder's own dash. */
+export function dualPhrase(ms: number, unknown: string = DASH): string {
+  const d = compactDelta(ms);
+  if (d.kind === "unknown") return unknown;
+  return d.sub
+    ? `${d.value}${d.unit} ${d.sub.value}${d.sub.unit}`
+    : `${d.value}${d.unit}`;
 }
 
 /** A compact AGE: "5m ago" / "2h ago" / "3d ago", "just now" under a minute.
