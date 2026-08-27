@@ -47,7 +47,7 @@ set -euo pipefail
 UA='Mozilla/5.0'
 flake_root=${1:-.}
 
-osfacts_drv=$(nix eval --raw "${flake_root}#osfacts.drvPath")
+osfacts_drv=$(nix eval --raw --accept-flake-config "${flake_root}#osfacts.drvPath")
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 

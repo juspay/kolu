@@ -102,7 +102,7 @@ nix: _prefetch-crates
 # Idempotent and cheap on a warm store. See scripts/ci-prefetch-crates.sh.
 [private]
 _prefetch-crates:
-    bash scripts/ci-prefetch-crates.sh .
+    {{ nix_shell }} bash scripts/ci-prefetch-crates.sh .
 
 # Evaluate every remote-agent package from the exact minimal source flake baked
 # into Kolu's wrappers. The package names come from Kolu's agent manifest,
