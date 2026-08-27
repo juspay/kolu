@@ -112,6 +112,65 @@ export function assertAssetPrefix(
 export const assetDirOf = (assetPrefix?: string): string =>
   assertAssetPrefix(assetPrefix).slice(1, -1);
 
+/**
+ * The naming template every hashed output is emitted under — `main-1wde7jkp.js`,
+ * `pipeline-vexvnf69.js`, `styles-657b883b.css`.
+ *
+ * `@kolu/surface-app/bun` hands it to `Bun.build`'s `naming` for entry, chunk and
+ * asset alike, and {@link chunkPattern} is the same rule read backwards.
+ * Single-sourced here for {@link assetDirOf}'s reason: a build that emits under
+ * one rule and a consumer that matches another are not two settings that
+ * disagree, they are one setting spelled twice.
+ */
+export const HASHED_NAMING = "[name]-[hash].[ext]";
+
+/** Everything a RegExp treats as syntax, escaped — so a module or prefix
+ *  carrying `.` or `+` matches itself rather than whatever the metacharacter
+ *  meant. `assertAssetPrefix` admits both quite legitimately in a path segment;
+ *  a RegExp does not. */
+const escapeRe = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * What the split chunk for `module` is CALLED — anchored to the whole filename.
+ *
+ * `buildSurfaceClient` splits on a dynamic `import()` and names the output after
+ * the split module, hashed like everything else: `markdown/pipeline.ts` →
+ * `pipeline-<hash>.js`. A consumer that has to name that file BEFORE the build
+ * has run — a shell preload it rewrites, a test that holds the chunk up, an
+ * evidence driver that delays it — asks here rather than re-deriving
+ * {@link HASHED_NAMING}, because a pattern that drifts from the template goes
+ * QUIET rather than red: it stops matching, and the caller concludes the page
+ * never asked for the chunk.
+ *
+ * A RegExp and not a predicate, because the callers that need it hand it to a
+ * route matcher and print it in a failure message. `(f) => chunkPattern(m).test(f)`
+ * is one line; the RegExp is not recoverable from a closure.
+ *
+ * The hash class is `[^/]+` rather than a narrower alphabet or a fixed width.
+ * Both are the BUNDLER's to change — today it emits 8 characters of base36 for a
+ * chunk and this package's own extra-asset hashing is hex, in the same directory
+ * — and the only direction a narrower class can be wrong is a silent NON-match,
+ * which is the quiet failure above. The anchors and the `<module>-` prefix do the
+ * discriminating work: `md-pipeline-…` does not match `pipeline`.
+ *
+ * @param module the split module's own name, without directory or extension.
+ */
+export const chunkPattern = (module: string): RegExp =>
+  new RegExp(`^${escapeRe(module)}-[^/]+\\.js$`);
+
+/**
+ * …and the same rule as a URL under the hashed prefix — what a REQUEST for that
+ * chunk looks like on the wire.
+ *
+ * Takes its prefix through {@link assertAssetPrefix}, so a prefix a build
+ * refuses cannot be one a matcher accepts.
+ */
+export const chunkUrlPattern = (module: string, assetPrefix?: string): RegExp =>
+  new RegExp(
+    `^${escapeRe(assertAssetPrefix(assetPrefix))}${escapeRe(module)}-[^/]+\\.js$`,
+  );
+
 /** A `Content-Encoding` token this package will serve a build-time sibling for. */
 export type PrecompressedEncoding = "br" | "zstd" | "gzip";
 /** The file suffix carrying one encoding's bytes beside the identity asset. */

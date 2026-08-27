@@ -12,6 +12,9 @@ import {
   ASSET_MISS_CACHE_CONTROL,
   assertAssetPrefix,
   assetDirOf,
+  chunkPattern,
+  chunkUrlPattern,
+  HASHED_NAMING,
   cacheControlFor,
   clientIsStale,
   injectShellCommit,
@@ -582,5 +585,62 @@ describe("NOTIFICATION_SW_SOURCE (the fetch-less notification worker)", () => {
     // gated on it so a clean first install never reloads a tab gratuitously.
     expect(NOTIFICATION_SW_SOURCE).toContain("keys.length > 0");
     expect(NOTIFICATION_SW_SOURCE).toContain("client.navigate(client.url)");
+  });
+});
+
+describe("chunkPattern — the naming template, read backwards", () => {
+  it("matches a hashed chunk for its own module and nothing else", () => {
+    expect(chunkPattern("pipeline").test("pipeline-vexvnf69.js")).toBe(true);
+    expect(chunkPattern("pipeline").test("pipeline-657b883b.js")).toBe(true);
+    // Anchored at BOTH ends: a chunk whose module name merely ends with this
+    // one is a different chunk, and matching it would hold up the wrong file.
+    expect(chunkPattern("pipeline").test("md-pipeline-ansc95q0.js")).toBe(
+      false,
+    );
+    expect(chunkPattern("pipeline").test("pipeline-abc.js.map")).toBe(false);
+    // Unhashed is not a chunk this build emits — the template always hashes.
+    expect(chunkPattern("pipeline").test("pipeline.js")).toBe(false);
+  });
+
+  it("takes a module name containing regex syntax literally", () => {
+    // The name is derived from a filesystem path by its one caller, so a `.`
+    // in it is a character and not "any character".
+    expect(chunkPattern("a.b").test("a.b-abc123.js")).toBe(true);
+    expect(chunkPattern("a.b").test("axb-abc123.js")).toBe(false);
+  });
+
+  it("matches the REQUEST for that chunk under the hashed prefix", () => {
+    expect(
+      chunkUrlPattern("pipeline").test("/assets/pipeline-vexvnf69.js"),
+    ).toBe(true);
+    expect(
+      chunkUrlPattern("pipeline", "/_olai/assets/").test(
+        "/_olai/assets/pipeline-vexvnf69.js",
+      ),
+    ).toBe(true);
+    // A chunk of the same name under a DIFFERENT prefix is a different file.
+    expect(
+      chunkUrlPattern("pipeline", "/_olai/assets/").test(
+        "/assets/pipeline-vexvnf69.js",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a prefix the BUILD would refuse — one judgement, not two", () => {
+    expect(() => chunkUrlPattern("pipeline", "assets/")).toThrow(
+      /start and end/,
+    );
+    expect(() => chunkUrlPattern("pipeline", "/")).toThrow(/kolu#1319/);
+  });
+
+  it("is the template it is read from, in both directions", () => {
+    // The pin that makes the single-sourcing real rather than stated: if
+    // someone changes the emitted shape, this fails here rather than going
+    // quiet in a consumer's route matcher.
+    expect(HASHED_NAMING).toBe("[name]-[hash].[ext]");
+    const [stem, rest] = HASHED_NAMING.split("-");
+    expect(stem).toBe("[name]");
+    expect(rest).toBe("[hash].[ext]");
+    expect(chunkPattern("main").test("main-1wde7jkp.js")).toBe(true);
   });
 });
