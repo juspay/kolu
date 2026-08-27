@@ -76,10 +76,15 @@ export type ClosureMember = {
    *  than from whichever grafts happen to have run on the emitting machine. The
    *  PROVENANCE (which pin, which revision, which subdirectory) is DECLARED, in
    *  `nix/workspace.nix`'s `pinnedPins`, because a store path erases it. The two
-   *  must agree, and {@link emitConsumerClosure} throws in BOTH directions when
-   *  they do not — untracked-but-undeclared was the hole the old one-way guard
-   *  left open, and it emitted a pinned member with nothing naming the revision
-   *  a consumer has to match. */
+   *  must agree, and {@link emitConsumerClosure} throws on EVERY way they can
+   *  disagree — all three, which took two tries to get right. Untracked and
+   *  undeclared was the hole the original one-way guard left open (it emitted a
+   *  pinned member with nothing naming the revision a consumer must match);
+   *  declared and absent was the one it did catch; and declared while TRACKED —
+   *  a stale graft declaration, the state after a pinned package is brought into
+   *  the tree for real — slipped through both, because the per-member branch
+   *  never runs for a tracked member and the absent-check cannot see one that is
+   *  present. "Both directions" was the claim; three is the number. */
   pin?: { name: string; revision: string; subdir: string };
   /** VENDORED members are the ones kolu actually supports being consumed from
    *  outside — the declared entries in `vendorEntries.ts` and their closure.
@@ -260,6 +265,28 @@ export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
         `tree: ${missing.join(", ")}. They are grafted from their own pins, so this ` +
         `emission would silently omit them and every consumer walking it would ` +
         `hydrate a short package set. Run \`just install\` and re-emit.`,
+    );
+  }
+
+  // …and the THIRD case, which "both directions" did not actually cover: a
+  // member that git DOES carry while `pinnedPins` still declares it. The
+  // per-member branch above never runs for it (it is tracked), and `missing`
+  // does not see it (it is in `members`), so the declaration was silently
+  // dropped and the emission said nothing. That is a stale graft declaration —
+  // the state after a pinned package is brought into the tree for real — and it
+  // leaves `nix/workspace.nix` claiming a pin nothing grafts, which is the same
+  // class of lie in the opposite direction.
+  const stale = Object.keys(pinnedByDeclaration)
+    .filter((n) => members[n] !== undefined && members[n]?.pin === undefined)
+    .sort();
+  if (stale.length > 0) {
+    throw new Error(
+      `nix/workspace.nix declares these in \`pinnedPins\`, but git carries their ` +
+        `directories: ${stale.join(", ")}. A pinned member is one the source archive ` +
+        `does NOT contain; these are in the tree, so nothing grafts them and the ` +
+        `declaration is stale. Remove them from \`pinnedPins\` — leaving it in tells ` +
+        `every consumer to supply a \`pinnedSources\` entry for a directory it ` +
+        `already has.`,
     );
   }
 
