@@ -45,22 +45,41 @@ export const CONSUMER_CLOSURE_PATH = "nix/consumer-closure.json";
 export type ClosureMember = {
   /** Repo-relative directory (`packages/padi-client`). */
   dir: string;
-  /** PINNED members are not in the archive a consumer fetches.
+  /** PINNED members are not in the archive a consumer fetches — and this is the
+   *  pin they are grafted from, at the revision kolu is built and tested
+   *  against.
    *
-   *  `osfacts-client` is the standing case: it is grafted from its own npins
-   *  pin and gitignored, so `git archive` — and therefore the `src` a consumer
-   *  hands `consumer.nix` — does not contain the directory at all. A walk that
-   *  reached it and emitted a `cp -r` out of that `src` would produce a
-   *  derivation that cannot build, from the very seed list this repo's own
-   *  README prints. The consumer must graft it from the same pin, which is
-   *  exactly the contract `padi-client`'s hydrate guard already documents.
+   *  `osfacts-client` is the standing case: it is grafted from its own npins pin
+   *  and gitignored, so `git archive` — and therefore the `src` a consumer hands
+   *  `consumer.nix` — does not contain the directory at all. A walk that reached
+   *  it and emitted a `cp -r` out of that `src` would produce a derivation that
+   *  cannot build, from the very seed list this repo's own README prints. So the
+   *  consumer grafts it from ITS pin — and then compiles the result against a
+   *  supervisor copied from KOLU's. Two revisions of one package in one `tsc`,
+   *  and nothing holding them together: it typechecks right up until a field
+   *  moves.
    *
-   *  Derived from `git ls-files`, not from a second hand-kept list beside
-   *  `nix/workspace.nix`'s `pinnedNames`: "is this directory in the archive a
-   *  consumer vendors" is a question git answers, and answering it that way is
-   *  also what makes this emission derivable from a bare clone rather than from
-   *  whichever grafts happen to have run on the emitting machine. */
-  pinned?: true;
+   *  That pairing was being held by hand. olai wrote 63 lines of shell for it
+   *  (`scripts/check-osfacts-pin.sh`), which re-derives kolu's revision by
+   *  jq-ing kolu's INTERNAL `npins/sources.json` — a file layout kolu never
+   *  promised to keep. drishti took the other road and carries no second pin at
+   *  all: its `nix/overlay.nix` reads kolu's own, so the two revisions are
+   *  structurally one and there is nothing to check. odu does not reach osfacts.
+   *  The revision is a fact this tree knows, so it is emitted here, and a
+   *  consumer that DOES hold a second pin is checked against it at eval by
+   *  `nix/consumer.nix` rather than in its own shell.
+   *
+   *  MEMBERSHIP is still derived from `git ls-files` — "is this directory in the
+   *  archive a consumer vendors" is a question git answers, and answering it
+   *  that way is what keeps this emission derivable from a bare clone rather
+   *  than from whichever grafts happen to have run on the emitting machine. The
+   *  PROVENANCE (which pin, which revision, which subdirectory) is DECLARED, in
+   *  `nix/workspace.nix`'s `pinnedPins`, because a store path erases it. The two
+   *  must agree, and {@link emitConsumerClosure} throws in BOTH directions when
+   *  they do not — untracked-but-undeclared was the hole the old one-way guard
+   *  left open, and it emitted a pinned member with nothing naming the revision
+   *  a consumer has to match. */
+  pin?: { name: string; revision: string; subdir: string };
   /** VENDORED members are the ones kolu actually supports being consumed from
    *  outside — the declared entries in `vendorEntries.ts` and their closure.
    *
@@ -88,30 +107,41 @@ export type ClosureMember = {
 
 export type ConsumerClosure = {
   /** Bumped when the SHAPE changes, so a consumer pinned to an older kolu reads
-   *  a file it understands or fails loudly rather than silently mis-walking. */
-  schemaVersion: 1;
+   *  a file it understands or fails loudly rather than silently mis-walking.
+   *
+   *  2: `pinned: true` became `pin: { name; revision; subdir }`. A key changed
+   *  TYPE, which is exactly the shape change this number is for — a reader doing
+   *  `member.pinned or false` in an `if` now gets an attrset where a boolean was
+   *  expected, which in Nix is an error rather than a wrong answer. */
+  schemaVersion: 2;
   members: Record<string, ClosureMember>;
 };
 
-/** The pin-grafted members, asked of NIX rather than parsed out of its source.
+/** The pin-grafted members and their provenance, asked of NIX rather than parsed
+ *  out of its source.
  *
- *  `nix/workspace.nix` declares `pinnedNames`, and this file needs it. The first
- *  version read it with `/pinnedNames\\s*=\\s*\\[([^\\]]*)\\]/` over the file's
- *  bytes — a hand-written parser for a language this repo ships an evaluator
- *  for, whose `[^\\]]*` would have stopped at a `]` inside a comment and
- *  silently truncated the set. `closureWalk.ts` already asks Nix for the
- *  sibling `closureNamesFor` this way; there is no reason for two mechanisms in
- *  one directory. */
-function declaredPinnedNames(repoRoot: string): Set<string> {
+ *  `nix/workspace.nix` declares `pinnedPins` and derives `pinnedMembers` from it,
+ *  and this file needs the derived answer. The first version read the declaration
+ *  with `/pinnedNames\s*=\s*\[([^\]]*)\]/` over the file's bytes — a hand-written
+ *  parser for a language this repo ships an evaluator for, whose `[^\]]*` would
+ *  have stopped at a `]` inside a comment and silently truncated the set.
+ *  `closureWalk.ts` already asks Nix for the sibling `closureNamesFor` this way;
+ *  there is no reason for two mechanisms in one directory. */
+function declaredPinnedMembers(
+  repoRoot: string,
+): Record<string, { name: string; revision: string; subdir: string }> {
   const expr = `
     let pkgs = import "${repoRoot}/nix/nixpkgs.nix" { system = builtins.currentSystem; };
-    in (import "${repoRoot}/nix/workspace.nix" { inherit pkgs; }).pinnedNames`;
+    in (import "${repoRoot}/nix/workspace.nix" { inherit pkgs; }).pinnedMembers`;
   const out = execFileSync(
     "nix",
     ["eval", "--accept-flake-config", "--impure", "--json", "--expr", expr],
     { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
-  return new Set(JSON.parse(out) as string[]);
+  return JSON.parse(out) as Record<
+    string,
+    { name: string; revision: string; subdir: string }
+  >;
 }
 
 /** The directories git actually carries — the set a consumer's `src` contains.
@@ -152,7 +182,7 @@ type Manifest = {
  *  diff is readable. */
 export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
   const tracked = trackedDirs(repoRoot);
-  const pinnedByDeclaration = declaredPinnedNames(repoRoot);
+  const pinnedByDeclaration = declaredPinnedMembers(repoRoot);
   const vendored = new Set(
     declaredDependencyClosure({
       repoRoot,
@@ -194,9 +224,26 @@ export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
       if (names.has(dep)) workspace.push(dep);
       else external[dep] = declared[dep] as string;
     }
+    // ABSENT-FROM-THE-ARCHIVE is git's answer; WHICH PIN IT CAME FROM is a
+    // declaration, because a store path erases its own provenance. Untracked AND
+    // undeclared is the hole the old one-directional guard left open: it emitted
+    // `pinned: true` with nothing naming the revision a consumer has to match,
+    // which is a consumer grafting whatever it likes and calling it agreement.
+    let pin: ClosureMember["pin"];
+    if (!tracked.has(rel)) {
+      pin = pinnedByDeclaration[name];
+      if (pin === undefined) {
+        throw new Error(
+          `'${name}' (${rel}) contributes no tracked file, so the source archive a ` +
+            `consumer fetches will not contain it — but nix/workspace.nix does not ` +
+            `declare it in \`pinnedPins\`, so nothing names the pin and revision it is ` +
+            `grafted from. Declare it there, or commit the directory.`,
+        );
+      }
+    }
     members[name] = {
       dir: rel,
-      ...(!tracked.has(rel) ? { pinned: true as const } : {}),
+      ...(pin !== undefined ? { pin } : {}),
       ...(vendored.has(name) ? { vendored: true as const } : {}),
       workspace,
       external,
@@ -211,7 +258,7 @@ export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
   // an external). A consumer would then hydrate a package set missing a
   // directory nothing told it about. Declared-but-absent is the real failure, so
   // it is the one that throws.
-  const missing = [...pinnedByDeclaration]
+  const missing = Object.keys(pinnedByDeclaration)
     .filter((n) => !(n in members))
     .sort();
   if (missing.length > 0) {
@@ -224,7 +271,7 @@ export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     members: Object.fromEntries(
       Object.keys(members)
         .sort()

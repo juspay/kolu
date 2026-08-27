@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "members": {
     "@kolu/artifact-sdk": {
       "dir": "packages/artifact-sdk",
@@ -863,7 +863,11 @@
     },
     "osfacts-client": {
       "dir": "osfacts-client",
-      "pinned": true,
+      "pin": {
+        "name": "osfacts",
+        "revision": "72a794c2527d450d55ef14ae7015056ebabe31b3",
+        "subdir": "client-ts"
+      },
       "vendored": true,
       "workspace": [],
       "external": {
