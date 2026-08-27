@@ -142,9 +142,9 @@ import {
   formatWatchJson,
   formatWatchRemoval,
   formatWatchRemovalJson,
-  resolveTerminalId,
   shortId,
 } from "@kolu/padi/render";
+import { resolveTerminalId } from "@kolu/padi-client/terminalId";
 import { namesWatchKnobs } from "@kolu/padi/watchSpec";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { PadiWatchStatesInput } from "@kolu/padi-client/surface";

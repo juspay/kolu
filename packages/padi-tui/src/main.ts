@@ -61,9 +61,9 @@ import {
   formatWatchJson,
   formatWatchRemoval,
   formatWatchRemovalJson,
-  resolveTerminalId,
   shortId,
 } from "@kolu/padi/render";
+import { resolveTerminalId } from "@kolu/padi-client/terminalId";
 import {
   PADI_SURFACE_VERSION,
   type TerminalPlacement,

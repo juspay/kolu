@@ -57,8 +57,14 @@ import columnify from "columnify";
 // out again downstream for exactly that reason. `@kolu/padi-client`'s own README
 // named this as the move to make "the day one asks", and one asked.
 //
-// Re-exported HERE so every face's import specifier is unchanged — this is still
-// the door padi's CLI faces knock on, it is simply no longer where the folds live.
+// They are NOT re-exported from here. A door kept "so every face's import
+// specifier is unchanged" is backward compatibility, which this repo's philosophy
+// names a defect — and this same change refuses exactly that shape one package
+// over: `kolu-common/config` declines to re-export `DEFAULT_FONT_SIZE` back
+// through its own heavy manifest and moves the call sites instead. Two answers to
+// one question in one change is the drift; this is the answer. Every face imports
+// `@kolu/padi-client/terminalId` and `@kolu/padi-client/screenTail` directly, and
+// all three already declared that package.
 //
 // `shortId`/`SHORT_ID_LEN` deliberately did NOT go with them. They read as the
 // resolver's other half (`list` prints a short id; any verb takes it back), and
@@ -67,11 +73,6 @@ import columnify from "columnify";
 // (`right-panel/KavalAttachSection.tsx`). Publishing a one-truth entry while
 // leaving that copy behind would create the second source of truth this move
 // exists to end, so the pair stays here until it is collapsed as one act.
-export {
-  type ResolveResult,
-  resolveTerminalId,
-} from "@kolu/padi-client/terminalId";
-export { tailLines } from "@kolu/padi-client/screenTail";
 
 /** How many leading chars of a terminal id the human views show. v4 UUIDs
  *  collide with vanishing probability across the handful one runs; `--json`

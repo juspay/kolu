@@ -164,8 +164,10 @@ yet:
   formatting — one is padi's ADDRESSING and the other folds its `screen.text`
   REPLY — and both were being written out again downstream, with the downstream
   header naming this manifest as the reason. What stayed behind is the part that
-  genuinely is a formatter: the roster table, the columns, `columnify`. The rest
-  of `render` moves the day someone asks, on the same terms.
+  genuinely is a formatter: the roster table, the columns, `columnify` — and it
+  is true rather than aspirational, because `render` does not re-export the two
+  that left. Every face imports them from here. The rest of `render` moves the
+  day someone asks, on the same terms.
 - **`@kolu/padi/containingTerminal`** — "am I running inside a kolu terminal",
   which is a question only something inside one asks. Free to move (it reads one
   env name from `kolu-pty`, already in the closure); it has simply never been
