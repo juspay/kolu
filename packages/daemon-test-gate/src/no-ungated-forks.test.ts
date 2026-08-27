@@ -581,7 +581,7 @@ test("every test-bearing package declares exactly one lane script, so its suite 
   for (const file of allTestFiles()) {
     // `.testlib.ts` files are helpers vitest never collects on their own; a
     // package needs a lane only if it owns a real `*.test.*` file.
-    if (/\.(test)\.(ts|cts|mts|tsx)$/.test(file))
+    if (/\.test\.(ts|cts|mts|tsx)$/.test(file))
       withTests.add(owningPackage(file, roots));
   }
   const offenders = [...withTests]

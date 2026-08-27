@@ -334,7 +334,7 @@ _reap-ci-run:
 # can't pile up across packages. EXIT trap reaps leftovers the in-process poll
 # cannot (a wedged kaval, #2178).
 #
-# `test:daemon` — not `test:unit` — is what selects the packages: a fork-forking
+# `test:daemon` — not `test:unit` — is what selects the packages: a daemon-forking
 # package declares that script name and nothing else, so `pnpm -r` runs it HERE and
 # skips it in `test-unit`. Before that split both recipes traversed all 54 suites
 # and every fork-free test ran twice per CI run.
