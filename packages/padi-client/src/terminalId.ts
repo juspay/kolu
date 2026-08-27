@@ -10,9 +10,12 @@
  *  naming `columnify`, `kaval` and `node-pty` — so a client that only wanted to
  *  turn a user's `7f3e` into an id had to install a PTY host, or write the fold
  *  again. Three spellings is what that cost: this one, `kaval-tui/render.ts`,
- *  and one downstream. `@kolu/padi/render` re-exports it, so its callers are
- *  unchanged; that package's own README named this as the move to make "the day
- *  one asks".
+ *  and one downstream. That package's own README named this as the move to make
+ *  "the day one asks".
+ *
+ *  `@kolu/padi/render` does NOT re-export it — every face imports it from here.
+ *  A door kept so import specifiers need not change is backward compatibility,
+ *  and `render.ts`'s own header argues that refusal rather than restating it.
  *
  *  `kaval-tui` keeps its copy for now, and that is argued rather than forgotten:
  *  its manifest sits BELOW padi and speaks to kaval directly, so naming

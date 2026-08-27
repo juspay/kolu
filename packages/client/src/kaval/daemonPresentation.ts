@@ -10,7 +10,7 @@
  *  on its own, which is what lets `toKavalPresence`'s transport-liveness floor be pinned
  *  by a unit test without standing up a socket. */
 
-import { dualPhrase } from "@kolu/terminal-vocab/duration";
+import { compactDelta, dualPhrase } from "@kolu/terminal-vocab/duration";
 import type {
   DaemonState,
   DaemonStatus,
@@ -122,7 +122,14 @@ export const DAEMON_UNKNOWN_LABEL = "unknown";
  *  is host clock skew, and the shared ladder says so rather than clamping it to
  *  `0s`. */
 export function formatUptime(ms: number): string {
-  return dualPhrase(ms, DAEMON_UNKNOWN_LABEL);
+  // The substitution is made HERE, not asked of the phrase. `recencyText` puts
+  // the wait chip's dash at its own call site for the same reason and says so:
+  // the rendering's own rule is the rendering's, and a phrase that took a word
+  // parameter would be a knob — a second caller wanting a third word gets it
+  // free, and the vocabulary stops being kolu's.
+  return compactDelta(ms).kind === "unknown"
+    ? DAEMON_UNKNOWN_LABEL
+    : dualPhrase(ms);
 }
 
 /** A WebSocket transport status → its coarse tone — `connecting` is transient

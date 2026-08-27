@@ -129,11 +129,18 @@ export const HASHED_NAMING = "[name]-[hash].[ext]";
  *  meant. `assertAssetPrefix` admits both quite legitimately in a path segment;
  *  a RegExp does not.
  *
- *  EXPORTED, because a caller that builds a matcher beside {@link chunkPattern}
- *  needs the same escaping and there is no reason for the tree to grow a second
- *  four-line character class — it already had two, and a character class that
- *  differs by one metacharacter is the kind of copy nobody notices. */
-export const escapeRe = (value: string): string =>
+ *  MODULE-PRIVATE, and that is a correction rather than an oversight. It was
+ *  exported on the argument that the tree should not grow a second escape
+ *  helper — but the tree has SIX (`kaval/socketPath.ts`, `padi/stateRoot.ts`,
+ *  `transcript-core/transform.ts`, `surface-daemon`'s upgrade-window testlib,
+ *  `solid-pierre`'s file-tree test, and this one), and publishing this could
+ *  never collapse five of them: they all sit BELOW `@kolu/surface-app` and
+ *  importing it would point their dependency arrows up. So the export bought one
+ *  call site in an e2e step file and cost a bounded-algorithm leaf a public door
+ *  on a package about serving hashed browser assets — placement by convenience,
+ *  which is the thing this PR spends itself refusing. Collapsing all six wants a
+ *  leaf every tier can already reach, and that is its own change. */
+const escapeRe = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** {@link HASHED_NAMING} READ BACKWARDS, as regex source — `[name]` bound to

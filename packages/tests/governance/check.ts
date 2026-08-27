@@ -40,6 +40,7 @@ import {
   validateRunEdges,
 } from "./runEdges";
 import { checkConsumerClosureFresh } from "./consumerClosure";
+import { checkConsumerRecipeEvaluates } from "./consumerRecipe";
 import { vendoredManifests } from "./vendorEntries";
 
 const packageRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -228,6 +229,12 @@ const consumerClosureMembers = Object.keys(
   ).members,
 ).length;
 
+// …and the RECIPE that artifact is reached through, evaluated. The closure is
+// only half the promise: a consumer meets `nix/README.md`'s snippet first, and
+// that snippet shipped naming a variable its own `let` never bound. Prose is not
+// executed; this is.
+const consumerRecipeMembers = checkConsumerRecipeEvaluates(repoRoot);
+
 // The Effect pin's agreement gate (A2), then the beta-behavior assumption
 // registry (C3) it feeds. The two share one fact — the catalog's version — so a
 // bump has exactly one place to move and exactly one set of sites to re-verify.
@@ -246,5 +253,5 @@ validateBetaAssumptions(
 );
 
 console.log(
-  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed), ${closureMembers} vendored + daemon-identity closure members walked identically by nix and TS, ${consumerClosureMembers} consumer-closure members emitted fresh`,
+  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed), ${closureMembers} vendored + daemon-identity closure members walked identically by nix and TS, ${consumerClosureMembers} consumer-closure members emitted fresh, README consumer recipe evaluates to ${consumerRecipeMembers} members`,
 );

@@ -126,8 +126,8 @@ export type RowRecency =
   | { mode: "wait-chip"; text: string };
 
 /** The two clocks a row's recency is read off, each named for the OBLIGATION it
- *  carries rather than for the cadence it happens to run at. `tick`/`stable`
- *  named implementations, and both have the same type `() => number`, so
+ *  carries rather than for the cadence it happens to run at — not `tick`/`stable`,
+ *  which name implementations. Both have the same type `() => number`, so
  *  passing the wrong one is silent in both directions: a plain read for the
  *  chip freezes it, and a subscribing read for `ago` repaints every quiet row
  *  every second.
@@ -174,7 +174,7 @@ export type RowClocks = {
  *      duration, which is why the two arrive as the NAMED {@link RecencyAt}
  *      rather than as two adjacent `number | null` positionals;
  *    · and the chip gets the ticking clock while `ago` gets the plain one,
- *      EXCEPT that a chip with no honest duration reads no clock at all, so a
+ *      EXCEPT that a chip with no honest duration reads `glancing` too, so a
  *      never-active blocked row does not repaint every second to redraw the
  *      same dash.
  *

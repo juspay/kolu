@@ -44,7 +44,7 @@ import {
   type DockRowBucket,
   FALLBACK_PIP_GLYPH,
   FALLBACK_PIP_VARIANT,
-  FALLBACK_ROW_BUCKET,
+  FALLBACK_ORDER_BUCKET,
   pipMotionKind,
   pipShellLive,
   type StatePipBind,
@@ -276,7 +276,7 @@ export type NarrowedRowVocab = {
  *  copy-paste, is what this closes.
  *
  *  **Each default is kolu's own answer, and READ from it rather than re-typed.**
- *  `FALLBACK_PIP_VARIANT`, `FALLBACK_PIP_GLYPH` and `FALLBACK_ROW_BUCKET` are the
+ *  `FALLBACK_PIP_VARIANT`, `FALLBACK_PIP_GLYPH` and `FALLBACK_ORDER_BUCKET` are the
  *  same constants `paintDockRow`'s last line and {@link pipGlyphFor}'s terminal
  *  `else` return, so the claim is mechanical instead of a docstring
  *  cross-reference: an absent paint is the quiet `idle` body (never `empty`,
@@ -337,7 +337,7 @@ export function narrowRowVocab(wire: WireRowVocab): NarrowedRowVocab {
     "bucket",
     wire.bucket,
     isDockRowBucket,
-    FALLBACK_ROW_BUCKET,
+    FALLBACK_ORDER_BUCKET,
   );
   // Never narrowed, always FOLDED — from the variant this build will actually
   // paint, not the one the wire named. See {@link WireRowVocab}.

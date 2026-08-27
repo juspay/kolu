@@ -66,6 +66,15 @@ let
   # and in `sourceFor`. If a consumer ever VENDORS its own copy of this file,
   # reader and artifact come apart and the gate becomes real — add it back then,
   # naming that consumer.
+  #
+  # THE OTHER READER, since this file invites one: `dirs` and `pins` are exported
+  # precisely so a consumer can build its own copier, and nix/README.md describes
+  # the artifact in its own right — so a consumer parsing `consumer-closure.json`
+  # directly is a reader that does not ship with this file. The same reasoning
+  # still covers it: it reads the JSON out of the kolu pin it already fetched, so
+  # its reader and its artifact are one revision too. What would break that is a
+  # consumer COPYING the JSON into its own tree and reading it across a later
+  # bump — the same vendoring case as above, and the same answer.
 
   memberOf = name:
     if builtins.hasAttr name members then builtins.getAttr name members

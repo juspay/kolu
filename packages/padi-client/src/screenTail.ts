@@ -11,8 +11,11 @@
  *  gave for keeping it there ("move them the day one asks"): a consumer that
  *  dials a padi and keeps the last N lines of a screen had to reach a manifest
  *  naming `columnify`, `kaval` and `node-pty` to do it, so it wrote the three
- *  lines out instead — with its header saying exactly that. `@kolu/padi/render`
- *  re-exports this, so kolu's own two faces are unchanged.
+ *  lines out instead — with its header saying exactly that.
+ *
+ *  `@kolu/padi/render` does NOT re-export it — kolu's own faces were moved to
+ *  import it from here, which is five files in that change. See `render.ts`'s
+ *  header for why the compatibility door was refused.
  *
  *  This file imports NOTHING; see `./terminalId` for why that is a contract, not an accident. */
 

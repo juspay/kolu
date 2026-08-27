@@ -135,17 +135,27 @@ export function paintDockRow(
   // (no glow at all), but every dock row core is an identity mark: `PIP_BODY.empty`
   // would swallow the shell's identity glyph, so a classless row paints the
   // quiet `idle` body instead of nothing.
-  return paint === "none" ? FALLBACK_ROW_BUCKET : paint;
+  return paint === "none" ? FALLBACK_PAINT_BUCKET : paint;
 }
 
-/** kolu's answer when nothing names a row's paint or order: the quiet `idle`
- *  body — never `empty`, which would swallow the identity glyph.
- *  {@link paintDockRow}'s own last line returns it for a classless row, and
- *  `narrowRowVocab` hands it back for a bucket this build cannot name, so the
- *  two are one fact rather than two literals. Typed {@link DockPaintBucket}
- *  because `paintDockRow` returns it — a fallback wider than the fold it
- *  stands in for would not be the same answer. */
-export const FALLBACK_ROW_BUCKET: DockPaintBucket = "idle";
+/** kolu's answer when nothing names a row's PAINT: the quiet `idle` body —
+ *  never `empty`, which would swallow the identity glyph. {@link paintDockRow}'s
+ *  own last line returns it for a classless row, and {@link FALLBACK_PIP_VARIANT}
+ *  is derived from it, so the fold and its fallback are one fact. Typed
+ *  {@link DockPaintBucket} because that is what `paintDockRow` returns. */
+export const FALLBACK_PAINT_BUCKET: DockPaintBucket = "idle";
+
+/** …and kolu's answer when nothing names a row's ORDER: the same word, and
+ *  DELIBERATELY NOT THE SAME CONSTANT.
+ *
+ *  Paint and order are different folds — this package spends a page on the case
+ *  where they disagree, a fresh `waiting` agent painting `linger` while the
+ *  order bucket ranks it `idle` — so one constant serving both, named for one
+ *  and typed for the other, is that distinction quietly re-braided. The two
+ *  coincide today; the day one moves, this is an edit rather than a silent
+ *  coincidence, which is the whole trap {@link narrowRowVocab} exists to close.
+ *  Typed {@link DockRowBucket}, the ORDER vocabulary's own width. */
+export const FALLBACK_ORDER_BUCKET: DockRowBucket = "idle";
 
 /** The row bucket → `PipVariant` rule — the glue that feeds the CORE of the
  *  shared `StatePip`.
@@ -191,7 +201,9 @@ export const FALLBACK_PIP_GLYPH: PipGlyphId = "shell";
 /** …and the PIP CORE that answer paints, read THROUGH {@link pipVariant} rather
  *  than re-typed, so a change to the bucket→variant rule reaches the fallback
  *  too. */
-export const FALLBACK_PIP_VARIANT: PipVariant = pipVariant(FALLBACK_ROW_BUCKET);
+export const FALLBACK_PIP_VARIANT: PipVariant = pipVariant(
+  FALLBACK_PAINT_BUCKET,
+);
 
 /** Identity glyph for a row/title pip — live agent kind, else the persisted
  *  resume identity on a sleeping (or just-quit) terminal, else the shell

@@ -115,9 +115,9 @@ export function compactPhrase(ms: number): string {
  *  trusted, so that is the only thing they pass: the daemon says "unknown"
  *  because a daemon presence has a vocabulary for it, and everything else says
  *  the ladder's own dash. */
-export function dualPhrase(ms: number, unknown: string = DASH): string {
+export function dualPhrase(ms: number): string {
   const d = compactDelta(ms);
-  if (d.kind === "unknown") return unknown;
+  if (d.kind === "unknown") return DASH;
   return d.sub
     ? `${d.value}${d.unit} ${d.sub.value}${d.sub.unit}`
     : `${d.value}${d.unit}`;

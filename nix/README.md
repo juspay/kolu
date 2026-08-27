@@ -14,27 +14,40 @@ Two files here answer that, so a consumer stops answering it by hand.
 
 ```nix
 # nix/kolu.nix, in a consumer
-let koluSrc = (import ../npins).kolu;
-in import "${koluSrc}/nix/consumer.nix" {
-  inherit pkgs;
-  src = koluSrc;
-  # The packages you actually IMPORT. That is all you maintain.
-  seeds = [ "@kolu/padi-client" "@kolu/solid-dockrow" "@kolu/surface-app" ];
-  # PINNED members you must supply yourself — this seed set reaches one.
-  # `.pins` lists them WITH the pin, revision and subdirectory to graft, and
-  # omitting one is a named throw rather than a broken `cp`. The revision comes
-  # back as well as the bytes, because kolu compiles this package against its
-  # OWN revision of it: pass a different one and you are told here, at eval,
-  # instead of finding out when a field moves.
-  pinnedSources.osfacts-client = {
-    # `pins.<member>.subdir`, never a hardcoded "/client-ts": the whole point of
-    # `pins` is that a consumer reads kolu's answer rather than carrying a second
-    # spelling of it. Only the REVISION half is checked at eval; a wrong subdir
-    # fails as a broken `cp`, which is exactly the failure mode the named throw
-    # in `sourceFor` exists to replace.
+let
+  koluSrc = (import ../npins).kolu;
+  osfacts = (import ../npins).osfacts;
+
+  # ONE call, parameterised by the sources you supply — because you have to ask
+  # kolu what to graft BEFORE you can graft it, and `.pins` is answerable with
+  # nothing supplied. Two calls of one function, never a self-reference: a
+  # recipe that read `kolu.pins` from inside its own `pinnedSources` would be a
+  # knot that holds only while nothing forces the value, and the day something
+  # did the error would be `infinite recursion` rather than a named throw.
+  koluWith = pinnedSources: import "${koluSrc}/nix/consumer.nix" {
+    inherit pkgs pinnedSources;
+    src = koluSrc;
+    # The packages you actually IMPORT. That is all you maintain.
+    seeds = [ "@kolu/padi-client" "@kolu/solid-dockrow" "@kolu/surface-app" ];
+  };
+
+  # PINNED members you must supply yourself — this seed set reaches one. Each
+  # entry names the pin, the REVISION kolu was built against, and the
+  # subdirectory to copy. Omitting one is a named throw rather than a broken
+  # `cp`; passing a different revision is refused at eval, because kolu compiles
+  # this package against its own and you would find out when a field moved.
+  pins = (koluWith { }).pins;
+in
+koluWith {
+  osfacts-client = {
+    # `pins.<member>.subdir`, never a hardcoded "/client-ts": the point of
+    # `pins` is that you read kolu's answer instead of carrying a second
+    # spelling. Only the REVISION half is checked at eval — a wrong subdir fails
+    # as a broken `cp`, which is the failure the named throw in `sourceFor`
+    # exists to replace.
     src = pkgs.runCommand "osfacts-client" { }
-      "cp -r ${(import ./npins).osfacts}/${kolu.pins.osfacts-client.subdir} $out";
-    revision = (import ./npins).osfacts.revision;
+      "cp -r ${osfacts}/${pins.osfacts-client.subdir} $out";
+    revision = osfacts.revision;
   };
 }
 ```

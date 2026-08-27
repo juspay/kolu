@@ -157,11 +157,14 @@ describe("dualPhrase — the dominant tier and the next-finer one", () => {
     expect(dualPhrase(-5 * SEC)).toBe("—");
   });
 
-  it("lets ONE caller say its own word for that, and nothing else", () => {
-    // The only thing the daemon uptime genuinely disagreed about: a daemon
-    // presence has a vocabulary for "we can't confirm this" and the rest of the
-    // product does not. Everything else it used to spell is the same rendering.
-    expect(dualPhrase(-5 * SEC, "unknown")).toBe("unknown");
-    expect(dualPhrase(3 * DAY + 5 * HOUR, "unknown")).toBe("3d 5h");
+  it("takes NO word parameter — a caller that disagrees says so at its own call site", () => {
+    // The daemon uptime does disagree ("unknown", because a daemon presence has
+    // a vocabulary for "we can't confirm this" and the rest of the product does
+    // not) — and it substitutes at its own call site, exactly as `recencyText`
+    // does for the wait chip's dash. A defaulted word parameter here would be a
+    // knob: the second caller wanting a third word gets it free, and the
+    // vocabulary stops being kolu's.
+    expect(dualPhrase.length).toBe(1);
+    expect(dualPhrase(3 * DAY + 5 * HOUR)).toBe("3d 5h");
   });
 });
