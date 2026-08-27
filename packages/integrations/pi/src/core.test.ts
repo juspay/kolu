@@ -162,12 +162,23 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // FS-event delivery latency is backend-dependent (FSEvents on a loaded
 // darwin box routinely exceeds a fixed 300ms window) — park on the
 // CONDITION, not a sleep calendar.
-/** Wait for an fs.watch-driven predicate, re-touching `file` between
- *  attempts. FSEvents on darwin coalesces and can drop a one-shot create
- *  — a single `waitFor` budget races that latency (the watchGitHead
- *  darwin-only flake in #320). Each attempt waits up to `perAttemptMs`;
- *  if the predicate is still false, rewrite the file with its own bytes
- *  to force another change event. */
+/** Wait for an fs.watch-driven predicate, landing ANOTHER session file in the
+ *  watched directory between attempts. FSEvents on darwin coalesces and can
+ *  drop a one-shot create — a single `waitFor` budget races that latency (the
+ *  watchGitHead darwin-only flake in #320).
+ *
+ *  The retry stimulus must be a MEMBERSHIP change, because that is the only
+ *  thing `subscribeSessionsTree` reports: its child watcher fans out on
+ *  `eventType === "rename"` and deliberately ignores `change`, since content
+ *  appends are the per-session traffic externalChanges must not report. The
+ *  previous version re-wrote `file` with its own bytes, which is a `change`
+ *  and nothing else — so every retry after the first was INERT, and a create
+ *  event that was dropped or that landed before the watch armed could never be
+ *  recovered no matter how many attempts remained. That stayed hidden while
+ *  the `daemon` lane was padded out by 41 fork-free packages; running these
+ *  suites back-to-back on a loaded box made the first create lose the race,
+ *  and the retries had nothing to offer. Each attempt now lands a distinct new
+ *  file — the same event the tests are actually asserting on. */
 async function waitForWatch(
   cond: () => boolean,
   file: string,
@@ -182,8 +193,13 @@ async function waitForWatch(
       expect(cond()).toBe(true);
       return;
     }
-    const content = fs.readFileSync(file);
-    fs.writeFileSync(file, content);
+    fs.writeFileSync(
+      path.join(
+        path.dirname(file),
+        `2026-08-25T12-00-0${i}-000Z_aaaaaaaa-bbbb-4ccc-8ddd-00000000000${i}.jsonl`,
+      ),
+      "{}",
+    );
   }
 }
 

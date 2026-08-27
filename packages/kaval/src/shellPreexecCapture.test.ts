@@ -83,7 +83,20 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
     host?.dispose();
     host = undefined;
     for (const dir of tempDirs.splice(0)) {
-      rmSync(dir, { recursive: true, force: true });
+      // `dispose()` above signals the PTY's bash to die; it does not wait for
+      // it. A shell still flushing (its `.bash_history`, a wrapper rcfile)
+      // re-populates the directory under the recursive walk, and the rm fails
+      // ENOTEMPTY — which surfaced the moment the `daemon` lane stopped being
+      // padded by 41 fork-free packages and started running these suites
+      // back-to-back on a loaded box. `maxRetries`/`retryDelay` are node's own
+      // answer to exactly this (it retries EBUSY/ENOTEMPTY/EPERM); a bare rm
+      // was racing a process it never waited for.
+      rmSync(dir, {
+        recursive: true,
+        force: true,
+        maxRetries: 20,
+        retryDelay: 100,
+      });
     }
   });
 
