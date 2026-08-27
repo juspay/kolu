@@ -108,7 +108,7 @@ function shellMeta(): TerminalMetadata {
     foreground: null,
     ports: { status: "unknown" },
     lastActivityAt: 1,
-  } as unknown as TerminalMetadata;
+  } as TerminalMetadata;
 }
 
 describe("narrowRowVocab — the guards WITH their defaults", () => {
