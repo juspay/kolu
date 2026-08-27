@@ -208,6 +208,40 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
     });
   });
 
+  it("omits an ABSENT grid and appends a PRESENT one, key last", () => {
+    // The record's grid is what a viewer that lost last-attach-wins observes to
+    // learn it lost — so both spellings are load-bearing across a rolling
+    // deploy. ABSENT is the older padi and the terminal nobody has resized yet;
+    // it must stay off the bytes entirely (the seed fixture above pins that),
+    // never a null a consumer would read as a fact. PRESENT appends after
+    // `ports`, so an older consumer's decode is unchanged.
+    expect(
+      encodeJson(TerminalSnapshotSchema)({
+        ...seedSnapshot("/w"),
+        grid: { cols: 120, rows: 40 },
+      }),
+    ).toBe(
+      '{"cwd":"/w","git":null,"pr":{"kind":"pending"},"agent":null,' +
+        '"foreground":null,"ports":{"status":"unknown"},' +
+        '"grid":{"cols":120,"rows":40}}',
+    );
+  });
+
+  it("refuses half a grid and refuses a grid no pty can have", () => {
+    // ONE composite, both sides positive integers: half a grid is not a size,
+    // and a consumer sizing a renderer by a zero or a fraction renders nothing
+    // or garbage. The refusal is the boundary's, so no consumer re-checks it.
+    const decode = (grid: unknown) =>
+      Schema.decodeUnknownExit(TerminalSnapshotSchema)({
+        ...seedSnapshot("/w"),
+        grid,
+      })._tag;
+    expect(decode({ cols: 120 })).toBe("Failure");
+    expect(decode({ cols: 120, rows: 0 })).toBe("Failure");
+    expect(decode({ cols: 120.5, rows: 40 })).toBe("Failure");
+    expect(decode({ cols: 120, rows: 40 })).toBe("Success");
+  });
+
   it("drops unknown keys rather than carrying a newer producer's fields through", () => {
     const decoded = Schema.decodeUnknownSync(TerminalSnapshotSchema)({
       ...seedSnapshot("/w"),

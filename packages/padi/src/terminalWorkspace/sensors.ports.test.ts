@@ -16,6 +16,7 @@ import type {
   TerminalEvent,
   TerminalId,
   TerminalPorts,
+  TerminalGrid,
 } from "@kolu/terminal-vocab/schema";
 import type { ForegroundSample } from "kaval";
 import pino from "pino";
@@ -51,6 +52,7 @@ function harness() {
     commandRun: inMemoryChannel<CommandRunSample>(),
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
+    grid: inMemoryChannel<TerminalGrid>(),
   };
   const emitted: TerminalEvent[] = [];
   const stop = startPortSensor(

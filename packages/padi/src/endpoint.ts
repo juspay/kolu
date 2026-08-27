@@ -295,6 +295,25 @@ export interface TerminalEndpoint {
     resizeTo?: EndpointGrid,
   ): Promise<TerminalAttachment>;
 
+  /** Record the grid the PTY is NOW at, after a resize this endpoint's caller
+   *  performed. Publishes onto the terminal record (`TerminalSnapshot.grid`),
+   *  which is the ONLY way a second attached client learns it lost
+   *  last-attach-wins: a resize sends SIGWINCH and reflows the mirror every
+   *  attached client shares, but the byte stream says nothing — a snapshot
+   *  frame rides the initial attach and an overflow re-attach, and nothing
+   *  else. So a viewer reflowed under someone else keeps rendering deltas laid
+   *  out for a grid no frame ever named. On the record, the change is a fact it
+   *  can observe and re-attach on.
+   *
+   *  Fire-and-forget and idempotent: the terminal's grid sensor drops a sample
+   *  equal to the last one it published, so calling this with an unchanged grid
+   *  costs nothing. A terminal with no live sensor set (killed, never spawned)
+   *  drops it silently — there is no consumer left to tell.
+   *
+   *  NOT a resize. The caller has already performed one and is reporting it;
+   *  this only publishes the fact. `attach`'s own `resizeTo` publishes itself. */
+  noteGrid(id: TerminalId, grid: EndpointGrid): void;
+
   readonly fs: TerminalEndpointFs;
   readonly git: TerminalEndpointGit;
 }

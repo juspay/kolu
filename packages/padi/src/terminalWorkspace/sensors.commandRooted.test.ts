@@ -24,6 +24,7 @@ import type {
   TerminalPorts,
   TerminalEvent,
   TerminalId,
+  TerminalGrid,
 } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
@@ -72,6 +73,7 @@ function startHarness(commandRooted: boolean) {
     commandRun: inMemoryChannel<CommandRunSample>(),
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
+    grid: inMemoryChannel<TerminalGrid>(),
   };
   // `currentAgent: "opencode"` models lock 1's argv seed already applied — so
   // this test isolates lock 2 (the shellIdle gate) alone. The trailing

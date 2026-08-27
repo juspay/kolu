@@ -90,6 +90,7 @@ import { installTerminalFocusProvenance } from "./focusProvenance";
 import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
+import { createForeignGridWatcher } from "./foreignGrid";
 import { createGridPublisher } from "./publishGrid";
 import {
   consumeReattachingStream,
@@ -125,6 +126,17 @@ function bufferToBase64(buf: ArrayBuffer): string {
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
+/** How long the pty's grid must sit at a size this pane did not ask for before
+ *  the pane treats it as a FOREIGN resize and re-attaches.
+ *
+ *  A mismatch is also the ordinary transient shape of the pane's OWN resize —
+ *  it measures first and the record catches up a round-trip later — so the
+ *  window is what separates "someone else holds this terminal" from "my own
+ *  resize is still in flight". Comfortably longer than a local publish + fold +
+ *  collection push, and short enough that a genuinely foreign resize is repaired
+ *  before the user has read a screenful of mis-wrapped output. */
+const FOREIGN_GRID_SETTLE_MS = 750;
 
 const Terminal: Component<{
   terminalId: TerminalId;
@@ -165,6 +177,15 @@ const Terminal: Component<{
    *  fourth reopen lane (kolu#2101 K5). Held so teardown can cancel it, the same
    *  way interrupting `attachFiber` cancels the loop's own sleeping backoff. */
   let staleGridReopenTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The LIVE attach attempt's stale-grid reopen, exposed so the served-grid
+   *  watcher below can pull the same lane a refused snapshot pulls.
+   *
+   *  Each attempt overwrites it on open, and that IS the correctness property
+   *  rather than the hazard the attempt-local state warns about: the watcher
+   *  must reach whichever attempt is running now, and the closure stored here is
+   *  already wrapped in that attempt's own liveness latch, so a stale one is
+   *  inert rather than a second successor. */
+  let reopenForForeignGrid: (() => void) | null = null;
   let disposeDiagnostics: (() => void) | null = null;
   let webglTrackerId: number | null = null;
   const [handle, setHandle] = createSignal<XtermHandle | null>(null);
@@ -560,6 +581,35 @@ const Terminal: Component<{
       }),
     );
 
+    // The pty's OWN grid, as the record states it — the one fact that makes a
+    // FOREIGN resize observable, and this pane's route into the same re-attach
+    // lane a refused snapshot takes.
+    //
+    // `snapshotGridMoved` (the frame check below) catches only the narrow case
+    // where another viewer's resize beat OUR snapshot back. Once attached there
+    // is no frame at all: the other viewer's attach reflows the pty and this
+    // pane goes on receiving deltas laid out for a grid it never asked for. The
+    // record is the channel that carries it (`TerminalEndpoint.noteGrid`).
+    //
+    // The JUDGMENT — a settle window, and the one mismatch to sit out — is
+    // `foreignGrid.ts`'s; what stays here is the three live facts and the
+    // re-attach. See that module's header for why waiting is the whole policy.
+    const foreignGrid = createForeignGridWatcher({
+      served: () =>
+        activeArm(terminalStore.getMetadata(props.terminalId))?.grid,
+      mine: h.grid,
+      hostState: hostEntryKind,
+      reopen: () => reopenForForeignGrid?.(),
+      settleMs: FOREIGN_GRID_SETTLE_MS,
+    });
+    onCleanup(() => foreignGrid.dispose());
+    createEffect(
+      on(
+        () => activeArm(terminalStore.getMetadata(props.terminalId))?.grid,
+        () => foreignGrid.observe(),
+      ),
+    );
+
     // …and the OTHER thing that can owe the PTY a size: a grid change that
     // happened while this pane's host was not connected (kolu#2101 K4). The
     // effect above fires per GRID CHANGE, so nothing re-observes the host coming
@@ -690,6 +740,14 @@ const Terminal: Component<{
           openAttachStream();
         }, REATTACH_BACKOFF_MS);
       };
+
+      // The served-grid watcher's route into THIS attempt (see the binding's
+      // note). Guarded exactly as every other cross-lane callback is, so a
+      // watcher tick that lands on a superseded attempt does nothing.
+      reopenForForeignGrid = onlyWhenCurrent(
+        { isCurrent: attemptLive },
+        reopenForStaleGrid,
+      );
 
       const consume = consumeReattachingStream(
         () => {

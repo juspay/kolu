@@ -51,6 +51,32 @@
  *     have left this header claiming a gap was closed while the app still
  *     painted the corruption.
  *
+ *  2c. **A foreign resize AFTER your snapshot sends you no frame at all**, and
+ *     this is the half `snapshotGridMoved` cannot reach. It compares the grid a
+ *     SNAPSHOT was served at, so it only fires when a foreign resize beat that
+ *     snapshot back to you. Once you are attached and streaming, the other
+ *     viewer's attach reflows the pty and you receive — deltas. No snapshot, no
+ *     frame to refuse, no error, nothing to time out. You keep painting bytes
+ *     laid out for a grid you never asked for, indefinitely.
+ *
+ *     WATCH THE RECORD. The terminal record carries the pty's current grid
+ *     (`TerminalSnapshot.grid`, contract 5.5 — on the awareness half of
+ *     `terminalWorkspace.snapshots`, so it is already in whatever store holds
+ *     your terminals). When it differs from the grid your pane has, you lost
+ *     last-attach-wins: re-attach at your own grid, which re-asserts it. Two
+ *     viewers then ping-pong the width, which is `./surface`'s multi-client
+ *     contract's own stated outcome — contention costs a repaint, never the
+ *     attach loop — so bound the reopen with the same backoff your other
+ *     re-attach lanes use.
+ *
+ *     Absence on either side ANSWERS "no evidence", exactly as rule 1's
+ *     predicates read it: an older padi states no grid, and a pane that has not
+ *     measured has none to compare. Reopening on ignorance spins a loop against
+ *     a pane with nothing to ask for.
+ *
+ *     Your OWN resize is not this case and needs no special-casing: it publishes
+ *     the grid you then measure, so the two agree and nothing fires.
+ *
  *  3. **A clean end does not mean the PTY exited.** Treat completion as a
  *     recoverable re-attach unless your own facts about the terminal agree it is
  *     gone; kolu budgets the re-attaches so a genuinely-dead terminal still

@@ -346,6 +346,14 @@ export function portsEqual(a: TerminalPorts, b: TerminalPorts): boolean {
  *  `pr` and `agent` ride here too — both re-samplable; `pr` is restore-relevant
  *  (true-when-dead, persisted like `git`), the live `agent` detail is RAM-only
  *  (lie-when-dead, re-derived on (re)spawn). */
+/** A pty grid — cols × rows, both positive. ONE composite, never two optional
+ *  scalars: half a grid is not a size. */
+export const TerminalGridSchema = Schema.Struct({
+  cols: Schema.Int.check(Schema.isGreaterThan(0)),
+  rows: Schema.Int.check(Schema.isGreaterThan(0)),
+});
+export type TerminalGrid = typeof TerminalGridSchema.Type;
+
 export const TerminalSnapshotSchema = Schema.Struct({
   cwd: Schema.String,
   git: Schema.NullOr(GitInfoSchema),
@@ -357,6 +365,25 @@ export const TerminalSnapshotSchema = Schema.Struct({
   foreground: Schema.NullOr(ForegroundSchema),
   /** What this terminal is serving — see {@link TerminalPortsSchema}. */
   ports: TerminalPortsSchema,
+  /** The pty's CURRENT grid — cols × rows.
+   *
+   *  It exists so a viewer can learn it LOST last-attach-wins. Attaching is a
+   *  write on a shared pty and the policy is last-attach-wins, so a second
+   *  viewer's terminal is reflowed under it — and the byte stream cannot say so:
+   *  a snapshot rides only the initial attach and an overflow re-attach, never a
+   *  foreign resize, so the loser goes on receiving DELTAS laid out for a grid no
+   *  frame ever named. Its screen garbles and nothing tells it to re-attach.
+   *
+   *  On the RECORD rather than the frame because that is the channel a mirror
+   *  already watches: this collection is reactive, so a consumer observes the
+   *  change and re-attaches, and the fresh snapshot then carries its own
+   *  `grid` (contract 5.5) to size against. The alternative — pushing a snapshot
+   *  to every attached client on every resize — would repaint the world during a
+   *  drag and needs a coalescing design this does not.
+   *
+   *  Optional: a padi predating it omits the key, and a consumer that never sees
+   *  one behaves exactly as it did before. */
+  grid: Schema.optionalKey(TerminalGridSchema),
 });
 export type TerminalSnapshot = typeof TerminalSnapshotSchema.Type;
 
@@ -436,6 +463,7 @@ export type TerminalEvent =
   | { kind: "foreground"; foreground: Foreground | null }
   | { kind: "agent"; agent: Known<AgentInfo | null> }
   | { kind: "ports"; ports: TerminalPorts }
+  | { kind: "grid"; grid: TerminalGrid }
   | { kind: "commandRun"; command: string; replayed: boolean };
 
 /** A fresh terminal's initial `TerminalSnapshot`: spawn-time cwd, everything else at

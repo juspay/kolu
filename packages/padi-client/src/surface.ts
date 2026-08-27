@@ -432,7 +432,31 @@ export * from "./transcriptSchema.ts";
  *  procedure; the minor makes convergence drain-and-respawn it first, which is
  *  the honest recycle. This is the same call kaval's own 7.1 note makes for
  *  `getScreenCells`, and the same one 4.4 (`listIgnored`), 4.6
- *  (`listDirectory`) and 5.2 (backups) made before it. */
+ *  (`listDirectory`) and 5.2 (backups) made before it.
+ *
+ *  5.5 (additive · minor): the terminal GRID, on two members, closing the two
+ *  halves of one gap — a consumer of a shared pty could not learn the size the
+ *  bytes it is being sent are laid out for.
+ *
+ *    · `streams.terminalAttach`'s `snapshot` frame gains `grid` — the cols×rows
+ *      those bytes were serialized at (documented at the field below).
+ *    · the terminal RECORD (`TerminalSnapshot.grid`, on the awareness half of
+ *      `terminalWorkspace.snapshots`) gains the grid the pty is at NOW,
+ *      published by padi's own resize path (`TerminalEndpoint.noteGrid`).
+ *
+ *  The frame answers "what size are these bytes?"; the record answers "what
+ *  size is the terminal?", and only the record answers it CONTINUOUSLY. A
+ *  snapshot rides the initial attach and an overflow re-attach and nothing
+ *  else, so an attached client that loses last-attach-wins to a second viewer
+ *  gets no frame at all — it keeps painting deltas laid out for a grid nothing
+ *  ever named. On the record the change is a fact it can observe and re-attach
+ *  on. (kolu's own pane does exactly that; see `client/src/terminal/Terminal.tsx`.)
+ *
+ *  Both are ADDITIVE and OPTIONAL — absent from an older padi, ignored by an
+ *  older consumer's decoder — so the minor is the whole obligation, and it is
+ *  the CLI/MCP face's reasoning again: those faces gate without draining, so a
+ *  fresh consumer must be able to tell a padi that serves the fields from one
+ *  that does not. */
 export const PADI_SURFACE_VERSION = "5.5";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
@@ -920,15 +944,25 @@ export const EndpointGridSchema = Schema.Struct({
  *      `StaleSnapshotGrid`), so contention costs a repaint — never the attach
  *      loop, which is the property kolu#2101 G8 restored and pins.
  *
- *  **What is NOT settled: telling the viewer.** A client cannot currently DETECT
- *  that another viewer holds the terminal at a different size. It knows its own
- *  grid and the grid it asked at; nothing on this wire carries the pty's CURRENT
- *  grid, and the tempting proxy — a `reflowEpoch` bump — is not one, because the
- *  epoch also bumps on a RIS re-anchor (`xterm-kit/src/mirrorAnchor.ts`), so an
- *  indicator driven by it would light on every `clear`. Closing that gap is an
- *  ADDITIVE minor on this contract (the pty's current grid on the snapshot frame,
- *  or on the terminal record) plus a pane affordance; until it lands, the
- *  re-wrap is silent by construction, and no code should pretend otherwise.
+ *  **Telling the viewer — SETTLED at 5.5, on two members, because it is two
+ *  questions.** A client used to know only its own grid and the grid it asked
+ *  at, so a foreign resize was silent by construction. The tempting proxy — a
+ *  `reflowEpoch` bump — was never one, because the epoch also bumps on a RIS
+ *  re-anchor (`xterm-kit/src/mirrorAnchor.ts`), so an indicator driven by it
+ *  lights on every `clear`. What landed instead is the grid itself, twice:
+ *    - **on the snapshot frame** — the cols×rows those BYTES were serialized at.
+ *      Answers "is what I am about to paint laid out for my pane?", and only at
+ *      the moments a snapshot exists (the initial attach, an overflow
+ *      re-attach). `./attach`'s `snapshotGridMoved` is that reading.
+ *    - **on the terminal record** (`TerminalSnapshot.grid`) — the grid the pty
+ *      is at NOW, published by padi's own resize path. Answers "is the terminal
+ *      still my size?", CONTINUOUSLY, which is the half the frame cannot cover:
+ *      a foreign resize mid-stream produces no frame at all, so a client
+ *      watching only frames keeps painting reflowed bytes forever. `./attach`'s
+ *      rule 2c is that reading, and kolu's pane consumes it.
+ *  The ping-pong above is unchanged and remains the whole policy — what changed
+ *  is that the losing side can now SEE it lost, which is what makes "contention
+ *  costs a repaint" true for every viewer instead of only the asserting one.
  *
  *  The fusion is the point. The snapshot is bytes laid out for a specific
  *  cols×rows — cursor moves and wraps only mean anything at the width they were
@@ -1007,7 +1041,7 @@ export const PadiTerminalAttachFrameSchema = Schema.Union([
      *  SERIALIZED at, read inside the same synchronous act as the bytes and the
      *  epoch so it cannot describe a reflow they never saw.
      *
-     *  It closes the gap the multi-client note above names as NOT SETTLED. Two
+     *  It is the FRAME half of the two the multi-client note above settles. Two
      *  consumers needed it and neither could be served without it:
      *
      *    · the OBSERVE-ONLY attach — one that passes no `resizeTo` because it

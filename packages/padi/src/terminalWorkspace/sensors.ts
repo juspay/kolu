@@ -66,6 +66,7 @@ import type {
   AgentInfo,
   TerminalEvent,
   PrUnavailableSource,
+  TerminalGrid,
   TerminalId,
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
@@ -166,6 +167,11 @@ export interface SensorSignals {
    *  sample folds through the SAME emit → fold → snapshot path as every other
    *  field instead of a second write seam into the registry. */
   ports: Channel<TerminalPorts>;
+  /** This terminal's pty grid, published by padi's own resize path — not a
+   *  pty-host tap. Same shape as `ports`: fed by the host rather than observed
+   *  from the child, because padi performs every resize and is therefore the
+   *  only thing that knows one happened. */
+  grid: Channel<TerminalGrid>;
 }
 
 /** Read the terminal's current rendered screen as VT-resolved plain text — the
@@ -270,6 +276,43 @@ function startForegroundSensor(
  *  guard is the whole point of the sensor, and driving it through the full
  *  `startSensors` would drag in git watchers and four agent adapters to observe one
  *  channel. */
+/** Emit this terminal's pty grid, dropping a sample equal to the last emitted.
+ *
+ *  Same shape and same reason as {@link startPortSensor}: the feed is padi's own
+ *  (every resize goes through it), and the dedup lives per-terminal so the
+ *  baseline dies WITH the terminal rather than in a map somebody has to prune.
+ *
+ *  What it is FOR is the viewer that lost last-attach-wins. Attaching is a write
+ *  on a shared pty, so a second viewer gets reflowed under the first — and the
+ *  byte stream cannot say so, because a snapshot rides the initial attach and an
+ *  overflow re-attach and nothing else. Publishing the grid on the RECORD gives
+ *  every mirror a fact to observe, so it can re-attach and be sized honestly. */
+export function startGridSensor(
+  terminalId: TerminalId,
+  signals: SensorSignals,
+  emit: (o: TerminalEvent) => void,
+  log: Logger,
+): () => void {
+  const glog = log.child({ provider: "grid", terminal: terminalId });
+  let published: TerminalGrid | undefined;
+  const cleanup = signals.grid.consume({
+    onEvent: (grid) => {
+      if (
+        published !== undefined &&
+        published.cols === grid.cols &&
+        published.rows === grid.rows
+      ) {
+        return;
+      }
+      glog.debug({ cols: grid.cols, rows: grid.rows }, "pty grid changed");
+      published = grid;
+      emit({ kind: "grid", grid });
+    },
+    onError: (err) => glog.error({ err }, "grid subscription failed"),
+  });
+  return cleanup;
+}
+
 export function startPortSensor(
   terminalId: TerminalId,
   signals: SensorSignals,
@@ -1163,6 +1206,7 @@ export function startSensors(
   const stopPi = startAgent(piAdapter);
   const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
   const stopPorts = startPortSensor(terminalId, signals, emit, log);
+  const stopGrid = startGridSensor(terminalId, signals, emit, log);
   return () => {
     stopCwd();
     stopAgentCommand();
@@ -1175,5 +1219,6 @@ export function startSensors(
     stopPi();
     stopProcess();
     stopPorts();
+    stopGrid();
   };
 }
