@@ -16,11 +16,13 @@
  * package root that sits at `packages/surface<something>` — and a new surface
  * package joins both gates BY EXISTING.
  *
- * `@kolu/padi-client` is DECLARED, and it is the only thing here that is,
- * because it is genuinely irreducible: it is a fact about olai, which dials a
- * running padi from its server and never installs one (juspay/kolu#2216).
- * Nothing in this tree says that package is vendored — no directory name, no
- * manifest field — so there is no in-tree source to derive it from.
+ * `@kolu/padi-client` and `@kolu/solid-dockrow` are DECLARED, and they are the
+ * only things here that are, because they are genuinely irreducible: both are
+ * facts about olai, which dials a running padi from its server and never
+ * installs one (juspay/kolu#2216), and renders kolu's Dock terminal row rather
+ * than inventing its own status UI. Nothing in this tree says either package is
+ * vendored — no directory name, no manifest field — so there is no in-tree
+ * source to derive them from.
  */
 
 import { readFileSync } from "node:fs";
@@ -50,8 +52,9 @@ export function vendorEntries(repoRoot: string): string[] {
     ).name;
     if (name !== undefined) names.push(name);
   }
-  // olai's, and the one entry with no in-tree source — see the header.
+  // olai's two, the only entries with no in-tree source — see the header.
   names.push("@kolu/padi-client");
+  names.push("@kolu/solid-dockrow");
   return names.sort();
 }
 

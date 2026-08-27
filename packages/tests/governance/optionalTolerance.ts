@@ -69,8 +69,8 @@ export const OPTIONAL_TOLERANCE_ALLOWLIST: readonly OptionalToleranceSite[] = [
   },
   {
     path: "packages/padi-client/src/surface.ts",
-    sites: 1,
-    why: "`reflowEpoch` on the attach snapshot — forwarded verbatim across five hops of optional-typed records before it is encoded, and reading an absent optional key yields `undefined`, so every hop re-creates the key present-with-`undefined` however clean the hop before it was",
+    sites: 2,
+    why: "`reflowEpoch` and `grid` on the attach snapshot — BOTH forwarded verbatim across the same five hops of optional-typed records before they are encoded, and reading an absent optional key yields `undefined`, so every hop re-creates the key present-with-`undefined` however clean the hop before it was. `grid` (5.5) shipped as `optionalKey` for one review round: that spelling fails the ENCODE and takes the whole attach stream down on both of its reachable no-grid producers — a kaval predating the field (the mixed-version path its no-major bump exists to keep alive) and `local.ts`'s abort-before-snapshot return, which omits it even on a current kaval",
   },
 ];
 

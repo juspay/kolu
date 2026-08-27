@@ -15,7 +15,9 @@ packages:
 #
 # `catalog:` is WORKSPACE-LOCAL, so it cannot appear in any package an OUTSIDE
 # repo vendors: drishti, odu and olai copy those DIRECTORIES from a
-# content-addressed pin and install their `dependencies` from their own
+# content-addressed pin (today `@kolu/padi-client` and `@kolu/solid-dockrow`,
+# both declared in packages/tests/governance/vendorEntries.ts, plus the
+# `@kolu/surface*` stack that file derives from the tree) and install their `dependencies` from their own
 # workspace, where kolu's catalog does not exist. Those packages spell the
 # literal version instead. Root `pnpm.overrides` (package.json) carries the same
 # version a third time so transitive resolution collapses to one copy here.

@@ -17,10 +17,10 @@ import { prValue } from "anyforge/schemas";
 import type { TerminalId } from "kolu-common/surface";
 import { resumableCommand } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { GitBranchIcon, PrStateIcon } from "../ui/Icons";
-import ChecksIndicator from "./ChecksIndicator";
+import { GitBranchIcon } from "../ui/Icons";
+import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
 import { MOONLIT } from "./moonlit";
-import { prTooltip } from "./prTooltip";
+import { prTooltip } from "@kolu/solid-dockrow/rowValues";
 import { formatTimeAgo } from "./staleness";
 import { useTerminalStore } from "./useTerminalStore";
 

@@ -31,7 +31,11 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PtyHostDataMsg } from "kaval";
 import { PtyNotFound } from "kaval";
 import { abortableDelay } from "../abortableDelay.ts";
-import { TERMINAL_RESET, type TerminalAttachFrame } from "../endpoint.ts";
+import {
+  type EndpointGrid,
+  TERMINAL_RESET,
+  type TerminalAttachFrame,
+} from "../endpoint.ts";
 import { log } from "../log.ts";
 
 /** RIS (`ESC c`) — a full terminal reset. Re-exported from the frame-type barrel
@@ -151,6 +155,11 @@ export interface OpenedAttach {
    *  the re-attach frame so the client re-seeds its backfill epoch (F3).
    *  Undefined from a kaval predating the field (fail-open). */
   reflowEpoch?: number;
+  /** The grid the fresh snapshot was SERIALIZED at — carried onto the re-attach
+   *  frame so a consumer that never asserts a size still knows what shape the
+   *  screen it just received is. Undefined from a kaval predating the field
+   *  (fail-open). */
+  grid?: EndpointGrid;
   iter: AsyncIterator<PtyHostDataMsg>;
 }
 
@@ -337,6 +346,7 @@ export async function* reattachingDeltas(
       data: TERMINAL_RESET + next.snapshot,
       topLine: next.topLine,
       reflowEpoch: next.reflowEpoch,
+      grid: next.grid,
     };
     cur = next.iter;
   }

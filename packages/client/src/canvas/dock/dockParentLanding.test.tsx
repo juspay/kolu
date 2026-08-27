@@ -34,7 +34,8 @@ import { activeScope } from "../../hostScope/hostScopes";
 import { addHost, resetHosts } from "../../hostScope/mockHostMap.testlib";
 import { useSubPanel } from "../../terminal/useSubPanel";
 import { useTileStore } from "../../tile/useTileStore";
-import { dockRowAttrs } from "./dockRowAttrs";
+import { dockRowAttrs } from "@kolu/solid-dockrow/rowValues";
+import { isActiveRow } from "./activeRow";
 
 const [activeHost, setActiveHost] = createSignal<HostKey>(HOST);
 bag.activeHost = activeHost;
@@ -69,8 +70,8 @@ it("lands an explicit parent dock row on the main pane", async () => {
                 id: PARENT,
                 bucket: "idle",
                 agentState: undefined,
-                asking: false,
-                unread: false,
+                pip: { asking: false, alert: false },
+                active: isActiveRow(PARENT),
               })}
               onClick={() => useTileStore().activate(PARENT)}
             />
@@ -81,8 +82,8 @@ it("lands an explicit parent dock row on the main pane", async () => {
                 id: SPLIT,
                 bucket: "working",
                 agentState: "thinking",
-                asking: false,
-                unread: false,
+                pip: { asking: false, alert: false },
+                active: isActiveRow(SPLIT),
               })}
             />
           </>

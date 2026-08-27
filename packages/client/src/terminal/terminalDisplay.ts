@@ -13,6 +13,7 @@
  *  fine-grained store proxy, at each consumer's own leaf. */
 
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
+import { identityColor } from "@kolu/solid-dockrow/rowValues";
 import {
   computeTerminalKeys,
   type TerminalKey,
@@ -77,34 +78,22 @@ export function terminalExportTitle(
   return meta ? terminalCaption(meta) : "terminal";
 }
 
-/** Stable 32-bit FNV-1a → hue in [0, 360) with full-hash precision.
- *  Identity colour is a pure function of the key string, not of co-set
- *  order — so dock, palette, and restore paint the same repo the same
- *  hue even when their key sets differ. Using the full 32-bit range
- *  (not `% 360`) keeps ordinary names from colliding on exact hues. */
-function stableHue(key: string): number {
-  // NFC so hue matches monogram for NFD/NFC-equivalent names (macOS paths).
-  // Empty / unexpected keys still get a deterministic hue (callers usually
-  // only pass non-empty terminalKey group/label strings).
-  const s = (key ?? "").normalize("NFC");
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return ((h >>> 0) / 0x1_0000_0000) * 360;
-}
-
 /** Assign OKLCH colours from a stable per-key hue. The iterable only
  *  names which keys appear; it does not affect the hue of any key.
- *  Non-string entries are dropped (tests / partial meta can yield them). */
+ *  Non-string entries are dropped (tests / partial meta can yield them).
+ *
+ *  The HUE FORMULA is not here: `identityColor` is
+ *  `@kolu/solid-dockrow/rowValues`', because the row renders what it paints and
+ *  a consumer feeding the row's `labelColor` needs the same answer for one key.
+ *  What stays here is the co-set shape kolu's own call sites want — a `Map` over
+ *  the keys on screen — built by calling that one function per key, so "the
+ *  colour is a function of the key ALONE, never of which keys share the screen"
+ *  is true by construction rather than by two implementations agreeing. */
 export function assignColors(keys: Iterable<string>): Map<string, string> {
   const unique = [
     ...new Set([...keys].filter((k): k is string => typeof k === "string")),
   ];
-  return new Map(
-    unique.map((key) => [key, `oklch(0.75 0.14 ${stableHue(key)})`]),
-  );
+  return new Map(unique.map((key) => [key, identityColor(key)]));
 }
 
 /** Build display info for all terminals. Resolves stable per-key colours

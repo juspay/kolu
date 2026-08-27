@@ -14,9 +14,9 @@ import {
   LOCAL_LOCATION,
   type TerminalMetadata,
 } from "@kolu/padi-client/surface";
-import type { AgentInfo } from "kolu-common/surface";
+import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import { bindStatePip } from "./statePipBind";
+import { bindStatePip } from "./pipBind.ts";
 
 function agent(state: AgentInfo["state"]): AgentInfo {
   return {
@@ -71,7 +71,7 @@ describe("bindStatePip — colour comes from the same value as motion", () => {
   });
 
   // THE REGRESSION THIS FILE EXISTS FOR. Metadata and the attention frame land
-  // independently (the argument is in `attention/attentionFacts.ts`'s header),
+  // independently (the argument is in `@kolu/padi-client/attention`'s header),
   // so there is a real window where metadata says "thinking" and the frame has
   // said nothing yet. Colour was the last channel still believing the metadata:
   // the mark went rust while standing still, and no count included it.

@@ -32,15 +32,15 @@ import { createMemo, For } from "solid-js";
 import { createStore } from "solid-js/store";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
-import type { TerminalAttention } from "../../attention/attentionFacts";
+import type { TerminalAttention } from "@kolu/padi-client/attention";
 import { annotationLine } from "../../intent/text";
-import { bindStatePip } from "../../terminal/statePipBind";
+import { bindStatePip } from "@kolu/solid-dockrow/rowValues";
 import {
   buildTerminalDisplayInfos,
   pairDisplayRow,
 } from "../../terminal/terminalDisplay";
-import { dockRowAttrs } from "./dockRowAttrs";
-import { rowSubline } from "./rowSubline";
+import { dockRowAttrs, rowSubline } from "@kolu/solid-dockrow/rowValues";
+import { isActiveRow } from "./activeRow";
 
 const ALICE = "terminal-alice" as TerminalId;
 const BOB = "terminal-bob" as TerminalId;
@@ -176,8 +176,11 @@ function renderDock() {
                 id,
                 bucket: "working",
                 agentState: activeArm(meta[id])?.agent?.state,
-                asking: pip()?.asking ?? false,
-                unread: unread[id] ?? false,
+                pip: {
+                  asking: pip()?.asking ?? false,
+                  alert: unread[id] ?? false,
+                },
+                active: isActiveRow(id),
               })}
               data-pip={pip()?.variant}
             >
@@ -189,7 +192,7 @@ function renderDock() {
               </span>
               <span data-role="subline">
                 {combined()
-                  ? rowSubline(combined()?.meta as TerminalMetadata)
+                  ? rowSubline(combined()?.meta as TerminalMetadata).text
                   : ""}
               </span>
             </div>

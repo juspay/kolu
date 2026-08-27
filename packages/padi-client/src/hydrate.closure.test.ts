@@ -123,13 +123,16 @@ const DECLARED_ALLOWED = new Set([
   "memorable-names",
   "nonempty",
   // NOT an npm package and NOT in this repo: grafted from the `juspay/osfacts`
-  // npins pin into `osfacts-client/`, and gitignored. It is in
-  // `@kolu/surface-daemon-supervisor`'s PUBLIC API — `ReadSocketHolders`, the
-  // seam every consumer implements, is typed in its vocabulary by a decision
-  // that module argues for at length — so a consumer of `connectPadi` needs
-  // it and must graft it the same way. drishti already does exactly that
-  // (`nix/overlay.nix`); the contract was simply never written down, which is
-  // what cost the first consumer a build. See the README's second-pin note.
+  // npins pin into `osfacts-client/`, and gitignored.
+  //
+  // It is DECLARED cost and no longer IMPORTED cost, and the distinction is the
+  // whole point of splitting these two lists. Nothing a consumer's `tsc`
+  // compiles resolves it any more — the supervisor's dial leaf means no
+  // published entry reaches `endpoint.ts` — so there is no graft to make the
+  // compiler happy. But hydration is per-MANIFEST: a consumer still copies
+  // `@kolu/surface-daemon-supervisor`'s directory, and its manifest still names
+  // this, so `nix/consumer.nix` still asks for a source (`pinnedSources`)
+  // rather than inventing one. See the README's second-pin section.
   "osfacts-client",
 ]);
 
@@ -145,12 +148,15 @@ const DECLARED_ALLOWED = new Set([
  *  down, and why the gap is spelled out rather than folded into one lenient
  *  list.
  *
- *  It was six until the walk started counting type edges. `@kolu/log` and
- *  `osfacts-client` were being credited as manifest-only cost while a
- *  published entry really did reach them — through an `import type`, which a
- *  consumer's `tsc` resolves like any other. Two directories moved from
- *  "copied but never loaded" to "compiled", which is the more expensive
- *  column, and the list says so now. */
+ *  It grew when the walk started counting type edges: `@kolu/log` and
+ *  `osfacts-client` were being credited as manifest-only cost while a published
+ *  entry really did reach them — through an `import type`, which a consumer's
+ *  `tsc` resolves like any other. `osfacts-client` has since LEFT this list
+ *  again, and by a real change rather than an inference: the supervisor's dial
+ *  leaf means no published entry reaches `endpoint.ts`, so nothing here compiles
+ *  the process-identity client. It stays in `DECLARED_ALLOWED` — a hydrating
+ *  consumer still copies the directory — but it no longer has to graft the
+ *  second pin to make `tsc` pass. That is the gap this split exists to show. */
 const IMPORTED_ALLOWED = new Set([
   "@kolu/log",
   "@kolu/padi-client",
@@ -169,8 +175,6 @@ const IMPORTED_ALLOWED = new Set([
   "kolu-opencode",
   "kolu-pi",
   "kolu-transcript-core",
-  // Reached through a type edge only — see the second-pin note in the README.
-  "osfacts-client",
 ]);
 
 /** Names whose PRESENCE would mean the daemon tier came back.
@@ -225,19 +229,6 @@ const HYDRATE_CLOSURE = declaredDependencyClosure({
  *    `@solid-primitives/{rootless,scheduled}` — the framework tier, already
  *    installed by every `@kolu/surface` consumer (drishti, odu).
  *
- *    `osfacts-client` is the SECOND PIN, and the only entry here that is not
- *    an ordinary npm install. It is grafted from `juspay/osfacts` and
- *    gitignored, so it is absent from the archive a consumer vendors, and it
- *    is in `@kolu/surface-daemon-supervisor`'s public API rather than an
- *    internal detail. A consumer grafts it from the same pin — drishti's
- *    `nix/overlay.nix` is the worked precedent.
- *
- *    This entry is where a previous round of this PR went wrong, and the
- *    shape is worth keeping: it was moved to `devDependencies` because every
- *    non-test use is `import type`, which is true and irrelevant — for raw
- *    TypeScript a type edge is what a consumer compiles. The guard agreed,
- *    because it walked runtime imports only. It walks type edges now, so that
- *    inference cannot be made again without this file going red.
  * *  - `string-argv` — `anyagent`'s command parse, a pure leaf.
  *  - `@parcel/watcher` (NATIVE), `simple-git`, `p-limit` — `kolu-git`'s, and
  *    `@anthropic-ai/claude-agent-sdk` — `kolu-claude-code`'s. These are the one
@@ -289,6 +280,20 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
         `so a devDependency edge here is a module that simply will not resolve there.`,
     ).toEqual([]);
 
+    // The list must also SHRINK honestly. An entry nothing reaches any more is
+    // a cost this file still advertises and a consumer still pays for — which
+    // is exactly what `osfacts-client` became the moment the dial leaf landed,
+    // and exactly the kind of stale line a lenient guard lets sit for a year.
+    const stale = [...IMPORTED_ALLOWED]
+      .filter((p) => p !== "@kolu/padi-client" && !reachedPackages.includes(p))
+      .sort();
+    expect(
+      stale,
+      `IMPORTED_ALLOWED names packages nothing reaches: ${stale.join(", ")}. ` +
+        `Delete them — an entry here is a directory a consumer's compiler is ` +
+        `told to expect, and this list is read as the honest cost of hydration.`,
+    ).toEqual([]);
+
     const unexpected = reachedPackages
       .filter((p) => !IMPORTED_ALLOWED.has(p))
       .sort();
@@ -313,7 +318,13 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
     // program, found by that consumer and not by this guard (juspay/kolu#2216).
     //
     // So the doors are pinned. A new one is a deliberate act with a line to
-    // write, and the two BARE barrels below are named as the cost they are.
+    // write — and the two BARE barrels this comment used to record as the KNOWN
+    // cost are now CLOSED. Each daemon package grew the leaf entry the old
+    // wording named as the fix: `@kolu/surface-daemon-supervisor/dial` (the
+    // socket dial, the skew signal, the connection shape — no `endpoint.ts`, so
+    // no `osfacts-client` graft in a consumer's tree), `@kolu/surface-daemon/home`
+    // (path algebra) and `@kolu/surface-daemon/lifetime` (a published type). The
+    // list is EMPTY now, and empty is the assertion.
     const daemonBarrels = reachedSpecifiers.filter(
       (spec) =>
         spec === "@kolu/surface-daemon" ||
@@ -321,16 +332,16 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
     );
     expect(
       daemonBarrels,
-      "the two bare daemon barrels are the KNOWN cost, recorded so the number " +
-        "cannot grow quietly: `@kolu/surface-daemon` is reached by `vocab.ts` " +
-        "for one type (`DaemonLifetimeInfo`), and " +
-        "`@kolu/surface-daemon-supervisor` by `dial.ts` for `dialSocket` and " +
-        "the skew error. Both barrels value-re-export the daemon runtime, so " +
-        "every consumer of `connectPadi` compiles it. Closing this needs leaf " +
-        "entries on those packages — a drishti-gated change, so it is named " +
-        "here rather than smuggled. If this list SHRINKS, delete the entry; if " +
-        "it GROWS, a new barrel just became every consumer's problem.",
-    ).toEqual(["@kolu/surface-daemon", "@kolu/surface-daemon-supervisor"]);
+      "a BARE daemon barrel is back in this package's import closure. Both " +
+        "barrels value-re-export the daemon runtime (`daemonMain`, " +
+        "`daemonProcessMain`, the endpoint's osfacts process-identity client), " +
+        "so every consumer of `connectPadi` would compile it — which is how a " +
+        "module this package documents BROWSER-SAFE once pulled a daemon's " +
+        "signal handling into an out-of-repo consumer's program " +
+        "(juspay/kolu#2216). The leaf entries exist: reach " +
+        "`@kolu/surface-daemon-supervisor/dial`, `@kolu/surface-daemon/home` " +
+        "or `@kolu/surface-daemon/lifetime` instead.",
+    ).toEqual([]);
 
     // The containment this file's whole premise rests on: what the code reaches
     // is a subset of what the manifests cost. Asserted, not assumed — an entry

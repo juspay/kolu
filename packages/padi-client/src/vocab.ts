@@ -14,7 +14,7 @@
  */
 
 import type { WireSchema } from "@kolu/surface/define";
-import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
+import type { DaemonLifetimeInfo } from "@kolu/surface-daemon/lifetime";
 import {
   ENDPOINT_STATES,
   type EndpointState,

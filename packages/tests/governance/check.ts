@@ -39,6 +39,7 @@ import {
   RUN_EDGE_ALLOWLIST,
   validateRunEdges,
 } from "./runEdges";
+import { checkConsumerClosureFresh } from "./consumerClosure";
 import { vendoredManifests } from "./vendorEntries";
 
 const packageRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -214,6 +215,19 @@ const optionalShimSites = [...optionalShims.values()].reduce(
 // an unchanged id, or as a vendored directory a consumer was never told to copy.
 const closureMembers = checkClosureWalksAgree(repoRoot);
 
+// The CONSUMER CLOSURE artifact, checked fresh. `nix/consumer-closure.json` is
+// what an out-of-repo consumer walks to turn a SEED list into the package set it
+// hydrates, and it is emitted from these very manifests — so a manifest edit
+// that does not reach it is a consumer copying yesterday's set, surfacing in
+// THAT repo's compiler rather than here. See `consumerClosure.ts`.
+const consumerClosureMembers = Object.keys(
+  (
+    JSON.parse(checkConsumerClosureFresh(repoRoot)) as {
+      members: Record<string, unknown>;
+    }
+  ).members,
+).length;
+
 // The Effect pin's agreement gate (A2), then the beta-behavior assumption
 // registry (C3) it feeds. The two share one fact — the catalog's version — so a
 // bump has exactly one place to move and exactly one set of sites to re-verify.
@@ -232,5 +246,5 @@ validateBetaAssumptions(
 );
 
 console.log(
-  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed), ${closureMembers} vendored + daemon-identity closure members walked identically by nix and TS`,
+  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed), ${closureMembers} vendored + daemon-identity closure members walked identically by nix and TS, ${consumerClosureMembers} consumer-closure members emitted fresh`,
 );

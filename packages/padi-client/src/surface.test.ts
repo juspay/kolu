@@ -90,7 +90,15 @@ describe("padiSurface contract", () => {
     // reading a restore's active tile off the `session` cell's next snapshot. That
     // was a race the client cannot win: the snapshot publishes behind a
     // synchronous disk write while the restored terminals publish as they spawn.
-    expect(PADI_SURFACE_VERSION).toBe("5.4");
+    //
+    // 5.5 adds an OPTIONAL `grid` to the `terminalAttach` snapshot frame — the
+    // cols×rows those bytes were serialized at. A MINOR, not a major, for the
+    // reason this contract already applies to `reflowEpoch`: absence degrades
+    // to exactly the previous reading in both skew directions, and a major
+    // would force-recycle a surviving kaval — killing live PTYs — to buy a
+    // readout. It exists for the OBSERVE-ONLY attach, which asserts no size and
+    // therefore never learned what size it received.
+    expect(PADI_SURFACE_VERSION).toBe("5.5");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -724,6 +732,59 @@ describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", ()
           data: "",
           topLine: 0,
           reflowEpoch: "7",
+        }),
+      ).toBe(false);
+    });
+
+    // `grid` (5.5) rides the SAME five hops and therefore needs the SAME
+    // spelling. It shipped as `optionalKey` for one round, which would have
+    // failed the ENCODE — taking the whole attach stream down — on both of its
+    // reachable no-grid producers: a kaval predating the field (the mixed-version
+    // path the no-major bump exists to keep alive) and `local.ts`'s
+    // abort-before-snapshot return, which omits it even on a current kaval. An
+    // encode throw is the opposite of "absence degrades to today's reading".
+    it("ACCEPTS a present-but-undefined grid, and OMITS it from the bytes", () => {
+      expect(
+        JSON.stringify(
+          encode({
+            kind: "snapshot",
+            data: "hi",
+            topLine: 0,
+            grid: undefined,
+          }),
+        ),
+      ).toBe('{"kind":"snapshot","data":"hi","topLine":0}');
+    });
+
+    it("emits a real grid, and REJECTS a malformed one", () => {
+      expect(
+        JSON.stringify(
+          encode({
+            kind: "snapshot",
+            data: "",
+            topLine: 0,
+            grid: { cols: 80, rows: 24 },
+          }),
+        ),
+      ).toBe(
+        '{"kind":"snapshot","data":"","topLine":0,"grid":{"cols":80,"rows":24}}',
+      );
+      // Half a grid is not a size — the both-or-neither rule the attach INPUT
+      // states, holding on the way back too.
+      expect(
+        accepts(frame, {
+          kind: "snapshot",
+          data: "",
+          topLine: 0,
+          grid: { cols: 80 },
+        }),
+      ).toBe(false);
+      expect(
+        accepts(frame, {
+          kind: "snapshot",
+          data: "",
+          topLine: 0,
+          grid: { cols: 0, rows: 24 },
         }),
       ).toBe(false);
     });

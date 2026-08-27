@@ -72,6 +72,7 @@ let
     "@kolu/solid-fileview" = ../packages/solid-fileview;
     "@kolu/solid-browser" = ../packages/solid-browser;
     "@kolu/solid-statepip" = ../packages/solid-statepip;
+    "@kolu/solid-dockrow" = ../packages/solid-dockrow;
     "kolu-common" = ../packages/common;
     "@kolu/daemon-test-gate" = ../packages/daemon-test-gate;
     "anyagent" = ../packages/integrations/anyagent;
@@ -195,4 +196,12 @@ in
   # neither. Exposing it lets `packages/tests/governance/closureWalk.ts` ask
   # both sides the same question and fail when they answer differently.
   closureNamesFor = entries: depClosure { inherit entries; };
+
+  # The pin-grafted members, exposed for the same reason `closureNamesFor` is:
+  # a TS reader needs this declaration, and the alternative was regex-parsing
+  # this file's bytes. `packages/tests/governance/consumerClosure.ts` asks for
+  # it through the `nix eval` route `closureWalk.ts` already uses, so the
+  # declaration has one reader-facing spelling and a rename cannot silently
+  # change what the emitter believes.
+  inherit pinnedNames;
 }

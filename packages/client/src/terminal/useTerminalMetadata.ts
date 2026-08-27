@@ -14,10 +14,10 @@
  *  terminal leaves the list. No manual Map, AbortController, or version
  *  signals needed at this call site. */
 
-import type {
-  PadiParkedTerminal,
-  PadiTerminal,
-  TerminalMetadata,
+import {
+  isParkedTerminal,
+  type TerminalMetadata,
+  tileTerminalOf,
 } from "@kolu/padi-client/surface";
 import { writeWrappedValue } from "@kolu/surface/solid";
 import type { TerminalId } from "kolu-common/surface";
@@ -78,10 +78,17 @@ export function sameTerminalIdOrder(
  *  `active | sleeping | parked`), so the narrowing is SOUND — no `(m as { state })`
  *  cast. `getMetadata` below is its ONE caller: it narrows padi's 3-arm wire union
  *  down to the honest 2-arm `TerminalMetadata` every tile consumer expects,
- *  collapsing a parked record to `undefined`. */
-export function isParked(m: PadiTerminal): m is PadiParkedTerminal {
-  return m.state === "parked";
-}
+ *  collapsing a parked record to `undefined`.
+ *
+ *  The guard itself is `@kolu/padi-client`'s now, not this file's. It was
+ *  declared here — privately — and that turned out to be the whole obstacle for
+ *  an out-of-repo consumer holding the same three-arm union off the same wire:
+ *  it had no sound way past the parked arm and no exported narrowing to reach
+ *  for, so the row folds simply would not accept its records. A narrowing of
+ *  padi's wire union belongs beside the union, next to `activePadiTerminal`
+ *  which had already been exported for exactly this reason. Re-exported here so
+ *  this module stays the one door the client's own callers already knock on. */
+export { isParkedTerminal as isParked } from "@kolu/padi-client/surface";
 
 /** Reproject the record's padi-host-stamped epochs onto THIS browser's clock at the
  *  ingestion BOUNDARY — via the ACTIVE host's measured `clockOffset` — so no downstream
@@ -242,7 +249,7 @@ export function useTerminalMetadata(deps: {
    *  only the value-reading `getMetadata` needs). */
   function rawTile(id: TerminalId): TerminalMetadata | undefined {
     const record = terminals()?.byKey(id)?.();
-    return record === undefined || isParked(record) ? undefined : record;
+    return tileTerminalOf(record);
   }
 
   /** The tri-state census of the listed terminals' composed records, counted from
@@ -279,7 +286,7 @@ export function useTerminalMetadata(deps: {
     for (const id of keys()) {
       const record = terminals()?.byKey(id)?.();
       if (record === undefined) awaited++;
-      else if (isParked(record)) parked++;
+      else if (isParkedTerminal(record)) parked++;
       else live++;
     }
     return { awaited, parked, live };

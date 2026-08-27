@@ -33,6 +33,7 @@ import type {
   TerminalEvent,
   TerminalId,
   TerminalPorts,
+  TerminalGrid,
 } from "@kolu/terminal-vocab/schema";
 import type { ForegroundSample } from "kaval";
 import pino from "pino";
@@ -225,6 +226,7 @@ function startTerminal(id: TerminalId, agentPid: number): Harness {
     }>(),
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
+    grid: inMemoryChannel<TerminalGrid>(),
   };
   const stop = startAgentSensor(
     codexAdapter,

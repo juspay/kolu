@@ -228,13 +228,13 @@ async function* attachFrames(
   signal: AbortSignal,
 ): AsyncGenerator<TerminalAttachFrame> {
   const entry = requireActiveTerminal(id);
-  const { snapshot, topLine, reflowEpoch, deltas } =
+  const { snapshot, topLine, reflowEpoch, grid, deltas } =
     await resolveTerminalEndpoint(entry.meta.location).attach(
       id,
       signal,
       resizeTo,
     );
-  yield { kind: "snapshot", data: snapshot, topLine, reflowEpoch };
+  yield { kind: "snapshot", data: snapshot, topLine, reflowEpoch, grid };
   for await (const frame of deltas) yield frame;
 }
 
@@ -835,10 +835,18 @@ export function buildPadiSurfaceDeps(deps: {
         // against a size nothing has, silently.
         resize: ({ input }) =>
           handle(async () => {
-            await getActiveTerminal(input.id)?.handle.resize(
-              input.cols,
-              input.rows,
-            );
+            const entry = getActiveTerminal(input.id);
+            if (!entry) return;
+            await entry.handle.resize(input.cols, input.rows);
+            // The resize LANDED — publish the new grid onto the record. The
+            // other attached clients cannot see it any other way: a resize
+            // reflows the mirror they share but sends them no frame, so
+            // without this a second viewer keeps rendering deltas laid out for
+            // a grid it never learned about (`TerminalEndpoint.noteGrid`).
+            resolveTerminalEndpoint(entry.meta.location).noteGrid(input.id, {
+              cols: input.cols,
+              rows: input.rows,
+            });
           }),
         sendInput: ({ input }) =>
           handle(() => {

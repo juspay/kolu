@@ -64,6 +64,11 @@ export function foldSnapshot(
       // structurally equal to the one before it (`portsEqual`), so anything that
       // reaches here is a real change.
       .with({ kind: "ports" }, ({ ports }) => ({ ...snapshot, ports }))
+      // Same shape and same guarantee as `ports` above: the grid sensor drops a
+      // sample equal to the one before it, so anything reaching here is a real
+      // resize — which matters because every attach republishes the grid it was
+      // served at and almost none of those are a change.
+      .with({ kind: "grid" }, ({ grid }) => ({ ...snapshot, grid }))
       // `unknown` returns the SAME reference (no clobber) — callers rely on the
       // identity to detect "nothing changed"; `{ value }` applies authoritatively.
       .with({ kind: "agent", agent: "unknown" }, () => snapshot)

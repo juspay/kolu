@@ -31,13 +31,18 @@ export const agentNames: Record<AgentInfo["kind"], string> = {
   pi: "Pi",
 };
 
-export const stateLabels: Record<AgentInfo["state"], string> = {
-  thinking: "Thinking",
-  tool_use: "Running tools",
-  waiting: "Waiting for input",
-  awaiting_user: "Awaiting input",
-  running_background: "Running in background",
-};
+// The per-state display WORDS live with the dock row (`@kolu/solid-dockrow`),
+// not here. They were duplicated for a moment when the row was extracted, which
+// is exactly the fork this table exists to prevent: two `Record<AgentState,
+// string>` with byte-identical values and no compiler edge between them, so a
+// reworded state would have moved in one and stayed in the other. The row owns
+// them because the row also owns the closed-set NARROWING built on the same
+// record (`isRowAgentState` is `Object.hasOwn(stateLabels, …)`, and
+// `narrowAgentState` reads the label straight off it) — splitting the table
+// from its own fence is what would make a sixth state legible in one place and
+// not the other. Re-exported here so this module stays the one door the
+// AgentIndicator and the Inspector already knock on.
+export { stateLabels } from "@kolu/solid-dockrow/rowValues";
 
 /** Context-token count in compact notation: "47392" → "47K", "1183456" → "1.2M".
  *  `maximumFractionDigits: 1` keeps "1.2M" but avoids "47.0K". Lives here — with

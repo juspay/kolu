@@ -57,7 +57,7 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { resolveDaemonHome } from "@kolu/surface-daemon";
+import { resolveDaemonHome } from "@kolu/surface-daemon/home";
 
 /** The socket filename padi serves inside its `padi-<digest>/` runtime dir. */
 export const PADI_SOCK_FILE = "padi.sock";

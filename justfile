@@ -302,6 +302,13 @@ client:
 test-unit: install
     {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
 
+# Regenerate `nix/consumer-closure.json` — the workspace adjacency an out-of-repo
+# consumer walks to turn its SEED list into the package set it hydrates. Derived
+# from every manifest in the tree; `test-e2e-governance` fails if it is stale.
+# Run this after adding a package or changing any manifest's dependencies.
+emit-consumer-closure: install
+    cd packages/tests && {{ nix_shell }} npx tsx ../../scripts/emit-consumer-closure.ts
+
 # Enforce the append-only E2E scenario inventory and coverage ledger. This is
 # deliberately separate from test-unit: it reads every committed inventory
 # reachable from HEAD to prove old records were not edited or removed later.

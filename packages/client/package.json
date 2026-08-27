@@ -23,6 +23,7 @@
     "@kolu/port-forward": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/solid-browser": "workspace:*",
+    "@kolu/solid-dockrow": "workspace:*",
     "@kolu/solid-fileview": "workspace:*",
     "@kolu/solid-markdown": "workspace:*",
     "@kolu/solid-pierre": "workspace:*",

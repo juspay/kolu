@@ -91,6 +91,11 @@ export interface TerminalAttachment {
    *  cursor a no-splice `stale` reply (F3). Undefined only from an older kaval
    *  that predates the field (fail-open — no gate). */
   reflowEpoch?: number;
+  /** The grid the snapshot was SERIALIZED at — for the OBSERVE-ONLY attach,
+   *  which passes no `resizeTo` and so otherwise never learns what size it
+   *  received. Undefined only from an older kaval that predates the field
+   *  (fail-open — a consumer sizes as it did before). */
+  grid?: EndpointGrid;
   /** Live output deltas after the snapshot. Ends on iterator return,
    *  signal abort, or PTY exit. Each re-attach frame (after an overflow drop)
    *  carries its own fresh `topLine`, so a mid-stream re-seed stays anchored. */
@@ -118,6 +123,11 @@ export type TerminalAttachFrame =
        *  halts backfill rather than corrupting it (F3). Undefined from a kaval
        *  predating contract 5.2 (fail-open). */
       reflowEpoch?: number;
+      /** The grid this snapshot was SERIALIZED at. Undefined from a kaval
+       *  predating the additive add (fail-open: a consumer sizes as it did
+       *  before). Its reason for existing is the OBSERVE-ONLY attach — one that
+       *  passes no `resizeTo` and so never learns what size it received. */
+      grid?: EndpointGrid;
     };
 
 /** One older-scrollback reply for the client's in-place backfill — the padi
@@ -284,6 +294,25 @@ export interface TerminalEndpoint {
     signal: AbortSignal | undefined,
     resizeTo?: EndpointGrid,
   ): Promise<TerminalAttachment>;
+
+  /** Record the grid the PTY is NOW at, after a resize this endpoint's caller
+   *  performed. Publishes onto the terminal record (`TerminalSnapshot.grid`),
+   *  which is the ONLY way a second attached client learns it lost
+   *  last-attach-wins: a resize sends SIGWINCH and reflows the mirror every
+   *  attached client shares, but the byte stream says nothing — a snapshot
+   *  frame rides the initial attach and an overflow re-attach, and nothing
+   *  else. So a viewer reflowed under someone else keeps rendering deltas laid
+   *  out for a grid no frame ever named. On the record, the change is a fact it
+   *  can observe and re-attach on.
+   *
+   *  Fire-and-forget and idempotent: the terminal's grid sensor drops a sample
+   *  equal to the last one it published, so calling this with an unchanged grid
+   *  costs nothing. A terminal with no live sensor set (killed, never spawned)
+   *  drops it silently — there is no consumer left to tell.
+   *
+   *  NOT a resize. The caller has already performed one and is reporting it;
+   *  this only publishes the fact. `attach`'s own `resizeTo` publishes itself. */
+  noteGrid(id: TerminalId, grid: EndpointGrid): void;
 
   readonly fs: TerminalEndpointFs;
   readonly git: TerminalEndpointGit;

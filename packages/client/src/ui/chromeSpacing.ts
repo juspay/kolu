@@ -6,7 +6,14 @@
  *  utilities for static surfaces). The volatility this module owns is
  *  "chrome density vocabulary" — the height, padding, and icon-button
  *  footprint that should scale together if the product targets denser
- *  or sparser displays. */
+ *  or sparser displays.
+ *
+ *  The dock ROW's own geometry left with the row: the grid template, the
+ *  gutters, the subgrid restore and the density table now live in
+ *  `@kolu/solid-dockrow/rowValues`, beside the component that spends them, and
+ *  `SLEEPING_RECEDE_CLASS` sits with the pip vocabulary it pairs with
+ *  (`@kolu/solid-statepip/pipVariant`). Location is structure — what remains
+ *  here is chrome that is not a row. */
 
 /** Width of the collapsed dock rail. 44 px gives the 32 px chips ~6 px
  *  breathing room and the 26 px-wide header buttons fit comfortably
@@ -31,70 +38,3 @@ export const CHROME_ICON_BUTTON_CLASS =
  *  three-button pill row. Used by right panel sub-tabs. */
 export const COMPACT_ICON_BUTTON_CLASS =
   "flex items-center justify-center w-6 h-6 rounded transition-colors cursor-pointer";
-
-/** Cards-mode dock right-gutter — Tailwind class string applied to
- *  `RepoSection`'s grid container so the right-aligned columns (time
- *  label, "show all" footer link) sit a consistent distance from the
- *  card's rounded right edge. 12 px matches the section-header
- *  `pr-3` count inset, so every right-aligned element in the dock
- *  reads on the same vertical line. _The left side sits at 12 px
- *  (`pl-3`), the SAME inset as the section header text, so the row's
- *  leading indicator aligns with the repo name (R-activity-merge; the
- *  repo spine + tinted header band carry the grouping, no indent needed)._
- *
- *  Paired with `DOCK_CARDS_GUTTER_NEG_CLASS`: any descendant that
- *  bleeds to the dock card's right edge (hover/active row backgrounds,
- *  section-header full-bleed band) cancels this padding with the
- *  negative-margin twin. Move them together. */
-export const DOCK_CARDS_GUTTER_CLASS = "pr-3";
-
-/** Negative-margin twin of `DOCK_CARDS_GUTTER_CLASS`. Applied to
- *  descendants of `RepoSection` whose background must extend through
- *  the parent's right padding to the dock card's right edge — row
- *  hover/active surfaces and the section-header band.
- *
- *  Subgrid caveat: a `grid-cols-subgrid` descendant recomputes its
- *  column tracks inside its own (now extended) border box, so the
- *  parent's `pr-6` no longer constrains the right column. Re-apply
- *  `DOCK_CARDS_GUTTER_CLASS` directly to such descendants to push the
- *  inner columns back into the section's content area. The right side
- *  has to stay at the call site because the desktop / mobile rows
- *  legitimately differ (24 px vs. 12 px); the left side does not —
- *  see `DOCK_CARDS_SUBGRID_LEFT_RESTORE`. */
-export const DOCK_CARDS_GUTTER_NEG_CLASS = "-mr-3";
-
-/** Layout-coupling token (not a density token like the rest of this
- *  file): cancel-and-restore the left dock gutter on a
- *  `grid-cols-subgrid` descendant of `RepoSection`. Both the cancel
- *  (`-ml-3`) and the restore (`pl-3`) have to ride on the same
- *  element, and the left value is identical between desktop and
- *  mobile rows, so the pair lives behind one symbol — applying just
- *  the cancel without the restore would land the subgrid's first
- *  column flush against the dock's left edge. The cancel MUST match
- *  the section's own `pl-3` so the full-bleed row background lands on
- *  the section's content edge. Row content sits at `pl-3` (12 px) —
- *  the SAME inset as the section header text, so the leading indicator
- *  aligns with the repo name rather than indenting past it
- *  (R-activity-merge reclaimed the old 24 px `pl-6` waste; the repo
- *  spine + tinted header band carry the grouping the indent used to).
- *  The right-side cancel + restore stays at the call site because
- *  desktop uses `DOCK_CARDS_GUTTER_*` (24 px) while the touch list uses
- *  `pr-3` / `-mr-3` (12 px); see the comment in `DockList.tsx`. */
-export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-3 pl-3";
-
-/** Dock row column geometry — single invariant shared by the desktop
- *  dock (`Dock.tsx`) and the touch dock (`DockList.tsx`). The row is one
- *  concept: `[indicator 20px][branch minmax(0,1fr)][time auto]` (the
- *  `DOCK_ROW_GRID` template below), with the line-2 flex row
- *  (PR pip + subline) starting at the branch column. Insert or remove a
- *  track and you MUST update `DOCK_ROW_GRID` and `DOCK_ROW_BRANCH_COL`
- *  together. 20 px matches `DOCK_ROW_PIP_BOX` (identity glyph column). */
-export const DOCK_ROW_GRID = "grid-cols-[20px_minmax(0,1fr)_auto]";
-/** Column gap between the status indicator and the branch label — Option C
- *  mockup (`gap: 0 0.7rem`). Shared by desktop cards and the touch list. */
-export const DOCK_ROW_GAP = "gap-x-[0.7rem]";
-export const DOCK_ROW_BRANCH_COL = "col-start-2";
-
-/** Sleeping row/title recede — one token for dock data-attr CSS and title
- *  classList (binder's `sleeping` flag). */
-export const SLEEPING_RECEDE_CLASS = "opacity-55";

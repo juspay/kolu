@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./dial": "./src/daemonDial.ts",
     "./states": "./src/endpointStates.ts",
     "./createEndpoint.testlib": "./src/createEndpoint.testlib.ts",
     "./createEndpoint.kolu.testlib": "./src/createEndpoint.kolu.testlib.ts"

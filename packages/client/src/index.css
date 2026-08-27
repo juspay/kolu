@@ -20,6 +20,14 @@
  * single-sourced and can't drift. */
 @import "@kolu/solid-statepip/statepip.css";
 
+/* `@kolu/solid-dockrow`'s CSS leaf — the repo CARD, the row label, and the
+ * attention washes keyed on the shared `[data-dock-row]` contract. The row
+ * components live in the package too, so the Dock and any fleet mirror render
+ * ONE row; this sheet is the half of it Tailwind utilities cannot express
+ * (the per-repo colour interpolations and the wash). It also defines
+ * `--dock-edge-stripe-w` and `--repo-ink`, which surfaces below read. */
+@import "@kolu/solid-dockrow/dockrow.css";
+
 /* `@kolu/solid-fileview` likewise ships its own Tailwind utility classes
  * (the toggle host + image/iframe appliances), so scan it too — otherwise
  * the toggle and preview-container utilities are tree-shaken away. */
@@ -29,6 +37,12 @@
  * (`bg-alert`, `border-accent`, `text-moonlit`, the spin/pulse animations), so
  * scan it — otherwise the pip utilities are tree-shaken away. */
 @source "../../solid-statepip/src";
+
+/* `@kolu/solid-dockrow` ships the dock row components and their Tailwind
+ * classes (the row grid + subgrid, the density text sizes, `hover:bg-surface-2/40`,
+ * the PR pip colours), so scan it — otherwise the row utilities are tree-shaken
+ * away. */
+@source "../../solid-dockrow/src";
 
 /* Suppress the browser's pull-to-refresh and scroll-chaining at the
  * document level. Without this, swiping down at the top of the
@@ -606,45 +620,15 @@ body {
   display: none;
 }
 
-/* ── Cards-mode repo section ───────────────────────────────────
- * Repo identity is a CARD, not a pastel band: each section is a rounded
- * container with air between siblings (`.dock-cards-stack`), a thick
- * left SPINE in the repo colour, a solid monogram tile, and a sticky
- * header wash strong enough that eight repos in a fleet stay scannable
- * under a squint. `--repo-color` is set inline per-section from
- * `group.color` — the same socket the rail chip and rail divider read —
- * so every repo-tinted dock surface shares one literal name.
- *
- * The spine sits at the section's outer edge; the active row's own
- * accent stripe sits just inside it (after the section's left padding),
- * so an active row reads as "active (accent) AND in this repo (spine)"
- * without the two cues overlapping. That non-overlap depends on the two
- * widths being equal, so both read `--dock-edge-stripe-w` (defined
- * below) — the single token is the anchor: the spine here, and the rows'
- * `border-l-[length:var(--dock-edge-stripe-w)]` left stripe in Dock.tsx
- * / DockList.tsx. Change it in one place and the alignment stays
- * honoured everywhere.
- *
- * Custom CSS (not Tailwind utilities): the tint formula and the spine
- * colour both interpolate the per-section `var(--repo-color)`, which
- * Tailwind's static utilities can't express — same exception the rail
- * chip below takes.
- *
- * Attention (violet asking / amber unread) is a SEPARATE channel on the
- * row — deliberately louder than repo identity. Repo paint is ambient
- * structure; obligation is interrupt. */
-:root {
-  --dock-edge-stripe-w: 5px;
-  /* Shared identity paint — every monogram / name / spine / chip that
-   * reads `var(--repo-color)` plugs these formulas. Dock card layout
-   * stays dock-local; the *atoms* live here so palette / restore /
-   * inspector / title cannot drift. */
-  --repo-ink: color-mix(in oklch, var(--repo-color) 82%, black);
-}
-:root.dark {
-  /* Theme the ink token once — not re-spelled per surface. */
-  --repo-ink: color-mix(in oklch, var(--repo-color) 72%, white);
-}
+/* ── Cards-mode repo section + rows ────────────────────────────
+ * The dock row and the repo CARD it sits in are styled by
+ * `@kolu/solid-dockrow/dockrow.css`, imported at the top of this file with the
+ * row components themselves — the spine, the sticky header wash, the row
+ * label, the attention washes, and the `--dock-edge-stripe-w` / `--repo-ink`
+ * tokens all ship with the package so this surface and a fleet mirror render
+ * one row rather than two that agree today. `--repo-color` is still set INLINE
+ * per section from `group.color`, the shared socket every repo-tinted surface
+ * below reads. */
 
 /* ── Shared monogram tile (`.repo-monogram`) ───────────────────
  * ONE fill formula for every surface. Size via modifiers only. */
@@ -786,190 +770,6 @@ body {
 .palette-host-chip {
   border-color: color-mix(in oklab, var(--host-hue) 40%, var(--color-edge));
   background: color-mix(in oklab, var(--host-hue) 12%, var(--color-surface-2));
-}
-/* Stack air lives as Tailwind on Dock/DockList (flex flex-col gap-2.5 p-2).
- * No layout-only custom class — styling-tailwind-only. */
-.dock-cards-section {
-  border: 1px solid
-    color-mix(in oklab, var(--repo-color) 22%, var(--color-edge));
-  border-left: var(--dock-edge-stripe-w) solid var(--repo-color);
-  border-radius: 10px;
-  background: var(--color-surface-1);
-  box-shadow:
-    0 1px 0 color-mix(in oklab, var(--repo-color) 8%, transparent),
-    0 1px 2px color-mix(in oklab, var(--color-fg) 4%, transparent);
-  /* No overflow:clip/hidden — that would trap `position: sticky` inside
-   * the section and break the header pin to the dock scrollport. */
-}
-/* Sticky header band — a readable repo wash (was 9%; that dissolved
- * eight hues into the same off-white) plus a hairline that borrows the
- * repo colour so the pinned header still reads as "this repo" when it
- * covers foreign rows. Top radii match the card so the pinned band
- * keeps the rounded corners without needing section overflow. */
-.dock-cards-section-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  border-top-left-radius: 9px;
-  border-top-right-radius: 9px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in oklab, var(--repo-color) 26%, var(--color-surface-1)) 0%,
-    color-mix(in oklab, var(--repo-color) 12%, var(--color-surface-1)) 100%
-  );
-  border-bottom: 1px solid
-    color-mix(in oklab, var(--repo-color) 28%, var(--color-edge));
-}
-/* Dock monogram = shared `.repo-monogram` (see above). */
-/* Repo name — uppercase mono in the darker repo ink so pastel hues
- * still read on a light surface. Weight + tracking do the identity
- * work; monogram + band + spine do the grouping. */
-.dock-cards-section-name {
-  color: var(--repo-ink);
-}
-/* Terminal count — deliberately BARE quiet type, no capsule: the capsule
- * silhouette is reserved for the actionable attention counts (the header's
- * `AttentionTriplet`), so a number in a pill always means "act on this".
- * The old capsule styling made six row-tallies read as notification badges
- * (fucknotif). Sits right after the name; the triplet takes the right edge. */
-.dock-cards-section-count {
-  flex: none;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-fg-3);
-}
-/* Dark mode: lift the wash a notch so the card doesn't read as sludge
- * over near-black — same pattern as the attention row washes below. */
-:root.dark .dock-cards-section-header {
-  background: linear-gradient(
-    90deg,
-    color-mix(in oklab, var(--repo-color) 32%, var(--color-surface-1)) 0%,
-    color-mix(in oklab, var(--repo-color) 16%, var(--color-surface-1)) 100%
-  );
-}
-/* Branch / intent label on a cards row — slightly denser than body text so
- * the primary line reads as the row title; colour still comes from the
- * per-branch `annotationColor` (docs: branch colours distinguish rows
- * *within* a repo). */
-.dock-cards-row-label {
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Soft row dividers — mockup-quiet; last row has none. */
-.dock-cards-section > [data-dock-row] {
-  border-bottom: 1px solid
-    color-mix(in oklab, var(--color-edge) 28%, transparent);
-}
-.dock-cards-section > [data-dock-row]:last-child {
-  border-bottom: 0;
-}
-
-/* ── Attention row washes — ONE rule, two hues ─────────────────
- * The row is the biggest surface the dock has, so it carries the attention
- * signal — a tint across the whole row plus the leading stripe. The StatePip
- * corner badge (7 px, pulsing) stays as the precise mark, but it was never the
- * thing that catches your eye from across the room: it ALREADY pulsed and
- * unread threads still went unnoticed for hours (#1990). Motion on a 7 px
- * object doesn't buy attention; area does.
- *
- * Two attention states share the ONE wash rule through the `--attn` hue —
- * defined once so the violet treatment can never drift from the proven amber
- * one (fucknotif: the old per-state spelling is exactly how needs-you ended
- * up with no wash at all):
- *   · amber `--color-attention` — unread (finished, unopened); cleared by
- *     opening the terminal;
- *   · violet `--color-alert` — asking (blocked on you); cleared only by the
- *     agent leaving `awaiting_user`. Declared AFTER amber so a row holding
- *     both washes violet — blocked beats unopened.
- *
- * The stripe costs no new geometry — the row already reserves
- * `border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent` for the
- * active-row accent, so the wash just fills the same 3 px channel. No reflow.
- *
- * `:not([data-active])` : the row you're LOOKING at should win over an
- * obligation you're already discharging (and for asking, the active row's
- * accent treatment + glowing pip + wait chip still carry the state).
- *
- * Read rows are deliberately NOT dimmed to push the contrast further: the dock
- * already spends opacity on sleeping (`SLEEPING_RECEDE_CLASS`, 55%), and a
- * second opacity channel at a neighbouring value would make "read" and
- * "asleep" the same mark.
- *
- * `[data-dock-row]` is the shared hook every row surface carries — desktop row
- * and touch row. Enumerating the row types by test id instead meant a new
- * surface was silently outside the wash rather than by anyone's decision. */
-/* The ACTIVE-row highlight, keyed on the shared hook rather than spelled as a
- * Tailwind variant per row component — a row surface can no longer be outside
- * this rule, because the rule reads the same attribute the row already has to
- * carry. */
-/* Both row containers, one selector list. The pinned needs-you strip speaks the
- * SAME row vocabulary off the same shared hook, so widening the parent is what
- * keeps them in step — enumerating a second container and copying the values
- * across would reintroduce, one level up, exactly the failure this block's own
- * comment records: a surface silently outside the wash rather than by anyone's
- * decision. Retune a mix here and both containers follow. */
-:is(.dock-cards-section, .dock-needs-you-strip) > [data-dock-row][data-active] {
-  background: color-mix(in oklab, var(--color-accent) 15%, transparent);
-  border-left-color: var(--color-accent);
-}
-:is(.dock-cards-section, .dock-needs-you-strip) > [data-dock-row][data-unread] {
-  --attn: var(--color-attention);
-}
-:is(.dock-cards-section, .dock-needs-you-strip) > [data-dock-row][data-asking] {
-  --attn: var(--color-alert);
-}
-.dock-cards-section
-  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]) {
-  background: color-mix(in oklab, var(--attn) 13%, transparent);
-  border-left-color: var(--attn);
-}
-/* Hover still has to answer — the wash out-specifies Tailwind's
- * `hover:bg-surface-2/40`, so a washed row would otherwise go dead under the
- * pointer. Deepen the hue instead of replacing it with the neutral hover. */
-:is(.dock-cards-section, .dock-needs-you-strip)
-  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
-  background: color-mix(in oklab, var(--attn) 20%, transparent);
-}
-/* Dark mode: the same mix over near-black reads as sludge — lift it, exactly
- * as the host tab does. */
-:root.dark
-  .dock-cards-section
-  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]) {
-  background: color-mix(in oklab, var(--attn) 20%, transparent);
-}
-:root.dark
-  :is(.dock-cards-section, .dock-needs-you-strip)
-  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
-  background: color-mix(in oklab, var(--attn) 27%, transparent);
-}
-/* The strip's ONE genuine deviation, so it is the only thing spelled twice:
- * every entry there is asking BY CONSTRUCTION, so the static wash above would
- * paint the whole band solid violet — area spent restating what the heading
- * already says. The hue, the active highlight and the hover deepening all come
- * from the shared rules; only the resting background is suppressed. */
-.dock-needs-you-strip
-> [data-dock-row]:is([data-unread], [data-asking]):not([data-active]) {
-  background: transparent;
-}
-
-/* The label leans in with the row — weight is the one contrast channel that
- * survives both the squint test and a greyscale display. */
-[data-dock-row]:is([data-unread], [data-asking]) .dock-cards-row-label {
-  font-weight: 700;
-}
-/* A blocked row's subline speaks needs-you violet — the words ("Awaiting
- * input …") wear the same hue as the wash, chip, and pip.
- *
- * Keyed on the SHARED `[data-dock-row]` / `[data-dock-subline]` hooks, not on an
- * enumeration of per-surface test ids — the same reason the wash above is:
- * an enumeration silently leaves a new row surface out. Test ids stay on the
- * spans for e2e; they are not what styling reads. */
-[data-dock-row][data-asking] [data-dock-subline] {
-  color: var(--color-alert);
 }
 
 /* ── Rail-mode chip ────────────────────────────────────────────

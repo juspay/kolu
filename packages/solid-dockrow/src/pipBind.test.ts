@@ -1,16 +1,18 @@
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
-import type { PipVariant } from "@kolu/solid-statepip";
+import type { PipVariant } from "@kolu/solid-statepip/pipVariant";
 import { describe, expect, it } from "vitest";
-import type { DockRowBucket } from "./dockRowRanking";
-import { pipGlyphFor, pipVariant } from "./pipVariant";
+import { type DockRowBucket, pipGlyphFor, pipVariant } from "./pipBind.ts";
 
 // The bucket carries only the CORE state now — `unread` is no longer folded in
-// (R-activity-merge moved it to the indicator's `alert` corner badge). awaiting is the
-// quiet lingering paint; working spins; idle is the shell mark (fg-3);
+// (R-activity-merge moved it to the indicator's `alert` corner badge). `awaiting`
+// is the FULL needs-you violet and `linger` is the dimmed post-turn one — two
+// different paints, and collapsing them is exactly the defect the split closed,
+// so both are pinned here; working spins; idle is the shell mark (fg-3);
 // none/parked render empty (blank call sites only — dock rows paint shells as
 // idle via paintDockRow); sleeping is moonlit + still.
 const cases: Array<[DockRowBucket, PipVariant]> = [
   ["awaiting", "awaiting"],
+  ["linger", "linger"],
   ["working", "working"],
   ["idle", "idle"],
   ["none", "empty"],

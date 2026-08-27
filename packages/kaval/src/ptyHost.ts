@@ -277,6 +277,17 @@ export interface PtyAttachment {
    *  (this or another attach's resize) makes the stale absolute cursor a
    *  no-splice `stale` reply rather than a duplicated/skipped band (F3). */
   reflowEpoch: number;
+  /** The grid this snapshot was SERIALIZED at — the same kind of fact as
+   *  `topLine` and `reflowEpoch`, and carried for the same reason: it rides
+   *  WITH the bytes it describes, so it cannot drift from the snapshot the
+   *  consumer received.
+   *
+   *  It exists for the OBSERVE-ONLY attach — one that passes no `resizeTo`
+   *  because it has no size to assert (a monitor, a read-only pane, a CLI
+   *  dumping the screen). Such a consumer never learns what size it got, and a
+   *  renderer sized by guess wraps the bytes into garbage. Every attach can now
+   *  answer "what shape is this screen" from the frame itself. */
+  grid: PtyGrid;
   /** Live output deltas after the snapshot. Ends when the attachment's scope
    *  closes (unsubscribing IS interrupting the consuming fiber) or the PTY
    *  exits, and FAILS with {@link SubscriberOverflow} when this attachment
@@ -1233,11 +1244,18 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         entry.data.subscribeWith(() => ({
           ...boundedSnapshotOf(entry),
           reflowEpoch: entry.anchor.reflowEpoch(),
+          // Read INSIDE the same synchronous reading as the serialize and the
+          // epoch — `resize()` mutates the mirror and invalidates the snapshot
+          // memo, both synchronously, so a grid read out here could describe a
+          // reflow the bytes never saw. The whole point of this field is that it
+          // cannot drift from the snapshot it rides with.
+          grid: { cols: entry.headless.cols, rows: entry.headless.rows },
         })),
         ({ stream, reading }): PtyAttachment => ({
           snapshot: reading.snapshot,
           topLine: reading.topLine,
           reflowEpoch: reading.reflowEpoch,
+          grid: reading.grid,
           deltas: stream,
         }),
       );

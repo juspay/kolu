@@ -142,6 +142,7 @@ import {
   SavedSessionSchema,
   SleepingTerminalSchema,
   TerminalInfoSchema,
+  type TerminalMetadata,
   TerminalOnExitOutputSchema,
   TerminalPlacementSchema,
 } from "./vocab.ts";
@@ -431,8 +432,32 @@ export * from "./transcriptSchema.ts";
  *  procedure; the minor makes convergence drain-and-respawn it first, which is
  *  the honest recycle. This is the same call kaval's own 7.1 note makes for
  *  `getScreenCells`, and the same one 4.4 (`listIgnored`), 4.6
- *  (`listDirectory`) and 5.2 (backups) made before it. */
-export const PADI_SURFACE_VERSION = "5.4";
+ *  (`listDirectory`) and 5.2 (backups) made before it.
+ *
+ *  5.5 (additive · minor): the terminal GRID, on two members, closing the two
+ *  halves of one gap — a consumer of a shared pty could not learn the size the
+ *  bytes it is being sent are laid out for.
+ *
+ *    · `streams.terminalAttach`'s `snapshot` frame gains `grid` — the cols×rows
+ *      those bytes were serialized at (documented at the field below).
+ *    · the terminal RECORD (`TerminalSnapshot.grid`, on the awareness half of
+ *      `terminalWorkspace.snapshots`) gains the grid the pty is at NOW,
+ *      published by padi's own resize path (`TerminalEndpoint.noteGrid`).
+ *
+ *  The frame answers "what size are these bytes?"; the record answers "what
+ *  size is the terminal?", and only the record answers it CONTINUOUSLY. A
+ *  snapshot rides the initial attach and an overflow re-attach and nothing
+ *  else, so an attached client that loses last-attach-wins to a second viewer
+ *  gets no frame at all — it keeps painting deltas laid out for a grid nothing
+ *  ever named. On the record the change is a fact it can observe and re-attach
+ *  on. (kolu's own pane does exactly that; see `client/src/terminal/Terminal.tsx`.)
+ *
+ *  Both are ADDITIVE and OPTIONAL — absent from an older padi, ignored by an
+ *  older consumer's decoder — so the minor is the whole obligation, and it is
+ *  the CLI/MCP face's reasoning again: those faces gate without draining, so a
+ *  fresh consumer must be able to tell a padi that serves the fields from one
+ *  that does not. */
+export const PADI_SURFACE_VERSION = "5.5";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -691,6 +716,50 @@ export function activePadiTerminal(
   return record?.state === "active" ? record : undefined;
 }
 
+/** Is this wire record the PARKED arm — a reboot-killed record padi parked at
+ *  boot, which is a restore-card row rather than a live terminal?
+ *
+ *  Exported (rather than left as each reader's `state === "parked"`) for the
+ *  same reason {@link activePadiTerminal} is: so a narrowing of padi's wire
+ *  union has one spelling per seam. kolu declared this guard privately in its
+ *  own client bridge; an out-of-repo consumer holding the same three-arm union
+ *  had no way to reach it, and no honest way past it. */
+export function isParkedTerminal(
+  record: PadiTerminal,
+): record is PadiParkedTerminal {
+  return record.state === "parked";
+}
+
+/** Narrow a wire record to the TILE record — the honest two-arm
+ *  `TerminalMetadata` (`active | sleeping`) that every tile-rendering consumer
+ *  expects — or `undefined` for a parked record or an absent one.
+ *
+ *  This is the ONE type bridge where padi's wire shape meets a client's domain
+ *  type, and it belongs here rather than in each client. A parked record has no
+ *  live arm and no `sleptAt`: it is not a tile, it is a row on a restore card,
+ *  and every fold over a terminal's live state (`activeArm`, `sleepingArm`, a
+ *  dock row's paint) is undefined for it — not by oversight, by what the record
+ *  IS. A reader who has one and wants a tile wants exactly this answer.
+ *
+ *  It folds "has not arrived" and "arrived but parked" into one `undefined`,
+ *  deliberately: both mean "there is no tile here", which is the only question
+ *  the caller is asking. A caller that needs the census apart (kolu's does, to
+ *  count parked records for its restore card) tests {@link isParkedTerminal}
+ *  itself, on the raw record, before reaching for this.
+ *
+ *  NOTE — two unrelated things are called "parked" in this stack, and they are
+ *  not the same fact. THIS one is padi's record state: the terminal is gone, its
+ *  record persisted. The dock row's `parked` BUCKET is a staleness verdict
+ *  (`isStale(recencyAt)` — the row fell outside the user's activity window) over
+ *  a terminal that is perfectly alive. A row fold's `parked: boolean` parameter
+ *  always means the second one. */
+export function tileTerminalOf(
+  record: PadiTerminal | null | undefined,
+): TerminalMetadata | undefined {
+  if (record === null || record === undefined) return undefined;
+  return isParkedTerminal(record) ? undefined : record;
+}
+
 // ── The urgency projection (recency-free) ─────────────────────────────────
 
 /** The recency-FREE urgency fold off the registry: how many terminals await
@@ -875,15 +944,25 @@ export const EndpointGridSchema = Schema.Struct({
  *      `StaleSnapshotGrid`), so contention costs a repaint — never the attach
  *      loop, which is the property kolu#2101 G8 restored and pins.
  *
- *  **What is NOT settled: telling the viewer.** A client cannot currently DETECT
- *  that another viewer holds the terminal at a different size. It knows its own
- *  grid and the grid it asked at; nothing on this wire carries the pty's CURRENT
- *  grid, and the tempting proxy — a `reflowEpoch` bump — is not one, because the
- *  epoch also bumps on a RIS re-anchor (`xterm-kit/src/mirrorAnchor.ts`), so an
- *  indicator driven by it would light on every `clear`. Closing that gap is an
- *  ADDITIVE minor on this contract (the pty's current grid on the snapshot frame,
- *  or on the terminal record) plus a pane affordance; until it lands, the
- *  re-wrap is silent by construction, and no code should pretend otherwise.
+ *  **Telling the viewer — SETTLED at 5.5, on two members, because it is two
+ *  questions.** A client used to know only its own grid and the grid it asked
+ *  at, so a foreign resize was silent by construction. The tempting proxy — a
+ *  `reflowEpoch` bump — was never one, because the epoch also bumps on a RIS
+ *  re-anchor (`xterm-kit/src/mirrorAnchor.ts`), so an indicator driven by it
+ *  lights on every `clear`. What landed instead is the grid itself, twice:
+ *    - **on the snapshot frame** — the cols×rows those BYTES were serialized at.
+ *      Answers "is what I am about to paint laid out for my pane?", and only at
+ *      the moments a snapshot exists (the initial attach, an overflow
+ *      re-attach). `./attach`'s `snapshotGridMoved` is that reading.
+ *    - **on the terminal record** (`TerminalSnapshot.grid`) — the grid the pty
+ *      is at NOW, published by padi's own resize path. Answers "is the terminal
+ *      still my size?", CONTINUOUSLY, which is the half the frame cannot cover:
+ *      a foreign resize mid-stream produces no frame at all, so a client
+ *      watching only frames keeps painting reflowed bytes forever. `./attach`'s
+ *      rule 2c is that reading, and kolu's pane consumes it.
+ *  The ping-pong above is unchanged and remains the whole policy — what changed
+ *  is that the losing side can now SEE it lost, which is what makes "contention
+ *  costs a repaint" true for every viewer instead of only the asserting one.
  *
  *  The fusion is the point. The snapshot is bytes laid out for a specific
  *  cols×rows — cursor moves and wraps only mean anything at the width they were
@@ -917,6 +996,93 @@ export const PadiTerminalAttachInputSchema = Schema.Struct({
   // `null`, which is a value no peer ever sent.
   resizeTo: Schema.optionalKey(EndpointGridSchema),
 });
+
+/** One frame of the per-subscriber terminal byte stream.
+ *
+ *  A discriminated union, not a bare string and not an optional field: a
+ *  `delta` is bytes to write; a `snapshot` (the first frame of any fresh
+ *  stream, and every overflow re-attach) is a serialized screen that also
+ *  carries the absolute mirror-line `topLine` seed for a scrollback-backfill
+ *  cursor. Mirrors kaval's own `TerminalDataMsg` one hop up.
+ *
+ *  NAMED and exported because a consumer has to be able to say this type to
+ *  write a frame handler at all — and because only the `snapshot` arm can go
+ *  STALE. See `./attach` for the rules that govern it.
+ */
+export const PadiTerminalAttachFrameSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("delta"),
+    data: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("snapshot"),
+    data: Schema.String,
+    topLine: NonNegativeInt,
+    // `reflowEpoch` (3.1 · additive · optional) — the mirror's reflow
+    // generation this snapshot was serialized under; the client re-seeds
+    // its backfill epoch from it so a foreign-resize reflow halts backfill
+    // rather than corrupts it (F3). Absent from a kaval predating 5.2.
+    //
+    // `Schema.optional`, NOT `optionalKey` — the one place on this wire
+    // that reads the way zod's `.optional()` did, and deliberately. This
+    // value is FORWARDED VERBATIM across five hops of optional-typed
+    // records before it is encoded: kaval's decoded attach frame →
+    // `OpenedAttach.reflowEpoch?` → `TerminalAttachment.reflowEpoch?` →
+    // `reattachingDeltas`' re-attach frame → this frame. Reading an absent
+    // optional key yields `undefined`, so EVERY hop re-creates the key
+    // present-with-`undefined`, and no amount of conditional-spread
+    // discipline at one hop survives the next (`exactOptionalPropertyTypes`
+    // is not set, so the compiler never objects). `optional` is
+    // `optionalKey` + `UndefinedOr`, so the emitted BYTES are unchanged —
+    // the key is omitted, never nulled — and a non-integer is still
+    // rejected. Pinned by a byte fixture in `surface.test.ts`.
+    reflowEpoch: Schema.optional(NonNegativeInt),
+    /** `grid` (5.5 · additive · optional) — the cols×rows this snapshot was
+     *  SERIALIZED at, read inside the same synchronous act as the bytes and the
+     *  epoch so it cannot describe a reflow they never saw.
+     *
+     *  It is the FRAME half of the two the multi-client note above settles. Two
+     *  consumers needed it and neither could be served without it:
+     *
+     *    · the OBSERVE-ONLY attach — one that passes no `resizeTo` because it
+     *      has no size to assert (a monitor, a read-only pane, a CLI dumping the
+     *      screen). It never learned what size it received, so it sized its
+     *      renderer by guess and a mismatched box wrapped the bytes into
+     *      garbage. The frame is self-describing now.
+     *    · the FOREIGN-RESIZE reading. Comparing this with the grid you ASKED
+     *      at is the first honest detector of another viewer holding the
+     *      terminal at a different size — precisely what `./attach`'s
+     *      `snapshotAnswersGrid` does NOT claim, because two local measurements
+     *      cannot see it.
+     *
+     *  `Schema.optional`, NOT `optionalKey` — the same call `reflowEpoch` above
+     *  makes, for the same reason, and getting it wrong here would have been
+     *  strictly worse than the gap this field closes. `grid` rides the SAME five
+     *  hops: kaval's decoded frame → `OpenedAttach.grid?` →
+     *  `TerminalAttachment.grid?` → `reattachingDeltas`' re-attach frame → this
+     *  frame. Reading an absent optional key yields `undefined`, so every hop
+     *  re-creates the key present-with-`undefined`, and `optionalKey` REJECTS a
+     *  present `undefined` — which would fail the ENCODE and take the whole
+     *  attach stream down rather than degrade.
+     *
+     *  Two reachable producers omit it, so this is not theoretical: a kaval
+     *  predating the field (exactly the mixed-version path the no-major bump
+     *  exists to keep alive), and `local.ts`'s abort-before-snapshot return,
+     *  which carries no grid even on a current kaval. `optional` is
+     *  `optionalKey` + `UndefinedOr`, so the emitted BYTES are identical — the
+     *  key is omitted, never nulled — and absence really is silence.
+     *
+     *  NO MAJOR: absence degrades to exactly the previous reading in both skew
+     *  directions, the no-bump class this contract already documents. kaval's
+     *  OUTBOUND schema keeps `optionalKey` because its producer always supplies
+     *  a real grid — a cosmetic readout must never cost a live terminal. */
+    grid: Schema.optional(EndpointGridSchema),
+  }),
+]);
+export type TerminalAttachFrame = typeof PadiTerminalAttachFrameSchema.Type;
+
+/** The grid an attach asks for, and the unit a snapshot is laid out at. */
+export type EndpointGrid = typeof EndpointGridSchema.Type;
 
 // The SAME grid rule the attach carries. `resize` and `attach` describe one
 // value with one meaning, reaching the same mutator, so they must not derive it
@@ -1817,36 +1983,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       // and every overflow re-attach) also carries the absolute mirror-line
       // `topLine` seed for the client's scrollback-backfill cursor. Mirrors
       // kaval's own `TerminalDataMsg` union one hop up (see `TerminalAttachFrame`).
-      outputSchema: Schema.Union([
-        Schema.Struct({
-          kind: Schema.Literal("delta"),
-          data: Schema.String,
-        }),
-        Schema.Struct({
-          kind: Schema.Literal("snapshot"),
-          data: Schema.String,
-          topLine: NonNegativeInt,
-          // `reflowEpoch` (3.1 · additive · optional) — the mirror's reflow
-          // generation this snapshot was serialized under; the client re-seeds
-          // its backfill epoch from it so a foreign-resize reflow halts backfill
-          // rather than corrupts it (F3). Absent from a kaval predating 5.2.
-          //
-          // `Schema.optional`, NOT `optionalKey` — the one place on this wire
-          // that reads the way zod's `.optional()` did, and deliberately. This
-          // value is FORWARDED VERBATIM across five hops of optional-typed
-          // records before it is encoded: kaval's decoded attach frame →
-          // `OpenedAttach.reflowEpoch?` → `TerminalAttachment.reflowEpoch?` →
-          // `reattachingDeltas`' re-attach frame → this frame. Reading an absent
-          // optional key yields `undefined`, so EVERY hop re-creates the key
-          // present-with-`undefined`, and no amount of conditional-spread
-          // discipline at one hop survives the next (`exactOptionalPropertyTypes`
-          // is not set, so the compiler never objects). `optional` is
-          // `optionalKey` + `UndefinedOr`, so the emitted BYTES are unchanged —
-          // the key is omitted, never nulled — and a non-integer is still
-          // rejected. Pinned by a byte fixture in `surface.test.ts`.
-          reflowEpoch: Schema.optional(NonNegativeInt),
-        }),
-      ]),
+      outputSchema: PadiTerminalAttachFrameSchema,
     },
   },
   events: {
