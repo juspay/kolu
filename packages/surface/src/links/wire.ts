@@ -277,7 +277,7 @@ export async function duplexWireLink(opts: {
    * `Socket.makeWebSocket` and DOES apply `openTimeout ?? 10000` — the identical
    * shape, the opposite meaning. The scope is the proof; a comment would not be.
    *
-   * BETA-ASSUMPTION(rc.110): the producers of `SocketOpenError{kind:"Timeout"}` are enumerable, and `fromDuplex` adds one only when handed an `openTimeout`.
+   * BETA-ASSUMPTION(rc.112): the producers of `SocketOpenError{kind:"Timeout"}` are enumerable, and `fromDuplex` adds one only when handed an `openTimeout`.
    * Three exist, and Effect does distinguish them one field deeper than the
    * shape — each carries its own `cause`: the pinger's `ping timeout`
    * (`unstable/rpc/RpcClient.ts`), a WebSocket dial's `timeout waiting for

@@ -21,7 +21,7 @@
   "dependencies": {
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
-    "effect": "4.0.0-rc.110",
+    "effect": "4.0.0-rc.112",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
     "kolu-git": "workspace:*",

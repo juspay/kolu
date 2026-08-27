@@ -90,9 +90,19 @@ pnpm-hash-fresh: nix
 # 2. Run `nix flake check --no-build` as the whole-output evaluation/schema
 #    gate. Step 1 already realizes the check derivations; this command exists
 #    only to validate the flake structure and evaluation.
-nix:
+nix: _prefetch-crates
     bash ci/flake-build .
     nix flake check --no-build --accept-flake-config -L
+
+# crates.io 403s the `curl/*` User-Agent nixpkgs' fetchurl sends, so every
+# `crate-*.tar.gz` FOD in `osfacts`' cargo vendor closure fails to download.
+# Only bites when the osfacts pin MOVES — a pin this box has built before is
+# substituted whole and fetches no crate at all — which is why `ci::nix` was
+# green on darwin one commit and red the next for advancing the pin alone.
+# Idempotent and cheap on a warm store. See scripts/ci-prefetch-crates.sh.
+[private]
+_prefetch-crates:
+    {{ nix_shell }} bash scripts/ci-prefetch-crates.sh .
 
 # Evaluate every remote-agent package from the exact minimal source flake baked
 # into Kolu's wrappers. The package names come from Kolu's agent manifest,

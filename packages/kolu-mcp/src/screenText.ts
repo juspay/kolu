@@ -16,20 +16,32 @@
  * laws make them land where a host renders them, both pinned by
  * `argSchemas.test.ts`:
  *
- *   - **ANNOTATE FIRST, CHECK SECOND.** `SchemaAST.annotate` attaches to the
- *     schema's LAST CHECK when it has one, and the converter emits a check's
- *     annotations inside an `allOf` branch — where no MCP host looks for a
- *     property description. `Schema.Int` is itself `Schema.Number.check(isInt())`,
- *     so even a bare `Schema.Int.annotate({description})` loses the blurb. The
- *     spelling that keeps it on the property node is to annotate the CHECK-FREE
- *     base and add every check after.
- *   - the numeric must still advertise as an INTEGER, never as bare
- *     `Schema.Number` (whose encoded form also admits the STRINGS
- *     `"NaN"`/`"Infinity"` — D8/#14 divergence 2). `.check(Schema.isInt())`
- *     supplies exactly that, and it composes with the law above.
+ *   - the annotation sits INSIDE `optionalKey` — on the encoded-side node,
+ *     before any wrapper;
+ *   - the numeric advertises as an INTEGER, never as bare `Schema.Number`.
+ *     A bare number's encoded form is the `"NaN"`/`"Infinity"` union
+ *     (`jsonSchemaBridge.ts` divergence 2), which the bridge collapses to a
+ *     naked `{"type":"number"}` — carrying neither the blurb nor the bounds.
+ *     `.check(Schema.isInt())` is what puts the field on a node they can ride.
  *
- * The annotation also has to sit INSIDE `optionalKey` — on the encoded-side
- * node, before any wrapper — which is `jsonschema.ts`'s own stated law.
+ * There used to be a third: **ANNOTATE FIRST, CHECK SECOND**.
+ * `SchemaAST.annotate` attaches to a schema's LAST CHECK when it has one, and
+ * up to effect rc.110 the converter emitted a check's annotations inside an
+ * `allOf` branch — where no MCP host looks for a property description. Since
+ * `Schema.Int` is itself `Schema.Number.check(isInt())`, even a bare
+ * `Schema.Int.annotate({description})` lost the blurb, and every arg schema in
+ * this package was spelled annotate-first by hand. effect rc.111 COMPACTS a
+ * check's keywords and annotations onto the node they constrain, so the order
+ * no longer matters — and the bounds themselves now reach the host too, which
+ * an `allOf` branch never did.
+ *
+ * Two residual traps survive the fix, both narrow:
+ *   - a check whose keyword COLLIDES with one already on the node still splits
+ *     into `allOf`, because merging would silently change the constraint;
+ *   - a `Schema.makeFilter` check contributes no JSON-Schema keyword and is
+ *     dropped whole, annotation included — so a blurb must go on the base
+ *     BEFORE such a check. `create.ts`'s `worktree` is this package's one
+ *     field still subject to it.
  */
 
 // The tail slice is padi's — a pure fold over `screen.text`'s own reply shape,

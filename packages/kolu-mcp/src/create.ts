@@ -103,10 +103,16 @@ export const CreateArgsSchema = Schema.Struct({
   placement: PadiCreateInputSchema.fields.placement.annotate({
     description: PLACEMENT_REQUIRED,
   }),
-  // Per-field blurbs sit on the encoded-side node INSIDE `optionalKey`, and
-  // ANNOTATE-FIRST-CHECK-SECOND where there is a check — otherwise the blurb
-  // lands on the check and the converter buries it in `allOf`, where no host
-  // reads it (`argSchemas.test.ts` pins both halves).
+  // Per-field blurbs sit on the encoded-side node INSIDE `optionalKey`
+  // (`argSchemas.test.ts` pins them). `worktree` additionally has to be
+  // annotated BEFORE its check: the wire's git-ref rule is a
+  // `Schema.makeFilter`, which contributes no JSON-Schema keyword and is
+  // therefore dropped WHOLE by the converter — annotation included. Since
+  // effect rc.111 an ordinary check compacts onto the node it constrains and
+  // the order is free, but a dropped filter takes its annotation with it
+  // either way. That is also why `worktree` cannot simply reuse padi's
+  // finished schema the way `screenImage.ts` and `watchNext.ts` now do: the
+  // blurb would vanish from tools/list.
   repo: Schema.optionalKey(
     Schema.String.annotate({
       description:

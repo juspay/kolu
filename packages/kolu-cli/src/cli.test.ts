@@ -120,8 +120,9 @@ describe("kolu command tree", () => {
   describe("an omitted switch is its OFF position, not a missing flag", () => {
     it("`ls` without `--json` still reaches the endpoint check", async () => {
       // A version pin with teeth. `Flag.boolean` used to parse an absent flag
-      // as `false`; `effect@4.0.0-rc.110` made it FAIL as a missing required
-      // flag instead (Effect-TS/effect#7296), which turned every plain
+      // as `false`; rc.110 made it FAIL as a missing required flag instead
+      // (Effect-TS/effect#7296) — still the behaviour at the current pin,
+      // `effect@4.0.0-rc.112` — which turned every plain
       // `kolu ls` / `kolu create` / `kolu web` into a usage error until each
       // switch spelled its `false` out loud. The refusal below is reachable
       // ONLY after the flags resolved, so seeing it means `--json` was absent

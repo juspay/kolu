@@ -106,7 +106,7 @@
  * Effect 4 latches `_interruptedCause` on the fiber, and every continuation
  * popped afterwards is REPLACED by a re-raise of it — `setInterruptible`'s
  * `contAll` in `effect/internal/effect.ts`. A `catchCause` around an interrupted
- * effect never runs at all (verified against `effect@4.0.0-rc.110`), so
+ * effect never runs at all (verified against `effect@4.0.0-rc.112`), so
  * `Effect.fail(waitInterrupted(…))` on this path would be swallowed before
  * `main.ts` could print it — which is exactly how the arm came to be dead code
  * while the exit code stayed right. A finalizer is what still runs, so
