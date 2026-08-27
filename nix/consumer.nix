@@ -108,54 +108,66 @@ let
   # its own revision, so it says so, and disagreement is refused here.
   sourceFor = name:
     let member = memberOf name; in
-    if member ? pin then (builtins.getAttr name pinnedSources).src
+    if member ? pin then
+      (if builtins.hasAttr name pinnedSources then
+        (builtins.getAttr name pinnedSources).src
+      else throw ''
+        kolu/nix/consumer.nix: '${name}' is a PINNED member — gitignored in kolu and
+        absent from the source archive you fetched, so this entry point cannot copy it
+        out of `src`. Graft it from `${member.pin.name}` at ${member.pin.revision}
+        (subdirectory `${member.pin.subdir}`) and pass it in:
+
+          pinnedSources."${name}" = {
+            src = yourGraftedSrc;
+            revision = (import ./npins).${member.pin.name}.revision;
+          };
+
+        The revision is checked against kolu's, so the pin you add and the pin kolu
+        was built against cannot drift apart unnoticed.
+      '')
     else "${src}/${member.dir}";
 
   pinnedInClosure = builtins.filter (name: (memberOf name) ? pin) names;
 
-  # EAGER — over every entry the consumer PASSED, and asserted below rather than
-  # checked inside `sourceFor`. Drift is the failure this replaces, and a drifted
-  # consumer necessarily HAS an entry; checking lazily would catch it only on the
-  # `drvFor` path, and this file exports `dirs` and `pins` precisely so a
-  # consumer can build its own copier and never take that path.
-  pinnedProblems =
-    builtins.concatMap
-      (name:
-        let given = builtins.getAttr name pinnedSources; in
-        if !(builtins.elem name pinnedInClosure) then [ ''
-          '${name}' — the closure for your seeds does not pin it. Either it left your
-          closure or this kolu no longer grafts it: drop the entry, and if it was your
-          only reason for a second pin, drop the pin and the guard you wrote to hold
-          the two in step.
-        '' ]
-        else if !(builtins.isAttrs given && given ? src && given ? revision) then [ ''
-          '${name}' — must be `{ src = <store path>; revision = <string>; }`. A bare
-          store path carries no revision, and the revision is the half this file checks.
-        '' ]
-        else if given.revision != (memberOf name).pin.revision then [ ''
-          '${name}' — kolu pins `${(memberOf name).pin.name}` at
-          ${(memberOf name).pin.revision}, and you pass ${toString given.revision}.
-          This member is not in kolu's archive: kolu grafts it from that pin and you
-          graft it from yours, and then your `tsc` compiles the two against each
-          other. Move yours to kolu's — that is what re-pinning kolu always owes.
-        '' ]
-        else [ ])
-      (builtins.attrNames pinnedSources)
-    ++ builtins.concatMap
-      (name:
-        if builtins.hasAttr name pinnedSources then [ ] else [ ''
-          '${name}' — a PINNED member of your closure, gitignored in kolu and absent
-          from the source archive you fetched, so this entry point cannot copy it out
-          of `src`. Graft it from `${(memberOf name).pin.name}` at
-          ${(memberOf name).pin.revision} (subdirectory `${(memberOf name).pin.subdir}`)
-          and pass it in:
-
-            pinnedSources."${name}" = {
-              src = yourGraftedSrc;
-              revision = (import ./npins).${(memberOf name).pin.name}.revision;
-            };
-        '' ])
-      pinnedInClosure;
+  # THE SPLIT: what you PASSED is checked eagerly; what you did NOT pass is
+  # checked where it is needed.
+  #
+  # An entry that disagrees with kolu is wrong no matter which output you read,
+  # so it is refused at the doorstep — asserted below rather than inside
+  # `sourceFor`, because this file exports `dirs` and `pins` precisely so a
+  # consumer can build its own copier and never take the `drvFor` path. A lazy
+  # drift check would miss exactly that consumer, which is the one this replaces
+  # a shell script for.
+  #
+  # A MISSING entry is the other way round and stays lazy, in `sourceFor`. Not
+  # every caller is hydrating: nix/README.md's own closure-size diagnostic reads
+  # `.names` for a seed list and copies nothing, and a reader asking "how big is
+  # this closure" owes no pin for an answer that has no bytes in it. The first
+  # draft asserted this half eagerly too and broke that documented one-liner —
+  # while carrying a comment that said it did not. A comment describing a guard
+  # is a guard's worst substitute; the split is the guard.
+  pinnedProblems = builtins.concatMap
+    (name:
+      let given = builtins.getAttr name pinnedSources; in
+      if !(builtins.elem name pinnedInClosure) then [ ''
+        '${name}' — the closure for your seeds does not pin it. Either it left your
+        closure or this kolu no longer grafts it: drop the entry, and if it was your
+        only reason for a second pin, drop the pin and the guard you wrote to hold
+        the two in step.
+      '' ]
+      else if !(builtins.isAttrs given && given ? src && given ? revision) then [ ''
+        '${name}' — must be `{ src = <store path>; revision = <string>; }`. A bare
+        store path carries no revision, and the revision is the half this file checks.
+      '' ]
+      else if given.revision != (memberOf name).pin.revision then [ ''
+        '${name}' — kolu pins `${(memberOf name).pin.name}` at
+        ${(memberOf name).pin.revision}, and you pass ${toString given.revision}.
+        This member is not in kolu's archive: kolu grafts it from that pin and you
+        graft it from yours, and then your `tsc` compiles the two against each
+        other. Move yours to kolu's — that is what re-pinning kolu always owes.
+      '' ]
+      else [ ])
+    (builtins.attrNames pinnedSources);
 
   _pinnedOk =
     if pinnedProblems == [ ] then true
