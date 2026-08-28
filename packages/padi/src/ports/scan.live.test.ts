@@ -54,17 +54,35 @@ function listener(
   // skip the fork leash above and the exit-rejection below.
   const bind = host === undefined ? "0" : `0,"${host}"`;
   const script = `require("http").createServer((_,r)=>r.end("ok")).listen(${bind},function(){console.log(this.address().port)})`;
-  // `viaShell` puts a shell between us and the server, so the listener is a
-  // GRANDCHILD — the ordinary shape of this feature (a shell in a PTY, an agent
-  // running a dev server inside it), and the reason attribution is a subtree walk
-  // rather than a direct-children check.
+  // `viaShell` puts a shell between us and the server — the ordinary shape of
+  // this feature (a shell in a PTY, an agent running a dev server inside it),
+  // and the reason attribution is a subtree walk rather than a direct-children
+  // check. The `exec` replaces the shell's image with node's (keeping the pid),
+  // so the listener lands at the same tree depth as a direct spawn: what this
+  // test actually pins is that the spawn-through-a-shell hop is INVISIBLE to
+  // the scan, which is exactly the guarantee a PTY session relies on.
   //
-  // The node path and the script ride as POSITIONAL ARGUMENTS (`$0`, `$1`) rather
-  // than interpolated into the command string. Nothing is quoted by hand, so a
-  // path containing a space — `/Users/My Name/…`, entirely ordinary on macOS —
-  // cannot split into two words and turn this into a different command.
+  // The node path and the script reach the shell as ENVIRONMENT VALUES, never
+  // interpolated into the command text: the `-c` string is a constant and both
+  // expansions are quoted, so a path containing a space — `/Users/My Name/…`,
+  // entirely ordinary on macOS — cannot split into two words and turn this
+  // into a different command. They cannot ride as `$0`/`$1` positionals either
+  // (the shape this used to have): `js/shell-command-injection-from-environment`
+  // (code-scanning alert 49) taints EVERY argv element of an `sh -c` call —
+  // however safely quoted — because the analyzer cannot see how the command
+  // text uses them. The env channel is the one it can prove stays data.
   const child = opts.viaShell
-    ? spawn("/bin/sh", ["-c", 'exec "$0" -e "$1"', process.execPath, script])
+    ? spawn(
+        "/bin/sh",
+        ["-c", 'exec "$KOLU_SCAN_LIVE_NODE" -e "$KOLU_SCAN_LIVE_SRC"'],
+        {
+          env: {
+            ...process.env,
+            KOLU_SCAN_LIVE_NODE: process.execPath,
+            KOLU_SCAN_LIVE_SRC: script,
+          },
+        },
+      )
     : spawn(process.execPath, ["-e", script]);
   children.push(child);
   return new Promise((resolve, reject) => {
