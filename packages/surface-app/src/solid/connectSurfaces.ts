@@ -321,6 +321,20 @@ export async function connectSurfaces(
     // standalone tags whatever prefix the value carries, so a scoped root would
     // dial `surface/<member>/<verb>` over a wire that serves `surface/<key>/…`
     // and every call would die at the far end — after connecting cleanly.
+    //
+    // ONE LAW, TWO DOORS. The identical refusal stands at the SERVE side's rooted
+    // gate — `exposeRootedFaces` (`@kolu/surface/expose`), which cites this one back
+    // — because a root is standalone or it is not a root, and each door has to hold
+    // the rule for the app that happens to use only that door. The two sites are
+    // deliberately not one shared assertion: the message names the door a reader
+    // arrived through, and the ERROR CLASS is each module's own (`ExposeMapError` is
+    // `expose.ts`'s recognisable class for a malformed exposure; this seam has none
+    // and raises a plain `Error`, like its two neighbouring refusals). What a shared
+    // predicate would buy — one reading of "is this the root of a bundle" — is real,
+    // and is the recorded next step rather than this PR's, which is capped at the
+    // single new export it already spends on `mergeDisjointGroups`. Until then the
+    // two sites cite each other, so neither can be relaxed by someone who did not
+    // know the other existed.
     if (root.surface.tagPrefix !== SURFACE_TAG_PREFIX) {
       throw new Error(
         `connectSurfaces: \`core.surface\` carries the tag prefix "${root.surface.tagPrefix}", ` +
