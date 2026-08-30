@@ -44,7 +44,6 @@
 
 import { publisher } from "@kolu/padi/assembly";
 import type { PadiProcessMemory } from "@kolu/padi-client/surface";
-import { mergeDisjointGroups } from "@kolu/surface/define";
 import { derived, everyMsOr, scan, source } from "@kolu/surface/reactor";
 import {
   type CellStore,
@@ -76,7 +75,7 @@ import {
   resolveNewTerminalPolicy,
   surfaces,
 } from "kolu-common/surface";
-import { padiHostMap } from "kolu-common/surfacesWithPadi";
+import { koluWireGroup, padiHostMap } from "kolu-common/surfacesWithPadi";
 import { serverCommit, serverStartedAt, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import {
@@ -92,49 +91,24 @@ import { store } from "./state.ts";
 // kolu-server serves a SUPERSET of the shared `kolu-common` contract: the root
 // procedures PLUS the two siblings it owns (`kolu`, `surfaceApp`) PLUS the padi
 // HOST MAP — the key-folded `surface/padi/*` members + the `entries` membership
-// collection that `serveHostMap` serves in `index.ts`. Under Effect RPC the wire
-// namespace is FLAT (PLAN D1), so a "sibling" is a tag PREFIX and the superset is
-// one `RpcGroup.merge` of three DISJOINT halves:
+// collection that `serveHostMap` serves in `index.ts`.
 //
-//   koluRootGroup    → `server/*`, `daemon/*`, `hosts/*`     (7 tags)
-//   koluSurfaceGroup → `surface/kolu/*`, `surface/surfaceApp/*`
-//   padiHostMap.group→ `surface/padi/*` (folded members + `entries`)
+// That assembly is NOT spelled here. It is {@link koluWireGroup}
+// (`kolu-common/surfacesWithPadi`), which carries the whole argument for it: why
+// the padi half enters once as the MAP rather than as a plain sibling, why the
+// counted `mergeDisjointGroups` is the only honest merge, and why no cast is
+// needed. It lives there because the `kolu-rpc` one-shot caller (`./wireCall.ts`)
+// dials the very same group and must not import THIS module — the `Conf` store is
+// constructed at its import, and a one-shot caller must not touch the server's
+// on-disk state to place a call. Two copies of one expression, kept equal by a
+// test, was the shape that produced; one assembly aliased at both ends is the
+// shape that cannot drift.
 //
-// **Why the padi-LESS `koluSurfaceGroup`, not `composeSurfaceContracts(surfacesWithPadi)`.**
-// The oRPC original spread the padi-FUL composition and then OVERWROTE the `padi`
-// key with the map's own contract, because the two describe the same wire paths
-// with different payloads (the map folds every member behind a `{mapKey, input}`
-// envelope). A flat `merge` cannot express "overwrite" honestly: it is a
-// last-writer-wins `Map.set` (#16), so merging BOTH would silently drop one
-// spelling of every shared tag AND leave the plain sibling's three reserved
-// `surface/padi/system/*` tags ADVERTISED with nothing bound to them — an
-// advertised-but-unhandled tag, which is exactly the silent-404 class this seam
-// exists to prevent. So the padi half enters ONCE, as the map, and the two
-// remaining halves are provably disjoint from it.
-//
-// **The proof is the framework's, not this file's.** `RpcGroup.make`/`.merge` have
-// zero collision detection, so disjointness is only real if it is counted — and
-// `mergeDisjointGroups` (`@kolu/surface/define`) is the ONE place that count is
-// spelled, for every consumer of a composed wire. Handed the three halves under
-// their own names, it names both halves of any collision instead of reporting a
-// total that came up short. It runs at IMPORT — a boot crash, never a production
-// 404 on `/surface/padi/*` (the regression `router.test.ts` was written for,
-// restated on the tag axis now that there is no matcher tree to inspect).
-//
-// No cast, and that is the merge's doing: `RpcGroup<in out R>` is INVARIANT in its
-// element union, so a group whose elements are precisely-typed `Rpc`s (the root
-// procedures, spelled member by member in `kolu-common/contract`) is not assignable
-// to the erased `RpcGroup<Rpc.Any>` every serving seam takes — even though every
-// element IS an `Rpc.Any`. `mergeDisjointGroups` takes the erasure on itself rather
-// than demanding it of each caller, so the three halves go in as they are and the
-// result is the erased group the serve path wants. This file used to carry the
-// `as unknown as` double-cast the retired `RPCHandler(appRouter as any)` carried
-// before it.
-export const servedGroup = mergeDisjointGroups({
-  root: koluRootGroup,
-  koluSurfaces: koluSurfaceGroup,
-  padiMap: padiHostMap.group,
-});
+// It is exported under this name because "the group kolu-server serves" is what
+// every line below (and `index.ts`'s socket mount) means by it, and the proof runs
+// at IMPORT of that module — a boot crash, never a production 404 on
+// `/surface/padi/*`.
+export const servedGroup = koluWireGroup;
 
 /** Every tag the served superset carries, in the three halves it is assembled
  *  from — exported so the wire-shape test asserts the exact key set against the
