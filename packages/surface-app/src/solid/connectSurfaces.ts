@@ -62,7 +62,7 @@ import {
   surfaceClients,
   surfaceClientsHealth,
 } from "@kolu/surface/solid";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import type { RpcGroup } from "effect/unstable/rpc";
 import type { Accessor } from "solid-js";
 import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
 
@@ -162,8 +162,18 @@ export interface ConnectSurfacesOptions<
    *  no collision detection, so a collision would silently drop one spelling of a
    *  shared tag. The merge below is `mergeDisjointGroups`, which claims every half's
    *  tags before merging and throws naming the tag AND the two halves that claimed
-   *  it. */
-  extraGroups?: ReadonlyArray<RpcGroup.RpcGroup<Rpc.Any>>;
+   *  it.
+   *
+   *  The element union is left OPEN, and the erasure is THIS seam's rather than its
+   *  callers': `RpcGroup<in out Rpcs>` is invariant, so a precisely-typed group — a
+   *  host's root procedures, spelled member by member — is not assignable to
+   *  `RpcGroup<Rpc.Any>` even though every element IS an `Rpc.Any`. Demanding the
+   *  erased shape here would make the `as unknown as` double-cast the standard idiom
+   *  at this option's own call sites, which is a poor thing for the door onto a
+   *  safety proof to teach — and it is exactly the law `mergeDisjointGroups`, which
+   *  this value flows straight into, adopted for itself. */
+  // biome-ignore lint/suspicious/noExplicitAny: the erasure is this seam's, not its callers' — see the paragraph above.
+  extraGroups?: ReadonlyArray<RpcGroup.RpcGroup<any>>;
   /** TUNE the always-on liveness heartbeat (`intervalMs`/`timeoutMs`/`onStale`) —
    *  the same knob `connectSurface` accepts. There is deliberately NO disable
    *  option: this seam mints the watchdog-backed brand, and a disabled watchdog
