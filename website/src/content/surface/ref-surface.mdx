@@ -193,6 +193,19 @@ standalone surface, carrying only its own members at its own `tagPrefix`, which
 is what lets handler binding and client dispatch be keyed by sibling without
 re-deriving the tag rule.
 
+`mergeDisjointGroups({ <label>: group })` merges several flat groups into one and
+**proves** nothing was swallowed. `RpcGroup.merge` is a last-writer-wins
+`Map.set`, so a tag two halves both spell survives once and then answers under
+the other's schema — well-formed, one member short, and invisible downstream. So
+every tag is claimed into one map before any merge runs, and a tag claimed twice
+throws naming the tag *and* both labels (which is why the halves arrive labelled:
+the useful half of a collision report is which two of the caller's own halves
+claimed it). It is the one statement of that proof for every consumer of a
+composed wire — a **rooted bundle**'s root beside its siblings
+([`connectSurfaces`' `core`](/surface/ref-surface-app#the-rooted-bundle)),
+a keyed map's group or a host's hand-written root procedures multiplexed on the
+same wire, or a server's served superset.
+
 ### Declaring a client error policy — `defineSurfaceWithPolicy`
 
 A member can carry an **opaque, app-typed client error policy** on its spec — a
@@ -475,11 +488,14 @@ poll-backed collection republishes only what moved. The graph is its one writer
 
 ## Consuming in SolidJS
 
-`surfaceClient(surface, transport)` returns a client with a bound accessor per
-member. It replaces the `source` / `mutate` / `keyToInput` refs you would
-otherwise thread at every hook. `transport` is either a watchdog-backed
+`surfaceClient(surface, transport, onClientError?)` returns a client with a bound
+accessor per member. It replaces the `source` / `mutate` / `keyToInput` refs you
+would otherwise thread at every hook. `transport` is either a watchdog-backed
 `LiveSignalHandle` or a bare in-process `SurfaceDispatch` (see the caution
-below).
+below). `onClientError` is the app's one interpreter, the same slot
+`surfaceClients` takes in the same position: a surface whose spec **declares** a
+`client.onError` policy and whose client was built without one throws at
+construction, because a declared policy may never route nowhere.
 
 <Snippet
   src="packages/surface/example/snippets/consume-solid.ts"
@@ -920,6 +936,7 @@ serve it.
 | `classifyExpose(spec, map, face?)` | **the** key grammar — what each key names, with the member spec it resolved carried on the entry. Every face reads a map through this one function, `serveSurfaceAsMcp` included, which is what makes "the same key means the same thing on every face" true rather than aspirational. `face` is the optional brand a non-framework face stamps on the refusal, at the throw — `@kolu/surface-mcp` passes its adapter name |
 | `exposeFace(surface, map)` | map + standalone surface → `FaceExposure`: the tag set one **wire** face serves, plus the `universe` of tags the surface it was built from advertises |
 | `exposeFaces(surfaces, maps)` | the sibling-bundle twin: one map per sibling, keyed the way the bundle is, over the **standalone** sibling surfaces. A fold of `exposeFace`'s step over `composeSurfaceContracts` — the same composition `implementSurfaces` binds against, so the scoped tags the gate names and the ones the runtime serves come from one walk. A sibling with no map is fully denied; a map for a sibling that does not EXIST is an `ExposeMapError` |
+| `exposeRootedFaces(core, coreMap, siblings, siblingMaps)` | the **rooted-bundle** twin: an unprefixed root surface beside the sibling map, gated as ONE face. It exists so the two halves are never unioned by hand — a set union carries an unwritten precondition (it is sound only while the two groups are disjoint), and when they are not it keeps one copy of the shared tag, `restrictHandlers` still matches, and one member answers under the other's policy. The universe here is `mergeDisjointGroups` of the two halves, so disjointness is *established* by the same counted composition the serve path runs |
 | `restrictHandlers(group, handlers, exposure?)` | apply it — the filter the two faces above call for you. **Total** over an absent exposure: no policy returns the handlers unchanged (the same record, not a copy), so the "omit `expose` = ungated" rule has one implementation. Also where the reserved members are granted, and where the handler record is proved to be exactly the group's |
 | `SurfaceMemberNotExposed` · `ExposeMapError` | the per-request refusal, and every boot-time refusal this module raises — a map that names nothing on its surface, and an exposure that does not describe the group being served. `face` carries which door the consumer came through. `SurfaceMemberNotExposed` is matchable **server-side**; over the wire it arrives as an unstructured defect, so a client reads its message text |
 
@@ -962,7 +979,11 @@ a key **two** of the spec's procedures answer to, a procedure exposed as
 a write-only primitive, whose `"resource"` offers only read verbs the member does
 not declare. `exposeFaces` adds one: a map keyed by a sibling the bundle does not
 have (an omitted sibling is a deliberate full denial; a *misspelled* one is a
-policy nobody reads). `restrictHandlers` throws the
+policy nobody reads). `exposeRootedFaces` shares that refusal — naming itself, so
+a reader is not sent to the wrong door — and adds the collision one: a root whose
+tags are not disjoint from the siblings' (the reachable case being a
+sibling-scoped surface handed in as the root, since a surface's prefix is read off
+the value). `restrictHandlers` throws the
 same class if the exposure's `universe` — the tags the surface it was built from
 advertises — is not *exactly* the set the group being served carries: a
 **different** surface and a merely **partial** one (a bundle exposed with a

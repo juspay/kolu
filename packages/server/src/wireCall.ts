@@ -52,6 +52,7 @@
  */
 
 import { websocketLink } from "@kolu/surface/links/websocket";
+import { mergeDisjointGroups } from "@kolu/surface/define";
 import { surfaceWsUrl } from "@kolu/surface-app";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";
 import { Cause, Effect, Exit, Schema } from "effect";
@@ -73,10 +74,11 @@ import { padiHostMap } from "kolu-common/surfacesWithPadi";
  *  The cast mirrors the server's own: `RpcGroup` is INVARIANT in its element union,
  *  so a precisely-typed group is not assignable to the erased `RpcGroup<Rpc.Any>`
  *  every transport seam takes, even though every element IS an `Rpc.Any`. */
-export const wireGroup = koluRootGroup.merge(
-  koluSurfaceGroup,
-  padiHostMap.group,
-) as unknown as RpcGroup.RpcGroup<Rpc.Any>;
+export const wireGroup = mergeDisjointGroups({
+  root: koluRootGroup as unknown as RpcGroup.RpcGroup<Rpc.Any>,
+  koluSurfaces: koluSurfaceGroup,
+  padiMap: padiHostMap.group,
+});
 
 /** Default per-call bound. The link retries its dial forever in its own fiber, so a
  *  call against a server that is not up yet would park; every invocation is bounded,

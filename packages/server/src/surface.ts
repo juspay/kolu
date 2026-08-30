@@ -44,6 +44,7 @@
 
 import { publisher } from "@kolu/padi/assembly";
 import type { PadiProcessMemory } from "@kolu/padi-client/surface";
+import { mergeDisjointGroups } from "@kolu/surface/define";
 import { derived, everyMsOr, scan, source } from "@kolu/surface/reactor";
 import {
   type CellStore,
@@ -111,11 +112,14 @@ import { store } from "./state.ts";
 // exists to prevent. So the padi half enters ONCE, as the map, and the two
 // remaining halves are provably disjoint from it.
 //
-// **The assertion is the proof.** `RpcGroup.make`/`.merge` have zero collision
-// detection, so disjointness is only real if it is counted: the tag total must
-// equal the sum of the three halves. It runs at IMPORT — a boot crash, never a
-// production 404 on `/surface/padi/*` (the regression `router.test.ts` was written
-// for, restated on the tag axis now that there is no matcher tree to inspect).
+// **The proof is the framework's, not this file's.** `RpcGroup.make`/`.merge` have
+// zero collision detection, so disjointness is only real if it is counted — and
+// `mergeDisjointGroups` (`@kolu/surface/define`) is the ONE place that count is
+// spelled, for every consumer of a composed wire. Handed the three halves under
+// their own names, it names both halves of any collision instead of reporting a
+// total that came up short. It runs at IMPORT — a boot crash, never a production
+// 404 on `/surface/padi/*` (the regression `router.test.ts` was written for,
+// restated on the tag axis now that there is no matcher tree to inspect).
 //
 // The one cast: `RpcGroup<in out R>` is INVARIANT in its element union, so a group
 // whose elements are precisely-typed `Rpc`s (the root procedures, spelled member by
@@ -126,34 +130,22 @@ import { store } from "./state.ts";
 // typed alternative exists short of erasing the contract's precision, which is what
 // makes the client face precise. Same structural constraint the retired
 // `RPCHandler(appRouter as any)` carried.
-export const servedGroup = koluRootGroup.merge(
-  koluSurfaceGroup,
-  padiHostMap.group,
-) as unknown as RpcGroup.RpcGroup<Rpc.Any>;
+export const servedGroup = mergeDisjointGroups({
+  root: koluRootGroup as unknown as RpcGroup.RpcGroup<Rpc.Any>,
+  koluSurfaces: koluSurfaceGroup,
+  padiMap: padiHostMap.group,
+});
 
 /** Every tag the served superset carries, in the three halves it is assembled
  *  from — exported so the wire-shape test asserts the exact key set against the
  *  same sources the server merges, rather than a hand-copied literal that could
- *  drift. */
+ *  drift. (The disjointness of those halves is proved by the merge above; this is
+ *  the test's window onto the same three numbers.) */
 export const SERVED_TAG_COUNTS = {
   root: koluRootGroup.requests.size,
   koluSurfaces: koluSurfaceGroup.requests.size,
   padiMap: padiHostMap.group.requests.size,
 } as const;
-
-const EXPECTED_SERVED_TAGS =
-  SERVED_TAG_COUNTS.root +
-  SERVED_TAG_COUNTS.koluSurfaces +
-  SERVED_TAG_COUNTS.padiMap;
-
-if (servedGroup.requests.size !== EXPECTED_SERVED_TAGS) {
-  throw new Error(
-    `kolu-server: the served group carries ${servedGroup.requests.size} tag(s), expected ` +
-      `${EXPECTED_SERVED_TAGS} (root ${SERVED_TAG_COUNTS.root} + kolu surfaces ` +
-      `${SERVED_TAG_COUNTS.koluSurfaces} + padi map ${SERVED_TAG_COUNTS.padiMap}) — ` +
-      `an RpcGroup merge dropped a colliding tag.`,
-  );
-}
 
 /** A served fragment: one flat group and the handlers bound at its tags. Every
  *  producer kolu-server assembles — `implementSurfacesOnPublisher`, `serveHostMap`,

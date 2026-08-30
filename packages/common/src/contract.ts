@@ -30,7 +30,10 @@
  * there, not here.
  */
 
-import { composeSurfaceContracts } from "@kolu/surface/define";
+import {
+  composeSurfaceContracts,
+  mergeDisjointGroups,
+} from "@kolu/surface/define";
 import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { HostKeySchema } from "./hostKey.ts";
@@ -276,14 +279,13 @@ const composedSurfaces = composeSurfaceContracts(surfaces);
 export const koluSurfaceGroup = composedSurfaces.group;
 
 /** THE contract: the composed surface siblings PLUS the root procedures, one
- *  flat group. `merge` is safe HERE (unlike between two surfaces, which share
+ *  flat group. Merging is safe HERE (unlike between two surfaces, which share
  *  the three reserved `system/*` tags — PLAN D1) because the two halves live in
- *  disjoint tag roots, `surface/` and `server|daemon|hosts/` — and the assertion
- *  below is what proves it rather than assuming it. */
-export const contract = koluSurfaceGroup.merge(koluRootGroup);
-
-assertTagCount(
-  contract,
-  koluSurfaceGroup.requests.size + koluRootGroup.requests.size,
-  "the composed contract",
-);
+ *  disjoint tag roots, `surface/` and `server|daemon|hosts/` — and
+ *  `mergeDisjointGroups` is what proves that rather than assuming it. It erases
+ *  the element union (every serving seam takes the erased `RpcGroup<Rpc.Any>`
+ *  anyway); the PRECISE halves stay available as the two exports above. */
+export const contract = mergeDisjointGroups({
+  koluSurfaces: koluSurfaceGroup,
+  root: koluRootGroup as unknown as RpcGroup.RpcGroup<Rpc.Any>,
+});

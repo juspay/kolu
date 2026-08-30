@@ -1587,3 +1587,76 @@ export function composeSurfaceContracts<
     siblings,
   } as unknown as ComposedSurfaces<E>;
 }
+
+/** Merge several flat groups into ONE and PROVE nothing was swallowed — the
+ *  counted merge every consumer of a composed wire needs and, until now, spelled
+ *  privately (`connectSurfaces`' `extraGroups` fold, kolu-server's `servedGroup`,
+ *  kaval's daemon group, kolu-common's `contract`, and — one repo over — olai's
+ *  `fuseGroups`).
+ *
+ *  `RpcGroup.merge` is a last-writer-wins `Map.set` with NO collision detection,
+ *  so a tag two groups both spell survives exactly once and the survivor answers
+ *  under the OTHER one's schema. That failure presents as "the wire is up, and
+ *  this one call answers the wrong shape" — invisible to every downstream check,
+ *  because the merged group is well-formed, just one member short. It is the
+ *  quiet kind of wrong, which is why the proof is not optional and why a merge
+ *  that is merely *believed* disjoint is not a merge this framework performs.
+ *
+ *  The groups arrive LABELLED, keyed by whatever the caller calls each half
+ *  (`{ root, siblings, padiMap }`), because the useful half of a collision report
+ *  is not the tag — it is WHICH TWO of the caller's own halves both claimed it.
+ *  Disjointness is established by claiming every tag into one map before any
+ *  merge runs, so a collision is named (tag AND both labels) rather than inferred
+ *  from a size that came up short; the count afterwards is then the framework's
+ *  own self-check that `RpcGroup.merge` did what the walk proved it could.
+ *
+ *  It lives here, beside {@link composeSurfaceContracts} and the `claim` walk, for
+ *  the same reason those do: this file owns the invariant that no tag is minted
+ *  twice, and a second statement of it elsewhere is a rule that can be relaxed in
+ *  one place and noticed in neither. */
+export function mergeDisjointGroups(
+  groups: Readonly<Record<string, RpcGroup.RpcGroup<Rpc.Any>>>,
+): RpcGroup.RpcGroup<Rpc.Any> {
+  const entries = Object.entries(groups);
+  const [first, ...rest] = entries;
+  if (first === undefined) {
+    throw new Error(
+      "mergeDisjointGroups: no groups were passed. An empty merge would hand back a " +
+        "group that advertises nothing — a wire that connects and can dial no tag at " +
+        "all — which is never what a caller means.",
+    );
+  }
+  const claimedBy = new Map<string, string>();
+  const collisions: string[] = [];
+  for (const [label, group] of entries) {
+    for (const tag of group.requests.keys()) {
+      const owner = claimedBy.get(tag);
+      if (owner !== undefined) {
+        collisions.push(`"${tag}" (claimed by "${owner}" and "${label}")`);
+        continue;
+      }
+      claimedBy.set(tag, label);
+    }
+  }
+  if (collisions.length > 0) {
+    throw new Error(
+      `mergeDisjointGroups: ${collisions.length} wire tag(s) are carried by more than one ` +
+        `group — ${collisions.join(", ")}. \`RpcGroup.merge\` is last-writer-wins, so one ` +
+        "spelling would be dropped in silence and its tag would then answer with the other's " +
+        "schema. Rename the member, or merge the two halves as one group.",
+    );
+  }
+  const merged = rest.reduce(
+    (group, [, next]) => group.merge(next),
+    first[1] as RpcGroup.RpcGroup<Rpc.Any>,
+  );
+  if (merged.requests.size !== claimedBy.size) {
+    throw new Error(
+      `mergeDisjointGroups: the merge carries ${merged.requests.size} tag(s), but the walk ` +
+        `claimed ${claimedBy.size} across [${entries.map(([l]) => l).join(", ")}] and proved ` +
+        "them disjoint — so `RpcGroup.merge` dropped a tag no collision explains. That is a " +
+        "framework bug, not a caller error.",
+    );
+  }
+  return merged;
+}

@@ -37,7 +37,11 @@
  */
 
 import { controlCoreFragment, controlCoreSurface } from "@kolu/surface-daemon";
-import { composeSurfaceContracts, type Surface } from "@kolu/surface/define";
+import {
+  composeSurfaceContracts,
+  mergeDisjointGroups,
+  type Surface,
+} from "@kolu/surface/define";
 import {
   implementSurface,
   superviseTerminalSource,
@@ -55,34 +59,14 @@ import { PTY_HOST_CONTRACT_VERSION, ptyHostSurface } from "./ptyHostSurface.ts";
 export const kavalControlSurface: Surface<typeof controlCoreSurface.spec> =
   composeSurfaceContracts({ control: controlCoreSurface }).siblings.control;
 
-/** Merge two flat groups and PROVE nothing was dropped. `RpcGroup.merge` is a
- *  plain `Map.set` per tag — a collision is silently overwritten — so the size
- *  check is the collision detector, exactly as `defineSurface`'s own assembly
- *  does it for the walk it owns. */
-function mergeGroupsDisjoint(
-  a: RpcGroup.RpcGroup<Rpc.Any>,
-  b: RpcGroup.RpcGroup<Rpc.Any>,
-): RpcGroup.RpcGroup<Rpc.Any> {
-  const merged = a.merge(b);
-  const expected = a.requests.size + b.requests.size;
-  if (merged.requests.size !== expected) {
-    const collisions = [...b.requests.keys()].filter((tag) =>
-      a.requests.has(tag),
-    );
-    throw new Error(
-      `kavalDaemonGroup: merging the pty-host surface with the control sibling dropped ` +
-        `${expected - merged.requests.size} tag(s) — colliding: ${collisions.join(", ")}. ` +
-        "Two members would answer at one wire tag; rename one.",
-    );
-  }
-  return merged;
-}
-
 /** Kaval's complete daemon wire, as ONE flat group. Byte-for-byte the pty-host
- *  tags plus the control sibling's — nothing renamed, nothing re-prefixed. */
-export const kavalDaemonGroup: RpcGroup.RpcGroup<Rpc.Any> = mergeGroupsDisjoint(
-  ptyHostSurface.group,
-  kavalControlSurface.group,
+ *  tags plus the control sibling's — nothing renamed, nothing re-prefixed.
+ *
+ *  `mergeDisjointGroups` (`@kolu/surface/define`) is the proof, not a local size
+ *  check: `RpcGroup.merge` is a plain `Map.set` per tag, so a collision is
+ *  silently overwritten and two members would answer at one wire tag. */
+export const kavalDaemonGroup: RpcGroup.RpcGroup<Rpc.Any> = mergeDisjointGroups(
+  { ptyHost: ptyHostSurface.group, control: kavalControlSurface.group },
 );
 
 type PtyHostRuntime = ReturnType<typeof createInProcessPtyHost>;

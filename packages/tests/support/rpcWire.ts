@@ -54,11 +54,11 @@ import {
   websocketLink,
   type WebsocketLink,
 } from "@kolu/surface/links/websocket";
+import { mergeDisjointGroups } from "@kolu/surface/define";
 import { surfaceWsUrl } from "@kolu/surface-app";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";
 import { fold } from "@kolu/surface-map";
 import { Cause, Effect, Exit, Option, Result, Schema, Stream } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { koluSurfaceGroup } from "kolu-common/contract";
 import { encodeHostKey, LOCAL_HOST, parseHostInput } from "kolu-common/hostKey";
 import { PADI_SURFACE_NAME, padiHostMap } from "kolu-common/surfacesWithPadi";
@@ -73,9 +73,10 @@ import { PADI_SURFACE_NAME, padiHostMap } from "kolu-common/surfacesWithPadi";
  *  The cast mirrors the server's: `RpcGroup` is INVARIANT in its element union, so a
  *  precisely-typed group is not assignable to the erased `RpcGroup<Rpc.Any>` every
  *  transport seam takes, even though every element IS an `Rpc.Any`. */
-const clientGroup = koluSurfaceGroup.merge(
-  padiHostMap.group,
-) as unknown as RpcGroup.RpcGroup<Rpc.Any>;
+const clientGroup = mergeDisjointGroups({
+  koluSurfaces: koluSurfaceGroup,
+  padiMap: padiHostMap.group,
+});
 
 /** The wire `mapKey` — the CANONICAL encoded form (`encodeHostKey`) — the e2e drives its
  *  padi resets against: the local default's `"local"` (the single-host CI e2e —

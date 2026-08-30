@@ -405,8 +405,9 @@ Both seams are **async**: the dial is `websocketLink`, and building a protocol a
 its fibers is an effect. Each takes the **surface** (or the sibling map), never a
 separate group — the wire is built from `surface.group` / `composeSurfaceContracts`
 right here, so a client and a wire that disagreed about which members exist is
-unspellable. `connectSurfaces` refuses an empty map: with no sibling there is no
-tag for the watchdog to probe.
+unspellable. `connectSurfaces` refuses a call that passes **nothing** — no root
+and no siblings — because such a wire carries no member at all and there is no
+reserved tag for the watchdog to probe.
 
 `connectSurface`'s `url` is **optional**: omitted, it defaults to
 `surfaceWsUrl(location.origin)` — the page's own origin through the one
@@ -422,18 +423,56 @@ procedures (reached through `conn.transport.dispatch`). The wire's `RpcGroup`
 carries every tag's payload/success schemas, and Effect RPC's flat client resolves
 a call by looking its tag up there, so a tag the group never minted cannot be
 dispatched at all. Each entry must be disjoint from the composed siblings and from
-every other entry: the merge counts the result and throws if a collision swallowed
-a tag.
+every other entry: the merge is `mergeDisjointGroups`
+([`@kolu/surface/define`](/surface/ref-surface#composing-siblings)), which claims
+every half's tags before merging and throws naming the tag *and* the two halves
+that claimed it.
+
+### The rooted bundle
+
+A composed wire may also carry an **unprefixed root** surface, through
+`connectSurfaces`' `core: { surface, name }` slot. The siblings are tagged
+`surface/<key>/<member>/<verb>`; the root keeps the bare
+`surface/<member>/<verb>` a standalone surface has. It is a slot on the existing
+seam rather than a second constructor, because a root is data about one wire, not
+a second kind of wire.
+
+With a `core` present:
+
+- its members join the one dialled group, through the same counted merge
+  `extraGroups` rides;
+- it gets its own typed `surfaceClient`, returned as `conn.core`;
+- it joins the health fold — and therefore the readout — under `name`, so a
+  stopped root subscription is named (`<name>/<sub>`) exactly like a sibling's;
+- **both reserved round-trips address the root's bare tags** —
+  `surface/system/identity` for the echo and `surface/system/live` for the
+  watchdog — which is the path `createSurfaceSocket` and `createLiveSignal`
+  already implement by omitting `siblingKey`. The root is on every serve this wire
+  can reach, so it is the one probe target a wire whose *sibling* set varies per
+  serve can trust.
+
+`surfaces` may then be empty: a wire that carries only its root is an ordinary
+wire. Omit `core` and every one of those sentences reverts — the probes address
+the first sibling's tags, `conn.core` is `undefined`, and the seam behaves exactly
+as it did before the slot existed.
+
+Two miswirings are refused at the seam, both of the quiet kind: a `core.surface`
+that is a sibling-**scoped** surface (the client face mints standalone tags
+whatever prefix the value carries, so such a wire would connect and then answer
+nothing), and a `core.name` that is also a sibling key (the health fold is keyed
+by that word, so one of the two clients would vanish from it in silence).
 
 <Snippet src="packages/surface/example/snippets/consume-solid.ts" region="connect" />
 
 `connectSurface` returns `{ link, client, readout, dispose }`;
-`connectSurfaces` returns `{ link, clients, transport, readout, health, dispose }`.
+`connectSurfaces` returns
+`{ link, clients, core, transport, readout, health, dispose }`.
 
 | Member | Meaning |
 | --- | --- |
 | `link` | the `WebsocketLink` — `{ dispatch, wire, dispose }`. Read `link.wire` for the status stream / `forceReconnect` (was `ws: PartySocket`) |
 | `client` / `clients` | the reactive surface client, or one scoped client per sibling |
+| `core` | *(multi only)* the root surface's own client when `core` was passed, and typed `undefined` when it was not — so a siblings-only caller reads no optional it has to check. It needs no tag-scoping wrapper: the root's tags are already the bare ones the combined dispatch carries |
 | `transport` | *(multi only)* the branded `LiveSignalHandle` — pass it whole to `connectSurfaceMap(map, conn.transport)`, which slices the sibling by `map.name` **after** the guard so the map inherits this wire's watchdog `live` |
 | `readout` | the [readout](/surface/ref-surface#the-readout) — the wire's own four states folded with the subscription-health fact into the five an indicator may report, memoized. Replaces the transport-only `status` this used to hand back |
 | `health` | *(multi only)* `surfaceClientsHealth(clients)` — every sibling's subs AND-reduced with the shared transport leg |

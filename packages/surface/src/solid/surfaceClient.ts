@@ -697,16 +697,24 @@ function memberOf(face: SurfaceFace, key: string): Record<string, unknown> {
  *
  *  This is the unification: the bundle no longer bakes in the WebSocket transport —
  *  it consumes whatever transport it's handed, so the same hooks work over a socket,
- *  a subprocess, or an in-process dispatch. */
+ *  a subprocess, or an in-process dispatch.
+ *
+ *  `onClientError` is the app's ONE origin-free client-error interpreter, the same
+ *  slot {@link surfaceClients} takes in the same position for the same reason: a
+ *  surface whose spec DECLARES a `client.onError` policy and whose client was built
+ *  without an interpreter throws at construction (a declared policy may never route
+ *  nowhere), so a policy-bearing surface reached through this door — the root of a
+ *  rooted bundle is the case that made it necessary — has somewhere to route. */
 export function surfaceClient<const S extends SurfaceSpec>(
   surface: Surface<S>,
   transport: LiveSignalHandle | SurfaceDispatch,
+  onClientError?: OnClientError,
 ): SurfaceClient<S> {
   // Collapse the transport to its `{ dispatch, live }` — a `LiveSignalHandle` carries
   // both (paired by construction); a bare half-openable dispatch CRASHES here; a bare
   // in-process dispatch gets a constant-`true` leg (sound — it can't half-open).
   const { dispatch, live } = resolveTransport(transport);
-  return buildSurfaceClient(surface, dispatch, live);
+  return buildSurfaceClient(surface, dispatch, live, onClientError);
 }
 
 /** Open the eager `liveWhen` readiness leg for a mirror-shaped cell — the
