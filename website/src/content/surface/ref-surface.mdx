@@ -959,7 +959,7 @@ offset `system/clockNow`. Gating those off would not restrict the face, it would
 break the link. That carve-out belongs to `restrictHandlers`, which asks
 `isReservedSurfaceTag` (`@kolu/surface/define`) of each tag as it applies the
 policy — so it holds for **any** `FaceExposure`, including one a consumer
-assembled itself, rather than only the ones the two constructors built.
+assembled itself, rather than only the ones the constructors in this family built.
 
 A denied member **answers** — it does not vanish. Every tag stays bound, and the
 denied ones are replaced with a handler that raises `SurfaceMemberNotExposed`

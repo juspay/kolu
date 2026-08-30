@@ -7,8 +7,9 @@
  * control plane multiplexes `admin` + `surfaceApp` over a single transport) and
  * wires the SAME default-on watchdog — one wire, one `createLiveSignal` (which
  * derives the transport status, wires the half-open heartbeat probing the
- * framework-reserved `system/live` member on the first sibling's TAG, AND mints the
- * branded `live`). So a multi-surface app gets half-open detection BY CONSTRUCTION,
+ * framework-reserved `system/live` member at the tag the ROOTED BUNDLE paragraph
+ * below settles — the root's bare one when a `core` rides this wire, the first
+ * sibling's scoped one when none does — AND mints the branded `live`). So a multi-surface app gets half-open detection BY CONSTRUCTION,
  * exactly like a single-surface one — instead of hand-rolling `createSurfaceSocket`
  * → `surfaceClients` and (the step the hand-built path forgot) a watchdog. The
  * combined fact folds via {@link surfaceClientsHealth}, and the per-sibling
@@ -65,6 +66,7 @@ import {
 import type { RpcGroup } from "effect/unstable/rpc";
 import type { Accessor } from "solid-js";
 import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
+import { trackConnectAllocations } from "./unwindOnFailedConnect";
 
 /** The ROOT SLOT of a rooted bundle: the unprefixed root surface, plus the WORD it
  *  answers to in the health fold and the readout.
@@ -287,8 +289,9 @@ export interface SurfacesConnection<
    *  {@link SurfacesConnection.readout} for an indicator; reach for the raw fact
    *  when a component wants the per-sub `pending`/`error` detail. */
   health: () => SurfaceHealth;
-  /** Stop the heartbeat, dispose every sibling client's standing subscriptions,
-   *  and release the wire. A page-lifetime cached bundle needn't call it. */
+  /** Stop the heartbeat, dispose the standing subscriptions of every client in the
+   *  fold — the siblings and, when a `core` rode this wire, the root — and release
+   *  the wire. A page-lifetime cached bundle needn't call it. */
   dispose: () => Promise<void>;
 }
 
@@ -479,73 +482,108 @@ export async function connectSurfaces(
       extraGroups.map((extra, i) => [`extraGroups[${i}]`, extra]),
     ),
   });
-  const socket = await createSurfaceSocket({
-    ...socketOptions,
-    group,
-    siblingKey: probeSibling,
-  });
+  // Past this await the wire is LIVE, and every construction below can throw over
+  // it — so each allocation is tracked and given back in reverse if one does. See
+  // `./unwindOnFailedConnect` for why a rejected connect that leaves an open
+  // socket and a running heartbeat is the worst shape this seam could fail in.
+  const allocations = trackConnectAllocations("connectSurfaces");
+  const socket = allocations.track(
+    "wire",
+    await createSurfaceSocket({
+      ...socketOptions,
+      group,
+      siblingKey: probeSibling,
+    }),
+    (s) => s.dispose(),
+  );
   const { link } = socket;
-  // `createLiveSignal` takes the WHOLE `{ dispatch, wire }` the link factory
-  // minted: it wires the half-open watchdog (probing the reserved liveness member
-  // at the FIRST sibling's tag — every sibling answers it) AND mints the BRANDED
-  // handle whose one `live` feeds every sibling's `health().live` (the leg
-  // `surfaceClientsHealth` AND-reduces, so a dead wire flips the merged fact
-  // not-live). We hand that whole handle to `surfaceClients` so clients and probe
-  // share ONE dispatch — there is no separate, fabricatable probe target.
-  const transport = createLiveSignal(link, { siblingKey: probeSibling, ...hb });
-  const clients = surfaceClients(transport, surfaces, onClientError);
-  // The root's client rides the SAME handle, unwrapped: its members already sit at
-  // the bare tags the combined dispatch carries, so unlike a sibling it needs no
-  // tag-scoping. The app's one error interpreter reaches it too — a policy declared
-  // on the root would otherwise route nowhere (`buildSurfaceClient` refuses that at
-  // construction), which would make the root second-class exactly where a sibling is
-  // first-class.
-  //
-  // A second binding rather than a field on `root`, because a client cannot exist
-  // before the transport does; pairing the WORD with the CLIENT here is what keeps
-  // the two readers below (the fold, and the returned `core`) asking the presence
-  // question once each, of a value that carries both answers.
-  const rooted =
-    root === undefined
-      ? undefined
-      : {
-          name: root.name,
-          client: surfaceClient(root.surface, transport, onClientError),
-        };
-  // The record the combined fact is folded over: every sibling under its key, and
-  // the root under the caller's word. Built ONCE — it is a static record; the
-  // reactivity is inside each client's `health()`. The spread would WIN over the
-  // root if a sibling key equalled `core.name`, quietly dropping the root from the
-  // fold and from the readout, which is exactly why the refusal above exists: it,
-  // and not this write order, is what makes the record complete.
-  const folded =
-    rooted === undefined
-      ? clients
-      : { [rooted.name]: rooted.client, ...clients };
-  const health = (): SurfaceHealth => surfaceClientsHealth(folded);
-  // ONE fold of the two facts for the whole bundle: the shared wire's status and
-  // every sibling's subs. Memoized here (this seam runs outside any reactive
-  // owner, so the memo brings its own root) rather than re-walked at each
-  // indicator — the merged fact re-folds N registries per read.
-  const readout = createSurfaceReadout(transport.status, health);
-  return {
-    link,
-    clients,
-    // No cast: the implementation signature is erased, so `core` here is the
-    // honest `SurfaceClient | undefined` the value actually is. The two overloads
-    // above are what turn that into a definite client for a rooted caller and a
-    // definite `undefined` for a siblings-only one.
-    core: rooted?.client,
-    transport,
-    readout: readout.readout,
-    health,
-    dispose: async () => {
-      transport.dispose();
-      readout.dispose();
-      for (const client of Object.values(folded)) {
-        (client as { dispose: () => void }).dispose();
-      }
-      await socket.dispose();
-    },
-  };
+  try {
+    // `createLiveSignal` takes the WHOLE `{ dispatch, wire }` the link factory
+    // minted: it wires the half-open watchdog — probing the reserved liveness member
+    // at the tag `probeSibling` names: with a root, `undefined`, which is the BARE
+    // `surface/system/live`; without one, the first sibling's scoped tag (every
+    // sibling answers it, so any would do) — AND mints the BRANDED handle whose one
+    // `live` feeds every client's `health().live` (the leg `surfaceClientsHealth`
+    // AND-reduces, so a dead wire flips the merged fact not-live). We hand that whole
+    // handle to `surfaceClients` so clients and probe share ONE dispatch — there is
+    // no separate, fabricatable probe target.
+    const transport = allocations.track(
+      "watchdog",
+      createLiveSignal(link, { siblingKey: probeSibling, ...hb }),
+      (t) => t.dispose(),
+    );
+    const clients = allocations.track(
+      "sibling clients",
+      surfaceClients(transport, surfaces, onClientError),
+      (built) => {
+        for (const client of Object.values(built)) {
+          (client as { dispose: () => void }).dispose();
+        }
+      },
+    );
+    // The root's client rides the SAME handle, unwrapped: its members already sit at
+    // the bare tags the combined dispatch carries, so unlike a sibling it needs no
+    // tag-scoping. The app's one error interpreter reaches it too — a policy declared
+    // on the root would otherwise route nowhere (`buildSurfaceClient` refuses that at
+    // construction), which would make the root second-class exactly where a sibling is
+    // first-class.
+    //
+    // A second binding rather than a field on `root`, because a client cannot exist
+    // before the transport does; pairing the WORD with the CLIENT here is what keeps
+    // the two readers below (the fold, and the returned `core`) asking the presence
+    // question once each, of a value that carries both answers.
+    const rooted =
+      root === undefined
+        ? undefined
+        : {
+            name: root.name,
+            client: allocations.track(
+              "root client",
+              surfaceClient(root.surface, transport, onClientError),
+              (client) => client.dispose(),
+            ),
+          };
+    // The record the combined fact is folded over: every sibling under its key, and
+    // the root under the caller's word. Built ONCE — it is a static record; the
+    // reactivity is inside each client's `health()`. The spread would WIN over the
+    // root if a sibling key equalled `core.name`, quietly dropping the root from the
+    // fold and from the readout, which is exactly why the refusal above exists: it,
+    // and not this write order, is what makes the record complete.
+    const folded =
+      rooted === undefined
+        ? clients
+        : { [rooted.name]: rooted.client, ...clients };
+    const health = (): SurfaceHealth => surfaceClientsHealth(folded);
+    // ONE fold of the two facts for the whole bundle: the shared wire's status and
+    // every sibling's subs. Memoized here (this seam runs outside any reactive
+    // owner, so the memo brings its own root) rather than re-walked at each
+    // indicator — the merged fact re-folds N registries per read.
+    const readout = allocations.track(
+      "readout",
+      createSurfaceReadout(transport.status, health),
+      (r) => r.dispose(),
+    );
+    return {
+      link,
+      clients,
+      // No cast: the implementation signature is erased, so `core` here is the
+      // honest `SurfaceClient | undefined` the value actually is. The two overloads
+      // above are what turn that into a definite client for a rooted caller and a
+      // definite `undefined` for a siblings-only one.
+      core: rooted?.client,
+      transport,
+      readout: readout.readout,
+      health,
+      dispose: async () => {
+        transport.dispose();
+        readout.dispose();
+        for (const client of Object.values(folded)) {
+          (client as { dispose: () => void }).dispose();
+        }
+        await socket.dispose();
+      },
+    };
+  } catch (constructionError) {
+    return allocations.unwind(constructionError);
+  }
 }

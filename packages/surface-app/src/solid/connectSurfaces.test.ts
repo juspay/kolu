@@ -22,13 +22,21 @@
  * the health fold, and the miswirings the slot refuses.
  */
 
-import { composeSurfaceContracts, defineSurface } from "@kolu/surface/define";
+import {
+  composeSurfaceContracts,
+  defineSurface,
+  defineSurfaceWithPolicy,
+} from "@kolu/surface/define";
 import { Schema } from "effect";
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
   heartbeatProbe: undefined as undefined | (() => Promise<unknown>),
+  // Counted, not spied: the watchdog is armed inside `createLiveSignal`, so a
+  // failed connect's unwind is the only thing that can give it back — and there
+  // is no handle to observe it through when the connect rejects.
+  heartbeatDisposals: 0,
 }));
 
 // Mock the heartbeat PRIMITIVE (capture the probe thunk so the test can fire it
@@ -41,7 +49,12 @@ vi.mock("@kolu/surface/heartbeat", async (importActual) => {
     ...actual,
     createHeartbeat: (opts: { probe: () => Promise<unknown> }) => {
       mocked.heartbeatProbe = opts.probe;
-      return { dispose: () => {}, wake: () => {} };
+      return {
+        dispose: () => {
+          mocked.heartbeatDisposals += 1;
+        },
+        wake: () => {},
+      };
     },
   };
 });
@@ -402,6 +415,73 @@ describe("connectSurfaces — the ROOTED bundle (an unprefixed core beside the s
     ).rejects.toThrow(/not the standalone/);
   });
 
+  it("disposes the ROOT's client too — the fold, not just the siblings", async () => {
+    // `dispose` walks `folded`, which is the siblings PLUS the root. Walking
+    // `clients` instead would leak the root's standing subscriptions and every
+    // other assertion in this file would still pass, so the tear-down is spied
+    // rather than inferred.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+      const coreDispose = vi.spyOn(conn.core, "dispose");
+      const siblingDispose = vi.spyOn(conn.clients.a, "dispose");
+      await conn.dispose();
+      expect(coreDispose).toHaveBeenCalledTimes(1);
+      expect(siblingDispose).toHaveBeenCalledTimes(1);
+      dispose();
+    });
+  });
+
+  it("gives the wire back when a construction step throws AFTER the dial", async () => {
+    // A root whose spec DECLARES a `client.onError` policy, connected with no
+    // interpreter: `buildSurfaceClient` refuses that at construction (design
+    // §D/F5) — and it refuses it AFTER `createSurfaceSocket` has dialled and
+    // `createLiveSignal` has armed a heartbeat over the open wire. Without the
+    // unwind the rejection hands the caller no `dispose` at all while the socket
+    // stays open and the watchdog keeps probing it: a leak with no name to
+    // release. `connectSurface`'s `url` refusal states the same law on the other
+    // side of the dial ("nothing was ever dialled"); this is that law after it.
+    const policyRoot = defineSurfaceWithPolicy<{ kind: "toast" }>()({
+      cells: {
+        floor: {
+          schema: Schema.Struct({ s: Schema.String }),
+          default: { s: "x" },
+          verbs: ["get"],
+          client: { onError: { kind: "toast" } },
+        },
+      },
+    });
+    const d = dialRecorder();
+    const disposalsBefore = mocked.heartbeatDisposals;
+    await createRoot(async (dispose) => {
+      await expect(
+        connectSurfaces({
+          surfaces: { a: surface },
+          core: { surface: policyRoot, name: "floor" },
+          url: "ws://test",
+          retired: () => {},
+          connect: d.connect,
+        }),
+      ).rejects.toThrow();
+      // The WATCHDOG is the resource with no other way home: `createLiveSignal`
+      // armed it over the open wire one step before the throw, and a rejected
+      // connect hands the caller no handle to stop it with. One disposal, from
+      // the unwind — the wire's own release rides the same path (and the link's
+      // dial fiber may not even have reached `connect` before the scope closed,
+      // which is why the socket is not what this asserts on).
+      expect(mocked.heartbeatDisposals).toBe(disposalsBefore + 1);
+      expect(d.dialled.every((ws) => ws.readyState === 3)).toBe(true);
+      dispose();
+    });
+  });
   it("refuses a root whose tags collide with an extra group", async () => {
     // The root joins the dialled group through the same counted merge
     // `extraGroups` rides, so a hand-written group that spells one of the root's

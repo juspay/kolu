@@ -25,8 +25,9 @@
  *
  * The composition is CHECKED, not assumed (PLAN D1, review #16): `RpcGroup.merge`
  * is a last-writer-wins `Map.set` with zero collision detection, so a colliding
- * tag would silently leave one half's member answering for the other's. Every
- * merge here is followed by a size assertion, and `daemonSurface.test.ts` pins
+ * tag would silently leave one half's member answering for the other's. The proof
+ * is `mergeDisjointGroups` (`@kolu/surface/define`), the framework's one spelling
+ * of it — there is no local size check left here — and `daemonSurface.test.ts` pins
  * the combined request key set literally.
  *
  * The three framework-reserved `system/*` tags — the one overlap a naive merge

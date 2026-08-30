@@ -1046,8 +1046,10 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
   // regardless of whether any consumer ever `.use()`s the member (the wiring below
   // fires only on subscribe; this check must not). Mirrors the loud-crash precedent
   // at `resolveTransport` (the half-open-blind transport). This runtime scan is the
-  // SOLE enforcement: `onClientError` is an OPTIONAL field on both `connectSurfaces`
-  // and `connectSurfaceMap` — their option types don't carry the surface's policy
+  // SOLE enforcement: `onClientError` is an OPTIONAL field at EVERY turnkey door
+  // (`connectSurface`, `connectSurfaces`, `connectSurfaceMap`, and this function) —
+  // stated as "every door" rather than as a list, so it cannot drift from the throw's
+  // own message below. Their option types don't carry the surface's policy
   // type, so they can't make the interpreter type-*required* when a member declares a
   // non-`never` policy. So a policy-bearing surface connected with no interpreter is
   // caught HERE, at construction, not by the compiler.

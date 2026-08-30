@@ -56,6 +56,7 @@ import {
 } from "@kolu/surface/solid";
 import type { Accessor } from "solid-js";
 import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
+import { trackConnectAllocations } from "./unwindOnFailedConnect";
 import { surfaceWsUrl } from "../index";
 
 /** The dial URL when the caller names none: the page's own origin through
@@ -166,45 +167,72 @@ export async function connectSurface<const S extends SurfaceSpec>(
   opts: ConnectSurfaceOptions<S>,
 ): Promise<SurfaceConnection<S>> {
   const { surface, heartbeat: hb, url, onClientError, ...socketOptions } = opts;
-  const socket = await createSurfaceSocket({
-    ...socketOptions,
-    url: url ?? defaultSurfaceUrl(),
-    group: surface.group,
-  });
+  // Past this await the wire is LIVE, and every construction below can throw over
+  // it — `surfaceClient` refuses a policy-bearing surface with no interpreter at
+  // construction, which is reachable through this door now that it takes one. So
+  // each allocation is tracked and given back in reverse if one throws; see
+  // `./unwindOnFailedConnect`. The `url` refusal above is the same law on the
+  // other side of the dial: nothing was ever allocated there.
+  const allocations = trackConnectAllocations("connectSurface");
+  const socket = allocations.track(
+    "wire",
+    await createSurfaceSocket({
+      ...socketOptions,
+      url: url ?? defaultSurfaceUrl(),
+      group: surface.group,
+    }),
+    (s) => s.dispose(),
+  );
   const { link } = socket;
-  // `createLiveSignal` takes the WHOLE `{ dispatch, wire }` the link factory
-  // minted together: it derives the reactive transport `status`, wires the
-  // half-open watchdog (probing the reserved `system/live` TAG over the very
-  // dispatch it guards), AND mints the BRANDED handle the client requires — in one
-  // call. We hand that whole handle to `surfaceClient`, so client and watchdog
-  // share ONE dispatch over ONE wire by construction. Without it `surfaceClient`
-  // refuses a bare wire dispatch: a surface whose socket is silently half-open (or
-  // retired `down`) but whose subs already yielded a first frame would otherwise
-  // read `ready` — the green-dot-over-a-dead-link lie.
-  const transport = createLiveSignal(link, hb ?? {});
-  // The app's one error interpreter reaches this client too: a surface reached
-  // through the SINGULAR door is no more allowed to route a declared policy nowhere
-  // than one reached through the plural.
-  const client = surfaceClient(surface, transport, onClientError);
-  // The readout is the transport `status` folded WITH this client's own health
-  // fact — the conjunction, memoized once here rather than re-derived (or
-  // forgotten) at every indicator. It owns a `createRoot`, because this seam runs
-  // outside any reactive owner, so its disposer joins the three below.
-  const readout = createSurfaceReadout(transport.status, client.health);
-  return {
-    link,
-    client,
-    readout: readout.readout,
-    // Stop the watchdog, drop the readout's memo, tear down the client's
-    // build-time standing subscriptions (the eager `liveWhen`-cell readiness subs
-    // — present when the surface is mirrored), and release the socket (its
-    // identity/retired observers plus the link's dial/ping/response fibers), so a
-    // torn-down connection leaks none of the four.
-    dispose: async () => {
-      transport.dispose();
-      readout.dispose();
-      client.dispose();
-      await socket.dispose();
-    },
-  };
+  try {
+    // `createLiveSignal` takes the WHOLE `{ dispatch, wire }` the link factory
+    // minted together: it derives the reactive transport `status`, wires the
+    // half-open watchdog (probing the reserved `system/live` TAG over the very
+    // dispatch it guards), AND mints the BRANDED handle the client requires — in one
+    // call. We hand that whole handle to `surfaceClient`, so client and watchdog
+    // share ONE dispatch over ONE wire by construction. Without it `surfaceClient`
+    // refuses a bare wire dispatch: a surface whose socket is silently half-open (or
+    // retired `down`) but whose subs already yielded a first frame would otherwise
+    // read `ready` — the green-dot-over-a-dead-link lie.
+    const transport = allocations.track(
+      "watchdog",
+      createLiveSignal(link, hb ?? {}),
+      (t) => t.dispose(),
+    );
+    // The app's one error interpreter reaches this client too: a surface reached
+    // through the SINGULAR door is no more allowed to route a declared policy nowhere
+    // than one reached through the plural.
+    const client = allocations.track(
+      "client",
+      surfaceClient(surface, transport, onClientError),
+      (c) => c.dispose(),
+    );
+    // The readout is the transport `status` folded WITH this client's own health
+    // fact — the conjunction, memoized once here rather than re-derived (or
+    // forgotten) at every indicator. It owns a `createRoot`, because this seam runs
+    // outside any reactive owner, so its disposer joins the three below.
+    const readout = allocations.track(
+      "readout",
+      createSurfaceReadout(transport.status, client.health),
+      (r) => r.dispose(),
+    );
+    return {
+      link,
+      client,
+      readout: readout.readout,
+      // Stop the watchdog, drop the readout's memo, tear down the client's
+      // build-time standing subscriptions (the eager `liveWhen`-cell readiness subs
+      // — present when the surface is mirrored), and release the socket (its
+      // identity/retired observers plus the link's dial/ping/response fibers), so a
+      // torn-down connection leaks none of the four.
+      dispose: async () => {
+        transport.dispose();
+        readout.dispose();
+        client.dispose();
+        await socket.dispose();
+      },
+    };
+  } catch (constructionError) {
+    return allocations.unwind(constructionError);
+  }
 }
