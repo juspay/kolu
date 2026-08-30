@@ -426,7 +426,15 @@ dispatched at all. Each entry must be disjoint from the root, from the composed 
 every other entry: the merge is `mergeDisjointGroups`
 ([`@kolu/surface/define`](/surface/ref-surface#composing-siblings)), which claims
 every half's tags before merging and throws naming the tag *and* the two halves
-that claimed it.
+that claimed it — and it names each **sibling** by key (`surfaces.<key>`), never
+the composed bundle as one half, so a collision report says *which* sibling.
+
+An `extraGroups` entry goes in **as it is**: the option takes an open element
+union, because `RpcGroup` is invariant in that union and a precisely-typed group
+(a host's hand-written root procedures, spelled member by member) is not
+assignable to the erased `RpcGroup<Rpc.Any>` even though every element is one.
+The seam takes that erasure on itself — the same law `mergeDisjointGroups`
+adopted — so no caller writes a double cast at the door onto a safety proof.
 
 ### The rooted bundle
 
@@ -473,14 +481,17 @@ a `conn.core` that types as a definite client and is `undefined` at runtime. A
 caller who genuinely wants both shapes branches the call — the two hand back
 different types.
 
-Two miswirings are refused at the seam, both of the quiet kind: a `core.surface`
+Three miswirings are refused at the seam, all of the quiet kind: a `core.surface`
 that is a sibling-**scoped** surface (the client face mints standalone tags
 whatever prefix the value carries, so such a wire would connect and then answer
-nothing — `exposeRootedFaces` states the same law on the serve side), and a
+nothing — `exposeRootedFaces` states the same law on the serve side); a
 `core.name` that is also a sibling key (the health fold is keyed by that word, so
-one of the two clients would vanish from it in silence). `core.name` is a **label**
-and not a tag segment — the root's members keep their bare tags, so the word never
-reaches the wire and is held to no tag grammar.
+one of the two clients would vanish from it in silence); and a `core.name` that is
+empty or carries a `/`. `core.name` is a **label** and not a tag segment — the
+root's members keep their bare tags, so the word never reaches the wire and is
+held to no tag grammar — but it *is* the word a degraded readout says, prefixed
+onto every stopped subscription as `<name>/<sub>`, so a readout that cannot say it
+(`/sub`, or a word indistinguishable from a sibling path) is refused at the door.
 
 <Snippet src="packages/surface/example/snippets/consume-solid.ts" region="connect" />
 
@@ -580,16 +591,18 @@ retry schedule halted, every call failing with `SurfaceTransportRetired`), and t
 lifecycle reads that terminal status as a definitive `restarted`. Nothing is left
 for a consumer to tear down at the decode site.
 
-`ConnectSurfacesOptions.onClientError?: (policy, err) => void` is the app's
-**client error interpreter** — the single seam a multi-surface app registers so a
-member's spec-declared `client.onError` policy (a surface built via
+`onClientError?: (policy, err) => void` is the app's **client error interpreter**
+— the single seam an app registers so a member's spec-declared `client.onError`
+policy (a surface built via
 [`defineSurfaceWithPolicy`](/surface/ref-surface#declaring-a-client-error-policy--definesurfacewithpolicy))
-reaches app code on a subscription failure. `connectSurfaces` threads it inward to
-every sibling client (`surfaceClients` → each `buildSurfaceClient`), so the app
-spells **one** interpreter here, not one per surface. It is optional at the type; a
-policy-free surface bundle needs none, but a sibling that *does* carry a policy makes
-`buildSurfaceClient` **throw at construction** if it was omitted — a declared policy
-can never route nowhere.
+reaches app code on a subscription failure. Every door in the family takes it in
+the same position: `connectSurface` (to its one client), `connectSurfaces` (threaded
+inward to every sibling *and* the root, via `surfaceClients` → each
+`buildSurfaceClient`), `connectSurfaceMap`, and `surfaceClient` itself for a
+hand-built client. So the app spells **one** interpreter, not one per surface. It is
+optional at the type; a policy-free surface needs none, but a member that *does*
+carry a policy makes `buildSurfaceClient` **throw at construction** if it was
+omitted — a declared policy can never route nowhere.
 
 <Aside type="caution" title="A websocket client requires a watchdog">
   `surfaceClient` over a websocket requires a watchdog-backed, branded

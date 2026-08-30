@@ -165,13 +165,7 @@ export interface SurfaceConnection<S extends SurfaceSpec> {
 export async function connectSurface<const S extends SurfaceSpec>(
   opts: ConnectSurfaceOptions<S>,
 ): Promise<SurfaceConnection<S>> {
-  const {
-    surface,
-    heartbeat: hb,
-    url,
-    onClientError,
-    ...socketOptions
-  } = opts;
+  const { surface, heartbeat: hb, url, onClientError, ...socketOptions } = opts;
   const socket = await createSurfaceSocket({
     ...socketOptions,
     url: url ?? defaultSurfaceUrl(),

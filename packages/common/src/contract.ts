@@ -21,9 +21,13 @@
  * hand-written root procedure from ever colliding with a surface member.
  *
  * `RpcGroup.make` / `.merge` are last-writer-wins `Map.set`s with ZERO collision
- * detection (#16), so every assembly here is followed by
- * {@link assertTagCount} — a collision fails at import, not by silently serving a
- * contract that is quietly missing a member.
+ * detection (#16), so nothing here is assembled unproven — but the two assemblies
+ * are proved by different primitives, because they are different acts. The root
+ * procedure WALK (`RpcGroup.make(...)` over a declared tag list) is counted by
+ * {@link assertTagCount}; the two HALVES are fused by `mergeDisjointGroups`
+ * (`@kolu/surface/define`), which claims every half's tags before merging and names
+ * both halves of any collision. Either way a collision fails at import, not by
+ * silently serving a contract that is quietly missing a member.
  *
  * The procedure I/O schemas this contract consumes are declared in this file.
  * Schemas shared with the surface layer live in `./surface` and are imported

@@ -417,4 +417,37 @@ describe("connectSurfaces — the ROOTED bundle (an unprefixed core beside the s
       }),
     ).rejects.toThrow(/claimed by "core" and "extraGroups\[0\]"/);
   });
+
+  it("names the SIBLING, not the bundle, when a sibling's tags collide with an extra group", async () => {
+    // The labels exist so a collision report says WHICH TWO of the caller's own
+    // halves claimed the tag. Handing the composed bundle in as one half named
+    // "siblings" would answer the question with the half the caller already knew.
+    const composed = composeSurfaceContracts({ a: surface });
+    await expect(
+      connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        extraGroups: [composed.siblings.a.group],
+        url: "ws://test",
+        retired: () => {},
+      }),
+    ).rejects.toThrow(/claimed by "surfaces\.a" and "extraGroups\[0\]"/);
+  });
+
+  it("refuses a root word that a degraded readout cannot say", async () => {
+    // The word is a LABEL and not a tag segment — but it is the word the readout
+    // says, prefixed onto every stopped subscription as `<name>/<sub>`. Empty, it
+    // reads as `/floor`; carrying the separator, it is indistinguishable from a sub
+    // of a sibling named `a`. Naming is the field's only job.
+    for (const name of ["", "a/b"]) {
+      await expect(
+        connectSurfaces({
+          surfaces: { a: surface },
+          core: { surface: core, name },
+          url: "ws://test",
+          retired: () => {},
+        }),
+      ).rejects.toThrow(/must be non-empty and carry no/);
+    }
+  });
 });

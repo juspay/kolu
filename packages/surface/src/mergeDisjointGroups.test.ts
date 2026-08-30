@@ -5,11 +5,11 @@
  * `RpcGroup.merge` is a last-writer-wins `Map.set` with no collision detection,
  * so the only thing separating "two halves multiplexed on one wire" from "one
  * member silently answering under another's schema" is a proof somebody has to
- * run. It was run in five private spellings before this export existed
- * (`connectSurfaces`' `extraGroups` fold, kolu-server's `servedGroup`,
- * kolu-common's `contract`, kaval's daemon group, and — one repo over — olai's
- * `fuseGroups`); what is pinned here is the one that replaced them: the count,
- * and the report that names WHICH two of the caller's halves claimed the tag.
+ * run. The private spellings it replaced are enumerated on `mergeDisjointGroups`
+ * itself — ONE place to update when the next one is found, rather than a second
+ * inventory here that had already drifted from that one before this file was a day
+ * old. What is pinned HERE is the proof they all needed: the count, and the report
+ * that names WHICH two of the caller's halves claimed the tag.
  */
 
 import { Schema } from "effect";

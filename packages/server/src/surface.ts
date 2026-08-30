@@ -55,8 +55,7 @@ import {
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
 import { Effect } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { koluRootGroup, koluSurfaceGroup } from "kolu-common/contract";
+import type { RpcGroup } from "effect/unstable/rpc";
 import type {
   ForwardCreateInput,
   Forwards,
@@ -75,7 +74,7 @@ import {
   resolveNewTerminalPolicy,
   surfaces,
 } from "kolu-common/surface";
-import { koluWireGroup, padiHostMap } from "kolu-common/surfacesWithPadi";
+import { koluWireGroup } from "kolu-common/surfacesWithPadi";
 import { serverCommit, serverStartedAt, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import {
@@ -110,22 +109,20 @@ import { store } from "./state.ts";
 // `/surface/padi/*`.
 export const servedGroup = koluWireGroup;
 
-/** Every tag the served superset carries, in the three halves it is assembled
- *  from — exported so the wire-shape test asserts the exact key set against the
- *  same sources the server merges, rather than a hand-copied literal that could
- *  drift. (The disjointness of those halves is proved by the merge above; this is
- *  the test's window onto the same three numbers.) */
-export const SERVED_TAG_COUNTS = {
-  root: koluRootGroup.requests.size,
-  koluSurfaces: koluSurfaceGroup.requests.size,
-  padiMap: padiHostMap.group.requests.size,
-} as const;
-
 /** A served fragment: one flat group and the handlers bound at its tags. Every
  *  producer kolu-server assembles — `implementSurfacesOnPublisher`, `serveHostMap`,
- *  and {@link buildAppRouter}'s root procedures — hands back this same pair. */
+ *  and {@link buildAppRouter}'s root procedures — hands back this same pair.
+ *
+ *  The group's element union is left OPEN, and the erasure is this type's rather
+ *  than its producers': `RpcGroup<in out R>` is INVARIANT in that union, so a
+ *  precisely-typed group — the root procedures, spelled member by member in
+ *  `kolu-common/contract` — is not assignable to `RpcGroup<Rpc.Any>` even though
+ *  every element IS an `Rpc.Any`. Demanding the erased shape here is what made
+ *  `buildAppRouter` write `koluRootGroup as unknown as RpcGroup<Rpc.Any>`, the very
+ *  double-cast `mergeDisjointGroups` retired one package over. */
 export interface ServedFragment {
-  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  // biome-ignore lint/suspicious/noExplicitAny: the erasure is this type's, not its producers' — see the paragraph above; matches `mergeDisjointGroups`' own parameter.
+  readonly group: RpcGroup.RpcGroup<any>;
   readonly handlers: SurfaceHandlers;
 }
 

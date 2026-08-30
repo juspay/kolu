@@ -1455,9 +1455,15 @@ function assembleGroup(
 
 /** Build a surface from a spec. The returned `.group` is a flat `RpcGroup` whose
  *  tags all begin `surface/`; a host merges it with its own hand-written group
- *  for the RPCs the surface can't model:
+ *  for the RPCs the surface can't model — through the COUNTED merge, never a bare
+ *  `RpcGroup.merge` (which is last-writer-wins and would drop a colliding tag in
+ *  silence; see {@link mergeDisjointGroups}):
  *
- *      const hostGroup = surface.group.merge(rawTerminalGroup, rawGitGroup);
+ *      const hostGroup = mergeDisjointGroups({
+ *        surface: surface.group,
+ *        rawTerminal: rawTerminalGroup,
+ *        rawGit: rawGitGroup,
+ *      });
  *
  *  Consumers feed the group to `implementSurface` (server) and to the client face
  *  builder (`surfaceClient`). */

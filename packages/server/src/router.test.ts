@@ -18,8 +18,10 @@
  *  1. **`servedGroup` carries the exact tag SUPERSET** — the root procedures, the
  *     `surface/kolu/*` + `surface/surfaceApp/*` siblings, and the padi MAP's folded
  *     members + `entries`. `RpcGroup.merge` is a last-writer-wins `Map.set` with
- *     zero collision detection (#16), so "the padi half is present" and "nothing was
- *     silently overwritten" are the same assertion: count, and spell the tags.
+ *     zero collision detection (#16), so "nothing was silently overwritten" is a
+ *     COUNT — and that count now lives inside `mergeDisjointGroups`, which runs at
+ *     the import of the one assembly (`koluWireGroup`). What is spelled here is the
+ *     half a count cannot state: WHICH tags, by name.
  *  2. **Every advertised tag has a handler, and every handler is advertised** —
  *     `assembleServedHandlers`, which is what turns an advertised-but-unbound tag
  *     (the silent 404) into a boot crash.
@@ -27,15 +29,11 @@
 
 import type { SurfaceHandlers } from "@kolu/surface/server";
 import { Effect } from "effect";
-import { ROOT_RPC_TAGS } from "kolu-common/contract";
+import { koluRootGroup, ROOT_RPC_TAGS } from "kolu-common/contract";
 import { padiHostMap } from "kolu-common/surfacesWithPadi";
 import { describe, expect, it } from "vitest";
 import { buildAppRouter } from "./router.ts";
-import {
-  assembleServedHandlers,
-  SERVED_TAG_COUNTS,
-  servedGroup,
-} from "./surface.ts";
+import { assembleServedHandlers, servedGroup } from "./surface.ts";
 
 /** The root fragment, over deps that are never called by these tests. */
 function rootFragment() {
@@ -91,21 +89,20 @@ describe("the served group — the wire surface kolu-server advertises", () => {
   });
 
   it("is EXACTLY the three halves — nothing dropped, nothing extra (#16)", () => {
-    // `RpcGroup.merge` overwrites a colliding tag silently, so counting is the only
-    // way a collision is ever observed. The same assertion runs at import in
-    // `surface.ts`; spelling it here is what keeps it from being deleted as
-    // redundant when someone widens the merge.
-    expect(servedGroup.requests.size).toBe(
-      SERVED_TAG_COUNTS.root +
-        SERVED_TAG_COUNTS.koluSurfaces +
-        SERVED_TAG_COUNTS.padiMap,
-    );
-    expect(SERVED_TAG_COUNTS.root).toBe(ROOT_RPC_TAGS.length);
-    expect(SERVED_TAG_COUNTS.padiMap).toBe(padiHostMap.group.requests.size);
-    // The padi half is the MAP's, never the plain sibling's — a plain padi sibling
-    // would also carry the three reserved `system/*` tags, which the map does not
-    // serve, so they must not be advertised.
+    // "Nothing was dropped" is no longer a count restated here: the merge CANNOT be
+    // widened without the proof, because the proof is inside `mergeDisjointGroups`
+    // and runs at import. Restating the sum from the same three sources would assert
+    // the merge against itself. What is left is the half of this block that says
+    // something the merge does not: the root walk carries exactly its declared tags,
+    // and the padi half is the MAP's rather than the plain sibling's — a plain padi
+    // sibling would also carry the three reserved `system/*` tags, which the map does
+    // not serve, so they must not be advertised.
+    expect(koluRootGroup.requests.size).toBe(ROOT_RPC_TAGS.length);
     expect(servedTags()).not.toContain("surface/padi/system/live");
+    // …and the padi map's own tags ARE all advertised, which is the regression this
+    // file exists for, stated against the map itself rather than against a count.
+    for (const tag of padiHostMap.group.requests.keys())
+      expect(servedTags()).toContain(tag);
   });
 });
 

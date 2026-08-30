@@ -45,6 +45,7 @@
  */
 
 import { isTransportError } from "@kolu/surface/client";
+import { mergeDisjointGroups } from "@kolu/surface/define";
 import {
   isSurfaceRelayTransportLost,
   isSurfaceStdioTransportClosed,
@@ -54,7 +55,6 @@ import {
   websocketLink,
   type WebsocketLink,
 } from "@kolu/surface/links/websocket";
-import { mergeDisjointGroups } from "@kolu/surface/define";
 import { surfaceWsUrl } from "@kolu/surface-app";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";
 import { fold } from "@kolu/surface-map";
@@ -70,9 +70,9 @@ import { PADI_SURFACE_NAME, padiHostMap } from "kolu-common/surfacesWithPadi";
  *  strict subset of the served one (the root `server/*` / `daemon/*` / `hosts/*`
  *  procedures are not merged because no scenario drives them from here).
  *
- *  The cast mirrors the server's: `RpcGroup` is INVARIANT in its element union, so a
- *  precisely-typed group is not assignable to the erased `RpcGroup<Rpc.Any>` every
- *  transport seam takes, even though every element IS an `Rpc.Any`. */
+ *  No cast: `mergeDisjointGroups` takes the element-union erasure on itself
+ *  (`RpcGroup` is invariant in that union), so the precisely-typed halves go in as
+ *  they are. */
 const clientGroup = mergeDisjointGroups({
   koluSurfaces: koluSurfaceGroup,
   padiMap: padiHostMap.group,

@@ -66,6 +66,38 @@ import type { RpcGroup } from "effect/unstable/rpc";
 import type { Accessor } from "solid-js";
 import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
 
+/** The ROOT SLOT of a rooted bundle: the unprefixed root surface, plus the WORD it
+ *  answers to in the health fold and the readout.
+ *
+ *  Named once and referenced everywhere the shape appears — the option, the rooted
+ *  overload's `& { core: … }`, and the seam's own resolution — because three
+ *  hand-written spellings of one shape are three things to keep equal, and the
+ *  fourth arrives the moment anyone wants to name the argument's type.
+ *
+ *  `surface` must be a STANDALONE surface (`defineSurface`'s own `surface/` prefix).
+ *  A sibling-scoped surface is refused: the client face is built against standalone
+ *  tags, so a scoped root would dial `surface/<member>/<verb>` at a wire that serves
+ *  `surface/<key>/…` and every call would 404 at the far end with nothing having
+ *  said so.
+ *
+ *  `name` is the role a sibling's key plays in the fold (`surfaceApp/buildInfo`),
+ *  which the root has no key to supply. It is app policy, so it crosses as an
+ *  argument (the class the required `retired` handler belongs to) rather than being
+ *  invented here: the framework has no name for an app's own floor. Must not be one
+ *  of the sibling keys — two clients folded under one word would drop one of them in
+ *  silence.
+ *
+ *  It is a LABEL, not a tag segment: the root's members keep their bare tags, so
+ *  unlike a sibling key this word never reaches the wire and is not held to
+ *  `assertTagSegment`'s grammar. An app may call its floor whatever its readout
+ *  should say — as long as the readout can say it, which is the one thing
+ *  {@link resolveRoot} holds it to. */
+// biome-ignore lint/suspicious/noExplicitAny: the root surface pins its own spec.
+interface SurfaceRoot<C extends Surface<any>> {
+  readonly surface: C;
+  readonly name: string;
+}
+
 export interface ConnectSurfacesOptions<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
   E extends Record<string, Surface<any>>,
@@ -121,26 +153,8 @@ export interface ConnectSurfacesOptions<
    *  carries tags that are not a surface at all (a keyed map's group, a host's
    *  hand-written root procedures) and are dialled raw over `conn.transport`. A
    *  consumer can pass both, and kolu does. */
-  core?: {
-    /** The root surface itself — a STANDALONE surface (`defineSurface`'s own
-     *  `surface/` prefix). A sibling-scoped surface here is refused: the client
-     *  face is built against standalone tags, so a scoped root would dial
-     *  `surface/<member>/<verb>` at a wire that serves `surface/<key>/…` and
-     *  every call would 404 at the far end with nothing having said so. */
-    surface: C;
-    /** The WORD the root answers to in the health fold and the readout — the role a
-     *  sibling's key plays there (`surfaceApp/buildInfo`), which the root has no key
-     *  to supply. It is app policy, so it crosses as an argument (the class the
-     *  required `retired` handler belongs to) rather than being invented here: the
-     *  framework has no name for an app's own floor. Must not be one of the sibling
-     *  keys — two clients folded under one word would drop one of them in silence.
-     *
-     *  It is a LABEL, not a tag segment: the root's members keep their bare tags, so
-     *  unlike a sibling key this word never reaches the wire and is not held to
-     *  `assertTagSegment`'s grammar. An app may call its floor whatever its readout
-     *  should say. */
-    name: string;
-  };
+  // biome-ignore lint/suspicious/noExplicitAny: the same bound `C` carries — the root surface pins its own spec. The conditional is what keeps a rootless wire's `core` honestly `undefined` rather than a fillable `{ surface: undefined }`.
+  core?: C extends Surface<any> ? SurfaceRoot<C> : undefined;
   /** Groups MULTIPLEXED on the same wire that are not sibling `Surface`s — the tags a
    *  consumer dials over `conn.transport` rather than through `clients.<key>`:
    *
@@ -216,7 +230,18 @@ export interface SurfacesConnection<
   link: WebsocketLink;
   /** One scoped `surfaceClient` per sibling surface (the `surfaceClients` shape).
    *  Reach a sibling's primitives through `clients.<key>` and its reserved members
-   *  through `clients.<key>.rpc` (the tag-scoped face). */
+   *  through `clients.<key>.rpc` (the tag-scoped face).
+   *
+   *  It carries the SIBLINGS ONLY — a rooted wire's root client is
+   *  {@link SurfacesConnection.core}, deliberately beside rather than inside, so a
+   *  sibling key and a root word cannot be confused and so the root's different tag
+   *  shape is not lied about. So do NOT hand-fold this record:
+   *  `surfaceClientsHealth(conn.clients)` is a spellable line (the function is a
+   *  public export) that on a rooted wire returns a fact GREEN OVER A DEAD ROOT, and
+   *  the same under-coverage reaches any consumer walking `Object.values(clients)`
+   *  for a cross-client operation. {@link SurfacesConnection.health} and
+   *  {@link SurfacesConnection.readout} fold the root in, and `dispose` tears it
+   *  down; use those. */
   clients: SurfaceClients<E>;
   /** The ROOT surface's own `surfaceClient` — present exactly when
    *  {@link ConnectSurfacesOptions.core} was passed, and typed as `undefined` when
@@ -267,6 +292,93 @@ export interface SurfacesConnection<
   dispose: () => Promise<void>;
 }
 
+/** The ROOT, resolved: the slot exactly as the caller passed it, once every refusal
+ *  this seam owes a root has been made — or `undefined` for a siblings-only wire.
+ *
+ *  ONE decision, taken once, so the body below asks a VALUE whether there is a root
+ *  rather than re-deciding it, and so a reader looking for "what does this door
+ *  refuse about a root" finds all of it in one place instead of two-thirds of it. */
+function resolveRoot(
+  core: SurfaceRoot<Surface<SurfaceSpec>> | undefined,
+  surfaces: Record<string, unknown>,
+): SurfaceRoot<Surface<SurfaceSpec>> | undefined {
+  if (core === undefined) return undefined;
+  // A sibling-scoped surface as the root is the one miswiring nothing downstream
+  // would catch: `surfaceClient` builds its face from the SPEC and mints
+  // standalone tags whatever prefix the value carries, so a scoped root would
+  // dial `surface/<member>/<verb>` over a wire that serves `surface/<key>/…`
+  // and every call would die at the far end — after connecting cleanly.
+  //
+  // ONE LAW, TWO DOORS. The identical refusal stands at the SERVE side's rooted
+  // gate — `exposeRootedFaces` (`@kolu/surface/expose`), which cites this one back
+  // — because a root is standalone or it is not a root, and each door has to hold
+  // the rule for the app that happens to use only that door. The two sites are
+  // deliberately not one shared assertion: the message names the door a reader
+  // arrived through, and the ERROR CLASS is each module's own (`ExposeMapError` is
+  // `expose.ts`'s recognisable class for a malformed exposure; this seam has none
+  // and raises a plain `Error`, like its two neighbouring refusals). What a shared
+  // predicate would buy — one reading of "is this the root of a bundle" — is real,
+  // and is the recorded next step rather than this PR's, which is capped at the
+  // single new export it already spends on `mergeDisjointGroups`. Until then the
+  // two sites cite each other, so neither can be relaxed by someone who did not
+  // know the other existed.
+  if (core.surface.tagPrefix !== SURFACE_TAG_PREFIX) {
+    throw new Error(
+      `connectSurfaces: \`core.surface\` carries the tag prefix "${core.surface.tagPrefix}", ` +
+        `not the standalone "${SURFACE_TAG_PREFIX}" — it is a sibling-scoped surface, and the ` +
+        "root of a rooted bundle is the UNPREFIXED one. Pass the standalone surface " +
+        "(`defineSurface(spec)`), or make it a sibling in `surfaces`.",
+    );
+  }
+  // The health fold is keyed by word, so a root sharing a sibling's key would
+  // put two clients under one name — and one of them would vanish from the fold
+  // (and from the readout) with nothing said.
+  if (Object.hasOwn(surfaces, core.name)) {
+    throw new Error(
+      `connectSurfaces: \`core.name\` is "${core.name}", which is also a sibling key — ` +
+        "the health fold is keyed by that word, so one of the two clients would be " +
+        "dropped from it in silence. Give the root a name no sibling has.",
+    );
+  }
+  // The word is a LABEL and not a tag segment, so it is deliberately NOT held to
+  // `assertTagSegment`'s grammar — but it has exactly one job, which is to be READ,
+  // and two spellings cannot do it. `surfaceClientsHealth` prefixes every stopped
+  // subscription as `<name>/<sub>`: an empty word reads as `/floor`, and one
+  // carrying the separator (`a/b`) is indistinguishable from a sub of a sibling
+  // named `a`. A degraded readout that names the wrong thing is worse than one that
+  // names nothing, and naming is all this field does.
+  if (core.name === "" || core.name.includes("/")) {
+    throw new Error(
+      `connectSurfaces: \`core.name\` is ${JSON.stringify(core.name)} — the word is ` +
+        "what a degraded readout says the root is called, and it is prefixed onto every " +
+        "stopped subscription as `<name>/<sub>`. It must be non-empty and carry no `/`.",
+    );
+  }
+  return core;
+}
+
+/** The FIRST sibling's key — the reserved round-trips' target on a ROOTLESS wire.
+ *  Every sibling carries the same three reserved `system/*` members and answers the
+ *  same per-process id, so "first" is "take one", never a ranking.
+ *
+ *  THROWS when there is none, which is the third and last of this seam's refusals:
+ *  a rootless wire with no siblings carries no member at all, so there is no
+ *  reserved tag for either round-trip to address. It is spelled as a named function
+ *  rather than folded into the derivation below because a refusal produced by a
+ *  closure named for the value it computes is a refusal a reader does not find. */
+function firstSiblingKey(surfaces: Record<string, unknown>): string {
+  const first = Object.keys(surfaces)[0];
+  if (first === undefined) {
+    throw new Error(
+      "connectSurfaces: nothing was passed — no `core` surface and no siblings, so " +
+        "this wire would carry no members and there would be no reserved `system/live` " +
+        "member for the half-open watchdog to probe. Pass a `core`, at least one " +
+        "sibling, or both.",
+    );
+  }
+  return first;
+}
+
 /** A SIBLINGS-ONLY wire — every caller that existed before the `core` slot did.
  *  `core` is spelled `undefined` rather than merely omitted so a caller cannot
  *  reach this overload with a root it computed conditionally; see the note on the
@@ -298,7 +410,7 @@ export async function connectSurfaces<
   // biome-ignore lint/suspicious/noExplicitAny: the root surface pins its own spec.
   const C extends Surface<any>,
 >(
-  opts: ConnectSurfacesOptions<E, C> & { core: { surface: C; name: string } },
+  opts: ConnectSurfacesOptions<E, C> & { core: SurfaceRoot<C> },
 ): Promise<SurfacesConnection<E, C>>;
 export async function connectSurfaces(
   // biome-ignore lint/suspicious/noExplicitAny: the implementation signature is erased — the two overloads above are the contract, and they are what a caller is checked against.
@@ -313,47 +425,9 @@ export async function connectSurfaces(
     onClientError,
     ...socketOptions
   } = opts;
-  const root: { surface: Surface<SurfaceSpec>; name: string } | undefined =
-    core;
-  if (root !== undefined) {
-    // A sibling-scoped surface as the root is the one miswiring nothing downstream
-    // would catch: `surfaceClient` builds its face from the SPEC and mints
-    // standalone tags whatever prefix the value carries, so a scoped root would
-    // dial `surface/<member>/<verb>` over a wire that serves `surface/<key>/…`
-    // and every call would die at the far end — after connecting cleanly.
-    //
-    // ONE LAW, TWO DOORS. The identical refusal stands at the SERVE side's rooted
-    // gate — `exposeRootedFaces` (`@kolu/surface/expose`), which cites this one back
-    // — because a root is standalone or it is not a root, and each door has to hold
-    // the rule for the app that happens to use only that door. The two sites are
-    // deliberately not one shared assertion: the message names the door a reader
-    // arrived through, and the ERROR CLASS is each module's own (`ExposeMapError` is
-    // `expose.ts`'s recognisable class for a malformed exposure; this seam has none
-    // and raises a plain `Error`, like its two neighbouring refusals). What a shared
-    // predicate would buy — one reading of "is this the root of a bundle" — is real,
-    // and is the recorded next step rather than this PR's, which is capped at the
-    // single new export it already spends on `mergeDisjointGroups`. Until then the
-    // two sites cite each other, so neither can be relaxed by someone who did not
-    // know the other existed.
-    if (root.surface.tagPrefix !== SURFACE_TAG_PREFIX) {
-      throw new Error(
-        `connectSurfaces: \`core.surface\` carries the tag prefix "${root.surface.tagPrefix}", ` +
-          `not the standalone "${SURFACE_TAG_PREFIX}" — it is a sibling-scoped surface, and the ` +
-          "root of a rooted bundle is the UNPREFIXED one. Pass the standalone surface " +
-          "(`defineSurface(spec)`), or make it a sibling in `surfaces`.",
-      );
-    }
-    // The health fold is keyed by word, so a root sharing a sibling's key would
-    // put two clients under one name — and one of them would vanish from the fold
-    // (and from the readout) with nothing said.
-    if (Object.hasOwn(surfaces, root.name)) {
-      throw new Error(
-        `connectSurfaces: \`core.name\` is "${root.name}", which is also a sibling key — ` +
-          "the health fold is keyed by that word, so one of the two clients would be " +
-          "dropped from it in silence. Give the root a name no sibling has.",
-      );
-    }
-  }
+  // ONE decision, taken once: the root, checked, or `undefined`. Every line below
+  // asks THIS binding — never the option, and never the question a second time.
+  const root = resolveRoot(core, surfaces);
   // WHICH member the two reserved round-trips address — the `system/identity` echo
   // behind the stale-tab handshake and the `system/live` half-open watchdog. They
   // share ONE target (two prefixes over one wire is a split brain, not a fallback),
@@ -365,26 +439,12 @@ export async function connectSurfaces(
   //     trustworthy target when the SIBLING set varies per serve (a build that
   //     imported more siblings than the serve composed would otherwise probe a tag
   //     that serve does not carry, and read the "unknown tag" as a dead wire);
-  //   - without one, the FIRST sibling's, exactly as before. Every sibling carries
-  //     the same three reserved `system/*` members and answers the same per-process
-  //     id, so "first" is "take one", never a ranking.
-  //
-  // The refusal below is what is left of the old empty-map throw: with a root slot
-  // a root-only map is an ordinary wire, so the only thing left to refuse is a call
-  // that passed nothing at all.
-  const probeSibling = ((): string | undefined => {
-    if (root !== undefined) return undefined;
-    const first = Object.keys(surfaces)[0];
-    if (first === undefined) {
-      throw new Error(
-        "connectSurfaces: nothing was passed — no `core` surface and no siblings, so " +
-          "this wire would carry no members and there would be no reserved `system/live` " +
-          "member for the half-open watchdog to probe. Pass a `core`, at least one " +
-          "sibling, or both.",
-      );
-    }
-    return first;
-  })();
+  //   - without one, the FIRST sibling's, exactly as before — {@link firstSiblingKey},
+  //     which also carries what is left of the old empty-map throw: with a root slot
+  //     a root-only map is an ordinary wire, so the only thing left to refuse is a
+  //     call that passed nothing at all.
+  const probeSibling =
+    root === undefined ? firstSiblingKey(surfaces) : undefined;
   // The ONE combined group every member's tags live in — the client twin of
   // `implementSurfaces`. Deriving it here (rather than taking it as an option)
   // is what makes "the wire serves exactly these surfaces" true by construction:
@@ -401,7 +461,20 @@ export async function connectSurfaces(
   const composed = composeSurfaceContracts(surfaces);
   const group = mergeDisjointGroups({
     ...(root === undefined ? {} : { core: root.surface.group }),
-    siblings: composed.group,
+    // Each sibling by NAME, not the whole bundle as one half. The labels exist
+    // because "the useful half of a collision report is not the tag — it is WHICH
+    // TWO of the caller's own halves both claimed it", and this is the one call site
+    // in the repo whose half-count is UNBOUNDED, so it is where that resolution
+    // matters most: `claimed by "siblings" and "extraGroups[0]"` withholds the one
+    // fact the caller needs. `composeSurfaceContracts` already proved the siblings
+    // disjoint among themselves; re-claiming them costs one walk of tags already in
+    // hand (each `composed.siblings[key].group` IS the scoped group it merged).
+    ...Object.fromEntries(
+      Object.entries(composed.siblings).map(([key, sibling]) => [
+        `surfaces.${key}`,
+        sibling.group,
+      ]),
+    ),
     ...Object.fromEntries(
       extraGroups.map((extra, i) => [`extraGroups[${i}]`, extra]),
     ),
@@ -427,6 +500,11 @@ export async function connectSurfaces(
   // on the root would otherwise route nowhere (`buildSurfaceClient` refuses that at
   // construction), which would make the root second-class exactly where a sibling is
   // first-class.
+  //
+  // A second binding rather than a field on `root`, because a client cannot exist
+  // before the transport does; pairing the WORD with the CLIENT here is what keeps
+  // the two readers below (the fold, and the returned `core`) asking the presence
+  // question once each, of a value that carries both answers.
   const rooted =
     root === undefined
       ? undefined

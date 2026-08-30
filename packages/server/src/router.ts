@@ -22,7 +22,6 @@
 
 import type { SurfaceHandlers } from "@kolu/surface/server";
 import { Context, Effect } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { koluRootGroup } from "kolu-common/contract";
 import type {
   HostRef,
@@ -196,10 +195,11 @@ export function buildAppRouter(deps: BuildAppRouterDeps): ServedFragment {
   };
 
   return {
-    // `RpcGroup` is invariant in its element union, so the precisely-typed root
-    // group is not assignable to the erased `RpcGroup<Rpc.Any>` a served fragment
-    // carries — see the same cast, with the same reason, on `servedGroup`.
-    group: koluRootGroup as unknown as RpcGroup.RpcGroup<Rpc.Any>,
+    // No cast. `RpcGroup` is invariant in its element union, so the precisely-typed
+    // root group is not assignable to an erased `RpcGroup<Rpc.Any>` — but
+    // `ServedFragment.group` takes that erasure on itself (as `mergeDisjointGroups`
+    // does), so the group goes in as it is.
+    group: koluRootGroup,
     // `SurfaceHandlers` erases the handler's REQUIREMENTS (`Effect<A, E>` is
     // `Effect<A, E, never>`), and `hosts/viewer` genuinely requires
     // {@link CurrentViewer}. The requirement is satisfied per CONNECTION, by the

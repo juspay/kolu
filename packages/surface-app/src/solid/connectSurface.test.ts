@@ -11,10 +11,7 @@
  *     instead of dialling a fabricated address.
  */
 
-import {
-  defineSurface,
-  defineSurfaceWithPolicy,
-} from "@kolu/surface/define";
+import { defineSurface, defineSurfaceWithPolicy } from "@kolu/surface/define";
 import { Schema } from "effect";
 import { createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
