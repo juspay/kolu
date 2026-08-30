@@ -1561,18 +1561,11 @@ export function composeSurfaceContracts<
   const E extends Record<string, Surface<any>>,
 >(entries: E): ComposedSurfaces<E> {
   const siblings: Record<string, Surface<SurfaceSpec>> = {};
-  const byTag = new Map<string, Rpc.Any>();
+  const scopedGroups: Record<string, RpcGroup.RpcGroup<Rpc.Any>> = {};
   for (const [key, sib] of Object.entries(entries)) {
     assertTagSegment("sibling", key);
     const scoped = buildSurface(sib.spec, siblingTagPrefix(key));
-    for (const [tag, rpc] of scoped.group.requests) {
-      if (byTag.has(tag)) {
-        throw new Error(
-          `composeSurfaceContracts: duplicate wire tag "${tag}" while composing sibling "${key}".`,
-        );
-      }
-      byTag.set(tag, rpc);
-    }
+    scopedGroups[key] = scoped.group;
     // Reuse the sibling's OWN descriptors: they are pure data keyed by member
     // name and carry no tag, so re-deriving them would only mint equal twins.
     siblings[key] = {
@@ -1583,16 +1576,22 @@ export function composeSurfaceContracts<
     };
   }
   return {
-    group: assembleGroup(byTag),
+    // The counted merge, labelled by SIBLING KEY — so the composition's own
+    // disjointness proof is the framework's one spelling of it, and a collision
+    // (structurally unreachable while every sibling is prefixed by its unique
+    // record key, but the proof is what makes that a fact rather than a belief)
+    // names both siblings rather than only the second one to arrive.
+    group: mergeDisjointGroups(scopedGroups),
     siblings,
   } as unknown as ComposedSurfaces<E>;
 }
 
 /** Merge several flat groups into ONE and PROVE nothing was swallowed — the
  *  counted merge every consumer of a composed wire needs and, until now, spelled
- *  privately (`connectSurfaces`' `extraGroups` fold, kolu-server's `servedGroup`,
- *  kaval's daemon group, kolu-common's `contract`, and — one repo over — olai's
- *  `fuseGroups`).
+ *  privately six times over: {@link composeSurfaceContracts}' own sibling walk
+ *  right above, `connectSurfaces`' `extraGroups` fold, kolu-server's
+ *  `servedGroup`, kolu-common's `contract`, kaval's daemon group, and — one repo
+ *  over — olai's `fuseGroups`.
  *
  *  `RpcGroup.merge` is a last-writer-wins `Map.set` with NO collision detection,
  *  so a tag two groups both spell survives exactly once and the survivor answers
@@ -1613,19 +1612,21 @@ export function composeSurfaceContracts<
  *  It lives here, beside {@link composeSurfaceContracts} and the `claim` walk, for
  *  the same reason those do: this file owns the invariant that no tag is minted
  *  twice, and a second statement of it elsewhere is a rule that can be relaxed in
- *  one place and noticed in neither. */
+ *  one place and noticed in neither. Its sibling primitive is `assembleGroup`,
+ *  which proves the same thing about a walk that CLAIMS tags one at a time (one
+ *  surface's spec); this one proves it about N groups already built. */
 export function mergeDisjointGroups(
-  groups: Readonly<Record<string, RpcGroup.RpcGroup<Rpc.Any>>>,
+  // The value type is left OPEN, and the erasure is this function's rather than its
+  // callers'. `RpcGroup<in out Rpcs>` is invariant, so a precisely-typed group — a
+  // contract spelled member by member — is not assignable to `RpcGroup<Rpc.Any>` even
+  // though every element IS an `Rpc.Any`; a parameter that demanded it would make the
+  // `as unknown as` double-cast the standard idiom at this function's own call sites,
+  // which is a poor thing for a safety proof to teach. The body reads only `requests`
+  // and `merge`, and the RESULT is honestly erased — the shape every serving and
+  // transport seam takes.
+  groups: Readonly<Record<string, RpcGroup.RpcGroup<any>>>,
 ): RpcGroup.RpcGroup<Rpc.Any> {
   const entries = Object.entries(groups);
-  const [first, ...rest] = entries;
-  if (first === undefined) {
-    throw new Error(
-      "mergeDisjointGroups: no groups were passed. An empty merge would hand back a " +
-        "group that advertises nothing — a wire that connects and can dial no tag at " +
-        "all — which is never what a caller means.",
-    );
-  }
   const claimedBy = new Map<string, string>();
   const collisions: string[] = [];
   for (const [label, group] of entries) {
@@ -1646,10 +1647,19 @@ export function mergeDisjointGroups(
         "schema. Rename the member, or merge the two halves as one group.",
     );
   }
-  const merged = rest.reduce(
-    (group, [, next]) => group.merge(next),
-    first[1] as RpcGroup.RpcGroup<Rpc.Any>,
+  // `merge` is VARIADIC and drains every argument into ONE copied map, so the whole
+  // record costs one copy rather than one per half — which matters because the
+  // caller's half-count is unbounded (`connectSurfaces` labels each `extraGroups`
+  // entry). A merge of NOTHING is the empty group, the identity: a composer whose
+  // input map is empty this run — a rooted wire with no siblings — legitimately
+  // produces one, and refusing it here would make that ordinary wire unspellable.
+  const [first, ...rest] = entries.map(
+    ([, group]) => group as RpcGroup.RpcGroup<Rpc.Any>,
   );
+  const merged =
+    first === undefined
+      ? (RpcGroup.make() as unknown as RpcGroup.RpcGroup<Rpc.Any>)
+      : first.merge(...rest);
   if (merged.requests.size !== claimedBy.size) {
     throw new Error(
       `mergeDisjointGroups: the merge carries ${merged.requests.size} tag(s), but the walk ` +

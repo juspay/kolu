@@ -31,7 +31,7 @@ import { runContractCorpus, spawnInput } from "./contractCorpus.testlib.ts";
 import { KAVAL_GATE_FILE } from "./socketPath.ts";
 import { ptyHostSurface } from "./ptyHostSurface.ts";
 import { type PtyHostClient, ptyHostClientOver } from "./ptyHostClient.ts";
-import { kavalControlSurface } from "./daemonSurface.ts";
+import { kavalControlSurface, kavalDaemonGroup } from "./daemonSurface.ts";
 import { closeStream, openStream } from "./streamFrame.testlib.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -367,7 +367,7 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     // payoff, and it is what the old `implement(widenedContract as any)` splice
     // existed to fake.
     const link = await unixSocketLink({
-      group: ptyHostSurface.group.merge(kavalControlSurface.group),
+      group: kavalDaemonGroup,
       socketPath: d.socketPath,
     });
     try {

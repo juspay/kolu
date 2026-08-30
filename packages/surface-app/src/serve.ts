@@ -405,7 +405,8 @@ export interface ServeSurfaceAppOptions<Svc = never, H extends string = never>
   /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
   readonly handlers: SurfaceHandlers;
   /** THIS face's default-deny allowlist — `exposeFace(surface, { … })` (or
-   *  `exposeFaces` for a sibling bundle). Omit and the websocket serves the
+   *  `exposeFaces` for a sibling bundle, `exposeRootedFaces` for an unprefixed root
+   *  beside one). Omit and the websocket serves the
    *  whole surface; declare one and every member it does not name is refused to
    *  BROWSERS while a trusted face — the unix socket, the MCP adapter — may
    *  still serve it. The rule, and which faces take one, live in

@@ -287,5 +287,5 @@ export const koluSurfaceGroup = composedSurfaces.group;
  *  anyway); the PRECISE halves stay available as the two exports above. */
 export const contract = mergeDisjointGroups({
   koluSurfaces: koluSurfaceGroup,
-  root: koluRootGroup as unknown as RpcGroup.RpcGroup<Rpc.Any>,
+  root: koluRootGroup,
 });

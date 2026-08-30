@@ -112,6 +112,7 @@ import {
   mergeDisjointGroups,
   READ_VERBS,
   type Surface,
+  SURFACE_TAG_PREFIX,
   type SurfaceSpec,
   surfaceTag,
 } from "./define";
@@ -637,12 +638,19 @@ function siblingTagsAt<M extends Record<string, Surface<SurfaceSpec>>>(
  *  two groups are DISJOINT. When they are not, the union silently keeps one copy of
  *  the shared tag, the `universe` still set-equals a served group merged just as
  *  carelessly, {@link restrictHandlers} sees nothing wrong, and the face serves one
- *  member under the other's policy. So the universe here is
- *  `mergeDisjointGroups` of the two halves — the SAME counted composition the serve
- *  path runs — and disjointness is established rather than assumed. (The case that
- *  makes it real: a sibling-SCOPED surface handed in as the root. `tagsAt` reads a
- *  surface's prefix off the value, by design, so a scoped root's tags collide with
- *  the sibling of that key exactly.)
+ *  member under the other's policy.
+ *
+ *  Two things replace that promise. The universe is `mergeDisjointGroups` of the
+ *  two halves — the SAME counted composition the serve path runs — so disjointness
+ *  is established rather than assumed. And the root is REFUSED unless it is
+ *  standalone, which is the reachable half of the same law: `tagsAt` reads a
+ *  surface's prefix off the value (by design — a scoped sibling and a standalone
+ *  surface are the same shape there), so a sibling-scoped surface handed in as the
+ *  root carries `surface/<key>/…` tags. Those collide with the sibling of that key
+ *  when it is present, and when it is NOT they quietly describe a bundle nobody
+ *  serves — an exposure `restrictHandlers` then refuses far from the mistake. The
+ *  same refusal `connectSurfaces` makes about its own `core`, made here so the
+ *  rule holds at both doors rather than only the one an app happens to use.
  *
  *  The maps are per surface: the root's against the root's own spec, one per
  *  sibling against that sibling's, which is what keeps every `S` inferable and what
@@ -658,6 +666,15 @@ export function exposeRootedFaces<
   siblings: M,
   siblingExpose: { [K in keyof M]?: ExposeMap<M[K]["spec"]> },
 ): FaceExposure {
+  if (core.tagPrefix !== SURFACE_TAG_PREFIX) {
+    throw new ExposeMapError({
+      detail:
+        `exposeRootedFaces: the root surface carries the tag prefix "${core.tagPrefix}", ` +
+        `not the standalone "${SURFACE_TAG_PREFIX}" — the root of a rooted bundle is the ` +
+        "UNPREFIXED one. Pass the standalone surface (`defineSurface(spec)`), or gate it " +
+        "as a sibling with `exposeFaces`",
+    });
+  }
   const composed = composeSurfaceContracts(siblings);
   const universe = mergeDisjointGroups({
     core: core.group,

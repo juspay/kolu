@@ -343,6 +343,36 @@ describe("connectSurfaces — the ROOTED bundle (an unprefixed core beside the s
     });
   });
 
+  it("refuses a CONDITIONAL or absent root at the type level, not at runtime", () => {
+    // The two shapes one signature with an optional `core` used to admit, each of
+    // which made `conn.core`'s TYPE and its VALUE disagree. Neither is a runtime
+    // check: the pins below are the `@ts-expect-error`s, which fail `tsc` the day
+    // an overload starts accepting these again. Nothing here dials.
+    const conditionalRoot = (enabled: boolean) =>
+      connectSurfaces({
+        surfaces: { a: surface },
+        // @ts-expect-error — a conditionally-supplied root matches NEITHER overload.
+        // Inferred from the non-`undefined` arm, `conn.core` would type as a definite
+        // client while the seam took the rootless path and handed back `undefined`.
+        core: enabled ? { surface: core, name: "floor" } : undefined,
+        url: "ws://test",
+        retired: () => {},
+      });
+    const undefinedRoot = () =>
+      connectSurfaces({
+        surfaces: { a: surface },
+        // @ts-expect-error — `core.surface` cannot be `undefined`: the rooted overload
+        // pins `C` to an actual `Surface`. This used to reach a raw `TypeError` rather
+        // than either of the seam's named refusals.
+        core: { surface: undefined, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+      });
+    expect(
+      [conditionalRoot, undefinedRoot].every((f) => typeof f === "function"),
+    ).toBe(true);
+  });
+
   it("refuses a root whose word is already a sibling key", async () => {
     // The health fold is keyed by that word, so two clients under one name would
     // drop one of them — from the fold AND from the readout — in silence.

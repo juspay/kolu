@@ -121,17 +121,17 @@ import { store } from "./state.ts";
 // 404 on `/surface/padi/*` (the regression `router.test.ts` was written for,
 // restated on the tag axis now that there is no matcher tree to inspect).
 //
-// The one cast: `RpcGroup<in out R>` is INVARIANT in its element union, so a group
-// whose elements are precisely-typed `Rpc`s (the root procedures, spelled member by
-// member in `kolu-common/contract`) is not assignable to the erased
-// `RpcGroup<Rpc.Any>` every serving seam takes — even though every element IS an
-// `Rpc.Any`. The framework's own dynamically-assembled groups (`Surface.group`,
-// `SurfaceMap.group`) are born erased and need no cast; this one is not, and no
-// typed alternative exists short of erasing the contract's precision, which is what
-// makes the client face precise. Same structural constraint the retired
-// `RPCHandler(appRouter as any)` carried.
+// No cast, and that is the merge's doing: `RpcGroup<in out R>` is INVARIANT in its
+// element union, so a group whose elements are precisely-typed `Rpc`s (the root
+// procedures, spelled member by member in `kolu-common/contract`) is not assignable
+// to the erased `RpcGroup<Rpc.Any>` every serving seam takes — even though every
+// element IS an `Rpc.Any`. `mergeDisjointGroups` takes the erasure on itself rather
+// than demanding it of each caller, so the three halves go in as they are and the
+// result is the erased group the serve path wants. This file used to carry the
+// `as unknown as` double-cast the retired `RPCHandler(appRouter as any)` carried
+// before it.
 export const servedGroup = mergeDisjointGroups({
-  root: koluRootGroup as unknown as RpcGroup.RpcGroup<Rpc.Any>,
+  root: koluRootGroup,
   koluSurfaces: koluSurfaceGroup,
   padiMap: padiHostMap.group,
 });

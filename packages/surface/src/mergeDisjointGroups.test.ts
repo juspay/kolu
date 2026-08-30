@@ -67,11 +67,23 @@ describe("mergeDisjointGroups", () => {
     expect(call).toThrow(/surface\/state\/get/);
   });
 
-  it("refuses a merge of nothing", () => {
-    // An empty merge would hand back a group that advertises no tag at all — a
-    // wire that connects and can dial nothing. Never what a caller means, so it
-    // is a crash rather than an empty default.
-    expect(() => mergeDisjointGroups({})).toThrow(/no groups were passed/);
+  it("merges NOTHING into the empty group — the identity, not a refusal", () => {
+    // A composer whose input map is empty this run legitimately produces one:
+    // `composeSurfaceContracts({})` is how a rooted wire with no siblings spells
+    // its sibling half, and this function is what assembles it. Refusing zero
+    // halves here would make that ordinary wire unspellable — the empty group is
+    // the honest answer, and the halves that carry tags are still counted.
+    expect(mergeDisjointGroups({}).requests.size).toBe(0);
+    expect(composeSurfaceContracts({}).group.requests.size).toBe(0);
+    // An empty HALF beside a real one contributes nothing and collides with
+    // nothing — the root-only wire's exact shape.
+    const root = stateSurface();
+    expect(
+      mergeDisjointGroups({
+        core: root.group,
+        siblings: composeSurfaceContracts({}).group,
+      }).requests.size,
+    ).toBe(root.group.requests.size);
   });
 
   it("is a no-op over ONE half", () => {

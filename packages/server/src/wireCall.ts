@@ -56,7 +56,7 @@ import { mergeDisjointGroups } from "@kolu/surface/define";
 import { surfaceWsUrl } from "@kolu/surface-app";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";
 import { Cause, Effect, Exit, Schema } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import type { Rpc } from "effect/unstable/rpc";
 import { koluRootGroup, koluSurfaceGroup } from "kolu-common/contract";
 import { padiHostMap } from "kolu-common/surfacesWithPadi";
 
@@ -69,13 +69,9 @@ import { padiHostMap } from "kolu-common/surfacesWithPadi";
  *  Because it is assembled rather than imported, it could DRIFT from what the server
  *  serves — a fourth source merged into `servedGroup` would leave this one short, and
  *  a caller would meet "no member is served at tag" for a tag that IS served.
- *  `wireCall.test.ts` pins the two tag sets EQUAL, which is why this is exported.
- *
- *  The cast mirrors the server's own: `RpcGroup` is INVARIANT in its element union,
- *  so a precisely-typed group is not assignable to the erased `RpcGroup<Rpc.Any>`
- *  every transport seam takes, even though every element IS an `Rpc.Any`. */
+ *  `wireCall.test.ts` pins the two tag sets EQUAL, which is why this is exported. */
 export const wireGroup = mergeDisjointGroups({
-  root: koluRootGroup as unknown as RpcGroup.RpcGroup<Rpc.Any>,
+  root: koluRootGroup,
   koluSurfaces: koluSurfaceGroup,
   padiMap: padiHostMap.group,
 });

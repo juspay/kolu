@@ -422,7 +422,7 @@ Tags that ride the same wire but are **not** sibling surfaces go in
 procedures (reached through `conn.transport.dispatch`). The wire's `RpcGroup`
 carries every tag's payload/success schemas, and Effect RPC's flat client resolves
 a call by looking its tag up there, so a tag the group never minted cannot be
-dispatched at all. Each entry must be disjoint from the composed siblings and from
+dispatched at all. Each entry must be disjoint from the root, from the composed siblings and from
 every other entry: the merge is `mergeDisjointGroups`
 ([`@kolu/surface/define`](/surface/ref-surface#composing-siblings)), which claims
 every half's tags before merging and throws naming the tag *and* the two halves
@@ -451,16 +451,36 @@ With a `core` present:
   can reach, so it is the one probe target a wire whose *sibling* set varies per
   serve can trust.
 
+```ts
+const conn = await connectSurfaces({
+  surfaces: enabledPlugins,          // may be {} — a root-only wire is ordinary
+  core: { surface: coreSurface, name: "olai" },
+  url: surfaceWsUrl(location.origin),
+  retired: reloadForUpdate,
+});
+conn.core.cells.plugins.use();       // the root's own typed client
+conn.clients.kolu.cells.terminals.use();
+```
+
 `surfaces` may then be empty: a wire that carries only its root is an ordinary
 wire. Omit `core` and every one of those sentences reverts — the probes address
 the first sibling's tags, `conn.core` is `undefined`, and the seam behaves exactly
 as it did before the slot existed.
 
+Whether a wire has a root is a **call-site** fact, not a runtime one: the seam is
+two overloads, so `core: enabled ? { … } : undefined` is a type error rather than
+a `conn.core` that types as a definite client and is `undefined` at runtime. A
+caller who genuinely wants both shapes branches the call — the two hand back
+different types.
+
 Two miswirings are refused at the seam, both of the quiet kind: a `core.surface`
 that is a sibling-**scoped** surface (the client face mints standalone tags
 whatever prefix the value carries, so such a wire would connect and then answer
-nothing), and a `core.name` that is also a sibling key (the health fold is keyed
-by that word, so one of the two clients would vanish from it in silence).
+nothing — `exposeRootedFaces` states the same law on the serve side), and a
+`core.name` that is also a sibling key (the health fold is keyed by that word, so
+one of the two clients would vanish from it in silence). `core.name` is a **label**
+and not a tag segment — the root's members keep their bare tags, so the word never
+reaches the wire and is held to no tag grammar.
 
 <Snippet src="packages/surface/example/snippets/consume-solid.ts" region="connect" />
 
@@ -475,7 +495,7 @@ by that word, so one of the two clients would vanish from it in silence).
 | `core` | *(multi only)* the root surface's own client when `core` was passed, and typed `undefined` when it was not — so a siblings-only caller reads no optional it has to check. It needs no tag-scoping wrapper: the root's tags are already the bare ones the combined dispatch carries |
 | `transport` | *(multi only)* the branded `LiveSignalHandle` — pass it whole to `connectSurfaceMap(map, conn.transport)`, which slices the sibling by `map.name` **after** the guard so the map inherits this wire's watchdog `live` |
 | `readout` | the [readout](/surface/ref-surface#the-readout) — the wire's own four states folded with the subscription-health fact into the five an indicator may report, memoized. Replaces the transport-only `status` this used to hand back |
-| `health` | *(multi only)* `surfaceClientsHealth(clients)` — every sibling's subs AND-reduced with the shared transport leg |
+| `health` | *(multi only)* `surfaceClientsHealth` over every sibling — and, when a `core` was passed, the root under its `name` — their subs AND-reduced with the shared transport leg |
 | `dispose` | async: stop the heartbeat, tear down standing subscriptions, release the link's scope |
 
 ### The readout, not a status

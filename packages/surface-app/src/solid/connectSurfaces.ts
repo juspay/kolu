@@ -128,12 +128,17 @@ export interface ConnectSurfacesOptions<
      *  `surface/<member>/<verb>` at a wire that serves `surface/<key>/…` and
      *  every call would 404 at the far end with nothing having said so. */
     surface: C;
-    /** The WORD the root answers to in the health fold and the readout — the same
-     *  role a sibling's key plays (`surfaceApp/buildInfo`), which the root has no
-     *  key to supply. It is app policy, so it crosses as an argument (the class the
+    /** The WORD the root answers to in the health fold and the readout — the role a
+     *  sibling's key plays there (`surfaceApp/buildInfo`), which the root has no key
+     *  to supply. It is app policy, so it crosses as an argument (the class the
      *  required `retired` handler belongs to) rather than being invented here: the
      *  framework has no name for an app's own floor. Must not be one of the sibling
-     *  keys — two clients folded under one word would drop one of them in silence. */
+     *  keys — two clients folded under one word would drop one of them in silence.
+     *
+     *  It is a LABEL, not a tag segment: the root's members keep their bare tags, so
+     *  unlike a sibling key this word never reaches the wire and is not held to
+     *  `assertTagSegment`'s grammar. An app may call its floor whatever its readout
+     *  should say. */
     name: string;
   };
   /** Groups MULTIPLEXED on the same wire that are not sibling `Surface`s — the tags a
@@ -229,14 +234,16 @@ export interface SurfacesConnection<
    *  `needsReload` bit, and the NAMES of whatever stopped — folded from the shared
    *  wire's status AND the combined fact below, so `live` is a claim about what
    *  reaches the page rather than about a socket. Across siblings the names arrive
-   *  already prefixed by surface key (`surfaceApp/buildInfo`), which is what makes
-   *  a multi-surface degraded readout say WHICH surface went quiet.
+   *  already prefixed by surface key (`surfaceApp/buildInfo`) — and a root's by the
+   *  word its `core.name` supplied — which is what makes a multi-surface degraded
+   *  readout say WHICH surface went quiet.
    *
    *  It replaced a transport-only `status` beside a `health()` an app could
    *  forget to call. Memoized, so every indicator bound to it costs one fold. */
   readout: Accessor<SurfaceReadout>;
-  /** The COMBINED health fact — `surfaceClientsHealth(clients)` — folding every
-   *  sibling's subs + the shared transport `live` (AND-reduced). Pass it straight
+  /** The COMBINED health fact — `surfaceClientsHealth` over every sibling AND, when
+   *  a `core` was passed, the root under {@link ConnectSurfacesOptions.core}'s
+   *  `name` — folding their subs + the shared transport `live` (AND-reduced). Pass it straight
    *  to `<SurfaceGate health={conn.health}>` / `<HostStatusPip health={conn.health}>`.
    *
    *  Still the FACT, and still the gate's input: the gate's policy (pending blocks
@@ -250,12 +257,44 @@ export interface SurfacesConnection<
   dispose: () => Promise<void>;
 }
 
+/** A SIBLINGS-ONLY wire — every caller that existed before the `core` slot did.
+ *  `core` is spelled `undefined` rather than merely omitted so a caller cannot
+ *  reach this overload with a root it computed conditionally; see the note on the
+ *  rooted overload below for why that matters. */
 export async function connectSurfaces<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces.
   const E extends Record<string, Surface<any>> = Record<string, Surface<any>>,
+>(
+  opts: ConnectSurfacesOptions<E> & { core?: undefined },
+): Promise<SurfacesConnection<E>>;
+/** A ROOTED wire. `C` is pinned to an actual `Surface` — NOT `Surface | undefined`
+ *  — which is what keeps {@link SurfacesConnection.core}'s type honest.
+ *
+ *  Two overloads rather than one signature with an optional slot, because "does
+ *  this wire have a root" is decided at RUNTIME while `conn.core`'s type states it
+ *  at COMPILE time, and one signature lets the two disagree. Written as one, a
+ *  caller could pass `core: enabled ? { surface, name } : undefined` — TypeScript
+ *  infers `C` from the non-`undefined` arm, so `conn.core` types as a definite
+ *  client while the seam takes the rootless path at runtime and hands back
+ *  `undefined`; `conn.core.cells.x.use()` then compiles and throws. The same one
+ *  signature also admitted `core: { surface: undefined, name }` (`C` = `undefined`
+ *  satisfies the bound), which reached a raw `TypeError` instead of either of this
+ *  seam's named refusals. Split in two, both are call-site type errors: a
+ *  conditional root matches NEITHER overload, so a caller that wants one branches
+ *  the call — which is honest, since the two branches hand back different types. */
+export async function connectSurfaces<
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces.
+  const E extends Record<string, Surface<any>>,
   // biome-ignore lint/suspicious/noExplicitAny: the root surface pins its own spec.
-  const C extends Surface<any> | undefined = undefined,
->(opts: ConnectSurfacesOptions<E, C>): Promise<SurfacesConnection<E, C>> {
+  const C extends Surface<any>,
+>(
+  opts: ConnectSurfacesOptions<E, C> & { core: { surface: C; name: string } },
+): Promise<SurfacesConnection<E, C>>;
+export async function connectSurfaces(
+  // biome-ignore lint/suspicious/noExplicitAny: the implementation signature is erased — the two overloads above are the contract, and they are what a caller is checked against.
+  opts: ConnectSurfacesOptions<any, any>,
+  // biome-ignore lint/suspicious/noExplicitAny: ditto.
+): Promise<SurfacesConnection<any, any>> {
   const {
     surfaces,
     core,
@@ -264,14 +303,8 @@ export async function connectSurfaces<
     onClientError,
     ...socketOptions
   } = opts;
-  // The root, WIDENED for the body. At the type level `core.surface` is `C`, which
-  // stays `Surface<any> | undefined` until a caller resolves it — the price of
-  // making {@link SurfacesConnection.core} conditional on `C` rather than an
-  // optional every siblings-only caller would have to check. Every use below sits
-  // on the `!== undefined` side, where `C` is a surface by construction.
-  const root = core as
-    | { readonly surface: Surface<SurfaceSpec>; readonly name: string }
-    | undefined;
+  const root: { surface: Surface<SurfaceSpec>; name: string } | undefined =
+    core;
   if (root !== undefined) {
     // A sibling-scoped surface as the root is the one miswiring nothing downstream
     // would catch: `surfaceClient` builds its face from the SPEC and mints
@@ -378,11 +411,11 @@ export async function connectSurfaces<
           client: surfaceClient(root.surface, transport, onClientError),
         };
   // The record the combined fact is folded over: every sibling under its key, and
-  // the root under the caller's word. Built ONCE (it is a static record — the
-  // reactivity is inside each client's `health()`), and the root goes in FIRST so
-  // the spread beside it can never quietly overwrite it — the `core.name` refusal
-  // above is what makes that spread safe, and this order is what makes the refusal
-  // the only thing standing between the two.
+  // the root under the caller's word. Built ONCE — it is a static record; the
+  // reactivity is inside each client's `health()`. The spread would WIN over the
+  // root if a sibling key equalled `core.name`, quietly dropping the root from the
+  // fold and from the readout, which is exactly why the refusal above exists: it,
+  // and not this write order, is what makes the record complete.
   const folded =
     rooted === undefined
       ? clients
@@ -396,12 +429,11 @@ export async function connectSurfaces<
   return {
     link,
     clients,
-    // The one cast in this seam: `core`'s type is CONDITIONAL on `C` (a client when
-    // a root was passed, `undefined` when none was), and a conditional over an
-    // unresolved type parameter cannot be satisfied structurally from inside the
-    // function that resolves it. The value is exactly what the type says — the two
-    // branches are minted together, ten lines up.
-    core: rooted?.client as SurfacesConnection<E, C>["core"],
+    // No cast: the implementation signature is erased, so `core` here is the
+    // honest `SurfaceClient | undefined` the value actually is. The two overloads
+    // above are what turn that into a definite client for a rooted caller and a
+    // definite `undefined` for a siblings-only one.
+    core: rooted?.client,
     transport,
     readout: readout.readout,
     health,

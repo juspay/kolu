@@ -1166,28 +1166,34 @@ describe("a ROOTED bundle is gated as one face", () => {
     await rooted.close();
   });
 
-  it("refuses a sibling-SCOPED surface as the root — the collision a hand union keeps quiet", () => {
+  it("refuses a sibling-SCOPED surface as the root — what a hand union keeps quiet", () => {
     // `tagsAt` reads a surface's prefix off the VALUE (by design: a scoped
     // sibling and a standalone surface are the same shape there), so a scoped
-    // surface handed in as the root carries `surface/left/…` tags — exactly the
-    // sibling of that key's. A hand-rolled `{ universe: a ∪ b, tags: ta ∪ tb }`
-    // accepts that in silence: the union keeps ONE copy of each shared tag, and
-    // if the served group was merged just as carelessly the universes still
-    // match, `restrictHandlers` sees nothing wrong, and one member answers under
-    // the other's policy. Establishing the universe by the counted composition
-    // instead is what turns it into a crash.
+    // surface handed in as the root carries `surface/left/…` tags. A hand-rolled
+    // `{ universe: a ∪ b, tags: ta ∪ tb }` accepts that in silence — the union
+    // keeps ONE copy of each shared tag, and if the served group was merged just
+    // as carelessly the universes still match, `restrictHandlers` sees nothing
+    // wrong, and one member answers under the other's policy.
     const siblings = { left: member() };
     const scopedRoot = composeSurfaceContracts(siblings).siblings.left;
-    expect(() =>
+    const call = () =>
       exposeRootedFaces(scopedRoot, { state: "resource" }, siblings, {
         left: { state: "resource" },
-      }),
-    ).toThrow(/surface\/left\/state\/get/);
+      });
+    expect(call).toThrow(ExposeMapError);
+    expect(call).toThrow(/not the standalone "surface\/"/);
+    // It refuses the scoped root whether or not a sibling of that key is even
+    // present: a scoped root with no matching sibling collides with nothing and
+    // would describe a bundle nobody serves — refused far from the mistake by
+    // `restrictHandlers` instead of at the door that took it.
     expect(() =>
-      exposeRootedFaces(scopedRoot, { state: "resource" }, siblings, {
-        left: { state: "resource" },
-      }),
-    ).toThrow(/claimed by "core" and "siblings"/);
+      exposeRootedFaces(
+        scopedRoot,
+        { state: "resource" },
+        { right: member() },
+        {},
+      ),
+    ).toThrow(ExposeMapError);
   });
 
   it("names ITSELF on a stray sibling key", () => {

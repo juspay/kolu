@@ -318,7 +318,8 @@ export async function serveOverUnixSocket(opts: {
   /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
   handlers: SurfaceHandlers;
   /** THIS face's default-deny allowlist — `exposeFace(surface, { … })` (or
-   *  `exposeFaces` for a sibling bundle). Omit and the socket serves the whole
+   *  `exposeFaces` for a sibling bundle, `exposeRootedFaces` for an unprefixed root
+   *  beside one). Omit and the socket serves the whole
    *  surface. The rule, and which faces take one, live in
    *  `@kolu/surface/expose`. */
   expose?: FaceExposure;
