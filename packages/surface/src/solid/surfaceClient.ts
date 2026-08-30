@@ -1067,9 +1067,11 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
       throw new Error(
         `buildSurfaceClient: member "${policyMember}" declares a client.onError ` +
           "policy but no `onClientError` interpreter was threaded — the declared " +
-          "policy would route nowhere (a silent swallow). Build this surface " +
-          "through `connectSurfaces`/`connectSurfaceMap` with an `onClientError`, " +
-          "which threads the interpreter to every internal `buildSurfaceClient`.",
+          "policy would route nowhere (a silent swallow). Pass an `onClientError` " +
+          "at whichever door built this client: `connectSurface` (singular), " +
+          "`connectSurfaces`, `connectSurfaceMap`, or `surfaceClient(surface, " +
+          "transport, onClientError)` for a hand-built one — each threads the " +
+          "interpreter to every internal `buildSurfaceClient`.",
       );
     }
   }

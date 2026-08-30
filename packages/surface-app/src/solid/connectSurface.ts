@@ -49,6 +49,7 @@ import {
   createLiveSignal,
   createSurfaceReadout,
   type HeartbeatTuning,
+  type OnClientError,
   type SurfaceClient,
   type SurfaceReadout,
   surfaceClient,
@@ -95,6 +96,22 @@ export interface ConnectSurfaceOptions<S extends SurfaceSpec>
    *  A wire whose liveness another layer owns simply doesn't use this seam (it
    *  passes that layer's `LiveSignalHandle` to `surfaceClient` directly). */
   heartbeat?: HeartbeatTuning;
+  /** The app's ONE origin-free client-error interpreter — the same slot
+   *  `connectSurfaces` takes, in the same position, for the same reason: a
+   *  surface whose spec DECLARES a `client.onError` policy (built through
+   *  `defineSurfaceWithPolicy`) has to have somewhere to route it, and
+   *  `buildSurfaceClient` throws at CONSTRUCTION when a declared policy would route
+   *  nowhere — a declared error handler that silently swallows is the
+   *  `caught-error-must-not-collapse-to-empty` defect.
+   *
+   *  Without this slot a policy-bearing surface was simply unreachable through this
+   *  door while every other door in the family took the interpreter — an asymmetry
+   *  with no design behind it, since the underlying `surfaceClient` has taken the
+   *  argument all along.
+   *
+   *  OPTIONAL at the type: a policy-FREE surface (`TPolicy = never`, every caller
+   *  that existed before the slot) declares no `client.onError`, so it needs none. */
+  onClientError?: OnClientError;
 }
 
 /** A live single-surface connection: the wire link, the reactive client, the
@@ -148,7 +165,13 @@ export interface SurfaceConnection<S extends SurfaceSpec> {
 export async function connectSurface<const S extends SurfaceSpec>(
   opts: ConnectSurfaceOptions<S>,
 ): Promise<SurfaceConnection<S>> {
-  const { surface, heartbeat: hb, url, ...socketOptions } = opts;
+  const {
+    surface,
+    heartbeat: hb,
+    url,
+    onClientError,
+    ...socketOptions
+  } = opts;
   const socket = await createSurfaceSocket({
     ...socketOptions,
     url: url ?? defaultSurfaceUrl(),
@@ -165,7 +188,10 @@ export async function connectSurface<const S extends SurfaceSpec>(
   // retired `down`) but whose subs already yielded a first frame would otherwise
   // read `ready` — the green-dot-over-a-dead-link lie.
   const transport = createLiveSignal(link, hb ?? {});
-  const client = surfaceClient(surface, transport);
+  // The app's one error interpreter reaches this client too: a surface reached
+  // through the SINGULAR door is no more allowed to route a declared policy nowhere
+  // than one reached through the plural.
+  const client = surfaceClient(surface, transport, onClientError);
   // The readout is the transport `status` folded WITH this client's own health
   // fact — the conjunction, memoized once here rather than re-derived (or
   // forgotten) at every indicator. It owns a `createRoot`, because this seam runs
