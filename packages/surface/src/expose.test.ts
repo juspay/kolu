@@ -41,6 +41,8 @@ import {
 import { callUnary, firstFrame, handlerAt } from "./handlerDispatch.testlib";
 import { unixSocketLink } from "./links/unix-socket";
 import {
+  assertHandlersMatchGroup,
+  emptyHandlers,
   implementSurface,
   implementSurfaces,
   inMemoryStore,
@@ -1092,7 +1094,27 @@ describe("a ROOTED bundle is gated as one face", () => {
   /** The rooted serve a consumer assembles by hand today: a STANDALONE root
    *  implemented beside a sibling bundle, their groups merged through the counted
    *  merge and their handler records joined. What `exposeRootedFaces` produces has
-   *  to describe exactly this. */
+   *  to describe exactly this.
+   *
+   *  It is also the shape a downstream author COPIES, so it owes the proofs a real
+   *  rooted serve owes, spelled with the framework's own primitives rather than a
+   *  bare `Object.assign` and a pair of dropped promises:
+   *
+   *   - the handler union is proved against the merged group by
+   *     {@link assertHandlersMatchGroup}, in BOTH directions — an advertised tag
+   *     with no handler is a silent 404 at the far end, and a handler at a tag the
+   *     group never minted is dead code no client can reach. `restrictHandlers`
+   *     runs that proof on the record it is handed, but only a GATED serve reaches
+   *     it; an ungated rooted serve has no proof at all unless the assembly runs
+   *     one itself, and the merge above proves the GROUPS disjoint, not the record
+   *     that answers them;
+   *   - BOTH `done` channels are observed, joined into one. A rejection there is
+   *     STRUCTURAL WIRING DEATH (`SurfaceRuntimeHandle.done`), and a half
+   *     whose death nobody watches is exactly the #2101 zombie — process alive,
+   *     socket answering, one half quietly doing nothing. It is re-raised out of
+   *     `close()`, which every test here awaits;
+   *   - `close()` AGGREGATES rather than short-circuits: a throwing finalizer on
+   *     the root must not skip the sibling's teardown. */
   function buildRooted() {
     const root = member();
     const siblings = { left: member() };
@@ -1114,10 +1136,22 @@ describe("a ROOTED bundle is gated as one face", () => {
       core: rootRuntime.group,
       siblings: siblingRuntime.group,
     });
+    // `emptyHandlers()` rather than a hand-spelled `Object.create(null)`: the
+    // null-prototype reason (a member legitimately named `toString`) has one home.
     const handlers: SurfaceHandlers = Object.assign(
-      Object.create(null) as SurfaceHandlers,
+      emptyHandlers(),
       rootRuntime.handlers,
       siblingRuntime.handlers,
+    );
+    assertHandlersMatchGroup(group, handlers, "buildRooted");
+    // Joined the moment both halves exist, so a structural death is observed HERE
+    // rather than arriving as an unhandled rejection nobody attributes to this wire.
+    let fault: unknown;
+    const done = Promise.all([rootRuntime.done, siblingRuntime.done]).then(
+      () => {},
+      (err: unknown) => {
+        fault = err;
+      },
     );
     return {
       root,
@@ -1125,8 +1159,19 @@ describe("a ROOTED bundle is gated as one face", () => {
       group,
       handlers,
       close: async () => {
-        await rootRuntime.close();
-        await siblingRuntime.close();
+        const closed = await Promise.allSettled([
+          rootRuntime.close(),
+          siblingRuntime.close(),
+        ]);
+        await done;
+        const faults = [
+          ...closed.flatMap((r) => (r.status === "rejected" ? [r.reason] : [])),
+          ...(fault === undefined ? [] : [fault]),
+        ];
+        if (faults.length === 1) throw faults[0];
+        if (faults.length > 1) {
+          throw new AggregateError(faults, "rooted fixture teardown faulted");
+        }
       },
     };
   }
