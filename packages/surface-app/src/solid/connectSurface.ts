@@ -57,21 +57,7 @@ import {
 import type { Accessor } from "solid-js";
 import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
 import { trackConnectAllocations } from "../connectAllocations";
-import { surfaceWsUrl } from "../index";
-
-/** The dial URL when the caller names none: the page's own origin through
- *  `surfaceWsUrl`. A thunk deferred to connect time, so merely importing this
- *  module never touches `location`; called without one (Node), it throws
- *  loudly instead of dialling a fabricated address. */
-const defaultSurfaceUrl = (): string => {
-  if (typeof location === "undefined") {
-    throw new Error(
-      "connectSurface: no `url` was given and there is no browser `location` " +
-        "to derive one from — pass `url` explicitly outside a browser",
-    );
-  }
-  return surfaceWsUrl(location.origin);
-};
+import { defaultSurfaceUrl } from "../defaultSurfaceUrl";
 
 export interface ConnectSurfaceOptions<S extends SurfaceSpec>
   extends Omit<SurfaceSocketOptions, "group" | "siblingKey" | "url"> {
@@ -178,7 +164,7 @@ export async function connectSurface<const S extends SurfaceSpec>(
     "wire",
     await createSurfaceSocket({
       ...socketOptions,
-      url: url ?? defaultSurfaceUrl(),
+      url: url ?? defaultSurfaceUrl("connectSurface"),
       group: surface.group,
     }),
   );

@@ -66,6 +66,7 @@ import {
 import type { RpcGroup } from "effect/unstable/rpc";
 import type { Accessor } from "solid-js";
 import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
+import { defaultSurfaceUrl } from "../defaultSurfaceUrl";
 import { trackConnectAllocations } from "../connectAllocations";
 
 /** The ROOT SLOT of a rooted bundle: the unprefixed root surface, plus the WORD it
@@ -111,7 +112,24 @@ export interface ConnectSurfacesOptions<
   // The reserved probes' target is DERIVED here, never passed: this seam is the one
   // that knows the whole wire. With a `core` it is the root's BARE reserved tags;
   // without one, the first sibling's.
-> extends Omit<SurfaceSocketOptions, "group" | "siblingKey"> {
+> extends Omit<SurfaceSocketOptions, "group" | "siblingKey" | "url"> {
+  /** Base WS URL — a string, or a thunk re-evaluated on every reconnect when the
+   *  base itself varies (the `pid` echo is appended on top either way; see
+   *  `SurfaceSocketOptions.url`).
+   *
+   *  OPTIONAL, exactly as on `connectSurface`: omitted, it defaults to
+   *  `surfaceWsUrl(location.origin)` — the page's own origin through the ONE
+   *  scheme-swap + path derivation. A browser app dials the origin that served it,
+   *  which is not a choice, so every browser consumer that spelled this by hand
+   *  spelled the same line. It was required here and defaulted on the singular twin
+   *  for no reason either seam could name; a consumer collapsing a hand-built wire
+   *  onto this one found it as the last residue that survived an otherwise complete
+   *  collapse (juspay/kolu#2222).
+   *
+   *  Omitting it anywhere without a `location` — a Node caller, a test, an SSR pass
+   *  — throws loudly rather than dialling a fabricated address, and throws BEFORE
+   *  anything is allocated. */
+  url?: SurfaceSocketOptions["url"];
   /** The sibling surfaces to build a client bundle for — the same map
    *  `surfaceClients` takes (`{ admin: adminSurface, surfaceApp: appSurface }`).
    *  Each becomes a scoped client at the tags `surface/<key>/<member>/<verb>`.
@@ -426,6 +444,7 @@ export async function connectSurfaces(
     extraGroups = [],
     heartbeat: hb,
     onClientError,
+    url,
     ...socketOptions
   } = opts;
   // ONE decision, taken once: the root, checked, or `undefined`. Every line below
@@ -491,6 +510,7 @@ export async function connectSurfaces(
     "wire",
     await createSurfaceSocket({
       ...socketOptions,
+      url: url ?? defaultSurfaceUrl("connectSurfaces"),
       group,
       siblingKey: probeSibling,
     }),

@@ -378,6 +378,62 @@ describe("connectSurfaces — the ROOTED bundle (an unprefixed core beside the s
     ).toBe(true);
   });
 
+  it("defaults the url to surfaceWsUrl(location.origin) — the same law as the singular door", async () => {
+    // The residue a downstream collapse found: this seam REQUIRED `url` while
+    // `connectSurface` defaulted it, so a rooted app spelled at its call site the
+    // one line its single-surface twin got free. A browser app dials the origin
+    // that served it — not a choice, so not an option — and the derivation is the
+    // ONE `surfaceWsUrl` (`https:` → `wss:`, the surface path, the page's own
+    // authority, the page's PATH replaced rather than appended to).
+    vi.stubGlobal("location", new URL("https://box.example:7681/some/page"));
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        retired: () => {},
+        connect: d.connect,
+      });
+      expect((await d.nth(1)).url).toBe("wss://box.example:7681/rpc/ws");
+      await conn.dispose();
+      dispose();
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("an explicit url WINS, and no `location` REFUSES — the default fills, never overrides or fabricates", async () => {
+    vi.stubGlobal("location", new URL("https://box.example:7681/some/page"));
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "wss://elsewhere.example/rpc/ws",
+        retired: () => {},
+        connect: d.connect,
+      });
+      expect((await d.nth(1)).url).toBe("wss://elsewhere.example/rpc/ws");
+      await conn.dispose();
+      dispose();
+    });
+    vi.unstubAllGlobals();
+    // …and with no browser `location` at all (a Node caller, a test, an SSR pass)
+    // it throws BEFORE allocating anything, rather than dialling a fabricated
+    // address that would retry forever against nothing. The thunk is deferred to
+    // connect time, so importing the module never touches `location`.
+    const none = dialRecorder();
+    await expect(
+      connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        retired: () => {},
+        connect: none.connect,
+      }),
+    ).rejects.toThrow(
+      /connectSurfaces: no `url` was given and there is no browser `location`/,
+    );
+    expect(none.dialled).toEqual([]);
+  });
   it("refuses a root whose word is already a sibling key", async () => {
     // The health fold is keyed by that word, so two clients under one name would
     // drop one of them — from the fold AND from the readout — in silence.

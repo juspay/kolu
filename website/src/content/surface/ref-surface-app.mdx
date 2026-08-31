@@ -409,12 +409,16 @@ unspellable. `connectSurfaces` refuses a call that passes **nothing** — no roo
 and no siblings — because such a wire carries no member at all and there is no
 reserved tag for the watchdog to probe.
 
-`connectSurface`'s `url` is **optional**: omitted, it defaults to
+`url` is **optional on both seams**: omitted, it defaults to
 `surfaceWsUrl(location.origin)` — the page's own origin through the one
 scheme-swap + path derivation, the value a browser consumer spells by hand
 otherwise (never a choice: a browser app dials the origin that served it).
-Omitting it with no `location` in scope (a Node caller) throws loudly — pass
-the URL you actually mean there.
+Omitting it with no `location` in scope (a Node caller) throws loudly, and throws
+*before* anything is dialled — pass the URL you actually mean there.
+
+*`connectSurfaces` required it until [#2222](https://github.com/juspay/kolu/pull/2222),
+so an app with a multi-surface wire spelled at its call site the one line the
+single-surface seam gave it free.*
 
 Tags that ride the same wire but are **not** sibling surfaces go in
 `connectSurfaces`' `extraGroups` — a keyed map's group (for
@@ -463,8 +467,7 @@ With a `core` present:
 const conn = await connectSurfaces({
   surfaces: enabledPlugins,          // may be {} — a root-only wire is ordinary
   core: { surface: coreSurface, name: "olai" },
-  url: surfaceWsUrl(location.origin),
-  retired: reloadForUpdate,
+  retired: reloadForUpdate,        // url defaults to this page's origin
 });
 conn.core.cells.plugins.use();       // the root's own typed client
 conn.clients.kolu.cells.terminals.use();
