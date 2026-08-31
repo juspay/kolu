@@ -29,12 +29,32 @@
  * whole teardown and {@link ConnectAllocations.unwind} is `release` plus a
  * rethrow. There is no second list to forget.
  *
- * Release order is REVERSE allocation order, and a release that itself throws is
- * REPORTED, never swallowed and never allowed to replace whatever it was
- * unwinding — a teardown fault masking the fault that caused the teardown is how
- * a one-line miswiring becomes an afternoon.
+ * Release order is REVERSE allocation order. The two exits differ in exactly one
+ * way, and it is deliberate: what they do with a release that ITSELF throws.
+ *
+ *   - {@link ConnectAllocations.unwind} swallows it to a `console.error` and
+ *     rethrows the CONSTRUCTION error, because that error is what the caller
+ *     needs to see. A teardown fault masking the fault that caused the teardown
+ *     is how a one-line miswiring becomes an afternoon.
+ *   - {@link ConnectAllocations.release} — the connection's own `dispose` —
+ *     REJECTS, with an `AggregateError` over everything that failed. There is no
+ *     original error to protect there, and a `dispose()` that resolves while the
+ *     socket it was asked to close is still open is a lie the awaiting caller
+ *     has no way to catch. It still attempts every release before it throws:
+ *     one failure must not strand the resources behind it.
  *
  * Package-internal, and NOT under `./solid`: it holds no Solid concept at all.
+ *
+ * **Not Effect's `Scope`, deliberately, and this is the third review to ask.**
+ * The repo does drive `Scope.makeUnsafe()` from plain async code — but at those
+ * sites (`unix-socket.ts`, `peer-server.ts`) the thing being closed is a scope
+ * Effect itself created. Here every resource is a plain `{ dispose() }` value, so
+ * adopting `Scope` would mean wrapping each one INTO an Effect finalizer purely to
+ * get a stack back out: adapter code, not reuse. A `Cause` also cannot carry the
+ * per-resource WORD that makes a teardown-failure line actionable — "releasing the
+ * watchdog FAILED" is the whole value of that log. Recorded rather than argued: if
+ * these seams ever become Effect-shaped end to end, this is the first thing to
+ * delete.
  */
 
 /** Anything a connect seam allocates and must give back. Every resource these
@@ -49,40 +69,63 @@ interface ConnectAllocations {
    *  teardown-failure report — the reader of that line has no other clue which
    *  step failed. */
   track<T extends Disposable>(what: string, value: T): T;
-  /** Release everything tracked, in reverse. THE teardown: the connection's own
-   *  `dispose` is this and nothing else. */
+  /** Release everything tracked, in reverse — THE teardown, and the connection's
+   *  own `dispose` is this and nothing else. Attempts every release, then REJECTS
+   *  with an `AggregateError` if any failed. */
   release(): Promise<void>;
   /** {@link release}, then rethrow `cause` — the failed-connect exit. Returns
-   *  `Promise<never>`: the only way out is the original error. */
+   *  `Promise<never>`: the only way out is the original error, so a release that
+   *  failed on the way is logged rather than raised. */
   unwind(cause: unknown): Promise<never>;
 }
 
 export function trackConnectAllocations(seam: string): ConnectAllocations {
   const allocated: Array<{ what: string; value: Disposable }> = [];
-  const release = async (): Promise<void> => {
-    // Reverse order, and a copy — `dispose` is idempotent for a page-lifetime
+  /** Attempt every release in reverse and RETURN what failed — never throw, so one
+   *  failure cannot strand the resources behind it. The two exits decide what to do
+   *  with the list. */
+  const releaseAll = async (): Promise<Error[]> => {
+    const failures: Error[] = [];
+    // Reverse order, over a COPY — `dispose` is idempotent for a page-lifetime
     // bundle only if a second call finds the same list, so the walk must not
     // consume it.
     for (const { what, value } of [...allocated].reverse()) {
       try {
         await value.dispose();
       } catch (teardownError) {
-        console.error(
-          `${seam}: releasing the ${what} FAILED — this resource is leaked, and the ` +
-            "error below is the teardown's, not whatever was being reported to the caller",
-          teardownError,
+        failures.push(
+          new Error(
+            `${seam}: releasing the ${what} FAILED — this resource is leaked`,
+            {
+              cause: teardownError,
+            },
+          ),
         );
       }
     }
+    return failures;
   };
   return {
     track: (what, value) => {
       allocated.push({ what, value });
       return value;
     },
-    release,
+    release: async () => {
+      const failures = await releaseAll();
+      if (failures.length > 0) {
+        throw new AggregateError(
+          failures,
+          `${seam}: ${failures.length} resource(s) failed to release — a \`dispose()\` ` +
+            "that resolved here would claim a teardown that did not happen",
+        );
+      }
+    },
     unwind: async (cause) => {
-      await release();
+      for (const failure of await releaseAll()) {
+        // Logged, not raised: `cause` is the construction error the caller is
+        // waiting on, and a teardown fault must not take its place.
+        console.error(failure.message, failure.cause);
+      }
       throw cause;
     },
   };

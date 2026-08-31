@@ -171,7 +171,7 @@ export async function connectSurface<const S extends SurfaceSpec>(
   // it — `surfaceClient` refuses a policy-bearing surface with no interpreter at
   // construction, which is reachable through this door now that it takes one. So
   // each allocation is tracked and given back in reverse if one throws; see
-  // `./unwindOnFailedConnect`. The `url` refusal above is the same law on the
+  // `../connectAllocations`. The `url` refusal above is the same law on the
   // other side of the dial: nothing was ever allocated there.
   const allocations = trackConnectAllocations("connectSurface");
   const socket = allocations.track(

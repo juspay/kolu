@@ -249,6 +249,12 @@ describe("connectSurfaces — the ROOTED bundle (an unprefixed core beside the s
       );
       // The watchdog, over the same wire.
       const before = ws.sent.length;
+      // The stand-in `createHeartbeat` does not attach handlers to the probe
+      // promise the way the real one does (it races it against a timer), and
+      // `dispose()` INTERRUPTS an in-flight probe — so this swallows the
+      // interruption rejection rather than leaving it unhandled. Discarding it is
+      // the point: the probe's VALUE is never the signal, only that a frame went
+      // out, which is what the assertions below read.
       mocked.heartbeatProbe?.().catch(() => {});
       await expect
         .poll(() => ws.sent.length, { timeout: 3_000 })
@@ -283,6 +289,12 @@ describe("connectSurfaces — the ROOTED bundle (an unprefixed core beside the s
       expect(conn.health().live).toBe(true);
       // The probe addresses the root, over a wire that carries no sibling at all.
       const before = first.sent.length;
+      // The stand-in `createHeartbeat` does not attach handlers to the probe
+      // promise the way the real one does (it races it against a timer), and
+      // `dispose()` INTERRUPTS an in-flight probe — so this swallows the
+      // interruption rejection rather than leaving it unhandled. Discarding it is
+      // the point: the probe's VALUE is never the signal, only that a frame went
+      // out, which is what the assertions below read.
       mocked.heartbeatProbe?.().catch(() => {});
       await expect
         .poll(() => first.sent.length, { timeout: 3_000 })

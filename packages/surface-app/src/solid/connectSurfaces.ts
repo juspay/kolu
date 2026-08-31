@@ -484,7 +484,7 @@ export async function connectSurfaces(
   });
   // Past this await the wire is LIVE, and every construction below can throw over
   // it — so each allocation is tracked and given back in reverse if one does. See
-  // `./unwindOnFailedConnect` for why a rejected connect that leaves an open
+  // `../connectAllocations` for why a rejected connect that leaves an open
   // socket and a running heartbeat is the worst shape this seam could fail in.
   const allocations = trackConnectAllocations("connectSurfaces");
   const socket = allocations.track(
@@ -514,9 +514,14 @@ export async function connectSurfaces(
     // Tracked PER SIBLING rather than as one bundle: the teardown-failure report
     // then names the sibling whose `dispose` threw, and the release list stays a
     // flat list of resources rather than a list with one entry that is secretly a
-    // loop. `surfaceClients` itself cannot throw partway and strand a child — it
-    // builds the record in one `Object.fromEntries`, so either every sibling is
-    // here or none is.
+    // loop.
+    //
+    // This loop only ever sees a COMPLETE bundle. `surfaceClients` builds each
+    // client eagerly and one can throw (a sibling's declared `client.onError`
+    // policy with no interpreter), so it releases what it already built before the
+    // exception leaves it — the guarantee has to be ITS, because nothing here can
+    // reach a child that was never handed back. Pinned in
+    // `surfaceClient.health.test.ts`.
     for (const [key, client] of Object.entries(clients)) {
       allocations.track(`client ${key}`, client as { dispose: () => void });
     }

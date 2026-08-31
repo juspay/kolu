@@ -1636,19 +1636,52 @@ export function surfaceClients<
   // shared `live` — no per-wrapper brand check (the guard already ran here, on the
   // combined transport).
   const { dispatch, live } = resolveTransport(transport);
-  return Object.fromEntries(
-    Object.entries(entries).map(([k, surface]) => [
-      k,
-      buildSurfaceClient(
-        surface,
-        scopeSiblingDispatch(dispatch, k),
-        live,
-        // Threaded to EVERY sibling client — the app spells ONE interpreter at the
-        // `connectSurfaces` seam, never re-registered per internal build (design §A/m4).
-        onClientError,
-      ),
-    ]),
-  ) as SurfaceClients<E>;
+  // ALL-OR-NOTHING, and it has to be built rather than assumed. Each
+  // `buildSurfaceClient` opens REAL side effects before it returns — a mirrored
+  // surface's eager `liveWhen` readiness subscription is live the moment the client
+  // exists — and it can THROW: a sibling whose spec declares a `client.onError`
+  // policy with no interpreter is refused at construction (design §D/F5). Built by a
+  // bare `.map`, the Nth sibling's throw would propagate with siblings 1..N-1
+  // already subscribed and their only `dispose` handles inside the discarded array:
+  // subscriptions running over the wire that NOTHING can close, for the life of the
+  // page. So the built ones are held as they are made and torn down on the way out.
+  //
+  // The guarantee belongs HERE and not at each caller: `connectSurfaces` can only
+  // see this function's return, so a caller-side unwind cannot reach a child that
+  // was never handed back. A teardown that itself throws is reported and does not
+  // replace the construction error the caller is about to see.
+  const built: Array<[string, SurfaceClient<SurfaceSpec>]> = [];
+  try {
+    for (const [k, surface] of Object.entries(entries)) {
+      built.push([
+        k,
+        buildSurfaceClient(
+          surface,
+          scopeSiblingDispatch(dispatch, k),
+          live,
+          // Threaded to EVERY sibling client — the app spells ONE interpreter at the
+          // `connectSurfaces` seam, never re-registered per internal build (design §A/m4).
+          onClientError,
+        ) as SurfaceClient<SurfaceSpec>,
+      ]);
+    }
+  } catch (constructionError) {
+    for (const [k, client] of built.reverse()) {
+      try {
+        client.dispose();
+      } catch (teardownError) {
+        console.error(
+          `surfaceClients: disposing the "${k}" client FAILED while unwinding a ` +
+            "bundle whose construction threw — that sibling's subscriptions are " +
+            "leaked, and the error below is the teardown's, not the one being " +
+            "reported to the caller",
+          teardownError,
+        );
+      }
+    }
+    throw constructionError;
+  }
+  return Object.fromEntries(built) as SurfaceClients<E>;
 }
 
 /** The combined health FACT across every sibling client `surfaceClients` built —
