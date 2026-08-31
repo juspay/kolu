@@ -66,7 +66,7 @@ import {
 import type { RpcGroup } from "effect/unstable/rpc";
 import type { Accessor } from "solid-js";
 import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
-import { trackConnectAllocations } from "./unwindOnFailedConnect";
+import { trackConnectAllocations } from "../connectAllocations";
 
 /** The ROOT SLOT of a rooted bundle: the unprefixed root surface, plus the WORD it
  *  answers to in the health fold and the readout.
@@ -494,7 +494,6 @@ export async function connectSurfaces(
       group,
       siblingKey: probeSibling,
     }),
-    (s) => s.dispose(),
   );
   const { link } = socket;
   try {
@@ -510,17 +509,17 @@ export async function connectSurfaces(
     const transport = allocations.track(
       "watchdog",
       createLiveSignal(link, { siblingKey: probeSibling, ...hb }),
-      (t) => t.dispose(),
     );
-    const clients = allocations.track(
-      "sibling clients",
-      surfaceClients(transport, surfaces, onClientError),
-      (built) => {
-        for (const client of Object.values(built)) {
-          (client as { dispose: () => void }).dispose();
-        }
-      },
-    );
+    const clients = surfaceClients(transport, surfaces, onClientError);
+    // Tracked PER SIBLING rather than as one bundle: the teardown-failure report
+    // then names the sibling whose `dispose` threw, and the release list stays a
+    // flat list of resources rather than a list with one entry that is secretly a
+    // loop. `surfaceClients` itself cannot throw partway and strand a child — it
+    // builds the record in one `Object.fromEntries`, so either every sibling is
+    // here or none is.
+    for (const [key, client] of Object.entries(clients)) {
+      allocations.track(`client ${key}`, client as { dispose: () => void });
+    }
     // The root's client rides the SAME handle, unwrapped: its members already sit at
     // the bare tags the combined dispatch carries, so unlike a sibling it needs no
     // tag-scoping. The app's one error interpreter reaches it too — a policy declared
@@ -540,7 +539,6 @@ export async function connectSurfaces(
             client: allocations.track(
               "root client",
               surfaceClient(root.surface, transport, onClientError),
-              (client) => client.dispose(),
             ),
           };
     // The record the combined fact is folded over: every sibling under its key, and
@@ -561,7 +559,6 @@ export async function connectSurfaces(
     const readout = allocations.track(
       "readout",
       createSurfaceReadout(transport.status, health),
-      (r) => r.dispose(),
     );
     return {
       link,
@@ -574,14 +571,12 @@ export async function connectSurfaces(
       transport,
       readout: readout.readout,
       health,
-      dispose: async () => {
-        transport.dispose();
-        readout.dispose();
-        for (const client of Object.values(folded)) {
-          (client as { dispose: () => void }).dispose();
-        }
-        await socket.dispose();
-      },
+      // The tracker's own list, in reverse — NOT a second list written beside it.
+      // Two hand-kept teardowns fail asymmetrically: an allocation added above and
+      // forgotten here leaks on the SUCCESS path, the one every consumer takes,
+      // while the failure path — the one anybody would think to check — keeps
+      // looking correct. One list, two exits (`release` here, `unwind` below).
+      dispose: allocations.release,
     };
   } catch (constructionError) {
     return allocations.unwind(constructionError);

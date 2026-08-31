@@ -1656,16 +1656,18 @@ export function mergeDisjointGroups(
   // `merge` is VARIADIC and drains every argument into ONE copied map, so the whole
   // record costs one copy rather than one per half — which matters because the
   // caller's half-count is unbounded (`connectSurfaces` labels each `extraGroups`
-  // entry). A merge of NOTHING is the empty group, the identity: a composer whose
-  // input map is empty this run — a rooted wire with no siblings — legitimately
-  // produces one, and refusing it here would make that ordinary wire unspellable.
-  const [first, ...rest] = entries.map(
-    ([, group]) => group as RpcGroup.RpcGroup<Rpc.Any>,
-  );
-  const merged =
-    first === undefined
-      ? (RpcGroup.make() as unknown as RpcGroup.RpcGroup<Rpc.Any>)
-      : first.merge(...rest);
+  // entry). Starting from the EMPTY group rather than from the first half is what
+  // makes 0..N uniform: a merge of nothing is then the identity — the empty group —
+  // which falls out instead of being branched for, and a composer whose input map is
+  // empty this run (a rooted wire with no siblings) legitimately produces one.
+  // The seed carries the function's ONE cast: `RpcGroup.make()` with no members is
+  // `RpcGroup<never>`, and the group type is invariant in its element union, so the
+  // empty group is not assignable to the erased one it is about to become. Spending
+  // the cast here — once, internally, on a value with no members to misdescribe — is
+  // the trade this function exists to make on its callers' behalf.
+  const merged = (
+    RpcGroup.make() as unknown as RpcGroup.RpcGroup<Rpc.Any>
+  ).merge(...entries.map(([, group]) => group as RpcGroup.RpcGroup<Rpc.Any>));
   if (merged.requests.size !== claimedBy.size) {
     throw new Error(
       `mergeDisjointGroups: the merge carries ${merged.requests.size} tag(s), but the walk ` +

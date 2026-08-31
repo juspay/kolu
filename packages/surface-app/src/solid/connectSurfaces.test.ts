@@ -59,8 +59,8 @@ vi.mock("@kolu/surface/heartbeat", async (importActual) => {
   };
 });
 
-import { FakeWebSocket } from "../fakeSocket.testlib";
 import { connectSurfaces } from "./connectSurfaces";
+import { dialRecorder } from "./dialRecorder.testlib";
 
 const surface = defineSurface({
   cells: {
@@ -71,26 +71,6 @@ const surface = defineSurface({
     },
   },
 });
-
-function dialRecorder() {
-  const dialled: FakeWebSocket[] = [];
-  return {
-    dialled,
-    connect: (url: string) => {
-      const ws = new FakeWebSocket(url);
-      dialled.push(ws);
-      return ws as unknown as WebSocket;
-    },
-    nth: async (n: number): Promise<FakeWebSocket> => {
-      await expect
-        .poll(() => dialled.length, { timeout: 3_000 })
-        .toBeGreaterThanOrEqual(n);
-      const ws = dialled[n - 1];
-      if (ws === undefined) throw new Error(`no socket #${n}`);
-      return ws;
-    },
-  };
-}
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 

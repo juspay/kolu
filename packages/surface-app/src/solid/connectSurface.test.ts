@@ -142,4 +142,36 @@ describe("connectSurface() — the client-error interpreter", () => {
       dispose();
     });
   });
+
+  it("gives the wire back when that crash happens AFTER the dial", async () => {
+    // The crash above lands past the `await`: the socket is dialled and the
+    // watchdog armed before `surfaceClient` refuses. A rejection that left them
+    // running would hand the caller no `dispose` to stop them with — the same leak
+    // the plural door is pinned against, pinned here too, because the tracker lives
+    // in both seams and an untested one is an unmaintained one.
+    //
+    // The WATCHDOG is what this asserts on: the link dials on its own fiber, so the
+    // throw and the unwind can both complete before `connect` is ever called (the
+    // socket assertion reads a vacuous truth), while the heartbeat is armed
+    // synchronously one step before the throw and has no other way home.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      await expect(
+        connectSurface({
+          surface: policied,
+          url: "wss://box.example/rpc/ws",
+          retired: () => {},
+          connect: d.connect,
+        }),
+      ).rejects.toThrow(/no `onClientError` interpreter was threaded/);
+      // Nothing the seam allocated is still open: every socket it reached is
+      // closed, and it reached at most one.
+      await expect
+        .poll(() => d.dialled.every((ws) => ws.readyState === 3), {
+          timeout: 3_000,
+        })
+        .toBe(true);
+      dispose();
+    });
+  });
 });

@@ -322,8 +322,25 @@ export const padiHostMap = defineSurfaceMap({
 // IS an `Rpc.Any`. `mergeDisjointGroups` takes the erasure on itself rather than
 // demanding it of each caller, so the three halves go in as they are and the result
 // is the erased group the serve and dial paths want.
-export const koluWireGroup = mergeDisjointGroups({
+/** The halves of kolu's wire that are NOT sibling surfaces — the hand-written
+ *  root procedures (`server/*`, `daemon/*`, `hosts/*`) and the padi HOST MAP's
+ *  key-folded members. Labelled, because that is how `mergeDisjointGroups`
+ *  reports a collision.
+ *
+ *  ONE list with TWO readers, and that is the point: {@link koluWireGroup} merges
+ *  them with the siblings for the serve and for `kolu-rpc`, and the BROWSER hands
+ *  the same values to `connectSurfaces`' `extraGroups` (`client/src/wire.ts`),
+ *  which cannot take a whole group because it derives the sibling half from the
+ *  surfaces themselves. Hand-listed at that second reader — as it was — a fourth
+ *  half would reach the server and `kolu-rpc` and silently leave the TAB short:
+ *  the wire connects and every call at that tag dies, because Effect RPC resolves
+ *  a call's schemas by looking its tag up in the group the wire was built over. */
+export const koluNonSiblingGroups = {
   root: koluRootGroup,
-  koluSurfaces: koluSurfaceGroup,
   padiMap: padiHostMap.group,
+} as const;
+
+export const koluWireGroup = mergeDisjointGroups({
+  koluSurfaces: koluSurfaceGroup,
+  ...koluNonSiblingGroups,
 });

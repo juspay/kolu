@@ -56,7 +56,7 @@ import {
 } from "@kolu/surface/solid";
 import type { Accessor } from "solid-js";
 import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
-import { trackConnectAllocations } from "./unwindOnFailedConnect";
+import { trackConnectAllocations } from "../connectAllocations";
 import { surfaceWsUrl } from "../index";
 
 /** The dial URL when the caller names none: the page's own origin through
@@ -181,7 +181,6 @@ export async function connectSurface<const S extends SurfaceSpec>(
       url: url ?? defaultSurfaceUrl(),
       group: surface.group,
     }),
-    (s) => s.dispose(),
   );
   const { link } = socket;
   try {
@@ -197,7 +196,6 @@ export async function connectSurface<const S extends SurfaceSpec>(
     const transport = allocations.track(
       "watchdog",
       createLiveSignal(link, hb ?? {}),
-      (t) => t.dispose(),
     );
     // The app's one error interpreter reaches this client too: a surface reached
     // through the SINGULAR door is no more allowed to route a declared policy nowhere
@@ -205,7 +203,6 @@ export async function connectSurface<const S extends SurfaceSpec>(
     const client = allocations.track(
       "client",
       surfaceClient(surface, transport, onClientError),
-      (c) => c.dispose(),
     );
     // The readout is the transport `status` folded WITH this client's own health
     // fact — the conjunction, memoized once here rather than re-derived (or
@@ -214,7 +211,6 @@ export async function connectSurface<const S extends SurfaceSpec>(
     const readout = allocations.track(
       "readout",
       createSurfaceReadout(transport.status, client.health),
-      (r) => r.dispose(),
     );
     return {
       link,
@@ -225,12 +221,14 @@ export async function connectSurface<const S extends SurfaceSpec>(
       // — present when the surface is mirrored), and release the socket (its
       // identity/retired observers plus the link's dial/ping/response fibers), so a
       // torn-down connection leaks none of the four.
-      dispose: async () => {
-        transport.dispose();
-        readout.dispose();
-        client.dispose();
-        await socket.dispose();
-      },
+      //
+      // It is the tracker's own list, in reverse — NOT a second list written
+      // beside it. Two hand-kept teardowns fail asymmetrically: an allocation
+      // added above and forgotten here leaks on the SUCCESS path, the one every
+      // consumer takes, while the failure path — the one anybody would think to
+      // check — keeps looking correct. One list, two exits (`release` here,
+      // `unwind` below).
+      dispose: allocations.release,
     };
   } catch (constructionError) {
     return allocations.unwind(constructionError);

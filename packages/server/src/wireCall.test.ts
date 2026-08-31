@@ -11,10 +11,15 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { koluWireGroup } from "kolu-common/surfacesWithPadi";
+import { koluRootGroup } from "kolu-common/contract";
+import {
+  koluNonSiblingGroups,
+  koluWireGroup,
+  padiHostMap,
+} from "kolu-common/surfacesWithPadi";
 import { describe, expect, it } from "vitest";
 import { servedGroup } from "./surface.ts";
-import { parseArgs, rpcFor, wireGroup } from "./wireCall.ts";
+import { parseArgs, rpcFor } from "./wireCall.ts";
 
 const BASE = "http://127.0.0.1:7681";
 
@@ -80,8 +85,15 @@ describe("the caller's group", () => {
   // x`. What is worth pinning instead is that the two modules still READ the one
   // constant rather than growing a second derivation: identity, not equality.
   it("dials the ONE wire assembly the server serves — the same value, not a copy", () => {
-    expect(wireGroup).toBe(koluWireGroup);
+    // `kolu-rpc` reads `koluWireGroup` directly (it kept no local alias — a second
+    // NAME for one value is the thing that drifts), so what is left to pin is that
+    // the SERVER still reads the same value rather than growing a derivation of its
+    // own, and that the browser's `extraGroups` come from the same list.
     expect(servedGroup).toBe(koluWireGroup);
+    expect(Object.values(koluNonSiblingGroups)).toEqual([
+      koluRootGroup,
+      padiHostMap.group,
+    ]);
   });
 });
 

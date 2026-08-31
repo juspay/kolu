@@ -2450,8 +2450,12 @@ export const padiDaemonSurfaces = {
  *  — a bare merge is a last-writer-wins `Map.set`, and both siblings carry the
  *  same three reserved `system/*` tags, so merging would silently leave one
  *  sibling's liveness probe answering for the other's. The prefix makes that
- *  collision class unrepresentable; {@link PADI_DAEMON_TAG_COUNT} makes the
- *  absence of any OTHER collision an assertion rather than an assumption. */
+ *  collision class unrepresentable; `composeSurfaceContracts` itself makes the
+ *  absence of any OTHER collision an assertion rather than an assumption, by
+ *  ending in `mergeDisjointGroups` — the framework's one counted, labelled merge
+ *  (`@kolu/surface/define`). This file used to restate that proof as an
+ *  import-time size assert of its own; the framework proves it now, so the
+ *  restatement is gone and the tag SETS are still pinned literally below. */
 export const padiDaemonContract = composeSurfaceContracts(padiDaemonSurfaces);
 export type PadiDaemonContract = typeof padiDaemonContract;
 
@@ -2470,22 +2474,6 @@ export const padiSurfaceSibling: Surface<typeof padiSurface.spec> =
  *  reaches `core.hello` / `core.drain` here even at a `padiSurface` skew. */
 export const padiControlSibling: Surface<typeof padiControlSurface.spec> =
   padiDaemonContract.siblings.control;
-
-/** The exact number of tags a padi daemon serves — the D1/#16 collision assert.
- *  `RpcGroup.make`/`merge` are silent last-writer-wins `Map.set`s, so a tag
- *  minted twice would vanish without a word; comparing the composed group's
- *  size against the two siblings' own sizes is what PROVES the composition
- *  dropped nothing. Asserted at IMPORT (below) so a collision is a boot crash,
- *  never a 404 discovered in production, and pinned as a literal key set by
- *  `surface.test.ts`. */
-export const PADI_DAEMON_TAG_COUNT =
-  padiSurface.group.requests.size + padiControlSurface.group.requests.size;
-
-if (padiDaemonGroup.requests.size !== PADI_DAEMON_TAG_COUNT) {
-  throw new Error(
-    `padiDaemonContract: composed ${padiDaemonGroup.requests.size} tags but the two siblings declare ${PADI_DAEMON_TAG_COUNT} — a tag was minted twice and silently overwritten`,
-  );
-}
 
 // The composed sibling registry (`surfacesWithPadi = { ...surfaces, padi }`)
 // lives in `kolu-common/surface` now, NOT here: composing the app's `surfaces`

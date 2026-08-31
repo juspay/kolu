@@ -7,6 +7,13 @@ import { FakeWebSocket } from "../fakeSocket.testlib";
 export function dialRecorder() {
   const dialled: FakeWebSocket[] = [];
   return {
+    /** Every socket the link has dialled, in order. Read it to assert about the
+     *  WHOLE set — "none was left open" after a failed connect, say, which is
+     *  honest even when the set is empty (the dial runs on the protocol's own
+     *  fiber, so a seam that throws and unwinds in one microtask can close the
+     *  link's scope before `connect` is ever called). Use {@link nth} instead
+     *  when a test needs to wait for a specific socket to exist. */
+    dialled,
     connect: (url: string) => {
       const ws = new FakeWebSocket(url);
       dialled.push(ws);

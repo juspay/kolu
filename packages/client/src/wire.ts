@@ -40,7 +40,6 @@ import type { SurfaceClient, SurfaceFace } from "@kolu/surface/solid";
 import { surfaceWsUrl } from "@kolu/surface-app";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
-import { koluRootGroup } from "kolu-common/contract";
 import {
   decodeHostKey,
   encodeHostKey,
@@ -59,6 +58,7 @@ import {
   type HostKey,
   LOCAL_HOST,
   type padiEntrySurface,
+  koluNonSiblingGroups,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import {
@@ -186,12 +186,18 @@ const conn = await connectSurfaces({
   // and `hosts/*` call. This is the client twin of kolu-server's `servedGroup`
   // (`server/src/surface.ts`), assembled from the same two sources.
   //
+  // Read from `koluNonSiblingGroups` rather than hand-listed here: the SAME two
+  // values `koluWireGroup` merges for the serve and for `kolu-rpc`, so a third half
+  // added there reaches this tab too. Hand-listed, it would not — and the tab is the
+  // end that fails silently, since a tag absent from the dialled group cannot be
+  // dispatched at all.
+  //
   // No cast on either half. `RpcGroup` is INVARIANT in its element union, so the
   // hand-written, precisely-typed `koluRootGroup` is not assignable to an erased
   // `RpcGroup<Rpc.Any>` even though every element IS an `Rpc.Any` — but the seam
   // takes that erasure on itself (as `mergeDisjointGroups`, which it feeds, does),
   // so the precisely-typed half goes in as it is.
-  extraGroups: [koluRootGroup, padiHostMap.group],
+  extraGroups: Object.values(koluNonSiblingGroups),
   // The root app cells (koluSurface / surfaceApp) declare origin-FREE `toast` policies;
   // route them through the ONE interpreter (design §A/m4).
   onClientError: (p, e) => interpretClientError(p as ClientErrorPolicy, e),

@@ -585,9 +585,10 @@ export function exposeFaces<M extends Record<string, Surface<SurfaceSpec>>>(
   expose: { [K in keyof M]?: ExposeMap<M[K]["spec"]> },
 ): FaceExposure {
   const composed = composeSurfaceContracts(surfaces);
-  const tags = new Set<string>();
-  siblingTagsAt("exposeFaces", surfaces, composed, expose, tags);
-  return { universe: new Set(composed.group.requests.keys()), tags };
+  return {
+    universe: new Set(composed.group.requests.keys()),
+    tags: siblingTagsAt("exposeFaces", surfaces, composed, expose),
+  };
 }
 
 /** Bind one map PER SIBLING to the bundle they were composed into, collecting the
@@ -599,8 +600,8 @@ function siblingTagsAt<M extends Record<string, Surface<SurfaceSpec>>>(
   surfaces: M,
   composed: ComposedSurfaces<M>,
   expose: { [K in keyof M]?: ExposeMap<M[K]["spec"]> },
-  into: Set<string>,
-): void {
+): Set<string> {
+  const into = new Set<string>();
   const maps = expose as Record<string, ExposeMap<SurfaceSpec> | undefined>;
   // A map keyed by a sibling this bundle does not have is {@link
   // classifyExpose}'s "names nothing" refusal one level UP, and it needs the
@@ -623,6 +624,7 @@ function siblingTagsAt<M extends Record<string, Surface<SurfaceSpec>>>(
     const sibling = composed.siblings[key] as Surface<SurfaceSpec>;
     tagsAt(sibling, maps[key] ?? {}, into);
   }
+  return into;
 }
 
 /** {@link exposeFaces} for a ROOTED bundle — an unprefixed ROOT surface beside the
@@ -676,13 +678,25 @@ export function exposeRootedFaces<
     });
   }
   const composed = composeSurfaceContracts(siblings);
+  // The siblings enter as ONE labelled half, where `connectSurfaces` labels each
+  // sibling separately — a deliberate difference, not an oversight. That seam also
+  // multiplexes `extraGroups` it did not build (a keyed map's group, a host's
+  // hand-written procedures), so naming WHICH sibling an outside group collided
+  // with is the whole value of the report. Here both halves are ours and
+  // `composeSurfaceContracts` has already proved the siblings disjoint among
+  // themselves, so the only collision left to report is root-against-siblings, and
+  // one label says it exactly.
   const universe = mergeDisjointGroups({
     core: core.group,
     siblings: composed.group,
   });
-  const tags = new Set<string>();
+  const tags = siblingTagsAt(
+    "exposeRootedFaces",
+    siblings,
+    composed,
+    siblingExpose,
+  );
   tagsAt(core, coreExpose, tags);
-  siblingTagsAt("exposeRootedFaces", siblings, composed, siblingExpose, tags);
   return { universe: new Set(universe.requests.keys()), tags };
 }
 

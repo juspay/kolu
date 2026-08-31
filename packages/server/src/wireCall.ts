@@ -70,8 +70,10 @@ import { koluWireGroup } from "kolu-common/surfacesWithPadi";
  *  the server's copy would leave this one short, and the caller would meet "no member
  *  is served at tag" for a tag that IS served. That was previously a rule
  *  `wireCall.test.ts` remembered; it is now true by construction, because there is
- *  one derivation and both ends read it. */
-export const wireGroup = koluWireGroup;
+ *  one derivation and every end reads it — including the browser's `extraGroups`,
+ *  through the same `koluNonSiblingGroups` list. There is deliberately no local
+ *  alias for it: a re-export here would be a second NAME for one value, and the
+ *  name is the thing that drifts. */
 
 /** Default per-call bound. The link retries its dial forever in its own fiber, so a
  *  call against a server that is not up yet would park; every invocation is bounded,
@@ -134,9 +136,9 @@ export function parseArgs(argv: readonly string[]): Args {
  *  mistyped tag says so here instead of dying as an opaque defect inside Effect
  *  RPC's flat client, which resolves a call's schemas by lookup. */
 export function rpcFor(tag: string): Rpc.AnyWithProps {
-  const rpc = wireGroup.requests.get(tag);
+  const rpc = koluWireGroup.requests.get(tag);
   if (rpc === undefined) {
-    const known = [...wireGroup.requests.keys()].sort().join("\n  ");
+    const known = [...koluWireGroup.requests.keys()].sort().join("\n  ");
     throw new Error(
       `no member is served at tag "${tag}". Served tags:\n  ${known}`,
     );
@@ -169,7 +171,7 @@ export async function runWireCall(argv: readonly string[]): Promise<void> {
   }
 
   const link = await websocketLink({
-    group: wireGroup,
+    group: koluWireGroup,
     // A THUNK, as the browser passes: the link re-evaluates it on every re-dial.
     url: () => surfaceWsUrl(args.baseUrl),
     // The app's own close-code vocabulary — the same classifier the browser's link

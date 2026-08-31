@@ -75,24 +75,19 @@ describe("mergeDisjointGroups", () => {
     // the honest answer, and the halves that carry tags are still counted.
     expect(mergeDisjointGroups({}).requests.size).toBe(0);
     expect(composeSurfaceContracts({}).group.requests.size).toBe(0);
-    // An empty HALF beside a real one contributes nothing and collides with
-    // nothing — the root-only wire's exact shape.
+    // …and an empty HALF beside a real one is the same fact one level up — the
+    // root-only wire's exact shape, whether the empty sibling map is spelled as a
+    // composed group or left out entirely. Both give back the root's tags and
+    // nothing else.
     const root = stateSurface();
-    expect(
-      mergeDisjointGroups({
-        core: root.group,
-        siblings: composeSurfaceContracts({}).group,
-      }).requests.size,
-    ).toBe(root.group.requests.size);
-  });
-
-  it("is a no-op over ONE half", () => {
-    // The degenerate case a rooted bundle actually reaches: a wire whose sibling
-    // map is empty this run carries only the root.
-    const root = stateSurface();
-    const merged = mergeDisjointGroups({ core: root.group });
-    expect([...merged.requests.keys()].sort()).toEqual(
-      [...root.group.requests.keys()].sort(),
-    );
+    const shapes: Array<Record<string, typeof root.group>> = [
+      { core: root.group, siblings: composeSurfaceContracts({}).group },
+      { core: root.group },
+    ];
+    for (const halves of shapes) {
+      expect([...mergeDisjointGroups(halves).requests.keys()].sort()).toEqual(
+        [...root.group.requests.keys()].sort(),
+      );
+    }
   });
 });
