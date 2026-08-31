@@ -19,6 +19,7 @@
  */
 
 import { padiSurface } from "@kolu/padi-client/surface";
+import { mergeDisjointGroups } from "@kolu/surface/define";
 import {
   defineSurfaceMap,
   type EntryStatus,
@@ -29,6 +30,7 @@ import {
   ConnectionInfoSchema,
 } from "@kolu/surface-remote/connection";
 import { Schema } from "effect";
+import { koluRootGroup, koluSurfaceGroup } from "./contract.ts";
 import {
   decodeHostKey,
   encodeHostKey,
@@ -265,4 +267,80 @@ export const padiHostMap = defineSurfaceMap({
   // the SAME const — so the mount name lives in ONE place, not a "keep three literals in
   // sync" convention, and no `as any` reaches into the contract.
   name: PADI_SURFACE_NAME,
+});
+
+// ── THE kolu wire, as one flat group ──────────────────────────────────────
+//
+// kolu's complete wire is a SUPERSET of the shared `kolu-common` contract: the
+// root procedures PLUS the two siblings kolu-server owns (`kolu`, `surfaceApp`)
+// PLUS the padi HOST MAP — the key-folded `surface/padi/*` members + the `entries`
+// membership collection that `serveHostMap` serves. Under Effect RPC the wire
+// namespace is FLAT (PLAN D1), so a "sibling" is a tag PREFIX and the superset is
+// one merge of three DISJOINT halves:
+//
+//   koluRootGroup    → `server/*`, `daemon/*`, `hosts/*`     (7 tags)
+//   koluSurfaceGroup → `surface/kolu/*`, `surface/surfaceApp/*`
+//   padiHostMap.group→ `surface/padi/*` (folded members + `entries`)
+//
+// **Why it lives HERE and not at either consumer.** Two modules need this exact
+// expression: kolu-server serves it (`servedGroup`) and the one-shot `kolu-rpc`
+// caller dials it (`wireGroup`). Spelled twice, "the caller can spell exactly what
+// the server serves" was a rule kept by a TEST that pinned two copies equal — and a
+// rule a test remembers is a rule that can be broken, since a fourth half merged
+// into one copy leaves the other answering "no member is served at tag" for a tag
+// that IS served. The constraint that produced the two copies is real but narrower
+// than it looked: `server/src/surface.ts` constructs the `Conf` store at IMPORT, so
+// a one-shot CLI caller must not import THAT module. It says nothing about the
+// derivation, which has a side-effect-free home — this one, which already imports
+// both halves' sources. So there is one assembly, and both consumers alias it.
+//
+// **Why the padi-LESS `koluSurfaceGroup`, not `composeSurfaceContracts(surfacesWithPadi)`.**
+// The oRPC original spread the padi-FUL composition and then OVERWROTE the `padi`
+// key with the map's own contract, because the two describe the same wire paths
+// with different payloads (the map folds every member behind a `{mapKey, input}`
+// envelope). A flat merge cannot express "overwrite" honestly: it is a
+// last-writer-wins `Map.set` (#16), so merging BOTH would silently drop one
+// spelling of every shared tag AND leave the plain sibling's three reserved
+// `surface/padi/system/*` tags ADVERTISED with nothing bound to them — an
+// advertised-but-unhandled tag, which is exactly the silent-404 class this
+// assembly exists to prevent. So the padi half enters ONCE, as the map, and the
+// two remaining halves are provably disjoint from it.
+//
+// **The proof is the framework's, not this file's.** `RpcGroup.make`/`.merge` have
+// zero collision detection, so disjointness is only real if it is counted — and
+// `mergeDisjointGroups` (`@kolu/surface/define`) is the ONE place that count is
+// spelled, for every consumer of a composed wire. Handed the three halves under
+// their own names, it names both halves of any collision instead of reporting a
+// total that came up short. It runs at IMPORT — a boot crash, never a production
+// 404 on `/surface/padi/*` (the regression `server/src/router.test.ts` was written
+// for, restated on the tag axis now that there is no matcher tree to inspect).
+//
+// No cast, and that is the merge's doing: `RpcGroup<in out R>` is INVARIANT in its
+// element union, so a group whose elements are precisely-typed `Rpc`s (the root
+// procedures, spelled member by member in `./contract.ts`) is not assignable to the
+// erased `RpcGroup<Rpc.Any>` every serving seam takes — even though every element
+// IS an `Rpc.Any`. `mergeDisjointGroups` takes the erasure on itself rather than
+// demanding it of each caller, so the three halves go in as they are and the result
+// is the erased group the serve and dial paths want.
+/** The halves of kolu's wire that are NOT sibling surfaces — the hand-written
+ *  root procedures (`server/*`, `daemon/*`, `hosts/*`) and the padi HOST MAP's
+ *  key-folded members. Labelled, because that is how `mergeDisjointGroups`
+ *  reports a collision.
+ *
+ *  ONE list with TWO readers, and that is the point: {@link koluWireGroup} merges
+ *  them with the siblings for the serve and for `kolu-rpc`, and the BROWSER hands
+ *  the same values to `connectSurfaces`' `extraGroups` (`client/src/wire.ts`),
+ *  which cannot take a whole group because it derives the sibling half from the
+ *  surfaces themselves. Hand-listed at that second reader — as it was — a fourth
+ *  half would reach the server and `kolu-rpc` and silently leave the TAB short:
+ *  the wire connects and every call at that tag dies, because Effect RPC resolves
+ *  a call's schemas by looking its tag up in the group the wire was built over. */
+export const koluNonSiblingGroups = {
+  root: koluRootGroup,
+  padiMap: padiHostMap.group,
+} as const;
+
+export const koluWireGroup = mergeDisjointGroups({
+  koluSurfaces: koluSurfaceGroup,
+  ...koluNonSiblingGroups,
 });

@@ -23,19 +23,26 @@ import { join } from "node:path";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { Cause, Effect, Exit, Fiber, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { defineSurface } from "./define";
+import {
+  composeSurfaceContracts,
+  defineSurface,
+  mergeDisjointGroups,
+} from "./define";
 import {
   classifyExpose,
   type ExposeMap,
   ExposeMapError,
   exposeFace,
   exposeFaces,
+  exposeRootedFaces,
   restrictHandlers,
   SurfaceMemberNotExposed,
 } from "./expose";
 import { callUnary, firstFrame, handlerAt } from "./handlerDispatch.testlib";
 import { unixSocketLink } from "./links/unix-socket";
 import {
+  assertHandlersMatchGroup,
+  emptyHandlers,
   implementSurface,
   implementSurfaces,
   inMemoryStore,
@@ -1072,5 +1079,191 @@ describe("a spec table's inherited keys name nothing", () => {
     expect(
       classifyExpose(shadowing.spec, erased({ "admin.toString": "tool" })),
     ).toMatchObject([{ kind: "procedure", ns: "admin", verb: "toString" }]);
+  });
+});
+
+describe("a ROOTED bundle is gated as one face", () => {
+  /** A surface with one readable cell and one procedure — small enough to spell
+   *  the whole tag set, rich enough to have something to withhold. */
+  const member = () =>
+    defineSurface({
+      cells: { state: { schema: Schema.String, default: "s" } },
+      procedures: { math: { ping: { output: Schema.String } } },
+    });
+
+  /** The rooted serve a consumer assembles by hand today: a STANDALONE root
+   *  implemented beside a sibling bundle, their groups merged through the counted
+   *  merge and their handler records joined. What `exposeRootedFaces` produces has
+   *  to describe exactly this.
+   *
+   *  It is also the shape a downstream author COPIES, so it owes the proofs a real
+   *  rooted serve owes, spelled with the framework's own primitives rather than a
+   *  bare `Object.assign` and a pair of dropped promises:
+   *
+   *   - the handler union is proved against the merged group by
+   *     {@link assertHandlersMatchGroup}, in BOTH directions — an advertised tag
+   *     with no handler is a silent 404 at the far end, and a handler at a tag the
+   *     group never minted is dead code no client can reach. `restrictHandlers`
+   *     runs that proof on the record it is handed, but only a GATED serve reaches
+   *     it; an ungated rooted serve has no proof at all unless the assembly runs
+   *     one itself, and the merge above proves the GROUPS disjoint, not the record
+   *     that answers them;
+   *   - BOTH `done` channels are observed, joined into one. A rejection there is
+   *     STRUCTURAL WIRING DEATH (`SurfaceRuntimeHandle.done`), and a half
+   *     whose death nobody watches is exactly the #2101 zombie — process alive,
+   *     socket answering, one half quietly doing nothing. It is re-raised out of
+   *     `close()`, which every test here awaits;
+   *   - `close()` AGGREGATES rather than short-circuits: a throwing finalizer on
+   *     the root must not skip the sibling's teardown. */
+  function buildRooted() {
+    const root = member();
+    const siblings = { left: member() };
+    const rootRuntime = implementSurface(root, {
+      cells: { state: { store: inMemoryStore("ROOT") } },
+      procedures: { math: { ping: () => Effect.succeed("ROOT") } },
+    });
+    const siblingRuntime = implementSurfaces(
+      siblings,
+      {},
+      {
+        left: {
+          cells: { state: { store: inMemoryStore("L") } },
+          procedures: { math: { ping: () => Effect.succeed("L") } },
+        },
+      },
+    );
+    const group = mergeDisjointGroups({
+      core: rootRuntime.group,
+      siblings: siblingRuntime.group,
+    });
+    // `emptyHandlers()` rather than a hand-spelled `Object.create(null)`: the
+    // null-prototype reason (a member legitimately named `toString`) has one home.
+    const handlers: SurfaceHandlers = Object.assign(
+      emptyHandlers(),
+      rootRuntime.handlers,
+      siblingRuntime.handlers,
+    );
+    assertHandlersMatchGroup(group, handlers, "buildRooted");
+    // Joined the moment both halves exist, so a structural death is observed HERE
+    // rather than arriving as an unhandled rejection nobody attributes to this wire.
+    let fault: unknown;
+    const done = Promise.all([rootRuntime.done, siblingRuntime.done]).then(
+      () => {},
+      (err: unknown) => {
+        fault = err;
+      },
+    );
+    return {
+      root,
+      siblings,
+      group,
+      handlers,
+      close: async () => {
+        const closed = await Promise.allSettled([
+          rootRuntime.close(),
+          siblingRuntime.close(),
+        ]);
+        await done;
+        const faults = [
+          ...closed.flatMap((r) => (r.status === "rejected" ? [r.reason] : [])),
+          ...(fault === undefined ? [] : [fault]),
+        ];
+        if (faults.length === 1) throw faults[0];
+        if (faults.length > 1) {
+          throw new AggregateError(faults, "rooted fixture teardown faulted");
+        }
+      },
+    };
+  }
+
+  it("grants the root's BARE tags beside each sibling's prefixed ones", async () => {
+    const rooted = buildRooted();
+    const restricted = restrictHandlers(
+      rooted.group,
+      rooted.handlers,
+      exposeRootedFaces(rooted.root, { "math.ping": "tool" }, rooted.siblings, {
+        left: { state: "resource" },
+      }),
+    );
+    // The root's exposed procedure answers at the UNPREFIXED tag — the whole
+    // point of a root: its members keep the tags a standalone surface has.
+    await expect(callUnary(restricted, "surface/math/ping")).resolves.toBe(
+      "ROOT",
+    );
+    // …and its unexposed cell is refused, per the same default-deny contract a
+    // sibling gets.
+    await expectRefused(restricted, "surface/state/get");
+    // The sibling half is gated by its own map, independently.
+    await expect(
+      firstFrame(restricted, "surface/left/state/get"),
+    ).resolves.toBe("L");
+    await expectRefused(restricted, "surface/left/math/ping");
+    // Both halves keep their reserved members — a gate that refused the
+    // heartbeat would not restrict the face, it would break the link. The ROOT's
+    // reserved members are the ones a rooted wire's watchdog and identity echo
+    // probe, so this is the leg that keeps `connectSurfaces`' `core` dialable.
+    await expect(
+      callUnary(restricted, "surface/system/live", {}),
+    ).resolves.toEqual({});
+    await expect(
+      callUnary(restricted, "surface/left/system/live", {}),
+    ).resolves.toEqual({});
+    await rooted.close();
+  });
+
+  it("refuses a sibling-SCOPED surface as the root — what a hand union keeps quiet", () => {
+    // `tagsAt` reads a surface's prefix off the VALUE (by design: a scoped
+    // sibling and a standalone surface are the same shape there), so a scoped
+    // surface handed in as the root carries `surface/left/…` tags. A hand-rolled
+    // `{ universe: a ∪ b, tags: ta ∪ tb }` accepts that in silence — the union
+    // keeps ONE copy of each shared tag, and if the served group was merged just
+    // as carelessly the universes still match, `restrictHandlers` sees nothing
+    // wrong, and one member answers under the other's policy.
+    const siblings = { left: member() };
+    const scopedRoot = composeSurfaceContracts(siblings).siblings.left;
+    const call = () =>
+      exposeRootedFaces(scopedRoot, { state: "resource" }, siblings, {
+        left: { state: "resource" },
+      });
+    expect(call).toThrow(ExposeMapError);
+    expect(call).toThrow(/not the standalone "surface\/"/);
+    // It refuses the scoped root whether or not a sibling of that key is even
+    // present: a scoped root with no matching sibling collides with nothing and
+    // would describe a bundle nobody serves — refused far from the mistake by
+    // `restrictHandlers` instead of at the door that took it.
+    expect(() =>
+      exposeRootedFaces(
+        scopedRoot,
+        { state: "resource" },
+        { right: member() },
+        {},
+      ),
+    ).toThrow(ExposeMapError);
+  });
+
+  it("names ITSELF on a stray sibling key", () => {
+    // The sibling fold is shared with `exposeFaces`, refusal included — and the
+    // refusal says which constructor was called, so a reader is not sent to the
+    // wrong door.
+    const siblings = { left: member() };
+    const stray: Record<string, ExposeMap> = { lft: { state: "resource" } };
+    expect(() => exposeRootedFaces(member(), {}, siblings, stray)).toThrow(
+      ExposeMapError,
+    );
+    expect(() => exposeRootedFaces(member(), {}, siblings, stray)).toThrow(
+      /exposeRootedFaces: expose names sibling\(s\) \[lft\]/,
+    );
+  });
+
+  it("gates a root-only bundle — an empty sibling map is an ordinary wire", () => {
+    // The `--plugins=""` shape on the serve side: the roster this run composed
+    // is empty, so the wire carries its root and nothing else. Nothing special
+    // happens; the exposure is the root's.
+    const root = member();
+    const exposure = exposeRootedFaces(root, { "math.ping": "tool" }, {}, {});
+    expect([...exposure.universe].sort()).toEqual(
+      [...root.group.requests.keys()].sort(),
+    );
+    expect([...exposure.tags]).toEqual(["surface/math/ping"]);
   });
 });

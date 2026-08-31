@@ -697,16 +697,24 @@ function memberOf(face: SurfaceFace, key: string): Record<string, unknown> {
  *
  *  This is the unification: the bundle no longer bakes in the WebSocket transport —
  *  it consumes whatever transport it's handed, so the same hooks work over a socket,
- *  a subprocess, or an in-process dispatch. */
+ *  a subprocess, or an in-process dispatch.
+ *
+ *  `onClientError` is the app's ONE origin-free client-error interpreter, the same
+ *  slot {@link surfaceClients} takes in the same position for the same reason: a
+ *  surface whose spec DECLARES a `client.onError` policy and whose client was built
+ *  without an interpreter throws at construction (a declared policy may never route
+ *  nowhere), so a policy-bearing surface reached through this door — the root of a
+ *  rooted bundle is the case that made it necessary — has somewhere to route. */
 export function surfaceClient<const S extends SurfaceSpec>(
   surface: Surface<S>,
   transport: LiveSignalHandle | SurfaceDispatch,
+  onClientError?: OnClientError,
 ): SurfaceClient<S> {
   // Collapse the transport to its `{ dispatch, live }` — a `LiveSignalHandle` carries
   // both (paired by construction); a bare half-openable dispatch CRASHES here; a bare
   // in-process dispatch gets a constant-`true` leg (sound — it can't half-open).
   const { dispatch, live } = resolveTransport(transport);
-  return buildSurfaceClient(surface, dispatch, live);
+  return buildSurfaceClient(surface, dispatch, live, onClientError);
 }
 
 /** Open the eager `liveWhen` readiness leg for a mirror-shaped cell — the
@@ -1038,8 +1046,10 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
   // regardless of whether any consumer ever `.use()`s the member (the wiring below
   // fires only on subscribe; this check must not). Mirrors the loud-crash precedent
   // at `resolveTransport` (the half-open-blind transport). This runtime scan is the
-  // SOLE enforcement: `onClientError` is an OPTIONAL field on both `connectSurfaces`
-  // and `connectSurfaceMap` — their option types don't carry the surface's policy
+  // SOLE enforcement: `onClientError` is an OPTIONAL field at EVERY turnkey door
+  // (`connectSurface`, `connectSurfaces`, `connectSurfaceMap`, and this function) —
+  // stated as "every door" rather than as a list, so it cannot drift from the throw's
+  // own message below. Their option types don't carry the surface's policy
   // type, so they can't make the interpreter type-*required* when a member declares a
   // non-`never` policy. So a policy-bearing surface connected with no interpreter is
   // caught HERE, at construction, not by the compiler.
@@ -1059,9 +1069,11 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
       throw new Error(
         `buildSurfaceClient: member "${policyMember}" declares a client.onError ` +
           "policy but no `onClientError` interpreter was threaded — the declared " +
-          "policy would route nowhere (a silent swallow). Build this surface " +
-          "through `connectSurfaces`/`connectSurfaceMap` with an `onClientError`, " +
-          "which threads the interpreter to every internal `buildSurfaceClient`.",
+          "policy would route nowhere (a silent swallow). Pass an `onClientError` " +
+          "at whichever door built this client: `connectSurface` (singular), " +
+          "`connectSurfaces`, `connectSurfaceMap`, or `surfaceClient(surface, " +
+          "transport, onClientError)` for a hand-built one — each threads the " +
+          "interpreter to every internal `buildSurfaceClient`.",
       );
     }
   }
@@ -1624,19 +1636,52 @@ export function surfaceClients<
   // shared `live` — no per-wrapper brand check (the guard already ran here, on the
   // combined transport).
   const { dispatch, live } = resolveTransport(transport);
-  return Object.fromEntries(
-    Object.entries(entries).map(([k, surface]) => [
-      k,
-      buildSurfaceClient(
-        surface,
-        scopeSiblingDispatch(dispatch, k),
-        live,
-        // Threaded to EVERY sibling client — the app spells ONE interpreter at the
-        // `connectSurfaces` seam, never re-registered per internal build (design §A/m4).
-        onClientError,
-      ),
-    ]),
-  ) as SurfaceClients<E>;
+  // ALL-OR-NOTHING, and it has to be built rather than assumed. Each
+  // `buildSurfaceClient` opens REAL side effects before it returns — a mirrored
+  // surface's eager `liveWhen` readiness subscription is live the moment the client
+  // exists — and it can THROW: a sibling whose spec declares a `client.onError`
+  // policy with no interpreter is refused at construction (design §D/F5). Built by a
+  // bare `.map`, the Nth sibling's throw would propagate with siblings 1..N-1
+  // already subscribed and their only `dispose` handles inside the discarded array:
+  // subscriptions running over the wire that NOTHING can close, for the life of the
+  // page. So the built ones are held as they are made and torn down on the way out.
+  //
+  // The guarantee belongs HERE and not at each caller: `connectSurfaces` can only
+  // see this function's return, so a caller-side unwind cannot reach a child that
+  // was never handed back. A teardown that itself throws is reported and does not
+  // replace the construction error the caller is about to see.
+  const built: Array<[string, SurfaceClient<SurfaceSpec>]> = [];
+  try {
+    for (const [k, surface] of Object.entries(entries)) {
+      built.push([
+        k,
+        buildSurfaceClient(
+          surface,
+          scopeSiblingDispatch(dispatch, k),
+          live,
+          // Threaded to EVERY sibling client — the app spells ONE interpreter at the
+          // `connectSurfaces` seam, never re-registered per internal build (design §A/m4).
+          onClientError,
+        ) as SurfaceClient<SurfaceSpec>,
+      ]);
+    }
+  } catch (constructionError) {
+    for (const [k, client] of built.reverse()) {
+      try {
+        client.dispose();
+      } catch (teardownError) {
+        console.error(
+          `surfaceClients: disposing the "${k}" client FAILED while unwinding a ` +
+            "bundle whose construction threw — that sibling's subscriptions are " +
+            "leaked, and the error below is the teardown's, not the one being " +
+            "reported to the caller",
+          teardownError,
+        );
+      }
+    }
+    throw constructionError;
+  }
+  return Object.fromEntries(built) as SurfaceClients<E>;
 }
 
 /** The combined health FACT across every sibling client `surfaceClients` built —

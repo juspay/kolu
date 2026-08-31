@@ -55,28 +55,25 @@ import { websocketLink } from "@kolu/surface/links/websocket";
 import { surfaceWsUrl } from "@kolu/surface-app";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";
 import { Cause, Effect, Exit, Schema } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { koluRootGroup, koluSurfaceGroup } from "kolu-common/contract";
-import { padiHostMap } from "kolu-common/surfacesWithPadi";
+import type { Rpc } from "effect/unstable/rpc";
+import { koluWireGroup } from "kolu-common/surfacesWithPadi";
 
-/** The group this caller can spell — assembled from the SAME three sources
- *  `surface.ts` merges into `servedGroup` (the root procedures, kolu's own siblings,
- *  the padi host map), rather than importing `servedGroup` itself: that module
- *  constructs the `Conf` store at import, and a one-shot caller must not touch the
- *  server's on-disk state to place a call.
+/** The group this caller can spell: {@link koluWireGroup}, THE one assembly of
+ *  kolu's wire (the root procedures, kolu's own siblings, the padi host map) — the
+ *  very value `surface.ts` exports as `servedGroup`.
  *
- *  Because it is assembled rather than imported, it could DRIFT from what the server
- *  serves — a fourth source merged into `servedGroup` would leave this one short, and
- *  a caller would meet "no member is served at tag" for a tag that IS served.
- *  `wireCall.test.ts` pins the two tag sets EQUAL, which is why this is exported.
- *
- *  The cast mirrors the server's own: `RpcGroup` is INVARIANT in its element union,
- *  so a precisely-typed group is not assignable to the erased `RpcGroup<Rpc.Any>`
- *  every transport seam takes, even though every element IS an `Rpc.Any`. */
-export const wireGroup = koluRootGroup.merge(
-  koluSurfaceGroup,
-  padiHostMap.group,
-) as unknown as RpcGroup.RpcGroup<Rpc.Any>;
+ *  Aliased rather than re-assembled, and reached through `kolu-common` rather than
+ *  through `surface.ts`, for two different reasons that used to be one. It cannot
+ *  come from `surface.ts` because that module constructs the `Conf` store at import,
+ *  and a one-shot caller must not touch the server's on-disk state to place a call.
+ *  And it must not be a SECOND spelling of the same merge: a fourth half merged into
+ *  the server's copy would leave this one short, and the caller would meet "no member
+ *  is served at tag" for a tag that IS served. That was previously a rule
+ *  `wireCall.test.ts` remembered; it is now true by construction, because there is
+ *  one derivation and every end reads it — including the browser's `extraGroups`,
+ *  through the same `koluNonSiblingGroups` list. There is deliberately no local
+ *  alias for it: a re-export here would be a second NAME for one value, and the
+ *  name is the thing that drifts. */
 
 /** Default per-call bound. The link retries its dial forever in its own fiber, so a
  *  call against a server that is not up yet would park; every invocation is bounded,
@@ -139,9 +136,9 @@ export function parseArgs(argv: readonly string[]): Args {
  *  mistyped tag says so here instead of dying as an opaque defect inside Effect
  *  RPC's flat client, which resolves a call's schemas by lookup. */
 export function rpcFor(tag: string): Rpc.AnyWithProps {
-  const rpc = wireGroup.requests.get(tag);
+  const rpc = koluWireGroup.requests.get(tag);
   if (rpc === undefined) {
-    const known = [...wireGroup.requests.keys()].sort().join("\n  ");
+    const known = [...koluWireGroup.requests.keys()].sort().join("\n  ");
     throw new Error(
       `no member is served at tag "${tag}". Served tags:\n  ${known}`,
     );
@@ -174,7 +171,7 @@ export async function runWireCall(argv: readonly string[]): Promise<void> {
   }
 
   const link = await websocketLink({
-    group: wireGroup,
+    group: koluWireGroup,
     // A THUNK, as the browser passes: the link re-evaluates it on every re-dial.
     url: () => surfaceWsUrl(args.baseUrl),
     // The app's own close-code vocabulary — the same classifier the browser's link

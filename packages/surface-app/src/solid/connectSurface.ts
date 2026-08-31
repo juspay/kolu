@@ -49,27 +49,15 @@ import {
   createLiveSignal,
   createSurfaceReadout,
   type HeartbeatTuning,
+  type OnClientError,
   type SurfaceClient,
   type SurfaceReadout,
   surfaceClient,
 } from "@kolu/surface/solid";
 import type { Accessor } from "solid-js";
 import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
-import { surfaceWsUrl } from "../index";
-
-/** The dial URL when the caller names none: the page's own origin through
- *  `surfaceWsUrl`. A thunk deferred to connect time, so merely importing this
- *  module never touches `location`; called without one (Node), it throws
- *  loudly instead of dialling a fabricated address. */
-const defaultSurfaceUrl = (): string => {
-  if (typeof location === "undefined") {
-    throw new Error(
-      "connectSurface: no `url` was given and there is no browser `location` " +
-        "to derive one from — pass `url` explicitly outside a browser",
-    );
-  }
-  return surfaceWsUrl(location.origin);
-};
+import { trackConnectAllocations } from "../connectAllocations";
+import { defaultSurfaceUrl } from "../defaultSurfaceUrl";
 
 export interface ConnectSurfaceOptions<S extends SurfaceSpec>
   extends Omit<SurfaceSocketOptions, "group" | "siblingKey" | "url"> {
@@ -95,6 +83,22 @@ export interface ConnectSurfaceOptions<S extends SurfaceSpec>
    *  A wire whose liveness another layer owns simply doesn't use this seam (it
    *  passes that layer's `LiveSignalHandle` to `surfaceClient` directly). */
   heartbeat?: HeartbeatTuning;
+  /** The app's ONE origin-free client-error interpreter — the same slot
+   *  `connectSurfaces` takes, in the same position, for the same reason: a
+   *  surface whose spec DECLARES a `client.onError` policy (built through
+   *  `defineSurfaceWithPolicy`) has to have somewhere to route it, and
+   *  `buildSurfaceClient` throws at CONSTRUCTION when a declared policy would route
+   *  nowhere — a declared error handler that silently swallows is the
+   *  `caught-error-must-not-collapse-to-empty` defect.
+   *
+   *  Without this slot a policy-bearing surface was simply unreachable through this
+   *  door while every other door in the family took the interpreter — an asymmetry
+   *  with no design behind it, since the underlying `surfaceClient` has taken the
+   *  argument all along.
+   *
+   *  OPTIONAL at the type: a policy-FREE surface (`TPolicy = never`, every caller
+   *  that existed before the slot) declares no `client.onError`, so it needs none. */
+  onClientError?: OnClientError;
 }
 
 /** A live single-surface connection: the wire link, the reactive client, the
@@ -148,43 +152,71 @@ export interface SurfaceConnection<S extends SurfaceSpec> {
 export async function connectSurface<const S extends SurfaceSpec>(
   opts: ConnectSurfaceOptions<S>,
 ): Promise<SurfaceConnection<S>> {
-  const { surface, heartbeat: hb, url, ...socketOptions } = opts;
-  const socket = await createSurfaceSocket({
-    ...socketOptions,
-    url: url ?? defaultSurfaceUrl(),
-    group: surface.group,
-  });
+  const { surface, heartbeat: hb, url, onClientError, ...socketOptions } = opts;
+  // Past this await the wire is LIVE, and every construction below can throw over
+  // it — `surfaceClient` refuses a policy-bearing surface with no interpreter at
+  // construction, which is reachable through this door now that it takes one. So
+  // each allocation is tracked and given back in reverse if one throws; see
+  // `../connectAllocations`. The `url` refusal above is the same law on the
+  // other side of the dial: nothing was ever allocated there.
+  const allocations = trackConnectAllocations("connectSurface");
+  const socket = allocations.track(
+    "wire",
+    await createSurfaceSocket({
+      ...socketOptions,
+      url: url ?? defaultSurfaceUrl("connectSurface"),
+      group: surface.group,
+    }),
+  );
   const { link } = socket;
-  // `createLiveSignal` takes the WHOLE `{ dispatch, wire }` the link factory
-  // minted together: it derives the reactive transport `status`, wires the
-  // half-open watchdog (probing the reserved `system/live` TAG over the very
-  // dispatch it guards), AND mints the BRANDED handle the client requires — in one
-  // call. We hand that whole handle to `surfaceClient`, so client and watchdog
-  // share ONE dispatch over ONE wire by construction. Without it `surfaceClient`
-  // refuses a bare wire dispatch: a surface whose socket is silently half-open (or
-  // retired `down`) but whose subs already yielded a first frame would otherwise
-  // read `ready` — the green-dot-over-a-dead-link lie.
-  const transport = createLiveSignal(link, hb ?? {});
-  const client = surfaceClient(surface, transport);
-  // The readout is the transport `status` folded WITH this client's own health
-  // fact — the conjunction, memoized once here rather than re-derived (or
-  // forgotten) at every indicator. It owns a `createRoot`, because this seam runs
-  // outside any reactive owner, so its disposer joins the three below.
-  const readout = createSurfaceReadout(transport.status, client.health);
-  return {
-    link,
-    client,
-    readout: readout.readout,
-    // Stop the watchdog, drop the readout's memo, tear down the client's
-    // build-time standing subscriptions (the eager `liveWhen`-cell readiness subs
-    // — present when the surface is mirrored), and release the socket (its
-    // identity/retired observers plus the link's dial/ping/response fibers), so a
-    // torn-down connection leaks none of the four.
-    dispose: async () => {
-      transport.dispose();
-      readout.dispose();
-      client.dispose();
-      await socket.dispose();
-    },
-  };
+  try {
+    // `createLiveSignal` takes the WHOLE `{ dispatch, wire }` the link factory
+    // minted together: it derives the reactive transport `status`, wires the
+    // half-open watchdog (probing the reserved `system/live` TAG over the very
+    // dispatch it guards), AND mints the BRANDED handle the client requires — in one
+    // call. We hand that whole handle to `surfaceClient`, so client and watchdog
+    // share ONE dispatch over ONE wire by construction. Without it `surfaceClient`
+    // refuses a bare wire dispatch: a surface whose socket is silently half-open (or
+    // retired `down`) but whose subs already yielded a first frame would otherwise
+    // read `ready` — the green-dot-over-a-dead-link lie.
+    const transport = allocations.track(
+      "watchdog",
+      createLiveSignal(link, hb ?? {}),
+    );
+    // The app's one error interpreter reaches this client too: a surface reached
+    // through the SINGULAR door is no more allowed to route a declared policy nowhere
+    // than one reached through the plural.
+    const client = allocations.track(
+      "client",
+      surfaceClient(surface, transport, onClientError),
+    );
+    // The readout is the transport `status` folded WITH this client's own health
+    // fact — the conjunction, memoized once here rather than re-derived (or
+    // forgotten) at every indicator. It owns a `createRoot`, because this seam runs
+    // outside any reactive owner, so its disposer joins the three below.
+    const readout = allocations.track(
+      "readout",
+      createSurfaceReadout(transport.status, client.health),
+    );
+    return {
+      link,
+      client,
+      readout: readout.readout,
+      // Stop the watchdog, drop the readout's memo, tear down the client's
+      // build-time standing subscriptions (the eager `liveWhen`-cell readiness subs
+      // — present when the surface is mirrored), and release the socket (its
+      // identity/retired observers plus the link's dial/ping/response fibers), so a
+      // torn-down connection leaks none of the four.
+      //
+      // It is the tracker's own list, in reverse — NOT a second list written
+      // beside it. Two hand-kept teardowns fail asymmetrically: an allocation
+      // added above and forgotten here leaks on the SUCCESS path, the one every
+      // consumer takes, while the failure path — the one anybody would think to
+      // check — keeps looking correct. One list, two exits (`release` here,
+      // `unwind` below).
+      dispose: allocations.release,
+    };
+  } catch (constructionError) {
+    return allocations.unwind(constructionError);
+  }
 }

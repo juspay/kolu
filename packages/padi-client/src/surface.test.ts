@@ -6,7 +6,6 @@ import {
   DEFAULT_PADI_IDENTITY,
   DEFAULT_PADI_VERSION,
   KavalContractSkew,
-  PADI_DAEMON_TAG_COUNT,
   PADI_FORWARDING_POLICY,
   PADI_SURFACE_VERSION,
   PadiHelloSchema,
@@ -425,8 +424,13 @@ describe("padiSurface contract", () => {
 
 describe("padiDaemonContract — the composed tag set (D1 / #16)", () => {
   it("composes the two siblings WITHOUT losing a tag", () => {
-    expect(padiDaemonGroup.requests.size).toBe(PADI_DAEMON_TAG_COUNT);
-    expect(PADI_DAEMON_TAG_COUNT).toBe(
+    // The proof itself is the framework's now — `composeSurfaceContracts` ends in
+    // `mergeDisjointGroups`, which claims every scoped sibling's tags and throws
+    // naming both siblings on a collision, so this module's own import-time size
+    // assert was a restatement of a law it no longer owns. What is worth pinning
+    // here is the ARITHMETIC that assert stood for: the composed group carries
+    // exactly what the two siblings declare, neither dropping nor inventing.
+    expect(padiDaemonGroup.requests.size).toBe(
       padiSurface.group.requests.size + padiControlSurface.group.requests.size,
     );
   });

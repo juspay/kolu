@@ -24,7 +24,7 @@
 import { Effect, Schema, Stream } from "effect";
 import { createEffect, createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { defineSurface } from "../define";
+import { defineSurface, defineSurfaceWithPolicy } from "../define";
 import {
   brandHalfOpenDispatch,
   type SurfaceDispatch,
@@ -616,5 +616,86 @@ describe("every half-openable WIRE link (websocket / stdio / unix-socket) demand
       "surface/conn/get": () => once({ state: "ok" }),
     });
     expect(() => surfaceClient(surface, direct)).not.toThrow();
+  });
+});
+
+describe("surfaceClients builds a bundle ALL-OR-NOTHING", () => {
+  // `buildSurfaceClient` opens REAL side effects before it returns — a mirrored
+  // surface's eager `liveWhen` readiness subscription is live the moment the client
+  // exists — and it can THROW: a sibling whose spec declares a `client.onError`
+  // policy reached with no interpreter is refused at construction (design §D/F5).
+  //
+  // Built by a bare `.map`, the SECOND sibling's throw would propagate with the
+  // first already subscribed and its only `dispose` handle inside the array element
+  // the exception discards: a subscription running over the wire that nothing can
+  // ever close. The guarantee has to live in `surfaceClients` itself, because a
+  // caller can only ever see the value it returns — `connectSurfaces`' own unwind
+  // cannot reach a child that was never handed back.
+  const mirrored = defineSurface({
+    cells: {
+      connection: {
+        schema: Schema.Struct({ state: Schema.String }),
+        default: { state: "connecting" },
+        verbs: ["get"],
+        liveWhen: (v: { state: string }) => v.state === "connected",
+      },
+    },
+  });
+  const policied = defineSurfaceWithPolicy<{ kind: "toast"; label: string }>()({
+    cells: {
+      watch: {
+        schema: Schema.Struct({ n: Schema.Number }),
+        default: { n: 0 },
+        verbs: ["get"],
+        client: { onError: { kind: "toast", label: "watch" } },
+      },
+    },
+  });
+
+  it("releases the siblings it already built when a later one refuses", async () => {
+    const torn: string[] = [];
+    const f = feed<{ state: string }>();
+    const dispatch = fakeDispatch({
+      // The FIRST sibling's eager readiness sub, with a finalizer that records the
+      // teardown. Its scoped tag carries the sibling key `surfaceClients` splices in.
+      "surface/first/connection/get": () =>
+        Stream.ensuring(
+          f.stream(),
+          Effect.sync(() => {
+            torn.push("first");
+          }),
+        ),
+    });
+    // The bundle throws — the second sibling's declared policy has nowhere to go.
+    expect(() =>
+      surfaceClients(dispatch, { first: mirrored, second: policied }),
+    ).toThrow(/no `onClientError` interpreter was threaded/);
+    // …and the first sibling's subscription, opened before that throw, was closed
+    // on the way out. Without the unwind inside `surfaceClients` this stays empty
+    // and the stream runs for the life of the page.
+    await settle();
+    expect(torn).toEqual(["first"]);
+  });
+
+  it("keeps the whole bundle when every sibling builds", async () => {
+    const torn: string[] = [];
+    const f = feed<{ state: string }>();
+    const dispatch = fakeDispatch({
+      "surface/first/connection/get": () =>
+        Stream.ensuring(
+          f.stream(),
+          Effect.sync(() => {
+            torn.push("first");
+          }),
+        ),
+    });
+    const clients = surfaceClients(dispatch, { first: mirrored });
+    await settle();
+    // Nothing torn down on the success path — the unwind is the failure exit only.
+    expect(torn).toEqual([]);
+    expect(Object.keys(clients)).toEqual(["first"]);
+    clients.first.dispose();
+    await settle();
+    expect(torn).toEqual(["first"]);
   });
 });

@@ -13,10 +13,12 @@
  *
  *   1. **{@link classifyExpose}** — spec + map → what each key NAMES. The one
  *      authority on the key grammar, shared by every face.
- *   2. **{@link exposeFace} / {@link exposeFaces}** — surface + map →
- *      {@link FaceExposure}, the concrete set of wire tags this face serves.
- *      Parse, don't validate: a face is handed a checked VALUE, never a map it
- *      has to re-interpret.
+ *   2. **{@link exposeFace} / {@link exposeFaces} / {@link exposeRootedFaces}** —
+ *      surface(s) + map(s) → {@link FaceExposure}, the concrete set of wire tags
+ *      this face serves. One constructor per SHAPE of served surface (standalone,
+ *      sibling bundle, rooted bundle), never one with a mode flag. Parse, don't
+ *      validate: a face is handed a checked VALUE, never a map it has to
+ *      re-interpret.
  *   3. **{@link restrictHandlers}** — group + handlers + exposure → the handler
  *      record that face serves.
  *
@@ -104,10 +106,13 @@ import { Data, Effect, Stream } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcSchema } from "effect/unstable/rpc";
 import {
+  type ComposedSurfaces,
   composeSurfaceContracts,
   isReservedSurfaceTag,
+  mergeDisjointGroups,
   READ_VERBS,
   type Surface,
+  SURFACE_TAG_PREFIX,
   type SurfaceSpec,
   surfaceTag,
 } from "./define";
@@ -580,6 +585,23 @@ export function exposeFaces<M extends Record<string, Surface<SurfaceSpec>>>(
   expose: { [K in keyof M]?: ExposeMap<M[K]["spec"]> },
 ): FaceExposure {
   const composed = composeSurfaceContracts(surfaces);
+  return {
+    universe: new Set(composed.group.requests.keys()),
+    tags: siblingTagsAt("exposeFaces", surfaces, composed, expose),
+  };
+}
+
+/** Bind one map PER SIBLING to the bundle they were composed into, collecting the
+ *  tags they grant — the fold {@link exposeFaces} and {@link exposeRootedFaces}
+ *  share, so the two constructors read a sibling map by ONE rule and a third
+ *  constructor cannot arrive with a fourth reading of `expose`. */
+function siblingTagsAt<M extends Record<string, Surface<SurfaceSpec>>>(
+  seam: string,
+  surfaces: M,
+  composed: ComposedSurfaces<M>,
+  expose: { [K in keyof M]?: ExposeMap<M[K]["spec"]> },
+): Set<string> {
+  const into = new Set<string>();
   const maps = expose as Record<string, ExposeMap<SurfaceSpec> | undefined>;
   // A map keyed by a sibling this bundle does not have is {@link
   // classifyExpose}'s "names nothing" refusal one level UP, and it needs the
@@ -595,15 +617,87 @@ export function exposeFaces<M extends Record<string, Surface<SurfaceSpec>>>(
   );
   if (strays.length > 0) {
     throw new ExposeMapError({
-      detail: `exposeFaces: expose names sibling(s) [${strays.sort().join(", ")}] this bundle does not have; its siblings are [${Object.keys(surfaces).sort().join(", ")}]`,
+      detail: `${seam}: expose names sibling(s) [${strays.sort().join(", ")}] this bundle does not have; its siblings are [${Object.keys(surfaces).sort().join(", ")}]`,
     });
   }
-  const tags = new Set<string>();
   for (const key of Object.keys(surfaces)) {
     const sibling = composed.siblings[key] as Surface<SurfaceSpec>;
-    tagsAt(sibling, maps[key] ?? {}, tags);
+    tagsAt(sibling, maps[key] ?? {}, into);
   }
-  return { universe: new Set(composed.group.requests.keys()), tags };
+  return into;
+}
+
+/** {@link exposeFaces} for a ROOTED bundle — an unprefixed ROOT surface beside the
+ *  sibling map, gated as ONE face. The third member of the family
+ *  (`exposeFace` → one surface, `exposeFaces` → siblings, this → root + siblings),
+ *  a distinct constructor rather than a mode flag, exactly as
+ *  `implementSurface`/`implementSurfaces` are.
+ *
+ *  It exists so the two halves are never unioned by HAND. A face over root +
+ *  siblings is otherwise spelled `{ universe: a.universe ∪ b.universe, tags: a.tags
+ *  ∪ b.tags }` over an `exposeFace` and an `exposeFaces` — and a set union carries
+ *  an unwritten precondition its caller has to promise: it is only sound while the
+ *  two groups are DISJOINT. When they are not, the union silently keeps one copy of
+ *  the shared tag, the `universe` still set-equals a served group merged just as
+ *  carelessly, {@link restrictHandlers} sees nothing wrong, and the face serves one
+ *  member under the other's policy.
+ *
+ *  Two things replace that promise. The universe is `mergeDisjointGroups` of the
+ *  two halves — the SAME counted composition the serve path runs — so disjointness
+ *  is established rather than assumed. And the root is REFUSED unless it is
+ *  standalone, which is the reachable half of the same law: `tagsAt` reads a
+ *  surface's prefix off the value (by design — a scoped sibling and a standalone
+ *  surface are the same shape there), so a sibling-scoped surface handed in as the
+ *  root carries `surface/<key>/…` tags. Those collide with the sibling of that key
+ *  when it is present, and when it is NOT they quietly describe a bundle nobody
+ *  serves — an exposure `restrictHandlers` then refuses far from the mistake. The
+ *  same refusal `connectSurfaces` makes about its own `core`, made here so the
+ *  rule holds at both doors rather than only the one an app happens to use.
+ *
+ *  The maps are per surface: the root's against the root's own spec, one per
+ *  sibling against that sibling's, which is what keeps every `S` inferable and what
+ *  stops one dotted path meaning two things. A sibling with no map is fully denied
+ *  (default-deny is the contract); a map for a sibling that does not exist is an
+ *  {@link ExposeMapError}, the same refusal {@link exposeFaces} raises. */
+export function exposeRootedFaces<
+  S extends SurfaceSpec,
+  M extends Record<string, Surface<SurfaceSpec>>,
+>(
+  core: Surface<S>,
+  coreExpose: ExposeMap<S>,
+  siblings: M,
+  siblingExpose: { [K in keyof M]?: ExposeMap<M[K]["spec"]> },
+): FaceExposure {
+  if (core.tagPrefix !== SURFACE_TAG_PREFIX) {
+    throw new ExposeMapError({
+      detail:
+        `exposeRootedFaces: the root surface carries the tag prefix "${core.tagPrefix}", ` +
+        `not the standalone "${SURFACE_TAG_PREFIX}" — the root of a rooted bundle is the ` +
+        "UNPREFIXED one. Pass the standalone surface (`defineSurface(spec)`), or gate it " +
+        "as a sibling with `exposeFaces`",
+    });
+  }
+  const composed = composeSurfaceContracts(siblings);
+  // The siblings enter as ONE labelled half, where `connectSurfaces` labels each
+  // sibling separately — a deliberate difference, not an oversight. That seam also
+  // multiplexes `extraGroups` it did not build (a keyed map's group, a host's
+  // hand-written procedures), so naming WHICH sibling an outside group collided
+  // with is the whole value of the report. Here both halves are ours and
+  // `composeSurfaceContracts` has already proved the siblings disjoint among
+  // themselves, so the only collision left to report is root-against-siblings, and
+  // one label says it exactly.
+  const universe = mergeDisjointGroups({
+    core: core.group,
+    siblings: composed.group,
+  });
+  const tags = siblingTagsAt(
+    "exposeRootedFaces",
+    siblings,
+    composed,
+    siblingExpose,
+  );
+  tagsAt(core, coreExpose, tags);
+  return { universe: new Set(universe.requests.keys()), tags };
 }
 
 // ── Step 3: the refusal, and applying it ────────────────────────────────
