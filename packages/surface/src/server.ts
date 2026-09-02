@@ -2186,15 +2186,21 @@ function startOwnedSource(
  *    own release, never a sibling's). A fault seen during teardown — the
  *    connector's own or one of its finalizers' — is routed to `done`, not thrown
  *    from `close`. */
-function superviseSurface(gather: () => SurfaceSource[]): {
+function superviseSurface(initial: SurfaceSource[]): {
   done: Promise<void>;
   close: () => Promise<void>;
   /** Enrol a source that arrived AFTER construction (a sibling mounted on a live
    *  rooted bundle). A fixed runtime never calls it — its whole set is enrolled
-   *  from `gather()` below. */
-  watch: (source: SurfaceSource) => void;
-  /** Whether `close` has begun — the one bit a caller needs to know it must not
-   *  hand this supervisor anything else. */
+   *  from `initial` below. REFUSED once `close` has begun: a source the
+   *  supervisor can no longer interrupt is a source nobody owns. */
+  enrol: (source: SurfaceSource) => void;
+  /** Route a fault raised OUTSIDE a source's own exit — a rooted bundle's
+   *  teardown of one dropped sibling — to the same `done` every owned fault
+   *  reaches. The channel the disposition table describes has one settler. */
+  fault: (err: unknown) => void;
+  /** Whether `close` has begun. The supervisor's own state, read by a caller
+   *  that must refuse work BEFORE it commits any (a rooted bundle's `mount` is
+   *  transactional, so it cannot discover this at the last step). */
   closing: () => boolean;
 } {
   let resolveDone!: () => void;
@@ -2204,6 +2210,12 @@ function superviseSurface(gather: () => SurfaceSource[]): {
     rejectDone = reject;
   });
   let closing: Promise<void> | undefined;
+  // THE SUPERVISOR OWNS ITS SET. It is the only thing that reads it, so it is
+  // the only thing that should hold it: a caller-held set behind a `gather()`
+  // thunk would be a second door onto one fact, with "enrolled but not gathered"
+  // (never interrupted) and "gathered but not enrolled" (faults unobserved) both
+  // spellable and neither named by any type.
+  const sources = new Set<SurfaceSource>();
   // A source that faults BEFORE close reaches `done` immediately as a rejection —
   // the FIRST such fault is the root cause (`done` is settle-once by spec, so a
   // later one is a no-op). Once `close` has begun, though, it stands down: its
@@ -2211,15 +2223,29 @@ function superviseSurface(gather: () => SurfaceSource[]): {
   // teardown fault instead of losing all but the first to this eager race. The
   // `.catch` still runs (the rejection never floats unhandled), it just doesn't
   // settle `done` during close.
-  const watch = (source: SurfaceSource): void => {
-    source.settled.catch((err) => {
-      if (!closing) rejectDone(err);
-    });
+  const enrol = (source: SurfaceSource): void => {
+    if (closing) {
+      throw new Error(
+        "superviseSurface: a source arrived after `close` began — it would never be interrupted.",
+      );
+    }
+    sources.add(source);
+    source.settled
+      .catch((err) => {
+        if (!closing) rejectDone(err);
+      })
+      // A source LEAVES the set when it settles, which is what makes a mount
+      // whose `drop` is still unwinding stay visible to `close` without any
+      // "retiring" bookkeeping beside the roster: it is enrolled until its own
+      // exit says it owns nothing.
+      .finally(() => {
+        sources.delete(source);
+      });
   };
   // The set as it stands at construction. A FIXED runtime's whole set is here and
-  // `watch` is never called again; a runtime whose sources arrive later (a rooted
+  // `enrol` is never called again; a runtime whose sources arrive later (a rooted
   // bundle's mounts) enrols each one as it arrives, through the same door.
-  for (const s of gather()) watch(s);
+  for (const s of initial) enrol(s);
 
   const close = (): Promise<void> => {
     closing ??= (async () => {
@@ -2231,12 +2257,12 @@ function superviseSurface(gather: () => SurfaceSource[]): {
       // (#1719) is now one await rather than a sequence to orchestrate, and a
       // finalizer that faults is carried out on the same exit as the connector's
       // own failure.
-      // Gathered HERE, not captured at construction: a rooted bundle's set has
-      // moved since. Read synchronously, before the first await, so the set
-      // `close` interrupts is the set it then observes.
-      const sources = gather();
-      for (const s of sources) s.interrupt();
-      const outcomes = await Promise.allSettled(sources.map((s) => s.settled));
+      // SNAPSHOT the supervisor's own set here, not at construction: a rooted
+      // bundle's set has moved since. Read synchronously, before the first
+      // await, so the set `close` interrupts is the set it then observes.
+      const snapshot = [...sources];
+      for (const s of snapshot) s.interrupt();
+      const outcomes = await Promise.allSettled(snapshot.map((s) => s.settled));
       // Surface EVERY teardown fault, not just the first: with the eager catch
       // stood down (above), this barrier is the sole settler during close, so a
       // second concurrently-faulting source is never silently dropped. One fault
@@ -2254,7 +2280,18 @@ function superviseSurface(gather: () => SurfaceSource[]): {
     })();
     return closing;
   };
-  return { done, close, watch, closing: () => closing !== undefined };
+  return {
+    done,
+    close,
+    enrol,
+    // Always settles, close or no close — unlike the eager `.catch` above, which
+    // stands down during close so the barrier can aggregate SOURCE exits. This
+    // fault is not a source exit, so the barrier will never see it: standing
+    // down would drop it on the floor instead of deferring it. `done` is
+    // settle-once, so at worst it wins a race the barrier would otherwise have.
+    fault: (err) => rejectDone(err),
+    closing: () => closing !== undefined,
+  };
 }
 
 /** Compose a passive owned RUNTIME with a TERMINAL source into one supervised
@@ -2414,6 +2451,20 @@ function walkSurface<const S extends SurfaceSpec>(
   surface: Surface<S>,
   deps: ImplementSurfaceDeps<S> & {
     channel: <T>(name: string) => Channel<T>;
+    /** A mounted sibling's LIFETIME. Present only on a rooted bundle's `mount`:
+     *  the walk then wraps EVERY ctx accessor AS IT BUILDS IT, so the value the
+     *  surface's own procedure handlers close over and the value handed back to
+     *  the mount's holder are the SAME retracting object.
+     *
+     *  Applying the guard to the RETURNED ctx instead would leave the procedure
+     *  closures writing through the unguarded original — reachable, because an
+     *  in-flight unary call is deliberately not interrupted by a drop, and its
+     *  SIDE EFFECTS outlive the answer that argument is about. It would also
+     *  have to re-derive {@link SurfaceCtx}'s shape by reflection, so a ctx group
+     *  that ever stopped being a flat record of functions would silently stop
+     *  being retracted. Here there is no shape to re-derive: the accessors are
+     *  wrapped where they are written. */
+    retract?: { live: () => boolean; key: string };
   },
   identity?: BakedIdentity,
 ): {
@@ -2427,6 +2478,37 @@ function walkSurface<const S extends SurfaceSpec>(
   const cellsCtx: Record<string, unknown> = {};
   const collectionsCtx: Record<string, unknown> = {};
   const handlers = emptyHandlers();
+  /** Wrap ONE ctx member's face so every accessor on it refuses once the mount
+   *  is dropped. Identity when this walk is not a mount's (every other
+   *  constructor passes no `retract`, so its ctx is byte-identical to before).
+   *
+   *  READS are retracted alongside writes — the handle is dead, not merely
+   *  read-only, and a `get` that answers out of a retired store is the same lie
+   *  one level quieter. */
+  const retractable = (
+    group: "cells" | "collections" | "events",
+    member: string,
+    face: Record<string, unknown>,
+  ): Record<string, unknown> => {
+    const retract = deps.retract;
+    if (retract === undefined) return face;
+    const wrapped: Record<string, unknown> = {};
+    for (const [verb, fn] of Object.entries(face)) {
+      wrapped[verb] =
+        typeof fn === "function"
+          ? (...args: unknown[]) => {
+              if (!retract.live()) {
+                throw new SurfaceSiblingDropped({
+                  key: retract.key,
+                  at: { face: "write", path: `${group}.${member}.${verb}` },
+                });
+              }
+              return (fn as (...a: unknown[]) => unknown)(...args);
+            }
+          : fn;
+    }
+    return wrapped;
+  };
   /** Bind one member verb at its wire tag. Throws on a duplicate: the flat tag
    *  namespace means two members can spell the same tag, and a silent overwrite
    *  would drop one side's handler while the group still advertises the route.
@@ -2738,13 +2820,17 @@ function walkSurface<const S extends SurfaceSpec>(
         `implementSurface: cell "${key}" is graph-owned (a derived cell) — the graph is its one writer; ctx.cells.${key}.set/patch is not a write path.`,
       );
     };
-    cellsCtx[key] = isDerivedCellDeps(cellDeps)
-      ? {
-          get: () => store.get(),
-          set: derivedWriteGuard,
-          ...(patchFn ? { patch: derivedWriteGuard } : {}),
-        }
-      : { get: () => store.get(), ...writeArm };
+    cellsCtx[key] = retractable(
+      "cells",
+      key,
+      isDerivedCellDeps(cellDeps)
+        ? {
+            get: () => store.get(),
+            set: derivedWriteGuard,
+            ...(patchFn ? { patch: derivedWriteGuard } : {}),
+          }
+        : { get: () => store.get(), ...writeArm },
+    );
 
     // Optional async-source republish: fire once after the cell ctx is
     // wired, handing it the PRIVATE write arm so a late-arriving value (and a
@@ -2964,12 +3050,12 @@ function walkSurface<const S extends SurfaceSpec>(
         `implementSurface: collection "${key}" is graph-owned (a derived.collection) — the reconciler is its one writer; ctx.collections.${key}.upsert/remove is not a write path.`,
       );
     };
-    collectionsCtx[key] = {
+    collectionsCtx[key] = retractable("collections", key, {
       upsert: derivedColl ? derivedCollWriteGuard : wrappedUpsert,
       remove: derivedColl ? derivedCollWriteGuard : wrappedRemove,
       readAll: collDeps.readAll,
       readOne: collDeps.readOne ?? ((k: unknown) => collDeps.readAll().get(k)),
-    };
+    });
 
     // A derived collection's reconciler is an OWNED SOURCE: fire its `connect` in
     // the deferred `starts` pass (handing it the surface's per-key publishers + the
@@ -3115,11 +3201,11 @@ function walkSurface<const S extends SurfaceSpec>(
       | undefined;
     const busFor = (input: unknown): Channel<unknown> =>
       deps.channel<unknown>(`${key}:${eventChannelKey(input)}`);
-    eventsCtx[key] = {
+    eventsCtx[key] = retractable("events", key, {
       publish: (input: unknown, payload: unknown) => {
         busFor(input).publish(payload);
       },
-    };
+    });
     const consumerSource = eventDeps?.source;
     const source = (input: unknown): Stream.Stream<unknown> => {
       const bus = busFor(input);
@@ -3263,7 +3349,7 @@ export function implementSurfaceOnPublisher<const S extends SurfaceSpec>(
   // and the route set proved out — do we start the connectors. A throw above
   // returns before any source spins up, so none can be orphaned.
   const sources = starts.map((start) => start());
-  const { done, close } = superviseSurface(() => sources);
+  const { done, close } = superviseSurface(sources);
   return { group: surface.group, handlers, ctx, done, close };
 }
 
@@ -3599,7 +3685,7 @@ export function implementSurfacesOnPublisher<const S extends SurfaceMap>(
   // starting the connectors now can never orphan a source spun up for an
   // earlier sibling when a later sibling fails to validate.
   const sources = starts.map((start) => start());
-  const { done, close } = superviseSurface(() => sources);
+  const { done, close } = superviseSurface(sources);
   return {
     group: composed.group,
     handlers,
@@ -3645,55 +3731,6 @@ export class SurfaceSiblingDropped extends Data.TaggedError(
         : `"${this.at.path}" is no longer writable`;
     return `surface: ${what} — the sibling "${this.key}" was dropped from this rooted bundle`;
   }
-}
-
-/** Every write face of a mounted sibling, retracted the instant the mount is
- *  dropped — the WRITE-side twin of the refusing handler wrappers, and the other
- *  half of what `drop()` means.
- *
- *  `mount` hands a consumer two faces onto one sibling: the wire face (the
- *  handlers) and the write face (`ctx`). Retracting only the first leaves a
- *  dropped mount's `ctx.cells.x.set(…)` fully live — it writes a store nobody
- *  serves AND publishes on that member's channel. Both halves are wrong, and the
- *  publish half was reachable crosstalk: channels are named per mount GENERATION
- *  now, so a stale publish can no longer land on a re-mounted key's subscribers,
- *  but a write that lands nowhere in silence is exactly what this repo's
- *  `caught-error-must-not-collapse-to-empty` rule is about. So it throws.
- *
- *  A two-level walk, because {@link SurfaceCtx} is two levels: a group (`cells` /
- *  `collections` / `events`), a member, and that member's methods. READS are
- *  retracted alongside writes — the handle is dead, not merely read-only, and a
- *  `get` that answers out of a retired store is the same lie one level quieter. */
-function retractingCtx<C>(ctx: C, live: () => boolean, key: string): C {
-  const groups = ctx as unknown as Record<
-    string,
-    Record<string, Record<string, unknown>> | undefined
-  >;
-  const wrapped: Record<string, Record<string, Record<string, unknown>>> = {};
-  for (const [group, members] of Object.entries(groups)) {
-    if (members === undefined) continue;
-    const outMembers: Record<string, Record<string, unknown>> = {};
-    for (const [member, methods] of Object.entries(members)) {
-      const outMethods: Record<string, unknown> = {};
-      for (const [verb, fn] of Object.entries(methods)) {
-        outMethods[verb] =
-          typeof fn === "function"
-            ? (...args: unknown[]) => {
-                if (!live()) {
-                  throw new SurfaceSiblingDropped({
-                    key,
-                    at: { face: "write", path: `${group}.${member}.${verb}` },
-                  });
-                }
-                return (fn as (...a: unknown[]) => unknown)(...args);
-              }
-            : fn;
-      }
-      outMembers[member] = outMethods;
-    }
-    wrapped[group] = outMembers;
-  }
-  return wrapped as unknown as C;
 }
 
 /** ONE mounted sibling of a {@link RootedSurfacesRuntime} — a registration that
@@ -3865,10 +3902,15 @@ interface Mount {
   /** The tag-keyed handlers this mount contributes — the STABLE, refusing
    *  wrappers, never the walk's raw bindings. */
   readonly handlers: SurfaceHandlers;
-  /** Completed (with a plain success) at the moment of the drop; every
-   *  subscription this mount is serving is interrupted off it. */
+  /** THE mount's retraction state — completed (with a plain success) at the
+   *  moment of the drop; every subscription this mount is serving is interrupted
+   *  off it. */
   readonly dropped: Deferred.Deferred<void>;
-  live: boolean;
+  /** A READING of {@link Mount.dropped}, not a second copy of it. The boolean
+   *  and the deferred were two encodings of one fact kept in step by two
+   *  adjacent statements; `Deferred.isDoneUnsafe` is a synchronous poll, so the
+   *  reading is derivable and a retraction cannot half-happen. */
+  readonly live: () => boolean;
   sources: SurfaceSource[];
   dropping?: Promise<void>;
 }
@@ -3954,7 +3996,6 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
   );
 
   const mounts = new Map<string, Mount>();
-  const retiring = new Set<Mount>();
   /** Monotonic across the runtime — see {@link Mount.gen}. */
   let generation = 0;
 
@@ -3995,31 +4036,43 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
   // synchronous turn are always the same generation.
   let served = compose();
 
+  /** The SYNCHRONOUS half of a retraction: this mount leaves the roster, and
+   *  BOTH its faces — the wire handlers an open connection is holding and the
+   *  `ctx` its holder writes through — refuse from this instant. Shared by
+   *  `drop` (one mount) and `close` (all of them), because "this handle is dead"
+   *  is one law and not one per verb. Cannot fail, which is what lets `drop`
+   *  re-compose AFTER it. The caller re-composes: `drop` once, `close` once for
+   *  the whole roster. */
+  const retract = (record: Mount): void => {
+    if (!record.live()) return;
+    // ONE retraction act. `live` is a READING of this deferred, never a second
+    // copy kept in step beside it, so a half-retracted mount — subscriptions
+    // dying while fresh calls still succeed, or the reverse — is unrepresentable
+    // rather than merely untested.
+    Deferred.doneUnsafe(record.dropped, Effect.void);
+    mounts.delete(record.key);
+  };
+
   // ── Supervision over a source set that CHANGES ──────────────────────
   //
   // The contract is {@link SurfaceRuntimeHandle.done}'s, unchanged, and so is the
   // IMPLEMENTATION: `superviseSurface` is the file's one statement of the
   // eager-catch / close-barrier interlock, and this door uses it rather than
-  // restating it. What a moving roster needs is only the two things that helper
-  // now takes — a GATHER thunk (so `close` sees the set as it stands, not as it
-  // was) and `watch` (so a sibling mounted later is enrolled through the same
-  // door). A second copy of the interlock would be two implementations of the
-  // subtlest rule in the file, kept in step by hand: a fix applied to one — the
-  // #2101 fatal-vs-cell-local disposition, say — would silently leave the other
-  // on the old rule, with no test to say so.
+  // restating it. What a moving roster needs is ONE door the helper did not have
+  // — `enrol`, for a sibling mounted after construction. The supervisor keeps
+  // its own set behind it, so a mount whose `drop` is still unwinding stays
+  // supervised until its own exit says it owns nothing: `close` waits for it
+  // with no "retiring" roster kept beside the real one. A second copy of the
+  // interlock would be two implementations of the subtlest rule in the file,
+  // kept in step by hand: a fix applied to one — the #2101 fatal-vs-cell-local
+  // disposition, say — would silently leave the other on the old rule, with no
+  // test to say so.
   //
-  // A dropped sibling's teardown fault reaches this same channel, which is why
-  // `drop()` always resolves: a caller who never awaited it must not be the only
-  // reader of a structural fault.
+  // A dropped sibling's teardown fault reaches this same channel through
+  // `fault`, which is why `drop()` always resolves: a caller who never awaited
+  // it must not be the only reader of a structural fault.
   const coreSources = walkedCore.starts.map((start) => start());
-  const { done, close, watch, closing } = superviseSurface(() => [
-    ...coreSources,
-    ...[...mounts.values()].flatMap((mount) => mount.sources),
-    // Mounts whose `drop` is still unwinding — off the roster, still owning
-    // sources, so `close` waits for them rather than resolving over a teardown
-    // that is still running.
-    ...[...retiring].flatMap((mount) => mount.sources),
-  ]);
+  const { done, close, enrol, fault, closing } = superviseSurface(coreSources);
 
   const mount = <const S extends SurfaceSpec>(
     key: string,
@@ -4059,6 +4112,12 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
     // the wire tags. It is internal: channel names are surface-driven and never
     // cross the wire.
     const gen = ++generation;
+    // THE MOUNT'S ONE RETRACTION STATE, minted BEFORE the walk because the walk
+    // is what wraps the ctx with it (see `retract` on the walk's deps): the value
+    // every procedure handler closes over and the value handed back to the
+    // holder are then the SAME retracting object.
+    const dropped = Deferred.makeUnsafe<void>();
+    const live = (): boolean => !Deferred.isDoneUnsafe(dropped);
     const walked = walkSurface(
       scoped,
       {
@@ -4067,6 +4126,7 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
           channel<T>(`${key}#${gen}/${name}`),
         onStreamReadError:
           mountDeps.onStreamReadError ?? base.onStreamReadError,
+        retract: { live, key },
       },
       opts?.identity,
     );
@@ -4081,8 +4141,8 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
       gen,
       scoped: scoped as unknown as Surface<SurfaceSpec>,
       handlers: emptyHandlers(),
-      dropped: Deferred.makeUnsafe<void>(),
-      live: true,
+      dropped,
+      live,
       sources: [],
     };
     // Each tag gets a handler that is STABLE for this mount's whole life and
@@ -4101,7 +4161,7 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
         new SurfaceSiblingDropped({ key, at: { face: "wire", tag } });
       record.handlers[tag] = streaming
         ? (payload: unknown) =>
-            record.live
+            record.live()
               ? Stream.interruptWhen(
                   handler(payload) as Stream.Stream<unknown, unknown>,
                   // Parks for this mount's whole life and then DIES, so an
@@ -4115,7 +4175,7 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
                 )
               : Stream.die(gone())
         : (payload: unknown) =>
-            record.live
+            record.live()
               ? (handler(payload) as Effect.Effect<unknown, unknown>)
               : Effect.die(gone());
     }
@@ -4127,31 +4187,43 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
     mounts.set(key, record);
     served = next;
     record.sources = walked.starts.map((start) => start());
-    for (const source of record.sources) watch(source);
+    for (const source of record.sources) enrol(source);
 
     return {
       key,
       surface: scoped,
-      // The WRITE face, retracted at the same instant as the wire face — see
-      // {@link retractingCtx}. A stale holder's `set` throws instead of writing a
-      // store nobody serves.
-      ctx: retractingCtx(walked.ctx, () => record.live, key),
+      // The WRITE face, retracted at the same instant as the wire face. The
+      // guard was applied INSIDE the walk (`retract` above), so this is the very
+      // object the sibling's procedure handlers closed over — not a wrapped copy
+      // beside a raw original that an in-flight procedure could still write
+      // through after the drop.
+      ctx: walked.ctx,
       drop: (): Promise<void> => {
         record.dropping ??= (async () => {
-          // SYNCHRONOUS retraction first: off the roster, and every handler this
-          // mount bound refuses from this instant — including the ones an open
-          // connection is holding.
-          record.live = false;
-          Deferred.doneUnsafe(record.dropped, Effect.void);
-          mounts.delete(key);
-          retiring.add(record);
-          served = compose();
-          for (const source of record.sources) source.interrupt();
-          // Each source's exit already INCLUDES its scope's finalizers. Faults
-          // are reported by `watch` (or aggregated by `close`); this barrier is
-          // for ORDERING — when it settles, the sibling owns nothing.
-          await Promise.allSettled(record.sources.map((s) => s.settled));
-          retiring.delete(record);
+          try {
+            // SYNCHRONOUS retraction first: off the roster, and every handler
+            // this mount bound refuses from this instant — including the ones an
+            // open connection is holding.
+            retract(record);
+            // INTERRUPT BEFORE RE-COMPOSING. The retraction proper is already
+            // done and cannot fail; `compose()` can (it re-proves the whole
+            // bundle), so interrupting first keeps the teardown from depending
+            // on that proof being total.
+            for (const source of record.sources) source.interrupt();
+            served = compose();
+            // Each source's exit already INCLUDES its scope's finalizers. Faults
+            // are reported by the supervisor (or aggregated by `close`); this
+            // barrier is for ORDERING — when it settles, the sibling owns nothing.
+            await Promise.allSettled(record.sources.map((s) => s.settled));
+          } catch (teardownFault) {
+            // `drop()` ALWAYS RESOLVES — the doc's promise, kept by the STRUCTURE
+            // and not by the absence of a throw. A floated `drop()` is the shape
+            // the design invites ("a caller who never awaited it must not be the
+            // only reader of a structural fault"), so a rejection here would be
+            // the unhandled rejection the design exists to avoid. The fault goes
+            // where every other owned fault goes.
+            fault(teardownFault);
+          }
         })();
         return record.dropping;
       },
@@ -4171,7 +4243,22 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
     ctx: walkedCore.ctx,
     mount,
     done,
-    close,
+    close: async () => {
+      // A CLOSE IS THE RUNTIME-WIDE DROP. Every surviving mount is retracted by
+      // it, exactly as `drop` retracts one — so a stale holder's write throws
+      // rather than landing in a store nobody serves, and the roster stops
+      // listing siblings this bundle no longer serves. "A handle whose bundle is
+      // gone refuses" is one law, not one law per verb.
+      //
+      // The ROOT's `ctx` is the deliberate asymmetry: `SurfaceSiblingDropped`
+      // names a sibling, the root is not one, and the root's ctx is the same
+      // value every other constructor hands back unretracted after `close()`. A
+      // root-retraction rule belongs to `SurfaceRuntimeHandle` as a whole, not to
+      // this one door — recorded here rather than half-applied.
+      for (const record of [...mounts.values()]) retract(record);
+      served = compose();
+      await close();
+    },
   };
 }
 

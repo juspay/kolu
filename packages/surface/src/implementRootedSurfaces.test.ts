@@ -31,7 +31,7 @@
  *      root and every mounted sibling.
  */
 
-import { Effect, Schema, Stream } from "effect";
+import { Deferred, Effect, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { defineSurface } from "./define";
 import { exposeRootedFaces, restrictHandlers } from "./expose";
@@ -64,6 +64,14 @@ const fleetSurface = defineSurface({
 });
 const queueSurface = defineSurface({
   cells: { queue: { schema: Schema.Number, default: 0 } },
+});
+/** A sibling whose procedure can PARK — so a test can hold a call in flight
+ *  across a drop and watch what the handler's own `ctx` does when it resumes. */
+const parkingSurface = defineSurface({
+  cells: { fleet: { schema: Schema.Number, default: 0 } },
+  procedures: {
+    slow: { write: { input: Schema.Struct({}), output: Schema.String } },
+  },
 });
 
 const coreDeps = () => ({
@@ -327,12 +335,96 @@ describe("implementRootedSurfaces: a drop reaches an already-bound record", () =
     await runtime.close();
   });
 
+  it("retracts the ctx a still-running PROCEDURE closed over, not only the handed-back one", async () => {
+    // The guard is applied INSIDE the walk, so the ctx the sibling's own
+    // procedure handlers close over IS the retracting one. Wrapping the RETURNED
+    // ctx instead would leave this exact path live: an in-flight unary call is
+    // deliberately not interrupted by a drop — which is an argument about its
+    // ANSWER, not about its SIDE EFFECTS, and the side effects outlive the drop.
+    const store = inMemoryStore(0);
+    const gate = Deferred.makeUnsafe<void>();
+    const runtime = rooted();
+    const mounted = runtime.mount("kolu", parkingSurface, {
+      cells: { fleet: { store } },
+      procedures: {
+        slow: {
+          write: ({ ctx }) =>
+            Effect.flatMap(Deferred.await(gate), () =>
+              Effect.sync(() => {
+                // Resumes AFTER the drop. This is the write that used to land in
+                // a store nobody serves, in silence.
+                (
+                  ctx as { cells: { fleet: { set: (n: number) => void } } }
+                ).cells.fleet.set(999);
+                return "wrote";
+              }),
+            ),
+        },
+      },
+    } as never);
+
+    // Called while the mount is LIVE, so the trampoline hands back the real
+    // handler's effect and the call is in flight when the drop lands.
+    const exit = Effect.runPromiseExit(
+      unary(runtime.handlers, "surface/kolu/slow/write", {}),
+    );
+    await mounted.drop();
+    Deferred.doneUnsafe(gate, Effect.void);
+
+    const outcome = await exit;
+    expect(outcome._tag).toBe("Failure");
+    expect(String(outcome._tag === "Failure" ? outcome.cause : "")).toMatch(
+      /no longer writable/,
+    );
+    // The store never moved: the write was refused, not merely unobserved.
+    expect(store.get()).toBe(0);
+    await runtime.close();
+  });
+
   it("`drop` is idempotent and the second call is the same promise", async () => {
     const runtime = rooted();
     const mounted = runtime.mount("kolu", fleetSurface, fleetDeps());
     await Promise.all([mounted.drop(), mounted.drop()]);
     expect(runtime.roster).toEqual([]);
     await runtime.close();
+  });
+
+  it("`drop` RESOLVES even when the sibling's teardown faults, and the fault reaches done", async () => {
+    // `drop()`'s promise is documented as always resolving because the design
+    // invites floating it — "a caller who never awaited it must not be the only
+    // reader of a structural fault". So the teardown fault goes to `done`, the
+    // runtime's one owned-fault channel, and never to a rejected `drop()` nobody
+    // is awaiting.
+    const runtime = rooted();
+    const boom = new Error("finalizer died");
+    const mounted = runtime.mount("kolu", fleetSurface, {
+      cells: {
+        fleet: {
+          store: inMemoryStore(0),
+          connect: () => Effect.addFinalizer(() => Effect.die(boom)),
+        },
+      },
+    } as never);
+    await expect(mounted.drop()).resolves.toBeUndefined();
+    await expect(runtime.done).rejects.toThrow(/finalizer died/);
+  });
+
+  it("a CLOSE retracts every surviving mount — a close is the runtime-wide drop", async () => {
+    // One law ("a handle whose bundle is gone refuses"), not one law per verb.
+    // After `close` the sibling's sources are interrupted and its subscribers are
+    // gone, so a surviving holder's write would land exactly where a dropped
+    // one's would: in a store nobody serves.
+    const runtime = rooted();
+    const rootTags = Object.keys(runtime.handlers).sort();
+    const mounted = runtime.mount("kolu", fleetSurface, fleetDeps(5));
+    await runtime.close();
+    expect(() => mounted.ctx.cells.fleet.set(7)).toThrow(SurfaceSiblingDropped);
+    expect(runtime.roster).toEqual([]);
+    expect(Object.keys(runtime.handlers).sort()).toEqual(rootTags);
+    // The ROOT's ctx is the deliberate asymmetry — `SurfaceSiblingDropped` names
+    // a sibling, and the root is not one.
+    expect(() => runtime.ctx.cells.errors.set("still writable")).not.toThrow();
+    await expect(runtime.done).resolves.toBeUndefined();
   });
 });
 
