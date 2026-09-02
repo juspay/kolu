@@ -29,7 +29,7 @@ function resource(
 }
 
 describe("trackConnectAllocations", () => {
-  it("releases in REVERSE allocation order, and `dispose` twice finds the same list", async () => {
+  it("releases in REVERSE allocation order, and releases each resource EXACTLY once", async () => {
     const log: string[] = [];
     const allocations = trackConnectAllocations("seam");
     allocations.track("first", resource(log, "first"));
@@ -37,9 +37,26 @@ describe("trackConnectAllocations", () => {
 
     await allocations.release();
     expect(log).toEqual(["second", "first"]);
-    // Idempotent for a page-lifetime bundle: the walk must not consume the list.
+    // Idempotent, and idempotent by the TRACKER's own rule rather than by every
+    // resource independently being safe to dispose twice: the walk is memoized,
+    // so a second exit gets the same walk and the same verdict.
     await allocations.release();
-    expect(log).toEqual(["second", "first", "second", "first"]);
+    expect(log).toEqual(["second", "first"]);
+  });
+
+  it("two exits in flight at once share ONE walk", async () => {
+    // The window that made this necessary: a `dispose()` landing while
+    // `connectSurfaces`' `redial` is inside its `supersede()` used to start a
+    // SECOND concurrent walk over the same array — every resource disposed
+    // twice, interleaved, and every failure reported twice by two different
+    // exits. Per-resource idempotence was never what made that safe.
+    const log: string[] = [];
+    const allocations = trackConnectAllocations("seam");
+    allocations.track("first", resource(log, "first"));
+    allocations.track("second", resource(log, "second"));
+
+    await Promise.all([allocations.release(), allocations.supersede()]);
+    expect(log).toEqual(["second", "first"]);
   });
 
   it("`release` REJECTS over a failed release — a `dispose()` that resolved would claim a teardown that did not happen", async () => {

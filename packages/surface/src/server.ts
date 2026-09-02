@@ -3922,7 +3922,7 @@ export type MountSurfaceOptions = ImplementSurfaceOptions;
  *
  *  `group`/`handlers`/`ctx`/`done`/`close` are {@link SurfaceRuntimeHandle}'s, so
  *  this serves through the ordinary door (`surfaceRpcServerLayer`,
- *  `serveSurfaceSocket`, `serveOverUnixSocket`) with nothing in between. `ctx` is
+ *  `serveSurfaceSocket`) with nothing in between. `ctx` is
  *  the ROOT's; a sibling's rides its own {@link MountedSurface}.
  *
  *  **`group` and `handlers` are LIVE READS.** They answer for the roster as it
@@ -4033,13 +4033,26 @@ export interface RootedSurfacesRuntime<C extends SurfaceSpec>
 /** One mounted sibling's private bookkeeping. */
 interface Mount {
   readonly key: string;
-  /** This mount's CHANNEL GENERATION — monotonic across the runtime, so a
-   *  recycled key never aliases a retired mount's in-process channel topics. */
-  readonly gen: number;
   readonly scoped: Surface<SurfaceSpec>;
   /** The tag-keyed handlers this mount contributes — the STABLE, refusing
    *  wrappers, never the walk's raw bindings. */
   readonly handlers: SurfaceHandlers;
+  /** The walk's RAW bindings, reachable only while this mount is live and
+   *  DROPPED at retraction — which is what keeps a dropped sibling collectible.
+   *
+   *  The wrappers in {@link Mount.handlers} are, by design, still held by every
+   *  connection accepted before the drop (`RpcGroup.toLayer` and
+   *  `restrictHandlers` copy the FUNCTIONS — that is the property the refusal
+   *  rides on). A wrapper that closed over the raw binding directly therefore
+   *  pinned, through it, the sibling's cell stores, collection stores, channel
+   *  handles, ctx and reactor nodes for as long as any of those connections
+   *  lived — so a consumer mounting and dropping against a long-lived tab
+   *  accumulated one whole sibling's state per cycle, unbounded, with nothing
+   *  the runtime could release. Reaching the binding THROUGH the record instead
+   *  costs one property read on a path that is already suspended, and lets
+   *  `retract` drop the walk's state at the drop rather than at connection
+   *  close. */
+  bindings: SurfaceHandlers | undefined;
   /** THE mount's retraction state — completed (with a plain success) at the
    *  moment of the drop; every subscription this mount is serving is interrupted
    *  off it. */
@@ -4135,11 +4148,6 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
     },
     base.identity,
   );
-  assertHandlersMatchGroup(
-    core.group,
-    walkedCore.handlers,
-    "implementRootedSurfaces",
-  );
 
   const mounts = new Map<string, Mount>();
   /** Monotonic across the runtime — see {@link Mount.gen}. */
@@ -4201,12 +4209,17 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
    *  re-compose AFTER it. The caller re-composes: `drop` once, `close` once for
    *  the whole roster. */
   const retract = (record: Mount): void => {
-    if (!record.live()) return;
-    // ONE retraction act. `live` is a READING of this deferred, never a second
-    // copy kept in step beside it, so a half-retracted mount — subscriptions
-    // dying while fresh calls still succeed, or the reverse — is unrepresentable
-    // rather than merely untested.
+    // ONE retraction act, and it is idempotent by the deferred's own rule
+    // (`doneUnsafe` is a no-op once completed) rather than by a guard here.
+    // `live` is a READING of this deferred, never a second copy kept in step
+    // beside it, so a half-retracted mount — subscriptions dying while fresh
+    // calls still succeed, or the reverse — is unrepresentable rather than
+    // merely untested.
     Deferred.doneUnsafe(record.dropped, Effect.void);
+    // ...and the walk's state goes with it. See {@link Mount.bindings}: the
+    // refusing wrappers outlive the drop by design, so this is the only moment
+    // at which what they wrapped becomes collectible.
+    record.bindings = undefined;
   };
 
   // ── Supervision over a source set that CHANGES ──────────────────────
@@ -4295,9 +4308,9 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
 
     const record: Mount = {
       key,
-      gen,
       scoped: scoped as unknown as Surface<SurfaceSpec>,
       handlers: emptyHandlers(),
+      bindings: walked.handlers,
       dropped,
       live,
       sources: [],
@@ -4317,13 +4330,20 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
     // the framework's refusals; the LIVENESS gate is all this loop still says on
     // its own.
     for (const [tag, rpc] of scoped.group.requests) {
-      const handler = walked.handlers[tag] as SurfaceHandler;
       const streaming = RpcSchema.isStreamSchema(
         (rpc as Rpc.AnyWithProps).successSchema,
       );
       const gone = (): SurfaceSiblingDropped =>
         new SurfaceSiblingDropped({ key, at: { face: "wire", tag } });
       const refuse = refusingHandler(streaming, gone);
+      const binding = (): SurfaceHandler => {
+        const raw = record.bindings?.[tag];
+        // Unreachable while `live()` is true — `retract` clears the table and
+        // completes the deferred in one synchronous act — so this is the loud
+        // spelling of an invariant, never a fallback.
+        if (raw === undefined) throw gone();
+        return raw;
+      };
       // SUSPENDED, so the liveness read happens when the member RUNS and not when
       // the handler is CALLED. A handler returns a description; the wire server
       // runs it a moment later, and the in-process dispatcher this file documents
@@ -4338,7 +4358,7 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
             Stream.suspend(() =>
               record.live()
                 ? Stream.interruptWhen(
-                    handler(payload) as Stream.Stream<unknown, unknown>,
+                    binding()(payload) as Stream.Stream<unknown, unknown>,
                     // The one leg a LIFETIME refusal has that a policy refusal does
                     // not: parks for this mount's whole life and then DIES, so an
                     // in-flight subscription on a dropped sibling fails loudly with
@@ -4354,7 +4374,7 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
         : (payload: unknown) =>
             Effect.suspend(() =>
               record.live()
-                ? (handler(payload) as Effect.Effect<unknown, unknown>)
+                ? (binding()(payload) as Effect.Effect<unknown, unknown>)
                 : (refuse(payload) as Effect.Effect<unknown, unknown>),
             );
     }
@@ -4407,6 +4427,9 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
             // nothing. Until then `mount` refuses it by name (above), so two
             // generations of one key are never owned at once.
             mounts.delete(record.key);
+            // The fiber handles too: the refusing wrappers outlive this record,
+            // so anything it still points at outlives them with it.
+            record.sources = [];
           }
         })();
         return record.dropping;

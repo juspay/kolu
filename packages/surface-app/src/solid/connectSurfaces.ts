@@ -63,6 +63,7 @@ import {
   surfaceClient,
   surfaceClients,
   surfaceClientsHealth,
+  surfaceReadout,
 } from "@kolu/surface/solid";
 import type { RpcGroup } from "effect/unstable/rpc";
 import { type Accessor, createSignal } from "solid-js";
@@ -110,6 +111,26 @@ const goneHealth: SurfaceHealth = Object.freeze({
   live: false,
   subs: Object.freeze([]),
 });
+
+/** What a SUPERSEDED or DISPOSED connection's READOUT reads — built by the
+ *  framework's own fold rather than spelled here, and frozen for the same reason
+ *  {@link goneHealth} is.
+ *
+ *  TWO THINGS a hand-written literal got wrong. `needsReload` is documented on
+ *  `TransportReadout` as true for `retired` and ONLY for `retired` — the bit a
+ *  consumer reads instead of re-deriving which states are terminal — and
+ *  `surfaceReadout` is the one producer that upholds it (`needsReload: status
+ *  === "retired"`). A `{status:"retired", needsReload:false}` written here was a
+ *  value that fold can never produce, so an indicator branching on the status and
+ *  one branching on the bit gave opposite answers for the same handle, and the
+ *  `as SurfaceReadout` cast was what let it compile. And minting it per READ threw
+ *  away `createSurfaceReadout`'s `equals: sameReadout` gate, so every consumer memo
+ *  over a superseded connection saw a changed reference forever — the
+ *  new-reference-every-run anti-pattern the performance atlas has banked a win
+ *  against. One frozen value from the real constructor answers both. */
+const retiredReadout: SurfaceReadout = Object.freeze(
+  surfaceReadout("retired", goneHealth),
+);
 
 export interface ConnectSurfacesOptions<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
@@ -713,9 +734,7 @@ export async function connectSurfaces(
       // transport state that is terminal and not live, which is what a
       // superseded connection is.
       readout: () =>
-        stateNow() === "gone"
-          ? ({ status: "retired", needsReload: false } as SurfaceReadout)
-          : readout.readout(),
+        stateNow() === "gone" ? retiredReadout : readout.readout(),
       health: () => (stateNow() === "gone" ? goneHealth : health()),
       redial: async (next: Record<string, Surface<SurfaceSpec>>) => {
         if (stateNow() !== "live") {

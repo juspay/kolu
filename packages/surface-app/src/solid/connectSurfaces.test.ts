@@ -826,7 +826,17 @@ describe("connectSurfaces — a ROSTER CHANGE is a redial, and `redial` owns it"
 
       // The SUPERSEDED one answers about nothing...
       expect(conn.readout().status).toBe("retired");
-      expect(conn.readout().needsReload).toBe(false);
+      // ...and it says so with a value the framework's OWN fold produces.
+      // `needsReload` is documented on `TransportReadout` as true for `retired`
+      // and ONLY for `retired` — the bit a consumer reads instead of re-deriving
+      // which states are terminal — so a hand-written `{retired, needsReload:
+      // false}` was a value `surfaceReadout` can never mint, and an indicator
+      // branching on the status and one branching on the bit disagreed about the
+      // same handle.
+      expect(conn.readout().needsReload).toBe(true);
+      // ...and it is the SAME frozen value on every read, so a consumer memo over
+      // a superseded connection is not woken forever by a fresh object.
+      expect(conn.readout()).toBe(conn.readout());
       expect(conn.health().live).toBe(false);
       expect(conn.health().subs).toEqual([]);
       // ...while the replacement is the live one.

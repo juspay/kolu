@@ -431,6 +431,30 @@ describe("implementRootedSurfaces: a drop reaches an already-bound record", () =
     await runtime.close();
   });
 
+  it("releases the walk's state at the drop, not at connection close", async () => {
+    // The refusing wrappers outlive a drop BY DESIGN — that is what carries the
+    // refusal to a connection that captured the record before it. A wrapper that
+    // closed over the raw binding directly therefore pinned, through it, the
+    // sibling's stores, channels, ctx and reactor nodes for as long as any such
+    // connection lived: a consumer mounting and dropping against a long-lived tab
+    // accumulated one whole sibling's state per cycle, with nothing the runtime
+    // could release. The bindings are reached THROUGH the record, so retraction
+    // drops them.
+    const runtime = rooted();
+    const mounted = runtime.mount("kolu", fleetSurface, fleetDeps(1));
+    const captured = { ...runtime.handlers }; // what a connection holds
+    expect(typeof captured["surface/kolu/fleet/get"]).toBe("function");
+
+    await mounted.drop();
+    // The wrapper is still callable — and still refuses, which is the contract.
+    const exit = await Effect.runPromiseExit(
+      unary(captured, "surface/kolu/fleet/set", { value: 9 }),
+    );
+    expect(exit._tag).toBe("Failure");
+    expect(JSON.stringify(exit)).toContain("SurfaceSiblingDropped");
+    await runtime.close();
+  });
+
   it("`drop` is idempotent and the second call is the same promise", async () => {
     const runtime = rooted();
     const mounted = runtime.mount("kolu", fleetSurface, fleetDeps());

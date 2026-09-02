@@ -422,10 +422,29 @@ await mounted.drop();                // …and the registration's own undo
 `group`, `handlers`, `ctx`, `done` and `close` are `SurfaceRuntimeHandle`'s, so
 this serves through the ordinary door with nothing in between; `ctx` is the
 **root's**, and a sibling's rides its `MountedSurface`. `group` and `handlers`
-are **live reads** — a serve site that reads them per accepted connection (every
-one of kolu's does: each socket builds its own `RpcServer` over the pair) serves
-the current roster without being told the roster moved. Read them as a pair
-inside one synchronous turn.
+are **live reads** — they answer for the roster as it stands when they are read.
+Read them as a **pair** inside one synchronous turn: a mount between the two
+reads hands you a group and a handler record of different generations, which
+`assertHandlersMatchGroup` then refuses.
+
+<Aside type="caution" title="Which serve door re-reads them">
+  [`serveSurfaceSocket`](/surface/ref-surface-app#accepting-a-browser-socket)
+  takes the pair **per accepted connection** — each socket builds its own
+  `RpcServer` — so an accept loop reading `runtime.group` / `runtime.handlers`
+  inside its `onAccepted` closure serves the current roster. That is the door a
+  live bundle is served through.
+
+  The two **listener** doors do not. `serveSurfaceApp` and `serveOverUnixSocket`
+  resolve the pair — and run `restrictHandlers` — once, at bind, and serve every
+  connection over that snapshot. Handed a live runtime they *half*-work, which is
+  the worst shape: a **drop** still reaches them (the refusing wrapper rides the
+  captured record), while a **mount** after bind is invisible to every connection
+  they will ever accept, silently. Behind one of those listeners, serve a live
+  bundle with `acceptSurfaceSocket` + `serveSurfaceSocket` in your own accept
+  closure — the seam kolu ships for exactly "the app picks which runtime serves
+  this socket". A `runtime` slot on the two listeners is a named deferral, not a
+  shipped feature.
+</Aside>
 
 | | |
 | --- | --- |

@@ -731,7 +731,13 @@ export class SurfaceMemberNotExposed extends Data.TaggedError(
  *  what "answer in the member's own shape" means, shared with a rooted bundle's
  *  dropped-sibling refusal. What is this module's own is the error CLASS. */
 function refuse(tag: string, streaming: boolean): SurfaceHandler {
-  return refusingHandler(streaming, () => new SurfaceMemberNotExposed({ tag }));
+  // HOISTED, once per denied tag. A policy refusal carries nothing per call —
+  // `tag` is fixed when the face binds — and `SurfaceMemberNotExposed` extends
+  // `Error`, so minting it inside the thunk captured a fresh stack on every
+  // refused call to buy nothing. (A LIFETIME refusal is the same shape; see
+  // `refusingHandler`'s note.)
+  const refusal = new SurfaceMemberNotExposed({ tag });
+  return refusingHandler(streaming, () => refusal);
 }
 
 /** Apply one face's {@link FaceExposure} to a served surface's handlers,

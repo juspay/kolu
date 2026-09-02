@@ -102,11 +102,21 @@ export function trackConnectAllocations(seam: string): ConnectAllocations {
   /** Attempt every release in reverse and RETURN what failed — never throw, so one
    *  failure cannot strand the resources behind it. The two exits decide what to do
    *  with the list. */
-  const releaseAll = async (): Promise<Error[]> => {
+  /** The ONE walk, memoized. Three exits now share it, and two of them can be in
+   *  flight at once: a `dispose()` landing while `redial` is inside its
+   *  `supersede()` used to start a SECOND concurrent walk over the same array —
+   *  every tracked resource's `dispose()` called twice, interleaved, and every
+   *  failure reported twice by two different exits. Idempotence per resource was
+   *  never the guarantee that made that safe; one walk is. A later call gets the
+   *  same promise and therefore the same verdict, which is also what makes
+   *  `dispose()` idempotent for a page-lifetime bundle. */
+  let walked: Promise<Error[]> | undefined;
+  const releaseAll = (): Promise<Error[]> => (walked ??= releaseOnce());
+  const releaseOnce = async (): Promise<Error[]> => {
     const failures: Error[] = [];
-    // Reverse order, over a COPY — `dispose` is idempotent for a page-lifetime
-    // bundle only if a second call finds the same list, so the walk must not
-    // consume it.
+    // Reverse order, over a COPY — the walk must not consume the list (the
+    // memoization above is what makes a second exit idempotent; the copy keeps
+    // the array itself intact for a reader).
     for (const { what, value } of [...allocated].reverse()) {
       try {
         await value.dispose();
