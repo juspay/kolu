@@ -102,7 +102,7 @@
  * server ANSWERS. Both gates exist, and only the second one is a gate.
  */
 
-import { Data, Effect, Stream } from "effect";
+import { Data } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcSchema } from "effect/unstable/rpc";
 import {

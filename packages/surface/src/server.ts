@@ -2247,7 +2247,7 @@ function superviseSurface(initial: SurfaceSource[]): {
   // `.catch` still runs (the rejection never floats unhandled), it just doesn't
   // settle `done` during close.
   const enrol = (source: SurfaceSource): void => {
-    if (closing) {
+    if (closing !== undefined) {
       throw new Error(
         "superviseSurface: a source arrived after `close` began — it would never be interrupted.",
       );
