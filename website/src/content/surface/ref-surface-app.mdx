@@ -542,11 +542,16 @@ would make this a second `connectSurfaces`. Dial a different root by calling
 `connectSurfaces` again.
 
 Everything the superseded connection handed out is dead once `redial` resolves —
-`clients`, `core`, `transport`, `readout`, `health`. Read them off the returned
-connection; a `connectSurfaceMap(map, conn.transport)` built over the old handle
-fails loudly on its next call, never silently. A **second** `redial` (or one
-after `dispose`) is refused: it would dial a third wire while the caller still
-believes it holds one.
+`clients`, `core`, `transport`, `readout`, `health` — and it **says so**. A
+superseded (or disposed) connection's `readout` reads `retired` and its `health`
+reads not-live, rather than freezing on whatever the disposed memo last computed:
+on the common path — the roster moved, the wire was fine — that frozen value is
+`live`, so an indicator still bound to the old accessor would paint green over a
+closed wire. A `connectSurfaceMap(map, conn.transport)` built over the old handle
+fails loudly on its next call, never silently. Reading everything off the
+returned connection is still the right habit; it is no longer what stands between
+the page and a lie. A **second** `redial` (or one after `dispose`) is refused: it
+would dial a third wire while the caller still believes it holds one.
 
 The serve side's half of the same contract is
 [`implementRootedSurfaces`](/surface/ref-surface#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces),

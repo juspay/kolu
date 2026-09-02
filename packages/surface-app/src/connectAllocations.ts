@@ -26,10 +26,11 @@
  * added to the unwind but forgotten in `dispose` leaks on the COMMON path — the
  * one every consumer takes — while the failure path, the one anybody would think
  * to check, still looks correct. So {@link ConnectAllocations.release} is the
- * whole teardown and {@link ConnectAllocations.unwind} is `release` plus a
- * rethrow. There is no second list to forget.
+ * whole teardown, {@link ConnectAllocations.unwind} is `release` plus a rethrow,
+ * and {@link ConnectAllocations.supersede} is `release` plus a log. There is no
+ * second list to forget, and no fourth exit written at a call site.
  *
- * Release order is REVERSE allocation order. The two exits differ in exactly one
+ * Release order is REVERSE allocation order. The three exits differ in exactly one
  * way, and it is deliberate: what they do with a release that ITSELF throws.
  *
  *   - {@link ConnectAllocations.unwind} swallows it to a `console.error` and
@@ -42,6 +43,13 @@
  *     socket it was asked to close is still open is a lie the awaiting caller
  *     has no way to catch. It still attempts every release before it throws:
  *     one failure must not strand the resources behind it.
+ *   - {@link ConnectAllocations.supersede} — a `redial`'s exit — logs and
+ *     CONTINUES. Its caller has a live replacement to return, so there is
+ *     neither an original error to protect nor a caller left holding nothing.
+ *     It lives here rather than as a `try { release() } catch` at the call site
+ *     because "what a seam does with a release that failed" is this module's one
+ *     question, and an exit written outside it is an exit this list does not know
+ *     about.
  *
  * Package-internal, and NOT under `./solid`: it holds no Solid concept at all.
  *
@@ -77,6 +85,16 @@ interface ConnectAllocations {
    *  `Promise<never>`: the only way out is the original error, so a release that
    *  failed on the way is logged rather than raised. */
   unwind(cause: unknown): Promise<never>;
+  /** {@link release}, but a failure is LOGGED rather than raised — the SUPERSEDED
+   *  exit, taken by `connectSurfaces`' `redial`.
+   *
+   *  The caller has a LIVE REPLACEMENT to hand back, and rejecting over the old
+   *  wire's teardown would give it nothing while a new wire is open. Same trade
+   *  {@link unwind} makes and for the same reason, differing only in what happens
+   *  next: `unwind` has an original error to rethrow, this one has a value to
+   *  return. Per-resource, so the failing resource is named in the line rather
+   *  than one `AggregateError` deeper. */
+  supersede(): Promise<void>;
 }
 
 export function trackConnectAllocations(seam: string): ConnectAllocations {
@@ -127,6 +145,14 @@ export function trackConnectAllocations(seam: string): ConnectAllocations {
         console.error(failure.message, failure.cause);
       }
       throw cause;
+    },
+    supersede: async () => {
+      for (const failure of await releaseAll()) {
+        // Logged, not raised: the caller's whole reason to be here is the LIVE
+        // replacement it is about to hand back, and rejecting would give it
+        // nothing while a new wire is open.
+        console.error(failure.message, failure.cause);
+      }
     },
   };
 }

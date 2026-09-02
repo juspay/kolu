@@ -757,6 +757,47 @@ describe("connectSurfaces — a ROSTER CHANGE is a redial, and `redial` owns it"
     });
   });
 
+  it("the SUPERSEDED connection stops reading live — no green light over a closed wire", async () => {
+    // The superseded connection's `readout` is a memo inside a root `release()`
+    // has already disposed, and a disposed memo keeps its last computed value
+    // and stops updating. On the common redial path — the roster moved, the wire
+    // was fine — that value is `live`, so an indicator still bound to the old
+    // accessor would paint green over a socket that is closed. The serve half of
+    // this door retracts a dropped sibling's read face for the same reason.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+      expect(conn.readout().status).toBe("live");
+      expect(conn.health().live).toBe(true);
+
+      const next = await conn.redial({ b: later });
+      (await d.nth(2)).open();
+      await settle();
+
+      // The SUPERSEDED one answers about nothing...
+      expect(conn.readout().status).toBe("retired");
+      expect(conn.readout().needsReload).toBe(false);
+      expect(conn.health().live).toBe(false);
+      expect(conn.health().subs).toEqual([]);
+      // ...while the replacement is the live one.
+      expect(next.readout().status).toBe("live");
+
+      // A DISPOSED connection says the same thing, for the same reason.
+      await next.dispose();
+      expect(next.readout().status).toBe("retired");
+      expect(next.health().live).toBe(false);
+      dispose();
+    });
+  });
+
   it("refuses a SECOND redial, and a redial after dispose", async () => {
     const d = dialRecorder();
     await createRoot(async (dispose) => {

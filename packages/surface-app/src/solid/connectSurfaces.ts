@@ -65,7 +65,7 @@ import {
   surfaceClientsHealth,
 } from "@kolu/surface/solid";
 import type { RpcGroup } from "effect/unstable/rpc";
-import type { Accessor } from "solid-js";
+import { type Accessor, createSignal } from "solid-js";
 import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
 import { defaultSurfaceUrl } from "../defaultSurfaceUrl";
 import { trackConnectAllocations } from "../connectAllocations";
@@ -101,6 +101,15 @@ interface SurfaceRoot<C extends Surface<any>> {
   readonly surface: C;
   readonly name: string;
 }
+
+/** What a SUPERSEDED or DISPOSED connection's health fact reads: not live, and
+ *  naming nothing — there are no subscriptions on a wire that is closed, and a
+ *  disposed registry's last fold is not a fact about anything. Frozen and shared:
+ *  it is a constant, not per-connection state. */
+const goneHealth: SurfaceHealth = Object.freeze({
+  live: false,
+  subs: Object.freeze([]),
+});
 
 export interface ConnectSurfacesOptions<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
@@ -350,9 +359,16 @@ export interface SurfacesConnection<
    *  different root by calling `connectSurfaces` again.
    *
    *  EVERYTHING THIS CONNECTION HANDED OUT IS DEAD once it resolves — `clients`,
-   *  `core`, `transport`, `readout`, `health`. Read them off the returned
-   *  connection. A `connectSurfaceMap(map, conn.transport)` built over the old
-   *  handle fails loudly on its next call (the link is disposed), never silently.
+   *  `core`, `transport`, `readout`, `health` — and it SAYS SO rather than
+   *  leaving that to the caller. `readout` reads `retired` and `health` reads
+   *  not-live from the instant this call supersedes the connection, so an
+   *  indicator still bound to the old accessor goes dark instead of freezing on
+   *  whatever it last computed (which, on the common path — the roster moved,
+   *  the wire was fine — is `live`: a permanent green light over a closed wire).
+   *  A `connectSurfaceMap(map, conn.transport)` built over the old handle fails
+   *  loudly on its next call (the link is disposed), never silently. Reading
+   *  everything off the returned connection is still the right habit; it is no
+   *  longer the thing standing between the page and a lie.
    *
    *  Refuses on a connection that has ALREADY been redialled or disposed: a
    *  second redial would dial a third wire while the caller still believes it
@@ -651,16 +667,17 @@ export async function connectSurfaces(
     // `dispose` stays idempotent (a page-lifetime bundle may call it twice);
     // only `redial` refuses, because only `redial` would allocate over the
     // refusal.
+    //
+    // REACTIVE, because the two folded faces below are gated on it and a Solid
+    // memo bound to a plain `let` would never re-run when it moved. Reading it
+    // through the accessor also costs nothing in honesty: TypeScript narrows a
+    // `let` from the last assignment it can SEE, so a direct read after an
+    // `await` would be typed `"redialing"` and the `"gone"` branch — the one a
+    // `dispose()` landing in that window produces — would read as dead code. A
+    // signal read returns the declared union, which is the honest type of a
+    // state another path can move while this one is suspended.
     type ConnectionState = "live" | "redialing" | "gone";
-    let state: ConnectionState = "live";
-    /** Read the state WITHOUT control-flow narrowing. `redial` assigns
-     *  `"redialing"` and then AWAITS, and a `dispose()` landing in that window
-     *  reassigns the same binding — but TypeScript narrows a `let` from the last
-     *  assignment it can SEE, so a direct read after the await is typed
-     *  `"redialing"` and the `"gone"` branch reads as dead code. The function
-     *  returns the declared union, which is the honest type of a binding another
-     *  path can move while this one is suspended. */
-    const stateNow = (): ConnectionState => state;
+    const [stateNow, setState] = createSignal<ConnectionState>("live");
     return {
       link,
       clients,
@@ -670,8 +687,21 @@ export async function connectSurfaces(
       // definite `undefined` for a siblings-only one.
       core: rooted?.client,
       transport,
-      readout: readout.readout,
-      health,
+      // A SUPERSEDED OR DISPOSED CONNECTION ANSWERS ABOUT NOTHING. `readout` is a
+      // memo inside a root `release()` has already disposed, and a disposed memo
+      // keeps its last computed value and stops updating — which on the common
+      // redial path (the roster moved, the wire was fine) is `live`: a permanent
+      // green light over a closed wire. That is the exact lie `surfaceReadout`
+      // refuses to tell one hop down ("the green-over-a-dead-link lie with a
+      // longer wire"), and the serve half of this seam's own PR retracts a
+      // dropped sibling's READ face for the same reason. `retired` is the one
+      // transport state that is terminal and not live, which is what a
+      // superseded connection is.
+      readout: () =>
+        stateNow() === "gone"
+          ? ({ status: "retired", needsReload: false } as SurfaceReadout)
+          : readout.readout(),
+      health: () => (stateNow() === "gone" ? goneHealth : health()),
       redial: async (next: Record<string, Surface<SurfaceSpec>>) => {
         if (stateNow() !== "live") {
           throw new Error(
@@ -680,7 +710,7 @@ export async function connectSurfaces(
               "not know it holds. Redial the connection `redial` handed back.",
           );
         }
-        state = "redialing";
+        setState("redialing");
         let replacement: SurfacesConnection<
           // biome-ignore lint/suspicious/noExplicitAny: the implementation signature is erased; the interface member above is the contract.
           any,
@@ -702,7 +732,7 @@ export async function connectSurfaces(
           // transition. A `dispose()` that landed during the dial has already
           // moved the state to `gone`, which is terminal — re-arming over it is
           // the erasure this state exists to make unspellable.
-          if (stateNow() === "redialing") state = "live";
+          if (stateNow() === "redialing") setState("live");
           throw dialError;
         }
         // A `dispose()` during the dial means the caller has GIVEN UP this
@@ -716,34 +746,26 @@ export async function connectSurfaces(
               "the replacement has been released. A disposed connection has no successor.",
           );
         }
-        state = "gone";
-        try {
-          await allocations.release();
-        } catch (releaseError) {
-          // LOGGED, not raised — the same trade `trackConnectAllocations`'
-          // `unwind` makes one level down, for the same reason. The value this
-          // call exists to produce is the live replacement; rejecting over the
-          // superseded wire's teardown would hand the caller nothing while a NEW
-          // wire is open, which is the un-nameable leak the tracker exists to
-          // prevent. The fault is not swallowed: it is on the console with the
-          // resource that failed named in it.
-          console.error(
-            "connectSurfaces: releasing the superseded connection FAILED during " +
-              "`redial` — the replacement is live and returned; these resources are leaked.",
-            releaseError,
-          );
-        }
+        setState("gone");
+        // The tracker's SUPERSEDED exit: log a release that itself failed, and
+        // continue — the value this call exists to produce is the live
+        // replacement, and rejecting over the old wire's teardown would hand the
+        // caller nothing while a new wire is open. Written in the module that
+        // owns exits rather than as a `try/catch` here, so the log-vs-raise
+        // decision has one home and the failing resource is named in the line.
+        await allocations.supersede();
         return replacement;
       },
       // The tracker's own list, in reverse — NOT a second list written beside it.
       // Two hand-kept teardowns fail asymmetrically: an allocation added above and
       // forgotten here leaks on the SUCCESS path, the one every consumer takes,
       // while the failure path — the one anybody would think to check — keeps
-      // looking correct. One list, two exits (`release` here, `unwind` below).
+      // looking correct. One list, three exits (`release` here, `unwind` below,
+      // `supersede` in `redial`).
       dispose: async () => {
         // Terminal, and set BEFORE the release so an in-flight `redial` observing
         // it after its dial knows the caller has given the connection up.
-        state = "gone";
+        setState("gone");
         await allocations.release();
       },
     };
