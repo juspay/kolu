@@ -579,3 +579,302 @@ describe("connectSurfaces — the ROOTED bundle (an unprefixed core beside the s
     }
   });
 });
+
+describe("connectSurfaces — a ROSTER CHANGE is a redial, and `redial` owns it", () => {
+  /** The root's own surface, as in the rooted block above. */
+  const core = defineSurface({
+    cells: {
+      floor: {
+        schema: Schema.Struct({ s: Schema.String }),
+        default: { s: "x" },
+        verbs: ["get"],
+      },
+    },
+  });
+  /** A second sibling surface, to arrive on the new roster. */
+  const later = defineSurface({
+    cells: {
+      queue: {
+        schema: Schema.Struct({ n: Schema.Number }),
+        default: { n: 0 },
+        verbs: ["get"],
+      },
+    },
+  });
+
+  it("dials a NEW wire over the new roster, keeps the root, and releases the old one", async () => {
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: {},
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      const firstSocket = await d.nth(1);
+      firstSocket.open();
+      await settle();
+      expect(Object.keys(conn.clients)).toEqual([]);
+
+      const next = await conn.redial({ b: later });
+      // A SECOND socket — the roster change is a new wire, which is the whole
+      // contract this door states rather than hides.
+      const secondSocket = await d.nth(2);
+      expect(secondSocket).not.toBe(firstSocket);
+      secondSocket.open();
+      await settle();
+
+      // The new roster is dialable...
+      expect(Object.keys(next.clients)).toEqual(["b"]);
+      // ...the ROOT came across unchanged (it is the member on every serve)...
+      expect(next.core).toBeDefined();
+      expect(next.readout().status).toBe("live");
+      // ...and the superseded wire was released.
+      expect(firstSocket.readyState).toBe(3);
+
+      await next.dispose();
+      dispose();
+    });
+  });
+
+  it("re-uses the options this connection was dialled with, so a consumer cannot drift them", async () => {
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://recorded-url",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+      const next = await conn.redial({ a: surface, b: later });
+      const second = await d.nth(2);
+      // The `url` — the residue a hand-rolled redial re-spells and gets wrong.
+      expect(second.url).toContain("recorded-url");
+      // ...and the fake `connect` itself, which is an option too: a redial that
+      // re-spelled the call would have dialled a REAL socket here.
+      expect(d.dialled.length).toBe(2);
+      await next.dispose();
+      dispose();
+    });
+  });
+
+  it("leaves the working wire ALONE when the redial's dial fails", async () => {
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      const firstSocket = await d.nth(1);
+      firstSocket.open();
+      await settle();
+      expect(conn.health().live).toBe(true);
+
+      // A roster carrying a sibling keyed with the root's own word — one of the
+      // three refusals `connectSurfaces` owes a rooted call, and like all of them
+      // it is raised BEFORE anything is dialled.
+      await expect(conn.redial({ a: surface, floor: core })).rejects.toThrow(
+        /also a sibling key/,
+      );
+      // The connection is untouched: still live, still THIS socket, and still
+      // redialable — a dispose-then-dial would have left the caller with nothing.
+      expect(conn.health().live).toBe(true);
+      expect(firstSocket.readyState).not.toBe(3);
+      const next = await conn.redial({ a: surface, b: later });
+      (await d.nth(2)).open();
+      await settle();
+      expect(Object.keys(next.clients).sort()).toEqual(["a", "b"]);
+      await next.dispose();
+      dispose();
+    });
+  });
+
+  it("releases the replacement when a dispose lands DURING the redial", async () => {
+    // The concurrent case the sequential tests missed. `onCleanup(() => conn.dispose())`
+    // racing a roster-change redial is the ordinary shape in a Solid app, and the
+    // old single `superseded` bit let the redial resolve and hand back an open
+    // socket plus a running heartbeat that nobody held.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+
+      const pending = conn.redial({ b: later });
+      // The caller gives the connection up while the dial is still in flight.
+      await conn.dispose();
+      await expect(pending).rejects.toThrow(
+        /disposed while `redial` was dialling/,
+      );
+      // THE property, stated over the whole set rather than over a socket index:
+      // no wire is left open. Whether the replacement got as far as dialling is a
+      // race with the protocol's own fiber — what must never happen is one
+      // surviving it, which is what the old single-bit version did.
+      await settle();
+      for (const ws of d.dialled) expect(ws.readyState).toBe(3);
+      dispose();
+    });
+  });
+
+  it("leaves NO wire open when a dispose races a redial, whichever side wins", async () => {
+    // The race-agnostic invariant, which is the honest shape for a race. A
+    // `dispose()` can land in either of two windows: during the DIAL (covered
+    // above, with its own message) or during the RELEASE that follows it. The
+    // second is only a few microtasks wide with fake sockets, so a test that
+    // tried to land inside it would be pinning a schedule rather than a
+    // guarantee. What must hold either way is that the caller ends up holding
+    // nothing open: the replacement is published to a `successor` slot before
+    // the release window opens, so whichever of the two claims it first owns it
+    // and the other is told. Before the slot existed, a dispose in the second
+    // window could not reach the replacement at all and `redial` handed back a
+    // live wire nobody held.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+
+      const pending = conn.redial({ b: later });
+      await conn.dispose();
+      // Whoever won, the redial does not hand back a wire over a disposed
+      // connection: it either rejects, or resolves a connection that is itself
+      // already gone.
+      const outcome = await pending.then(
+        (replacement) => ({ ok: true as const, replacement }),
+        (err: unknown) => ({ ok: false as const, err }),
+      );
+      if (outcome.ok) await outcome.replacement.dispose();
+      else expect(String(outcome.err)).toMatch(/disposed while `redial` was/);
+      await settle();
+      // THE invariant: nothing the connection ever dialled is still open.
+      for (const ws of d.dialled) expect(ws.readyState).toBe(3);
+      dispose();
+    });
+  });
+
+  it("a dispose during a FAILING dial is not erased — the connection stays gone", async () => {
+    // One boolean could not carry two facts: the dial-failure path restored it
+    // unconditionally, so a dispose that landed in that window was erased and the
+    // connection re-armed itself over already-released allocations.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+
+      // A roster the seam refuses — the dial never happens.
+      const failing = conn.redial({ a: surface, floor: core });
+      await conn.dispose();
+      await expect(failing).rejects.toThrow();
+      // `gone` is TERMINAL: the failed dial must not have re-armed it.
+      await expect(conn.redial({ b: later })).rejects.toThrow(
+        /already redialled or disposed/,
+      );
+      dispose();
+    });
+  });
+
+  it("the SUPERSEDED connection stops reading live — no green light over a closed wire", async () => {
+    // The superseded connection's `readout` is a memo inside a root `release()`
+    // has already disposed, and a disposed memo keeps its last computed value
+    // and stops updating. On the common redial path — the roster moved, the wire
+    // was fine — that value is `live`, so an indicator still bound to the old
+    // accessor would paint green over a socket that is closed. The serve half of
+    // this door retracts a dropped sibling's read face for the same reason.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+      expect(conn.readout().status).toBe("live");
+      expect(conn.health().live).toBe(true);
+
+      const next = await conn.redial({ b: later });
+      (await d.nth(2)).open();
+      await settle();
+
+      // The SUPERSEDED one answers about nothing...
+      expect(conn.readout().status).toBe("retired");
+      // ...and it says so with a value the framework's OWN fold produces.
+      // `needsReload` is documented on `TransportReadout` as true for `retired`
+      // and ONLY for `retired` — the bit a consumer reads instead of re-deriving
+      // which states are terminal — so a hand-written `{retired, needsReload:
+      // false}` was a value `surfaceReadout` can never mint, and an indicator
+      // branching on the status and one branching on the bit disagreed about the
+      // same handle.
+      expect(conn.readout().needsReload).toBe(true);
+      // ...and it is the SAME frozen value on every read, so a consumer memo over
+      // a superseded connection is not woken forever by a fresh object.
+      expect(conn.readout()).toBe(conn.readout());
+      expect(conn.health().live).toBe(false);
+      expect(conn.health().subs).toEqual([]);
+      // ...while the replacement is the live one.
+      expect(next.readout().status).toBe("live");
+
+      // A DISPOSED connection says the same thing, for the same reason.
+      await next.dispose();
+      expect(next.readout().status).toBe("retired");
+      expect(next.health().live).toBe(false);
+      dispose();
+    });
+  });
+
+  it("refuses a SECOND redial, and a redial after dispose", async () => {
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+      const next = await conn.redial({ b: later });
+      (await d.nth(2)).open();
+      await settle();
+      // The superseded connection's wire is gone; a second redial through it
+      // would dial a THIRD wire the caller does not know it holds.
+      await expect(conn.redial({ b: later })).rejects.toThrow(
+        /already redialled or disposed/,
+      );
+      await next.dispose();
+      await expect(next.redial({ b: later })).rejects.toThrow(
+        /already redialled or disposed/,
+      );
+      dispose();
+    });
+  });
+});

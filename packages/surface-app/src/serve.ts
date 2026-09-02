@@ -488,13 +488,19 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
     // so "what does this listener do when nobody is listening" has exactly one
     // answer and it is readable in one place.
     const report = options.onEvent ?? reportSurfaceAppEvent;
+    // THE PAIR, SNAPSHOTTED TOGETHER, in one synchronous turn — see
+    // `SurfaceRuntimeHandle.group`. This listener binds ONE generation for its
+    // whole life, so reading `group` here and `handlers` here is the difference
+    // between serving one generation and serving a group from one generation
+    // with the previous generation's restricted handler record. Nothing in the
+    // option type forbids a caller passing accessors over a live runtime, and
+    // "the pair is a live read" is the first thing that invites it. A runtime
+    // whose served set MOVES is served through `acceptSurfaceSocket` +
+    // `serveSurfaceSocket` in the app's own accept closure instead.
+    const group = options.group;
     // This face's gate, before anything binds — unconditionally, because
     // `restrictHandlers` owns what an absent policy means (`@kolu/surface/expose`).
-    const handlers = restrictHandlers(
-      options.group,
-      options.handlers,
-      options.expose,
-    );
+    const handlers = restrictHandlers(group, options.handlers, options.expose);
     // The header allowlist, resolved once here for the same reason: a name no
     // header can match is a defect, and a defect belongs at the bind and not at
     // the first upgrade that happens to arrive hours later.
@@ -624,7 +630,7 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
             }),
           );
           const serving = serveSurfaceSocket({
-            group: options.group,
+            group,
             handlers,
             // `ws`'s socket satisfies `ServableSocket` structurally; its typings
             // narrow `addEventListener` per event name, which the seam does not.

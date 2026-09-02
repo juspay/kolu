@@ -43,9 +43,10 @@
 
 import {
   composeSurfaceContracts,
+  isStandaloneRoot,
   mergeDisjointGroups,
+  notStandaloneRootDetail,
   type Surface,
-  SURFACE_TAG_PREFIX,
   type SurfaceSpec,
 } from "@kolu/surface/define";
 import type { WebsocketLink } from "@kolu/surface/links/websocket";
@@ -62,9 +63,10 @@ import {
   surfaceClient,
   surfaceClients,
   surfaceClientsHealth,
+  surfaceReadout,
 } from "@kolu/surface/solid";
 import type { RpcGroup } from "effect/unstable/rpc";
-import type { Accessor } from "solid-js";
+import { type Accessor, createSignal } from "solid-js";
 import { createSurfaceSocket, type SurfaceSocketOptions } from "../connect";
 import { defaultSurfaceUrl } from "../defaultSurfaceUrl";
 import { trackConnectAllocations } from "../connectAllocations";
@@ -100,6 +102,35 @@ interface SurfaceRoot<C extends Surface<any>> {
   readonly surface: C;
   readonly name: string;
 }
+
+/** What a SUPERSEDED or DISPOSED connection's health fact reads: not live, and
+ *  naming nothing — there are no subscriptions on a wire that is closed, and a
+ *  disposed registry's last fold is not a fact about anything. Frozen and shared:
+ *  it is a constant, not per-connection state. */
+const goneHealth: SurfaceHealth = Object.freeze({
+  live: false,
+  subs: Object.freeze([]),
+});
+
+/** What a SUPERSEDED or DISPOSED connection's READOUT reads — built by the
+ *  framework's own fold rather than spelled here, and frozen for the same reason
+ *  {@link goneHealth} is.
+ *
+ *  TWO THINGS a hand-written literal got wrong. `needsReload` is documented on
+ *  `TransportReadout` as true for `retired` and ONLY for `retired` — the bit a
+ *  consumer reads instead of re-deriving which states are terminal — and
+ *  `surfaceReadout` is the one producer that upholds it (`needsReload: status
+ *  === "retired"`). A `{status:"retired", needsReload:false}` written here was a
+ *  value that fold can never produce, so an indicator branching on the status and
+ *  one branching on the bit gave opposite answers for the same handle, and the
+ *  `as SurfaceReadout` cast was what let it compile. And minting it per READ threw
+ *  away `createSurfaceReadout`'s `equals: sameReadout` gate, so every consumer memo
+ *  over a superseded connection saw a changed reference forever — the
+ *  new-reference-every-run anti-pattern the performance atlas has banked a win
+ *  against. One frozen value from the real constructor answers both. */
+const retiredReadout: SurfaceReadout = Object.freeze(
+  surfaceReadout("retired", goneHealth),
+);
 
 export interface ConnectSurfacesOptions<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
@@ -307,6 +338,67 @@ export interface SurfacesConnection<
    *  {@link SurfacesConnection.readout} for an indicator; reach for the raw fact
    *  when a component wants the per-sub `pending`/`error` detail. */
   health: () => SurfaceHealth;
+  /** Take a NEW SIBLING ROSTER by dialling a new wire — the honest answer to
+   *  "this connection's surfaces changed", and the reason there is no `update`.
+   *
+   *  ## Why a roster change cannot be an in-place update
+   *
+   *  Effect RPC resolves a call's payload/success/error SCHEMAS by looking the
+   *  tag up in the `RpcGroup` its client was built over, and this seam's group is
+   *  built at the DIAL (`openWireLink` does `RpcClient.make(group, …)` once, over
+   *  a protocol whose fibers live in the link's own scope). A sibling that joins
+   *  the roster brings tags that group never minted, so no client built before it
+   *  can dispatch them — and the far end has the same constraint, because each
+   *  accepted socket builds its own `RpcServer` over the group it was handed at
+   *  accept. A roster change is therefore a NEW WIRE at both ends. That is a fact
+   *  about the transport, not a gap in this seam, so it is stated here rather
+   *  than papered over with a method that would quietly rebuild everything and
+   *  call itself an update.
+   *
+   *  What this door removes is the part that WAS a gap: hand-rolling the redial.
+   *  It re-uses every option this connection was dialled with — the `url` (thunk
+   *  included), the heartbeat tuning, `extraGroups`, `onClientError`, the socket
+   *  options — so a consumer cannot drift them by re-spelling the call, which is
+   *  the same failure `connectSurfaces` itself exists to stop (juspay/kolu#2222).
+   *  And it owns the ORDER: the replacement is dialled FIRST and this connection
+   *  released only once THAT DIAL HAS RESOLVED, so a failing dial leaves the
+   *  working wire alone and rejects, rather than the obvious dispose-then-dial
+   *  that leaves the caller with nothing. "Resolved" is this seam's own await and
+   *  not an OPEN socket — `connectSurfaces` hands back a connection whose wire may
+   *  still be connecting, exactly as a first dial does. What is guaranteed is that
+   *  a dial which THROWS costs the caller nothing.
+   *
+   *  A `dispose()` landing while a redial is in flight is TERMINAL and wins: the
+   *  replacement is released and this call rejects, rather than handing back a
+   *  live wire the caller has already given up.
+   *
+   *  THE ROOT DOES NOT MOVE. Only the siblings are re-rostered: the root is the
+   *  member on every serve this wire can reach, which is what makes it the
+   *  reserved probes' target on a bundle whose sibling set varies (see
+   *  {@link ConnectSurfacesOptions.core}) — and a `core` that could change would
+   *  make this the very thing it is not, a second `connectSurfaces`. Dial a
+   *  different root by calling `connectSurfaces` again.
+   *
+   *  EVERYTHING THIS CONNECTION HANDED OUT IS DEAD once it resolves — `clients`,
+   *  `core`, `transport`, `readout`, `health` — and it SAYS SO rather than
+   *  leaving that to the caller. `readout` reads `retired` and `health` reads
+   *  not-live from the instant this call supersedes the connection, so an
+   *  indicator still bound to the old accessor goes dark instead of freezing on
+   *  whatever it last computed (which, on the common path — the roster moved,
+   *  the wire was fine — is `live`: a permanent green light over a closed wire).
+   *  A `connectSurfaceMap(map, conn.transport)` built over the old handle fails
+   *  loudly on its next call (the link is disposed), never silently. Reading
+   *  everything off the returned connection is still the right habit; it is no
+   *  longer the thing standing between the page and a lie.
+   *
+   *  Refuses on a connection that has ALREADY been redialled or disposed: a
+   *  second redial would dial a third wire while the caller still believes it
+   *  holds one, which is the leak this seam's allocation tracking exists to
+   *  prevent. */
+  redial<
+    // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, as on the options.
+    const E2 extends Record<string, Surface<any>>,
+  >(surfaces: E2): Promise<SurfacesConnection<E2, C>>;
   /** Stop the heartbeat, dispose the standing subscriptions of every client in the
    *  fold — the siblings and, when a `core` rode this wire, the root — and release
    *  the wire. A page-lifetime cached bundle needn't call it. */
@@ -330,25 +422,24 @@ function resolveRoot(
   // dial `surface/<member>/<verb>` over a wire that serves `surface/<key>/…`
   // and every call would die at the far end — after connecting cleanly.
   //
-  // ONE LAW, TWO DOORS. The identical refusal stands at the SERVE side's rooted
-  // gate — `exposeRootedFaces` (`@kolu/surface/expose`), which cites this one back
-  // — because a root is standalone or it is not a root, and each door has to hold
-  // the rule for the app that happens to use only that door. The two sites are
-  // deliberately not one shared assertion: the message names the door a reader
-  // arrived through, and the ERROR CLASS is each module's own (`ExposeMapError` is
-  // `expose.ts`'s recognisable class for a malformed exposure; this seam has none
-  // and raises a plain `Error`, like its two neighbouring refusals). What a shared
-  // predicate would buy — one reading of "is this the root of a bundle" — is real,
-  // and is the recorded next step rather than this PR's, which is capped at the
-  // single new export it already spends on `mergeDisjointGroups`. Until then the
-  // two sites cite each other, so neither can be relaxed by someone who did not
-  // know the other existed.
-  if (core.surface.tagPrefix !== SURFACE_TAG_PREFIX) {
+  // ONE LAW, THREE DOORS — and ONE READING of it. The identical refusal stands at
+  // the serve side's two rooted doors: `implementRootedSurfaces` (`@kolu/surface`)
+  // and the gate `exposeRootedFaces` (`@kolu/surface/expose`). A root is standalone
+  // or it is not a root, and each door has to hold the rule for the app that
+  // happens to use only that door. What the three sites now SHARE is the predicate
+  // and the sentence (`@kolu/surface/define`, beside the tag prefix they are
+  // about); what each keeps is its own ERROR CLASS and the alternative it can
+  // offer. Three copies cross-citing each other was the shape the third copy
+  // arrived without amending — a rule kept by discipline, and discipline is what
+  // this replaces.
+  if (!isStandaloneRoot(core.surface)) {
     throw new Error(
-      `connectSurfaces: \`core.surface\` carries the tag prefix "${core.surface.tagPrefix}", ` +
-        `not the standalone "${SURFACE_TAG_PREFIX}" — it is a sibling-scoped surface, and the ` +
-        "root of a rooted bundle is the UNPREFIXED one. Pass the standalone surface " +
-        "(`defineSurface(spec)`), or make it a sibling in `surfaces`.",
+      notStandaloneRootDetail(
+        "connectSurfaces",
+        "`core.surface`",
+        core.surface.tagPrefix,
+        "make it a sibling in `surfaces`",
+      ),
     );
   }
   // The health fold is keyed by word, so a root sharing a sibling's key would
@@ -585,6 +676,44 @@ export async function connectSurfaces(
       "readout",
       createSurfaceReadout(transport.status, health),
     );
+    // THE CONNECTION'S OWN LIFECYCLE, as a state and not a bit. It was one
+    // boolean set by both `redial` and `dispose`, and one bit cannot carry two
+    // facts: the dial-failure path restored it unconditionally, so a `dispose`
+    // that landed during a failed dial was ERASED — the connection re-armed
+    // itself over already-released allocations, and the next `redial` dialled a
+    // wire off a dead `clients`/`transport`/`readout` and double-released. The
+    // state names what is actually true, and `"gone"` is terminal, so that
+    // interleaving is unrepresentable rather than merely unlikely.
+    //
+    // `dispose` stays idempotent (a page-lifetime bundle may call it twice);
+    // only `redial` refuses, because only `redial` would allocate over the
+    // refusal.
+    //
+    // REACTIVE, because the two folded faces below are gated on it and a Solid
+    // memo bound to a plain `let` would never re-run when it moved. Reading it
+    // through the accessor also costs nothing in honesty: TypeScript narrows a
+    // `let` from the last assignment it can SEE, so a direct read after an
+    // `await` would be typed `"redialing"` and the `"gone"` branch — the one a
+    // `dispose()` landing in that window produces — would read as dead code. A
+    // signal read returns the declared union, which is the honest type of a
+    // state another path can move while this one is suspended.
+    type ConnectionState = "live" | "redialing" | "gone";
+    const [stateNow, setState] = createSignal<ConnectionState>("live");
+    /** The replacement a `redial` has in hand but has not yet handed back — the
+     *  ONE window in which a live wire belongs to this connection and lives
+     *  nowhere a caller can reach.
+     *
+     *  `redial` publishes it here BEFORE it releases the old allocations and
+     *  clears it once the handover is complete. Whoever CLAIMS the slot first
+     *  owns the wire: a `dispose()` landing inside the window takes it and
+     *  releases it, and `redial` then finds its own replacement gone and fails
+     *  rather than returning a wire the caller has already given up. Without the
+     *  slot the replacement was reachable only from `redial`'s local, so a
+     *  dispose during the RELEASE window — as against the dial window the test
+     *  beside it already covers — left an open socket and a running heartbeat
+     *  held by nobody. Deliberately NOT a signal: nothing renders it, and its one
+     *  job is the claim. */
+    let successor: { dispose: () => Promise<void> } | undefined;
     return {
       link,
       clients,
@@ -594,14 +723,105 @@ export async function connectSurfaces(
       // definite `undefined` for a siblings-only one.
       core: rooted?.client,
       transport,
-      readout: readout.readout,
-      health,
+      // A SUPERSEDED OR DISPOSED CONNECTION ANSWERS ABOUT NOTHING. `readout` is a
+      // memo inside a root `release()` has already disposed, and a disposed memo
+      // keeps its last computed value and stops updating — which on the common
+      // redial path (the roster moved, the wire was fine) is `live`: a permanent
+      // green light over a closed wire. That is the exact lie `surfaceReadout`
+      // refuses to tell one hop down ("the green-over-a-dead-link lie with a
+      // longer wire"), and the serve half of this seam's own PR retracts a
+      // dropped sibling's READ face for the same reason. `retired` is the one
+      // transport state that is terminal and not live, which is what a
+      // superseded connection is.
+      readout: () =>
+        stateNow() === "gone" ? retiredReadout : readout.readout(),
+      health: () => (stateNow() === "gone" ? goneHealth : health()),
+      redial: async (next: Record<string, Surface<SurfaceSpec>>) => {
+        if (stateNow() !== "live") {
+          throw new Error(
+            `connectSurfaces: \`redial\` on a connection that is ${stateNow() === "gone" ? "already redialled or disposed" : "already redialling"} — ` +
+              "its wire is gone or going, so this call would dial a wire the caller does " +
+              "not know it holds. Redial the connection `redial` handed back.",
+          );
+        }
+        setState("redialing");
+        let replacement: SurfacesConnection<
+          // biome-ignore lint/suspicious/noExplicitAny: the implementation signature is erased; the interface member above is the contract.
+          any,
+          // biome-ignore lint/suspicious/noExplicitAny: ditto.
+          any
+        >;
+        try {
+          // The NEW wire first, over the SAME options with only the roster
+          // replaced. A dial that throws leaves this connection exactly as it
+          // was — nothing has been released yet — so the caller keeps a working
+          // wire and hears the failure.
+          replacement = await connectSurfaces({
+            // biome-ignore lint/suspicious/noExplicitAny: the erased implementation signature; the overloads above check the caller.
+            ...(opts as any),
+            surfaces: next,
+          });
+        } catch (dialError) {
+          // Back to `live` ONLY if this call is still the one holding the
+          // transition. A `dispose()` that landed during the dial has already
+          // moved the state to `gone`, which is terminal — re-arming over it is
+          // the erasure this state exists to make unspellable.
+          if (stateNow() === "redialing") setState("live");
+          throw dialError;
+        }
+        // A `dispose()` during the dial means the caller has GIVEN UP this
+        // connection — so the replacement is a wire nobody asked for and nobody
+        // holds. Release it and fail, rather than handing back an open socket and
+        // a running heartbeat the caller will never dispose.
+        if (stateNow() === "gone") {
+          await replacement.dispose();
+          throw new Error(
+            "connectSurfaces: this connection was disposed while `redial` was dialling — " +
+              "the replacement has been released. A disposed connection has no successor.",
+          );
+        }
+        // Publish the replacement BEFORE the release window opens, so a
+        // `dispose()` landing inside it has something to claim.
+        successor = replacement;
+        setState("gone");
+        // The tracker's SUPERSEDED exit: log a release that itself failed, and
+        // continue — the value this call exists to produce is the live
+        // replacement, and rejecting over the old wire's teardown would hand the
+        // caller nothing while a new wire is open. Written in the module that
+        // owns exits rather than as a `try/catch` here, so the log-vs-raise
+        // decision has one home and the failing resource is named in the line.
+        await allocations.supersede();
+        if (successor !== replacement) {
+          // A `dispose()` ran inside the window and claimed the replacement — it
+          // has already been released. Fail rather than hand back a dead wire.
+          throw new Error(
+            "connectSurfaces: this connection was disposed while `redial` was handing over — " +
+              "the replacement has been released. A disposed connection has no successor.",
+          );
+        }
+        successor = undefined;
+        return replacement;
+      },
       // The tracker's own list, in reverse — NOT a second list written beside it.
       // Two hand-kept teardowns fail asymmetrically: an allocation added above and
       // forgotten here leaks on the SUCCESS path, the one every consumer takes,
       // while the failure path — the one anybody would think to check — keeps
-      // looking correct. One list, two exits (`release` here, `unwind` below).
-      dispose: allocations.release,
+      // looking correct. One list, three exits (`release` here, `unwind` below,
+      // `supersede` in `redial`).
+      dispose: async () => {
+        // Terminal, and set BEFORE the release so an in-flight `redial` observing
+        // it after its dial knows the caller has given the connection up.
+        setState("gone");
+        // CLAIM the successor, if a `redial` is mid-handover. Taken synchronously,
+        // before any await, so the claim cannot race a second disposer; released
+        // after this connection's own resources, because the replacement is a wire
+        // this connection is still holding on the caller's behalf and giving the
+        // connection up gives that up too.
+        const claimed = successor;
+        successor = undefined;
+        await allocations.release();
+        if (claimed !== undefined) await claimed.dispose();
+      },
     };
   } catch (constructionError) {
     return allocations.unwind(constructionError);

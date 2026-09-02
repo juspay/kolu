@@ -213,6 +213,18 @@ the result is the erased group every serving and transport seam takes. A merge o
 **nothing** is the empty group, the identity: a rooted wire whose sibling roster
 is empty this run composes one, and refusing it would make that wire unspellable.
 
+`isStandaloneRoot(surface)` and `notStandaloneRootDetail(seam, what, tagPrefix,
+alternative)` are the **one reading of the rooted-root law**, beside the tag
+prefix they are about. A rooted bundle's root must be a *standalone* surface — a
+sibling-scoped one would bind its members at `surface/<key>/…` while every
+sibling prefixes its own key on top of nothing, so the bundle would serve a root
+nobody can address. The three doors that carry a root — `implementRootedSurfaces`
+(serve), `exposeRootedFaces` (gate) and
+[`connectSurfaces`' `core`](/surface/ref-surface-app#the-rooted-bundle) (dial) —
+each ask the predicate and raise **their own error class** with the shared
+sentence, naming the alternative that door can offer. Only the predicate and the
+sentence are shared; nothing else about the three doors is.
+
 ### Declaring a client error policy — `defineSurfaceWithPolicy`
 
 A member can carry an **opaque, app-typed client error policy** on its spec — a
@@ -325,6 +337,16 @@ carries its own route. `implementSurface` asserts at boot that the handler key
 set *equals* the group's tag set, so a route nobody answers (a 404 at the far
 end) and a handler nobody advertises are both boot crashes.
 
+**Read the two as a PAIR, in one synchronous turn** — a rule of the handle, not
+of any one constructor. Most runtimes hand back fixed values, so it costs them
+nothing; a runtime whose served set MOVES
+([`implementRootedSurfaces`](#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces))
+answers both as live reads off one snapshot, so reading them either side of an
+`await` can hand you two generations — which the handler/group assertion then
+refuses, at a serve door far from the `await` that caused it. A function written
+against `SurfaceRuntimeHandle` cannot tell which implementation it holds, which
+is why the rule lives on the handle.
+
 `opts.identity` is the server's declared build triple — what the reserved
 `system/identity` member serves as its `identified` arm (the framework stamps
 `startedAt` and `processId`). Omit it and the surface is served `anonymous`,
@@ -378,6 +400,128 @@ it minted, never the shared publisher.
 keyed the same as the map, and likewise returns a supervised `SurfacesRuntime`.
 Its shared-publisher twin is **`implementSurfacesOnPublisher(surfaces, base, deps)`**,
 where `base` carries the `channel` factory.
+
+### A rooted bundle whose siblings move — `implementRootedSurfaces`
+
+**`implementRootedSurfaces(core, base, deps)`** serves an **unprefixed root**
+surface plus a sibling set that **changes while it is served**. It is the
+serve-side third member of the family whose other two doors already carry a root
+— [`exposeRootedFaces`](#per-face-expose-kolusurfaceexpose) at the gate and
+[`connectSurfaces`' `core`](/surface/ref-surface-app#the-rooted-bundle) in the
+browser — and, like those, a distinct constructor rather than a mode flag on
+`implementSurfaces`.
+
+```ts
+const runtime = implementRootedSurfaces(coreSurface, {}, coreDeps);
+// …later, whenever a plugin is enabled:
+const mounted = runtime.mount("kolu", pluginSurface, pluginDeps);
+mounted.ctx.cells.fleet.set(next);   // the sibling's own write face
+await mounted.drop();                // …and the registration's own undo
+```
+
+`group`, `handlers`, `ctx`, `done` and `close` are `SurfaceRuntimeHandle`'s, so
+this serves through the ordinary door with nothing in between; `ctx` is the
+**root's**, and a sibling's rides its `MountedSurface`. `group` and `handlers`
+are **live reads** — they answer for the roster as it stands when they are read.
+Read them as a **pair** inside one synchronous turn: a mount between the two
+reads hands you a group and a handler record of different generations, which
+`assertHandlersMatchGroup` then refuses.
+
+<Aside type="caution" title="Which serve door re-reads them">
+  [`serveSurfaceSocket`](/surface/ref-surface-app#accepting-a-browser-socket)
+  takes the pair **per accepted connection** — each socket builds its own
+  `RpcServer` — so an accept loop reading `runtime.group` / `runtime.handlers`
+  inside its `onAccepted` closure serves the current roster. That is the door a
+  live bundle is served through.
+
+  The two **listener** doors do not. `serveSurfaceApp` and `serveOverUnixSocket`
+  resolve the pair — and run `restrictHandlers` — once, at bind, and serve every
+  connection over that snapshot. Handed a live runtime they *half*-work, which is
+  the worst shape: a **drop** still reaches them (the refusing wrapper rides the
+  captured record), while a **mount** after bind is invisible to every connection
+  they will ever accept, silently. Behind one of those listeners, serve a live
+  bundle with `acceptSurfaceSocket` + `serveSurfaceSocket` in your own accept
+  closure — the seam kolu ships for exactly "the app picks which runtime serves
+  this socket". A `runtime` slot on the two listeners is a named deferral, not a
+  shipped feature.
+</Aside>
+
+| | |
+| --- | --- |
+| `mount(key, surface, deps, opts?)` | mount a sibling **live** — the only way one joins, at boot and forever after (a bundle whose roster moves would otherwise have two composition paths, and the one that runs at boot is the one that gets tested). **Transactional**: the sibling is walked, its route set proved and the whole bundle re-composed *before* anything is committed, so a missing dep, a duplicate key or a collision with the root throws with the roster and the running sources untouched |
+| `MountedSurface` | `{ key, surface, ctx, drop() }` — the scoped sibling surface, its write face, and **the registration's own undo**. `drop` is on the value `mount` handed back rather than a `drop(key)` verb, so a holder can retract its own sibling and nobody else's, and a stale holder's `drop()` on a key someone re-mounted is a no-op rather than a stranger's teardown |
+| `roster` | the keys currently mounted, in mount order |
+
+**Composition is incremental, and that is the whole point.** Mounting walks the
+*arriving* sibling only: every survivor keeps the handler values, cell stores,
+channels and running sources it already had. Re-implementing the whole map on
+each roster change — the shape a consumer reaches for when the framework has no
+door — silently forks that state, and a connection accepted before the change
+goes on answering out of the previous copy.
+
+**A drop reaches a connection that was already open.** Each of a sibling's tags
+is bound to a handler stable for that mount's whole life which refuses the
+instant the mount is dropped, so a record captured *before* the drop stops
+serving the dropped members: a new call gets a **`SurfaceSiblingDropped`**
+defect, and an in-flight *subscription* dies with the same defect rather than
+hanging on a producer nobody drives any more. A unary call already in flight is
+left to finish — it cannot go stale, because it does not outlive its own answer.
+A key that is dropped and later re-mounted mints a **new** handler at the same
+tags, so a recycled name can never route a stale connection into a different
+sibling's members.
+
+`drop()` is idempotent and **always resolves**; a teardown fault reaches
+`done`, the runtime's one owned-fault channel, exactly as a finalizer faulting
+during `close()` does. The root's channels are its own (`<member>:changed`) and a
+sibling's are prefixed by its key **and its mount generation**
+(`<key>#<n>/<member>:changed`) — *not* the `<key>/<member>` rewrite
+`implementSurfaces` performs, because a key here can be dropped and re-used and
+the publisher is name-addressed, so the plain rewrite would let the new occupant
+subscribe to topics the retired one still publishes into. The generation is
+internal: channel names never cross the wire.
+
+**A dropped sibling's `ctx` refuses, and so does a closed bundle's.** A mount has
+two faces — the wire handlers and the write face `mount` handed back — and a drop
+retracts both: every accessor on `MountedSurface.ctx`, reads included, throws
+`SurfaceSiblingDropped` from the instant of the drop. That covers the sibling's
+*own procedure handlers* too, which close over the same retracting value — an
+in-flight unary call is deliberately not interrupted, and its side effects would
+otherwise outlive the drop and write into a store nobody serves. `close()` is the
+runtime-wide drop and retracts every surviving mount for the same reason; the
+ROOT's `ctx` is the deliberate asymmetry (`SurfaceSiblingDropped` names a sibling,
+and the root is not one).
+
+**What reaching `done` costs.** A `done` rejection is structural wiring death a
+serving site must treat as fatal, so **one sibling's teardown finalizer faulting
+ends the whole bundle, root included** — the two rows the `done` audit table
+(on `SurfaceRuntimeHandle.done`, the single home for it) carries for this door.
+A host that mounts
+siblings it does not control is accepting that. Deliberate: a source nobody
+drives is damage.
+
+**How a client learns the roster moved — the app's job, for now.** This door and
+[`conn.redial`](/surface/ref-surface-app#a-roster-change-is-a-redial--connredialsurfaces)
+are the two *ends* of one axis, and the framework carries the middle — "the
+served roster is now `[a, c]`" — **nowhere**. A consumer publishes it (a cell on
+the *root* is the natural carrier, since the root is on every serve this wire can
+reach) and drives `redial` off it. Said out loud because forgetting it fails
+*silently*: clients simply never learn about the new sibling and nothing errors. A
+framework-reserved `system/roster` cell plus a `connectSurfaces` option that
+redials on its change is the receptacle that would close it, recorded as an atlas
+candidate rather than built at a population of one.
+
+**Why `live` is a property of the *rooted* door.** A composed wire's two reserved
+round-trips — the `system/identity` echo and the `system/live` watchdog — must
+address a member on every serve the wire can reach. On a *rootless* bundle that
+target is the first sibling, and a first sibling that can be dropped is not a
+target: a watchdog probing a tag the serve stopped carrying reads "unknown
+member" as a dead wire and reconnects forever. A root is by definition on every
+serve. So the live door is the rooted one, and `implementSurfaces` stays the
+fixed bundle it is.
+
+There is no `*OnPublisher` twin yet, deliberately: the shared-publisher
+constructors exist because kolu's shared publisher carries non-surface channels
+and its teardown is the caller's, and no rooted-bundle consumer has that problem.
 
 ### Composing a local runtime onto a re-served one
 
@@ -1012,6 +1156,22 @@ never took effect.
   serve path calls `restrictHandlers` itself and serves the result. The rule, and
   why, live in one place — the module header of
   [`@kolu/surface/expose`](https://github.com/juspay/kolu/blob/master/packages/surface/src/expose.ts).
+</Aside>
+
+<Aside type="caution" title="A gated face over a LIVE bundle is rebuilt when the roster moves">
+  `restrictHandlers` applies **once, at bind** — the allowlist is a property of
+  the listener, not of a connection. On an
+  [`implementRootedSurfaces`](#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces)
+  bundle, a mount or a drop changes the served group, so an exposure built for the
+  previous roster no longer set-equals it and `restrictHandlers` **refuses** —
+  loudly, which is the answer a default-deny gate owes here (the alternative is a
+  face that silently denies a whole sibling). A gated serve over a live bundle
+  therefore builds the exposure *and* the restricted record from the current
+  roster, per accepted connection — which is possible only on the door that reads
+  the pair per connection (`serveSurfaceSocket`, in your own accept closure). The
+  `expose` option on `serveSurfaceApp` / `serveOverUnixSocket` is a **listener**
+  option, consumed once at bind, so those doors have no seam to re-gate through
+  and this refusal is not one they can raise.
 </Aside>
 
 A member that must be **writable** on a gated face has no spelling today — a

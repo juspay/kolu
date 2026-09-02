@@ -312,6 +312,63 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
     await socket.dispose();
   });
 
+  it("snapshots the served PAIR at bind — one generation for the listener's whole life", async () => {
+    // `SurfaceRuntimeHandle`'s rule: read `group` and `handlers` as a PAIR, in
+    // one synchronous turn. This listener binds ONE generation, so it must take
+    // both at bind. It used to cache the handlers at bind and re-read
+    // `options.group` on every accepted upgrade — which, for a caller whose
+    // `group` is an accessor over a live runtime (nothing in the type forbids
+    // it, and "the pair is a live read" is the first thing that invites it),
+    // serves the CURRENT group beside the PREVIOUS generation's restricted
+    // handler record: the mismatched-generation failure the pair rule exists to
+    // prevent, produced by the framework's own door.
+    const dist = makeDist();
+    const runtime = makeRuntime();
+    const scope = Scope.makeUnsafe();
+    let groupReads = 0;
+    const bound = await Effect.runPromise(
+      serveSurfaceApp({
+        get group() {
+          groupReads += 1;
+          return runtime.group;
+        },
+        handlers: runtime.handlers,
+        clientDist: dist.dir,
+        host: "127.0.0.1",
+        port: 0,
+        allowedOrigins: [],
+      }).pipe(Scope.provide(scope), Effect.result),
+    );
+    try {
+      expect(bound._tag).toBe("Success");
+      const url = bound._tag === "Success" ? bound.success : "";
+      expect(groupReads).toBe(1);
+
+      const server: Booted = {
+        url,
+        wsUrl: surfaceWsUrl(url),
+        runtime,
+        teardown: async () => {},
+      };
+      for (let i = 0; i < 2; i += 1) {
+        const socket = await dial(server);
+        expect(
+          await Effect.runPromise(
+            socket.link.dispatch.unary("surface/echo/length", { text: "ab" }),
+          ),
+        ).toEqual({ length: 2 });
+        await socket.dispose();
+      }
+      // Two accepted connections later, the pair is still the one snapshotted
+      // beside the handlers at bind.
+      expect(groupReads).toBe(1);
+    } finally {
+      await Effect.runPromise(Scope.close(scope, Exit.void));
+      await runtime.close();
+      dist.cleanup();
+    }
+  });
+
   it("merges the app's OWN routes, and they beat the shell's catch-all", async () => {
     const server = await boot({
       routes: HttpRouter.add(
