@@ -678,6 +678,21 @@ export async function connectSurfaces(
     // state another path can move while this one is suspended.
     type ConnectionState = "live" | "redialing" | "gone";
     const [stateNow, setState] = createSignal<ConnectionState>("live");
+    /** The replacement a `redial` has in hand but has not yet handed back — the
+     *  ONE window in which a live wire belongs to this connection and lives
+     *  nowhere a caller can reach.
+     *
+     *  `redial` publishes it here BEFORE it releases the old allocations and
+     *  clears it once the handover is complete. Whoever CLAIMS the slot first
+     *  owns the wire: a `dispose()` landing inside the window takes it and
+     *  releases it, and `redial` then finds its own replacement gone and fails
+     *  rather than returning a wire the caller has already given up. Without the
+     *  slot the replacement was reachable only from `redial`'s local, so a
+     *  dispose during the RELEASE window — as against the dial window the test
+     *  beside it already covers — left an open socket and a running heartbeat
+     *  held by nobody. Deliberately NOT a signal: nothing renders it, and its one
+     *  job is the claim. */
+    let successor: { dispose: () => Promise<void> } | undefined;
     return {
       link,
       clients,
@@ -746,6 +761,9 @@ export async function connectSurfaces(
               "the replacement has been released. A disposed connection has no successor.",
           );
         }
+        // Publish the replacement BEFORE the release window opens, so a
+        // `dispose()` landing inside it has something to claim.
+        successor = replacement;
         setState("gone");
         // The tracker's SUPERSEDED exit: log a release that itself failed, and
         // continue — the value this call exists to produce is the live
@@ -754,6 +772,15 @@ export async function connectSurfaces(
         // owns exits rather than as a `try/catch` here, so the log-vs-raise
         // decision has one home and the failing resource is named in the line.
         await allocations.supersede();
+        if (successor !== replacement) {
+          // A `dispose()` ran inside the window and claimed the replacement — it
+          // has already been released. Fail rather than hand back a dead wire.
+          throw new Error(
+            "connectSurfaces: this connection was disposed while `redial` was handing over — " +
+              "the replacement has been released. A disposed connection has no successor.",
+          );
+        }
+        successor = undefined;
         return replacement;
       },
       // The tracker's own list, in reverse — NOT a second list written beside it.
@@ -766,7 +793,15 @@ export async function connectSurfaces(
         // Terminal, and set BEFORE the release so an in-flight `redial` observing
         // it after its dial knows the caller has given the connection up.
         setState("gone");
+        // CLAIM the successor, if a `redial` is mid-handover. Taken synchronously,
+        // before any await, so the claim cannot race a second disposer; released
+        // after this connection's own resources, because the replacement is a wire
+        // this connection is still holding on the caller's behalf and giving the
+        // connection up gives that up too.
+        const claimed = successor;
+        successor = undefined;
         await allocations.release();
+        if (claimed !== undefined) await claimed.dispose();
       },
     };
   } catch (constructionError) {

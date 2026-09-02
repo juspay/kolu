@@ -312,7 +312,7 @@ describe("implementRootedSurfaces: a drop reaches an already-bound record", () =
       ),
     );
     await new Promise((r) => setTimeout(r, 20));
-    expect(() => old.ctx.cells.fleet.set(999)).toThrow(/no longer writable/);
+    expect(() => old.ctx.cells.fleet.set(999)).toThrow(/no longer reachable/);
     await new Promise((r) => setTimeout(r, 20));
     fiber.interruptUnsafe();
     // ONLY the new sibling's own value. Never the retired generation's write.
@@ -331,7 +331,7 @@ describe("implementRootedSurfaces: a drop reaches an already-bound record", () =
     expect(() => mounted.ctx.cells.fleet.set(7)).toThrow(SurfaceSiblingDropped);
     // READS are retracted too: the handle is dead, not merely read-only, and a
     // `get` answering out of a retired store is the same lie one level quieter.
-    expect(() => mounted.ctx.cells.fleet.get()).toThrow(/no longer writable/);
+    expect(() => mounted.ctx.cells.fleet.get()).toThrow(/no longer reachable/);
     await runtime.close();
   });
 
@@ -376,10 +376,58 @@ describe("implementRootedSurfaces: a drop reaches an already-bound record", () =
     const outcome = await exit;
     expect(outcome._tag).toBe("Failure");
     expect(String(outcome._tag === "Failure" ? outcome.cause : "")).toMatch(
-      /no longer writable/,
+      /no longer reachable/,
     );
     // The store never moved: the write was refused, not merely unobserved.
     expect(store.get()).toBe(0);
+    await runtime.close();
+  });
+
+  it("refuses an Effect MINTED while live but RUN after the drop", async () => {
+    // The liveness read is suspended into the Effect, so it happens when the
+    // member RUNS. A handler returns a description and the caller runs it a
+    // moment later — the in-process dispatcher this module documents
+    // (`runtime.handlers[tag](payload)`) may hold it indefinitely — so sampling
+    // at handler-call time left the framework's OWN `set` writing a retired store
+    // and publishing on a retired generation's channel with nothing refusing.
+    const store = inMemoryStore(0);
+    const runtime = rooted();
+    const mounted = runtime.mount("kolu", fleetSurface, {
+      cells: { fleet: { store } },
+    });
+    // Minted while LIVE, not yet run.
+    const pending = unary(runtime.handlers, "surface/kolu/fleet/set", {
+      value: 42,
+    });
+    await mounted.drop();
+    const exit = await Effect.runPromiseExit(pending);
+    expect(exit._tag).toBe("Failure");
+    expect(JSON.stringify(exit)).toContain("SurfaceSiblingDropped");
+    expect(store.get()).toBe(0);
+    await runtime.close();
+  });
+
+  it("refuses a mount on a key whose previous generation has not finished coming down", async () => {
+    // The design invites FLOATING a `drop()` (it always resolves, so a caller
+    // needn't await it). Mounting over an unsettled generation would leave two of
+    // them owned at once — the old one's sources still supervised, its teardown
+    // fault still fatal to this runtime — with nothing in the roster saying so.
+    const runtime = rooted();
+    const mounted = runtime.mount("kolu", fleetSurface, fleetDeps());
+    const dropping = mounted.drop(); // deliberately not awaited
+    expect(() => runtime.mount("kolu", fleetSurface, fleetDeps())).toThrow(
+      /teardown has not settled/,
+    );
+    // ...and it is off the SERVED roster and out of the group from the instant of
+    // the drop, even while it still holds its slot.
+    expect(runtime.roster).toEqual([]);
+    expect(runtime.group.requests.has("surface/kolu/fleet/get")).toBe(false);
+    await dropping;
+    // Settled: the slot is free and the key mounts again.
+    expect(() =>
+      runtime.mount("kolu", fleetSurface, fleetDeps()),
+    ).not.toThrow();
+    expect(runtime.roster).toEqual(["kolu"]);
     await runtime.close();
   });
 
@@ -566,10 +614,10 @@ describe("implementRootedSurfaces: supervision", () => {
     expect(onWire.message).toContain("no longer served");
     const onWrite = new SurfaceSiblingDropped({
       key: "kolu",
-      at: { face: "write", path: "cells.fleet.set" },
+      at: { face: "ctx", path: "cells.fleet.set" },
     });
     expect(onWrite.message).toContain("cells.fleet.set");
-    expect(onWrite.message).toContain("no longer writable");
+    expect(onWrite.message).toContain("no longer reachable");
   });
 });
 

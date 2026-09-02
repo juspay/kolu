@@ -2538,7 +2538,7 @@ function walkSurface<const S extends SurfaceSpec>(
               if (!retract.live()) {
                 throw new SurfaceSiblingDropped({
                   key: retract.key,
-                  at: { face: "write", path: `${group}.${member}.${verb}` },
+                  at: { face: "ctx", path: `${group}.${member}.${verb}` },
                 });
               }
               return (fn as (...a: unknown[]) => unknown)(...args);
@@ -3818,13 +3818,16 @@ export class SurfaceSiblingDropped extends Data.TaggedError(
    *  carrying either would be a name that means two things. */
   readonly at:
     | { readonly face: "wire"; readonly tag: string }
-    | { readonly face: "write"; readonly path: string };
+    | { readonly face: "ctx"; readonly path: string };
 }> {
   override get message(): string {
     const what =
       this.at.face === "wire"
         ? `"${this.at.tag}" is no longer served`
-        : `"${this.at.path}" is no longer writable`;
+        : // Not "no longer writable": the ctx face retracts READS as well
+          // (`cells.x.get` throws this too — the handle is dead, not read-only), so
+          // a reader told its `get` is unwritable is told the wrong thing.
+          `"${this.at.path}" is no longer reachable — this mount's ctx is retracted`;
     return `surface: ${what} — the sibling "${this.key}" was dropped from this rooted bundle`;
   }
 }
@@ -3857,9 +3860,19 @@ export interface MountedSurface<S extends SurfaceSpec> {
    *  faces and a drop is not a drop if it retracts only one; a stale holder's
    *  `set` would otherwise write a store nobody serves, in silence. */
   readonly ctx: SurfaceCtx<S>;
-  /** Unmount this sibling. Idempotent, and ALWAYS RESOLVES — a teardown fault
+  /** Unmount this sibling. Idempotent, and NEVER REJECTS — a teardown fault
    *  reaches {@link SurfaceRuntimeHandle.done}, the runtime's one owned-fault
-   *  channel, exactly as a finalizer faulting during `close()` does.
+   *  channel, exactly as a finalizer faulting during `close()` does. That is what
+   *  makes floating this promise safe, which the design invites.
+   *
+   *  It SETTLES when this sibling's sources have settled. A source whose
+   *  finalizer never returns therefore leaves it pending for as long as that
+   *  finalizer hangs — precisely as it leaves `close()` pending, because they
+   *  await the same exits. There is deliberately no teardown deadline: a timeout
+   *  here would resolve a promise whose whole meaning is "this sibling now owns
+   *  nothing" while the sibling still owned something, which is the
+   *  graceful-degradation knob this framework refuses rather than a safety net.
+   *  A hanging finalizer is a defect in the connector, and it presents as one.
    *
    *  Two moments, deliberately split:
    *
@@ -4160,10 +4173,11 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
     for (const [tag, handler] of Object.entries(walkedCore.handlers)) {
       handlers[tag] = handler;
     }
-    const all =
-      arriving === undefined
-        ? [...mounts.values()]
-        : [...mounts.values(), arriving];
+    // LIVE mounts only. A retiring generation keeps its slot in `mounts` until
+    // its teardown settles (so `mount` can refuse a key that is still coming
+    // down), but it left the SERVED set the instant it was retracted.
+    const live = [...mounts.values()].filter((mount) => mount.live());
+    const all = arriving === undefined ? live : [...live, arriving];
     for (const mount of all) {
       groups[`siblings.${mount.key}`] = mount.scoped.group;
       for (const [tag, handler] of Object.entries(mount.handlers)) {
@@ -4193,7 +4207,6 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
     // dying while fresh calls still succeed, or the reverse — is unrepresentable
     // rather than merely untested.
     Deferred.doneUnsafe(record.dropped, Effect.void);
-    mounts.delete(record.key);
   };
 
   // ── Supervision over a source set that CHANGES ──────────────────────
@@ -4228,9 +4241,19 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
         `implementRootedSurfaces: cannot mount "${key}" — this runtime is closing or closed.`,
       );
     }
-    if (mounts.has(key)) {
+    const occupant = mounts.get(key);
+    if (occupant !== undefined) {
       throw new Error(
-        `implementRootedSurfaces: the sibling key "${key}" is already mounted; drop it before mounting another surface under that name.`,
+        occupant.live()
+          ? `implementRootedSurfaces: the sibling key "${key}" is already mounted; drop it before mounting another surface under that name.`
+          : // A key whose previous generation is still COMING DOWN. Refused rather
+            // than allowed, because the design invites floating a `drop()` (it
+            // always resolves, so a caller needn't await it) and mounting over an
+            // unsettled generation leaves two of them owned at once: the old one's
+            // sources are still supervised, so its teardown fault is still fatal to
+            // this runtime, and nothing in the roster says why. `await drop()` is
+            // the whole fix at the call site, and the drop promise is what to await.
+            `implementRootedSurfaces: the sibling key "${key}" was dropped but its teardown has not settled, so this runtime still owns that generation's sources. Await the \`drop()\` promise before mounting another surface under that name.`,
       );
     }
     // THE CHANNEL NAMESPACE IS PER MOUNT, NOT PER KEY. `implementSurfaces` can
@@ -4301,26 +4324,39 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
       const gone = (): SurfaceSiblingDropped =>
         new SurfaceSiblingDropped({ key, at: { face: "wire", tag } });
       const refuse = refusingHandler(streaming, gone);
+      // SUSPENDED, so the liveness read happens when the member RUNS and not when
+      // the handler is CALLED. A handler returns a description; the wire server
+      // runs it a moment later, and the in-process dispatcher this file documents
+      // (`runtime.handlers[tag](payload)`) may hold it indefinitely. Sampling at
+      // call time left a mint-while-live / run-after-drop window in which the
+      // framework's own `set`/`upsert` wrote the retired store and published on a
+      // retired generation's channel with nothing refusing — the same hole the ctx
+      // face already closed, on the face beside it. (`links/websocket.ts` reaches
+      // for `Effect.suspend` at its dispatch edge for exactly this reason.)
       record.handlers[tag] = streaming
         ? (payload: unknown) =>
-            record.live()
-              ? Stream.interruptWhen(
-                  handler(payload) as Stream.Stream<unknown, unknown>,
-                  // The one leg a LIFETIME refusal has that a policy refusal does
-                  // not: parks for this mount's whole life and then DIES, so an
-                  // in-flight subscription on a dropped sibling fails loudly with
-                  // the same defect a fresh call gets — never ends cleanly (which
-                  // a client reads as "the producer is finished") and never hangs
-                  // on a source nobody drives any more.
-                  Effect.flatMap(Deferred.await(record.dropped), () =>
-                    Effect.die(gone()),
-                  ),
-                )
-              : refuse(payload)
+            Stream.suspend(() =>
+              record.live()
+                ? Stream.interruptWhen(
+                    handler(payload) as Stream.Stream<unknown, unknown>,
+                    // The one leg a LIFETIME refusal has that a policy refusal does
+                    // not: parks for this mount's whole life and then DIES, so an
+                    // in-flight subscription on a dropped sibling fails loudly with
+                    // the same defect a fresh call gets — never ends cleanly (which
+                    // a client reads as "the producer is finished") and never hangs
+                    // on a source nobody drives any more.
+                    Effect.flatMap(Deferred.await(record.dropped), () =>
+                      Effect.die(gone()),
+                    ),
+                  )
+                : (refuse(payload) as Stream.Stream<unknown, unknown>),
+            )
         : (payload: unknown) =>
-            record.live()
-              ? (handler(payload) as Effect.Effect<unknown, unknown>)
-              : refuse(payload);
+            Effect.suspend(() =>
+              record.live()
+                ? (handler(payload) as Effect.Effect<unknown, unknown>)
+                : (refuse(payload) as Effect.Effect<unknown, unknown>),
+            );
     }
 
     // VALIDATE THE WHOLE BUNDLE FIRST — a collision with the root or another
@@ -4366,6 +4402,11 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
             // the unhandled rejection the design exists to avoid. The fault goes
             // where every other owned fault goes.
             fault(teardownFault);
+          } finally {
+            // The key's slot is released only HERE — when this generation owns
+            // nothing. Until then `mount` refuses it by name (above), so two
+            // generations of one key are never owned at once.
+            mounts.delete(record.key);
           }
         })();
         return record.dropping;
@@ -4381,7 +4422,9 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
       return served.handlers;
     },
     get roster() {
-      return [...mounts.keys()];
+      // What is SERVED — a generation still coming down holds its slot but is not
+      // on the roster, exactly as it is not in the group.
+      return [...mounts.values()].filter((m) => m.live()).map((m) => m.key);
     },
     ctx: walkedCore.ctx,
     mount,

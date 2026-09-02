@@ -729,6 +729,48 @@ describe("connectSurfaces — a ROSTER CHANGE is a redial, and `redial` owns it"
     });
   });
 
+  it("leaves NO wire open when a dispose races a redial, whichever side wins", async () => {
+    // The race-agnostic invariant, which is the honest shape for a race. A
+    // `dispose()` can land in either of two windows: during the DIAL (covered
+    // above, with its own message) or during the RELEASE that follows it. The
+    // second is only a few microtasks wide with fake sockets, so a test that
+    // tried to land inside it would be pinning a schedule rather than a
+    // guarantee. What must hold either way is that the caller ends up holding
+    // nothing open: the replacement is published to a `successor` slot before
+    // the release window opens, so whichever of the two claims it first owns it
+    // and the other is told. Before the slot existed, a dispose in the second
+    // window could not reach the replacement at all and `redial` handed back a
+    // live wire nobody held.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+
+      const pending = conn.redial({ b: later });
+      await conn.dispose();
+      // Whoever won, the redial does not hand back a wire over a disposed
+      // connection: it either rejects, or resolves a connection that is itself
+      // already gone.
+      const outcome = await pending.then(
+        (replacement) => ({ ok: true as const, replacement }),
+        (err: unknown) => ({ ok: false as const, err }),
+      );
+      if (outcome.ok) await outcome.replacement.dispose();
+      else expect(String(outcome.err)).toMatch(/disposed while `redial` was/);
+      await settle();
+      // THE invariant: nothing the connection ever dialled is still open.
+      for (const ws of d.dialled) expect(ws.readyState).toBe(3);
+      dispose();
+    });
+  });
+
   it("a dispose during a FAILING dial is not erased — the connection stays gone", async () => {
     // One boolean could not carry two facts: the dial-failure path restored it
     // unconditionally, so a dispose that landed in that window was erased and the
