@@ -114,3 +114,40 @@ describe("trackConnectAllocations", () => {
     expect(errors).not.toHaveBeenCalled();
   });
 });
+
+describe("trackConnectAllocations — one verdict per teardown", () => {
+  it("a `release` after a `supersede` does not re-raise what supersede already logged", async () => {
+    // The shape that made this necessary: `redial` takes the `supersede` exit
+    // (log and continue, because it has a live replacement to hand back), and the
+    // caller may then `dispose()` the stale accessor it still holds — which the
+    // superseded connection's own readout/health gating invites it to hold. Both
+    // exits share one memoized walk, so `release` re-applied its own reject
+    // policy to failures `supersede` had already answered for, throwing out of a
+    // call the caller has every reason to believe is a no-op.
+    const log: string[] = [];
+    const allocations = trackConnectAllocations("seam");
+    allocations.track("wire", resource(log, "wire", new Error("nope")));
+
+    const errors: string[] = [];
+    const spy = vi
+      .spyOn(console, "error")
+      .mockImplementation((msg: unknown) => {
+        errors.push(String(msg));
+      });
+    await allocations.supersede();
+    spy.mockRestore();
+    expect(errors.join(" ")).toMatch(/releasing the wire FAILED/);
+
+    // The verdict is spent. A later `dispose()` is the no-op it claims to be.
+    await expect(allocations.release()).resolves.toBeUndefined();
+  });
+
+  it("the FIRST exit still owns the verdict when it is `release`", async () => {
+    const log: string[] = [];
+    const allocations = trackConnectAllocations("seam");
+    allocations.track("wire", resource(log, "wire", new Error("nope")));
+    await expect(allocations.release()).rejects.toThrow(
+      /1 resource\(s\) failed to release/,
+    );
+  });
+});

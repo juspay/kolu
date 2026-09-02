@@ -111,7 +111,27 @@ export function trackConnectAllocations(seam: string): ConnectAllocations {
    *  same promise and therefore the same verdict, which is also what makes
    *  `dispose()` idempotent for a page-lifetime bundle. */
   let walked: Promise<Error[]> | undefined;
+  /** Whether some exit has already ANSWERED for this teardown's failures — logged
+   *  them, or raised them. The FIRST exit to finish owns the verdict; a later one
+   *  is a no-op.
+   *
+   *  Memoizing the walk alone was not enough once there were three exits with two
+   *  policies. `supersede` decides "log and continue"; `release` decides "reject".
+   *  Sharing one walk meant a `release()` reached AFTER a `supersede()` — the
+   *  ordinary shape, since `redial` hands back a replacement and a caller may
+   *  still `dispose()` the stale accessor it holds — re-applied its own policy to
+   *  failures another exit had already reported, throwing an `AggregateError` out
+   *  of a call the caller has every reason to believe is a no-op. One failure,
+   *  reported once, by whoever got there first. */
+  let answered = false;
   const releaseAll = (): Promise<Error[]> => (walked ??= releaseOnce());
+  /** The failures this exit must answer for — empty once another exit has. */
+  const unanswered = async (): Promise<Error[]> => {
+    const failures = await releaseAll();
+    if (answered) return [];
+    answered = true;
+    return failures;
+  };
   const releaseOnce = async (): Promise<Error[]> => {
     const failures: Error[] = [];
     // Reverse order, over a COPY — the walk must not consume the list (the
@@ -139,7 +159,7 @@ export function trackConnectAllocations(seam: string): ConnectAllocations {
       return value;
     },
     release: async () => {
-      const failures = await releaseAll();
+      const failures = await unanswered();
       if (failures.length > 0) {
         throw new AggregateError(
           failures,
@@ -149,7 +169,7 @@ export function trackConnectAllocations(seam: string): ConnectAllocations {
       }
     },
     unwind: async (cause) => {
-      for (const failure of await releaseAll()) {
+      for (const failure of await unanswered()) {
         // Logged, not raised: `cause` is the construction error the caller is
         // waiting on, and a teardown fault must not take its place.
         console.error(failure.message, failure.cause);
@@ -157,7 +177,7 @@ export function trackConnectAllocations(seam: string): ConnectAllocations {
       throw cause;
     },
     supersede: async () => {
-      for (const failure of await releaseAll()) {
+      for (const failure of await unanswered()) {
         // Logged, not raised: the caller's whole reason to be here is the LIVE
         // replacement it is about to hand back, and rejecting would give it
         // nothing while a new wire is open.

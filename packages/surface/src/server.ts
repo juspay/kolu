@@ -4062,7 +4062,19 @@ interface Mount {
    *  adjacent statements; `Deferred.isDoneUnsafe` is a synchronous poll, so the
    *  reading is derivable and a retraction cannot half-happen. */
   readonly live: () => boolean;
+  /** This mount's owned sources, reassigned twice across its life: filled with
+   *  the walk's started sources at mount, and reset to `[]` once `drop()`'s
+   *  teardown has settled. Reassigned rather than mutated in place because
+   *  `drop()` reads it BOTH before interruption (to interrupt each source) and
+   *  after (to await each `settled`) — a fresh array at each phase means a
+   *  source enrolled mid-mount can never join a teardown already walking a
+   *  snapshot of the old one. */
   sources: SurfaceSource[];
+  /** `drop()`'s own idempotence memo: the first call assigns the in-flight
+   *  teardown promise here (`??=`); every later call — including one racing the
+   *  first — returns the SAME promise instead of re-running retraction and
+   *  re-interrupting sources that are already interrupted. Absent until the
+   *  first `drop()` call. */
   dropping?: Promise<void>;
 }
 
