@@ -454,8 +454,12 @@ sibling's members.
 `drop()` is idempotent and **always resolves**; a teardown fault reaches
 `done`, the runtime's one owned-fault channel, exactly as a finalizer faulting
 during `close()` does. The root's channels are its own (`<member>:changed`) and a
-sibling's are prefixed by its key (`<key>/<member>:changed`), the same rewrite
-`implementSurfaces` performs.
+sibling's are prefixed by its key **and its mount generation**
+(`<key>#<n>/<member>:changed`) — *not* the `<key>/<member>` rewrite
+`implementSurfaces` performs, because a key here can be dropped and re-used and
+the publisher is name-addressed, so the plain rewrite would let the new occupant
+subscribe to topics the retired one still publishes into. The generation is
+internal: channel names never cross the wire.
 
 **A dropped sibling's `ctx` refuses, and so does a closed bundle's.** A mount has
 two faces — the wire handlers and the write face `mount` handed back — and a drop

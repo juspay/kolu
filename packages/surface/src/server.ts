@@ -3896,13 +3896,13 @@ export interface ImplementRootedSurfacesBase {
   identity?: BakedIdentity;
 }
 
-/** Per-mount options — the sibling twin of {@link ImplementSurfaceOptions}. */
-export interface MountSurfaceOptions {
-  /** This sibling's own DECLARED build identity, for the rare sibling whose
-   *  `system.identity` a consumer reads. Omit — as nearly every sibling does —
-   *  and it serves `anonymous`. */
-  identity?: BakedIdentity;
-}
+/** Per-mount options. THE SAME TYPE as {@link ImplementSurfaceOptions}, not a
+ *  twin of it — a mount IS an `implementSurface` of one sibling, so a serve-time
+ *  knob added to one is the same knob on the other. An identical twin is a
+ *  duplicate: it has to be kept equal by whoever remembers, and a consumer
+ *  reading the reference page sees two names for one idea. The alias exists only
+ *  so the call site can still say what it means. */
+export type MountSurfaceOptions = ImplementSurfaceOptions;
 
 /** A ROOTED bundle whose SIBLING SET CHANGES WHILE IT IS SERVED — an unprefixed
  *  root surface plus siblings that arrive and leave after composition.
@@ -3994,8 +3994,11 @@ export interface RootedSurfacesRuntime<C extends SurfaceSpec>
    *  A key that is dropped and later re-mounted mints a NEW handler at the same
    *  tags. The old connection keeps the OLD one, which refuses — so a recycled
    *  name can never route a stale connection into a different sibling's
-   *  members. */
-  /** A `deps` VALUE IS SINGLE-USE. Re-mounting a key means fresh deps, not the
+   *  members.
+   *
+   *  ## A `deps` VALUE IS SINGLE-USE
+   *
+   *  Re-mounting a key means fresh deps, not the
    *  same object again: a `reactor` dep (`derived.cell(…)`, `computed`, a poll
    *  source) is one-shot by construction — its scope finalizer sets `torn` on the
    *  drop, and a second bind throws `connect() after dispose()`. For a compute-fn
@@ -4071,10 +4074,14 @@ interface Mount {
  *  ## The channel namespace
  *
  *  The root's channels are its own (`<member>:changed`), and a sibling's are
- *  prefixed by its key (`<key>/<member>:changed`) — the same rewrite
- *  {@link implementSurfaces} performs, so two siblings that each own a
- *  `buildInfo:changed` cannot collide, and neither can a sibling and the root
- *  (a member name may not contain `/`).
+ *  prefixed by its key AND ITS MOUNT GENERATION (`<key>#<n>/<member>:changed`) —
+ *  deliberately NOT the `<key>/<member>` rewrite {@link implementSurfaces}
+ *  performs. A key here can be dropped and re-used, and the publisher is
+ *  name-addressed, so the plain rewrite would let a new occupant subscribe to
+ *  topics the retired one still publishes into. Two siblings that each own a
+ *  `buildInfo:changed` still cannot collide, and neither can a sibling and the
+ *  root (a member name may not contain `/`). The generation is INTERNAL: channel
+ *  names are surface-driven and never cross the wire.
  *
  *  There is no `*OnPublisher` twin yet, deliberately: the shared-publisher
  *  constructors exist because kolu's shared publisher carries non-surface channels
@@ -4130,7 +4137,17 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
    *  `mergeDisjointGroups` claims every tag across the root and each sibling
    *  before merging — labelled per sibling, so a collision names WHICH mount —
    *  and `assertHandlersMatchGroup` pins the handler record against the group in
-   *  both directions. Pure: it commits nothing, so a caller can use it as the
+   *  both directions.
+   *
+   *  THE PROOF IS FULL, NOT INCREMENTAL: every mount and drop re-claims every tag
+   *  across the root and all siblings. Deliberate — a disjointness that is merely
+   *  believed is not one this framework performs — and it is the same cost
+   *  {@link implementSurfaces} pays once at boot, paid per roster change instead.
+   *  The INCREMENTAL claim on {@link RootedSurfacesRuntime.mount} is about STATE
+   *  (survivors keep their handlers, stores, channels and sources), not about
+   *  work.
+   *
+   *  Pure: it commits nothing, so a caller can use it as the
    *  validation step of a transactional mount. */
   const compose = (
     arriving?: Mount,

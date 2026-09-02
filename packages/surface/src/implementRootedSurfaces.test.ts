@@ -348,14 +348,16 @@ describe("implementRootedSurfaces: a drop reaches an already-bound record", () =
       cells: { fleet: { store } },
       procedures: {
         slow: {
-          write: ({ ctx }) =>
+          write: ({
+            ctx,
+          }: {
+            ctx: { cells: { fleet: { set: (n: number) => void } } };
+          }) =>
             Effect.flatMap(Deferred.await(gate), () =>
               Effect.sync(() => {
                 // Resumes AFTER the drop. This is the write that used to land in
                 // a store nobody serves, in silence.
-                (
-                  ctx as { cells: { fleet: { set: (n: number) => void } } }
-                ).cells.fleet.set(999);
+                ctx.cells.fleet.set(999);
                 return "wrote";
               }),
             ),
